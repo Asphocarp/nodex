@@ -8,8 +8,6 @@ import {
   type LogLevelName,
 } from "./log-level";
 
-export type BackendLogLevelName = LogLevelName;
-
 export interface BackendLogger {
   child(bindings: Record<string, unknown>): BackendLogger;
   trace(message: string, fields?: object): void;

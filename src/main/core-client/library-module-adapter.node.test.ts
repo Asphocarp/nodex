@@ -12,14 +12,10 @@ import { LIBRARY_NAVIGATION_EVENT_VERSION } from "../../shared/library-events";
 import { committedLocalCommit } from "../../shared/testing/local-commit";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import type { PageLifecycleMutationRequestV2 } from "../../shared/page-lifecycle-v2";
-import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
+import { FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import { createCoreLibraryModuleAdapter } from "./library-module-adapter";
-import {
-  createDesktopLibraryModuleBridge,
-  mapCoreLibraryEvent,
-} from "./desktop-library-module-bridge";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import { projectCoreLibraryEvent } from "../core-runtime/CoreApplicationEventProjection";
 
 const identity = {
   libraryId: "library:test",
@@ -27,8 +23,6 @@ const identity = {
   storeEpoch: "epoch:test",
 } as const;
 const structuralDigest = "b".repeat(64);
-
-const fakeHandshake = () => createFakeCoreHandshake(identity);
 
 const pageAuthorization = (commitSeq: number) =>
   authorizedReadStampFixture({
@@ -529,33 +523,22 @@ describe("Core Library Module Adapter", () => {
     });
   });
 
-  test("selects the Project client or trusted root client for Page Detail", async () => {
+  test("keeps Project and Library Page Detail reads on their explicit adapters", async () => {
     const rootClient = new FakeCoreClient();
     const projectClient = new FakeCoreClient();
     rootClient.enqueueRead(pageDetailSnapshot());
     projectClient.enqueueRead(pageDetailSnapshot());
     projectClient.enqueueRead(pageHistorySnapshot());
-    const requestedProjects: string[] = [];
-    const runtime = {
-      backend: "rust",
-      identity,
-      rootClient: Object.assign(rootClient, {
-        handshake: fakeHandshake(),
-      }),
-      clientForProject: (projectId: string) => {
-        requestedProjects.push(projectId);
-        return projectClient;
-      },
-    } as unknown as RustDataAuthorityRuntime;
-    const bridge = createDesktopLibraryModuleBridge({
-      authority: Promise.resolve(runtime),
-    });
+    const rootAdapter = createCoreLibraryModuleAdapter({ client: rootClient, ...identity });
+    const projectAdapter = createCoreLibraryModuleAdapter({ client: projectClient, ...identity });
 
-    await expect(bridge.readProjectPageDetail("project:test", "page:one")).resolves.toMatchObject({
+    await expect(
+      projectAdapter.readProjectPageDetail("project:test", "page:one"),
+    ).resolves.toMatchObject({
       ok: true,
       value: { projectId: "project:test", page: { pageId: "page:one" } },
     });
-    await expect(bridge.readLibraryPageDetail("page:one")).resolves.toMatchObject({
+    await expect(rootAdapter.readLibraryPageDetail("page:one")).resolves.toMatchObject({
       ok: true,
       value: {
         accessContext: { kind: "library" },
@@ -563,7 +546,7 @@ describe("Core Library Module Adapter", () => {
       },
     });
     await expect(
-      bridge.listPageHistory({
+      projectAdapter.listPageHistory({
         requestingProjectId: "project:test",
         pageId: "page:one",
       }),
@@ -575,7 +558,6 @@ describe("Core Library Module Adapter", () => {
         entries: [{ kind: "block_mutation", changeSeq: 12 }],
       },
     });
-    expect(requestedProjects).toEqual(["project:test"]);
     expect(projectClient.reads).toHaveLength(2);
     expect(rootClient.reads).toHaveLength(1);
   });
@@ -1243,45 +1225,31 @@ describe("Core Library Module Adapter", () => {
     rootClient.enqueueRead(pageOwnershipPathSnapshot());
     rootClient.enqueueRead(pageLocationSnapshot());
     rootClient.enqueueRead(viewLocationSnapshot());
-    const requestedProjects: string[] = [];
-    const runtime = {
-      backend: "rust",
-      identity,
-      rootClient: Object.assign(rootClient, {
-        handshake: fakeHandshake(),
-      }),
-      clientForProject: (projectId: string) => {
-        requestedProjects.push(projectId);
-        return projectClient;
-      },
-    } as unknown as RustDataAuthorityRuntime;
-    const bridge = createDesktopLibraryModuleBridge({
-      authority: Promise.resolve(runtime),
-    });
+    const rootAdapter = createCoreLibraryModuleAdapter({ client: rootClient, ...identity });
+    const projectAdapter = createCoreLibraryModuleAdapter({ client: projectClient, ...identity });
 
-    await bridge.resolvePageTarget({
+    await projectAdapter.resolvePageTarget({
       accessContext: { kind: "project", projectId: "project:test" },
       targetPageId: "page:one",
     });
-    await bridge.resolvePageOwnershipPath({
+    await projectAdapter.resolvePageOwnershipPath({
       accessContext: { kind: "project", projectId: "project:test" },
       targetPageId: "page:one",
     });
-    await bridge.resolvePageTarget({
+    await rootAdapter.resolvePageTarget({
       accessContext: { kind: "library" },
       targetPageId: "page:one",
     });
-    await bridge.resolvePageOwnershipPath({
+    await rootAdapter.resolvePageOwnershipPath({
       accessContext: { kind: "library" },
       targetPageId: "page:one",
     });
     await expect(
-      bridge.readPageLifecyclePreflight("project:test", "page:one"),
+      projectAdapter.readPageLifecyclePreflight("project:test", "page:one"),
     ).resolves.toMatchObject({ ok: true });
-    await bridge.findPageLocation("page:one");
-    await bridge.findViewLocation("view:test");
+    await rootAdapter.findPageLocation("page:one");
+    await rootAdapter.findViewLocation("view:test");
 
-    expect(requestedProjects).toEqual(["project:test"]);
     expect(projectClient.reads).toHaveLength(3);
     expect(rootClient.reads).toEqual([
       {
@@ -2018,30 +1986,19 @@ describe("Core Library Module Adapter", () => {
       event_sequence: 13,
       store_epoch: identity.storeEpoch,
     });
-    const runtime = {
-      backend: "rust",
-      identity,
-      rootClient: { handshake: fakeHandshake() },
-      clientForProject: () => projectClient,
-    } as unknown as RustDataAuthorityRuntime;
-    const bridge = createDesktopLibraryModuleBridge({
-      authority: Promise.resolve(runtime),
-    });
+    const adapter = createCoreLibraryModuleAdapter({ client: projectClient, ...identity });
 
-    const result = await bridge.apply(
-      { kind: "project", projectId: "project:test" },
-      {
-        operationId: "operation:create-inline-canvas",
-        storeEpoch: identity.storeEpoch,
-        operation: {
-          kind: "create_canvas",
-          canvasId,
-          documentId: canvasDocumentId,
-          displayName: "Inline Canvas",
-          destination: { kind: "library" },
-        },
+    const result = await adapter.apply({
+      operationId: "operation:create-inline-canvas",
+      storeEpoch: identity.storeEpoch,
+      operation: {
+        kind: "create_canvas",
+        canvasId,
+        documentId: canvasDocumentId,
+        displayName: "Inline Canvas",
+        destination: { kind: "library" },
       },
-    );
+    });
 
     expect(result).toMatchObject({ ok: true });
     expect(result).toMatchObject({
@@ -2351,19 +2308,7 @@ describe("Core Library Module Adapter", () => {
       event_sequence: 9,
       store_epoch: identity.storeEpoch,
     });
-    const runtime = {
-      backend: "rust",
-      identity,
-      rootClient: Object.assign(rootClient, {
-        handshake: fakeHandshake(),
-      }),
-      clientForProject: () => {
-        throw new Error("Trusted Library writes must not resolve a Project client");
-      },
-    } as unknown as RustDataAuthorityRuntime;
-    const bridge = createDesktopLibraryModuleBridge({
-      authority: Promise.resolve(runtime),
-    });
+    const adapter = createCoreLibraryModuleAdapter({ client: rootClient, ...identity });
     const request = {
       operationId: "operation:trusted",
       storeEpoch: identity.storeEpoch,
@@ -2376,7 +2321,7 @@ describe("Core Library Module Adapter", () => {
       },
     };
 
-    await expect(bridge.apply({ kind: "library" }, request)).resolves.toMatchObject({
+    await expect(adapter.apply(request)).resolves.toMatchObject({
       ok: true,
       value: {
         operationId: request.operationId,
@@ -2408,7 +2353,9 @@ describe("Core Library Module Adapter", () => {
         canonicalHash: "0".repeat(64),
       }),
     } as const;
-    expect(mapCoreLibraryEvent(envelope, envelope.packet.atoms[0]!, identity.libraryId)).toEqual({
+    expect(
+      projectCoreLibraryEvent(envelope, envelope.packet.atoms[0]!, identity.libraryId),
+    ).toEqual({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,

@@ -20,6 +20,9 @@ const projectRoot = resolve(scriptDir, "..");
 const protocolPackagePath = resolve(projectRoot, "packages/codex-app-server-protocol");
 const schemasOutputPath = resolve(protocolPackagePath, "src");
 const runtimeSchemasOutputPath = resolve(protocolPackagePath, "runtime-schemas");
+const effectPackagePath = resolve(projectRoot, "packages/effect-codex-app-server");
+const effectSchemasOutputPath = resolve(effectPackagePath, "src/_generated");
+const effectSchemaGeneratorPath = resolve(effectPackagePath, "scripts/generate.ts");
 
 type CodexSchemasCommand = "generate" | "verify";
 
@@ -334,6 +337,7 @@ function generateRuntimeSchemas(jsonSchemaPath: string, outputPath: string): voi
 }
 
 type GeneratedArtifacts = {
+  effectSchemasPath: string;
   runtimeSchemasPath: string;
   typescriptPath: string;
 };
@@ -342,13 +346,26 @@ function generateArtifacts(parentPath: string): GeneratedArtifacts {
   const typescriptPath = join(parentPath, "src");
   const jsonSchemaPath = join(parentPath, "json-schema-source");
   const runtimeSchemasPath = join(parentPath, "runtime-schemas");
+  const effectSchemasPath = join(parentPath, "effect-schemas");
 
   runCodexSchemaGenerator("generate-ts", typescriptPath);
   runCodexSchemaGenerator("generate-json-schema", jsonSchemaPath);
   generateRuntimeSchemas(jsonSchemaPath, runtimeSchemasPath);
+  execFileSync(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      effectSchemaGeneratorPath,
+      jsonSchemaPath,
+      typescriptPath,
+      effectSchemasPath,
+    ],
+    { cwd: projectRoot, stdio: "inherit" },
+  );
   rmSync(jsonSchemaPath, { recursive: true, force: true });
 
-  return { runtimeSchemasPath, typescriptPath };
+  return { effectSchemasPath, runtimeSchemasPath, typescriptPath };
 }
 
 type DirectoryReplacement = {
@@ -399,6 +416,7 @@ export function generateSchemas(): void {
       [
         { generatedPath: generated.typescriptPath, targetPath: schemasOutputPath },
         { generatedPath: generated.runtimeSchemasPath, targetPath: runtimeSchemasOutputPath },
+        { generatedPath: generated.effectSchemasPath, targetPath: effectSchemasOutputPath },
       ],
       stagingPath,
     );
@@ -463,6 +481,7 @@ export function verifySchemas(): void {
     const generated = generateArtifacts(tempPath);
     verifyDirectory(schemasOutputPath, generated.typescriptPath);
     verifyDirectory(runtimeSchemasOutputPath, generated.runtimeSchemasPath);
+    verifyDirectory(effectSchemasOutputPath, generated.effectSchemasPath);
   } finally {
     rmSync(tempPath, { recursive: true, force: true });
   }

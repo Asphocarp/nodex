@@ -1,6 +1,12 @@
 import { EventEmitter } from "node:events";
 import path from "node:path";
-import { describe, expect, test, vi } from "vite-plus/test";
+import { it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import { describe, expect, vi } from "vite-plus/test";
 import { NodeFileWatchHost, type NativeFileWatchFactory } from "./file-watch-host";
 
 class FakeNativeWatcher extends EventEmitter {
@@ -25,69 +31,107 @@ function createHarness() {
   };
 }
 
+const awaitStarted = (harness: ReturnType<typeof createHarness>) =>
+  Effect.gen(function* () {
+    while (harness.watchFactory.mock.calls.length === 0) yield* Effect.yieldNow;
+  });
+
 describe("NodeFileWatchHost", () => {
-  test("normalizes changed paths and reports rename parents when requested", async () => {
-    const harness = createHarness();
-    const changes: string[][] = [];
-    const session = await harness.host.startFileWatch({
-      path: path.join(path.sep, "repo"),
-      recursive: true,
-      renameEventHandling: "changed-path-with-parent-directory",
-      onChange: (change) => {
-        changes.push([...change.changedPaths]);
-      },
-    });
+  it.effect("streams normalized changes and releases the native watcher", () =>
+    Effect.gen(function* () {
+      const harness = createHarness();
+      const eventsFiber = yield* harness.host
+        .watch({
+          path: path.join(path.sep, "repo"),
+          recursive: true,
+          renameEventHandling: "changed-path-with-parent-directory",
+        })
+        .pipe(Stream.take(4), Stream.runCollect, Effect.forkChild);
+      yield* awaitStarted(harness);
 
-    harness.listener()("change", "src/example.ts");
-    harness.listener()("rename", Buffer.from("src/renamed.ts"));
-    harness.listener()("change", null);
+      harness.listener()("change", "src/example.ts");
+      harness.listener()("rename", Buffer.from("src/renamed.ts"));
+      harness.listener()("change", null);
+      const events = yield* Fiber.join(eventsFiber);
 
-    expect(harness.watchFactory).toHaveBeenCalledWith(
-      path.join(path.sep, "repo"),
-      { recursive: true },
-      expect.any(Function),
-    );
-    expect(changes).toEqual([
-      [path.join(path.sep, "repo", "src", "example.ts")],
-      [path.join(path.sep, "repo", "src", "renamed.ts"), path.join(path.sep, "repo", "src")],
-      [],
-    ]);
-    expect(session.coverage).toEqual({
-      recursive: true,
-      typedPathChanges: false,
-    });
-  });
+      expect(harness.watchFactory).toHaveBeenCalledWith(
+        path.join(path.sep, "repo"),
+        { recursive: true },
+        expect.any(Function),
+      );
+      expect(events).toEqual([
+        {
+          _tag: "Ready",
+          coverage: { recursive: true, typedPathChanges: false },
+          path: path.join(path.sep, "repo"),
+        },
+        { _tag: "Changed", changedPaths: [path.join(path.sep, "repo", "src", "example.ts")] },
+        {
+          _tag: "Changed",
+          changedPaths: [
+            path.join(path.sep, "repo", "src", "renamed.ts"),
+            path.join(path.sep, "repo", "src"),
+          ],
+        },
+        { _tag: "Changed", changedPaths: [] },
+      ]);
+      expect(harness.watcher.close).toHaveBeenCalledTimes(1);
+    }),
+  );
 
-  test("closes once for errors or repeated disposal", async () => {
-    const errorHarness = createHarness();
-    const errorSession = await errorHarness.host.startFileWatch({
-      path: path.join(path.sep, "repo"),
-      recursive: false,
-      renameEventHandling: "changed-path",
-      onChange: () => {},
-    });
-    const error = new Error("watch failed");
-    errorHarness.watcher.emit("error", error);
+  it.effect("reports native failure and closes once through the stream Scope", () =>
+    Effect.gen(function* () {
+      const errorHarness = createHarness();
+      const failureFiber = yield* errorHarness.host
+        .watch({
+          path: path.join(path.sep, "repo"),
+          recursive: false,
+          renameEventHandling: "changed-path",
+        })
+        .pipe(Stream.runDrain, Effect.flip, Effect.forkChild);
+      yield* awaitStarted(errorHarness);
+      const cause = new Error("watch failed");
+      errorHarness.watcher.emit("error", cause);
 
-    await expect(errorSession.closed).resolves.toEqual({
-      reason: "watch-error",
-      error,
-    });
-    await errorSession.dispose();
-    expect(errorHarness.watcher.close).toHaveBeenCalledTimes(1);
+      expect(yield* Fiber.join(failureFiber)).toMatchObject({
+        _tag: "FileWatchError",
+        path: path.join(path.sep, "repo"),
+        cause,
+      });
+      expect(errorHarness.watcher.close).toHaveBeenCalledTimes(1);
 
-    const disposeHarness = createHarness();
-    const disposeSession = await disposeHarness.host.startFileWatch({
-      path: path.join(path.sep, "repo"),
-      recursive: false,
-      renameEventHandling: "changed-path",
-      onChange: () => {},
-    });
-    await disposeSession.dispose();
-    await disposeSession.dispose();
-    await expect(disposeSession.closed).resolves.toEqual({
-      reason: "disposed",
-    });
-    expect(disposeHarness.watcher.close).toHaveBeenCalledTimes(1);
-  });
+      const acquisitionCause = new Error("watch unavailable");
+      const unavailableHost = new NodeFileWatchHost(() => {
+        throw acquisitionCause;
+      });
+      expect(
+        yield* unavailableHost
+          .watch({
+            path: path.join(path.sep, "missing"),
+            recursive: false,
+            renameEventHandling: "changed-path",
+          })
+          .pipe(Stream.runDrain, Effect.flip),
+      ).toMatchObject({
+        _tag: "FileWatchError",
+        path: path.join(path.sep, "missing"),
+        cause: acquisitionCause,
+      });
+
+      const scopedHarness = createHarness();
+      const parentScope = yield* Scope.Scope;
+      const watchScope = yield* Scope.fork(parentScope);
+      yield* scopedHarness.host
+        .watch({
+          path: path.join(path.sep, "repo"),
+          recursive: false,
+          renameEventHandling: "changed-path",
+        })
+        .pipe(Stream.runDrain, Effect.forkScoped, Scope.provide(watchScope));
+      yield* awaitStarted(scopedHarness);
+      yield* Scope.close(watchScope, Exit.void);
+
+      expect(scopedHarness.watcher.close).toHaveBeenCalledTimes(1);
+    }),
+  );
 });

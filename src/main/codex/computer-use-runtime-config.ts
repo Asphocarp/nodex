@@ -13,7 +13,6 @@ const DEFAULT_STRINGS = {
 } as const;
 const ESC_TO_CANCEL_LOCALE_KEY = "computerUseOverlay.escToCancel";
 const USING_COMPUTER_LOCALE_KEY = "computerUseOverlay.usingComputer";
-const writeQueues = new Map<string, Promise<string>>();
 
 export interface ComputerUseRuntimeConfig {
   readonly accentColor: string;
@@ -141,19 +140,11 @@ async function writeConfigAtomically(
   return configPath;
 }
 
-export async function writeComputerUseRuntimeConfig(
+/** Atomic filesystem operation; the owning ComputerUseRuntime serializes mutations. */
+export function writeComputerUseRuntimeConfig(
   input: ComputerUseRuntimeConfigWriteInput,
 ): Promise<string> {
   const directory = path.join(path.resolve(input.runtimeStateHome), COMPUTER_USE_CONFIG_DIRECTORY);
   const configPath = path.join(directory, COMPUTER_USE_CONFIG_FILENAME);
-  const config = buildComputerUseRuntimeConfig(input);
-  const operation = (writeQueues.get(configPath) ?? Promise.resolve(configPath))
-    .catch(() => configPath)
-    .then(async () => await writeConfigAtomically(directory, configPath, config));
-  writeQueues.set(configPath, operation);
-  try {
-    return await operation;
-  } finally {
-    if (writeQueues.get(configPath) === operation) writeQueues.delete(configPath);
-  }
+  return writeConfigAtomically(directory, configPath, buildComputerUseRuntimeConfig(input));
 }

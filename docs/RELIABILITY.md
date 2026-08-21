@@ -136,10 +136,15 @@ authority together. Detailed identity and allocation decisions are recorded in
 ## Backup, restore, and maintenance
 
 A whole-Store backup covers the database and managed assets behind one Core
-maintenance fence. Restore validates the complete candidate, journals database/
-WAL/assets replacement, publishes all-or-nothing, rotates the Store epoch, and
-relaunches Electron. Old outboxes, checkpoints, Awareness, and cursors cannot
-replay across that epoch.
+maintenance boundary. Managed asset files are immutable and become visible only
+through same-filesystem atomic publication from a sibling staging directory
+outside the backup closure; Core snapshots the database before
+enumerating that asset closure, so concurrent materialization can add only an
+unreferenced extra file, never omit a file referenced by the captured database.
+Restore validates the complete candidate, journals database/WAL/assets
+replacement, publishes all-or-nothing, rotates the Store epoch, and relaunches
+Electron. Old outboxes, checkpoints, Awareness, and cursors cannot replay across
+that epoch.
 
 Maintenance has one canonical coordinator for integrity, compaction, retention,
 collection, and vacuum. It never rewrites immutable receipts/history or removes
@@ -148,46 +153,94 @@ a commit-fenced WAL reader snapshot rather than reconstructing every current
 Document for every candidate. Evidence loading never owns the serialized writer,
 and collection releases that writer between bounded candidate slices.
 
+The Main application scope owns the automatic backup and maintenance lanes.
+Changing backup interval or retention replaces only the backup lane; it must not
+stop maintenance. Core authority recovery wakes deferred lanes, and process
+scope close removes their timers and power-resume listener together.
+
 Read [Backup, Restore, and Maintenance](reliability/backup-restore-and-maintenance.md).
 
 ## Desktop process lifecycle
 
-Electron performs platform-required synchronous bootstrap before readiness, but no process service is created by importing a composition module. After readiness, one Main process scope acquires the Browser/Terminal/Codex service composition before the runtime that binds IPC and process observers. A required acquisition failure is fatal and rolls back every earlier acquisition.
+Electron performs only platform-required synchronous bootstrap before readiness: Profile paths,
+diagnostics, privileged schemes, isolated-run ownership, the single-instance lock, and a lossless
+early-event buffer. It does not acquire an application service. After readiness, `MainApp` opens one
+Profile-scoped Main resource graph and builds the Core, Codex, Window, IPC, Browser, Terminal,
+worker, scheduler, updater, and notification Layers inside it. A required acquisition failure
+returns its Cause and rolls back every resource already acquired by that same Scope.
 
-Every normal quit, authority-driven relaunch, external controller shutdown, and startup rollback closes that same scope. Close is idempotent under concurrent requests. Runtime finalizers preserve their subsystem ordering; a failed finalizer is reported while later finalizers still run, so one stuck runtime cannot silently skip composition release. The existing bounded per-subsystem shutdown deadlines remain the operational backstop.
+`MainShutdown` is the first-wins quit or relaunch decision authority. Normal quit, process signals,
+startup rollback, Store restore, and Core authority drift all close the same Profile Scope before
+Electron or the development launcher terminates or relaunches the process. Shutdown has no
+independent per-subsystem disposer list. Layer dependencies determine release order; keyed child
+Scopes release their own resources, and Effect combines finalizer failures into the closing Cause
+while continuing the remaining finalizers. Any physical release that can hang owns its bounded
+deadline or escalation policy at the platform adapter rather than in a global shutdown coordinator.
 
-Logical control planes keep their own narrower lifetimes. A Core event stream advances its replay checkpoint only after ordered delivery succeeds and reconnects from that checkpoint. A Codex app-server session stops accepting work, rejects pending requests, interrupts request deadlines, and retires its child before a supervisor may install another generation. Supervised isolated runs, including development and packaged-release verification, release their environment lease only after exact child/Core cleanup is proven; uncertain cleanup preserves the environment.
+Process termination signals are lifecycle ingress, not a competing shutdown owner. Electron Main
+translates `SIGINT` and `SIGTERM` into the Main shutdown request and waits for Scope release before
+asking Electron to quit. The development isolated-run supervisor owns those signals in its own
+process, waits for the foreground application group to stop, then drains the exact claimed Core
+generation and releases its Profile lease. Neither process entry installs another handler that can
+interrupt this transaction halfway through.
+
+The first-run Project bootstrap is one scoped, serialized recovery transaction. It durably records
+intent before claiming a source and applying the idempotent Core command; presentation failure leaves
+that exact intent recoverable. Closing Main admission prevents a second transaction while allowing
+an admitted commit to finish its durable boundary.
+
+Logical control planes have narrower lifetimes under the Profile Scope. A Core event stream advances
+its checkpoint only after ordered delivery succeeds. A Codex endpoint generation stops admission,
+settles its pending requests, interrupts deadlines, and retires its child before replacement.
+Browser guests, PTYs, worker sessions, file watchers, and renderer request fibers are likewise
+released by their semantic owner. Supervised isolated runs, including development and packaged-release
+verification, release their environment lease only after exact child/Core cleanup is proven. Uncertain
+external cleanup fails closed and preserves recoverable state rather than claiming success.
 
 ## Runtime-specific recovery
 
 ### Codex conversations
 
-The app-server is the wire authority; one renderer owner is the visible
-conversation writer. Main retains a validated relay/recovery replica and routes
-followers through revisioned barriers. A gap or owner replacement requests a
-fresh owner snapshot rather than merging competing transcripts.
+The app-server endpoint generation is the wire authority, Core Workspace is the durable Thread and
+execution-metadata authority, and one Main aggregate plus causal lane owns each live Thread
+generation. Protocol occurrences are generation-fenced before they enter that lane. Endpoint
+replacement, failed hydration, or Thread removal settles the old generation's pending requests and
+interrupts its buffers and command fibers; recovery seeds durable Core facts, performs a fresh
+full-fidelity app-server read, and publishes one complete replacement generation. Sidebar summaries
+and persisted renderer artifacts are never treated as a second transcript.
 
-Persisted app-server artifacts are cold recovery input. Sidebar metadata reads
-do not hydrate complete transcripts. Resume, fork, archive/delete, pending
-requests, and old-history behavior are specified in
+One renderer owner is the sole visible conversation writer. Main validates and retains its accepted
+document as a relay/recovery replica; followers first acknowledge an exact snapshot barrier and then
+accept only contiguous patches from the same owner epoch. A revision gap, hash mismatch, owner
+replacement, renderer loss, or transport reset requests a fresh barrier. Recovery never merges
+competing renderer documents or advances a follower past an unacknowledged checkpoint.
+
+Conversation Relationships are rebuilt projections rather than recoverable state of their own. A
+parent refresh joins child identities observed in its canonical collaboration items with Core's
+durable child-Thread relationships, then enriches them from any loaded full-fidelity child
+generation. Archived and reparented children are excluded, canonical collaboration order precedes
+durable creation order, and missing friendly identity schedules a keyed directory repair. A failed
+refresh publishes no partial membership; later invalidation or repair recomputes the complete parent
+projection. Restart, resume, reparenting, and late child materialization therefore converge without
+a relationship journal or parallel parent map.
+
+Core Workspace remains the cold-restart authority for a managed Thread's execution host, cwd,
+worktree path, and writable roots. Resume projects that location into the new app-server generation
+instead of adopting a stale `thread/read` cwd. App-local worktree initialization activity survives
+renderer replacement in the live Main aggregate but intentionally disappears with Main and is not
+fabricated into durable protocol history.
+
+A retained worktree removal leaves either the physical worktree or a complete snapshot reference.
+Restore recreates only the authorized durable path and retains the snapshot on failure.
+Execution-location handoff journals every external boundary and reconciles against Core after
+interruption, preserving at least one complete usable source or destination. Settings, archive,
+retention, automation, fork, and host-to-host movement use the same execution-location authority.
+
+Detailed behavior lives in
 [Codex Owner/Follower Streaming](product-specs/codex-thread-owner-follower-streaming.md),
 [Codex Thread Transcript Behavior](product-specs/codex-thread-transcript-behavior.md),
 [Codex Workspace Behavior](product-specs/codex-workspace-behavior.md), and
 [Codex Managed Worktree Lifecycle Behavior](product-specs/codex-managed-worktree-lifecycle-behavior.md).
-
-Core Workspace is the cold-restart authority for a managed Thread's execution
-host, cwd, worktree path, and writable roots. Resume projects that complete
-location into app-server rather than adopting a cold `thread/read` cwd. The
-app-local worktree initialization activity survives renderer replacement in
-Main's live conversation document but intentionally disappears with Main; it
-is never fabricated into durable protocol history.
-
-A retained worktree removal leaves either the physical worktree or a complete
-snapshot ref available. Restore recreates only the authorized durable path and
-keeps the snapshot on failure. Execution-location handoff journals every
-external boundary and reconciles against Core after interruption, preserving at
-least one complete usable source or destination. These guarantees are shared by
-settings, archive, retention, automation, and host-to-host movement.
 
 ### Browser, Computer Use, Terminal, and Files
 
@@ -224,6 +277,8 @@ Core owns definitions, schedules, occurrences, leases, run/inbox state, and
 receipts. Host executors and notification delivery revalidate authority after
 every async claim. Recovery defers work; it never starts an agent or notification
 from a lease tied to the previous authority generation.
+The Main application scope owns reminder and scheduled-agent timers, native
+reminder notifications, and the system-resume listener as one runtime.
 
 Read [Scheduled Route Behavior](product-specs/scheduled-route-behavior.md),
 [Calendar and Reminders Behavior](product-specs/calendar-and-reminders-behavior.md),

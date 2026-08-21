@@ -416,6 +416,11 @@ export class CodexThreadStreamSubscriptionState {
     return this.conversations.get(normalizeId(conversationId))?.ownerEpoch ?? null;
   }
 
+  hasDetachedOwner(conversationId: string): boolean {
+    const state = this.conversations.get(normalizeId(conversationId));
+    return state !== undefined && state.ownerDetachedAtMs !== null;
+  }
+
   hasFollowersOrPendingReconnect(conversationId: string): boolean {
     const state = this.conversations.get(normalizeId(conversationId));
     if (!state) return false;

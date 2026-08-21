@@ -1,11 +1,8 @@
 import path from "node:path";
+import { Effect } from "effect";
 
-import { resolveIsolatedRunSupervisorDependencies } from "./effect-adapters/isolated-run-live";
-import {
-  IsolatedRunFailure,
-  superviseIsolatedRunEffect,
-} from "./effect-control-plane/isolated-run";
-import { runScriptControlPlanePromise } from "./effect-control-plane/runtime";
+import { resolveIsolatedRunSupervisorDependencies } from "./isolated-run/NodeIsolatedRun";
+import { IsolatedRunFailure, superviseIsolatedRunEffect } from "./isolated-run/IsolatedRun";
 import type { SuperviseIsolatedRunInput, SupervisedRunResult } from "./isolated-run-contract";
 
 export type {
@@ -34,15 +31,24 @@ const boundedReason = (error: unknown): string => {
   return message.replaceAll(/\s+/gu, " ").slice(0, MAX_DIAGNOSTIC_CHARS);
 };
 
-export function superviseIsolatedRun(
+export const superviseIsolatedRun = (
   input: SuperviseIsolatedRunInput,
-): Promise<SupervisedRunResult> {
-  const nodexHome = requireAbsolutePath(input.nodexHome, "Nodex home");
-  const repositoryRoot = requireAbsolutePath(input.repositoryRoot, "Repository root");
-  const dependencies = resolveIsolatedRunSupervisorDependencies(input.dependencies);
-  const runId = dependencies.generateRunId();
-  return runScriptControlPlanePromise(
-    superviseIsolatedRunEffect({
+): Effect.Effect<SupervisedRunResult, IsolatedRunFailure> =>
+  Effect.gen(function* () {
+    const nodexHome = yield* Effect.try({
+      try: () => requireAbsolutePath(input.nodexHome, "Nodex home"),
+      catch: (cause) => new IsolatedRunFailure({ cause }),
+    });
+    const repositoryRoot = yield* Effect.try({
+      try: () => requireAbsolutePath(input.repositoryRoot, "Repository root"),
+      catch: (cause) => new IsolatedRunFailure({ cause }),
+    });
+    const dependencies = resolveIsolatedRunSupervisorDependencies(input.dependencies);
+    const runId = yield* Effect.try({
+      try: dependencies.generateRunId,
+      catch: (cause) => new IsolatedRunFailure({ cause }),
+    });
+    const execution = yield* superviseIsolatedRunEffect({
       dependencies,
       nodexHome,
       repositoryRoot,
@@ -54,12 +60,8 @@ export function superviseIsolatedRun(
         );
         dependencies.forceExit(exitCode);
       },
-    }),
-  )
-    .catch((error: unknown) => {
-      throw error instanceof IsolatedRunFailure ? error.cause : error;
-    })
-    .then((execution) => {
+    });
+    yield* Effect.sync(() => {
       if (execution.childError) {
         console.error(`Isolated run child failed: ${boundedReason(execution.childError)}`);
       }
@@ -78,6 +80,6 @@ export function superviseIsolatedRun(
           `Warning: isolated Core shutdown could not be confirmed: ${execution.cleanupReason}`,
         );
       }
-      return execution.result;
     });
-}
+    return execution.result;
+  });

@@ -28,10 +28,10 @@ belong to one replaceable process or connection generation.
 
 ## Decision
 
-Electron Main owns one `DesktopCoreAuthoritySupervisor` for its process
-lifetime. It exposes stable root and Project client facades; every operation
-resolves the current authenticated generation at execution time. Existing
-Desktop adapters, Projection routing, event cursors, Document/Canvas logical
+Electron Main's process Scope owns one Effect `CoreAuthority`. It exposes stable
+root and Project clients through `DesktopCoreAdapter`; every operation resolves
+the current authenticated generation at execution time. Existing Desktop
+adapters, Projection routing, event cursors, Document/Canvas logical
 subscriptions, and schedulers retain their object identity across a swap.
 
 One Electron process also keeps one logical Core connection ID for its whole
@@ -88,13 +88,14 @@ stop outcome. A later winner may classify an unfinished prior generation only
 as unclean-observed. This breadcrumb is diagnostic, contains no user content or
 transport secret, and cannot participate in authority selection.
 
-Recovery is fenced by the supervisor lifecycle epoch. Closing the Desktop
-authority invalidates every candidate already being selected or health-checked;
-such a candidate cannot publish `ready` or receive a replay. A late failure from
-an older session first joins any recovery already replacing the current session,
-rather than replaying onto the current-but-failing connection. Failure counting
-deduplicates concurrent reports from the same session object, not every
-connection that happens to address the same process generation.
+Recovery is fenced by the `CoreAuthority` Scope and lifecycle generation.
+Closing the Scope invalidates every candidate already being selected or
+health-checked; such a candidate cannot publish `ready` or receive a replay. A
+late failure from an older session first joins any recovery already replacing
+the current session, rather than replaying onto the current-but-failing
+connection. Failure counting deduplicates concurrent reports from the same
+session object, not every connection that happens to address the same process
+generation.
 
 ## Consequences
 

@@ -230,9 +230,13 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   registered guest and is excluded from Browser snapshots, downloads, history,
   logs, diagnostics, screenshots, and IPC responses. Password save/import is
   disabled when platform encryption is unavailable. Profile import uses the
-  signed native helper, bounded read-only source/profile selection, temporary
-  copies, explicit data/domain choices, and no intermediate plaintext password
-  file.
+  signed native helper, canonical bounded read-only source/profile selection,
+  temporary copies, explicit data/domain choices, and no intermediate plaintext
+  password file. Imports are serialized and revalidate that the selected source
+  is still present and closed before spawning a scoped, deadline-bounded helper;
+  helper output is size- and schema-bounded. Imported cookies enter only the
+  Electron Profile cookie store, and imported passwords enter the same encrypted
+  credential mutation authority as interactive saves.
 - Browser Use loads only a manifest-verified first-party runtime tuple and exact
   trusted client hashes/paths. Its per-session native pipe is private and
   frame-bounded; every command carries the current Codex session and turn.
@@ -433,7 +437,7 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   Presence is memory-only, sender-excluded, TTL-bounded, and never reaches Core,
   SQLite, diagnostics bodies, history, receipts, or the durable outbox.
 - Nodex resource consent exists only in main and is independent of Codex filesystem/command approval modes. One-call consent binds the exact call and prepared footprint. Task consent binds app session, verified root task, Project, Library, store epoch, and canonical resource roots; it is not owned by the renderer that presented it. Project consent is the only choice that persists `project_resource_grants`, and exact-Turn authority is revalidated before that write. Canonical conversation-state ownership and renderer fields cannot grant or elevate Nodex authority. Denial, timeout, task archive, Project/store change, shutdown, restart, or a headless first prompt withholds or invalidates transient authority without mutation.
-- Full-access Library authority is an ephemeral overlay and never creates or expands `project_resource_grants`. Cross-compatibility-owner structure writes validate actor/source/target in one Library, move the complete ownership closure in one deferred-FK transaction, rebuild derived projections, require a clean `foreign_key_check`, and publish immutable source/final owner members. Store restore changes the epoch and invalidates prior Turn authority and broker grants.
+- Full-access Library authority is an ephemeral overlay and never creates or expands `project_resource_grants`. Cross-compatibility-owner structure writes validate actor/source/target in one Library, move the complete ownership closure in one deferred-FK transaction, rebuild derived projections, require a clean `foreign_key_check`, and publish immutable source/final owner members. Store restore changes the epoch and invalidates prior Turn authority and the Main-scoped authorization Module's transient grants.
 - Authorization responses travel through the targeted active-view renderer route and use random occurrence identities, preventing another renderer or an equal app-server call ID from satisfying the request. The renderer validates the bound Project/task, presents the request as a local overlay, and cannot publish it into or elevate canonical owner/follower state. Exact durable call replay bypasses authorization only after its request fingerprint and prior compact result are verified; same-call/different-input collisions fail closed.
 - Native Module receipt replay follows the same ordering: current store epoch
   and the exact provenance/intent fingerprint must match, but a committed

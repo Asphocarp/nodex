@@ -1,6 +1,9 @@
 import path from "node:path";
+import * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
+import type { GitRepositoryError } from "./worktree-repository";
 import {
-  recordGitQueryCacheOutcome,
+  recordGitQueryCacheOutcomeEffect,
   type GitCommandOptions,
   type GitCommandResult,
 } from "./git-command-runner";
@@ -21,12 +24,15 @@ interface UntrackedRepositoryAdapter {
   readonly identity: { root: string };
   query<Result>(input: {
     key: readonly unknown[];
-    signal?: AbortSignal;
     staleTime?: number;
-    run: (signal: AbortSignal) => Promise<Result>;
-  }): Promise<Result>;
-  readSafeAttributeFilterOverrides(signal?: AbortSignal): Promise<readonly string[]>;
-  runGit(args: readonly string[], options?: GitCommandOptions): Promise<GitCommandResult>;
+    run: Effect.Effect<Result, GitRepositoryError, Scope.Scope>;
+  }): Effect.Effect<Result, GitRepositoryError, Scope.Scope>;
+  readSafeAttributeFilterOverrides: Effect.Effect<
+    readonly string[],
+    GitRepositoryError,
+    Scope.Scope
+  >;
+  runGit(args: readonly string[], options?: GitCommandOptions): Effect.Effect<GitCommandResult>;
 }
 
 interface CachedUntrackedPaths {
@@ -60,35 +66,35 @@ export class UntrackedPathCache {
     this.#now = options.now ?? Date.now;
   }
 
-  async read(signal?: AbortSignal): Promise<UntrackedPathsResult> {
-    signal?.throwIfAborted();
-    const cached = this.#cached;
-    if (cached && cached.generation === this.#generation && cached.expiresAt > this.#now()) {
-      recordGitQueryCacheOutcome("hit");
-      return cached.result;
-    }
-    const generation = this.#generation;
-    const startedAt = this.#now();
-    const result = await this.#repository.query({
-      key: ["all-untracked-paths", generation],
-      signal,
-      staleTime: Infinity,
-      run: async (querySignal) => await this.#scanAll(querySignal),
-    });
-    if (generation !== this.#generation) return await this.read(signal);
-    const duration = this.#now() - startedAt;
-    if (duration >= GIT_UNTRACKED_SLOW_THRESHOLD_MS) this.#slow = true;
-    if (!result.success) {
-      this.invalidateFull();
+  readonly read: () => Effect.Effect<UntrackedPathsResult, GitRepositoryError, Scope.Scope> =
+    Effect.fn("UntrackedPathCache.read")(function* (this: UntrackedPathCache) {
+      const cached = this.#cached;
+      if (cached && cached.generation === this.#generation && cached.expiresAt > this.#now()) {
+        yield* recordGitQueryCacheOutcomeEffect("hit");
+        return cached.result;
+      }
+      const generation = this.#generation;
+      const startedAt = this.#now();
+      const result = yield* this.#repository.query({
+        key: ["all-untracked-paths", generation],
+        staleTime: 0,
+        run: this.#scanAll(),
+      });
+      if (generation !== this.#generation) return yield* this.read();
+      const duration = this.#now() - startedAt;
+      if (duration >= GIT_UNTRACKED_SLOW_THRESHOLD_MS) this.#slow = true;
+      if (!result.success) {
+        this.invalidateFull();
+        return result;
+      }
+      this.#cached = {
+        generation,
+        expiresAt:
+          this.#now() + (this.#slow ? GIT_UNTRACKED_SLOW_FRESH_MS : GIT_UNTRACKED_FRESH_MS),
+        result,
+      };
       return result;
-    }
-    this.#cached = {
-      generation,
-      expiresAt: this.#now() + (this.#slow ? GIT_UNTRACKED_SLOW_FRESH_MS : GIT_UNTRACKED_FRESH_MS),
-      result,
-    };
-    return result;
-  }
+    });
 
   invalidateFull(): void {
     this.#generation += 1;
@@ -96,10 +102,10 @@ export class UntrackedPathCache {
     this.#cached = null;
   }
 
-  async invalidatePaths(
+  readonly invalidatePaths = Effect.fn("UntrackedPathCache.invalidatePaths")(function* (
+    this: UntrackedPathCache,
     changedPaths: readonly string[],
-    signal?: AbortSignal,
-  ): Promise<"filtered" | "full"> {
+  ) {
     if (
       changedPaths.length === 0 ||
       changedPaths.length > GIT_UNTRACKED_CHANGED_PATH_LIMIT ||
@@ -129,8 +135,8 @@ export class UntrackedPathCache {
         ? changedPath.slice(0, -"/.gitignore".length)
         : changedPath,
     );
-    const overrides = await this.#repository.readSafeAttributeFilterOverrides(signal);
-    const status = await this.#repository.runGit(
+    const overrides = yield* this.#repository.readSafeAttributeFilterOverrides;
+    const status = yield* this.#repository.runGit(
       [
         "status",
         "--no-renames",
@@ -141,7 +147,7 @@ export class UntrackedPathCache {
         "--",
         ...scopes,
       ],
-      { configOverrides: overrides, literalPathspecs: true, signal },
+      { configOverrides: overrides, literalPathspecs: true },
     );
     if (!status.success) {
       this.invalidateFull();
@@ -161,16 +167,16 @@ export class UntrackedPathCache {
       result: materializePaths(nextPaths),
     };
     return "filtered";
-  }
+  });
 
-  async #scanAll(signal: AbortSignal): Promise<UntrackedPathsResult> {
-    const overrides = await this.#repository
-      .readSafeAttributeFilterOverrides(signal)
-      .catch(() => null);
+  readonly #scanAll = Effect.fn("UntrackedPathCache.scanAll")(function* (this: UntrackedPathCache) {
+    const overrides = yield* this.#repository.readSafeAttributeFilterOverrides.pipe(
+      Effect.catch(() => Effect.succeed(null)),
+    );
     if (!overrides) return failedResult();
-    const status = await this.#repository.runGit(
+    const status = yield* this.#repository.runGit(
       ["status", "--no-renames", "--porcelain=v1", "-z", "--untracked-files=normal"],
-      { configOverrides: overrides, signal },
+      { configOverrides: overrides },
     );
     if (!status.success) return failedResult();
     const candidates = status.stdout
@@ -180,10 +186,14 @@ export class UntrackedPathCache {
     const directories = candidates.filter((candidate) => candidate.endsWith("/"));
     const files = candidates.filter((candidate) => !candidate.endsWith("/"));
     if (directories.length === 0) return materializePaths(files);
-    const expanded = await this.#repository.runGit(
-      ["ls-files", "--others", "--exclude-standard", "-z", "--", ...directories],
-      { signal },
-    );
+    const expanded = yield* this.#repository.runGit([
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "-z",
+      "--",
+      ...directories,
+    ]);
     if (!expanded.success) return failedResult();
     return materializePaths([
       ...files,
@@ -192,5 +202,5 @@ export class UntrackedPathCache {
         .filter(Boolean)
         .map((entry) => (entry.endsWith("/") ? entry.slice(0, -1) : entry)),
     ]);
-  }
+  });
 }

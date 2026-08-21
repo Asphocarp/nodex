@@ -5,6 +5,7 @@ export interface DocumentSyncClientTarget {
   isDestroyed(): boolean;
   send(channel: string, ...args: unknown[]): void;
   once(event: "destroyed", listener: () => void): unknown;
+  removeListener(event: "destroyed", listener: () => void): unknown;
 }
 
 export const documentSyncUnauthorized = <Value>(): DocumentSyncCommandResult<Value> => ({

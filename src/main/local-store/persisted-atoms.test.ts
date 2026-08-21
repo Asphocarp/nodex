@@ -1,39 +1,25 @@
-import { afterEach, describe, expect, test } from "vite-plus/test";
+import { describe, expect, test } from "vite-plus/test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import {
-  commitPersistedAtomMutation,
-  readPersistedAtomSnapshot,
-  readPersistedAtomState,
-  resetPersistedAtomStateForTests,
-  setPersistedAtomsPathOverrideForTests,
-  updatePersistedAtom,
-} from "./persisted-atoms";
+import { PersistedAtomStore } from "./persisted-atoms";
 
-function withTempStore<T>(callback: (atomsPath: string) => T): T {
+function withTempStore<T>(callback: (store: PersistedAtomStore, atomsPath: string) => T): T {
   const storeDir = mkdtempSync(join(tmpdir(), "nodex-persisted-atoms-"));
   const atomsPath = join(storeDir, "persisted-atoms-v1.json");
-  setPersistedAtomsPathOverrideForTests(atomsPath);
 
   try {
-    return callback(atomsPath);
+    return callback(new PersistedAtomStore(atomsPath), atomsPath);
   } finally {
-    setPersistedAtomsPathOverrideForTests(null);
     rmSync(storeDir, { recursive: true, force: true });
   }
 }
 
 describe("persisted atom local store", () => {
-  afterEach(() => {
-    setPersistedAtomsPathOverrideForTests(null);
-    resetPersistedAtomStateForTests();
-  });
-
   test("reads and writes the atom map as local JSON", () => {
-    withTempStore((atomsPath) => {
-      expect(JSON.stringify(readPersistedAtomState())).toBe("{}");
-      const nextState = updatePersistedAtom({
+    withTempStore((store, atomsPath) => {
+      expect(JSON.stringify(store.readState())).toBe("{}");
+      const nextState = store.update({
         key: "prompt-history",
         value: ["first prompt"],
       });
@@ -47,8 +33,8 @@ describe("persisted atom local store", () => {
   });
 
   test("assigns ordered revisions only after durable mutation succeeds", () => {
-    withTempStore((atomsPath) => {
-      const first = commitPersistedAtomMutation(
+    withTempStore((store, atomsPath) => {
+      const first = store.commitMutation(
         {
           key: " prompt-history ",
           value: ["first"],
@@ -56,7 +42,7 @@ describe("persisted atom local store", () => {
         },
         "renderer-7",
       );
-      const second = commitPersistedAtomMutation(
+      const second = store.commitMutation(
         {
           key: "prompt-history",
           value: ["second"],
@@ -73,7 +59,7 @@ describe("persisted atom local store", () => {
         originRendererId: "renderer-7",
       });
       expect(second.revision).toBe(2);
-      expect(readPersistedAtomSnapshot()).toEqual({
+      expect(store.readSnapshot()).toEqual({
         revision: 2,
         values: { "prompt-history": ["second"] },
       });
@@ -85,10 +71,10 @@ describe("persisted atom local store", () => {
 
   test("does not advance the revision when the durable write fails", () => {
     const storeDir = mkdtempSync(join(tmpdir(), "nodex-persisted-atoms-failure-"));
-    setPersistedAtomsPathOverrideForTests(storeDir);
+    const store = new PersistedAtomStore(storeDir);
     try {
       expect(() =>
-        commitPersistedAtomMutation(
+        store.commitMutation(
           {
             key: "draft",
             value: "not persisted",
@@ -97,20 +83,31 @@ describe("persisted atom local store", () => {
           "renderer-1",
         ),
       ).toThrow();
-      expect(readPersistedAtomSnapshot()).toEqual({ revision: 0, values: {} });
+      expect(store.readSnapshot()).toEqual({ revision: 0, values: {} });
     } finally {
-      setPersistedAtomsPathOverrideForTests(null);
       rmSync(storeDir, { recursive: true, force: true });
     }
   });
 
   test("ignores blank keys and falls back to an empty map for invalid JSON", () => {
-    withTempStore((atomsPath) => {
-      expect(JSON.stringify(updatePersistedAtom({ key: "   ", value: "ignored" }))).toBe("{}");
+    withTempStore((store, atomsPath) => {
+      expect(JSON.stringify(store.update({ key: "   ", value: "ignored" }))).toBe("{}");
       writeFileSync(atomsPath, "not json", "utf8");
-      resetPersistedAtomStateForTests();
 
-      expect(JSON.stringify(readPersistedAtomState())).toBe("{}");
+      expect(JSON.stringify(new PersistedAtomStore(atomsPath).readState())).toBe("{}");
+    });
+  });
+
+  test("isolates cache and revision state between Main owners", () => {
+    withTempStore((first, atomsPath) => {
+      first.update({ key: "draft", value: "persisted" });
+      expect(first.readSnapshot().revision).toBe(1);
+
+      const replacement = new PersistedAtomStore(atomsPath);
+      expect(replacement.readSnapshot()).toEqual({
+        revision: 0,
+        values: { draft: "persisted" },
+      });
     });
   });
 });

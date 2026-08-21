@@ -872,36 +872,3 @@ export function reduceCodexPendingWorktreeState(
       return assertNeverCodexPendingWorktreeVariant(action, "Codex pending worktree action");
   }
 }
-
-export class CodexPendingWorktreeStateStore {
-  private state = createCodexPendingWorktreeState();
-  private snapshot: readonly CodexPendingWorktreeEntry[] = [];
-  private readonly listeners = new Set<() => void>();
-
-  readonly getSnapshot = (): readonly CodexPendingWorktreeEntry[] => this.snapshot;
-
-  readonly subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
-
-  getState(): CodexPendingWorktreeState {
-    return this.state;
-  }
-
-  resolveThread(clientThreadId: string): CodexPendingWorktreeThreadResolution | null {
-    return resolveCodexPendingWorktreeThread(this.state, clientThreadId);
-  }
-
-  dispatch(action: CodexPendingWorktreeAction): readonly CodexPendingWorktreeEffect[] {
-    const transition = reduceCodexPendingWorktreeState(this.state, action);
-    if (transition.state === this.state) return transition.effects;
-
-    this.state = transition.state;
-    this.snapshot = getCodexPendingWorktreeSnapshot(this.state);
-    for (const listener of this.listeners) listener();
-    return transition.effects;
-  }
-}

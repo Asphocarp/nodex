@@ -7,7 +7,11 @@ import {
 } from "../../shared/nodex-agent-tools/identity";
 import { NODEX_AGENT_V6_TOOL_CONTRACTS } from "../../shared/nodex-agent-tools/v6-contracts";
 import { NESTED_MARKDOWN_COMPACT_HINT } from "../../shared/nfm/agent-guide";
-import { DynamicToolRegistry, type DynamicToolExecutionRequest } from "./dynamic-tool-registry";
+import {
+  DynamicToolRegistry,
+  DynamicToolRegistryError,
+  type DynamicToolExecutionRequest,
+} from "./dynamic-tool-registry";
 
 export const NODEX_APP_V3_TOOL_NAMESPACE_DESCRIPTION = [
   NESTED_MARKDOWN_COMPACT_HINT,
@@ -122,13 +126,29 @@ export function validateNodexAgentV3DynamicToolCall(input: {
   readonly toolsetRevision: number;
   readonly tool: string;
   readonly arguments: unknown;
-}): void {
-  nodexAgentV3CatalogRegistry.validate(
+}) {
+  return nodexAgentV3CatalogRegistry.validate(
     {
       namespace: NODEX_APP_TOOL_NAMESPACE,
       toolsetRevision: input.toolsetRevision,
       tool: input.tool,
     },
     input.arguments,
+  );
+}
+
+export function validateNodexAgentV3DynamicToolOutput(input: {
+  readonly tool: NodexAgentV6ToolName;
+  readonly output: unknown;
+}): unknown {
+  const parsed = NODEX_AGENT_V6_TOOL_CONTRACTS[input.tool].outputSchema.safeParse(input.output);
+  if (parsed.success) return parsed.data;
+  throw new DynamicToolRegistryError(
+    "invalid_output",
+    `Invalid output from ${NODEX_APP_TOOL_NAMESPACE}.${input.tool}`,
+    parsed.error.issues.map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join(".") : "<root>";
+      return `${path}: ${issue.message}`;
+    }),
   );
 }

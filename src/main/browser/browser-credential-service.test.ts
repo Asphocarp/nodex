@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test, vi } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import { assert, it } from "@effect/vitest";
+import { afterEach, vi } from "vite-plus/test";
 import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
-import { BrowserCredentialService } from "./browser-credential-service";
+import { makeBrowserCredentialRuntime } from "./browser-credential-service";
 import { BrowserCredentialVault } from "./browser-credential-vault";
 
 const identity: BrowserSidebarTabIdentity = {
@@ -14,15 +16,13 @@ const identity: BrowserSidebarTabIdentity = {
 const roots: string[] = [];
 
 afterEach(() => {
-  for (const root of roots.splice(0)) {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
+  for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-function makeHarness() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-credential-service-"));
+const makeVault = () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-credential-runtime-"));
   roots.push(root);
-  const vault = new BrowserCredentialVault({
+  return new BrowserCredentialVault({
     filePath: path.join(root, "vault.json"),
     encryption: {
       isAvailable: () => true,
@@ -30,15 +30,14 @@ function makeHarness() {
       decryptString: (value) => value.toString().slice("secure:".length),
     },
   });
+};
+
+const makeHarness = Effect.gen(function* () {
+  const vault = makeVault();
   const send = vi.fn();
   let url = "https://example.com/login?private=1";
-  const guest = {
-    id: 42,
-    getURL: () => url,
-    isDestroyed: () => false,
-    send,
-  };
-  const service = new BrowserCredentialService({
+  const guest = { id: 42, getURL: () => url, isDestroyed: () => false, send };
+  const runtime = yield* makeBrowserCredentialRuntime({
     vault,
     resolveGuest: (candidate) => (candidate.browserTabId === identity.browserTabId ? guest : null),
     resolveGuestIdentity: (guestId) => (guestId === 42 ? identity : null),
@@ -46,105 +45,81 @@ function makeHarness() {
     now: () => 1_000,
   });
   return {
-    guest,
+    runtime,
     send,
-    service,
     setUrl: (value: string) => {
       url = value;
     },
     vault,
   };
-}
+});
 
-function makeDetachedHarness() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-credential-service-"));
-  roots.push(root);
-  const vault = new BrowserCredentialVault({
-    filePath: path.join(root, "vault.json"),
-    encryption: {
-      isAvailable: () => true,
-      encryptString: (value) => Buffer.from(`secure:${value}`),
-      decryptString: (value) => value.toString().slice("secure:".length),
-    },
-  });
-  return {
-    service: new BrowserCredentialService({
+it.effect("treats an unattached Browser page as having no site credentials", () =>
+  Effect.gen(function* () {
+    const vault = makeVault();
+    vault.save({ origin: "https://example.com", username: "person", password: "top-secret" });
+    const runtime = yield* makeBrowserCredentialRuntime({
       vault,
       resolveGuest: () => null,
       resolveGuestIdentity: () => null,
       resolveGuestOwner: () => null,
-    }),
-    vault,
-  };
-}
-
-describe("BrowserCredentialService", () => {
-  test("treats an unattached Browser page as having no site credentials", async () => {
-    const { service, vault } = makeDetachedHarness();
-    await vault.save({
-      origin: "https://example.com",
-      username: "person",
-      password: "top-secret",
     });
+    assert.deepEqual(yield* runtime.listForTab(identity), []);
+  }),
+);
 
-    await expect(service.listForTab(identity)).resolves.toEqual([]);
-  });
-
-  test("keeps candidate plaintext out of the renderer-facing event", async () => {
-    const { service } = makeHarness();
-    const candidate = await service.captureGuestCandidate(42, {
+it.effect("keeps candidate plaintext out of renderer events and persists authorized saves", () =>
+  Effect.gen(function* () {
+    const { runtime } = yield* makeHarness;
+    const candidate = yield* runtime.captureGuestCandidate(42, {
       username: "person@example.com",
       password: "top-secret",
     });
-
-    expect(candidate).toMatchObject({
+    assert.deepInclude(candidate, {
       ...identity,
       origin: "https://example.com",
       username: "person@example.com",
     });
-    expect(JSON.stringify(candidate)).not.toContain("top-secret");
-    expect(
-      await service.actOnCandidate(7, {
+    assert.notInclude(JSON.stringify(candidate), "top-secret");
+    assert.deepEqual(
+      yield* runtime.actOnCandidate(7, {
         candidateId: candidate!.candidateId,
         action: "save",
       }),
-    ).toEqual({ ok: true });
-    expect(await service.listForTab(identity)).toHaveLength(1);
-  });
+      { ok: true },
+    );
+    assert.lengthOf(yield* runtime.listForTab(identity), 1);
+  }),
+);
 
-  test("sends decrypted fill data directly to the exact guest origin", async () => {
-    const { send, service, setUrl, vault } = makeHarness();
-    const summary = await vault.save({
+it.effect("sends decrypted fill data only to the exact guest origin", () =>
+  Effect.gen(function* () {
+    const { runtime, send, setUrl, vault } = yield* makeHarness;
+    const summary = vault.save({
       origin: "https://example.com",
       username: "person",
       password: "top-secret",
     });
-    expect(
-      await service.fill({
-        ...identity,
-        credentialId: summary.id,
-      }),
-    ).toEqual({ ok: true });
-    expect(send).toHaveBeenCalledWith("browser-credential-fill", {
-      origin: "https://example.com",
-      username: "person",
-      password: "top-secret",
-      kind: "saved",
-    });
-
+    assert.deepEqual(yield* runtime.fill({ ...identity, credentialId: summary.id }), { ok: true });
+    assert.deepEqual(send.mock.calls[0], [
+      "browser-credential-fill",
+      {
+        origin: "https://example.com",
+        username: "person",
+        password: "top-secret",
+        kind: "saved",
+      },
+    ]);
     setUrl("https://other.example");
-    expect(
-      await service.fill({
-        ...identity,
-        credentialId: summary.id,
-      }),
-    ).toMatchObject({ ok: false });
-    expect(send).toHaveBeenCalledTimes(1);
-  });
+    assert.isFalse((yield* runtime.fill({ ...identity, credentialId: summary.id })).ok);
+    assert.lengthOf(send.mock.calls, 1);
+  }),
+);
 
-  test("fills encrypted contact info directly into the exact guest", async () => {
-    const { send, service } = makeHarness();
-    const contact = await service.saveContactInfo({
+it.effect("fills encrypted contact info directly into the exact guest", () =>
+  Effect.gen(function* () {
+    const { runtime, send } = yield* makeHarness;
+    const contact = yield* runtime.saveContactInfo({
       label: "Home",
       fullName: "Example Person",
       email: "person@example.com",
@@ -156,55 +131,61 @@ describe("BrowserCredentialService", () => {
       postalCode: "200000",
       country: "China",
     });
-
-    expect(
-      await service.fillContactInfo({
-        ...identity,
-        contactInfoId: contact.id,
-      }),
-    ).toEqual({ ok: true });
-    expect(send).toHaveBeenCalledWith("browser-contact-info-fill", {
-      origin: "https://example.com",
-      contactInfo: {
-        addressLine1: "1 Private Street",
-        addressLine2: "",
-        city: "Shanghai",
-        country: "China",
-        email: "person@example.com",
-        fullName: "Example Person",
-        phone: "+86 123",
-        postalCode: "200000",
-        region: "Shanghai",
-      },
+    assert.deepEqual(yield* runtime.fillContactInfo({ ...identity, contactInfoId: contact.id }), {
+      ok: true,
     });
-  });
+    assert.deepEqual(send.mock.calls[0], [
+      "browser-contact-info-fill",
+      {
+        origin: "https://example.com",
+        contactInfo: {
+          addressLine1: "1 Private Street",
+          addressLine2: "",
+          city: "Shanghai",
+          country: "China",
+          email: "person@example.com",
+          fullName: "Example Person",
+          phone: "+86 123",
+          postalCode: "200000",
+          region: "Shanghai",
+        },
+      },
+    ]);
+  }),
+);
 
-  test("rejects candidate confirmation from a different renderer owner", async () => {
-    const { service } = makeHarness();
-    const candidate = await service.captureGuestCandidate(42, {
+it.effect("rejects a candidate from another renderer owner and clears candidates on release", () =>
+  Effect.gen(function* () {
+    const { runtime } = yield* makeHarness;
+    const candidate = yield* runtime.captureGuestCandidate(42, {
       username: "person",
       password: "top-secret",
     });
-    expect(
-      await service.actOnCandidate(8, {
+    assert.isFalse(
+      (yield* runtime.actOnCandidate(8, {
         candidateId: candidate!.candidateId,
         action: "save",
-      }),
-    ).toMatchObject({ ok: false });
-  });
+      })).ok,
+    );
+    yield* runtime.releaseOwner(7);
+    assert.isFalse(
+      (yield* runtime.actOnCandidate(7, {
+        candidateId: candidate!.candidateId,
+        action: "save",
+      })).ok,
+    );
+  }),
+);
 
-  test("does not prompt again when the submitted credential is unchanged", async () => {
-    const { service, vault } = makeHarness();
-    await vault.save({
-      origin: "https://example.com",
-      username: "person",
-      password: "top-secret",
-    });
-    expect(
-      await service.captureGuestCandidate(42, {
+it.effect("does not prompt again when submitted credentials are unchanged", () =>
+  Effect.gen(function* () {
+    const { runtime, vault } = yield* makeHarness;
+    vault.save({ origin: "https://example.com", username: "person", password: "top-secret" });
+    assert.isNull(
+      yield* runtime.captureGuestCandidate(42, {
         username: "person",
         password: "top-secret",
       }),
-    ).toBeNull();
-  });
-});
+    );
+  }),
+);

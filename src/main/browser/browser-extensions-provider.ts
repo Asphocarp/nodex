@@ -1,3 +1,6 @@
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import type { Extension, Extensions } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import type {
@@ -6,94 +9,101 @@ import type {
   BrowserExtensionsSnapshot,
 } from "../../shared/browser-profile";
 
-interface ElectronExtension {
-  id: string;
-  name: string;
-  path: string;
-  url: string;
-  version?: string;
-  manifest?: { version?: unknown };
-}
+type ElectronExtensionsApi = Pick<
+  Extensions,
+  "getAllExtensions" | "loadExtension" | "removeExtension"
+>;
 
-interface ElectronExtensionsApi {
-  getAllExtensions(): ElectronExtension[];
-  loadExtension(
+export class BrowserExtensionsRuntimeError extends Schema.TaggedError<BrowserExtensionsRuntimeError>()(
+  "BrowserExtensionsRuntimeError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
+
+export interface BrowserExtensionsRuntime {
+  readonly capability: () => BrowserCapabilityStatus;
+  readonly snapshot: Effect.Effect<BrowserExtensionsSnapshot, BrowserExtensionsRuntimeError>;
+  readonly load: (
     extensionPath: string,
-    options?: {
-      allowFileAccess?: boolean;
-    },
-  ): Promise<ElectronExtension>;
-  removeExtension(extensionId: string): void;
+  ) => Effect.Effect<BrowserExtensionSummary, BrowserExtensionsRuntimeError>;
+  readonly remove: (extensionId: string) => Effect.Effect<void, BrowserExtensionsRuntimeError>;
 }
 
-export class BrowserExtensionsProvider {
-  constructor(private readonly extensions: ElectronExtensionsApi | null) {}
+const runtimeError = (operation: string, cause: unknown): BrowserExtensionsRuntimeError =>
+  new BrowserExtensionsRuntimeError({ operation, cause });
 
-  capability(): BrowserCapabilityStatus {
+export const makeBrowserExtensionsRuntime = (
+  extensions: ElectronExtensionsApi | null,
+): BrowserExtensionsRuntime => {
+  const capability = (): BrowserCapabilityStatus => {
     if (
-      this.extensions &&
-      typeof this.extensions.getAllExtensions === "function" &&
-      typeof this.extensions.loadExtension === "function" &&
-      typeof this.extensions.removeExtension === "function"
+      extensions &&
+      typeof extensions.getAllExtensions === "function" &&
+      typeof extensions.loadExtension === "function" &&
+      typeof extensions.removeExtension === "function"
     ) {
-      return {
-        available: true,
-        provider: "electron-public-api",
-      };
+      return { available: true, provider: "electron-public-api" };
     }
     return {
       available: false,
       provider: "unavailable",
       reason: "Electron Browser extensions are unavailable in this build",
     };
-  }
+  };
+  const requireExtensions = (): ElectronExtensionsApi => {
+    if (extensions && capability().available) return extensions;
+    throw new Error("Browser extensions are unavailable");
+  };
 
-  snapshot(): BrowserExtensionsSnapshot {
-    const capability = this.capability();
-    if (!capability.available || !this.extensions) {
-      return { capability, extensions: [] };
-    }
-    return {
-      capability,
-      extensions: this.extensions
-        .getAllExtensions()
-        .map(toSummary)
-        .sort((left, right) => left.name.localeCompare(right.name)),
-    };
-  }
-
-  async load(extensionPath: string): Promise<BrowserExtensionSummary> {
-    const extensions = this.requireExtensions();
-    const resolvedPath = path.resolve(extensionPath);
-    const metadata = fs.lstatSync(resolvedPath);
-    if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
-      throw new Error("Browser extension path must be a regular directory");
-    }
-    const manifestPath = path.join(resolvedPath, "manifest.json");
-    const manifestMetadata = fs.lstatSync(manifestPath);
-    if (!manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()) {
-      throw new Error("Browser extension manifest is missing");
-    }
-    return toSummary(
-      await extensions.loadExtension(resolvedPath, {
-        allowFileAccess: false,
+  return {
+    capability,
+    snapshot: Effect.try({
+      try: () => {
+        const currentCapability = capability();
+        if (!currentCapability.available || !extensions) {
+          return { capability: currentCapability, extensions: [] };
+        }
+        return {
+          capability: currentCapability,
+          extensions: extensions
+            .getAllExtensions()
+            .map(toSummary)
+            .sort((left, right) => left.name.localeCompare(right.name)),
+        };
+      },
+      catch: (cause) => runtimeError("snapshot", cause),
+    }),
+    load: (extensionPath) =>
+      Effect.gen(function* () {
+        const api = yield* Effect.try({
+          try: () => {
+            const resolvedPath = path.resolve(extensionPath);
+            const metadata = fs.lstatSync(resolvedPath);
+            if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+              throw new Error("Browser extension path must be a regular directory");
+            }
+            const manifestMetadata = fs.lstatSync(path.join(resolvedPath, "manifest.json"));
+            if (!manifestMetadata.isFile() || manifestMetadata.isSymbolicLink()) {
+              throw new Error("Browser extension manifest is missing");
+            }
+            return { api: requireExtensions(), resolvedPath };
+          },
+          catch: (cause) => runtimeError("validate-load", cause),
+        });
+        const loaded = yield* Effect.tryPromise({
+          try: () => api.api.loadExtension(api.resolvedPath, { allowFileAccess: false }),
+          catch: (cause) => runtimeError("load", cause),
+        });
+        return toSummary(loaded);
       }),
-    );
-  }
+    remove: (extensionId) =>
+      Effect.try({
+        try: () => requireExtensions().removeExtension(extensionId),
+        catch: (cause) => runtimeError("remove", cause),
+      }),
+  };
+};
 
-  remove(extensionId: string): void {
-    this.requireExtensions().removeExtension(extensionId);
-  }
-
-  private requireExtensions(): ElectronExtensionsApi {
-    if (!this.extensions || !this.capability().available) {
-      throw new Error("Browser extensions are unavailable");
-    }
-    return this.extensions;
-  }
-}
-
-function toSummary(extension: ElectronExtension): BrowserExtensionSummary {
+const toSummary = (extension: Extension): BrowserExtensionSummary => {
   const manifestVersion = extension.manifest?.version;
   return {
     id: extension.id,
@@ -102,4 +112,4 @@ function toSummary(extension: ElectronExtension): BrowserExtensionSummary {
     path: extension.path,
     url: extension.url,
   };
-}
+};

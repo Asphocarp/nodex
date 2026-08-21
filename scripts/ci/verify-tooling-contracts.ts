@@ -180,6 +180,10 @@ verifyInvalidFixtures([
     filename: "scripts/fixtures/tooling/nodex/manual-effect-runtime-invalid.test.ts",
   },
   {
+    code: "nodex(no-manual-effect-runtime-in-tests)",
+    filename: "scripts/fixtures/tooling/nodex/manual-effect-runtime-invalid.test-support.ts",
+  },
+  {
     code: "nodex(no-native-title-tooltip)",
     filename: "scripts/fixtures/tooling/nodex/native-title-invalid.tsx",
   },

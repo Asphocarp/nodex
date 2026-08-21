@@ -3,7 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vite-plus/test";
 
-import { createPackagedMacAppUpdater, parseSparkleRuntimeConfig } from "./sparkle-mac-app-updater";
+import {
+  createPackagedMacAppUpdaterPlatform,
+  parseSparkleRuntimeConfig,
+} from "./sparkle-mac-app-updater";
 import { parseSparkleNativeEvent } from "./sparkle-native-binding";
 
 const runtimeManifest = (overrides: Record<string, unknown> = {}) => ({
@@ -76,12 +79,88 @@ describe("packaged Sparkle runtime boundary", () => {
       );
 
       expect(
-        createPackagedMacAppUpdater({
+        createPackagedMacAppUpdaterPlatform({
           applicationBundlePath: "/missing/Nodex.app",
           architecture: "arm64",
           resourcesPath,
         }),
       ).toBeNull();
+    } finally {
+      rmSync(resourcesPath, { force: true, recursive: true });
+    }
+  });
+
+  test("rolls back a native lease whose runtime identity does not match", () => {
+    const resourcesPath = mkdtempSync(join(tmpdir(), "nodex-mismatched-sparkle-"));
+    let disposeCount = 0;
+    try {
+      mkdirSync(join(resourcesPath, "native"));
+      writeFileSync(
+        join(resourcesPath, "native", "sparkle-runtime.json"),
+        JSON.stringify(runtimeManifest()),
+      );
+      const platform = createPackagedMacAppUpdaterPlatform({
+        applicationBundlePath: "/Applications/Nodex.app",
+        architecture: "arm64",
+        loadNativeBinding: () =>
+          ({
+            checkForUpdates: () => undefined,
+            dispose: () => {
+              disposeCount += 1;
+            },
+            initialize: () => ({ architecture: "x64", sparkleVersion: "2.9.4" }),
+            installDownloadedUpdate: () => undefined,
+            setFeedUrl: () => undefined,
+          }) as never,
+        resourcesPath,
+      });
+
+      expect(() => platform?.acquire("stable", () => undefined)).toThrow(
+        "does not match its packaged manifest",
+      );
+      expect(disposeCount).toBe(1);
+    } finally {
+      rmSync(resourcesPath, { force: true, recursive: true });
+    }
+  });
+
+  test("fences native events before releasing one exact lease", () => {
+    const resourcesPath = mkdtempSync(join(tmpdir(), "nodex-scoped-sparkle-"));
+    let disposeCount = 0;
+    const native: { emit?: (value: unknown) => void } = {};
+    try {
+      mkdirSync(join(resourcesPath, "native"));
+      writeFileSync(
+        join(resourcesPath, "native", "sparkle-runtime.json"),
+        JSON.stringify(runtimeManifest()),
+      );
+      const platform = createPackagedMacAppUpdaterPlatform({
+        applicationBundlePath: "/Applications/Nodex.app",
+        architecture: "arm64",
+        loadNativeBinding: () =>
+          ({
+            checkForUpdates: () => undefined,
+            dispose: () => {
+              disposeCount += 1;
+            },
+            initialize: (_options: unknown, emit: (value: unknown) => void) => {
+              native.emit = emit;
+              return { architecture: "arm64", sparkleVersion: "2.9.4" };
+            },
+            installDownloadedUpdate: () => undefined,
+            setFeedUrl: () => undefined,
+          }) as never,
+        resourcesPath,
+      });
+      const events: unknown[] = [];
+      const lease = platform?.acquire("stable", (event) => events.push(event));
+      native.emit?.({ type: "up-to-date", version: "0.2.1" });
+      lease?.release();
+      lease?.release();
+      native.emit?.({ type: "up-to-date", version: "0.2.2" });
+
+      expect(events).toEqual([{ type: "up-to-date", version: "0.2.1" }]);
+      expect(disposeCount).toBe(1);
     } finally {
       rmSync(resourcesPath, { force: true, recursive: true });
     }

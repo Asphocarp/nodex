@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import {
-  initializeDesktopDataAuthority,
+  initializeStandaloneDataAuthority,
   type RustDataAuthorityRuntime,
 } from "../../../src/main/core-client";
 import { CoreClientSeedAdapter } from "../adapters/core-client-seed-adapter";
@@ -29,7 +29,7 @@ export const materializeDevelopmentSeed = async (input: {
   let manifest: ScenarioManifest | null = null;
   let operationError: unknown;
   try {
-    runtime = await initializeDesktopDataAuthority({
+    runtime = await initializeStandaloneDataAuthority({
       buildId: `dev-seed:${input.scenarioId}`,
       environment: input.environment,
       isPackaged: false,
@@ -49,11 +49,6 @@ export const materializeDevelopmentSeed = async (input: {
     try {
       await runtime.rootClient.shutdown();
       await waitForCoreRemoval(input.nodexHome);
-    } catch (error) {
-      teardownErrors.push(error);
-    }
-    try {
-      await runtime.close();
     } catch (error) {
       teardownErrors.push(error);
     }

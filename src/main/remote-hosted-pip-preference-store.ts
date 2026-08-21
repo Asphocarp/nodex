@@ -29,38 +29,39 @@ function parsePreferences(value: unknown): RemoteHostedPipPreferences {
   };
 }
 
-export class RemoteHostedPipPreferenceStore {
-  constructor(private readonly filePath: string) {}
+export interface RemoteHostedPipPreferencesAdapter {
+  readonly readAlwaysHide: () => boolean;
+  readonly readMaxDisplaySize: () => number | null;
+  readonly writeAlwaysHide: (alwaysHide: boolean) => void;
+  readonly writeMaxDisplaySize: (maxDisplaySize: number) => void;
+}
 
-  readAlwaysHide(): boolean {
-    return this.read().alwaysHide;
-  }
-
-  readMaxDisplaySize(): number | null {
-    return this.read().maxDisplaySize;
-  }
-
-  writeAlwaysHide(alwaysHide: boolean): void {
-    this.write({ ...this.read(), alwaysHide });
-  }
-
-  writeMaxDisplaySize(maxDisplaySize: number): void {
-    if (!Number.isFinite(maxDisplaySize) || maxDisplaySize <= 0) return;
-    this.write({ ...this.read(), maxDisplaySize });
-  }
-
-  private read(): RemoteHostedPipPreferences {
+/** Synchronous native-callback Adapter; it owns no cache or lifecycle state. */
+export function makeRemoteHostedPipPreferences(
+  filePath: string,
+): RemoteHostedPipPreferencesAdapter {
+  const read = (): RemoteHostedPipPreferences => {
     try {
-      return parsePreferences(JSON.parse(fs.readFileSync(this.filePath, "utf8")));
+      return parsePreferences(JSON.parse(fs.readFileSync(filePath, "utf8")));
     } catch {
       return EMPTY_PREFERENCES;
     }
-  }
+  };
 
-  private write(preferences: RemoteHostedPipPreferences): void {
-    const temporaryPath = `${this.filePath}.tmp`;
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+  const write = (preferences: RemoteHostedPipPreferences): void => {
+    const temporaryPath = `${filePath}.tmp`;
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(temporaryPath, `${JSON.stringify(preferences, null, 2)}\n`, { mode: 0o600 });
-    fs.renameSync(temporaryPath, this.filePath);
-  }
+    fs.renameSync(temporaryPath, filePath);
+  };
+
+  return {
+    readAlwaysHide: () => read().alwaysHide,
+    readMaxDisplaySize: () => read().maxDisplaySize,
+    writeAlwaysHide: (alwaysHide) => write({ ...read(), alwaysHide }),
+    writeMaxDisplaySize: (maxDisplaySize) => {
+      if (!Number.isFinite(maxDisplaySize) || maxDisplaySize <= 0) return;
+      write({ ...read(), maxDisplaySize });
+    },
+  };
 }

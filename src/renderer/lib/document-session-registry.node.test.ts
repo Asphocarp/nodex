@@ -163,12 +163,12 @@ describe("DocumentSessionRegistry", () => {
     expect(second.getOrCreateEditor("page-editor", () => secondEditor)).toBe(secondEditor);
     expect(firstEditor).not.toBe(secondEditor);
     expect(first.runtime).toBe(second.runtime);
-    expect(
-      first.getOrCreateRetainedResource("history", () => retainedController),
-    ).toBe(retainedController);
-    expect(
-      first.getOrCreateRetainedResource("history", () => ({ dispose: vi.fn() })),
-    ).toBe(retainedController);
+    expect(first.getOrCreateRetainedResource("history", () => retainedController)).toBe(
+      retainedController,
+    );
+    expect(first.getOrCreateRetainedResource("history", () => ({ dispose: vi.fn() }))).toBe(
+      retainedController,
+    );
 
     await registry.disposeAll();
     expect(firstEditor._tiptapEditor.destroy).toHaveBeenCalledOnce();

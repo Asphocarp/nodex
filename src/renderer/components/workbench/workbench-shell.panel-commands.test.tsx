@@ -369,7 +369,6 @@ describe("workbench session shell / panel-commands", () => {
       pendingSteers: [],
       queuedFollowUps: [],
       backgroundTerminalRows: [],
-      childMemberships: [],
       capabilityFlags: {
         canEditLastUserTurn: false,
         canForkFromTurn: false,

@@ -107,9 +107,9 @@ unless a separately listed app command owns an accelerator.
 
 ### Workbench Panel Borders
 
-| Shortcut         | Action                         | Scope                                                                                                          |
-| ---------------- | ------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| `←` / `→`        | Resize focused panel separator | Legacy stage border handlers; project-session outer panes and split-group sashes are pointer-driven            |
+| Shortcut         | Action                         | Scope                                                                                                           |
+| ---------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `←` / `→`        | Resize focused panel separator | Legacy stage border handlers; project-session outer panes and split-group sashes are pointer-driven             |
 | `⌘/Ctrl+Z`       | Undo local edit                | The focused surface's chronological local text and structural edits; remote and other-window edits are excluded |
 | `⌘/Ctrl+Shift+Z` | Redo local edit                | The focused surface's chronological local text and structural edits                                             |
 | `Ctrl+Y`         | Redo local edit                | Windows convention inside a focused collaborative editor                                                        |

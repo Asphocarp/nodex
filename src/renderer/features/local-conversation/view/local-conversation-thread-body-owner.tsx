@@ -380,14 +380,12 @@ export function LocalConversationThreadBodyOwner({
             queuedFollowUps: [],
             pendingSteers: [],
             backgroundTerminalRows: [],
-            childMemberships: [...childMemberships],
             capabilityFlags,
           }
         : null,
     [
       canonicalRequests,
       capabilityFlags,
-      childMemberships,
       cwd,
       projectlessOutputDirectory,
       requests,

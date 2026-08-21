@@ -26,6 +26,18 @@ describe("Git worker protocol", () => {
         type: "worker-request",
         workerId: "git",
         request: {
+          id: "request-push",
+          method: "push",
+          params: { cwd: "/repo", force: true },
+          enqueuedAtMs: 45,
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isGitWorkerMessageFromView({
+        type: "worker-request",
+        workerId: "git",
+        request: {
           id: "request-3",
           method: "review-diff",
           params: {

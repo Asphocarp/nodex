@@ -5,12 +5,16 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { afterEach, describe, expect, test } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Scope from "effect/Scope";
 import * as Y from "yjs";
 
 import { removePrivateTemporaryDirectory } from "../../scripts/verify-native-runtime";
-import { initializeDesktopDataAuthority } from "./core-client/desktop-data-authority";
+import { initializeStandaloneDataAuthority } from "./core-client/standalone-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
+import { makeDesktopDocumentSessionHarness } from "./core-client/testing/desktop-document-session-harness.test-support";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
 
@@ -129,6 +133,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
     let eventSubscription: { close(): void } | null = null;
     let provider: NodexYProvider | null = null;
     let document: Y.Doc | null = null;
+    let documentScope: Scope.Scope | null = null;
     try {
       const capabilities = commandResult((await runCli<JsonObject>(home, ["capabilities"])).result);
       const bundle = commandResult(capabilities.bundle);
@@ -144,7 +149,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
 
       process.env.NODEX_CORE_EXECUTABLE = packagedCore;
       process.env.NODEX_HOME = home;
-      const selected = await initializeDesktopDataAuthority({
+      const selected = await initializeStandaloneDataAuthority({
         appResourcesPath: path.resolve(packagedBin, ".."),
         buildId: "packaged-native-cli-electron-acceptance",
         isPackaged: true,
@@ -304,10 +309,17 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
         );
       }
       document = new Y.Doc({ guid: documentId });
+      documentScope = await Effect.runPromise(Scope.make());
+      const rendererDocumentAdapter = await Effect.runPromise(
+        makeDesktopDocumentSessionHarness(runtime.rootClient, {
+          kind: "project",
+          projectId: project.id,
+        }).pipe(Effect.provideService(Scope.Scope, documentScope)),
+      );
       provider = new NodexYProvider({
         documentId,
         document,
-        adapter: documents,
+        adapter: rendererDocumentAdapter,
         clientSessionId: "renderer:packaged-cli-electron",
         autoConnect: false,
         localCheckpointStore: null,
@@ -595,6 +607,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
     } finally {
       provider?.destroy();
       document?.destroy();
+      if (documentScope) await Effect.runPromise(Scope.close(documentScope, Exit.void));
       eventSubscription?.close();
       if (runtime) {
         await runtime.rootClient.shutdown().catch(() => undefined);

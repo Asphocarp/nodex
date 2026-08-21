@@ -1,56 +1,67 @@
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import { afterEach, describe, expect, test } from "vite-plus/test";
-import { BrowserLocalServerPreferencesStore } from "./browser-local-server-preferences";
+import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it } from "@effect/vitest";
+import { makeBrowserLocalServerPreferencesRuntime } from "./browser-local-server-preferences";
 
-const temporaryRoots: string[] = [];
-
-function makePath(): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-browser-local-prefs-"));
-  temporaryRoots.push(root);
-  return path.join(root, "browser-local-server-preferences.json");
-}
-
-afterEach(() => {
-  for (const root of temporaryRoots.splice(0)) {
-    fs.rmSync(root, { force: true, recursive: true });
-  }
-});
-
-describe("BrowserLocalServerPreferencesStore", () => {
-  test("persists Profile-owned preferences and normalizes expanded projects", () => {
-    const filePath = makePath();
-    const store = new BrowserLocalServerPreferencesStore(filePath);
-    expect(store.snapshot()).toEqual({
-      showMode: "online",
-      sortMode: "recently-used",
-      expandedProjectIds: [],
-    });
-
-    store.update({
-      showMode: "hidden",
-      sortMode: "origin",
-      expandedProjectIds: [" alpha ", "alpha", "", "beta"],
-    });
-    expect(new BrowserLocalServerPreferencesStore(filePath).snapshot()).toEqual({
-      showMode: "hidden",
-      sortMode: "origin",
-      expandedProjectIds: ["alpha", "beta"],
-    });
-    expect(fs.statSync(filePath).mode & 0o777).toBe(0o600);
+it.layer(NodeServices.layer)("Browser local server preferences runtime", (it) => {
+  const makeRuntime = Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const root = yield* fs.makeTempDirectoryScoped({ prefix: "nodex-browser-local-prefs-" });
+    const filePath = path.join(root, "browser-local-server-preferences.json");
+    const runtime = yield* makeBrowserLocalServerPreferencesRuntime(filePath, () => 1_234);
+    return { filePath, fs, root, runtime };
   });
 
-  test("quarantines malformed state instead of blocking Browser startup", () => {
-    const filePath = makePath();
-    fs.writeFileSync(filePath, "{broken");
+  it.effect("durably serializes concurrent updates without losing fields", () =>
+    Effect.gen(function* () {
+      const { filePath, fs, runtime } = yield* makeRuntime;
+      assert.deepEqual(yield* runtime.snapshot, {
+        showMode: "online",
+        sortMode: "recently-used",
+        expandedProjectIds: [],
+      });
 
-    const store = new BrowserLocalServerPreferencesStore(filePath);
-    expect(store.snapshot().showMode).toBe("online");
-    expect(
-      fs
-        .readdirSync(path.dirname(filePath))
-        .some((entry) => entry.startsWith("browser-local-server-preferences.json.corrupt-")),
-    ).toBe(true);
-  });
+      yield* Effect.all(
+        [
+          runtime.update({ showMode: "hidden" }),
+          runtime.update({
+            sortMode: "origin",
+            expandedProjectIds: [" alpha ", "alpha", "", "beta"],
+          }),
+        ],
+        { concurrency: "unbounded" },
+      );
+      assert.deepEqual(yield* runtime.snapshot, {
+        showMode: "hidden",
+        sortMode: "origin",
+        expandedProjectIds: ["alpha", "beta"],
+      });
+      const replacement = yield* makeBrowserLocalServerPreferencesRuntime(filePath);
+      assert.deepEqual(yield* replacement.snapshot, yield* runtime.snapshot);
+      assert.strictEqual((yield* fs.stat(filePath)).mode & 0o777, 0o600);
+    }),
+  );
+
+  it.effect("quarantines malformed state instead of blocking Browser startup", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "nodex-browser-local-invalid-" });
+      const filePath = path.join(root, "browser-local-server-preferences.json");
+      yield* fs.writeFileString(filePath, "{broken");
+
+      const runtime = yield* makeBrowserLocalServerPreferencesRuntime(filePath, () => 4_321);
+      assert.deepEqual(yield* runtime.snapshot, {
+        showMode: "online",
+        sortMode: "recently-used",
+        expandedProjectIds: [],
+      });
+      assert.deepEqual(yield* fs.readDirectory(root), [
+        "browser-local-server-preferences.json.corrupt-4321",
+      ]);
+    }),
+  );
 });

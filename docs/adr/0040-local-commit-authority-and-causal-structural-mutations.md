@@ -120,16 +120,19 @@ transaction cannot return a successful response with only a final Library
 effect or with an inferred operation-id grouping.
 
 The initiating renderer validates and admits `ApplyResponse.delivery` into one
-process-local `LocalCommitIngress` before the feature Promise resolves. Main's
-`LocalCommitCoordinator` admits scoped-live and durable-tail/replay packets for
-other recipients. Both ingress paths validate Manifest hash and coverage,
-claim authorization-scoped resource identities, and schedule independent
-ordered lanes for each exact Document, exact projection scope, scoped resource
-revocation, and domain notification. Revocations are admitted before ordinary
-Document effects from the same packet. Transactions affecting overlapping
-Document sets serialize on each shared Document without creating a composite
-lane that blocks unrelated Documents. No lane, durable stream, Main fanout, or
-recipient acknowledgement delays the apply response.
+renderer-local `LocalCommitIngress` before the feature Promise resolves. Main's
+Main-scoped `LocalCommitRuntime` admits only scoped-live and durable-tail
+packets for other recipients. Both runtime boundaries validate Manifest hash
+and coverage and claim authorization-scoped resource identities. Main uses
+Scope-owned Queue actors and shared Deferred completions to schedule
+independent ordered lanes for each exact Document, exact projection scope,
+scoped resource revocation, and domain notification. Revocations are admitted
+before ordinary Document effects from the same packet. Transactions affecting
+overlapping Document sets serialize on each shared Document without creating a
+composite lane that blocks unrelated Documents. Cancelling a tail waiter does
+not cancel shared delivery; terminal failure prevents checkpoint progress and
+releases only its exact claims for replay. No lane, durable stream, Main fanout,
+or recipient acknowledgement delays the apply response.
 
 Non-origin delivery is result-bearing. Main assigns a bounded recipient
 sequence and renderer ACK means the packet entered causal ingress, not that

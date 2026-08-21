@@ -99,10 +99,10 @@ Session-backed forks materialize and link the new Session before the child
 history is published.
 
 A Side chat is a temporary excluded-history fork for a focused question. It
-inherits the parent workspace identity, lives only in a right/bottom panel tab,
-is excluded from durable Chat navigation, and is discarded when closed. It may
-not recursively create another Side chat. Selected transcript text may prefill
-its composer without submitting.
+inherits the parent workspace identity and exact execution host, lives only in
+a right/bottom panel tab, is excluded from durable Chat navigation, and is
+discarded when closed. It may not recursively create another Side chat.
+Selected transcript text may prefill its composer without submitting.
 
 Inline child agents remain descendants of one root Chat and open through the
 single read-only Subagents surface rather than becoming root Sessions. Summary

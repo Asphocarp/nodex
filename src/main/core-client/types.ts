@@ -234,13 +234,16 @@ export interface CoreClientPort {
     input: CoreLocalMutationResolveRequest,
   ): Promise<CoreLocalMutationResolveResponse>;
   libraryRead(read: LibraryRead, options?: CoreRequestOptions): Promise<LibraryReadSnapshot>;
-  libraryApply(input: LibraryApplyInput): Promise<LibraryApplyResult>;
+  libraryApply(input: LibraryApplyInput, options?: CoreRequestOptions): Promise<LibraryApplyResult>;
   filterProjectionImpactForProject(
     projectId: string,
     impact: ProjectionImpact,
   ): Promise<ProjectionImpact>;
-  databaseRead(read: DatabaseRead): Promise<DatabaseReadSnapshot>;
-  databaseApply(input: DatabaseApplyInput): Promise<DatabaseApplyResult>;
+  databaseRead(read: DatabaseRead, options?: CoreRequestOptions): Promise<DatabaseReadSnapshot>;
+  databaseApply(
+    input: DatabaseApplyInput,
+    options?: CoreRequestOptions,
+  ): Promise<DatabaseApplyResult>;
   workspaceRead(
     read: ProjectWorkspaceRead,
     options?: CoreRequestOptions,

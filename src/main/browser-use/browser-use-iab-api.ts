@@ -1,15 +1,19 @@
 import { randomUUID } from "node:crypto";
-import { EventEmitter } from "node:events";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
 import { z } from "zod";
 import {
   type BrowserSidebarTabIdentity,
   type BrowserSidebarTabSnapshot,
+  type BrowserSidebarCommand,
+  type BrowserSidebarCommandResult,
   type BrowserSidebarViewport,
   type BrowserUseTabState,
 } from "../../shared/browser-sidebar";
 import { isAllowedBrowserNavigationUrl } from "../../shared/browser-url";
-import { BrowserSidebarService, type BrowserWebContentsLike } from "../browser-sidebar-service";
-import { getBrowserDownloadService } from "../browser/browser-download-service";
+import type { BrowserAutomationHost } from "../browser-application/BrowserApplication";
+import type { BrowserWebContentsLike } from "../platform/electron/BrowserElectronPlatform";
 import {
   buildBrowserUseInputTranslationScript,
   isSupportedBrowserUseInputMethod,
@@ -68,7 +72,9 @@ export interface BrowserUseRoute {
 export interface BrowserUseIabApiOptions {
   appSessionId: string;
   appVersion: string;
-  browserService: BrowserSidebarService;
+  asyncRuntime: BrowserUseIabAsyncRuntime;
+  applyCommand: (command: BrowserSidebarCommand) => Promise<BrowserSidebarCommandResult>;
+  browser: BrowserAutomationHost;
   buildFlavor: string;
   cdpCommandTimeoutMs?: number;
   route: BrowserUseRoute;
@@ -76,6 +82,22 @@ export interface BrowserUseIabApiOptions {
   grantDownload?: (identity: BrowserSidebarTabIdentity, sourceUrl: string, ttlMs?: number) => void;
   pageReadyTimeoutMs?: number;
   policyStore?: BrowserUsePolicyReader;
+  subscribeWebviewAttached: (listener: (event: BrowserSidebarTabIdentity) => void) => () => void;
+}
+
+export interface BrowserUseIabAsyncRuntime {
+  readonly deadline: <A>(
+    task: () => Promise<A>,
+    timeoutMs: number,
+    timeoutMessage: string,
+  ) => Promise<A>;
+  readonly now: () => Promise<number>;
+  readonly sleep: (delayMs: number) => Promise<void>;
+  readonly waitFor: <A>(
+    register: (succeed: (value: A) => void) => () => void,
+    timeoutMs: number,
+    onTimeout: () => A,
+  ) => Promise<A>;
 }
 
 export interface BrowserUseIabTabInfo {
@@ -106,6 +128,16 @@ export interface BrowserUseCdpEvent {
 }
 
 type CdpEventListener = (event: BrowserUseCdpEvent) => void;
+
+export interface BrowserUseIabApi {
+  readonly addCdpEventListener: (listener: CdpEventListener) => () => void;
+  readonly dispatch: (method: string, rawParams: unknown) => Promise<unknown>;
+  readonly getInfo: (rawParams: unknown) => Record<string, unknown>;
+  readonly hasActiveControl: () => boolean;
+  readonly notifyCursorArrived: (moveSequence: number) => void;
+  readonly ping: () => string;
+  readonly turnEnded: (rawParams: unknown) => Promise<void>;
+}
 
 function clampDimension(value: number, minimum: number): number {
   return Math.min(MAX_BROWSER_USE_VIEWPORT_DIMENSION, Math.max(minimum, Math.round(value)));
@@ -186,13 +218,6 @@ function isCaptureSurfaceReady(
   return width >= target.width && height >= target.height;
 }
 
-function waitForDelay(delayMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, delayMs);
-    timer.unref?.();
-  });
-}
-
 function assertAllowedBrowserUseNavigationUrl(value: unknown): string {
   if (typeof value !== "string" || !isAllowedBrowserNavigationUrl(value)) {
     throw new Error("Browser Use navigation URL is not allowed");
@@ -204,27 +229,12 @@ function assertAllowedBrowserUseNavigationUrl(value: unknown): string {
   return value;
 }
 
-function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    timer.unref?.();
-    operation.then(
-      (result) => {
-        clearTimeout(timer);
-        resolve(result);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-
-export class BrowserUseIabApi extends EventEmitter {
+class BrowserUseIabApiState implements BrowserUseIabApi {
   private readonly appSessionId: string;
   private readonly appVersion: string;
-  private readonly browserService: BrowserSidebarService;
+  private readonly applyCommand: BrowserUseIabApiOptions["applyCommand"];
+  private readonly asyncRuntime: BrowserUseIabAsyncRuntime;
+  private readonly browser: BrowserAutomationHost;
   private readonly buildFlavor: string;
   private readonly cdpCommandTimeoutMs: number;
   private readonly controlledTabs = new Map<number, ControlledBrowserUseTab>();
@@ -234,10 +244,12 @@ export class BrowserUseIabApi extends EventEmitter {
   private readonly debuggerTargetSessionsByTabId = new Map<number, Map<string, string>>();
   private readonly expressionCache = new Map<string, string>();
   private readonly grantDownload: NonNullable<BrowserUseIabApiOptions["grantDownload"]>;
+  private readonly cdpEventListeners = new Set<CdpEventListener>();
   private readonly cursorArrivalWaiters = new Map<number, () => void>();
   private readonly pageReadyTimeoutMs: number;
   private readonly policyStore: BrowserUsePolicyReader | null;
   private readonly route: BrowserUseRoute;
+  private readonly subscribeWebviewAttached: BrowserUseIabApiOptions["subscribeWebviewAttached"];
   private readonly userTabIdsByBrowserTabId = new Map<string, number>();
   private nextTabId = 1;
   private nextCursorMoveSequence = 1;
@@ -248,10 +260,11 @@ export class BrowserUseIabApi extends EventEmitter {
   private disposed = false;
 
   constructor(options: BrowserUseIabApiOptions) {
-    super();
     this.appSessionId = options.appSessionId;
     this.appVersion = options.appVersion;
-    this.browserService = options.browserService;
+    this.applyCommand = options.applyCommand;
+    this.asyncRuntime = options.asyncRuntime;
+    this.browser = options.browser;
     this.buildFlavor = options.buildFlavor;
     this.cdpCommandTimeoutMs = Math.max(
       1,
@@ -259,14 +272,11 @@ export class BrowserUseIabApi extends EventEmitter {
     );
     this.cursorArrivalTimeoutMs =
       options.cursorArrivalTimeoutMs ?? DEFAULT_CURSOR_ARRIVAL_TIMEOUT_MS;
-    this.grantDownload =
-      options.grantDownload ??
-      ((identity, sourceUrl, ttlMs) => {
-        getBrowserDownloadService().grantAgentDownload(identity, sourceUrl, ttlMs);
-      });
+    this.grantDownload = options.grantDownload ?? (() => undefined);
     this.pageReadyTimeoutMs = options.pageReadyTimeoutMs ?? DEFAULT_PAGE_READY_TIMEOUT_MS;
     this.policyStore = options.policyStore ?? null;
     this.route = options.route;
+    this.subscribeWebviewAttached = options.subscribeWebviewAttached;
   }
 
   ping(): string {
@@ -352,34 +362,65 @@ export class BrowserUseIabApi extends EventEmitter {
   }
 
   addCdpEventListener(listener: CdpEventListener): () => void {
-    this.on("cdp-event", listener);
-    return () => this.off("cdp-event", listener);
+    this.cdpEventListeners.add(listener);
+    return () => this.cdpEventListeners.delete(listener);
   }
 
   hasActiveControl(): boolean {
     return this.controlledTabs.size > 0;
   }
 
-  async releaseSessionControl(): Promise<void> {
-    for (const tabId of this.cdpDisposers.keys()) {
-      await this.detachTabBestEffort(tabId);
+  private async releaseSessionControl(): Promise<void> {
+    const failures: unknown[] = [];
+    for (const tabId of [...this.cdpDisposers.keys()]) {
+      try {
+        await this.detachTabBestEffort(tabId);
+      } catch (error) {
+        failures.push(error);
+      }
     }
     for (const tab of this.controlledTabs.values()) {
-      this.browserService.releaseBrowserUseTab(toIdentity(this.route, tab.browserTabId));
+      try {
+        this.browser.releaseTab(toIdentity(this.route, tab.browserTabId));
+      } catch (error) {
+        failures.push(error);
+      }
     }
     this.controlledTabs.clear();
     this.selectedTabId = null;
     this.clearPendingCapabilityIntents();
-    this.browserService.setActiveBrowserUseTab(this.route, null);
+    try {
+      this.browser.setActiveTab(this.route, null);
+    } catch (error) {
+      failures.push(error);
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Browser Use session control release failed");
+    }
   }
 
-  async dispose(): Promise<void> {
+  async release(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    for (const resolve of this.cursorArrivalWaiters.values()) resolve();
+    const failures: unknown[] = [];
+    for (const resolve of this.cursorArrivalWaiters.values()) {
+      try {
+        resolve();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
     this.cursorArrivalWaiters.clear();
-    await this.releaseSessionControl();
-    this.removeAllListeners();
+    try {
+      await this.releaseSessionControl();
+    } catch (error) {
+      failures.push(error);
+    } finally {
+      this.cdpEventListeners.clear();
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Browser Use IAB release failed");
+    }
   }
 
   private requireSession(rawParams: unknown): Record<string, unknown> {
@@ -410,8 +451,8 @@ export class BrowserUseIabApi extends EventEmitter {
     const controlledBrowserTabIds = new Set(
       [...this.controlledTabs.values()].map((tab) => tab.browserTabId),
     );
-    return this.browserService
-      .listTabSnapshots(this.route.browserConversationId, this.route.browserViewScopeId)
+    return this.browser
+      .listTabs(this.route.browserConversationId, this.route.browserViewScopeId)
       .filter((snapshot) => !controlledBrowserTabIds.has(snapshot.browserTabId))
       .map((snapshot) => ({
         id: this.getOrCreateUserTabId(snapshot.browserTabId),
@@ -444,8 +485,8 @@ export class BrowserUseIabApi extends EventEmitter {
       webContentsId: null,
       viewport: makeBrowserUseViewport(),
     });
-    this.browserService.setActiveBrowserUseTab(this.route, browserTabId);
-    this.applyPendingCapabilityIntents(tab);
+    this.browser.setActiveTab(this.route, browserTabId);
+    await this.applyPendingCapabilityIntents(tab);
     await this.waitForLiveTab(tab);
     return this.serializeTab(tab);
   }
@@ -461,7 +502,7 @@ export class BrowserUseIabApi extends EventEmitter {
       ([, userTabId]) => userTabId === params.tabId,
     );
     if (!resolvedEntry) throw new Error(`Unknown tab: ${params.tabId}`);
-    const snapshot = this.browserService.getTabSnapshot(toIdentity(this.route, resolvedEntry[0]));
+    const snapshot = this.browser.getTab(toIdentity(this.route, resolvedEntry[0]));
     if (!snapshot) throw new Error(`Unknown tab: ${params.tabId}`);
 
     const existing = [...this.controlledTabs.values()].find(
@@ -476,7 +517,7 @@ export class BrowserUseIabApi extends EventEmitter {
     this.controlledTabs.set(tab.id, tab);
     this.selectedTabId = tab.id;
     this.publishControlledTab(tab, snapshot);
-    this.browserService.setActiveBrowserUseTab(this.route, snapshot.browserTabId);
+    this.browser.setActiveTab(this.route, snapshot.browserTabId);
     await this.waitForLiveTab(tab);
     return this.serializeTab(tab);
   }
@@ -490,7 +531,7 @@ export class BrowserUseIabApi extends EventEmitter {
       .parse(rawParams);
     const tab = this.requireControlledTab(params.tabId);
     this.selectedTabId = tab.id;
-    this.browserService.setActiveBrowserUseTab(this.route, tab.browserTabId);
+    this.browser.setActiveTab(this.route, tab.browserTabId);
   }
 
   private nameSession(rawParams: unknown): void {
@@ -584,11 +625,11 @@ export class BrowserUseIabApi extends EventEmitter {
       if (targetId !== this.topLevelTargetId(tab)) {
         throw new Error("Target.closeTarget can only close the current in-app browser tab");
       }
-      this.closeControlledTab(tab);
+      await this.closeControlledTab(tab);
       return { success: true };
     }
     if (params.method === "Page.close") {
-      this.closeControlledTab(tab);
+      await this.closeControlledTab(tab);
       return {};
     }
     if (
@@ -630,8 +671,8 @@ export class BrowserUseIabApi extends EventEmitter {
       if (!Number.isInteger(entryId)) {
         throw new Error("Page.navigateToHistoryEntry requires an integer entryId");
       }
-      const history = await withTimeout(
-        debuggerPort.sendCommand("Page.getNavigationHistory", undefined, targetSessionId),
+      const history = await this.asyncRuntime.deadline(
+        () => debuggerPort.sendCommand("Page.getNavigationHistory", undefined, targetSessionId),
         this.cdpCommandTimeoutMs,
         "Timed out validating Browser Use navigation history",
       );
@@ -656,12 +697,13 @@ export class BrowserUseIabApi extends EventEmitter {
           `${params.method} is not supported in the in-app browser because top-level input commands preserve guest focus`,
         );
       }
-      const translated = await withTimeout(
-        contents.executeJavaScript(
-          buildBrowserUseInputTranslationScript(params.method, params.commandParams ?? {}),
-          params.method === "Input.dispatchMouseEvent" &&
-            params.commandParams?.type === "mouseReleased",
-        ) as Promise<BrowserUseInputTranslationResult>,
+      const translated = await this.asyncRuntime.deadline(
+        () =>
+          contents.executeJavaScript(
+            buildBrowserUseInputTranslationScript(params.method, params.commandParams ?? {}),
+            params.method === "Input.dispatchMouseEvent" &&
+              params.commandParams?.type === "mouseReleased",
+          ) as Promise<BrowserUseInputTranslationResult>,
         this.cdpCommandTimeoutMs,
         `Timed out translating Browser Use input command ${params.method}`,
       );
@@ -679,7 +721,7 @@ export class BrowserUseIabApi extends EventEmitter {
     }
     const captureSurfaceSize = readCaptureSurfaceSize(params.method, params.commandParams);
     if (captureSurfaceSize) {
-      this.browserService.setBrowserUseCaptureSurface({
+      this.browser.setCaptureSurface({
         ...toIdentity(this.route, tab.browserTabId),
         surfaceSize: captureSurfaceSize,
       });
@@ -688,19 +730,14 @@ export class BrowserUseIabApi extends EventEmitter {
       if (captureSurfaceSize) {
         await this.waitForCaptureSurface(debuggerPort, captureSurfaceSize);
       }
-      const command = debuggerPort.sendCommand(
-        params.method,
-        params.commandParams,
-        targetSessionId,
-      );
-      return await withTimeout(
-        command,
+      return await this.asyncRuntime.deadline(
+        () => debuggerPort.sendCommand(params.method, params.commandParams, targetSessionId),
         this.cdpCommandTimeoutMs,
         `Timed out executing Browser Use CDP command ${params.method}`,
       );
     } finally {
       if (captureSurfaceSize) {
-        this.browserService.setBrowserUseCaptureSurface({
+        this.browser.setCaptureSurface({
           ...toIdentity(this.route, tab.browserTabId),
           surfaceSize: null,
         });
@@ -738,7 +775,7 @@ export class BrowserUseIabApi extends EventEmitter {
     };
   }
 
-  private executeUnhandledCommand(rawParams: unknown): Record<string, unknown> {
+  private async executeUnhandledCommand(rawParams: unknown): Promise<Record<string, unknown>> {
     const params = this.requireSession(rawParams);
     this.recordTurn(params);
     const type = typeof params.type === "string" ? params.type : "";
@@ -746,9 +783,7 @@ export class BrowserUseIabApi extends EventEmitter {
       this.selectedTabId === null ? null : (this.controlledTabs.get(this.selectedTabId) ?? null);
     if (type === "browser_visibility_get") {
       return {
-        visible:
-          selected !== null &&
-          this.browserService.isBrowserVisibleForBrowserUse(this.route, selected.browserTabId),
+        visible: selected !== null && this.browser.isVisible(this.route, selected.browserTabId),
       };
     }
     if (type === "browser_visibility_set") {
@@ -757,11 +792,7 @@ export class BrowserUseIabApi extends EventEmitter {
         this.pendingVisibility = visible;
         return {};
       }
-      this.browserService.setBrowserVisibleForBrowserUse(
-        this.route,
-        selected.browserTabId,
-        visible,
-      );
+      this.browser.setVisible(this.route, selected.browserTabId, visible);
       return {};
     }
     if (type === "browser_viewport_set") {
@@ -772,7 +803,7 @@ export class BrowserUseIabApi extends EventEmitter {
         this.pendingViewport = viewport;
         return {};
       }
-      this.applyViewport(selected, viewport);
+      await this.applyViewport(selected, viewport);
       return {};
     }
     if (type === "browser_viewport_reset") {
@@ -780,7 +811,7 @@ export class BrowserUseIabApi extends EventEmitter {
         this.pendingViewport = null;
         return {};
       }
-      this.browserService.setBrowserUseViewport({
+      this.browser.setViewport({
         ...toIdentity(this.route, selected.browserTabId),
         viewportSize: null,
       });
@@ -862,7 +893,7 @@ export class BrowserUseIabApi extends EventEmitter {
     this.recordTurn(params);
     const tab = this.requireControlledTab(params.tabId);
     const moveSequence = this.nextCursorMoveSequence++;
-    const shouldWaitForArrival = this.browserService.setBrowserUseCursor({
+    const shouldWaitForArrival = this.browser.setCursor({
       ...toIdentity(this.route, tab.browserTabId),
       moveSequence,
       x: params.x,
@@ -871,16 +902,14 @@ export class BrowserUseIabApi extends EventEmitter {
       updatedAt: Date.now(),
     });
     if (params.waitForArrival === false || !shouldWaitForArrival) return;
-    await new Promise<void>((resolve) => {
-      const finish = () => {
-        clearTimeout(timer);
-        this.cursorArrivalWaiters.delete(moveSequence);
-        resolve();
-      };
-      const timer = setTimeout(finish, this.cursorArrivalTimeoutMs);
-      timer.unref?.();
-      this.cursorArrivalWaiters.set(moveSequence, finish);
-    });
+    await this.asyncRuntime.waitFor<void>(
+      (succeed) => {
+        this.cursorArrivalWaiters.set(moveSequence, () => succeed());
+        return () => this.cursorArrivalWaiters.delete(moveSequence);
+      },
+      this.cursorArrivalTimeoutMs,
+      () => undefined,
+    );
   }
 
   notifyCursorArrived(moveSequence: number): void {
@@ -921,11 +950,11 @@ export class BrowserUseIabApi extends EventEmitter {
         this.releaseControlledTab(tab);
         continue;
       }
-      this.closeControlledTab(tab);
+      await this.closeControlledTab(tab);
     }
     const selected =
       this.selectedTabId === null ? null : (this.controlledTabs.get(this.selectedTabId) ?? null);
-    this.browserService.setActiveBrowserUseTab(this.route, selected?.browserTabId ?? null);
+    this.browser.setActiveTab(this.route, selected?.browserTabId ?? null);
     this.clearPendingCapabilityIntents();
   }
 
@@ -945,18 +974,18 @@ export class BrowserUseIabApi extends EventEmitter {
       released: false,
       updatedAt: Date.now(),
     };
-    this.browserService.upsertBrowserUseTab(state);
+    this.browser.upsertTab(state);
   }
 
   private refreshControlledTabs(): void {
     for (const tab of this.controlledTabs.values()) {
-      const snapshot = this.browserService.getTabSnapshot(toIdentity(this.route, tab.browserTabId));
+      const snapshot = this.browser.getTab(toIdentity(this.route, tab.browserTabId));
       if (snapshot) this.publishControlledTab(tab, snapshot);
     }
   }
 
   private serializeTab(tab: ControlledBrowserUseTab): BrowserUseIabTabInfo {
-    const snapshot = this.browserService.getTabSnapshot(toIdentity(this.route, tab.browserTabId));
+    const snapshot = this.browser.getTab(toIdentity(this.route, tab.browserTabId));
     return {
       active: tab.id === this.selectedTabId,
       id: tab.id,
@@ -981,39 +1010,30 @@ export class BrowserUseIabApi extends EventEmitter {
 
   private async waitForLiveTab(tab: ControlledBrowserUseTab): Promise<BrowserWebContentsLike> {
     const identity = toIdentity(this.route, tab.browserTabId);
-    const existing = this.browserService.getWebContentsForTab(identity);
+    const existing = this.browser.getWebContents(identity);
     if (existing && !existing.isDestroyed()) return existing;
 
-    return await new Promise<BrowserWebContentsLike>((resolve, reject) => {
-      let settled = false;
-      const finish = (outcome: { contents: BrowserWebContentsLike } | { error: Error }) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        this.browserService.off("webviewAttached", onAttached);
-        if ("error" in outcome) reject(outcome.error);
-        else resolve(outcome.contents);
-      };
-      const onAttached = (event: BrowserSidebarTabIdentity) => {
-        if (
-          event.browserConversationId !== identity.browserConversationId ||
-          event.browserViewScopeId !== identity.browserViewScopeId ||
-          event.browserTabId !== identity.browserTabId
-        ) {
-          return;
-        }
-        const contents = this.browserService.getWebContentsForTab(identity);
-        if (!contents || contents.isDestroyed()) return;
-        finish({ contents });
-      };
-      const timer = setTimeout(() => {
-        finish({
-          error: new Error(`Timed out waiting for Browser Use tab ${tab.id}`),
-        });
-      }, this.pageReadyTimeoutMs);
-      timer.unref?.();
-      this.browserService.on("webviewAttached", onAttached);
-    });
+    return await this.asyncRuntime.waitFor<BrowserWebContentsLike>(
+      (succeed) => {
+        const onAttached = (event: BrowserSidebarTabIdentity) => {
+          if (
+            event.browserConversationId !== identity.browserConversationId ||
+            event.browserViewScopeId !== identity.browserViewScopeId ||
+            event.browserTabId !== identity.browserTabId
+          ) {
+            return;
+          }
+          const contents = this.browser.getWebContents(identity);
+          if (!contents || contents.isDestroyed()) return;
+          succeed(contents);
+        };
+        return this.subscribeWebviewAttached(onAttached);
+      },
+      this.pageReadyTimeoutMs,
+      () => {
+        throw new Error(`Timed out waiting for Browser Use tab ${tab.id}`);
+      },
+    );
   }
 
   private registerCdpListener(
@@ -1055,7 +1075,7 @@ export class BrowserUseIabApi extends EventEmitter {
         method,
         ...(isRecord(params) ? { params } : {}),
       };
-      this.emit("cdp-event", event);
+      for (const cdpEventListener of this.cdpEventListeners) cdpEventListener(event);
     };
     debuggerPort.on("message", listener);
     this.cdpDisposers.set(tab.id, () => {
@@ -1069,38 +1089,39 @@ export class BrowserUseIabApi extends EventEmitter {
     this.forgetDebuggerTargetSessionsForTab(tabId);
     const tab = this.controlledTabs.get(tabId);
     if (!tab) return;
-    const contents = this.browserService.getWebContentsForTab(
-      toIdentity(this.route, tab.browserTabId),
-    );
+    const contents = this.browser.getWebContents(toIdentity(this.route, tab.browserTabId));
     if (!contents?.debugger?.isAttached()) return;
-    this.browserService.releaseBrowserUseDebugger(contents);
+    this.browser.releaseDebugger(contents);
   }
 
   private releaseControlledTab(tab: ControlledBrowserUseTab): void {
-    this.browserService.releaseBrowserUseTab(toIdentity(this.route, tab.browserTabId));
+    this.browser.releaseTab(toIdentity(this.route, tab.browserTabId));
     this.controlledTabs.delete(tab.id);
     if (this.selectedTabId === tab.id) this.selectedTabId = null;
   }
 
-  private applyPendingCapabilityIntents(tab: ControlledBrowserUseTab): void {
+  private async applyPendingCapabilityIntents(tab: ControlledBrowserUseTab): Promise<void> {
     const viewport = this.pendingViewport;
     this.pendingViewport = null;
-    if (viewport) this.applyViewport(tab, viewport);
+    if (viewport) await this.applyViewport(tab, viewport);
     if (!this.pendingVisibility) return;
     this.pendingVisibility = false;
-    this.browserService.setBrowserVisibleForBrowserUse(this.route, tab.browserTabId, true);
+    this.browser.setVisible(this.route, tab.browserTabId, true);
   }
 
-  private applyViewport(tab: ControlledBrowserUseTab, viewport: BrowserSidebarViewport): void {
+  private async applyViewport(
+    tab: ControlledBrowserUseTab,
+    viewport: BrowserSidebarViewport,
+  ): Promise<void> {
     const identity = toIdentity(this.route, tab.browserTabId);
-    this.browserService.setBrowserUseViewport({
+    this.browser.setViewport({
       ...identity,
       viewportSize: {
         width: viewport.width,
         height: viewport.height,
       },
     });
-    void this.browserService.handleCommand({
+    await this.applyCommand({
       type: "set-viewport",
       ...identity,
       viewport,
@@ -1112,8 +1133,10 @@ export class BrowserUseIabApi extends EventEmitter {
     this.pendingViewport = null;
   }
 
-  private closeControlledTab(tab: ControlledBrowserUseTab): void {
-    this.browserService.closeBrowserTab(toIdentity(this.route, tab.browserTabId));
+  private async closeControlledTab(tab: ControlledBrowserUseTab): Promise<void> {
+    const identity = toIdentity(this.route, tab.browserTabId);
+    const result = await this.applyCommand({ type: "close-tab", ...identity });
+    if (!result.ok) throw new Error(result.message);
     this.controlledTabs.delete(tab.id);
     if (this.selectedTabId === tab.id) this.selectedTabId = null;
   }
@@ -1189,19 +1212,35 @@ export class BrowserUseIabApi extends EventEmitter {
     debuggerPort: NonNullable<BrowserWebContentsLike["debugger"]>,
     target: { height: number; width: number },
   ): Promise<void> {
-    const deadline = Date.now() + CAPTURE_SURFACE_READY_TIMEOUT_MS;
+    const deadline = (await this.asyncRuntime.now()) + CAPTURE_SURFACE_READY_TIMEOUT_MS;
     do {
       try {
-        const metrics = await withTimeout(
-          debuggerPort.sendCommand("Page.getLayoutMetrics", {}),
-          Math.max(1, deadline - Date.now()),
+        const now = await this.asyncRuntime.now();
+        const metrics = await this.asyncRuntime.deadline(
+          () => debuggerPort.sendCommand("Page.getLayoutMetrics", {}),
+          Math.max(1, deadline - now),
           "Timed out waiting for the Browser Use capture surface",
         );
         if (isCaptureSurfaceReady(metrics, target)) return;
       } catch {
         return;
       }
-      await waitForDelay(CAPTURE_SURFACE_POLL_INTERVAL_MS);
-    } while (Date.now() < deadline);
+      await this.asyncRuntime.sleep(CAPTURE_SURFACE_POLL_INTERVAL_MS);
+    } while ((await this.asyncRuntime.now()) < deadline);
   }
 }
+
+export const makeBrowserUseIabApi = (
+  options: BrowserUseIabApiOptions,
+): Effect.Effect<BrowserUseIabApi, never, Scope.Scope> =>
+  Effect.acquireRelease(
+    Effect.sync(() => new BrowserUseIabApiState(options)),
+    (api) =>
+      Effect.promise(() => api.release()).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Browser Use IAB release failed").pipe(
+            Effect.annotateLogs({ cause: Cause.pretty(cause) }),
+          ),
+        ),
+      ),
+  );

@@ -32,11 +32,11 @@ function isChatGptAuthMethod(value: string | null | undefined): boolean {
   return value === "chatgpt" || value === "chatgptAuthTokens";
 }
 
-function resolveMissingAuthErrorMessage(input: ChatGptDesktopRequestInput): string {
+export function resolveMissingAuthErrorMessage(input: ChatGptDesktopRequestInput): string {
   return input.missingAuthErrorMessage ?? `Sign in to ChatGPT in Codex Desktop to ${input.action}.`;
 }
 
-function resolveRequestUrl(baseUrl: string, path: string): string {
+export function resolveChatGptDesktopRequestUrl(baseUrl: string, path: string): string {
   const normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
   return new URL(path.replace(/^\/+/, ""), `${normalizedBaseUrl}/`).toString();
 }
@@ -67,7 +67,7 @@ export function extractChatGptAccountIdFromAuthToken(token: string): string | nu
   }
 }
 
-function buildHeaders(
+export function buildChatGptDesktopHeaders(
   authToken: string,
   input: ChatGptDesktopRequestInput,
   getAppVersion: () => string,
@@ -89,7 +89,7 @@ function buildHeaders(
   return headers;
 }
 
-function prepareChatGptDesktopBody(input: ChatGptDesktopRequestInput): {
+export function prepareChatGptDesktopBody(input: ChatGptDesktopRequestInput): {
   headers: ChatGptDesktopRequestHeaders | undefined;
   body: ChatGptDesktopRequestBody | null | undefined;
 } {
@@ -112,7 +112,7 @@ function prepareChatGptDesktopBody(input: ChatGptDesktopRequestInput): {
   };
 }
 
-function toFetchBody(
+export function toChatGptDesktopFetchBody(
   body: ChatGptDesktopRequestBody | null | undefined,
 ): BodyInit | null | undefined {
   if (!(body instanceof Uint8Array)) return body;
@@ -140,11 +140,11 @@ async function performRequest(
   input: ChatGptDesktopRequestInput,
   authToken: string,
 ): Promise<Response> {
-  const url = resolveRequestUrl(input.baseUrl, input.path);
+  const url = resolveChatGptDesktopRequestUrl(input.baseUrl, input.path);
   const prepared = prepareChatGptDesktopBody(input);
   return await deps.fetchImpl(url, {
     method: input.method,
-    headers: buildHeaders(
+    headers: buildChatGptDesktopHeaders(
       authToken,
       {
         ...input,
@@ -152,7 +152,7 @@ async function performRequest(
       },
       deps.getAppVersion,
     ),
-    body: toFetchBody(prepared.body),
+    body: toChatGptDesktopFetchBody(prepared.body),
   });
 }
 

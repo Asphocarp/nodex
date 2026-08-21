@@ -4,8 +4,8 @@ import type {
   NodexAgentV3ReadRequest,
 } from "../../shared/nodex-agent-tools";
 import { SearchV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
+import { toCoreAgentExecutionAuthorization } from "./core-agent-execution-authorization";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
 
 type SearchRequest = Extract<NodexAgentV3ReadRequest, { readonly tool: "search" }>;
@@ -98,7 +98,8 @@ const mapResult = (result: CoreSearchResult) => {
 
 export async function readNativeSearch(
   request: SearchRequest,
-  runtime: RustDataAuthorityRuntime,
+  runtime: NativeNodexAgentCore,
+  signal?: AbortSignal,
 ): Promise<NodexAgentV3ReadCommandResult> {
   if (!request.authority) {
     return {
@@ -118,8 +119,8 @@ export async function readNativeSearch(
       request.callId ?? `nodex-agent:${request.tool}`,
       request.resourceAccess,
     );
-    const snapshot = await runtime.clientForProject(request.projectId).libraryRead({
-      kind: "agent_search",
+    const read = {
+      kind: "agent_search" as const,
       authorization,
       query: request.input.query,
       target: request.input.target ?? "pages",
@@ -128,7 +129,11 @@ export async function readNativeSearch(
       include_archived: request.input.includeArchived ?? false,
       cursor: request.input.page?.cursor ?? null,
       limit: request.input.page?.limit ?? null,
-    });
+    };
+    const client = runtime.clientForProject(request.projectId);
+    const snapshot = signal
+      ? await client.libraryRead(read, { class: "background", signal })
+      : await client.libraryRead(read);
     if (snapshot.value.kind !== "agent_search") {
       throw new Error("Core returned the wrong Agent search variant");
     }

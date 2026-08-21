@@ -1,37 +1,35 @@
-import { QueryClient, type QueryKey, type QueryMeta } from "@tanstack/query-core";
 import path from "node:path";
-import type { GitReviewRepositoryPaths } from "./git-review-operations";
+import type { QueryKey, QueryMeta } from "@tanstack/query-core";
+import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Equal from "effect/Equal";
+import * as Hash from "effect/Hash";
+import * as Layer from "effect/Layer";
+import * as LayerMap from "effect/LayerMap";
+import * as PubSub from "effect/PubSub";
+import * as RcMap from "effect/RcMap";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import type { FileWatchHost } from "../file-watch-host";
 import { localFileWatchHost } from "../file-watch-host";
+import type { GitReviewRepositoryPaths } from "./git-review-operations";
 import {
-  NodeGitReviewRepositoryWatcher,
+  makeGitReviewRepositoryWatcher,
   type GitReviewRepositoryChangedEvent,
   type GitReviewRepositoryChange,
   type GitReviewRepositoryWatcher,
 } from "./repository-watcher";
 import {
-  recordGitQueryCacheOutcome,
+  gitPerformancePromise,
+  recordGitQueryCacheOutcomeEffect,
   type GitCommandOptions,
   type GitCommandResult,
   type GitCommandRunner,
 } from "./git-command-runner";
 import { UntrackedPathCache } from "./untracked-cache";
-
-interface SharedRun<Result> {
-  controller: AbortController;
-  consumers: Set<symbol>;
-  generation: number;
-  promise: Promise<Result>;
-}
-
-interface WatchLeaseMember {
-  onChange(event: GitReviewRepositoryChangedEvent): void;
-  onRequiresRecoveryChanged(requiresRecovery: boolean): void;
-}
-
-export interface GitRepositoryWatchLease {
-  recover(): Promise<void>;
-  release(): void;
-}
 
 export interface GitReadQueryMeta extends QueryMeta {
   gitReadDomains?: readonly (
@@ -46,57 +44,154 @@ export interface GitReadQueryMeta extends QueryMeta {
   gitReadGeneration?: number;
 }
 
-export class WorktreeRepository {
-  readonly identity: GitReviewRepositoryPaths & { hostId: "local" };
+export type GitRepositoryWatchEvent =
+  | { readonly _tag: "Changed"; readonly event: GitReviewRepositoryChangedEvent }
+  | { readonly _tag: "RecoveryChanged"; readonly requiresRecovery: boolean };
+
+export class GitRepositoryError extends Schema.TaggedError<GitRepositoryError>()(
+  "GitRepositoryError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
+
+export interface WorktreeRepository {
+  readonly advanceGeneration: (options?: {
+    readonly invalidateUntracked?: boolean;
+  }) => Effect.Effect<number>;
+  readonly generation: number;
+  readonly identity: GitReviewRepositoryPaths & { readonly hostId: "local" };
+  readonly invalidateGitReadCachesForRepoChange: (
+    change: GitReviewRepositoryChange,
+    changedPaths?: readonly string[],
+  ) => Effect.Effect<number, GitRepositoryError, Scope.Scope>;
+  readonly query: <Result>(input: {
+    readonly key: QueryKey;
+    readonly meta?: GitReadQueryMeta;
+    readonly run: Effect.Effect<Result, GitRepositoryError, Scope.Scope>;
+    readonly staleTime?: number;
+  }) => Effect.Effect<Result, GitRepositoryError, Scope.Scope>;
+  readonly readSafeAttributeFilterOverrides: Effect.Effect<
+    readonly string[],
+    GitRepositoryError,
+    Scope.Scope
+  >;
+  readonly recoverWatch: Effect.Effect<void, never, Scope.Scope>;
+  readonly runGit: (
+    args: readonly string[],
+    options?: GitCommandOptions,
+  ) => Effect.Effect<GitCommandResult>;
   readonly untrackedPaths: UntrackedPathCache;
-  readonly #runner: GitCommandRunner;
-  readonly #queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        gcTime: Infinity,
-        retry: false,
-      },
-    },
-  });
-  readonly #sharedRuns = new Map<string, SharedRun<unknown>>();
-  readonly #watchMembers = new Set<WatchLeaseMember>();
-  #generation = 1;
-  #snapshotController = new AbortController();
-  #watcher: GitReviewRepositoryWatcher | null = null;
-  #watcherStart: Promise<void> | null = null;
-  #disposed = false;
+  readonly watchEvents: Stream.Stream<GitRepositoryWatchEvent>;
+}
 
-  constructor(identity: GitReviewRepositoryPaths & { hostId: "local" }, runner: GitCommandRunner) {
-    this.identity = identity;
-    this.#runner = runner;
-    this.untrackedPaths = new UntrackedPathCache(this);
+class RepositoryWatcher extends Context.Service<RepositoryWatcher, GitReviewRepositoryWatcher>()(
+  "nodex/main/git-worker/RepositoryWatcher",
+) {}
+
+class GitQueryRequest<Result> implements Equal.Equal {
+  readonly cacheKey: string;
+
+  constructor(
+    readonly key: QueryKey,
+    readonly meta: GitReadQueryMeta | undefined,
+    readonly staleTime: number,
+    readonly run: Effect.Effect<Result, GitRepositoryError, Scope.Scope>,
+  ) {
+    this.cacheKey = JSON.stringify(key);
   }
 
-  get generation(): number {
-    return this.#generation;
+  [Equal.symbol](that: Equal.Equal): boolean {
+    return that instanceof GitQueryRequest && this.cacheKey === that.cacheKey;
   }
 
-  runGit(args: readonly string[], options?: GitCommandOptions): Promise<GitCommandResult> {
-    return this.#runner.run(this.identity, args, options);
+  [Hash.symbol](): number {
+    return Hash.string(this.cacheKey);
   }
+}
 
-  readSafeAttributeFilterOverrides(signal?: AbortSignal): Promise<readonly string[]> {
-    return this.query({
+export interface WorktreeRepositoryOptions {
+  readonly registerSnapshotGenerationProvider?: (provider: {
+    readonly advance: () => number;
+    readonly current: () => number;
+  }) => () => void;
+  readonly watchHost?: FileWatchHost;
+}
+
+/** Creates one repository owner; native watchers exist only while a watch Stream is consumed. */
+export const makeWorktreeRepository = (
+  identity: GitReviewRepositoryPaths & { hostId: "local" },
+  runner: GitCommandRunner,
+  options: WorktreeRepositoryOptions = {},
+): Effect.Effect<WorktreeRepository, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    let generation = 1;
+    const recovery = yield* Ref.make(false);
+    const watchEvents = yield* PubSub.unbounded<GitRepositoryWatchEvent>();
+    const activeQueries = new Set<string>();
+    const queryCache = yield* RcMap.make<
+      GitQueryRequest<unknown>,
+      unknown,
+      GitRepositoryError,
+      Scope.Scope
+    >({
+      lookup: (request) =>
+        Effect.sync(() => activeQueries.add(request.cacheKey)).pipe(
+          Effect.andThen(request.run),
+          Effect.ensuring(Effect.sync(() => activeQueries.delete(request.cacheKey))),
+        ),
+      idleTimeToLive: (request) =>
+        request.staleTime === Infinity ? Duration.infinity : Duration.zero,
+    });
+
+    const runGit = Effect.fn("WorktreeRepository.runGit")(function* (
+      args: readonly string[],
+      commandOptions: GitCommandOptions = {},
+    ) {
+      return yield* gitPerformancePromise((signal) =>
+        runner.run(identity, args, { ...commandOptions, signal }),
+      );
+    });
+
+    const query = <Result>(input: {
+      readonly key: QueryKey;
+      readonly meta?: GitReadQueryMeta;
+      readonly run: Effect.Effect<Result, GitRepositoryError, Scope.Scope>;
+      readonly staleTime?: number;
+    }): Effect.Effect<Result, GitRepositoryError, Scope.Scope> =>
+      Effect.gen(function* () {
+        const request = new GitQueryRequest(
+          input.key,
+          {
+            ...input.meta,
+            gitReadGeneration: input.meta?.gitReadGeneration ?? generation,
+          },
+          input.staleTime ?? Infinity,
+          input.run,
+        );
+        const cached = yield* RcMap.has(queryCache, request);
+        yield* recordGitQueryCacheOutcomeEffect(
+          cached ? (activeQueries.has(request.cacheKey) ? "coalesced" : "hit") : "miss",
+        );
+        return (yield* RcMap.get(queryCache, request)) as Result;
+      });
+
+    const readSafeAttributeFilterOverrides = query({
       key: ["safe-attribute-filter-overrides"],
       meta: { gitReadDomains: ["config"] },
-      signal,
-      run: async (querySignal) => {
-        const result = await this.runGit(
+      run: Effect.gen(function* () {
+        const result = yield* runGit(
           [
             "config",
             "--name-only",
             "--get-regexp",
             "^filter\\..*\\.(clean|smudge|process|required)$",
           ],
-          { allowedNonZeroExitCodes: [1], signal: querySignal },
+          { allowedNonZeroExitCodes: [1] },
         );
         if (!result.success) {
-          throw new Error("Could not discover Git attribute filters");
+          return yield* new GitRepositoryError({
+            operation: "read-safe-attribute-filter-overrides",
+            cause: new Error("Could not discover Git attribute filters"),
+          });
         }
         const filterNames = new Set<string>();
         for (const line of result.stdout.split(/\r?\n/)) {
@@ -113,249 +208,153 @@ export class WorktreeRepository {
             `filter.${name}.required=false`,
           ]),
         ];
-      },
+      }),
     });
-  }
 
-  query<Result>(input: {
-    key: QueryKey;
-    meta?: GitReadQueryMeta;
-    signal?: AbortSignal;
-    staleTime?: number;
-    run: (signal: AbortSignal) => Promise<Result>;
-  }): Promise<Result> {
-    if (this.#disposed) return Promise.reject(new Error("Git repository is disposed"));
-    input.signal?.throwIfAborted();
-    const cacheKey = JSON.stringify(input.key);
-    let shared = this.#sharedRuns.get(cacheKey) as SharedRun<Result> | undefined;
-    if (shared) recordGitQueryCacheOutcome("coalesced");
-    if (!shared) {
-      const cached = this.#queryClient.getQueryData(input.key);
-      recordGitQueryCacheOutcome(
-        cached !== undefined && (input.staleTime ?? Infinity) === Infinity ? "hit" : "miss",
+    let untrackedPaths!: UntrackedPathCache;
+    const invalidateQueries = Effect.fn("WorktreeRepository.invalidateQueries")(function* (
+      predicate: (request: GitQueryRequest<unknown>) => boolean,
+    ) {
+      const requests = yield* RcMap.keys(queryCache);
+      yield* Effect.forEach(requests, (request) =>
+        predicate(request) ? RcMap.invalidate(queryCache, request) : Effect.void,
       );
-      const controller = new AbortController();
-      const generation = this.#generation;
-      // The caller owns the complete operation identity in `input.key`.
-      // `run` is an execution adapter, not query data.
-      // eslint-disable-next-line @tanstack/query/exhaustive-deps
-      const promise = this.#queryClient.fetchQuery({
-        queryKey: input.key,
-        meta: {
-          ...input.meta,
-          gitReadGeneration: input.meta?.gitReadGeneration ?? generation,
-        },
-        queryFn: async () => await input.run(controller.signal),
-        staleTime: input.staleTime ?? Infinity,
-      });
-      shared = {
-        controller,
-        consumers: new Set(),
-        generation,
-        promise,
-      };
-      this.#sharedRuns.set(cacheKey, shared);
-      void promise
-        .finally(() => {
-          if (this.#sharedRuns.get(cacheKey) === shared) {
-            this.#sharedRuns.delete(cacheKey);
-          }
-        })
-        .catch(() => undefined);
-    }
-    const consumer = Symbol(cacheKey);
-    shared.consumers.add(consumer);
-    return this.#waitForSharedRun(shared, consumer, input.signal);
-  }
-
-  advanceGeneration(options: { invalidateUntracked?: boolean } = {}): number {
-    if (this.#disposed) return this.#generation;
-    this.#generation += 1;
-    this.#snapshotController.abort();
-    this.#snapshotController = new AbortController();
-    if (options.invalidateUntracked !== false) this.untrackedPaths.invalidateFull();
-    for (const run of this.#sharedRuns.values()) {
-      if (run.generation < this.#generation) run.controller.abort();
-    }
-    void this.#queryClient.cancelQueries({
-      predicate: (query) => {
-        const meta = query.meta as GitReadQueryMeta | undefined;
-        return (meta?.gitReadGeneration ?? this.#generation) < this.#generation;
-      },
     });
-    this.#queryClient.removeQueries({
-      predicate: (query) => {
-        const meta = query.meta as GitReadQueryMeta | undefined;
-        return (
-          query.getObserversCount() === 0 &&
-          (meta?.gitReadGeneration ?? this.#generation) < this.#generation
-        );
-      },
-    });
-    return this.#generation;
-  }
-
-  invalidate(domains: readonly NonNullable<GitReadQueryMeta["gitReadDomains"]>[number][]): void {
-    const changed = new Set(domains);
-    void this.#queryClient.invalidateQueries({
-      predicate: (query) => {
-        const meta = query.meta as GitReadQueryMeta | undefined;
-        return meta?.gitReadDomains?.some((domain) => changed.has(domain)) ?? false;
-      },
-      refetchType: "none",
-    });
-  }
-
-  async acquireWatchLease(member: WatchLeaseMember): Promise<GitRepositoryWatchLease> {
-    if (this.#disposed) throw new Error("Git repository is disposed");
-    this.#watchMembers.add(member);
-    const watcher = this.#ensureWatcher();
-    try {
-      await this.#startWatcher(watcher);
-    } catch (error) {
-      this.#watchMembers.delete(member);
-      this.#disposeWatcherIfUnused();
-      throw error;
-    }
-    member.onRequiresRecoveryChanged(watcher.requiresRecovery);
-    let released = false;
-    return {
-      recover: async () => {
-        if (released || this.#disposed) return;
-        await this.#startWatcher(watcher);
-      },
-      release: () => {
-        if (released) return;
-        released = true;
-        this.#watchMembers.delete(member);
-        this.#disposeWatcherIfUnused();
-      },
+    const advanceGenerationState = (
+      generationOptions: { readonly invalidateUntracked?: boolean } = {},
+    ): number => {
+      generation += 1;
+      if (generationOptions.invalidateUntracked !== false) untrackedPaths.invalidateFull();
+      return generation;
     };
-  }
-
-  async invalidateGitReadCachesForRepoChange(
-    change: GitReviewRepositoryChange,
-    changedPaths?: readonly string[],
-  ): Promise<number> {
-    if (this.#disposed) return this.#generation;
-    const domains: NonNullable<GitReadQueryMeta["gitReadDomains"]> =
-      change === "config"
-        ? ["config"]
-        : change === "head" || change === "worktree-topology"
-          ? ["head", "index", "local-refs", "working-tree"]
-          : change === "index"
-            ? ["index"]
-            : change === "remote-refs" || change === "synced-branch"
-              ? ["remote-refs"]
-              : ["working-tree"];
-    if (change === "working-tree" && changedPaths && changedPaths.length > 0) {
-      await this.untrackedPaths.invalidatePaths(changedPaths).catch(() => {
-        this.untrackedPaths.invalidateFull();
-      });
-    } else {
-      this.untrackedPaths.invalidateFull();
-    }
-    this.invalidate(domains);
-    const generation = this.advanceGeneration({ invalidateUntracked: false });
-    const event = { changeType: change, ...(changedPaths ? { changedPaths } : {}) };
-    for (const member of this.#watchMembers) member.onChange(event);
-    return generation;
-  }
-
-  dispose(): void {
-    if (this.#disposed) return;
-    this.#disposed = true;
-    this.#snapshotController.abort();
-    this.#watcher?.dispose();
-    this.#watcher = null;
-    this.#watcherStart = null;
-    this.#watchMembers.clear();
-    for (const run of this.#sharedRuns.values()) run.controller.abort();
-    this.#sharedRuns.clear();
-    this.#queryClient.clear();
-  }
-
-  #ensureWatcher(): GitReviewRepositoryWatcher {
-    if (this.#watcher) return this.#watcher;
-    const watcher = new NodeGitReviewRepositoryWatcher({
-      roots: {
-        root: this.identity.root,
-        gitDir: this.identity.gitDir,
-        commonDir: this.identity.commonDir,
-        headPath: path.join(this.identity.gitDir, "HEAD"),
-        indexPath: path.join(this.identity.gitDir, "index"),
-        syncedBranchPath: path.join(this.identity.gitDir, "codex-synced-branch.json"),
-      },
-      host: localFileWatchHost,
-      onChange: async (event) => {
-        await this.invalidateGitReadCachesForRepoChange(event.changeType, event.changedPaths);
-      },
-      onRequiresRecoveryChanged: (requiresRecovery) => {
-        for (const member of this.#watchMembers) {
-          member.onRequiresRecoveryChanged(requiresRecovery);
-        }
-      },
-    });
-    this.#watcher = watcher;
-    return watcher;
-  }
-
-  async #startWatcher(watcher: GitReviewRepositoryWatcher): Promise<void> {
-    if (this.#watcherStart) return await this.#watcherStart;
-    const start = watcher.start().finally(() => {
-      if (this.#watcherStart === start) this.#watcherStart = null;
-    });
-    this.#watcherStart = start;
-    await start;
-  }
-
-  #disposeWatcherIfUnused(): void {
-    if (this.#watchMembers.size > 0) return;
-    this.#watcher?.dispose();
-    this.#watcher = null;
-    this.#watcherStart = null;
-  }
-
-  async #waitForSharedRun<Result>(
-    shared: SharedRun<Result>,
-    consumer: symbol,
-    signal?: AbortSignal,
-  ): Promise<Result> {
-    if (!signal) {
-      try {
-        return await shared.promise;
-      } finally {
-        shared.consumers.delete(consumer);
-      }
-    }
-    return await new Promise<Result>((resolve, reject) => {
-      let settled = false;
-      const release = (cancelUnderlying: boolean) => {
-        if (settled) return;
-        settled = true;
-        signal.removeEventListener("abort", abort);
-        shared.consumers.delete(consumer);
-        if (cancelUnderlying && shared.consumers.size === 0) {
-          shared.controller.abort();
-        }
-      };
-      const abort = () => {
-        release(true);
-        reject(signal.reason);
-      };
-      signal.addEventListener("abort", abort, { once: true });
-      shared.promise.then(
-        (value) => {
-          if (settled) return;
-          release(false);
-          resolve(value);
-        },
-        (error: unknown) => {
-          if (settled) return;
-          release(false);
-          reject(error);
-        },
+    const advanceGeneration = Effect.fn("WorktreeRepository.advanceGeneration")(function* (
+      generationOptions: { readonly invalidateUntracked?: boolean } = {},
+    ) {
+      const nextGeneration = advanceGenerationState(generationOptions);
+      yield* invalidateQueries(
+        (request) => (request.meta?.gitReadGeneration ?? nextGeneration) < nextGeneration,
       );
+      return nextGeneration;
     });
-  }
-}
+    const invalidateGitReadCachesForRepoChange = Effect.fn(
+      "WorktreeRepository.invalidateGitReadCachesForRepoChange",
+    )(function* (change: GitReviewRepositoryChange, changedPaths?: readonly string[]) {
+      const domains: NonNullable<GitReadQueryMeta["gitReadDomains"]> =
+        change === "config"
+          ? ["config"]
+          : change === "head" || change === "worktree-topology"
+            ? ["head", "index", "local-refs", "working-tree"]
+            : change === "index"
+              ? ["index"]
+              : change === "remote-refs" || change === "synced-branch"
+                ? ["remote-refs"]
+                : ["working-tree"];
+      if (change === "working-tree" && changedPaths && changedPaths.length > 0) {
+        yield* untrackedPaths.invalidatePaths(changedPaths).pipe(
+          Effect.catch(() =>
+            Effect.sync(() => {
+              untrackedPaths.invalidateFull();
+            }),
+          ),
+        );
+      } else {
+        untrackedPaths.invalidateFull();
+      }
+      const changed = new Set(domains);
+      yield* invalidateQueries(
+        (request) => request.meta?.gitReadDomains?.some((domain) => changed.has(domain)) ?? false,
+      );
+      const nextGeneration = yield* advanceGeneration({ invalidateUntracked: false });
+      yield* PubSub.publish(watchEvents, {
+        _tag: "Changed",
+        event: { changeType: change, ...(changedPaths ? { changedPaths } : {}) },
+      });
+      return nextGeneration;
+    });
+
+    untrackedPaths = new UntrackedPathCache({
+      identity,
+      query,
+      readSafeAttributeFilterOverrides,
+      runGit,
+    });
+    if (options.registerSnapshotGenerationProvider) {
+      const unregister = options.registerSnapshotGenerationProvider({
+        advance: advanceGenerationState,
+        current: () => generation,
+      });
+      yield* Effect.addFinalizer(() => Effect.sync(unregister));
+    }
+
+    const watcherMap = yield* LayerMap.make(
+      (_key: "watcher") =>
+        Layer.effect(
+          RepositoryWatcher,
+          makeGitReviewRepositoryWatcher({
+            roots: {
+              root: identity.root,
+              gitDir: identity.gitDir,
+              commonDir: identity.commonDir,
+              headPath: path.join(identity.gitDir, "HEAD"),
+              indexPath: path.join(identity.gitDir, "index"),
+              syncedBranchPath: path.join(identity.gitDir, "codex-synced-branch.json"),
+            },
+            host: options.watchHost ?? localFileWatchHost,
+            onChange: (event) =>
+              invalidateGitReadCachesForRepoChange(event.changeType, event.changedPaths).pipe(
+                Effect.catchCause((cause) =>
+                  Effect.logWarning("Could not invalidate Git repository caches").pipe(
+                    Effect.annotateLogs({ cause }),
+                  ),
+                ),
+                Effect.asVoid,
+              ),
+            onRequiresRecoveryChanged: (requiresRecovery) =>
+              Ref.set(recovery, requiresRecovery).pipe(
+                Effect.andThen(
+                  PubSub.publish(watchEvents, {
+                    _tag: "RecoveryChanged",
+                    requiresRecovery,
+                  }),
+                ),
+                Effect.asVoid,
+              ),
+          }),
+        ),
+      { idleTimeToLive: Duration.zero },
+    );
+
+    const repositoryWatchEvents = Stream.unwrap(
+      Effect.gen(function* () {
+        yield* watcherMap.contextEffect("watcher");
+        const subscription = yield* PubSub.subscribe(watchEvents);
+        const requiresRecovery = yield* Ref.get(recovery);
+        return Stream.concat(
+          Stream.succeed<GitRepositoryWatchEvent>({
+            _tag: "RecoveryChanged",
+            requiresRecovery,
+          }),
+          Stream.fromSubscription(subscription),
+        );
+      }),
+    );
+    const recoverWatch = Effect.gen(function* () {
+      const context = yield* watcherMap.contextEffect("watcher");
+      yield* Context.get(context, RepositoryWatcher).recover;
+    });
+
+    return {
+      advanceGeneration,
+      get generation() {
+        return generation;
+      },
+      identity,
+      invalidateGitReadCachesForRepoChange,
+      query,
+      readSafeAttributeFilterOverrides,
+      recoverWatch,
+      runGit,
+      untrackedPaths,
+      watchEvents: repositoryWatchEvents,
+    } satisfies WorktreeRepository;
+  });

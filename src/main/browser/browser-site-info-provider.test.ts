@@ -1,5 +1,7 @@
-import { describe, expect, test, vi } from "vite-plus/test";
-import { BrowserSiteInfoProvider } from "./browser-site-info-provider";
+import * as Effect from "effect/Effect";
+import { assert, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
+import { makeBrowserSiteInfoRuntime } from "./browser-site-info-provider";
 
 const identity = {
   browserConversationId: "conversation",
@@ -7,49 +9,40 @@ const identity = {
   browserTabId: "tab",
 };
 
-describe("BrowserSiteInfoProvider", () => {
-  test("returns Main-owned origin, cookie count, and fail-closed permissions", async () => {
+it.effect("returns Main-owned origin, cookie count, and fail-closed permissions", () =>
+  Effect.gen(function* () {
     const cookies = { get: vi.fn(async () => [{}, {}]) };
-    const provider = new BrowserSiteInfoProvider(
-      {
-        getTabSnapshot: () => ({
-          url: "https://example.com/path?private=1",
-        }),
-      },
+    const runtime = makeBrowserSiteInfoRuntime(
+      { getTabSnapshot: () => ({ url: "https://example.com/path?private=1" }) },
       cookies,
     );
 
-    expect(await provider.get(identity)).toMatchObject({
+    const siteInfo = yield* runtime.get(identity);
+    assert.deepInclude(siteInfo, {
       ...identity,
       origin: "https://example.com",
       connection: "secure",
       cookieCount: 2,
-      permissions: expect.arrayContaining([
-        { permission: "camera", state: "block" },
-        { permission: "notifications", state: "block" },
-      ]),
     });
-    expect(cookies.get).toHaveBeenCalledWith({
-      url: "https://example.com/path?private=1",
-    });
-  });
+    assert.deepInclude(siteInfo.permissions, { permission: "camera", state: "block" });
+    assert.deepInclude(siteInfo.permissions, { permission: "notifications", state: "block" });
+    assert.deepEqual(cookies.get.mock.calls[0], [{ url: "https://example.com/path?private=1" }]);
+  }),
+);
 
-  test("classifies localhost separately from insecure remote HTTP", async () => {
+it.effect("classifies localhost separately from insecure remote HTTP", () =>
+  Effect.gen(function* () {
     const cookieStore = { get: async () => [] };
-    const local = new BrowserSiteInfoProvider(
-      {
-        getTabSnapshot: () => ({ url: "http://localhost:3000/" }),
-      },
+    const local = makeBrowserSiteInfoRuntime(
+      { getTabSnapshot: () => ({ url: "http://localhost:3000/" }) },
       cookieStore,
     );
-    const remote = new BrowserSiteInfoProvider(
-      {
-        getTabSnapshot: () => ({ url: "http://example.com/" }),
-      },
+    const remote = makeBrowserSiteInfoRuntime(
+      { getTabSnapshot: () => ({ url: "http://example.com/" }) },
       cookieStore,
     );
 
-    expect((await local.get(identity)).connection).toBe("local");
-    expect((await remote.get(identity)).connection).toBe("insecure");
-  });
-});
+    assert.strictEqual((yield* local.get(identity)).connection, "local");
+    assert.strictEqual((yield* remote.get(identity)).connection, "insecure");
+  }),
+);

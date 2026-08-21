@@ -72,10 +72,6 @@ export function toWorkspaceFileIpcError(error: unknown): unknown {
   });
 }
 
-export function isWorkspaceFileUserError(error: unknown): error is WorkspaceFileUserError {
-  return error instanceof WorkspaceFileUserError;
-}
-
 function normalizeHostId(value: WorkspaceFileHostInput): "local" {
   if (value && value !== "local") {
     throw new WorkspaceFileUserError(
@@ -512,8 +508,4 @@ export async function writeWorkspaceFile(
     outcome: "saved",
     mtimeMs: Number.isFinite(savedStats.mtimeMs) ? savedStats.mtimeMs : null,
   };
-}
-
-export function getWorkspaceFileDisplayName(filePath: string): string {
-  return basename(filePath) || filePath;
 }

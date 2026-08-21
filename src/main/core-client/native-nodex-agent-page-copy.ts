@@ -8,9 +8,8 @@ import type {
 } from "../../shared/nodex-agent-tools";
 import { DuplicatePageV6OutputSchema } from "../../shared/nodex-agent-tools/v6-schemas";
 import { TransferBlocksInputSchema } from "../../shared/nodex-agent-tools/write-schemas";
-import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
+import { toCoreAgentExecutionAuthorization } from "./core-agent-execution-authorization";
 import {
   hasExactNativeAgentDocumentHeads,
   nativeAgentDocumentCommits,
@@ -20,15 +19,17 @@ import {
   toCoreAgentPageDestination,
 } from "./native-nodex-agent-page-destination";
 import { mapNativeNodexAgentCoreError } from "./native-nodex-agent-page-update";
+import type {
+  NativeNodexAgentMutationStep,
+  NodexAgentMutationEnvelope,
+} from "./native-nodex-agent-mutation-step";
 import { applyResultCursor } from "./types";
 
-type CoreCopyRequest = components["schemas"]["LibraryAgentPageCopyRequest"];
-type CoreCopyResult = components["schemas"]["LibraryAgentPageCopyResult"];
-type CoreCopyPreparation = components["schemas"]["LibraryAgentPageCopyPreparation"];
+export type CoreCopyRequest = components["schemas"]["LibraryAgentPageCopyRequest"];
+export type CoreCopyResult = components["schemas"]["LibraryAgentPageCopyResult"];
+export type CoreCopyPreparation = components["schemas"]["LibraryAgentPageCopyPreparation"];
 
-const MAX_PENDING_NATIVE_PAGE_COPIES = 1_024;
-
-interface PendingNativePageCopy {
+export interface PendingNativePageCopy {
   readonly request: PrepareNodexAgentDuplicatePageRequest;
   readonly operationId: string;
   readonly token: string;
@@ -51,7 +52,7 @@ const envelope = <Result>(
   },
 });
 
-const operationIdFor = (
+export const nativeNodexAgentPageCopyOperationId = (
   request: Pick<PrepareNodexAgentDuplicatePageRequest, "threadId" | "callId">,
 ): string =>
   `nodex-agent-duplicate:${createHash("sha256")
@@ -140,41 +141,46 @@ const normalizedInput = (
   });
 };
 
-export class NativeNodexAgentPageCopyRuntime {
-  private readonly pending = new Map<string, PendingNativePageCopy>();
-
-  constructor(private readonly runtime: RustDataAuthorityRuntime) {}
-
-  async prepare(
-    request: PrepareNodexAgentDuplicatePageRequest,
-  ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentDuplicatePageResult>> {
-    const operationId = operationIdFor(request);
-    try {
-      if (!request.authority) {
-        throw new Error("Native Agent Page copy requires frozen Turn authority");
-      }
-      const copyRequest = coreRequest(request);
-      const snapshot = await this.runtime.clientForProject(request.projectId).libraryRead({
+export const prepareNativeNodexAgentPageCopy = async (
+  runtime: NativeNodexAgentCore,
+  request: PrepareNodexAgentDuplicatePageRequest,
+  signal?: AbortSignal,
+): Promise<
+  NativeNodexAgentMutationStep<
+    NodexAgentMutationEnvelope<PrepareNodexAgentDuplicatePageResult>,
+    PendingNativePageCopy
+  >
+> => {
+  const operationId = nativeNodexAgentPageCopyOperationId(request);
+  try {
+    if (!request.authority) {
+      throw new Error("Native Agent Page copy requires frozen Turn authority");
+    }
+    const copyRequest = coreRequest(request);
+    const snapshot = await runtime.clientForProject(request.projectId).libraryRead(
+      {
         kind: "prepare_agent_page_copy",
         operation_id: operationId,
         store_epoch: request.authority.storeEpoch,
         authorization: toCoreAgentExecutionAuthorization(
-          this.runtime.identity.profileId,
+          runtime.identity.profileId,
           request.authority,
           request.callId,
           request.resourceAccess,
         ),
         request: copyRequest,
-      });
-      if (snapshot.value.kind !== "agent_page_copy_preparation") {
-        throw new Error("Core returned the wrong Agent Page copy preparation variant");
-      }
-      const preparation = snapshot.value.value;
-      if (preparation.preparation.state === "committed_replay") {
-        const committed = preparation.committed?.outcome.agent_page_copy;
-        if (!committed) throw new Error("Core Agent Page copy replay omitted its result");
-        this.pending.delete(operationId);
-        return envelope(
+      },
+      { class: "background", signal },
+    );
+    if (snapshot.value.kind !== "agent_page_copy_preparation") {
+      throw new Error("Core returned the wrong Agent Page copy preparation variant");
+    }
+    const preparation = snapshot.value.value;
+    if (preparation.preparation.state === "committed_replay") {
+      const committed = preparation.committed?.outcome.agent_page_copy;
+      if (!committed) throw new Error("Core Agent Page copy replay omitted its result");
+      return {
+        result: envelope(
           {
             ok: true,
             value: {
@@ -183,33 +189,33 @@ export class NativeNodexAgentPageCopyRuntime {
             },
           },
           operationId,
-        );
-      }
-      const token = preparation.preparation.token;
-      if (!token) throw new Error("Core Agent Page copy preparation omitted its token");
-      if (!this.pending.has(operationId) && this.pending.size >= MAX_PENDING_NATIVE_PAGE_COPIES) {
-        throw new Error("Native Agent Page copy preparation capacity is exhausted");
-      }
-      const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
-      this.pending.set(operationId, {
-        request,
-        operationId,
-        token,
-        coreRequest: copyRequest,
-        documentHeads,
-      });
-      const command: NodexAgentDuplicatePageCommand = {
-        ...request,
-        requestHash: operationId,
-        mutationId: operationId,
-        storeEpoch: request.authority.storeEpoch,
-        input: request.input,
-        normalizedInput: normalizedInput(request, preparation),
-        destination: preparedDestination(request, preparation),
-        documentHeads,
-        canonical: { newPageId: preparation.page_id },
+        ),
+        transition: { kind: "clear", operationId },
       };
-      return envelope(
+    }
+    const token = preparation.preparation.token;
+    if (!token) throw new Error("Core Agent Page copy preparation omitted its token");
+    const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
+    const pending: PendingNativePageCopy = {
+      request,
+      operationId,
+      token,
+      coreRequest: copyRequest,
+      documentHeads,
+    };
+    const command: NodexAgentDuplicatePageCommand = {
+      ...request,
+      requestHash: operationId,
+      mutationId: operationId,
+      storeEpoch: request.authority.storeEpoch,
+      input: request.input,
+      normalizedInput: normalizedInput(request, preparation),
+      destination: preparedDestination(request, preparation),
+      documentHeads,
+      canonical: { newPageId: preparation.page_id },
+    };
+    return {
+      result: envelope(
         {
           ok: true,
           value: {
@@ -217,35 +223,42 @@ export class NativeNodexAgentPageCopyRuntime {
             command,
             authorization: {
               roots: {
-                [request.input.pageId]: {
-                  type: "page",
-                  transformation: "preserved",
-                },
+                [request.input.pageId]: { type: "page", transformation: "preserved" },
               },
               documentIds: documentHeads.map((head) => head.documentId),
             },
           },
         },
         operationId,
-      );
-    } catch (error) {
-      return envelope({ ok: false, error: mapNativeNodexAgentCoreError(error) }, operationId);
-    }
+      ),
+      transition: { kind: "retain", pending },
+    };
+  } catch (error) {
+    return {
+      result: envelope({ ok: false, error: mapNativeNodexAgentCoreError(error) }, operationId),
+      transition: { kind: "keep" },
+    };
   }
+};
 
-  async execute(
-    command: NodexAgentDuplicatePageCommand,
-  ): Promise<ExecuteNodexAgentDuplicatePageResult> {
-    const pending = this.pending.get(command.mutationId);
-    if (
-      !pending ||
-      pending.request.projectId !== command.projectId ||
-      pending.request.callId !== command.callId ||
-      pending.request.threadId !== command.threadId ||
-      pending.request.authority?.storeEpoch !== command.storeEpoch ||
-      !hasExactNativeAgentDocumentHeads(pending.documentHeads, command.documentHeads)
-    ) {
-      return {
+export const executeNativeNodexAgentPageCopy = async (
+  runtime: NativeNodexAgentCore,
+  pending: PendingNativePageCopy | undefined,
+  command: NodexAgentDuplicatePageCommand,
+  signal?: AbortSignal,
+): Promise<
+  NativeNodexAgentMutationStep<ExecuteNodexAgentDuplicatePageResult, PendingNativePageCopy>
+> => {
+  if (
+    !pending ||
+    pending.request.projectId !== command.projectId ||
+    pending.request.callId !== command.callId ||
+    pending.request.threadId !== command.threadId ||
+    pending.request.authority?.storeEpoch !== command.storeEpoch ||
+    !hasExactNativeAgentDocumentHeads(pending.documentHeads, command.documentHeads)
+  ) {
+    return {
+      result: {
         ok: false,
         error: {
           code: "idempotency_collision",
@@ -253,11 +266,14 @@ export class NativeNodexAgentPageCopyRuntime {
           retryable: false,
           recovery: "none",
         },
-      };
-    }
-    const authority = pending.request.authority;
-    if (!authority) {
-      return {
+      },
+      transition: { kind: "keep" },
+    };
+  }
+  const authority = pending.request.authority;
+  if (!authority) {
+    return {
+      result: {
         ok: false,
         error: {
           code: "authorization_denied",
@@ -265,31 +281,34 @@ export class NativeNodexAgentPageCopyRuntime {
           retryable: false,
           recovery: "start_new_task",
         },
-      };
-    }
-    try {
-      const committed = await this.runtime
-        .clientForProject(pending.request.projectId)
-        .libraryApply({
-          operationId: pending.operationId,
-          intent: {
-            kind: "execute_prepared_agent_page_copy",
-            authorization: {
-              authorization: toCoreAgentExecutionAuthorization(
-                this.runtime.identity.profileId,
-                authority,
-                pending.request.callId,
-                pending.request.resourceAccess,
-              ),
-              token: pending.token,
-            },
-            request: pending.coreRequest,
+      },
+      transition: { kind: "keep" },
+    };
+  }
+  try {
+    const committed = await runtime.clientForProject(pending.request.projectId).libraryApply(
+      {
+        operationId: pending.operationId,
+        intent: {
+          kind: "execute_prepared_agent_page_copy",
+          authorization: {
+            authorization: toCoreAgentExecutionAuthorization(
+              runtime.identity.profileId,
+              authority,
+              pending.request.callId,
+              pending.request.resourceAccess,
+            ),
+            token: pending.token,
           },
-        });
-      const result = committed.outcome.agent_page_copy;
-      if (!result) throw new Error("Core Agent Page copy commit omitted its result");
-      this.pending.delete(command.mutationId);
-      return {
+          request: pending.coreRequest,
+        },
+      },
+      { signal },
+    );
+    const result = committed.outcome.agent_page_copy;
+    if (!result) throw new Error("Core Agent Page copy commit omitted its result");
+    return {
+      result: {
         ok: true,
         value: {
           output: output(result, pending.request.input.return?.includes("block_map") ?? false),
@@ -298,9 +317,13 @@ export class NativeNodexAgentPageCopyRuntime {
           affectedDatabaseBlockIds: [...result.affected_database_ids],
           commitSeq: applyResultCursor(committed),
         },
-      };
-    } catch (error) {
-      return { ok: false, error: mapNativeNodexAgentCoreError(error) };
-    }
+      },
+      transition: { kind: "clear", operationId: command.mutationId },
+    };
+  } catch (error) {
+    return {
+      result: { ok: false, error: mapNativeNodexAgentCoreError(error) },
+      transition: { kind: "keep" },
+    };
   }
-}
+};

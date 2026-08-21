@@ -2,6 +2,7 @@ import { describe, expect, test } from "vite-plus/test";
 import { EventEmitter } from "node:events";
 import * as Y from "yjs";
 import type {
+  DocumentAwarenessPublishAck,
   DocumentAwarenessPublishRequest,
   DocumentSyncApplyAck,
   DocumentSyncApplyRequest,
@@ -9,12 +10,19 @@ import type {
   DocumentSyncRequest,
   DocumentSyncResponse,
   DocumentSyncSubscribeRequest,
+  DocumentSyncSubscriptionAck,
+  DocumentSyncUnsubscribeAck,
 } from "../../shared/block-documents/document-sync";
-import { type DocumentSyncClientTarget } from "../../main/document-sync-transport";
 import type {
-  DesktopDocumentSyncPort,
-  DesktopDocumentSyncScope,
-} from "../../main/core-client/desktop-document-sync-bridge";
+  CanvasSceneMutationCommandResult,
+  CanvasSceneMutationRequest,
+  CanvasSceneSubscribeRequest,
+  CanvasSceneSubscriptionCommandResult,
+  CanvasSceneSyncCommandResult,
+  CanvasSceneSyncRequest,
+} from "../../shared/block-documents/canvas-scene-sync";
+import { type DocumentSyncClientTarget } from "../../main/document-sync-transport";
+import type { DesktopDocumentSyncScope } from "../../main/core-client/desktop-document-sync-bridge";
 import { createElectronDocumentSyncAdapter } from "./electron-document-sync-adapter";
 import type { ElectronRendererBridge } from "./electron-renderer-transport";
 import { NodexYProvider } from "./nodex-y-provider";
@@ -79,17 +87,45 @@ class MemoryDurableBackend {
   }
 }
 
-type MemoryRealtimePort = Pick<
-  DesktopDocumentSyncPort,
-  | "subscribe"
-  | "unsubscribe"
-  | "sync"
-  | "applyUpdate"
-  | "publishAwareness"
-  | "subscribeCanvasScene"
-  | "syncCanvasScene"
-  | "applyCanvasSceneMutation"
->;
+interface MemoryRealtimePort {
+  subscribe(
+    scope: DesktopDocumentSyncScope,
+    target: DocumentSyncClientTarget,
+    request: DocumentSyncSubscribeRequest,
+  ): Promise<DocumentSyncCommandResult<DocumentSyncSubscriptionAck>>;
+  unsubscribe(
+    scope: DesktopDocumentSyncScope,
+    target: DocumentSyncClientTarget,
+    request: DocumentSyncSubscribeRequest,
+  ): Promise<DocumentSyncCommandResult<DocumentSyncUnsubscribeAck>>;
+  sync(
+    scope: DesktopDocumentSyncScope,
+    target: DocumentSyncClientTarget,
+    request: DocumentSyncRequest,
+  ): Promise<DocumentSyncCommandResult<DocumentSyncResponse>>;
+  applyUpdate(
+    scope: DesktopDocumentSyncScope,
+    target: DocumentSyncClientTarget,
+    request: DocumentSyncApplyRequest,
+  ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>;
+  publishAwareness(
+    scope: DesktopDocumentSyncScope,
+    target: DocumentSyncClientTarget,
+    request: DocumentAwarenessPublishRequest,
+  ): Promise<DocumentSyncCommandResult<DocumentAwarenessPublishAck>>;
+  subscribeCanvasScene(
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneSubscribeRequest,
+  ): Promise<CanvasSceneSubscriptionCommandResult>;
+  syncCanvasScene(
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneSyncRequest,
+  ): Promise<CanvasSceneSyncCommandResult>;
+  applyCanvasSceneMutation(
+    target: DocumentSyncClientTarget,
+    request: CanvasSceneMutationRequest,
+  ): Promise<CanvasSceneMutationCommandResult>;
+}
 
 class MemoryDocumentRealtime implements MemoryRealtimePort {
   private readonly subscriptions = new Map<

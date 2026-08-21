@@ -91,225 +91,247 @@ function isSameHostRoute(
   );
 }
 
-export class BrowserRuntimeRegistry {
-  private readonly rendererSessions = new Map<string, StoredRendererSession>();
-  private readonly rendererInstanceIdByOwner = new Map<number, string>();
-  private readonly hosts = new Map<string, StoredHostRegistration>();
-  private readonly hostKeyByStorageId = new Map<string, string>();
-  private readonly pendingAttachments = new Map<string, BrowserAuthorizedAttachment>();
-  private readonly guestOwnership = new Map<number, BrowserAttachedGuestOwnership>();
-  private readonly now: () => number;
-  private readonly tokenFactory: () => string;
-
-  constructor(options: BrowserRuntimeRegistryOptions = {}) {
-    this.now = options.now ?? Date.now;
-    this.tokenFactory = options.tokenFactory ?? randomUUID;
-  }
-
-  registerRendererSession(
+export interface BrowserRuntimeRegistry {
+  readonly registerRendererSession: (
     input: BrowserRendererSessionRegistration,
-  ): BrowserRendererSessionRegistration {
-    const existingById = this.rendererSessions.get(input.rendererInstanceId);
-    if (
-      existingById &&
-      (existingById.ownerWebContentsId !== input.ownerWebContentsId ||
-        existingById.browserViewScopeId !== input.browserViewScopeId)
-    ) {
-      throw new Error("Renderer instance is already bound to another window");
-    }
-
-    const previousRendererId = this.rendererInstanceIdByOwner.get(input.ownerWebContentsId);
-    if (previousRendererId && previousRendererId !== input.rendererInstanceId) {
-      this.releaseRendererSession(previousRendererId);
-    }
-    this.rendererSessions.set(input.rendererInstanceId, {
-      ...input,
-      registeredAt: this.now(),
-    });
-    this.rendererInstanceIdByOwner.set(input.ownerWebContentsId, input.rendererInstanceId);
-    return input;
-  }
-
-  registerHost(
+  ) => BrowserRendererSessionRegistration;
+  readonly registerHost: (
     ownerWebContentsId: number,
     input: BrowserHostRegistration,
-  ): BrowserHostRegistrationResult {
-    const rendererSession = this.rendererSessions.get(input.rendererInstanceId);
-    if (!rendererSession) {
-      return { ok: false, reason: "renderer-session-missing" };
-    }
-    if (
-      rendererSession.ownerWebContentsId !== ownerWebContentsId ||
-      rendererSession.browserViewScopeId !== input.browserViewScopeId
-    ) {
-      return { ok: false, reason: "renderer-session-mismatch" };
-    }
-
-    const key = makeBrowserSidebarTabKey(input);
-    const storageOwnerKey = this.hostKeyByStorageId.get(input.browserStorageId);
-    if (storageOwnerKey && storageOwnerKey !== key) {
-      return { ok: false, reason: "owned-by-another-window" };
-    }
-    const current = this.hosts.get(key);
-    if (current && input.hostGeneration < current.hostGeneration) {
-      return { ok: false, reason: "generation-stale" };
-    }
-    if (
-      current &&
-      input.hostGeneration === current.hostGeneration &&
-      (input.rendererInstanceId !== current.rendererInstanceId ||
-        input.mountGeneration < current.mountGeneration ||
-        input.browserStorageId !== current.browserStorageId)
-    ) {
-      return { ok: false, reason: "generation-stale" };
-    }
-
-    const registration: StoredHostRegistration = {
-      ...input,
-      ownerWebContentsId,
-      pendingTeardown: false,
-      registeredAt: this.now(),
-    };
-    this.hosts.set(key, registration);
-    this.hostKeyByStorageId.set(input.browserStorageId, key);
-    return { ok: true, registration: input };
-  }
-
-  matchHost(
+  ) => BrowserHostRegistrationResult;
+  readonly matchHost: (
     ownerWebContentsId: number,
     input: BrowserSidebarHostRouteIdentity,
-  ): BrowserHostRouteMatchResult {
-    const rendererSession = this.rendererSessions.get(input.rendererInstanceId);
-    if (!rendererSession || rendererSession.ownerWebContentsId !== ownerWebContentsId) {
-      return { ok: false, reason: "renderer-session-missing" };
-    }
-    const host = this.hosts.get(makeBrowserSidebarTabKey(input));
-    if (!host) return { ok: false, reason: "host-missing" };
-    if (host.ownerWebContentsId !== ownerWebContentsId || !isSameHostRoute(host, input)) {
-      return { ok: false, reason: "host-mismatch" };
-    }
-    return { ok: true, registration: host };
-  }
-
-  authorizeAttachment(
+  ) => BrowserHostRouteMatchResult;
+  readonly authorizeAttachment: (
     ownerWebContentsId: number,
     input: BrowserSidebarHostRouteIdentity,
-  ): BrowserAttachmentAuthorizationResult {
-    const rendererSession = this.rendererSessions.get(input.rendererInstanceId);
-    if (!rendererSession || rendererSession.ownerWebContentsId !== ownerWebContentsId) {
-      return { ok: false, reason: "renderer-session-missing" };
-    }
-    const host = this.hosts.get(makeBrowserSidebarTabKey(input));
-    if (!host) return { ok: false, reason: "host-missing" };
-    if (host.pendingTeardown) {
-      return { ok: false, reason: "pending-teardown" };
-    }
-    if (host.ownerWebContentsId !== ownerWebContentsId || !isSameHostRoute(host, input)) {
-      return { ok: false, reason: "host-mismatch" };
-    }
-
-    const attachToken = this.tokenFactory();
-    const authorization: BrowserAuthorizedAttachment = {
-      ...host,
-      attachToken,
-      ownerWebContentsId,
-    };
-    this.pendingAttachments.set(attachToken, authorization);
-    return { ok: true, authorization };
-  }
-
-  consumeAuthorizedAttachment(
+  ) => BrowserAttachmentAuthorizationResult;
+  readonly consumeAuthorizedAttachment: (
     attachToken: string,
     ownerWebContentsId: number,
     guestWebContentsId: number,
-  ): BrowserAttachedGuestOwnership | null {
-    const authorization = this.pendingAttachments.get(attachToken);
-    this.pendingAttachments.delete(attachToken);
-    if (!authorization || authorization.ownerWebContentsId !== ownerWebContentsId) {
-      return null;
-    }
-    const ownership: BrowserAttachedGuestOwnership = {
-      ...authorization,
-      guestWebContentsId,
-    };
-    this.guestOwnership.set(guestWebContentsId, ownership);
-    return ownership;
-  }
+  ) => BrowserAttachedGuestOwnership | null;
+  readonly revokeAuthorizedAttachment: (attachToken: string) => void;
+  readonly getGuestOwnership: (guestWebContentsId: number) => BrowserAttachedGuestOwnership | null;
+  readonly markPendingTeardown: (identity: BrowserSidebarTabIdentity, pending: boolean) => void;
+  readonly releaseGuest: (guestWebContentsId: number) => void;
+  readonly releaseHost: (identity: BrowserSidebarTabIdentity) => void;
+  readonly releaseOwner: (ownerWebContentsId: number) => void;
+  readonly getDiagnosticSnapshot: () => {
+    readonly guests: number;
+    readonly hosts: number;
+    readonly pendingAttachments: number;
+    readonly rendererSessions: number;
+  };
+}
 
-  revokeAuthorizedAttachment(attachToken: string): void {
-    this.pendingAttachments.delete(attachToken);
-  }
+/**
+ * Owns the synchronous Browser host/guest identity state machine.
+ *
+ * The registry contains no physical resources. Its enclosing Browser Scope owns
+ * reachability, while Electron listener resources live in the scoped listener runtime.
+ */
+export function makeBrowserRuntimeRegistry(
+  options: BrowserRuntimeRegistryOptions = {},
+): BrowserRuntimeRegistry {
+  const rendererSessions = new Map<string, StoredRendererSession>();
+  const rendererInstanceIdByOwner = new Map<number, string>();
+  const hosts = new Map<string, StoredHostRegistration>();
+  const hostKeyByStorageId = new Map<string, string>();
+  const pendingAttachments = new Map<string, BrowserAuthorizedAttachment>();
+  const guestOwnership = new Map<number, BrowserAttachedGuestOwnership>();
+  const now = options.now ?? Date.now;
+  const tokenFactory = options.tokenFactory ?? randomUUID;
 
-  getGuestOwnership(guestWebContentsId: number): BrowserAttachedGuestOwnership | null {
-    return this.guestOwnership.get(guestWebContentsId) ?? null;
-  }
-
-  markPendingTeardown(identity: BrowserSidebarTabIdentity, pending: boolean): void {
+  const releaseHost = (identity: BrowserSidebarTabIdentity): void => {
     const key = makeBrowserSidebarTabKey(identity);
-    const host = this.hosts.get(key);
+    const host = hosts.get(key);
     if (!host) return;
-    this.hosts.set(key, { ...host, pendingTeardown: pending });
-  }
-
-  releaseGuest(guestWebContentsId: number): void {
-    this.guestOwnership.delete(guestWebContentsId);
-  }
-
-  releaseHost(identity: BrowserSidebarTabIdentity): void {
-    const key = makeBrowserSidebarTabKey(identity);
-    const host = this.hosts.get(key);
-    if (!host) return;
-    this.hosts.delete(key);
-    if (this.hostKeyByStorageId.get(host.browserStorageId) === key) {
-      this.hostKeyByStorageId.delete(host.browserStorageId);
+    hosts.delete(key);
+    if (hostKeyByStorageId.get(host.browserStorageId) === key) {
+      hostKeyByStorageId.delete(host.browserStorageId);
     }
-    for (const [token, pending] of this.pendingAttachments) {
+    for (const [token, pending] of pendingAttachments) {
       if (makeBrowserSidebarTabKey(pending) === key) {
-        this.pendingAttachments.delete(token);
+        pendingAttachments.delete(token);
       }
     }
-  }
+  };
 
-  releaseOwner(ownerWebContentsId: number): void {
-    const rendererInstanceId = this.rendererInstanceIdByOwner.get(ownerWebContentsId);
-    if (rendererInstanceId) this.releaseRendererSession(rendererInstanceId);
-    for (const [guestId, ownership] of this.guestOwnership) {
-      if (ownership.ownerWebContentsId === ownerWebContentsId) {
-        this.guestOwnership.delete(guestId);
-      }
-    }
-  }
-
-  getDiagnosticSnapshot(): {
-    guests: number;
-    hosts: number;
-    pendingAttachments: number;
-    rendererSessions: number;
-  } {
-    return {
-      guests: this.guestOwnership.size,
-      hosts: this.hosts.size,
-      pendingAttachments: this.pendingAttachments.size,
-      rendererSessions: this.rendererSessions.size,
-    };
-  }
-
-  private releaseRendererSession(rendererInstanceId: string): void {
-    const renderer = this.rendererSessions.get(rendererInstanceId);
+  const releaseRendererSession = (rendererInstanceId: string): void => {
+    const renderer = rendererSessions.get(rendererInstanceId);
     if (!renderer) return;
-    this.rendererSessions.delete(rendererInstanceId);
-    if (this.rendererInstanceIdByOwner.get(renderer.ownerWebContentsId) === rendererInstanceId) {
-      this.rendererInstanceIdByOwner.delete(renderer.ownerWebContentsId);
+    rendererSessions.delete(rendererInstanceId);
+    if (rendererInstanceIdByOwner.get(renderer.ownerWebContentsId) === rendererInstanceId) {
+      rendererInstanceIdByOwner.delete(renderer.ownerWebContentsId);
     }
-    for (const host of [...this.hosts.values()]) {
+    for (const host of [...hosts.values()]) {
       if (host.rendererInstanceId === rendererInstanceId) {
-        this.releaseHost(host);
+        releaseHost(host);
       }
     }
-    for (const [token, pending] of this.pendingAttachments) {
+    for (const [token, pending] of pendingAttachments) {
       if (pending.rendererInstanceId === rendererInstanceId) {
-        this.pendingAttachments.delete(token);
+        pendingAttachments.delete(token);
       }
     }
-  }
+  };
+
+  return {
+    registerRendererSession(input) {
+      const existingById = rendererSessions.get(input.rendererInstanceId);
+      if (
+        existingById &&
+        (existingById.ownerWebContentsId !== input.ownerWebContentsId ||
+          existingById.browserViewScopeId !== input.browserViewScopeId)
+      ) {
+        throw new Error("Renderer instance is already bound to another window");
+      }
+
+      const previousRendererId = rendererInstanceIdByOwner.get(input.ownerWebContentsId);
+      if (previousRendererId && previousRendererId !== input.rendererInstanceId) {
+        releaseRendererSession(previousRendererId);
+      }
+      rendererSessions.set(input.rendererInstanceId, {
+        ...input,
+        registeredAt: now(),
+      });
+      rendererInstanceIdByOwner.set(input.ownerWebContentsId, input.rendererInstanceId);
+      return input;
+    },
+
+    registerHost(ownerWebContentsId, input) {
+      const rendererSession = rendererSessions.get(input.rendererInstanceId);
+      if (!rendererSession) {
+        return { ok: false, reason: "renderer-session-missing" };
+      }
+      if (
+        rendererSession.ownerWebContentsId !== ownerWebContentsId ||
+        rendererSession.browserViewScopeId !== input.browserViewScopeId
+      ) {
+        return { ok: false, reason: "renderer-session-mismatch" };
+      }
+
+      const key = makeBrowserSidebarTabKey(input);
+      const storageOwnerKey = hostKeyByStorageId.get(input.browserStorageId);
+      if (storageOwnerKey && storageOwnerKey !== key) {
+        return { ok: false, reason: "owned-by-another-window" };
+      }
+      const current = hosts.get(key);
+      if (current && input.hostGeneration < current.hostGeneration) {
+        return { ok: false, reason: "generation-stale" };
+      }
+      if (
+        current &&
+        input.hostGeneration === current.hostGeneration &&
+        (input.rendererInstanceId !== current.rendererInstanceId ||
+          input.mountGeneration < current.mountGeneration ||
+          input.browserStorageId !== current.browserStorageId)
+      ) {
+        return { ok: false, reason: "generation-stale" };
+      }
+
+      const registration: StoredHostRegistration = {
+        ...input,
+        ownerWebContentsId,
+        pendingTeardown: false,
+        registeredAt: now(),
+      };
+      hosts.set(key, registration);
+      hostKeyByStorageId.set(input.browserStorageId, key);
+      return { ok: true, registration: input };
+    },
+
+    matchHost(ownerWebContentsId, input) {
+      const rendererSession = rendererSessions.get(input.rendererInstanceId);
+      if (!rendererSession || rendererSession.ownerWebContentsId !== ownerWebContentsId) {
+        return { ok: false, reason: "renderer-session-missing" };
+      }
+      const host = hosts.get(makeBrowserSidebarTabKey(input));
+      if (!host) return { ok: false, reason: "host-missing" };
+      if (host.ownerWebContentsId !== ownerWebContentsId || !isSameHostRoute(host, input)) {
+        return { ok: false, reason: "host-mismatch" };
+      }
+      return { ok: true, registration: host };
+    },
+
+    authorizeAttachment(ownerWebContentsId, input) {
+      const rendererSession = rendererSessions.get(input.rendererInstanceId);
+      if (!rendererSession || rendererSession.ownerWebContentsId !== ownerWebContentsId) {
+        return { ok: false, reason: "renderer-session-missing" };
+      }
+      const host = hosts.get(makeBrowserSidebarTabKey(input));
+      if (!host) return { ok: false, reason: "host-missing" };
+      if (host.pendingTeardown) {
+        return { ok: false, reason: "pending-teardown" };
+      }
+      if (host.ownerWebContentsId !== ownerWebContentsId || !isSameHostRoute(host, input)) {
+        return { ok: false, reason: "host-mismatch" };
+      }
+
+      const attachToken = tokenFactory();
+      const authorization: BrowserAuthorizedAttachment = {
+        ...host,
+        attachToken,
+        ownerWebContentsId,
+      };
+      pendingAttachments.set(attachToken, authorization);
+      return { ok: true, authorization };
+    },
+
+    consumeAuthorizedAttachment(attachToken, ownerWebContentsId, guestWebContentsId) {
+      const authorization = pendingAttachments.get(attachToken);
+      pendingAttachments.delete(attachToken);
+      if (!authorization || authorization.ownerWebContentsId !== ownerWebContentsId) {
+        return null;
+      }
+      const ownership: BrowserAttachedGuestOwnership = {
+        ...authorization,
+        guestWebContentsId,
+      };
+      guestOwnership.set(guestWebContentsId, ownership);
+      return ownership;
+    },
+
+    revokeAuthorizedAttachment(attachToken) {
+      pendingAttachments.delete(attachToken);
+    },
+
+    getGuestOwnership(guestWebContentsId) {
+      return guestOwnership.get(guestWebContentsId) ?? null;
+    },
+
+    markPendingTeardown(identity, pending) {
+      const key = makeBrowserSidebarTabKey(identity);
+      const host = hosts.get(key);
+      if (!host) return;
+      hosts.set(key, { ...host, pendingTeardown: pending });
+    },
+
+    releaseGuest(guestWebContentsId) {
+      guestOwnership.delete(guestWebContentsId);
+    },
+
+    releaseHost,
+
+    releaseOwner(ownerWebContentsId) {
+      const rendererInstanceId = rendererInstanceIdByOwner.get(ownerWebContentsId);
+      if (rendererInstanceId) releaseRendererSession(rendererInstanceId);
+      for (const [guestId, ownership] of guestOwnership) {
+        if (ownership.ownerWebContentsId === ownerWebContentsId) {
+          guestOwnership.delete(guestId);
+        }
+      }
+    },
+
+    getDiagnosticSnapshot() {
+      return {
+        guests: guestOwnership.size,
+        hosts: hosts.size,
+        pendingAttachments: pendingAttachments.size,
+        rendererSessions: rendererSessions.size,
+      };
+    },
+  };
 }

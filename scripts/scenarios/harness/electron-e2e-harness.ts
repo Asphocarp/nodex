@@ -118,7 +118,13 @@ const forceStopApplicationProcess = (child: ReturnType<ElectronApplication["proc
 export const stopNodexElectronApplication = async (
   application: ElectronApplication,
 ): Promise<void> => {
-  const child = application.process();
+  let child: ReturnType<ElectronApplication["process"]>;
+  try {
+    child = application.process();
+  } catch {
+    // A normal app.quit() may close Playwright's Main connection before teardown observes it.
+    return;
+  }
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
   try {
     await application.evaluate(({ app }) => {

@@ -95,7 +95,7 @@ The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library
 | Window layout, owner-scoped Scenes, surface placement                   | Renderer Window Session App aggregate                                        | Main persists the revisioned Window Session catalog                                                                                              |
 | Browser guests, Browser Use, MCP App guests, Terminal processes         | Electron Main runtime aggregates                                             | Renderer holds presentation descriptors and host bindings only                                                                                   |
 | Git repository live-read state                                          | Main-owned Git worker process                                                | Typed Main/preload bus and renderer query projections                                                                                            |
-| Preferences, managed asset files, logs, OS notifications                | Electron Main local/OS adapters                                              | Typed renderer IPC; durable semantic content remains in Core                                                                                     |
+| Preferences, managed asset files, logs, OS notifications                | Electron Main local/OS adapters                                              | Typed renderer IPC; managed assets use immutable atomic publication outside backup staging, while durable semantic content remains in Core       |
 
 Authority and presentation are intentionally different. A Scene can present a Page without owning it; a renderer cache can display a Database window without authorizing it; Main can relay a Codex document without becoming its visible writer.
 
@@ -132,7 +132,7 @@ Store formats and migration sequences are implementation/recovery contracts, not
 
 [`src/main`](src/main) owns the non-transactional desktop boundary:
 
-- Core selection, authenticated connection, compatibility checks, supervision, and recovery through [`src/main/core-client`](src/main/core-client).
+- Core transport selection, authenticated connection, and compatibility checks through [`src/main/core-client`](../src/main/core-client); process-lifetime supervision and recovery through Effect [`CoreAuthority`](../src/main/core-runtime/CoreAuthority.ts).
 - Trusted identity binding and strict mapping between renderer/Host contracts and Core Module contracts.
 - BrowserWindow, preload, IPC, application menus, deep links, clipboard, notifications, assets, logs, and platform integration.
 - Codex app-server lifecycle, request routing, runtime configuration, and external agent execution.
@@ -141,11 +141,276 @@ Store formats and migration sequences are implementation/recovery contracts, not
 
 Main is an Adapter, coordinator, and runtime host. It may bind Profile/Library/Project/Session identity, perform host preflight, and coordinate external effects around a Core command. It must not open SQLite, reconstruct a semantic transaction, infer authorization from renderer state, or provide a fallback data authority when Core is unavailable.
 
-Selected Main lifecycle modules use Effect 4 as an internal control plane for scoped resources, structured concurrency, cancellation, ordered queues, retry schedules, and shutdown. One process-lifetime composition root acquires the explicitly constructed Browser, Terminal, Codex, and legacy Main runtime after Electron readiness. Application quit, startup rollback, and external runtime shutdown all close that same idempotent scope; individual physical Core streams and Codex app-server sessions remain subordinate resources rather than parallel process owners.
+Electron Main is one Effect 4 application kernel. [`MainEntry`](../src/main/app/MainEntry.ts) is the Main-process Node runtime root; [`MainApp`](../src/main/app/MainApp.ts) owns ready, bootstrap handoff, shutdown admission, and the process Scope; [`MainDesktopRuntimeLive`](../src/main/app/MainDesktopRuntimeLive.ts) composes the Core, Codex, Window, IPC, and host Layers. Startup rollback and every normal or authority-driven quit close that same Scope. Physical Core generations, Codex app-server sessions, windows, workers, PTYs, file watchers, and callback fibers are subordinate scoped resources rather than parallel lifecycle owners. Worker and standalone script processes have their own explicitly allowlisted `NodeRuntime.runMain` entries and never share Main's runtime.
 
-Compatibility facades keep their public Promise, callback, EventEmitter, and AbortSignal interfaces; Effect execution belongs only to the process composition root, tests, or the shared compatibility runtime. Renderer, preload, shared contracts, and generated wire protocols remain Effect-free, while unstable Effect APIs are localized behind app-owned adapters. [ADR 0047](docs/adr/0047-effect-control-plane-and-runtime-boundaries.md) owns this frontier.
+Native filesystem watching is one scoped Stream Adapter around synchronous `fs.watch`; readiness,
+changes, and typed failure flow through the Stream, and stream finalization closes the native handle.
+Workspace-file subscriptions are owner-and-subscription-keyed fibers, while a zero-idle `LayerMap`
+shares one physical watch per renderer and exact path until its final subscriber releases. Each
+subscription fiber owns its renderer-destruction listener and physical-watch lease, so explicit stop,
+renderer destruction, acquisition failure, and Main Scope release interrupt the same resource
+without IPC-owned lifecycle registries.
 
-Long-lived Core adapters target the process-lifetime authority supervisor, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. The lifecycle decision is detailed in [ADR 0034](docs/adr/0034-core-generations-are-supervised-runtime-sessions.md).
+First-run Project creation belongs to one Main-scoped `InitialProjectBootstrapRuntime`. One
+Semaphore owns the complete recovery-journal, collision-safe source claim, idempotent Core commit,
+Window Session presentation, and marker cleanup transaction; there is no nested Promise tail in the
+filesystem Adapter. Scope close rejects queued attempts and drains the already admitted transaction.
+The Adapter performs only durable journal/marker filesystem operations, while Effect Clock supplies
+quarantine identity and Core remains the Project/Page transaction authority. Packaged-runtime
+verification builds the same Module in a one-shot script Scope instead of carrying a second bootstrap
+implementation.
+
+Foreground Appshot discovery is one process-scoped host runtime. Windows only
+contribute focus observations; closing a window or Main releases its listeners,
+target handles, in-flight helper read, and polling fiber through that runtime's
+Scope. One immutable `Ref` owns focus and target state, concurrent reads share
+one cached Effect, and a `FiberHandle` starts or interrupts foreground polling.
+The native Adapter owns only helper execution, screen metadata, and Electron
+capture calls; it has no scheduler or application state. Renderer IPC borrows
+the runtime and never owns a second cache or scheduler.
+
+Remote Hosted PiP keeps its native presentation poll in one scoped Effect fiber. The same runtime
+acquires a synchronous controller whose closure owns native host state, native callback registrations,
+and every window focus/closed and WebContents destroyed listener. Window removal releases its exact
+registration; Main Scope release first closes callback admission, removes all remaining listeners,
+unregisters every native host and presentation, clears the five native handlers, and stops the native
+content host. The controller has no public `dispose()` or independent lifecycle. Gateway notifications
+and Browser Use refresh signals enter through scoped Stream consumers. Preference file access is a
+stateless synchronous Adapter required by the native resize callback, not a cached service owner.
+
+Browser Use sessions are a process-scoped keyed resource family. An infinite-idle
+`LayerMap` owns one IAB API, native pipe server, CDP listener, and turn sequencer per
+captured route generation; session release, renderer-owner release, provisional-route
+replacement, and Main shutdown invalidate that exact generation. Route mutation is
+single-writer and every turn completes through the session's own semaphore. Browser
+Use application Modules exchange typed Effects; Promise exists only at the sidebar
+route callback and native pipe/API adapters, where callback fibers belong to the
+session or installation Scope. The native-pipe factory registers its finalizer before
+listening and returns only `pipePath` plus broadcast capability: the session Scope
+directly owns the net server, accepted sockets, callback admission, and exact Unix
+socket file, with no `start()`, `close()`, or disposable server class. Native-pipe
+commands pass through the session's single command admission semaphore. IAB deadlines,
+capture polling sleeps, cursor arrival, and WebContents attachment waits borrow the
+session Effect clock and callback runtime, so closing the session interrupts waits and
+removes registrations. The scoped IAB factory returns only command and observation
+capabilities: its internal synchronous state machine retains Electron/CDP callback
+causality but exposes no `dispose()` or independent lifecycle. Its Scope fences later
+commands, wakes cursor waiters, detaches CDP listeners, and releases every controlled tab;
+the state machine contains no EventEmitter, timer, or detached Promise waiter.
+
+Browser history restoration is a Sidebar-scoped keyed resource, not a Promise registry on
+the presentation state machine. Electron requires `navigationHistory.restore()` to begin
+synchronously during `did-attach-webview`, so the restore runtime starts each keyed fiber in
+that callback turn and retains its result until the exact guest consumes or releases it.
+Guest destruction and Sidebar shutdown synchronously revoke the generation before interrupting
+the fiber. Because Electron's underlying Promise cannot be canceled, every post-await state
+commit revalidates that generation; a late native completion can therefore neither republish
+the guest nor overwrite its released tab snapshot.
+
+Browser page emulation is a Sidebar-scoped keyed resource family. One `LayerMap` entry owns the
+debugger session for each exact guest generation, and one semaphore serializes device metrics,
+touch, and color-scheme commands for that guest. Guest release closes admission before invalidating
+the entry; invalidation or Sidebar Scope close interrupts pending commands and deterministically
+detaches the debugger. CDP Promises exist only at the Electron adapter projection, while deadlines
+and serialization remain inside the scoped runtime.
+
+Browser site-status policy is a profile-independent Main-scoped Effect runtime, not an HTTP client
+or a Sidebar-owned cache. It borrows authenticated requests from `ChatGptDesktop`, keeps only valid
+hostname decisions in a `Ref`, and coalesces each hostname's in-flight lookup in a scoped
+`FiberMap`; malformed and failed responses fail open without entering the cache. Browser Sidebar
+receives only the pure cached decision required to construct a synchronous context menu, while the
+Browser presentation coordinator invokes the typed decision Effect directly before admitting
+comment-mode commands. Main Scope close interrupts all pending lookups.
+
+Browser Use approval policy is owned by the same Browser Profile but remains a distinct typed
+runtime. A single semaphore serializes policy mutations; each mutation builds an immutable next
+state, atomically publishes TOML through a synced staging file and directory rename, and only then
+commits the in-memory `Ref`. Browser Use borrows the synchronous policy projection, while renderer
+IPC invokes the mutation Effects directly. Corrupt policy files are quarantined during acquisition;
+there is no Promise write queue or second policy store in the Sidebar graph.
+
+Browser downloads are another Browser Profile-scoped runtime. Electron's synchronous
+`will-download` callback performs identity validation, one-shot agent-grant consumption, and save
+path assignment before returning; accepted progress then enters a scoped FiberSet. One immutable
+state projection owns live items and history, and one serialized Effect lane atomically publishes
+the bounded JSON history. Scope release removes session ingress, interrupts callback fibers, clears
+ephemeral grants and live handles, and leaves completed files untouched. IPC calls typed download
+Effects directly; the Browser presentation coordinator invokes the same typed clear-history Effect
+for the unified browsing-data command.
+
+Browser credentials and contact information share one Browser Profile-scoped Effect runtime. Its
+immutable candidate `Ref` and single semaphore own candidate expiry, renderer-owner release, and all
+credential/contact mutations; Profile release clears candidate plaintext. The encrypted vault is a
+stateless synchronous security adapter for Electron `safeStorage` and atomic filesystem publication,
+not an application service or a second write queue. Renderer and guest IPC invoke the runtime's typed
+Effects directly, and decrypted values are sent only after revalidating the exact guest and HTTP(S)
+origin.
+
+Browser Profile import is a separate Profile-scoped runtime. The Main bootstrap supplies immutable
+platform, home-directory, environment, and helper-path inputs; discovery never rereads ambient
+configuration. One semaphore admits an import only after rediscovering and canonicalizing its source,
+and the helper process is a scoped `ChildProcessSpawner` resource with bounded output and an Effect
+deadline. Imported cookies enter only Electron's Profile cookie store, while passwords enter the same
+credential mutation lane used by every other Browser credential write. Neither the helper nor the
+importer owns a second vault, write queue, child-process registry, or timer.
+
+Browser extension and site-information operations are stateless Profile capabilities, not a generic
+service aggregate. The Profile exposes their typed Effects directly: filesystem/Electron extension
+failures and cookie-store failures remain in the Effect channel until IPC maps them once. Synchronous
+capability checks stay pure, while Electron's Promise APIs are confined to the operation Adapter; no
+Promise provider object or duplicate Profile facade owns these calls.
+
+Browser local-server display preferences are Profile-owned state, not a renderer or IPC cache. Their
+runtime loads and validates one bounded JSON file, quarantines malformed input, and serializes partial
+updates through one semaphore. A mutation atomically publishes and fsyncs the complete next document
+before committing its `Ref`, so concurrent partial updates cannot overwrite one another and a failed
+write cannot advance the visible snapshot. IPC reads and mutates this runtime directly.
+
+Browser presentation has one fixed Effect coordinator over the Sidebar state owner, Browser Profile,
+Browser site-status policy, and Browser Use. Renderer command ingress crosses that interface once:
+site policy, download history, and route capture are typed Context dependencies rather than
+late-installed setters or callback bags.
+Browser Use owns captured-route promotion and owner release as part of its session capability. Browser
+Sidebar projections still use one typed event hub inside the Sidebar Main Scope; renderer IPC, Browser
+Use, and Remote Hosted PiP consume independent Streams whose fibers start before their owning Layer
+reports ready and close with that Scope. The only callback observation capability is the exact
+`webviewAttached` subscription required by the IAB Promise adapter to close its check/register race;
+the hub closes and clears that registration with the same Scope. `BrowserSidebarService` is not an
+EventEmitter and owns no projection subscriber or disposer list. Browser host/guest identity is a
+synchronous functional state machine with no physical resource handles. A separate Sidebar-scoped
+listener runtime owns the exact listener release for every attached guest; detach releases that guest
+immediately, while Main Scope close releases all remaining listeners and replaces each live guest's
+window-open callback with a deny-only handler. The presentation state machine therefore has no
+`dispose()` lifecycle of its own.
+
+Local-server thumbnails belong to the Browser Sidebar runtime rather than the Sidebar state machine.
+An Effect Cache provides bounded TTL and same-URL single-flight, a semaphore bounds capture
+concurrency, and a scoped FiberSet owns queued and active captures. Each hidden BrowserWindow is an
+`acquireUseRelease` resource whose navigation and capture deadlines use the Effect clock; interruption
+removes listeners and destroys the window. Sidebar state performs only Project/URL admission and emits
+tracked invalidations, while renderer IPC executes the admitted capture Effect directly.
+
+Local-server discovery is a separate Browser Sidebar-owned runtime. Terminal output enters through the
+Main composition root only after its Project Session is resolved; one immutable per-Project `HashMap`
+projection and semaphore own discovered routes, hidden identities, refresh generations, and cleanup.
+Refresh probes borrow `ElectronNet`, whose Adapter forwards Effect interruption to Electron's request
+signal, and use an Effect deadline rather than a timer. A PubSub stream is the sole renderer update
+source, latest-generation fencing rejects stale probe results, and Project lifecycle cleanup deletes the
+same runtime projection. The Sidebar class owns neither discovery maps nor probe work.
+
+Browser history and restorable page snapshots are also Browser Sidebar-owned repositories. They load
+and validate bounded files during runtime acquisition, keep one immutable `HashMap` projection each,
+and serialize durable-first mutations through one semaphore per repository. Malformed or oversized
+documents are quarantined; real filesystem failures fail acquisition or mutation instead of becoming
+an empty history. Renderer history reads and deletes invoke typed Effects directly. Electron navigation
+callbacks temporarily borrow scoped Promise projections, so their writes remain children of the Main
+Scope and cannot outlive the repository owner.
+
+The MCP App sandbox runtime Scope owns both the synchronous Electron controller and its protocol
+runtime. A scoped factory installs the sole guest-message/default-session ingress before returning;
+it owns every configured partition permission, download, request-header and custom-protocol handler,
+every owner/guest registration, and every pending attachment lease. Creating a per-window host
+immediately binds it to owner WebContents destruction, without exposing `install()` or `dispose()` to
+the Window runtime. Electron globals and application/platform identity enter through one platform
+Adapter, so request-header policy is pure and does not read ambient process state. Scope release first
+closes controller admission, detaches all global/partition/owner ingress and closes attached guests.
+The protocol runtime then interrupts bounded Cache/FiberMap fetch and prewarm work and invalidates
+responses. Pending attachment expiry belongs to a scoped FiberSet rather than a controller timer. No
+protocol cache, handler, guest callback, or expiry task survives runtime replacement.
+
+The process-scoped Computer Use Effect Module owns readiness, the current availability projection,
+native-pipe lifetime, exact managed-service PID identity, and service validation time. One
+readiness semaphore and one service semaphore serialize those two protocols; validation sleeps on
+the Effect clock. Lazy native-pipe acquisition is provided with the Module's owning Scope, so a late
+result racing Main closure is released immediately and cannot be committed. Scope release atomically
+closes admission, fences late platform results, waits for active transitions, and terminates an exact
+managed helper when policy requires it; it does not retain or manually close a parallel server
+handle. The Electron platform Adapter owns only atomic helper/config filesystem operations,
+native-addon calls, process inspection, and the pipe's scoped Promise callback projection; it has no
+queue, timer, cached result, PID, or disposer state.
+
+Project lifecycle mutation and admission of Project-owned host work share one Main-scoped,
+Project-keyed coordination runtime. Codex turns, Terminal sessions, and background runtime
+actions revalidate the durable Project lifecycle inside the same exclusive boundary used by
+archive and restore. No feature owns a parallel per-Project lock map; projectless work remains
+independent, and Main Scope closure interrupts admitted or queued work. Composite application
+transactions may re-enter the same Project gate only from the exact owning fiber; a forked child
+inherits no lock authority and queues normally. This permits deep Modules to compose smaller
+Project-owned commands without either releasing the lifecycle fence between commits or exposing an
+unsafe “already locked” bypass API. `ProjectArchiveBlockers` derives the archive gate from the
+canonical Conversation aggregate, durable Project Session projection, background-process runtime,
+and Terminal runtime. `ProjectLifecycleCommands` owns the double blocker read, durable lifecycle
+commit, and best-effort runtime cleanup under that gate; Project IPC only authorizes and delegates.
+
+Core application invalidation enters one process-scoped database notification runtime. That
+runtime is the typed publication capability: it performs synchronous renderer projection itself
+and exposes project-session invalidation as a scoped Stream for in-process consumers. Core
+projection borrows the publisher directly; Sidebar sync consumes the Stream before Core ingress
+starts. There is no EventEmitter, listener-registration API, or import-created local-store bus;
+Scope release fences publication, shuts the PubSub, and interrupts every subscriber.
+
+Git application actions enter the Main-scoped `GitActions` Module. It composes the typed Git worker,
+`GitActionOperationRuntime`, and `CodexGitMessageGeneration` directly: no Promise worker port,
+callback runtime, or parallel mutation helper exists. A scoped `FiberMap` owns commit, push, and
+generated commit/pull-request-message work by renderer operation identity; replacement or explicit
+cancellation interrupts the exact child, while the waiting IPC fiber observes its `Exit` and
+returns the stable canceled domain result. Codex-backed text generation routes through the selected
+host on `CodexGateway`'s narrow raw-extension seam and validates the untrusted response before it
+reaches Git policy. Scope release closes admission and interrupts every remaining action.
+
+Local Environment settings are a filesystem-backed host Module, not Codex conversation state.
+Its scoped runtime resolves Project workspace authority through Core, owns one low-frequency config
+mutation lane plus the physical write fibers, and exposes the five renderer operations through a
+dedicated trusted IPC adapter. A caller may stop waiting after a write is admitted, but the durable
+filesystem transaction remains uninterruptible and Scope-owned; release rejects all new reads and
+writes, interrupts queued mutations, and drains the active write before returning. The filesystem helper is stateless; no application service owns a Promise tail or parallel shutdown path.
+
+Renderer persisted atoms and Codex client-thread identity aliases share one
+Main-owned `PersistedAtomStore`. The repository owns its in-memory projection
+and process-local event revision; renderer ingress and Codex application logic
+receive the same instance explicitly. Rebuilding the Main application owner
+reopens durable values from disk with a fresh delivery revision and never
+inherits a module cache or test path override.
+
+Interactive login-shell discovery is owned once per Main or worktree-worker lifetime. The Main
+bootstrap snapshots its inherited environment, process platform, and home directory into immutable
+configuration;
+host Modules do not reread ambient `process.env` or `process.platform`. The scoped
+shell-environment runtime keeps one lazy discovery child in a `FiberHandle`; individual callers may
+stop waiting without canceling shared discovery, while release interrupts the child and rejects
+later admission. Each worker entry snapshots its inherited environment and platform once, then
+constructs the same runtime in its own root Scope. There is no cached Promise, AbortController
+registry, manual `close()`, or environment cache shared across a process or Scope.
+
+Nodex Agent dynamic tools receive their Core-backed registry explicitly from the Main composition
+root. The protocol validator remains a pure helper and can report stale catalogs before a registry
+is available, but production execution never discovers authority through a module setter or
+import-time active-service slot.
+
+Promise, callback, EventEmitter, AbortSignal, and synchronous IPC shapes are allowed only at explicit external Adapter seams. Application Modules expose Effect values, typed state, and Stream/PubSub observation; renderer, preload, shared contracts, and generated wire protocols remain Effect-free. Synchronous preload contracts use a separate scoped pure adapter because Electron requires a result before an Effect fiber can run. [ADR 0048](adr/0048-effect-main-application-kernel.md) defines the completed Main application-kernel topology and frontier; the [external frontier ledger](effect-external-frontiers.md) records the permitted adapter categories and their constraints.
+
+Codex Electron and app-server ingress convert external callback, Promise, and cancellation shapes
+once at their scoped platform boundary. Operations coupled to renderer lifetime combine the exact
+`WebContents` destruction signal with Main Scope interruption, so renderer disposal and application
+shutdown cancel the admitted physical work rather than merely abandoning an IPC result.
+
+The Effect architecture gate parses production sources rather than relying on
+path conventions alone. It rejects Effect imports in frontiers, unstable APIs
+outside platform seams, runtime execution outside allowlisted entries, and
+ambient process configuration or unscoped Promise/timer/AbortController/
+EventEmitter construction inside application Module roots. The companion
+Oxlint rule also covers `.test-support.ts`, so support code cannot hide a manual
+runtime from `@effect/vitest` lifecycle checks.
+
+Long-lived Core adapters target the process-scoped Effect `CoreAuthority`, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. One-generation scenario and integration harnesses are bounded transport fixtures, not alternate recovery owners. The lifecycle decision is detailed in the [Core generation ADR](adr/0041-core-generations-are-supervised-runtime-sessions.md).
+
+Each logical Document or Canvas live subscription is a `DocumentLiveRuntime`
+lease under the Main Scope. That Module owns physical opening, bounded callback
+ingress, serialized delivery, connection barriers, retry time, replacement and
+release. The Core client layer exposes only a Promise-shaped renderer Adapter;
+it does not own another timer, AbortController, delivery tail or recovery loop.
+Compatibility and Store-identity failures remain terminal policy decisions at
+the transport classifier rather than generic retry outcomes.
 
 Main propagates renderer cancellation across IPC and the Core transport using the same request identity. Its transport timer is only a short liveness grace after Core's declared semantic deadline; it is not a competing execution deadline and cannot classify an ambiguous response loss as generation failure.
 
@@ -196,13 +461,15 @@ sequenceDiagram
 
 Core writes the semantic mutation, immutable receipt, physical evidence, Document references, visibility changes, and per-scope Projection effects in one transaction represented by one LocalCommit identity. Command authorization and delivery authorization are separate Core decisions. Main routes Core-authored audiences; it cannot broaden them.
 
-The initiating renderer admits its authorized apply-response delivery before the feature Promise resolves. Other renderers converge through the scoped live broker and durable replay. Apply delivery and later stream delivery are complementary copies of the same committed fact, not competing authorities.
+The initiating renderer admits its authorized apply-response delivery before the feature Promise resolves. Other renderers converge through the scoped live broker and durable replay. Main's Projection delivery capability directly composes Core authority/session access, application projection, Document sessions, LocalCommit delivery, and renderer audience ownership; the composition root does not reconstruct causal delivery as a callback bag or borrow a legacy data-authority client. LocalCommit owns Manifest/resource deduplication, exact-key causal Queue actors, shared completion signals, bounded pending work, retry, and checkpoint gating as children of the Main Scope; an interrupted tail waiter never becomes the physical delivery owner. The Projection live Module separately owns the multiplexed physical lease, replacement attempts, callback ingress, backoff, and release. Its audience Module atomically owns renderer subscriptions, Core-issued recipient leases, ACK correlation, reset recovery, and the desired-scope projection; audience membership does not own a physical Core connection. Apply delivery and later stream delivery are complementary copies of the same committed fact, not competing authorities.
 
 Database-scoped Page-key namespace reads and prefix mutations belong to the Database Module. Project creation may provide the primary Database's initial prefix inside its aggregate transaction; after creation, Project surfaces only adapt the primary Database coordinate and do not copy namespace revision into Project state. A prefix rename authors bounded Database/View canonical-read floors plus `PageDetailDatabase` delivery in one LocalCommit, so mounted Views and Page Detail converge without advancing Project binding revision or enumerating Page patches.
 
 Renderer projections advance by an exact Core-authored scope coordinate. A complete contiguous patch may apply synchronously. Revision gaps, missing patches, integrity conflicts, resets, incomplete windows, or authorization loss fence stale state and schedule a bounded canonical read. The global LocalCommit sequence is replay progress, never a projection version.
 
 Exact Document live sync is resource-addressed and separate from the global durable ledger. Opening a Document establishes an authorized live barrier, performs canonical state-vector or scene synchronization, and then admits later live effects. It does not replay LocalCommit history from genesis.
+
+The Main-scoped Document Session Module is the single owner of Document/Canvas adapters, admitted subscriptions, pending owner reservations, delivery cursors, owner bindings, and renderer-destruction listeners. Scope release first closes admission, then cancels pending opens, closes every physical live lease, removes exact target listeners, and clears projection state. IPC and Projection delivery compose its typed Effects; only the Core transport and Electron handler edges adapt to Promises or callbacks.
 
 The complete recovery and authorization contracts live in [Reliability](docs/RELIABILITY.md), [Security](docs/SECURITY.md), [ADR 0024](docs/adr/0024-durable-projection-invalidation.md), and [ADR 0040](docs/adr/0040-local-commit-authority-and-causal-structural-mutations.md).
 
@@ -214,6 +481,13 @@ The public identity of an authorized Document observation is `(libraryId, access
 
 A mounted surface first resolves an authorized descriptor and completes its canonical synchronization barrier. Multiple surfaces may share the same process-local Document session while retaining independent editor, undo, cursor, camera, and presence state. Surface presentation never becomes durable content authority.
 
+Canvas presence is an ephemeral Main projection, not durable Core state. The
+Document Session Module borrows one `CanvasPresenceHub` from `CanvasPresenceRuntime`;
+the hub is a synchronous state machine with no timer or process lifetime of its
+own. Its TTL sweep is one scoped Effect fiber, and closing the Main Scope clears
+the hub after interrupting that fiber. A Document adapter must never construct an
+autonomous presence scheduler.
+
 Before a structural command consumes a mounted Document's shape, the surface flushes pending durable updates and supplies an exact head token. Core rechecks the token while planning and applying the mutation. Ownership, membership, host-shell changes, Document updates, projections, and the receipt then commit atomically. Response loss is recovered by exact receipt replay or canonical synchronization, not by reconstructing the transaction in Electron.
 
 Any editor selection containing an owning Page, Canvas, or Database is one Library structural edit; the complete selected forest and ownership closure stay outside generic Document mutation. Core owns delete, clipboard capture/paste, duplicate, move, retention, and forward-inverse recipes. Native clipboard data carries only a bounded capability to an immutable Core bundle. Each editor surface merges structural tokens with its own local Yjs history in user-action order and releases tokens when they leave reachable history. The user-visible contract is [NFM Editor Structural Editing Behavior](docs/product-specs/nfm-editor-structural-editing-behavior.md), and the ownership decision is [ADR 0048](docs/adr/0048-typed-owner-structural-editing.md).
@@ -222,60 +496,132 @@ Document identity, owner shells, relocation, history, and Canvas decisions are r
 
 ### Codex conversation ownership
 
-The pinned Codex-compatible app-server is the raw wire-contract authority. Main validates generated JSON-RPC envelopes and owns process lifecycle, request/response plumbing, external execution, and routing. Core Workspace owns Nodex's durable Project, Session, Thread metadata, execution context, sidebar order, links, and the atomic Project/projectless default-draft Session slots defined by [ADR 0044](docs/adr/0044-durable-default-draft-chats.md); it does not store a second full transcript or transcript search index.
+Codex has four distinct authorities that must not collapse into one another:
 
-Core also persists the app-server Thread recency clock separately from metadata update clocks.
-Main may advance that clock only from an observed app-server `recencyAt`, falling back to the observed source `updatedAt` when the protocol omits recency.
-Opening or reading a Session and changing Thread title, status, pin, archive, order, or execution location preserve conversation recency.
-Core uses that durable clock for recent ordering, while a Threadless Session has no conversation recency.
+- The pinned Codex-compatible app-server owns the generated wire contract and its transcript
+  history.
+- Rust Core Workspace owns durable Nodex Project, Session, and Thread identity, parentage, recency,
+  status, archive state, sidebar placement, and execution location. It does not persist a second
+  transcript.
+- One Main-owned generation aggregate holds the accepted application view of a live Thread:
+  canonical protocol state, Nodex sidecars, request lifecycle, resume and pagination fences, and
+  renderer replication checkpoints. All commands and protocol consequences for that Thread pass
+  through one causal lane.
+- The active renderer owner is the sole visible conversation writer. Renderer-local editing and
+  presentation remain renderer concerns; Main retains only a validated relay and recovery replica,
+  and followers render validated copies.
 
-One renderer client is the active visible owner of a live conversation. It reduces canonical protocol items, requests, streaming deltas, and Nodex sidecars into one conversation document, then publishes serialized snapshots or patches to Main through a content-addressed compare-and-swap checkpoint. Main validates and retains that document as a relay/recovery replica but does not mutate it into a second visible transcript while the owner exists.
+The app-server transport has one physical owner per endpoint generation. The Gateway exposes typed
+requests and generation-fenced observations without duplicating reconnect, timeout, request
+correlation, or event buffering. A process-scoped request Inbox exists before endpoint attachment,
+so startup and replacement cannot lose an accepted occurrence. The application protocol decodes
+each request or notification once, routes it to its semantic family, and enters the target Thread's
+causal lane. Different Threads may progress concurrently; events for one Thread cannot overtake its
+own accepted command or projection consequence.
 
-A follower first acknowledges an exact owner snapshot barrier. It then accepts only contiguous patches from the same owner epoch and requests a fresh snapshot after a gap, hash mismatch, owner replacement, or transport reset. Follower actions route to the current owner; a client with no role must resume or adopt before acting.
+Every app-server operation that materializes a new Thread (`thread/start` or `thread/fork`) enters
+one host-scoped start-notification gate. Because `thread/started` may arrive before the response
+continuation reveals its Thread id, the gate holds that Thread's protocol lane until the owning
+launch, fork, automation, import, side-chat, or internal-thread transaction has committed its
+canonical and durable identity. Commit emits a one-way release to the protocol actor; application
+transactions never wait for replay acknowledgement. A failed or interrupted transaction drains any
+otherwise-unidentified started Threads when that host's materialization cohort becomes quiescent.
+Every notification retains its endpoint host and generation through replay and durable projection,
+so a previously unknown remote Thread can never acquire local execution authority by default. Its
+Core idempotency identity also includes a process-unique Inbox namespace in addition to the local
+monotonic occurrence token; restarting Main therefore cannot alias a new notification to an old
+persisted operation receipt.
 
-The detailed contracts are [Codex owner/follower streaming](docs/product-specs/codex-thread-owner-follower-streaming.md), [Codex transcript behavior](docs/product-specs/codex-thread-transcript-behavior.md), and [the generated protocol runtime plan](docs/plans/codex-generated-protocol-runtime-boundary.md).
+```mermaid
+flowchart LR
+    Server["Codex app-server"] --> Endpoint["Endpoint generation"]
+    Endpoint --> Gateway["Typed Gateway"]
+    Gateway --> Inbox["Request Inbox and protocol interpreter"]
+    Core["Core Workspace"] --> Directory["Thread directory and durable projection"]
+    Inbox --> Lane["Per-Thread generation and causal lane"]
+    Directory --> Lane
+    Lane --> Aggregate["Canonical conversation aggregate"]
+    Aggregate --> Events["Application event hub"]
+    Events --> Projection["Renderer and native projections"]
+    Renderer["Renderer owner/followers"] <--> Coordinator["Renderer conversation coordinator"]
+    Coordinator <--> Aggregate
+```
 
-Prompt-created worktrees are a separate pre-conversation Main runtime. A pure
-reducer owns the pending and conversation-start state machines, while a
-host-scoped worktree worker owns Git and setup filesystem effects. The renderer
-can observe and act on typed pending entries but cannot invoke raw worktree
-mutation. Core receives only the successful durable Session/Thread link and
-managed-worktree metadata; the app-side initialization activity remains outside
-the generated app-server protocol. Main keeps that synthetic activity only for
-its process lifetime: renderer replacement can recover it from Main's
-conversation document, while a Main/app restart reconstructs protocol history
-without it. See
-[Codex worktree creation behavior](docs/product-specs/codex-worktree-creation-behavior.md).
+A Thread directory joins full-fidelity app-server reads with Core's durable identity and execution
+metadata. Hydration, resume, and fresh launch seed durable facts first, buffer concurrent protocol
+occurrences behind a generation fence, and publish only a complete accepted state. Endpoint
+replacement, Thread removal, or failed hydration invalidates that generation's pending requests,
+buffers, command fibers, and renderer checkpoint. Recovery rebuilds from Core plus a fresh
+app-server read; it never merges two generations or treats a sidebar summary as transcript
+authority.
 
-Execution-host workers use a versioned, operation-discriminated protocol. Main
-routes an operation only to a registered host that advertises the capability;
-request, progress, terminal result, and cancellation retain the same operation
-identity across the boundary. A worker crash fails its in-flight requests and
-the host adapter may start a fresh worker for later requests.
+Semantic application capabilities own complete transactions at their domain boundary. Turn start
+and steering, Session launch, resume,
+fork, rollback, side chat, compaction, history, goals and settings, read state, queued follow-ups,
+archive, handoff, and background-process actions compose the same Thread lane, Gateway, Core
+Workspace, and aggregate. Project-owned commands also enter the Project lifecycle gate before
+admission. A transaction that already owns the Thread lane performs its aggregate transitions
+directly; it never re-enters the lane through a sibling public command. Optimistic state is
+committed or compensated within the owning transaction, and interruption reaches the same physical
+Gateway, worker, or Core operation.
 
-Thread-scoped app-server requests are routed from the same Core-backed execution
-host projection. Global account and configuration requests remain local. A
-cross-host handoff is the only pre-commit exception: Main explicitly addresses
-the destination app-server while Core still names the source, then atomically
-commits the new host with cwd and runtime roots. SSH adapters are registered only
-after health, worker-deployment, file-transfer, and app-server capabilities are
-ready; renderer and Core never receive SSH credentials or arbitrary commands.
+App-server approval, elicitation, permission, and user-input requests have one canonical pending
+request lifecycle. Admission records the exact endpoint and Thread generation before presentation;
+renderer or automation responses claim that identity once and send through the typed Gateway.
+Replacement, timeout, renderer loss, server resolution, and Scope close settle the same authority
+at most once. Automatic user-input resolution is a policy over this state, not a second responder
+or timer registry.
 
-After creation, one Main-owned managed-worktree lifecycle Module coordinates
-inspection, snapshot policy, Environment cleanup, removal, restoration,
-ownership transfer, retention, and execution-location movement. The owning
-execution-host worker alone mutates Git, files, and scripts. Core Workspace
-atomically persists the durable host/cwd/worktree execution location but never
-inspects a repository or stores snapshot refs. Its lifecycle read publishes all
-managed-worktree consumers and Project protection roots at one projection
-revision. Settings, archive, automation, and handoff call the same lifecycle
-Interface rather than invoking physical removal independently. See
-[Codex managed worktree lifecycle behavior](docs/product-specs/codex-managed-worktree-lifecycle-behavior.md).
+Operation approval is distinct from resource authorization. Main-scoped permission and transient
+task-grant capabilities compile the operation policy and correlate renderer consent to the exact
+Thread, Turn, Store epoch, and requester lifetime. Core remains the only durable Project-grant
+authority and revalidates access at the semantic operation. Renderer presence or approval can never
+broaden a Core resource boundary, and Scope close clears every transient grant.
 
-Core's execution location also wins during app-server hydration. Every managed
-Thread resume explicitly projects the durable cwd and writable roots; an
-app-server metadata read cannot rewrite that location or reintroduce a replaced
-Project source checkout into the writable-root set.
+Renderer client identity and Electron delivery belong to the scoped renderer client runtime. A
+conversation registry records presence and role without owning projection policy; the conversation
+coordinator atomically owns adoption, owner replacement, following, targeted request delivery, and
+client disposal consequences. First-owner adoption converts the aggregate's already-hydrated
+canonical snapshot into the initial accepted renderer replica; it never requires that replica to
+exist before adoption and fails closed when no canonical snapshot exists. A follower acknowledges
+an exact owner snapshot barrier and then
+accepts only contiguous patches from the same owner epoch. A gap, hash mismatch, owner replacement,
+or transport reset requests a fresh barrier instead of merging competing documents. The event hub
+fans accepted application changes to renderer projection and native notification consumers; those
+consumers own their subscriptions and cannot mutate canonical state.
+
+Conversation Relationships are a derived presentation projection, never another parent/child
+authority. For one parent, Main combines child Thread identities observed in canonical collaboration
+items with Core's durable child-Thread relationship, then enriches them from loaded full-fidelity
+conversation state. The projection excludes archived or reparented children, preserves canonical
+collaboration order before durable creation order, and derives display identity and request role
+without writing those choices back to Core or the transcript. Missing friendly child metadata
+triggers a keyed full-fidelity directory repair; relationship invalidation rebuilds and publishes
+the complete parent projection. Restart, resume, reparenting, and late child materialization
+therefore converge by recomputation rather than replaying a separate relationship store.
+
+Execution hosts and managed worktrees are typed dynamic resources subordinate to Main Scope. Core
+stores the durable host, cwd, worktree path, and writable roots; host runtimes and workers own
+physical repository inspection, creation, transfer, cleanup, and bounded retention. Launch,
+automation, fork, handoff, archive, and restore use the same execution-location and managed-worktree
+capabilities, so a Thread cannot acquire a parallel filesystem owner or silently adopt stale
+app-server cwd metadata.
+
+All Codex application observation uses typed Streams or the application event hub. Promise,
+callback, child-process, worker, and generated JSON-RPC shapes are converted once at the external
+adapter that requires them; downstream capabilities remain Effect-native. Per-Thread generations,
+endpoint generations, request deadlines, renderer clients, workers, and background fibers are
+children of the Main application Scope or a narrower keyed Scope. Closing that owner first fences
+admission, then interrupts work and releases physical resources through finalizers; there is no
+parallel shutdown protocol or application-internal Promise adapter graph.
+
+The detailed product contracts are
+[Codex owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md),
+[Codex transcript behavior](product-specs/codex-thread-transcript-behavior.md),
+[Codex workspace behavior](product-specs/codex-workspace-behavior.md), and
+[Codex managed worktree lifecycle](product-specs/codex-managed-worktree-lifecycle-behavior.md).
+The process and resource boundary is fixed by
+[ADR 0048](adr/0048-effect-main-application-kernel.md).
 
 ### Window Session and Workbench presentation
 
@@ -289,11 +635,64 @@ See [the Workbench shell specification](docs/product-specs/workbench-shell.md), 
 
 ### Startup, recovery, and restore
 
-Electron's synchronous bootstrap configures the Profile paths, diagnostics, privileged schemes, isolated-run ownership, and single-instance lock before readiness. It does not construct process services. After `app.whenReady()`, the Main composition root constructs and activates those services before dynamically acquiring the legacy Main runtime, whose module evaluation binds process observers. Failed acquisition releases everything already owned; normal and authority-driven quit use the same process scope.
+Electron's synchronous bootstrap configures the Profile paths, diagnostics, privileged schemes, isolated-run ownership, and single-instance lock before readiness. It does not construct process services. After `app.whenReady()`, the Main composition root acquires the desktop Layer graph directly; no dynamically imported lifecycle root or import-time process observer participates in startup. Failed acquisition releases everything already owned; normal and authority-driven quit use the same process Scope.
+
+Host settings are read from the canonical user TOML plus the current project
+overlay at the point of use. The settings adapter has no import-time cache or
+process-global revision: an explicit source identifies its CWD, environment and
+user home, so independent Profiles and test runtimes cannot inherit one
+another's configuration view. User mutations preserve unrelated TOML sections
+and publish a fully flushed sibling staging file with an atomic rename; readers
+therefore observe either the previous or the complete next document.
+
+Application scheduling is split by authority rather than hidden behind a
+process-wide scheduler facade. `ReminderSchedulerRuntime` owns reminder claims,
+delivery, power-resume recovery, and notification callbacks;
+`ScheduledAutomationRuntime` owns scheduled execution leases and heartbeat
+projection; `StoreAdministrationSchedulerRuntime` owns automatic backup and the
+three Store maintenance lanes. Every schedule is a scoped Effect fiber.
+Per-domain semaphores reject overlapping ticks, the maintenance lanes share one
+Store-wide permit, and backup configuration replacement interrupts the previous
+schedule through one `FiberHandle`. Core remains the durable definition and
+lease authority. `AutomationRoutingIndex` owns the synchronous routing
+projection from Codex Thread IDs to all runs and active heartbeat definitions.
+A complete cursor-paginated background read, including archived runs, atomically
+rebuilds that projection. A newer committed mutation fences a stale read and
+forces a new canonical rebuild; successful definition/run mutations apply their
+routing consequence before returning to application code. The Automation
+command adapter and Codex conversation code may borrow only that commit or pure
+lookup capability; neither owns a parallel Map or synchronization policy. Core
+recovery triggers an immediate projection rebuild and
+automation pass, while Main Scope closure interrupts every schedule and returns
+admitted leases. `AutomationExecution` owns provider-profile normalization,
+run-now admission, Cron and Heartbeat execution, worktree and projectless launch,
+run lifecycle projection, and archive-message capture. The scheduler and Automation
+IPC compose that Effect capability directly; Main only provides its formal
+application, Gateway, conversation, project, permission, provider, execution-host,
+and managed-worktree requirements. Scope interruption therefore reaches active
+Gateway and worktree effects without an application-level Promise or `AbortSignal`
+adapter. Shutdown cancels active external work in addition to stopping future ticks.
+`DesktopNotificationRuntime` is the sole registry for active operating-system notification
+occurrences and their Electron callbacks. It derives platform, home, packaged resources, and
+development resources from immutable `MainConfig`, fences action admission before Scope release,
+withdraws each application occurrence exactly once, and closes every remaining native object in its
+finalizer. Window and Codex notification owners borrow only its synchronous native-boundary
+capabilities; no disposable manager class or ambient process path owns a second registry.
+
+`AppUpdateRuntime` is the single owner of application-update state and the
+native updater lease. Status, settings, readiness, and automatic-check admission
+live in one immutable `Ref`; channel/check/install mutations share one
+semaphore. The packaged Sparkle descriptor is stateless. `AppUpdateRuntime`
+acquires exactly one synchronous native session with `Effect.acquireRelease`,
+and the enclosing Main Scope closes that lease. Native updater callbacks enter
+the scoped callback runtime, publish the next status projection, and are fenced
+before native release. IPC and window-load delivery read Effect snapshots;
+there is no Promise updater service, lifecycle class, or duplicate
+checking/download-readiness state outside the Module.
 
 The launcher selects a single Core candidate while holding the Profile lifetime lock, then proves authority with an authenticated handshake. Existing descriptors and PIDs are hints, not process identity. Core compatibility is evaluated across transport, event, Module contracts, artifact policy, and exact Store identity.
 
-Electron keeps one logical authority supervisor for its lifetime. A disconnected transport may recover by selecting another compatible Core generation for the same Store epoch; epoch or authority drift fails closed. Long-lived stream supervisors reconnect from their retained logical cursors or resource identities.
+Electron keeps one process-scoped Effect `CoreAuthority` for its lifetime. A disconnected transport may recover by selecting another compatible Core generation for the same Store epoch; epoch or authority drift fails closed. Long-lived stream owners reconnect from their retained logical cursors or resource identities.
 
 Whole-store restore is an exclusive Core maintenance operation. It drains admitted work, validates and journals the database/assets replacement, rotates the Store epoch, resets native caches and streams, and returns a committed receipt. Electron then performs a controlled relaunch so every Adapter binds the new authority.
 
@@ -339,9 +738,12 @@ This map names stable regions and responsibilities rather than enumerating indiv
 | [`packages/codex-app-server-protocol`](packages/codex-app-server-protocol)                | Generated Codex app-server TypeScript and runtime schema authority                                                                                     |
 | [`src/shared`](src/shared)                                                                | Transport-neutral contracts, schemas, pure domain and projection helpers                                                                               |
 | [`src/main/core-client`](src/main/core-client)                                            | Core selection, supervision, authenticated clients, Desktop Module Adapters                                                                            |
-| [`src/main/codex`](src/main/codex)                                                        | Codex app-server host, routing, execution, Thread coordination                                                                                         |
-| [`src/main/effect-control-plane`](src/main/effect-control-plane)                          | Scoped lifecycle, retry, queue, and structured-concurrency implementations behind existing Main interfaces                                             |
-| [`src/main/effect-adapters`](src/main/effect-adapters)                                    | App-owned isolation boundary for unstable Effect/platform capabilities                                                                                 |
+| [`src/main/app`](src/main/app)                                                            | Main kernel, immutable configuration, composition root, shutdown and callback Scope                                                                    |
+| [`src/main/codex-application`](src/main/codex-application)                                | Codex application Modules, per-thread runtimes, permissions, tools and dynamic execution-host resources                                                |
+| [`src/main/codex-runtime`](src/main/codex-runtime)                                        | Codex app-server endpoint, gateway, generation fencing and typed protocol runtime                                                                      |
+| [`src/main/codex`](src/main/codex)                                                        | Codex-specific host and external-runtime adapters that sit outside the application capability graph                                                    |
+| [`src/main/host-runtime`](src/main/host-runtime)                                          | Scoped operating-system and Electron feature runtimes                                                                                                  |
+| [`src/main/platform`](src/main/platform)                                                  | Dedicated Electron/Node adapters, including narrow unstable Effect/platform seams                                                                      |
 | [`src/main/browser`](src/main/browser) and [`src/main/browser-use`](src/main/browser-use) | Main-owned Browser runtime and automation integration                                                                                                  |
 | [`src/main/mcp-app`](src/main/mcp-app)                                                    | Sandboxed MCP App guest attachment and MessagePort host                                                                                                |
 | [`src/main/git-worker`](src/main/git-worker)                                              | Generation-bound repository read worker                                                                                                                |

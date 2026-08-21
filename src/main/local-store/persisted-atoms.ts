@@ -11,7 +11,6 @@ import {
 } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
-import { getNodexHome } from "./config";
 import type {
   PersistedAtomEvent,
   PersistedAtomMutation,
@@ -22,24 +21,11 @@ import type {
 
 const PERSISTED_ATOMS_FILE_NAME = "persisted-atoms-v1.json";
 
-let stateCache: PersistedAtomState | null = null;
-let revision = 0;
-let persistedAtomsPathOverrideForTests: string | null = null;
-
-function getPersistedAtomsPath(): string {
-  if (persistedAtomsPathOverrideForTests) {
-    return persistedAtomsPathOverrideForTests;
-  }
-
-  return join(getNodexHome(), PERSISTED_ATOMS_FILE_NAME);
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readPersistedAtomsFile(): PersistedAtomState {
-  const atomsPath = getPersistedAtomsPath();
+function readPersistedAtomsFile(atomsPath: string): PersistedAtomState {
   if (!existsSync(atomsPath)) return {};
 
   try {
@@ -50,8 +36,7 @@ function readPersistedAtomsFile(): PersistedAtomState {
   }
 }
 
-function writePersistedAtomsFile(state: PersistedAtomState): void {
-  const atomsPath = getPersistedAtomsPath();
+function writePersistedAtomsFile(atomsPath: string, state: PersistedAtomState): void {
   const parent = dirname(atomsPath);
   mkdirSync(parent, { recursive: true, mode: 0o700 });
   const temporaryPath = join(parent, `.${basename(atomsPath)}.${process.pid}.${randomUUID()}.tmp`);
@@ -75,67 +60,69 @@ function writePersistedAtomsFile(state: PersistedAtomState): void {
   }
 }
 
-export function readPersistedAtomState(): PersistedAtomState {
-  if (stateCache === null) {
-    stateCache = readPersistedAtomsFile();
+export class PersistedAtomStore {
+  readonly #atomsPath: string;
+  #stateCache: PersistedAtomState | null = null;
+  #revision = 0;
+
+  constructor(atomsPath: string) {
+    const normalizedPath = atomsPath.trim();
+    if (!normalizedPath) throw new Error("Persisted atom store path must not be empty");
+    this.#atomsPath = normalizedPath;
   }
 
-  return { ...stateCache };
-}
+  readState(): PersistedAtomState {
+    this.#stateCache ??= readPersistedAtomsFile(this.#atomsPath);
+    return { ...this.#stateCache };
+  }
 
-export function readPersistedAtomSnapshot(): PersistedAtomSnapshot {
-  return {
-    revision,
-    values: readPersistedAtomState(),
-  };
-}
+  readSnapshot(): PersistedAtomSnapshot {
+    return {
+      revision: this.#revision,
+      values: this.readState(),
+    };
+  }
 
-export function commitPersistedAtomMutation(
-  mutation: PersistedAtomMutation,
-  originRendererId: string | null,
-): PersistedAtomEvent {
-  const key = mutation.key.trim();
-  const mutationId = mutation.mutationId.trim();
-  if (!key) throw new Error("Persisted atom mutation key must not be empty");
-  if (!mutationId) throw new Error("Persisted atom mutation id must not be empty");
+  commitMutation(
+    mutation: PersistedAtomMutation,
+    originRendererId: string | null,
+  ): PersistedAtomEvent {
+    const key = mutation.key.trim();
+    const mutationId = mutation.mutationId.trim();
+    if (!key) throw new Error("Persisted atom mutation key must not be empty");
+    if (!mutationId) throw new Error("Persisted atom mutation id must not be empty");
 
-  const next = {
-    ...readPersistedAtomState(),
-    [key]: mutation.value,
-  };
-  writePersistedAtomsFile(next);
-  stateCache = next;
-  revision += 1;
-  return {
-    key,
-    value: mutation.value,
-    mutationId,
-    revision,
-    originRendererId,
-  };
-}
-
-export function updatePersistedAtom(update: PersistedAtomUpdate): PersistedAtomState {
-  const key = update.key.trim();
-  if (!key) return readPersistedAtomState();
-  commitPersistedAtomMutation(
-    {
+    const next = {
+      ...this.readState(),
+      [key]: mutation.value,
+    };
+    writePersistedAtomsFile(this.#atomsPath, next);
+    this.#stateCache = next;
+    this.#revision += 1;
+    return {
       key,
-      value: update.value,
-      mutationId: `main:${crypto.randomUUID()}`,
-    },
-    null,
-  );
-  return readPersistedAtomState();
+      value: mutation.value,
+      mutationId,
+      revision: this.#revision,
+      originRendererId,
+    };
+  }
+
+  update(update: PersistedAtomUpdate): PersistedAtomState {
+    const key = update.key.trim();
+    if (!key) return this.readState();
+    this.commitMutation(
+      {
+        key,
+        value: update.value,
+        mutationId: `main:${randomUUID()}`,
+      },
+      null,
+    );
+    return this.readState();
+  }
 }
 
-export function resetPersistedAtomStateForTests(): void {
-  stateCache = null;
-  revision = 0;
-}
-
-export function setPersistedAtomsPathOverrideForTests(pathOverride: string | null): void {
-  persistedAtomsPathOverrideForTests = pathOverride;
-  stateCache = null;
-  revision = 0;
+export function makePersistedAtomStore(nodexHome: string): PersistedAtomStore {
+  return new PersistedAtomStore(join(nodexHome, PERSISTED_ATOMS_FILE_NAME));
 }

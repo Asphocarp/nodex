@@ -1,213 +1,143 @@
-import { describe, expect, test, vi } from "vite-plus/test";
-import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as Scope from "effect/Scope";
+import { assert, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import {
   BROWSER_USE_SITE_STATUS_CACHE_TTL_MS,
-  BrowserUseSiteStatusPolicyService,
-  type SiteStatusPolicyServiceDependencies,
+  makeSiteStatusPolicyRuntime,
+  type SiteStatusPolicyRuntimeDependencies,
 } from "./site-status-policy-service";
 
-function authStatus(token: string): GetAuthStatusResponse {
-  return {
-    authMethod: "chatgpt",
-    authToken: token,
-    requiresOpenaiAuth: false,
-  };
-}
+const response = (agent: boolean) =>
+  new Response(JSON.stringify({ feature_status: { agent } }), { status: 200 });
 
-function createService(overrides: Partial<SiteStatusPolicyServiceDependencies> = {}): {
-  service: BrowserUseSiteStatusPolicyService;
-  logger: { warn: ReturnType<typeof vi.fn> };
-} {
-  const logger = {
-    warn: vi.fn(),
-  };
-  const deps: SiteStatusPolicyServiceDependencies = {
-    apiBaseUrl: "https://chatgpt.com/backend-api",
-    fetchImpl: async () =>
-      new Response(
-        JSON.stringify({
-          feature_status: {
-            agent: false,
-          },
-        }),
-        { status: 200 },
-      ),
-    getAppVersion: () => "0.1.8",
-    logger,
-    readAuthStatus: async () => authStatus("test-token"),
-    ...overrides,
-  };
-  return {
-    service: new BrowserUseSiteStatusPolicyService(deps),
-    logger,
-  };
-}
-
-describe("Browser Use site status policy", () => {
-  test("requires a complete HTTP(S) URL and otherwise fails open", async () => {
-    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200 }));
-    const { service } = createService({ fetchImpl });
-
-    await expect(service.isCommentModeBlocked("example.com")).resolves.toBe(false);
-    await expect(service.isCommentModeBlocked("file:///tmp/index.html")).resolves.toBe(false);
-    expect(service.cachedCommentModeBlocked("not a URL")).toBe(false);
-    expect(fetchImpl).not.toHaveBeenCalled();
+const makeRuntime = (overrides: Partial<SiteStatusPolicyRuntimeDependencies> = {}) =>
+  Effect.gen(function* () {
+    const logger = { warn: vi.fn() };
+    const scope = yield* Scope.make();
+    const dependencies: SiteStatusPolicyRuntimeDependencies = {
+      apiBaseUrl: "https://chatgpt.com/backend-api",
+      logger,
+      request: () => Effect.succeed(response(false)),
+      ...overrides,
+    };
+    const runtime = yield* makeSiteStatusPolicyRuntime(dependencies).pipe(
+      Effect.provideService(Scope.Scope, scope),
+    );
+    return { logger, runtime, scope };
   });
 
-  test("sends the full URL and caches a successful decision by normalized hostname", async () => {
+it.effect("requires a complete HTTP(S) URL and otherwise fails open", () =>
+  Effect.gen(function* () {
+    let requests = 0;
+    const { runtime, scope } = yield* makeRuntime({
+      request: () => Effect.sync(() => (requests += 1)).pipe(Effect.as(response(false))),
+    });
+
+    assert.isFalse(yield* runtime.isCommentModeBlocked("example.com"));
+    assert.isFalse(yield* runtime.isCommentModeBlocked("file:///tmp/index.html"));
+    assert.isFalse(runtime.cachedCommentModeBlocked("not a URL"));
+    assert.strictEqual(requests, 0);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("sends the full URL and caches a successful decision by normalized hostname", () =>
+  Effect.gen(function* () {
     let nowMs = 1_000;
-    const requestedUrls: string[] = [];
-    const fetchImpl = vi.fn(async (url: string) => {
-      requestedUrls.push(url);
-      return new Response(
-        JSON.stringify({
-          feature_status: {
-            agent: true,
-            page_content: false,
-          },
-        }),
-        { status: 200 },
-      );
-    });
-    const { service } = createService({
-      fetchImpl,
+    const inputs: Array<{ path: string; refreshOn401: boolean | undefined }> = [];
+    const { runtime, scope } = yield* makeRuntime({
       now: () => nowMs,
+      request: (input) =>
+        Effect.sync(() => {
+          inputs.push({ path: input.path, refreshOn401: input.refreshOn401 });
+          return response(true);
+        }),
     });
 
-    await expect(
-      service.isCommentModeBlocked("https://www.example.com/private?q=1#section"),
-    ).resolves.toBe(true);
-    await expect(
-      service.isCommentModeBlocked("https://example.com/a-different-page"),
-    ).resolves.toBe(true);
-
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const endpoint = new URL(requestedUrls[0] ?? "");
-    expect(endpoint.pathname).toBe("/backend-api/aura/site_status");
-    expect(endpoint.searchParams.get("site_url")).toBe(
+    assert.isTrue(
+      yield* runtime.isCommentModeBlocked("https://www.example.com/private?q=1#section"),
+    );
+    assert.isTrue(yield* runtime.isCommentModeBlocked("https://example.com/other"));
+    assert.lengthOf(inputs, 1);
+    const endpoint = new URL(inputs[0]!.path, "https://chatgpt.com");
+    assert.strictEqual(
+      endpoint.searchParams.get("site_url"),
       "https://www.example.com/private?q=1#section",
     );
+    assert.isTrue(inputs[0]!.refreshOn401);
 
     nowMs += BROWSER_USE_SITE_STATUS_CACHE_TTL_MS;
-    await expect(service.isCommentModeBlocked("https://example.com/after-expiry")).resolves.toBe(
-      true,
-    );
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-  });
+    assert.isTrue(yield* runtime.isCommentModeBlocked("https://example.com/after-expiry"));
+    assert.lengthOf(inputs, 2);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
 
-  test("coalesces concurrent checks for the same hostname", async () => {
-    let resolveResponse: (response: Response) => void = () => {
-      throw new Error("Fetch did not start");
-    };
-    const fetchImpl = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          resolveResponse = resolve;
-        }),
-    );
-    const { service } = createService({ fetchImpl });
-
-    const first = service.isCommentModeBlocked("https://example.com/first");
-    const second = service.isCommentModeBlocked("https://www.example.com/second");
-    await vi.waitFor(() => {
-      expect(fetchImpl).toHaveBeenCalledTimes(1);
+it.effect("coalesces concurrent checks for the same hostname", () =>
+  Effect.gen(function* () {
+    const pending = yield* Deferred.make<Response>();
+    let requests = 0;
+    const { runtime, scope } = yield* makeRuntime({
+      request: () =>
+        Effect.sync(() => {
+          requests += 1;
+        }).pipe(Effect.andThen(Deferred.await(pending))),
     });
-
-    resolveResponse(
-      new Response(
-        JSON.stringify({
-          feature_status: {
-            agent: true,
-          },
-        }),
-        { status: 200 },
-      ),
+    const first = yield* Effect.forkChild(
+      runtime.isCommentModeBlocked("https://example.com/first"),
+      { startImmediately: true },
     );
+    const second = yield* Effect.forkChild(
+      runtime.isCommentModeBlocked("https://www.example.com/second"),
+      { startImmediately: true },
+    );
+    yield* Effect.yieldNow;
+    assert.strictEqual(requests, 1);
+    yield* Deferred.succeed(pending, response(true));
+    assert.deepEqual(yield* Effect.all([Fiber.await(first), Fiber.await(second)]), [
+      Exit.succeed(true),
+      Exit.succeed(true),
+    ]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
 
-    await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
-  });
-
-  test("refreshes authentication and retries exactly once after a 401", async () => {
-    const refreshFlags: boolean[] = [];
-    const authorizations: string[] = [];
-    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
-      authorizations.push(new Headers(init.headers).get("Authorization") ?? "");
-      if (authorizations.length === 1) {
-        return new Response("unauthorized", { status: 401 });
-      }
-      return new Response(
-        JSON.stringify({
-          feature_status: {
-            agent: true,
-          },
-        }),
-        { status: 200 },
-      );
-    });
-    const { service } = createService({
-      fetchImpl,
-      readAuthStatus: async ({ refreshToken }) => {
-        refreshFlags.push(refreshToken);
-        return authStatus(refreshToken ? "fresh-token" : "stale-token");
-      },
-    });
-
-    await expect(service.isCommentModeBlocked("https://example.com")).resolves.toBe(true);
-    expect(refreshFlags).toEqual([false, true]);
-    expect(authorizations).toEqual(["Bearer stale-token", "Bearer fresh-token"]);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-  });
-
-  test("only blocks strict agent true and does not cache failures", async () => {
+it.effect("caches valid false decisions but retries malformed and failed responses", () =>
+  Effect.gen(function* () {
     const responses = [
-      new Response(
-        JSON.stringify({
-          feature_status: {
-            agent: false,
-          },
-        }),
-        { status: 200 },
-      ),
+      response(false),
       new Response("not-json", { status: 200 }),
       new Response("server-error", { status: 500 }),
-      new Response(
-        JSON.stringify({
-          feature_status: {
-            agent: true,
-          },
-        }),
-        { status: 200 },
-      ),
+      response(true),
     ];
-    const fetchImpl = vi.fn(async () => {
-      const response = responses.shift();
-      if (!response) throw new Error("Unexpected request");
-      return response;
-    });
-    const falseDecision = createService({ fetchImpl });
-    await expect(
-      falseDecision.service.isCommentModeBlocked("https://allowed.example"),
-    ).resolves.toBe(false);
-    await expect(
-      falseDecision.service.isCommentModeBlocked("https://allowed.example/path"),
-    ).resolves.toBe(false);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    let requests = 0;
+    const request = () =>
+      Effect.sync(() => {
+        requests += 1;
+        const next = responses.shift();
+        if (next === undefined) throw new Error("Unexpected request");
+        return next;
+      });
 
-    const failureDecision = createService({ fetchImpl });
-    await expect(
-      failureDecision.service.isCommentModeBlocked("https://failed.example"),
-    ).resolves.toBe(false);
-    await expect(
-      failureDecision.service.isCommentModeBlocked("https://failed.example"),
-    ).resolves.toBe(false);
-    await expect(
-      failureDecision.service.isCommentModeBlocked("https://failed.example"),
-    ).resolves.toBe(true);
-    expect(fetchImpl).toHaveBeenCalledTimes(4);
-    expect(failureDecision.logger.warn).toHaveBeenCalledTimes(2);
-    expect(failureDecision.logger.warn.mock.calls.map(([, fields]) => fields)).toEqual([
-      { code: "site-status-request-failed" },
-      { code: "site-status-http-error", status: 500 },
-    ]);
-  });
-});
+    const first = yield* makeRuntime({ request });
+    assert.isFalse(yield* first.runtime.isCommentModeBlocked("https://allowed.example"));
+    assert.isFalse(yield* first.runtime.isCommentModeBlocked("https://allowed.example/path"));
+    assert.strictEqual(requests, 1);
+    yield* Scope.close(first.scope, Exit.void);
+
+    const second = yield* makeRuntime({ request });
+    assert.isFalse(yield* second.runtime.isCommentModeBlocked("https://failed.example"));
+    assert.isFalse(yield* second.runtime.isCommentModeBlocked("https://failed.example"));
+    assert.isTrue(yield* second.runtime.isCommentModeBlocked("https://failed.example"));
+    assert.strictEqual(requests, 4);
+    assert.deepEqual(
+      second.logger.warn.mock.calls.map(([, fields]) => fields),
+      [{ code: "site-status-request-failed" }, { code: "site-status-http-error", status: 500 }],
+    );
+    yield* Scope.close(second.scope, Exit.void);
+  }),
+);

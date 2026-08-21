@@ -5,7 +5,9 @@ import type {
   WindowSessionBootstrap,
   WindowSessionCatalog,
   WindowSessionLifecycle,
+  WindowSessionNewWindowRequest,
   WindowSessionRecord,
+  WindowSessionSaveLayoutInput,
 } from "../window-session";
 import { WorkbenchLayoutSnapshotSchema } from "./workbench-layout";
 
@@ -22,6 +24,21 @@ export const WindowSessionBoundsSchema = z.object({
   height: z.number().finite(),
   mode: z.enum(["normal", "maximized", "fullscreen"]).catch("normal"),
 }) satisfies z.ZodType<WindowSessionBounds>;
+
+export const WindowSessionNewWindowRequestSchema = z
+  .object({
+    activeProjectSessionId: z.string().min(1).nullable().optional(),
+    activeProjectId: z.string().min(1).nullable().optional(),
+  })
+  .strict() satisfies z.ZodType<WindowSessionNewWindowRequest>;
+
+export const WindowSessionSaveLayoutInputSchema = z
+  .object({
+    sessionId: z.string().min(1),
+    revision: z.number().int().nonnegative(),
+    layout: WorkbenchLayoutSnapshotSchema,
+  })
+  .strict() satisfies z.ZodType<WindowSessionSaveLayoutInput>;
 
 export const WindowSessionLifecycleSchema = z.discriminatedUnion("state", [
   z

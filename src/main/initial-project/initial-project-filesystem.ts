@@ -1,4 +1,5 @@
 import { lstat, mkdir, readFile, rm } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import { z } from "zod";
 import { resolveNodexProjectsDirectory } from "../nodex-projects-directory";
@@ -17,6 +18,8 @@ const InitialProjectMarkerSchema = z
   .strict();
 
 export type InitialProjectDirectoryState = "missing" | "real" | "unsafe";
+
+export const createInitialProjectId = (): string => randomUUID();
 
 export function resolveInitialProjectProjectsDirectory(input: {
   readonly configuredDirectory?: string;

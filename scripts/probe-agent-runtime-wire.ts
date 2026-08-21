@@ -4,9 +4,16 @@ import { rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
 import type { ServerNotification } from "@nodex/codex-app-server-protocol";
-import { CodexAppServerClient } from "../src/main/codex/codex-app-server-client";
+import { ScopedCallbackRuntime } from "../src/main/app/ScopedCallbackRuntime";
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
+import {
+  type CodexProbeClient,
+  runCodexProbeMain,
+  withCodexProbeSession,
+} from "./codex-probe-session";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
@@ -215,7 +222,7 @@ async function startMockServer(): Promise<{
 }
 
 function waitForTurnCompletion(
-  client: CodexAppServerClient,
+  client: CodexProbeClient,
   threadId: string,
 ): Promise<{ readonly responseTextObserved: boolean }> {
   return new Promise((resolve, reject) => {
@@ -261,7 +268,7 @@ function requestHasTools(body: Record<string, unknown>): boolean {
 
 async function runWireCase(input: {
   readonly baseUrl: string;
-  readonly client: CodexAppServerClient;
+  readonly client: CodexProbeClient;
   readonly cwd: string;
   readonly requests: RecordedRequest[];
   readonly wireCase: WireCase;
@@ -277,7 +284,7 @@ async function runWireCase(input: {
     request_max_retries: 0,
     stream_max_retries: 0,
   };
-  const startResponse = await input.client.request<unknown>("thread/start", {
+  const startResponse = await input.client.request("thread/start", {
     model: input.wireCase.modelId,
     modelProvider: input.wireCase.providerId,
     cwd: input.cwd,
@@ -367,47 +374,55 @@ function readOption(argv: string[], option: string): string | null {
   return value;
 }
 
-export async function probeAgentRuntimeWire(input: {
-  readonly binaryPath: string;
-  readonly outputPath?: string;
-}): Promise<AgentRuntimeWireConformanceReport> {
+async function probeAgentRuntimeWirePromise(
+  input: {
+    readonly binaryPath: string;
+    readonly outputPath?: string;
+  },
+  callbacks: ScopedCallbackRuntime["Service"],
+): Promise<AgentRuntimeWireConformanceReport> {
   const temporaryRoot = mkdtempSync(path.join(os.tmpdir(), "nodex-agent-runtime-wire-"));
   const stateHome = path.join(temporaryRoot, "home");
   const cwd = path.join(temporaryRoot, "workspace");
   mkdirSync(stateHome, { recursive: true, mode: 0o700 });
   mkdirSync(cwd, { recursive: true, mode: 0o700 });
   const server = await startMockServer();
-  const client = new CodexAppServerClient({
-    binaryPath: input.binaryPath,
-    logStderr: false,
-    requestTimeoutMs,
-    expectedCodexHome: stateHome,
-    env: {
-      ...process.env,
-      INTERPRETER_HOME: stateHome,
-      NODEX_WIRE_CONFORMANCE_API_KEY: "nodex-wire-secret",
-    },
-    clientInfo: {
-      name: "nodex-agent-runtime-wire-conformance",
-      title: "Nodex Agent Runtime Wire Conformance",
-      version: "1.0.0",
-    },
-  });
-
   try {
-    await client.start();
-    const cases: WireCaseResult[] = [];
-    for (const wireCase of wireCases) {
-      cases.push(
-        await runWireCase({
-          baseUrl: server.baseUrl,
-          client,
-          cwd,
-          requests: server.requests,
-          wireCase,
-        }),
-      );
-    }
+    const cases = await callbacks.runPromise(
+      withCodexProbeSession(
+        callbacks,
+        {
+          binaryPath: input.binaryPath,
+          requestTimeout: requestTimeoutMs,
+          expectedCodexHome: stateHome,
+          env: {
+            ...process.env,
+            INTERPRETER_HOME: stateHome,
+            NODEX_WIRE_CONFORMANCE_API_KEY: "nodex-wire-secret",
+          },
+          clientInfo: {
+            name: "nodex-agent-runtime-wire-conformance",
+            title: "Nodex Agent Runtime Wire Conformance",
+            version: "1.0.0",
+          },
+        },
+        async (client) => {
+          const results: WireCaseResult[] = [];
+          for (const wireCase of wireCases) {
+            results.push(
+              await runWireCase({
+                baseUrl: server.baseUrl,
+                client,
+                cwd,
+                requests: server.requests,
+                wireCase,
+              }),
+            );
+          }
+          return results;
+        },
+      ),
+    );
     const report: AgentRuntimeWireConformanceReport = {
       binaryPath: path.resolve(input.binaryPath),
       cases,
@@ -423,7 +438,6 @@ export async function probeAgentRuntimeWire(input: {
     }
     return report;
   } finally {
-    await client.stop();
     await server.close();
     await rm(temporaryRoot, {
       recursive: true,
@@ -434,7 +448,16 @@ export async function probeAgentRuntimeWire(input: {
   }
 }
 
-async function main(): Promise<void> {
+export const probeAgentRuntimeWire = (input: {
+  readonly binaryPath: string;
+  readonly outputPath?: string;
+}): Effect.Effect<AgentRuntimeWireConformanceReport, Cause.UnknownError, ScopedCallbackRuntime> =>
+  Effect.gen(function* () {
+    const callbacks = yield* ScopedCallbackRuntime;
+    return yield* Effect.tryPromise(() => probeAgentRuntimeWirePromise(input, callbacks));
+  });
+
+const main = Effect.gen(function* () {
   const argv = process.argv.slice(2);
   const runtime = resolveCodexRuntime({ isPackaged: false, projectRootPath: projectRoot });
   const binaryPath = path.resolve(readOption(argv, "--binary") ?? runtime.binaryPath);
@@ -442,15 +465,10 @@ async function main(): Promise<void> {
     readOption(argv, "--out") ??
       path.join(projectRoot, ".generated", "agent-runtime-conformance", "wire.json"),
   );
-  const report = await probeAgentRuntimeWire({ binaryPath, outputPath });
+  const report = yield* probeAgentRuntimeWire({ binaryPath, outputPath });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
-}
+});
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  void main().catch((error: unknown) => {
-    process.stderr.write(
-      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
-    );
-    process.exitCode = 1;
-  });
+  runCodexProbeMain(main);
 }

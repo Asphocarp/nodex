@@ -2702,7 +2702,6 @@ describe("workbench session shell / layout-panel-actions", () => {
       pendingSteers: [],
       queuedFollowUps: [],
       backgroundTerminalRows: [],
-      childMemberships: [],
       capabilityFlags: {
         canEditLastUserTurn: false,
         canForkFromTurn: false,
@@ -2858,6 +2857,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     expect(getPanelTabById(screen.container, "background-agent:thread-legacy")).toBeTruthy();
-    expect(hydrateBackgroundSubagentThreadsCalls).toEqual([{ threadIds: ["thread-legacy"] }]);
+    expect(hydrateBackgroundSubagentThreadsCalls).toEqual([
+      { rootThreadId: "thread-alpha", threadIds: ["thread-legacy"] },
+    ]);
   });
 });

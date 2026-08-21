@@ -47,5 +47,5 @@ if (diagnostics.length > 0) {
 }
 
 console.log(
-  "Effect boundaries verified: renderer, preload, shared, and wire contracts remain Effect-free.",
+  "Effect boundaries verified: Effect-free frontiers, unstable imports, and runtime roots are valid.",
 );

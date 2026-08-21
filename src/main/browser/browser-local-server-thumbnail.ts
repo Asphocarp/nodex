@@ -1,3 +1,13 @@
+import * as Cache from "effect/Cache";
+import * as Clock from "effect/Clock";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as FiberSet from "effect/FiberSet";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
+import type * as Scope from "effect/Scope";
 import { BrowserWindow, type BrowserWindowConstructorOptions, type NativeImage } from "electron";
 import {
   BROWSER_SIDEBAR_PARTITION,
@@ -8,35 +18,40 @@ const THUMBNAIL_CAPTURE_WIDTH = 336;
 const THUMBNAIL_CAPTURE_HEIGHT = 208;
 const THUMBNAIL_OUTPUT_WIDTH = 168;
 const THUMBNAIL_OUTPUT_HEIGHT = 104;
-const THUMBNAIL_CAPTURE_TIMEOUT_MS = 8_000;
-const THUMBNAIL_CACHE_TTL_MS = 30_000;
-const THUMBNAIL_FAILURE_TTL_MS = 5_000;
+const THUMBNAIL_CAPTURE_TIMEOUT = Duration.seconds(8);
+const THUMBNAIL_CACHE_TTL = Duration.seconds(30);
+const THUMBNAIL_FAILURE_TTL = Duration.seconds(5);
 const MAX_THUMBNAIL_CACHE_ENTRIES = 64;
-const MAX_THUMBNAIL_DATA_URL_LENGTH = 512 * 1024;
+const MAX_THUMBNAIL_DATA_URL_LENGTH = 512 * 1_024;
 
-interface BrowserLocalServerThumbnailCapture {
-  (url: string): Promise<string>;
+export interface BrowserLocalServerThumbnailRuntime {
+  readonly get: (rawUrl: string) => Effect.Effect<BrowserSidebarLocalServerThumbnailResult>;
+  readonly invalidate: (rawUrl?: string) => Effect.Effect<void>;
 }
 
-interface BrowserLocalServerThumbnailServiceOptions {
-  capture?: BrowserLocalServerThumbnailCapture;
-  maxConcurrency?: number;
-  now?: () => number;
+export interface BrowserLocalServerThumbnailRuntimeOptions {
+  readonly capture?: (
+    url: string,
+  ) => Effect.Effect<string, BrowserLocalServerThumbnailCaptureError>;
+  readonly maxConcurrency?: number;
 }
 
-interface BrowserLocalServerThumbnailCacheEntry {
-  dataUrl: string | null;
-  expiresAt: number;
-}
+export class BrowserLocalServerThumbnailCaptureError extends Schema.TaggedError<BrowserLocalServerThumbnailCaptureError>()(
+  "BrowserLocalServerThumbnailCaptureError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
 
-function isLocalHostname(hostname: string): boolean {
+const captureError = (operation: string, cause: unknown): BrowserLocalServerThumbnailCaptureError =>
+  new BrowserLocalServerThumbnailCaptureError({ operation, cause });
+
+const isLocalHostname = (hostname: string): boolean => {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/gu, "");
   if (normalized === "localhost" || normalized === "::1") return true;
   const match = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/u.exec(normalized);
   return Boolean(match && match.slice(1).every((octet) => Number.parseInt(octet, 10) <= 255));
-}
+};
 
-export function normalizeLocalServerThumbnailUrl(rawUrl: string): string | null {
+export const normalizeLocalServerThumbnailUrl = (rawUrl: string): string | null => {
   if (!rawUrl || rawUrl.length > 16_384) return null;
   try {
     const url = new URL(rawUrl);
@@ -53,43 +68,27 @@ export function normalizeLocalServerThumbnailUrl(rawUrl: string): string | null 
   } catch {
     return null;
   }
-}
+};
 
-function createThumbnailWindowOptions(): BrowserWindowConstructorOptions {
-  return {
-    show: false,
-    useContentSize: true,
-    width: THUMBNAIL_CAPTURE_WIDTH,
-    height: THUMBNAIL_CAPTURE_HEIGHT,
-    backgroundColor: "#ffffff",
-    webPreferences: {
-      partition: BROWSER_SIDEBAR_PARTITION,
-      nodeIntegration: false,
-      nodeIntegrationInSubFrames: false,
-      contextIsolation: true,
-      sandbox: true,
-      webSecurity: true,
-      backgroundThrottling: false,
-      devTools: false,
-    },
-  };
-}
+const createThumbnailWindowOptions = (): BrowserWindowConstructorOptions => ({
+  show: false,
+  useContentSize: true,
+  width: THUMBNAIL_CAPTURE_WIDTH,
+  height: THUMBNAIL_CAPTURE_HEIGHT,
+  backgroundColor: "#ffffff",
+  webPreferences: {
+    partition: BROWSER_SIDEBAR_PARTITION,
+    nodeIntegration: false,
+    nodeIntegrationInSubFrames: false,
+    contextIsolation: true,
+    sandbox: true,
+    webSecurity: true,
+    backgroundThrottling: false,
+    devTools: false,
+  },
+});
 
-async function withTimeout<Value>(promise: Promise<Value>, timeoutMs: number): Promise<Value> {
-  let timeout: NodeJS.Timeout | null = null;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new Error("Local server preview timed out")), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-  }
-}
-
-function imageToBoundedDataUrl(image: NativeImage): string {
+const imageToBoundedDataUrl = (image: NativeImage): string => {
   const resized = image.resize({
     width: THUMBNAIL_OUTPUT_WIDTH,
     height: THUMBNAIL_OUTPUT_HEIGHT,
@@ -100,154 +99,155 @@ function imageToBoundedDataUrl(image: NativeImage): string {
     !dataUrl.startsWith("data:image/png;base64,") ||
     dataUrl.length > MAX_THUMBNAIL_DATA_URL_LENGTH
   ) {
-    throw new Error("Local server preview exceeded its image budget");
+    throw new TypeError("Local server preview exceeded its image budget");
   }
   return dataUrl;
-}
+};
 
-async function captureElectronLocalServerThumbnail(url: string): Promise<string> {
-  const window = new BrowserWindow(createThumbnailWindowOptions());
-  const contents = window.webContents;
-  const preventUnsafeNavigation = (event: { preventDefault(): void }, targetUrl: string) => {
-    if (normalizeLocalServerThumbnailUrl(targetUrl)) return;
-    event.preventDefault();
-  };
-  contents.setAudioMuted(true);
-  contents.setWindowOpenHandler(() => ({ action: "deny" }));
-  contents.on("will-navigate", preventUnsafeNavigation);
-  contents.on("will-redirect", preventUnsafeNavigation);
+const timeout = <A>(
+  effect: Effect.Effect<A, BrowserLocalServerThumbnailCaptureError>,
+): Effect.Effect<A, BrowserLocalServerThumbnailCaptureError> =>
+  effect.pipe(
+    Effect.timeoutOrElse({
+      duration: THUMBNAIL_CAPTURE_TIMEOUT,
+      orElse: () =>
+        Effect.fail(captureError("timeout", new Error("Local server preview capture timed out"))),
+    }),
+  );
 
-  try {
-    await withTimeout(window.loadURL(url), THUMBNAIL_CAPTURE_TIMEOUT_MS);
-    if (window.isDestroyed() || contents.isDestroyed()) {
-      throw new Error("Local server preview closed before capture");
-    }
-    const image = await withTimeout(
-      contents.capturePage({
-        x: 0,
-        y: 0,
-        width: THUMBNAIL_CAPTURE_WIDTH,
-        height: THUMBNAIL_CAPTURE_HEIGHT,
+const captureElectronLocalServerThumbnail = (
+  url: string,
+): Effect.Effect<string, BrowserLocalServerThumbnailCaptureError> =>
+  Effect.acquireUseRelease(
+    Effect.try({
+      try: () => {
+        const window = new BrowserWindow(createThumbnailWindowOptions());
+        const contents = window.webContents;
+        const preventUnsafeNavigation = (event: { preventDefault(): void }, targetUrl: string) => {
+          if (normalizeLocalServerThumbnailUrl(targetUrl)) return;
+          event.preventDefault();
+        };
+        contents.setAudioMuted(true);
+        contents.setWindowOpenHandler(() => ({ action: "deny" }));
+        contents.on("will-navigate", preventUnsafeNavigation);
+        contents.on("will-redirect", preventUnsafeNavigation);
+        return { contents, preventUnsafeNavigation, window };
+      },
+      catch: (cause) => captureError("create-window", cause),
+    }),
+    ({ contents, window }) =>
+      Effect.gen(function* () {
+        yield* timeout(
+          Effect.tryPromise({
+            try: () => window.loadURL(url),
+            catch: (cause) => captureError("load", cause),
+          }),
+        );
+        if (window.isDestroyed() || contents.isDestroyed()) {
+          return yield* Effect.fail(
+            captureError("capture", new Error("Local server preview closed before capture")),
+          );
+        }
+        const image = yield* timeout(
+          Effect.tryPromise({
+            try: () =>
+              contents.capturePage({
+                x: 0,
+                y: 0,
+                width: THUMBNAIL_CAPTURE_WIDTH,
+                height: THUMBNAIL_CAPTURE_HEIGHT,
+              }),
+            catch: (cause) => captureError("capture", cause),
+          }),
+        );
+        return yield* Effect.try({
+          try: () => imageToBoundedDataUrl(image),
+          catch: (cause) => captureError("encode", cause),
+        });
       }),
-      THUMBNAIL_CAPTURE_TIMEOUT_MS,
+    ({ contents, preventUnsafeNavigation, window }) =>
+      Effect.sync(() => {
+        contents.removeListener("will-navigate", preventUnsafeNavigation);
+        contents.removeListener("will-redirect", preventUnsafeNavigation);
+        if (!window.isDestroyed()) window.destroy();
+      }),
+  );
+
+const isBoundedThumbnail = (value: string): boolean =>
+  value.startsWith("data:image/png;base64,") && value.length <= MAX_THUMBNAIL_DATA_URL_LENGTH;
+
+export const makeBrowserLocalServerThumbnailRuntime = (
+  options: BrowserLocalServerThumbnailRuntimeOptions = {},
+): Effect.Effect<BrowserLocalServerThumbnailRuntime, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const capture = options.capture ?? captureElectronLocalServerThumbnail;
+    const permits = yield* Semaphore.make(
+      Math.max(1, Math.min(4, Math.floor(options.maxConcurrency ?? 2))),
     );
-    return imageToBoundedDataUrl(image);
-  } finally {
-    if (!window.isDestroyed()) window.destroy();
-  }
-}
+    const captures = yield* FiberSet.make<string, BrowserLocalServerThumbnailCaptureError>();
+    const cache = yield* Cache.makeWith<string, BrowserSidebarLocalServerThumbnailResult>(
+      (url: string) =>
+        FiberSet.run(
+          captures,
+          // Do not create the BrowserWindow until FiberSet.run has registered
+          // the capture, so an immediately closing Browser Scope can see and
+          // interrupt every admitted native resource.
+          Effect.yieldNow.pipe(Effect.andThen(permits.withPermits(1)(capture(url)))),
+        ).pipe(
+          Effect.flatMap(Fiber.join),
+          Effect.flatMap((dataUrl) =>
+            Effect.succeed(dataUrl).pipe(
+              Effect.filterOrFail(isBoundedThumbnail, () =>
+                captureError(
+                  "validate-image",
+                  new TypeError("Local server preview exceeded its image budget"),
+                ),
+              ),
+            ),
+          ),
+          Effect.flatMap((dataUrl) =>
+            Clock.currentTimeMillis.pipe(
+              Effect.map(
+                (capturedAt) =>
+                  ({
+                    status: "ready",
+                    dataUrl,
+                    capturedAt,
+                  }) satisfies BrowserSidebarLocalServerThumbnailResult,
+              ),
+            ),
+          ),
+          Effect.catch(() =>
+            Effect.succeed({
+              status: "unavailable",
+              message: "Local server preview is unavailable",
+            } satisfies BrowserSidebarLocalServerThumbnailResult),
+          ),
+        ),
+      {
+        capacity: MAX_THUMBNAIL_CACHE_ENTRIES,
+        timeToLive: (exit) =>
+          Exit.isSuccess(exit) && exit.value.status === "ready"
+            ? THUMBNAIL_CACHE_TTL
+            : THUMBNAIL_FAILURE_TTL,
+      },
+    );
+    yield* Effect.addFinalizer(() => Cache.invalidateAll(cache));
 
-export class BrowserLocalServerThumbnailService {
-  private readonly cache = new Map<string, BrowserLocalServerThumbnailCacheEntry>();
-  private readonly pending = new Map<string, Promise<BrowserSidebarLocalServerThumbnailResult>>();
-  private readonly queue: Array<() => void> = [];
-  private readonly capture: BrowserLocalServerThumbnailCapture;
-  private readonly maxConcurrency: number;
-  private readonly now: () => number;
-  private activeCaptures = 0;
-
-  constructor(options: BrowserLocalServerThumbnailServiceOptions = {}) {
-    this.capture = options.capture ?? captureElectronLocalServerThumbnail;
-    this.maxConcurrency = Math.max(1, Math.min(4, Math.floor(options.maxConcurrency ?? 2)));
-    this.now = options.now ?? Date.now;
-  }
-
-  async get(rawUrl: string): Promise<BrowserSidebarLocalServerThumbnailResult> {
-    const url = normalizeLocalServerThumbnailUrl(rawUrl);
-    if (!url) {
-      return {
-        status: "unavailable",
-        message: "Local server preview URL is not allowed",
-      };
-    }
-
-    const now = this.now();
-    const cached = this.cache.get(url);
-    if (cached && cached.expiresAt > now) {
-      this.touchCacheEntry(url, cached);
-      return cached.dataUrl
-        ? { status: "ready", dataUrl: cached.dataUrl, capturedAt: now }
-        : { status: "unavailable", message: "Local server preview is unavailable" };
-    }
-    if (cached) this.cache.delete(url);
-
-    const existing = this.pending.get(url);
-    if (existing) return await existing;
-
-    const capture = this.enqueue(async () => {
-      try {
-        const dataUrl = await this.capture(url);
-        this.setCacheEntry(url, {
-          dataUrl,
-          expiresAt: this.now() + THUMBNAIL_CACHE_TTL_MS,
-        });
-        return {
-          status: "ready",
-          dataUrl,
-          capturedAt: this.now(),
-        } satisfies BrowserSidebarLocalServerThumbnailResult;
-      } catch {
-        this.setCacheEntry(url, {
-          dataUrl: null,
-          expiresAt: this.now() + THUMBNAIL_FAILURE_TTL_MS,
-        });
-        return {
-          status: "unavailable",
-          message: "Local server preview is unavailable",
-        } satisfies BrowserSidebarLocalServerThumbnailResult;
-      }
-    });
-    this.pending.set(url, capture);
-    try {
-      return await capture;
-    } finally {
-      this.pending.delete(url);
-    }
-  }
-
-  invalidate(rawUrl?: string): void {
-    if (!rawUrl) {
-      this.cache.clear();
-      return;
-    }
-    const url = normalizeLocalServerThumbnailUrl(rawUrl);
-    if (url) this.cache.delete(url);
-  }
-
-  private enqueue<Value>(operation: () => Promise<Value>): Promise<Value> {
-    return new Promise<Value>((resolve, reject) => {
-      const run = () => {
-        this.activeCaptures += 1;
-        void operation()
-          .then(resolve, reject)
-          .finally(() => {
-            this.activeCaptures -= 1;
-            this.drainQueue();
-          });
-      };
-      this.queue.push(run);
-      this.drainQueue();
-    });
-  }
-
-  private drainQueue(): void {
-    while (this.activeCaptures < this.maxConcurrency && this.queue.length > 0) {
-      this.queue.shift()?.();
-    }
-  }
-
-  private setCacheEntry(url: string, entry: BrowserLocalServerThumbnailCacheEntry): void {
-    this.cache.delete(url);
-    this.cache.set(url, entry);
-    while (this.cache.size > MAX_THUMBNAIL_CACHE_ENTRIES) {
-      const oldestKey = this.cache.keys().next().value as string | undefined;
-      if (!oldestKey) break;
-      this.cache.delete(oldestKey);
-    }
-  }
-
-  private touchCacheEntry(url: string, entry: BrowserLocalServerThumbnailCacheEntry): void {
-    this.cache.delete(url);
-    this.cache.set(url, entry);
-  }
-}
+    return {
+      get: (rawUrl) => {
+        const url = normalizeLocalServerThumbnailUrl(rawUrl);
+        return url === null
+          ? Effect.succeed({
+              status: "unavailable",
+              message: "Local server preview URL is not allowed",
+            })
+          : Cache.get(cache, url);
+      },
+      invalidate: (rawUrl) => {
+        if (rawUrl === undefined) return Cache.invalidateAll(cache);
+        const url = normalizeLocalServerThumbnailUrl(rawUrl);
+        return url === null ? Effect.void : Cache.invalidate(cache, url);
+      },
+    } satisfies BrowserLocalServerThumbnailRuntime;
+  });

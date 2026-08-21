@@ -571,7 +571,7 @@ export function useWorkbenchSessionCommands({
 
   const openBackgroundAgentPanelTab = useCallback(
     async (subagent: ThreadOpenSubagentPayload): Promise<boolean> => {
-      if (!activeSession || activeSession.projectId === null) return false;
+      if (!activeSession || activeSession.projectId === null || !activeSession.thread) return false;
 
       const threadId = subagent.conversationId.trim();
       if (!threadId) return false;
@@ -579,6 +579,7 @@ export function useWorkbenchSessionCommands({
       let hydratedSummaries: CodexThreadSummary[] = [];
       try {
         hydratedSummaries = await workbenchCodexControl.hydrateBackgroundSubagentThreads({
+          rootThreadId: activeSession.thread.threadId,
           threadIds: [threadId],
         });
       } catch {

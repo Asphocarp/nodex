@@ -1316,9 +1316,6 @@ function normalizeConversationSnapshot(
   const nextBackgroundTerminalRows = Array.isArray(conversation.backgroundTerminalRows)
     ? conversation.backgroundTerminalRows
     : [];
-  const nextChildMemberships = Array.isArray(conversation.childMemberships)
-    ? conversation.childMemberships
-    : [];
   const nextStatusActiveFlags = Array.isArray(conversation.statusActiveFlags)
     ? conversation.statusActiveFlags
     : [];
@@ -1356,7 +1353,6 @@ function normalizeConversationSnapshot(
     nextPendingSteers !== conversation.pendingSteers ||
     nextQueuedFollowUps !== conversation.queuedFollowUps ||
     nextBackgroundTerminalRows !== conversation.backgroundTerminalRows ||
-    nextChildMemberships !== conversation.childMemberships ||
     nextStatusActiveFlags !== conversation.statusActiveFlags ||
     nextSource?.parentThreadId !== conversation.source?.parentThreadId ||
     nextSource?.sideConversation !== conversation.source?.sideConversation ||
@@ -1382,7 +1378,6 @@ function normalizeConversationSnapshot(
         pendingSteers: nextPendingSteers,
         queuedFollowUps: nextQueuedFollowUps,
         backgroundTerminalRows: nextBackgroundTerminalRows,
-        childMemberships: nextChildMemberships,
         statusActiveFlags: nextStatusActiveFlags,
       }
     : conversation;
@@ -3617,6 +3612,10 @@ export class CodexAppServerManager {
     Promise<CodexThreadSummary[]>
   >();
   private readonly conversationsById = new Map<string, CodexConversationSnapshot>();
+  private readonly childMembershipsByParentThreadId = new Map<
+    string,
+    CodexConversationChildMembership[]
+  >();
   private readonly followerAcceptedReplicasByConversationId = new Map<
     string,
     CodexConversationSnapshot
@@ -3711,6 +3710,7 @@ export class CodexAppServerManager {
   private readonly controlCallbacks = new Set<ControlListener>();
   private readonly projectSummaryCallbacksByProject = new Map<string, Set<StoreListener>>();
   private readonly conversationCallbacks = new Map<string, Set<ConversationListener>>();
+  private readonly relationshipCallbacks = new Map<string, Set<StoreListener>>();
   private anyConversationCallbacks = new Set<AnyConversationListener>();
   private anyConversationMetaCallbacks = new Set<AnyConversationListener>();
   private readonly deferredOwnerMessagesByRequestRecovery = new Map<string, Array<() => void>>();
@@ -3821,6 +3821,8 @@ export class CodexAppServerManager {
     this.activeGoalContinuationTimers.clear();
     this.activeGoalContinuationPromises.clear();
     this.terminalInputBuffers.clear();
+    this.childMembershipsByParentThreadId.clear();
+    this.relationshipCallbacks.clear();
     while (this.busUnsubscribers.length > 0) {
       this.busUnsubscribers.pop()?.();
     }
@@ -3852,6 +3854,10 @@ export class CodexAppServerManager {
 
   readConversation(threadId: string): CodexConversationSnapshot | null {
     return this.conversationsById.get(threadId) ?? null;
+  }
+
+  readConversationChildMemberships(threadId: string): CodexConversationChildMembership[] {
+    return this.childMembershipsByParentThreadId.get(threadId) ?? EMPTY_CHILD_MEMBERSHIPS;
   }
 
   readConversationStreamRole(threadId: string): LocalConversationStreamRole["role"] | null {
@@ -3951,6 +3957,16 @@ export class CodexAppServerManager {
 
     listeners.delete(listener);
     cleanupListenerSet(this.conversationCallbacks, threadId);
+  }
+
+  subscribeConversationChildMemberships(threadId: string, listener: StoreListener): () => void {
+    this.start();
+    const listeners = getOrCreateListenerSet(this.relationshipCallbacks, threadId);
+    const unsubscribe = subscribeSet(listeners, listener);
+    return () => {
+      unsubscribe();
+      cleanupListenerSet(this.relationshipCallbacks, threadId);
+    };
   }
 
   addAnyConversationCallback(listener: AnyConversationListener): () => void {
@@ -7955,6 +7971,7 @@ export class CodexAppServerManager {
           }
           if (effect.type !== "hydrateCollabThreads") continue;
           void this.hydrateBackgroundSubagentThreads({
+            rootThreadId: payload.threadId,
             threadIds: [...effect.receiverThreadIds],
             includeTurns: true,
           }).catch((error) => {
@@ -9353,15 +9370,10 @@ export class CodexAppServerManager {
     const parentThreadId = event.parentThreadId.trim();
     if (!parentThreadId) return;
 
-    const conversation = this.conversationsById.get(parentThreadId);
-    if (!conversation) return;
-    if (areConversationChildMembershipsEqual(conversation.childMemberships, event.childMemberships))
-      return;
-
-    this.applyConversationSnapshot(parentThreadId, {
-      ...conversation,
-      childMemberships: event.childMemberships,
-    });
+    const previous = this.childMembershipsByParentThreadId.get(parentThreadId);
+    if (areConversationChildMembershipsEqual(previous, event.childMemberships)) return;
+    this.childMembershipsByParentThreadId.set(parentThreadId, [...event.childMemberships]);
+    this.notifyListeners(this.relationshipCallbacks.get(parentThreadId));
   }
 
   private applyThreadStartProgress(
@@ -9567,6 +9579,7 @@ export class CodexAppServerManager {
 
     this.threadSummariesById.delete(normalizedThreadId);
     this.conversationsById.delete(normalizedThreadId);
+    this.childMembershipsByParentThreadId.delete(normalizedThreadId);
     this.followerAcceptedReplicasByConversationId.delete(normalizedThreadId);
     this.ownerHiddenLifecycleItemTypesByConversationId.delete(normalizedThreadId);
     this.primaryConversationRequestByThread.delete(normalizedThreadId);
@@ -9600,6 +9613,7 @@ export class CodexAppServerManager {
     }
 
     this.notifyConversationCallbacks(normalizedThreadId);
+    this.notifyListeners(this.relationshipCallbacks.get(normalizedThreadId));
     for (const projectId of changedProjectIds) {
       this.notifyProjectThreadSummaries(projectId);
     }
@@ -10537,9 +10551,11 @@ export function useConversationCapabilityFlags(
 export function useConversationChildMemberships(
   threadId: string | null,
 ): CodexConversationChildMembership[] {
-  return useCodexConversationValue(
-    threadId,
-    (conversation) => conversation?.childMemberships ?? EMPTY_CHILD_MEMBERSHIPS,
+  const manager = useCodexAppServerManagerForConversationId(threadId);
+  return useExternalSelector(
+    (listener) =>
+      threadId ? manager.subscribeConversationChildMemberships(threadId, listener) : () => {},
+    () => (threadId ? manager.readConversationChildMemberships(threadId) : EMPTY_CHILD_MEMBERSHIPS),
   );
 }
 

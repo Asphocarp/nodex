@@ -1,0 +1,160 @@
+import { EventEmitter } from "node:events";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Scope from "effect/Scope";
+import { assert, it } from "@effect/vitest";
+import type { Session, WebContents, WebPreferences } from "electron";
+import {
+  appendMcpAppSandboxInitId,
+  buildMcpAppSandboxPartition,
+  buildMcpAppSandboxSourceUrl,
+  MCP_APP_SANDBOX_SCHEME,
+} from "../../shared/mcp-app/mcp-app-sandbox-contract";
+import type { BackendLogger } from "../logging/logger";
+import { makeMcpAppSandboxController, type McpAppSandboxPlatform } from "./mcp-app-sandbox-host";
+
+function makeSession() {
+  const events = new EventEmitter();
+  const state = {
+    beforeRequest: undefined as unknown,
+    beforeSendHeaders: undefined as unknown,
+    handledScheme: null as string | null,
+    permissionCheck: undefined as unknown,
+    permissionRequest: undefined as unknown,
+    unhandledSchemes: [] as string[],
+  };
+  const value = {
+    getUserAgent: () => "Mozilla/5.0 Electron/40.0 Nodex/1.0 Chrome/140.0.0.0",
+    on: events.on.bind(events),
+    protocol: {
+      handle: (scheme: string) => {
+        state.handledScheme = scheme;
+      },
+      unhandle: async (scheme: string) => {
+        state.unhandledSchemes.push(scheme);
+      },
+    },
+    removeListener: events.removeListener.bind(events),
+    setPermissionCheckHandler: (handler: unknown) => {
+      state.permissionCheck = handler;
+    },
+    setPermissionRequestHandler: (handler: unknown) => {
+      state.permissionRequest = handler;
+    },
+    webRequest: {
+      onBeforeRequest: (handler: unknown) => {
+        state.beforeRequest = handler;
+      },
+      onBeforeSendHeaders: (handler: unknown) => {
+        state.beforeSendHeaders = handler;
+      },
+    },
+  } as unknown as Session;
+  return { events, state, value };
+}
+
+it.effect("owns the complete MCP App sandbox callback graph with its Scope", () =>
+  Effect.gen(function* () {
+    const defaultSession = makeSession();
+    const sandboxSession = makeSession();
+    const ownerEvents = new EventEmitter();
+    const owner = Object.assign(ownerEvents, {
+      id: 71,
+      isDestroyed: () => false,
+      postMessage: () => undefined,
+    }) as unknown as WebContents;
+    let guestMessageReleases = 0;
+    let expirationCancels = 0;
+    const platform: McpAppSandboxPlatform = {
+      defaultSession: defaultSession.value,
+      fromPartition: () => sandboxSession.value,
+      onGuestMessage: () => () => {
+        guestMessageReleases += 1;
+      },
+      showGuestContextMenu: () => undefined,
+    };
+    const scope = yield* Scope.make();
+    const controller = yield* makeMcpAppSandboxController(
+      {
+        allowLocalDevelopment: false,
+        applicationName: "Nodex",
+        guestPreloadPath: "/tmp/mcp-app-preload.js",
+        locale: "en-US",
+        logger: {
+          error: () => undefined,
+          warn: () => undefined,
+        } as unknown as BackendLogger,
+        platform: "darwin",
+        preferredSystemLanguages: ["zh-CN", "en-US"],
+      },
+      {
+        createHandler: () => async () => new Response("ok"),
+        getState: () => "cold",
+        prewarm: async () => undefined,
+      },
+      {
+        schedule: () => () => {
+          expirationCancels += 1;
+        },
+      },
+      platform,
+    ).pipe(Effect.provideService(Scope.Scope, scope));
+
+    const host = controller.createHost(owner);
+    assert.strictEqual(ownerEvents.listenerCount("destroyed"), 1);
+    const sandboxId = "source-0123456789abcdef";
+    const partition = buildMcpAppSandboxPartition(sandboxId);
+    const source = appendMcpAppSandboxInitId(
+      buildMcpAppSandboxSourceUrl({ locale: "zh-CN", subdomain: "mcp-calendar-fixture" }),
+      "init-fixture",
+    );
+    let rewrittenHeaders: Record<string, string> | undefined;
+    const rewriteDefaultHeaders = defaultSession.state.beforeSendHeaders as (
+      details: {
+        readonly frame: { readonly origin: string };
+        readonly requestHeaders: Record<string, string>;
+        readonly url: string;
+      },
+      callback: (result: { readonly requestHeaders: Record<string, string> }) => void,
+    ) => void;
+    rewriteDefaultHeaders(
+      { frame: { origin: source }, requestHeaders: {}, url: "https://example.test/data" },
+      (result) => {
+        rewrittenHeaders = result.requestHeaders;
+      },
+    );
+    assert.strictEqual(rewrittenHeaders?.["User-Agent"], "Mozilla/5.0 Chrome/140.0.0.0");
+    assert.strictEqual(rewrittenHeaders?.["Accept-Language"], "zh-CN,en-US;q=0.9");
+    assert.strictEqual(rewrittenHeaders?.["sec-ch-ua-platform"], '"macOS"');
+    let prevented = false;
+    host.handleWillAttach(
+      {
+        preventDefault: () => {
+          prevented = true;
+        },
+      } as unknown as Electron.Event,
+      {} as WebPreferences,
+      { partition, src: source },
+    );
+
+    assert.isFalse(prevented);
+    assert.strictEqual(sandboxSession.state.handledScheme, MCP_APP_SANDBOX_SCHEME);
+    assert.isFunction(sandboxSession.state.permissionCheck);
+    assert.isFunction(sandboxSession.state.permissionRequest);
+    assert.isFunction(sandboxSession.state.beforeRequest);
+    assert.isFunction(sandboxSession.state.beforeSendHeaders);
+
+    yield* Scope.close(scope, Exit.void);
+
+    assert.strictEqual(guestMessageReleases, 1);
+    assert.strictEqual(expirationCancels, 1);
+    assert.isNull(defaultSession.state.beforeSendHeaders);
+    assert.isNull(sandboxSession.state.beforeRequest);
+    assert.isNull(sandboxSession.state.beforeSendHeaders);
+    assert.isNull(sandboxSession.state.permissionCheck);
+    assert.isNull(sandboxSession.state.permissionRequest);
+    assert.deepEqual(sandboxSession.state.unhandledSchemes, [MCP_APP_SANDBOX_SCHEME]);
+    assert.strictEqual(ownerEvents.listenerCount("destroyed"), 0);
+    assert.throws(() => controller.createHost(owner), /not installed/u);
+  }),
+);

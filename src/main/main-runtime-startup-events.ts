@@ -6,28 +6,28 @@ export interface MainRuntimeStartupEventContext {
 }
 
 export interface MainRuntimeStartupEventHandlers {
-  consumeArgvDeepLink: (argv: string[]) => boolean;
-  consumeOpenUrlDeepLink: (url: string) => void;
+  consumeArgvDeepLink: (argv: string[]) => boolean | Promise<boolean>;
+  consumeOpenUrlDeepLink: (url: string) => void | Promise<void>;
 }
 
 export function requestsExplicitNewWindow(argv: string[]): boolean {
   return argv.includes("--new-window");
 }
 
-export function collectSecondInstancesForStartupReplay(
+export async function collectSecondInstancesForStartupReplay(
   context: MainRuntimeStartupEventContext,
   handlers: MainRuntimeStartupEventHandlers,
-): string[][] {
-  handlers.consumeArgvDeepLink(context.initialArgv);
+): Promise<string[][]> {
+  await handlers.consumeArgvDeepLink(context.initialArgv);
   const secondInstancesWithoutDeepLinks: string[][] = [];
 
   for (const event of context.startupEvents ?? []) {
     if (event.type === "open-url") {
-      handlers.consumeOpenUrlDeepLink(event.url);
+      await handlers.consumeOpenUrlDeepLink(event.url);
       continue;
     }
 
-    if (!handlers.consumeArgvDeepLink(event.argv)) {
+    if (!(await handlers.consumeArgvDeepLink(event.argv))) {
       secondInstancesWithoutDeepLinks.push(event.argv);
     }
   }

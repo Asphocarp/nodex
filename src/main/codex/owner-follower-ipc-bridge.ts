@@ -1,20 +1,15 @@
-import type {
-  CodexHostMessage,
-  CodexThreadFollowerActionInput,
-  CodexThreadFollowerSnapshotAppliedInput,
-  CodexThreadOwnerNotificationAckInput,
-  CodexThreadOwnerStreamStatePublishResult,
-  CodexThreadOwnerStreamStatePublishInput,
-  CodexThreadStreamResyncRequestInput,
-} from "../../shared/types";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import type { CodexHostMessage, CodexThreadFollowerActionInput } from "../../shared/types";
 import {
   COMPLETE_HISTORY_RENDERER_CLIENT_REQUEST_TIMEOUT_MS,
   type RendererClientDeliveryResult,
   type RendererClientBroadcastOptions,
   type RendererClientRequestOptions,
-} from "./renderer-client-router";
+  type RendererClientRuntimeError,
+} from "./renderer-client-runtime-contracts";
 
-export interface CodexOwnerFollowerRendererClientRouter {
+export interface CodexOwnerFollowerRendererClientRuntime {
   broadcast(
     channel: string,
     args: readonly unknown[],
@@ -24,13 +19,13 @@ export interface CodexOwnerFollowerRendererClientRouter {
     targetClientId: string,
     conversationId: string,
     options?: RendererClientRequestOptions,
-  ): Promise<void>;
-  sendRequest<TResult = unknown>(
+  ): Effect.Effect<void, RendererClientRuntimeError>;
+  request<TResult = unknown>(
     targetClientId: string,
     method: string,
     params: unknown,
     options?: RendererClientRequestOptions,
-  ): Promise<TResult>;
+  ): Effect.Effect<TResult, RendererClientRuntimeError>;
   sendToClient(clientId: string, channel: string, args: readonly unknown[]): boolean;
   sendToClients(
     clientIds: readonly string[],
@@ -40,28 +35,25 @@ export interface CodexOwnerFollowerRendererClientRouter {
   ): RendererClientDeliveryResult;
 }
 
-export interface CodexOwnerFollowerService {
-  ackRendererThreadOwnerNotification(
-    sourceClientId: string,
-    input: CodexThreadOwnerNotificationAckInput,
-  ): boolean;
-  getRendererConversationOwner(threadId: string): string | null;
-  getRendererConversationFollowerClientIds?(threadId: string): readonly string[] | null;
-  handleRendererClientDisposed(clientId: string): void;
-  handleRendererClientDeliveryFailure?(clientIds: readonly string[]): void;
-  acknowledgeRendererFollowerSnapshotApplied(
-    sourceClientId: string,
-    input: CodexThreadFollowerSnapshotAppliedInput,
-  ): boolean;
-  requestRendererThreadStreamResync(
-    sourceClientId: string,
-    input: CodexThreadStreamResyncRequestInput,
-  ): boolean;
-  publishRendererThreadStreamStateChange(
-    sourceClientId: string,
-    input: CodexThreadOwnerStreamStatePublishInput,
-  ): CodexThreadOwnerStreamStatePublishResult;
-}
+export class CodexOwnerFollowerError extends Schema.TaggedError<CodexOwnerFollowerError>()(
+  "CodexOwnerFollowerError",
+  {
+    message: Schema.String,
+    operation: Schema.String,
+    cause: Schema.optionalKey(Schema.Defect()),
+  },
+) {}
+
+const ownerFollowerError = (
+  operation: string,
+  message: string,
+  cause?: unknown,
+): CodexOwnerFollowerError =>
+  new CodexOwnerFollowerError({
+    operation,
+    message,
+    ...(cause === undefined ? {} : { cause }),
+  });
 
 export interface CodexRendererOwnerHostMessage {
   targetClientId: string;
@@ -81,7 +73,7 @@ export function isRendererOwnerUnavailableError(error: unknown): boolean {
 }
 
 export function broadcastCodexHostMessageToRendererClients(
-  router: CodexOwnerFollowerRendererClientRouter | null | undefined,
+  router: CodexOwnerFollowerRendererClientRuntime | null | undefined,
   broadcastToWindows: (channel: string, args: readonly unknown[]) => number,
   message: CodexHostMessage,
   targetClientIds?: readonly string[] | null,
@@ -111,7 +103,7 @@ type CodexThreadStreamControlMessage = Extract<
 >;
 
 export function sendRendererThreadStreamControlRelay(
-  router: CodexOwnerFollowerRendererClientRouter | null | undefined,
+  router: CodexOwnerFollowerRendererClientRuntime | null | undefined,
   targetClientIds: readonly string[],
   message: CodexThreadStreamControlMessage,
 ): RendererClientDeliveryResult {
@@ -127,7 +119,7 @@ export function sendRendererThreadStreamControlRelay(
 }
 
 export function sendRendererOwnerHostMessage(
-  router: CodexOwnerFollowerRendererClientRouter | null | undefined,
+  router: CodexOwnerFollowerRendererClientRuntime | null | undefined,
   event: CodexRendererOwnerHostMessage,
 ): boolean {
   if (!router) return false;
@@ -136,7 +128,7 @@ export function sendRendererOwnerHostMessage(
 }
 
 export function sendRendererThreadStreamRelay(
-  router: CodexOwnerFollowerRendererClientRouter | null | undefined,
+  router: CodexOwnerFollowerRendererClientRuntime | null | undefined,
   targetClientIds: readonly string[],
   sourceClientId: string | null | undefined,
   message: CodexHostMessage,
@@ -154,86 +146,51 @@ export function sendRendererThreadStreamRelay(
   });
 }
 
-export function publishRendererThreadOwnerStreamState(
-  service: CodexOwnerFollowerService,
-  sourceClientId: string | null,
-  input: CodexThreadOwnerStreamStatePublishInput,
-): CodexThreadOwnerStreamStatePublishResult {
-  if (!sourceClientId) {
-    return { accepted: false, reason: "not-owner", recovery: null };
-  }
-
-  return service.publishRendererThreadStreamStateChange(sourceClientId, input);
-}
-
-export function acknowledgeRendererFollowerSnapshotApplied(
-  service: CodexOwnerFollowerService,
-  sourceClientId: string | null,
-  input: CodexThreadFollowerSnapshotAppliedInput,
-): boolean {
-  if (!sourceClientId) return false;
-  return service.acknowledgeRendererFollowerSnapshotApplied(sourceClientId, input);
-}
-
-export function requestRendererThreadStreamResync(
-  service: CodexOwnerFollowerService,
-  sourceClientId: string | null,
-  input: CodexThreadStreamResyncRequestInput,
-): boolean {
-  if (!sourceClientId) return false;
-  return service.requestRendererThreadStreamResync(sourceClientId, input);
-}
-
-export function ackRendererThreadOwnerNotification(
-  service: CodexOwnerFollowerService,
-  sourceClientId: string | null,
-  input: CodexThreadOwnerNotificationAckInput,
-): boolean {
-  if (!sourceClientId) return false;
-
-  return service.ackRendererThreadOwnerNotification(sourceClientId, input);
-}
-
-export async function runThreadFollowerActionThroughOwner(
-  service: CodexOwnerFollowerService,
-  router: CodexOwnerFollowerRendererClientRouter | null | undefined,
+export const runThreadFollowerActionThroughOwner = Effect.fn(
+  "CodexOwnerFollower.runThreadFollowerActionThroughOwner",
+)(function* (
+  registry: { readonly getOwnerClientId: (conversationId: string) => string | null },
+  router: CodexOwnerFollowerRendererClientRuntime | null | undefined,
   sourceClientId: string | null,
   input: CodexThreadFollowerActionInput,
-): Promise<unknown> {
-  if (!sourceClientId) throw new Error("Renderer client is not registered");
+) {
+  if (!sourceClientId) {
+    return yield* ownerFollowerError("authorize-source", "Renderer client is not registered");
+  }
 
-  const ownerClientId = service.getRendererConversationOwner(input.conversationId);
+  const ownerClientId = registry.getOwnerClientId(input.conversationId);
   if (!ownerClientId)
-    throw new Error(`no-client-found: no renderer owner for conversation ${input.conversationId}`);
+    return yield* ownerFollowerError(
+      "resolve-owner",
+      `no-client-found: no renderer owner for conversation ${input.conversationId}`,
+    );
   if (ownerClientId === sourceClientId) {
-    throw new Error(
+    return yield* ownerFollowerError(
+      "resolve-owner",
       `Renderer client ${sourceClientId} is already owner for ${input.conversationId}`,
     );
   }
-  if (!router) throw new Error("Renderer client router is unavailable");
+  if (!router) {
+    return yield* ownerFollowerError("resolve-runtime", "Renderer client runtime is unavailable");
+  }
 
   const requestOptions =
     input.action.type === "loadCompleteHistory"
       ? { timeoutMs: COMPLETE_HISTORY_RENDERER_CLIENT_REQUEST_TIMEOUT_MS }
       : {};
 
-  try {
-    await router.requireThreadOwner(ownerClientId, input.conversationId);
-    return await router.sendRequest(
-      ownerClientId,
-      "thread-owner-action",
-      input.action,
-      requestOptions,
-    );
-  } catch (error) {
-    if (isRendererOwnerUnavailableError(error)) {
-      throw new Error(
-        `no-client-found: renderer owner for ${input.conversationId} is unavailable`,
-        {
-          cause: error,
-        },
-      );
-    }
-    throw error;
-  }
-}
+  return yield* router.requireThreadOwner(ownerClientId, input.conversationId).pipe(
+    Effect.andThen(
+      router.request(ownerClientId, "thread-owner-action", input.action, requestOptions),
+    ),
+    Effect.mapError((error) =>
+      isRendererOwnerUnavailableError(error)
+        ? ownerFollowerError(
+            "owner-request",
+            `no-client-found: renderer owner for ${input.conversationId} is unavailable`,
+            error,
+          )
+        : error,
+    ),
+  );
+});

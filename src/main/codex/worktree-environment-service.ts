@@ -163,24 +163,6 @@ async function resolveCanonicalEnvironmentTarget(input: {
   return { canonicalEnvironmentRoot, canonicalTargetPath };
 }
 
-const environmentSaveQueues = new Map<string, Promise<void>>();
-
-async function runEnvironmentSaveQueued<T>(key: string, operation: () => Promise<T>): Promise<T> {
-  const previous = environmentSaveQueues.get(key) ?? Promise.resolve();
-  const result = previous.catch(() => undefined).then(operation);
-  const tail = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  environmentSaveQueues.set(key, tail);
-
-  try {
-    return await result;
-  } finally {
-    if (environmentSaveQueues.get(key) === tail) environmentSaveQueues.delete(key);
-  }
-}
-
 function countOwnValues(value: Record<string, string>): number {
   return Object.keys(value).length;
 }
@@ -390,29 +372,6 @@ function generateConfigPath(
     }
     index += 1;
   }
-}
-
-function defaultEnvironmentName(workspacePath: string): string {
-  const fallback = path.basename(path.resolve(workspacePath));
-  return fallback.trim().length > 0 ? fallback.trim() : "local";
-}
-
-export function createEmptyWorktreeEnvironmentDefinition(
-  workspacePath: string,
-): WorktreeEnvironmentDefinition {
-  return {
-    version: 1,
-    name: defaultEnvironmentName(workspacePath),
-    setup: {
-      script: null,
-      platformScripts: {},
-    },
-    cleanup: {
-      script: null,
-      platformScripts: {},
-    },
-    actions: [],
-  };
 }
 
 export async function listWorktreeEnvironmentConfigs(
@@ -660,10 +619,13 @@ export async function readWorktreeEnvironmentSettingsSnapshot(input: {
   };
 }
 
+type WorktreeEnvironmentConfigFileSaveInput = UpdateWorktreeEnvironmentConfigInput & {
+  readonly workspacePath: string;
+};
+
+/** Stateless filesystem transaction; the owning runtime serializes and drains calls. */
 export async function saveWorktreeEnvironmentConfigFile(
-  input: UpdateWorktreeEnvironmentConfigInput & {
-    workspacePath: string;
-  },
+  input: WorktreeEnvironmentConfigFileSaveInput,
 ): Promise<WorktreeEnvironmentSaveResult> {
   const { resolvedWorkspacePath, environmentRoot, resolvedPath } = resolveEnvironmentPath({
     workspacePath: input.workspacePath,
@@ -672,57 +634,54 @@ export async function saveWorktreeEnvironmentConfigFile(
 
   assertExpectedRevision(input.expectedRevision);
   const raw = serializeWorktreeEnvironmentDefinition(input.environment);
-  const initialTarget = await resolveCanonicalEnvironmentTarget({
+  await resolveCanonicalEnvironmentTarget({
     resolvedWorkspacePath,
     environmentRoot,
     resolvedPath,
     createRoot: true,
   });
-
-  return runEnvironmentSaveQueued(initialTarget.canonicalTargetPath, async () => {
-    const { canonicalTargetPath } = await resolveCanonicalEnvironmentTarget({
-      resolvedWorkspacePath,
-      environmentRoot,
-      resolvedPath,
-      createRoot: false,
-    });
-
-    if (input.expectedRevision === null) {
-      try {
-        await writeFile(canonicalTargetPath, raw, { encoding: "utf8", flag: "wx" });
-        return { type: "success" };
-      } catch (error) {
-        if (!isNodeErrorWithCode(error, "EEXIST")) throw error;
-        const currentStat = await lstat(canonicalTargetPath);
-        if (!currentStat.isFile() || currentStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
-          return { type: "conflict" };
-        }
-        const currentRaw = await readFile(canonicalTargetPath, "utf8");
-        if (Buffer.byteLength(currentRaw, "utf8") > WORKTREE_ENVIRONMENT_MAX_BYTES) {
-          return { type: "conflict" };
-        }
-        return currentRaw === raw ? { type: "success" } : { type: "conflict" };
-      }
-    }
-
-    const currentStat = await stat(canonicalTargetPath).catch((error: unknown) => {
-      if (isNodeErrorWithCode(error, "ENOENT")) return null;
-      throw error;
-    });
-    if (!currentStat?.isFile() || currentStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
-      return { type: "conflict" };
-    }
-
-    const currentRaw = await readFile(canonicalTargetPath, "utf8");
-    if (Buffer.byteLength(currentRaw, "utf8") > WORKTREE_ENVIRONMENT_MAX_BYTES) {
-      return { type: "conflict" };
-    }
-    if (currentRaw === raw) return { type: "success" };
-    if (createEnvironmentRevision(currentRaw) !== input.expectedRevision) {
-      return { type: "conflict" };
-    }
-
-    await writeFile(canonicalTargetPath, raw, "utf8");
-    return { type: "success" };
+  const { canonicalTargetPath } = await resolveCanonicalEnvironmentTarget({
+    resolvedWorkspacePath,
+    environmentRoot,
+    resolvedPath,
+    createRoot: false,
   });
+
+  if (input.expectedRevision === null) {
+    try {
+      await writeFile(canonicalTargetPath, raw, { encoding: "utf8", flag: "wx" });
+      return { type: "success" };
+    } catch (error) {
+      if (!isNodeErrorWithCode(error, "EEXIST")) throw error;
+      const currentStat = await lstat(canonicalTargetPath);
+      if (!currentStat.isFile() || currentStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
+        return { type: "conflict" };
+      }
+      const currentRaw = await readFile(canonicalTargetPath, "utf8");
+      if (Buffer.byteLength(currentRaw, "utf8") > WORKTREE_ENVIRONMENT_MAX_BYTES) {
+        return { type: "conflict" };
+      }
+      return currentRaw === raw ? { type: "success" } : { type: "conflict" };
+    }
+  }
+
+  const currentStat = await stat(canonicalTargetPath).catch((error: unknown) => {
+    if (isNodeErrorWithCode(error, "ENOENT")) return null;
+    throw error;
+  });
+  if (!currentStat?.isFile() || currentStat.size > WORKTREE_ENVIRONMENT_MAX_BYTES) {
+    return { type: "conflict" };
+  }
+
+  const currentRaw = await readFile(canonicalTargetPath, "utf8");
+  if (Buffer.byteLength(currentRaw, "utf8") > WORKTREE_ENVIRONMENT_MAX_BYTES) {
+    return { type: "conflict" };
+  }
+  if (currentRaw === raw) return { type: "success" };
+  if (createEnvironmentRevision(currentRaw) !== input.expectedRevision) {
+    return { type: "conflict" };
+  }
+
+  await writeFile(canonicalTargetPath, raw, "utf8");
+  return { type: "success" };
 }

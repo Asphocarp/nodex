@@ -1,16 +1,19 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect, it } from "vite-plus/test";
 
-import {
-  materializePortableCanvasScene,
-  type CanvasSceneRealtimeEvent,
-} from "../../shared/block-documents";
+import { materializePortableCanvasScene } from "../../shared/block-documents";
 import { DocumentHttpWireError } from "../../shared/block-documents/http-wire";
 import { committedLocalCommit } from "../../shared/testing/local-commit";
-import { createCoreCanvasSceneAdapter } from "./core-canvas-scene-adapter";
-import { CoreModuleResponseError } from "./core-client";
+import { createCoreCanvasSceneAdapter as createCoreCanvasSceneAdapterBase } from "./core-canvas-scene-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
-import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
-import type { CoreEventEnvelope, OwnedDocumentApplyResult } from "./types";
+import type { OwnedDocumentApplyResult } from "./types";
+
+type CreateCanvasAdapter = (
+  client: Parameters<typeof createCoreCanvasSceneAdapterBase>[0],
+  binding: Parameters<typeof createCoreCanvasSceneAdapterBase>[1],
+) => ReturnType<typeof createCoreCanvasSceneAdapterBase>;
+
+const test = (name: string, run: (createAdapter: CreateCanvasAdapter) => Promise<void>): void =>
+  it(name, () => run(createCoreCanvasSceneAdapterBase));
 
 const PROJECT_ID = "project:canvas";
 const LIBRARY_ID = "library:canvas";
@@ -21,33 +24,6 @@ const CLIENT_SESSION_ID = "renderer:canvas";
 const STORE_EPOCH = "epoch:canvas";
 const SCENE_HASH = "a".repeat(64);
 const COMMITTED_AT = "2026-07-19T00:00:00.000Z";
-
-class SubscriptionLossCanvasClient extends FakeCoreClient {
-  streamOpenings = 0;
-  readAttempts = 0;
-
-  override openDocumentEventStream(
-    ...args: Parameters<FakeCoreClient["openDocumentEventStream"]>
-  ): ReturnType<FakeCoreClient["openDocumentEventStream"]> {
-    this.streamOpenings += 1;
-    return super.openDocumentEventStream(...args);
-  }
-
-  override documentCanvasSync(
-    ...args: Parameters<FakeCoreClient["documentCanvasSync"]>
-  ): ReturnType<FakeCoreClient["documentCanvasSync"]> {
-    this.readAttempts += 1;
-    if (this.readAttempts === 1) {
-      throw new CoreModuleResponseError({
-        code: "unauthorized",
-        message: "An exact Document subscription is required",
-        retryable: true,
-        recovery: { kind: "reconnect_document_subscription" },
-      });
-    }
-    return super.documentCanvasSync(...args);
-  }
-}
 
 class InvalidSnapshotCanvasClient extends FakeCoreClient {
   override documentCanvasSync(): ReturnType<FakeCoreClient["documentCanvasSync"]> {
@@ -119,38 +95,8 @@ const committedMutation = (): OwnedDocumentApplyResult => ({
   },
 });
 
-const committedEvent = (): CoreEventEnvelope => ({
-  transport_version: 4,
-  packet: createCoreLocalCommitFixture({
-    commitSeq: 1,
-    storeEpoch: STORE_EPOCH,
-    operationId: mutationResult.mutationId,
-    committedAt: COMMITTED_AT,
-    payload: {
-      module: "owned_document",
-      library_id: "library-1",
-      canvas_id: "canvas:test",
-      event: {
-        kind: "canvas_updated",
-        document_id: DOCUMENT_ID,
-        generation: 1,
-        base_head_seq: 0,
-        head_seq: 1,
-        scene_hash: SCENE_HASH,
-        mutation: {
-          elementUpdates: [],
-          appState: { gridModeEnabled: true },
-          fileAdditions: {},
-          removedFileIds: [],
-        },
-      },
-    },
-    canonicalHash: "0".repeat(64),
-  }),
-});
-
 describe("Core Canvas scene adapter", () => {
-  test("classifies an invalid Canvas snapshot as a terminal protocol error", async () => {
+  test("classifies an invalid Canvas snapshot as a terminal protocol error", async (createCoreCanvasSceneAdapter) => {
     const client = new InvalidSnapshotCanvasClient();
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const request = {
@@ -159,8 +105,6 @@ describe("Core Canvas scene adapter", () => {
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
     } as const;
-    const close = adapter.subscribe(request, () => undefined);
-
     await expect(adapter.sync(request)).resolves.toEqual({
       ok: false,
       error: {
@@ -170,41 +114,16 @@ describe("Core Canvas scene adapter", () => {
         resetRequired: false,
       },
     });
-
-    close();
   });
 
-  test("reconnects and retries once when Core reports a lost subscription lease", async () => {
-    const client = new SubscriptionLossCanvasClient();
-    client.enqueueDocumentCanvasSync(syncSnapshot("sync:one"));
-    const adapter = createCoreCanvasSceneAdapter(client, BINDING, { retryDelayMs: 0 });
-    const request = {
-      syncRequestId: "sync:one",
-      accessContext: ACCESS_CONTEXT,
-      documentId: DOCUMENT_ID,
-      clientSessionId: CLIENT_SESSION_ID,
-    } as const;
-    const close = adapter.subscribe(request, () => undefined);
-
-    await expect(adapter.sync(request)).resolves.toMatchObject({
-      ok: true,
-      value: { documentId: DOCUMENT_ID },
-    });
-    expect(client.streamOpenings).toBe(2);
-    expect(client.readAttempts).toBe(2);
-    close();
-  });
-
-  test("syncs, applies, and maps durable Canvas events behind one subscription", async () => {
+  test("syncs and applies Canvas commands", async (createCoreCanvasSceneAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
-    const events: CanvasSceneRealtimeEvent[] = [];
     const subscription = {
       accessContext: ACCESS_CONTEXT,
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
     } as const;
-    const close = adapter.subscribe(subscription, (event) => events.push(event));
     client.enqueueDocumentCanvasSync(syncSnapshot("sync:two"));
 
     await expect(
@@ -246,42 +165,9 @@ describe("Core Canvas scene adapter", () => {
       value: mutationResult,
       localCommit: committedLocalCommit(STORE_EPOCH, 1),
     });
-
-    client.emitDocument(DOCUMENT_ID, committedEvent());
-    await expect
-      .poll(() => events)
-      .toEqual([
-        {
-          type: "canvas_scene_committed",
-          libraryId: LIBRARY_ID,
-          accessContext: ACCESS_CONTEXT,
-          documentId: DOCUMENT_ID,
-          storeEpoch: STORE_EPOCH,
-          generation: 1,
-          mutationId: mutationResult.mutationId,
-          baseHeadSeq: 0,
-          headSeq: 1,
-          sceneHash: SCENE_HASH,
-          elementUpdates: [],
-          appState: { gridModeEnabled: true },
-          fileAdditions: {},
-          removedFileIds: [],
-        },
-      ]);
-
-    close();
-    await expect(
-      adapter.sync({
-        ...subscription,
-        syncRequestId: "sync:closed",
-      }),
-    ).resolves.toMatchObject({
-      ok: false,
-      error: { code: "unknown", retryable: true },
-    });
   });
 
-  test("rejects Canvas sync access drift instead of rewriting Core identity", async () => {
+  test("rejects Canvas sync access drift instead of rewriting Core identity", async (createCoreCanvasSceneAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const subscription = {
@@ -289,7 +175,6 @@ describe("Core Canvas scene adapter", () => {
       documentId: DOCUMENT_ID,
       clientSessionId: CLIENT_SESSION_ID,
     } as const;
-    const close = adapter.subscribe(subscription, () => undefined);
     client.enqueueDocumentCanvasSync({
       ...syncSnapshot("sync:granted"),
       accessContext: {
@@ -337,19 +222,11 @@ describe("Core Canvas scene adapter", () => {
       ok: false,
       error: { code: "canvas_scene_corrupt" },
     });
-    close();
   });
 
-  test("reads compaction evidence, applies generation rollover, and maps its reset event", async () => {
+  test("reads compaction evidence and applies generation rollover", async (createCoreCanvasSceneAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
-    const events: CanvasSceneRealtimeEvent[] = [];
-    const subscription = {
-      accessContext: ACCESS_CONTEXT,
-      documentId: DOCUMENT_ID,
-      clientSessionId: CLIENT_SESSION_ID,
-    } as const;
-    const close = adapter.subscribe(subscription, (event) => events.push(event));
     client.enqueueDocumentRead({
       contract_version: 3,
       store_epoch: STORE_EPOCH,
@@ -432,44 +309,5 @@ describe("Core Canvas scene adapter", () => {
       generation: 1,
       expected_head_seq: 9,
     });
-
-    client.emitDocument(DOCUMENT_ID, {
-      transport_version: 4,
-      packet: createCoreLocalCommitFixture({
-        commitSeq: 4,
-        storeEpoch: STORE_EPOCH,
-        operationId: request.mutationId,
-        committedAt: COMMITTED_AT,
-        payload: {
-          module: "owned_document",
-          library_id: "library-1",
-          canvas_id: "canvas:test",
-          event: {
-            kind: "canvas_generation_changed",
-            document_id: DOCUMENT_ID,
-            previous_generation: 1,
-            previous_head_seq: 9,
-            generation: 2,
-            head_seq: 1,
-            scene_hash: compactionResult.sceneHash,
-          },
-        },
-        canonicalHash: "0".repeat(64),
-      }),
-    });
-    await expect
-      .poll(() => events)
-      .toEqual([
-        {
-          type: "canvas_scene_resync_required",
-          libraryId: LIBRARY_ID,
-          accessContext: ACCESS_CONTEXT,
-          documentId: DOCUMENT_ID,
-          storeEpoch: STORE_EPOCH,
-          generation: 2,
-          headSeq: 1,
-        },
-      ]);
-    close();
   });
 });

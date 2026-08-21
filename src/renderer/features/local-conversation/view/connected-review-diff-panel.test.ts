@@ -55,7 +55,6 @@ function buildConversation(unifiedDiff: string): CodexConversationSnapshot {
     pendingSteers: [],
     queuedFollowUps: [],
     backgroundTerminalRows: [],
-    childMemberships: [],
     capabilityFlags: {
       canEditLastUserTurn: false,
       canForkFromTurn: false,

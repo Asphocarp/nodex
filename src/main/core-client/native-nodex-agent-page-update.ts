@@ -19,25 +19,31 @@ import {
   AgentDocumentEditCompilerError,
   applyExactNfmPatches,
 } from "../../shared/nodex-agent-tools/exact-nfm-patches";
-import type { NodexAgentMutationEnvelope } from "../agent-tools/dynamic-service-v3-port";
 import { CoreModuleResponseError } from "./core-client";
-import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
-import { toCoreAgentExecutionAuthorization } from "./desktop-nodex-agent-resource-authority";
+import type { NativeNodexAgentCore } from "./native-nodex-agent-core";
+import { toCoreAgentExecutionAuthorization } from "./core-agent-execution-authorization";
+import type {
+  NativeNodexAgentMutationStep,
+  NodexAgentMutationEnvelope,
+} from "./native-nodex-agent-mutation-step";
 import {
   applyResultCursor,
   applyResultStoreEpoch,
   rendererLocalCommitApply,
+  type LibraryReadSnapshot,
   type OwnedDocumentApplyResult,
 } from "./types";
 
-type CoreAgentMutation = components["schemas"]["AgentDocumentSemanticMutation"];
-type CoreAgentPreparation = components["schemas"]["AgentOperationPreparation"];
-type CoreCommittedDocument = OwnedDocumentApplyResult;
+export type CoreAgentMutation = components["schemas"]["AgentDocumentSemanticMutation"];
+export type CoreAgentPreparation = components["schemas"]["AgentOperationPreparation"];
+export type CoreCommittedDocument = OwnedDocumentApplyResult;
 type ToolError = ToolFailure["error"];
+type CorePageContent = Extract<
+  LibraryReadSnapshot["value"],
+  { readonly kind: "page_content" }
+>["value"];
 
-const MAX_PENDING_NATIVE_AGENT_UPDATES = 1_024;
-
-interface PendingNativePageUpdate {
+export interface PendingNativePageUpdate {
   readonly request: PrepareNodexAgentPageUpdateRequest;
   readonly operationId: string;
   readonly clientSessionId: string;
@@ -130,7 +136,7 @@ export const mapNativeNodexAgentCoreError = (error: unknown): ToolError => {
   };
 };
 
-const operationIdFor = (
+export const nativeNodexAgentPageUpdateOperationId = (
   request: Pick<PrepareNodexAgentPageUpdateRequest, "threadId" | "callId" | "tool">,
 ): string =>
   `nodex-agent-edit:${createHash("sha256")
@@ -336,18 +342,98 @@ const mutationCommands = (
 const isToolError = (value: CoreAgentMutation["commands"] | ToolError): value is ToolError =>
   !Array.isArray(value);
 
-export class NativeNodexAgentPageUpdateRuntime {
-  private readonly pending = new Map<string, PendingNativePageUpdate>();
+const projectNativeNodexAgentPageUpdateOutput = (
+  request: PrepareNodexAgentPageUpdateRequest,
+  committed: CoreCommittedDocument,
+  content: CorePageContent | null,
+) => {
+  const effect = effectFromCommit(committed);
+  const wantsBlockIds = request.input.return?.includes("block_ids") ?? false;
+  const wantsEtags = request.input.return?.includes("etags") ?? false;
+  const semanticEtags = committed.outcome.semantic_etags;
+  const semanticLocalBlockIds = committed.outcome.semantic_local_block_ids ?? {};
+  if (wantsEtags && !semanticEtags) {
+    throw new Error("Core Agent Page update omitted its semantic ETags");
+  }
+  const exactContent =
+    content?.document_generation === committed.outcome.generation &&
+    content.document_head_seq === committed.outcome.head_seq
+      ? content
+      : null;
+  const created = effect?.created_block_ids ?? [];
+  const updated = effect?.updated_block_ids ?? [];
+  const moved = effect?.moved_block_ids ?? [];
+  const deleted = effect?.deleted_block_ids ?? [];
+  return UpdatePageV3OutputSchema.parse({
+    data: {
+      pageId: request.input.pageId,
+      effects: {
+        created: created.length,
+        updated: updated.length,
+        moved: moved.length,
+        deleted: deleted.length,
+        ...(wantsBlockIds
+          ? {
+              blockIds: {
+                created,
+                local: semanticLocalBlockIds,
+                copied: {},
+                updated,
+                moved,
+                deleted,
+              },
+            }
+          : {}),
+      },
+      ...(wantsEtags && semanticEtags
+        ? { etags: { title: semanticEtags.title, body: semanticEtags.body } }
+        : {}),
+      ...(exactContent
+        ? {
+            body: {
+              format: "markdown",
+              markdown: exactContent.body_nfm,
+              contentHash: createHash("sha256").update(exactContent.body_nfm).digest("hex"),
+            },
+          }
+        : {}),
+    },
+  });
+};
 
-  constructor(private readonly runtime: RustDataAuthorityRuntime) {}
+const readNativeNodexAgentPageUpdateOutput = async (
+  runtime: NativeNodexAgentCore,
+  request: PrepareNodexAgentPageUpdateRequest,
+  committed: CoreCommittedDocument,
+  signal?: AbortSignal,
+) => {
+  const wantsMarkdown = request.input.return?.includes("markdown") ?? false;
+  const contentSnapshot = wantsMarkdown
+    ? await runtime.rootClient.libraryRead(
+        { kind: "page_content", page_id: request.input.pageId },
+        { class: "background", signal },
+      )
+    : null;
+  const content =
+    contentSnapshot?.value.kind === "page_content" ? contentSnapshot.value.value : null;
+  return projectNativeNodexAgentPageUpdateOutput(request, committed, content);
+};
 
-  async prepare(
-    request: PrepareNodexAgentPageUpdateRequest,
-  ): Promise<NodexAgentMutationEnvelope<PrepareNodexAgentPageUpdateResult>> {
-    const operationId = operationIdFor(request);
-    try {
-      if (!request.authority) {
-        return envelope(
+export const prepareNativeNodexAgentPageUpdate = async (
+  runtime: NativeNodexAgentCore,
+  request: PrepareNodexAgentPageUpdateRequest,
+  signal?: AbortSignal,
+): Promise<
+  NativeNodexAgentMutationStep<
+    NodexAgentMutationEnvelope<PrepareNodexAgentPageUpdateResult>,
+    PendingNativePageUpdate
+  >
+> => {
+  const operationId = nativeNodexAgentPageUpdateOperationId(request);
+  try {
+    if (!request.authority) {
+      return {
+        result: envelope(
           {
             ok: false,
             error: {
@@ -358,153 +444,167 @@ export class NativeNodexAgentPageUpdateRuntime {
             },
           },
           operationId,
-        );
-      }
-      const commands = mutationCommands(request);
-      if (isToolError(commands)) {
-        return envelope({ ok: false, error: commands }, operationId);
-      }
-      const contentSnapshot = await this.runtime.rootClient.libraryRead(
-        {
-          kind: "page_content",
-          page_id: request.input.pageId,
-        },
-        { class: "background" },
-      );
-      if (contentSnapshot.value.kind !== "page_content") {
-        throw new Error("Core returned the wrong Agent Page content variant");
-      }
-      const content = contentSnapshot.value.value;
-      const targetMarkdown =
-        request.tool === "update_page" && request.input.body?.kind === "patch"
-          ? applyExactNfmPatches(
-              content.body_nfm,
-              request.input.body.patches.map((patch) => ({
-                oldNfm: patch.oldMarkdown,
-                newNfm: patch.newMarkdown,
-                ...(patch.expectedMatches !== undefined
-                  ? { expectedMatches: patch.expectedMatches }
-                  : {}),
-              })),
-            )
-          : request.tool === "update_page" && request.input.body?.kind === "replace"
-            ? request.input.body.markdown
-            : content.body_nfm;
-      const mutation: CoreAgentMutation = {
-        document_id: content.document_id,
-        generation: content.document_generation,
-        expected_head_seq: content.document_head_seq,
-        commands,
+        ),
+        transition: { kind: "keep" },
       };
-      const authorization = toCoreAgentExecutionAuthorization(
-        this.runtime.identity.profileId,
-        request.authority,
-        request.callId,
-        request.resourceAccess,
-      );
-      const clientSessionId = `nodex-agent:${request.threadId}`.slice(0, 512);
-      const client = this.runtime.clientForProject(request.projectId);
-      const snapshot = await client.documentRead(
-        clientSessionId,
-        {
-          kind: "prepare_agent_semantic_mutation",
-          operation_id: operationId,
-          store_epoch: request.authority.storeEpoch,
-          authorization,
-          mutation,
-        },
-        { class: "background" },
-      );
-      if (snapshot.value.kind !== "agent_semantic_mutation_preparation") {
-        throw new Error("Core returned the wrong Agent Page update preparation variant");
-      }
-      if (snapshot.value.preparation.state === "committed_replay") {
-        if (!snapshot.value.committed) {
-          throw new Error("Core Agent replay omitted its committed result");
-        }
-        const output = await this.output(request, snapshot.value.committed);
-        return envelope({ ok: true, value: { kind: "completed", output } }, operationId);
-      }
-      const token = snapshot.value.preparation.token;
-      if (!token) throw new Error("Core Agent preparation omitted its execution token");
-      const effects = effectsFromPreparation(
-        request.input.pageId,
-        snapshot.value.preparation,
-        request.tool === "update_page" && request.input.title !== undefined,
-      );
-      const canonicalTargetMarkdown = snapshot.value.preparation.preview_markdown ?? targetMarkdown;
-      const pending: PendingNativePageUpdate = {
-        request,
-        operationId,
-        clientSessionId,
+    }
+    const commands = mutationCommands(request);
+    if (isToolError(commands)) {
+      return {
+        result: envelope({ ok: false, error: commands }, operationId),
+        transition: { kind: "keep" },
+      };
+    }
+    const contentSnapshot = await runtime.rootClient.libraryRead(
+      { kind: "page_content", page_id: request.input.pageId },
+      { class: "background", signal },
+    );
+    if (contentSnapshot.value.kind !== "page_content") {
+      throw new Error("Core returned the wrong Agent Page content variant");
+    }
+    const content = contentSnapshot.value.value;
+    const targetMarkdown =
+      request.tool === "update_page" && request.input.body?.kind === "patch"
+        ? applyExactNfmPatches(
+            content.body_nfm,
+            request.input.body.patches.map((patch) => ({
+              oldNfm: patch.oldMarkdown,
+              newNfm: patch.newMarkdown,
+              ...(patch.expectedMatches !== undefined
+                ? { expectedMatches: patch.expectedMatches }
+                : {}),
+            })),
+          )
+        : request.tool === "update_page" && request.input.body?.kind === "replace"
+          ? request.input.body.markdown
+          : content.body_nfm;
+    const mutation: CoreAgentMutation = {
+      document_id: content.document_id,
+      generation: content.document_generation,
+      expected_head_seq: content.document_head_seq,
+      commands,
+    };
+    const clientSessionId = `nodex-agent:${request.threadId}`.slice(0, 512);
+    const snapshot = await runtime.clientForProject(request.projectId).documentRead(
+      clientSessionId,
+      {
+        kind: "prepare_agent_semantic_mutation",
+        operation_id: operationId,
+        store_epoch: request.authority.storeEpoch,
+        authorization: toCoreAgentExecutionAuthorization(
+          runtime.identity.profileId,
+          request.authority,
+          request.callId,
+          request.resourceAccess,
+        ),
         mutation,
-        token,
+      },
+      { class: "background", signal },
+    );
+    if (snapshot.value.kind !== "agent_semantic_mutation_preparation") {
+      throw new Error("Core returned the wrong Agent Page update preparation variant");
+    }
+    if (snapshot.value.preparation.state === "committed_replay") {
+      if (!snapshot.value.committed) {
+        throw new Error("Core Agent replay omitted its committed result");
+      }
+      const output = await readNativeNodexAgentPageUpdateOutput(
+        runtime,
+        request,
+        snapshot.value.committed,
+        signal,
+      );
+      return {
+        result: envelope({ ok: true, value: { kind: "completed", output } }, operationId),
+        transition: { kind: "clear", operationId },
       };
-      this.retain(pending);
-      const fakeMutation: DocumentMutationRequest = {
-        mutationId: operationId,
-        projectId: request.projectId,
-        storeEpoch: request.authority.storeEpoch,
-        clientSessionId,
-        actor: {
-          kind: "nodex_agent",
-          threadId: request.threadId,
-          callId: request.callId,
-        },
-        documentId: content.document_id,
-        generation: content.document_generation,
-        expectedHeadSeq: content.document_head_seq,
-        operations: [],
-      };
-      return envelope(
+    }
+    const token = snapshot.value.preparation.token;
+    if (!token) throw new Error("Core Agent preparation omitted its execution token");
+    const pending: PendingNativePageUpdate = {
+      request,
+      operationId,
+      clientSessionId,
+      mutation,
+      token,
+    };
+    const fakeMutation: DocumentMutationRequest = {
+      mutationId: operationId,
+      projectId: request.projectId,
+      storeEpoch: request.authority.storeEpoch,
+      clientSessionId,
+      actor: { kind: "nodex_agent", threadId: request.threadId, callId: request.callId },
+      documentId: content.document_id,
+      generation: content.document_generation,
+      expectedHeadSeq: content.document_head_seq,
+      operations: [],
+    };
+    return {
+      result: envelope(
         {
           ok: true,
           value: {
             kind: "prepared",
             mutation: fakeMutation,
-            effects,
-            targetMarkdown: canonicalTargetMarkdown,
+            effects: effectsFromPreparation(
+              request.input.pageId,
+              snapshot.value.preparation,
+              request.tool === "update_page" && request.input.title !== undefined,
+            ),
+            targetMarkdown: snapshot.value.preparation.preview_markdown ?? targetMarkdown,
             ...(request.resourceAccess ? { resourceAccess: request.resourceAccess } : {}),
           },
         },
         operationId,
-      );
-    } catch (error) {
-      const mapped =
-        error instanceof AgentDocumentEditCompilerError
-          ? {
-              code: error.code,
-              message: error.message,
-              retryable: false,
-              recovery:
-                error.code === "nfm_patch_mismatch" || error.code === "nfm_patch_overlap"
-                  ? ("fetch_again" as const)
-                  : ("none" as const),
-            }
-          : mapNativeNodexAgentCoreError(error);
-      return envelope({ ok: false, error: mapped }, operationId);
-    }
+      ),
+      transition: { kind: "retain", pending },
+    };
+  } catch (error) {
+    const mapped =
+      error instanceof AgentDocumentEditCompilerError
+        ? {
+            code: error.code,
+            message: error.message,
+            retryable: false,
+            recovery:
+              error.code === "nfm_patch_mismatch" || error.code === "nfm_patch_overlap"
+                ? ("fetch_again" as const)
+                : ("none" as const),
+          }
+        : mapNativeNodexAgentCoreError(error);
+    return {
+      result: envelope({ ok: false, error: mapped }, operationId),
+      transition: { kind: "keep" },
+    };
   }
+};
 
-  async apply(request: DocumentMutationRequest): Promise<DocumentOperationCommandResult> {
-    const pending = this.pending.get(request.mutationId);
-    const authority = pending?.request.authority;
-    const matchesPreparation =
-      pending &&
-      authority &&
-      request.projectId === pending.request.projectId &&
-      request.storeEpoch === authority.storeEpoch &&
-      request.clientSessionId === pending.clientSessionId &&
-      request.documentId === pending.mutation.document_id &&
-      request.generation === pending.mutation.generation &&
-      request.expectedHeadSeq === pending.mutation.expected_head_seq &&
-      "operations" in request &&
-      request.operations.length === 0 &&
-      request.actor.kind === "nodex_agent" &&
-      request.actor.threadId === pending.request.threadId &&
-      request.actor.callId === pending.request.callId;
-    if (!matchesPreparation) {
-      return {
+export const applyNativeNodexAgentPageUpdate = async (
+  runtime: NativeNodexAgentCore,
+  pending: PendingNativePageUpdate | undefined,
+  request: DocumentMutationRequest,
+  signal?: AbortSignal,
+): Promise<
+  NativeNodexAgentMutationStep<DocumentOperationCommandResult, PendingNativePageUpdate>
+> => {
+  const authority = pending?.request.authority;
+  const matchesPreparation =
+    pending &&
+    authority &&
+    request.projectId === pending.request.projectId &&
+    request.storeEpoch === authority.storeEpoch &&
+    request.clientSessionId === pending.clientSessionId &&
+    request.documentId === pending.mutation.document_id &&
+    request.generation === pending.mutation.generation &&
+    request.expectedHeadSeq === pending.mutation.expected_head_seq &&
+    "operations" in request &&
+    request.operations.length === 0 &&
+    request.actor.kind === "nodex_agent" &&
+    request.actor.threadId === pending.request.threadId &&
+    request.actor.callId === pending.request.callId;
+  if (!matchesPreparation) {
+    return {
+      result: {
         ok: false,
         error: {
           code: "mutation_id_collision",
@@ -512,41 +612,44 @@ export class NativeNodexAgentPageUpdateRuntime {
           retryable: false,
           mutationId: request.mutationId,
         },
-      };
-    }
-    try {
-      const committed = await this.runtime
-        .clientForProject(pending.request.projectId)
-        .documentApply(
-          {
-            operationId: pending.operationId,
-            clientSessionId: pending.clientSessionId,
-            intent: {
-              kind: "execute_prepared_agent_semantic_mutation",
-              authorization: {
-                authorization: toCoreAgentExecutionAuthorization(
-                  this.runtime.identity.profileId,
-                  authority,
-                  pending.request.callId,
-                  pending.request.resourceAccess,
-                ),
-                token: pending.token,
-              },
-              mutation: pending.mutation,
-            },
+      },
+      transition: { kind: "keep" },
+    };
+  }
+  try {
+    const committed = await runtime.clientForProject(pending.request.projectId).documentApply(
+      {
+        operationId: pending.operationId,
+        clientSessionId: pending.clientSessionId,
+        intent: {
+          kind: "execute_prepared_agent_semantic_mutation",
+          authorization: {
+            authorization: toCoreAgentExecutionAuthorization(
+              runtime.identity.profileId,
+              authority,
+              pending.request.callId,
+              pending.request.resourceAccess,
+            ),
+            token: pending.token,
           },
-          { class: "background" },
-        );
-      pending.committed = committed;
-      return {
+          mutation: pending.mutation,
+        },
+      },
+      { class: "background", signal },
+    );
+    const retained = { ...pending, committed };
+    return {
+      result: {
         ok: true,
-        value: toDocumentOperationResult(pending, committed),
+        value: toDocumentOperationResult(retained, committed),
         localCommit: rendererLocalCommitApply(committed),
-      };
-    } catch (error) {
-      this.pending.delete(pending.operationId);
-      const mapped = mapNativeNodexAgentCoreError(error);
-      return {
+      },
+      transition: { kind: "retain", pending: retained },
+    };
+  } catch (error) {
+    const mapped = mapNativeNodexAgentCoreError(error);
+    return {
+      result: {
         ok: false,
         error: {
           code:
@@ -559,29 +662,39 @@ export class NativeNodexAgentPageUpdateRuntime {
           retryable: mapped.retryable,
           mutationId: pending.operationId,
         },
-      };
-    }
+      },
+      transition: { kind: "clear", operationId: pending.operationId },
+    };
   }
+};
 
-  async complete(
-    request: CompleteNodexAgentPageUpdateRequest,
-  ): Promise<NodexAgentMutationEnvelope<CompleteNodexAgentPageUpdateResult>> {
-    const operationId = operationIdFor(request);
-    const pending = this.pending.get(operationId);
-    const committed = pending?.committed;
-    const matchesCommit =
-      pending &&
-      committed &&
-      request.projectId === pending.request.projectId &&
-      request.pageId === pending.request.input.pageId &&
-      request.result.mutationId === operationId &&
-      request.result.projectId === pending.request.projectId &&
-      request.result.storeEpoch === applyResultStoreEpoch(committed) &&
-      request.result.documentId === committed.outcome.document_id &&
-      request.result.generation === committed.outcome.generation &&
-      request.result.headSeq === committed.outcome.head_seq;
-    if (!matchesCommit) {
-      return envelope(
+export const completeNativeNodexAgentPageUpdate = async (
+  runtime: NativeNodexAgentCore,
+  pending: PendingNativePageUpdate | undefined,
+  request: CompleteNodexAgentPageUpdateRequest,
+  signal?: AbortSignal,
+): Promise<
+  NativeNodexAgentMutationStep<
+    NodexAgentMutationEnvelope<CompleteNodexAgentPageUpdateResult>,
+    PendingNativePageUpdate
+  >
+> => {
+  const operationId = nativeNodexAgentPageUpdateOperationId(request);
+  const committed = pending?.committed;
+  const matchesCommit =
+    pending &&
+    committed &&
+    request.projectId === pending.request.projectId &&
+    request.pageId === pending.request.input.pageId &&
+    request.result.mutationId === operationId &&
+    request.result.projectId === pending.request.projectId &&
+    request.result.storeEpoch === applyResultStoreEpoch(committed) &&
+    request.result.documentId === committed.outcome.document_id &&
+    request.result.generation === committed.outcome.generation &&
+    request.result.headSeq === committed.outcome.head_seq;
+  if (!matchesCommit) {
+    return {
+      result: envelope(
         {
           ok: false,
           error: {
@@ -592,104 +705,25 @@ export class NativeNodexAgentPageUpdateRuntime {
           },
         },
         operationId,
-      );
-    }
-    try {
-      const output = await this.output(pending.request, committed);
-      this.pending.delete(operationId);
-      return envelope({ ok: true, output }, operationId);
-    } catch (error) {
-      return envelope(
-        {
-          ok: false,
-          error: mapNativeNodexAgentCoreError(error),
-        },
-        operationId,
-      );
-    }
+      ),
+      transition: { kind: "keep" },
+    };
   }
-
-  private retain(pending: PendingNativePageUpdate): void {
-    this.pending.delete(pending.operationId);
-    this.pending.set(pending.operationId, pending);
-    while (this.pending.size > MAX_PENDING_NATIVE_AGENT_UPDATES) {
-      const oldest = this.pending.keys().next().value as string | undefined;
-      if (!oldest) return;
-      this.pending.delete(oldest);
-    }
+  try {
+    const output = await readNativeNodexAgentPageUpdateOutput(
+      runtime,
+      pending.request,
+      committed,
+      signal,
+    );
+    return {
+      result: envelope({ ok: true, output }, operationId),
+      transition: { kind: "clear", operationId },
+    };
+  } catch (error) {
+    return {
+      result: envelope({ ok: false, error: mapNativeNodexAgentCoreError(error) }, operationId),
+      transition: { kind: "keep" },
+    };
   }
-
-  private async output(
-    request: PrepareNodexAgentPageUpdateRequest,
-    committed: CoreCommittedDocument,
-  ) {
-    const effect = effectFromCommit(committed);
-    const wantsMarkdown = request.input.return?.includes("markdown") ?? false;
-    const wantsBlockIds = request.input.return?.includes("block_ids") ?? false;
-    const wantsEtags = request.input.return?.includes("etags") ?? false;
-    const semanticEtags = committed.outcome.semantic_etags;
-    const semanticLocalBlockIds = committed.outcome.semantic_local_block_ids ?? {};
-    if (wantsEtags && !semanticEtags) {
-      throw new Error("Core Agent Page update omitted its semantic ETags");
-    }
-    const contentSnapshot = wantsMarkdown
-      ? await this.runtime.rootClient.libraryRead(
-          {
-            kind: "page_content",
-            page_id: request.input.pageId,
-          },
-          { class: "background" },
-        )
-      : null;
-    const content =
-      contentSnapshot?.value.kind === "page_content" &&
-      contentSnapshot.value.value.document_generation === committed.outcome.generation &&
-      contentSnapshot.value.value.document_head_seq === committed.outcome.head_seq
-        ? contentSnapshot.value.value
-        : null;
-    const created = effect?.created_block_ids ?? [];
-    const updated = effect?.updated_block_ids ?? [];
-    const moved = effect?.moved_block_ids ?? [];
-    const deleted = effect?.deleted_block_ids ?? [];
-    return UpdatePageV3OutputSchema.parse({
-      data: {
-        pageId: request.input.pageId,
-        effects: {
-          created: created.length,
-          updated: updated.length,
-          moved: moved.length,
-          deleted: deleted.length,
-          ...(wantsBlockIds
-            ? {
-                blockIds: {
-                  created,
-                  local: semanticLocalBlockIds,
-                  copied: {},
-                  updated,
-                  moved,
-                  deleted,
-                },
-              }
-            : {}),
-        },
-        ...(wantsEtags && semanticEtags
-          ? {
-              etags: {
-                title: semanticEtags.title,
-                body: semanticEtags.body,
-              },
-            }
-          : {}),
-        ...(content
-          ? {
-              body: {
-                format: "markdown",
-                markdown: content.body_nfm,
-                contentHash: createHash("sha256").update(content.body_nfm).digest("hex"),
-              },
-            }
-          : {}),
-      },
-    });
-  }
-}
+};
