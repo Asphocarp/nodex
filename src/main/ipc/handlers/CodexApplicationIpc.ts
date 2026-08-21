@@ -14,6 +14,9 @@ import type {
   CodexConversationImageAssetResolveInput,
   CodexRateLimitResetInput,
 } from "../../../shared/types";
+import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
+import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
+import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 import type {
   AgentProviderCredentialDeleteInput,
   AgentProviderCredentialMutationInput,
@@ -28,6 +31,7 @@ import { CodexMedia } from "../../codex-application/CodexMedia";
 import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
 import { ComposerExternalSuggestions } from "../../codex-application/ComposerExternalSuggestions";
+import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { safeBroadcastToWindows } from "../../ipc-safe-send";
@@ -110,6 +114,26 @@ const parseProviderCredentialDelete = (input: unknown): AgentProviderCredentialD
   return { providerId: input.providerId };
 };
 
+const parseFeedbackUpload = (input: FeedbackUploadParams) => ({
+  classification: input.classification,
+  ...(input.reason === undefined ? {} : { reason: input.reason }),
+  ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
+  ...(input.includeLogs === undefined ? {} : { includeLogs: input.includeLogs }),
+  ...(input.extraLogFiles === undefined ? {} : { extraLogFiles: input.extraLogFiles }),
+  ...(input.tags === undefined
+    ? {}
+    : {
+        tags:
+          input.tags === null
+            ? null
+            : Object.fromEntries(
+                Object.entries(input.tags).filter(
+                  (entry): entry is [string, string] => typeof entry[1] === "string",
+                ),
+              ),
+      }),
+});
+
 export const live: Layer.Layer<
   never,
   never,
@@ -122,6 +146,7 @@ export const live: Layer.Layer<
   | CodexMedia
   | ComposerCatalog
   | ComposerExternalSuggestions
+  | ConversationCommands
   | CodexToolRuntime
 > = Layer.effectDiscard(
   Effect.gen(function* () {
@@ -134,6 +159,7 @@ export const live: Layer.Layer<
     const media = yield* CodexMedia;
     const composer = yield* ComposerCatalog;
     const externalSuggestions = yield* ComposerExternalSuggestions;
+    const conversations = yield* ConversationCommands;
     const tools = yield* CodexToolRuntime;
     const trusted = (event: IpcMainInvokeEvent, capabilityName: string) =>
       validate("authorize-renderer", () =>
@@ -187,6 +213,49 @@ export const live: Layer.Layer<
     );
     yield* ipc.handle("codex:account:logout", () => account.logout);
     yield* ipc.handle("codex:connection:status", () => connection.read);
+    yield* ipc.handle(
+      "codex:thread:memory-mode:set",
+      (_event, threadId: string, mode: ThreadMemoryMode) =>
+        conversations.setMemoryMode(threadId, mode),
+    );
+    yield* ipc.handle("codex:feedback:upload", (_event, params: FeedbackUploadParams) =>
+      conversations.uploadFeedback(parseFeedbackUpload(params)),
+    );
+    yield* ipc.handle(
+      "codex:thread:background-terminals:list",
+      (_event, threadId: string) => {
+        const normalized = threadId.trim();
+        return normalized
+          ? conversations
+              .listBackgroundTerminals(normalized)
+              .pipe(
+                Effect.map((items) =>
+                  items.map(
+                    (item): ThreadBackgroundTerminal => ({
+                      itemId: item.itemId,
+                      processId: item.processId,
+                      command: item.command,
+                      cwd: item.cwd,
+                      osPid: item.osPid ?? null,
+                      cpuPercent: item.cpuPercent ?? null,
+                      rssKb: item.rssKb == null ? null : BigInt(Math.trunc(item.rssKb)),
+                    }),
+                  ),
+                ),
+              )
+          : Effect.succeed<ThreadBackgroundTerminal[]>([]);
+      },
+    );
+    yield* ipc.handle(
+      "codex:thread:background-terminals:terminate",
+      (_event, input: { readonly threadId: string; readonly processId: string }) => {
+        const threadId = input.threadId.trim();
+        const processId = input.processId.trim();
+        return threadId && processId
+          ? conversations.terminateBackgroundTerminal(threadId, processId)
+          : Effect.succeed(false);
+      },
+    );
     yield* ipc.handle("agent-runtime:catalog:get", (_event, options?: { refresh?: boolean }) =>
       agentProviders.list({ refresh: options?.refresh === true }),
     );

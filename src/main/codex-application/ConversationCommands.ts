@@ -24,6 +24,9 @@ type ThreadMethod =
   | "turn/steer"
   | "turn/interrupt";
 
+type BackgroundTerminal =
+  ClientRequestResponsesByMethod["thread/backgroundTerminals/list"]["data"][number];
+
 export class ConversationCommands extends Context.Service<
   ConversationCommands,
   {
@@ -36,6 +39,20 @@ export class ConversationCommands extends Context.Service<
       method: M,
       params: ClientRequestParamsByMethod[M],
     ) => Effect.Effect<ClientRequestResponsesByMethod[M], CodexRuntimeError>;
+    readonly setMemoryMode: (
+      threadId: string,
+      mode: ClientRequestParamsByMethod["thread/memoryMode/set"]["mode"],
+    ) => Effect.Effect<void, CodexRuntimeError>;
+    readonly uploadFeedback: (
+      params: ClientRequestParamsByMethod["feedback/upload"],
+    ) => Effect.Effect<void, CodexRuntimeError>;
+    readonly listBackgroundTerminals: (
+      threadId: string,
+    ) => Effect.Effect<readonly BackgroundTerminal[], CodexRuntimeError>;
+    readonly terminateBackgroundTerminal: (
+      threadId: string,
+      processId: string,
+    ) => Effect.Effect<boolean, CodexRuntimeError>;
   }
 >()("nodex/main/codex-application/ConversationCommands") {}
 
@@ -54,9 +71,42 @@ export const live: Layer.Layer<ConversationCommands, never, CodexGateway | Conve
           .pipe(
             Effect.tap(() => (closesRuntime(method) ? conversations.close(threadId) : Effect.void)),
           );
+      const listBackgroundTerminals = (
+        threadId: string,
+        cursor: string | null = null,
+        collected: readonly BackgroundTerminal[] = [],
+      ): Effect.Effect<readonly BackgroundTerminal[], CodexRuntimeError> =>
+        gateway
+          .requestForThread(threadId, "thread/backgroundTerminals/list", {
+            threadId,
+            cursor,
+            limit: 100,
+          })
+          .pipe(
+            Effect.flatMap((response) => {
+              const next = [...collected, ...response.data];
+              return response.nextCursor
+                ? listBackgroundTerminals(threadId, response.nextCursor, next)
+                : Effect.succeed(next);
+            }),
+          );
       return ConversationCommands.of({
         start: (hostId, params) => gateway.requestOnHost(hostId, "thread/start", params),
         request,
+        setMemoryMode: (threadId, mode) =>
+          gateway
+            .requestForThread(threadId, "thread/memoryMode/set", { threadId, mode })
+            .pipe(Effect.asVoid),
+        uploadFeedback: (params) =>
+          gateway.requestLocal("feedback/upload", params).pipe(Effect.asVoid),
+        listBackgroundTerminals: (threadId) => listBackgroundTerminals(threadId.trim()),
+        terminateBackgroundTerminal: (threadId, processId) =>
+          gateway
+            .requestForThread(threadId, "thread/backgroundTerminals/terminate", {
+              threadId,
+              processId,
+            })
+            .pipe(Effect.map((response) => response.terminated)),
       });
     }),
   );

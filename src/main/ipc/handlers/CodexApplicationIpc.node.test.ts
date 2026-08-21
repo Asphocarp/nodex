@@ -14,6 +14,7 @@ import { emptyAccountSnapshot } from "../../codex-application/CodexAccountState"
 import { CodexToolRuntime } from "../../codex-application/CodexToolRuntime";
 import { ComposerCatalog } from "../../codex-application/ComposerCatalog";
 import { ComposerExternalSuggestions } from "../../codex-application/ComposerExternalSuggestions";
+import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
 import { live } from "./CodexApplicationIpc";
@@ -103,6 +104,25 @@ it.effect("registers application channels directly against their owning modules"
       transcribe: () => Effect.succeed("hello"),
       resolveImage: () => Effect.succeed({ ok: false, message: "not available", status: null }),
     });
+    const conversations = ConversationCommands.of({
+      start: () => Effect.die("unused"),
+      request: () => Effect.die("unused"),
+      setMemoryMode: () => Effect.void,
+      uploadFeedback: () => Effect.void,
+      listBackgroundTerminals: () =>
+        Effect.succeed([
+          {
+            itemId: "item-a",
+            processId: "process-a",
+            command: "vp run dev",
+            cwd: "/repo",
+            osPid: null,
+            cpuPercent: null,
+            rssKb: null,
+          },
+        ]),
+      terminateBackgroundTerminal: () => Effect.succeed(true),
+    });
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live.pipe(
@@ -139,6 +159,7 @@ it.effect("registers application channels directly against their owning modules"
             Layer.succeed(CodexMedia, media),
             Layer.succeed(ComposerCatalog, composer),
             Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
+            Layer.succeed(ConversationCommands, conversations),
             Layer.succeed(CodexToolRuntime, tools),
           ),
         ),
@@ -151,6 +172,10 @@ it.effect("registers application channels directly against their owning modules"
     assert.isTrue(handlers.has("agent-runtime:credential:set"));
     assert.isTrue(handlers.has("agent-runtime:credential:delete"));
     assert.isTrue(handlers.has("codex:connection:status"));
+    assert.isTrue(handlers.has("codex:thread:memory-mode:set"));
+    assert.isTrue(handlers.has("codex:feedback:upload"));
+    assert.isTrue(handlers.has("codex:thread:background-terminals:list"));
+    assert.isTrue(handlers.has("codex:thread:background-terminals:terminate"));
     assert.isTrue(handlers.has("codex:dictation:state:read"));
     assert.isTrue(handlers.has("codex:dictation:transcribe"));
     assert.isTrue(handlers.has("codex:conversation-image-asset:resolve"));

@@ -38,6 +38,14 @@ import {
 import { ComposerCatalog, live as composerCatalogLive } from "../codex-application/ComposerCatalog";
 import { makeComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import {
+  ConversationCommands,
+  live as conversationCommandsLive,
+} from "../codex-application/ConversationCommands";
+import {
+  ConversationRuntimeMap,
+  live as conversationRuntimeMapLive,
+} from "../codex-application/ConversationRuntimeMap";
+import {
   CodexToolRuntime,
   live as codexToolRuntimeLive,
 } from "../codex-application/CodexToolRuntime";
@@ -174,6 +182,29 @@ export const live: Layer.Layer<
         ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
         const codexGateway = Context.get(codexContext, CodexGateway);
         const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
+        const conversationRuntimeContext = yield* Layer.buildWithScope(
+          conversationRuntimeMapLive,
+          runtimeScope,
+        );
+        const conversationRuntimes = Context.get(
+          conversationRuntimeContext,
+          ConversationRuntimeMap,
+        );
+        const conversationCommandsContext = yield* Layer.buildWithScope(
+          conversationCommandsLive.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(ConversationRuntimeMap, conversationRuntimes),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const conversationCommands = Context.get(
+          conversationCommandsContext,
+          ConversationCommands,
+        );
         const providerCredentialsContext = yield* Layer.buildWithScope(
           ProviderCredentials.fromStore(providerCredentialStore),
           runtimeScope,
@@ -287,6 +318,7 @@ export const live: Layer.Layer<
                 Layer.succeed(CodexConnection, codexConnectionService),
                 Layer.succeed(CodexMedia, codexMedia),
                 Layer.succeed(ComposerCatalog, composerCatalogService),
+                Layer.succeed(ConversationCommands, conversationCommands),
                 Layer.succeed(CodexToolRuntime, codexToolRuntimeService),
                 Layer.succeed(ComposerExternalSuggestions, externalSuggestions),
               ),

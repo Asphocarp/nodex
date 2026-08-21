@@ -10,7 +10,6 @@ import type {
   CollaborationMode as CodexAppServerCollaborationMode,
   GetAuthStatusResponse,
   RequestId,
-  ThreadMemoryMode,
 } from "@nodex/codex-app-server-protocol";
 import type { AppInfo } from "@nodex/codex-app-server-protocol/v2/AppInfo";
 import type { ConfigBatchWriteParams } from "@nodex/codex-app-server-protocol/v2/ConfigBatchWriteParams";
@@ -26,7 +25,6 @@ import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-s
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
 import type { DynamicToolCallResponse } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallResponse";
 import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/DynamicToolSpec";
-import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
 import type { FsGetMetadataResponse } from "@nodex/codex-app-server-protocol/v2/FsGetMetadataResponse";
 import type { FileChangeRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalParams";
 import type { FileChangeRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalResponse";
@@ -19048,7 +19046,10 @@ export class CodexService extends EventEmitter {
               ? "disabled"
               : null;
         if (!mode) throw new Error("Invalid thread memory mode");
-        await this.setThreadMemoryMode({ threadId: conversationId, mode });
+        await this.client.request("thread/memoryMode/set", {
+          threadId: conversationId,
+          mode,
+        });
         return null;
       }
       case "thread/compact/start":
@@ -20175,19 +20176,6 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  async setThreadMemoryMode(input: { threadId: string; mode: ThreadMemoryMode }): Promise<void> {
-    await this.ensureClientReady();
-    await this.client.request("thread/memoryMode/set", {
-      threadId: input.threadId,
-      mode: input.mode,
-    });
-  }
-
-  async uploadFeedback(params: FeedbackUploadParams): Promise<void> {
-    await this.ensureClientReady();
-    await this.client.request("feedback/upload", params);
-  }
-
   async startTurn(
     threadId: string,
     prompt: string,
@@ -20794,32 +20782,6 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
-  async listBackgroundTerminals(threadId: string): Promise<ThreadBackgroundTerminal[]> {
-    const trimmedThreadId = threadId.trim();
-    if (!trimmedThreadId) {
-      return [];
-    }
-
-    await this.ensureClientReady();
-
-    const rows: ThreadBackgroundTerminal[] = [];
-    let cursor: string | null = null;
-    do {
-      const response: ThreadBackgroundTerminalsListResponse = await this.client.request<
-        "thread/backgroundTerminals/list",
-        ThreadBackgroundTerminalsListResponse
-      >("thread/backgroundTerminals/list", {
-        threadId: trimmedThreadId,
-        cursor,
-        limit: 100,
-      });
-      rows.push(...response.data);
-      cursor = response.nextCursor;
-    } while (cursor);
-
-    return rows;
-  }
-
   async listBackgroundProcessRows(input: {
     threadId: string;
     observedTerminals?: ThreadBackgroundTerminal[];
@@ -20834,7 +20796,17 @@ export class CodexService extends EventEmitter {
       terminals = input.observedTerminals;
     } else {
       try {
-        terminals = await this.listBackgroundTerminals(threadId);
+        const rows: ThreadBackgroundTerminal[] = [];
+        let cursor: string | null = null;
+        do {
+          const response: ThreadBackgroundTerminalsListResponse = await this.client.request<
+            "thread/backgroundTerminals/list",
+            ThreadBackgroundTerminalsListResponse
+          >("thread/backgroundTerminals/list", { threadId, cursor, limit: 100 });
+          rows.push(...response.data);
+          cursor = response.nextCursor;
+        } while (cursor);
+        terminals = rows;
       } catch (error) {
         this.logger.warn(
           "Falling back to registered background process rows without live terminal snapshots",
@@ -20888,25 +20860,6 @@ export class CodexService extends EventEmitter {
 
     const records = await this.projectWorkspace.listBackgroundProcesses(threadId);
     return await this.buildBackgroundProcessRows(threadId, records, []);
-  }
-
-  async terminateBackgroundTerminal(input: {
-    threadId: string;
-    processId: string;
-  }): Promise<boolean> {
-    const threadId = input.threadId.trim();
-    const processId = input.processId.trim();
-    if (!threadId || !processId) {
-      return false;
-    }
-
-    await this.ensureClientReady();
-
-    const response: ThreadBackgroundTerminalsTerminateResponse = await this.client.request<
-      "thread/backgroundTerminals/terminate",
-      ThreadBackgroundTerminalsTerminateResponse
-    >("thread/backgroundTerminals/terminate", { threadId, processId });
-    return response.terminated;
   }
 
   private async recordObservedBackgroundTerminals(

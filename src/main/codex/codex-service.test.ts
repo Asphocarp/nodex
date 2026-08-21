@@ -294,7 +294,6 @@ interface TestableCodexService {
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
   cleanBackgroundTerminalsSilently: (threadId: string) => Promise<boolean>;
-  listBackgroundTerminals: (threadId: string) => Promise<ThreadBackgroundTerminal[]>;
   listBackgroundProcessRows: (input: {
     threadId: string;
     observedTerminals?: ThreadBackgroundTerminal[];
@@ -305,7 +304,6 @@ interface TestableCodexService {
   setProjectWorkspacePort: (port: DesktopProjectWorkspacePort) => void;
   setAutomationModule: (port: DesktopAutomationModulePort) => void;
   setNodexAgentAuthorityPort: (port: NodexAgentAuthorityPort) => void;
-  terminateBackgroundTerminal: (input: { threadId: string; processId: string }) => Promise<boolean>;
   markSubagentThreadOpened: (threadId: string) => boolean;
   hydrateBackgroundSubagentThreads: (
     input: CodexBackgroundSubagentThreadsHydrateInput,
@@ -7119,106 +7117,6 @@ describe("codex-service session-backed transcript recovery", () => {
     }
   });
 
-  test("listBackgroundTerminals pages through app-server process rows", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "thread/backgroundTerminals/list") {
-        const cursor = (params as { cursor?: string | null }).cursor ?? null;
-        if (cursor === null) {
-          return {
-            data: [
-              {
-                itemId: "item-a",
-                processId: "proc-a",
-                command: "bun run dev",
-                cwd: "/tmp/a",
-                osPid: 101,
-                cpuPercent: 12.5,
-                rssKb: 2048n,
-              },
-            ],
-            nextCursor: "next-page",
-          };
-        }
-        return {
-          data: [
-            {
-              itemId: "item-b",
-              processId: "proc-b",
-              command: "python -m http.server",
-              cwd: "/tmp/b",
-              osPid: null,
-              cpuPercent: null,
-              rssKb: null,
-            },
-          ],
-          nextCursor: null,
-        };
-      }
-      throw new Error(`Unexpected client request: ${method}`);
-    };
-
-    try {
-      const rows = await service.listBackgroundTerminals(" thr_process_rows ");
-
-      expect(rows.length).toBe(2);
-      expect(rows[0]?.processId).toBe("proc-a");
-      expect(rows[1]?.processId).toBe("proc-b");
-      expect(requests.length).toBe(2);
-      expect((requests[0]?.params as { threadId?: string; cursor?: string | null })?.threadId).toBe(
-        "thr_process_rows",
-      );
-      expect((requests[0]?.params as { cursor?: string | null })?.cursor).toBe(null);
-      expect((requests[1]?.params as { cursor?: string | null })?.cursor).toBe("next-page");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("terminateBackgroundTerminal delegates to app-server process id", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "thread/backgroundTerminals/terminate") {
-        return { terminated: true };
-      }
-      throw new Error(`Unexpected client request: ${method}`);
-    };
-
-    try {
-      const terminated = await service.terminateBackgroundTerminal({
-        threadId: " thr_process_stop ",
-        processId: " proc-42 ",
-      });
-
-      expect(terminated).toBe(true);
-      expect(requests.length).toBe(1);
-      expect(requests[0]?.method).toBe("thread/backgroundTerminals/terminate");
-      expect((requests[0]?.params as { threadId?: string; processId?: string })?.threadId).toBe(
-        "thr_process_stop",
-      );
-      expect((requests[0]?.params as { threadId?: string; processId?: string })?.processId).toBe(
-        "proc-42",
-      );
-    } finally {
-      await service.shutdown();
-    }
-  });
 });
 
 describe("codex-service edit-last-user-turn and fork-from-turn", () => {

@@ -3604,14 +3604,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
     codexService.removePastedTextAttachment(input),
   );
 
-  registerHandle(
-    "codex:thread:memory-mode:set",
-    (_, threadId: string, mode: "enabled" | "disabled") =>
-      codexService.setThreadMemoryMode({ threadId, mode }),
-  );
-
-  registerHandle("codex:feedback:upload", (_, params) => codexService.uploadFeedback(params));
-
   registerHandle("codex:turn:steer", (_, input) => codexService.steerTurn(input));
 
   registerHandle("codex:turn:interrupt", (_, threadId: string, turnId?: string) =>
@@ -3624,10 +3616,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
 
   registerHandle("codex:thread:background-terminals:clean-silent", (_, threadId: string) =>
     codexService.cleanBackgroundTerminalsSilently(threadId),
-  );
-
-  registerHandle("codex:thread:background-terminals:list", (_, threadId: string) =>
-    codexService.listBackgroundTerminals(threadId),
   );
 
   registerHandle(
@@ -3666,12 +3654,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
         observedTerminals: [],
       });
     },
-  );
-
-  registerHandle(
-    "codex:thread:background-terminals:terminate",
-    (_, input: { threadId: string; processId: string }) =>
-      codexService.terminateBackgroundTerminal(input),
   );
 
   registerHandle("mcp-app:open-external", async (event, value) => {
