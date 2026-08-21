@@ -169,7 +169,7 @@ verifyInvalidFixtures([
   },
   {
     code: "eslint(no-restricted-imports)",
-    filename: "scripts/fixtures/tooling/renderer-tests/barrel-import-invalid.test.ts",
+    filename: "scripts/fixtures/tooling/renderer-tests/barrel-import-invalid.ts",
   },
   {
     code: "react(only-export-components)",
