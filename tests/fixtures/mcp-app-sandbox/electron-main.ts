@@ -1,6 +1,6 @@
 import path from "node:path";
 import { app, BrowserWindow, protocol, session } from "electron";
-import { McpAppSandboxHost } from "../../../src/main/mcp-app/mcp-app-sandbox-host";
+import { McpAppSandboxCoordinator } from "../../../src/main/mcp-app/mcp-app-sandbox-host";
 import {
   MCP_APP_REQUIRED_GUEST_PORT_NAMES,
   MCP_APP_SANDBOX_SCHEME,
@@ -134,7 +134,7 @@ void app.whenReady().then(async () => {
       webviewTag: true,
     },
   });
-  const host = new McpAppSandboxHost(ownerWindow.webContents, {
+  const coordinator = new McpAppSandboxCoordinator({
     allowLocalDevelopment: false,
     fetch: async () => new Response(SKYBRIDGE_HTML, {
       headers: {
@@ -158,6 +158,9 @@ void app.whenReady().then(async () => {
       },
     } as never,
   });
+  coordinator.install();
+  app.once("before-quit", () => coordinator.dispose());
+  const host = coordinator.createHost(ownerWindow.webContents);
   host.installForOwner();
 
   ownerWindow.webContents.on("will-attach-webview", (event, preferences, params) => {

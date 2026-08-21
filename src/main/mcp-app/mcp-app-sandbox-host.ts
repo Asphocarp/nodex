@@ -33,11 +33,6 @@ import {
 } from "./mcp-app-webview-attachment-policy";
 
 const PENDING_ATTACHMENT_TTL_MS = 30_000;
-const mcpAppSandboxHostsByGuestId = new Map<number, McpAppSandboxHost>();
-const pendingMcpAppAttachmentsBySession = new Map<Session, PendingMcpAppAttachment[]>();
-let guestMessageListenerInstalled = false;
-let defaultSessionHeadersInstalled = false;
-const configuredMcpAppSandboxSessions = new WeakSet<Session>();
 
 interface OwnedMcpAppAttachment extends McpAppPendingAttachment {
   ownerWebContents: WebContents;
@@ -67,14 +62,6 @@ interface McpWebviewParams {
   webpreferences?: string;
 }
 
-function installGuestMessageListener(): void {
-  if (guestMessageListenerInstalled) return;
-  guestMessageListenerInstalled = true;
-  ipcMain.on(MCP_APP_SANDBOX_GUEST_MESSAGE_CHANNEL, (event, rawMessage) => {
-    mcpAppSandboxHostsByGuestId.get(event.sender.id)?.handleGuestMessage(event, rawMessage);
-  });
-}
-
 function isSandboxHostUrl(value: string | undefined): boolean {
   if (!value) return false;
   try {
@@ -85,89 +72,6 @@ function isSandboxHostUrl(value: string | undefined): boolean {
     );
   } catch {
     return false;
-  }
-}
-
-function installDefaultSessionHeaders(): void {
-  if (defaultSessionHeadersInstalled) return;
-  defaultSessionHeadersInstalled = true;
-  const defaultSession = electronSession.defaultSession;
-  defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    const frame = details.frame;
-    const requestHeaders = details.requestHeaders;
-    const originHeader = Object.entries(requestHeaders).find(
-      ([name]) => name.toLowerCase() === "origin",
-    )?.[1];
-    const refererHeader = Object.entries(requestHeaders).find(
-      ([name]) => name.toLowerCase() === "referer",
-    )?.[1];
-    const belongsToSandbox =
-      isSandboxHostUrl(frame?.origin) ||
-      isSandboxHostUrl(frame?.url) ||
-      isSandboxHostUrl(details.url) ||
-      isSandboxHostUrl(originHeader) ||
-      isSandboxHostUrl(refererHeader);
-    callback({
-      requestHeaders: belongsToSandbox
-        ? rewriteSandboxRequestHeaders(requestHeaders, defaultSession.getUserAgent())
-        : requestHeaders,
-    });
-  });
-}
-
-function registerPendingAttachment(state: OwnedMcpAppAttachment): void {
-  const timeout = setTimeout(() => {
-    const entries = pendingMcpAppAttachmentsBySession.get(state.session);
-    if (!entries) return;
-    const remaining = entries.filter((entry) => entry !== pending);
-    if (remaining.length === 0) {
-      pendingMcpAppAttachmentsBySession.delete(state.session);
-      return;
-    }
-    pendingMcpAppAttachmentsBySession.set(state.session, remaining);
-  }, PENDING_ATTACHMENT_TTL_MS);
-  const pending = { state, timeout };
-  const entries = pendingMcpAppAttachmentsBySession.get(state.session) ?? [];
-  entries.push(pending);
-  pendingMcpAppAttachmentsBySession.set(state.session, entries);
-}
-
-function consumePendingAttachment(input: {
-  initId: string | null;
-  ownerWebContents: WebContents;
-  session: Session;
-}): OwnedMcpAppAttachment | null {
-  const entries = pendingMcpAppAttachmentsBySession.get(input.session);
-  if (!entries) return null;
-  const index = entries.findIndex(
-    ({ state }) =>
-      state.ownerWebContents.id === input.ownerWebContents.id &&
-      (input.initId === null || state.initId === input.initId),
-  );
-  if (index < 0) return null;
-  const [pending] = entries.splice(index, 1);
-  if (!pending) return null;
-  clearTimeout(pending.timeout);
-  if (entries.length === 0) {
-    pendingMcpAppAttachmentsBySession.delete(input.session);
-  }
-  return pending.state;
-}
-
-function removePendingAttachmentsForOwner(ownerWebContents: WebContents): void {
-  for (const [sandboxSession, entries] of pendingMcpAppAttachmentsBySession) {
-    const remaining = entries.filter((entry) => {
-      if (entry.state.ownerWebContents.id !== ownerWebContents.id) return true;
-      clearTimeout(entry.timeout);
-      return false;
-    });
-    if (remaining.length === 0) {
-      pendingMcpAppAttachmentsBySession.delete(sandboxSession);
-      continue;
-    }
-    if (remaining.length !== entries.length) {
-      pendingMcpAppAttachmentsBySession.set(sandboxSession, remaining);
-    }
   }
 }
 
@@ -280,28 +184,212 @@ function isBlockedSandboxSubframeUrl(value: string): boolean {
   }
 }
 
+/** Owns all process- and partition-scoped MCP App sandbox resources. */
+export class McpAppSandboxCoordinator {
+  readonly #configuredSessions = new Map<
+    Session,
+    (event: Electron.Event, item: Electron.DownloadItem) => void
+  >();
+  readonly #hosts = new Set<McpAppSandboxHost>();
+  readonly #hostsByGuestId = new Map<number, McpAppSandboxHost>();
+  readonly #options: McpAppSandboxHostOptions;
+  readonly #pendingBySession = new Map<Session, PendingMcpAppAttachment[]>();
+  #installed = false;
+
+  readonly #onGuestMessage = (event: IpcMainEvent, rawMessage: unknown): void => {
+    this.#hostsByGuestId.get(event.sender.id)?.handleGuestMessage(event, rawMessage);
+  };
+
+  constructor(options: McpAppSandboxHostOptions) {
+    this.#options = options;
+  }
+
+  install(): void {
+    if (this.#installed) return;
+    this.#installed = true;
+    ipcMain.on(MCP_APP_SANDBOX_GUEST_MESSAGE_CHANNEL, this.#onGuestMessage);
+    const defaultSession = electronSession.defaultSession;
+    defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      const frame = details.frame;
+      const requestHeaders = details.requestHeaders;
+      const originHeader = Object.entries(requestHeaders).find(
+        ([name]) => name.toLowerCase() === "origin",
+      )?.[1];
+      const refererHeader = Object.entries(requestHeaders).find(
+        ([name]) => name.toLowerCase() === "referer",
+      )?.[1];
+      const belongsToSandbox =
+        isSandboxHostUrl(frame?.origin) ||
+        isSandboxHostUrl(frame?.url) ||
+        isSandboxHostUrl(details.url) ||
+        isSandboxHostUrl(originHeader) ||
+        isSandboxHostUrl(refererHeader);
+      callback({
+        requestHeaders: belongsToSandbox
+          ? rewriteSandboxRequestHeaders(requestHeaders, defaultSession.getUserAgent())
+          : requestHeaders,
+      });
+    });
+  }
+
+  createHost(owner: WebContents): McpAppSandboxHost {
+    if (!this.#installed) {
+      throw new Error("MCP App sandbox coordinator is not installed");
+    }
+    const host = new McpAppSandboxHost(this, owner, this.#options);
+    this.#hosts.add(host);
+    return host;
+  }
+
+  dispose(): void {
+    if (!this.#installed) return;
+    this.#installed = false;
+    ipcMain.removeListener(MCP_APP_SANDBOX_GUEST_MESSAGE_CHANNEL, this.#onGuestMessage);
+    electronSession.defaultSession.webRequest.onBeforeSendHeaders(null);
+    for (const host of [...this.#hosts]) host.dispose();
+    for (const entries of this.#pendingBySession.values()) {
+      for (const pending of entries) clearTimeout(pending.timeout);
+    }
+    this.#pendingBySession.clear();
+    this.#hostsByGuestId.clear();
+    for (const [sandboxSession, onWillDownload] of this.#configuredSessions) {
+      sandboxSession.setPermissionCheckHandler(null);
+      sandboxSession.setPermissionRequestHandler(null);
+      sandboxSession.removeListener("will-download", onWillDownload);
+      sandboxSession.webRequest.onBeforeRequest(null);
+      sandboxSession.webRequest.onBeforeSendHeaders(null);
+      sandboxSession.protocol.unhandle(MCP_APP_SANDBOX_SCHEME);
+    }
+    this.#configuredSessions.clear();
+  }
+
+  configureSession(partition: string): Session {
+    const sandboxSession = electronSession.fromPartition(partition);
+    if (this.#configuredSessions.has(sandboxSession)) return sandboxSession;
+    const onWillDownload = (event: Electron.Event, item: Electron.DownloadItem): void => {
+      event.preventDefault();
+      item.cancel();
+    };
+    this.#configuredSessions.set(sandboxSession, onWillDownload);
+    sandboxSession.setPermissionCheckHandler(() => false);
+    sandboxSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+      callback(false);
+    });
+    sandboxSession.on("will-download", onWillDownload);
+    sandboxSession.webRequest.onBeforeRequest((details, callback) => {
+      callback({
+        cancel: !isAllowedMcpAppSandboxRequestUrl(details.url, {
+          allowLocalDevelopment: this.#options.allowLocalDevelopment,
+        }),
+      });
+    });
+    sandboxSession.webRequest.onBeforeSendHeaders((details, callback) => {
+      callback({
+        requestHeaders: rewriteSandboxRequestHeaders(
+          details.requestHeaders,
+          sandboxSession.getUserAgent(),
+        ),
+      });
+    });
+    const protocolHandler = createMcpAppSandboxProtocolHandler({
+      fetch: this.#options.fetch ?? net.fetch,
+    });
+    sandboxSession.protocol.handle(MCP_APP_SANDBOX_SCHEME, protocolHandler);
+    return sandboxSession;
+  }
+
+  isConfiguredSession(sandboxSession: Session): boolean {
+    return this.#configuredSessions.has(sandboxSession);
+  }
+
+  registerPendingAttachment(state: OwnedMcpAppAttachment): void {
+    const timeout = setTimeout(() => {
+      const entries = this.#pendingBySession.get(state.session);
+      if (!entries) return;
+      const remaining = entries.filter((entry) => entry !== pending);
+      if (remaining.length === 0) {
+        this.#pendingBySession.delete(state.session);
+        return;
+      }
+      this.#pendingBySession.set(state.session, remaining);
+    }, PENDING_ATTACHMENT_TTL_MS);
+    const pending = { state, timeout };
+    const entries = this.#pendingBySession.get(state.session) ?? [];
+    entries.push(pending);
+    this.#pendingBySession.set(state.session, entries);
+  }
+
+  consumePendingAttachment(input: {
+    initId: string | null;
+    ownerWebContents: WebContents;
+    session: Session;
+  }): OwnedMcpAppAttachment | null {
+    const entries = this.#pendingBySession.get(input.session);
+    if (!entries) return null;
+    const index = entries.findIndex(
+      ({ state }) =>
+        state.ownerWebContents.id === input.ownerWebContents.id &&
+        (input.initId === null || state.initId === input.initId),
+    );
+    if (index < 0) return null;
+    const [pending] = entries.splice(index, 1);
+    if (!pending) return null;
+    clearTimeout(pending.timeout);
+    if (entries.length === 0) this.#pendingBySession.delete(input.session);
+    return pending.state;
+  }
+
+  releaseHost(host: McpAppSandboxHost, owner: WebContents): void {
+    this.#hosts.delete(host);
+    for (const [guestId, registeredHost] of this.#hostsByGuestId) {
+      if (registeredHost === host) this.#hostsByGuestId.delete(guestId);
+    }
+    for (const [sandboxSession, entries] of this.#pendingBySession) {
+      const remaining = entries.filter((entry) => {
+        if (entry.state.ownerWebContents.id !== owner.id) return true;
+        clearTimeout(entry.timeout);
+        return false;
+      });
+      if (remaining.length === 0) {
+        this.#pendingBySession.delete(sandboxSession);
+      } else if (remaining.length !== entries.length) {
+        this.#pendingBySession.set(sandboxSession, remaining);
+      }
+    }
+  }
+
+  registerGuest(guestId: number, host: McpAppSandboxHost): void {
+    this.#hostsByGuestId.set(guestId, host);
+  }
+
+  unregisterGuest(guestId: number): void {
+    this.#hostsByGuestId.delete(guestId);
+  }
+}
+
 export class McpAppSandboxHost {
   readonly #attachedGuests = new Map<number, AttachedMcpAppGuest>();
+  readonly #coordinator: McpAppSandboxCoordinator;
   readonly #options: McpAppSandboxHostOptions;
   readonly #owner: WebContents;
   #disposed = false;
+  #onOwnerDestroyed: (() => void) | null = null;
 
-  constructor(owner: WebContents, options: McpAppSandboxHostOptions) {
+  constructor(
+    coordinator: McpAppSandboxCoordinator,
+    owner: WebContents,
+    options: McpAppSandboxHostOptions,
+  ) {
+    this.#coordinator = coordinator;
     this.#owner = owner;
     this.#options = options;
   }
 
   installForOwner(): () => void {
-    let installed = true;
-    const uninstall = () => {
-      if (!installed) return;
-      installed = false;
-      this.dispose();
-    };
-    installDefaultSessionHeaders();
-    installGuestMessageListener();
-    this.#owner.once("destroyed", uninstall);
-    return uninstall;
+    if (this.#onOwnerDestroyed) return () => this.dispose();
+    this.#onOwnerDestroyed = () => this.dispose();
+    this.#owner.once("destroyed", this.#onOwnerDestroyed);
+    return () => this.dispose();
   }
 
   handlesPartition(partition: string | null | undefined): boolean {
@@ -332,10 +420,10 @@ export class McpAppSandboxHost {
     }
 
     const partition = rawParams.partition ?? "";
-    const sandboxSession = this.#getOrConfigureSession(partition);
+    const sandboxSession = this.#coordinator.configureSession(partition);
     const sourceUrl = decision.source.sourceUrl;
     const cacheState = getMcpAppSandboxCacheState(sourceUrl);
-    registerPendingAttachment({
+    this.#coordinator.registerPendingAttachment({
       initId: decision.initId,
       origin: decision.source.origin,
       ownerWebContents: this.#owner,
@@ -379,13 +467,13 @@ export class McpAppSandboxHost {
 
   handleDidAttach(guest: WebContents): boolean {
     const source = parseMcpAppSandboxSourceUrl(guest.getURL());
-    const pending = consumePendingAttachment({
+    const pending = this.#coordinator.consumePendingAttachment({
       initId: source?.initId ?? null,
       ownerWebContents: this.#owner,
       session: guest.session,
     });
     if (!pending) {
-      if (!configuredMcpAppSandboxSessions.has(guest.session)) return false;
+      if (!this.#coordinator.isConfiguredSession(guest.session)) return false;
       this.#options.logger.warn("Rejected unmatched MCP App guest", {
         guestWebContentsId: guest.id,
         ownerWebContentsId: this.#owner.id,
@@ -412,7 +500,7 @@ export class McpAppSandboxHost {
       guest,
     };
     this.#attachedGuests.set(guest.id, attached);
-    mcpAppSandboxHostsByGuestId.set(guest.id, this);
+    this.#coordinator.registerGuest(guest.id, this);
     this.#installGuestPolicy(attached);
     return true;
   }
@@ -420,46 +508,16 @@ export class McpAppSandboxHost {
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    removePendingAttachmentsForOwner(this.#owner);
+    if (this.#onOwnerDestroyed) {
+      this.#owner.removeListener("destroyed", this.#onOwnerDestroyed);
+      this.#onOwnerDestroyed = null;
+    }
     for (const attached of this.#attachedGuests.values()) {
-      mcpAppSandboxHostsByGuestId.delete(attached.guest.id);
+      this.#coordinator.unregisterGuest(attached.guest.id);
       if (!attached.guest.isDestroyed()) attached.guest.close();
     }
     this.#attachedGuests.clear();
-  }
-
-  #getOrConfigureSession(partition: string): Session {
-    const sandboxSession = electronSession.fromPartition(partition);
-    if (configuredMcpAppSandboxSessions.has(sandboxSession)) return sandboxSession;
-    configuredMcpAppSandboxSessions.add(sandboxSession);
-    sandboxSession.setPermissionCheckHandler(() => false);
-    sandboxSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-      callback(false);
-    });
-    sandboxSession.on("will-download", (event, item) => {
-      event.preventDefault();
-      item.cancel();
-    });
-    sandboxSession.webRequest.onBeforeRequest((details, callback) => {
-      callback({
-        cancel: !isAllowedMcpAppSandboxRequestUrl(details.url, {
-          allowLocalDevelopment: this.#options.allowLocalDevelopment,
-        }),
-      });
-    });
-    sandboxSession.webRequest.onBeforeSendHeaders((details, callback) => {
-      callback({
-        requestHeaders: rewriteSandboxRequestHeaders(
-          details.requestHeaders,
-          sandboxSession.getUserAgent(),
-        ),
-      });
-    });
-    const protocolHandler = createMcpAppSandboxProtocolHandler({
-      fetch: this.#options.fetch ?? net.fetch,
-    });
-    void sandboxSession.protocol.handle(MCP_APP_SANDBOX_SCHEME, protocolHandler);
-    return sandboxSession;
+    this.#coordinator.releaseHost(this, this.#owner);
   }
 
   #installGuestPolicy(attached: AttachedMcpAppGuest): void {
@@ -531,7 +589,7 @@ export class McpAppSandboxHost {
     });
     guest.once("destroyed", () => {
       this.#attachedGuests.delete(guest.id);
-      mcpAppSandboxHostsByGuestId.delete(guest.id);
+      this.#coordinator.unregisterGuest(guest.id);
     });
   }
 

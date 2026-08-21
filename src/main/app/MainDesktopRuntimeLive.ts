@@ -143,6 +143,10 @@ import {
   live as applicationSchedulerRuntimeLive,
 } from "../host-runtime/ApplicationSchedulerRuntime";
 import {
+  McpAppSandboxRuntime,
+  live as mcpAppSandboxRuntimeLive,
+} from "../host-runtime/McpAppSandboxRuntime";
+import {
   getBackupSettings,
   getHistorySettings,
   getThreadNotificationSettings,
@@ -342,6 +346,15 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
+        const mcpAppSandboxContext = yield* Layer.buildWithScope(
+          mcpAppSandboxRuntimeLive({
+            allowLocalDevelopment: !config.isPackaged,
+            guestPreloadPath: `${__dirname}/../preload/mcp-app-sandbox-guest.js`,
+            logger: getLogger({ subsystem: "mcp-app-sandbox" }),
+          }),
+          runtimeScope,
+        );
+        const mcpAppSandbox = Context.get(mcpAppSandboxContext, McpAppSandboxRuntime);
         const desktopNotificationContext = yield* Layer.buildWithScope(
           desktopNotificationRuntimeLive.pipe(Layer.provide(Layer.succeed(MainConfig, config))),
           runtimeScope,
@@ -981,6 +994,7 @@ export const live: Layer.Layer<
                 initialArgv: [...config.argv],
                 rendererClientRouter: rendererClients.router,
                 libraryModule,
+                mcpAppSandbox,
                 projectWorkspace,
                 projectionDelivery: {
                   deliverTail: (envelope) =>

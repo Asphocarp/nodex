@@ -21,7 +21,7 @@ import { dbNotifier } from "./local-store/notifier";
 import type { BrowserSidebarService } from "./browser-sidebar-service";
 import type { CodexService } from "./codex/codex-service";
 import type { BrowserAuthorizedAttachment } from "./browser/browser-runtime-registry";
-import { McpAppSandboxHost } from "./mcp-app/mcp-app-sandbox-host";
+import type { McpAppSandboxRuntime } from "./host-runtime/McpAppSandboxRuntime";
 import {
   getCommandKeymapState,
   getNodexHome,
@@ -148,6 +148,7 @@ const appIconPath = app.isPackaged
 const appDockIcon = nativeImage.createFromPath(appIconPath);
 let browserSidebarService: BrowserSidebarService;
 let codexService: CodexService;
+let mcpAppSandboxRuntime: McpAppSandboxRuntime["Service"];
 
 let rendererHostReadyForWindows = false;
 let databaseReady = false;
@@ -947,11 +948,7 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
     },
   });
   composerAppshotService.observeWindow(window);
-  const mcpAppSandboxHost = new McpAppSandboxHost(window.webContents, {
-    allowLocalDevelopment: !app.isPackaged,
-    guestPreloadPath: join(__dirname, "../preload/mcp-app-sandbox-guest.js"),
-    logger: logger.child({ subsystem: "mcp-app-sandbox" }),
-  });
+  const mcpAppSandboxHost = mcpAppSandboxRuntime.createHost(window.webContents);
   mcpAppSandboxHost.installForOwner();
   const pendingBrowserWebviewAttachments = new Map<number, BrowserAuthorizedAttachment>();
   // Open external links in the system browser
@@ -1452,6 +1449,7 @@ export interface MainRuntimeStartupContext {
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
   libraryModule: DesktopLibraryModuleBridge;
+  mcpAppSandbox: McpAppSandboxRuntime["Service"];
   projectWorkspace: DesktopProjectWorkspacePort;
   projectionDelivery: {
     readonly deliverTail: (envelope: CoreEventEnvelope) => Promise<void>;
@@ -1561,6 +1559,7 @@ export async function runMainAppStartup(
 ): Promise<MainRuntimeController> {
   browserSidebarService = context.browserSidebarService;
   codexService = context.codexService;
+  mcpAppSandboxRuntime = context.mcpAppSandbox;
   appUpdateRuntime = context.appUpdateRuntime;
   desktopNotificationManager = context.desktopNotificationManager;
   rendererClientRouter = context.rendererClientRouter;
