@@ -58,10 +58,10 @@ import {
 } from "../shared/nodex-deeplink";
 import {
   isWindowSessionBoundsVisible,
-  WindowSessionState,
   type AcquiredWindowSession,
   type WindowSessionCloseDisposition,
 } from "./window-session-state";
+import type { WindowRuntimeService } from "./window-runtime/WindowRuntime";
 import type {
   WindowSessionBounds,
   WindowSessionNewWindowRequest,
@@ -194,8 +194,6 @@ const appIconPath = app.isPackaged
 const appDockIcon = nativeImage.createFromPath(appIconPath);
 const { browserSidebarService, codexService } = getMainServiceComposition();
 
-const openWindows = new Map<number, BrowserWindow>();
-let lastFocusedWindowId: number | null = null;
 let rendererHostReadyForWindows = false;
 let stopReminderScheduler: (() => void) | null = null;
 let runtimeReminderTick: (() => Promise<void>) | null = null;
@@ -209,7 +207,7 @@ let pendingSessionDeepLinkTarget: { projectId: string | null; sessionId: string 
 const pendingCloseResolvers = new Map<number, () => void>();
 const allowImmediateWindowClose = new Set<number>();
 const WINDOW_CLOSE_FLUSH_TIMEOUT_MS = 1500;
-let windowSessionState: WindowSessionState | null = null;
+let windowRuntime: WindowRuntimeService | null = null;
 let appQuitRequested = false;
 let appInitializationStep: AppInitializationStep = { phase: "opening" };
 let appInitializationStepChangedAt = performance.now();
@@ -349,21 +347,7 @@ function applyElectronWindowBackdrop(window: BrowserWindow, force = false): void
 }
 
 function getLastFocusedWindow(): BrowserWindow | null {
-  if (lastFocusedWindowId !== null) {
-    const remembered = openWindows.get(lastFocusedWindowId);
-    if (remembered && !remembered.isDestroyed()) return remembered;
-  }
-
-  for (const window of openWindows.values()) {
-    if (window.isDestroyed()) continue;
-    return window;
-  }
-
-  return null;
-}
-
-export function resolveMainWindowSessionId(webContentsId: number): string | null {
-  return windowSessionState?.getSessionIdForWindow(webContentsId) ?? null;
+  return windowRuntime?.getLastFocused() ?? null;
 }
 
 function focusLastWindow(): void {
@@ -379,11 +363,12 @@ function focusLastWindow(): void {
 }
 
 function openNewWindow(sourceWebContentsId?: number): BrowserWindow | null {
-  if (!rendererHostReadyForWindows || !windowSessionState) return null;
+  const windows = windowRuntime;
+  if (!rendererHostReadyForWindows || !windows) return null;
   let acquired: AcquiredWindowSession | null = null;
 
   try {
-    acquired = windowSessionState.acquireSessionForNewWindow(sourceWebContentsId);
+    acquired = windows.acquireSessionForNewWindow(sourceWebContentsId);
     const window = createWindow({
       session: acquired.session,
     });
@@ -393,7 +378,7 @@ function openNewWindow(sourceWebContentsId?: number): BrowserWindow | null {
   } catch (error) {
     if (acquired?.kind === "reopened") {
       try {
-        windowSessionState.rollbackReopenSession(acquired.previousRecord);
+        windows.rollbackReopenSession(acquired.previousRecord);
       } catch (rollbackError) {
         logger.error("Could not roll back failed Window Session acquisition", {
           error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
@@ -420,7 +405,7 @@ function openNewWindow(sourceWebContentsId?: number): BrowserWindow | null {
 }
 
 function requestNewWindowFromActiveWindow(): void {
-  if (windowSessionState?.hasClosedSessionAvailable()) {
+  if (windowRuntime?.hasClosedSessionAvailable()) {
     openNewWindow();
     return;
   }
@@ -443,8 +428,9 @@ function openClonedWindow(
   sourceWebContentsId: number,
   override: WindowSessionNewWindowRequest,
 ): BrowserWindow | null {
-  if (!rendererHostReadyForWindows || !windowSessionState) return null;
-  const session = windowSessionState.cloneSessionForWindow(sourceWebContentsId, override);
+  const windows = windowRuntime;
+  if (!rendererHostReadyForWindows || !windows) return null;
+  const session = windows.cloneSessionForWindow(sourceWebContentsId, override);
   const window = createWindow({ session });
   window.show();
   window.focus();
@@ -686,7 +672,7 @@ function configureApplicationMenus(commandKeymapState = getCommandKeymapState())
 }
 
 function broadcastToWindows(channel: string, payload: unknown): void {
-  safeBroadcastToWindows(openWindows.values(), channel, [payload]);
+  safeBroadcastToWindows(windowRuntime?.all() ?? [], channel, [payload]);
 }
 
 function setAppInitializationStep(step: AppInitializationStep): void {
@@ -813,7 +799,7 @@ function publishCoreAuthorityStatus(state: CoreAuthorityState): void {
 
 function maybeStartAutomaticAppUpdateChecks(): void {
   if (!appUpdateRuntime) return;
-  if (appInitializationStep.phase !== "done" || openWindows.size === 0) {
+  if (appInitializationStep.phase !== "done" || (windowRuntime?.count() ?? 0) === 0) {
     return;
   }
   void appUpdateRuntime.startAutomaticChecks();
@@ -829,7 +815,7 @@ function registerInitializationIpcHandlers(): void {
   ipcMain.handle(GET_CORE_AUTHORITY_STATUS_CHANNEL, () => coreAuthorityStatus);
   ipcMain.removeHandler(RETRY_CORE_AUTHORITY_CHANNEL);
   ipcMain.handle(RETRY_CORE_AUTHORITY_CHANNEL, async (event) => {
-    if (!openWindows.has(event.sender.id)) {
+    if (!windowRuntime?.has(event.sender.id)) {
       throw new Error("Core recovery requires an active Nodex window");
     }
     const runtime = desktopDataAuthorityRuntime;
@@ -838,7 +824,7 @@ function registerInitializationIpcHandlers(): void {
   });
   ipcMain.removeHandler(RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL);
   ipcMain.handle(RELAUNCH_FOR_CORE_AUTHORITY_CHANNEL, (event) => {
-    if (!openWindows.has(event.sender.id)) {
+    if (!windowRuntime?.has(event.sender.id)) {
       throw new Error("Core relaunch requires an active Nodex window");
     }
     setTimeout(() => {
@@ -848,7 +834,10 @@ function registerInitializationIpcHandlers(): void {
   });
   ipcMain.removeAllListeners("app:renderer-initialization-finished");
   ipcMain.on("app:renderer-initialization-finished", (event, input: unknown) => {
-    if (!openWindows.has(event.sender.id) || rendererInitializationReports.has(event.sender.id)) {
+    if (
+      !windowRuntime?.has(event.sender.id) ||
+      rendererInitializationReports.has(event.sender.id)
+    ) {
       return;
     }
     if (typeof input !== "object" || input === null || Array.isArray(input)) return;
@@ -894,7 +883,7 @@ function registerProjectionStreamIpcHandlers(): void {
   });
   const audienceBroker = localCommitAudienceBroker;
   const requireOwnedMainFrame = (event: Electron.IpcMainInvokeEvent): void => {
-    if (event.senderFrame !== event.sender.mainFrame || !openWindows.has(event.sender.id)) {
+    if (event.senderFrame !== event.sender.mainFrame || !windowRuntime?.has(event.sender.id)) {
       throw new Error("Local commit audience sender is not an owned main frame");
     }
   };
@@ -1324,8 +1313,7 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
         browserSidebarService.authorizeWebviewAttachment(window.webContents.id, route),
       isRegisteredBrowserStorage: (identity, browserStorageId) =>
         browserSidebarService.isRegisteredBrowserStorage(identity, browserStorageId),
-      ownerBrowserViewScopeId:
-        windowSessionState?.getSessionIdForWindow(window.webContents.id) ?? null,
+      ownerBrowserViewScopeId: windowRuntime?.resolveSessionId(window.webContents.id) ?? null,
       partition: params.partition,
       revokeAuthorizedAttachment: (attachToken) =>
         browserSidebarService.revokeAuthorizedWebviewAttachment(attachToken),
@@ -1428,9 +1416,10 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
   });
 
   const webContentsId = window.webContents.id;
-  if (!windowSessionState) {
+  const windows = windowRuntime;
+  if (!windows) {
     window.destroy();
-    throw new Error("Window session state is unavailable");
+    throw new Error("Window runtime is unavailable");
   }
 
   let rendererClientRegistration: RendererClientRegistration | null = null;
@@ -1497,20 +1486,19 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
 
   window.on("close", closeHandler);
   window.on("focus", () => {
-    lastFocusedWindowId = webContentsId;
-    windowSessionState?.markFocused(webContentsId);
+    windows.markFocused(webContentsId);
     applyElectronWindowBackdrop(window);
     safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: true }]);
     codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, true);
   });
   window.on("resize", () => {
     if (window.isDestroyed()) return;
-    windowSessionState?.updateBounds(webContentsId, captureWindowSessionBounds(window));
+    windows.updateBounds(webContentsId, captureWindowSessionBounds(window));
     applyElectronWindowBackdrop(window);
   });
   window.on("move", () => {
     if (window.isDestroyed()) return;
-    windowSessionState?.updateBounds(webContentsId, captureWindowSessionBounds(window));
+    windows.updateBounds(webContentsId, captureWindowSessionBounds(window));
     applyElectronWindowBackdrop(window);
   });
   window.on("blur", () => {
@@ -1555,7 +1543,7 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
     desktopNotificationManager?.dismissByOriginWebContentsId(webContentsId);
     codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, false);
     try {
-      windowSessionState?.detachWindow(webContentsId, {
+      windows.release(webContentsId, {
         disposition: closeDisposition,
         bounds: finalCloseBounds,
       });
@@ -1580,20 +1568,14 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
     allowImmediateWindowClose.delete(webContentsId);
     electronWindowOpaqueSurfaceModes.delete(window.id);
     rendererInitializationReports.delete(webContentsId);
-    openWindows.delete(webContentsId);
-    if (lastFocusedWindowId === webContentsId) {
-      lastFocusedWindowId = null;
-    }
   });
 
   try {
-    windowSessionState.attachWindow(webContentsId, options.session.id);
+    windows.attach(window, options.session.id);
   } catch (error) {
     window.destroy();
     throw error;
   }
-  openWindows.set(webContentsId, window);
-  lastFocusedWindowId = webContentsId;
   return window;
 }
 
@@ -1626,7 +1608,7 @@ function registerDatabaseNotifierBridges(): void {
           event.detailInvalidation.kind === "sessions"
             ? event.detailInvalidation.sessionIds.length
             : 0,
-        windowCount: openWindows.size,
+        windowCount: windowRuntime?.count() ?? 0,
       },
       { groupBy: ["changeType", "windowCount"] },
     );
@@ -1794,11 +1776,11 @@ async function initializeDesktopApp(
   });
   await initialProjectBootstrap.ensureInitialProject({
     onProvisioned: async (presentation) => {
-      const state = windowSessionState;
-      if (!state) {
-        throw new Error("Window Session state is unavailable during initial Project bootstrap");
+      const windows = windowRuntime;
+      if (!windows) {
+        throw new Error("Window runtime is unavailable during initial Project bootstrap");
       }
-      state.seedInitialProjectPresentation(presentation);
+      windows.seedInitialProjectPresentation(presentation);
     },
   });
   databaseReady = true;
@@ -1992,6 +1974,7 @@ export interface MainRuntimeStartupContext {
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
   rendererClientRouter: RendererClientRouter;
+  windowRuntime: WindowRuntimeService;
   manageElectronLifecycle?: boolean;
   requestShutdown?: () => Promise<void>;
   startupEvents?: BootstrapRuntimeEvent[];
@@ -2093,6 +2076,7 @@ function beginMainRuntimeShutdown(): void {
   scheduledAutomationScheduler = null;
   codexThreadNotificationCoordinator?.dispose();
   codexThreadNotificationCoordinator = null;
+  windowRuntime = null;
 }
 
 function shutdownMainRuntime(): Promise<void> {
@@ -2188,6 +2172,7 @@ export async function runMainAppStartup(
   appUpdateRuntime = context.appUpdateRuntime;
   desktopNotificationManager = context.desktopNotificationManager;
   rendererClientRouter = context.rendererClientRouter;
+  windowRuntime = context.windowRuntime;
   if (context.manageElectronLifecycle !== false) {
     registerRuntimeLifecycleHandlers(context.requestShutdown);
   }
@@ -2207,7 +2192,6 @@ export async function runMainAppStartup(
   if (process.platform === "darwin" && !app.isPackaged && !appDockIcon.isEmpty()) {
     app.dock?.setIcon(appDockIcon);
   }
-  windowSessionState = new WindowSessionState(app.getPath("userData"));
   setAppInitializationStep({ phase: "opening" });
   const dataAuthority = context.dataAuthority;
   codexService.setNodexAgentAuthorityPort(
@@ -2300,7 +2284,7 @@ export async function runMainAppStartup(
     showNotification: (notification, targetClientId, onAction) => {
       const webContentsId = notificationRendererRouter.getWebContentsIdForClientId(targetClientId);
       if (webContentsId === null) return;
-      const targetWindow = openWindows.get(webContentsId);
+      const targetWindow = windowRuntime?.get(webContentsId);
       if (!targetWindow || targetWindow.isDestroyed()) return;
       desktopNotificationManager?.showNotification(
         notification,
@@ -2318,7 +2302,7 @@ export async function runMainAppStartup(
     focusTargetClient: (targetClientId) => {
       const webContentsId = notificationRendererRouter.getWebContentsIdForClientId(targetClientId);
       if (webContentsId === null) return;
-      const targetWindow = openWindows.get(webContentsId);
+      const targetWindow = windowRuntime?.get(webContentsId);
       if (!targetWindow || targetWindow.isDestroyed()) return;
       if (targetWindow.isMinimized()) targetWindow.restore();
       targetWindow.show();
@@ -2367,22 +2351,24 @@ export async function runMainAppStartup(
       openClonedWindow(sourceWebContentsId, request);
     },
     onBootstrapWindowSession: (webContentsId) => {
-      if (!windowSessionState) {
-        throw new Error("Window session state is unavailable");
+      const windows = windowRuntime;
+      if (!windows) {
+        throw new Error("Window runtime is unavailable");
       }
-      const session = windowSessionState.bootstrap(webContentsId);
-      const window = openWindows.get(webContentsId);
+      const session = windows.bootstrap(webContentsId);
+      const window = windows.get(webContentsId);
       if (window) {
         syncMacWindowTitle(window);
       }
       return { session };
     },
     onSaveWindowSessionLayout: (webContentsId, input: WindowSessionSaveLayoutInput) => {
-      if (!windowSessionState) {
-        throw new Error("Window session state is unavailable");
+      const windows = windowRuntime;
+      if (!windows) {
+        throw new Error("Window runtime is unavailable");
       }
-      const window = openWindows.get(webContentsId);
-      const session = windowSessionState.saveLayout(
+      const window = windows.get(webContentsId);
+      const session = windows.saveLayout(
         webContentsId,
         input,
         window && !window.isDestroyed() ? captureWindowSessionBounds(window) : undefined,
@@ -2393,10 +2379,10 @@ export async function runMainAppStartup(
       return { session };
     },
     onUpdateWindowSessionBounds: (webContentsId, bounds) => {
-      windowSessionState?.updateBounds(webContentsId, bounds);
+      windowRuntime?.updateBounds(webContentsId, bounds);
     },
     resolveWindowSessionId: (webContentsId) =>
-      windowSessionState?.getSessionIdForWindow(webContentsId) ?? null,
+      windowRuntime?.resolveSessionId(webContentsId) ?? null,
     onCommandKeybindingsChanged: (state) => {
       configureApplicationMenus(state);
     },
@@ -2415,7 +2401,7 @@ export async function runMainAppStartup(
   });
 
   const restorePolicy = getWindowRestoreSettings().policy;
-  const startupSessions = windowSessionState.selectStartupSessions(restorePolicy);
+  const startupSessions = context.windowRuntime.selectStartupSessions(restorePolicy);
   for (const session of startupSessions) {
     createWindow({ session });
   }

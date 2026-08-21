@@ -136,6 +136,7 @@ import { resolveCodexProcessEnvironment } from "../platform/node/CodexProcessEnv
 import * as TerminalProjectAdmission from "../terminal-runtime/TerminalProjectAdmission";
 import * as TerminalRuntimeLive from "../terminal-runtime/TerminalRuntimeLive";
 import * as WindowSessionCatalog from "../window-runtime/WindowSessionCatalog";
+import { WindowRuntime, live as windowRuntimeLive } from "../window-runtime/WindowRuntime";
 import { MainConfig } from "./MainConfig";
 import { MainRuntime, MainRuntimeError } from "./MainRuntimeLive";
 import { MainShutdown } from "./MainShutdown";
@@ -321,6 +322,11 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const rendererClients = Context.get(rendererClientContext, RendererClientRuntime);
+        const windowRuntimeContext = yield* Layer.buildWithScope(
+          windowRuntimeLive(userDataPath),
+          runtimeScope,
+        );
+        const windows = Context.get(windowRuntimeContext, WindowRuntime);
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
             browserSidebarService,
@@ -687,7 +693,7 @@ export const live: Layer.Layer<
         });
         const windowSessions = WindowSessionCatalog.WindowSessionCatalog.of({
           resolveForWebContents: (webContentsId) =>
-            Effect.sync(() => module.resolveMainWindowSessionId(webContentsId)),
+            Effect.sync(() => windows.resolveSessionId(webContentsId)),
         });
         yield* Layer.buildWithScope(
           BrowserProfileIpc.live({ browserSidebar: browserSidebarService }).pipe(
@@ -836,6 +842,7 @@ export const live: Layer.Layer<
                 gitWorkerHost: hostWorkers.git,
                 initialArgv: [...config.argv],
                 rendererClientRouter: rendererClients.router,
+                windowRuntime: windows,
                 manageElectronLifecycle: false,
                 startupEvents: [],
                 startCoreEvents,
