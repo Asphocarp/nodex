@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
+import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
 import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import {
@@ -63,6 +64,10 @@ export class DesktopToolRuntime extends Context.Service<
     readonly promoteBrowserUseRoute: (
       input: Parameters<BrowserUseRoutePromoterPort["promote"]>[0],
     ) => Effect.Effect<void, DesktopToolRuntimeError>;
+    readonly readConfigRequirements: Effect.Effect<
+      ConfigRequirementsReadResponse,
+      DesktopToolRuntimeError
+    >;
     readonly releaseBrowserUseSession: (
       sessionId: string,
     ) => Effect.Effect<void, DesktopToolRuntimeError>;
@@ -93,6 +98,10 @@ interface DesktopToolRuntimeLayerOptions {
   readonly plugins: (
     availableBackends: () => readonly BrowserRuntimeBackend[],
   ) => Effect.Effect<BrowserPluginReconciler>;
+  readonly readConfigRequirements: Effect.Effect<
+    ConfigRequirementsReadResponse,
+    DesktopToolRuntimeError
+  >;
   readonly runtimeStateHome: string;
 }
 
@@ -149,6 +158,12 @@ const make = (options: DesktopToolRuntimeLayerOptions) =>
         runBrowserUse("browser-use-promote-route", (bindings) =>
           bindings.routePromoter.promote(input),
         ),
+      readConfigRequirements: ensureReady.pipe(
+        Effect.andThen(options.readConfigRequirements),
+        Effect.mapError(
+          (cause) => new DesktopToolRuntimeError({ operation: "config-requirements", cause }),
+        ),
+      ),
       releaseBrowserUseSession: (sessionId) =>
         runBrowserUse("browser-use-release-session", (bindings) =>
           bindings.lifecycle.releaseSession?.(sessionId),
@@ -215,6 +230,13 @@ export const live = (
             computerUseAvailable: () => computerUse.current()?.status === "available",
             runtimeStateHome: options.runtimeStateHome,
           }),
+        readConfigRequirements: gateway.requestLocal("configRequirements/read", undefined).pipe(
+          Effect.map((response) => response as unknown as ConfigRequirementsReadResponse),
+          Effect.mapError(
+            (cause) =>
+              new DesktopToolRuntimeError({ operation: "config-requirements.request", cause }),
+          ),
+        ),
         runtimeStateHome: options.runtimeStateHome,
       });
     }),
@@ -230,6 +252,7 @@ export interface DesktopToolRuntimePromiseAdapter {
     input: Parameters<BrowserUseRoutePromoterPort["promote"]>[0],
   ) => Promise<void>;
   readonly releaseBrowserUseSession: (sessionId: string) => Promise<void>;
+  readonly readConfigRequirements: () => Promise<ConfigRequirementsReadResponse>;
   readonly threadConfig: () => Promise<NonNullable<ThreadStartParams["config"]> | null>;
   readonly setAvailableBackendsResolver: (resolver: () => readonly BrowserRuntimeBackend[]) => void;
   readonly turnEnded: (
@@ -253,6 +276,7 @@ export const makeDesktopToolRuntimePromiseAdapter = (
   promoteBrowserUseRoute: (input) => callbacks.runPromise(runtime.promoteBrowserUseRoute(input)),
   releaseBrowserUseSession: (sessionId) =>
     callbacks.runPromise(runtime.releaseBrowserUseSession(sessionId)),
+  readConfigRequirements: () => callbacks.runPromise(runtime.readConfigRequirements),
   threadConfig: () => callbacks.runPromise(runtime.threadConfig),
   setAvailableBackendsResolver: runtime.setAvailableBackendsResolver,
   turnEnded: (input) => callbacks.runPromise(runtime.turnEnded(input)),

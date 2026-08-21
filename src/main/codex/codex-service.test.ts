@@ -1572,6 +1572,7 @@ function createService(options?: {
       }),
       installBrowserUseBindings: async () => undefined,
       promoteBrowserUseRoute: async () => undefined,
+      readConfigRequirements: async () => ({ requirements: null }),
       releaseBrowserUseSession: async () => undefined,
       threadConfig: async () => null,
       setAvailableBackendsResolver: () => undefined,

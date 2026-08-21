@@ -48,6 +48,7 @@ it.effect("owns desktop plugin readiness and derives one coherent snapshot", () 
             }),
             result: Effect.sync(() => pluginResult),
           }),
+        readConfigRequirements: Effect.succeed({ requirements: null }),
         runtimeStateHome: "/tmp/nodex-desktop-tools-test",
       }),
       scope,

@@ -296,7 +296,7 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
-const { browserSidebarService, codexService } = getMainServiceComposition();
+const { browserSidebarService, codexService, desktopTools } = getMainServiceComposition();
 
 const ipcPayloadLogger = getLogger({
   subsystem: "ipc",
@@ -475,8 +475,8 @@ const computerUseSettingsService = new ComputerUseSettingsService({
     get: () => remoteHostedPipService.getAlwaysHide(),
     set: (value) => remoteHostedPipService.setAlwaysHide(value),
   },
-  getRuntimeResult: async () => await codexService.ensureComputerUseRuntimeReady(),
-  readConfigRequirements: async () => await codexService.readConfigRequirements(),
+  getRuntimeResult: async () => await desktopTools.ensureComputerUse(),
+  readConfigRequirements: async () => await desktopTools.readConfigRequirements(),
 });
 
 const disposeRemoteHostedPipCodexObserver = codexService.observeAppServerNotifications(

@@ -505,7 +505,6 @@ import {
   type CodexThreadStreamReplica,
 } from "../../shared/codex-owner-follower-replication";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
-import type { ComputerUseRuntimeResult } from "./computer-use-runtime";
 import type { DesktopToolRuntimePromiseAdapter } from "../host-runtime/DesktopToolRuntime";
 import type {
   AgentExecutionProfile,
@@ -4516,18 +4515,6 @@ export class CodexService extends EventEmitter {
   setNodexAgentAuthorizationBroker(broker: NodexAgentAuthorizationBroker | null): void {
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.nodexAgentAuthorizationBroker = broker;
-  }
-
-  async ensureComputerUseRuntimeReady(): Promise<ComputerUseRuntimeResult> {
-    return await this.desktopTools.ensureComputerUse();
-  }
-
-  async readConfigRequirements(): Promise<ConfigRequirementsReadResponse> {
-    await this.ensureClientReady();
-    return await this.client.request<"configRequirements/read", ConfigRequirementsReadResponse>(
-      "configRequirements/read",
-      undefined,
-    );
   }
 
   private async promoteBrowserUseRouteForFirstTurn(input: {
