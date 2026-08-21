@@ -70,8 +70,6 @@ import {
   getWindowRestoreSettings,
   updateAppUpdateSettings,
 } from "./local-store/config";
-import { createBrowserUsePeerAuthorizer } from "./browser-use/browser-use-peer-authorizer";
-import { BrowserUseSessionRegistry } from "./browser-use/browser-use-session-registry";
 import { BrowserUsePolicyStore } from "./browser-use/browser-use-policy-store";
 import { BrowserUseSiteStatusPolicyService } from "./browser-use/site-status-policy-service";
 import { DEFAULT_CHATGPT_BASE_URL } from "./codex/chatgpt-base-url";
@@ -127,7 +125,6 @@ import {
   type WorkbenchCommandInvocation,
 } from "../shared/workbench-commands";
 import { BROWSER_SIDEBAR_PARTITION } from "../shared/browser-sidebar";
-import { resolveBrowserUseHostCapability } from "../shared/browser-use-host-capability";
 import { isAllowedBrowserExternalUrl, isAllowedBrowserNavigationUrl } from "../shared/browser-url";
 import { shouldGrantBrowserPermission } from "./browser/browser-session-permissions";
 import {
@@ -233,7 +230,7 @@ const appIconPath = app.isPackaged
   ? join(process.resourcesPath, "icon.png")
   : join(__dirname, "../../resources/icon.png");
 const appDockIcon = nativeImage.createFromPath(appIconPath);
-const { browserSidebarService, codexService, desktopTools } = getMainServiceComposition();
+const { browserSidebarService, codexService } = getMainServiceComposition();
 
 const openWindows = new Map<number, BrowserWindow>();
 let lastFocusedWindowId: number | null = null;
@@ -259,8 +256,6 @@ let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
 const rendererInitializationReports = new Set<number>();
 let appUpdateService: AppUpdateService | null = null;
-let browserUseSessionRegistry: BrowserUseSessionRegistry | null = null;
-let disposeBrowserUseSessionRegistryBridge: (() => void) | null = null;
 let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
 let appPermissionHandlersRegistered = false;
 let browserPermissionHandlersRegistered = false;
@@ -2060,6 +2055,10 @@ export interface MainRuntimeStartupContext {
   dataAuthority: Promise<DesktopDataAuthorityRuntime>;
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
+  installBrowserUseRuntime: (input: {
+    readonly policyStore: BrowserUsePolicyStore;
+    readonly releaseCredentialOwner: (ownerWebContentsId: number) => void;
+  }) => Promise<void>;
   manageElectronLifecycle?: boolean;
   requestShutdown?: () => Promise<void>;
   startupEvents?: BootstrapRuntimeEvent[];
@@ -2238,18 +2237,6 @@ function shutdownMainRuntime(): Promise<void> {
     await settleRuntimeShutdownStep(
       "Codex service",
       () => codexService.shutdown(),
-      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    );
-    await settleRuntimeShutdownStep(
-      "Browser Use session registry",
-      async () => {
-        disposeBrowserUseSessionRegistryBridge?.();
-        disposeBrowserUseSessionRegistryBridge = null;
-        await desktopTools.clearBrowserUseBindings();
-        await browserUseSessionRegistry?.dispose();
-        browserUseSessionRegistry = null;
-        desktopTools.setAvailableBackendsResolver(() => []);
-      },
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
     await settleRuntimeShutdownStep(
@@ -2437,115 +2424,10 @@ export async function runMainAppStartup(
     siteInfoProvider: new BrowserSiteInfoProvider(browserSidebarService, browserSession.cookies),
     usePolicyStore: browserUsePolicyStore,
   });
-  const browserRuntime = desktopTools.browserRuntime;
-  const browserUseHostCapability = resolveBrowserUseHostCapability({
-    browserRuntimeStatus: browserRuntime.status,
-    environment: process.env,
-    isPackaged: app.isPackaged,
-    platform: process.platform,
-  });
-  logger.info("Browser Use host capability resolved", {
-    availableBackends: browserUseHostCapability.availableBackends,
-    peerVerificationMode: browserUseHostCapability.peerAuthorizationMode,
-    reason:
-      browserUseHostCapability.status === "unavailable" ? browserUseHostCapability.reason : null,
-    runtimeStatus: browserRuntime.status,
-    status: browserUseHostCapability.status,
-  });
-  const browserUsePeerAuthorizer = createBrowserUsePeerAuthorizer({
-    addonPath:
-      browserUseHostCapability.status === "available" && browserRuntime.status === "available"
-        ? browserRuntime.bundle.paths.peerAuthorization
-        : null,
-    mode: browserUseHostCapability.peerAuthorizationMode,
-  });
-  browserUseSessionRegistry = new BrowserUseSessionRegistry({
-    appVersion: app.getVersion(),
-    browserService: browserSidebarService,
-    buildFlavor:
-      browserRuntime.status === "available"
-        ? browserRuntime.bundle.manifest.buildFlavor
-        : "unavailable",
-    enabled: browserUseHostCapability.status === "available",
-    nativePipeEvents: {
-      onAuthorizationError: (error) => {
-        logger.warn("Browser Use native pipe peer authorization failed", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      },
-      onInvalidMessage: (error) => {
-        logger.warn("Browser Use native pipe received an invalid message", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      },
-      onListening: () => {
-        logger.info("Browser Use native pipe listening");
-      },
-      onRejectedSocket: (result) => {
-        logger.warn("Browser Use native pipe rejected a socket peer", {
-          reason: result.reason ?? "unauthorized",
-        });
-      },
-      onRequestCompleted: (event) => {
-        logger.debug("Browser Use native pipe request completed", event);
-      },
-      onRequestStarted: (event) => {
-        logger.debug("Browser Use native pipe request started", event);
-      },
-      onSocketError: (error) => {
-        logger.warn("Browser Use native pipe socket failed", {
-          error: error.message,
-        });
-      },
-    },
+  await context.installBrowserUseRuntime({
     policyStore: browserUsePolicyStore,
-    socketPeerAuthorizer: browserUsePeerAuthorizer,
-  });
-  browserSidebarService.setBrowserUseRouteCaptureHandler(async (event) => {
-    const registry = browserUseSessionRegistry;
-    if (!registry || registry.availableBackends().length === 0) return;
-    await registry.captureRoute({
-      browserConversationId: event.browserConversationId,
-      browserViewScopeId: event.browserViewScopeId,
-      codexSessionId: event.codexSessionId,
-      ownerWebContentsId: event.ownerWebContentsId,
-      projectId: event.projectId,
-    });
-  });
-  const ownerReleasedListener = (event: { ownerWebContentsId: number }) => {
-    browserCredentialService.releaseOwner(event.ownerWebContentsId);
-    void browserUseSessionRegistry?.releaseOwner(event.ownerWebContentsId);
-  };
-  const cursorArrivedListener = (event: {
-    browserConversationId: string;
-    browserViewScopeId: string;
-    browserTabId: string;
-    moveSequence: number;
-    ownerWebContentsId: number | null;
-  }) => {
-    if (event.ownerWebContentsId === null) return;
-    browserUseSessionRegistry?.notifyCursorArrived({
-      ...event,
-      ownerWebContentsId: event.ownerWebContentsId,
-    });
-  };
-  browserSidebarService.on("browserUseOwnerReleased", ownerReleasedListener);
-  browserSidebarService.on("browserUseCursorArrived", cursorArrivedListener);
-  disposeBrowserUseSessionRegistryBridge = () => {
-    browserSidebarService.setBrowserUseRouteCaptureHandler(null);
-    browserSidebarService.off("browserUseOwnerReleased", ownerReleasedListener);
-    browserSidebarService.off("browserUseCursorArrived", cursorArrivedListener);
-  };
-  desktopTools.setAvailableBackendsResolver(
-    () => browserUseSessionRegistry?.availableBackends() ?? [],
-  );
-  await desktopTools.installBrowserUseBindings({
-    lifecycle: browserUseSessionRegistry,
-    routePromoter: {
-      promote: async (input) => {
-        await browserSidebarService.promoteBrowserUseRoute(input);
-      },
-    },
+    releaseCredentialOwner: (ownerWebContentsId) =>
+      browserCredentialService.releaseOwner(ownerWebContentsId),
   });
   const browserDownloadService = new BrowserDownloadService({
     downloadsDirectory: app.getPath("downloads"),

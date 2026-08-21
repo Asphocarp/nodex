@@ -94,6 +94,10 @@ import {
   HostWorkerRuntime,
   live as hostWorkerRuntimeLive,
 } from "../host-runtime/HostWorkerRuntime";
+import {
+  BrowserUseRuntime,
+  live as browserUseRuntimeLive,
+} from "../host-runtime/BrowserUseRuntime";
 import { BrowserSidebarService } from "../browser-sidebar-service";
 import {
   activateMainServiceComposition,
@@ -301,10 +305,20 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const desktopTools = makeDesktopToolRuntimePromiseAdapter(
-          Context.get(desktopToolContext, DesktopToolRuntime),
-          callbacks,
+        const desktopToolRuntime = Context.get(desktopToolContext, DesktopToolRuntime);
+        const desktopTools = makeDesktopToolRuntimePromiseAdapter(desktopToolRuntime, callbacks);
+        const browserUseContext = yield* Layer.buildWithScope(
+          browserUseRuntimeLive({
+            appVersion: config.appVersion,
+            browserRuntime: codexRuntime.browserRuntime,
+            browserSidebar: browserSidebarService,
+            environment: process.env,
+            isPackaged: config.isPackaged,
+            platform: config.platform as NodeJS.Platform,
+          }).pipe(Layer.provide(Layer.succeed(DesktopToolRuntime, desktopToolRuntime))),
+          runtimeScope,
         );
+        const browserUse = Context.get(browserUseContext, BrowserUseRuntime);
         const computerUseSettingsContext = yield* Layer.buildWithScope(
           computerUseSettingsRuntimeLive.pipe(
             Layer.provide(
@@ -657,6 +671,8 @@ export const live: Layer.Layer<
                 dataAuthority: Promise.resolve(dataAuthority),
                 gitWorkerHost: hostWorkers.git,
                 initialArgv: [...config.argv],
+                installBrowserUseRuntime: (input) =>
+                  callbacks.runPromise(browserUse.install(input)),
                 manageElectronLifecycle: false,
                 startupEvents: [],
                 startCoreEvents,
