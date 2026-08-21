@@ -187,8 +187,6 @@ import {
   startStoreAdministrationMaintenanceScheduler,
   type StoreAdministrationMaintenanceScheduler,
 } from "./store-administration-maintenance-scheduler";
-import { registerManagedAssetProtocol } from "./managed-asset-protocol";
-import { registerAppRendererProtocol } from "./app-renderer-protocol";
 import { InitialProjectBootstrapService } from "./initial-project-bootstrap-service";
 import { resolveInitialProjectProjectsDirectory } from "./initial-project/initial-project-filesystem";
 import { resolveInitialProjectJournalPath } from "./initial-project/initial-project-journal-store";
@@ -203,8 +201,6 @@ const { browserSidebarService, codexService } = getMainServiceComposition();
 const openWindows = new Map<number, BrowserWindow>();
 let lastFocusedWindowId: number | null = null;
 let rendererHostReadyForWindows = false;
-let disposeManagedAssetProtocol: (() => void) | null = null;
-let disposeAppRendererProtocol: (() => void) | null = null;
 let stopReminderScheduler: (() => void) | null = null;
 let runtimeReminderTick: (() => Promise<void>) | null = null;
 let databaseReady = false;
@@ -2161,10 +2157,6 @@ function shutdownMainRuntime(): Promise<void> {
       },
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
-    disposeManagedAssetProtocol?.();
-    disposeManagedAssetProtocol = null;
-    disposeAppRendererProtocol?.();
-    disposeAppRendererProtocol = null;
     await settleRuntimeShutdownStep(
       "Codex service",
       () => codexService.shutdown(),
@@ -2267,18 +2259,6 @@ export async function runMainAppStartup(
   if (context.manageElectronLifecycle !== false) {
     registerRuntimeLifecycleHandlers(context.requestShutdown);
   }
-  disposeManagedAssetProtocol?.();
-  disposeManagedAssetProtocol = registerManagedAssetProtocol(electronSession.defaultSession, {
-    logError: (message, error) => logger.warn(message, { error }),
-  });
-  disposeAppRendererProtocol?.();
-  disposeAppRendererProtocol = process.env.ELECTRON_RENDERER_URL
-    ? null
-    : registerAppRendererProtocol(
-        electronSession.defaultSession,
-        join(__dirname, "../renderer"),
-        (message, error) => logger.warn(message, { error }),
-      );
   const startupSecondInstancesWithoutDeepLinks = collectStartupDeepLinks(context);
 
   logger.info("Nodex main process starting", {

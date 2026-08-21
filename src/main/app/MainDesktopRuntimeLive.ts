@@ -110,6 +110,7 @@ import {
   live as browserSidebarRuntimeLive,
 } from "../host-runtime/BrowserSidebarRuntime";
 import { AppUpdateRuntime, live as appUpdateRuntimeLive } from "../host-runtime/AppUpdateRuntime";
+import * as AppProtocolRuntime from "../host-runtime/AppProtocolRuntime";
 import {
   activateMainServiceComposition,
   createMainServiceComposition,
@@ -282,6 +283,17 @@ export const live: Layer.Layer<
               Layer.mergeAll(
                 Layer.succeed(AppUpdateRuntime, appUpdates),
                 Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
+          AppProtocolRuntime.live.pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(ElectronSessionHost, sessionHost),
                 Layer.succeed(MainConfig, config),
               ),
             ),
