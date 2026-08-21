@@ -182,8 +182,8 @@ import { cn } from "@/lib/utils";
 import { useCommandPaletteThreadItems } from "@/lib/command-palette-chat-search";
 import type { BlockDocumentMutationBarrier } from "@/lib/block-document-surface-runtime";
 import {
-  registerBlockDocumentMutationBarrier,
-  resolveBlockDocumentMutationBarrier,
+  registerBlockDocumentStructuralMutationParticipant,
+  resolveBlockDocumentStructuralMutationParticipant,
 } from "@/lib/block-document-mutation-registry";
 import {
   createCanvasInHostPage,
@@ -213,8 +213,8 @@ import {
   type NfmEditorSource,
 } from "./nfm-editor-source";
 import {
-  prepareNfmEditorForMutation,
-  type NfmEditorMutationRuntime,
+  prepareNfmEditorStructuralMutation,
+  type NfmEditorStructuralMutationRuntime,
 } from "./nfm-editor-relocation";
 import { moveNfmBlocks } from "@/lib/nfm-block-move-runtime";
 import { commitPageLifecycleIntent } from "@/lib/page-lifecycle-runtime";
@@ -1476,13 +1476,32 @@ function NfmEditorInstance({
   }, [editor, syncSearchStats]);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const structuralMutationParticipant = useMemo(() => {
+    if (!surfaceMutationBarrier) return undefined;
+    return {
+      prepareAndFence: async () => {
+        const container = containerRef.current;
+        if (!container) {
+          throw new Error(
+            "The Page editor is not ready for a structural mutation.",
+          );
+        }
+        return await prepareNfmEditorStructuralMutation(
+          editor as unknown as NfmEditorStructuralMutationRuntime,
+          container,
+          surfaceMutationBarrier,
+        );
+      },
+    };
+  }, [editor, surfaceMutationBarrier]);
+
   useEffect(() => {
-    if (!surfaceMutationBarrier) return;
-    return registerBlockDocumentMutationBarrier(
+    if (!structuralMutationParticipant) return;
+    return registerBlockDocumentStructuralMutationParticipant(
       source.clientSessionId,
-      surfaceMutationBarrier,
+      structuralMutationParticipant,
     );
-  }, [source.clientSessionId, surfaceMutationBarrier]);
+  }, [source.clientSessionId, structuralMutationParticipant]);
 
   useEffect(() => {
     if (
@@ -1830,20 +1849,12 @@ function NfmEditorInstance({
       if (executionProjectId === null) {
         throw new Error("Moving Blocks requires a Project.");
       }
-      if (!surfaceMutationBarrier) {
+      if (!structuralMutationParticipant) {
         throw new Error(
           "The collaborative Page surface changed; reopen it before moving Blocks.",
         );
       }
-      const container = containerRef.current;
-      if (!container) {
-        throw new Error("The Page editor is not ready for a Block move.");
-      }
-      await prepareNfmEditorForMutation(
-        editor as unknown as NfmEditorMutationRuntime,
-        container,
-      );
-      const sourceHead = await surfaceMutationBarrier.flushAndFence();
+      const sourceHead = await structuralMutationParticipant.prepareAndFence();
 
       await moveNfmBlocks({
         projectId: executionProjectId,
@@ -1857,11 +1868,10 @@ function NfmEditorInstance({
       });
     },
     [
-      editor,
       executionProjectId,
       source,
       sourcePageContext,
-      surfaceMutationBarrier,
+      structuralMutationParticipant,
     ],
   );
 
@@ -2060,7 +2070,9 @@ function NfmEditorInstance({
   );
 
   const crossSurfaceDrag = useMemo(() => {
-    if (executionProjectId === null) return undefined;
+    if (executionProjectId === null || !structuralMutationParticipant) {
+      return undefined;
+    }
     return {
       surfaceId: source.clientSessionId,
       projectId: executionProjectId,
@@ -2075,13 +2087,16 @@ function NfmEditorInstance({
           ? { hostPageId: sourcePageContext.pageId }
           : {}),
         ancestorPageIds: parentBlockReferenceRuntime?.ancestorPageIds ?? [],
-        ...(surfaceMutationBarrier
-          ? { flushAndFence: surfaceMutationBarrier.flushAndFence }
-          : {}),
-        flushSourceAndFence: async (sourceSurfaceId: string) => {
-          if (sourceSurfaceId === source.clientSessionId) return;
-          return await resolveBlockDocumentMutationBarrier(sourceSurfaceId)
-            ?.flushAndFence();
+        prepareAndFence: structuralMutationParticipant.prepareAndFence,
+        prepareSourceAndFence: async (sourceSurfaceId: string) => {
+          const participant =
+            resolveBlockDocumentStructuralMutationParticipant(sourceSurfaceId);
+          if (!participant) {
+            throw new Error(
+              "The dragged Page editor changed; start the drag again.",
+            );
+          }
+          return await participant.prepareAndFence();
         },
         createOperationId: () => crypto.randomUUID(),
         transfer: (intent: Parameters<typeof transferBlocks>[1]) =>
@@ -2128,7 +2143,7 @@ function NfmEditorInstance({
                   targetPageId,
                   insertion,
                   sourceRuntime,
-                    targetRuntime: surfaceMutationBarrier,
+                  targetRuntime: surfaceMutationBarrier,
                 });
               },
             }
@@ -2144,6 +2159,7 @@ function NfmEditorInstance({
     source.clientSessionId,
     source.storeEpoch,
     sourcePageContext,
+    structuralMutationParticipant,
     surfaceMutationBarrier,
   ]);
 
@@ -2334,18 +2350,10 @@ function NfmEditorInstance({
       if (!sourcePageContext) {
         throw new Error("A Subpage can only be created inside a Page.");
       }
-      if (!surfaceMutationBarrier) {
+      if (!structuralMutationParticipant) {
         throw new Error("The Page Document is not ready to create a Subpage.");
       }
-      const container = containerRef.current;
-      if (!container) {
-        throw new Error("The Page editor is not ready to create a Subpage.");
-      }
-      await prepareNfmEditorForMutation(
-        editor as unknown as NfmEditorMutationRuntime,
-        container,
-      );
-      const hostHead = await surfaceMutationBarrier.flushAndFence();
+      const hostHead = await structuralMutationParticipant.prepareAndFence();
       if (
         hostHead.storeEpoch !== source.storeEpoch
         || hostHead.documentId !== source.documentId
@@ -2384,12 +2392,11 @@ function NfmEditorInstance({
     },
     [
       contentAccessContext,
-      editor,
       source.documentId,
       source.generation,
       source.storeEpoch,
       sourcePageContext,
-      surfaceMutationBarrier,
+      structuralMutationParticipant,
     ],
   );
 
@@ -2453,20 +2460,12 @@ function NfmEditorInstance({
       if (!sourcePageContext || executionProjectId === null) {
         throw new Error("A nested Page can only be deleted inside a Page.");
       }
-      if (!surfaceMutationBarrier) {
+      if (!structuralMutationParticipant) {
         throw new Error(
           "The host Page Document is not ready for a Page deletion.",
         );
       }
-      const container = containerRef.current;
-      if (!container) {
-        throw new Error("The host Page editor is not ready for a Page deletion.");
-      }
-      await prepareNfmEditorForMutation(
-        editor as unknown as NfmEditorMutationRuntime,
-        container,
-      );
-      const hostHead = await surfaceMutationBarrier.flushAndFence();
+      const hostHead = await structuralMutationParticipant.prepareAndFence();
       if (
         hostHead.storeEpoch !== source.storeEpoch
         || hostHead.documentId !== source.documentId
@@ -2493,11 +2492,10 @@ function NfmEditorInstance({
       }
     },
     [
-      editor,
       executionProjectId,
       source,
       sourcePageContext,
-      surfaceMutationBarrier,
+      structuralMutationParticipant,
     ],
   );
 

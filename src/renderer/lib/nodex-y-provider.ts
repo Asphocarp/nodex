@@ -228,6 +228,18 @@ const invalidResponseError = (message: string): DocumentSyncCommandError => ({
   resetRequired: false,
 });
 
+const documentIntegrationError = (
+  updateKind: "document sync" | "realtime document",
+  error: unknown,
+): DocumentSyncCommandError => ({
+  code: "recovery_required",
+  message: `The local editor could not integrate the ${updateKind} update: ${
+    error instanceof Error ? error.message : String(error)
+  }`,
+  retryable: false,
+  resetRequired: true,
+});
+
 const resetBoundaryError = (message: string): DocumentSyncCommandError => ({
   code: "store_epoch_mismatch",
   message,
@@ -762,11 +774,10 @@ export class NodexYProvider {
         REMOTE_DOCUMENT_ORIGIN,
       );
     } catch (error) {
-      this.enterFatal(
-        invalidResponseError(
-          `Invalid document sync update: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-      );
+      // Yjs observers run synchronously during apply and may throw after the
+      // CRDT update has already mutated this Y.Doc. Never retry or classify
+      // that ambiguous local replica as a malformed Core response.
+      this.enterReset(documentIntegrationError("document sync", error));
       return;
     }
 
@@ -900,11 +911,7 @@ export class NodexYProvider {
         REMOTE_DOCUMENT_ORIGIN,
       );
     } catch (error) {
-      this.enterFatal(
-        invalidResponseError(
-          `Invalid realtime document update: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-      );
+      this.enterReset(documentIntegrationError("realtime document", error));
       return;
     }
     this.headSeq = event.headSeq;

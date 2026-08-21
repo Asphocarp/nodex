@@ -4,7 +4,7 @@ interface SideMenuDragLifecycle {
   blockDragEnd: () => void;
 }
 
-interface SideMenuDragCleanupEditor {
+export interface SideMenuDragCleanupEditor {
   prosemirrorView?: {
     dragging?: unknown;
     root?: Document | ShadowRoot;

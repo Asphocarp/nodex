@@ -1,6 +1,7 @@
 import { toast } from "@/components/ui/toast";
 import { transferBlocks } from "@/lib/api";
-import { resolveBlockDocumentMutationBarrier } from "@/lib/block-document-mutation-registry";
+import { resolveBlockDocumentStructuralMutationParticipant } from "@/lib/block-document-mutation-registry";
+import type { DocumentHeadFence } from "@/lib/block-document-surface-runtime";
 import { readTaskShorthandPagePromotionEnabled } from "@/lib/page-promotion-preference";
 import type { BlockTransferDataSourcePlacement } from "../../../shared/block-transfer";
 import {
@@ -60,9 +61,24 @@ export const commitDatabaseViewBlockDrop = async (
     toast.info("Database blocks can only move through a typed Database action.");
     return false;
   }
-  const sourceBarrier = resolveBlockDocumentMutationBarrier(payload.sourceSurfaceId);
-  const sourceHead = await sourceBarrier?.flushAndFence();
-  if (sourceHead && sourceHead.storeEpoch !== input.storeEpoch) {
+  const sourceParticipant =
+    resolveBlockDocumentStructuralMutationParticipant(payload.sourceSurfaceId);
+  if (!sourceParticipant) {
+    toast.danger("The dragged Page editor changed; start the drag again.");
+    return false;
+  }
+  let sourceHead: DocumentHeadFence;
+  try {
+    sourceHead = await sourceParticipant.prepareAndFence();
+  } catch (error) {
+    toast.danger(
+      error instanceof Error
+        ? error.message
+        : "The dragged Page could not prepare for transfer.",
+    );
+    return false;
+  }
+  if (sourceHead.storeEpoch !== input.storeEpoch) {
     toast.danger("The dragged Document belongs to another store generation.");
     return false;
   }
@@ -80,15 +96,11 @@ export const commitDatabaseViewBlockDrop = async (
         preferenceEnabled: readTaskShorthandPagePromotionEnabled(),
         shiftKey: input.shiftKey,
       }),
-      ...(sourceHead
-        ? {
-            causalDependencies: [{
-              documentId: sourceHead.documentId,
-              generation: sourceHead.generation,
-              expectedHeadSeq: sourceHead.expectedHeadSeq,
-            }],
-          }
-        : {}),
+      causalDependencies: [{
+        documentId: sourceHead.documentId,
+        generation: sourceHead.generation,
+        expectedHeadSeq: sourceHead.expectedHeadSeq,
+      }],
     }),
   );
   if (!result.ok) {

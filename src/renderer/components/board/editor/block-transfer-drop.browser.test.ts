@@ -5,6 +5,21 @@ import {
 } from "../../workbench/block-transfer/cross-surface-drag";
 import { setupBlockTransferDocumentDrop } from "./block-transfer-drop";
 
+const structuralPreparation = {
+  prepareAndFence: async () => ({
+    documentId: "document-target",
+    storeEpoch: "epoch-a",
+    generation: 1,
+    expectedHeadSeq: 0,
+  }),
+  prepareSourceAndFence: async () => ({
+    documentId: "document-source",
+    storeEpoch: "epoch-a",
+    generation: 1,
+    expectedHeadSeq: 0,
+  }),
+};
+
 describe("nested Block transfer targets in Chromium", () => {
   test("hands indicator ownership from the parent editor to the sub-editor", () => {
     const outer = document.createElement("div");
@@ -21,6 +36,7 @@ describe("nested Block transfer targets in Chromium", () => {
       outer,
       { document: [] },
       {
+        ...structuralPreparation,
         surfaceId: "surface-outer",
         projectId: "project-a",
         documentId: "document-outer",
@@ -37,6 +53,7 @@ describe("nested Block transfer targets in Chromium", () => {
       inner,
       { document: [] },
       {
+        ...structuralPreparation,
         surfaceId: "surface-inner",
         projectId: "project-a",
         documentId: "document-inner",

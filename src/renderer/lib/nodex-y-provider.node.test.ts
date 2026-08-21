@@ -1219,6 +1219,59 @@ describe("NodexYProvider", () => {
     }
   });
 
+  test("requires a fresh replica when a realtime editor observer rejects an applied update", async () => {
+    const adapter = new MemoryDocumentSyncAdapter();
+    const document = new Y.Doc({ guid: "document-1" });
+    const provider = new NodexYProvider({
+      documentId: "document-1",
+      document,
+      adapter,
+      clientSessionId: "window-observer-failure",
+      autoConnect: false,
+    });
+    const title = document.getText("title");
+    const rejectProjection = () => {
+      throw new Error("editor projection failed");
+    };
+    try {
+      await provider.connect();
+      title.observe(rejectProjection);
+      const update = adapter.commitExternal((serverTitle) => {
+        serverTitle.insert(0, "Committed remotely");
+      });
+
+      adapter.emit({
+        kind: "document-update",
+        documentId: "document-1",
+        storeEpoch: adapter.storeEpoch,
+        generation: adapter.generation,
+        headSeq: adapter.headSeq,
+        updateId: "rust:observer-failure",
+        clientSessionId: "rust:test",
+        update,
+      });
+
+      expect(provider.getStatus()).toMatchObject({
+        phase: "reset-required",
+        headSeq: 0,
+        error: {
+          code: "recovery_required",
+          resetRequired: true,
+          retryable: false,
+        },
+      });
+      expect(provider.getStatus().error?.message).toContain(
+        "local editor could not integrate the realtime document update",
+      );
+      expect(title.toString()).toBe("Committed remotely");
+    } finally {
+      title.unobserve(rejectProjection);
+      provider.destroy();
+      document.destroy();
+      adapter.destroy();
+    }
+  });
+
   test("drops old-epoch outbox and checkpoint state on an explicit store reset", async () => {
     const adapter = new MemoryDocumentSyncAdapter();
     const checkpoints = new MemoryDocumentLocalCheckpointStore();

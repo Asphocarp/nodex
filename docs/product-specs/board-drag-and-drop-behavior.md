@@ -126,6 +126,10 @@ This post-removal contract must stay identical across:
 - Move submits one logical `BlockTransfer`: text-like roots promote to Cards in place, while non-convertible roots receive deterministic wrapper Cards. Copy recursively clones ownership with fresh IDs and leaves the source unchanged. Neither path serializes NFM nor mutates a Card description projection.
 - Multi-block order follows the selected top-level document order. Nested selected blocks are represented only once through their selected ancestor.
 - Board and List interpret pointer geometry into their own raw placement intent, while one shared renderer command owns session validation, source fencing, transfer, receipt feedback, and Undo registration. Core resolves the final placement and Property adoption atomically.
+- A mounted source editor must finish its native drag state and return a fresh
+  causal Document head before the command is submitted. If that exact source
+  participant has unmounted or changed, the drop fails and asks the user to
+  start the drag again; it never submits an unfenced transfer.
 - A direct Board placement freezes the complete effective presentation that
   authored the gesture. Core normalizes and validates grouping and writable
   sort values against that presentation, never against a different durable
@@ -141,6 +145,9 @@ This post-removal contract must stay identical across:
 ### NFM editor -> NFM editor
 - An explicit side-menu drag between different Card Documents carries stable root Block IDs and logical Document coordinates through the same window-local session. The destination renders the horizontal block insertion line and suppresses ProseMirror's vertical text caret.
 - The target does not insert a serialized ProseMirror/HTML slice, and the source does not later delete its selection. One `BlockTransfer` commits both Document updates and Block locations or leaves both unchanged.
+- Both mounted editors settle transient drag/focus state and supply causal
+  Document heads before the transfer. A missing source or target participant
+  fails closed.
 - Same mounted-surface reorder remains BlockNote-native because it is already one Yjs transaction in one Document. Two separately mounted surfaces over the same logical Document fail closed until a stable-ID single-Document move command is available.
 - In nested Card outliners, the closest `.nfm-editor` to the event target owns the drop. An outer editor capture listener must not steal a drop intended for an embedded Card body.
 

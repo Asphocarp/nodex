@@ -1,20 +1,32 @@
 import { describe, expect, test } from "vitest";
 import {
-  registerBlockDocumentMutationBarrier,
-  resolveBlockDocumentMutationBarrier,
+  registerBlockDocumentStructuralMutationParticipant,
+  resolveBlockDocumentStructuralMutationParticipant,
 } from "./block-document-mutation-registry";
 
-describe("Block Document mutation barrier registry", () => {
+describe("Block Document structural mutation participant registry", () => {
   test("does not let an older surface disposer remove the current runtime", () => {
-    const first = { flushAndFence: async () => undefined } as never;
-    const second = { flushAndFence: async () => undefined } as never;
-    const unregisterFirst = registerBlockDocumentMutationBarrier("surface-1", first);
-    const unregisterSecond = registerBlockDocumentMutationBarrier("surface-1", second);
+    const first = { prepareAndFence: async () => undefined } as never;
+    const second = { prepareAndFence: async () => undefined } as never;
+    const unregisterFirst = registerBlockDocumentStructuralMutationParticipant(
+      "surface-1",
+      first,
+    );
+    const unregisterSecond = registerBlockDocumentStructuralMutationParticipant(
+      "surface-1",
+      second,
+    );
 
-    expect(resolveBlockDocumentMutationBarrier("surface-1")).toBe(second);
+    expect(
+      resolveBlockDocumentStructuralMutationParticipant("surface-1"),
+    ).toBe(second);
     unregisterFirst();
-    expect(resolveBlockDocumentMutationBarrier("surface-1")).toBe(second);
+    expect(
+      resolveBlockDocumentStructuralMutationParticipant("surface-1"),
+    ).toBe(second);
     unregisterSecond();
-    expect(resolveBlockDocumentMutationBarrier("surface-1")).toBeNull();
+    expect(
+      resolveBlockDocumentStructuralMutationParticipant("surface-1"),
+    ).toBeNull();
   });
 });

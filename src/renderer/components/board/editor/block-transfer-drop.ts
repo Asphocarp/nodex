@@ -47,12 +47,12 @@ export interface BlockTransferDropBoundary {
   readonly storeEpoch: string;
   readonly hostPageId?: string;
   readonly ancestorPageIds: readonly string[];
-  /** Flushes unsent edits in the destination document before Core plans. */
-  readonly flushAndFence?: () => Promise<DocumentHeadFence>;
-  /** Flushes the actual drag source session when it is mounted locally. */
-  readonly flushSourceAndFence?: (
+  /** Settles the destination editor and flushes its durable causal head. */
+  readonly prepareAndFence: () => Promise<DocumentHeadFence>;
+  /** Settles and flushes the actual drag source mounted in this renderer. */
+  readonly prepareSourceAndFence: (
     sourceSurfaceId: string,
-  ) => Promise<DocumentHeadFence | undefined>;
+  ) => Promise<DocumentHeadFence>;
   readonly transfer: (
     intent: PublicBlockTransferIntent,
   ) => Promise<BlockTransferCommandResult>;
@@ -249,10 +249,10 @@ export const setupBlockTransferDocumentDrop = (
     sourceSurfaceId?: string,
   ): Promise<readonly DocumentHeadFence[]> => {
     const tokens = await Promise.all([
-      boundary.flushAndFence?.(),
-      sourceSurfaceId === undefined
+      boundary.prepareAndFence(),
+      sourceSurfaceId === undefined || sourceSurfaceId === boundary.surfaceId
         ? undefined
-        : boundary.flushSourceAndFence?.(sourceSurfaceId),
+        : boundary.prepareSourceAndFence(sourceSurfaceId),
     ]);
     return tokens.filter(
       (token): token is DocumentHeadFence => token !== undefined,
