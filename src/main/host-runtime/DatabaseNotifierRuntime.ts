@@ -17,7 +17,7 @@ import { WindowRuntime } from "../window-runtime/WindowRuntime";
 
 export class DatabaseNotifierRuntime extends Context.Service<
   DatabaseNotifierRuntime,
-  { readonly installed: true }
+  { readonly notifier: DatabaseNotifier }
 >()("nodex/main/host-runtime/DatabaseNotifierRuntime") {}
 
 export const fromNotifier = (
@@ -74,7 +74,7 @@ export const fromNotifier = (
             notifier.removeListener("projects-changed", projectsChanged);
           }),
       );
-      return DatabaseNotifierRuntime.of({ installed: true });
+      return DatabaseNotifierRuntime.of({ notifier });
     }),
   );
 

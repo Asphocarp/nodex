@@ -25,6 +25,10 @@ import {
   live as projectionDeliveryRuntimeLive,
 } from "../core-runtime/ProjectionDeliveryRuntime";
 import {
+  CoreApplicationProjectionRuntime,
+  live as coreApplicationProjectionRuntimeLive,
+} from "../core-runtime/CoreApplicationProjectionRuntime";
+import {
   createDesktopAutomationModuleBridge,
   createDesktopDatabaseModuleBridge,
   createDesktopDocumentSyncBridge,
@@ -388,9 +392,13 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const initialization = Context.get(initializationContext, ApplicationInitializationRuntime);
-        yield* Layer.buildWithScope(
+        const databaseNotifierContext = yield* Layer.buildWithScope(
           DatabaseNotifierRuntime.live.pipe(Layer.provide(Layer.succeed(WindowRuntime, windows))),
           runtimeScope,
+        );
+        const databaseNotifications = Context.get(
+          databaseNotifierContext,
+          DatabaseNotifierRuntime.DatabaseNotifierRuntime,
         );
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
@@ -899,11 +907,28 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const applicationWindows = Context.get(applicationWindowContext, ApplicationWindowRuntime);
+        const coreApplicationProjectionContext = yield* Layer.buildWithScope(
+          coreApplicationProjectionRuntimeLive({
+            automation: {
+              notifyAutomationRunsUpdated: (event) =>
+                codexService.notifyAutomationRunsUpdated(event),
+              notifyScheduledAutomationChanged: (event) =>
+                codexService.notifyScheduledAutomationChanged(event),
+              synchronize: Effect.promise(() => codexService.synchronizeAutomationRuntime()),
+            },
+            notifier: databaseNotifications.notifier,
+          }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
+          runtimeScope,
+        );
+        const coreApplicationProjection = Context.get(
+          coreApplicationProjectionContext,
+          CoreApplicationProjectionRuntime,
+        );
         const projectionDeliveryContext = yield* Layer.buildWithScope(
           projectionDeliveryRuntimeLive({
             authority: dataAuthority,
             documentSync,
-            onNotification: module.publishCoreModuleEventToNotifiers,
+            onNotification: coreApplicationProjection.publish,
           }),
           runtimeScope,
         );
@@ -1040,7 +1065,8 @@ export const live: Layer.Layer<
                 automationModule,
                 browserSidebarService,
                 codexService,
-                dataAuthority: legacyDataAuthority,
+                coreApplicationProjection,
+                dataAuthority,
                 databaseModule,
                 deepLinks: {
                   extractFromArgv: (argv) => callbacks.runPromise(deepLinks.extractFromArgv(argv)),

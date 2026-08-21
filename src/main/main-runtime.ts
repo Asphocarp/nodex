@@ -12,7 +12,6 @@ import { performance } from "node:perf_hooks";
 import type { TerminalRunActionRequest, TerminalSessionSnapshot } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import type { GitWorkerHostPort } from "./host-runtime/HostWorkerRuntime";
-import { dbNotifier } from "./local-store/notifier";
 import type { BrowserSidebarService } from "./browser-sidebar-service";
 import type { CodexService } from "./codex/codex-service";
 import {
@@ -77,13 +76,6 @@ import {
 import { installCliCommand } from "./cli-command-installer";
 import { runAgentSkillSetup } from "./agent-skill-setup";
 import {
-  mapCoreAutomationEvent,
-  mapCoreDatabaseEvent,
-  mapCoreLibraryDatabaseEvent,
-  mapCoreLibraryEvent,
-  mapCoreProjectWorkspaceEvent,
-  mapCoreStoreAdministrationEvent,
-  type CoreAuthorizedDeliveryAtom,
   type CoreEventEnvelope,
   type CoreEventReplayRequired,
   type CoreStreamCheckpoint,
@@ -96,10 +88,6 @@ import {
   type DesktopProjectWorkspacePort,
 } from "./core-client";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
-import {
-  allProjectSessionInvalidation,
-  planCoreWorkspaceNotifications,
-} from "./core-client/core-project-workspace-invalidation";
 import { configureNodexAgentV3DynamicService } from "./codex/nodex-agent-dynamic-tool-runtime";
 import { createDesktopNodexAgentAuthorityPort } from "./core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentResourceAuthorityPort } from "./core-client/desktop-nodex-agent-resource-authority";
@@ -122,7 +110,6 @@ let rendererHostReadyForWindows = false;
 let windowRuntime: WindowRuntimeService | null = null;
 let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateRuntime: MainRuntimeStartupContext["appUpdateRuntime"] | null = null;
-let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 const logger = getLogger({ subsystem: "app" });
 
 function getLastFocusedWindow(): BrowserWindow | null {
@@ -459,44 +446,25 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
   return applicationWindowRuntime.create(options.session);
 }
 
-async function publishCoreResync(eventHead: number): Promise<void> {
-  const runtime = desktopDataAuthorityRuntime;
-  dbNotifier.notifyLibraryNavigationChanged({
-    version: 1,
-    libraryId: runtime?.identity.libraryId ?? "",
-    storeEpoch: runtime?.identity.storeEpoch ?? null,
-    commitSeq: eventHead,
-    changeKind: "content",
-    affectedParentKeys: ["library", "catalog"],
-    affectedPageIds: [],
-    affectedDatabaseIds: [],
-    affectedViewIds: [],
-  });
-  dbNotifier.notifyProjectsChanged("update");
-  dbNotifier.notifyProjectSessionInvalidation(allProjectSessionInvalidation());
-}
-
 async function initializeDesktopApp(
-  authority: Promise<DesktopDataAuthorityRuntime>,
+  authority: DesktopDataAuthorityRuntime,
   initialProjectBootstrap: InitialProjectBootstrapService,
   startCoreEvents: MainRuntimeStartupContext["startCoreEvents"],
   applicationSchedulers: ApplicationSchedulerRuntime["Service"],
+  coreApplicationProjection: MainRuntimeStartupContext["coreApplicationProjection"],
   projectionDelivery: MainRuntimeStartupContext["projectionDelivery"],
   markInitializationDone: MainRuntimeStartupContext["markInitializationDone"],
 ): Promise<void> {
   const initializationStartedAt = performance.now();
-  desktopDataAuthorityRuntime = await authority;
   const servicesStartedAt = performance.now();
   logger.info("Native Core authority ready", {
-    ...desktopDataAuthorityRuntime.launch.timings,
-    artifactValidationMs: Math.round(
-      desktopDataAuthorityRuntime.launch.timings.artifactValidationMs,
-    ),
-    connectMs: Math.round(desktopDataAuthorityRuntime.launch.timings.connectMs),
-    selectionMs: Math.round(desktopDataAuthorityRuntime.launch.timings.selectionMs),
-    totalMs: Math.round(desktopDataAuthorityRuntime.launch.timings.totalMs),
+    ...authority.launch.timings,
+    artifactValidationMs: Math.round(authority.launch.timings.artifactValidationMs),
+    connectMs: Math.round(authority.launch.timings.connectMs),
+    selectionMs: Math.round(authority.launch.timings.selectionMs),
+    totalMs: Math.round(authority.launch.timings.totalMs),
   });
-  const coreClient = desktopDataAuthorityRuntime.rootClient;
+  const coreClient = authority.rootClient;
 
   let coreStreamInterruptionPublished = false;
   await startCoreEvents({
@@ -505,7 +473,11 @@ async function initializeDesktopApp(
     onCheckpoint: projectionDelivery.observeCheckpoint,
     onResyncRequired: async (resync) => {
       projectionDelivery.resetStream("event_gap");
-      await publishCoreResync(resync.commit_head);
+      coreApplicationProjection.publishResync({
+        commitSeq: resync.commit_head,
+        libraryId: authority.identity.libraryId,
+        storeEpoch: authority.identity.storeEpoch,
+      });
     },
     onConnectionStateChanged: (state, error) => {
       if (state === "connected") {
@@ -558,87 +530,6 @@ async function initializeDesktopApp(
   await appUpdateRuntime?.markApplicationReady();
 }
 
-export function publishCoreModuleEventToNotifiers(
-  envelope: CoreEventEnvelope,
-  effect: CoreAuthorizedDeliveryAtom,
-  libraryId: string,
-): void {
-  const administrationEvent = mapCoreStoreAdministrationEvent(effect);
-  if (administrationEvent) return;
-  const automationEvent = mapCoreAutomationEvent(effect);
-  if (automationEvent) {
-    void codexService.synchronizeAutomationRuntime().catch((error) => {
-      logger.warn("Failed to refresh Automation runtime cache", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
-    for (const automationId of automationEvent.automationIds) {
-      codexService.notifyScheduledAutomationChanged({
-        automationId,
-        targetThreadId: null,
-        reason: "upsert",
-      });
-    }
-    if (automationEvent.automationIds.length > 0 || automationEvent.runIds.length > 0) {
-      codexService.notifyAutomationRunsUpdated({
-        automationId:
-          automationEvent.automationIds.length === 1
-            ? (automationEvent.automationIds[0] ?? null)
-            : null,
-        threadId: automationEvent.runIds.length === 1 ? (automationEvent.runIds[0] ?? null) : null,
-        reason: "settle",
-      });
-    }
-    return;
-  }
-  const databaseEvent = mapCoreDatabaseEvent(envelope, effect, libraryId);
-  if (databaseEvent) {
-    dbNotifier.notifyDatabaseChanged(databaseEvent);
-    if ((databaseEvent.affectedViewIds ?? []).length > 0) {
-      // The Project catalog read model projects the primary Database default
-      // View, so Database View structure changes must also refresh
-      // projects:list consumers.
-      dbNotifier.notifyProjectsChanged("update", databaseEvent.projectId);
-    }
-    return;
-  }
-  const libraryDatabaseEvent = mapCoreLibraryDatabaseEvent(envelope, effect, libraryId);
-  if (libraryDatabaseEvent) {
-    dbNotifier.notifyLibraryNavigationChanged(libraryDatabaseEvent);
-    return;
-  }
-  const libraryEvent = mapCoreLibraryEvent(envelope, effect, libraryId);
-  if (libraryEvent) {
-    dbNotifier.notifyLibraryNavigationChanged(libraryEvent);
-    return;
-  }
-  const workspaceEvent = mapCoreProjectWorkspaceEvent(effect);
-  if (!workspaceEvent) return;
-  const notifications = planCoreWorkspaceNotifications(workspaceEvent);
-  if (notifications.project) {
-    dbNotifier.notifyProjectsChanged(
-      notifications.project.changeType,
-      notifications.project.projectId,
-    );
-  }
-  if (notifications.invalidateStandaloneRoots) {
-    dbNotifier.notifyLibraryNavigationChanged({
-      version: 1,
-      libraryId,
-      storeEpoch: envelope.packet.manifest.identity.store_epoch,
-      commitSeq: envelope.packet.manifest.identity.commit_seq,
-      changeKind: "lifecycle",
-      affectedParentKeys: ["standalone_roots"],
-      affectedPageIds: [],
-      affectedDatabaseIds: [],
-      affectedViewIds: [],
-    });
-  }
-  if (notifications.sessions) {
-    dbNotifier.notifyProjectSessionInvalidation(notifications.sessions);
-  }
-}
-
 export interface MainRuntimeStartupContext {
   appUpdateRuntime: {
     readonly check: () => Promise<unknown>;
@@ -651,7 +542,14 @@ export interface MainRuntimeStartupContext {
   automationModule: DesktopAutomationModulePort;
   browserSidebarService: BrowserSidebarService;
   codexService: CodexService;
-  dataAuthority: Promise<DesktopDataAuthorityRuntime>;
+  coreApplicationProjection: {
+    readonly publishResync: (input: {
+      readonly commitSeq: number;
+      readonly libraryId: string;
+      readonly storeEpoch: string | null;
+    }) => void;
+  };
+  dataAuthority: DesktopDataAuthorityRuntime;
   databaseModule: DesktopDatabaseModuleBridge;
   deepLinks: {
     readonly extractFromArgv: (argv: readonly string[]) => Promise<string | null>;
@@ -791,7 +689,8 @@ export async function runMainAppStartup(
   if (process.platform === "darwin" && !app.isPackaged && !appDockIcon.isEmpty()) {
     app.dock?.setIcon(appDockIcon);
   }
-  const dataAuthority = context.dataAuthority;
+  const dataAuthorityRuntime = context.dataAuthority;
+  const dataAuthority = Promise.resolve(dataAuthorityRuntime);
   codexService.setNodexAgentAuthorityPort(
     createDesktopNodexAgentAuthorityPort({
       authority: dataAuthority,
@@ -836,10 +735,11 @@ export async function runMainAppStartup(
     journalPath: resolveInitialProjectJournalPath(getNodexHome()),
   });
   appInitializationPromise = initializeDesktopApp(
-    dataAuthority,
+    dataAuthorityRuntime,
     initialProjectBootstrap,
     context.startCoreEvents,
     context.applicationSchedulers,
+    context.coreApplicationProjection,
     context.projectionDelivery,
     context.markInitializationDone,
   );
@@ -854,11 +754,7 @@ export async function runMainAppStartup(
   codexService.setNodexAgentAuthorizationBroker(
     new NodexAgentAuthorizationBroker({
       rendererClientRouter: notificationRendererRouter,
-      readStoreEpoch: () => {
-        const runtime = desktopDataAuthorityRuntime;
-        if (!runtime) return null;
-        return runtime.identity.storeEpoch;
-      },
+      readStoreEpoch: () => dataAuthorityRuntime.identity.storeEpoch,
       persistProjectGrants: async (input) =>
         await nodexAgentResourceAuthority.persistProjectGrants(input),
     }),
