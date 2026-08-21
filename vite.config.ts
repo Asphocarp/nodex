@@ -130,10 +130,8 @@ const effectControlPlaneFiles = [
   "src/main/codex-runtime/**/*.{ts,tsx}",
   "src/main/platform/**/*.{ts,tsx}",
   "src/main/effect-control-plane/**/*.{ts,tsx}",
-  "src/main/effect-adapters/**/*.{ts,tsx}",
   "src/main/main-program*.ts",
-  "scripts/effect-control-plane/**/*.ts",
-  "scripts/effect-adapters/**/*.ts",
+  "scripts/codex-probe-session.ts",
 ];
 
 export default defineConfig({
@@ -323,9 +321,8 @@ export default defineConfig({
         files: [
           "packages/effect-codex-app-server/src/_internal/**/*.{ts,tsx}",
           "packages/effect-codex-app-server/scripts/**/*.ts",
-          "src/main/effect-adapters/**/*.{ts,tsx}",
           "src/main/platform/**/*.{ts,tsx}",
-          "scripts/effect-adapters/**/*.ts",
+          "scripts/codex-probe-session.ts",
         ],
         rules: {
           ...effectRecommended.rules,

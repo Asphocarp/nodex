@@ -310,24 +310,14 @@ observable even if the file sink is under pressure.
 - uncaught exceptions
 - unhandled promise rejections
 
-### Codex App-Server Client
+### Codex App-Server Runtime
 
-[src/main/codex/codex-app-server-client.ts](src/main/codex/codex-app-server-client.ts) logs:
-
-- client start and stop
-- codex binary probe failures
-- child process spawn details
-- handshake success/failure
-- connection-state transitions
-- reconnect scheduling
-- JSON-RPC request send/completion/timeout/failure
-- server requests received and resolved
-- stderr diagnostics, classified from structured or Rust tracing level prefixes
-- invalid protocol payloads
-- child exit events
-
-For `thread/start`, `turn/start`, and `turn/steer`, the client logs summarized parameters rather than raw payload dumps.
-Routine JSON-RPC send/completion and successful server-request lifecycle records use `debug`.
+The scoped Codex runtime under [src/main/codex-runtime](../../src/main/codex-runtime) and the
+protocol companion package under
+[packages/effect-codex-app-server](../../packages/effect-codex-app-server) report endpoint
+generation, handshake, retry, child termination and protocol failures through the Main Effect
+logger. Protocol logging records safe method/request metadata and schema diagnostics; it never
+copies raw params, prompts, tokens, environment values or undecodable wire payloads into logs.
 The stderr transport channel is not itself a severity: unclassified lines persist as `info`, while
 declared trace/debug/info/warn/error levels retain their actual severity. The service does not
 duplicate these records or turn ordinary stderr diagnostics into user-visible errors.
@@ -493,7 +483,9 @@ Current logger-specific tests live in:
 
 - [src/main/logging/logger.test.ts](src/main/logging/logger.test.ts)
 - [src/main/bootstrap-log.test.ts](src/main/bootstrap-log.test.ts)
-- [src/main/codex/codex-app-server-client.test.ts](src/main/codex/codex-app-server-client.test.ts)
+- [src/main/codex-runtime/CodexRuntime.node.test.ts](../../src/main/codex-runtime/CodexRuntime.node.test.ts)
+- [packages/effect-codex-app-server/src/client.test.ts](../../packages/effect-codex-app-server/src/client.test.ts)
+- [packages/effect-codex-app-server/src/protocol.test.ts](../../packages/effect-codex-app-server/src/protocol.test.ts)
 - [src/main/dev-runtime-metrics.test.ts](src/main/dev-runtime-metrics.test.ts)
 
 They cover:

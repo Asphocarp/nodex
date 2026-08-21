@@ -49,8 +49,7 @@ function isEffectAdapter(path: string): boolean {
   return (
     path.startsWith("src/main/platform/") ||
     path.startsWith("packages/effect-codex-app-server/") ||
-    path.startsWith("src/main/effect-adapters/") ||
-    path.startsWith("scripts/effect-adapters/")
+    path === "scripts/codex-probe-session.ts"
   );
 }
 
