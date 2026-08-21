@@ -33,6 +33,27 @@ describe("Effect architecture boundaries", () => {
     expect(codes("src/main/core-client/supervisor.ts", "run-promise.ts")).toEqual([
       "run-outside-boundary",
     ]);
+    expect(codes("src/main/core-client/supervisor.ts", "run-promise-effect-subpath.ts")).toEqual([
+      "run-outside-boundary",
+    ]);
+    expect(codes("src/main/host-runtime/DetachedRuntime.ts", "node-runtime.ts")).toEqual([
+      "node-runtime-outside-entry",
+    ]);
+  });
+
+  test("rejects ambient configuration and unstructured async in application Modules", () => {
+    expect(
+      codes("src/main/host-runtime/DetachedRuntime.ts", "application-ambient-process.ts"),
+    ).toEqual(["application-ambient-process", "application-ambient-process"]);
+    expect(
+      codes("src/main/host-runtime/DetachedRuntime.ts", "application-unstructured-async.ts"),
+    ).toEqual([
+      "application-unstructured-async",
+      "application-unstructured-async",
+      "application-unstructured-async",
+      "application-unstructured-async",
+      "application-unstructured-async",
+    ]);
   });
 
   test("accepts dedicated adapters and the unique process entry", () => {
@@ -41,6 +62,10 @@ describe("Effect architecture boundaries", () => {
       [],
     );
     expect(codes("src/main/app/MainEntry.ts", "run-promise.ts")).toEqual([]);
+    expect(codes("src/main/git-worker/entry.ts", "node-runtime.ts")).toEqual([]);
+    expect(codes("src/main/worktree-worker/entry.ts", "node-runtime.ts")).toEqual([]);
+    expect(codes("src/main/worktree-worker/stdio-entry.ts", "node-runtime.ts")).toEqual([]);
+    expect(codes("scripts/codex-probe-session.ts", "node-runtime.ts")).toEqual([]);
     expect(codes("scripts/dev-launcher.ts", "run-promise.ts")).toEqual([]);
     expect(codes("src/main/app/MainEntry.test.ts", "run-promise.ts")).toEqual([]);
   });

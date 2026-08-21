@@ -65,7 +65,7 @@ export const live = (
           Effect.andThen(
             Effect.sync(() => {
               if (options.showEmojiPanel) return options.showEmojiPanel();
-              if (process.platform !== "darwin") return false;
+              if (config.platform !== "darwin") return false;
               app.showEmojiPanel();
               return true;
             }),

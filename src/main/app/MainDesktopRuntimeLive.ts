@@ -479,7 +479,7 @@ export const live: Layer.Layer<
         );
         const rendererClients = Context.get(rendererClientContext, RendererClientRuntime);
         const windowRuntimeContext = yield* Layer.buildWithScope(
-          windowRuntimeLive(userDataPath),
+          windowRuntimeLive(userDataPath, config.platform as NodeJS.Platform),
           runtimeScope,
         );
         const windows = Context.get(windowRuntimeContext, WindowRuntime);
@@ -1355,6 +1355,7 @@ export const live: Layer.Layer<
               ? `${config.resourcesPath}/icon.png`
               : `${config.projectRootPath}/resources/icon.png`,
             mcpAppSandbox,
+            platform: config.platform as NodeJS.Platform,
             preloadPath: `${__dirname}/../preload/index.js`,
             rendererClients: rendererClients.router,
             rendererUrl: config.rendererUrl ?? APP_RENDERER_URL,

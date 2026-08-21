@@ -1,18 +1,4 @@
-/* oxlint-disable effecttsgo/run-effect -- This isolated test fixture owns a private Scope for legacy Promise test construction. */
-import * as Context from "effect/Context";
-import * as Effect from "effect/Effect";
-import * as Exit from "effect/Exit";
-import * as Layer from "effect/Layer";
-import * as Scope from "effect/Scope";
-import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
-import {
-  live as projectRuntimeLifecycleLive,
-  ProjectRuntimeLifecycleRuntime,
-} from "./ProjectRuntimeLifecycleRuntime";
-import {
-  makeProjectRuntimeLifecyclePromiseAdapter,
-  type ProjectRuntimeLifecyclePromiseAdapter,
-} from "./ProjectRuntimeLifecycleRuntimePromiseAdapter";
+import type { ProjectRuntimeLifecyclePromiseAdapter } from "./ProjectRuntimeLifecycleRuntimePromiseAdapter";
 
 export interface ProjectRuntimeLifecycleTestHarness {
   readonly adapter: ProjectRuntimeLifecyclePromiseAdapter;
@@ -20,19 +6,37 @@ export interface ProjectRuntimeLifecycleTestHarness {
 }
 
 export const makeProjectRuntimeLifecycleTestHarness = (): ProjectRuntimeLifecycleTestHarness => {
-  const scope = Scope.makeUnsafe();
-  const context = Effect.runSync(Layer.buildWithScope(projectRuntimeLifecycleLive, scope));
-  const runtime = Context.get(context, ProjectRuntimeLifecycleRuntime);
-  const callbacks = {
-    runPromise: <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect),
-  } as ScopedCallbackRuntime["Service"];
+  const tails = new Map<string, Promise<void>>();
   let closed = false;
+  const adapter: ProjectRuntimeLifecyclePromiseAdapter = {
+    runExclusive: async (projectId, operation) => {
+      if (closed) throw new Error("Project runtime lifecycle test harness is closed");
+      const key = projectId?.trim() || "";
+      if (!key) return await operation();
+
+      const previous = tails.get(key) ?? Promise.resolve();
+      let release!: () => void;
+      const current = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const tail = previous.catch(() => undefined).then(() => current);
+      tails.set(key, tail);
+      await previous.catch(() => undefined);
+      try {
+        return await operation();
+      } finally {
+        release();
+        if (tails.get(key) === tail) tails.delete(key);
+      }
+    },
+  };
   return {
-    adapter: makeProjectRuntimeLifecyclePromiseAdapter(runtime, callbacks),
-    close: () => {
-      if (closed) return Promise.resolve();
+    adapter,
+    close: async () => {
+      if (closed) return;
       closed = true;
-      return Effect.runPromise(Scope.close(scope, Exit.void));
+      await Promise.allSettled(tails.values());
+      tails.clear();
     },
   };
 };

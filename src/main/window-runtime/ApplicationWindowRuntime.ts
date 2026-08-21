@@ -47,6 +47,7 @@ export interface ApplicationWindowRuntimeOptions {
   readonly desktopNotifications: DesktopNotificationManager;
   readonly iconPath: string;
   readonly mcpAppSandbox: McpAppSandboxRuntime["Service"];
+  readonly platform: NodeJS.Platform;
   readonly preloadPath: string;
   readonly rendererClients: RendererClientRouter;
   readonly rendererUrl: string;
@@ -62,8 +63,8 @@ export class ApplicationWindowRuntime extends Context.Service<
   }
 >()("nodex/main/window-runtime/ApplicationWindowRuntime") {}
 
-const syncMacWindowTitle = (window: BrowserWindow): void => {
-  if (process.platform !== "darwin" || window.isDestroyed()) return;
+const syncMacWindowTitle = (platform: NodeJS.Platform, window: BrowserWindow): void => {
+  if (platform !== "darwin" || window.isDestroyed()) return;
   window.setTitle("Nodex");
 };
 
@@ -86,7 +87,7 @@ export const live = (
           ? session.bounds
           : undefined;
         const titleBarOptions = resolveCodexTitleBarOptions({
-          platform: process.platform,
+          platform: options.platform,
           windowZoom: 1,
           isDark: nativeTheme.shouldUseDarkColors,
         });
@@ -97,9 +98,9 @@ export const live = (
           height: savedBounds?.height ?? 900,
           minWidth: 800,
           minHeight: 600,
-          ...(process.platform === "darwin" ? { title: "Nodex" } : { icon }),
+          ...(options.platform === "darwin" ? { title: "Nodex" } : { icon }),
           ...titleBarOptions,
-          ...(process.platform === "darwin"
+          ...(options.platform === "darwin"
             ? {
                 vibrancy: "menu" as const,
                 visualEffectState: "followWindow" as const,
@@ -250,7 +251,7 @@ export const live = (
           rendererRegistration.clientId,
           window.isFocused(),
         );
-        syncMacWindowTitle(window);
+        syncMacWindowTitle(options.platform, window);
         if (savedBounds?.mode === "maximized") window.maximize();
         else if (savedBounds?.mode === "fullscreen") window.setFullScreen(true);
 
@@ -265,7 +266,7 @@ export const live = (
             durationMs: Math.round(performance.now() - windowCreatedAt),
             webContentsId,
           });
-          syncMacWindowTitle(window);
+          syncMacWindowTitle(options.platform, window);
           safeSendToWindow(window, "app:update-status", [options.appUpdates.currentStatus()]);
           callbacks.fork(PubSub.publish(rendererLoaded, webContentsId).pipe(Effect.asVoid));
         });
@@ -322,7 +323,7 @@ export const live = (
           );
           captureMainException(cause, { tags: { phase } });
         },
-        syncTitle: syncMacWindowTitle,
+        syncTitle: (window) => syncMacWindowTitle(options.platform, window),
         windows: options.windows,
       });
       yield* Effect.addFinalizer(() => Effect.sync(coordinator.stop));
@@ -331,7 +332,7 @@ export const live = (
         ...coordinator,
         create,
         rendererLoaded: Stream.fromPubSub(rendererLoaded),
-        syncTitle: syncMacWindowTitle,
+        syncTitle: (window) => syncMacWindowTitle(options.platform, window),
       });
     }),
   );

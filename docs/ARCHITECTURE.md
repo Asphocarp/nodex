@@ -141,7 +141,7 @@ Store formats and migration sequences are implementation/recovery contracts, not
 
 Main is an Adapter, coordinator, and runtime host. It may bind Profile/Library/Project/Session identity, perform host preflight, and coordinate external effects around a Core command. It must not open SQLite, reconstruct a semantic transaction, infer authorization from renderer state, or provide a fallback data authority when Core is unavailable.
 
-Electron Main is one Effect 4 application kernel. [`MainEntry`](../src/main/app/MainEntry.ts) is the only Node runtime root; [`MainApp`](../src/main/app/MainApp.ts) owns ready, bootstrap handoff, shutdown admission, and the process Scope; [`MainDesktopRuntimeLive`](../src/main/app/MainDesktopRuntimeLive.ts) composes the Core, Codex, Window, IPC, and host Layers. Startup rollback and every normal or authority-driven quit close that same Scope. Physical Core generations, Codex app-server sessions, windows, workers, PTYs, file watchers, and callback fibers are subordinate scoped resources rather than parallel lifecycle owners.
+Electron Main is one Effect 4 application kernel. [`MainEntry`](../src/main/app/MainEntry.ts) is the Main-process Node runtime root; [`MainApp`](../src/main/app/MainApp.ts) owns ready, bootstrap handoff, shutdown admission, and the process Scope; [`MainDesktopRuntimeLive`](../src/main/app/MainDesktopRuntimeLive.ts) composes the Core, Codex, Window, IPC, and host Layers. Startup rollback and every normal or authority-driven quit close that same Scope. Physical Core generations, Codex app-server sessions, windows, workers, PTYs, file watchers, and callback fibers are subordinate scoped resources rather than parallel lifecycle owners. Worker and standalone script processes have their own explicitly allowlisted `NodeRuntime.runMain` entries and never share Main's runtime.
 
 Foreground Appshot discovery is one process-scoped host runtime. Windows only
 contribute focus observations; closing a window or Main releases its listeners,
@@ -202,6 +202,14 @@ is available, but production execution never discovers authority through a modul
 import-time active-service slot.
 
 Promise, callback, EventEmitter, AbortSignal, and synchronous IPC shapes are allowed only at explicit external Adapter seams. Application Modules expose Effect values, typed state, and Stream/PubSub observation; renderer, preload, shared contracts, and generated wire protocols remain Effect-free. Synchronous preload contracts use a separate scoped pure adapter because Electron requires a result before an Effect fiber can run. [ADR 0047](adr/0047-effect-control-plane-and-runtime-boundaries.md) defines the current frontier while the whole-Main kernel ADR is completed.
+
+The Effect architecture gate parses production sources rather than relying on
+path conventions alone. It rejects Effect imports in frontiers, unstable APIs
+outside platform seams, runtime execution outside allowlisted entries, and
+ambient process configuration or unscoped Promise/timer/AbortController/
+EventEmitter construction inside application Module roots. The companion
+Oxlint rule also covers `.test-support.ts`, so support code cannot hide a manual
+runtime from `@effect/vitest` lifecycle checks.
 
 Long-lived Core adapters target the process-lifetime authority supervisor, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. The lifecycle decision is detailed in [ADR 0034](docs/adr/0034-core-generations-are-supervised-runtime-sessions.md).
 
@@ -438,9 +446,12 @@ This map names stable regions and responsibilities rather than enumerating indiv
 | [`packages/codex-app-server-protocol`](packages/codex-app-server-protocol)                | Generated Codex app-server TypeScript and runtime schema authority                                                                                     |
 | [`src/shared`](src/shared)                                                                | Transport-neutral contracts, schemas, pure domain and projection helpers                                                                               |
 | [`src/main/core-client`](src/main/core-client)                                            | Core selection, supervision, authenticated clients, Desktop Module Adapters                                                                            |
-| [`src/main/codex`](src/main/codex)                                                        | Codex app-server host, routing, execution, Thread coordination                                                                                         |
-| [`src/main/effect-control-plane`](src/main/effect-control-plane)                          | Scoped lifecycle, retry, queue, and structured-concurrency implementations behind existing Main interfaces                                             |
-| [`src/main/effect-adapters`](src/main/effect-adapters)                                    | App-owned isolation boundary for unstable Effect/platform capabilities                                                                                 |
+| [`src/main/app`](src/main/app)                                                            | Main kernel, immutable configuration, composition root, shutdown and callback Scope                                                                    |
+| [`src/main/codex-application`](src/main/codex-application)                               | Codex application Modules, per-thread runtimes, permissions, tools and dynamic execution-host resources                                                |
+| [`src/main/codex-runtime`](src/main/codex-runtime)                                       | Codex app-server endpoint, gateway, generation fencing and typed protocol runtime                                                                       |
+| [`src/main/codex`](src/main/codex)                                                        | Remaining Codex host adapters and conversation projections while the application-Module cut-over completes                                             |
+| [`src/main/host-runtime`](src/main/host-runtime)                                         | Scoped operating-system and Electron feature runtimes                                                                                                  |
+| [`src/main/platform`](src/main/platform)                                                 | Dedicated Electron/Node adapters, including narrow unstable Effect/platform seams                                                                      |
 | [`src/main/browser`](src/main/browser) and [`src/main/browser-use`](src/main/browser-use) | Main-owned Browser runtime and automation integration                                                                                                  |
 | [`src/main/mcp-app`](src/main/mcp-app)                                                    | Sandboxed MCP App guest attachment and MessagePort host                                                                                                |
 | [`src/main/git-worker`](src/main/git-worker)                                              | Generation-bound repository read worker                                                                                                                |

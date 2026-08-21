@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
+import { TestClock } from "effect/testing";
 import { assert, it } from "@effect/vitest";
 import type { BrowserWindow } from "electron";
 import { mkdtempSync } from "node:fs";
@@ -101,6 +102,28 @@ it.effect("owns the bounded renderer flush handshake before a user close", () =>
     assert.isFalse(runtime.has(33));
     assert.isNull(runtime.resolveSessionId(33));
 
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("closes an unresponsive renderer through a Scope-owned deadline", () =>
+  Effect.gen(function* () {
+    const userDataPath = mkdtempSync(join(tmpdir(), "window-close-deadline-"));
+    const sessions = new WindowSessionState(userDataPath);
+    const windowSession = sessions.createFreshSession();
+    const subject = fakeWindow(44);
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(fromState(sessions), scope);
+    const runtime = Context.get(context, WindowRuntime);
+    runtime.attach(subject.window, windowSession.id);
+
+    subject.window.close();
+    assert.isFalse(subject.isDestroyed());
+    yield* TestClock.adjust("1500 millis");
+    yield* Effect.yieldNow;
+
+    assert.isTrue(subject.isDestroyed());
+    assert.isFalse(runtime.has(44));
     yield* Scope.close(scope, Exit.void);
   }),
 );
