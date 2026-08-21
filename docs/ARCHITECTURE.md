@@ -286,6 +286,13 @@ The public identity of an authorized Document observation is `(libraryId, access
 
 A mounted surface first resolves an authorized descriptor and completes its canonical synchronization barrier. Multiple surfaces may share the same process-local Document session while retaining independent editor, undo, cursor, camera, and presence state. Surface presentation never becomes durable content authority.
 
+Canvas presence is an ephemeral Main projection, not durable Core state. The
+Document bridge borrows one `CanvasPresenceHub` from `CanvasPresenceRuntime`;
+the hub is a synchronous state machine with no timer or process lifetime of its
+own. Its TTL sweep is one scoped Effect fiber, and closing the Main Scope clears
+the hub after interrupting that fiber. A bridge must never construct an
+autonomous presence scheduler.
+
 Before a structural command consumes a mounted Document's shape, the surface flushes pending durable updates and supplies an exact head token. Core rechecks the token while planning and applying the mutation. Ownership, membership, host-shell changes, Document updates, projections, and the receipt then commit atomically. Response loss is recovered by exact receipt replay or canonical synchronization, not by reconstructing the transaction in Electron.
 
 Any editor selection containing an owning Page, Canvas, or Database is one Library structural edit; the complete selected forest and ownership closure stay outside generic Document mutation. Core owns delete, clipboard capture/paste, duplicate, move, retention, and forward-inverse recipes. Native clipboard data carries only a bounded capability to an immutable Core bundle. Each editor surface merges structural tokens with its own local Yjs history in user-action order and releases tokens when they leave reachable history. The user-visible contract is [NFM Editor Structural Editing Behavior](docs/product-specs/nfm-editor-structural-editing-behavior.md), and the ownership decision is [ADR 0048](docs/adr/0048-typed-owner-structural-editing.md).

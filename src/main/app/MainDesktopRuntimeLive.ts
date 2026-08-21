@@ -205,6 +205,10 @@ import {
   live as composerAppshotRuntimeLive,
 } from "../host-runtime/ComposerAppshotRuntime";
 import * as DatabaseNotifierRuntime from "../host-runtime/DatabaseNotifierRuntime";
+import {
+  CanvasPresenceRuntime,
+  live as canvasPresenceRuntimeLive,
+} from "../host-runtime/CanvasPresenceRuntime";
 import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
 import { live as codexRendererProjectionRuntimeLive } from "../host-runtime/CodexRendererProjectionRuntime";
 import {
@@ -965,7 +969,15 @@ export const live: Layer.Layer<
         const storeAdministration = createDesktopStoreAdministrationBridge({
           authority: legacyDataAuthority,
         });
-        const documentSync = createDesktopDocumentSyncBridge({ authority: legacyDataAuthority });
+        const canvasPresenceContext = yield* Layer.buildWithScope(
+          canvasPresenceRuntimeLive(),
+          runtimeScope,
+        );
+        const canvasPresence = Context.get(canvasPresenceContext, CanvasPresenceRuntime);
+        const documentSync = createDesktopDocumentSyncBridge({
+          authority: legacyDataAuthority,
+          canvasPresenceHub: canvasPresence.hub,
+        });
         const libraryModule = createDesktopLibraryModuleBridge({ authority: legacyDataAuthority });
         const databaseModule = createDesktopDatabaseModuleBridge({
           authority: legacyDataAuthority,

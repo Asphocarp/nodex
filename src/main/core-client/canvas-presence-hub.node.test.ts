@@ -22,7 +22,6 @@ describe("CanvasPresenceHub", () => {
     const events = new Map<string, CanvasPresenceRealtimeEvent[]>();
     const hub = createCanvasPresenceHub({
       now: () => now,
-      scheduleSweep: () => () => undefined,
     });
     const binding = (key: string, targetId: number): CanvasPresenceHubBinding => ({
       key,
@@ -126,9 +125,7 @@ describe("CanvasPresenceHub", () => {
 
   test("accepts equal-clock null only for a visible state and resets on generation", () => {
     const received: CanvasPresenceRealtimeEvent[] = [];
-    const hub = createCanvasPresenceHub({
-      scheduleSweep: () => () => undefined,
-    });
+    const hub = createCanvasPresenceHub();
     hub.register({
       key: "a",
       targetId: 1,
