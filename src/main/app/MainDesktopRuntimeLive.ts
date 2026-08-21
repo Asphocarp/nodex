@@ -26,6 +26,11 @@ import { CodexAccount, live as codexAccountLive } from "../codex-application/Cod
 import { makeCodexAccountPromiseAdapter } from "../codex-application/CodexAccountPromiseAdapter";
 import { ComposerCatalog, live as composerCatalogLive } from "../codex-application/ComposerCatalog";
 import { makeComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
+import {
+  CodexToolRuntime,
+  live as codexToolRuntimeLive,
+} from "../codex-application/CodexToolRuntime";
+import { makeCodexToolRuntimePromiseAdapter } from "../codex-application/CodexToolRuntimePromiseAdapter";
 import { CodexEndpointMap } from "../codex-runtime/CodexEndpointMap";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { CodexGatewayBridge } from "../codex-runtime/CodexGatewayBridge";
@@ -50,6 +55,7 @@ import { MainConfig } from "./MainConfig";
 import { MainRuntime, MainRuntimeError } from "./MainRuntimeLive";
 import { MainShutdown } from "./MainShutdown";
 import { ScopedCallbackRuntime } from "./ScopedCallbackRuntime";
+import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
 
 const runtimeError = (operation: string, cause: unknown) =>
   new MainRuntimeError({ operation, cause });
@@ -160,16 +166,31 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const codexAccount = makeCodexAccountPromiseAdapter(
-          Context.get(codexAccountContext, CodexAccount),
-          callbacks,
-        );
+        const codexAccountService = Context.get(codexAccountContext, CodexAccount);
+        const codexAccount = makeCodexAccountPromiseAdapter(codexAccountService, callbacks);
         const composerCatalogContext = yield* Layer.buildWithScope(
           composerCatalogLive.pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
           runtimeScope,
         );
         const composerCatalog = makeComposerCatalogPromiseAdapter(
           Context.get(composerCatalogContext, ComposerCatalog),
+          callbacks,
+        );
+        const codexToolRuntimeContext = yield* Layer.buildWithScope(
+          codexToolRuntimeLive({
+            supportsChatGptApps: CODEX_INTEGRATION_CAPABILITIES.chatGptApps,
+          }).pipe(
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(CodexGateway, codexGateway),
+                Layer.succeed(CodexAccount, codexAccountService),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        const codexToolRuntime = makeCodexToolRuntimePromiseAdapter(
+          Context.get(codexToolRuntimeContext, CodexToolRuntime),
           callbacks,
         );
         codexBridge.attach(codexGateway, codexEndpoints);
@@ -184,6 +205,7 @@ export const live: Layer.Layer<
               locale: () => locale,
               codexAccount,
               composerCatalog,
+              codexToolRuntime,
               codexClient: codexBridge,
               codexRuntime,
               providerCredentialStore,
