@@ -20,9 +20,9 @@ const pnpmCommandPattern = /\bpnpm(?:\.cmd)?\b/u;
 const vpCommandPattern =
   /(?:^|[;&|()\s])vp(?:\.cmd|\.exe)?\s+(?:build|check|dev|exec|fmt|install|lint|pack|run|test)\b/u;
 const directCheckPattern = /(?:^|[;&|()\s])vp(?:\.cmd|\.exe)?\s+check\b/u;
-const staticContractsPattern =
-  /(?:^|[;&|()\s])vp(?:\.cmd|\.exe)?\s+run\s+verify:static:contracts\b/u;
-const staticCheckWorkflows = new Set([".github/workflows/ci-main.yml", ".github/workflows/ci.yml"]);
+const staticGroupPattern =
+  /(?:^|[;&|()\s])vp(?:\.cmd|\.exe)?\s+exec\s+tsx\s+scripts\/ci\/verify-static\.ts\s+--group\b/u;
+const staticCheckWorkflow = ".github/workflows/_static-checks.yml";
 
 const actionsDirectory = path.join(repositoryRoot, ".github/actions");
 const sharedSetupPath = path.join(actionsDirectory, "setup-vite-plus/action.yml");
@@ -91,15 +91,15 @@ export const verifyStaticCheckSteps = (label: string, steps: readonly UnknownRec
   );
   if (checkIndex < 0) throw new Error(`${label} must run vp check directly`);
 
-  const contractsIndex = steps.findIndex(
-    (step) => typeof step.run === "string" && staticContractsPattern.test(step.run),
+  const groupedChecksIndex = steps.findIndex(
+    (step) => typeof step.run === "string" && staticGroupPattern.test(step.run),
   );
-  if (contractsIndex < 0) {
-    throw new Error(`${label} must run vp run verify:static:contracts after vp check`);
+  if (groupedChecksIndex < 0) {
+    throw new Error(`${label} must route non-type groups through verify-static.ts`);
   }
-  if (checkIndex < contractsIndex) return;
+  if (checkIndex <= groupedChecksIndex) return;
 
-  throw new Error(`${label} must run vp check before static contracts`);
+  throw new Error(`${label} must declare vp check before grouped static contracts`);
 };
 
 const verifySharedSetupAction = (): void => {
@@ -153,7 +153,7 @@ export const verifyVitePlusWorkflowContracts = (): number => {
     for (const { jobName, steps } of workflowSteps(filePath, readWorkflow(filePath))) {
       const jobLabel = `${label}:${jobName}`;
       vpCommandCount += verifyCommandSteps(jobLabel, steps, true);
-      if (staticCheckWorkflows.has(label) && jobName === "static-contracts") {
+      if (label === staticCheckWorkflow && jobName === "check") {
         verifyStaticCheckSteps(jobLabel, steps);
       }
     }

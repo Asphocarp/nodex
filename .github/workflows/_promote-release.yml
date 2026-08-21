@@ -36,13 +36,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ inputs.source_sha }}
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-vite-plus
+      - run: vp install --frozen-lockfile
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: nodex-release-bundle-${{ inputs.source_sha }}
@@ -62,7 +57,7 @@ jobs:
             ) throw new Error("Release Bundle does not match promotion inputs");
           ' "${bundle}"
           gh release verify --help >/dev/null
-          pnpm release:check:remote -- \
+          vp run release:check:remote -- \
             --repo "${GITHUB_REPOSITORY}" \
             --source-sha "${{ inputs.source_sha }}" \
             --version "${{ inputs.version }}"
@@ -77,7 +72,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pnpm release:tag -- \
+          vp run release:tag -- \
             --repo "${GITHUB_REPOSITORY}" \
             --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json"
 
@@ -85,11 +80,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pnpm release:publish:github -- \
+          vp run release:publish:github -- \
             --repo "${GITHUB_REPOSITORY}" \
             --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json" \
             --notes "${RUNNER_TEMP}/release-bundle/release-notes.md"
-          pnpm release:verify:remote -- \
+          vp run release:verify:remote -- \
             --repo "${GITHUB_REPOSITORY}" \
             --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json"
 
@@ -106,13 +101,8 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.source_sha }}
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-vite-plus
+      - run: vp install --frozen-lockfile
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: nodex-release-bundle-${{ inputs.source_sha }}
@@ -123,8 +113,8 @@ jobs:
           NODEX_AGENT_SKILLS_SOURCE_REF: ${{ inputs.tag }}
           NODEX_AGENT_SKILLS_SOURCE_REPOSITORY: ${{ github.repository }}
         run: |
-          pnpm run agent-skills:generate
-          pnpm run agent-skills:smoke
+          vp run agent-skills:generate
+          vp run agent-skills:smoke
 
       - name: Publish the verified NodexApp/skills release
         env:
@@ -143,7 +133,7 @@ jobs:
           bundle="${RUNNER_TEMP}/release-bundle/release-bundle.json"
           manifest_sha="$(node -p "require('${bundle}').agentSkills.manifestSha256")"
           tree_sha="$(node -p "require('${bundle}').agentSkills.treeSha256")"
-          pnpm run agent-skills:publish -- \
+          vp run agent-skills:publish -- \
             --artifact .generated/official-agent-skills \
             --manifest-sha256 "${manifest_sha}" \
             --tree-sha256 "${tree_sha}" \
@@ -161,13 +151,8 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ inputs.source_sha }}
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
+      - uses: ./.github/actions/setup-vite-plus
+      - run: vp install --frozen-lockfile
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: nodex-release-bundle-${{ inputs.source_sha }}
@@ -186,7 +171,7 @@ jobs:
             exit 1
           fi
           generated="${RUNNER_TEMP}/nodex.rb"
-          pnpm release:cask -- \
+          vp run release:cask -- \
             --bundle "${RUNNER_TEMP}/release-bundle/release-bundle.json" \
             --output "${generated}"
           gh auth setup-git

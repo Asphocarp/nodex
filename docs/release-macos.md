@@ -242,7 +242,7 @@ The key was created with the official tool under Keychain account `NodexApp`.
 These commands recover or inspect it without generating a second identity:
 
 ```bash
-pnpm run materialize:sparkle:mac
+vp run materialize:sparkle:mac
 .generated/sparkle-toolchain/2.9.4/bin/generate_keys --account NodexApp -p
 .generated/sparkle-toolchain/2.9.4/bin/generate_keys --account NodexApp \
   -x /absolute/path/outside-the-repository/nodex-sparkle-private-key
@@ -280,8 +280,8 @@ Use narrow checks while iterating. Before a release foundation or release
 metadata PR is merged, run:
 
 ```bash
-pnpm run verify:source
-pnpm run verify:runtime:mac
+vp run verify:source
+vp run verify:runtime:mac
 ```
 
 `verify:source` is the platform-independent source gate: types, lint, generated
@@ -308,7 +308,7 @@ that closure and resealing Nodex, then require Gatekeeper assessment,
 notarization, stapling, and the architecture-specific runtime probe from the
 extracted final ZIP. Do not replace the vendor teams with the outer Nodex team.
 
-`pnpm test:all` remains a compatibility alias for `verify:source`.
+`vp run test:all` remains a compatibility alias for `verify:source`.
 
 ## Rehearse a candidate
 
@@ -348,7 +348,7 @@ version explicitly:
 git switch main
 git pull --ff-only origin main
 git switch -c codex/release-v0.2.1
-pnpm release:prepare -- 0.2.1
+vp run release:prepare -- 0.2.1
 ```
 
 The command requires a clean worktree, advances all version sources, and rolls
@@ -359,11 +359,11 @@ Curate `CHANGELOG.md` for user impact; do not turn the commit log or internal
 refactors into release notes. Then verify the transition:
 
 ```bash
-pnpm release:check -- --base origin/main --worktree
+vp run release:check -- --base origin/main --worktree
 git diff -- package.json Cargo.toml Cargo.lock CHANGELOG.md
 git diff --name-only
-pnpm run verify:source
-pnpm run verify:runtime:mac
+vp run verify:source
+vp run verify:runtime:mac
 ```
 
 The final path list must contain only the four Release Identity files. Commit
@@ -475,7 +475,7 @@ contains Browser, native PiP, and architecture-optional Computer Use artifacts.
 It must never become the app Latest release. Publish it only through:
 
 ```bash
-pnpm browser-runtime:publish -- \
+vp run browser-runtime:publish -- \
   --repo junyudev/nodex \
   --tag browser-runtime-v<build> \
   --arm64 <arm64-archive> \
@@ -493,7 +493,7 @@ commit; the committed lock additionally binds the full commit and every
 reviewed patch. Publish its verified dual-architecture archives only through:
 
 ```bash
-pnpm agent-runtime:publish -- \
+vp run agent-runtime:publish -- \
   --repo junyudev/nodex \
   --tag agent-runtime-v<version>-<8-char-source-commit> \
   --source-commit <40-char-source-commit> \
@@ -518,7 +518,7 @@ gh api repos/junyudev/nodex/releases/latest --jq .tag_name
 gh release download v0.2.1 --repo junyudev/nodex \
   --pattern release-bundle.json --pattern SHA256SUMS \
   --dir .generated/v0.2.1-remote
-pnpm release:verify:remote -- \
+vp run release:verify:remote -- \
   --repo junyudev/nodex \
   --bundle .generated/v0.2.1-remote/release-bundle.json
 gh api repos/NodexApp/skills/git/ref/tags/v0.2.1 --jq .object.sha

@@ -24,18 +24,18 @@ It ships as an Electron desktop app plus a CLI/HTTP API backed by SQLite.
 
 ## Setup Commands
 
-- Install deps: `pnpm install`
-- Dev app: `pnpm exec vp run dev`
-- Dev Storybook: `pnpm exec vp run dev:storybook` (defaults to port 6006; override an occupied port with `STORYBOOK_PORT=6007 pnpm exec vp run dev:storybook`)
-- Build: `pnpm exec vp run build`
-- Package installers: `pnpm run package`
-- Unified check: `pnpm exec vp check`
-- Typecheck only: `pnpm run typecheck`
-- Lint only: `pnpm run lint`
-- Format check: `pnpm run fmt:check`
-- Standard tests: `pnpm exec vp run test`
-- Source gate: `pnpm exec vp run verify:source` (`pnpm test:all` is an alias)
-- macOS runtime gate: `pnpm run verify:runtime:mac`
+- Install deps: `vp install`
+- Dev app: `vp run dev`
+- Dev Storybook: `vp run dev:storybook` (defaults to port 6006; override an occupied port with `STORYBOOK_PORT=6007 vp run dev:storybook`)
+- Build: `vp run build`
+- Package installers: `vp run package`
+- Unified check: `vp check`
+- Typecheck only: `vp run typecheck`
+- Lint only: `vp run lint`
+- Format check: `vp run fmt:check`
+- Standard tests: `vp run test`
+- Source gate: `vp run verify:source` (`vp run test:all` is an alias)
+- macOS runtime gate: `vp run verify:runtime:mac`
 - Signed dual-architecture gate: GitHub `Distribution Rehearsal`
 
 ## Runtime and Tooling
@@ -134,17 +134,17 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 
 - Use a two-tier validation strategy: run targeted checks while iterating, then run risk-appropriate handoff checks once after the final edit set is stable.
 - Match targeted test commands to their runtime:
-  - Node/shared tests outside CoreClient: `pnpm exec vp test run --config vitest.node.config.ts <path-to-test>`
-  - CoreClient tests: `pnpm exec vp run test:core-client <path-to-test>`
-  - Renderer/jsdom tests: `pnpm exec vp test run --config vitest.renderer.config.ts <path-to-test>`
-  - Main/store tests: `pnpm exec vp run test:main <path-to-test>`
-  - Electron integration tests: `pnpm exec vp run test:integration <path-to-test>`
+  - Node/shared tests outside CoreClient: `vp test run --config vitest.node.config.ts <path-to-test>`
+  - CoreClient tests: `vp run test:core-client <path-to-test>`
+  - Renderer/jsdom tests: `vp test run --config vitest.renderer.config.ts <path-to-test>`
+  - Main/store tests: `vp run test:main <path-to-test>`
+  - Electron integration tests: `vp run test:integration <path-to-test>`
 - Never invoke `vitest.main.config.ts` or `vitest.integration.config.ts` directly with host Node. Those suites must use the repository scripts so Electron-built native addons load under Electron's ABI.
 - Match checks to the changed surface while iterating:
   - Pure helpers/domain logic: run the related unit test file.
-  - Renderer workflow changes: run the related renderer test(s) plus `pnpm run typecheck` when types or props changed.
+  - Renderer workflow changes: run the related renderer test(s) plus `vp run typecheck` when types or props changed.
   - Main process/store/protocol/migration changes: run the nearest relevant unit or integration test before any broader handoff checks.
-  - Styling or copy-only UI changes: run `pnpm run lint` and `pnpm run typecheck` when TypeScript/TSX files changed; rely on Storybook/docs/manual review for visual parity.
+  - Styling or copy-only UI changes: run `vp run lint` and `vp run typecheck` when TypeScript/TSX files changed; rely on Storybook/docs/manual review for visual parity.
 - For docs-only changes, skip code checks unless the docs change generated artifacts or executable examples. Validate the markdown diff directly and state that no code checks were needed.
 - Prefer tests that prove behavior or domain contracts over tests that mirror implementation details. Avoid trivial UI assertions such as long `className`/Tailwind string matching, broad `textContent.includes(...)`, or "X contains Y string" checks unless the string is a real user-visible or accessibility contract.
 - For UI parity work, put numeric/state rules in pure helpers with boundary tests, keep renderer integration tests to a small number of critical user workflows, and use Storybook/docs/manual review for visual details like shadows, radii, z-index tokens, and motion styling.
@@ -155,17 +155,17 @@ Treat `CHANGELOG.md` as a required deliverable only for **release-note-worthy** 
 - Choose the isolated-scenario consumer by the boundary under test:
   - Use `withCoreScenario` for current-schema Project/Page/Database correctness that does not need Electron.
   - Use `withElectronScenario` or `ElectronScenarioHarness` for production Electron/preload/Main/Core workflows, window lifecycle, restart, and native gestures.
-  - Use `pnpm exec vp run dev --home <dir> --seed <scenario-id>` for a persistent integrated UI environment with HMR. Reopen the same home with `pnpm exec vp run dev --home <dir>`; run the scenario's dedicated Electron E2E spec for deterministic UI verification.
+  - Use `vp run dev --home <dir> --seed <scenario-id>` for a persistent integrated UI environment with HMR. Reopen the same home with `vp run dev --home <dir>`; run the scenario's dedicated Electron E2E spec for deterministic UI verification.
   - Use Storybook for reusable primitives and transient or intentionally synthetic component states, not as the primary proof of integrated product scenes.
   - Keep historical/corrupt storage and pressure fixtures visibly separate from authoritative public-operation scenarios. Direct SQL is allowed only when storage shape or scale is the explicit subject, and pressure evidence must retain a smaller authoritative path test.
 - Every scenario-backed correctness test gets a fresh writable Profile. A generated current-schema snapshot may be copied as an immutable source only after measured seed cost justifies it; never share a live writable Store across tests.
 - Choose final checks from the actual risk and changed runtime rather than from a fixed command list:
   - Run the relevant targeted tests for every behavior change.
-  - For TypeScript source or contract changes, normally run `pnpm run typecheck` once the edit set is stable.
-  - Lint all changed source files. Use `pnpm run lint` when the change is broad or no reliable scoped lint command exists.
-  - Run `pnpm exec vp run build` when build configuration, application entrypoints, packaging, bundling, or a reported build/startup failure is involved.
-  - Run `pnpm test` for broad cross-cutting refactors, release validation, or changes whose impact cannot be bounded by targeted suites. It is not required for every isolated code change.
-  - Run `pnpm test:all` only for an explicit full release gate or when the changed release tooling itself requires it.
+  - For TypeScript source or contract changes, normally run `vp run typecheck` once the edit set is stable.
+  - Lint all changed source files. Use `vp run lint` when the change is broad or no reliable scoped lint command exists.
+  - Run `vp run build` when build configuration, application entrypoints, packaging, bundling, or a reported build/startup failure is involved.
+  - Run `vp run test` for broad cross-cutting refactors, release validation, or changes whose impact cannot be bounded by targeted suites. It is not required for every isolated code change.
+  - Run `vp run test:all` only for an explicit full release gate or when the changed release tooling itself requires it.
 - Treat a stronger real-world check as evidence, not as an automatic reason to stack every broader check on top of it. For example, a migration fix may be best covered by focused migration tests plus a disposable copy of a representative database.
 - Parallelize checks only when they are independent and resource contention is unlikely. Do not prefer parallel execution when it could make Electron or renderer suites flaky.
 - If a check fails, first determine whether the current change caused it. Fix caused failures and rerun the failed and related targeted checks. For an unrelated or plausibly flaky failure, isolate or rerun it and report the evidence; do not expand scope to fix it without a demonstrated connection to the task.

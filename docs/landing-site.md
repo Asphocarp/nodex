@@ -19,9 +19,9 @@ The source of truth stays in this repository. Published static output is pushed 
 Run these from the repo root:
 
 ```bash
-pnpm run dev:landing
-pnpm run build:landing
-pnpm run preview:landing
+vp run dev:landing
+vp run build:landing
+vp run preview:landing
 ```
 
 ## Package Layout

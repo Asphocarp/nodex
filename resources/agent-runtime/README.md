@@ -18,7 +18,7 @@ architectures pass staging and the app-server conformance probes.
 Normal installs carry no parallel official Codex npm package or protocol
 snapshot. When `codexCompatibilityVersion` changes, rebuild and relock the Open
 Interpreter artifacts, regenerate the committed protocol package from that
-runtime, and run `pnpm run verify:runtime:mac`.
+runtime, and run `vp run verify:runtime:mac`.
 
 ## Upgrade procedure
 
@@ -60,7 +60,7 @@ artifact tag at the reviewed Nodex commit, then publish through the guarded
 interface:
 
 ```bash
-pnpm agent-runtime:publish -- \
+vp run agent-runtime:publish -- \
   --repo <owner/repository> \
   --tag <agent-runtime-vX.Y.Z-8-char-source-commit> \
   --source-commit <40-char-source-commit> \
@@ -70,5 +70,5 @@ pnpm agent-runtime:publish -- \
 
 The publisher always uses `--verify-tag --latest=false`. After publication,
 delete the local download cache, restage from the locked HTTPS URLs, and rerun
-`pnpm run verify:runtime:mac` so the shipped path is tested rather than only the
+`vp run verify:runtime:mac` so the shipped path is tested rather than only the
 build directory.

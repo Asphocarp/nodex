@@ -19,7 +19,7 @@ runs:
         install_status=0
         timeout --signal=TERM --kill-after=30s 8m \
           bash -c '
-            pnpm exec playwright install --with-deps chromium
+            vp exec playwright install --with-deps chromium
             status=$?
             printf "%s\\n" "$status" > "$1"
             exit "$status"
@@ -43,4 +43,4 @@ runs:
 
         echo "::warning::Playwright dependency installation timed out; retrying browser-only installation"
         timeout --signal=TERM --kill-after=30s 8m \
-          pnpm exec playwright install chromium
+          vp exec playwright install chromium

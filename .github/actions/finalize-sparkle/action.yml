@@ -24,14 +24,9 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-      with:
-        node-version-file: .node-version
-        cache: pnpm
-        cache-dependency-path: pnpm-lock.yaml
+    - uses: ./.github/actions/setup-vite-plus
     - shell: bash
-      run: pnpm install --frozen-lockfile
+      run: vp install --frozen-lockfile
     - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
       with:
         name: nodex-macos-${{ inputs.architecture }}-${{ inputs.source_sha }}
@@ -47,7 +42,7 @@ runs:
       run: |
         set -euo pipefail
         build_version="$(node -p "require('${RUNNER_TEMP}/architecture/architecture-build.json').releaseIdentity.buildVersion")"
-        history_dirs="$(pnpm --silent release:fetch:sparkle-history -- \
+        history_dirs="$(vp run release:fetch:sparkle-history -- \
           --arch "${RELEASE_ARCH}" \
           --channel "${{ inputs.channel }}" \
           --build-version "${build_version}" \
@@ -69,7 +64,7 @@ runs:
         set -euo pipefail
         test -n "${SPARKLE_ED25519_PRIVATE_KEY}"
         if [[ "${{ inputs.channel }}" == "stable" ]]; then
-          pnpm release:notes -- --version "${RELEASE_VERSION}" --output "${RUNNER_TEMP}/release-notes.md"
+          vp run release:notes -- --version "${RELEASE_VERSION}" --output "${RUNNER_TEMP}/release-notes.md"
         else
           printf 'Nightly build from `%s`.\n' "${RELEASE_SOURCE_SHA}" > "${RUNNER_TEMP}/release-notes.md"
         fi
@@ -87,7 +82,7 @@ runs:
         if [[ -n "${HISTORY_DIRS}" ]]; then
           sparkle_args+=(--history-dirs "${HISTORY_DIRS}")
         fi
-        pnpm release:finalize:sparkle -- "${sparkle_args[@]}"
+        vp run release:finalize:sparkle -- "${sparkle_args[@]}"
 
     - name: Summarize signed update set
       env:

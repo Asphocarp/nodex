@@ -7,10 +7,10 @@ This module owns the build-time contract between extracted theme facts and Nodex
 Use a temporary, read-only stylesheet from any location. The module does not copy, cache, modify, or identify that input. Only a neutral `refVersion`, the profile identity, and output hashes are committed.
 
 ```sh
-pnpm run semantic-theme:audit -- --source /temporary/reference.css --ref-version <version>
-pnpm run semantic-theme:audit -- --source /temporary/reference.css --ref-version <version> --report /tmp/theme-audit.json
-pnpm run semantic-theme:sync -- --source /temporary/reference.css --ref-version <version>
-pnpm run semantic-theme:verify -- --source /temporary/reference.css
+vp run semantic-theme:audit -- --source /temporary/reference.css --ref-version <version>
+vp run semantic-theme:audit -- --source /temporary/reference.css --ref-version <version> --report /tmp/theme-audit.json
+vp run semantic-theme:sync -- --source /temporary/reference.css --ref-version <version>
+vp run semantic-theme:verify -- --source /temporary/reference.css
 ```
 
 Review `audit` before `sync`. Its optional JSON report separates added, removed, and changed declarations, utilities, selectors, and dependency records while listing the active collision decisions; it never records the input path. `sync` atomically updates the generated contract, foundation, utilities, surfaces, manifest, and provenance. Providing the same content at another path produces byte-identical artifacts.
@@ -18,10 +18,10 @@ Review `audit` before `sync`. Its optional JSON report separates added, removed,
 Normal development and CI use the source-free gate:
 
 ```sh
-pnpm run semantic-theme:verify
+vp run semantic-theme:verify
 ```
 
-This checks provenance, artifact hashes, required semantic utilities, and the scoped, transitive custom-property graph without the temporary stylesheet. A declaration only counts as a provider in the window, color-scheme, and at-rule scope where it is effective; fallback branches and explicitly declared runtime providers remain visible in the graph. The gate also rejects dependency cycles and cross-file root collisions without an ownership decision. After building the renderer, `pnpm run semantic-theme:verify-build` repeats the required-role checks against the CSS that survived Tailwind and bundling.
+This checks provenance, artifact hashes, required semantic utilities, and the scoped, transitive custom-property graph without the temporary stylesheet. A declaration only counts as a provider in the window, color-scheme, and at-rule scope where it is effective; fallback branches and explicitly declared runtime providers remain visible in the graph. The gate also rejects dependency cycles and cross-file root collisions without an ownership decision. After building the renderer, `vp run semantic-theme:verify-build` repeats the required-role checks against the CSS that survived Tailwind and bundling.
 
 ## Ownership
 

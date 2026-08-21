@@ -26,7 +26,7 @@ paths, or segment arrays.
 
 To regenerate it from the approved research mesh:
 
-    pnpm exec tsx scripts/generate-nodex-home-mark-runtime.ts \
+    vp exec tsx scripts/generate-nodex-home-mark-runtime.ts \
       --source <path-to-corrective-morph-aligned-mesh.json>
 
 The source mesh is a development artifact, not a runtime/build dependency. The

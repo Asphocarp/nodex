@@ -13,12 +13,13 @@ const requiredStressJobsByWorkflow: Readonly<Record<string, readonly string[]>> 
   ".github/workflows/ci-nightly.yml": ["stress"],
 };
 const stressWordPattern = /(?:^|[-_\s])stress(?:$|[-_\s])/iu;
-const directStressCommandPattern = /\bpnpm(?:\s+--silent)?\s+run\s+test:stress\b/u;
+const directStressCommandPattern = /\bvp\s+run\s+test:stress\b/u;
 const duplicatedSetupCommandPattern =
-  /\b(?:pnpm\s+install|build-resources:prepare|sccache\s+--show-stats)\b/u;
+  /\b(?:vp\s+install|build-resources:prepare|sccache\s+--show-stats)\b/u;
 const duplicatedSetupActions = [
   "pnpm/action-setup@",
   "actions/setup-node@",
+  "./.github/actions/setup-vite-plus",
   "./.github/actions/setup-rust-ci",
   "./.github/actions/setup-playwright",
 ] as const;
