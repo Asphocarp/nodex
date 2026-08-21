@@ -30,6 +30,8 @@ const row = (
   plainText: `${pageId} body`,
   status,
   tags: [],
+  documentGeneration: 1,
+  documentHeadSeq: 1,
   metadataRevision: 1,
   createdAt: new Date(timestamp),
 });

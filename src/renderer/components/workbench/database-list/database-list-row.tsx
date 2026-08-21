@@ -94,7 +94,10 @@ export function DatabaseListRow({
     [setListDndNodeRef, setPageDragSourceRef],
   );
   const dropEdge = dnd.target?.kind === "page" ? dnd.target.indicatorEdge : externalDropEdge;
-  const presentedTitle = usePresentedPageTitle(item.pageId, item.row.title, libraryId);
+  const presentedTitle = usePresentedPageTitle(item.pageId, item.row.title, libraryId, {
+    generation: item.row.documentGeneration,
+    headSeq: item.row.documentHeadSeq,
+  });
   const selectionMode = (event: MouseEvent): "replace" | "toggle" | "range" => {
     if (event.shiftKey) return "range";
     if (event.metaKey || event.ctrlKey) return "toggle";

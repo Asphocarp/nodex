@@ -181,6 +181,10 @@ export function PageEditorSessionSurface({
           <PageTitleProjectionPublisher
             identity={pageTitleIdentity}
             publisherId={surface.clientSessionId}
+            authorityVersion={{
+              generation: descriptor.generation,
+              headSeq: descriptor.headSeq,
+            }}
             title={surface.title}
           >
             {content}

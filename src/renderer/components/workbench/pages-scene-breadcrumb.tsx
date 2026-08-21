@@ -79,6 +79,7 @@ export function usePagesSceneNavigation(scene: WorkbenchSceneSnapshot | null): {
   readonly activeSurface: WorkbenchSurfaceDescriptor | null;
   readonly activeRoot: LibraryResourceTarget | null;
   readonly activeRootNode: LibraryNavigationNode | null;
+  readonly activeTargetNode: LibraryNavigationNode | null;
 } {
   const activeSurface = activePagesSceneSurface(scene);
   const target = libraryTargetForPagesSurface(activeSurface);
@@ -92,6 +93,7 @@ export function usePagesSceneNavigation(scene: WorkbenchSceneSnapshot | null): {
     activeSurface,
     activeRoot: target && path?.data ? resolveLibraryPathRoot(target, path.data.nodes) : null,
     activeRootNode: path?.data?.nodes[0] ?? null,
+    activeTargetNode: path?.data?.nodes.at(-1) ?? null,
   };
 }
 
@@ -105,10 +107,26 @@ export function PagesSceneBreadcrumb({ scene }: { readonly scene: WorkbenchScene
   const surfaceTitle = usePresentedPageTitle(
     surface?.kind === "page_stage" ? surface.config.pageId : null,
     surface?.titleSnapshot ?? "Untitled",
+    undefined,
+    surface?.kind === "page_stage" &&
+      navigation.activeTargetNode?.kind === "page" &&
+      navigation.activeTargetNode.pageId === surface.config.pageId
+      ? {
+          generation: navigation.activeTargetNode.documentGeneration,
+          headSeq: navigation.activeTargetNode.documentHeadSeq,
+        }
+      : undefined,
   );
   const rootTitle = usePresentedPageTitle(
     root?.kind === "page" ? root.pageId : null,
     navigation.activeRootNode?.title ?? surfaceTitle,
+    undefined,
+    navigation.activeRootNode?.kind === "page"
+      ? {
+          generation: navigation.activeRootNode.documentGeneration,
+          headSeq: navigation.activeRootNode.documentHeadSeq,
+        }
+      : undefined,
   );
   const childTitle =
     target && root && (target.kind === "view" || !areLibraryResourceTargetsEqual(target, root))

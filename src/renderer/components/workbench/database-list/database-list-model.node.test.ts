@@ -37,6 +37,8 @@ const row = (
   plainText: "",
   tags: [],
   taskParentValueRevision: 1,
+  documentGeneration: 1,
+  documentHeadSeq: 1,
   metadataRevision: 1,
   createdAt: new Date("2026-08-12T00:00:00.000Z"),
   ...input,

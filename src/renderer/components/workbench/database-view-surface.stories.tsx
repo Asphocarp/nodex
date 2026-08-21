@@ -224,6 +224,8 @@ const model: DatabaseViewRenderModel = {
           plainText: "",
           tags: ["page-first"],
           taskParentValueRevision: 1,
+          documentGeneration: 1,
+          documentHeadSeq: 1,
           metadataRevision: 1,
           createdAt: new Date(timestamp),
         },
