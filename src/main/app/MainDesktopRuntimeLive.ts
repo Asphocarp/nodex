@@ -91,6 +91,11 @@ import {
 } from "../codex-application/ManagedWorktreeRuntime";
 import { makeManagedWorktreeRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRuntimePromiseAdapter";
 import {
+  ManagedWorktreeRetentionRuntime,
+  live as managedWorktreeRetentionRuntimeLive,
+} from "../codex-application/ManagedWorktreeRetentionRuntime";
+import { makeManagedWorktreeRetentionRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRetentionRuntimePromiseAdapter";
+import {
   CodexAttachments,
   live as codexAttachmentsLive,
 } from "../codex-application/CodexAttachments";
@@ -991,6 +996,14 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const managedWorktrees = Context.get(managedWorktreeContext, ManagedWorktreeRuntime);
+        const managedWorktreeRetentionContext = yield* Layer.buildWithScope(
+          managedWorktreeRetentionRuntimeLive(),
+          runtimeScope,
+        );
+        const managedWorktreeRetention = Context.get(
+          managedWorktreeRetentionContext,
+          ManagedWorktreeRetentionRuntime,
+        );
         yield* Layer.buildWithScope(
           ExecutionHostIpc.live.pipe(
             Layer.provide(
@@ -1060,6 +1073,10 @@ export const live: Layer.Layer<
               executionHosts: executionHosts.registry,
               managedWorktrees: makeManagedWorktreeRuntimePromiseAdapter(
                 managedWorktrees,
+                callbacks,
+              ),
+              managedWorktreeRetention: makeManagedWorktreeRetentionRuntimePromiseAdapter(
+                managedWorktreeRetention,
                 callbacks,
               ),
               projectRuntimeLifecycle: projectRuntimeLifecycleAdapter,

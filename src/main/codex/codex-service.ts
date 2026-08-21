@@ -205,6 +205,7 @@ import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
 import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
 import type { ManagedWorktreeRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRuntimePromiseAdapter";
+import type { ManagedWorktreeRetentionRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRetentionRuntimePromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -724,7 +725,6 @@ import {
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const SIDEBAR_THREAD_SYNC_STALE_MS = 60_000;
 const SIDEBAR_NOTIFICATION_SYNC_DEBOUNCE_MS = 300;
-const MANAGED_WORKTREE_RETENTION_DEBOUNCE_MS = 300;
 const SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS = 2_000;
 const SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS = 60_000;
 const BACKGROUND_SUBAGENT_METADATA_REPAIR_RETRY_MS = 30_000;
@@ -1413,6 +1413,7 @@ type CodexServiceOptions = {
   loadWorktreeSetupBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   executionHosts: CodexExecutionHostRegistry;
   managedWorktrees: ManagedWorktreeRuntimePromiseAdapter;
+  managedWorktreeRetention: ManagedWorktreeRetentionRuntimePromiseAdapter;
   projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
   databaseNotifier: DatabaseNotifier;
   browserTransferRuntime?: CodexForkBrowserRuntime;
@@ -2617,6 +2618,7 @@ export class CodexService extends EventEmitter {
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
   private readonly executionHosts: CodexExecutionHostRegistry;
   private readonly managedWorktreeLifecycle: ManagedWorktreeRuntimePromiseAdapter;
+  private readonly managedWorktreeRetention: ManagedWorktreeRetentionRuntimePromiseAdapter;
   private readonly projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
   private readonly databaseNotifier: DatabaseNotifier;
   private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
@@ -2625,10 +2627,6 @@ export class CodexService extends EventEmitter {
     string,
     Promise<ManagedWorktreeAvailability>
   >();
-  private managedWorktreeRetentionTimer: ReturnType<typeof setTimeout> | null = null;
-  private managedWorktreeRetentionInFlight: Promise<CodexManagedWorktreeRetentionPlan> | null =
-    null;
-  private managedWorktreeRetentionQueued = false;
   private readonly browserTransferRuntime: CodexServiceOptions["browserTransferRuntime"];
   private readonly browserTransferStateReader: CodexServiceOptions["browserTransferStateReader"];
   private forkSidePanelTransferLifecycle: CodexServiceOptions["forkSidePanelTransferLifecycle"];
@@ -2858,6 +2856,7 @@ export class CodexService extends EventEmitter {
     this.projectlessHomeDirectory = options?.projectlessHomeDirectory ?? homedir;
     this.loadWorktreeSetupBaseEnvironment = options?.loadWorktreeSetupBaseEnvironment;
     this.managedWorktreeLifecycle = options.managedWorktrees;
+    this.managedWorktreeRetention = options.managedWorktreeRetention;
     this.projectRuntimeLifecycle = options.projectRuntimeLifecycle;
     this.databaseNotifier = options.databaseNotifier;
     this.crossHostThreadHandoff = new CodexCrossHostThreadHandoffService({
@@ -7107,11 +7106,6 @@ export class CodexService extends EventEmitter {
     this.outputDeltaQueue.dispose();
     this.userInputAutoResolutionController.dispose();
     this.pendingWorktreeRuntime.shutdown();
-    if (this.managedWorktreeRetentionTimer !== null) {
-      clearTimeout(this.managedWorktreeRetentionTimer);
-      this.managedWorktreeRetentionTimer = null;
-    }
-    this.managedWorktreeRetentionQueued = false;
     this.forkSidePanelTransferLifecycle?.clear();
     if (this.sidebarSnapshotCacheNotifierSubscribed) {
       this.databaseNotifier.off(
@@ -9433,51 +9427,13 @@ export class CodexService extends EventEmitter {
 
   /** Coalesces app-ready and lifecycle mutations into one retention pass. */
   requestManagedWorktreeRetentionSweep(): void {
-    this.managedWorktreeRetentionQueued = true;
-    if (this.managedWorktreeRetentionTimer !== null) return;
-    this.managedWorktreeRetentionTimer = setTimeout(() => {
-      this.managedWorktreeRetentionTimer = null;
-      void this.runManagedWorktreeRetentionSweep().catch((error) => {
-        this.logger.warn("Managed worktree retention sweep failed", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-    }, MANAGED_WORKTREE_RETENTION_DEBOUNCE_MS);
-    this.managedWorktreeRetentionTimer.unref?.();
+    this.managedWorktreeRetention.request(() => this.runManagedWorktreeRetentionSweepOnce());
   }
 
   async runManagedWorktreeRetentionSweep(): Promise<CodexManagedWorktreeRetentionPlan> {
-    if (this.managedWorktreeRetentionTimer !== null) {
-      clearTimeout(this.managedWorktreeRetentionTimer);
-      this.managedWorktreeRetentionTimer = null;
-    }
-    this.managedWorktreeRetentionQueued = true;
-    const running = this.managedWorktreeRetentionInFlight;
-    if (running) return await running;
-
-    const operation = (async (): Promise<CodexManagedWorktreeRetentionPlan> => {
-      let latest = planManagedWorktreeRetention({
-        enabled: false,
-        keepCount: 1,
-        metadataComplete: true,
-        records: [],
-        threadMetadata: [],
-        pathProtections: [],
-        protectPreMigrationOwnerlessWorktrees: true,
-        nowMs: Date.now(),
-      });
-      while (this.managedWorktreeRetentionQueued) {
-        this.managedWorktreeRetentionQueued = false;
-        latest = await this.runManagedWorktreeRetentionSweepOnce();
-      }
-      return latest;
-    })().finally(() => {
-      if (this.managedWorktreeRetentionInFlight === operation) {
-        this.managedWorktreeRetentionInFlight = null;
-      }
-    });
-    this.managedWorktreeRetentionInFlight = operation;
-    return await operation;
+    return await this.managedWorktreeRetention.run(() =>
+      this.runManagedWorktreeRetentionSweepOnce(),
+    );
   }
 
   private async runManagedWorktreeRetentionSweepOnce(): Promise<CodexManagedWorktreeRetentionPlan> {

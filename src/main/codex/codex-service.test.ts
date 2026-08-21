@@ -1688,6 +1688,11 @@ function createService(options?: {
     nodexAgentDynamicService: null,
     executionHosts,
     managedWorktrees: managedWorktreeHarness.adapter,
+    managedWorktreeRetention: {
+      // Scheduling semantics have a dedicated Effect TestClock suite; Codex tests exercise policy.
+      request: () => undefined,
+      run: (sweep) => sweep(),
+    },
     projectRuntimeLifecycle: projectRuntimeLifecycleHarness.adapter,
     databaseNotifier: options?.databaseNotifier ?? new DatabaseNotifier(),
     inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,

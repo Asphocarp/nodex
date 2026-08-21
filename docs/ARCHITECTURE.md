@@ -356,14 +356,16 @@ After creation, `ManagedWorktreeRuntime` owns physical lifecycle routing,
 normalized single-flight removal, newborn protection, inspection, restoration,
 and ownership metadata. Its Scope owns in-flight worker operations, so Main
 shutdown interrupts them through the same worker cancellation channel. The
-owning execution-host worker alone mutates Git, files, and scripts. The
-application coordinator combines this physical lifecycle Interface with
-retention, Environment cleanup, and execution-location movement. Core Workspace
-atomically persists the durable host/cwd/worktree execution location but never
-inspects a repository or stores snapshot refs. Its lifecycle read publishes all
-managed-worktree consumers and Project protection roots at one projection
-revision. Settings, archive, automation, and handoff call the same lifecycle
-Interface rather than invoking physical removal independently. See
+owning execution-host worker alone mutates Git, files, and scripts.
+`ManagedWorktreeRetentionRuntime` owns retention admission, the fixed coalescing
+window, single-flight execution, and Scope cancellation; policy evaluation still
+combines the physical lifecycle Interface with durable Core metadata and active
+application protections. Core Workspace atomically persists the durable
+host/cwd/worktree execution location but never inspects a repository or stores
+snapshot refs. Its lifecycle read publishes all managed-worktree consumers and
+Project protection roots at one projection revision. Settings, archive,
+automation, and handoff call the same lifecycle Interface rather than invoking
+physical removal independently. See
 [Codex managed worktree lifecycle behavior](docs/product-specs/codex-managed-worktree-lifecycle-behavior.md).
 
 Core's execution location also wins during app-server hydration. Every managed
@@ -447,11 +449,11 @@ This map names stable regions and responsibilities rather than enumerating indiv
 | [`src/shared`](src/shared)                                                                | Transport-neutral contracts, schemas, pure domain and projection helpers                                                                               |
 | [`src/main/core-client`](src/main/core-client)                                            | Core selection, supervision, authenticated clients, Desktop Module Adapters                                                                            |
 | [`src/main/app`](src/main/app)                                                            | Main kernel, immutable configuration, composition root, shutdown and callback Scope                                                                    |
-| [`src/main/codex-application`](src/main/codex-application)                               | Codex application Modules, per-thread runtimes, permissions, tools and dynamic execution-host resources                                                |
-| [`src/main/codex-runtime`](src/main/codex-runtime)                                       | Codex app-server endpoint, gateway, generation fencing and typed protocol runtime                                                                       |
+| [`src/main/codex-application`](src/main/codex-application)                                | Codex application Modules, per-thread runtimes, permissions, tools and dynamic execution-host resources                                                |
+| [`src/main/codex-runtime`](src/main/codex-runtime)                                        | Codex app-server endpoint, gateway, generation fencing and typed protocol runtime                                                                      |
 | [`src/main/codex`](src/main/codex)                                                        | Remaining Codex host adapters and conversation projections while the application-Module cut-over completes                                             |
-| [`src/main/host-runtime`](src/main/host-runtime)                                         | Scoped operating-system and Electron feature runtimes                                                                                                  |
-| [`src/main/platform`](src/main/platform)                                                 | Dedicated Electron/Node adapters, including narrow unstable Effect/platform seams                                                                      |
+| [`src/main/host-runtime`](src/main/host-runtime)                                          | Scoped operating-system and Electron feature runtimes                                                                                                  |
+| [`src/main/platform`](src/main/platform)                                                  | Dedicated Electron/Node adapters, including narrow unstable Effect/platform seams                                                                      |
 | [`src/main/browser`](src/main/browser) and [`src/main/browser-use`](src/main/browser-use) | Main-owned Browser runtime and automation integration                                                                                                  |
 | [`src/main/mcp-app`](src/main/mcp-app)                                                    | Sandboxed MCP App guest attachment and MessagePort host                                                                                                |
 | [`src/main/git-worker`](src/main/git-worker)                                              | Generation-bound repository read worker                                                                                                                |
