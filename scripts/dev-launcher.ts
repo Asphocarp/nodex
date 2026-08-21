@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,12 +16,14 @@ import {
 } from "../src/shared/native-runtime-environment";
 import {
   cleanupDevelopmentEnvironmentHome,
+  ensureDevelopmentProfileDirectories,
   markDevelopmentEnvironmentInitialized,
   openDevelopmentEnvironmentHome,
   refreshDevelopmentEnvironmentHome,
   updateDevelopmentAgentFiles,
   type DevelopmentEnvironmentHome,
   type DevelopmentHomeManifest,
+  type DevelopmentProfileSnapshotProvenance,
   type DevelopmentSeedProvenance,
 } from "./development-environment-home";
 import { superviseIsolatedRun, type SupervisedCommandPlan } from "./isolated-run-supervisor";
@@ -29,6 +33,8 @@ import { materializeDevelopmentSeed } from "./scenarios/harness/development-seed
 export interface DevLauncherArguments {
   readonly home?: string;
   readonly seed?: string;
+  readonly fromProfile?: string;
+  readonly backup: string;
   readonly build: boolean;
   readonly authJson?: string;
   readonly agentConfigToml?: string;
@@ -50,6 +56,8 @@ const USAGE = `Usage: pnpm run dev [options]
 Options:
   --home <dir>               Environment root (default: runs.local/default)
   --seed <seed-id>           Initialize a new environment from the seed catalog
+  --from-profile <dir>       Clone a published backup from a real Profile
+  --backup <id|latest>       Backup to clone (default: latest assets-inclusive backup)
   --build                    Build optimized Rust binaries and run without HMR
   --auth-json <file>         Copy an auth.json into the environment
   --agent-config-toml <file> Copy a sanitized agent config.toml
@@ -69,6 +77,9 @@ const readOptionValue = (args: readonly string[], index: number, option: string)
 export const parseDevLauncherArguments = (args: readonly string[]): DevLauncherArguments => {
   let home: string | undefined;
   let seed: string | undefined;
+  let fromProfile: string | undefined;
+  let backup = "latest";
+  let backupWasSet = false;
   let authJson: string | undefined;
   let agentConfigToml: string | undefined;
   let build = false;
@@ -107,6 +118,19 @@ export const parseDevLauncherArguments = (args: readonly string[]): DevLauncherA
       index += 1;
       continue;
     }
+    if (argument === "--from-profile") {
+      const value = readOptionValue(args, index, argument);
+      fromProfile = setOnce(argument, fromProfile, value);
+      index += 1;
+      continue;
+    }
+    if (argument === "--backup") {
+      if (backupWasSet) throw new Error("--backup may be specified only once");
+      backup = readOptionValue(args, index, argument);
+      backupWasSet = true;
+      index += 1;
+      continue;
+    }
     if (argument === "--auth-json") {
       const value = readOptionValue(args, index, argument);
       authJson = setOnce(argument, authJson, value);
@@ -126,9 +150,17 @@ export const parseDevLauncherArguments = (args: readonly string[]): DevLauncherA
     }
     throw new Error(`Unknown dev option: ${argument ?? "<missing>"}\n${USAGE}`);
   }
+  if (seed && fromProfile) {
+    throw new Error("--seed and --from-profile are mutually exclusive");
+  }
+  if (backupWasSet && !fromProfile) {
+    throw new Error("--backup requires --from-profile");
+  }
   return {
     ...(home === undefined ? {} : { home }),
     ...(seed === undefined ? {} : { seed }),
+    ...(fromProfile === undefined ? {} : { fromProfile }),
+    backup,
     build,
     ...(authJson === undefined ? {} : { authJson }),
     ...(agentConfigToml === undefined ? {} : { agentConfigToml }),
@@ -162,6 +194,8 @@ export const createDevLaunchPlan = (input: {
 }): DevLaunchPlan => {
   const enabledFeatures = resolveDevelopmentFeatureOverrides(input.arguments.enabledFeatures);
   const remoteDebuggingPort = parseRemoteDebuggingPort(input.environment);
+  const usesProfileSnapshot =
+    input.arguments.fromProfile !== undefined || input.home.manifest.profileSnapshot !== undefined;
   const environment: NodeJS.ProcessEnv = {
     ...input.environment,
     ...developmentFeatureEnvironment(enabledFeatures),
@@ -181,7 +215,16 @@ export const createDevLaunchPlan = (input: {
     CODEX_HOME: input.home.codexHome,
     NODEX_INITIAL_PROJECTS_DIR: input.home.workspace,
     NODEX_REMOTE_DEBUGGING_PORT: remoteDebuggingPort,
-    NODEX_SENTRY_ENABLED: "true",
+    NODEX_SENTRY_ENABLED: usesProfileSnapshot ? "false" : "true",
+    ...(usesProfileSnapshot
+      ? {
+          NODEX_SENTRY_REPLAY_ENABLED: "false",
+          NODEX_SENTRY_REPLAYS_SESSION_SAMPLE_RATE: "0",
+          NODEX_SENTRY_REPLAYS_ON_ERROR_SAMPLE_RATE: "0",
+          NODEX_TELEMETRY_ENABLED: "false",
+          NODEX_TELEMETRY_AUTOCAPTURE_ENABLED: "false",
+        }
+      : {}),
     SENTRY_ENVIRONMENT: "development",
     SENTRY_RELEASE: "nodex-dev",
   };
@@ -283,6 +326,137 @@ export const resolveDevelopmentSeedInitialization = (input: {
   return { kind: "apply", seed: input.requestedSeed };
 };
 
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const readProfileSnapshotReceipt = async (
+  nodexHome: string,
+  sourceProfileHome: string,
+): Promise<DevelopmentProfileSnapshotProvenance> => {
+  const value: unknown = JSON.parse(
+    await readFile(path.join(nodexHome, "profile-snapshot.json"), "utf8"),
+  );
+  if (
+    !isRecord(value) ||
+    value.version !== 4 ||
+    typeof value.sourceProfileFingerprint !== "string" ||
+    !/^[0-9a-f]{64}$/u.test(value.sourceProfileFingerprint) ||
+    value.backupIntegrityEvidenceVersion !== 1 ||
+    typeof value.missingManagedAssetCount !== "number" ||
+    !Number.isInteger(value.missingManagedAssetCount) ||
+    value.missingManagedAssetCount < 0 ||
+    typeof value.backupId !== "string" ||
+    typeof value.backupCreatedAt !== "string" ||
+    typeof value.clonedAt !== "string" ||
+    typeof value.storeSchemaVersion !== "number" ||
+    !Number.isInteger(value.storeSchemaVersion) ||
+    typeof value.sourceStoreEpoch !== "string" ||
+    value.sourceStoreEpoch.length === 0 ||
+    typeof value.storeEpoch !== "string" ||
+    value.storeEpoch !== value.sourceStoreEpoch ||
+    typeof value.profileId !== "string" ||
+    typeof value.libraryId !== "string"
+  ) {
+    throw new Error("Profile clone receipt is invalid or unsupported");
+  }
+  return {
+    sourceProfileHome,
+    sourceProfileFingerprint: value.sourceProfileFingerprint,
+    backupIntegrityEvidenceVersion: value.backupIntegrityEvidenceVersion,
+    missingManagedAssetCount: value.missingManagedAssetCount,
+    backupId: value.backupId,
+    backupCreatedAt: value.backupCreatedAt,
+    clonedAt: value.clonedAt,
+    storeSchemaVersion: value.storeSchemaVersion,
+    sourceStoreEpoch: value.sourceStoreEpoch,
+    storeEpoch: value.storeEpoch,
+    profileId: value.profileId,
+    libraryId: value.libraryId,
+  };
+};
+
+const prepareProfileSnapshot = async (input: {
+  readonly arguments: DevLauncherArguments;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly home: DevelopmentEnvironmentHome;
+}): Promise<void> => {
+  if (!input.arguments.fromProfile) return;
+  const sourceProfileHome = await realpath(path.resolve(input.arguments.fromProfile));
+  const sourceProfileFingerprint = createHash("sha256").update(sourceProfileHome).digest("hex");
+  const current = await refreshDevelopmentEnvironmentHome(input.home);
+  const existing = current.manifest.profileSnapshot;
+  if (existing) {
+    const sameBackup =
+      input.arguments.backup === "latest" || existing.backupId === input.arguments.backup;
+    if (existing.sourceProfileHome !== sourceProfileHome || !sameBackup) {
+      throw new Error(
+        `Development home already contains backup ${existing.backupId} from ${existing.sourceProfileHome}`,
+      );
+    }
+    await ensureDevelopmentProfileDirectories(current);
+    process.stdout.write(`Reusing Profile snapshot ${existing.backupId} in ${current.root}\n`);
+    return;
+  }
+  if (current.manifest.initializedAt) {
+    throw new Error("Development home was already initialized without a Profile snapshot");
+  }
+
+  try {
+    const published = await readProfileSnapshotReceipt(current.nodexHome, sourceProfileHome);
+    const sameBackup =
+      input.arguments.backup === "latest" || published.backupId === input.arguments.backup;
+    if (published.sourceProfileFingerprint !== sourceProfileFingerprint || !sameBackup) {
+      throw new Error("Existing Profile snapshot does not match the requested source backup");
+    }
+    await ensureDevelopmentProfileDirectories(current);
+    await markDevelopmentEnvironmentInitialized(current, {
+      kind: "profileSnapshot",
+      profileSnapshot: published,
+    });
+    process.stdout.write(`Adopted Profile snapshot ${published.backupId} in ${current.root}\n`);
+    return;
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
+
+  const executable = path.join(
+    current.repositoryRealpath,
+    input.arguments.build ? "target/release/nodex" : "target/debug/nodex",
+  );
+  await runCommand(
+    {
+      command: executable,
+      args: [
+        "--json",
+        "profile",
+        "clone",
+        "--from",
+        sourceProfileHome,
+        "--to",
+        current.nodexHome,
+        "--backup",
+        input.arguments.backup,
+      ],
+    },
+    current.repositoryRealpath,
+    input.environment,
+  );
+  const profileSnapshot = await readProfileSnapshotReceipt(current.nodexHome, sourceProfileHome);
+  await ensureDevelopmentProfileDirectories(current);
+  await markDevelopmentEnvironmentInitialized(current, {
+    kind: "profileSnapshot",
+    profileSnapshot,
+  });
+  if (profileSnapshot.missingManagedAssetCount > 0) {
+    process.stderr.write(
+      `Profile snapshot preserved ${profileSnapshot.missingManagedAssetCount} missing managed asset reference(s) from the source backup.\n`,
+    );
+  }
+  process.stdout.write(
+    `Initialized ${current.root} from Profile backup ${profileSnapshot.backupId}\n`,
+  );
+};
+
 const prepareEnvironment = async (input: {
   readonly arguments: DevLauncherArguments;
   readonly environment: NodeJS.ProcessEnv;
@@ -290,6 +464,16 @@ const prepareEnvironment = async (input: {
   readonly seedRevision?: number;
 }): Promise<void> => {
   const current = await refreshDevelopmentEnvironmentHome(input.home);
+  if (input.arguments.fromProfile) {
+    if (!current.manifest.profileSnapshot) {
+      throw new Error("Development Profile snapshot was not materialized");
+    }
+    await updateDevelopmentAgentFiles(current, {
+      authJson: input.arguments.authJson,
+      agentConfigToml: input.arguments.agentConfigToml,
+    });
+    return;
+  }
   const requestedSeed = input.arguments.seed
     ? { id: input.arguments.seed, revision: input.seedRevision ?? -1 }
     : undefined;
@@ -324,7 +508,10 @@ const prepareEnvironment = async (input: {
       `Seed revision changed during initialization: expected ${seedInitialization.seed.revision}, received ${manifest.scenarioRevision}`,
     );
   }
-  await markDevelopmentEnvironmentInitialized(current, seedInitialization.seed);
+  await markDevelopmentEnvironmentInitialized(current, {
+    kind: "seed",
+    seed: seedInitialization.seed,
+  });
   process.stdout.write(
     `Initialized ${current.root} with seed ${seedInitialization.seed.id}@${seedInitialization.seed.revision}\n`,
   );
@@ -345,6 +532,7 @@ export const runDevLauncher = async (input: {
   const home = await openDevelopmentEnvironmentHome({
     repositoryRoot: input.repositoryRoot,
     home: arguments_.home,
+    initializeProfileHome: arguments_.fromProfile === undefined,
   });
   let plan: DevLaunchPlan;
   try {
@@ -363,6 +551,11 @@ export const runDevLauncher = async (input: {
     for (const command of plan.preparation) {
       await runCommand(command, home.repositoryRealpath, plan.environment);
     }
+    await prepareProfileSnapshot({
+      arguments: arguments_,
+      environment: plan.environment,
+      home,
+    });
   } catch (error) {
     preparationError = error;
   }

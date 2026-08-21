@@ -41,6 +41,10 @@ const MAX_DESCRIPTOR_BYTES: u64 = 64 * 1024;
 const MAX_AUTH_BYTES: u64 = 128;
 const MAX_HTTP_RESPONSE_HEADER_BYTES: usize = 64 * 1024;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+// Store Administration includes whole-Profile backup and restore operations.
+// Their bounded maintenance window is intentionally longer than ordinary API work.
+const ADMINISTRATION_REQUEST_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const ADMINISTRATION_APPLY_PATH: &str = "/core/v1/modules/administration/apply";
 // Cold selection includes one-time Store backup and migration before Core can
 // publish its runtime descriptor, which can exceed ten seconds on Intel Macs.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
@@ -690,9 +694,10 @@ fn request_bytes<Response: DeserializeOwned>(
     } else {
         MAX_ORDINARY_JSON_RESPONSE_BYTES
     };
+    let request_timeout = request_timeout(path);
     let mut stream = UnixStream::connect(socket)?;
-    stream.set_read_timeout(Some(REQUEST_TIMEOUT))?;
-    stream.set_write_timeout(Some(REQUEST_TIMEOUT))?;
+    stream.set_read_timeout(Some(request_timeout))?;
+    stream.set_write_timeout(Some(request_timeout))?;
     write!(
         stream,
         "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {auth}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n",
@@ -745,6 +750,13 @@ fn request_bytes<Response: DeserializeOwned>(
         return Err(ClientError::Http { status, message });
     }
     serde_json::from_slice(&body).map_err(ClientError::from)
+}
+
+fn request_timeout(path: &str) -> Duration {
+    if path == ADMINISTRATION_APPLY_PATH {
+        return ADMINISTRATION_REQUEST_TIMEOUT;
+    }
+    REQUEST_TIMEOUT
 }
 
 fn read_http_response_head(reader: &mut impl Read) -> Result<Vec<u8>, ClientError> {
@@ -841,6 +853,22 @@ mod tests {
         assert_eq!(
             response_content_length("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked"),
             None
+        );
+    }
+
+    #[test]
+    fn whole_store_administration_uses_a_maintenance_request_window() {
+        assert_eq!(
+            request_timeout(ADMINISTRATION_APPLY_PATH),
+            ADMINISTRATION_REQUEST_TIMEOUT
+        );
+        assert_eq!(
+            request_timeout("/core/v1/modules/administration/read"),
+            REQUEST_TIMEOUT
+        );
+        assert_eq!(
+            request_timeout("/core/v1/modules/library/apply"),
+            REQUEST_TIMEOUT
         );
     }
 }

@@ -141,6 +141,14 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   A disconnected SSH mutation is reported as unknown/reconcilable rather than
   assumed absent or repeated. Local filesystem APIs never inspect a remote path.
 - No arbitrary SQL inspection route in IPC or the public CLI.
+- Offline Profile cloning accepts only a current evidence-backed published Core
+  backup and a nonexistent target home. It rejects symlinks and source/target
+  ancestry, verifies copied database and asset-tree digests in a private sibling
+  staging directory, preserves the imported Store lineage, and remints
+  Profile-instance secrets before the target becomes visible. It never copies
+  Agent credentials. Development launches sourced from a real Profile disable
+  remote observability by default so snapshot content remains local unless a
+  developer explicitly uses another tool to export it.
 - The production app renderer loads only through the privileged read-only
   `app://-/index.html` origin and receives
   a response-level CSP, referrer policy, and `nosniff`; development admits only

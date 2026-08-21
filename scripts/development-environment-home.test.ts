@@ -6,6 +6,7 @@ import {
   cleanupDevelopmentEnvironmentHome,
   markDevelopmentEnvironmentInitialized,
   openDevelopmentEnvironmentHome,
+  parseDevelopmentHomeManifest,
   refreshDevelopmentEnvironmentHome,
   resolveDevelopmentHomeRoot,
   updateDevelopmentAgentFiles,
@@ -56,14 +57,66 @@ describe("development environment home", () => {
     const repositoryRoot = await createRepository();
     const home = await openDevelopmentEnvironmentHome({ repositoryRoot });
     await markDevelopmentEnvironmentInitialized(home, {
-      id: "board/dense",
-      revision: 2,
+      kind: "seed",
+      seed: {
+        id: "board/dense",
+        revision: 2,
+      },
     });
     const refreshed = await refreshDevelopmentEnvironmentHome(home);
     expect(refreshed.manifest).toMatchObject({
       initializedAt: expect.any(String),
       seed: { id: "board/dense", revision: 2 },
     });
+  });
+
+  test("records immutable real Profile snapshot provenance", async () => {
+    const repositoryRoot = await createRepository();
+    const home = await openDevelopmentEnvironmentHome({ repositoryRoot });
+    const profileSnapshot = {
+      sourceProfileHome: "/tmp/source-profile",
+      sourceProfileFingerprint: "a".repeat(64),
+      backupIntegrityEvidenceVersion: 1,
+      missingManagedAssetCount: 2,
+      backupId: "core-backup",
+      backupCreatedAt: "2026-08-21T00:00:00.000Z",
+      clonedAt: "2026-08-21T00:01:00.000Z",
+      storeSchemaVersion: 131,
+      sourceStoreEpoch: "epoch:source",
+      storeEpoch: "epoch:source",
+      profileId: "profile:real",
+      libraryId: "library:real",
+    } as const;
+    await markDevelopmentEnvironmentInitialized(home, {
+      kind: "profileSnapshot",
+      profileSnapshot,
+    });
+    await expect(refreshDevelopmentEnvironmentHome(home)).resolves.toMatchObject({
+      manifest: { profileSnapshot },
+    });
+    await expect(
+      markDevelopmentEnvironmentInitialized(home, {
+        kind: "seed",
+        seed: { id: "board/dense", revision: 2 },
+      }),
+    ).rejects.toThrow("data source is immutable");
+    expect(() =>
+      parseDevelopmentHomeManifest({
+        ...home.manifest,
+        profileSnapshot: { ...profileSnapshot, storeEpoch: "epoch:other" },
+      }),
+    ).toThrow("Profile snapshot provenance is invalid");
+  });
+
+  test("can defer Profile creation for atomic snapshot materialization", async () => {
+    const repositoryRoot = await createRepository();
+    const home = await openDevelopmentEnvironmentHome({
+      repositoryRoot,
+      initializeProfileHome: false,
+    });
+    await expect(stat(home.workspace)).resolves.toBeDefined();
+    await expect(stat(home.artifacts)).resolves.toBeDefined();
+    await expect(stat(home.nodexHome)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test("copies explicit agent files privately and sanitizes config", async () => {

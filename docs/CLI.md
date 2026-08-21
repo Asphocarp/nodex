@@ -12,6 +12,28 @@ authoritative when this overview and the binary disagree.
 The CLI never exposes a database path, raw SQL, Core bearer capability, physical
 rank, Yjs storage coordinate, or Desktop renderer state.
 
+## Local Profile clones
+
+`nodex profile clone --from <profile-home> --to <new-profile-home>` is the
+offline provisioning command for production-shape local testing. It selects the
+latest current evidence-backed, assets-inclusive published backup by default;
+`--backup <id>` selects an exact current backup. Create a fresh backup when only
+an older manifest exists. The target and its parent must be local real paths,
+and the target must not already exist.
+
+This command does not connect to or launch the source Profile's Core. The Core
+Administration materializer verifies the published database SHA-256 and
+deterministic asset-tree digest after copying through a private staging
+directory. On macOS, regular-file copies prefer APFS copy-on-write and fall back
+to ordinary copy when unavailable. The materializer preserves semantic
+identities and the imported Store epoch, remints instance secrets, performs the
+clone-specific semantic checks, then atomically publishes the target with a
+`profile-snapshot.json` receipt. It copies neither Agent credentials nor
+arbitrary files from the source Profile. The receipt records the evidence-backed
+local-fork provenance and reports managed asset references that were already
+missing from the source backup; formal restore continues to require a complete
+asset closure and rotates the installed Store epoch.
+
 ## Installation and capabilities
 
 The macOS app bundle distributes the CLI and Core as one update closure. The app

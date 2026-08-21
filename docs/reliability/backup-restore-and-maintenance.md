@@ -9,8 +9,13 @@ the snapshot through SQLite's online backup mechanism while the asset closure is
 stable.
 
 The staged database, asset files, manifest, and their directories are fsynced
-before the backup is published. Backup identity and result are receipt-backed;
-retention starts only while the same Core authority remains active.
+before the backup is published. After the complete SQLite integrity,
+foreign-key, schema, and invariant validation succeeds, the current manifest
+records that evidence version together with the database SHA-256 and a
+deterministic digest over every asset path, length, and byte. Backup identity
+and result are receipt-backed; retention starts only while the same Core
+authority remains active. Restore still performs its own strict
+installed-candidate validation.
 
 Manual and scheduled backups use the same operation. Automatic interval and
 retention are Profile settings described in [Configuration](../CONFIGURATION.md).
@@ -48,6 +53,33 @@ Pre-restore renderer checkpoints, outboxes, Awareness, stream cursors, and
 Document sessions fail closed on the new epoch. Surfaces remount from current
 descriptors and canonical content; no old local edit can replay into the
 restored Store.
+
+## Development Profile clones
+
+Offline development provisioning may materialize a current evidence-backed
+published backup into a new Profile home. The source Profile remains unopened:
+Core reads only the backup package, copies `nodex.db` and its managed-asset
+closure into a private sibling staging directory, and rejects symlinks,
+existing targets, or source/target ancestry overlap. Regular-file copying uses
+the platform's clone-or-copy primitive, which prefers APFS CoW on same-volume
+macOS and falls back safely elsewhere. The copy preserves Profile, Library,
+content, history, Project identities, and the imported Store epoch for
+production-shape fidelity while reminting the Agent token key and automation
+jitter salt. It is an isolated local fork: post-clone history may diverge under
+the imported coordinates and is never merged, synchronized, or replayed into
+its source.
+
+Core verifies the copied database and asset-tree digests before reminting, then
+validates schema/epoch identity, document authorities, every present managed
+asset, and missing-asset evidence without repeating the publication-time SQLite
+integrity scan. It writes and syncs the private `profile-snapshot.json` receipt,
+then atomically renames the staging directory into place. Because the staging
+tree is disposable and exactly reproducible, development cloning omits
+per-file fsync for the copied database/assets while retaining receipt and
+directory publication syncs. A power-loss-damaged fork must be deleted and
+recreated from its unchanged backup. Failed provisioning removes only the owned
+staging directory and never modifies the source backup. This is a local
+development input path, not a restore into a running Profile.
 
 ## Maintenance
 
