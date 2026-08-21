@@ -15,7 +15,7 @@ function createWorkerClient(
   return {
     request: async (input) => {
       input.signal?.addEventListener("abort", onAbort, { once: true });
-      return await request(input.params as ReviewDiffRequest) as never;
+      return (await request(input.params as ReviewDiffRequest)) as never;
     },
     subscribe: () => () => undefined,
   };
@@ -108,9 +108,7 @@ describe("review diff batcher", () => {
 
     const diffCalls = workerRequest.mock.calls;
     expect(diffCalls).toHaveLength(2);
-    expect(
-      diffCalls.map(([input]) => input.files),
-    ).toEqual([
+    expect(diffCalls.map(([input]) => input.files)).toEqual([
       [
         {
           path: "tracked-a.ts",
@@ -230,9 +228,7 @@ describe("review diff batcher", () => {
       }),
     ).rejects.toBeInstanceOf(StaleReviewSnapshot);
 
-    expect(
-      workerRequest.mock.calls,
-    ).toHaveLength(1);
+    expect(workerRequest.mock.calls).toHaveLength(1);
   });
 
   test("cancels the main request when a group reaches the fifteen second timeout", async () => {
@@ -264,8 +260,6 @@ describe("review diff batcher", () => {
 
     await rejection;
     expect(workerAborts).toBe(1);
-    expect(
-      workerRequest.mock.calls,
-    ).toHaveLength(1);
+    expect(workerRequest.mock.calls).toHaveLength(1);
   });
 });

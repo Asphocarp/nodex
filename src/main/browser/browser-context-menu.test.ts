@@ -4,9 +4,7 @@ import {
   type BrowserContextMenuParams,
 } from "./browser-context-menu";
 
-function makeParams(
-  patch: Partial<BrowserContextMenuParams> = {},
-): BrowserContextMenuParams {
+function makeParams(patch: Partial<BrowserContextMenuParams> = {}): BrowserContextMenuParams {
   return {
     x: 12,
     y: 24,
@@ -52,9 +50,7 @@ describe("buildBrowserContextMenuTemplate", () => {
       params: makeParams(),
     });
 
-    expect(template.map((item) => item.type === "separator"
-      ? "separator"
-      : item.label)).toEqual([
+    expect(template.map((item) => (item.type === "separator" ? "separator" : item.label))).toEqual([
       "Quick annotate",
       "Annotate",
       "separator",
@@ -110,9 +106,11 @@ describe("buildBrowserContextMenuTemplate", () => {
         },
       }),
     });
-    expect(editableTemplate.map((item) => item.type === "separator"
-      ? "separator"
-      : item.role ?? item.label)).toEqual([
+    expect(
+      editableTemplate.map((item) =>
+        item.type === "separator" ? "separator" : (item.role ?? item.label),
+      ),
+    ).toEqual([
       "Open link in new tab",
       "Open in external browser",
       "separator",

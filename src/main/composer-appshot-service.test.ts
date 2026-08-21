@@ -46,19 +46,20 @@ function fakeImage(dataUrl: string, empty = false) {
   };
 }
 
-function fakeSource(input: {
-  readonly id?: string;
-  readonly name?: string;
-  readonly thumbnail?: ReturnType<typeof fakeImage>;
-  readonly appIcon?: ReturnType<typeof fakeImage> | null;
-} = {}): DesktopCapturerSource {
+function fakeSource(
+  input: {
+    readonly id?: string;
+    readonly name?: string;
+    readonly thumbnail?: ReturnType<typeof fakeImage>;
+    readonly appIcon?: ReturnType<typeof fakeImage> | null;
+  } = {},
+): DesktopCapturerSource {
   return {
     id: input.id ?? "window:42:0",
     name: input.name ?? "Nodex",
     thumbnail: input.thumbnail ?? fakeImage("data:image/png;base64,d2luZG93"),
-    appIcon: input.appIcon === undefined
-      ? fakeImage("data:image/png;base64,aWNvbg==")
-      : input.appIcon,
+    appIcon:
+      input.appIcon === undefined ? fakeImage("data:image/png;base64,aWNvbg==") : input.appIcon,
     display_id: "",
   } as unknown as DesktopCapturerSource;
 }
@@ -88,70 +89,80 @@ function createDependencies(
 
 describe("composer Appshot service", () => {
   test("validates helper output at the main-process boundary", () => {
-    expect(parseComposerAppshotHelperTarget(externalTarget)).toEqual(
-      externalTarget,
-    );
-    expect(parseComposerAppshotHelperTarget({
-      ...externalTarget,
-      bundleIdentifier: "",
-    })).toBeNull();
-    expect(parseComposerAppshotHelperTarget({
-      ...externalTarget,
-      bounds: { ...externalTarget.bounds, width: 0 },
-    })).toBeNull();
-    expect(parseComposerAppshotHelperTarget({
-      ...externalTarget,
-      windowId: 1.5,
-    })).toBeNull();
+    expect(parseComposerAppshotHelperTarget(externalTarget)).toEqual(externalTarget);
+    expect(
+      parseComposerAppshotHelperTarget({
+        ...externalTarget,
+        bundleIdentifier: "",
+      }),
+    ).toBeNull();
+    expect(
+      parseComposerAppshotHelperTarget({
+        ...externalTarget,
+        bounds: { ...externalTarget.bounds, width: 0 },
+      }),
+    ).toBeNull();
+    expect(
+      parseComposerAppshotHelperTarget({
+        ...externalTarget,
+        windowId: 1.5,
+      }),
+    ).toBeNull();
   });
 
   test("matches the stable Electron window source id before title fallback", () => {
     const exact = { id: "window:42:9", name: "Different title" };
     const titleFallback = { id: "window:8:9", name: "Nodex" };
-    expect(findComposerAppshotSource(
-      [titleFallback, exact],
-      externalTarget,
-    )).toBe(exact);
-    expect(findComposerAppshotSource(
-      [titleFallback],
-      externalTarget,
-    )).toBe(titleFallback);
+    expect(findComposerAppshotSource([titleFallback, exact], externalTarget)).toBe(exact);
+    expect(findComposerAppshotSource([titleFallback], externalTarget)).toBe(titleFallback);
   });
 
   test("preserves aspect ratio while bounding high-density captures", () => {
-    expect(resolveComposerAppshotCaptureSize({
-      bounds: externalTarget.bounds,
-      scaleFactor: 2,
-    })).toEqual({ width: 1600, height: 1200 });
-    expect(resolveComposerAppshotCaptureSize({
-      bounds: { ...externalTarget.bounds, width: 5000, height: 2500 },
-      scaleFactor: 2,
-    })).toEqual({ width: 4096, height: 2048 });
+    expect(
+      resolveComposerAppshotCaptureSize({
+        bounds: externalTarget.bounds,
+        scaleFactor: 2,
+      }),
+    ).toEqual({ width: 1600, height: 1200 });
+    expect(
+      resolveComposerAppshotCaptureSize({
+        bounds: { ...externalTarget.bounds, width: 5000, height: 2500 },
+        scaleFactor: 2,
+      }),
+    ).toEqual({ width: 4096, height: 2048 });
   });
 
   test("prefers the accessibility window header used by prompt serialization", () => {
-    expect(resolveComposerAppshotWindowTitle({
-      axTree: "Window: \"Current tab\", App: Safari\nAXWindow",
-      fallback: "Stale CG title",
-    })).toBe("Current tab");
-    expect(resolveComposerAppshotWindowTitle({
-      axTree: "AXWindow title=Current tab",
-      fallback: "CG title",
-    })).toBe("CG title");
-    expect(resolveComposerAppshotWindowTitle({
-      axTree: "Window: \"\", App: Safari",
-      fallback: null,
-    })).toBeNull();
+    expect(
+      resolveComposerAppshotWindowTitle({
+        axTree: 'Window: "Current tab", App: Safari\nAXWindow',
+        fallback: "Stale CG title",
+      }),
+    ).toBe("Current tab");
+    expect(
+      resolveComposerAppshotWindowTitle({
+        axTree: "AXWindow title=Current tab",
+        fallback: "CG title",
+      }),
+    ).toBe("CG title");
+    expect(
+      resolveComposerAppshotWindowTitle({
+        axTree: 'Window: "", App: Safari',
+        fallback: null,
+      }),
+    ).toBeNull();
   });
 
   test("captures screenshot, accessibility tree, identity, and app icon together", async () => {
     const sourceRequests: Array<{ width: number; height: number }> = [];
-    const service = new ComposerAppshotService(createDependencies({
-      listWindowSources: async (thumbnailSize) => {
-        sourceRequests.push({ ...thumbnailSize });
-        return [fakeSource()];
-      },
-    }));
+    const service = new ComposerAppshotService(
+      createDependencies({
+        listWindowSources: async (thumbnailSize) => {
+          sourceRequests.push({ ...thumbnailSize });
+          return [fakeSource()];
+        },
+      }),
+    );
 
     const targetResult = await service.readTarget();
     expect(targetResult).toEqual({
@@ -185,20 +196,22 @@ describe("composer Appshot service", () => {
 
   test("retains the last external window while Nodex itself is frontmost", async () => {
     let readCount = 0;
-    const service = new ComposerAppshotService(createDependencies({
-      readFrontmostWindow: async () => {
-        readCount += 1;
-        return readCount === 1
-          ? externalTarget
-          : {
-              ...externalTarget,
-              name: "Nodex",
-              bundleIdentifier: "com.nodex.app",
-              processIdentifier: 7,
-              windowId: 77,
-            };
-      },
-    }));
+    const service = new ComposerAppshotService(
+      createDependencies({
+        readFrontmostWindow: async () => {
+          readCount += 1;
+          return readCount === 1
+            ? externalTarget
+            : {
+                ...externalTarget,
+                name: "Nodex",
+                bundleIdentifier: "com.nodex.app",
+                processIdentifier: 7,
+                windowId: 77,
+              };
+        },
+      }),
+    );
 
     const first = await service.readTarget();
     const second = await service.readTarget();
@@ -206,15 +219,15 @@ describe("composer Appshot service", () => {
   });
 
   test("fails closed when the native capability is unavailable", async () => {
-    const service = new ComposerAppshotService(createDependencies({
-      platform: "linux",
-    }));
+    const service = new ComposerAppshotService(
+      createDependencies({
+        platform: "linux",
+      }),
+    );
     await expect(service.readTarget()).resolves.toEqual({
       available: false,
       target: null,
     });
-    await expect(service.capture("id-1")).rejects.toThrow(
-      "Appshots are unavailable",
-    );
+    await expect(service.capture("id-1")).rejects.toThrow("Appshots are unavailable");
   });
 });

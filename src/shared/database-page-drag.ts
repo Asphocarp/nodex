@@ -47,9 +47,7 @@ const fail = (code: DatabasePageDragErrorCode, message: string): never => {
   throw new DatabasePageDragError(code, message);
 };
 
-const queryFromSnapshot = (
-  snapshot: DatabaseModuleReadSnapshotV2,
-): DatabaseViewQueryResultV2 => {
+const queryFromSnapshot = (snapshot: DatabaseModuleReadSnapshotV2): DatabaseViewQueryResultV2 => {
   if (snapshot.value.kind === "query") return snapshot.value.value;
   return fail("view_not_available", "Database drag requires one current View query");
 };
@@ -59,14 +57,11 @@ const activePropertyById = (
   propertyId: string,
 ): DataSourcePropertyRecordV2 | null =>
   query.properties.find(
-    (property) =>
-      property.lifecycle === "active" && property.propertyId === propertyId,
+    (property) => property.lifecycle === "active" && property.propertyId === propertyId,
   ) ?? null;
 
-const sameJsonValue = (
-  left: DatabaseJsonValue | undefined,
-  right: DatabaseJsonValue,
-): boolean => JSON.stringify(left) === JSON.stringify(right);
+const sameJsonValue = (left: DatabaseJsonValue | undefined, right: DatabaseJsonValue): boolean =>
+  JSON.stringify(left) === JSON.stringify(right);
 
 const readSelectValue = (
   value: DatabaseJsonValue | undefined,
@@ -79,16 +74,10 @@ const readSelectValue = (
   );
 };
 
-const resolveTargetIndex = (
-  newOrder: number | undefined,
-  remainingCount: number,
-): number => {
+const resolveTargetIndex = (newOrder: number | undefined, remainingCount: number): number => {
   if (newOrder === undefined) return remainingCount;
   if (!Number.isInteger(newOrder) || newOrder < 0) {
-    return fail(
-      "position_index_invalid",
-      "Database View position must be a non-negative integer",
-    );
+    return fail("position_index_invalid", "Database View position must be a non-negative integer");
   }
   return Math.min(newOrder, remainingCount);
 };
@@ -108,15 +97,16 @@ const compileValue = (input: {
     edit: {
       kind: "replace",
       expectedValueRevision: input.current?.revision ?? 0,
-      value: input.value === null
-        ? { kind: "empty" }
-        : {
-            kind: "select",
-            optionId: parseDataSourceOptionId({
-              propertyId: input.property.propertyId,
-              value: input.value,
-            }),
-          },
+      value:
+        input.value === null
+          ? { kind: "empty" }
+          : {
+              kind: "select",
+              optionId: parseDataSourceOptionId({
+                propertyId: input.property.propertyId,
+                value: input.value,
+              }),
+            },
     },
   };
 };
@@ -127,10 +117,7 @@ const compilePageRunFromQuery = (input: {
 }): CompiledDatabasePageDrag => {
   const pageIds = input.move.pageIds;
   if (pageIds.length < 1 || new Set(pageIds).size !== pageIds.length) {
-    return fail(
-      "invalid_page_set",
-      "A Database drag requires unique Page IDs in visual order",
-    );
+    return fail("invalid_page_set", "A Database drag requires unique Page IDs in visual order");
   }
   if (pageIds.length > MAX_DATABASE_MODULE_V2_BULK_ENTRIES) {
     return fail(
@@ -141,12 +128,12 @@ const compilePageRunFromQuery = (input: {
 
   const query = input.query;
   if (
-    query.database.lifecycle !== "active"
-    || query.dataSource.lifecycle !== "active"
-    || query.view.lifecycle !== "active"
-    || query.view.defaultLayout !== "board"
-    || query.view.databaseId !== query.database.databaseId
-    || query.view.dataSourceId !== query.dataSource.dataSourceId
+    query.database.lifecycle !== "active" ||
+    query.dataSource.lifecycle !== "active" ||
+    query.view.lifecycle !== "active" ||
+    query.view.defaultLayout !== "board" ||
+    query.view.databaseId !== query.database.databaseId ||
+    query.view.dataSourceId !== query.dataSource.dataSourceId
   ) {
     return fail(
       "view_not_available",
@@ -154,9 +141,7 @@ const compilePageRunFromQuery = (input: {
     );
   }
 
-  const rowsById = new Map(
-    query.rows.map((row) => [row.page.pageId, row] as const),
-  );
+  const rowsById = new Map(query.rows.map((row) => [row.page.pageId, row] as const));
   const rows = pageIds.map((pageId) => {
     const row = rowsById.get(pageId);
     if (row) return row;
@@ -168,8 +153,8 @@ const compilePageRunFromQuery = (input: {
 
   const statusProperty = activePropertyById(query, "status");
   if (
-    !statusProperty
-    || query.view.config.presentation.group?.propertyId !== statusProperty.propertyId
+    !statusProperty ||
+    query.view.config.presentation.group?.propertyId !== statusProperty.propertyId
   ) {
     return fail(
       "status_property_not_found",
@@ -177,20 +162,12 @@ const compilePageRunFromQuery = (input: {
     );
   }
   const currentStatuses = rows.map((row) => {
-    const status = readSelectValue(
-      row.values[statusProperty.propertyId]?.value,
-      "status",
-    );
+    const status = readSelectValue(row.values[statusProperty.propertyId]?.value, "status");
     if (status !== null) return status;
-    return fail(
-      "status_value_invalid",
-      `Page ${row.page.pageId} has no status value`,
-    );
+    return fail("status_value_invalid", `Page ${row.page.pageId} has no status value`);
   });
   if (input.move.fromStatus) {
-    const staleIndex = currentStatuses.findIndex(
-      (status) => status !== input.move.fromStatus,
-    );
+    const staleIndex = currentStatuses.findIndex((status) => status !== input.move.fromStatus);
     if (staleIndex >= 0) {
       return fail(
         "source_status_conflict",
@@ -199,19 +176,17 @@ const compilePageRunFromQuery = (input: {
     }
   }
 
-  const patchProperties = (["priority", "estimate"] as const).flatMap(
-    (key) => {
-      if (!input.move.fieldPatch || !Object.hasOwn(input.move.fieldPatch, key)) {
-        return [];
-      }
-      const property = activePropertyById(query, key);
-      if (property) return [{ key, property }] as const;
-      return fail(
-        "property_not_found",
-        `Data Source ${query.dataSource.dataSourceId} has no active ${key} property`,
-      );
-    },
-  );
+  const patchProperties = (["priority", "estimate"] as const).flatMap((key) => {
+    if (!input.move.fieldPatch || !Object.hasOwn(input.move.fieldPatch, key)) {
+      return [];
+    }
+    const property = activePropertyById(query, key);
+    if (property) return [{ key, property }] as const;
+    return fail(
+      "property_not_found",
+      `Data Source ${query.dataSource.dataSourceId} has no active ${key} property`,
+    );
+  });
 
   const values: DatabasePropertyValueMutationV2[] = [];
   rows.forEach((row) => {
@@ -247,24 +222,14 @@ const compilePageRunFromQuery = (input: {
   const currentTargetOrder = query.rows
     .filter((row) => row.effectiveGroupKey === input.move.toStatus)
     .map((row) => row.page.pageId);
-  const remainingTargetOrder = currentTargetOrder.filter(
-    (pageId) => !selected.has(pageId),
-  );
-  const targetIndex = resolveTargetIndex(
-    input.move.newOrder,
-    remainingTargetOrder.length,
-  );
+  const remainingTargetOrder = currentTargetOrder.filter((pageId) => !selected.has(pageId));
+  const targetIndex = resolveTargetIndex(input.move.newOrder, remainingTargetOrder.length);
   const nextTargetOrder = [...remainingTargetOrder];
   nextTargetOrder.splice(targetIndex, 0, ...pageIds);
-  const crossesGroup = currentStatuses.some(
-    (status) => status !== input.move.toStatus,
-  );
+  const crossesGroup = currentStatuses.some((status) => status !== input.move.toStatus);
   const positionChanged =
-    crossesGroup
-    || currentTargetOrder.join("\u0000") !== nextTargetOrder.join("\u0000");
-  const manualDirection = databaseViewFractionalOrderDirection(
-    query.view.config.presentation.sort,
-  );
+    crossesGroup || currentTargetOrder.join("\u0000") !== nextTargetOrder.join("\u0000");
+  const manualDirection = databaseViewFractionalOrderDirection(query.view.config.presentation.sort);
   if (manualDirection === "desc" && positionChanged) {
     return fail(
       "manual_direction_unsupported",
@@ -272,9 +237,8 @@ const compilePageRunFromQuery = (input: {
     );
   }
 
-  const expectedPositionRevision = (
-    row: DataSourcePageRowV2,
-  ): number => row.position?.revision ?? 0;
+  const expectedPositionRevision = (row: DataSourcePageRowV2): number =>
+    row.position?.revision ?? 0;
 
   const operations: DatabaseApplyOperationV2[] = [];
   if (values.length > 0) {
@@ -325,9 +289,7 @@ export const compileDatabasePageDrag = (input: {
       pageIds: [input.move.pageId],
       ...(input.move.fromStatus ? { fromStatus: input.move.fromStatus } : {}),
       toStatus: input.move.toStatus,
-      ...(input.move.newOrder === undefined
-        ? {}
-        : { newOrder: input.move.newOrder }),
+      ...(input.move.newOrder === undefined ? {} : { newOrder: input.move.newOrder }),
       ...(input.move.fieldPatch ? { fieldPatch: input.move.fieldPatch } : {}),
       ...(input.move.groupId ? { groupId: input.move.groupId } : {}),
     },
@@ -337,10 +299,11 @@ export const compileDatabasePageDrag = (input: {
 export const compileDatabasePagesDrag = (input: {
   readonly move: MovePagesInput;
   readonly snapshot: DatabaseModuleReadSnapshotV2;
-}): CompiledDatabasePageDrag => compilePageRunFromQuery({
-  move: input.move,
-  query: queryFromSnapshot(input.snapshot),
-});
+}): CompiledDatabasePageDrag =>
+  compilePageRunFromQuery({
+    move: input.move,
+    query: queryFromSnapshot(input.snapshot),
+  });
 
 export const compileDatabasePagesDragFromQuery = (input: {
   readonly move: MovePagesInput;

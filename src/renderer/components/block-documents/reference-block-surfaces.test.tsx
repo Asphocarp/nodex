@@ -4,12 +4,8 @@ import { plainTextToPortableRichText } from "../../../shared/block-documents/por
 import type { DatabaseViewReadModel } from "../../../shared/database-views";
 import { AUTHORIZED_READ_STAMP_EXAMPLE } from "../../../shared/testing/authorized-read-stamp-example";
 import type { DatabasePageSummary } from "@/lib/types";
-import {
-  BlockDisclosureStateStore,
-} from "@/lib/block-disclosure-state";
-import {
-  ReferenceSurfaceActivationBudget,
-} from "@/lib/reference-surface-state";
+import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
+import { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";
 import { render } from "@/test/dom";
 import { DatabaseViewReferenceSurface } from "./reference-block-surfaces";
 
@@ -67,11 +63,13 @@ describe("DatabaseViewReferenceSurface", () => {
 
     fireEvent.click(view.getByRole("button", { name: "Open Card A" }));
 
-    expect(opened).toEqual([{
-      accessContext: { kind: "library" },
-      pageId: "card-a",
-      titleSnapshot: "Card A",
-    }]);
+    expect(opened).toEqual([
+      {
+        accessContext: { kind: "library" },
+        pageId: "card-a",
+        titleSnapshot: "Card A",
+      },
+    ]);
   });
 
   test("does not mount a Database row that closes an ancestor Card cycle", () => {
@@ -108,8 +106,7 @@ describe("DatabaseViewReferenceSurface", () => {
     );
 
     expect(
-      (view.getByRole("button", { name: "Expand Card A" }) as HTMLButtonElement)
-        .disabled,
+      (view.getByRole("button", { name: "Expand Card A" }) as HTMLButtonElement).disabled,
     ).toBe(true);
     expect(view.getByText("Cycle").textContent).toBe("Cycle");
   });
@@ -165,9 +162,7 @@ describe("DatabaseViewReferenceSurface", () => {
 
     await act(async () => {
       for (const card of cards) {
-        fireEvent.click(
-          view.getByRole("button", { name: `Expand ${card.title}` }),
-        );
+        fireEvent.click(view.getByRole("button", { name: `Expand ${card.title}` }));
         await Promise.resolve();
       }
     });

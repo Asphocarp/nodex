@@ -6,10 +6,7 @@ import {
   usePersistedAtomValue,
   useSetPersistedAtom,
 } from "@/lib/maitai";
-import {
-  normalizeCodexSetupRoles,
-  type CodexSetupRoleId,
-} from "./setup-codex-onboarding";
+import { normalizeCodexSetupRoles, type CodexSetupRoleId } from "./setup-codex-onboarding";
 
 export const SETUP_CODEX_ROLE_STATE_KEY = "nodex:setup-codex-role-state:v1";
 
@@ -28,9 +25,8 @@ export const DEFAULT_SETUP_CODEX_ROLE_STATE: CodexSetupRoleState = {
 export function normalizeCodexSetupRoleState(value: unknown): CodexSetupRoleState {
   if (!value || typeof value !== "object") return DEFAULT_SETUP_CODEX_ROLE_STATE;
   const record = value as Record<string, unknown>;
-  const workMode = record.workMode === "coding" || record.workMode === "non_coding"
-    ? record.workMode
-    : null;
+  const workMode =
+    record.workMode === "coding" || record.workMode === "non_coding" ? record.workMode : null;
   return {
     roles: normalizeCodexSetupRoles(record.roles),
     personalizedSuggestionsEnabled: record.personalizedSuggestionsEnabled !== false,
@@ -78,13 +74,16 @@ export function useSetCodexSetupRoles(): (
   const store = useMaitaiStore();
   const setState = useSetPersistedAtom(codexSetupRoleStateAtom);
 
-  return useCallback(async (roles: readonly CodexSetupRoleId[]) => {
-    await preloadPersistedAtom(store, codexSetupRoleStateAtom);
-    let nextState = DEFAULT_SETUP_CODEX_ROLE_STATE;
-    await setState((current) => {
-      nextState = updateCodexSetupRoles(current, roles);
+  return useCallback(
+    async (roles: readonly CodexSetupRoleId[]) => {
+      await preloadPersistedAtom(store, codexSetupRoleStateAtom);
+      let nextState = DEFAULT_SETUP_CODEX_ROLE_STATE;
+      await setState((current) => {
+        nextState = updateCodexSetupRoles(current, roles);
+        return nextState;
+      });
       return nextState;
-    });
-    return nextState;
-  }, [setState, store]);
+    },
+    [setState, store],
+  );
 }

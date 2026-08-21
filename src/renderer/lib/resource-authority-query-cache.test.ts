@@ -15,25 +15,19 @@ const address = {
   project_id: "project-1",
 } as const;
 
-const pageStamp = (
-  pageId: string,
-  commitSeq = 1,
-  dependencies = [pageId],
-) => authorizedReadStampFixture({
-  deliveryAddress: address,
-  subject: { kind: "page", page_id: pageId },
-  requestDependencies: [{ kind: "page", page_id: pageId }],
-  authorizationDependencies: dependencies.map((dependency) => ({
-    kind: "page" as const,
-    page_id: dependency,
-  })),
-  commitSeq,
-});
+const pageStamp = (pageId: string, commitSeq = 1, dependencies = [pageId]) =>
+  authorizedReadStampFixture({
+    deliveryAddress: address,
+    subject: { kind: "page", page_id: pageId },
+    requestDependencies: [{ kind: "page", page_id: pageId }],
+    authorizationDependencies: dependencies.map((dependency) => ({
+      kind: "page" as const,
+      page_id: dependency,
+    })),
+    commitSeq,
+  });
 
-const waitForRegistrations = async (
-  index: AuthorityFreshnessIndex,
-  registrations: number,
-) => {
+const waitForRegistrations = async (index: AuthorityFreshnessIndex, registrations: number) => {
   await vi.waitFor(() => {
     expect(index.diagnostics().registrations).toBe(registrations);
   });
@@ -94,11 +88,8 @@ describe("ResourceAuthorityQueryCache", () => {
 
     await client.fetchQuery({
       queryKey,
-      queryFn: async () => admitResourceAuthorityQuery(
-        { pageId: "page-a" },
-        resolve,
-        freshnessIndex,
-      ),
+      queryFn: async () =>
+        admitResourceAuthorityQuery({ pageId: "page-a" }, resolve, freshnessIndex),
       meta: resourceAuthorityQueryMeta(resolve),
     });
 

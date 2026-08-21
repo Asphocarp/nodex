@@ -28,9 +28,11 @@ function CommentHarness({
         }}
         onSubmitComment={(comment) => {
           const existing = comments.some((candidate) => candidate.id === comment.id);
-          updateComments(existing
-            ? comments.map((candidate) => candidate.id === comment.id ? comment : candidate)
-            : [...comments, comment]);
+          updateComments(
+            existing
+              ? comments.map((candidate) => (candidate.id === comment.id ? comment : candidate))
+              : [...comments, comment],
+          );
         }}
       />
     </div>
@@ -107,8 +109,7 @@ describe("ImageCommentSurface", () => {
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Delete comment" }));
     });
-    await waitFor(() => expect(view.queryByRole("button", { name: "Edit comment 1" }))
-      .toBeNull());
+    await waitFor(() => expect(view.queryByRole("button", { name: "Edit comment 1" })).toBeNull());
     expect(onCommentsChange.mock.calls[2]?.[0]).toEqual([]);
   });
 
@@ -124,7 +125,6 @@ describe("ImageCommentSurface", () => {
       fireEvent.keyDown(view.getByPlaceholderText("Add a comment…"), { key: "Escape" });
     });
 
-    await waitFor(() => expect(view.queryByPlaceholderText("Add a comment…"))
-      .toBeNull());
+    await waitFor(() => expect(view.queryByPlaceholderText("Add a comment…")).toBeNull());
   });
 });

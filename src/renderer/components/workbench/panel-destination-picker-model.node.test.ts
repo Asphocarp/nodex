@@ -21,11 +21,7 @@ import type {
 
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 
-function makeProject(
-  id: string,
-  name: string,
-  icon?: "heart" | "plant",
-): Project {
+function makeProject(id: string, name: string, icon?: "heart" | "plant"): Project {
   return {
     id,
     libraryId: "library:test",
@@ -125,18 +121,20 @@ function makeDescriptor(
       createdAt: TEST_DATE.toISOString(),
       updatedAt: TEST_DATE.toISOString(),
     },
-    dataSources: [{
-      dataSourceId,
-      libraryId: "library:test",
-      homeDatabaseId: databaseId,
-      name: "Pages",
-      schemaKey: "nodex.page",
-      schemaRevision: 1,
-      lifecycle: "active",
-      rankKey: "0",
-      createdAt: TEST_DATE.toISOString(),
-      updatedAt: TEST_DATE.toISOString(),
-    }],
+    dataSources: [
+      {
+        dataSourceId,
+        libraryId: "library:test",
+        homeDatabaseId: databaseId,
+        name: "Pages",
+        schemaKey: "nodex.page",
+        schemaRevision: 1,
+        lifecycle: "active",
+        rankKey: "0",
+        createdAt: TEST_DATE.toISOString(),
+        updatedAt: TEST_DATE.toISOString(),
+      },
+    ],
     views: views.map((view, index) => ({
       viewId: parseDatabaseViewId(view.id),
       databaseId,
@@ -162,13 +160,14 @@ function makeDescriptor(
 }
 
 const DATABASE_DESCRIPTOR_MAP = new Map<string, DatabaseContainerDescriptorV2>([
-  ["alpha", makeDescriptor("alpha", [
-    { id: "view-alpha-primary", name: "Alpha DB", primary: true },
-    { id: "view-alpha-focused", name: "Focused", primary: false },
-  ])],
-  ["beta", makeDescriptor("beta", [
-    { id: "view-beta-primary", name: "Beta DB", primary: true },
-  ])],
+  [
+    "alpha",
+    makeDescriptor("alpha", [
+      { id: "view-alpha-primary", name: "Alpha DB", primary: true },
+      { id: "view-alpha-focused", name: "Focused", primary: false },
+    ]),
+  ],
+  ["beta", makeDescriptor("beta", [{ id: "view-beta-primary", name: "Beta DB", primary: true }])],
 ]);
 
 function pageHit(
@@ -210,11 +209,14 @@ function searchResult(
 }
 
 const COMMAND_PALETTE_HIT = pageHit(
-  "alpha", "command-palette", "Command palette polish", "triage", "Triage", 0,
+  "alpha",
+  "command-palette",
+  "Command palette polish",
+  "triage",
+  "Triage",
+  0,
 );
-const RUNTIME_HIT = pageHit(
-  "beta", "runtime", "Runtime polish", "plan", "Plan", 1,
-);
+const RUNTIME_HIT = pageHit("beta", "runtime", "Runtime polish", "plan", "Plan", 1);
 
 describe("panel destination picker model", () => {
   test("keeps Database Views before Pages for the combined panel picker", () => {
@@ -249,9 +251,17 @@ describe("panel destination picker model", () => {
     });
 
     expect(dbOnly.map((section) => section.label).join(",")).toBe("DB");
-    expect(flattenPanelDestinationRows(dbOnly).map((row) => row.kind).join(",")).toBe("db,db,db");
+    expect(
+      flattenPanelDestinationRows(dbOnly)
+        .map((row) => row.kind)
+        .join(","),
+    ).toBe("db,db,db");
     expect(cardOnly.map((section) => section.label).join(",")).toBe("Page");
-    expect(flattenPanelDestinationRows(cardOnly).map((row) => row.kind).join(",")).toBe("page,page,page");
+    expect(
+      flattenPanelDestinationRows(cardOnly)
+        .map((row) => row.kind)
+        .join(","),
+    ).toBe("page,page,page");
   });
 
   test("groups Page-only rows with the current project first", () => {
@@ -265,7 +275,9 @@ describe("panel destination picker model", () => {
     });
     const rows = flattenPanelDestinationRows(sections);
 
-    expect(sections.map((section) => section.label).join(",")).toBe("Current project,Other projects");
+    expect(sections.map((section) => section.label).join(",")).toBe(
+      "Current project,Other projects",
+    );
     expect(rows.map((row) => row.id).join(",")).toBe(
       "panel-page:beta:runtime,panel-page:alpha:command-palette,panel-page:alpha:notes",
     );
@@ -283,7 +295,9 @@ describe("panel destination picker model", () => {
     });
     const rows = flattenPanelDestinationRows(sections);
 
-    expect(sections.map((section) => section.label).join(",")).toBe("Current project,Other projects");
+    expect(sections.map((section) => section.label).join(",")).toBe(
+      "Current project,Other projects",
+    );
     expect(rows.map((row) => row.id).join(",")).toBe(
       "panel-page:beta:runtime,panel-page:alpha:command-palette",
     );
@@ -320,17 +334,21 @@ describe("panel destination picker model", () => {
   });
 
   test("resets query focus to the first visible row and wraps arrow movement", () => {
-    const rows = flattenPanelDestinationRows(buildPanelDestinationSections({
-      projects: PROJECTS,
-      boardMap: BOARD_MAP,
-      databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
-      query: "beta",
-      searchResult: searchResult("beta", [RUNTIME_HIT]),
-    }));
+    const rows = flattenPanelDestinationRows(
+      buildPanelDestinationSections({
+        projects: PROJECTS,
+        boardMap: BOARD_MAP,
+        databaseDescriptorMap: DATABASE_DESCRIPTOR_MAP,
+        query: "beta",
+        searchResult: searchResult("beta", [RUNTIME_HIT]),
+      }),
+    );
     const initial = resolvePanelDestinationFocusedRowId(null, "beta", rows);
 
     expect(initial).toBe("panel-db:beta:view-beta-primary");
     expect(movePanelDestinationFocusedRowId(initial, 1, rows)).toBe("panel-page:beta:runtime");
-    expect(movePanelDestinationFocusedRowId("panel-page:beta:runtime", 1, rows)).toBe("panel-db:beta:view-beta-primary");
+    expect(movePanelDestinationFocusedRowId("panel-page:beta:runtime", 1, rows)).toBe(
+      "panel-db:beta:view-beta-primary",
+    );
   });
 });

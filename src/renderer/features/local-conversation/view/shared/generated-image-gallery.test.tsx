@@ -13,10 +13,7 @@ import {
 import { installMotionPreferenceForTest } from "@/test/browser-globals";
 
 const originalIntersectionObserver = globalThis.IntersectionObserver;
-const originalVisibilityState = Object.getOwnPropertyDescriptor(
-  document,
-  "visibilityState",
-);
+const originalVisibilityState = Object.getOwnPropertyDescriptor(document, "visibilityState");
 
 class ControlledIntersectionObserver implements IntersectionObserver {
   static instances: ControlledIntersectionObserver[] = [];
@@ -49,10 +46,15 @@ class ControlledIntersectionObserver implements IntersectionObserver {
 
   emit(isIntersecting: boolean) {
     if (!this.target) return;
-    this.callback([{
-      isIntersecting,
-      target: this.target,
-    } as IntersectionObserverEntry], this);
+    this.callback(
+      [
+        {
+          isIntersecting,
+          target: this.target,
+        } as IntersectionObserverEntry,
+      ],
+      this,
+    );
   }
 }
 
@@ -87,10 +89,7 @@ describe("GeneratedImageGallery pending scheduling", () => {
       value: ControlledIntersectionObserver,
     });
     setDocumentVisibility("visible");
-    const measurement = vi.spyOn(
-      HTMLElement.prototype,
-      "getBoundingClientRect",
-    ).mockReturnValue({
+    const measurement = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       bottom: 74,
       height: 74,
       left: 0,
@@ -113,13 +112,10 @@ describe("GeneratedImageGallery pending scheduling", () => {
       save: vi.fn(),
       setTransform: vi.fn(),
     };
-    const getContext = vi.spyOn(
-      HTMLCanvasElement.prototype,
-      "getContext",
-    ).mockReturnValue(context as unknown as CanvasRenderingContext2D);
-    const view = renderWithMaitai(
-      <GeneratedImageGallery images={[]} pendingImageCount={6} />,
-    );
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, "getContext")
+      .mockReturnValue(context as unknown as CanvasRenderingContext2D);
+    const view = renderWithMaitai(<GeneratedImageGallery images={[]} pendingImageCount={6} />);
 
     try {
       await waitFor(() => {
@@ -134,9 +130,11 @@ describe("GeneratedImageGallery pending scheduling", () => {
         await Promise.resolve();
       });
 
-      expect(view.container.querySelectorAll(
-        '[data-generated-image-dot-field="true"][data-animate="true"]',
-      )).toHaveLength(4);
+      expect(
+        view.container.querySelectorAll(
+          '[data-generated-image-dot-field="true"][data-animate="true"]',
+        ),
+      ).toHaveLength(4);
       expect(getGeneratedImageAnimationClockSubscriberCount()).toBe(4);
 
       await act(async () => {
@@ -144,9 +142,11 @@ describe("GeneratedImageGallery pending scheduling", () => {
         await Promise.resolve();
       });
 
-      expect(view.container.querySelectorAll(
-        '[data-generated-image-dot-field="true"][data-animate="true"]',
-      )).toHaveLength(0);
+      expect(
+        view.container.querySelectorAll(
+          '[data-generated-image-dot-field="true"][data-animate="true"]',
+        ),
+      ).toHaveLength(0);
       expect(getGeneratedImageAnimationClockSubscriberCount()).toBe(0);
     } finally {
       view.unmount();
@@ -185,37 +185,51 @@ describe("GeneratedImageGallery pending scheduling", () => {
     );
 
     try {
-      fireEvent.click(view.getByRole("button", {
-        name: "Generated image 1",
-      }));
+      fireEvent.click(
+        view.getByRole("button", {
+          name: "Generated image 1",
+        }),
+      );
       expect(opened).toEqual([]);
-      expect(await view.findByRole("dialog", {
-        name: "Image preview",
-      })).not.toBeNull();
+      expect(
+        await view.findByRole("dialog", {
+          name: "Image preview",
+        }),
+      ).not.toBeNull();
 
-      fireEvent.click(view.getByRole("button", {
-        name: "Edit image",
-      }));
-      await waitFor(() => expect(opened.at(-1)).toMatchObject({
-        composerTarget: {
-          channelId: "ThreadScope:task-1::root",
-          placement: "root",
-        },
-        entrypoint: "lightbox_edit_button",
-        initialView: "single",
-        openInEditor: true,
-        threadId: "task-1",
-      }));
+      fireEvent.click(
+        view.getByRole("button", {
+          name: "Edit image",
+        }),
+      );
+      await waitFor(() =>
+        expect(opened.at(-1)).toMatchObject({
+          composerTarget: {
+            channelId: "ThreadScope:task-1::root",
+            placement: "root",
+          },
+          entrypoint: "lightbox_edit_button",
+          initialView: "single",
+          openInEditor: true,
+          threadId: "task-1",
+        }),
+      );
 
-      fireEvent.click(view.getAllByRole("button", {
-        name: "Open Canvas view",
-      }).at(-1)!);
-      await waitFor(() => expect(opened.at(-1)).toMatchObject({
-        entrypoint: "canvas_button",
-        initialImageId: "generated-2",
-        initialView: "playground",
-        openInEditor: true,
-      }));
+      fireEvent.click(
+        view
+          .getAllByRole("button", {
+            name: "Open Canvas view",
+          })
+          .at(-1)!,
+      );
+      await waitFor(() =>
+        expect(opened.at(-1)).toMatchObject({
+          entrypoint: "canvas_button",
+          initialImageId: "generated-2",
+          initialView: "playground",
+          openInEditor: true,
+        }),
+      );
     } finally {
       view.unmount();
       unregister();

@@ -1,8 +1,4 @@
-import type {
-  DatabaseId,
-  DatabaseViewId,
-  DataSourceId,
-} from "./database-identities";
+import type { DatabaseId, DatabaseViewId, DataSourceId } from "./database-identities";
 import type { DatabaseViewLayout } from "./database-kernel";
 import type { DocumentCommitRef } from "./block-documents/contracts";
 import type { ProjectAppearance } from "./project-appearance";
@@ -25,10 +21,7 @@ export type LibraryRouteTarget =
   | { readonly kind: "canvas"; readonly canvasId: string }
   | { readonly kind: "view"; readonly viewId: DatabaseViewId };
 
-export type LibraryResourceTarget = Exclude<
-  LibraryRouteTarget,
-  { readonly kind: "view" }
->;
+export type LibraryResourceTarget = Exclude<LibraryRouteTarget, { readonly kind: "view" }>;
 
 export type LibraryNavigationParent =
   | { readonly kind: "library" }
@@ -117,16 +110,9 @@ export interface LibraryPageReferenceCandidate {
   readonly matches: readonly PageSearchMatch[];
 }
 
-export type LibraryPageReferenceMatchSource =
-  | "recent"
-  | "page_key"
-  | "title"
-  | "content";
+export type LibraryPageReferenceMatchSource = "recent" | "page_key" | "title" | "content";
 
-export type LibraryPageReferencePresentation =
-  | "mention"
-  | "reference_block"
-  | "link";
+export type LibraryPageReferencePresentation = "mention" | "reference_block" | "link";
 
 export interface LibraryPageBacklink {
   readonly sourcePageId: string;
@@ -142,10 +128,7 @@ export type LibraryMoveDestinationScope =
   | { readonly kind: "suggested" }
   | {
       readonly kind: "children";
-      readonly parent: Extract<
-        LibraryNavigationParent,
-        { readonly kind: "library" | "page" }
-      >;
+      readonly parent: Extract<LibraryNavigationParent, { readonly kind: "library" | "page" }>;
     }
   | { readonly kind: "search"; readonly query: string };
 
@@ -260,10 +243,7 @@ export type LibraryReadValue =
     }
   | {
       readonly kind: "standalone_roots";
-      readonly items: readonly Exclude<
-        LibraryNavigationNode,
-        LibraryViewNavigationNode
-      >[];
+      readonly items: readonly Exclude<LibraryNavigationNode, LibraryViewNavigationNode>[];
       readonly nextCursor: string | null;
       readonly hasMore: boolean;
       readonly total: number;

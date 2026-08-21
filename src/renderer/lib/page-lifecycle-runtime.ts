@@ -4,11 +4,7 @@ import {
   type PageLifecycleIntentV2,
   type PageLifecycleRuntimeDependenciesV2,
 } from "../../shared/page-lifecycle-v2-runtime";
-import {
-  invoke,
-  mutatePageLifecycle,
-  readPageLifecyclePreflight,
-} from "./api";
+import { invoke, mutatePageLifecycle, readPageLifecyclePreflight } from "./api";
 import type { DatabasePage } from "./types";
 
 const defaultDependencies: PageLifecycleRuntimeDependenciesV2 = {

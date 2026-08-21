@@ -38,22 +38,14 @@ export type CodexServerRequestResolvedNotification = Extract<
 >;
 
 type DynamicToolCallRequest = Extract<ServerRequest, { method: "item/tool/call" }>;
-type McpElicitationRequest = Extract<
-  ServerRequest,
-  { method: "mcpServer/elicitation/request" }
->;
+type McpElicitationRequest = Extract<ServerRequest, { method: "mcpServer/elicitation/request" }>;
 type ApprovalRequest = Extract<
   ServerRequest,
   {
-    method:
-      | "item/commandExecution/requestApproval"
-      | "item/fileChange/requestApproval";
+    method: "item/commandExecution/requestApproval" | "item/fileChange/requestApproval";
   }
 >;
-type UserInputRequest = Extract<
-  ServerRequest,
-  { method: "item/tool/requestUserInput" }
->;
+type UserInputRequest = Extract<ServerRequest, { method: "item/tool/requestUserInput" }>;
 
 export interface CodexServerRequestLifecycleContext {
   readonly now: () => number;
@@ -170,10 +162,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isJsonValue(value: unknown): value is JsonValue {
   if (
-    value === null
-    || typeof value === "string"
-    || typeof value === "boolean"
-    || (typeof value === "number" && Number.isFinite(value))
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
   ) {
     return true;
   }
@@ -202,10 +194,12 @@ function parseHttpsUrl(value: unknown): URL | null {
 
 function isChatGptHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase();
-  return normalized === "chatgpt.com"
-    || normalized === "chatgpt-staging.com"
-    || normalized.endsWith(".chatgpt.com")
-    || normalized.endsWith(".chatgpt-staging.com");
+  return (
+    normalized === "chatgpt.com" ||
+    normalized === "chatgpt-staging.com" ||
+    normalized.endsWith(".chatgpt.com") ||
+    normalized.endsWith(".chatgpt-staging.com")
+  );
 }
 
 function normalizeMcpMeta(value: JsonValue | null): {
@@ -217,8 +211,8 @@ function normalizeMcpMeta(value: JsonValue | null): {
   const riskLevel = meta.riskLevel ?? undefined;
   const subtitle = meta.subtitle ?? undefined;
   if (
-    (riskLevel !== undefined && riskLevel !== "low" && riskLevel !== "high")
-    || (subtitle !== undefined && typeof subtitle !== "string")
+    (riskLevel !== undefined && riskLevel !== "low" && riskLevel !== "high") ||
+    (subtitle !== undefined && typeof subtitle !== "string")
   ) {
     return {};
   }
@@ -233,10 +227,10 @@ function normalizePersist(
 ): "session" | "always" | Array<"session" | "always"> | undefined {
   if (value === "session" || value === "always") return value;
   if (
-    Array.isArray(value)
-    && value.length >= 1
-    && value.length <= 2
-    && value.every((entry) => entry === "session" || entry === "always")
+    Array.isArray(value) &&
+    value.length >= 1 &&
+    value.length <= 2 &&
+    value.every((entry) => entry === "session" || entry === "always")
   ) {
     return [...value];
   }
@@ -260,42 +254,31 @@ function normalizeToolParamsDisplay(value: unknown): Array<{
     if (entry.display_name !== undefined && typeof entry.display_name !== "string") {
       return null;
     }
-    const displayName = entry.display_name === undefined
-      ? name
-      : entry.display_name.trim();
+    const displayName = entry.display_name === undefined ? name : entry.display_name.trim();
     if (!name || !displayName || !isJsonValue(entry.value)) return null;
     normalized.push({ name, displayName, value: entry.value });
   }
   return normalized;
 }
 
-function normalizeConnectorAuthFailure(value: JsonValue | null): (
-  Extract<CodexCanonicalMcpElicitation, { kind: "connectorAuth" }>[
-    "connector"
-  ]
-) | null {
+function normalizeConnectorAuthFailure(
+  value: JsonValue | null,
+): Extract<CodexCanonicalMcpElicitation, { kind: "connectorAuth" }>["connector"] | null {
   const meta = toJsonObject(value);
   const codexApps = toJsonObject(meta?._codex_apps);
   const failure = toJsonObject(codexApps?.connector_auth_failure);
   if (
-    failure?.is_auth_failure !== true
-    || typeof failure.connector_id !== "string"
-    || typeof failure.connector_name !== "string"
-    || typeof failure.install_url !== "string"
-    || (
-      failure.auth_reason !== undefined
-      && typeof failure.auth_reason !== "string"
-    )
-    || (failure.link_id !== undefined && typeof failure.link_id !== "string")
-    || (
-      failure.requested_scopes !== undefined
-      && (
-        !Array.isArray(failure.requested_scopes)
-        || !failure.requested_scopes.every(
+    failure?.is_auth_failure !== true ||
+    typeof failure.connector_id !== "string" ||
+    typeof failure.connector_name !== "string" ||
+    typeof failure.install_url !== "string" ||
+    (failure.auth_reason !== undefined && typeof failure.auth_reason !== "string") ||
+    (failure.link_id !== undefined && typeof failure.link_id !== "string") ||
+    (failure.requested_scopes !== undefined &&
+      (!Array.isArray(failure.requested_scopes) ||
+        !failure.requested_scopes.every(
           (scope) => typeof scope === "string" && scope.trim().length > 0,
-        )
-      )
-    )
+        )))
   ) {
     return null;
   }
@@ -306,9 +289,7 @@ function normalizeConnectorAuthFailure(value: JsonValue | null): (
     connector_id: failure.connector_id,
     connector_name: failure.connector_name,
     install_url: failure.install_url,
-    ...(typeof failure.auth_reason === "string"
-      ? { auth_reason: failure.auth_reason }
-      : {}),
+    ...(typeof failure.auth_reason === "string" ? { auth_reason: failure.auth_reason } : {}),
     ...(typeof failure.link_id === "string" ? { link_id: failure.link_id } : {}),
     ...(isStringArray(failure.requested_scopes)
       ? {
@@ -318,20 +299,18 @@ function normalizeConnectorAuthFailure(value: JsonValue | null): (
   };
 }
 
-function normalizeToolSuggestion(value: JsonValue | null): (
-  Extract<CodexCanonicalMcpElicitation, { kind: "toolSuggestion" }>[
-    "suggestion"
-  ]
-) | null {
+function normalizeToolSuggestion(
+  value: JsonValue | null,
+): Extract<CodexCanonicalMcpElicitation, { kind: "toolSuggestion" }>["suggestion"] | null {
   const meta = toJsonObject(value);
   if (
-    meta?.codex_approval_kind !== "tool_suggestion"
-    || (meta.suggest_type !== "install" && meta.suggest_type !== "enable")
-    || typeof meta.suggest_reason !== "string"
-    || typeof meta.tool_id !== "string"
-    || typeof meta.tool_name !== "string"
-    || (meta.persist !== undefined && meta.persist !== "always")
-    || (meta.tool_type !== "connector" && meta.tool_type !== "plugin")
+    meta?.codex_approval_kind !== "tool_suggestion" ||
+    (meta.suggest_type !== "install" && meta.suggest_type !== "enable") ||
+    typeof meta.suggest_reason !== "string" ||
+    typeof meta.tool_id !== "string" ||
+    typeof meta.tool_name !== "string" ||
+    (meta.persist !== undefined && meta.persist !== "always") ||
+    (meta.tool_type !== "connector" && meta.tool_type !== "plugin")
   ) {
     return null;
   }
@@ -339,19 +318,16 @@ function normalizeToolSuggestion(value: JsonValue | null): (
     return null;
   }
   if (
-    meta.tool_type === "plugin"
-    && meta.install_url !== undefined
-    && typeof meta.install_url !== "string"
+    meta.tool_type === "plugin" &&
+    meta.install_url !== undefined &&
+    typeof meta.install_url !== "string"
   ) {
     return null;
   }
   if (
-    meta.tool_type === "plugin"
-    && meta.remote_plugin_id !== undefined
-    && (
-      typeof meta.remote_plugin_id !== "string"
-      || meta.remote_plugin_id.trim().length === 0
-    )
+    meta.tool_type === "plugin" &&
+    meta.remote_plugin_id !== undefined &&
+    (typeof meta.remote_plugin_id !== "string" || meta.remote_plugin_id.trim().length === 0)
   ) {
     return null;
   }
@@ -360,32 +336,24 @@ function normalizeToolSuggestion(value: JsonValue | null): (
     ...(meta.tool_type === "plugin" && typeof meta.remote_plugin_id === "string"
       ? { remote_plugin_id: meta.remote_plugin_id.trim() }
       : {}),
-  } as Extract<
-    CodexCanonicalMcpElicitation,
-    { kind: "toolSuggestion" }
-  >["suggestion"];
+  } as Extract<CodexCanonicalMcpElicitation, { kind: "toolSuggestion" }>["suggestion"];
 }
 
-function normalizeMcpToolCallApproval(value: JsonValue | null): (
-  Extract<CodexCanonicalMcpElicitation, { kind: "mcpToolCall" }>[
-    "approval"
-  ]
-) | null {
+function normalizeMcpToolCallApproval(
+  value: JsonValue | null,
+): Extract<CodexCanonicalMcpElicitation, { kind: "mcpToolCall" }>["approval"] | null {
   const meta = toJsonObject(value);
   const toolParams = toJsonObject(meta?.tool_params);
   const persist = normalizePersist(meta?.persist);
   if (
-    meta?.codex_approval_kind !== "mcp_tool_call"
-    || typeof meta.connector_id !== "string"
-    || toolParams === null
-    || (
-      meta.codex_request_type !== undefined
-      && meta.codex_request_type !== "approval_request"
-    )
-    || (meta.connector_name !== undefined && typeof meta.connector_name !== "string")
-    || (meta.tool_name !== undefined && typeof meta.tool_name !== "string")
-    || (meta.tool_title !== undefined && typeof meta.tool_title !== "string")
-    || (meta.persist !== undefined && persist === undefined)
+    meta?.codex_approval_kind !== "mcp_tool_call" ||
+    typeof meta.connector_id !== "string" ||
+    toolParams === null ||
+    (meta.codex_request_type !== undefined && meta.codex_request_type !== "approval_request") ||
+    (meta.connector_name !== undefined && typeof meta.connector_name !== "string") ||
+    (meta.tool_name !== undefined && typeof meta.tool_name !== "string") ||
+    (meta.tool_title !== undefined && typeof meta.tool_title !== "string") ||
+    (meta.persist !== undefined && persist === undefined)
   ) {
     return null;
   }
@@ -395,10 +363,7 @@ function normalizeMcpToolCallApproval(value: JsonValue | null): (
     connector_id: meta.connector_id,
     tool_params: toolParams,
     ...(persist === undefined ? {} : { persist }),
-  } as Extract<
-    CodexCanonicalMcpElicitation,
-    { kind: "mcpToolCall" }
-  >["approval"];
+  } as Extract<CodexCanonicalMcpElicitation, { kind: "mcpToolCall" }>["approval"];
 }
 
 function isStringArray(value: unknown): value is string[] {
@@ -431,8 +396,8 @@ function normalizeOpenAIPrimitiveSchema(value: unknown): JsonValue | null {
   if (!isRecord(value) || typeof value.type !== "string") return null;
   const output: Record<string, JsonValue | undefined> = { type: value.type };
   if (
-    !copyOptionalString(value, output, "title")
-    || !copyOptionalString(value, output, "description")
+    !copyOptionalString(value, output, "title") ||
+    !copyOptionalString(value, output, "description")
   ) {
     return null;
   }
@@ -445,9 +410,9 @@ function normalizeOpenAIPrimitiveSchema(value: unknown): JsonValue | null {
 
   if (value.type === "number" || value.type === "integer") {
     if (
-      !copyOptionalFiniteNumber(value, output, "minimum")
-      || !copyOptionalFiniteNumber(value, output, "maximum")
-      || !copyOptionalFiniteNumber(value, output, "default")
+      !copyOptionalFiniteNumber(value, output, "minimum") ||
+      !copyOptionalFiniteNumber(value, output, "maximum") ||
+      !copyOptionalFiniteNumber(value, output, "default")
     ) {
       return null;
     }
@@ -456,9 +421,9 @@ function normalizeOpenAIPrimitiveSchema(value: unknown): JsonValue | null {
 
   if (value.type === "array") {
     if (
-      !copyOptionalFiniteNumber(value, output, "minItems")
-      || !copyOptionalFiniteNumber(value, output, "maxItems")
-      || (value.default !== undefined && !isStringArray(value.default))
+      !copyOptionalFiniteNumber(value, output, "minItems") ||
+      !copyOptionalFiniteNumber(value, output, "maxItems") ||
+      (value.default !== undefined && !isStringArray(value.default))
     ) {
       return null;
     }
@@ -470,9 +435,9 @@ function normalizeOpenAIPrimitiveSchema(value: unknown): JsonValue | null {
       const anyOf: Array<{ const: string; title: string }> = [];
       for (const entry of items.anyOf) {
         if (
-          !isRecord(entry)
-          || typeof entry.const !== "string"
-          || typeof entry.title !== "string"
+          !isRecord(entry) ||
+          typeof entry.const !== "string" ||
+          typeof entry.title !== "string"
         ) {
           return null;
         }
@@ -497,11 +462,7 @@ function normalizeOpenAIPrimitiveSchema(value: unknown): JsonValue | null {
   if (Array.isArray(value.oneOf)) {
     const oneOf: Array<{ const: string; title: string }> = [];
     for (const entry of value.oneOf) {
-      if (
-        !isRecord(entry)
-        || typeof entry.const !== "string"
-        || typeof entry.title !== "string"
-      ) {
+      if (!isRecord(entry) || typeof entry.const !== "string" || typeof entry.title !== "string") {
         break;
       }
       oneOf.push({ const: entry.const, title: entry.title });
@@ -513,17 +474,17 @@ function normalizeOpenAIPrimitiveSchema(value: unknown): JsonValue | null {
     }
   }
   if (
-    !copyOptionalFiniteNumber(value, output, "minLength")
-    || !copyOptionalFiniteNumber(value, output, "maxLength")
+    !copyOptionalFiniteNumber(value, output, "minLength") ||
+    !copyOptionalFiniteNumber(value, output, "maxLength")
   ) {
     return null;
   }
   if (
-    value.format !== undefined
-    && value.format !== "email"
-    && value.format !== "uri"
-    && value.format !== "date"
-    && value.format !== "date-time"
+    value.format !== undefined &&
+    value.format !== "email" &&
+    value.format !== "uri" &&
+    value.format !== "date" &&
+    value.format !== "date-time"
   ) {
     return null;
   }
@@ -537,10 +498,10 @@ function normalizeOpenAIImagePickerSchema(value: unknown): JsonValue | null {
   const allowedKeys = new Set(["title", "description", "type", "items"]);
   if (Object.keys(value).some((key) => !allowedKeys.has(key))) return null;
   if (
-    (value.title !== undefined && typeof value.title !== "string")
-    || (value.description !== undefined && typeof value.description !== "string")
-    || !Array.isArray(value.items)
-    || value.items.length === 0
+    (value.title !== undefined && typeof value.title !== "string") ||
+    (value.description !== undefined && typeof value.description !== "string") ||
+    !Array.isArray(value.items) ||
+    value.items.length === 0
   ) {
     return null;
   }
@@ -549,17 +510,17 @@ function normalizeOpenAIImagePickerSchema(value: unknown): JsonValue | null {
   const dataImagePattern = /^data:image\/[a-zA-Z0-9.+-]+;base64,[a-zA-Z0-9+/]+={0,2}$/;
   for (const entry of value.items) {
     if (
-      !isRecord(entry)
-      || Object.keys(entry).some((key) => !["id", "title", "image"].includes(key))
-      || typeof entry.id !== "string"
-      || entry.id.trim().length === 0
-      || typeof entry.title !== "string"
-      || entry.title.trim().length === 0
-      || typeof entry.image !== "string"
-      || !dataImagePattern.test(entry.image)
+      !isRecord(entry) ||
+      Object.keys(entry).some((key) => !["id", "title", "image"].includes(key)) ||
+      typeof entry.id !== "string" ||
+      entry.id.trim().length === 0 ||
+      typeof entry.title !== "string" ||
+      entry.title.trim().length === 0 ||
+      typeof entry.image !== "string" ||
+      !dataImagePattern.test(entry.image) ||
       // `DW` validates via `trim()` but preserves the original scalar. The
       // subsequent Set therefore compares the preserved IDs, not trimmed IDs.
-      || ids.has(entry.id)
+      ids.has(entry.id)
     ) {
       return null;
     }
@@ -568,9 +529,7 @@ function normalizeOpenAIImagePickerSchema(value: unknown): JsonValue | null {
   }
   return {
     ...(typeof value.title === "string" ? { title: value.title } : {}),
-    ...(typeof value.description === "string"
-      ? { description: value.description }
-      : {}),
+    ...(typeof value.description === "string" ? { description: value.description } : {}),
     type: "openai/imagePicker",
     items,
   };
@@ -580,18 +539,18 @@ function normalizeOpenAIFormSchema(value: JsonValue): JsonValue | null {
   if (!isRecord(value)) return null;
   const allowedKeys = new Set(["$schema", "type", "properties", "required"]);
   if (
-    Object.keys(value).some((key) => !allowedKeys.has(key))
-    || value.type !== "object"
-    || !isRecord(value.properties)
-    || (value.$schema !== undefined && typeof value.$schema !== "string")
-    || (value.required !== undefined && !isStringArray(value.required))
+    Object.keys(value).some((key) => !allowedKeys.has(key)) ||
+    value.type !== "object" ||
+    !isRecord(value.properties) ||
+    (value.$schema !== undefined && typeof value.$schema !== "string") ||
+    (value.required !== undefined && !isStringArray(value.required))
   ) {
     return null;
   }
   const properties: Record<string, JsonValue | undefined> = {};
   for (const [name, schema] of Object.entries(value.properties)) {
-    const normalized = normalizeOpenAIImagePickerSchema(schema)
-      ?? normalizeOpenAIPrimitiveSchema(schema);
+    const normalized =
+      normalizeOpenAIImagePickerSchema(schema) ?? normalizeOpenAIPrimitiveSchema(schema);
     if (normalized === null) return null;
     properties[name] = normalized;
   }
@@ -654,9 +613,10 @@ export function normalizeCodexCanonicalMcpElicitation(
       url: url.toString(),
       connector: {
         ...connector,
-        install_url: installUrl && isChatGptHostname(installUrl.hostname)
-          ? installUrl.toString()
-          : url.toString(),
+        install_url:
+          installUrl && isChatGptHostname(installUrl.hostname)
+            ? installUrl.toString()
+            : url.toString(),
       },
     };
   }
@@ -698,12 +658,13 @@ export function normalizeCodexCanonicalMcpElicitation(
 
   const meta = toJsonObject(params._meta);
   const persist = normalizePersist(meta?.persist);
-  const appName = params.serverName === "computer-use"
-    && Array.isArray(persist)
-    && persist.includes("always")
-    && Object.keys(params.requestedSchema.properties).length === 0
-    ? /^Allow (?:Codex|ChatGPT) to use (.+)\?$/.exec(params.message)?.[1]?.trim()
-    : null;
+  const appName =
+    params.serverName === "computer-use" &&
+    Array.isArray(persist) &&
+    persist.includes("always") &&
+    Object.keys(params.requestedSchema.properties).length === 0
+      ? /^Allow (?:Codex|ChatGPT) to use (.+)\?$/.exec(params.message)?.[1]?.trim()
+      : null;
   if (appName) {
     return {
       ...displayMeta,
@@ -747,9 +708,11 @@ export function normalizeCodexCanonicalMcpElicitation(
 export function isCodexCanonicalPrivateServerRequest(
   request: CodexCanonicalServerRequest,
 ): request is CodexCanonicalServerRequestExtension {
-  return request.method === "item/tool/requestOptionPicker"
-    || request.method === "item/tool/requestSetupCodexContextPicker"
-    || request.method === "item/plan/requestImplementation";
+  return (
+    request.method === "item/tool/requestOptionPicker" ||
+    request.method === "item/tool/requestSetupCodexContextPicker" ||
+    request.method === "item/plan/requestImplementation"
+  );
 }
 
 export function classifyCodexCanonicalServerRequest(
@@ -853,63 +816,64 @@ function hasOnlyKeys(record: Record<string, unknown>, keys: readonly string[]): 
 
 function isOption(value: unknown): boolean {
   if (!isRecord(value) || typeof value.label !== "string") return false;
-  return value.description === undefined
-    || value.description === null
-    || typeof value.description === "string";
+  return (
+    value.description === undefined ||
+    value.description === null ||
+    typeof value.description === "string"
+  );
 }
 
 function isValidOptionPickerArguments(value: JsonValue): boolean {
   if (!isRecord(value) || typeof value.question !== "string") return false;
   if (!Array.isArray(value.options) || !value.options.every(isOption)) return false;
-  return (value.allowMultiple === undefined || typeof value.allowMultiple === "boolean")
-    && (
-      value.submitLabel === undefined
-      || value.submitLabel === null
-      || typeof value.submitLabel === "string"
-    )
-    && (
-      value.skipLabel === undefined
-      || value.skipLabel === null
-      || typeof value.skipLabel === "string"
-    );
+  return (
+    (value.allowMultiple === undefined || typeof value.allowMultiple === "boolean") &&
+    (value.submitLabel === undefined ||
+      value.submitLabel === null ||
+      typeof value.submitLabel === "string") &&
+    (value.skipLabel === undefined ||
+      value.skipLabel === null ||
+      typeof value.skipLabel === "string")
+  );
 }
 
 function isValidOnboardingArguments(value: JsonValue): boolean {
   if (!isRecord(value) || !hasOnlyKeys(value, ["questions"])) return false;
   if (!Array.isArray(value.questions)) return false;
   if (value.questions.length < 1 || value.questions.length > 3) return false;
-  return value.questions.every((question) => (
-    isRecord(question)
-    && hasOnlyKeys(question, ["id", "header", "question", "options"])
-    && typeof question.id === "string"
-    && (
-      question.header === undefined
-      || question.header === null
-      || typeof question.header === "string"
-    )
-    && typeof question.question === "string"
-    && Array.isArray(question.options)
-    && question.options.length >= 2
-    && question.options.every(isOption)
-  ));
+  return value.questions.every(
+    (question) =>
+      isRecord(question) &&
+      hasOnlyKeys(question, ["id", "header", "question", "options"]) &&
+      typeof question.id === "string" &&
+      (question.header === undefined ||
+        question.header === null ||
+        typeof question.header === "string") &&
+      typeof question.question === "string" &&
+      Array.isArray(question.options) &&
+      question.options.length >= 2 &&
+      question.options.every(isOption),
+  );
 }
 
 function parseSetupStep(value: JsonValue): "role" | "task" | "context" | "complete" | null {
   if (!isRecord(value) || !hasOnlyKeys(value, ["step"])) return null;
-  return value.step === "role"
-    || value.step === "task"
-    || value.step === "context"
-    || value.step === "complete"
+  return value.step === "role" ||
+    value.step === "task" ||
+    value.step === "context" ||
+    value.step === "complete"
     ? value.step
     : null;
 }
 
 function invalidDynamicToolCallResponse(tool: string): DynamicToolCallResponse {
   return {
-    contentItems: [{
-      type: "inputText",
-      text: `${tool} received invalid arguments.`,
-    }],
+    contentItems: [
+      {
+        type: "inputText",
+        text: `${tool} received invalid arguments.`,
+      },
+    ],
     success: false,
   };
 }
@@ -955,12 +919,14 @@ function appendRawStoredRequest(
   state: CodexServerRequestRawState,
   request: CodexCanonicalServerRequest,
 ): CodexServerRequestRawState {
-  const requests = request.method === "item/plan/requestImplementation"
-    ? state.requests.filter((candidate) => (
-        candidate.method !== "item/plan/requestImplementation"
-        || candidate.params.turnId !== request.params.turnId
-      ))
-    : state.requests;
+  const requests =
+    request.method === "item/plan/requestImplementation"
+      ? state.requests.filter(
+          (candidate) =>
+            candidate.method !== "item/plan/requestImplementation" ||
+            candidate.params.turnId !== request.params.turnId,
+        )
+      : state.requests;
   return {
     ...state,
     requests: [...requests, request],
@@ -990,21 +956,23 @@ function resolveRawSyntheticTurn(
   const exactIndex = findLastRawTurnIndexById(turns, turnId);
   if (exactIndex >= 0) return { turns, index: exactIndex };
   if (
-    turns.length !== 1
-    || latest.turnId !== null
-    || latest.status !== "completed"
-    || latest.hasError
-    || latest.items.length !== 0
+    turns.length !== 1 ||
+    latest.turnId !== null ||
+    latest.status !== "completed" ||
+    latest.hasError ||
+    latest.items.length !== 0
   ) {
     return null;
   }
   return {
-    turns: [{
-      ...latest,
-      turnId,
-      status: "inProgress",
-      turnStartedAtMs: latest.turnStartedAtMs ?? context.now(),
-    }],
+    turns: [
+      {
+        ...latest,
+        turnId,
+        status: "inProgress",
+        turnStartedAtMs: latest.turnStartedAtMs ?? context.now(),
+      },
+    ],
     index: 0,
   };
 }
@@ -1079,12 +1047,14 @@ function reduceRawDynamicToolCallRequest(
   if (isCodexAppTool("setup_codex_step")) {
     const step = parseSetupStep(args);
     if (step === null) {
-      return emptyRawResult(state, "responded", [{
+      return emptyRawResult(state, "responded", [
+        {
           type: "respond",
           method: request.method,
           requestId: request.id,
           response: invalidDynamicToolCallResponse(tool),
-      }]);
+        },
+      ]);
     }
     if (step !== "complete") {
       return changedRawResult(appendRawStoredRequest(state, request), "stored");
@@ -1092,9 +1062,9 @@ function reduceRawDynamicToolCallRequest(
   }
 
   if (
-    isCodexAppTool("request_option_picker")
-    || isCodexAppTool("request_onboarding_input")
-    || isCodexAppTool("setup_codex_context_picker")
+    isCodexAppTool("request_option_picker") ||
+    isCodexAppTool("request_onboarding_input") ||
+    isCodexAppTool("setup_codex_context_picker")
   ) {
     const valid = isCodexAppTool("request_option_picker")
       ? isValidOptionPickerArguments(args)
@@ -1102,21 +1072,19 @@ function reduceRawDynamicToolCallRequest(
         ? isValidOnboardingArguments(args)
         : true;
     if (!valid) {
-      return emptyRawResult(state, "responded", [{
+      return emptyRawResult(state, "responded", [
+        {
           type: "respond",
           method: request.method,
           requestId: request.id,
           response: invalidDynamicToolCallResponse(tool),
-      }]);
+        },
+      ]);
     }
     return changedRawResult(appendRawStoredRequest(state, request), "stored");
   }
 
-  return emptyRawResult(
-    state,
-    "dispatched",
-    [{ type: "dispatchDynamicToolCall", request }],
-  );
+  return emptyRawResult(state, "dispatched", [{ type: "dispatchDynamicToolCall", request }]);
 }
 
 export function reduceCodexServerRequestRawState(
@@ -1178,12 +1146,14 @@ export function reduceCodexServerRequestRawState(
         context.isOpenAIFormElicitationsEnabled ?? true,
       );
       if (!elicitation) {
-        return emptyRawResult(state, "responded", [{
+        return emptyRawResult(state, "responded", [
+          {
             type: "respond",
             method: request.method,
             requestId: request.id,
             response: { action: "decline", content: null, _meta: null },
-        }]);
+          },
+        ]);
       }
       const turnId = request.params.turnId;
       const stored = storeRawSyntheticRequest(
@@ -1198,12 +1168,14 @@ export function reduceCodexServerRequestRawState(
       });
     }
     case "currentTime/read":
-      return emptyRawResult(state, "responded", [{
+      return emptyRawResult(state, "responded", [
+        {
           type: "respond",
           method: request.method,
           requestId: request.id,
           response: { currentTimeAt: Math.floor(context.now() / 1_000) },
-      }]);
+        },
+      ]);
     case "account/chatgptAuthTokens/refresh":
     case "attestation/generate":
     case "applyPatchApproval":
@@ -1271,13 +1243,14 @@ export function reduceCodexServerRequestResolvedRawState(
   const requestId = notification.params.requestId;
   const firstRequest = state.requests.find((request) => request.id === requestId);
   const completed = completeRawResolvedRequestSynthetic(state, firstRequest, context);
-  return changedRawResult(removeCodexServerRequestsByIdRawState(
-    completed.state,
-    requestId,
-  ), "resolved", {
-    turnMutations: completed.turnMutations,
-    selectedRequests: firstRequest ? [firstRequest] : [],
-  });
+  return changedRawResult(
+    removeCodexServerRequestsByIdRawState(completed.state, requestId),
+    "resolved",
+    {
+      turnMutations: completed.turnMutations,
+      selectedRequests: firstRequest ? [firstRequest] : [],
+    },
+  );
 }
 
 export function removeCodexServerRequestsByIdRawState(
@@ -1321,10 +1294,9 @@ function findFirstOrdinaryReplyRequest(
   requests: readonly CodexCanonicalServerRequest[],
   requestId: RequestId,
 ): CodexCanonicalServerRequest | undefined {
-  return requests.find((request) => (
-    request.id === requestId
-    && request.method !== "item/plan/requestImplementation"
-  ));
+  return requests.find(
+    (request) => request.id === requestId && request.method !== "item/plan/requestImplementation",
+  );
 }
 
 export function reduceCodexServerRequestApprovalResponseRawState(
@@ -1385,12 +1357,7 @@ export function reduceCodexServerRequestUserInputResponseRawState(
   const upserted = upsertRawRequestSynthetic(
     state,
     request.params.turnId,
-    buildUserInputSynthetic(
-      request.id,
-      request.params,
-      true,
-      normalizeUserInputAnswers(answers),
-    ),
+    buildUserInputSynthetic(request.id, request.params, true, normalizeUserInputAnswers(answers)),
     context,
   );
   return selectedRawReplyResult(
@@ -1404,11 +1371,13 @@ function isStoredDynamicToolRequest(
   request: CodexCanonicalServerRequest | undefined,
   tool: "request_onboarding_input" | "setup_codex_step",
 ): request is DynamicToolCallRequest {
-  return request?.method === "item/tool/call"
-    && hasCodexDynamicToolIdentity(request.params, {
+  return (
+    request?.method === "item/tool/call" &&
+    hasCodexDynamicToolIdentity(request.params, {
       namespace: CODEX_APP_TOOL_NAMESPACE,
       tool,
-    });
+    })
+  );
 }
 
 export function reduceCodexServerRequestOnboardingInputResponseRawState(
@@ -1449,14 +1418,13 @@ function reduceCodexServerRequestStoredPickerResponseRawState(
   },
 ): CodexServerRequestRawLifecycleResult {
   const request = state.requests.find((candidate) => candidate.id === requestId);
-  const supported = request?.method === expected.directMethod
-    || (
-      request?.method === "item/tool/call"
-      && hasCodexDynamicToolIdentity(request.params, {
+  const supported =
+    request?.method === expected.directMethod ||
+    (request?.method === "item/tool/call" &&
+      hasCodexDynamicToolIdentity(request.params, {
         namespace: CODEX_APP_TOOL_NAMESPACE,
         tool: expected.dynamicTool,
-      })
-    );
+      }));
   if (!request || !supported) return emptyRawResult(state, "ignored");
   return selectedRawReplyResult(state, [request]);
 }
@@ -1487,8 +1455,7 @@ function sameStringSet(
 ): boolean {
   const leftSet = new Set(left ?? []);
   const rightSet = new Set(right ?? []);
-  return leftSet.size === rightSet.size
-    && [...leftSet].every((value) => rightSet.has(value));
+  return leftSet.size === rightSet.size && [...leftSet].every((value) => rightSet.has(value));
 }
 
 function equivalentConnectorAuthRequests(
@@ -1501,13 +1468,10 @@ function equivalentConnectorAuthRequests(
     if (candidate.method !== "mcpServer/elicitation/request") return [];
     const other = normalizeCodexCanonicalMcpElicitation(candidate.params);
     if (other?.kind !== "connectorAuth") return [];
-    return normalized.connector.connector_id === other.connector.connector_id
-      && normalized.connector.link_id === other.connector.link_id
-      && normalized.connector.auth_reason === other.connector.auth_reason
-      && sameStringSet(
-        normalized.connector.requested_scopes,
-        other.connector.requested_scopes,
-      )
+    return normalized.connector.connector_id === other.connector.connector_id &&
+      normalized.connector.link_id === other.connector.link_id &&
+      normalized.connector.auth_reason === other.connector.auth_reason &&
+      sameStringSet(normalized.connector.requested_scopes, other.connector.requested_scopes)
       ? [candidate]
       : [];
   });
@@ -1523,9 +1487,10 @@ export function reduceCodexServerRequestMcpElicitationResponseRawState(
   if (request?.method !== "mcpServer/elicitation/request") {
     return emptyRawResult(state, "ignored");
   }
-  const selectedRequests = response.action === "accept"
-    ? equivalentConnectorAuthRequests(request, state.requests)
-    : [request];
+  const selectedRequests =
+    response.action === "accept"
+      ? equivalentConnectorAuthRequests(request, state.requests)
+      : [request];
   let nextState = state;
   const turnMutations: CodexServerRequestRawTurnMutation[] = [];
   for (const selected of selectedRequests) {
@@ -1535,13 +1500,7 @@ export function reduceCodexServerRequestMcpElicitationResponseRawState(
       const upserted = upsertRawRequestSynthetic(
         nextState,
         turnId,
-        buildMcpSynthetic(
-          selected.id,
-          selected.params,
-          true,
-          elicitation,
-          response.action,
-        ),
+        buildMcpSynthetic(selected.id, selected.params, true, elicitation, response.action),
         context,
       );
       nextState = upserted.state;
@@ -1600,9 +1559,7 @@ function applyCanonicalRawRequestState(
         ...(nextRawTurn.hookRuns === undefined
           ? {}
           : {
-              hookRuns: nextRawTurn.hookRuns as CodexCanonicalTurnState[
-                "sidecar"
-              ]["hookRuns"],
+              hookRuns: nextRawTurn.hookRuns as CodexCanonicalTurnState["sidecar"]["hookRuns"],
             }),
       },
     };
@@ -1621,9 +1578,7 @@ function wrapCanonicalRawResult(
   result: CodexServerRequestRawLifecycleResult,
 ): CodexServerRequestLifecycleResult {
   return {
-    state: result.stateChanged
-      ? applyCanonicalRawRequestState(state, source, result.state)
-      : state,
+    state: result.stateChanged ? applyCanonicalRawRequestState(state, source, result.state) : state,
     effects: result.effects,
     disposition: result.disposition,
     stateChanged: result.stateChanged,
@@ -1646,9 +1601,8 @@ export function reduceCodexConversationServerRequest(
   request: CodexCanonicalServerRequest,
   context: CodexServerRequestLifecycleContext,
 ): CodexServerRequestLifecycleResult {
-  return reduceCanonicalViaRaw(
-    state,
-    (raw) => reduceCodexServerRequestRawState(raw, request, context),
+  return reduceCanonicalViaRaw(state, (raw) =>
+    reduceCodexServerRequestRawState(raw, request, context),
   );
 }
 
@@ -1657,9 +1611,8 @@ export function reduceCodexConversationServerRequestResolved(
   notification: CodexServerRequestResolvedNotification,
   context: CodexServerRequestLifecycleContext,
 ): CodexServerRequestLifecycleResult {
-  return reduceCanonicalViaRaw(
-    state,
-    (raw) => reduceCodexServerRequestResolvedRawState(raw, notification, context),
+  return reduceCanonicalViaRaw(state, (raw) =>
+    reduceCodexServerRequestResolvedRawState(raw, notification, context),
   );
 }
 
@@ -1668,13 +1621,8 @@ export function reduceCodexConversationApprovalResponse(
   requestId: RequestId,
   expectedMethod: CodexApprovalRequestMethod,
 ): CodexServerRequestLifecycleResult {
-  return reduceCanonicalViaRaw(
-    state,
-    (raw) => reduceCodexServerRequestApprovalResponseRawState(
-      raw,
-      requestId,
-      expectedMethod,
-    ),
+  return reduceCanonicalViaRaw(state, (raw) =>
+    reduceCodexServerRequestApprovalResponseRawState(raw, requestId, expectedMethod),
   );
 }
 
@@ -1684,14 +1632,8 @@ export function reduceCodexConversationPermissionResponse(
   response: PermissionsRequestApprovalResponse,
   context: CodexServerRequestLifecycleContext,
 ): CodexServerRequestLifecycleResult {
-  return reduceCanonicalViaRaw(
-    state,
-    (raw) => reduceCodexServerRequestPermissionResponseRawState(
-      raw,
-      requestId,
-      response,
-      context,
-    ),
+  return reduceCanonicalViaRaw(state, (raw) =>
+    reduceCodexServerRequestPermissionResponseRawState(raw, requestId, response, context),
   );
 }
 
@@ -1701,14 +1643,8 @@ export function reduceCodexConversationUserInputResponse(
   answers: Readonly<Record<string, readonly string[] | undefined>>,
   context: CodexServerRequestLifecycleContext,
 ): CodexServerRequestLifecycleResult {
-  return reduceCanonicalViaRaw(
-    state,
-    (raw) => reduceCodexServerRequestUserInputResponseRawState(
-      raw,
-      requestId,
-      answers,
-      context,
-    ),
+  return reduceCanonicalViaRaw(state, (raw) =>
+    reduceCodexServerRequestUserInputResponseRawState(raw, requestId, answers, context),
   );
 }
 
@@ -1718,14 +1654,8 @@ export function reduceCodexConversationMcpElicitationResponse(
   response: McpServerElicitationRequestResponse,
   context: CodexServerRequestLifecycleContext,
 ): CodexServerRequestLifecycleResult {
-  return reduceCanonicalViaRaw(
-    state,
-    (raw) => reduceCodexServerRequestMcpElicitationResponseRawState(
-      raw,
-      requestId,
-      response,
-      context,
-    ),
+  return reduceCanonicalViaRaw(state, (raw) =>
+    reduceCodexServerRequestMcpElicitationResponseRawState(raw, requestId, response, context),
   );
 }
 
@@ -1733,9 +1663,8 @@ export function reduceCodexConversationOnboardingInputResponse(
   state: CodexCanonicalConversationState,
   requestId: RequestId,
 ): CodexServerRequestLifecycleResult {
-  return reduceCanonicalViaRaw(
-    state,
-    (raw) => reduceCodexServerRequestOnboardingInputResponseRawState(raw, requestId),
+  return reduceCanonicalViaRaw(state, (raw) =>
+    reduceCodexServerRequestOnboardingInputResponseRawState(raw, requestId),
   );
 }
 
@@ -1744,13 +1673,8 @@ export function reduceCodexConversationSetupCodexStepResponse(
   requestId: RequestId,
   response: CodexCanonicalSetupCodexStepResponse,
 ): CodexServerRequestLifecycleResult {
-  return reduceCanonicalViaRaw(
-    state,
-    (raw) => reduceCodexServerRequestSetupCodexStepResponseRawState(
-      raw,
-      requestId,
-      response,
-    ),
+  return reduceCanonicalViaRaw(state, (raw) =>
+    reduceCodexServerRequestSetupCodexStepResponseRawState(raw, requestId, response),
   );
 }
 
@@ -1758,9 +1682,8 @@ export function reduceCodexConversationOptionPickerResponse(
   state: CodexCanonicalConversationState,
   requestId: RequestId,
 ): CodexServerRequestLifecycleResult {
-  return reduceCanonicalViaRaw(
-    state,
-    (raw) => reduceCodexServerRequestOptionPickerResponseRawState(raw, requestId),
+  return reduceCanonicalViaRaw(state, (raw) =>
+    reduceCodexServerRequestOptionPickerResponseRawState(raw, requestId),
   );
 }
 
@@ -1768,9 +1691,8 @@ export function reduceCodexConversationSetupContextPickerResponse(
   state: CodexCanonicalConversationState,
   requestId: RequestId,
 ): CodexServerRequestLifecycleResult {
-  return reduceCanonicalViaRaw(
-    state,
-    (raw) => reduceCodexServerRequestSetupContextPickerResponseRawState(raw, requestId),
+  return reduceCanonicalViaRaw(state, (raw) =>
+    reduceCodexServerRequestSetupContextPickerResponseRawState(raw, requestId),
   );
 }
 
@@ -1781,10 +1703,10 @@ export function completeCodexPlanImplementationRequestRawState(
 ): CodexServerRequestRawState {
   return {
     ...state,
-    requests: state.requests.filter((request) => (
-      request.method !== "item/plan/requestImplementation"
-      || request.params.turnId !== turnId
-    )),
+    requests: state.requests.filter(
+      (request) =>
+        request.method !== "item/plan/requestImplementation" || request.params.turnId !== turnId,
+    ),
   };
 }
 
@@ -1795,10 +1717,11 @@ export function applyCodexPlanImplementationTurnStartedRawState(
 ): CodexServerRequestRawState {
   return {
     ...state,
-    requests: state.requests.filter((request) => (
-      request.method !== "item/plan/requestImplementation"
-      || request.params.turnId === activeTurnId
-    )),
+    requests: state.requests.filter(
+      (request) =>
+        request.method !== "item/plan/requestImplementation" ||
+        request.params.turnId === activeTurnId,
+    ),
   };
 }
 

@@ -2,10 +2,7 @@ import type { RefObject } from "react";
 import { libraryContentAccess } from "../../../shared/content-access-context";
 import type { PageCreateDescriptionDraft } from "@/lib/page-create-draft";
 import { PAGE_DESCRIPTION_PLACEHOLDER } from "@/lib/page-description-placeholder";
-import {
-  NfmEditor,
-  type NfmEditorBoundaryHandle,
-} from "./editor/nfm-editor";
+import { NfmEditor, type NfmEditorBoundaryHandle } from "./editor/nfm-editor";
 
 interface PageCreateDescriptionEditorProps {
   readonly draft: PageCreateDescriptionDraft;

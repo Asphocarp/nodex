@@ -14,10 +14,7 @@ import {
   parseDataSourceId,
   parseDataSourcePropertyId,
 } from "../../../../shared/database-identities";
-import type {
-  PageDetailResult,
-  PageIntrinsicProperty,
-} from "../../../../shared/page-detail";
+import type { PageDetailResult, PageIntrinsicProperty } from "../../../../shared/page-detail";
 import type { DatabasePage } from "@/lib/types";
 import { testPropertySemantics } from "../../../../shared/testing/database-property-record";
 import { authorizedReadStampFixture } from "../../../../shared/testing/authorized-read-stamp-fixture";
@@ -48,13 +45,14 @@ export const buildPageDetailStoryResult = (
   const databaseId = parseDatabaseId("019f714b-0000-7000-8000-000000000011");
   const dataSourceId = parseDataSourceId("019f714b-0000-7000-8000-000000000012");
   const viewId = parseDatabaseViewId("019f714b-0000-7000-8000-000000000013");
-  const intrinsic = (
-    key: string,
-    value: unknown,
-  ): PageIntrinsicProperty => ({
+  const intrinsic = (key: string, value: unknown): PageIntrinsicProperty => ({
     key,
-    valueType: value && typeof value === "object" ? "json" :
-      value === null ? "null" : typeof value as "boolean" | "number" | "string",
+    valueType:
+      value && typeof value === "object"
+        ? "json"
+        : value === null
+          ? "null"
+          : (typeof value as "boolean" | "number" | "string"),
     revision: 1,
     value: value as BlockPropertyJsonValue,
   });
@@ -67,10 +65,7 @@ export const buildPageDetailStoryResult = (
     propertyId: parseDataSourcePropertyId(key),
     dataSourceId,
     name,
-    ...testPropertySemantics(
-      valueType,
-      Array.isArray(config.options) ? config.options.length : 0,
-    ),
+    ...testPropertySemantics(valueType, Array.isArray(config.options) ? config.options.length : 0),
     valueType,
     config,
     rankKey: key,
@@ -80,30 +75,38 @@ export const buildPageDetailStoryResult = (
     updatedAt: page.created.toISOString(),
   });
   const properties = [
-    property("status", "select", { options: [
-      { id: "triage", name: "Triage" },
-      { id: "plan", name: "Plan" },
-      { id: "build", name: "Build" },
-      { id: "review", name: "Review" },
-      { id: "ship", name: "Ship" },
-    ] }),
-    property("priority", "select", { options: [
-      { id: "p0-critical", name: "Critical" },
-      { id: "p1-high", name: "High" },
-      { id: "p2-medium", name: "Medium" },
-      { id: "p3-low", name: "Low" },
-    ] }),
-    property("estimate", "select", { options: [
-      { id: "xs", name: "XS" },
-      { id: "s", name: "S" },
-      { id: "m", name: "M" },
-      { id: "l", name: "L" },
-      { id: "xl", name: "XL" },
-    ] }),
-    property("tags", "multi_select", { options: page.tags.map((tag) => ({
-      id: tag,
-      name: tag,
-    })) }),
+    property("status", "select", {
+      options: [
+        { id: "triage", name: "Triage" },
+        { id: "plan", name: "Plan" },
+        { id: "build", name: "Build" },
+        { id: "review", name: "Review" },
+        { id: "ship", name: "Ship" },
+      ],
+    }),
+    property("priority", "select", {
+      options: [
+        { id: "p0-critical", name: "Critical" },
+        { id: "p1-high", name: "High" },
+        { id: "p2-medium", name: "Medium" },
+        { id: "p3-low", name: "Low" },
+      ],
+    }),
+    property("estimate", "select", {
+      options: [
+        { id: "xs", name: "XS" },
+        { id: "s", name: "S" },
+        { id: "m", name: "M" },
+        { id: "l", name: "L" },
+        { id: "xl", name: "XL" },
+      ],
+    }),
+    property("tags", "multi_select", {
+      options: page.tags.map((tag) => ({
+        id: tag,
+        name: tag,
+      })),
+    }),
     property("due_date", "date"),
     property("scheduled_start", "datetime"),
     property("scheduled_end", "datetime"),
@@ -114,9 +117,7 @@ export const buildPageDetailStoryResult = (
   ];
   const values: Record<string, DataSourcePageValueV2> = {};
   const putValue = (key: string, value: DatabaseJsonValue): void => {
-    const definition = properties.find(
-      (candidate) => candidate.propertyId === key,
-    );
+    const definition = properties.find((candidate) => candidate.propertyId === key);
     if (!definition) return;
     values[definition.propertyId] = {
       propertyId: definition.propertyId,

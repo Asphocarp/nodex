@@ -67,7 +67,10 @@ function makeMcpItem(
   } as unknown as CodexConversationItem;
 }
 
-function makeWebItem(itemId: string, action: Record<string, unknown> | null): CodexConversationItem {
+function makeWebItem(
+  itemId: string,
+  action: Record<string, unknown> | null,
+): CodexConversationItem {
   return {
     itemId,
     type: "webSearch",
@@ -101,24 +104,28 @@ function makeMcpAppItem(itemId: string): CodexConversationItem {
       },
       result: {
         type: "success",
-        content: [{
-          type: "embedded_resource",
-          resource: {
-            uri: "ui://docs/search.html",
-            mimeType: "text/html;profile=mcp-app",
-            text: "<main>Docs app</main>",
-          },
-        }],
-        structuredContent: null,
-        raw: {
-          content: [{
+        content: [
+          {
             type: "embedded_resource",
             resource: {
               uri: "ui://docs/search.html",
               mimeType: "text/html;profile=mcp-app",
               text: "<main>Docs app</main>",
             },
-          }],
+          },
+        ],
+        structuredContent: null,
+        raw: {
+          content: [
+            {
+              type: "embedded_resource",
+              resource: {
+                uri: "ui://docs/search.html",
+                mimeType: "text/html;profile=mcp-app",
+                text: "<main>Docs app</main>",
+              },
+            },
+          ],
           structuredContent: null,
           _meta: { "openai/outputTemplate": "ui://docs/search.html" },
         },
@@ -136,30 +143,35 @@ function makeMcpAppItem(itemId: string): CodexConversationItem {
 
 describe("buildThreadSummaryPanelSourceModel", () => {
   test("orders source items by CodexElectron tool-first latest traversal and dedupes by source id", () => {
-    const model = buildThreadSummaryPanelSourceModel([
-      makeTurn([
-        makeMcpItem("older-context7", "context7"),
-        makeWebItem("older-page", { type: "openPage", url: "https://www.example.com/docs" }),
-      ]),
-      makeTurn([
-        makeMcpItem("newer-context7", "context7"),
-        makeMcpItem("docs", "docs", {
-          source: {
-            key: "docs-source",
-            name: "Docs",
-            logoUrl: "https://example.test/docs-light.png",
-            logoUrlDark: "https://example.test/docs-dark.png",
-          },
-        }),
-        makeMcpItem("node-repl", "node_repl"),
-        makeWebItem("newer-page", { type: "findInPage", url: "https://www.example.com/docs" }),
-      ]),
-    ], [makeApp("connector_docs", "Docs", "https://example.test/docs-light.png")]);
+    const model = buildThreadSummaryPanelSourceModel(
+      [
+        makeTurn([
+          makeMcpItem("older-context7", "context7"),
+          makeWebItem("older-page", { type: "openPage", url: "https://www.example.com/docs" }),
+        ]),
+        makeTurn([
+          makeMcpItem("newer-context7", "context7"),
+          makeMcpItem("docs", "docs", {
+            source: {
+              key: "docs-source",
+              name: "Docs",
+              logoUrl: "https://example.test/docs-light.png",
+              logoUrlDark: "https://example.test/docs-dark.png",
+            },
+          }),
+          makeMcpItem("node-repl", "node_repl"),
+          makeWebItem("newer-page", { type: "findInPage", url: "https://www.example.com/docs" }),
+        ]),
+      ],
+      [makeApp("connector_docs", "Docs", "https://example.test/docs-light.png")],
+    );
 
     expect(model.count).toBe(4);
-    expect(model.items.map((item) => `${item.kind}:${item.label}:${item.openAction?.type ?? "none"}`).join("|")).toBe(
-      "tool:Node Repl:none|tool:Docs:none|tool:Context7:none|webPage:example.com/docs:url",
-    );
+    expect(
+      model.items
+        .map((item) => `${item.kind}:${item.label}:${item.openAction?.type ?? "none"}`)
+        .join("|"),
+    ).toBe("tool:Node Repl:none|tool:Docs:none|tool:Context7:none|webPage:example.com/docs:url");
     expect(model.items[1]?.logoUrl).toBe("https://example.test/docs-light.png");
     expect(model.items[1]?.logoUrlDark).toBe("https://example.test/docs-light.png-dark");
     const pageAction = model.items[3]?.openAction;
@@ -175,9 +187,11 @@ describe("buildThreadSummaryPanelSourceModel", () => {
     ]);
 
     expect(model.count).toBe(1);
-    expect(model.items.map((item) => `${item.kind}:${item.label}:${item.openAction?.type ?? "none"}`).join("|")).toBe(
-      "webSearch:Web search:none",
-    );
+    expect(
+      model.items
+        .map((item) => `${item.kind}:${item.label}:${item.openAction?.type ?? "none"}`)
+        .join("|"),
+    ).toBe("webSearch:Web search:none");
   });
 
   test("builds MCP app open actions from embedded HTML resources", () => {
@@ -191,7 +205,9 @@ describe("buildThreadSummaryPanelSourceModel", () => {
     expect(model.count).toBe(1);
     expect(model.items[0]?.label).toBe("Docs");
     expect(action?.type).toBe("mcpApp");
-    expect(action?.type === "mcpApp" ? action.input.mcpAppId : "").toBe("docs:ui://docs/search.html");
+    expect(action?.type === "mcpApp" ? action.input.mcpAppId : "").toBe(
+      "docs:ui://docs/search.html",
+    );
     expect(action?.type === "mcpApp" ? action.input.capabilityId : "").toBe(
       "mcp-capability:thread-1:docs:search:call-1:ui%3A%2F%2Fdocs%2Fsearch.html",
     );
@@ -201,7 +217,10 @@ describe("buildThreadSummaryPanelSourceModel", () => {
   test("falls back to the web search aggregate for non-reference page urls", () => {
     const model = buildThreadSummaryPanelSourceModel([
       makeTurn([
-        makeWebItem("credentialed", { type: "openPage", url: "https://user:pass@example.com/docs" }),
+        makeWebItem("credentialed", {
+          type: "openPage",
+          url: "https://user:pass@example.com/docs",
+        }),
         makeWebItem("non-http", { type: "findInPage", url: "file:///tmp/page.html" }),
       ]),
     ]);
@@ -213,7 +232,9 @@ describe("buildThreadSummaryPanelSourceModel", () => {
 
   test("returns an empty model when the thread has no tool or web sources", () => {
     const model = buildThreadSummaryPanelSourceModel([
-      makeTurn([{ itemId: "assistant", type: "assistantMessage" } as unknown as CodexConversationItem]),
+      makeTurn([
+        { itemId: "assistant", type: "assistantMessage" } as unknown as CodexConversationItem,
+      ]),
     ]);
 
     expect(model.count).toBe(0);

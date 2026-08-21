@@ -10,12 +10,7 @@ export interface RequiredGateVerification {
   readonly selectedGates: readonly string[];
 }
 
-const GITHUB_JOB_RESULTS = new Set<GitHubJobResult>([
-  "cancelled",
-  "failure",
-  "skipped",
-  "success",
-]);
+const GITHUB_JOB_RESULTS = new Set<GitHubJobResult>(["cancelled", "failure", "skipped", "success"]);
 
 const requireGitHubJobResult = (value: unknown, label: string): GitHubJobResult => {
   if (typeof value === "string" && GITHUB_JOB_RESULTS.has(value as GitHubJobResult)) {
@@ -53,25 +48,26 @@ interface GitHubNeedsJob {
 export const requiredGateNames = (
   availableGateNames: readonly string[],
   rawPlan: unknown | undefined,
-): readonly string[] => rawPlan === undefined
-  ? availableGateNames
-  : requiredJobIdsForGatePlan(parseCiGatePlan(rawPlan));
+): readonly string[] =>
+  rawPlan === undefined ? availableGateNames : requiredJobIdsForGatePlan(parseCiGatePlan(rawPlan));
 
 const parseNeeds = (value: string): Readonly<Record<string, GitHubNeedsJob>> => {
   const parsed: unknown = JSON.parse(value);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error("CI_NEEDS_JSON must be a JSON object.");
   }
-  return Object.fromEntries(Object.entries(parsed).map(([name, candidate]) => {
-    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
-      throw new Error(`CI_NEEDS_JSON.${name} must be an object.`);
-    }
-    const result = requireGitHubJobResult(
-      (candidate as Readonly<Record<string, unknown>>).result,
-      `CI_NEEDS_JSON.${name}`,
-    );
-    return [name, { result }];
-  }));
+  return Object.fromEntries(
+    Object.entries(parsed).map(([name, candidate]) => {
+      if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) {
+        throw new Error(`CI_NEEDS_JSON.${name} must be an object.`);
+      }
+      const result = requireGitHubJobResult(
+        (candidate as Readonly<Record<string, unknown>>).result,
+        `CI_NEEDS_JSON.${name}`,
+      );
+      return [name, { result }];
+    }),
+  );
 };
 
 const main = (): void => {

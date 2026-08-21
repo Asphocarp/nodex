@@ -19,71 +19,117 @@ function makeMove(placement: Record<string, unknown>) {
 
 describe("Codex sidebar thread move contract", () => {
   test("accepts each exact placement variant", () => {
-    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
-      beforeThreadId: "thread-2",
-    })).success).toBe(true);
-    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
-      beforeThreadId: null,
-      afterThreadId: "thread-2",
-    })).success).toBe(true);
-    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
-      beforeThreadId: null,
-      insertAtEnd: true,
-    })).success).toBe(true);
-    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
-      beforeThreadId: null,
-      useDefaultOrder: true,
-    })).success).toBe(true);
-    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
-      beforeThreadId: null,
-    })).success).toBe(true);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse(
+        makeMove({
+          beforeThreadId: "thread-2",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse(
+        makeMove({
+          beforeThreadId: null,
+          afterThreadId: "thread-2",
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse(
+        makeMove({
+          beforeThreadId: null,
+          insertAtEnd: true,
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse(
+        makeMove({
+          beforeThreadId: null,
+          useDefaultOrder: true,
+        }),
+      ).success,
+    ).toBe(true);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse(
+        makeMove({
+          beforeThreadId: null,
+        }),
+      ).success,
+    ).toBe(true);
   });
 
   test("rejects ambiguous placement and malformed containers", () => {
-    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
-      beforeThreadId: null,
-      afterThreadId: "thread-2",
-      insertAtEnd: true,
-    })).success).toBe(false);
-    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
-      beforeThreadId: "thread-3",
-      afterThreadId: "thread-2",
-    })).success).toBe(false);
-    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
-      beforeThreadId: null,
-      insertAtEnd: true,
-      useDefaultOrder: true,
-    })).success).toBe(false);
-    expect(CodexSidebarThreadMoveInputSchema.safeParse({
-      ...makeMove({ beforeThreadId: null }),
-      targetContainerId: "project:",
-    }).success).toBe(false);
-    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
-      beforeThreadId: "thread-1",
-    })).success).toBe(false);
-    expect(CodexSidebarThreadMoveInputSchema.safeParse(makeMove({
-      beforeThreadId: null,
-      afterThreadId: "thread-1",
-    })).success).toBe(false);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse(
+        makeMove({
+          beforeThreadId: null,
+          afterThreadId: "thread-2",
+          insertAtEnd: true,
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse(
+        makeMove({
+          beforeThreadId: "thread-3",
+          afterThreadId: "thread-2",
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse(
+        makeMove({
+          beforeThreadId: null,
+          insertAtEnd: true,
+          useDefaultOrder: true,
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse({
+        ...makeMove({ beforeThreadId: null }),
+        targetContainerId: "project:",
+      }).success,
+    ).toBe(false);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse(
+        makeMove({
+          beforeThreadId: "thread-1",
+        }),
+      ).success,
+    ).toBe(false);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse(
+        makeMove({
+          beforeThreadId: null,
+          afterThreadId: "thread-1",
+        }),
+      ).success,
+    ).toBe(false);
   });
 
   test("accepts only a bounded, revision-fenced Project access grant", () => {
-    expect(CodexSidebarThreadMoveInputSchema.safeParse({
-      ...makeMove({ beforeThreadId: null }),
-      projectAccessGrant: {
-        targetProjectId: "beta",
-        expectedBindingRevision: 3,
-        missingProjectSources: ["/repo/alpha"],
-      },
-    }).success).toBe(true);
-    expect(CodexSidebarThreadMoveInputSchema.safeParse({
-      ...makeMove({ beforeThreadId: null }),
-      projectAccessGrant: {
-        targetProjectId: "beta",
-        expectedBindingRevision: 0,
-        missingProjectSources: [],
-      },
-    }).success).toBe(false);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse({
+        ...makeMove({ beforeThreadId: null }),
+        projectAccessGrant: {
+          targetProjectId: "beta",
+          expectedBindingRevision: 3,
+          missingProjectSources: ["/repo/alpha"],
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      CodexSidebarThreadMoveInputSchema.safeParse({
+        ...makeMove({ beforeThreadId: null }),
+        projectAccessGrant: {
+          targetProjectId: "beta",
+          expectedBindingRevision: 0,
+          missingProjectSources: [],
+        },
+      }).success,
+    ).toBe(false);
   });
 
   test("projects every local container onto orthogonal membership and pin lanes", () => {

@@ -41,13 +41,11 @@ function preloadRuntime(): Promise<readonly [RendererModule, GlyphModule]> {
 }
 
 function readElementColor(element: HTMLElement): readonly [number, number, number] {
-  const channels = getComputedStyle(element).color.match(/[\d.]+/g)?.slice(0, 3);
+  const channels = getComputedStyle(element)
+    .color.match(/[\d.]+/g)
+    ?.slice(0, 3);
   if (!channels || channels.length !== 3) return [223 / 255, 223 / 255, 223 / 255];
-  return [
-    Number(channels[0]) / 255,
-    Number(channels[1]) / 255,
-    Number(channels[2]) / 255,
-  ];
+  return [Number(channels[0]) / 255, Number(channels[1]) / 255, Number(channels[2]) / 255];
 }
 
 export function NodexHomeMark() {
@@ -102,10 +100,7 @@ export function NodexHomeMark() {
   };
 
   const resetSvgPrompt = useCallback(() => {
-    const prompt = [
-      "M305 352L411 438.203L305 535",
-      "M458.035 565.638L579.966 558.361",
-    ];
+    const prompt = ["M305 352L411 438.203L305 535", "M458.035 565.638L579.966 558.361"];
     for (let index = 0; index < glyphPathRefs.current.length; index += 1) {
       const path = glyphPathRefs.current[index];
       if (!path) continue;
@@ -115,10 +110,7 @@ export function NodexHomeMark() {
         continue;
       }
       path.setAttribute("d", d);
-      path.setAttribute(
-        "transform",
-        "translate(400 400) scale(1.17) translate(-400 -400)",
-      );
+      path.setAttribute("transform", "translate(400 400) scale(1.17) translate(-400 -400)");
       path.setAttribute("stroke-width", "50");
       path.style.visibility = "visible";
     }
@@ -140,9 +132,7 @@ export function NodexHomeMark() {
     );
     renderer.render({
       rotation,
-      morph: resolveNodexHomeMarkFieldMorph(
-        nodexMarkPoseDistanceDegrees(rotation),
-      ),
+      morph: resolveNodexHomeMarkFieldMorph(nodexMarkPoseDistanceDegrees(rotation)),
       chargedScale,
       color: rendererColorRef.current,
       glyphScene,
@@ -223,10 +213,11 @@ export function NodexHomeMark() {
     const creation = preloadRuntime()
       .then(async ([rendererModule, glyphModule]) => {
         if (
-          generation !== lifecycleGenerationRef.current
-          || reducedMotionRef.current
-          || !visualRef.current
-        ) return null;
+          generation !== lifecycleGenerationRef.current ||
+          reducedMotionRef.current ||
+          !visualRef.current
+        )
+          return null;
         ensurePerformance(glyphModule);
         const renderer = rendererModule.createNodexHomeMarkRenderer({
           devicePixelRatio: globalThis.devicePixelRatio || 1,
@@ -239,9 +230,9 @@ export function NodexHomeMark() {
         flushRender();
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         if (
-          generation !== lifecycleGenerationRef.current
-          || rendererRef.current !== renderer
-          || reducedMotionRef.current
+          generation !== lifecycleGenerationRef.current ||
+          rendererRef.current !== renderer ||
+          reducedMotionRef.current
         ) {
           renderer.dispose();
           if (rendererRef.current === renderer) rendererRef.current = null;
@@ -278,10 +269,11 @@ export function NodexHomeMark() {
     handoffFrameRef.current = requestAnimationFrame(() => {
       handoffFrameRef.current = null;
       if (
-        generation !== lifecycleGenerationRef.current
-        || activeRotorsRef.current.length > 0
-        || Math.abs(scaleMotionRef.current.get() - 1) > 0.001
-      ) return;
+        generation !== lifecycleGenerationRef.current ||
+        activeRotorsRef.current.length > 0 ||
+        Math.abs(scaleMotionRef.current.get() - 1) > 0.001
+      )
+        return;
       if (settledSceneId !== glyphSceneIdRef.current) {
         handBackToSvg();
         return;
@@ -319,10 +311,7 @@ export function NodexHomeMark() {
       scaleMotionRef.current,
       1,
       springOptions(() => {
-        if (
-          generation !== scaleGenerationRef.current
-          || activeRotorsRef.current.length > 0
-        ) return;
+        if (generation !== scaleGenerationRef.current || activeRotorsRef.current.length > 0) return;
         scaleControlsRef.current = null;
         handBackToSvg();
       }),
@@ -439,9 +428,7 @@ export function NodexHomeMark() {
               ref={(path) => {
                 glyphPathRefs.current[index] = path;
               }}
-              d={index === 0
-                ? "M305 352L411 438.203L305 535"
-                : "M458.035 565.638L579.966 558.361"}
+              d={index === 0 ? "M305 352L411 438.203L305 535" : "M458.035 565.638L579.966 558.361"}
               transform="translate(400 400) scale(1.17) translate(-400 -400)"
               stroke="currentColor"
               strokeWidth="50"

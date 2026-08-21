@@ -47,10 +47,7 @@ export class GitRepositoryRegistry {
     }
   }
 
-  async initialize(
-    cwd: string,
-    signal?: AbortSignal,
-  ): Promise<WorktreeRepository | null> {
+  async initialize(cwd: string, signal?: AbortSignal): Promise<WorktreeRepository | null> {
     const normalizedCwd = path.resolve(cwd.trim());
     const entry = await stat(normalizedCwd).catch(() => null);
     if (!entry?.isDirectory()) return null;
@@ -59,11 +56,7 @@ export class GitRepositoryRegistry {
       commonDir: normalizedCwd,
       root: normalizedCwd,
     };
-    let result = await this.#runner.run(
-      provisional,
-      ["init", "-b", "main"],
-      { signal },
-    );
+    let result = await this.#runner.run(provisional, ["init", "-b", "main"], { signal });
     if (!result.success) {
       result = await this.#runner.run(provisional, ["init"], { signal });
     }
@@ -80,20 +73,16 @@ export class GitRepositoryRegistry {
     this.#generationProviderCleanups.clear();
   }
 
-  async #discover(
-    cwd: string,
-    signal?: AbortSignal,
-  ): Promise<WorktreeRepository | null> {
+  async #discover(cwd: string, signal?: AbortSignal): Promise<WorktreeRepository | null> {
     const provisional: GitRepositoryExecutionIdentity = {
       hostId: "local",
       commonDir: cwd,
       root: cwd,
     };
-    const rootResult = await this.#runner.run(
-      provisional,
-      ["rev-parse", "--show-toplevel"],
-      { allowedNonZeroExitCodes: [128], signal },
-    );
+    const rootResult = await this.#runner.run(provisional, ["rev-parse", "--show-toplevel"], {
+      allowedNonZeroExitCodes: [128],
+      signal,
+    });
     signal?.throwIfAborted();
     if (!rootResult.success || rootResult.code !== 0 || !rootResult.stdout.trim()) {
       return null;

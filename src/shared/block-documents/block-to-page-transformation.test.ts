@@ -28,9 +28,7 @@ describe("BlockToPageTransformation", () => {
   });
 
   test("consumes root primary rich content and lifts only existing children", () => {
-    const child = paragraph("child-a", [
-      { type: "text", text: "Child", styles: {} },
-    ]);
+    const child = paragraph("child-a", [{ type: "text", text: "Child", styles: {} }]);
     const root = paragraph(
       "root-a",
       [
@@ -132,8 +130,6 @@ describe("BlockToPageTransformation", () => {
       reason: "type_requires_wrapper",
     });
     if (checklistPlan.kind !== "wrap") return;
-    expect(checklistPlan.richTitle).toEqual([
-      { type: "text", text: "Done", styles: {} },
-    ]);
+    expect(checklistPlan.richTitle).toEqual([{ type: "text", text: "Done", styles: {} }]);
   });
 });

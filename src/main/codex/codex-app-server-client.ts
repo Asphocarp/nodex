@@ -138,7 +138,10 @@ function resolvePathEnvKey(env: NodeJS.ProcessEnv): string {
   return explicit ?? "PATH";
 }
 
-function createSpawnEnv(baseEnv: NodeJS.ProcessEnv, additionalSearchPaths: string[]): NodeJS.ProcessEnv {
+function createSpawnEnv(
+  baseEnv: NodeJS.ProcessEnv,
+  additionalSearchPaths: string[],
+): NodeJS.ProcessEnv {
   const pathKey = resolvePathEnvKey(baseEnv);
   const currentPathEntries = splitPathEntries(baseEnv[pathKey]);
   const mergedPathEntries = dedupePathEntries([
@@ -167,7 +170,13 @@ export function resolveCodexStderrLogLevel(
       const parsed = JSON.parse(normalized) as { level?: unknown };
       if (typeof parsed.level === "string") {
         const level = parsed.level.trim().toLowerCase();
-        if (level === "trace" || level === "debug" || level === "info" || level === "warn" || level === "error") {
+        if (
+          level === "trace" ||
+          level === "debug" ||
+          level === "info" ||
+          level === "warn" ||
+          level === "error"
+        ) {
           return level;
         }
       }
@@ -178,7 +187,13 @@ export function resolveCodexStderrLogLevel(
 
   const match = TRACING_LEVEL_PREFIX.exec(normalized);
   const level = match?.[1]?.toLowerCase();
-  if (level === "trace" || level === "debug" || level === "info" || level === "warn" || level === "error") {
+  if (
+    level === "trace" ||
+    level === "debug" ||
+    level === "info" ||
+    level === "warn" ||
+    level === "error"
+  ) {
     return level;
   }
   return "info";
@@ -225,7 +240,11 @@ function summarizeRpcParams(method: string, params: unknown): Record<string, unk
   if (method === "turn/start" || method === "turn/steer") {
     const input = Array.isArray(candidate.input) ? candidate.input : [];
     const firstText = input.find((item) => {
-      return typeof item === "object" && item !== null && (item as Record<string, unknown>).type === "text";
+      return (
+        typeof item === "object" &&
+        item !== null &&
+        (item as Record<string, unknown>).type === "text"
+      );
     }) as Record<string, unknown> | undefined;
     const prompt = typeof firstText?.text === "string" ? firstText.text : "";
 
@@ -241,22 +260,25 @@ function summarizeRpcParams(method: string, params: unknown): Record<string, unk
   }
 
   if (
-    method === "thread/read"
-    || method === "thread/resume"
-    || method === "thread/turns/list"
-    || method === "thread/archive"
-    || method === "thread/unarchive"
-    || method === "thread/delete"
-    || method === "thread/backgroundTerminals/list"
-    || method === "thread/backgroundTerminals/terminate"
-    || method === "thread/backgroundTerminals/clean"
+    method === "thread/read" ||
+    method === "thread/resume" ||
+    method === "thread/turns/list" ||
+    method === "thread/archive" ||
+    method === "thread/unarchive" ||
+    method === "thread/delete" ||
+    method === "thread/backgroundTerminals/list" ||
+    method === "thread/backgroundTerminals/terminate" ||
+    method === "thread/backgroundTerminals/clean"
   ) {
     return {
       threadId: typeof candidate.threadId === "string" ? candidate.threadId : null,
-      includeTurns: typeof candidate.includeTurns === "boolean" ? candidate.includeTurns : undefined,
-      hasCursor: typeof candidate.cursor === "string" && candidate.cursor.length > 0 ? true : undefined,
+      includeTurns:
+        typeof candidate.includeTurns === "boolean" ? candidate.includeTurns : undefined,
+      hasCursor:
+        typeof candidate.cursor === "string" && candidate.cursor.length > 0 ? true : undefined,
       limit: typeof candidate.limit === "number" ? candidate.limit : undefined,
-      sortDirection: typeof candidate.sortDirection === "string" ? candidate.sortDirection : undefined,
+      sortDirection:
+        typeof candidate.sortDirection === "string" ? candidate.sortDirection : undefined,
       itemsView: typeof candidate.itemsView === "string" ? candidate.itemsView : undefined,
     };
   }
@@ -270,7 +292,8 @@ function summarizeRpcParams(method: string, params: unknown): Record<string, unk
 
   if (method.startsWith("account/")) {
     return {
-      refreshToken: typeof candidate.refreshToken === "boolean" ? candidate.refreshToken : undefined,
+      refreshToken:
+        typeof candidate.refreshToken === "boolean" ? candidate.refreshToken : undefined,
       loginId: typeof candidate.loginId === "string" ? candidate.loginId : undefined,
     };
   }
@@ -348,7 +371,8 @@ export class CodexAppServerClient extends EventEmitter {
     this.env = { ...(options?.env ?? process.env) };
     this.resolveEnv = options?.resolveEnv ?? null;
     this.additionalSearchPaths = options?.additionalSearchPaths ?? [];
-    this.missingBinaryMessage = options?.missingBinaryMessage ?? "Configured Agent runtime is missing or unavailable.";
+    this.missingBinaryMessage =
+      options?.missingBinaryMessage ?? "Configured Agent runtime is missing or unavailable.";
     this.initializeTimeoutMs = options?.initializeTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
     this.requestTimeoutMs = options?.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.logStderr = options?.logStderr ?? true;
@@ -440,13 +464,12 @@ export class CodexAppServerClient extends EventEmitter {
 
   async request<TMethod extends ClientRequestMethod, TResult>(
     method: TMethod,
-    ...args: ClientRequestParams<TMethod> extends undefined ? [] | [params: ClientRequestParams<TMethod>] : [params: ClientRequestParams<TMethod>]
+    ...args: ClientRequestParams<TMethod> extends undefined
+      ? [] | [params: ClientRequestParams<TMethod>]
+      : [params: ClientRequestParams<TMethod>]
   ): Promise<TResult>;
   async request<TResult>(method: string, params?: unknown): Promise<TResult>;
-  async request(
-    method: string,
-    ...args: [params?: unknown]
-  ): Promise<unknown> {
+  async request(method: string, ...args: [params?: unknown]): Promise<unknown> {
     await this.start();
     return this.requestRaw(method, args[0]);
   }
@@ -650,7 +673,11 @@ export class CodexAppServerClient extends EventEmitter {
     params: ClientRequestParams<TMethod> | undefined,
     skipInitialization?: boolean,
   ): Promise<TResult>;
-  private async requestRaw<TResult>(method: string, params?: unknown, skipInitialization?: boolean): Promise<TResult>;
+  private async requestRaw<TResult>(
+    method: string,
+    params?: unknown,
+    skipInitialization?: boolean,
+  ): Promise<TResult>;
   private async requestRaw(
     method: string,
     params?: unknown,
@@ -854,10 +881,7 @@ export class CodexAppServerClient extends EventEmitter {
     throw new Error("Codex app-server startup was superseded");
   }
 
-  private assertChildIsCurrent(
-    child: ChildProcessWithoutNullStreams,
-    generation: number,
-  ): void {
+  private assertChildIsCurrent(child: ChildProcessWithoutNullStreams, generation: number): void {
     this.assertStartupIsCurrent(generation);
     if (this.child === child) return;
     throw new Error("Codex app-server startup was superseded");
@@ -894,7 +918,10 @@ export class CodexAppServerClient extends EventEmitter {
     return await retirement;
   }
 
-  private async abandonCurrentChild(child: ChildProcessWithoutNullStreams, error: Error): Promise<void> {
+  private async abandonCurrentChild(
+    child: ChildProcessWithoutNullStreams,
+    error: Error,
+  ): Promise<void> {
     if (this.child !== child) return;
     this.child = null;
     const session = this.session;
@@ -911,9 +938,7 @@ export class CodexAppServerClient extends EventEmitter {
   ): Promise<void> {
     if (!this.isCurrentChildGeneration(child, generation)) return;
     const missingBinary = (error as NodeJS.ErrnoException).code === "ENOENT";
-    const failure = missingBinary
-      ? new Error(`Missing Codex binary: ${this.binaryPath}`)
-      : error;
+    const failure = missingBinary ? new Error(`Missing Codex binary: ${this.binaryPath}`) : error;
 
     logger.error(
       missingBinary
@@ -946,7 +971,9 @@ export class CodexAppServerClient extends EventEmitter {
       return;
     }
 
-    const error = new Error(`Codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"})`);
+    const error = new Error(
+      `Codex app-server exited (code=${code ?? "null"}, signal=${signal ?? "null"})`,
+    );
     this.child = null;
     const session = this.session;
     this.session = null;
@@ -1024,9 +1051,9 @@ export class CodexAppServerClient extends EventEmitter {
 
   private setConnectionState(next: CodexConnectionState): void {
     if (
-      this.connectionState.status !== next.status
-      || this.connectionState.retries !== next.retries
-      || this.connectionState.message !== next.message
+      this.connectionState.status !== next.status ||
+      this.connectionState.retries !== next.retries ||
+      this.connectionState.message !== next.message
     ) {
       logger.info("Codex connection state changed", next);
     }

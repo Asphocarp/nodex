@@ -22,33 +22,30 @@ type BrowserPluginRequestPort = {
 
 export type ComputerUsePluginReconcileResult =
   | {
-    enabled: boolean;
-    installedVersion: string;
-    pluginRoot: string;
-    status: "ready";
-  }
+      enabled: boolean;
+      installedVersion: string;
+      pluginRoot: string;
+      status: "ready";
+    }
   | {
-    message: string;
-    reason: "capability-unavailable" | "reconciliation-failed";
-    status: "unavailable";
-  };
+      message: string;
+      reason: "capability-unavailable" | "reconciliation-failed";
+      status: "unavailable";
+    };
 
 export type BrowserPluginReconcileResult =
   | {
-    computerUse: ComputerUsePluginReconcileResult;
-    enabled: boolean;
-    installedVersion: string | null;
-    marketplaceRoot: string;
-    status: "ready";
-  }
+      computerUse: ComputerUsePluginReconcileResult;
+      enabled: boolean;
+      installedVersion: string | null;
+      marketplaceRoot: string;
+      status: "ready";
+    }
   | {
-    message: string;
-    reason:
-      | "backend-unavailable"
-      | "reconciliation-failed"
-      | "runtime-unavailable";
-    status: "unavailable";
-  };
+      message: string;
+      reason: "backend-unavailable" | "reconciliation-failed" | "runtime-unavailable";
+      status: "unavailable";
+    };
 
 type BrowserPluginReconcilerOptions = {
   availableBackends?: () => readonly BrowserRuntimeBackend[];
@@ -60,17 +57,17 @@ type BrowserPluginReconcilerOptions = {
 
 type BrowserPluginDesiredState =
   | {
-    browserAvailable: boolean;
-    computerUseAvailable: boolean;
-    key: string;
-    status: "available";
-  }
+      browserAvailable: boolean;
+      computerUseAvailable: boolean;
+      key: string;
+      status: "available";
+    }
   | {
-    key: string;
-    message: string;
-    reason: "backend-unavailable" | "runtime-unavailable";
-    status: "unavailable";
-  };
+      key: string;
+      message: string;
+      reason: "backend-unavailable" | "runtime-unavailable";
+      status: "unavailable";
+    };
 
 type MarketplacePlugin = PluginListResponse["marketplaces"][number]["plugins"][number];
 
@@ -100,10 +97,13 @@ export class BrowserPluginReconciler {
     this.client = options.client;
     this.computerUseAvailable = options.computerUseAvailable ?? (() => false);
     this.runtimeStateHome = path.resolve(
-      options.runtimeStateHome
-        ?? path.join(this.browserRuntime.status === "available"
-          ? this.browserRuntime.bundle.rootPath
-          : process.cwd(), ".state"),
+      options.runtimeStateHome ??
+        path.join(
+          this.browserRuntime.status === "available"
+            ? this.browserRuntime.bundle.rootPath
+            : process.cwd(),
+          ".state",
+        ),
     );
   }
 
@@ -127,16 +127,17 @@ export class BrowserPluginReconciler {
       return await this.ensureInstalled();
     }
 
-    const operation = this.reconcile(desiredState).then((result) => {
-      this.result =
-        result.status === "unavailable"
-          && result.reason === "reconciliation-failed"
-          ? null
-          : { key: desiredState.key, value: result };
-      return result;
-    }).finally(() => {
-      if (this.inFlight?.promise === operation) this.inFlight = null;
-    });
+    const operation = this.reconcile(desiredState)
+      .then((result) => {
+        this.result =
+          result.status === "unavailable" && result.reason === "reconciliation-failed"
+            ? null
+            : { key: desiredState.key, value: result };
+        return result;
+      })
+      .finally(() => {
+        if (this.inFlight?.promise === operation) this.inFlight = null;
+      });
     this.inFlight = { key: desiredState.key, promise: operation };
     return await operation;
   }
@@ -154,13 +155,14 @@ export class BrowserPluginReconciler {
     let computerUseAvailable: boolean;
     try {
       requestedBackends = this.availableBackends();
-      computerUseAvailable = this.computerUseAvailable()
-        && this.browserRuntime.bundle.manifest.capabilities.computerUse.status
-          === "available";
+      computerUseAvailable =
+        this.computerUseAvailable() &&
+        this.browserRuntime.bundle.manifest.capabilities.computerUse.status === "available";
     } catch (error) {
-      const message = error instanceof Error
-        ? `Desktop tool availability failed: ${error.message}`
-        : "Desktop tool availability failed";
+      const message =
+        error instanceof Error
+          ? `Desktop tool availability failed: ${error.message}`
+          : "Desktop tool availability failed";
       return {
         key: `backend-unavailable:${message}`,
         message,
@@ -168,10 +170,11 @@ export class BrowserPluginReconciler {
         status: "unavailable",
       };
     }
-    const browserAvailable = resolveAvailableBrowserUseBackends(
-      this.browserRuntime.bundle.manifest.supportedBackends,
-      requestedBackends,
-    ).length > 0;
+    const browserAvailable =
+      resolveAvailableBrowserUseBackends(
+        this.browserRuntime.bundle.manifest.supportedBackends,
+        requestedBackends,
+      ).length > 0;
     if (!browserAvailable && !computerUseAvailable) {
       return {
         key: "backend-unavailable",
@@ -215,23 +218,18 @@ export class BrowserPluginReconciler {
       });
       let marketplace = await this.readBundledMarketplace();
       if (
-        marketplace
-        && !pathsReferToSameLocation(
-          marketplace.marketplacePath,
-          materialized.rootPath,
-        )
+        marketplace &&
+        !pathsReferToSameLocation(marketplace.marketplacePath, materialized.rootPath)
       ) {
-        await this.client.request(
-          "marketplace/remove",
-          { marketplaceName: "openai-bundled" } satisfies MarketplaceRemoveParams,
-        );
+        await this.client.request("marketplace/remove", {
+          marketplaceName: "openai-bundled",
+        } satisfies MarketplaceRemoveParams);
         marketplace = null;
       }
       if (!marketplace) {
-        await this.client.request(
-          "marketplace/add",
-          { source: materialized.rootPath } satisfies MarketplaceAddParams,
-        );
+        await this.client.request("marketplace/add", {
+          source: materialized.rootPath,
+        } satisfies MarketplaceAddParams);
         marketplace = await this.readBundledMarketplace();
       }
       if (!marketplace) {
@@ -241,31 +239,32 @@ export class BrowserPluginReconciler {
       }
 
       let changed = false;
-      changed = await this.reconcilePlugin({
-        current: findPlugin(marketplace, "browser"),
-        desired: desiredState.browserAvailable,
-        marketplacePath: marketplace.marketplacePath,
-        pluginName: "browser",
-        version: bundle.manifest.browserPlugin.version,
-      }) || changed;
+      changed =
+        (await this.reconcilePlugin({
+          current: findPlugin(marketplace, "browser"),
+          desired: desiredState.browserAvailable,
+          marketplacePath: marketplace.marketplacePath,
+          pluginName: "browser",
+          version: bundle.manifest.browserPlugin.version,
+        })) || changed;
       const computerUseCapability = bundle.manifest.capabilities.computerUse;
-      changed = await this.reconcilePlugin({
-        current: findPlugin(marketplace, "computer-use"),
-        desired: desiredState.computerUseAvailable,
-        marketplacePath: marketplace.marketplacePath,
-        pluginName: "computer-use",
-        version: computerUseCapability.status === "available"
-          ? computerUseCapability.plugin.version
-          : null,
-      }) || changed;
+      changed =
+        (await this.reconcilePlugin({
+          current: findPlugin(marketplace, "computer-use"),
+          desired: desiredState.computerUseAvailable,
+          marketplacePath: marketplace.marketplacePath,
+          pluginName: "computer-use",
+          version:
+            computerUseCapability.status === "available"
+              ? computerUseCapability.plugin.version
+              : null,
+        })) || changed;
       if (changed) {
         await this.client.request("skills/list", { forceReload: true });
         marketplace = await this.readBundledMarketplace();
       }
       if (!marketplace) {
-        return this.reconciliationFailure(
-          "Bundled marketplace disappeared during reconciliation",
-        );
+        return this.reconciliationFailure("Bundled marketplace disappeared during reconciliation");
       }
 
       const browserPlugin = findPlugin(marketplace, "browser");
@@ -282,14 +281,15 @@ export class BrowserPluginReconciler {
         desired: desiredState.computerUseAvailable,
         materialized,
         plugin: findPlugin(marketplace, "computer-use"),
-        version: computerUseCapability.status === "available"
-          ? computerUseCapability.plugin.version
-          : null,
+        version:
+          computerUseCapability.status === "available"
+            ? computerUseCapability.plugin.version
+            : null,
       });
       if (
-        !desiredState.browserAvailable
-        && desiredState.computerUseAvailable
-        && computerUse.status === "unavailable"
+        !desiredState.browserAvailable &&
+        desiredState.computerUseAvailable &&
+        computerUse.status === "unavailable"
       ) {
         return this.reconciliationFailure(computerUse.message);
       }
@@ -357,10 +357,9 @@ export class BrowserPluginReconciler {
   }): Promise<boolean> {
     if (!input.desired) {
       if (!input.current?.installed && !input.current?.enabled) return false;
-      await this.client.request(
-        "plugin/uninstall",
-        { pluginId: input.current.id } satisfies PluginUninstallParams,
-      );
+      await this.client.request("plugin/uninstall", {
+        pluginId: input.current.id,
+      } satisfies PluginUninstallParams);
       return true;
     }
     if (!input.version) {
@@ -370,13 +369,10 @@ export class BrowserPluginReconciler {
     if (!input.current) {
       throw new Error(`Bundled marketplace did not expose ${input.pluginName}`);
     }
-    await this.client.request(
-      "plugin/install",
-      {
-        marketplacePath: input.marketplacePath,
-        pluginName: input.pluginName,
-      } satisfies PluginInstallParams,
-    );
+    await this.client.request("plugin/install", {
+      marketplacePath: input.marketplacePath,
+      pluginName: input.pluginName,
+    } satisfies PluginInstallParams);
     return true;
   }
 
@@ -387,10 +383,9 @@ export class BrowserPluginReconciler {
     for (const pluginName of ["browser", "computer-use"] as const) {
       const plugin = findPlugin(current, pluginName);
       if (!plugin?.installed && !plugin?.enabled) continue;
-      await this.client.request(
-        "plugin/uninstall",
-        { pluginId: plugin.id } satisfies PluginUninstallParams,
-      );
+      await this.client.request("plugin/uninstall", {
+        pluginId: plugin.id,
+      } satisfies PluginUninstallParams);
       changed = true;
     }
     if (!changed) return;
@@ -398,23 +393,17 @@ export class BrowserPluginReconciler {
     const reconciled = await this.readBundledMarketplace();
     if (!reconciled) return;
     const retained = ["browser", "computer-use"].some((pluginName) => {
-      const plugin = findPlugin(
-        reconciled,
-        pluginName as "browser" | "computer-use",
-      );
+      const plugin = findPlugin(reconciled, pluginName as "browser" | "computer-use");
       return plugin?.installed || plugin?.enabled;
     });
     if (retained) throw new Error("Desktop tool plugin remained enabled after uninstall");
   }
 
   private async readBundledMarketplace(): Promise<BundledMarketplaceSnapshot | null> {
-    const response = await this.client.request(
-      "plugin/list",
-      {
-        cwds: [],
-        marketplaceKinds: ["local"],
-      } satisfies PluginListParams,
-    ) as PluginListResponse;
+    const response = (await this.client.request("plugin/list", {
+      cwds: [],
+      marketplaceKinds: ["local"],
+    } satisfies PluginListParams)) as PluginListResponse;
     for (const marketplace of response.marketplaces) {
       if (marketplace.name !== "openai-bundled" || !marketplace.path) continue;
       return {
@@ -430,18 +419,12 @@ function findPlugin(
   marketplace: BundledMarketplaceSnapshot,
   pluginName: "browser" | "computer-use",
 ): MarketplacePlugin | null {
-  return marketplace.plugins.find((candidate) => candidate.name === pluginName)
-    ?? null;
+  return marketplace.plugins.find((candidate) => candidate.name === pluginName) ?? null;
 }
 
-function isPluginReady(
-  plugin: MarketplacePlugin | null,
-  version: string,
-): boolean {
+function isPluginReady(plugin: MarketplacePlugin | null, version: string): boolean {
   return Boolean(
-    plugin?.installed
-    && plugin.enabled
-    && (plugin.localVersion ?? plugin.version) === version,
+    plugin?.installed && plugin.enabled && (plugin.localVersion ?? plugin.version) === version,
   );
 }
 

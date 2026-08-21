@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type {
-  AdditionalDocumentCommandResult,
-} from "../../shared/additional-document-commands";
+import type { AdditionalDocumentCommandResult } from "../../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../../shared/additional-document-command-transport";
 import { noOpLocalCommit } from "../../shared/testing/local-commit";
 import {
@@ -39,9 +37,7 @@ const result: AdditionalDocumentCommandResult = {
       createdBlockIds: ["synced-source-1"],
       preservedBlockIds: [],
       deletedBlockIds: [],
-      documentHeads: [
-        { documentId: "document-synced-1", generation: 1, headSeq: 1 },
-      ],
+      documentHeads: [{ documentId: "document-synced-1", generation: 1, headSeq: 1 }],
     },
     commitSeq: 12,
     committedAt: "2026-07-12T00:00:00.000Z",
@@ -60,10 +56,10 @@ describe("Additional Document command renderer IPC", () => {
       },
     } as unknown as ElectronRendererBridge;
 
-    const response =
-      await createElectronRendererTransport(
-        bridge,
-      ).applyAdditionalDocumentCommand("project-1", request);
+    const response = await createElectronRendererTransport(bridge).applyAdditionalDocumentCommand(
+      "project-1",
+      request,
+    );
     expect(response.ok).toBe(true);
     expect(capturedChannel).toBe("block-documents:command");
     expect(capturedProjectId).toBe("project-1");

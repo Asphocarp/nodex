@@ -29,8 +29,8 @@ export function StageThreadsCollaborationModeDropdown({
   }
 
   const selectedLabel =
-    collaborationModes.find((preset) => preset.mode === selectedMode)?.name
-    ?? fallbackModeLabel(selectedMode);
+    collaborationModes.find((preset) => preset.mode === selectedMode)?.name ??
+    fallbackModeLabel(selectedMode);
 
   return (
     <ToolbarDropdownMenu

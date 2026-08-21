@@ -3,9 +3,38 @@ import { describe, test, expect, vi } from "vitest";
 import { waitFor, act, fireEvent, within } from "@testing-library/react";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
 import { settleAsyncRender, textContent } from "../../test/dom";
-import { WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT, WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS } from "./workbench-automation-templates";
-import { makeAttachedSession, makeAutomationInboxItem, makeBlankSession, makeProject, makeScheduledAutomation } from "./workbench-testkit/workbench-shell-fixtures";
-import { cleanBackgroundTerminalsCalls, editLastUserTurnCalls, getHeaderShellSlot, getLastThreadStageActions, installTerminalEventApiMock, invokeCalls, mockInvokeImpl, pendingWorktreeWarningListener, removePlanImplementationRequestCalls, removeQueuedFollowUpCalls, renderWorkbench, reorderQueuedFollowUpsCalls, requestThreadStreamSnapshotCalls, sendQueuedFollowUpNowCalls, setComposerIntentCalls, setWindowInnerWidthForTest, startThreadForSessionCalls, setMockInvokeImpl, setStartThreadForSessionResult } from "./workbench-testkit/workbench-shell-harness";
+import {
+  WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT,
+  WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS,
+} from "./workbench-automation-templates";
+import {
+  makeAttachedSession,
+  makeAutomationInboxItem,
+  makeBlankSession,
+  makeProject,
+  makeScheduledAutomation,
+} from "./workbench-testkit/workbench-shell-fixtures";
+import {
+  cleanBackgroundTerminalsCalls,
+  editLastUserTurnCalls,
+  getHeaderShellSlot,
+  getLastThreadStageActions,
+  installTerminalEventApiMock,
+  invokeCalls,
+  mockInvokeImpl,
+  pendingWorktreeWarningListener,
+  removePlanImplementationRequestCalls,
+  removeQueuedFollowUpCalls,
+  renderWorkbench,
+  reorderQueuedFollowUpsCalls,
+  requestThreadStreamSnapshotCalls,
+  sendQueuedFollowUpNowCalls,
+  setComposerIntentCalls,
+  setWindowInnerWidthForTest,
+  startThreadForSessionCalls,
+  setMockInvokeImpl,
+  setStartThreadForSessionResult,
+} from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / automations-conversation", () => {
   test("surfaces pending heartbeat handoff failure from the app-level coordinator", async () => {
@@ -39,184 +68,209 @@ describe("workbench session shell / automations-conversation", () => {
     const originalInnerWidth = window.innerWidth;
     setWindowInnerWidthForTest(1600);
     try {
-    const screen = renderWorkbench({
-      projects: [makeProject("alpha", "Alpha", "/tmp/project")],
-      sessionsByProject: {
-        alpha: [makeAttachedSession({ id: "session:alpha:automation-crud" })],
-      },
-      scheduledAutomations: [],
-      worktreeEnvironmentOptionsByProject: {
-        alpha: [
-          {
-            path: ".codex/environments/environment.toml",
-            name: "CI setup",
-            hasSetupScript: true,
-            hasCleanupScript: false,
-            actionCount: 0,
-          },
-        ],
-      },
-    });
-    await settleAsyncRender();
-    await settleAsyncRender();
+      const screen = renderWorkbench({
+        projects: [makeProject("alpha", "Alpha", "/tmp/project")],
+        sessionsByProject: {
+          alpha: [makeAttachedSession({ id: "session:alpha:automation-crud" })],
+        },
+        scheduledAutomations: [],
+        worktreeEnvironmentOptionsByProject: {
+          alpha: [
+            {
+              path: ".codex/environments/environment.toml",
+              name: "CI setup",
+              hasSetupScript: true,
+              hasCleanupScript: false,
+              actionCount: 0,
+            },
+          ],
+        },
+      });
+      await settleAsyncRender();
+      await settleAsyncRender();
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Scheduled" }));
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(screen.container.querySelector('[data-testid="automations-route-shell"]') !== null).toBe(true);
-    });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Scheduled" }));
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(
+          screen.container.querySelector('[data-testid="automations-route-shell"]') !== null,
+        ).toBe(true);
+      });
 
-    expect(screen.getByRole("button", { name: "Create via chat" }) !== null).toBe(true);
-    await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("New scheduled task options"), { button: 0, ctrlKey: false });
-      await Promise.resolve();
-    });
-    const createViaChatItem = await screen.findByRole("menuitem", { name: "Create via chat" });
-    expect(createViaChatItem.getAttribute("aria-disabled")).toBe(null);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("menuitem", { name: "Create manually" }));
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
+      expect(screen.getByRole("button", { name: "Create via chat" }) !== null).toBe(true);
+      await act(async () => {
+        fireEvent.pointerDown(screen.getByLabelText("New scheduled task options"), {
+          button: 0,
+          ctrlKey: false,
+        });
+        await Promise.resolve();
+      });
+      const createViaChatItem = await screen.findByRole("menuitem", { name: "Create via chat" });
+      expect(createViaChatItem.getAttribute("aria-disabled")).toBe(null);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("menuitem", { name: "Create manually" }));
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
 
-    await act(async () => {
-      const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
-      const promptInput = screen.getByLabelText("Prompt") as HTMLTextAreaElement;
-      nameInput.value = "Weekly triage";
-      fireEvent.input(nameInput);
-      promptInput.value = "Triage the weekly project queue.";
-      fireEvent.input(promptInput);
-      await Promise.resolve();
-    });
-    await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("Project"), { button: 0, ctrlKey: false });
-      await Promise.resolve();
-    });
-    const projectItem = await screen.findByRole("menuitem", { name: /Alpha/u });
-    await act(async () => {
-      fireEvent.click(projectItem);
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
-    const environmentTrigger = await screen.findByLabelText("Environment");
-    await act(async () => {
-      fireEvent.pointerDown(environmentTrigger, { button: 0, ctrlKey: false });
-      await Promise.resolve();
-    });
-    const environmentItem = await screen.findByRole("menuitem", { name: /CI setup/u });
-    await act(async () => {
-      fireEvent.click(environmentItem);
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(screen.getByLabelText("Environment").textContent?.includes("CI setup") ?? false).toBe(true);
-    });
-    await act(async () => {
-      fireEvent.click(screen.getByLabelText("Schedule"));
-      await Promise.resolve();
-    });
-    const scheduleTypeTrigger = await screen.findByLabelText("Schedule type");
-    await act(async () => {
-      fireEvent.pointerDown(scheduleTypeTrigger, { button: 0, ctrlKey: false });
-      await Promise.resolve();
-    });
-    const weeklyItem = await screen.findByRole("menuitem", { name: "Weekly" });
-    await act(async () => {
-      fireEvent.click(weeklyItem);
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
-    await act(async () => {
-      const timeInput = screen.getByLabelText("Time") as HTMLInputElement;
-      timeInput.value = "10:30";
-      fireEvent.input(timeInput);
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
-    const modelTrigger = await screen.findByLabelText("Model and reasoning");
-    await waitFor(() => {
-      expect((modelTrigger as HTMLButtonElement).disabled).toBe(false);
-    });
-    await act(async () => {
-      fireEvent.pointerDown(modelTrigger, { button: 0, ctrlKey: false });
-      await Promise.resolve();
-    });
-    const highModelItem = await screen.findByRole("menuitem", { name: "GPT-5.5 High" });
-    await act(async () => {
-      fireEvent.click(highModelItem);
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
+      await act(async () => {
+        const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
+        const promptInput = screen.getByLabelText("Prompt") as HTMLTextAreaElement;
+        nameInput.value = "Weekly triage";
+        fireEvent.input(nameInput);
+        promptInput.value = "Triage the weekly project queue.";
+        fireEvent.input(promptInput);
+        await Promise.resolve();
+      });
+      await act(async () => {
+        fireEvent.pointerDown(screen.getByLabelText("Project"), { button: 0, ctrlKey: false });
+        await Promise.resolve();
+      });
+      const projectItem = await screen.findByRole("menuitem", { name: /Alpha/u });
+      await act(async () => {
+        fireEvent.click(projectItem);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+      const environmentTrigger = await screen.findByLabelText("Environment");
+      await act(async () => {
+        fireEvent.pointerDown(environmentTrigger, { button: 0, ctrlKey: false });
+        await Promise.resolve();
+      });
+      const environmentItem = await screen.findByRole("menuitem", { name: /CI setup/u });
+      await act(async () => {
+        fireEvent.click(environmentItem);
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(
+          screen.getByLabelText("Environment").textContent?.includes("CI setup") ?? false,
+        ).toBe(true);
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText("Schedule"));
+        await Promise.resolve();
+      });
+      const scheduleTypeTrigger = await screen.findByLabelText("Schedule type");
+      await act(async () => {
+        fireEvent.pointerDown(scheduleTypeTrigger, { button: 0, ctrlKey: false });
+        await Promise.resolve();
+      });
+      const weeklyItem = await screen.findByRole("menuitem", { name: "Weekly" });
+      await act(async () => {
+        fireEvent.click(weeklyItem);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+      await act(async () => {
+        const timeInput = screen.getByLabelText("Time") as HTMLInputElement;
+        timeInput.value = "10:30";
+        fireEvent.input(timeInput);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
+      const modelTrigger = await screen.findByLabelText("Model and reasoning");
+      await waitFor(() => {
+        expect((modelTrigger as HTMLButtonElement).disabled).toBe(false);
+      });
+      await act(async () => {
+        fireEvent.pointerDown(modelTrigger, { button: 0, ctrlKey: false });
+        await Promise.resolve();
+      });
+      const highModelItem = await screen.findByRole("menuitem", { name: "GPT-5.5 High" });
+      await act(async () => {
+        fireEvent.click(highModelItem);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
 
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Create scheduled task" }));
-      await Promise.resolve();
-    });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Create scheduled task" }));
+        await Promise.resolve();
+      });
 
-    await waitFor(() => {
-      expect(screen.getScheduledAutomations().length).toBe(1);
-    });
-    expect(screen.getScheduledAutomations()[0]?.name).toBe("Weekly triage");
-    expect(screen.getScheduledAutomations()[0]?.prompt).toBe("Triage the weekly project queue.");
-    expect(JSON.stringify(screen.getScheduledAutomations()[0]?.cwds)).toBe(JSON.stringify(["/tmp/project"]));
-    expect(screen.getScheduledAutomations()[0]?.localEnvironmentConfigPath).toBe(".codex/environments/environment.toml");
-    expect(screen.getScheduledAutomations()[0]?.rrule).toBe("FREQ=WEEKLY;BYDAY=SU;BYHOUR=10;BYMINUTE=30");
-    expect(screen.getScheduledAutomations()[0]?.model).toBe("gpt-5.5-high");
-    expect(screen.getScheduledAutomations()[0]?.reasoningEffort).toBe("high");
+      await waitFor(() => {
+        expect(screen.getScheduledAutomations().length).toBe(1);
+      });
+      expect(screen.getScheduledAutomations()[0]?.name).toBe("Weekly triage");
+      expect(screen.getScheduledAutomations()[0]?.prompt).toBe("Triage the weekly project queue.");
+      expect(JSON.stringify(screen.getScheduledAutomations()[0]?.cwds)).toBe(
+        JSON.stringify(["/tmp/project"]),
+      );
+      expect(screen.getScheduledAutomations()[0]?.localEnvironmentConfigPath).toBe(
+        ".codex/environments/environment.toml",
+      );
+      expect(screen.getScheduledAutomations()[0]?.rrule).toBe(
+        "FREQ=WEEKLY;BYDAY=SU;BYHOUR=10;BYMINUTE=30",
+      );
+      expect(screen.getScheduledAutomations()[0]?.model).toBe("gpt-5.5-high");
+      expect(screen.getScheduledAutomations()[0]?.reasoningEffort).toBe("high");
 
-    await act(async () => {
-      const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
-      nameInput.value = "Updated triage";
-      fireEvent.input(nameInput);
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
+      await act(async () => {
+        const nameInput = screen.getByLabelText("Name") as HTMLInputElement;
+        nameInput.value = "Updated triage";
+        fireEvent.input(nameInput);
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
 
-    await waitFor(() => {
-      expect(screen.getScheduledAutomations()[0]?.name).toBe("Updated triage");
-    });
+      await waitFor(() => {
+        expect(screen.getScheduledAutomations()[0]?.name).toBe("Updated triage");
+      });
 
-    const detailRail = screen.getByTestId("automation-detail-rail");
-    const headerContextSurface = screen.getByTestId("app-shell-header-context-menu-surface");
-    const resizeSeparator = within(detailRail).getByRole("separator", { name: "Resize scheduled task details" });
-    let capturedPointerId: number | null = null;
-    resizeSeparator.setPointerCapture = (pointerId: number) => {
-      capturedPointerId = pointerId;
-    };
-    await waitFor(() => {
-      expect(detailRail.getAttribute("style")?.includes("width: 820px")).toBe(true);
-      expect(headerContextSurface.getAttribute("style")?.includes("margin-right: 820px")).toBe(true);
-    });
-    await act(async () => {
-      fireEvent.pointerDown(resizeSeparator, { button: 0, pointerId: 11, clientX: 380 });
-      fireEvent.pointerMove(window, { pointerId: 11, clientX: 650 });
-      fireEvent.pointerUp(window, { pointerId: 11 });
-      await Promise.resolve();
-    });
-    expect(capturedPointerId).toBe(11);
-    await waitFor(() => {
-      expect(detailRail.getAttribute("style")?.includes("width: 550px")).toBe(true);
-      expect(headerContextSurface.getAttribute("style")?.includes("margin-right: 550px")).toBe(true);
-    });
+      const detailRail = screen.getByTestId("automation-detail-rail");
+      const headerContextSurface = screen.getByTestId("app-shell-header-context-menu-surface");
+      const resizeSeparator = within(detailRail).getByRole("separator", {
+        name: "Resize scheduled task details",
+      });
+      let capturedPointerId: number | null = null;
+      resizeSeparator.setPointerCapture = (pointerId: number) => {
+        capturedPointerId = pointerId;
+      };
+      await waitFor(() => {
+        expect(detailRail.getAttribute("style")?.includes("width: 820px")).toBe(true);
+        expect(headerContextSurface.getAttribute("style")?.includes("margin-right: 820px")).toBe(
+          true,
+        );
+      });
+      await act(async () => {
+        fireEvent.pointerDown(resizeSeparator, { button: 0, pointerId: 11, clientX: 380 });
+        fireEvent.pointerMove(window, { pointerId: 11, clientX: 650 });
+        fireEvent.pointerUp(window, { pointerId: 11 });
+        await Promise.resolve();
+      });
+      expect(capturedPointerId).toBe(11);
+      await waitFor(() => {
+        expect(detailRail.getAttribute("style")?.includes("width: 550px")).toBe(true);
+        expect(headerContextSurface.getAttribute("style")?.includes("margin-right: 550px")).toBe(
+          true,
+        );
+      });
 
-    await act(async () => {
-      fireEvent.click(within(detailRail).getByRole("button", { name: "Delete scheduled task" }));
-      await Promise.resolve();
-    });
-    const deleteDialog = await screen.findByRole("dialog");
-    expect(textContent(deleteDialog).includes("Delete Updated triage?")).toBe(true);
-    expect(textContent(deleteDialog).includes("This will permanently delete the scheduled task and stop future runs.")).toBe(true);
+      await act(async () => {
+        fireEvent.click(within(detailRail).getByRole("button", { name: "Delete scheduled task" }));
+        await Promise.resolve();
+      });
+      const deleteDialog = await screen.findByRole("dialog");
+      expect(textContent(deleteDialog).includes("Delete Updated triage?")).toBe(true);
+      expect(
+        textContent(deleteDialog).includes(
+          "This will permanently delete the scheduled task and stop future runs.",
+        ),
+      ).toBe(true);
 
-    await act(async () => {
-      fireEvent.click(within(deleteDialog).getByRole("button", { name: "Delete scheduled task" }));
-      await Promise.resolve();
-    });
-    await waitFor(() => {
-      expect(screen.getScheduledAutomations().length).toBe(0);
-    });
-    expect(textContent(screen.container).includes("Create your first scheduled task")).toBe(true);
+      await act(async () => {
+        fireEvent.click(
+          within(deleteDialog).getByRole("button", { name: "Delete scheduled task" }),
+        );
+        await Promise.resolve();
+      });
+      await waitFor(() => {
+        expect(screen.getScheduledAutomations().length).toBe(0);
+      });
+      expect(textContent(screen.container).includes("Create your first scheduled task")).toBe(true);
     } finally {
       setWindowInnerWidthForTest(originalInnerWidth);
     }
@@ -271,8 +325,8 @@ describe("workbench session shell / automations-conversation", () => {
         await vi.advanceTimersByTimeAsync(700);
       });
 
-      const updateCallCountAfterInvalid = invokeCalls.filter((call) =>
-        call[0] === "codex:scheduled-automations:update"
+      const updateCallCountAfterInvalid = invokeCalls.filter(
+        (call) => call[0] === "codex:scheduled-automations:update",
       ).length;
       expect(updateCallCountAfterInvalid).toBe(0);
       expect(screen.getScheduledAutomations()[0]?.name).toBe("Autosave report");
@@ -291,8 +345,8 @@ describe("workbench session shell / automations-conversation", () => {
         await Promise.resolve();
       });
 
-      const updateCallCount = invokeCalls.filter((call) =>
-        call[0] === "codex:scheduled-automations:update"
+      const updateCallCount = invokeCalls.filter(
+        (call) => call[0] === "codex:scheduled-automations:update",
       ).length;
       expect(updateCallCount).toBe(1);
       expect(screen.getScheduledAutomations()[0]?.name).toBe("Autosaved report");
@@ -355,14 +409,16 @@ describe("workbench session shell / automations-conversation", () => {
     });
 
     await waitFor(() => {
-      const saved = screen.getScheduledAutomations().find((item) => item.id === "automation-model-flush");
+      const saved = screen
+        .getScheduledAutomations()
+        .find((item) => item.id === "automation-model-flush");
       expect(saved?.model).toBe("gpt-5.5-high");
       expect(saved?.reasoningEffort).toBe("high");
-      expect(screen.getByRole("button", { name: "Templates" }).getAttribute("aria-pressed")).toBe("true");
+      expect(screen.getByRole("button", { name: "Templates" }).getAttribute("aria-pressed")).toBe(
+        "true",
+      );
     });
-    const updateCall = invokeCalls.find((call) =>
-      call[0] === "codex:scheduled-automations:update"
-    );
+    const updateCall = invokeCalls.find((call) => call[0] === "codex:scheduled-automations:update");
     expect((updateCall?.[1] as { rrule?: string } | undefined)?.rrule).toBe(
       "DTSTART;TZID=Asia/Shanghai:20260710T090000\nRRULE:FREQ=DAILY",
     );
@@ -412,7 +468,9 @@ describe("workbench session shell / automations-conversation", () => {
     });
     const routeShell = await screen.findByTestId("automations-route-shell");
     await act(async () => {
-      fireEvent.click(within(routeShell).getByTestId("automation-list-row-automation-history-open"));
+      fireEvent.click(
+        within(routeShell).getByTestId("automation-list-row-automation-history-open"),
+      );
       await Promise.resolve();
     });
     await waitFor(() => {
@@ -433,15 +491,18 @@ describe("workbench session shell / automations-conversation", () => {
       await Promise.resolve();
     });
 
-    const runButton = within(screen.getByTestId("automation-previous-run-thread-run-open"))
-      .getByRole("button", { name: "Openable history run" });
+    const runButton = within(
+      screen.getByTestId("automation-previous-run-thread-run-open"),
+    ).getByRole("button", { name: "Openable history run" });
     await act(async () => {
       fireEvent.click(runButton);
       await Promise.resolve();
     });
 
     await waitFor(() => {
-      const saved = screen.getScheduledAutomations().find((item) => item.id === "automation-history-open");
+      const saved = screen
+        .getScheduledAutomations()
+        .find((item) => item.id === "automation-history-open");
       expect(saved?.model).toBe("gpt-5.5-high");
       expect(saved?.reasoningEffort).toBe("high");
       expect(screen.container.querySelector('[data-testid="automations-route-shell"]')).toBe(null);
@@ -458,11 +519,19 @@ describe("workbench session shell / automations-conversation", () => {
     await waitFor(() => {
       expect(returnedRightSlot.getAttribute("style")?.includes("width: 0px")).toBe(true);
       expect(returnedRightSlot.getAttribute("style")?.includes("min-width: 0")).toBe(true);
-      expect(within(returnedHeaderSurface).queryByRole("button", { name: "Create via chat" }) !== null).toBe(true);
-      expect(within(returnedHeaderSurface).queryByRole("button", { name: "Tasks" }) !== null).toBe(true);
+      expect(
+        within(returnedHeaderSurface).queryByRole("button", { name: "Create via chat" }) !== null,
+      ).toBe(true);
+      expect(within(returnedHeaderSurface).queryByRole("button", { name: "Tasks" }) !== null).toBe(
+        true,
+      );
     });
     expect(returnedRouteShell.contains(returnedHeaderSurface)).toBe(false);
-    expect(within(screen.getByTestId("workbench-global-header")).queryByRole("button", { name: "Toggle side panel" })).toBe(null);
+    expect(
+      within(screen.getByTestId("workbench-global-header")).queryByRole("button", {
+        name: "Toggle side panel",
+      }),
+    ).toBe(null);
   });
 
   test("automations route create via chat pre-fills a blank session composer", async () => {
@@ -482,7 +551,10 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("New scheduled task options"), { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(screen.getByLabelText("New scheduled task options"), {
+        button: 0,
+        ctrlKey: false,
+      });
       await Promise.resolve();
     });
     const createViaChatItem = await screen.findByRole("menuitem", { name: "Create via chat" });
@@ -499,10 +571,11 @@ describe("workbench session shell / automations-conversation", () => {
     await waitFor(() => {
       expect(promptInput.value).toBe(WORKBENCH_AUTOMATION_CREATE_WITH_CHAT_PROMPT);
     });
-    expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:ensure-default-draft"
-      && call[1] === "alpha"
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "project-sessions:ensure-default-draft" && call[1] === "alpha",
+      ),
+    ).toBe(true);
     expect(startThreadForSessionCalls.length).toBe(0);
   });
 
@@ -550,7 +623,9 @@ describe("workbench session shell / automations-conversation", () => {
     });
     const discardDialog = await screen.findByRole("dialog");
     expect(textContent(discardDialog).includes("Discard scheduled task draft?")).toBe(true);
-    expect(textContent(discardDialog).includes("Your changes to this scheduled task will be lost")).toBe(true);
+    expect(
+      textContent(discardDialog).includes("Your changes to this scheduled task will be lost"),
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.click(within(discardDialog).getByRole("button", { name: "Keep editing" }));
@@ -560,7 +635,9 @@ describe("workbench session shell / automations-conversation", () => {
       expect(screen.queryByRole("dialog")).toBe(null);
     });
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Draft only");
-    expect(screen.container.querySelector('[data-testid="automation-detail-rail"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-testid="automation-detail-rail"]') !== null).toBe(
+      true,
+    );
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Collapse details" }));
@@ -608,9 +685,15 @@ describe("workbench session shell / automations-conversation", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-testid="automation-detail-rail"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-testid="automation-detail-rail"]') !== null).toBe(
+      true,
+    );
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Daily bug scan");
-    expect((screen.getByLabelText("Prompt") as HTMLTextAreaElement).value.includes("Scan recent commits")).toBe(true);
+    expect(
+      (screen.getByLabelText("Prompt") as HTMLTextAreaElement).value.includes(
+        "Scan recent commits",
+      ),
+    ).toBe(true);
     expect(textContent(screen.getByLabelText("Schedule")).includes("Daily at 9:00 AM")).toBe(true);
     expect(screen.getByRole("button", { name: "Personalize with Nodex" }) !== null).toBe(true);
 
@@ -623,20 +706,24 @@ describe("workbench session shell / automations-conversation", () => {
     await waitFor(() => {
       expect(startThreadForSessionCalls.length).toBe(1);
     });
-    const startInput = startThreadForSessionCalls[0] as {
-      projectId?: string;
-      sessionId?: string;
-      prompt?: string;
-      runInTarget?: string;
-      collaborationMode?: string;
-    } | undefined;
+    const startInput = startThreadForSessionCalls[0] as
+      | {
+          projectId?: string;
+          sessionId?: string;
+          prompt?: string;
+          runInTarget?: string;
+          collaborationMode?: string;
+        }
+      | undefined;
     expect(startInput?.projectId).toBe("alpha");
     expect(startInput?.sessionId).toBe("session:alpha:created");
     expect(startInput?.runInTarget).toBe("localProject");
     expect(startInput?.collaborationMode).toBe("default");
-    expect(startInput?.prompt?.includes("mode: \"suggested_create\"")).toBe(true);
-    expect(startInput?.prompt?.includes("Template: \"Daily bug scan\"")).toBe(true);
-    expect(JSON.stringify(requestThreadStreamSnapshotCalls)).toBe(JSON.stringify(["thread-started"]));
+    expect(startInput?.prompt?.includes('mode: "suggested_create"')).toBe(true);
+    expect(startInput?.prompt?.includes('Template: "Daily bug scan"')).toBe(true);
+    expect(JSON.stringify(requestThreadStreamSnapshotCalls)).toBe(
+      JSON.stringify(["thread-started"]),
+    );
     expect(screen.container.querySelector('[data-testid="automations-route-shell"]')).toBe(null);
   });
 
@@ -711,7 +798,9 @@ describe("workbench session shell / automations-conversation", () => {
     });
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).toBe(null);
-      expect(screen.container.querySelector('[data-testid="automation-detail-rail"]') !== null).toBe(true);
+      expect(
+        screen.container.querySelector('[data-testid="automation-detail-rail"]') !== null,
+      ).toBe(true);
     });
 
     await act(async () => {
@@ -778,50 +867,81 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
 
     await waitFor(() => {
-      expect(screen.container.querySelector('[data-testid="automations-route-shell"]') !== null).toBe(true);
+      expect(
+        screen.container.querySelector('[data-testid="automations-route-shell"]') !== null,
+      ).toBe(true);
       expect(textContent(screen.container).includes("Running report")).toBe(true);
     });
     await waitFor(() => {
-      expect(textContent(screen.getByTestId("automation-list-row-automation-running")).includes("In progress")).toBe(true);
+      expect(
+        textContent(screen.getByTestId("automation-list-row-automation-running")).includes(
+          "In progress",
+        ),
+      ).toBe(true);
     });
-    const runningRowText = textContent(screen.getByTestId("automation-list-row-automation-running"));
+    const runningRowText = textContent(
+      screen.getByTestId("automation-list-row-automation-running"),
+    );
     expect(runningRowText.includes("Chat")).toBe(true);
     expect(runningRowText.includes("Daily")).toBe(true);
 
     await act(async () => {
-      fireEvent.click(within(screen.getByTestId("automation-list-row-automation-active")).getByRole("button", { name: "Run now" }));
+      fireEvent.click(
+        within(screen.getByTestId("automation-list-row-automation-active")).getByRole("button", {
+          name: "Run now",
+        }),
+      );
       await Promise.resolve();
     });
     await waitFor(() => {
       expect(screen.getRunNowAutomationIds().length).toBe(1);
     });
     expect(screen.getRunNowAutomationIds()[0]).toBe("automation-active");
-    expect(__getNodexToastSnapshotForTests().some((record) => (
-      record.kind === "plain"
-      && record.level === "info"
-      && record.title === "Scheduled task started"
-    ))).toBe(true);
+    expect(
+      __getNodexToastSnapshotForTests().some(
+        (record) =>
+          record.kind === "plain" &&
+          record.level === "info" &&
+          record.title === "Scheduled task started",
+      ),
+    ).toBe(true);
 
     await act(async () => {
-      fireEvent.click(within(screen.getByTestId("automation-list-row-automation-active")).getByRole("button", { name: "Pause" }));
+      fireEvent.click(
+        within(screen.getByTestId("automation-list-row-automation-active")).getByRole("button", {
+          name: "Pause",
+        }),
+      );
       await Promise.resolve();
     });
     await waitFor(() => {
-      const saved = screen.getScheduledAutomations().find((automation) => automation.id === "automation-active");
+      const saved = screen
+        .getScheduledAutomations()
+        .find((automation) => automation.id === "automation-active");
       expect(saved?.status).toBe("PAUSED");
     });
 
     await act(async () => {
-      fireEvent.click(within(screen.getByTestId("automation-list-row-automation-paused")).getByRole("button", { name: "Resume" }));
+      fireEvent.click(
+        within(screen.getByTestId("automation-list-row-automation-paused")).getByRole("button", {
+          name: "Resume",
+        }),
+      );
       await Promise.resolve();
     });
     await waitFor(() => {
-      const saved = screen.getScheduledAutomations().find((automation) => automation.id === "automation-paused");
+      const saved = screen
+        .getScheduledAutomations()
+        .find((automation) => automation.id === "automation-paused");
       expect(saved?.status).toBe("ACTIVE");
     });
 
     await act(async () => {
-      fireEvent.click(within(screen.getByTestId("automation-list-row-automation-active")).getByRole("button", { name: "Delete" }));
+      fireEvent.click(
+        within(screen.getByTestId("automation-list-row-automation-active")).getByRole("button", {
+          name: "Delete",
+        }),
+      );
       await Promise.resolve();
     });
     const deleteDialog = await screen.findByRole("dialog");
@@ -831,7 +951,10 @@ describe("workbench session shell / automations-conversation", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      const deleted = screen.getScheduledAutomations().find((automation) => automation.id === "automation-active") ?? null;
+      const deleted =
+        screen
+          .getScheduledAutomations()
+          .find((automation) => automation.id === "automation-active") ?? null;
       expect(deleted).toBe(null);
     });
   });
@@ -859,8 +982,14 @@ describe("workbench session shell / automations-conversation", () => {
     });
     await settleAsyncRender();
     await waitFor(() => {
-      expect(screen.container.querySelector('[data-testid="automations-route-shell"]') !== null).toBe(true);
-      expect(screen.container.querySelector('[data-testid="automation-list-row-automation-optimistic"]') !== null).toBe(true);
+      expect(
+        screen.container.querySelector('[data-testid="automations-route-shell"]') !== null,
+      ).toBe(true);
+      expect(
+        screen.container.querySelector(
+          '[data-testid="automation-list-row-automation-optimistic"]',
+        ) !== null,
+      ).toBe(true);
     });
 
     let rejectUpdate: ((error: Error) => void) | null = null;
@@ -876,13 +1005,25 @@ describe("workbench session shell / automations-conversation", () => {
     });
 
     await act(async () => {
-      fireEvent.click(within(screen.getByTestId("automation-list-row-automation-optimistic")).getByRole("button", { name: "Pause" }));
+      fireEvent.click(
+        within(screen.getByTestId("automation-list-row-automation-optimistic")).getByRole(
+          "button",
+          { name: "Pause" },
+        ),
+      );
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(within(screen.getByTestId("automation-list-row-automation-optimistic")).getByRole("button", { name: "Resume" }) !== null).toBe(true);
+      expect(
+        within(screen.getByTestId("automation-list-row-automation-optimistic")).getByRole(
+          "button",
+          { name: "Resume" },
+        ) !== null,
+      ).toBe(true);
     });
-    const backendAutomation = screen.getScheduledAutomations().find((automation) => automation.id === "automation-optimistic");
+    const backendAutomation = screen
+      .getScheduledAutomations()
+      .find((automation) => automation.id === "automation-optimistic");
     expect(backendAutomation?.status).toBe("ACTIVE");
 
     await act(async () => {
@@ -890,14 +1031,22 @@ describe("workbench session shell / automations-conversation", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(within(screen.getByTestId("automation-list-row-automation-optimistic")).getByRole("button", { name: "Pause" }) !== null).toBe(true);
+      expect(
+        within(screen.getByTestId("automation-list-row-automation-optimistic")).getByRole(
+          "button",
+          { name: "Pause" },
+        ) !== null,
+      ).toBe(true);
     });
-    expect(__getNodexToastSnapshotForTests().some((record) => (
-      record.kind === "plain"
-      && record.level === "danger"
-      && record.title === "Could not update scheduled task"
-      && record.description === "Host update failed"
-    ))).toBe(true);
+    expect(
+      __getNodexToastSnapshotForTests().some(
+        (record) =>
+          record.kind === "plain" &&
+          record.level === "danger" &&
+          record.title === "Could not update scheduled task" &&
+          record.description === "Host update failed",
+      ),
+    ).toBe(true);
   });
 
   test("automations first-run suggestions pre-fill scheduled task chat prompts", async () => {
@@ -918,12 +1067,13 @@ describe("workbench session shell / automations-conversation", () => {
 
     const firstSuggestion = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS[0];
     if (!firstSuggestion) throw new Error("Expected first-run suggestion fixture");
-    const suggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS
-      .map((suggestion) => suggestion.name)
-      .join(",");
-    const visibleSuggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS
-      .map((suggestion) => screen.getByRole("button", { name: suggestion.name }).textContent?.trim() ?? "")
-      .join(",");
+    const suggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS.map(
+      (suggestion) => suggestion.name,
+    ).join(",");
+    const visibleSuggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS.map(
+      (suggestion) =>
+        screen.getByRole("button", { name: suggestion.name }).textContent?.trim() ?? "",
+    ).join(",");
     expect(visibleSuggestionNames).toBe(suggestionNames);
 
     await act(async () => {
@@ -974,17 +1124,24 @@ describe("workbench session shell / automations-conversation", () => {
     });
 
     await act(async () => {
-      fireEvent.click(within(screen.getByTestId("automation-list-row-automation-active")).getByRole("button", { name: "Run now" }));
+      fireEvent.click(
+        within(screen.getByTestId("automation-list-row-automation-active")).getByRole("button", {
+          name: "Run now",
+        }),
+      );
       await Promise.resolve();
     });
 
     await waitFor(() => {
-      expect(__getNodexToastSnapshotForTests().some((record) => (
-        record.kind === "plain"
-        && record.level === "danger"
-        && record.title === "Could not start scheduled task"
-        && record.description === "Automation is missing"
-      ))).toBe(true);
+      expect(
+        __getNodexToastSnapshotForTests().some(
+          (record) =>
+            record.kind === "plain" &&
+            record.level === "danger" &&
+            record.title === "Could not start scheduled task" &&
+            record.description === "Automation is missing",
+        ),
+      ).toBe(true);
     });
   });
 
@@ -1024,7 +1181,12 @@ describe("workbench session shell / automations-conversation", () => {
     });
 
     await act(async () => {
-      fireEvent.click(within(screen.getByTestId("automation-list-row-automation-delete-failure")).getByRole("button", { name: "Delete" }));
+      fireEvent.click(
+        within(screen.getByTestId("automation-list-row-automation-delete-failure")).getByRole(
+          "button",
+          { name: "Delete" },
+        ),
+      );
       await Promise.resolve();
     });
     const deleteDialog = await screen.findByRole("dialog");
@@ -1034,12 +1196,15 @@ describe("workbench session shell / automations-conversation", () => {
     });
 
     await waitFor(() => {
-      expect(__getNodexToastSnapshotForTests().some((record) => (
-        record.kind === "plain"
-        && record.level === "danger"
-        && record.title === "Could not delete scheduled task"
-        && record.description === "Try again."
-      ))).toBe(true);
+      expect(
+        __getNodexToastSnapshotForTests().some(
+          (record) =>
+            record.kind === "plain" &&
+            record.level === "danger" &&
+            record.title === "Could not delete scheduled task" &&
+            record.description === "Try again.",
+        ),
+      ).toBe(true);
     });
     expect(screen.getScheduledAutomations().length).toBe(1);
   });
@@ -1118,7 +1283,10 @@ describe("workbench session shell / automations-conversation", () => {
     });
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("Previous runs actions"), { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(screen.getByLabelText("Previous runs actions"), {
+        button: 0,
+        ctrlKey: false,
+      });
       await Promise.resolve();
     });
     const markAllRead = await screen.findByRole("menuitem", { name: "Mark all as read" });
@@ -1127,12 +1295,16 @@ describe("workbench session shell / automations-conversation", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      const latest = screen.getAutomationInboxItems().find((item) => item.threadId === "thread-run-latest");
+      const latest = screen
+        .getAutomationInboxItems()
+        .find((item) => item.threadId === "thread-run-latest");
       expect(latest?.readAt !== null).toBe(true);
     });
 
     await act(async () => {
-      const latestRun = within(screen.getByTestId("automation-previous-run-thread-run-latest")).getByRole("button", { name: "Latest history run" });
+      const latestRun = within(
+        screen.getByTestId("automation-previous-run-thread-run-latest"),
+      ).getByRole("button", { name: "Latest history run" });
       fireEvent.contextMenu(latestRun);
       await Promise.resolve();
     });
@@ -1149,12 +1321,16 @@ describe("workbench session shell / automations-conversation", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      const latest = screen.getAutomationInboxItems().find((item) => item.threadId === "thread-run-latest");
+      const latest = screen
+        .getAutomationInboxItems()
+        .find((item) => item.threadId === "thread-run-latest");
       expect(latest?.status).toBe("ARCHIVED");
     });
 
     await act(async () => {
-      const archivedRun = within(screen.getByTestId("automation-previous-run-thread-run-archived")).getByRole("button", { name: "Archived history run" });
+      const archivedRun = within(
+        screen.getByTestId("automation-previous-run-thread-run-archived"),
+      ).getByRole("button", { name: "Archived history run" });
       fireEvent.contextMenu(archivedRun);
       await Promise.resolve();
     });
@@ -1165,12 +1341,17 @@ describe("workbench session shell / automations-conversation", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      const archived = screen.getAutomationInboxItems().find((item) => item.threadId === "thread-run-archived");
+      const archived = screen
+        .getAutomationInboxItems()
+        .find((item) => item.threadId === "thread-run-archived");
       expect(archived?.status).toBe("ACCEPTED");
     });
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("Previous runs actions"), { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(screen.getByLabelText("Previous runs actions"), {
+        button: 0,
+        ctrlKey: false,
+      });
       await Promise.resolve();
     });
     const archiveAllItem = await screen.findByRole("menuitem", { name: "Archive all" });
@@ -1186,13 +1367,18 @@ describe("workbench session shell / automations-conversation", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      const archived = screen.getAutomationInboxItems().find((item) => item.threadId === "thread-run-archived");
+      const archived = screen
+        .getAutomationInboxItems()
+        .find((item) => item.threadId === "thread-run-archived");
       expect(archived?.status).toBe("ARCHIVED");
-      expect(__getNodexToastSnapshotForTests().some((record) => (
-        record.kind === "plain"
-        && record.level === "success"
-        && record.title === "Archived 1 run"
-      ))).toBe(true);
+      expect(
+        __getNodexToastSnapshotForTests().some(
+          (record) =>
+            record.kind === "plain" &&
+            record.level === "success" &&
+            record.title === "Archived 1 run",
+        ),
+      ).toBe(true);
     });
   });
 
@@ -1210,19 +1396,23 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
 
     expect(startThreadForSessionCalls.length).toBe(1);
-    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
-      projectId: "alpha",
-      sessionId: "session:alpha:blank",
-      prompt: "Start from session",
-      runInTarget: "localProject",
-      runInEnvironmentPath: null,
-      collaborationMode: "default",
-      browserUsePresentationOrigin: {
-        browserConversationId: "session:alpha:blank",
-        browserViewScopeId: "window-session:test",
-      },
-    }));
-    expect(invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "alpha")).toBe(true);
+    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(
+      JSON.stringify({
+        projectId: "alpha",
+        sessionId: "session:alpha:blank",
+        prompt: "Start from session",
+        runInTarget: "localProject",
+        runInEnvironmentPath: null,
+        collaborationMode: "default",
+        browserUsePresentationOrigin: {
+          browserConversationId: "session:alpha:blank",
+          browserViewScopeId: "window-session:test",
+        },
+      }),
+    );
+    expect(
+      invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "alpha"),
+    ).toBe(true);
   });
 
   test("inline message edit calls rollback edit without refreshing source-null snapshot or seeding composer intent", async () => {
@@ -1233,11 +1423,9 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
 
     const actions = getLastThreadStageActions();
-    const onEditLastUserTurn = actions.onEditLastUserTurn as ((input: {
-      threadId: string;
-      turnId: string;
-      message: string;
-    }) => Promise<void>) | undefined;
+    const onEditLastUserTurn = actions.onEditLastUserTurn as
+      | ((input: { threadId: string; turnId: string; message: string }) => Promise<void>)
+      | undefined;
     expect(typeof onEditLastUserTurn).toBe("function");
 
     await act(async () => {
@@ -1249,9 +1437,9 @@ describe("workbench session shell / automations-conversation", () => {
     });
     await settleAsyncRender();
 
-    expect(JSON.stringify(editLastUserTurnCalls)).toBe(JSON.stringify([
-      ["thread-alpha", "turn-latest", "Rewrite the latest prompt"],
-    ]));
+    expect(JSON.stringify(editLastUserTurnCalls)).toBe(
+      JSON.stringify([["thread-alpha", "turn-latest", "Rewrite the latest prompt"]]),
+    );
     expect(JSON.stringify(requestThreadStreamSnapshotCalls)).toBe(JSON.stringify([]));
     expect(setComposerIntentCalls.length).toBe(0);
   });
@@ -1276,24 +1464,26 @@ describe("workbench session shell / automations-conversation", () => {
     }
 
     await act(async () => {
-      await (actions.onRemoveQueuedFollowUp as (threadId: string, followUpId: string) => Promise<void>)(
-        "thread-alpha",
-        "follow-1",
-      );
-      await (actions.onReorderQueuedFollowUps as (threadId: string, orderedFollowUpIds: string[]) => Promise<void>)(
-        "thread-alpha",
-        ["follow-2", "follow-1"],
-      );
-      await (actions.onSendQueuedFollowUpNow as (threadId: string, followUpId: string) => Promise<void>)(
-        "thread-alpha",
-        "follow-2",
-      );
-      await (actions.onEditQueuedFollowUp as (input: {
-        threadId: string;
-        followUpId: string;
-        prompt: string;
-        promptInput?: unknown;
-      }) => Promise<void>)({
+      await (
+        actions.onRemoveQueuedFollowUp as (threadId: string, followUpId: string) => Promise<void>
+      )("thread-alpha", "follow-1");
+      await (
+        actions.onReorderQueuedFollowUps as (
+          threadId: string,
+          orderedFollowUpIds: string[],
+        ) => Promise<void>
+      )("thread-alpha", ["follow-2", "follow-1"]);
+      await (
+        actions.onSendQueuedFollowUpNow as (threadId: string, followUpId: string) => Promise<void>
+      )("thread-alpha", "follow-2");
+      await (
+        actions.onEditQueuedFollowUp as (input: {
+          threadId: string;
+          followUpId: string;
+          prompt: string;
+          promptInput?: unknown;
+        }) => Promise<void>
+      )({
         threadId: "thread-alpha",
         followUpId: "follow-3",
         prompt: "Edit queued message",
@@ -1302,40 +1492,49 @@ describe("workbench session shell / automations-conversation", () => {
           mentions: [{ name: "README.md", path: "/repo/README.md" }],
         },
       });
-      await (actions.onResolvePlanImplementationRequest as (threadId: string, turnId: string) => Promise<void>)(
+      await (
+        actions.onResolvePlanImplementationRequest as (
+          threadId: string,
+          turnId: string,
+        ) => Promise<void>
+      )("thread-alpha", "turn-plan");
+      await (actions.onCleanBackgroundTerminals as (threadId: string) => Promise<void>)(
         "thread-alpha",
-        "turn-plan",
       );
-      await (actions.onCleanBackgroundTerminals as (threadId: string) => Promise<void>)("thread-alpha");
     });
     await settleAsyncRender();
 
-    expect(JSON.stringify(removeQueuedFollowUpCalls)).toBe(JSON.stringify([
-      ["thread-alpha", "follow-1"],
-      ["thread-alpha", "follow-3"],
-    ]));
-    expect(JSON.stringify(reorderQueuedFollowUpsCalls)).toBe(JSON.stringify([
-      ["thread-alpha", ["follow-2", "follow-1"]],
-    ]));
-    expect(JSON.stringify(sendQueuedFollowUpNowCalls)).toBe(JSON.stringify([
-      ["thread-alpha", "follow-2"],
-    ]));
-    expect(JSON.stringify(setComposerIntentCalls)).toBe(JSON.stringify([
-      [
-        "thread-alpha",
-        {
-          prompt: "Edit queued message",
-          promptInput: {
-            text: "Edit queued message",
-            mentions: [{ name: "README.md", path: "/repo/README.md" }],
+    expect(JSON.stringify(removeQueuedFollowUpCalls)).toBe(
+      JSON.stringify([
+        ["thread-alpha", "follow-1"],
+        ["thread-alpha", "follow-3"],
+      ]),
+    );
+    expect(JSON.stringify(reorderQueuedFollowUpsCalls)).toBe(
+      JSON.stringify([["thread-alpha", ["follow-2", "follow-1"]]]),
+    );
+    expect(JSON.stringify(sendQueuedFollowUpNowCalls)).toBe(
+      JSON.stringify([["thread-alpha", "follow-2"]]),
+    );
+    expect(JSON.stringify(setComposerIntentCalls)).toBe(
+      JSON.stringify([
+        [
+          "thread-alpha",
+          {
+            prompt: "Edit queued message",
+            promptInput: {
+              text: "Edit queued message",
+              mentions: [{ name: "README.md", path: "/repo/README.md" }],
+            },
+            focusNonce: (setComposerIntentCalls[0]?.[1] as { focusNonce?: number } | undefined)
+              ?.focusNonce,
           },
-          focusNonce: (setComposerIntentCalls[0]?.[1] as { focusNonce?: number } | undefined)?.focusNonce,
-        },
-      ],
-    ]));
-    expect(JSON.stringify(removePlanImplementationRequestCalls)).toBe(JSON.stringify([
-      ["thread-alpha", "turn-plan"],
-    ]));
+        ],
+      ]),
+    );
+    expect(JSON.stringify(removePlanImplementationRequestCalls)).toBe(
+      JSON.stringify([["thread-alpha", "turn-plan"]]),
+    );
     expect(JSON.stringify(cleanBackgroundTerminalsCalls)).toBe(JSON.stringify(["thread-alpha"]));
   });
 
@@ -1357,17 +1556,22 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const propsBefore = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    const actions = propsBefore?.actions as {
-      onNewThreadProjectChange?: (projectId: string) => void;
-    } | undefined;
+    const propsBefore = (
+      globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }
+    ).__lastConnectedThreadStageProps;
+    const actions = propsBefore?.actions as
+      | {
+          onNewThreadProjectChange?: (projectId: string) => void;
+        }
+      | undefined;
     await act(async () => {
       actions?.onNewThreadProjectChange?.("beta");
       await Promise.resolve();
     });
     await settleAsyncRender();
 
-    const propsAfter = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const propsAfter = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(JSON.stringify(propsAfter?.newThreadTarget).includes('"projectId":"beta"')).toBe(true);
 
     await act(async () => {
@@ -1376,24 +1580,29 @@ describe("workbench session shell / automations-conversation", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:ensure-default-draft"
-      && call[1] === "beta"
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "project-sessions:ensure-default-draft" && call[1] === "beta",
+      ),
+    ).toBe(true);
     expect(startThreadForSessionCalls.length).toBe(1);
-    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
-      projectId: "beta",
-      sessionId: "session:beta:created",
-      prompt: "Start from session",
-      runInTarget: "localProject",
-      runInEnvironmentPath: null,
-      collaborationMode: "default",
-      browserUsePresentationOrigin: {
-        browserConversationId: "session:beta:created",
-        browserViewScopeId: "window-session:test",
-      },
-    }));
-    expect(invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "beta")).toBe(true);
+    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(
+      JSON.stringify({
+        projectId: "beta",
+        sessionId: "session:beta:created",
+        prompt: "Start from session",
+        runInTarget: "localProject",
+        runInEnvironmentPath: null,
+        collaborationMode: "default",
+        browserUsePresentationOrigin: {
+          browserConversationId: "session:beta:created",
+          browserViewScopeId: "window-session:test",
+        },
+      }),
+    );
+    expect(
+      invokeCalls.some((call) => call[0] === "workspace:tasks:list" && call[1] === "beta"),
+    ).toBe(true);
   });
 
   test("session composer submit passes the selected new-worktree target", async () => {
@@ -1409,20 +1618,27 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const propsBefore = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    const actions = propsBefore?.actions as {
-      onNewThreadStartInTargetChange?: (target: { runInTarget: "newWorktree" }) => void;
-    } | undefined;
+    const propsBefore = (
+      globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }
+    ).__lastConnectedThreadStageProps;
+    const actions = propsBefore?.actions as
+      | {
+          onNewThreadStartInTargetChange?: (target: { runInTarget: "newWorktree" }) => void;
+        }
+      | undefined;
     await act(async () => {
       actions?.onNewThreadStartInTargetChange?.({ runInTarget: "newWorktree" });
       await Promise.resolve();
     });
     await settleAsyncRender();
 
-    const propsAfter = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(JSON.stringify(propsAfter?.newThreadTarget).includes('"runInTarget":"newWorktree"')).toBe(true);
-    const sessionRefreshCountBeforeSubmit = invokeCalls.filter((call) =>
-      call[0] === "project-sessions:list" && call[1] === "alpha"
+    const propsAfter = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(
+      JSON.stringify(propsAfter?.newThreadTarget).includes('"runInTarget":"newWorktree"'),
+    ).toBe(true);
+    const sessionRefreshCountBeforeSubmit = invokeCalls.filter(
+      (call) => call[0] === "project-sessions:list" && call[1] === "alpha",
     ).length;
 
     await act(async () => {
@@ -1432,23 +1648,24 @@ describe("workbench session shell / automations-conversation", () => {
     await settleAsyncRender();
 
     expect(startThreadForSessionCalls.length).toBe(1);
-    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
-      projectId: "alpha",
-      sessionId: "session:alpha:blank",
-      prompt: "Start from session",
-      runInTarget: "newWorktree",
-      runInEnvironmentPath: null,
-      collaborationMode: "default",
-      browserUsePresentationOrigin: {
-        browserConversationId: "session:alpha:blank",
-        browserViewScopeId: "window-session:test",
-      },
-    }));
+    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(
+      JSON.stringify({
+        projectId: "alpha",
+        sessionId: "session:alpha:blank",
+        prompt: "Start from session",
+        runInTarget: "newWorktree",
+        runInEnvironmentPath: null,
+        collaborationMode: "default",
+        browserUsePresentationOrigin: {
+          browserConversationId: "session:alpha:blank",
+          browserViewScopeId: "window-session:test",
+        },
+      }),
+    );
     expect(screen.getByTestId("pending-worktree-route-shell") !== null).toBe(true);
-    expect(invokeCalls.filter((call) =>
-      call[0] === "project-sessions:list" && call[1] === "alpha"
-    ).length).toBe(sessionRefreshCountBeforeSubmit);
+    expect(
+      invokeCalls.filter((call) => call[0] === "project-sessions:list" && call[1] === "alpha")
+        .length,
+    ).toBe(sessionRefreshCountBeforeSubmit);
   });
-
-
 });

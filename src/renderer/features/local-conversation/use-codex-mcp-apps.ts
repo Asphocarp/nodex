@@ -3,16 +3,12 @@ import { CODEX_INTEGRATION_CAPABILITIES } from "../../../shared/codex-integratio
 import { useLocalConversationAccount } from "./local-conversation-store";
 import { shouldEnableCodexMcpAppsQuery } from "./codex-mcp-app-query-policy";
 
-export function useCodexMcpApps(
-  options: { enabled?: boolean } = {},
-) {
+export function useCodexMcpApps(options: { enabled?: boolean } = {}) {
   const account = useLocalConversationAccount();
   const callerEnabled = options.enabled !== false;
   const hasChatGptIdentity = account?.account?.type === "chatgpt";
   const { data: experimentalFeatures = [] } = useCodexExperimentalFeatures({
-    enabled: CODEX_INTEGRATION_CAPABILITIES.chatGptApps
-      && callerEnabled
-      && hasChatGptIdentity,
+    enabled: CODEX_INTEGRATION_CAPABILITIES.chatGptApps && callerEnabled && hasChatGptIdentity,
   });
   return useMcpApps({
     enabled: shouldEnableCodexMcpAppsQuery({

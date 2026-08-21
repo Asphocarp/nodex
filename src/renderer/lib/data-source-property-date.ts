@@ -1,14 +1,13 @@
 const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/u;
-const CANONICAL_DATETIME_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/u;
+const CANONICAL_DATETIME_PATTERN =
+  /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?Z$/u;
 
 const pad = (value: number): string => String(value).padStart(2, "0");
 
 export const isCanonicalDataSourceDateTime = (value: string): boolean => {
   const match = CANONICAL_DATETIME_PATTERN.exec(value);
   if (!match || !parseIsoDateToLocalDate(match[1]!)) return false;
-  return Number(match[2]) < 24
-    && Number(match[3]) < 60
-    && Number(match[4]) < 60;
+  return Number(match[2]) < 24 && Number(match[3]) < 60 && Number(match[4]) < 60;
 };
 
 export const parseIsoDateToLocalDate = (value: string): Date | null => {
@@ -20,11 +19,8 @@ export const parseIsoDateToLocalDate = (value: string): Date | null => {
   const parsed = new Date(0);
   parsed.setFullYear(year, month - 1, day);
   parsed.setHours(0, 0, 0, 0);
-  if (
-    parsed.getFullYear() !== year
-    || parsed.getMonth() !== month - 1
-    || parsed.getDate() !== day
-  ) return null;
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day)
+    return null;
   return parsed;
 };
 
@@ -37,7 +33,9 @@ export const formatLocalDateAsIso = (value: Date): string | null => {
 
 export const todayAsIsoDate = (): string => formatLocalDateAsIso(new Date())!;
 
-export const datetimeDraftFromIso = (value: string): {
+export const datetimeDraftFromIso = (
+  value: string,
+): {
   readonly date: string;
   readonly time: string;
 } | null => {
@@ -50,10 +48,7 @@ export const datetimeDraftFromIso = (value: string): {
   };
 };
 
-export const localDateTimeToIso = (
-  date: string,
-  time: string,
-): string | null => {
+export const localDateTimeToIso = (date: string, time: string): string | null => {
   const parsedDate = parseIsoDateToLocalDate(date);
   const timeMatch = /^(\d{2}):(\d{2})$/u.exec(time);
   if (!parsedDate || !timeMatch) return null;
@@ -61,16 +56,9 @@ export const localDateTimeToIso = (
   const minutes = Number(timeMatch[2]);
   if (hours > 23 || minutes > 59) return null;
   const local = new Date(0);
-  local.setFullYear(
-    parsedDate.getFullYear(),
-    parsedDate.getMonth(),
-    parsedDate.getDate(),
-  );
+  local.setFullYear(parsedDate.getFullYear(), parsedDate.getMonth(), parsedDate.getDate());
   local.setHours(hours, minutes, 0, 0);
-  if (
-    local.getHours() !== hours
-    || local.getMinutes() !== minutes
-  ) return null;
+  if (local.getHours() !== hours || local.getMinutes() !== minutes) return null;
   const iso = local.toISOString();
   return isCanonicalDataSourceDateTime(iso) ? iso : null;
 };

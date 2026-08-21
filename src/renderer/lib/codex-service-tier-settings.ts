@@ -54,8 +54,8 @@ export function resolveCodexRequestServiceTier<T extends { serviceTier?: CodexSe
   return defaultServiceTier;
 }
 
-export function buildCodexServiceTierRequestOverride(
-  serviceTier: CodexServiceTier,
-): { serviceTier?: string } {
+export function buildCodexServiceTierRequestOverride(serviceTier: CodexServiceTier): {
+  serviceTier?: string;
+} {
   return serviceTier ? { serviceTier } : {};
 }

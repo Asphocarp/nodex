@@ -26,14 +26,14 @@ export interface DatabaseManagementRuntimeDependencies {
     projectId: string,
     request: DatabaseModuleReadRequestV2,
   ) => Promise<DatabaseModuleReadResultV2>;
-  readonly apply: (
-    projectId: string,
-    request: DatabaseApplyV2,
-  ) => Promise<DatabaseApplyResultV2>;
+  readonly apply: (projectId: string, request: DatabaseApplyV2) => Promise<DatabaseApplyResultV2>;
 }
 
 export class DatabaseManagementReadError extends Error {
-  constructor(message: string, readonly retryable: boolean) {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
     super(message);
     this.name = "DatabaseManagementReadError";
   }
@@ -61,10 +61,7 @@ const readSnapshot = async (
     read,
   });
   if (!result.ok) {
-    throw new DatabaseManagementReadError(
-      result.error.message,
-      result.error.retryable,
-    );
+    throw new DatabaseManagementReadError(result.error.message, result.error.retryable);
   }
   if (result.value.projectId === projectId) return result.value;
   throw new DatabaseManagementReadError(
@@ -73,9 +70,7 @@ const readSnapshot = async (
   );
 };
 
-const activeSource = (
-  descriptor: DatabaseContainerDescriptorV2,
-): DataSourceRecordV2 | null =>
+const activeSource = (descriptor: DatabaseContainerDescriptorV2): DataSourceRecordV2 | null =>
   descriptor.dataSources.find((source) => source.lifecycle === "active") ?? null;
 
 const readDatabaseCatalog = async (
@@ -87,11 +82,15 @@ const readDatabaseCatalog = async (
   const seen = new Set<string>();
   let after: string | null = null;
   do {
-    const snapshot = await readSnapshot(projectId, {
-      target: { kind: "project_default" },
-      mode: "catalog_window",
-      window: { after, first: 100 },
-    }, dependencies);
+    const snapshot = await readSnapshot(
+      projectId,
+      {
+        target: { kind: "project_default" },
+        mode: "catalog_window",
+        window: { after, first: 100 },
+      },
+      dependencies,
+    );
     if (snapshot.storeEpoch !== storeEpoch || snapshot.value.kind !== "catalog_window") {
       throw new DatabaseManagementReadError(
         "Database catalog crossed its authority boundary",
@@ -121,16 +120,16 @@ export const readDatabaseManagementAuthority = async (
 ): Promise<DatabaseManagementAuthority> => {
   const databaseRead: DatabaseModuleReadRequestV2["read"] = preferredDatabaseId
     ? {
-      target: {
-        kind: "database",
-        databaseId: parseDatabaseId(preferredDatabaseId),
-      },
-      mode: "database",
-    }
+        target: {
+          kind: "database",
+          databaseId: parseDatabaseId(preferredDatabaseId),
+        },
+        mode: "database",
+      }
     : {
-      target: { kind: "project_default" },
-      mode: "database",
-    };
+        target: { kind: "project_default" },
+        mode: "database",
+      };
   const snapshot = await readSnapshot(projectId, databaseRead, dependencies);
   if (snapshot.value.kind !== "database") {
     throw new DatabaseManagementReadError(
@@ -140,19 +139,14 @@ export const readDatabaseManagementAuthority = async (
   }
   const selectedDatabase = snapshot.value.value;
   if (selectedDatabase.database.lifecycle !== "active") {
-    throw new DatabaseManagementReadError(
-      "Selected Database is not active",
-      false,
-    );
+    throw new DatabaseManagementReadError("Selected Database is not active", false);
   }
-  const databases = await readDatabaseCatalog(
-    projectId,
-    snapshot.storeEpoch,
-    dependencies,
-  );
-  if (!databases.some((database) =>
-    database.database.databaseId === selectedDatabase.database.databaseId
-  )) {
+  const databases = await readDatabaseCatalog(projectId, snapshot.storeEpoch, dependencies);
+  if (
+    !databases.some(
+      (database) => database.database.databaseId === selectedDatabase.database.databaseId,
+    )
+  ) {
     throw new DatabaseManagementReadError(
       "Selected Database is no longer present in the authorized catalog",
       true,
@@ -165,18 +159,21 @@ export const readDatabaseManagementAuthority = async (
       false,
     );
   }
-  const sourceSnapshot = await readSnapshot(projectId, {
-    target: {
-      kind: "data_source",
-      dataSourceId: selectedDataSource.dataSourceId,
+  const sourceSnapshot = await readSnapshot(
+    projectId,
+    {
+      target: {
+        kind: "data_source",
+        dataSourceId: selectedDataSource.dataSourceId,
+      },
+      mode: "data_source",
     },
-    mode: "data_source",
-  }, dependencies);
+    dependencies,
+  );
   if (
-    sourceSnapshot.storeEpoch !== snapshot.storeEpoch
-    || sourceSnapshot.value.kind !== "data_source"
-    || sourceSnapshot.value.value.dataSource.dataSourceId
-      !== selectedDataSource.dataSourceId
+    sourceSnapshot.storeEpoch !== snapshot.storeEpoch ||
+    sourceSnapshot.value.kind !== "data_source" ||
+    sourceSnapshot.value.value.dataSource.dataSourceId !== selectedDataSource.dataSourceId
   ) {
     throw new DatabaseManagementReadError(
       "Database catalog and Data Source do not share one authority cursor",
@@ -235,11 +232,7 @@ export const commitDatabaseManagementOperations = async (input: {
     actor: { kind: "renderer_database_management" },
     operations,
   };
-  const result = await applyExactRequest(
-    input.projectId,
-    request,
-    dependencies,
-  );
+  const result = await applyExactRequest(input.projectId, request, dependencies);
   if (!result.ok) throw new DatabaseManagementMutationError(result.error);
   const refreshed = await readDatabaseManagementAuthority(
     input.projectId,

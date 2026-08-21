@@ -2,22 +2,16 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { LayoutTemplate, RefreshCw } from "@/components/shared/icons/generic-icons";
 import { useState } from "react";
 import { DocumentBearingShellVisual } from "./document-bearing-shell-block";
-import {
-  BlockDisclosureStateStore,
-} from "@/lib/block-disclosure-state";
-import {
-  ReferenceSurfaceActivationBudget,
-} from "@/lib/reference-surface-state";
+import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
+import { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";
 
 function InteractiveShells() {
   const [disclosureStore] = useState(() => new BlockDisclosureStateStore());
-  const [activationBudget] = useState(
-    () => new ReferenceSurfaceActivationBudget(2),
-  );
+  const [activationBudget] = useState(() => new ReferenceSurfaceActivationBudget(2));
   const renderDocument = ({ ownerBlockId }: { ownerBlockId: string }) => (
     <div className="py-2 text-sm text-token-text-secondary">
-      Editing <span className="font-medium">{ownerBlockId}</span> through its
-      independent collaborative Document.
+      Editing <span className="font-medium">{ownerBlockId}</span> through its independent
+      collaborative Document.
     </div>
   );
   const sharedState = {
@@ -31,8 +25,8 @@ function InteractiveShells() {
     <main className="min-h-screen bg-token-bg-primary p-8 text-token-text-primary">
       <div className="mx-auto flex max-w-2xl flex-col gap-1">
         <p className="mb-2 text-xs text-token-description-foreground">
-          Expand a shell to mount its independent provider. Collapsed shells
-          retain only stable identity in the host Document.
+          Expand a shell to mount its independent provider. Collapsed shells retain only stable
+          identity in the host Document.
         </p>
         <DocumentBearingShellVisual
           {...sharedState}

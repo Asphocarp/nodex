@@ -17,13 +17,15 @@ export interface InspectedOfficialAgentSkillsArtifact {
       readonly minimumRevision: 1;
       readonly maximumRevision: 1;
     };
-    readonly skills: readonly [{
-      readonly name: "nodex";
-      readonly path: "skills/nodex";
-      readonly treeSha256: string;
-      readonly fileCount: number;
-      readonly totalBytes: number;
-    }];
+    readonly skills: readonly [
+      {
+        readonly name: "nodex";
+        readonly path: "skills/nodex";
+        readonly treeSha256: string;
+        readonly fileCount: number;
+        readonly totalBytes: number;
+      },
+    ];
   };
   readonly manifestSha256: string;
   readonly releaseVersion: string;

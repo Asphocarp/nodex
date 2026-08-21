@@ -27,12 +27,14 @@ describe("CodexExecutionHostRegistry", () => {
     const registry = new CodexExecutionHostRegistry();
     const worker = createInProcessCodexWorktreeWorkerPort({ hostId: "local" });
 
-    expect(() => registry.register({
-      hostId: "remote:build",
-      managedRoot: "/remote/worktrees",
-      worktreeWorker: worker,
-      capabilities: ["create"],
-    })).toThrow("identity does not match");
+    expect(() =>
+      registry.register({
+        hostId: "remote:build",
+        managedRoot: "/remote/worktrees",
+        worktreeWorker: worker,
+        capabilities: ["create"],
+      }),
+    ).toThrow("identity does not match");
   });
 
   test("keeps historical roots authorized while future creation follows the latest root", () => {
@@ -48,14 +50,16 @@ describe("CodexExecutionHostRegistry", () => {
 
     registry.updateManagedRoot("local", "/managed/next");
     expect(registry.requireManagedRoot("local")).toBe("/managed/next");
-    expect(registry.resolveManagedRoot("local", "/managed/previous/a1b2/repo"))
-      .toBe("/managed/previous");
+    expect(registry.resolveManagedRoot("local", "/managed/previous/a1b2/repo")).toBe(
+      "/managed/previous",
+    );
     expect(registry.listManagedRoots("local")).toEqual([
       "/managed/current",
       "/managed/next",
       "/managed/previous",
     ]);
-    expect(() => registry.resolveManagedRoot("local", "/outside/repo"))
-      .toThrow("outside every authorized managed root");
+    expect(() => registry.resolveManagedRoot("local", "/outside/repo")).toThrow(
+      "outside every authorized managed root",
+    );
   });
 });

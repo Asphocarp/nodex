@@ -55,9 +55,11 @@ export function DatabaseViewRulesSummaryRow({
         <button type="button" className={SUMMARY_BUTTON} onClick={onOpenSort}>
           {effective.presentation.sort.length === 1 && primarySort ? (
             <>
-              {primarySort.direction === "asc"
-                ? <ArrowUp className="size-3.5" />
-                : <ArrowDown className="size-3.5" />}
+              {primarySort.direction === "asc" ? (
+                <ArrowUp className="size-3.5" />
+              ) : (
+                <ArrowDown className="size-3.5" />
+              )}
               <span className="max-w-44 truncate">
                 {databaseViewSortFieldLabel(primarySort, properties)}
               </span>
@@ -76,12 +78,7 @@ export function DatabaseViewRulesSummaryRow({
         <div className="h-5 w-px shrink-0 bg-token-border" />
       ) : null}
       {filters.map((summary) => (
-        <button
-          key={summary.key}
-          type="button"
-          className={SUMMARY_BUTTON}
-          onClick={onOpenFilter}
-        >
+        <button key={summary.key} type="button" className={SUMMARY_BUTTON} onClick={onOpenFilter}>
           <span>{summary.label}:</span>
           <span className="max-w-56 truncate">{summary.value}</span>
         </button>

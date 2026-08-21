@@ -36,9 +36,7 @@ function isPositiveFinite(value: number): boolean {
   return Number.isFinite(value) && value > 0;
 }
 
-export function isValidImageSize(
-  size: ImageSize | null | undefined,
-): size is ImageSize {
+export function isValidImageSize(size: ImageSize | null | undefined): size is ImageSize {
   return (
     size !== null &&
     size !== undefined &&
@@ -81,10 +79,7 @@ export function computeAvailableImageViewportSize(
 
   return {
     height: viewportSize.height,
-    width: Math.max(
-      viewportSize.width - (hasImageRail ? IMAGE_RAIL_VIEWPORT_RESERVE_PX : 0),
-      1,
-    ),
+    width: Math.max(viewportSize.width - (hasImageRail ? IMAGE_RAIL_VIEWPORT_RESERVE_PX : 0), 1),
   };
 }
 
@@ -97,8 +92,7 @@ export function computeFitZoomPercent({
   viewportSize: ImageSize | null | undefined;
   hasImageRail?: boolean;
 }): number | null {
-  if (!isValidImageSize(naturalImageSize) || !isValidImageSize(viewportSize))
-    return null;
+  if (!isValidImageSize(naturalImageSize) || !isValidImageSize(viewportSize)) return null;
 
   const availableViewport = computeAvailableImageViewportSize(viewportSize, {
     hasImageRail,
@@ -141,15 +135,11 @@ export function computeCommentEditorLayoutMetrics(args: {
 }): CommentEditorLayoutMetrics | null {
   if (!isValidImageSize(args.imageSize)) return null;
 
-  const parentSize = isValidImageSize(args.parentSize)
-    ? args.parentSize
-    : args.imageSize;
+  const parentSize = isValidImageSize(args.parentSize) ? args.parentSize : args.imageSize;
   return {
     ...args.point,
-    editorMaxX:
-      parentSize.width - args.imageOffsetLeft - IMAGE_COMMENT_EDITOR_INSET_PX,
-    editorMaxY:
-      parentSize.height - args.imageOffsetTop - IMAGE_COMMENT_EDITOR_INSET_PX,
+    editorMaxX: parentSize.width - args.imageOffsetLeft - IMAGE_COMMENT_EDITOR_INSET_PX,
+    editorMaxY: parentSize.height - args.imageOffsetTop - IMAGE_COMMENT_EDITOR_INSET_PX,
     editorMinX: IMAGE_COMMENT_EDITOR_INSET_PX - args.imageOffsetLeft,
     editorMinY: IMAGE_COMMENT_EDITOR_INSET_PX - args.imageOffsetTop,
     surfaceHeight: args.imageSize.height,
@@ -167,8 +157,7 @@ export function computeCommentEditorPlacement({
 }): CommentEditorPlacement {
   const anchorX = metrics.x * metrics.surfaceWidth;
   const anchorY = metrics.y * metrics.surfaceHeight;
-  const markerOffset =
-    IMAGE_COMMENT_MARKER_DIAMETER_PX / 2 + IMAGE_COMMENT_EDITOR_GAP_PX;
+  const markerOffset = IMAGE_COMMENT_MARKER_DIAMETER_PX / 2 + IMAGE_COMMENT_EDITOR_GAP_PX;
   const width = Math.min(
     IMAGE_COMMENT_EDITOR_MAX_WIDTH_PX,
     metrics.editorMaxX - metrics.editorMinX,
@@ -212,16 +201,10 @@ export function computeCommentEditorPlacement({
 
 export function clampImageZoomPercent(zoomPercent: number): number {
   if (!Number.isFinite(zoomPercent)) return IMAGE_ZOOM_MIN_PERCENT;
-  return Math.min(
-    IMAGE_ZOOM_MAX_PERCENT,
-    Math.max(IMAGE_ZOOM_MIN_PERCENT, zoomPercent),
-  );
+  return Math.min(IMAGE_ZOOM_MAX_PERCENT, Math.max(IMAGE_ZOOM_MIN_PERCENT, zoomPercent));
 }
 
-export function computeWheelZoomPercent(
-  zoomPercent: number,
-  deltaY: number,
-): number {
+export function computeWheelZoomPercent(zoomPercent: number, deltaY: number): number {
   return clampImageZoomPercent(
     Math.round(zoomPercent * Math.exp(-deltaY * IMAGE_ZOOM_WHEEL_FACTOR)),
   );
@@ -232,24 +215,16 @@ export function computePinchZoomPercent(args: {
   initialZoomPercent: number;
   nextDistance: number;
 }): number {
-  if (
-    !isPositiveFinite(args.initialDistance) ||
-    !isPositiveFinite(args.nextDistance)
-  ) {
+  if (!isPositiveFinite(args.initialDistance) || !isPositiveFinite(args.nextDistance)) {
     return clampImageZoomPercent(args.initialZoomPercent);
   }
 
   return clampImageZoomPercent(
-    Math.round(
-      (args.nextDistance / args.initialDistance) * args.initialZoomPercent,
-    ),
+    Math.round((args.nextDistance / args.initialDistance) * args.initialZoomPercent),
   );
 }
 
-export function computeImagePointDistance(
-  from: ImagePoint,
-  to: ImagePoint,
-): number {
+export function computeImagePointDistance(from: ImagePoint, to: ImagePoint): number {
   return Math.hypot(from.x - to.x, from.y - to.y);
 }
 
@@ -260,20 +235,18 @@ export function computeZoomAnchorCorrection(args: {
   windowZoom?: number;
 }): ImagePoint {
   const anchorRatio = clampImagePoint(args.anchorRatio);
-  const windowZoom = isPositiveFinite(args.windowZoom ?? 1)
-    ? (args.windowZoom ?? 1)
-    : 1;
+  const windowZoom = isPositiveFinite(args.windowZoom ?? 1) ? (args.windowZoom ?? 1) : 1;
   return {
-    x: (
-      args.nextTargetRect.left +
-      args.nextTargetRect.width * anchorRatio.x -
-      args.anchorClientPoint.x
-    ) / windowZoom,
-    y: (
-      args.nextTargetRect.top +
-      args.nextTargetRect.height * anchorRatio.y -
-      args.anchorClientPoint.y
-    ) / windowZoom,
+    x:
+      (args.nextTargetRect.left +
+        args.nextTargetRect.width * anchorRatio.x -
+        args.anchorClientPoint.x) /
+      windowZoom,
+    y:
+      (args.nextTargetRect.top +
+        args.nextTargetRect.height * anchorRatio.y -
+        args.anchorClientPoint.y) /
+      windowZoom,
   };
 }
 
@@ -283,14 +256,13 @@ export function computeZoomViewportCenter(args: {
   viewportRect: ImageClientRect;
   windowZoom?: number;
 }): ImagePoint {
-  const windowZoom = isPositiveFinite(args.windowZoom ?? 1)
-    ? (args.windowZoom ?? 1)
-    : 1;
+  const windowZoom = isPositiveFinite(args.windowZoom ?? 1) ? (args.windowZoom ?? 1) : 1;
   const inlineDirection = args.direction === "rtl" ? -1 : 1;
   return {
-    x: args.viewportRect.left
-      + args.viewportRect.width / 2
-      + (args.inlineOffset ?? 0) * windowZoom * inlineDirection,
+    x:
+      args.viewportRect.left +
+      args.viewportRect.width / 2 +
+      (args.inlineOffset ?? 0) * windowZoom * inlineDirection,
     y: args.viewportRect.top + args.viewportRect.height / 2,
   };
 }

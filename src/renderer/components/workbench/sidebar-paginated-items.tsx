@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS,
   paginateCodexSidebarItems,
@@ -24,10 +17,7 @@ export interface SidebarPaginatedItemsProps<T> {
   readonly pagerClassName?: string;
   readonly hasMoreAtSource?: boolean;
   readonly onLoadMore?: () => void | Promise<void>;
-  readonly children: (
-    pagination: CodexSidebarPaginationResult<T>,
-    pager: ReactNode,
-  ) => ReactNode;
+  readonly children: (pagination: CodexSidebarPaginationResult<T>, pager: ReactNode) => ReactNode;
 }
 
 export function SidebarPaginatedItems<T>({
@@ -51,25 +41,29 @@ export function SidebarPaginatedItems<T>({
     setExtraPageCount(1);
   }, [expanded]);
 
-  const pagination = useMemo(() => paginateCodexSidebarItems({
-    items,
-    getKey,
-    maxItems,
-    expanded,
-    extraPageCount,
-    forcedVisibleKey,
-    suppressedKeys,
-    pagerEnabled: Boolean(onExpandedChange),
-  }), [
-    expanded,
-    extraPageCount,
-    forcedVisibleKey,
-    getKey,
-    items,
-    maxItems,
-    onExpandedChange,
-    suppressedKeys,
-  ]);
+  const pagination = useMemo(
+    () =>
+      paginateCodexSidebarItems({
+        items,
+        getKey,
+        maxItems,
+        expanded,
+        extraPageCount,
+        forcedVisibleKey,
+        suppressedKeys,
+        pagerEnabled: Boolean(onExpandedChange),
+      }),
+    [
+      expanded,
+      extraPageCount,
+      forcedVisibleKey,
+      getKey,
+      items,
+      maxItems,
+      onExpandedChange,
+      suppressedKeys,
+    ],
+  );
 
   const restorePagerFocus = useCallback(() => {
     queueMicrotask(() => {
@@ -88,13 +82,7 @@ export function SidebarPaginatedItems<T>({
     if (hasMoreAtSource) void onLoadMore?.();
     setExtraPageCount((current) => current + 1);
     restorePagerFocus();
-  }, [
-    expanded,
-    hasMoreAtSource,
-    onExpandedChange,
-    onLoadMore,
-    restorePagerFocus,
-  ]);
+  }, [expanded, hasMoreAtSource, onExpandedChange, onLoadMore, restorePagerFocus]);
 
   const showLess = useCallback(() => {
     setExtraPageCount(1);
@@ -103,26 +91,24 @@ export function SidebarPaginatedItems<T>({
   }, [onExpandedChange, restorePagerFocus]);
 
   const hasOverflow = pagination.hasOverflow || hasMoreAtSource;
-  const pager = pagination.showPager || hasMoreAtSource ? (
-    <div className={pagerClassName} role="listitem">
-      {hasOverflow ? (
-        <CodexSidebarPagerButton
-          ref={focusRestoreTargetRef}
-          onClick={showMore}
-        >
-          Show more
-        </CodexSidebarPagerButton>
-      ) : null}
-      {expanded ? (
-        <CodexSidebarPagerButton
-          ref={hasOverflow ? undefined : focusRestoreTargetRef}
-          onClick={showLess}
-        >
-          Show less
-        </CodexSidebarPagerButton>
-      ) : null}
-    </div>
-  ) : null;
+  const pager =
+    pagination.showPager || hasMoreAtSource ? (
+      <div className={pagerClassName} role="listitem">
+        {hasOverflow ? (
+          <CodexSidebarPagerButton ref={focusRestoreTargetRef} onClick={showMore}>
+            Show more
+          </CodexSidebarPagerButton>
+        ) : null}
+        {expanded ? (
+          <CodexSidebarPagerButton
+            ref={hasOverflow ? undefined : focusRestoreTargetRef}
+            onClick={showLess}
+          >
+            Show less
+          </CodexSidebarPagerButton>
+        ) : null}
+      </div>
+    ) : null;
 
   return <>{children(pagination, pager)}</>;
 }

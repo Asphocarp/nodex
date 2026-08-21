@@ -10,9 +10,7 @@ const meta = {
         { bundleIdentifier: "com.apple.Safari", displayName: "Safari" },
         { bundleIdentifier: "com.microsoft.Excel", displayName: "Microsoft Excel" },
       ],
-      approvedMessageThreads: [
-        { chatGuid: "iMessage;-;+15555550123", displayName: "Design team" },
-      ],
+      approvedMessageThreads: [{ chatGuid: "iMessage;-;+15555550123", displayName: "Design team" }],
       available: true,
       lockedUseAllowed: true,
       lockedUseEnabled: false,

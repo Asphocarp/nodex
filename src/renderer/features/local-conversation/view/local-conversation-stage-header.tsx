@@ -35,24 +35,21 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
   const canTogglePin = Boolean(model.threadId && actions.onToggleThreadPin);
   const hasTopActions = canTogglePin || canRenameThread || canArchiveThread;
   const showThreadActions = Boolean(
-    model.threadId
-    || model.cwd
-    || model.showSideChatAction
-    || actions.onCopyConversationMarkdown,
+    model.threadId || model.cwd || model.showSideChatAction || actions.onCopyConversationMarkdown,
   );
 
-  const handleAction = useCallback(async (
-    action: (() => void | Promise<void>) | undefined,
-    fallbackError: string,
-  ) => {
-    if (!action) return;
-    onErrorMessage(null);
-    try {
-      await action();
-    } catch (error) {
-      onErrorMessage(error instanceof Error ? error.message : fallbackError);
-    }
-  }, [onErrorMessage]);
+  const handleAction = useCallback(
+    async (action: (() => void | Promise<void>) | undefined, fallbackError: string) => {
+      if (!action) return;
+      onErrorMessage(null);
+      try {
+        await action();
+      } catch (error) {
+        onErrorMessage(error instanceof Error ? error.message : fallbackError);
+      }
+    },
+    [onErrorMessage],
+  );
 
   const handleCopyText = useCallback(async (value: string | null, successMessage: string) => {
     if (!value) return;
@@ -86,7 +83,7 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
               sideOffset={1}
               contentWidth="menu"
               motion="none"
-              triggerButton={(
+              triggerButton={
                 <button
                   type="button"
                   className={cn(
@@ -99,15 +96,21 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
                 >
                   <ProjectActionsIcon className="icon-sm" />
                 </button>
-              )}
+              }
             >
               {canTogglePin ? (
                 <NodexDropdownItem
-                  leftSlot={model.pinned
-                    ? <SessionPinFilledIcon className={menuIconClassName} />
-                    : <SessionPinIcon className={menuIconClassName} />}
+                  leftSlot={
+                    model.pinned ? (
+                      <SessionPinFilledIcon className={menuIconClassName} />
+                    ) : (
+                      <SessionPinIcon className={menuIconClassName} />
+                    )
+                  }
                   keyboardShortcut={model.shortcuts?.togglePin}
-                  onSelect={() => void handleAction(actions.onToggleThreadPin, "Failed to update task pin")}
+                  onSelect={() =>
+                    void handleAction(actions.onToggleThreadPin, "Failed to update task pin")
+                  }
                 >
                   {model.pinned ? "Unpin" : "Pin"}
                 </NodexDropdownItem>
@@ -125,7 +128,9 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
                 <NodexDropdownItem
                   leftSlot={<ArchiveIcon className={menuIconClassName} />}
                   keyboardShortcut={model.shortcuts?.archive}
-                  onSelect={() => void handleAction(actions.onArchiveThread, "Failed to archive task")}
+                  onSelect={() =>
+                    void handleAction(actions.onArchiveThread, "Failed to archive task")
+                  }
                 >
                   Archive
                 </NodexDropdownItem>
@@ -135,7 +140,9 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
                 <NodexDropdownItem
                   leftSlot={<SidePanelSideChatIcon className={menuIconClassName} />}
                   keyboardShortcut={model.shortcuts?.openSideTask}
-                  onSelect={() => void handleAction(actions.onOpenSideChat, "Failed to open side task")}
+                  onSelect={() =>
+                    void handleAction(actions.onOpenSideChat, "Failed to open side task")
+                  }
                 >
                   Open side task
                 </NodexDropdownItem>
@@ -163,10 +170,12 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
                 {model.sessionId ? (
                   <NodexDropdownItem
                     leftSlot={<LinkToolbarCopyIcon className={menuIconClassName} />}
-                    onSelect={() => void handleCopyText(
-                      buildSessionDeepLink({ sessionId: model.sessionId as string }),
-                      "Deeplink copied",
-                    )}
+                    onSelect={() =>
+                      void handleCopyText(
+                        buildSessionDeepLink({ sessionId: model.sessionId as string }),
+                        "Deeplink copied",
+                      )
+                    }
                   >
                     Copy deeplink
                   </NodexDropdownItem>
@@ -191,16 +200,15 @@ function ThreadStageHeaderComponent({ model, actions, onErrorMessage }: ThreadSt
 
 export const ThreadStageHeader = memo(
   ThreadStageHeaderComponent,
-  (left, right) => (
-    left.actions === right.actions
-    && left.onErrorMessage === right.onErrorMessage
-    && left.model.title === right.model.title
-    && left.model.projectId === right.model.projectId
-    && left.model.sessionId === right.model.sessionId
-    && left.model.threadId === right.model.threadId
-    && left.model.cwd === right.model.cwd
-    && left.model.pinned === right.model.pinned
-    && left.model.shortcuts === right.model.shortcuts
-    && left.model.showSideChatAction === right.model.showSideChatAction
-  ),
+  (left, right) =>
+    left.actions === right.actions &&
+    left.onErrorMessage === right.onErrorMessage &&
+    left.model.title === right.model.title &&
+    left.model.projectId === right.model.projectId &&
+    left.model.sessionId === right.model.sessionId &&
+    left.model.threadId === right.model.threadId &&
+    left.model.cwd === right.model.cwd &&
+    left.model.pinned === right.model.pinned &&
+    left.model.shortcuts === right.model.shortcuts &&
+    left.model.showSideChatAction === right.model.showSideChatAction,
 );

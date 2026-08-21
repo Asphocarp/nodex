@@ -1,14 +1,12 @@
 import { ProjectActionsIcon, PlusIcon } from "@/components/shared/icons";
 import { useState } from "react";
-import { ChevronsLeftRight, ChevronsRightLeft, Minus } from "@/components/shared/icons/generic-icons";
 import {
-  NodexDropdownSeparator,
-} from "@/components/ui/dropdown";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+  ChevronsLeftRight,
+  ChevronsRightLeft,
+  Minus,
+} from "@/components/shared/icons/generic-icons";
+import { NodexDropdownSeparator } from "@/components/ui/dropdown";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import {
   BOARD_COLUMN_WIDTH_PRESETS,
   BOARD_COLUMN_WIDTH_STEP,
@@ -88,13 +86,8 @@ export function ColumnActionPopoverContent({
     <div className="flex flex-col">
       {/* Header: accent bar + column name */}
       <div className="flex items-center gap-2 px-[var(--padding-row-x)] pt-[var(--padding-row-y)] pb-0.5">
-        <div
-          className="h-3 w-0.5 shrink-0 rounded-full"
-          style={{ backgroundColor: accentColor }}
-        />
-        <span className="truncate text-sm font-medium text-token-foreground">
-          {columnName}
-        </span>
+        <div className="h-3 w-0.5 shrink-0 rounded-full" style={{ backgroundColor: accentColor }} />
+        <span className="truncate text-sm font-medium text-token-foreground">{columnName}</span>
       </div>
 
       {/* Collapse / Expand action */}
@@ -123,9 +116,7 @@ export function ColumnActionPopoverContent({
       <div className="px-[var(--padding-row-x)] pt-0.5 pb-[var(--padding-row-y)]">
         <div className="flex items-center justify-between">
           <span className="text-xs text-token-description-foreground">Width</span>
-          <span className="text-xs tabular-nums text-token-description-foreground">
-            {width}px
-          </span>
+          <span className="text-xs tabular-nums text-token-description-foreground">{width}px</span>
         </div>
 
         {/* Stepper + presets row */}

@@ -6,10 +6,7 @@ import type {
   BrowserSidebarTabIdentity,
   BrowserUsePresentationRequest,
 } from "../shared/browser-sidebar";
-import type {
-  BrowserPageSnapshotStore,
-  BrowserSerializedPage,
-} from "./browser/browser-page-store";
+import type { BrowserPageSnapshotStore, BrowserSerializedPage } from "./browser/browser-page-store";
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
@@ -19,7 +16,9 @@ vi.mock("electron", () => ({
       return true;
     }
   },
-  session: { fromPartition: () => ({ clearCache: async () => undefined, clearData: async () => undefined }) },
+  session: {
+    fromPartition: () => ({ clearCache: async () => undefined, clearData: async () => undefined }),
+  },
   shell: { openExternal: async () => undefined },
   webContents: { fromId: () => undefined },
 }));
@@ -52,10 +51,7 @@ class FakeWebContents extends EventEmitter {
       this.debuggerAttached = false;
     },
     isAttached: () => this.debuggerAttached,
-    sendCommand: async (
-      method: string,
-      params?: Record<string, unknown>,
-    ) => {
+    sendCommand: async (method: string, params?: Record<string, unknown>) => {
       this.debuggerCommands.push({ method, params });
     },
   };
@@ -73,14 +69,19 @@ class FakeWebContents extends EventEmitter {
   loadPromise: Promise<void> | null = null;
   rejectLoadWith: unknown = null;
   zoomFactors: number[] = [];
-  findCalls: Array<{ text: string; options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean } }> = [];
+  findCalls: Array<{
+    text: string;
+    options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean };
+  }> = [];
   inspectedPoints: Array<{ x: number; y: number }> = [];
   sentMessages: Array<{ channel: string; payload: unknown }> = [];
   stopFindActions: string[] = [];
-  historyEntries: BrowserSerializedPage["navigation"]["entries"] = [{
-    title: "New tab",
-    url: "about:blank",
-  }];
+  historyEntries: BrowserSerializedPage["navigation"]["entries"] = [
+    {
+      title: "New tab",
+      url: "about:blank",
+    },
+  ];
   historyActiveIndex = 0;
   restoredHistory: BrowserSerializedPage["navigation"] | null = null;
   navigationHistory = {
@@ -104,20 +105,35 @@ class FakeWebContents extends EventEmitter {
     },
   };
   session = {
-    fetch: async () => new Response(new Uint8Array([1]), {
-      headers: { "content-type": "image/png" },
-    }),
+    fetch: async () =>
+      new Response(new Uint8Array([1]), {
+        headers: { "content-type": "image/png" },
+      }),
   };
 
-  canGoBack() { return false; }
-  canGoForward() { return false; }
-  capturePage() { return Promise.resolve({ toDataURL: () => "data:image/png;base64,test" }); }
-  getTitle() { return this.title; }
-  getURL() { return this.url; }
-  goBack() { }
-  goForward() { }
-  isDestroyed() { return this.destroyed; }
-  isLoading() { return this.loading; }
+  canGoBack() {
+    return false;
+  }
+  canGoForward() {
+    return false;
+  }
+  capturePage() {
+    return Promise.resolve({ toDataURL: () => "data:image/png;base64,test" });
+  }
+  getTitle() {
+    return this.title;
+  }
+  getURL() {
+    return this.url;
+  }
+  goBack() {}
+  goForward() {}
+  isDestroyed() {
+    return this.destroyed;
+  }
+  isLoading() {
+    return this.loading;
+  }
   inspectElement(x: number, y: number) {
     this.inspectedPoints.push({ x, y });
   }
@@ -128,8 +144,12 @@ class FakeWebContents extends EventEmitter {
     if (this.loadPromise) return this.loadPromise;
     return Promise.resolve();
   }
-  reload() { this.reloads += 1; }
-  reloadIgnoringCache() { this.hardReloads += 1; }
+  reload() {
+    this.reloads += 1;
+  }
+  reloadIgnoringCache() {
+    this.hardReloads += 1;
+  }
   send(channel: string, payload: unknown) {
     this.sentMessages.push({ channel, payload });
   }
@@ -144,7 +164,10 @@ class FakeWebContents extends EventEmitter {
   setZoomFactor(factor: number) {
     this.zoomFactors.push(factor);
   }
-  findInPage(text: string, options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean }) {
+  findInPage(
+    text: string,
+    options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean },
+  ) {
     this.findCalls.push({ text, options });
     return this.findCalls.length;
   }
@@ -218,7 +241,7 @@ function createService(
         openExternal: async () => undefined,
       },
       webContents: {
-        fromId: (id) => contentsById.get(id) as never ?? null,
+        fromId: (id) => (contentsById.get(id) as never) ?? null,
       },
     },
     logger: {
@@ -246,11 +269,14 @@ function readTab(
   service: BrowserSidebarServiceInstance,
   identity: BrowserSidebarTabIdentity = browserIdentity,
 ) {
-  const tab = service.getStateSnapshot().tabs.find((item) =>
-    item.browserConversationId === identity.browserConversationId
-    && item.browserViewScopeId === identity.browserViewScopeId
-    && item.browserTabId === identity.browserTabId
-  );
+  const tab = service
+    .getStateSnapshot()
+    .tabs.find(
+      (item) =>
+        item.browserConversationId === identity.browserConversationId &&
+        item.browserViewScopeId === identity.browserViewScopeId &&
+        item.browserTabId === identity.browserTabId,
+    );
   if (!tab) throw new Error("Missing browser tab snapshot");
   return tab;
 }
@@ -285,42 +311,47 @@ describe("BrowserSidebarService webview lifecycle", () => {
       projectId: "alpha",
       initialUrl: "https://example.com/page",
     });
-    service.registerAttachedWebviewOwnership(
+    service.registerAttachedWebviewOwnership(501, 101, browserIdentity, "browser:image-drag");
+    await service.handleWebviewHostCreated(
+      {
+        ...browserIdentity,
+        browserStorageId: "browser:image-drag",
+        projectId: "alpha",
+        hostKind: "panel",
+        mountGeneration: 1,
+        webContentsId: 101,
+        initialUrl: "https://example.com/page",
+      },
       501,
-      101,
-      browserIdentity,
-      "browser:image-drag",
     );
-    await service.handleWebviewHostCreated({
-      ...browserIdentity,
-      browserStorageId: "browser:image-drag",
-      projectId: "alpha",
-      hostKind: "panel",
-      mountGeneration: 1,
-      webContentsId: 101,
-      initialUrl: "https://example.com/page",
-    }, 501);
     const dragStates: unknown[] = [];
     const attachmentEvents: unknown[] = [];
     service.on("imageDragState", (event) => dragStates.push(event));
     service.on("contextMenuAction", (event) => attachmentEvents.push(event));
 
-    expect(service.startBrowserImageDrag(
-      101,
-      "https://example.com/image.png",
-    )).toBe(true);
-    await expect(service.handleCommand({
-      type: "attach-dragged-image",
-      ...browserIdentity,
-    }, { ownerWebContentsId: 999 })).resolves.toEqual({
+    expect(service.startBrowserImageDrag(101, "https://example.com/image.png")).toBe(true);
+    await expect(
+      service.handleCommand(
+        {
+          type: "attach-dragged-image",
+          ...browserIdentity,
+        },
+        { ownerWebContentsId: 999 },
+      ),
+    ).resolves.toEqual({
       ok: false,
       message: "No matching Browser image drag is active",
     });
 
-    await expect(service.handleCommand({
-      type: "attach-dragged-image",
-      ...browserIdentity,
-    }, { ownerWebContentsId: 501 })).resolves.toEqual({ ok: true });
+    await expect(
+      service.handleCommand(
+        {
+          type: "attach-dragged-image",
+          ...browserIdentity,
+        },
+        { ownerWebContentsId: 501 },
+      ),
+    ).resolves.toEqual({ ok: true });
     expect(saveBrowserImage).toHaveBeenCalledWith({
       name: "image.png",
       mimeType: "image/png",
@@ -362,12 +393,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       projectId: "alpha",
       initialUrl: "https://example.com",
     });
-    service.registerAttachedWebviewOwnership(
-      501,
-      101,
-      browserIdentity,
-      "browser:context-menu",
-    );
+    service.registerAttachedWebviewOwnership(501, 101, browserIdentity, "browser:context-menu");
     await service.handleWebviewHostCreated({
       ...browserIdentity,
       browserStorageId: "browser:context-menu",
@@ -386,27 +412,29 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const actionPromise = new Promise<Record<string, unknown>>((resolve) => {
       service.once("contextMenuAction", resolve);
     });
-    contents.emit("context-menu", {}, {
-      x: 40,
-      y: 80,
-      linkURL: "",
-      srcURL: "",
-      mediaType: "none",
-      hasImageContents: false,
-      isEditable: false,
-      selectionText: "",
-      formControlType: "none",
-      editFlags: {
-        canCopy: false,
-        canCut: false,
-        canPaste: false,
+    contents.emit(
+      "context-menu",
+      {},
+      {
+        x: 40,
+        y: 80,
+        linkURL: "",
+        srcURL: "",
+        mediaType: "none",
+        hasImageContents: false,
+        isEditable: false,
+        selectionText: "",
+        formControlType: "none",
+        editFlags: {
+          canCopy: false,
+          canCut: false,
+          canPaste: false,
+        },
       },
-    });
+    );
 
     expect(presentedMenus).toHaveLength(1);
-    const quickAnnotate = presentedMenus[0]?.find(
-      (item) => item.label === "Quick annotate",
-    );
+    const quickAnnotate = presentedMenus[0]?.find((item) => item.label === "Quick annotate");
     quickAnnotate?.click?.({} as never, undefined, {} as never);
     await expect(actionPromise).resolves.toMatchObject({
       ...browserIdentity,
@@ -469,13 +497,16 @@ describe("BrowserSidebarService webview lifecycle", () => {
       projectId: "alpha",
       initialUrl: "about:blank",
     });
-    service.prepareAttachedWebviewHistoryRestore({
-      ...browserIdentity,
-      browserStorageId: "browser:durable",
-      rendererInstanceId: "renderer-1",
-      hostGeneration: 1,
-      mountGeneration: 1,
-    }, 101);
+    service.prepareAttachedWebviewHistoryRestore(
+      {
+        ...browserIdentity,
+        browserStorageId: "browser:durable",
+        rendererInstanceId: "renderer-1",
+        hostGeneration: 1,
+        mountGeneration: 1,
+      },
+      101,
+    );
     expect(contents.restoredHistory?.currentIndex).toBe(1);
 
     const result = await service.handleWebviewHostCreated({
@@ -603,13 +634,16 @@ describe("BrowserSidebarService webview lifecycle", () => {
       initialUrl: "https://www.google.com",
       title: "Browser",
     });
-    await service.handleCommand({
-      type: "register-renderer-session",
-      browserViewScopeId: browserIdentity.browserViewScopeId,
-      rendererInstanceId: "renderer-1",
-    }, {
-      ownerWebContentsId: 7,
-    });
+    await service.handleCommand(
+      {
+        type: "register-renderer-session",
+        browserViewScopeId: browserIdentity.browserViewScopeId,
+        rendererInstanceId: "renderer-1",
+      },
+      {
+        ownerWebContentsId: 7,
+      },
+    );
 
     const host = {
       type: "register-host" as const,
@@ -621,22 +655,31 @@ describe("BrowserSidebarService webview lifecycle", () => {
       pagePersistence: "durable" as const,
       themeVariant: "light" as const,
     };
-    expect(await service.handleCommand({
-      ...host,
-      browserStorageId: "browser:forged",
-    }, {
-      ownerWebContentsId: 7,
-    })).toEqual({
+    expect(
+      await service.handleCommand(
+        {
+          ...host,
+          browserStorageId: "browser:forged",
+        },
+        {
+          ownerWebContentsId: 7,
+        },
+      ),
+    ).toEqual({
       ok: false,
-      message:
-        "Browser host registration failed: storage-identity-mismatch",
+      message: "Browser host registration failed: storage-identity-mismatch",
     });
-    expect(await service.handleCommand({
-      ...host,
-      browserStorageId: "browser:durable",
-    }, {
-      ownerWebContentsId: 7,
-    })).toEqual({ ok: true });
+    expect(
+      await service.handleCommand(
+        {
+          ...host,
+          browserStorageId: "browser:durable",
+        },
+        {
+          ownerWebContentsId: 7,
+        },
+      ),
+    ).toEqual({ ok: true });
   });
 
   test("emulates the current app color scheme on the attached page and ignores stale hosts", async () => {
@@ -650,13 +693,16 @@ describe("BrowserSidebarService webview lifecycle", () => {
       initialUrl: "https://www.google.com",
       title: "Browser",
     });
-    await service.handleCommand({
-      type: "register-renderer-session",
-      browserViewScopeId: browserIdentity.browserViewScopeId,
-      rendererInstanceId: "renderer-1",
-    }, {
-      ownerWebContentsId: 7,
-    });
+    await service.handleCommand(
+      {
+        type: "register-renderer-session",
+        browserViewScopeId: browserIdentity.browserViewScopeId,
+        rendererInstanceId: "renderer-1",
+      },
+      {
+        ownerWebContentsId: 7,
+      },
+    );
     const hostRoute = {
       ...browserIdentity,
       browserStorageId: "browser:durable",
@@ -664,54 +710,61 @@ describe("BrowserSidebarService webview lifecycle", () => {
       hostGeneration: 1,
       mountGeneration: 1,
     };
-    await expect(service.handleCommand({
-      type: "register-host",
-      ...hostRoute,
-      hostKind: "panel",
-      pagePersistence: "durable",
-      themeVariant: "dark",
-    }, {
-      ownerWebContentsId: 7,
-    })).resolves.toEqual({ ok: true });
-    service.registerAttachedWebviewOwnership(
-      7,
-      101,
-      hostRoute,
-      hostRoute.browserStorageId,
-    );
+    await expect(
+      service.handleCommand(
+        {
+          type: "register-host",
+          ...hostRoute,
+          hostKind: "panel",
+          pagePersistence: "durable",
+          themeVariant: "dark",
+        },
+        {
+          ownerWebContentsId: 7,
+        },
+      ),
+    ).resolves.toEqual({ ok: true });
+    service.registerAttachedWebviewOwnership(7, 101, hostRoute, hostRoute.browserStorageId);
     const cursorStates: Array<{ animateMovement?: boolean; moveSequence: number }> = [];
     service.on("browserUseCursor", (cursor) => {
       cursorStates.push(cursor);
     });
-    expect(service.setBrowserUseCursor({
-      ...browserIdentity,
-      moveSequence: 1,
-      visible: true,
-      updatedAt: 1,
-      x: 10,
-      y: 20,
-    })).toBe(false);
+    expect(
+      service.setBrowserUseCursor({
+        ...browserIdentity,
+        moveSequence: 1,
+        visible: true,
+        updatedAt: 1,
+        x: 10,
+        y: 20,
+      }),
+    ).toBe(false);
     expect(cursorStates.at(-1)).toMatchObject({
       animateMovement: false,
       moveSequence: 1,
     });
 
-    await service.handleWebviewHostCreated({
-      ...hostRoute,
-      projectId: "alpha",
-      hostKind: "panel",
-      webContentsId: 101,
-      initialUrl: "https://www.google.com",
-    }, 7);
+    await service.handleWebviewHostCreated(
+      {
+        ...hostRoute,
+        projectId: "alpha",
+        hostKind: "panel",
+        webContentsId: 101,
+        initialUrl: "https://www.google.com",
+      },
+      7,
+    );
     await flushPageEmulation();
 
     expect(contents.debuggerCommands).toContainEqual({
       method: "Emulation.setEmulatedMedia",
       params: {
-        features: [{
-          name: "prefers-color-scheme",
-          value: "dark",
-        }],
+        features: [
+          {
+            name: "prefers-color-scheme",
+            value: "dark",
+          },
+        ],
       },
     });
     expect(contents.debuggerAttached).toBe(true);
@@ -721,75 +774,94 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(contents.debuggerDetachCalls).toBe(0);
 
     contents.debuggerCommands = [];
-    await service.handleCommand({
-      type: "sync-host",
-      ...browserIdentity,
-      rendererInstanceId: "renderer-1",
-      hostGeneration: 1,
-      mountGeneration: 1,
-      hostKind: "panel",
-      presented: true,
-      themeVariant: "light",
-      visible: true,
-    }, {
-      ownerWebContentsId: 7,
-    });
+    await service.handleCommand(
+      {
+        type: "sync-host",
+        ...browserIdentity,
+        rendererInstanceId: "renderer-1",
+        hostGeneration: 1,
+        mountGeneration: 1,
+        hostKind: "panel",
+        presented: true,
+        themeVariant: "light",
+        visible: true,
+      },
+      {
+        ownerWebContentsId: 7,
+      },
+    );
     await flushPageEmulation();
-    expect(service.setBrowserUseCursor({
-      ...browserIdentity,
-      moveSequence: 2,
-      visible: true,
-      updatedAt: 2,
-      x: 30,
-      y: 40,
-    })).toBe(true);
+    expect(
+      service.setBrowserUseCursor({
+        ...browserIdentity,
+        moveSequence: 2,
+        visible: true,
+        updatedAt: 2,
+        x: 30,
+        y: 40,
+      }),
+    ).toBe(true);
     expect(cursorStates.at(-1)).toMatchObject({
       animateMovement: true,
       moveSequence: 2,
     });
-    expect(contents.debuggerCommands).toEqual([{
-      method: "Emulation.setEmulatedMedia",
-      params: {
-        features: [{
-          name: "prefers-color-scheme",
-          value: "light",
-        }],
+    expect(contents.debuggerCommands).toEqual([
+      {
+        method: "Emulation.setEmulatedMedia",
+        params: {
+          features: [
+            {
+              name: "prefers-color-scheme",
+              value: "light",
+            },
+          ],
+        },
       },
-    }]);
+    ]);
 
     contents.debuggerCommands = [];
-    await service.handleCommand({
-      type: "sync-theme",
-      themeVariant: "dark",
-    }, {
-      browserViewScopeId: browserIdentity.browserViewScopeId,
-      ownerWebContentsId: 7,
-    });
+    await service.handleCommand(
+      {
+        type: "sync-theme",
+        themeVariant: "dark",
+      },
+      {
+        browserViewScopeId: browserIdentity.browserViewScopeId,
+        ownerWebContentsId: 7,
+      },
+    );
     await flushPageEmulation();
-    expect(contents.debuggerCommands).toEqual([{
-      method: "Emulation.setEmulatedMedia",
-      params: {
-        features: [{
-          name: "prefers-color-scheme",
-          value: "dark",
-        }],
+    expect(contents.debuggerCommands).toEqual([
+      {
+        method: "Emulation.setEmulatedMedia",
+        params: {
+          features: [
+            {
+              name: "prefers-color-scheme",
+              value: "dark",
+            },
+          ],
+        },
       },
-    }]);
+    ]);
 
     contents.debuggerCommands = [];
-    await service.handleCommand({
-      type: "sync-host",
-      ...browserIdentity,
-      rendererInstanceId: "renderer-1",
-      hostGeneration: 1,
-      mountGeneration: 2,
-      hostKind: "background",
-      presented: false,
-      themeVariant: "light",
-      visible: false,
-    }, {
-      ownerWebContentsId: 7,
-    });
+    await service.handleCommand(
+      {
+        type: "sync-host",
+        ...browserIdentity,
+        rendererInstanceId: "renderer-1",
+        hostGeneration: 1,
+        mountGeneration: 2,
+        hostKind: "background",
+        presented: false,
+        themeVariant: "light",
+        visible: false,
+      },
+      {
+        ownerWebContentsId: 7,
+      },
+    );
     expect(contents.debuggerCommands).toEqual([]);
     expect(readTab(service)).toMatchObject({
       presented: true,
@@ -823,9 +895,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       ok: false,
       message: "Browser storage identity does not match the registered tab",
     });
-    expect(readTab(service).browserStorageId).toBe(
-      "browser:legacy:tab-browser",
-    );
+    expect(readTab(service).browserStorageId).toBe("browser:legacy:tab-browser");
   });
 
   test("repeated register preserves live webview state", async () => {
@@ -879,18 +949,21 @@ describe("BrowserSidebarService webview lifecycle", () => {
       webContentsId: 101,
       initialUrl: "about:blank",
     });
-    contents.rejectLoadWith = Object.assign(new Error("ERR_ABORTED (-3) loading 'https://www.google.com/'"), {
-      code: "ERR_ABORTED",
-      errno: -3,
-    });
+    contents.rejectLoadWith = Object.assign(
+      new Error("ERR_ABORTED (-3) loading 'https://www.google.com/'"),
+      {
+        code: "ERR_ABORTED",
+        errno: -3,
+      },
+    );
 
-    const result = await service.handleCommand({
+    const result = (await service.handleCommand({
       type: "navigate",
       ...browserIdentity,
       url: "https://www.google.com",
       source: "manual",
       initiator: "address_bar",
-    }) as BrowserSidebarCommandResult;
+    })) as BrowserSidebarCommandResult;
     await flushLoadPromise();
 
     expect(result.ok).toBe(true);
@@ -913,7 +986,11 @@ describe("BrowserSidebarService webview lifecycle", () => {
     });
     contents.rejectLoadWith = new Error("DNS failure");
 
-    const result = await service.handleCommand({ type: "navigate", ...browserIdentity, url: "https://example.test" });
+    const result = await service.handleCommand({
+      type: "navigate",
+      ...browserIdentity,
+      url: "https://example.test",
+    });
     await flushLoadPromise();
 
     expect(result.ok).toBe(true);
@@ -1028,28 +1105,34 @@ describe("BrowserSidebarService webview lifecycle", () => {
     await registerTab(service);
     service.registerAttachedWebviewOwnership(7, 101, browserIdentity);
 
-    const rejected = await service.handleWebviewHostCreated({
-      ...browserIdentity,
-      projectId: "alpha",
-      hostKind: "panel",
-      mountGeneration: 1,
-      webContentsId: 101,
-      initialUrl: "about:blank",
-    }, 8);
+    const rejected = await service.handleWebviewHostCreated(
+      {
+        ...browserIdentity,
+        projectId: "alpha",
+        hostKind: "panel",
+        mountGeneration: 1,
+        webContentsId: 101,
+        initialUrl: "about:blank",
+      },
+      8,
+    );
     expect(rejected).toEqual({
       ok: false,
       message: "Browser webview does not belong to the requesting window",
     });
     expect(readTab(service).webContentsId).toBe(null);
 
-    const accepted = await service.handleWebviewHostCreated({
-      ...browserIdentity,
-      projectId: "alpha",
-      hostKind: "panel",
-      mountGeneration: 1,
-      webContentsId: 101,
-      initialUrl: "about:blank",
-    }, 7);
+    const accepted = await service.handleWebviewHostCreated(
+      {
+        ...browserIdentity,
+        projectId: "alpha",
+        hostKind: "panel",
+        mountGeneration: 1,
+        webContentsId: 101,
+        initialUrl: "about:blank",
+      },
+      7,
+    );
     expect(accepted.ok).toBe(true);
     expect(readTab(service).webContentsId).toBe(101);
   });
@@ -1067,21 +1150,19 @@ describe("BrowserSidebarService webview lifecycle", () => {
       hostGeneration: 1,
       mountGeneration: 1,
     };
-    service.registerAttachedWebviewOwnership(
-      7,
-      101,
-      attachedRoute,
-      browserStorageId,
-    );
+    service.registerAttachedWebviewOwnership(7, 101, attachedRoute, browserStorageId);
 
-    const transferred = await service.handleWebviewHostCreated({
-      ...attachedRoute,
-      mountGeneration: 2,
-      projectId: "alpha",
-      hostKind: "panel",
-      webContentsId: 101,
-      initialUrl: "about:blank",
-    }, 7);
+    const transferred = await service.handleWebviewHostCreated(
+      {
+        ...attachedRoute,
+        mountGeneration: 2,
+        projectId: "alpha",
+        hostKind: "panel",
+        webContentsId: 101,
+        initialUrl: "about:blank",
+      },
+      7,
+    );
 
     expect(transferred.ok).toBe(true);
     expect(readTab(service)).toMatchObject({
@@ -1093,7 +1174,8 @@ describe("BrowserSidebarService webview lifecycle", () => {
   test("destroy acks are generation-safe", async () => {
     const contents = new FakeWebContents();
     const service = createService(new Map([[101, contents]]));
-    const pendingDestroys: import("../shared/browser-sidebar").BrowserSidebarDestroyWebviewRequest[] = [];
+    const pendingDestroys: import("../shared/browser-sidebar").BrowserSidebarDestroyWebviewRequest[] =
+      [];
     service.on("destroyWebview", (request) => {
       pendingDestroys.push(request);
     });
@@ -1182,9 +1264,18 @@ describe("BrowserSidebarService webview lifecycle", () => {
       initialUrl: "https://example.com",
     });
 
-    await service.handleCommand({ type: "set-interaction-mode", ...browserIdentity, mode: "comment" });
+    await service.handleCommand({
+      type: "set-interaction-mode",
+      ...browserIdentity,
+      mode: "comment",
+    });
     await service.handleCommand({ type: "open-find", ...browserIdentity });
-    await service.handleCommand({ type: "set-find-query", ...browserIdentity, query: "hello", caseSensitive: true });
+    await service.handleCommand({
+      type: "set-find-query",
+      ...browserIdentity,
+      query: "hello",
+      caseSensitive: true,
+    });
     await service.handleCommand({ type: "find-next", ...browserIdentity });
     await service.handleCommand({ type: "find-previous", ...browserIdentity });
     contents.emit("found-in-page", {}, { activeMatchOrdinal: 2, matches: 5 });
@@ -1215,15 +1306,19 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const requests: unknown[] = [];
     service.on("openNewTab", (request) => requests.push(request));
 
-    expect(contents.windowOpenHandler?.({
-      disposition: "background-tab",
-      url: "https://example.com/child",
-    })).toEqual({ action: "deny" });
-    expect(requests).toEqual([{
-      ...browserIdentity,
-      url: "https://example.com/child",
-      background: true,
-    }]);
+    expect(
+      contents.windowOpenHandler?.({
+        disposition: "background-tab",
+        url: "https://example.com/child",
+      }),
+    ).toEqual({ action: "deny" });
+    expect(requests).toEqual([
+      {
+        ...browserIdentity,
+        url: "https://example.com/child",
+        background: true,
+      },
+    ]);
 
     contents.windowOpenHandler?.({
       disposition: "foreground-tab",
@@ -1233,17 +1328,11 @@ describe("BrowserSidebarService webview lifecycle", () => {
   });
 
   test("consults the site-status policy before entering comment mode", async () => {
-    const isCommentModeBlocked = vi.fn(async (url: string) =>
-      url === "https://blocked.example/"
-    );
-    const service = createService(
-      new Map(),
-      undefined,
-      {
-        cachedCommentModeBlocked: () => null,
-        isCommentModeBlocked,
-      },
-    );
+    const isCommentModeBlocked = vi.fn(async (url: string) => url === "https://blocked.example/");
+    const service = createService(new Map(), undefined, {
+      cachedCommentModeBlocked: () => null,
+      isCommentModeBlocked,
+    });
     await registerTab(service);
     await service.handleCommand({
       type: "navigate",
@@ -1274,14 +1363,8 @@ describe("BrowserSidebarService webview lifecycle", () => {
     });
     expect(allowed.ok).toBe(true);
     expect(readTab(service).interactionMode).toBe("comment");
-    expect(isCommentModeBlocked).toHaveBeenNthCalledWith(
-      1,
-      "https://blocked.example/",
-    );
-    expect(isCommentModeBlocked).toHaveBeenNthCalledWith(
-      2,
-      "https://allowed.example/",
-    );
+    expect(isCommentModeBlocked).toHaveBeenNthCalledWith(1, "https://blocked.example/");
+    expect(isCommentModeBlocked).toHaveBeenNthCalledWith(2, "https://allowed.example/");
   });
 
   test("keeps the same browser tab id independent across window scopes", async () => {
@@ -1316,12 +1399,11 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(readTab(service).title).toBe("Changed only in one");
     expect(readTab(service, otherIdentity).title).toBe("Two");
     expect(readTab(service, otherIdentity).projectId).toBe(null);
-    expect(JSON.stringify(service.getConversationBrowserTabIds(
-      "session-1",
-      browserIdentity.browserViewScopeId,
-    ))).toBe(
-      JSON.stringify([]),
-    );
+    expect(
+      JSON.stringify(
+        service.getConversationBrowserTabIds("session-1", browserIdentity.browserViewScopeId),
+      ),
+    ).toBe(JSON.stringify([]));
 
     await service.handleCommand({ type: "close-tab", ...browserIdentity });
 
@@ -1339,7 +1421,9 @@ describe("BrowserSidebarService webview lifecycle", () => {
       viewportEvent = `${payload.browserConversationId}/${payload.browserTabId}:${payload.viewportSize?.width ?? 0}x${payload.viewportSize?.height ?? 0}`;
     });
     service.on("browserUseCursor", (payload) => {
-      cursorEvents.push(`${payload.browserConversationId}/${payload.browserTabId}:${payload.x},${payload.y}:${payload.visible}`);
+      cursorEvents.push(
+        `${payload.browserConversationId}/${payload.browserTabId}:${payload.x},${payload.y}:${payload.visible}`,
+      );
     });
     service.on("pageReleased", (payload) => {
       releasedEvent = `${payload.browserConversationId}/${payload.browserTabId}`;
@@ -1408,11 +1492,13 @@ describe("BrowserSidebarService webview lifecycle", () => {
     await service.handleCommand({ type: "browser-use-release-tab", ...browserIdentity });
 
     expect(viewportEvent).toBe("session-1/tab-browser:390x844");
-    expect(JSON.stringify(cursorEvents)).toBe(JSON.stringify([
-      "session-1/tab-browser:12,34:true",
-      "session-2/tab-browser:98,76:false",
-      "session-1/tab-browser:12,34:false",
-    ]));
+    expect(JSON.stringify(cursorEvents)).toBe(
+      JSON.stringify([
+        "session-1/tab-browser:12,34:true",
+        "session-2/tab-browser:98,76:false",
+        "session-1/tab-browser:12,34:false",
+      ]),
+    );
     expect(releasedEvent).toBe("session-1/tab-browser");
     expect(closedEvents).toEqual([]);
     expect(
@@ -1420,18 +1506,20 @@ describe("BrowserSidebarService webview lifecycle", () => {
         `session-1\0${browserIdentity.browserViewScopeId}`
       ] === undefined,
     ).toBe(true);
-    expect(JSON.stringify(service.getBrowserUseStateSnapshot().cursors)).toBe(JSON.stringify([
-      {
-        browserConversationId: "session-2",
-        browserViewScopeId: "window-session-2",
-        browserTabId: "tab-browser",
-        moveSequence: 2,
-        x: 98,
-        y: 76,
-        visible: false,
-        updatedAt: 2,
-      },
-    ]));
+    expect(JSON.stringify(service.getBrowserUseStateSnapshot().cursors)).toBe(
+      JSON.stringify([
+        {
+          browserConversationId: "session-2",
+          browserViewScopeId: "window-session-2",
+          browserTabId: "tab-browser",
+          moveSequence: 2,
+          x: 98,
+          y: 76,
+          visible: false,
+          updatedAt: 2,
+        },
+      ]),
+    );
     expect(readTab(service).url).toBe("https://ordinary.example");
     expect(readTab(service).deviceToolbarVisible).toBe(true);
     expect(readTab(service).deviceToolbarState.toolbarState.isEnabled).toBe(true);
@@ -1455,15 +1543,18 @@ describe("BrowserSidebarService webview lifecycle", () => {
       requests.push(request);
     });
 
-    await service.handleCommand({
-      type: "capture-browser-use-route",
-      browserConversationId: route.browserConversationId,
-      browserViewScopeId: route.browserViewScopeId,
-      codexSessionId: route.codexSessionId,
-      projectId: route.projectId,
-    }, {
-      ownerWebContentsId: route.ownerWebContentsId,
-    });
+    await service.handleCommand(
+      {
+        type: "capture-browser-use-route",
+        browserConversationId: route.browserConversationId,
+        browserViewScopeId: route.browserViewScopeId,
+        codexSessionId: route.codexSessionId,
+        projectId: route.projectId,
+      },
+      {
+        ownerWebContentsId: route.ownerWebContentsId,
+      },
+    );
     await service.handleCommand({
       type: "browser-use-upsert-tab",
       tab: {
@@ -1485,44 +1576,25 @@ describe("BrowserSidebarService webview lifecycle", () => {
       },
     });
 
-    service.setBrowserVisibleForBrowserUse(
-      route,
-      browserIdentity.browserTabId,
-      true,
-    );
+    service.setBrowserVisibleForBrowserUse(route, browserIdentity.browserTabId, true);
     expect(requests.at(-1)).toMatchObject({
       transition: "default",
       visible: true,
     });
-    expect(service.isBrowserVisibleForBrowserUse(
-      route,
-      browserIdentity.browserTabId,
-    )).toBe(true);
+    expect(service.isBrowserVisibleForBrowserUse(route, browserIdentity.browserTabId)).toBe(true);
 
-    service.setBrowserVisibleForBrowserUse(
-      route,
-      browserIdentity.browserTabId,
-      false,
-    );
+    service.setBrowserVisibleForBrowserUse(route, browserIdentity.browserTabId, false);
     expect(requests.at(-1)).toMatchObject({ visible: false });
-    expect(service.isBrowserVisibleForBrowserUse(
-      route,
-      browserIdentity.browserTabId,
-    )).toBe(false);
+    expect(service.isBrowserVisibleForBrowserUse(route, browserIdentity.browserTabId)).toBe(false);
     expect(
-      service.getBrowserUseStateSnapshot()
-        .activeBrowserTabIdsByConversationScope[
-          `session-1\0${browserIdentity.browserViewScopeId}`
-        ],
+      service.getBrowserUseStateSnapshot().activeBrowserTabIdsByConversationScope[
+        `session-1\0${browserIdentity.browserViewScopeId}`
+      ],
     ).toBe(browserIdentity.browserTabId);
 
     const staleRequest = requests.find((request) => request.visible);
     expect(staleRequest).toBeDefined();
-    service.setBrowserVisibleForBrowserUse(
-      route,
-      browserIdentity.browserTabId,
-      true,
-    );
+    service.setBrowserVisibleForBrowserUse(route, browserIdentity.browserTabId, true);
     const currentRequest = requests.at(-1);
     expect(currentRequest?.requestId).not.toBe(staleRequest?.requestId);
     service.resolveBrowserUsePresentation({
@@ -1530,30 +1602,38 @@ describe("BrowserSidebarService webview lifecycle", () => {
       requestId: staleRequest?.requestId ?? "missing",
       outcome: "unavailable",
     });
-    expect(service.listPendingBrowserUsePresentationRequests(
-      route.browserViewScopeId,
-    )).toEqual([currentRequest]);
+    expect(service.listPendingBrowserUsePresentationRequests(route.browserViewScopeId)).toEqual([
+      currentRequest,
+    ]);
   });
 
   test("awaits explicit route capture and never binds Browser Use while registering tabs", async () => {
     const service = createService();
     let releaseCapture: () => void = () => undefined;
-    const captureHandler = vi.fn(() => new Promise<void>((resolve) => {
-      releaseCapture = resolve;
-    }));
+    const captureHandler = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseCapture = resolve;
+        }),
+    );
     service.setBrowserUseRouteCaptureHandler(captureHandler);
 
     let settled = false;
-    const capture = service.handleCommand({
-      type: "capture-browser-use-route",
-      browserConversationId: "project:alpha",
-      browserViewScopeId: "window-session-1",
-      codexSessionId: "project-session-1",
-      projectId: "alpha",
-    }, { ownerWebContentsId: 7 }).then((result) => {
-      settled = true;
-      return result;
-    });
+    const capture = service
+      .handleCommand(
+        {
+          type: "capture-browser-use-route",
+          browserConversationId: "project:alpha",
+          browserViewScopeId: "window-session-1",
+          codexSessionId: "project-session-1",
+          projectId: "alpha",
+        },
+        { ownerWebContentsId: 7 },
+      )
+      .then((result) => {
+        settled = true;
+        return result;
+      });
     await Promise.resolve();
     expect(settled).toBe(false);
     expect(captureHandler).toHaveBeenCalledWith({
@@ -1595,13 +1675,18 @@ describe("BrowserSidebarService webview lifecycle", () => {
     service.setBrowserUseRouteCaptureHandler(async () => {
       throw new Error("route is busy");
     });
-    await expect(service.handleCommand({
-      type: "capture-browser-use-route",
-      browserConversationId: "project:beta",
-      browserViewScopeId: "window-session-1",
-      codexSessionId: "project-session-2",
-      projectId: "beta",
-    }, { ownerWebContentsId: 7 })).resolves.toEqual({
+    await expect(
+      service.handleCommand(
+        {
+          type: "capture-browser-use-route",
+          browserConversationId: "project:beta",
+          browserViewScopeId: "window-session-1",
+          codexSessionId: "project-session-2",
+          projectId: "beta",
+        },
+        { ownerWebContentsId: 7 },
+      ),
+    ).resolves.toEqual({
       ok: false,
       message: "route is busy",
     });
@@ -1620,15 +1705,18 @@ describe("BrowserSidebarService webview lifecycle", () => {
     service.on("browserUsePresentationRequest", (request) => {
       transition = request.transition;
     });
-    await service.handleCommand({
-      type: "capture-browser-use-route",
-      browserConversationId: "another-session",
-      browserViewScopeId: route.browserViewScopeId,
-      codexSessionId: "another-thread",
-      projectId: "alpha",
-    }, {
-      ownerWebContentsId: route.ownerWebContentsId,
-    });
+    await service.handleCommand(
+      {
+        type: "capture-browser-use-route",
+        browserConversationId: "another-session",
+        browserViewScopeId: route.browserViewScopeId,
+        codexSessionId: "another-thread",
+        projectId: "alpha",
+      },
+      {
+        ownerWebContentsId: route.ownerWebContentsId,
+      },
+    );
     await service.handleCommand({
       type: "browser-use-upsert-tab",
       tab: {
@@ -1650,16 +1738,9 @@ describe("BrowserSidebarService webview lifecycle", () => {
       },
     });
 
-    service.setBrowserVisibleForBrowserUse(
-      route,
-      browserIdentity.browserTabId,
-      true,
-    );
+    service.setBrowserVisibleForBrowserUse(route, browserIdentity.browserTabId, true);
     expect(transition).toBe("none");
-    expect(service.isBrowserVisibleForBrowserUse(
-      route,
-      browserIdentity.browserTabId,
-    )).toBe(false);
+    expect(service.isBrowserVisibleForBrowserUse(route, browserIdentity.browserTabId)).toBe(false);
   });
 
   test("conversation teardown removes only that composite browser namespace", async () => {
@@ -1716,7 +1797,9 @@ describe("BrowserSidebarService webview lifecycle", () => {
     expect(service.getBrowserUseStateSnapshot().tabs.length).toBe(1);
     expect(service.getBrowserUseStateSnapshot().tabs[0]?.browserConversationId).toBe("session-2");
     expect(service.getBrowserUseStateSnapshot().cursors.length).toBe(1);
-    expect(service.getBrowserUseStateSnapshot().cursors[0]?.browserConversationId).toBe("session-2");
+    expect(service.getBrowserUseStateSnapshot().cursors[0]?.browserConversationId).toBe(
+      "session-2",
+    );
     expect(pageReleasedCount).toBe(0);
   });
 });

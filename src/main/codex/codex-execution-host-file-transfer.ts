@@ -12,10 +12,7 @@ export interface CodexExecutionHostFileDescriptor {
 
 export interface CodexExecutionHostFileTransferPort {
   readonly hostId: string;
-  describe(
-    sourcePath: string,
-    signal?: AbortSignal,
-  ): Promise<CodexExecutionHostFileDescriptor>;
+  describe(sourcePath: string, signal?: AbortSignal): Promise<CodexExecutionHostFileDescriptor>;
   download(input: {
     readonly source: CodexExecutionHostFileDescriptor;
     readonly destinationPath: string;
@@ -56,7 +53,8 @@ export async function describeCodexTransferFile(
   }
   const hash = createHash("sha256");
   const stream = createReadStream(filePath);
-  const abort = () => stream.destroy(signal?.reason instanceof Error ? signal.reason : new Error("Request canceled"));
+  const abort = () =>
+    stream.destroy(signal?.reason instanceof Error ? signal.reason : new Error("Request canceled"));
   signal?.addEventListener("abort", abort, { once: true });
   try {
     for await (const chunk of stream) {
@@ -147,10 +145,13 @@ export class CodexLocalExecutionHostFileTransfer implements CodexExecutionHostFi
 
   #assertReadable(candidatePath: string): void {
     const candidate = path.resolve(candidatePath);
-    if (this.#allowedReadRoots.some((root) => {
-      const relative = path.relative(root, candidate);
-      return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-    })) return;
+    if (
+      this.#allowedReadRoots.some((root) => {
+        const relative = path.relative(root, candidate);
+        return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+      })
+    )
+      return;
     throw new Error("Handoff transfer source is outside the authorized host roots");
   }
 }

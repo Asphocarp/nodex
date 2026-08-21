@@ -8,11 +8,7 @@ import {
   installMeasuredResizeObserver,
   installWindowApi,
 } from "../../../../test/browser-globals";
-import {
-  renderWithMaitai as render,
-  settleAsyncRender,
-  textContent,
-} from "../../../../test/dom";
+import { renderWithMaitai as render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { TestQueryProvider } from "../../../../test/query";
 import { THREAD_SETTINGS_STORAGE_KEY } from "../../../../lib/codex-thread-settings";
 import { CodexThreadSettingsProvider } from "../../../../lib/use-codex-thread-settings";
@@ -41,7 +37,10 @@ import type {
   ThreadTranscriptBlockModel,
 } from "../../thread-stage-types";
 
-const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+const scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "scrollHeight",
+);
 const originalGetComputedStyle = window.getComputedStyle;
 
 function buildCommandEntry(
@@ -139,11 +138,7 @@ function buildFileChangeEntry(itemId: string): CodexConversationItem {
           path: "src/edited.ts",
           type: "update",
           movePath: null,
-          unifiedDiff: [
-            "@@ -1,1 +1,1 @@",
-            "-old value",
-            "+new value",
-          ].join("\n"),
+          unifiedDiff: ["@@ -1,1 +1,1 @@", "-old value", "+new value"].join("\n"),
         },
       ]),
     },
@@ -300,10 +295,11 @@ function installTextCollapseMeasurement({
       return scrollHeight;
     },
   });
-  window.getComputedStyle = (() => ({
-    lineHeight: `${lineHeightPx}px`,
-    fontSize: "16px",
-  } as CSSStyleDeclaration)) as typeof window.getComputedStyle;
+  window.getComputedStyle = (() =>
+    ({
+      lineHeight: `${lineHeightPx}px`,
+      fontSize: "16px",
+    }) as CSSStyleDeclaration) as typeof window.getComputedStyle;
 }
 
 async function settleTextCollapseMeasurement(): Promise<void> {
@@ -316,7 +312,10 @@ function restoreTextCollapseMeasurement(): void {
   if (scrollHeightDescriptor) {
     Object.defineProperty(HTMLElement.prototype, "scrollHeight", scrollHeightDescriptor);
   } else {
-    Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { scrollHeight?: number }, "scrollHeight");
+    Reflect.deleteProperty(
+      HTMLElement.prototype as HTMLElement & { scrollHeight?: number },
+      "scrollHeight",
+    );
   }
   window.getComputedStyle = originalGetComputedStyle;
 }
@@ -372,7 +371,9 @@ describe("UserMessageBubble collapse", () => {
     );
 
     const status = getByText("Hook feedback");
-    expect(status.closest("a")?.getAttribute("href")).toBe("/settings/hooks-settings?hostId=default");
+    expect(status.closest("a")?.getAttribute("href")).toBe(
+      "/settings/hooks-settings?hostId=default",
+    );
     expect(queryByLabelText("Edit message")).toBe(null);
   });
 
@@ -395,7 +396,9 @@ describe("UserMessageBubble collapse", () => {
       '[data-user-message-bubble="true"]',
     );
     expect(getAllByLabelText("Copy message")).toHaveLength(1);
-    expect(bubble?.parentElement?.querySelector('button[aria-label="Copy message"]')).not.toBeNull();
+    expect(
+      bubble?.parentElement?.querySelector('button[aria-label="Copy message"]'),
+    ).not.toBeNull();
     expect(getByText("Hook feedback")).toBeTruthy();
   });
 
@@ -422,8 +425,9 @@ describe("UserMessageBubble collapse", () => {
     );
 
     const link = getByText("Hook feedback").closest("a");
-    expect(link?.getAttribute("href"))
-      .toBe("/settings/hooks-settings?hostId=remote-1&source=project&projectRoot=%2Fworkspace%2Fnodex");
+    expect(link?.getAttribute("href")).toBe(
+      "/settings/hooks-settings?hostId=remote-1&source=project&projectRoot=%2Fworkspace%2Fnodex",
+    );
     fireEvent.click(link as HTMLElement);
     expect(onOpenHooksSettings).toHaveBeenCalledWith({
       hostId: "remote-1",
@@ -433,7 +437,9 @@ describe("UserMessageBubble collapse", () => {
 
   test("collapses long measured user messages and toggles expansion", async () => {
     installTextCollapseMeasurement({ scrollHeight: 600, lineHeightPx: 20 });
-    const longMessage = Array.from({ length: 25 }, (_value, index) => `Line ${index + 1}`).join("\n");
+    const longMessage = Array.from({ length: 25 }, (_value, index) => `Line ${index + 1}`).join(
+      "\n",
+    );
 
     const { container, getByText } = renderUserMessageBubble(longMessage);
     await settleAsyncRender();
@@ -458,12 +464,16 @@ describe("UserMessageBubble collapse", () => {
     await settleAsyncRender();
 
     expect(getByText("Show more").closest("button")?.getAttribute("aria-expanded")).toBe("false");
-    expect(getUserCollapseRoot(container).getAttribute("style") ?? "").toContain("max-height: 400px");
+    expect(getUserCollapseRoot(container).getAttribute("style") ?? "").toContain(
+      "max-height: 400px",
+    );
   });
 
   test("does not render a toggle when content fits the exact collapsed height", async () => {
     installTextCollapseMeasurement({ scrollHeight: 400, lineHeightPx: 20 });
-    const longMessage = Array.from({ length: 25 }, (_value, index) => `Line ${index + 1}`).join("\n");
+    const longMessage = Array.from({ length: 25 }, (_value, index) => `Line ${index + 1}`).join(
+      "\n",
+    );
     const view = renderUserMessageBubble(longMessage);
     await settleAsyncRender();
     await settleTextCollapseMeasurement();
@@ -473,8 +483,12 @@ describe("UserMessageBubble collapse", () => {
 
   test("collapses again when expanded text changes", async () => {
     installTextCollapseMeasurement({ scrollHeight: 600, lineHeightPx: 20 });
-    const firstMessage = Array.from({ length: 25 }, (_value, index) => `First ${index + 1}`).join("\n");
-    const secondMessage = Array.from({ length: 25 }, (_value, index) => `Second ${index + 1}`).join("\n");
+    const firstMessage = Array.from({ length: 25 }, (_value, index) => `First ${index + 1}`).join(
+      "\n",
+    );
+    const secondMessage = Array.from({ length: 25 }, (_value, index) => `Second ${index + 1}`).join(
+      "\n",
+    );
 
     const view = renderUserMessageBubble(firstMessage);
     await settleAsyncRender();
@@ -482,7 +496,9 @@ describe("UserMessageBubble collapse", () => {
 
     fireEvent.click(view.getByText("Show more").closest("button") as HTMLElement);
     await settleAsyncRender();
-    expect(view.getByText("Show less").closest("button")?.getAttribute("aria-expanded")).toBe("true");
+    expect(view.getByText("Show less").closest("button")?.getAttribute("aria-expanded")).toBe(
+      "true",
+    );
 
     view.rerender(
       <TooltipProvider>
@@ -496,7 +512,9 @@ describe("UserMessageBubble collapse", () => {
     await settleAsyncRender();
     await settleTextCollapseMeasurement();
 
-    expect(view.getByText("Show more").closest("button")?.getAttribute("aria-expanded")).toBe("false");
+    expect(view.getByText("Show more").closest("button")?.getAttribute("aria-expanded")).toBe(
+      "false",
+    );
   });
 });
 
@@ -557,17 +575,15 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadAgentActivityGroupBlock
-          block={block}
-          isLatestTurn={false}
-          isStreamingTurn={false}
-        />
+        <ThreadAgentActivityGroupBlock block={block} isLatestTurn={false} isStreamingTurn={false} />
       </TooltipProvider>,
     );
 
     const summaryButton = getByRole("button", { name: /Read files/i });
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("false");
-    const collapsedBody = container.querySelector<HTMLElement>("[data-testid='agent-activity-group-body']");
+    const collapsedBody = container.querySelector<HTMLElement>(
+      "[data-testid='agent-activity-group-body']",
+    );
     expect(collapsedBody?.getAttribute("aria-hidden")).toBe("true");
     expect(collapsedBody?.hasAttribute("inert")).toBe(true);
 
@@ -580,18 +596,22 @@ describe("ThreadAgentActivityGroupBlock", () => {
     expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
     expect(collapsedBody?.getAttribute("aria-hidden")).toBe("false");
     expect(Boolean(textContent(container).includes("Read src/a.ts"))).toBe(true);
-    expect(applyContentSearchDomMarks({
-      root: container,
-      query: "src/a.ts",
-      idPrefix: "expanded-activity",
-    }).totalMatches > 0).toBe(true);
+    expect(
+      applyContentSearchDomMarks({
+        root: container,
+        query: "src/a.ts",
+        idPrefix: "expanded-activity",
+      }).totalMatches > 0,
+    ).toBe(true);
     expect(Boolean(textContent(container).includes("Exploration"))).toBe(false);
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
-    const scroller = [...container.querySelectorAll<HTMLElement>(".vertical-scroll-fade-mask")]
-      .find((element) => element.style.getPropertyValue("--conversation-patch-file-gap") !== "");
+    const scroller = [
+      ...container.querySelectorAll<HTMLElement>(".vertical-scroll-fade-mask"),
+    ].find((element) => element.style.getPropertyValue("--conversation-patch-file-gap") !== "");
     const groupedSpacer = scroller?.firstElementChild?.firstElementChild as HTMLElement | null;
-    expect(scroller?.style.getPropertyValue("--conversation-patch-file-gap") ?? "")
-      .toBe("var(--conversation-grouped-item-gap, 4px)");
+    expect(scroller?.style.getPropertyValue("--conversation-patch-file-gap") ?? "").toBe(
+      "var(--conversation-grouped-item-gap, 4px)",
+    );
     expect(groupedSpacer?.getAttribute("aria-hidden") ?? "").toBe("true");
   });
 
@@ -620,11 +640,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const { getByRole } = render(
       <TooltipProvider>
-        <ThreadAgentActivityGroupBlock
-          block={block}
-          isLatestTurn={true}
-          isStreamingTurn={true}
-        />
+        <ThreadAgentActivityGroupBlock block={block} isLatestTurn={true} isStreamingTurn={true} />
       </TooltipProvider>,
     );
 
@@ -657,11 +673,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const { getByRole } = render(
       <TooltipProvider>
-        <ThreadAgentActivityGroupBlock
-          block={block}
-          isLatestTurn={true}
-          isStreamingTurn={true}
-        />
+        <ThreadAgentActivityGroupBlock block={block} isLatestTurn={true} isStreamingTurn={true} />
       </TooltipProvider>,
     );
 
@@ -713,11 +725,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadAgentActivityGroupBlock
-          block={block}
-          isLatestTurn={true}
-          isStreamingTurn={true}
-        />
+        <ThreadAgentActivityGroupBlock block={block} isLatestTurn={true} isStreamingTurn={true} />
       </TooltipProvider>,
     );
 
@@ -798,8 +806,8 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
       expect(textContent(view.container).includes("Running first command")).toBe(true);
       expect(textContent(view.container).includes("Running second command")).toBe(false);
-      const summaryTimer = Array.from(scheduledTimers.values())
-        .find((timer) => timer.delay === 900) ?? null;
+      const summaryTimer =
+        Array.from(scheduledTimers.values()).find((timer) => timer.delay === 900) ?? null;
       expect(Boolean(summaryTimer)).toBe(true);
 
       now = 1000;
@@ -854,15 +862,13 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const { container } = render(
       <TooltipProvider>
-        <ThreadAgentActivityGroupBlock
-          block={block}
-          isLatestTurn={true}
-          isStreamingTurn={true}
-        />
+        <ThreadAgentActivityGroupBlock block={block} isLatestTurn={true} isStreamingTurn={true} />
       </TooltipProvider>,
     );
 
-    const summaryButton = container.querySelector<HTMLButtonElement>("button[aria-expanded='false']");
+    const summaryButton = container.querySelector<HTMLButtonElement>(
+      "button[aria-expanded='false']",
+    );
     if (!summaryButton) throw new Error("Expected collapsed activity summary button");
     expect(Boolean(textContent(summaryButton).includes("Editing files"))).toBe(true);
     const shimmer = summaryButton.querySelector<HTMLElement>(".loading-shimmer-pure-text");
@@ -873,7 +879,9 @@ describe("ThreadAgentActivityGroupBlock", () => {
     fireEvent.click(summaryButton);
     await settleAsyncRender();
 
-    expect(Boolean(container.querySelector('[data-testid="agent-activity-group-body"]'))).toBe(true);
+    expect(Boolean(container.querySelector('[data-testid="agent-activity-group-body"]'))).toBe(
+      true,
+    );
     expect(Boolean(textContent(container).includes("Creating"))).toBe(true);
     expect(Boolean(textContent(container).includes("poem.md"))).toBe(true);
     expect(Boolean(textContent(container).includes("Exploration"))).toBe(false);
@@ -896,11 +904,7 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadAgentActivityGroupBlock
-          block={block}
-          isLatestTurn={true}
-          isStreamingTurn={false}
-        />
+        <ThreadAgentActivityGroupBlock block={block} isLatestTurn={true} isStreamingTurn={false} />
       </TooltipProvider>,
     );
 
@@ -932,17 +936,15 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadAgentActivityGroupBlock
-          block={block}
-          isLatestTurn={true}
-          isStreamingTurn={true}
-        />
+        <ThreadAgentActivityGroupBlock block={block} isLatestTurn={true} isStreamingTurn={true} />
       </TooltipProvider>,
     );
 
     const summaryButton = getByRole("button", { name: /Edited a file/i });
     expect(Boolean(summaryButton.querySelector(".loading-shimmer-pure-text"))).toBe(false);
-    const initiallyMountedBody = container.querySelector<HTMLElement>("[data-testid='agent-activity-group-body']");
+    const initiallyMountedBody = container.querySelector<HTMLElement>(
+      "[data-testid='agent-activity-group-body']",
+    );
     expect(initiallyMountedBody?.getAttribute("aria-hidden")).toBe("true");
     expect(initiallyMountedBody?.hasAttribute("inert")).toBe(true);
   });
@@ -971,17 +973,15 @@ describe("ThreadAgentActivityGroupBlock", () => {
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadAgentActivityGroupBlock
-          block={block}
-          isLatestTurn={false}
-          isStreamingTurn={false}
-        />
+        <ThreadAgentActivityGroupBlock block={block} isLatestTurn={false} isStreamingTurn={false} />
       </TooltipProvider>,
     );
 
     const summaryButton = getByRole("button", { name: /Edited a file/i });
     expect(Boolean(textContent(summaryButton).includes("2 lines"))).toBe(false);
-    const collapsedBody = container.querySelector<HTMLElement>("[data-testid='agent-activity-group-body']");
+    const collapsedBody = container.querySelector<HTMLElement>(
+      "[data-testid='agent-activity-group-body']",
+    );
     expect(collapsedBody?.getAttribute("aria-hidden")).toBe("true");
 
     fireEvent.click(summaryButton);
@@ -1045,28 +1045,20 @@ describe("ThreadAgentActivityGroupBlock", () => {
         ],
         iconItem: fileChangeBlock,
       },
-      entries: [
-        readBlock,
-        searchBlock,
-        listBlock,
-        commandBlock,
-        fileChangeBlock,
-      ],
+      entries: [readBlock, searchBlock, listBlock, commandBlock, fileChangeBlock],
     });
 
     const { container, getByRole } = render(
       <TooltipProvider>
-        <ThreadAgentActivityGroupBlock
-          block={block}
-          isLatestTurn={false}
-          isStreamingTurn={false}
-        />
+        <ThreadAgentActivityGroupBlock block={block} isLatestTurn={false} isStreamingTurn={false} />
       </TooltipProvider>,
     );
 
     const summaryButton = getByRole("button", { name: /Edited a file/i });
     expect(summaryButton.querySelectorAll("[data-tool-activity-icon='edit-files']").length).toBe(1);
-    expect(summaryButton.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(0);
+    expect(summaryButton.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(
+      0,
+    );
 
     fireEvent.click(summaryButton);
     await settleAsyncRender();
@@ -1079,7 +1071,9 @@ describe("ThreadAgentActivityGroupBlock", () => {
     expect(content.includes("Edited")).toBe(true);
     const groupBody = container.querySelector("[data-testid='agent-activity-group-body']");
     expect(groupBody?.querySelectorAll("[data-tool-activity-icon='read-files']").length).toBe(1);
-    expect(groupBody?.querySelectorAll("[data-tool-activity-icon='code-searching']").length).toBe(1);
+    expect(groupBody?.querySelectorAll("[data-tool-activity-icon='code-searching']").length).toBe(
+      1,
+    );
     expect(groupBody?.querySelectorAll("[data-tool-activity-icon='list-files']").length).toBe(1);
     expect(groupBody?.querySelectorAll("[data-tool-activity-icon='run-command']").length).toBe(1);
     expect(groupBody?.querySelectorAll("[data-tool-activity-icon='edit-files']").length).toBe(1);
@@ -1141,8 +1135,9 @@ describe("ThreadWorktreeInitBlock", () => {
 
     getByText("Worktree created");
     getByText("Environment setup skipped");
-    expect(getByRole("button", { name: "Worktree created" }).getAttribute("aria-expanded"))
-      .toBe("false");
+    expect(getByRole("button", { name: "Worktree created" }).getAttribute("aria-expanded")).toBe(
+      "false",
+    );
     expect(
       getByRole("button", { name: "Environment setup skipped" }).getAttribute("aria-expanded"),
     ).toBe("false");
@@ -1449,7 +1444,9 @@ describe("ThreadBlockRenderer subagent activity block", () => {
     expect(Boolean(view.getByText("and 1 other subagent updated"))).toBe(true);
     expect(Boolean(view.queryByText("Tester"))).toBe(false);
     expect(view.container.querySelectorAll("[data-animate-entrance]").length).toBe(1);
-    expect(Boolean(view.container.querySelector('[data-subagent-avatar-seed="thread-child-1"]'))).toBe(true);
+    expect(
+      Boolean(view.container.querySelector('[data-subagent-avatar-seed="thread-child-1"]')),
+    ).toBe(true);
 
     fireEvent.click(view.getByRole("button", { name: "Scout" }));
 
@@ -1506,12 +1503,20 @@ describe("ThreadStreamErrorBlock", () => {
 
     getByText("Reconnecting... 2/5");
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
-    expect(Boolean(container.textContent?.includes("Network error: connection dropped while streaming."))).toBe(false);
+    expect(
+      Boolean(
+        container.textContent?.includes("Network error: connection dropped while streaming."),
+      ),
+    ).toBe(false);
 
     fireEvent.click(getByText("Reconnecting... 2/5"));
     await settleAsyncRender();
 
-    expect(Boolean(container.textContent?.includes("Network error: connection dropped while streaming."))).toBe(true);
+    expect(
+      Boolean(
+        container.textContent?.includes("Network error: connection dropped while streaming."),
+      ),
+    ).toBe(true);
   });
 });
 
@@ -1559,7 +1564,8 @@ describe("image-view and completed elicitation leaves", () => {
 
   test("keeps turn-wide inspected images behind a default-collapsed gallery disclosure", async () => {
     const imageOne = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E";
-    const imageTwo = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cpath/%3E%3C/svg%3E";
+    const imageTwo =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cpath/%3E%3C/svg%3E";
     const { container } = render(
       <ThreadImageViewBlock
         block={{
@@ -1596,8 +1602,10 @@ describe("image-view and completed elicitation leaves", () => {
   });
 
   test("renders generated images and pending output in the dedicated preview gallery", async () => {
-    const imageOne = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'/%3E";
-    const imageTwo = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'/%3E";
+    const imageOne =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'/%3E";
+    const imageTwo =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'/%3E";
     const { container, getByLabelText, getByTestId } = render(
       <TestQueryProvider>
         <ThreadGeneratedImageGalleryBlock
@@ -1623,12 +1631,16 @@ describe("image-view and completed elicitation leaves", () => {
     expect(Boolean(getByTestId("generated-image-gallery"))).toBe(true);
     expect(container.querySelectorAll('[data-testid="generated-image-preview"]').length).toBe(2);
     expect(Boolean(container.querySelector('[aria-label="Generating image..."]'))).toBe(true);
-    expect(getByLabelText("Generated image 1").querySelector("img")?.getAttribute("src"))
-      .toBe(imageOne);
+    expect(getByLabelText("Generated image 1").querySelector("img")?.getAttribute("src")).toBe(
+      imageOne,
+    );
     const setDragData = vi.fn();
-    fireEvent.dragStart(getByLabelText("Generated image 1").querySelector("img") as HTMLImageElement, {
-      dataTransfer: { effectAllowed: "none", setData: setDragData },
-    });
+    fireEvent.dragStart(
+      getByLabelText("Generated image 1").querySelector("img") as HTMLImageElement,
+      {
+        dataTransfer: { effectAllowed: "none", setData: setDragData },
+      },
+    );
     expect(setDragData).toHaveBeenCalledWith(
       "application/x-codex-image",
       JSON.stringify({ filename: "generated-image-1", src: imageTwo }),
@@ -1639,13 +1651,16 @@ describe("image-view and completed elicitation leaves", () => {
       await Promise.resolve();
     });
     expect(Boolean(getByLabelText("Image preview"))).toBe(true);
-    expect(getByLabelText("Image preview").querySelector("img")?.getAttribute("src"))
-      .toBe(imageTwo);
+    expect(getByLabelText("Image preview").querySelector("img")?.getAttribute("src")).toBe(
+      imageTwo,
+    );
     expect(getByLabelText("Download image").getAttribute("type")).toBe("button");
   });
 
   test("refetches a failed generated-image preview at most twice for its resolved source", async () => {
-    const createObjectUrl = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:stable-image-source");
+    const createObjectUrl = vi
+      .spyOn(URL, "createObjectURL")
+      .mockReturnValue("blob:stable-image-source");
     const revokeObjectUrl = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
     const invoke = vi.fn().mockResolvedValue({
       ok: true,
@@ -1703,7 +1718,8 @@ describe("image-view and completed elicitation leaves", () => {
       y: 0,
       toJSON: () => ({}),
     });
-    const source = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'/%3E";
+    const source =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'/%3E";
     try {
       const { getByLabelText } = render(
         <TestQueryProvider>
@@ -1841,17 +1857,20 @@ describe("ThreadTurnDiffBlock", () => {
         allowInProgressTurnDiff={true}
         threadCwd="/tmp/project"
         onOpenTurnDiffReview={(target) => {
-          selectedTurnId = target.source.kind === "selected-turn"
-            ? target.source.turnId
-            : target.source.kind === "last-turn"
-              ? target.source.threadId
-              : target.source.kind;
+          selectedTurnId =
+            target.source.kind === "selected-turn"
+              ? target.source.turnId
+              : target.source.kind === "last-turn"
+                ? target.source.threadId
+                : target.source.kind;
         }}
       />,
     );
 
     getByText("2 files changed");
-    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(true);
+    expect(Boolean(container.querySelector('[codex\\.turn_diff\\.state="in_progress"]'))).toBe(
+      true,
+    );
     expect(container.querySelectorAll('[role="button"][aria-expanded="false"]').length).toBe(0);
     fireEvent.click(container.querySelector("button") as HTMLElement);
     expect(selectedTurnId).toBe("thread-1");
@@ -1893,7 +1912,10 @@ describe("ThreadTurnDiffBlock", () => {
   });
 
   test("suppresses completed turn diffs in prose detail mode", () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_PROSE" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_PROSE" }),
+    );
     try {
       const { container } = render(
         <CodexThreadSettingsProvider>

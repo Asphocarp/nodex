@@ -33,8 +33,7 @@ type MockCanvasElement = Record<string, unknown> & {
 let serverScene: PortableCanvasScene;
 let serverHead = 1;
 let realtimeListener: ((event: CanvasSceneRealtimeEvent) => void) | null = null;
-let presenceListener: ((event: CanvasPresenceRealtimeEvent) => void) | null =
-  null;
+let presenceListener: ((event: CanvasPresenceRealtimeEvent) => void) | null = null;
 let appliedMutations: CanvasSceneMutationRequest[] = [];
 let closeFlushHandlers = new Set<() => void | Promise<void>>();
 let mockSceneElements: MockCanvasElement[] = [];
@@ -49,11 +48,7 @@ let latestOnChange:
     ) => void)
   | null = null;
 let latestOnScrollChange:
-  | ((
-      scrollX: number,
-      scrollY: number,
-      zoom: { readonly value: number },
-    ) => void)
+  | ((scrollX: number, scrollY: number, zoom: { readonly value: number }) => void)
   | null = null;
 let mockInitialScrollToContent: boolean | undefined;
 let toggleSidebarCalls = 0;
@@ -74,14 +69,13 @@ let openedCards: Array<{
 let requestedOwnerBlockIds: string[] = [];
 
 const mockBoard = {
-  columns: [{
-    id: "triage",
-    name: "Triage",
-    cards: [
-      makeCardSummary("card-1", "One"),
-      makeCardSummary("card-2", "Two"),
-    ],
-  }],
+  columns: [
+    {
+      id: "triage",
+      name: "Triage",
+      cards: [makeCardSummary("card-1", "One"), makeCardSummary("card-2", "Two")],
+    },
+  ],
 } as unknown as BoardSummary;
 
 function makeCardSummary(id: string, title: string): DatabasePageSummary {
@@ -179,10 +173,7 @@ const adapter: CanvasSceneSyncAdapter = {
     for (const candidate of request.elementCandidates) {
       const id = candidate.id as string;
       const current = elements.get(id);
-      elements.set(
-        id,
-        current ? chooseCanvasSceneElementWinner(current, candidate) : candidate,
-      );
+      elements.set(id, current ? chooseCanvasSceneElementWinner(current, candidate) : candidate);
     }
     serverScene = materializePortableCanvasScene({
       elements: [...elements.values()],
@@ -248,10 +239,7 @@ function MockExcalidraw(props: {
     zoom: { readonly value: number },
   ) => void;
   readonly renderTopRightUI?: () => ReactNode;
-  readonly onLinkOpen?: (
-    element: MockCanvasElement,
-    event: { preventDefault: () => void },
-  ) => void;
+  readonly onLinkOpen?: (element: MockCanvasElement, event: { preventDefault: () => void }) => void;
   readonly children?: ReactNode;
 }) {
   if (!mockApiInitialized) {
@@ -273,7 +261,12 @@ function MockExcalidraw(props: {
     addFiles: (files: readonly { id: string }[]) => {
       for (const file of files) mockFiles[file.id] = file;
     },
-    updateScene: ({ elements, appState, collaborators, captureUpdate }: {
+    updateScene: ({
+      elements,
+      appState,
+      collaborators,
+      captureUpdate,
+    }: {
       readonly elements?: readonly MockCanvasElement[];
       readonly appState?: Record<string, unknown>;
       readonly collaborators?: ReadonlyMap<string, unknown>;
@@ -293,17 +286,25 @@ function MockExcalidraw(props: {
     "div",
     { "data-testid": "excalidraw" },
     props.renderTopRightUI?.(),
-    createElement("button", {
-      type: "button",
-      onClick: () => latestOnChange?.(mockSceneElements, mockAppState, mockFiles),
-    }, "emit change"),
-    createElement("button", {
-      type: "button",
-      onClick: () => {
-        const element = mockSceneElements[0];
-        if (element) props.onLinkOpen?.(element, { preventDefault: () => undefined });
+    createElement(
+      "button",
+      {
+        type: "button",
+        onClick: () => latestOnChange?.(mockSceneElements, mockAppState, mockFiles),
       },
-    }, "open first card"),
+      "emit change",
+    ),
+    createElement(
+      "button",
+      {
+        type: "button",
+        onClick: () => {
+          const element = mockSceneElements[0];
+          if (element) props.onLinkOpen?.(element, { preventDefault: () => undefined });
+        },
+      },
+      "open first card",
+    ),
     props.children,
   );
 }
@@ -337,9 +338,7 @@ vi.mock("./canvas-view-deps", () => ({
       const localById = new Map(local.map((element) => [element.id, element]));
       return remote.map((element) => {
         const current = localById.get(element.id);
-        return Number(current?.version ?? 0) > Number(element.version ?? 0)
-          ? current
-          : element;
+        return Number(current?.version ?? 0) > Number(element.version ?? 0) ? current : element;
       });
     },
     CaptureUpdateAction: { NEVER: "never", EVENTUALLY: "eventually", IMMEDIATELY: "immediately" },
@@ -353,24 +352,33 @@ vi.mock("./canvas-view-deps", () => ({
   loadCanvasCardSidebar: async () => ({
     CanvasCardSidebar: ({ placedPageIds }: { placedPageIds: Set<string> }) => {
       sidebarRenderCount += 1;
-      return createElement("div", { "data-testid": "card-sidebar" }, `placed:${[...placedPageIds].sort().join(",")}`);
+      return createElement(
+        "div",
+        { "data-testid": "card-sidebar" },
+        `placed:${[...placedPageIds].sort().join(",")}`,
+      );
     },
   }),
-  RegisteredOwnedBlockDocumentBoundary: ({ children, ownerBlockId }: {
+  RegisteredOwnedBlockDocumentBoundary: ({
+    children,
+    ownerBlockId,
+  }: {
     readonly children: (model: unknown, controls: unknown) => ReactNode;
     readonly ownerBlockId: string;
   }) => {
     requestedOwnerBlockIds.push(ownerBlockId);
-    return children({
-    status: "ydoc_primary",
-    accessContext: descriptor.accessContext,
-    ownerBlockId,
-    descriptor: { ...descriptor, ownerBlockId },
-  }, { reload: async () => undefined });
+    return children(
+      {
+        status: "ydoc_primary",
+        accessContext: descriptor.accessContext,
+        ownerBlockId,
+        descriptor: { ...descriptor, ownerBlockId },
+      },
+      { reload: async () => undefined },
+    );
   },
   createCanvasSceneSyncAdapter: () => adapter,
-  createDefaultCanvasSceneOutbox: (libraryId: string) =>
-    new MemoryCanvasSceneOutbox(libraryId),
+  createDefaultCanvasSceneOutbox: (libraryId: string) => new MemoryCanvasSceneOutbox(libraryId),
   readCanvasSceneCompaction: async () => {
     maintenanceReadCount += 1;
     return {
@@ -406,9 +414,7 @@ vi.mock("./canvas-view-deps", () => ({
 }));
 
 async function renderCanvas(strict = false) {
-  const { CanvasDocumentSurface } = await import(
-    "../canvas/canvas-document-surface"
-  );
+  const { CanvasDocumentSurface } = await import("../canvas/canvas-document-surface");
   const canvas = createElement(CanvasDocumentSurface, {
     accessContext: descriptor.accessContext,
     canvasBlockId: descriptor.ownerBlockId,
@@ -479,18 +485,18 @@ describe("CanvasDocumentSurface", () => {
   });
 
   test("opens an arbitrary Canvas owner without requiring a Page palette", async () => {
-    const { CanvasDocumentSurface } = await import(
-      "../canvas/canvas-document-surface"
-    );
+    const { CanvasDocumentSurface } = await import("../canvas/canvas-document-surface");
     const canvasId = "019f7399-7676-70ae-b2aa-168692b64d21";
-    const view = render(createElement(CanvasDocumentSurface, {
-      accessContext: descriptor.accessContext,
-      canvasBlockId: canvasId,
-      surfaceKey: "canvas:standalone",
-      viewportPreferenceScope: "stage:standalone",
-      variant: "stage",
-      active: true,
-    }));
+    const view = render(
+      createElement(CanvasDocumentSurface, {
+        accessContext: descriptor.accessContext,
+        canvasBlockId: canvasId,
+        surfaceKey: "canvas:standalone",
+        viewportPreferenceScope: "stage:standalone",
+        variant: "stage",
+        active: true,
+      }),
+    );
 
     await view.findByTestId("excalidraw");
     expect(requestedOwnerBlockIds).toEqual([canvasId]);
@@ -505,15 +511,18 @@ describe("CanvasDocumentSurface", () => {
   });
 
   test("restores and flushes the last profile-local Document viewport", async () => {
-    writeCanvasViewportPreference({
-      storeEpoch: descriptor.storeEpoch,
-      documentId: descriptor.documentId,
-      preferenceScope: "stage:test",
-    }, {
-      scrollX: -320,
-      scrollY: 180,
-      zoom: 1.75,
-    });
+    writeCanvasViewportPreference(
+      {
+        storeEpoch: descriptor.storeEpoch,
+        documentId: descriptor.documentId,
+        preferenceScope: "stage:test",
+      },
+      {
+        scrollX: -320,
+        scrollY: 180,
+        zoom: 1.75,
+      },
+    );
     const view = await renderCanvas();
     await view.findByTestId("excalidraw");
 
@@ -534,11 +543,13 @@ describe("CanvasDocumentSurface", () => {
     const mutationCount = appliedMutations.length;
     view.unmount();
 
-    expect(readCanvasViewportPreference({
-      storeEpoch: descriptor.storeEpoch,
-      documentId: descriptor.documentId,
-      preferenceScope: "stage:test",
-    })).toEqual({
+    expect(
+      readCanvasViewportPreference({
+        storeEpoch: descriptor.storeEpoch,
+        documentId: descriptor.documentId,
+        preferenceScope: "stage:test",
+      }),
+    ).toEqual({
       scrollX: 640,
       scrollY: -80,
       zoom: 2.25,
@@ -566,11 +577,13 @@ describe("CanvasDocumentSurface", () => {
     const view = await renderCanvas();
     await view.findByTestId("excalidraw");
     fireEvent.click(view.getByRole("button", { name: "open first card" }));
-    expect(openedCards).toEqual([{
-      accessContext: descriptor.accessContext,
-      pageId: "standalone-card",
-      title: "Standalone",
-    }]);
+    expect(openedCards).toEqual([
+      {
+        accessContext: descriptor.accessContext,
+        pageId: "standalone-card",
+        title: "Standalone",
+      },
+    ]);
   });
 
   test("local observations persist through the scene provider", async () => {
@@ -619,15 +632,17 @@ describe("CanvasDocumentSurface", () => {
       appState: { gridModeEnabled: true },
     });
     serverHead += 1;
-    act(() => realtimeListener?.({
-      type: "canvas_scene_resync_required",
-      libraryId: descriptor.libraryId,
-      accessContext: descriptor.accessContext,
-      documentId: descriptor.documentId,
-      storeEpoch: descriptor.storeEpoch,
-      generation: descriptor.generation,
-      headSeq: serverHead,
-    }));
+    act(() =>
+      realtimeListener?.({
+        type: "canvas_scene_resync_required",
+        libraryId: descriptor.libraryId,
+        accessContext: descriptor.accessContext,
+        documentId: descriptor.documentId,
+        storeEpoch: descriptor.storeEpoch,
+        generation: descriptor.generation,
+        headSeq: serverHead,
+      }),
+    );
     await waitFor(() => expect(updateSceneCalls.length > callsBeforeRemote).toBe(true));
     const latest = updateSceneCalls.at(-1);
     expect(latest?.captureUpdate).toBe("never");
@@ -645,36 +660,36 @@ describe("CanvasDocumentSurface", () => {
     await view.findByTestId("excalidraw");
     await settleAsyncRender();
     const mutationCount = appliedMutations.length;
-    act(() => presenceListener?.({
-      type: "canvas_presence_updated",
-      libraryId: descriptor.libraryId,
-      accessContext: descriptor.accessContext,
-      presence: {
-        engine: "canvas_scene",
-        documentId: descriptor.documentId,
-        generation: descriptor.generation,
-        clock: 1,
-        state: {
-          pointer: {
-            x: 40,
-            y: 60,
-            button: "up",
-            tool: "pointer",
+    act(() =>
+      presenceListener?.({
+        type: "canvas_presence_updated",
+        libraryId: descriptor.libraryId,
+        accessContext: descriptor.accessContext,
+        presence: {
+          engine: "canvas_scene",
+          documentId: descriptor.documentId,
+          generation: descriptor.generation,
+          clock: 1,
+          state: {
+            pointer: {
+              x: 40,
+              y: 60,
+              button: "up",
+              tool: "pointer",
+            },
+            selectedElementIds: [],
+            idle: "active",
           },
-          selectedElementIds: [],
-          idle: "active",
+          clientSessionId: "remote-session",
+          user: {
+            id: "window:2",
+            displayName: "Window 2",
+            color: "#1971c2",
+          },
         },
-        clientSessionId: "remote-session",
-        user: {
-          id: "window:2",
-          displayName: "Window 2",
-          color: "#1971c2",
-        },
-      },
-    }));
-    await waitFor(() =>
-      expect(updateSceneCalls.at(-1)?.collaborators?.size).toBe(1)
+      }),
     );
+    await waitFor(() => expect(updateSceneCalls.at(-1)?.collaborators?.size).toBe(1));
     expect(updateSceneCalls.at(-1)?.captureUpdate).toBe("never");
     expect(appliedMutations).toHaveLength(mutationCount);
   });

@@ -12,7 +12,10 @@ export interface CodexConversationImageAssetData {
 }
 
 export class CodexConversationImageAssetError extends Error {
-  constructor(message: string, readonly status: number | null) {
+  constructor(
+    message: string,
+    readonly status: number | null,
+  ) {
     super(message);
     this.name = "CodexConversationImageAssetError";
   }
@@ -58,25 +61,26 @@ function materializeAsset(
 export function shouldRetryCodexImageAssetQuery(failureCount: number, error: Error): boolean {
   if (failureCount >= 3) return false;
   if (!(error instanceof CodexConversationImageAssetError) || error.status === null) return true;
-  return error.status === 408
-    || error.status === 425
-    || error.status === 429
-    || (error.status >= 500 && error.status <= 599);
+  return (
+    error.status === 408 ||
+    error.status === 425 ||
+    error.status === 429 ||
+    (error.status >= 500 && error.status <= 599)
+  );
 }
 
-export function codexConversationImageAssetQueryOptions(
-  pointer: string,
-) {
+export function codexConversationImageAssetQueryOptions(pointer: string) {
   return queryOptions({
     queryKey: queryKeys.codexConversationImageAssets.resolve(pointer),
-    queryFn: async () => materializeAsset(
-      await invoke("codex:conversation-image-asset:resolve", {
-        hostId: DEFAULT_CODEX_HOST_ID,
-        pointer,
-      }),
-    ),
+    queryFn: async () =>
+      materializeAsset(
+        await invoke("codex:conversation-image-asset:resolve", {
+          hostId: DEFAULT_CODEX_HOST_ID,
+          pointer,
+        }),
+      ),
     staleTime: CODEX_IMAGE_ASSET_STALE_TIME_MS,
     retry: shouldRetryCodexImageAssetQuery,
-    retryDelay: (attemptIndex) => Math.min(1_000 * (2 ** attemptIndex), 4_000),
+    retryDelay: (attemptIndex) => Math.min(1_000 * 2 ** attemptIndex, 4_000),
   });
 }

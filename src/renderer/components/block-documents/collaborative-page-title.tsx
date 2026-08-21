@@ -64,12 +64,8 @@ export interface CollaborativePageTitleProps extends NativeTitleEditorProps {
   readonly placeholder?: string;
   /** Fires for every authoritative local or remote Y.Text change. */
   readonly onValueChange?: (value: string) => void;
-  readonly onCompositionStart?: (
-    event: CompositionEvent<HTMLDivElement>,
-  ) => void;
-  readonly onCompositionEnd?: (
-    event: CompositionEvent<HTMLDivElement>,
-  ) => void;
+  readonly onCompositionStart?: (event: CompositionEvent<HTMLDivElement>) => void;
+  readonly onCompositionEnd?: (event: CompositionEvent<HTMLDivElement>) => void;
 }
 
 interface RelativeTitleSelection {
@@ -99,19 +95,14 @@ const FORMAT_BUTTON_CLASS_NAME = cn(
   "aria-pressed:bg-token-foreground/10 aria-pressed:text-token-text-primary",
 );
 
-const renderRichTitleDom = (
-  root: HTMLDivElement,
-  value: PortableRichText,
-): void => {
+const renderRichTitleDom = (root: HTMLDivElement, value: PortableRichText): void => {
   const ownerDocument = root.ownerDocument;
   const nodes: Node[] = [];
   let offset = 0;
   value.forEach((item) => {
     const start = offset;
     offset += item.type === "text" || item.type === "link" ? item.text.length : 1;
-    const element = ownerDocument.createElement(
-      item.type === "linebreak" ? "br" : "span",
-    );
+    const element = ownerDocument.createElement(item.type === "linebreak" ? "br" : "span");
     element.dataset.richTitleSegment = "true";
     element.dataset.richTitleStart = String(start);
     element.dataset.richTitleLength = String(offset - start);
@@ -121,27 +112,28 @@ const renderRichTitleDom = (
       return;
     }
     if (
-      item.type === "threadMention"
-      || item.type === "pageMention"
-      || item.type === "dateMention"
+      item.type === "threadMention" ||
+      item.type === "pageMention" ||
+      item.type === "dateMention"
     ) {
       element.dataset.richTitleKind = "atom";
       element.dataset.richTitleAtom = item.type;
       element.contentEditable = "false";
-      element.className = "mx-0.5 inline-flex max-w-[18rem] rounded-md bg-token-foreground/5 px-1.5 align-baseline text-[0.72em] font-medium text-token-text-secondary";
-      element.title = item.type === "threadMention"
-        ? item.uuid
-        : item.type === "pageMention"
-          ? item.targetPageId
-          : portableRichTitleAtomLabel(item);
+      element.className =
+        "mx-0.5 inline-flex max-w-[18rem] rounded-md bg-token-foreground/5 px-1.5 align-baseline text-[0.72em] font-medium text-token-text-secondary";
+      element.title =
+        item.type === "threadMention"
+          ? item.uuid
+          : item.type === "pageMention"
+            ? item.targetPageId
+            : portableRichTitleAtomLabel(item);
       element.textContent = portableRichTitleAtomLabel(item);
       nodes.push(element);
       return;
     }
     element.dataset.richTitleKind = "text";
     element.className = cn(
-      item.type === "link"
-        && "underline decoration-current/40 underline-offset-2",
+      item.type === "link" && "underline decoration-current/40 underline-offset-2",
       portableRichTitleStyleClass(item.styles),
     );
     if (item.type === "link") element.dataset.richTitleLink = item.href;
@@ -170,9 +162,7 @@ export function CollaborativePageTitle({
   "aria-label": ariaLabel = "Page title",
   ...props
 }: CollaborativePageTitleProps) {
-  const [richTitle, setRichTitle] = useState(() =>
-    readPortableRichTextFromYText(title),
-  );
+  const [richTitle, setRichTitle] = useState(() => readPortableRichTextFromYText(title));
   const richTitleSourceRef = useRef(portableRichTextSemanticSource(richTitle));
   const [localOrigin] = useState(() => ({ source: "collaborative-page-title" }));
   const [selectionRevision, setSelectionRevision] = useState(0);
@@ -244,18 +234,10 @@ export function CollaborativePageTitle({
       if (!selection) return;
       const draft = composingRef.current ? readRichTitleDomDraft(editor) : title.toString();
       const anchor = composingRef.current
-        ? mapRichTitleCompositionIndexToBase(
-            compositionBaseRef.current,
-            draft,
-            selection.anchor,
-          )
+        ? mapRichTitleCompositionIndexToBase(compositionBaseRef.current, draft, selection.anchor)
         : selection.anchor;
       const focus = composingRef.current
-        ? mapRichTitleCompositionIndexToBase(
-            compositionBaseRef.current,
-            draft,
-            selection.focus,
-          )
+        ? mapRichTitleCompositionIndexToBase(compositionBaseRef.current, draft, selection.focus)
         : selection.focus;
       relativeSelectionRef.current = {
         anchor: Y.createRelativePositionFromTypeIndex(title, anchor),
@@ -264,19 +246,10 @@ export function CollaborativePageTitle({
     };
     const handleAfterTransaction = (transaction: Y.Transaction): void => {
       const relative = relativeSelectionRef.current;
-      const changedParentTypes = transaction.changedParentTypes as ReadonlyMap<
-        unknown,
-        unknown
-      >;
+      const changedParentTypes = transaction.changedParentTypes as ReadonlyMap<unknown, unknown>;
       if (!relative || !changedParentTypes.has(title)) return;
-      const anchor = Y.createAbsolutePositionFromRelativePosition(
-        relative.anchor,
-        document,
-      );
-      const focus = Y.createAbsolutePositionFromRelativePosition(
-        relative.focus,
-        document,
-      );
+      const anchor = Y.createAbsolutePositionFromRelativePosition(relative.anchor, document);
+      const focus = Y.createAbsolutePositionFromRelativePosition(relative.focus, document);
       if (!anchor || !focus || anchor.type !== title || focus.type !== title) {
         relativeSelectionRef.current = null;
         return;
@@ -346,11 +319,7 @@ export function CollaborativePageTitle({
     if (forwardedRef) forwardedRef.current = node;
   };
 
-  const applyEdit = (
-    start: number,
-    end: number,
-    insertText: string,
-  ): void => {
+  const applyEdit = (start: number, end: number, insertText: string): void => {
     const result = applyRichTitleTextEdit({
       title,
       start,
@@ -422,18 +391,20 @@ export function CollaborativePageTitle({
     if (inputType === "deleteContentBackward") {
       event.preventDefault();
       const current = title.toString();
-      const start = selection.start === selection.end
-        ? previousRichTitleCodePointIndex(current, selection.start)
-        : selection.start;
+      const start =
+        selection.start === selection.end
+          ? previousRichTitleCodePointIndex(current, selection.start)
+          : selection.start;
       applyEdit(start, selection.end, "");
       return;
     }
     if (inputType === "deleteContentForward") {
       event.preventDefault();
       const current = title.toString();
-      const end = selection.start === selection.end
-        ? nextRichTitleCodePointIndex(current, selection.end)
-        : selection.end;
+      const end =
+        selection.start === selection.end
+          ? nextRichTitleCodePointIndex(current, selection.end)
+          : selection.end;
       applyEdit(selection.start, end, "");
       return;
     }
@@ -473,13 +444,16 @@ export function CollaborativePageTitle({
     const selection = selectedRange;
     const editor = editorRef.current;
     if (!selection || !editor) return;
-    if (!setRichTitleLink({
-      title,
-      start: selection.start,
-      end: selection.end,
-      href,
-      origin: localOrigin,
-    })) return;
+    if (
+      !setRichTitleLink({
+        title,
+        start: selection.start,
+        end: selection.end,
+        href,
+        origin: localOrigin,
+      })
+    )
+      return;
     setLinkEditorOpen(false);
     editor.focus();
     absoluteSelectionRef.current = {
@@ -508,9 +482,16 @@ export function CollaborativePageTitle({
       else undoManagerRef.current?.undo();
       return;
     }
-    const format = key === "b" || key === "i" || key === "u"
-      ? key === "b" ? "bold" : key === "i" ? "italic" : "underline"
-      : key === "e" ? "code" : null;
+    const format =
+      key === "b" || key === "i" || key === "u"
+        ? key === "b"
+          ? "bold"
+          : key === "i"
+            ? "italic"
+            : "underline"
+        : key === "e"
+          ? "code"
+          : null;
     if (!format) return;
     event.preventDefault();
     toggleFormat(format);
@@ -522,11 +503,7 @@ export function CollaborativePageTitle({
     const selection = editor ? readRichTitleDomSelection(editor) : null;
     if (!selection) return;
     event.preventDefault();
-    applyEdit(
-      selection.start,
-      selection.end,
-      event.clipboardData.getData("text/plain"),
-    );
+    applyEdit(selection.start, selection.end, event.clipboardData.getData("text/plain"));
   };
 
   const writeSelectionToClipboard = (
@@ -541,10 +518,10 @@ export function CollaborativePageTitle({
       readPortableRichTextFromYText(title),
       selection,
       computedStyle
-        ? (color) => resolveRichTitleClipboardColor(
-            color,
-            (property) => computedStyle.getPropertyValue(property),
-          )
+        ? (color) =>
+            resolveRichTitleClipboardColor(color, (property) =>
+              computedStyle.getPropertyValue(property),
+            )
         : undefined,
     );
     if (!writeRichTitleClipboardPayload(event.clipboardData, payload)) return null;
@@ -566,17 +543,13 @@ export function CollaborativePageTitle({
     applyEdit(selection.start, selection.end, "");
   };
 
-  const handleCompositionStart = (
-    event: CompositionEvent<HTMLDivElement>,
-  ): void => {
+  const handleCompositionStart = (event: CompositionEvent<HTMLDivElement>): void => {
     composingRef.current = true;
     compositionBaseRef.current = title.toString();
     onCompositionStart?.(event);
   };
 
-  const handleCompositionEnd = (
-    event: CompositionEvent<HTMLDivElement>,
-  ): void => {
+  const handleCompositionEnd = (event: CompositionEvent<HTMLDivElement>): void => {
     composingRef.current = false;
     applyDomDraft();
     onCompositionEnd?.(event);
@@ -633,12 +606,14 @@ export function CollaborativePageTitle({
             </form>
           ) : (
             <>
-              {([
-                ["bold", "B"],
-                ["italic", "I"],
-                ["underline", "U"],
-                ["code", "<>"],
-              ] as const).map(([attribute, label]) => (
+              {(
+                [
+                  ["bold", "B"],
+                  ["italic", "I"],
+                  ["underline", "U"],
+                  ["code", "<>"],
+                ] as const
+              ).map(([attribute, label]) => (
                 <button
                   key={attribute}
                   type="button"
@@ -696,10 +671,7 @@ export function CollaborativePageTitle({
         }}
         onBlur={(event) => {
           const nextTarget = event.relatedTarget;
-          if (
-            nextTarget instanceof Node
-            && wrapperRef.current?.contains(nextTarget)
-          ) {
+          if (nextTarget instanceof Node && wrapperRef.current?.contains(nextTarget)) {
             return;
           }
           setSelectedRange(null);

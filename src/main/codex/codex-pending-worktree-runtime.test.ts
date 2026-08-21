@@ -78,15 +78,17 @@ function goalRequest(id = "local:goal-pending"): CodexPendingStartConversationRe
     clientThreadId: "client-new-thread:goal",
     threadGoalDraft: {
       objective: "Ship the goal",
-      pastedTextAttachments: [{
-        file: {
-          label: "Pasted text.txt",
-          path: "/attachments/source/pasted-text.txt",
-          fsPath: "/attachments/source/pasted-text.txt",
+      pastedTextAttachments: [
+        {
+          file: {
+            label: "Pasted text.txt",
+            path: "/attachments/source/pasted-text.txt",
+            fsPath: "/attachments/source/pasted-text.txt",
+          },
+          preview: "Goal source",
+          characterCount: 11,
         },
-        preview: "Goal source",
-        characterCount: 11,
-      }],
+      ],
       imageAttachments: [],
     },
   };
@@ -361,9 +363,10 @@ describe("Codex pending worktree runtime", () => {
       launchConversation: async () => ({ threadId: "thread-goal" }),
       removeWorktree: async () => {},
       cleanupGoalSources: async (entry) => {
-        const source = entry.launchMode === "start-conversation"
-          ? entry.threadGoalDraft?.pastedTextAttachments?.[0]?.file?.path
-          : null;
+        const source =
+          entry.launchMode === "start-conversation"
+            ? entry.threadGoalDraft?.pastedTextAttachments?.[0]?.file?.path
+            : null;
         if (source) cleaned.push(`${entry.id}:${source}`);
       },
     });
@@ -372,9 +375,7 @@ describe("Codex pending worktree runtime", () => {
       runtime.create(goalRequest(), 42);
       await flushAsyncWork();
       await flushAsyncWork();
-      expect(cleaned.join(",")).toBe(
-        "local:goal-pending:/attachments/source/pasted-text.txt",
-      );
+      expect(cleaned.join(",")).toBe("local:goal-pending:/attachments/source/pasted-text.txt");
 
       runtime.create(goalRequest("local:goal-cancel"), 43);
       runtime.cancel("local:goal-cancel");
@@ -449,9 +450,7 @@ describe("Codex pending worktree runtime", () => {
 
       expect(runtime.list().length).toBe(0);
       expect(runtime.resolveThread("client-new-thread:one")).toBe(null);
-      expect(events.join(",")).toBe(
-        "launch,promote:thread-metadata-warning,metadata",
-      );
+      expect(events.join(",")).toBe("launch,promote:thread-metadata-warning,metadata");
     } finally {
       runtime.shutdown();
     }
@@ -572,13 +571,16 @@ describe("Codex pending worktree runtime", () => {
     const launch = deferred<{ threadId: string }>();
     const runtime = new CodexPendingWorktreeRuntime({
       ...TEST_RUNTIME_DEFAULTS,
-      createWorktree: async (_entry, context) => await new Promise((_, reject) => {
-        context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
-          once: true,
-        });
-      }),
+      createWorktree: async (_entry, context) =>
+        await new Promise((_, reject) => {
+          context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
       launchConversation: async (entry, workspaceRoot, context) => {
-        launches.push(`${entry.clientThreadId}:${workspaceRoot}:${String(context.includeWorktreeInit)}`);
+        launches.push(
+          `${entry.clientThreadId}:${workspaceRoot}:${String(context.includeWorktreeInit)}`,
+        );
         return await launch.promise;
       },
       onConversationThreadMapped: ({ threadId }) => {
@@ -613,11 +615,12 @@ describe("Codex pending worktree runtime", () => {
   test("rejects a failed local launch without retaining pending setup state", async () => {
     const runtime = new CodexPendingWorktreeRuntime({
       ...TEST_RUNTIME_DEFAULTS,
-      createWorktree: async (_entry, context) => await new Promise((_, reject) => {
-        context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
-          once: true,
-        });
-      }),
+      createWorktree: async (_entry, context) =>
+        await new Promise((_, reject) => {
+          context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
       launchConversation: async () => {
         throw new Error("source launch failed");
       },
@@ -644,11 +647,12 @@ describe("Codex pending worktree runtime", () => {
   test("resolves work-locally after mapping even when later metadata throws", async () => {
     const runtime = new CodexPendingWorktreeRuntime({
       ...TEST_RUNTIME_DEFAULTS,
-      createWorktree: async (_entry, context) => await new Promise((_, reject) => {
-        context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
-          once: true,
-        });
-      }),
+      createWorktree: async (_entry, context) =>
+        await new Promise((_, reject) => {
+          context.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
       launchConversation: async (_entry, _workspaceRoot, context) => {
         context.onThreadCreated("thread-local-mapped");
         throw new Error("metadata failed");

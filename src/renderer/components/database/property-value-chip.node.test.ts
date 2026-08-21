@@ -17,9 +17,7 @@ describe("Database Property chip presentation", () => {
 
   test("preserves explicit CSS colors and maps named option colors", () => {
     expect(databasePropertyOptionDotColor("#BB87FC", "feature")).toBe("#BB87FC");
-    expect(databasePropertyOptionDotColor("lch(66% 80 48)", "date")).toBe(
-      "lch(66% 80 48)",
-    );
+    expect(databasePropertyOptionDotColor("lch(66% 80 48)", "date")).toBe("lch(66% 80 48)");
     expect(databasePropertyOptionDotColor("purple", "feature")).toBe("#BB87FC");
     expect(databasePropertyOptionDotColor(undefined, "feature")).toMatch(/^#[0-9A-F]{6}$/);
   });

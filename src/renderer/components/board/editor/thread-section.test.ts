@@ -45,11 +45,27 @@ function createEditor(blocks: ThreadSectionBlockLike[]) {
 describe("thread-section helpers", () => {
   test("groups top-level blocks between thread-section markers", () => {
     const blocks = [
-      createBlock({ id: "section-1", type: "threadSection", props: { label: "First", threadId: "thr-1" } }),
-      createBlock({ id: "body-1", type: "paragraph", content: [{ type: "text", text: "alpha", styles: {} }] }),
-      createBlock({ id: "body-2", type: "paragraph", content: [{ type: "text", text: "beta", styles: {} }] }),
+      createBlock({
+        id: "section-1",
+        type: "threadSection",
+        props: { label: "First", threadId: "thr-1" },
+      }),
+      createBlock({
+        id: "body-1",
+        type: "paragraph",
+        content: [{ type: "text", text: "alpha", styles: {} }],
+      }),
+      createBlock({
+        id: "body-2",
+        type: "paragraph",
+        content: [{ type: "text", text: "beta", styles: {} }],
+      }),
       createBlock({ id: "section-2", type: "threadSection", props: { label: "", threadId: "" } }),
-      createBlock({ id: "body-3", type: "paragraph", content: [{ type: "text", text: "gamma", styles: {} }] }),
+      createBlock({
+        id: "body-3",
+        type: "paragraph",
+        content: [{ type: "text", text: "gamma", styles: {} }],
+      }),
     ];
 
     const sections = resolveThreadSections(blocks);
@@ -64,7 +80,11 @@ describe("thread-section helpers", () => {
   test("resolves current section from a top-level body block", () => {
     const blocks = [
       createBlock({ id: "section-1", type: "threadSection", props: { label: "First" } }),
-      createBlock({ id: "body-1", type: "paragraph", content: [{ type: "text", text: "alpha", styles: {} }] }),
+      createBlock({
+        id: "body-1",
+        type: "paragraph",
+        content: [{ type: "text", text: "alpha", styles: {} }],
+      }),
       createBlock({ id: "section-2", type: "threadSection", props: { label: "Second" } }),
     ];
 
@@ -85,9 +105,7 @@ describe("thread-section helpers", () => {
           createBlock({
             id: "body-1",
             type: "paragraph",
-            children: [
-              createBlock({ id: "body-1-child", type: "paragraph" }),
-            ],
+            children: [createBlock({ id: "body-1-child", type: "paragraph" })],
           }),
           createBlock({ id: "body-2", type: "paragraph" }),
           createBlock({ id: "section-2", type: "threadSection", props: { label: "Next" } }),
@@ -118,16 +136,11 @@ describe("thread-section helpers", () => {
     ];
 
     const section = resolveThreadSectionForBlock(blocks, "lol");
-    const promptBlocks = section
-      ? deriveThreadSectionPromptBlocks(section)
-      : [];
+    const promptBlocks = section ? deriveThreadSectionPromptBlocks(section) : [];
 
-    expect(JSON.stringify(promptBlocks.map((block) => block.id))).toBe(JSON.stringify([
-      "child-1",
-      "child-2",
-      "lol",
-      "lalala",
-    ]));
+    expect(JSON.stringify(promptBlocks.map((block) => block.id))).toBe(
+      JSON.stringify(["child-1", "child-2", "lol", "lalala"]),
+    );
   });
 
   test("excludes nested child thread sections from an ancestor section prompt", () => {
@@ -147,18 +160,15 @@ describe("thread-section helpers", () => {
     ];
 
     const section = resolveThreadSectionForBlock(blocks, "asd");
-    const promptBlocks = section
-      ? deriveThreadSectionPromptBlocks(section)
-      : [];
+    const promptBlocks = section ? deriveThreadSectionPromptBlocks(section) : [];
     const helloBlock = promptBlocks[0];
 
-    expect(JSON.stringify(promptBlocks.map((block) => block.id))).toBe(JSON.stringify([
-      "hello",
-      "aaa",
-      "asd",
-      "asdasd",
-    ]));
-    expect(JSON.stringify((helloBlock?.children ?? []).map((block) => block.id))).toBe(JSON.stringify([]));
+    expect(JSON.stringify(promptBlocks.map((block) => block.id))).toBe(
+      JSON.stringify(["hello", "aaa", "asd", "asdasd"]),
+    );
+    expect(JSON.stringify((helloBlock?.children ?? []).map((block) => block.id))).toBe(
+      JSON.stringify([]),
+    );
   });
 
   test("serializes section prompts through the clipboard plain-text path", () => {
@@ -187,11 +197,11 @@ describe("thread-section helpers", () => {
     ];
 
     const section = resolveThreadSectionForBlock(blocks, "body-1");
-    const promptBlocks = section
-      ? deriveThreadSectionPromptBlocks(section)
-      : [];
+    const promptBlocks = section ? deriveThreadSectionPromptBlocks(section) : [];
 
-    expect(serializeThreadSectionPrompt(promptBlocks)).toBe("before [Attachment: report.txt] after");
+    expect(serializeThreadSectionPrompt(promptBlocks)).toBe(
+      "before [Attachment: report.txt] after",
+    );
   });
 
   test("serializes thread mentions as text without prompt mentions", () => {
@@ -214,9 +224,7 @@ describe("thread-section helpers", () => {
     ];
 
     const section = resolveThreadSectionForBlock(blocks, "body-1");
-    const promptBlocks = section
-      ? deriveThreadSectionPromptBlocks(section)
-      : [];
+    const promptBlocks = section ? deriveThreadSectionPromptBlocks(section) : [];
     const promptInput = buildThreadSectionPromptInput(promptBlocks);
 
     expect(serializeThreadSectionPrompt(promptBlocks)).toBe("see [Thread: 019-thread] before send");
@@ -256,9 +264,7 @@ describe("thread-section helpers", () => {
     ];
 
     const section = resolveThreadSectionForBlock(blocks, "body-1");
-    const promptBlocks = section
-      ? deriveThreadSectionPromptBlocks(section)
-      : [];
+    const promptBlocks = section ? deriveThreadSectionPromptBlocks(section) : [];
     const promptInput = buildThreadSectionPromptInput(promptBlocks);
 
     expect(promptInput.text).toBe("before  after\n[Image #1] (caption: System diagram)");
@@ -298,13 +304,15 @@ describe("thread-section helpers", () => {
     ];
 
     const section = resolveThreadSectionForBlock(blocks, "image-1");
-    const promptBlocks = section
-      ? deriveThreadSectionPromptBlocks(section)
-      : [];
+    const promptBlocks = section ? deriveThreadSectionPromptBlocks(section) : [];
     const promptInput = buildThreadSectionPromptInput(promptBlocks);
 
-    expect(promptInput.text).toBe("[Image #1] (caption: First diagram)\nbetween\n[Image #2] (caption: Second diagram)");
-    expect(promptInput.images?.map((image) => image.source).join(",")).toBe("https://example.com/first.png,/tmp/second.png");
+    expect(promptInput.text).toBe(
+      "[Image #1] (caption: First diagram)\nbetween\n[Image #2] (caption: Second diagram)",
+    );
+    expect(promptInput.images?.map((image) => image.source).join(",")).toBe(
+      "https://example.com/first.png,/tmp/second.png",
+    );
   });
 
   test("uses a bare placeholder for captionless image-only sections", () => {
@@ -321,9 +329,7 @@ describe("thread-section helpers", () => {
     ];
 
     const section = resolveThreadSectionForBlock(blocks, "image-1");
-    const promptBlocks = section
-      ? deriveThreadSectionPromptBlocks(section)
-      : [];
+    const promptBlocks = section ? deriveThreadSectionPromptBlocks(section) : [];
     const promptInput = buildThreadSectionPromptInput(promptBlocks);
 
     expect(promptInput.text).toBe("[Image #1]");
@@ -356,9 +362,7 @@ describe("thread-section helpers", () => {
       createBlock({
         id: "parent-1",
         type: "toggleListItem",
-        children: [
-          createBlock({ id: "child-1", type: "paragraph" }),
-        ],
+        children: [createBlock({ id: "child-1", type: "paragraph" })],
       }),
     ];
     const editor = createEditor(blocks);

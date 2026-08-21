@@ -94,9 +94,7 @@ function joinInstructionSections(...sections: Array<string | null | undefined>):
     .join("\n\n");
 }
 
-function buildCodexDesktopGitInstructions(
-  settings: CodexDesktopGitInstructionSettings,
-): string {
+function buildCodexDesktopGitInstructions(settings: CodexDesktopGitInstructionSettings): string {
   const instructions: string[] = [];
   const branchPrefix = settings.branchPrefix?.trim();
   const commitInstructions = settings.commitInstructions?.trim();
@@ -129,19 +127,15 @@ export function buildCodexDesktopDeveloperInstructions(
   const appContext = joinInstructionSections(
     input.instructionOverrides?.desktopContextSection ?? CODEX_DESKTOP_CONTEXT,
     input.workspaceDependenciesEnabled
-      ? input.instructionOverrides?.workspaceDependenciesSection
-        ?? CODEX_WORKSPACE_DEPENDENCIES_CONTEXT
+      ? (input.instructionOverrides?.workspaceDependenciesSection ??
+          CODEX_WORKSPACE_DEPENDENCIES_CONTEXT)
       : null,
     CODEX_AUTOMATIONS_CONTEXT,
     input.threadToolsEnabled ? CODEX_THREAD_COORDINATION_CONTEXT : null,
-    input.includeProseDetailLevelInstructions
-      ? CODEX_NON_TECHNICAL_UI_CONTEXT
-      : null,
+    input.includeProseDetailLevelInstructions ? CODEX_NON_TECHNICAL_UI_CONTEXT : null,
     CODEX_INLINE_CODE_COMMENTS_CONTEXT,
     input.heartbeatEnabled ? CODEX_HEARTBEAT_CONTEXT : null,
-    input.isNonGitWorkspace
-      ? null
-      : buildCodexDesktopGitInstructions(input.gitSettings ?? {}),
+    input.isNonGitWorkspace ? null : buildCodexDesktopGitInstructions(input.gitSettings ?? {}),
   );
   return joinInstructionSections(
     input.baseInstructions,

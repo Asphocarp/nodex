@@ -54,21 +54,18 @@ const emptyPropertyControls: PageStagePropertyControls = {
   refreshRelationValue: async () => undefined,
 };
 
-const buildController = (
-  overrides: Partial<PageStageController> = {},
-): PageStageController => ({
-  page,
-  hasDatabaseProperties: false,
-  hasThreadsRow: false,
-  propertyControls: emptyPropertyControls,
-  ...overrides,
-}) as PageStageController;
+const buildController = (overrides: Partial<PageStageController> = {}): PageStageController =>
+  ({
+    page,
+    hasDatabaseProperties: false,
+    hasThreadsRow: false,
+    propertyControls: emptyPropertyControls,
+    ...overrides,
+  }) as PageStageController;
 
 describe("PageStagePropertiesSection", () => {
   test("omits the section when the Page has no property rows", () => {
-    const view = render(
-      <PageStagePropertiesSection controller={buildController()} />,
-    );
+    const view = render(<PageStagePropertiesSection controller={buildController()} />);
 
     expect(view.container.firstChild).toBeNull();
     expect(view.queryByText("Properties")).toBeNull();

@@ -107,16 +107,19 @@ export interface CodexAppHandoffRenderState {
 }
 
 function isKnownHandoffStatus(value: unknown): value is CodexAppHandoffStatus {
-  return value === "queued"
-    || value === "running"
-    || value === "success"
-    || value === "warning"
-    || value === "error";
+  return (
+    value === "queued" ||
+    value === "running" ||
+    value === "success" ||
+    value === "warning" ||
+    value === "error"
+  );
 }
 
 function resolveSettingsToolLabel(call: CodexDynamicToolCallView): string | null {
   if (call.tool === "read_settings") return call.completed ? "Read settings" : "Reading settings";
-  if (call.tool === "write_settings") return call.completed ? "Updated settings" : "Updating settings";
+  if (call.tool === "write_settings")
+    return call.completed ? "Updated settings" : "Updating settings";
   return null;
 }
 
@@ -247,19 +250,23 @@ function normalizeAutomationStatus(value: unknown): CodexScheduledAutomationStat
   return value === "ACTIVE" || value === "PAUSED" ? value : null;
 }
 
-function normalizeAutomationExecutionEnvironment(value: unknown): CodexScheduledAutomationExecutionEnvironment | null {
+function normalizeAutomationExecutionEnvironment(
+  value: unknown,
+): CodexScheduledAutomationExecutionEnvironment | null {
   return value === "local" || value === "worktree" ? value : null;
 }
 
-function normalizeAutomationReasoningEffort(value: unknown): CodexScheduledAutomationReasoningEffort | null {
+function normalizeAutomationReasoningEffort(
+  value: unknown,
+): CodexScheduledAutomationReasoningEffort | null {
   if (
-    value === "none"
-    || value === "minimal"
-    || value === "low"
-    || value === "medium"
-    || value === "high"
-    || value === "xhigh"
-    || value === "max"
+    value === "none" ||
+    value === "minimal" ||
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh" ||
+    value === "max"
   ) {
     return value;
   }
@@ -305,7 +312,9 @@ function normalizeAutomationCwds(value: unknown): string[] | null {
   return normalizeItems(trimmed.split(","));
 }
 
-function parseAutomationUpdateToolResultSnapshot(value: unknown): AutomationUpdateToolResult["snapshot"] {
+function parseAutomationUpdateToolResultSnapshot(
+  value: unknown,
+): AutomationUpdateToolResult["snapshot"] {
   const snapshot = asRecord(value);
   if (!snapshot) return null;
   return {
@@ -315,16 +324,20 @@ function parseAutomationUpdateToolResultSnapshot(value: unknown): AutomationUpda
   };
 }
 
-export function parseAutomationUpdateToolResult(call: CodexDynamicToolCallView): AutomationUpdateToolResult | null {
+export function parseAutomationUpdateToolResult(
+  call: CodexDynamicToolCallView,
+): AutomationUpdateToolResult | null {
   const parsed = parseAnyInputTextJson(call);
   const automationId = normalizeOptionalString(parsed?.automationId);
   if (!automationId) return null;
-  const mode = parsed?.mode === "create" || parsed?.mode === "update" || parsed?.mode === "delete"
-    ? parsed.mode
-    : null;
-  const deleteStatus = parsed?.deleteStatus === "deleted" || parsed?.deleteStatus === "not_found"
-    ? parsed.deleteStatus
-    : null;
+  const mode =
+    parsed?.mode === "create" || parsed?.mode === "update" || parsed?.mode === "delete"
+      ? parsed.mode
+      : null;
+  const deleteStatus =
+    parsed?.deleteStatus === "deleted" || parsed?.deleteStatus === "not_found"
+      ? parsed.deleteStatus
+      : null;
   return {
     automationId,
     mode,
@@ -366,7 +379,10 @@ function resolveAutomationUpdateDisplayMode(
   return result?.mode ?? argsMode;
 }
 
-function buildAutomationUpdateCreateInput(args: Record<string, unknown>, currentThreadId: string | null): CodexScheduledAutomationCreateInput | null {
+function buildAutomationUpdateCreateInput(
+  args: Record<string, unknown>,
+  currentThreadId: string | null,
+): CodexScheduledAutomationCreateInput | null {
   const kind = normalizeAutomationKind(args.kind);
   const name = normalizeOptionalString(args.name);
   const prompt = normalizeOptionalString(args.prompt);
@@ -374,8 +390,9 @@ function buildAutomationUpdateCreateInput(args: Record<string, unknown>, current
   if (!kind || !name || !prompt || !rrule) return null;
 
   if (kind === "heartbeat") {
-    const targetThreadId = normalizeOptionalString(args.targetThreadId)
-      ?? (args.destination === "thread" ? currentThreadId : null);
+    const targetThreadId =
+      normalizeOptionalString(args.targetThreadId) ??
+      (args.destination === "thread" ? currentThreadId : null);
     if (!targetThreadId) return null;
     return {
       kind,
@@ -407,7 +424,10 @@ function buildAutomationUpdateCreateInput(args: Record<string, unknown>, current
   };
 }
 
-function buildAutomationUpdateUpdateInput(args: Record<string, unknown>, currentThreadId: string | null): CodexScheduledAutomationUpdateInput | null {
+function buildAutomationUpdateUpdateInput(
+  args: Record<string, unknown>,
+  currentThreadId: string | null,
+): CodexScheduledAutomationUpdateInput | null {
   const id = normalizeOptionalString(args.id);
   const status = normalizeAutomationStatus(args.status);
   const createInput = buildAutomationUpdateCreateInput(args, currentThreadId);
@@ -428,8 +448,10 @@ function resolveAutomationUpdateDisabledReason(input: {
   createInput: CodexScheduledAutomationCreateInput | null;
   updateInput: CodexScheduledAutomationUpdateInput | null;
 }): string | null {
-  if (input.mode === "suggested-create" && !input.createInput) return "This scheduled task proposal is missing required fields.";
-  if (input.mode === "suggested-update" && !input.updateInput) return "This scheduled task update is missing required fields.";
+  if (input.mode === "suggested-create" && !input.createInput)
+    return "This scheduled task proposal is missing required fields.";
+  if (input.mode === "suggested-update" && !input.updateInput)
+    return "This scheduled task update is missing required fields.";
   return null;
 }
 
@@ -446,26 +468,27 @@ export function resolveAutomationUpdateRenderState(
 
   const result = call.success === true ? parseAutomationUpdateToolResult(call) : null;
   const displayMode = resolveAutomationUpdateDisplayMode(argsMode, result);
-  const createInput = inputMode === "suggested_create" || inputMode === "create"
-    ? buildAutomationUpdateCreateInput(args, currentThreadId)
-    : null;
-  const updateInput = inputMode === "suggested_update" || inputMode === "update"
-    ? buildAutomationUpdateUpdateInput(args, currentThreadId)
-    : null;
+  const createInput =
+    inputMode === "suggested_create" || inputMode === "create"
+      ? buildAutomationUpdateCreateInput(args, currentThreadId)
+      : null;
+  const updateInput =
+    inputMode === "suggested_update" || inputMode === "update"
+      ? buildAutomationUpdateUpdateInput(args, currentThreadId)
+      : null;
   const snapshot = result?.snapshot ?? null;
-  const title = normalizeOptionalString(args.name)
-    ?? snapshot?.name
-    ?? normalizeOptionalString(args.id)
-    ?? "Untitled scheduled task";
+  const title =
+    normalizeOptionalString(args.name) ??
+    snapshot?.name ??
+    normalizeOptionalString(args.id) ??
+    "Untitled scheduled task";
   const rrule = normalizeOptionalString(args.rrule) ?? snapshot?.rrule ?? null;
   const schedule = formatCodexScheduledAutomationRruleSummary(rrule) ?? "Custom schedule";
   const statusLabel = resolveAutomationUpdateStatusLabel({
     deleteStatus: result?.deleteStatus ?? null,
     mode: displayMode,
   });
-  const automationId = result?.automationId
-    ?? normalizeOptionalString(args.id)
-    ?? null;
+  const automationId = result?.automationId ?? normalizeOptionalString(args.id) ?? null;
   const disabledReason = resolveAutomationUpdateDisabledReason({
     mode: displayMode,
     createInput,
@@ -474,7 +497,9 @@ export function resolveAutomationUpdateRenderState(
 
   return {
     automationId,
-    canAccept: disabledReason === null && (displayMode === "suggested-create" || displayMode === "suggested-update"),
+    canAccept:
+      disabledReason === null &&
+      (displayMode === "suggested-create" || displayMode === "suggested-update"),
     createInput,
     disabledReason,
     displayMode,
@@ -492,7 +517,8 @@ export function applyAutomationUpdateMutationResult(
   response: CodexScheduledAutomationMutationResponse | CodexScheduledAutomationDeleteResponse,
 ): AutomationUpdateRenderState {
   if ("item" in response && response.item) {
-    const resultMode: AutomationUpdateResultMode = state.displayMode === "suggested-update" ? "update" : "create";
+    const resultMode: AutomationUpdateResultMode =
+      state.displayMode === "suggested-update" ? "update" : "create";
     return {
       ...state,
       automationId: response.item.id,
@@ -517,7 +543,9 @@ export function applyAutomationUpdateMutationResult(
   return state;
 }
 
-function parseCodexAppHandoffArguments(call: CodexDynamicToolCallView): { destinationHostId: string | null; threadId: string } | null {
+function parseCodexAppHandoffArguments(
+  call: CodexDynamicToolCallView,
+): { destinationHostId: string | null; threadId: string } | null {
   const args = asRecord(call.arguments);
   const threadId = getRequiredString(args ?? {}, "threadId");
   if (!threadId) return null;
@@ -537,16 +565,20 @@ function parseCodexAppHandoffSteps(value: unknown): CodexAppHandoffStep[] {
     if (!id || !isKnownHandoffStatus(status)) return [];
     const label = getRequiredString(record, "label") ?? id;
     const message = getRequiredString(record, "message");
-    return [{
-      id,
-      label,
-      message,
-      status,
-    }];
+    return [
+      {
+        id,
+        label,
+        message,
+        status,
+      },
+    ];
   });
 }
 
-export function parseCodexAppHandoffResult(call: CodexDynamicToolCallView): CodexAppHandoffResult | null {
+export function parseCodexAppHandoffResult(
+  call: CodexDynamicToolCallView,
+): CodexAppHandoffResult | null {
   const parsed = parseInputTextJson(call);
   if (!parsed) return null;
   const destinationHostDisplayName = getRequiredString(parsed, "destinationHostDisplayName");
@@ -568,16 +600,18 @@ function isTerminalHandoffStatus(status: CodexAppHandoffStatus): boolean {
   return status === "success" || status === "warning" || status === "error";
 }
 
-export function resolveCodexAppHandoffRenderState(call: CodexDynamicToolCallView): CodexAppHandoffRenderState {
+export function resolveCodexAppHandoffRenderState(
+  call: CodexDynamicToolCallView,
+): CodexAppHandoffRenderState {
   const result = call.success === true ? parseCodexAppHandoffResult(call) : null;
   const completed = result ? isTerminalHandoffStatus(result.status) : call.completed;
   const success = result
-    ? result.status === "error" ? false : result.status === "success" || result.status === "warning"
+    ? result.status === "error"
+      ? false
+      : result.status === "success" || result.status === "warning"
     : call.success;
 
-  const activityStatus = !completed
-    ? "running"
-    : success === false ? "failed" : "completed";
+  const activityStatus = !completed ? "running" : success === false ? "failed" : "completed";
 
   if (!result) {
     return {
@@ -585,7 +619,9 @@ export function resolveCodexAppHandoffRenderState(call: CodexDynamicToolCallView
       active: !completed,
       label: !completed
         ? "Handing off task"
-        : success === false ? "Failed to hand off task" : "Handed off task",
+        : success === false
+          ? "Failed to hand off task"
+          : "Handed off task",
       result,
     };
   }
@@ -596,7 +632,9 @@ export function resolveCodexAppHandoffRenderState(call: CodexDynamicToolCallView
       active: !completed,
       label: !completed
         ? "Handing off task"
-        : success === false ? "Failed to hand off task" : "Handed off task",
+        : success === false
+          ? "Failed to hand off task"
+          : "Handed off task",
       result,
     };
   }
@@ -619,13 +657,16 @@ function resolveCodexAppHandoffLabel(call: CodexDynamicToolCallView): string | n
   return resolveCodexAppHandoffRenderState(call).label;
 }
 
-function resolveCodexAppThreadLabelKey(call: CodexDynamicToolCallView): CodexAppThreadLabelKey | null {
+function resolveCodexAppThreadLabelKey(
+  call: CodexDynamicToolCallView,
+): CodexAppThreadLabelKey | null {
   switch (call.tool) {
     case "fork_thread": {
       const args = asRecord(call.arguments);
       if (!args) return null;
       const isWorktree = asRecord(args?.environment)?.type === "worktree";
-      if (isWorktree) return call.completed ? "threadsForkInWorktreeCompleted" : "threadsForkInWorktreeActive";
+      if (isWorktree)
+        return call.completed ? "threadsForkInWorktreeCompleted" : "threadsForkInWorktreeActive";
       return call.completed ? "threadsForkCompleted" : "threadsForkActive";
     }
     case "create_thread": {
@@ -633,8 +674,12 @@ function resolveCodexAppThreadLabelKey(call: CodexDynamicToolCallView): CodexApp
       const target = asRecord(args?.target);
       if (!target || typeof target.type !== "string") return null;
       return isCodexAppCreateOrForkWorktree(call)
-        ? call.completed ? "threadsCreateInWorktreeCompleted" : "threadsCreateInWorktreeActive"
-        : call.completed ? "threadsCreateCompleted" : "threadsCreateActive";
+        ? call.completed
+          ? "threadsCreateInWorktreeCompleted"
+          : "threadsCreateInWorktreeActive"
+        : call.completed
+          ? "threadsCreateCompleted"
+          : "threadsCreateActive";
     }
     case "list_threads":
       return call.completed ? "threadsListCompleted" : "threadsListActive";
@@ -650,7 +695,9 @@ function resolveCodexAppThreadLabelKey(call: CodexDynamicToolCallView): CodexApp
       return call.completed ? "threadsSetTitleCompleted" : "threadsSetTitleActive";
     case "get_handoff_status":
       return getRequiredString(asRecord(call.arguments) ?? {}, "operationId")
-        ? call.completed ? "threadsHandoffStatusCompleted" : "threadsHandoffStatusActive"
+        ? call.completed
+          ? "threadsHandoffStatusCompleted"
+          : "threadsHandoffStatusActive"
         : null;
     default:
       return null;
@@ -692,11 +739,11 @@ function resolveAutomationUpdateSummaryKey(call: CodexDynamicToolCallView): stri
 const DYNAMIC_TOOL_REGISTRY: DynamicToolRegistryEntry[] = [
   ...[...new Set([...NODEX_APP_V2_TOOLS, ...NODEX_APP_V3_TOOLS])].map(
     (tool): DynamicToolRegistryEntry => ({
-    namespace: "nodex_app",
-    tool,
-    rendererKind: "nodexApp",
-    resolveLabel: (call) => resolveNodexDynamicToolCallPresentation(call)?.label ?? null,
-    getCompletedSummaryPartKey: (call) => call.callId,
+      namespace: "nodex_app",
+      tool,
+      rendererKind: "nodexApp",
+      resolveLabel: (call) => resolveNodexDynamicToolCallPresentation(call)?.label ?? null,
+      getCompletedSummaryPartKey: (call) => call.callId,
     }),
   ),
   {
@@ -834,15 +881,21 @@ export function isCodexAppMetaThreadTool(call: CodexDynamicToolCallView | undefi
   return getDynamicToolRegistryEntry(call)?.rendererKind === "codexAppThread";
 }
 
-export function continuesCodexAppLiveActivityBetweenCalls(call: CodexDynamicToolCallView | undefined): boolean {
+export function continuesCodexAppLiveActivityBetweenCalls(
+  call: CodexDynamicToolCallView | undefined,
+): boolean {
   return getDynamicToolRegistryEntry(call)?.continuesLiveActivityBetweenCalls === true;
 }
 
-export function isDynamicToolStandaloneInConversation(call: CodexDynamicToolCallView | undefined): boolean {
+export function isDynamicToolStandaloneInConversation(
+  call: CodexDynamicToolCallView | undefined,
+): boolean {
   return getDynamicToolRegistryEntry(call)?.standaloneInConversation === true;
 }
 
-export function isDynamicToolSummaryOnlyInConversationGroup(call: CodexDynamicToolCallView | undefined): boolean {
+export function isDynamicToolSummaryOnlyInConversationGroup(
+  call: CodexDynamicToolCallView | undefined,
+): boolean {
   return getDynamicToolRegistryEntry(call)?.summaryOnlyInConversationGroup === true;
 }
 
@@ -872,7 +925,9 @@ export type CodexAppCreateThreadResult =
   | { threadId: string; clientThreadId?: never }
   | { clientThreadId: string; threadId?: never };
 
-export function parseCodexAppCreateThreadResult(call: CodexDynamicToolCallView): CodexAppCreateThreadResult | null {
+export function parseCodexAppCreateThreadResult(
+  call: CodexDynamicToolCallView,
+): CodexAppCreateThreadResult | null {
   if (call.tool !== "create_thread") return null;
   const inputText = (call.contentItems ?? []).find((item) => item.type === "inputText")?.text;
   if (!inputText) return null;
@@ -883,8 +938,8 @@ export function parseCodexAppCreateThreadResult(call: CodexDynamicToolCallView):
       return { threadId: result.threadId };
     }
     if (
-      typeof result?.clientThreadId === "string"
-      && result.clientThreadId.startsWith(CODEX_CLIENT_THREAD_ID_PREFIX)
+      typeof result?.clientThreadId === "string" &&
+      result.clientThreadId.startsWith(CODEX_CLIENT_THREAD_ID_PREFIX)
     ) {
       return { clientThreadId: result.clientThreadId };
     }
@@ -919,7 +974,9 @@ export function resolveDynamicToolLabel(entry: CodexConversationItem): string {
   return resolveDynamicToolLabelFromName(toolName);
 }
 
-export function buildDynamicToolCallSummaryPartKey(call: CodexDynamicToolCallView | undefined): string {
+export function buildDynamicToolCallSummaryPartKey(
+  call: CodexDynamicToolCallView | undefined,
+): string {
   if (!call) return "";
   const summaryKey = getDynamicToolRegistryEntry(call)?.getCompletedSummaryPartKey?.(call) ?? "";
   return [call.namespace ?? "", call.tool, summaryKey].join(":");

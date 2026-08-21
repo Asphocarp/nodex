@@ -46,12 +46,14 @@ const isManagedNodexCliSource = (candidate: string): boolean => {
   const resourcesDirectory = dirname(binDirectory);
   const contentsDirectory = dirname(resourcesDirectory);
   const appDirectory = dirname(contentsDirectory);
-  return candidate === join(binDirectory, "nodex")
-    && binDirectory.endsWith("/Contents/Resources/bin")
-    && resourcesDirectory.endsWith("/Contents/Resources")
-    && contentsDirectory.endsWith("/Contents")
-    && basename(appDirectory).startsWith("Nodex")
-    && basename(appDirectory).endsWith(".app");
+  return (
+    candidate === join(binDirectory, "nodex") &&
+    binDirectory.endsWith("/Contents/Resources/bin") &&
+    resourcesDirectory.endsWith("/Contents/Resources") &&
+    contentsDirectory.endsWith("/Contents") &&
+    basename(appDirectory).startsWith("Nodex") &&
+    basename(appDirectory).endsWith(".app")
+  );
 };
 
 const resolveSymlinkTarget = (linkPath: string): string => {
@@ -59,10 +61,7 @@ const resolveSymlinkTarget = (linkPath: string): string => {
   return resolve(dirname(linkPath), target);
 };
 
-const isDirectoryOnPath = (
-  directory: string,
-  environmentPath: string | undefined,
-): boolean => {
+const isDirectoryOnPath = (directory: string, environmentPath: string | undefined): boolean => {
   if (!environmentPath) return false;
   return environmentPath
     .split(delimiter)
@@ -70,9 +69,7 @@ const isDirectoryOnPath = (
     .some((entry) => resolve(entry) === directory);
 };
 
-export function installCliCommand(
-  options: InstallCliCommandOptions,
-): CliCommandInstallResult {
+export function installCliCommand(options: InstallCliCommandOptions): CliCommandInstallResult {
   const sourcePath = assertAbsolutePath(options.sourcePath, "CLI source path");
   const targetPath = assertAbsolutePath(options.targetPath, "CLI target path");
   const targetDirectory = dirname(targetPath);

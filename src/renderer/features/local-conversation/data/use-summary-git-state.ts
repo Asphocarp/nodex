@@ -1,15 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { GitReviewSource } from "@/lib/types";
-import type {
-  BranchDiffStatsResult,
-  GitStatusSummaryResult,
-} from "../../../../shared/git-review";
+import type { BranchDiffStatsResult, GitStatusSummaryResult } from "../../../../shared/git-review";
 import {
   buildGitWorkerQueryKey,
   createGitLiveWorkerQuery,
@@ -50,35 +42,31 @@ function isSuccessfulStatus(
   return result?.type === "success";
 }
 
-function isStaleSnapshotResult(
-  result: unknown,
-): result is { type: "stale-snapshot" } {
-  return typeof result === "object"
-    && result !== null
-    && "type" in result
-    && result.type === "stale-snapshot";
+function isStaleSnapshotResult(result: unknown): result is { type: "stale-snapshot" } {
+  return (
+    typeof result === "object" &&
+    result !== null &&
+    "type" in result &&
+    result.type === "stale-snapshot"
+  );
 }
 
-export function useSummaryGitState(
-  cwd: string | null,
-  enabled: boolean,
-): SummaryGitState {
+export function useSummaryGitState(cwd: string | null, enabled: boolean): SummaryGitState {
   const queryClient = useQueryClient();
   const normalizedCwd = cwd?.trim() || null;
-  const metadataInput = useMemo(() => ({
-    method: "stable-metadata" as const,
-    params: { cwd: normalizedCwd ?? "" },
-  }), [normalizedCwd]);
+  const metadataInput = useMemo(
+    () => ({
+      method: "stable-metadata" as const,
+      params: { cwd: normalizedCwd ?? "" },
+    }),
+    [normalizedCwd],
+  );
   const metadata = useQuery({
     ...createGitLiveWorkerQuery(metadataInput),
     enabled: enabled && normalizedCwd !== null,
   });
   const repository = useMemo<GitQueryRepositoryIdentity | null>(() => {
-    if (
-      !metadata.data?.isGitRepository
-      || !metadata.data.commonDir
-      || !metadata.data.root
-    ) {
+    if (!metadata.data?.isGitRepository || !metadata.data.commonDir || !metadata.data.root) {
       return null;
     }
     return {
@@ -87,67 +75,77 @@ export function useSummaryGitState(
       root: metadata.data.root,
     };
   }, [metadata.data]);
-  const statusInput = useMemo(() => ({
-    method: "status-summary" as const,
-    params: {
-      cwd: repository?.root ?? normalizedCwd ?? "",
-      includeUntrackedFiles: true,
-    },
-    repository,
-  }), [normalizedCwd, repository]);
-  const statusQueryKey = useMemo(
-    () => buildGitWorkerQueryKey(statusInput),
-    [statusInput],
+  const statusInput = useMemo(
+    () => ({
+      method: "status-summary" as const,
+      params: {
+        cwd: repository?.root ?? normalizedCwd ?? "",
+        includeUntrackedFiles: true,
+      },
+      repository,
+    }),
+    [normalizedCwd, repository],
   );
+  const statusQueryKey = useMemo(() => buildGitWorkerQueryKey(statusInput), [statusInput]);
   const status = useQuery({
     ...createGitLiveWorkerQuery(statusInput),
     enabled: enabled && repository !== null,
   });
-  const lastSuccessfulStatus = useRef<
-    Extract<GitStatusSummaryResult, { type: "success" }> | null
-  >(null);
+  const lastSuccessfulStatus = useRef<Extract<GitStatusSummaryResult, { type: "success" }> | null>(
+    null,
+  );
   useEffect(() => {
     if (status.data?.type !== "success") return;
     lastSuccessfulStatus.current = status.data;
   }, [status.data]);
-  const statusFallbackEnabled = enabled
-    && repository !== null
-    && status.data?.type === "error"
-    && lastSuccessfulStatus.current === null;
-  const stagedFallbackInput = useMemo(() => ({
-    method: "review-summary" as const,
-    params: {
-      cwd: repository?.root ?? normalizedCwd ?? "",
-      source: "staged" as const,
-      includeUntrackedFiles: false,
-    },
-    repository,
-  }), [normalizedCwd, repository]);
+  const statusFallbackEnabled =
+    enabled &&
+    repository !== null &&
+    status.data?.type === "error" &&
+    lastSuccessfulStatus.current === null;
+  const stagedFallbackInput = useMemo(
+    () => ({
+      method: "review-summary" as const,
+      params: {
+        cwd: repository?.root ?? normalizedCwd ?? "",
+        source: "staged" as const,
+        includeUntrackedFiles: false,
+      },
+      repository,
+    }),
+    [normalizedCwd, repository],
+  );
   const stagedFallback = useQuery({
     ...createGitLiveWorkerQuery(stagedFallbackInput),
     enabled: statusFallbackEnabled,
   });
-  const unstagedFallbackInput = useMemo(() => ({
-    method: "review-summary" as const,
-    params: {
-      cwd: repository?.root ?? normalizedCwd ?? "",
-      source: "unstaged" as const,
-      includeUntrackedFiles: true,
-    },
-    repository,
-  }), [normalizedCwd, repository]);
+  const unstagedFallbackInput = useMemo(
+    () => ({
+      method: "review-summary" as const,
+      params: {
+        cwd: repository?.root ?? normalizedCwd ?? "",
+        source: "unstaged" as const,
+        includeUntrackedFiles: true,
+      },
+      repository,
+    }),
+    [normalizedCwd, repository],
+  );
   const unstagedFallback = useQuery({
     ...createGitLiveWorkerQuery(unstagedFallbackInput),
     enabled: statusFallbackEnabled,
   });
-  const branchStatsInput = useMemo(() => ({
-    method: "branch-diff-stats" as const,
-    params: {
-      cwd: repository?.root ?? normalizedCwd ?? "",
-      includeUntrackedFiles: true,
-    },
-    repository,
-  }), [normalizedCwd, repository]);
+  const branchStatsInput = useMemo(
+    () => ({
+      method: "branch-diff-stats" as const,
+      params: {
+        cwd: repository?.root ?? normalizedCwd ?? "",
+        includeUntrackedFiles: true,
+      },
+      repository,
+    }),
+    [normalizedCwd, repository],
+  );
   const branchStatsQueryKey = useMemo(
     () => buildGitWorkerQueryKey(branchStatsInput),
     [branchStatsInput],
@@ -156,10 +154,7 @@ export function useSummaryGitState(
     ...createGitLiveWorkerQuery(branchStatsInput),
     enabled: enabled && repository !== null,
   });
-  const coordinator = useMemo(
-    () => getGitLiveQueryCoordinator(queryClient),
-    [queryClient],
-  );
+  const coordinator = useMemo(() => getGitLiveQueryCoordinator(queryClient), [queryClient]);
 
   const refresh = useCallback(async () => {
     await Promise.all([
@@ -170,11 +165,12 @@ export function useSummaryGitState(
   }, [branchStatsQueryKey, coordinator, metadataInput, statusQueryKey]);
 
   const statusResult = status.data;
-  const fallbackStageCounts = stagedFallback.data?.type === "success"
-    ? stagedFallback.data.stageCounts
-    : unstagedFallback.data?.type === "success"
-      ? unstagedFallback.data.stageCounts
-      : null;
+  const fallbackStageCounts =
+    stagedFallback.data?.type === "success"
+      ? stagedFallback.data.stageCounts
+      : unstagedFallback.data?.type === "success"
+        ? unstagedFallback.data.stageCounts
+        : null;
   const fallbackStatus = fallbackStageCounts
     ? {
         type: "success" as const,
@@ -186,44 +182,33 @@ export function useSummaryGitState(
     : null;
   const statusData = isSuccessfulStatus(statusResult)
     ? statusResult
-    : lastSuccessfulStatus.current ?? fallbackStatus;
+    : (lastSuccessfulStatus.current ?? fallbackStatus);
   const branchResult = branchStats.data;
-  const branchData: BranchDiffStatsResult | null = branchResult
-    && !isStaleSnapshotResult(branchResult)
-    ? branchResult
-    : null;
+  const branchData: BranchDiffStatsResult | null =
+    branchResult && !isStaleSnapshotResult(branchResult) ? branchResult : null;
   const stagedCount = statusData?.stagedCount ?? 0;
   const unstagedCount = statusData?.unstagedCount ?? 0;
   const untrackedCount = statusData?.untrackedCount ?? null;
-  const hasUncommittedChanges = stagedCount > 0
-    || unstagedCount > 0
-    || (untrackedCount ?? 0) > 0;
+  const hasUncommittedChanges = stagedCount > 0 || unstagedCount > 0 || (untrackedCount ?? 0) > 0;
   const hasBranchChanges = (branchData?.fileCount ?? 0) > 0;
-  const loading = enabled && normalizedCwd !== null && (
-    metadata.isLoading
-    || (repository !== null && (
-      status.isLoading
-      || (statusFallbackEnabled
-        && stagedFallback.isLoading
-        && unstagedFallback.isLoading)
-      || statusData?.untrackedCount === null
-      || branchStats.isLoading
-    ))
-  );
+  const loading =
+    enabled &&
+    normalizedCwd !== null &&
+    (metadata.isLoading ||
+      (repository !== null &&
+        (status.isLoading ||
+          (statusFallbackEnabled && stagedFallback.isLoading && unstagedFallback.isLoading) ||
+          statusData?.untrackedCount === null ||
+          branchStats.isLoading)));
 
   return {
     additions: branchData?.additions ?? 0,
-    currentBranch: branchData?.currentBranch
-      ?? metadata.data?.currentBranch
-      ?? null,
+    currentBranch: branchData?.currentBranch ?? metadata.data?.currentBranch ?? null,
     cwd: normalizedCwd,
-    defaultBranch: branchData?.defaultBranch
-      ?? metadata.data?.defaultBranch
-      ?? null,
+    defaultBranch: branchData?.defaultBranch ?? metadata.data?.defaultBranch ?? null,
     deletions: branchData?.deletions ?? 0,
-    error: metadata.isError
-      || status.isError
-      || (status.data?.type === "error" && statusData === null),
+    error:
+      metadata.isError || status.isError || (status.data?.type === "error" && statusData === null),
     hasBranchChanges,
     hasRepository: metadata.data?.isGitRepository === true,
     hasUncommittedChanges,

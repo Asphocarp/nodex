@@ -38,10 +38,7 @@ import {
   ThreadActivityDisclosure,
   type ThreadActivitySummaryTransition,
 } from "../shared/tools/tool-primitives";
-import {
-  ToolActivityIcon,
-  resolveToolActivityEntryIcon,
-} from "../shared/tools/tool-call-icons";
+import { ToolActivityIcon, resolveToolActivityEntryIcon } from "../shared/tools/tool-call-icons";
 import { UserMessageText } from "../shared/user-message-collapse";
 import {
   CODEX_THREAD_ACCORDION_TRANSITION,
@@ -55,7 +52,10 @@ import { UserAttachmentStrip } from "../shared/user-message-attachments";
 import { useWorkedForLabelText } from "../shared/use-worked-for-label";
 import type { CodexWorktreeInitActivity } from "../../../../lib/codex-worktree-init-activity";
 import { semanticActivityStatusFromLifecycle } from "../../../../lib/semantic-activity-status";
-import type { CodexConversationChildMembership, CodexConversationItem } from "../../../../lib/types";
+import type {
+  CodexConversationChildMembership,
+  CodexConversationItem,
+} from "../../../../lib/types";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import { resolveCodexThreadDetailLevel } from "../../../../lib/codex-thread-settings";
 import { logAssistantStreamingDebugState } from "../../../../lib/assistant-streaming-debug";
@@ -91,8 +91,17 @@ export interface ThreadLeafBlockProps {
   projectlessOutputDirectory?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
-  onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
-  onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onEditLastUserTurn?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+  }) => void | Promise<void>;
+  onForkFromTurn?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+    isLatestTurn: boolean;
+  }) => void | Promise<void>;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
@@ -138,20 +147,15 @@ function UserMessageGoalStatus() {
   );
 }
 
-function UserMessageHookFeedbackStatus({
-  href,
-  onOpen,
-}: {
-  href: string;
-  onOpen?: () => void;
-}) {
+function UserMessageHookFeedbackStatus({ href, onOpen }: { href: string; onOpen?: () => void }) {
   return (
     <a
       href={href}
       className="text-size-chat-sm inline-flex cursor-interaction items-center gap-1 rounded-md px-1 py-0.5 !text-token-description-foreground hover:!text-token-foreground"
       onClick={(event) => {
         if (!onOpen) return;
-        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)
+          return;
         event.preventDefault();
         onOpen();
       }}
@@ -265,16 +269,27 @@ function renderCollapsedActivityEntry({
     turnDiffHoverPreviewDisabled,
   };
 
-  if (entry.type === "automaticApprovalReview") return <ThreadAutomaticApprovalReviewBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
-  if (entry.type === "streamError") return <ThreadStreamErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
-  if (entry.type === "systemError") return <ThreadSystemErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
-  if (entry.type === "contextCompaction") return <ThreadContextCompactionBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  if (entry.type === "automaticApprovalReview")
+    return (
+      <ThreadAutomaticApprovalReviewBlock
+        block={entry as ThreadTranscriptBlockModel}
+        {...sharedProps}
+      />
+    );
+  if (entry.type === "streamError")
+    return <ThreadStreamErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  if (entry.type === "systemError")
+    return <ThreadSystemErrorBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
+  if (entry.type === "contextCompaction")
+    return (
+      <ThreadContextCompactionBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />
+    );
   if (
-    entry.type === "exec"
-    || entry.type === "fileChange"
-    || entry.type === "mcpToolCall"
-    || entry.type === "dynamicToolCall"
-    || entry.type === "webSearch"
+    entry.type === "exec" ||
+    entry.type === "fileChange" ||
+    entry.type === "mcpToolCall" ||
+    entry.type === "dynamicToolCall" ||
+    entry.type === "webSearch"
   ) {
     return <ThreadToolSurfaceBlock block={entry as ThreadTranscriptBlockModel} {...sharedProps} />;
   }
@@ -303,15 +318,14 @@ function CompletedActivitySummaryText({
     if (part.kind === "dynamicToolCall") {
       const call = part.item.entry.dynamicToolCall;
       if (!call) return [];
-      return [{
-        key: part.key,
-        content: (
-          <DynamicToolCallSummary
-            call={{ ...call, completed: true }}
-            variant="summary-text"
-          />
-        ),
-      }];
+      return [
+        {
+          key: part.key,
+          content: (
+            <DynamicToolCallSummary call={{ ...call, completed: true }} variant="summary-text" />
+          ),
+        },
+      ];
     }
     const label = formatCompletedActivityPart(part, index);
     return label == null ? [] : [{ key: `${part.kind}:${index}`, content: label }];
@@ -334,12 +348,7 @@ function ActiveActivitySummaryText({
   if (header.item.type === "dynamicToolCall") {
     const call = header.item.entry.dynamicToolCall;
     if (call) {
-      return (
-        <DynamicToolCallSummary
-          call={{ ...call, completed: false }}
-          variant="summary-text"
-        />
-      );
+      return <DynamicToolCallSummary call={{ ...call, completed: false }} variant="summary-text" />;
     }
   }
 
@@ -361,37 +370,39 @@ export function ThreadAgentActivityGroupBlock({
   turnDiffHoverPreviewDisabled,
 }: ThreadSpecialBlockProps) {
   if (block.type !== "agentActivityGroup") return null;
-  const iconItem = block.header.kind === "thinking"
-    ? null
-    : block.header.kind === "active"
-      ? block.header.item
-      : block.completedHeader.iconItem;
-  const icon = iconItem == null
-    ? null
-    : resolveToolActivityEntryIcon(iconItem, block.mcpApps ?? []);
-  const summaryTransition: ThreadActivitySummaryTransition = block.header.kind === "summary"
-    ? "immediate"
-    : "deferred";
-  const summaryText = block.header.kind === "summary"
-    ? <CompletedActivitySummaryText parts={block.completedHeader.parts} />
-    : block.header.kind === "active"
-      ? <ActiveActivitySummaryText header={block.header} />
-      : <CodexShimmerText>{block.header.message ?? "Thinking"}</CodexShimmerText>;
+  const iconItem =
+    block.header.kind === "thinking"
+      ? null
+      : block.header.kind === "active"
+        ? block.header.item
+        : block.completedHeader.iconItem;
+  const icon =
+    iconItem == null ? null : resolveToolActivityEntryIcon(iconItem, block.mcpApps ?? []);
+  const summaryTransition: ThreadActivitySummaryTransition =
+    block.header.kind === "summary" ? "immediate" : "deferred";
+  const summaryText =
+    block.header.kind === "summary" ? (
+      <CompletedActivitySummaryText parts={block.completedHeader.parts} />
+    ) : block.header.kind === "active" ? (
+      <ActiveActivitySummaryText header={block.header} />
+    ) : (
+      <CodexShimmerText>{block.header.message ?? "Thinking"}</CodexShimmerText>
+    );
   const summary = (
     <span className="inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden">
       {icon ? <ToolActivityIcon descriptor={icon} /> : null}
-      <span className="min-w-0 flex-1 truncate">
-        {summaryText}
-      </span>
+      <span className="min-w-0 flex-1 truncate">{summaryText}</span>
     </span>
   );
   const body = (
     <CodexShimmerProvider enabled={false}>
       <div
         className="vertical-scroll-fade-mask flex max-h-56 flex-col overflow-x-hidden overflow-y-auto [--edge-fade-distance:1.5rem]"
-        style={{
-          "--conversation-patch-file-gap": "var(--conversation-grouped-item-gap, 4px)",
-        } as CSSProperties}
+        style={
+          {
+            "--conversation-patch-file-gap": "var(--conversation-grouped-item-gap, 4px)",
+          } as CSSProperties
+        }
       >
         {block.bodyEntries.map((entry) => (
           <div key={entry.id}>
@@ -514,7 +525,11 @@ export function ThreadAutomaticApprovalReviewBlock({ block }: ThreadLeafBlockPro
   return <AutomaticApprovalReviewSurface item={block.entry} />;
 }
 
-export function ThreadMultiAgentActionBlock({ block, childMemberships, onOpenThread }: ThreadLeafBlockProps) {
+export function ThreadMultiAgentActionBlock({
+  block,
+  childMemberships,
+  onOpenThread,
+}: ThreadLeafBlockProps) {
   if (block.type !== "multiAgentAction") return null;
   return (
     <MultiAgentActionSurface
@@ -527,10 +542,16 @@ export function ThreadMultiAgentActionBlock({ block, childMemberships, onOpenThr
 
 const SUBAGENT_ACTIVITY_VISIBLE_CHIP_COUNT = 3;
 
-function resolveSubagentActivityStatusLabel(rows: readonly ThreadSubagentActivityInlineRowModel[]): string {
+function resolveSubagentActivityStatusLabel(
+  rows: readonly ThreadSubagentActivityInlineRowModel[],
+): string {
   if (rows.some((row) => row.activityStatus === "interrupted")) return "interrupted";
   if (rows.some((row) => row.activityStatus === "updated")) return "updated";
-  if (rows.length > 0 && rows.every((row) => row.activityStatus === "done" || row.status === "done")) return "finished";
+  if (
+    rows.length > 0 &&
+    rows.every((row) => row.activityStatus === "done" || row.status === "done")
+  )
+    return "finished";
   return "started working";
 }
 
@@ -547,16 +568,14 @@ function SubagentActivityInlineChip({
 }) {
   const content = (
     <>
-      <SubagentAvatar
-        seed={row.conversationId}
-        className="size-4"
-      />
+      <SubagentAvatar seed={row.conversationId} className="size-4" />
       <span className="min-w-0 truncate text-base">{row.displayName}</span>
     </>
   );
   const className = cn(
     "subagent-activity-chip mr-1.5 inline-flex h-7 max-w-48 min-w-0 items-center gap-1.5 rounded-full border border-token-border-light bg-token-main-surface-secondary pr-2 pl-1.5 align-middle first:-ml-1.5",
-    onClick && "cursor-interaction hover:border-token-border hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:outline-2 focus-visible:outline-offset-2 active:bg-token-bg-secondary",
+    onClick &&
+      "cursor-interaction hover:border-token-border hover:bg-token-list-hover-background hover:text-token-foreground focus-visible:outline-2 focus-visible:outline-offset-2 active:bg-token-bg-secondary",
   );
 
   if (!onClick) {
@@ -584,8 +603,12 @@ function SubagentActivityInlineChip({
   );
 }
 
-export function ThreadSubagentActivityInlineGroupBlock({ block, onOpenThread }: ThreadLeafBlockProps) {
-  const rows = block.type === "subagentActivityInlineGroup" ? block.subagentActivityRows ?? [] : [];
+export function ThreadSubagentActivityInlineGroupBlock({
+  block,
+  onOpenThread,
+}: ThreadLeafBlockProps) {
+  const rows =
+    block.type === "subagentActivityInlineGroup" ? (block.subagentActivityRows ?? []) : [];
   const [seenConversationIds, setSeenConversationIds] = useState<ReadonlySet<string>>(
     () => new Set(rows.map((row) => row.conversationId)),
   );
@@ -606,33 +629,40 @@ export function ThreadSubagentActivityInlineGroupBlock({ block, onOpenThread }: 
 
   return (
     <div className="min-w-0 text-size-chat relative overflow-visible py-0">
-      <div className="min-w-0 text-sm leading-5 text-token-conversation-body" data-testid="subagent-activity-inline-group">
+      <div
+        className="min-w-0 text-sm leading-5 text-token-conversation-body"
+        data-testid="subagent-activity-inline-group"
+      >
         {visibleRows.map((row) => (
           <SubagentActivityInlineChip
             key={row.conversationId}
             row={row}
             animateEntrance={!seenConversationIds.has(row.conversationId)}
             onAnimationEnd={() => markAnimationComplete(row.conversationId)}
-            onClick={onOpenThread
-              ? () => {
-                  void onOpenThread(row.conversationId, {
-                    subagent: {
-                      agentRole: null,
-                      conversationId: row.conversationId,
-                      diffStats: null,
-                      displayName: row.displayName,
-                      showInlineActivity: true,
-                      spawnModel: null,
-                      status: row.status,
-                      statusSummary: row.statusSummary,
-                    },
-                  });
-                }
-              : undefined}
+            onClick={
+              onOpenThread
+                ? () => {
+                    void onOpenThread(row.conversationId, {
+                      subagent: {
+                        agentRole: null,
+                        conversationId: row.conversationId,
+                        diffStats: null,
+                        displayName: row.displayName,
+                        showInlineActivity: true,
+                        spawnModel: null,
+                        status: row.status,
+                        statusSummary: row.statusSummary,
+                      },
+                    });
+                  }
+                : undefined
+            }
           />
         ))}
         <span className="align-middle text-base">
-          {hiddenCount > 0 ? `and ${hiddenCount} other ${hiddenCount === 1 ? "subagent" : "subagents"} ` : null}
+          {hiddenCount > 0
+            ? `and ${hiddenCount} other ${hiddenCount === 1 ? "subagent" : "subagents"} `
+            : null}
           {statusLabel}
         </span>
       </div>
@@ -671,9 +701,8 @@ export function UserMessageBubble({
     sources: block.hookFeedbackSources,
   });
   const hasMessageContent = content.trim().length > 0;
-  const shouldRenderFooter = isGoalMessage
-    || isHookFeedback
-    || (hasMessageContent && !compactUserMessageActions);
+  const shouldRenderFooter =
+    isGoalMessage || isHookFeedback || (hasMessageContent && !compactUserMessageActions);
   const [isEditing, setIsEditing] = useState(false);
   const [draftMessage, setDraftMessage] = useState(content);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
@@ -688,22 +717,25 @@ export function UserMessageBubble({
     setIsEditing(false);
   }, [content]);
 
-  const handleEditSubmit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!onEditLastUserTurn || isSubmittingEdit || block.turnId === null) return;
+  const handleEditSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!onEditLastUserTurn || isSubmittingEdit || block.turnId === null) return;
 
-    setIsSubmittingEdit(true);
-    try {
-      await onEditLastUserTurn({
-        threadId: block.entry.threadId,
-        turnId: block.turnId,
-        message: draftMessage.trim(),
-      });
-      setIsEditing(false);
-    } finally {
-      setIsSubmittingEdit(false);
-    }
-  }, [block.entry.threadId, block.turnId, draftMessage, isSubmittingEdit, onEditLastUserTurn]);
+      setIsSubmittingEdit(true);
+      try {
+        await onEditLastUserTurn({
+          threadId: block.entry.threadId,
+          turnId: block.turnId,
+          message: draftMessage.trim(),
+        });
+        setIsEditing(false);
+      } finally {
+        setIsSubmittingEdit(false);
+      }
+    },
+    [block.entry.threadId, block.turnId, draftMessage, isSubmittingEdit, onEditLastUserTurn],
+  );
 
   const handleDraftMessageInput = useCallback((element: HTMLTextAreaElement) => {
     resizeEditMessageTextarea(element);
@@ -715,11 +747,7 @@ export function UserMessageBubble({
       data-thread-selected-text-target="true"
       className={THREAD_VISUAL_TOKENS.userBubble}
     >
-      <UserMessageText
-        text={content}
-        cwd={threadCwd}
-        projectWorkspacePath={projectWorkspacePath}
-      />
+      <UserMessageText text={content} cwd={threadCwd} projectWorkspacePath={projectWorkspacePath} />
     </div>
   );
 
@@ -800,9 +828,11 @@ export function UserMessageBubble({
             {isHookFeedback ? (
               <UserMessageHookFeedbackStatus
                 href={hookFeedbackSettingsHref}
-                onOpen={hookSettingsNavigation?.onOpenHooksSettings
-                  ? () => hookSettingsNavigation.onOpenHooksSettings?.(hookFeedbackSettingsTarget)
-                  : undefined}
+                onOpen={
+                  hookSettingsNavigation?.onOpenHooksSettings
+                    ? () => hookSettingsNavigation.onOpenHooksSettings?.(hookFeedbackSettingsTarget)
+                    : undefined
+                }
               />
             ) : null}
             {isEditing || !hasMessageContent || compactUserMessageActions ? null : (
@@ -872,48 +902,46 @@ export function ThreadPlanCardBlock({
   const planKey = item.turnId || item.itemId;
   const boundTurnId = item.turnId;
   const isSidePanelActive = Boolean(
-    block.type === "proposedPlan"
-    && !isInProgress
-    && planSidePanelState?.rightPanelEnabled
-    && planSidePanelState.activePlanKey === planKey
-    && planSidePanelState.activeRightPanelTabId === "plan",
+    block.type === "proposedPlan" &&
+    !isInProgress &&
+    planSidePanelState?.rightPanelEnabled &&
+    planSidePanelState.activePlanKey === planKey &&
+    planSidePanelState.activeRightPanelTabId === "plan",
   );
 
-  return (
-    block.type === "todoList" ? (
-      <TodoListSurface item={item} />
-    ) : (
-      <PlanMessage
-        content={item.markdownText ?? ""}
-        completed={!isInProgress}
-        parseIncompleteMarkdown={shouldParseIncompleteMarkdown}
-        cwd={threadCwd}
-        projectWorkspacePath={projectWorkspacePath}
-        isSidePanelActive={isSidePanelActive}
-        onOpenInSidePanel={
-          !isInProgress
-            && boundTurnId !== null
-            && planSidePanelState?.rightPanelEnabled
-            && onOpenPlanInSidePanel
-            ? () =>
-                onOpenPlanInSidePanel({
-                  planKey,
-                  threadId: item.threadId,
-                  turnId: boundTurnId,
-                  itemId: item.itemId,
-                  content: item.markdownText ?? "",
-                  cwd: item.cwd ?? threadCwd ?? null,
-                  hideCodeBlocks: false,
-                })
-            : undefined
-        }
-        onCloseSidePanel={
-          isSidePanelActive && onClosePlanSidePanel
-            ? () => onClosePlanSidePanel({ planKey })
-            : undefined
-        }
-      />
-    )
+  return block.type === "todoList" ? (
+    <TodoListSurface item={item} />
+  ) : (
+    <PlanMessage
+      content={item.markdownText ?? ""}
+      completed={!isInProgress}
+      parseIncompleteMarkdown={shouldParseIncompleteMarkdown}
+      cwd={threadCwd}
+      projectWorkspacePath={projectWorkspacePath}
+      isSidePanelActive={isSidePanelActive}
+      onOpenInSidePanel={
+        !isInProgress &&
+        boundTurnId !== null &&
+        planSidePanelState?.rightPanelEnabled &&
+        onOpenPlanInSidePanel
+          ? () =>
+              onOpenPlanInSidePanel({
+                planKey,
+                threadId: item.threadId,
+                turnId: boundTurnId,
+                itemId: item.itemId,
+                content: item.markdownText ?? "",
+                cwd: item.cwd ?? threadCwd ?? null,
+                hideCodeBlocks: false,
+              })
+          : undefined
+      }
+      onCloseSidePanel={
+        isSidePanelActive && onClosePlanSidePanel
+          ? () => onClosePlanSidePanel({ planKey })
+          : undefined
+      }
+    />
   );
 }
 
@@ -947,15 +975,17 @@ function resolveHookSummary(entry: CodexConversationItem): {
   const details = Array.isArray(run?.entries)
     ? run.entries.flatMap((candidate) => {
         const parsed = asRecord(candidate);
-        if (!parsed || typeof parsed.kind !== "string" || typeof parsed.text !== "string") return [];
+        if (!parsed || typeof parsed.kind !== "string" || typeof parsed.text !== "string")
+          return [];
         return [{ kind: parsed.kind, text: parsed.text }];
       })
     : [];
 
   return {
-    summary: statusMessage.length > 0
-      ? `${humanizeHookEventName(eventName)} - ${statusMessage}`
-      : humanizeHookEventName(eventName),
+    summary:
+      statusMessage.length > 0
+        ? `${humanizeHookEventName(eventName)} - ${statusMessage}`
+        : humanizeHookEventName(eventName),
     status,
     details,
   };
@@ -1047,7 +1077,12 @@ function AssistantMessageActionsRow({
   threadId: string;
   turnId: string | null;
   isLatestTurn: boolean;
-  onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onForkFromTurn?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+    isLatestTurn: boolean;
+  }) => void | Promise<void>;
   alwaysShowActions?: boolean;
 }) {
   const [selectedRating, setSelectedRating] = useState<AssistantMessageRating | null>(null);
@@ -1055,17 +1090,10 @@ function AssistantMessageActionsRow({
   if (!shouldShowActions) return null;
 
   return (
-    <ThreadMessageActionRow
-      align="start"
-      className={alwaysShowActions ? "opacity-100" : undefined}
-    >
+    <ThreadMessageActionRow align="start" className={alwaysShowActions ? "opacity-100" : undefined}>
       {actions.copyText !== null ? (
         <>
-          <CopyMessageActionButton
-            text={actions.copyText}
-            label="Copy"
-            stopPropagation
-          />
+          <CopyMessageActionButton text={actions.copyText} label="Copy" stopPropagation />
           {actions.canRate ? (
             <>
               <AssistantRatingButton
@@ -1156,10 +1184,7 @@ export function ThreadAssistantBodyBlock({
       data-content-search-unit-key={block.searchUnitKey}
     >
       <div className="group flex min-w-0 flex-col">
-        <div
-          className={THREAD_VISUAL_TOKENS.assistantBody}
-          data-thread-selected-text-target="true"
-        >
+        <div className={THREAD_VISUAL_TOKENS.assistantBody} data-thread-selected-text-target="true">
           <BudgetedMarkdownRenderer
             content={markdownText}
             parseIncompleteMarkdown={isAssistantItemStreaming}
@@ -1170,11 +1195,7 @@ export function ThreadAssistantBodyBlock({
             projectWorkspacePath={projectWorkspacePath}
           />
         </div>
-        {assistantAfter ? (
-          <div className="mt-3">
-            {assistantAfter}
-          </div>
-        ) : null}
+        {assistantAfter ? <div className="mt-3">{assistantAfter}</div> : null}
         {assistantActions ? (
           <AssistantMessageActionsRow
             actions={assistantActions}
@@ -1196,7 +1217,12 @@ export function ThreadAssistantActionsBlock({
   onForkFromTurn,
   alwaysShowAssistantMessageActions = false,
 }: ThreadSpecialBlockProps & {
-  onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onForkFromTurn?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+    isLatestTurn: boolean;
+  }) => void | Promise<void>;
   alwaysShowAssistantMessageActions?: boolean;
 }) {
   if (block.type !== "assistantActions") return null;
@@ -1275,12 +1301,14 @@ export function buildThreadWorktreeInitActivities(
   if (typeof rawItem.id !== "string") return [];
   if (typeof rawItem.worktreeOutputText !== "string") return [];
 
-  const activities: CodexWorktreeInitActivity[] = [{
-    id: `${rawItem.id}:worktree`,
-    kind: "worktree",
-    status: "completed",
-    outputText: rawItem.worktreeOutputText,
-  }];
+  const activities: CodexWorktreeInitActivity[] = [
+    {
+      id: `${rawItem.id}:worktree`,
+      kind: "worktree",
+      status: "completed",
+      outputText: rawItem.worktreeOutputText,
+    },
+  ];
   if (rawItem.setup === null || rawItem.setup === undefined) return activities;
 
   const setup = asRecord(rawItem.setup);
@@ -1435,7 +1463,9 @@ export function ThreadSystemBannerBlock({ block }: ThreadLeafBlockProps) {
   if (item.markdownText) {
     return (
       <div className="flex flex-col gap-1.5">
-        <div className="text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">{label}</div>
+        <div className="text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">
+          {label}
+        </div>
         <div className="text-size-chat-sm whitespace-pre-wrap text-token-text-secondary">
           {item.markdownText}
         </div>
@@ -1445,7 +1475,9 @@ export function ThreadSystemBannerBlock({ block }: ThreadLeafBlockProps) {
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">{label}</div>
+      <div className="text-[11px] font-medium tracking-wide text-token-description-foreground uppercase">
+        {label}
+      </div>
       <div>
         <JsonBlock value={item.rawItem} />
       </div>

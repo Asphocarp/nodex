@@ -30,21 +30,16 @@ export function formatWorkedForTimeLabel(durationMs: number): string | null {
   return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }
 
-export function resolveWorkedForElapsedMs(
-  timing: ThreadWorkedForTiming,
-  nowMs: number,
-): number {
+export function resolveWorkedForElapsedMs(timing: ThreadWorkedForTiming, nowMs: number): number {
   return Math.max((timing.completedAtMs ?? nowMs) - timing.startedAtMs, 0);
 }
 
-export function resolveWorkedForLabelText(
-  input: {
-    timing: ThreadWorkedForTiming | null;
-    durationMs: number | null;
-    fallbackTimeLabel?: string | null;
-    nowMs?: number;
-  },
-): string | null {
+export function resolveWorkedForLabelText(input: {
+  timing: ThreadWorkedForTiming | null;
+  durationMs: number | null;
+  fallbackTimeLabel?: string | null;
+  nowMs?: number;
+}): string | null {
   if (input.timing) {
     const elapsedMs = resolveWorkedForElapsedMs(input.timing, input.nowMs ?? Date.now());
     if (input.timing.status === "working") {

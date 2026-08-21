@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { MAX_PAGE_TITLE_LENGTH } from "../page-limits";
-import {
-  parseInlineMarkdownTitle,
-  serializeInlineMarkdownTitle,
-} from "./agent-title";
+import { parseInlineMarkdownTitle, serializeInlineMarkdownTitle } from "./agent-title";
 
 describe("Agent inline Markdown titles", () => {
   test("round-trips plain text, styles, links, and title-safe mentions", () => {

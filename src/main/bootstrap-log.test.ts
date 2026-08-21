@@ -25,7 +25,8 @@ describe("bootstrap logging", () => {
 
       const logDir = path.join(root, "logs");
       const records = fs.readdirSync(logDir).flatMap((fileName) =>
-        fs.readFileSync(path.join(logDir, fileName), "utf8")
+        fs
+          .readFileSync(path.join(logDir, fileName), "utf8")
           .trim()
           .split("\n")
           .map((line) => JSON.parse(line) as { level: string; msg: string }),

@@ -26,16 +26,16 @@ describe("NFM code fences", () => {
   });
 
   test("keeps Card identity and mention URL tags in clipboard text", () => {
-    const nfm = [
-      '<page uuid="019f-card" />',
-      '<page-ref url="nodex://pages/019f-target" />',
-    ].join("\n");
+    const nfm = ['<page uuid="019f-card" />', '<page-ref url="nodex://pages/019f-target" />'].join(
+      "\n",
+    );
 
     expect(serializeClipboardText(parseNfm(nfm))).toBe(nfm);
   });
 
   test("GFM tables parse and serialize with alignment", () => {
-    const input = "| Name | Status | Score |\n| :--- | :---: | ---: |\n| Alpha | **Ready** | 10 |\n| Beta | Blocked | 2 |";
+    const input =
+      "| Name | Status | Score |\n| :--- | :---: | ---: |\n| Alpha | **Ready** | 10 |\n| Beta | Blocked | 2 |";
     const blocks = parseNfm(input);
 
     expect(blocks.length).toBe(1);
@@ -52,7 +52,9 @@ describe("NFM code fences", () => {
     if (blocks[0].rows[1]?.cells[1]?.content[0]?.type !== "text") return;
     expect(blocks[0].rows[1].cells[1].content[0].styles.bold).toBe(true);
     expect(serializeNfm(blocks)).toBe(input);
-    expect(serializeClipboardText(blocks)).toBe("Name\tStatus\tScore\nAlpha\tReady\t10\nBeta\tBlocked\t2");
+    expect(serializeClipboardText(blocks)).toBe(
+      "Name\tStatus\tScore\nAlpha\tReady\t10\nBeta\tBlocked\t2",
+    );
   });
 
   test("GFM tables preserve escaped pipes inside cells", () => {
@@ -156,16 +158,21 @@ describe("NFM code fences", () => {
   });
 
   test("attachments round-trip inline while legacy resource tags fall back to plain text", () => {
-    const attachmentNfm = 'before <attachment kind="file" mode="link" source="/tmp/report.txt" name="report.txt" /> after';
+    const attachmentNfm =
+      'before <attachment kind="file" mode="link" source="/tmp/report.txt" name="report.txt" /> after';
     const attachmentBlocks = parseNfm(attachmentNfm);
 
     expect(attachmentBlocks[0]?.type).toBe("paragraph");
     expect(serializeNfm(attachmentBlocks)).toBe(attachmentNfm);
     expect(serializeClipboardText(attachmentBlocks)).toBe("before [Attachment: report.txt] after");
 
-    const legacyBlocks = parseNfm('<resource kind="file" mode="link" source="/tmp/report.txt" name="report.txt" />');
+    const legacyBlocks = parseNfm(
+      '<resource kind="file" mode="link" source="/tmp/report.txt" name="report.txt" />',
+    );
     expect(legacyBlocks[0]?.type).toBe("paragraph");
-    expect(serializeNfm(legacyBlocks)).toBe('\\<resource kind="file" mode="link" source="/tmp/report.txt" name="report.txt" /\\>');
+    expect(serializeNfm(legacyBlocks)).toBe(
+      '\\<resource kind="file" mode="link" source="/tmp/report.txt" name="report.txt" /\\>',
+    );
   });
 
   test("agent config round-trips inline", () => {
@@ -184,7 +191,8 @@ describe("NFM code fences", () => {
   });
 
   test("thread mentions round-trip inline and copy as readable placeholders", () => {
-    const nfm = 'before <mention-thread uuid="019abc" /> and <mention-thread uuid="thread &amp; value" /> after';
+    const nfm =
+      'before <mention-thread uuid="019abc" /> and <mention-thread uuid="thread &amp; value" /> after';
     const blocks = parseNfm(nfm);
 
     expect(blocks[0]?.type).toBe("paragraph");
@@ -198,7 +206,9 @@ describe("NFM code fences", () => {
     if (blocks[0].content[3]?.type !== "threadMention") return;
     expect(blocks[0].content[3].uuid).toBe("thread & value");
     expect(serializeNfm(blocks)).toBe(nfm);
-    expect(serializeClipboardText(blocks)).toBe("before [Thread: 019abc] and [Thread: thread & value] after");
+    expect(serializeClipboardText(blocks)).toBe(
+      "before [Thread: 019abc] and [Thread: thread & value] after",
+    );
   });
 
   test("missing or empty thread mention uuids remain plain text", () => {
@@ -208,7 +218,7 @@ describe("NFM code fences", () => {
     if (blocks[0]?.type !== "paragraph") return;
     expect(blocks[0].content.length).toBe(1);
     expect(blocks[0].content[0]?.type).toBe("text");
-    expect(serializeNfm(blocks)).toBe("\\<mention-thread /\\> \\<mention-thread uuid=\"\" /\\>");
+    expect(serializeNfm(blocks)).toBe('\\<mention-thread /\\> \\<mention-thread uuid="" /\\>');
   });
 
   test("Page mentions round-trip through canonical deeplinks", () => {
@@ -222,17 +232,17 @@ describe("NFM code fences", () => {
       targetPageId: "page/alpha",
     });
     expect(serializeNfm(blocks)).toBe(nfm);
-    expect(serializeClipboardText(blocks)).toBe(
-      "before [Page: page/alpha] after",
-    );
+    expect(serializeClipboardText(blocks)).toBe("before [Page: page/alpha] after");
   });
 
   test("invalid Page mention tags remain plain text", () => {
-    const blocks = parseNfm([
-      '<mention-page url="https://example.com/page" />',
-      '<mention-page url="nodex://pages/page-1" title="stale" />',
-      "<mention-page />",
-    ].join(" "));
+    const blocks = parseNfm(
+      [
+        '<mention-page url="https://example.com/page" />',
+        '<mention-page url="nodex://pages/page-1" title="stale" />',
+        "<mention-page />",
+      ].join(" "),
+    );
 
     expect(blocks[0]?.type).toBe("paragraph");
     if (blocks[0]?.type !== "paragraph") return;
@@ -241,7 +251,8 @@ describe("NFM code fences", () => {
   });
 
   test("date mentions round-trip inline and copy as deterministic labels", () => {
-    const nfm = 'before <mention-date start="2026-06-28" format="relative" /> and <mention-date start="2026-06-28T14:30:00+08:00" tz="Asia/Shanghai" format="relative" time-format="12h" reminder="minute:0" /> after';
+    const nfm =
+      'before <mention-date start="2026-06-28" format="relative" /> and <mention-date start="2026-06-28T14:30:00+08:00" tz="Asia/Shanghai" format="relative" time-format="12h" reminder="minute:0" /> after';
     const blocks = parseNfm(nfm);
 
     expect(blocks[0]?.type).toBe("paragraph");
@@ -258,20 +269,30 @@ describe("NFM code fences", () => {
     expect(blocks[0].content[3].tz).toBe("Asia/Shanghai");
     expect(blocks[0].content[3].reminder).toBe("minute:0");
     expect(serializeNfm(blocks)).toBe(nfm);
-    expect(serializeClipboardText(blocks)).toBe("before @Jun 28, 2026 and @Jun 28, 2026 2:30 PM after");
+    expect(serializeClipboardText(blocks)).toBe(
+      "before @Jun 28, 2026 and @Jun 28, 2026 2:30 PM after",
+    );
   });
 
   test("date mention parser rejects invalid payloads and repairs reversed ranges", () => {
-    const invalidBlocks = parseNfm('<mention-date /> <mention-date start="2026-02-30" /> <mention-date type="date" start-date="2026-06-28" />');
+    const invalidBlocks = parseNfm(
+      '<mention-date /> <mention-date start="2026-02-30" /> <mention-date type="date" start-date="2026-06-28" />',
+    );
 
     expect(invalidBlocks[0]?.type).toBe("paragraph");
     if (invalidBlocks[0]?.type !== "paragraph") return;
     expect(invalidBlocks[0].content.length).toBe(1);
     expect(invalidBlocks[0].content[0]?.type).toBe("text");
-    expect(serializeNfm(invalidBlocks)).toBe("\\<mention-date /\\> \\<mention-date start=\"2026-02-30\" /\\> \\<mention-date type=\"date\" start-date=\"2026-06-28\" /\\>");
+    expect(serializeNfm(invalidBlocks)).toBe(
+      '\\<mention-date /\\> \\<mention-date start="2026-02-30" /\\> \\<mention-date type="date" start-date="2026-06-28" /\\>',
+    );
 
-    const rangeBlocks = parseNfm('<mention-date start="2026-06-30" end="2026-06-28" format="ll" />');
-    expect(serializeNfm(rangeBlocks)).toBe('<mention-date start="2026-06-28" end="2026-06-30" format="ll" />');
+    const rangeBlocks = parseNfm(
+      '<mention-date start="2026-06-30" end="2026-06-28" format="ll" />',
+    );
+    expect(serializeNfm(rangeBlocks)).toBe(
+      '<mention-date start="2026-06-28" end="2026-06-30" format="ll" />',
+    );
   });
 
   test("ordered list markers round-trip exactly and plain-text copy preserves numbering", () => {

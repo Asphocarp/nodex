@@ -17,10 +17,7 @@ import { lstatSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { writeImageToClipboard } from "./clipboard-image-writer";
-import {
-  inspectClipboardPasteItems,
-  readClipboardPastePayload,
-} from "./clipboard-paste-inspector";
+import { inspectClipboardPasteItems, readClipboardPastePayload } from "./clipboard-paste-inspector";
 import {
   COMPOSER_IMAGE_FILE_EXTENSIONS,
   prepareComposerPickedFiles,
@@ -182,9 +179,7 @@ import {
   filterBrowserStateForViewScope,
   filterBrowserUseStateForViewScope,
 } from "./browser/browser-event-routing";
-import {
-  deleteProjectSessionWithBrowserCleanupUsing,
-} from "./project-session-browser-ownership";
+import { deleteProjectSessionWithBrowserCleanupUsing } from "./project-session-browser-ownership";
 import {
   createProjectLifecycleService,
   runWithTerminalProjectAdmission,
@@ -267,17 +262,12 @@ import {
 } from "./dev-runtime-metrics";
 import { registerCodexScheduledAutomationIpcHandlers } from "./codex-scheduled-automation-ipc-handlers";
 import { registerCodexHooksIpcHandlers } from "./codex-hooks-ipc-handlers";
-import {
-  type DocumentSyncClientTarget,
-  documentSyncUnauthorized,
-} from "./document-sync-transport";
+import { type DocumentSyncClientTarget, documentSyncUnauthorized } from "./document-sync-transport";
 import {
   registerBlockPropertyMutationIpcHandler,
   registerLibraryBlockPropertyMutationIpcHandler,
 } from "./block-property-mutation-ipc";
-import {
-  registerDatabaseModuleIpcHandlers,
-} from "./database-module-ipc";
+import { registerDatabaseModuleIpcHandlers } from "./database-module-ipc";
 import { registerLibraryModuleIpcHandler } from "./library-module-ipc";
 import { registerLibraryDatabaseModuleIpcHandler } from "./library-database-module-ipc";
 import { registerPageDetailIpcHandler } from "./page-detail-ipc";
@@ -316,9 +306,10 @@ const rendererDiagnosticsLogger = getLogger({
   component: "diagnostics",
 });
 function requireNonBlankStringArray(value: unknown, label: string): string[] {
-  if (!Array.isArray(value) || value.some((item) => (
-    typeof item !== "string" || item.trim().length === 0
-  ))) {
+  if (
+    !Array.isArray(value) ||
+    value.some((item) => typeof item !== "string" || item.trim().length === 0)
+  ) {
     throw new Error(`${label} must contain only non-empty strings`);
   }
   return [...value];
@@ -389,13 +380,15 @@ function requireTrustedAppRendererSender(
   capabilityName: string,
 ): void {
   const ownerWindow = BrowserWindow.fromWebContents(event.sender);
-  if (isTrustedAppRendererIpcSender({
-    developmentOrigin: process.env.ELECTRON_RENDERER_URL ?? null,
-    hasOwnerWindow: ownerWindow !== null,
-    senderType: event.sender.getType(),
-    senderUrl: event.senderFrame?.url ?? "",
-    isMainFrame: event.senderFrame === event.sender.mainFrame,
-  })) {
+  if (
+    isTrustedAppRendererIpcSender({
+      developmentOrigin: process.env.ELECTRON_RENDERER_URL ?? null,
+      hasOwnerWindow: ownerWindow !== null,
+      senderType: event.sender.getType(),
+      senderUrl: event.senderFrame?.url ?? "",
+      isMainFrame: event.senderFrame === event.sender.mainFrame,
+    })
+  ) {
     return;
   }
   throw new Error(`${capabilityName} is available only to the top-level app renderer`);
@@ -467,15 +460,12 @@ const remoteHostedPipService = new RemoteHostedPipService({
     broadcastIpcEvent(channel, payload);
   },
   getFocusedWindow: () => BrowserWindow.getFocusedWindow(),
-  getWindowForSender: (sender) =>
-    BrowserWindow.fromWebContents(sender as Electron.WebContents),
+  getWindowForSender: (sender) => BrowserWindow.fromWebContents(sender as Electron.WebContents),
   isEnabled: () => process.platform === "darwin" && isMacOSVersionAtLeast("13.0"),
   isThreadSurfacePresented: (threadId) =>
     browserSidebarService.hasPresentedBrowserUseSurfaceForThread(threadId),
-  readAlwaysHide: () =>
-    getRemoteHostedPipPreferenceStore().readAlwaysHide(),
-  readMaxDisplaySize: () =>
-    getRemoteHostedPipPreferenceStore().readMaxDisplaySize(),
+  readAlwaysHide: () => getRemoteHostedPipPreferenceStore().readAlwaysHide(),
+  readMaxDisplaySize: () => getRemoteHostedPipPreferenceStore().readMaxDisplaySize(),
   sendToSender: (sender, channel, payload) => {
     sendIpcEvent(sender as Electron.WebContents, channel, payload);
   },
@@ -496,10 +486,11 @@ const computerUseSettingsService = new ComputerUseSettingsService({
   readConfigRequirements: async () => await codexService.readConfigRequirements(),
 });
 
-const disposeRemoteHostedPipCodexObserver =
-  codexService.observeAppServerNotifications((notification) => {
+const disposeRemoteHostedPipCodexObserver = codexService.observeAppServerNotifications(
+  (notification) => {
     remoteHostedPipService.handleCodexNotification(notification);
-  });
+  },
+);
 let remoteHostedPipRuntimeDisposed = false;
 
 export function isRemoteHostedPipPrivacySettingsTerminationRequest(): boolean {
@@ -514,13 +505,11 @@ export function disposeRemoteHostedPipRuntime(): void {
 }
 
 function refreshRemoteHostedPipState(): void {
-  void remoteHostedPipService.handleBrowserUseStateSnapshot().catch(
-    (error) => {
-      ipcPayloadLogger.warn("Could not resolve remote hosted PIP Thread state", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    },
-  );
+  void remoteHostedPipService.handleBrowserUseStateSnapshot().catch((error) => {
+    ipcPayloadLogger.warn("Could not resolve remote hosted PIP Thread state", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 }
 
 function buildNativeContextMenuTemplate(
@@ -608,9 +597,7 @@ function showNativeContextMenu(
 
 let browserSidebarEventBridgeRegistered = false;
 let browserGuestBridgeRegistered = false;
-let resolveBrowserSidebarViewScope: (
-  webContentsId: number,
-) => string | null = () => null;
+let resolveBrowserSidebarViewScope: (webContentsId: number) => string | null = () => null;
 
 function sendBrowserEventToViewScope(
   channel: keyof IpcEvents,
@@ -618,10 +605,7 @@ function sendBrowserEventToViewScope(
   payload: unknown,
 ): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    if (
-      resolveBrowserSidebarViewScope(window.webContents.id)
-      !== browserViewScopeId
-    ) {
+    if (resolveBrowserSidebarViewScope(window.webContents.id) !== browserViewScopeId) {
       continue;
     }
     safeSendToWebContents(window.webContents, channel, [payload]);
@@ -632,9 +616,7 @@ function sendFilteredBrowserStateToWindows(
   snapshot: Parameters<typeof filterBrowserStateForViewScope>[0],
 ): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    const browserViewScopeId = resolveBrowserSidebarViewScope(
-      window.webContents.id,
-    );
+    const browserViewScopeId = resolveBrowserSidebarViewScope(window.webContents.id);
     if (!browserViewScopeId) continue;
     safeSendToWebContents(window.webContents, "browser-sidebar-state", [
       filterBrowserStateForViewScope(snapshot, browserViewScopeId),
@@ -646,15 +628,11 @@ function sendFilteredBrowserUseStateToWindows(
   snapshot: BrowserSidebarBrowserUseStateSnapshot,
 ): void {
   for (const window of BrowserWindow.getAllWindows()) {
-    const browserViewScopeId = resolveBrowserSidebarViewScope(
-      window.webContents.id,
-    );
+    const browserViewScopeId = resolveBrowserSidebarViewScope(window.webContents.id);
     if (!browserViewScopeId) continue;
-    safeSendToWebContents(
-      window.webContents,
-      "browser-sidebar-browser-use-state",
-      [filterBrowserUseStateForViewScope(snapshot, browserViewScopeId)],
-    );
+    safeSendToWebContents(window.webContents, "browser-sidebar-browser-use-state", [
+      filterBrowserUseStateForViewScope(snapshot, browserViewScopeId),
+    ]);
   }
 }
 
@@ -669,9 +647,7 @@ const omitProjectScope = <Request extends { readonly projectId: string }>(
 function ensureBrowserSidebarEventBridge(): void {
   if (browserSidebarEventBridgeRegistered) return;
   browserSidebarEventBridgeRegistered = true;
-  browserSidebarService.on("state", (snapshot) =>
-    sendFilteredBrowserStateToWindows(snapshot),
-  );
+  browserSidebarService.on("state", (snapshot) => sendFilteredBrowserStateToWindows(snapshot));
   browserSidebarService.on("localServers", (snapshot) =>
     broadcastIpcEvent("browser-sidebar-local-servers", snapshot),
   );
@@ -722,11 +698,7 @@ function ensureBrowserSidebarEventBridge(): void {
     ),
   );
   browserSidebarService.on("openNewTab", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-open-new-tab",
-      event.browserViewScopeId,
-      event,
-    ),
+    sendBrowserEventToViewScope("browser-sidebar-open-new-tab", event.browserViewScopeId, event),
   );
   browserSidebarService.on("contextMenuAction", (event) =>
     sendBrowserEventToViewScope(
@@ -750,11 +722,7 @@ function ensureBrowserSidebarEventBridge(): void {
     ),
   );
   browserSidebarService.on("destroyWebview", (event) =>
-    sendBrowserEventToViewScope(
-      "browser-sidebar-destroy-webview",
-      event.browserViewScopeId,
-      event,
-    ),
+    sendBrowserEventToViewScope("browser-sidebar-destroy-webview", event.browserViewScopeId, event),
   );
   refreshRemoteHostedPipState();
 }
@@ -770,16 +738,12 @@ function ensureBrowserGuestBridge(): void {
     if (!input.success) return;
     const owner = event.sender.hostWebContents;
     if (
-      !owner
-      || browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id)
-        !== owner.id
+      !owner ||
+      browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id
     ) {
       return;
     }
-    browserSidebarService.startBrowserImageDrag(
-      event.sender.id,
-      input.data.sourceUrl,
-    );
+    browserSidebarService.startBrowserImageDrag(event.sender.id, input.data.sourceUrl);
   });
   ipcMain.on("browser-image-drag-ended", (event) => {
     if (!browserSidebarService.isAuthorizedGuestWebContents(event.sender.id)) {
@@ -795,14 +759,13 @@ function ensureBrowserGuestBridge(): void {
     if (!input.success) return;
     const owner = event.sender.hostWebContents;
     if (
-      !owner
-      || browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id)
-        !== owner.id
+      !owner ||
+      browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id
     ) {
       return;
     }
-    void getBrowserProfileServices().credentialService
-      .captureGuestCandidate(event.sender.id, input.data)
+    void getBrowserProfileServices()
+      .credentialService.captureGuestCandidate(event.sender.id, input.data)
       .then((candidate) => {
         if (!candidate) return;
         sendIpcEvent(owner, "browser-credential-save-candidate", candidate);
@@ -819,15 +782,12 @@ function ensureBrowserGuestBridge(): void {
     if (!selection.success || selection.data.anchor.pageUrl !== event.sender.getURL()) {
       return;
     }
-    const identity = browserSidebarService.getIdentityForWebContents(
-      event.sender.id,
-    );
+    const identity = browserSidebarService.getIdentityForWebContents(event.sender.id);
     const owner = event.sender.hostWebContents;
     if (
-      !identity
-      || !owner
-      || browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id)
-        !== owner.id
+      !identity ||
+      !owner ||
+      browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id
     ) {
       return;
     }
@@ -844,15 +804,12 @@ function ensureBrowserGuestBridge(): void {
     if (!update.success || update.data.anchor.pageUrl !== event.sender.getURL()) {
       return;
     }
-    const identity = browserSidebarService.getIdentityForWebContents(
-      event.sender.id,
-    );
+    const identity = browserSidebarService.getIdentityForWebContents(event.sender.id);
     const owner = event.sender.hostWebContents;
     if (
-      !identity
-      || !owner
-      || browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id)
-        !== owner.id
+      !identity ||
+      !owner ||
+      browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id
     ) {
       return;
     }
@@ -865,21 +822,15 @@ function ensureBrowserGuestBridge(): void {
     if (!browserSidebarService.isAuthorizedGuestWebContents(event.sender.id)) {
       return;
     }
-    const direction = rawDirection === "back"
-      ? "go-back"
-      : rawDirection === "forward"
-        ? "go-forward"
-        : null;
-    const identity = browserSidebarService.getIdentityForWebContents(
-      event.sender.id,
-    );
+    const direction =
+      rawDirection === "back" ? "go-back" : rawDirection === "forward" ? "go-forward" : null;
+    const identity = browserSidebarService.getIdentityForWebContents(event.sender.id);
     const owner = event.sender.hostWebContents;
     if (
-      !direction
-      || !identity
-      || !owner
-      || browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id)
-        !== owner.id
+      !direction ||
+      !identity ||
+      !owner ||
+      browserSidebarService.getOwnerWebContentsIdForGuest(event.sender.id) !== owner.id
     ) {
       return;
     }
@@ -894,11 +845,9 @@ function ensureBrowserGuestBridge(): void {
 }
 
 function broadcastCommandKeymapState(state: CommandKeymapState): void {
-  safeBroadcastToWindows(
-    BrowserWindow.getAllWindows(),
-    COMMAND_KEYBINDINGS_CHANGED_CHANNEL,
-    [state],
-  );
+  safeBroadcastToWindows(BrowserWindow.getAllWindows(), COMMAND_KEYBINDINGS_CHANGED_CHANNEL, [
+    state,
+  ]);
 }
 
 function refreshBrowserSidebarCommandAccelerators(): void {
@@ -908,19 +857,13 @@ function refreshBrowserSidebarCommandAccelerators(): void {
 interface RegisterIpcHandlersOptions {
   gitWorkerHost?: Pick<GitWorkerHost, "requestFromMain">;
   resolveWindowSessionId?: (webContentsId: number) => string | null;
-  onCreateWindow?: (
-    sourceWebContentsId: number,
-    request: WindowSessionNewWindowRequest,
-  ) => void;
+  onCreateWindow?: (sourceWebContentsId: number, request: WindowSessionNewWindowRequest) => void;
   onBootstrapWindowSession?: (webContentsId: number) => WindowSessionBootstrap;
   onSaveWindowSessionLayout?: (
     webContentsId: number,
     input: WindowSessionSaveLayoutInput,
   ) => WindowSessionBootstrap;
-  onUpdateWindowSessionBounds?: (
-    webContentsId: number,
-    bounds: WindowSessionBounds,
-  ) => void;
+  onUpdateWindowSessionBounds?: (webContentsId: number, bounds: WindowSessionBounds) => void;
   onGetAppUpdateStatus?: () => AppUpdateStatus;
   onCheckForAppUpdate?: () => Promise<AppUpdateStatus>;
   onInstallAppUpdate?: () => boolean | Promise<boolean>;
@@ -975,17 +918,17 @@ interface RegisterIpcHandlersOptions {
   documentSync?: DesktopDocumentSyncPort;
 }
 
-const createUnconfiguredIpcAuthority = <Port extends object>(
-  name: string,
-): Port => new Proxy({}, {
-  get: () => () => {
-    throw new Error(`${name} is unavailable before Rust Core initialization`);
-  },
-}) as Port;
+const createUnconfiguredIpcAuthority = <Port extends object>(name: string): Port =>
+  new Proxy(
+    {},
+    {
+      get: () => () => {
+        throw new Error(`${name} is unavailable before Rust Core initialization`);
+      },
+    },
+  ) as Port;
 
-function assertValidOccurrenceIpcInput(
-  input: PageOccurrenceActionInput,
-): void {
+function assertValidOccurrenceIpcInput(input: PageOccurrenceActionInput): void {
   if (
     typeof input?.operationId !== "string" ||
     input.operationId.length === 0 ||
@@ -1017,17 +960,13 @@ function assertValidWorktreeEnvironmentSaveInput(
   input: UpdateWorktreeEnvironmentConfigInput,
 ): void {
   const revision = input?.expectedRevision;
-  if (revision === null || (
-    typeof revision === "string"
-    && /^sha256:[a-f0-9]{64}$/.test(revision)
-  )) return;
+  if (revision === null || (typeof revision === "string" && /^sha256:[a-f0-9]{64}$/.test(revision)))
+    return;
 
   throw new Error("Invalid local environment revision");
 }
 
-function assertValidOccurrenceCompleteIpcInput(
-  input: PageOccurrenceCompleteInput,
-): void {
+function assertValidOccurrenceCompleteIpcInput(input: PageOccurrenceCompleteInput): void {
   assertValidOccurrenceIpcInput(input);
   if (
     typeof input.createdPageId !== "string" ||
@@ -1038,15 +977,9 @@ function assertValidOccurrenceCompleteIpcInput(
   }
 }
 
-function assertValidOccurrenceUpdateIpcInput(
-  input: PageOccurrenceUpdateInput,
-): void {
+function assertValidOccurrenceUpdateIpcInput(input: PageOccurrenceUpdateInput): void {
   assertValidOccurrenceIpcInput(input);
-  if (
-    input.scope !== "this" &&
-    input.scope !== "this-and-future" &&
-    input.scope !== "all"
-  ) {
+  if (input.scope !== "this" && input.scope !== "this-and-future" && input.scope !== "all") {
     throw new Error("Missing or invalid occurrence scope");
   }
   if (input.scope === "all" && "createdPageId" in input) {
@@ -1060,26 +993,23 @@ function assertValidOccurrenceUpdateIpcInput(
   ) {
     throw new Error("Missing or invalid occurrence createdPageId");
   }
-  if (
-    typeof input.updates !== "object" ||
-    input.updates === null ||
-    Array.isArray(input.updates)
-  ) {
+  if (typeof input.updates !== "object" || input.updates === null || Array.isArray(input.updates)) {
     throw new Error("Missing or invalid occurrence updates");
   }
 }
 
 function parseComposerInventoryCwds(input: unknown): string[] {
   if (
-    typeof input !== "object"
-    || input === null
-    || !("cwds" in input)
-    || !Array.isArray(input.cwds)
-    || input.cwds.length > 32
-    || input.cwds.some((cwd) =>
-      typeof cwd !== "string"
-      || cwd.length > 4_096
-      || (cwd.trim().length > 0 && !isAbsolute(cwd.trim()))
+    typeof input !== "object" ||
+    input === null ||
+    !("cwds" in input) ||
+    !Array.isArray(input.cwds) ||
+    input.cwds.length > 32 ||
+    input.cwds.some(
+      (cwd) =>
+        typeof cwd !== "string" ||
+        cwd.length > 4_096 ||
+        (cwd.trim().length > 0 && !isAbsolute(cwd.trim())),
     )
   ) {
     throw new Error("Invalid composer inventory input");
@@ -1092,12 +1022,12 @@ function parseComposerPluginActivationInput(input: unknown): {
   cwds: string[];
 } {
   if (
-    typeof input !== "object"
-    || input === null
-    || !("id" in input)
-    || typeof input.id !== "string"
-    || input.id.trim().length === 0
-    || input.id.length > 512
+    typeof input !== "object" ||
+    input === null ||
+    !("id" in input) ||
+    typeof input.id !== "string" ||
+    input.id.trim().length === 0 ||
+    input.id.length > 512
   ) {
     throw new Error("Invalid composer plugin activation input");
   }
@@ -1109,11 +1039,11 @@ function parseComposerPluginActivationInput(input: unknown): {
 
 function parseComposerChatGptConversationQuery(input: unknown): string {
   if (
-    typeof input !== "object"
-    || input === null
-    || !("query" in input)
-    || typeof input.query !== "string"
-    || input.query.length > 1_000
+    typeof input !== "object" ||
+    input === null ||
+    !("query" in input) ||
+    typeof input.query !== "string" ||
+    input.query.length > 1_000
   ) {
     throw new Error("Invalid composer ChatGPT conversation query");
   }
@@ -1129,11 +1059,12 @@ function createGitActionWorkerPort(
   };
 
   return {
-    readStatus: async (cwd, signal) => await requireHost().requestFromMain({
-      method: "action-status",
-      params: { cwd },
-      signal,
-    }),
+    readStatus: async (cwd, signal) =>
+      await requireHost().requestFromMain({
+        method: "action-status",
+        params: { cwd },
+        signal,
+      }),
     readReviewPatch: async (input, signal) => {
       for (let attempt = 0; attempt < 2; attempt += 1) {
         const result = await requireHost().requestFromMain({
@@ -1147,11 +1078,12 @@ function createGitActionWorkerPort(
       }
       throw new Error("Git repository changed while preparing the message.");
     },
-    commit: async (input, signal) => await requireHost().requestFromMain({
-      method: "commit",
-      params: { ...input, nextStep: "commit" },
-      signal,
-    }),
+    commit: async (input, signal) =>
+      await requireHost().requestFromMain({
+        method: "commit",
+        params: { ...input, nextStep: "commit" },
+        signal,
+      }),
     refreshRepository: async (cwd) => {
       await requireHost().requestFromMain({
         method: "refresh-repository",
@@ -1163,9 +1095,7 @@ function createGitActionWorkerPort(
 
 const pageSearchRequests = new Map<string, AbortController>();
 
-export function registerIpcHandlers(
-  options: RegisterIpcHandlersOptions = {},
-): void {
+export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
   ensureBrowserGuestBridge();
   ipcMain.removeAllListeners(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL);
   ipcMain.on(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL, (event) => {
@@ -1204,11 +1134,11 @@ export function registerIpcHandlers(
     try {
       requireTrustedAppRendererSender(event, "Local file inspection");
       if (
-        typeof value !== "string"
-        || value.length === 0
-        || value.length > PRELOAD_FILE_PATH_MAX_LENGTH
-        || value.includes("\0")
-        || !isAbsolute(value)
+        typeof value !== "string" ||
+        value.length === 0 ||
+        value.length > PRELOAD_FILE_PATH_MAX_LENGTH ||
+        value.includes("\0") ||
+        !isAbsolute(value)
       ) {
         event.returnValue = null;
         return;
@@ -1233,14 +1163,14 @@ export function registerIpcHandlers(
     session: FileWatchSession;
     subscriptionIds: Set<string>;
   }
-  const workspaceFileWatchSubscriptions = new Map<string, {
-    ownerId: number;
-    sharedKey: string;
-  }>();
-  const workspaceFileWatchSessions = new Map<
+  const workspaceFileWatchSubscriptions = new Map<
     string,
-    Promise<SharedWorkspaceFileWatch>
+    {
+      ownerId: number;
+      sharedKey: string;
+    }
   >();
+  const workspaceFileWatchSessions = new Map<string, Promise<SharedWorkspaceFileWatch>>();
   const workspaceFileWatchDestroyListeners = new Set<number>();
   const disposeWorkspaceFileWatchesForOwner = async (ownerId: number) => {
     for (const [subscriptionId, subscription] of workspaceFileWatchSubscriptions) {
@@ -1259,21 +1189,17 @@ export function registerIpcHandlers(
     }
     await Promise.all(pendingDisposals);
   };
-  const storeAdministration = options.storeAdministration
-    ?? createUnconfiguredIpcAuthority<DesktopStoreAdministrationPort>(
+  const storeAdministration =
+    options.storeAdministration ??
+    createUnconfiguredIpcAuthority<DesktopStoreAdministrationPort>(
       "Store Administration authority",
     );
-  const automationModule = options.automationModule
-    ?? createUnconfiguredIpcAuthority<DesktopAutomationModulePort>(
-      "Automation authority",
-    );
+  const automationModule =
+    options.automationModule ??
+    createUnconfiguredIpcAuthority<DesktopAutomationModulePort>("Automation authority");
   const projectWorkspace: DesktopProjectWorkspacePort =
-    options.projectWorkspace
-      ?? createUnconfiguredIpcAuthority("Project Workspace authority");
-  const requireBrowserViewScope = (
-    senderId: number,
-    scopeId: string,
-  ): void => {
+    options.projectWorkspace ?? createUnconfiguredIpcAuthority("Project Workspace authority");
+  const requireBrowserViewScope = (senderId: number, scopeId: string): void => {
     const expectedScopeId = options.resolveWindowSessionId?.(senderId) ?? null;
     if (!expectedScopeId || expectedScopeId !== scopeId) {
       throw new Error("Browser view scope does not belong to the requesting window");
@@ -1286,10 +1212,7 @@ export function registerIpcHandlers(
     }
     return windowSessionId;
   };
-  const validateBrowserCommandScope = (
-    senderId: number,
-    command: BrowserSidebarCommand,
-  ): void => {
+  const validateBrowserCommandScope = (senderId: number, command: BrowserSidebarCommand): void => {
     if ("browserViewScopeId" in command) {
       requireBrowserViewScope(senderId, command.browserViewScopeId);
       return;
@@ -1313,48 +1236,40 @@ export function registerIpcHandlers(
   const projectLifecycleService = createProjectLifecycleService({
     projectWorkspace,
     browserRuntime: browserSidebarService,
-    listCodexBlockers: (threadIds) =>
-      codexService.listProjectArchiveBlockers(threadIds),
+    listCodexBlockers: (threadIds) => codexService.listProjectArchiveBlockers(threadIds),
     listBackgroundProcessRows: async (threadId) =>
       await codexService.listBackgroundProcessRows({ threadId }),
-    listLiveTerminalSessions: (input) =>
-      terminalManager.listLiveSessionsForOwners(input),
-    discardExitedTerminalSessions: (input) =>
-      terminalManager.discardExitedSessionsForOwners(input),
+    listLiveTerminalSessions: (input) => terminalManager.listLiveSessionsForOwners(input),
+    discardExitedTerminalSessions: (input) => terminalManager.discardExitedSessionsForOwners(input),
   });
-  const documentSync = options.documentSync
-    ?? createUnconfiguredIpcAuthority<DesktopDocumentSyncPort>(
-      "Document authority",
+  const documentSync =
+    options.documentSync ??
+    createUnconfiguredIpcAuthority<DesktopDocumentSyncPort>("Document authority");
+  const libraryModule =
+    options.libraryModule ??
+    createUnconfiguredIpcAuthority<NonNullable<RegisterIpcHandlersOptions["libraryModule"]>>(
+      "Library authority",
     );
-  const libraryModule = options.libraryModule
-    ?? createUnconfiguredIpcAuthority<
-      NonNullable<RegisterIpcHandlersOptions["libraryModule"]>
-    >("Library authority");
-  const databaseModule = options.databaseModule
-    ?? createUnconfiguredIpcAuthority<
-      NonNullable<RegisterIpcHandlersOptions["databaseModule"]>
-    >("Database authority");
+  const databaseModule =
+    options.databaseModule ??
+    createUnconfiguredIpcAuthority<NonNullable<RegisterIpcHandlersOptions["databaseModule"]>>(
+      "Database authority",
+    );
   resolveBrowserSidebarViewScope = (webContentsId) =>
     options.resolveWindowSessionId?.(webContentsId) ?? null;
   ensureBrowserSidebarEventBridge();
   terminalManager.configureEventPublisher({
     broadcast: (channel, payload) => {
-      safeBroadcastToWindows(
-        BrowserWindow.getAllWindows(),
-        channel as keyof IpcEvents,
-        [payload as never],
-      );
+      safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel as keyof IpcEvents, [
+        payload as never,
+      ]);
     },
     sendToWebContentsId: (webContentsId, channel, payload) => {
-      const target = BrowserWindow.getAllWindows()
-        .find((window) => window.webContents.id === webContentsId)
-        ?.webContents;
+      const target = BrowserWindow.getAllWindows().find(
+        (window) => window.webContents.id === webContentsId,
+      )?.webContents;
       if (!target) return;
-      safeSendToWebContents(
-        target,
-        channel as keyof IpcEvents,
-        [payload as never],
-      );
+      safeSendToWebContents(target, channel as keyof IpcEvents, [payload as never]);
     },
   });
 
@@ -1369,9 +1284,8 @@ export function registerIpcHandlers(
   };
 
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
-    options.rendererClientRouter?.ensureClient(
-      event.sender as RendererClientWebContents,
-    ).clientId ?? null;
+    options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents)
+      .clientId ?? null;
 
   const resolveDocumentSyncTarget = (
     event: IpcMainInvokeEvent,
@@ -1388,15 +1302,7 @@ export function registerIpcHandlers(
 
   const createGitCommitMessageGenerator =
     (hostId: string | undefined) =>
-    async ({
-      cwd,
-      prompt,
-      signal,
-    }: {
-      cwd: string;
-      prompt: string;
-      signal?: AbortSignal;
-    }) => {
+    async ({ cwd, prompt, signal }: { cwd: string; prompt: string; signal?: AbortSignal }) => {
       if (signal?.aborted) return null;
       const message = await codexService.generateCommitMessage({
         hostId,
@@ -1408,15 +1314,7 @@ export function registerIpcHandlers(
 
   const createGitPullRequestMessageGenerator =
     (hostId: string | undefined) =>
-    async ({
-      cwd,
-      prompt,
-      signal,
-    }: {
-      cwd: string;
-      prompt: string;
-      signal?: AbortSignal;
-    }) => {
+    async ({ cwd, prompt, signal }: { cwd: string; prompt: string; signal?: AbortSignal }) => {
       if (signal?.aborted) return null;
       const message = await codexService.generatePullRequestMessage({
         hostId,
@@ -1435,11 +1333,7 @@ export function registerIpcHandlers(
     },
   ) => {
     if (options.rendererClientRouter) {
-      return options.rendererClientRouter.broadcast(
-        channel,
-        args,
-        optionsOverride,
-      );
+      return options.rendererClientRouter.broadcast(channel, args, optionsOverride);
     }
 
     return safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args);
@@ -1448,20 +1342,19 @@ export function registerIpcHandlers(
   codexService.on("event", (event) => {
     broadcastRendererClientMessage("codex:event", [event]);
     if (event.type === "scheduledAutomationChanged") {
-      safeBroadcastToWindows(
-        BrowserWindow.getAllWindows(),
-        "codex:scheduled-automations:changed",
-        [event.event],
-      );
+      safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:scheduled-automations:changed", [
+        event.event,
+      ]);
     }
     if (event.type === "automationRunsUpdated") {
       broadcastIpcEvent("codex:automation-runs:updated", event.event);
     }
   });
   codexService.on("hostMessage", (message) => {
-    const targetClientIds = message.type === "threadStreamStateChanged"
-      ? codexService.getRendererConversationFollowerClientIds(message.conversationId)
-      : undefined;
+    const targetClientIds =
+      message.type === "threadStreamStateChanged"
+        ? codexService.getRendererConversationFollowerClientIds(message.conversationId)
+        : undefined;
     if (message.type === "threadStreamStateChanged" && targetClientIds !== undefined) {
       if (targetClientIds === null) return;
       const delivery = sendRendererThreadStreamRelay(
@@ -1470,15 +1363,15 @@ export function registerIpcHandlers(
         message.sourceClientId,
         message,
       );
-      codexService.handleRendererClientDeliveryFailure(
-        [...delivery.unavailableClientIds, ...delivery.failedClientIds],
-      );
+      codexService.handleRendererClientDeliveryFailure([
+        ...delivery.unavailableClientIds,
+        ...delivery.failedClientIds,
+      ]);
       return;
     }
     broadcastCodexHostMessageToRendererClients(
       options.rendererClientRouter,
-      (channel, args) =>
-        safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args),
+      (channel, args) => safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args),
       message,
     );
   });
@@ -1504,9 +1397,10 @@ export function registerIpcHandlers(
         event.sourceClientId,
         event.message,
       );
-      codexService.handleRendererClientDeliveryFailure(
-        [...delivery.unavailableClientIds, ...delivery.failedClientIds],
-      );
+      codexService.handleRendererClientDeliveryFailure([
+        ...delivery.unavailableClientIds,
+        ...delivery.failedClientIds,
+      ]);
     },
   );
   codexService.on(
@@ -1523,9 +1417,10 @@ export function registerIpcHandlers(
         event.targetClientIds,
         event.message,
       );
-      codexService.handleRendererClientDeliveryFailure(
-        [...delivery.unavailableClientIds, ...delivery.failedClientIds],
-      );
+      codexService.handleRendererClientDeliveryFailure([
+        ...delivery.unavailableClientIds,
+        ...delivery.failedClientIds,
+      ]);
     },
   );
 
@@ -1567,9 +1462,7 @@ export function registerIpcHandlers(
     remoteHostedPipService.handleDesktopMessageFromView(event.sender, message);
   });
 
-  registerHandle("codex:renderer-client:id", (event) =>
-    resolveRendererClientId(event),
-  );
+  registerHandle("codex:renderer-client:id", (event) => resolveRendererClientId(event));
   registerHandle(
     "codex:renderer-client:response",
     (event, response) =>
@@ -1586,50 +1479,28 @@ export function registerIpcHandlers(
   });
   registerHandle("codex:thread-owner:stream-state:publish", (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
-    return publishRendererThreadOwnerStreamState(
-      codexService,
-      sourceClientId,
-      input,
-    );
+    return publishRendererThreadOwnerStreamState(codexService, sourceClientId, input);
   });
   registerHandle("codex:thread-follower:snapshot-applied", (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
-    return acknowledgeRendererFollowerSnapshotApplied(
-      codexService,
-      sourceClientId,
-      input,
-    );
+    return acknowledgeRendererFollowerSnapshotApplied(codexService, sourceClientId, input);
   });
   registerHandle("codex:thread:stream-resync:request", (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
-    return requestRendererThreadStreamResync(
-      codexService,
-      sourceClientId,
-      input,
-    );
+    return requestRendererThreadStreamResync(codexService, sourceClientId, input);
   });
   registerHandle("codex:thread-owner:notification:ack", (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
-    return ackRendererThreadOwnerNotification(
-      codexService,
-      sourceClientId,
-      input,
-    );
+    return ackRendererThreadOwnerNotification(codexService, sourceClientId, input);
   });
   registerHandle("codex:thread-owner:pending-requests:replay", (event, threadId) => {
     const sourceClientId = resolveRendererClientId(event);
     return codexService.replayRendererOwnerPendingRequests(threadId, sourceClientId);
   });
-  registerHandle(
-    "codex:thread-owner:app-server-request",
-    async (event, input) => {
-      const sourceClientId = resolveRendererClientId(event);
-      return await codexService.handleRendererOwnerAppServerRequest(
-        sourceClientId,
-        input,
-      );
-    },
-  );
+  registerHandle("codex:thread-owner:app-server-request", async (event, input) => {
+    const sourceClientId = resolveRendererClientId(event);
+    return await codexService.handleRendererOwnerAppServerRequest(sourceClientId, input);
+  });
   registerHandle("codex:thread-follower:action", async (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
     return await runThreadFollowerActionThroughOwner(
@@ -1639,13 +1510,10 @@ export function registerIpcHandlers(
       input,
     );
   });
-  registerHandle("codex:dynamic-tool-call:respond", (
-    _,
-    conversationId: string,
-    requestId: CodexProtocolRequestId,
-    context,
-  ) =>
-    codexService.respondToDynamicToolCall(requestId, conversationId, context),
+  registerHandle(
+    "codex:dynamic-tool-call:respond",
+    (_, conversationId: string, requestId: CodexProtocolRequestId, context) =>
+      codexService.respondToDynamicToolCall(requestId, conversationId, context),
   );
 
   registerHandle("document-sync:subscribe", async (event, request) => {
@@ -1659,41 +1527,22 @@ export function registerIpcHandlers(
       omitProjectScope(request),
     );
   });
-  registerHandle("page-target:resolve", (_, input) =>
-    libraryModule.resolvePageTarget(input),
-  );
+  registerHandle("page-target:resolve", (_, input) => libraryModule.resolvePageTarget(input));
   registerHandle("page-ownership-path:resolve", (_, input) =>
     libraryModule.resolvePageOwnershipPath(input),
   );
   registerHandle("database-view:reference:get", (_, input) =>
     databaseModule.resolveDatabaseViewReference(input),
   );
-  registerHandle(
-    "block-document:owned:get",
-    async (_, projectId, ownerBlockId) => {
-      return await documentSync.getOwnedDocumentDescriptor(
-        projectId,
-        ownerBlockId,
-      );
-    },
-  );
-  registerHandle(
-    "block-document:owned:prepare",
-    async (_, projectId, ownerBlockId) => {
-      return await documentSync.prepareOwnedBlockDocument(
-        projectId,
-        ownerBlockId,
-      );
-    },
-  );
-  registerHandle(
-    "library-block-document:owned:prepare",
-    async (_, ownerBlockId) => {
-      return await documentSync.prepareLibraryOwnedBlockDocument(
-        ownerBlockId,
-      );
-    },
-  );
+  registerHandle("block-document:owned:get", async (_, projectId, ownerBlockId) => {
+    return await documentSync.getOwnedDocumentDescriptor(projectId, ownerBlockId);
+  });
+  registerHandle("block-document:owned:prepare", async (_, projectId, ownerBlockId) => {
+    return await documentSync.prepareOwnedBlockDocument(projectId, ownerBlockId);
+  });
+  registerHandle("library-block-document:owned:prepare", async (_, ownerBlockId) => {
+    return await documentSync.prepareLibraryOwnedBlockDocument(ownerBlockId);
+  });
   registerHandle("document-sync:unsubscribe", async (event, request) => {
     const target = resolveDocumentSyncTarget(event);
     if (!target) {
@@ -1865,30 +1714,20 @@ export function registerIpcHandlers(
     if (!target) return documentSyncUnauthorized();
     return await documentSync.applyUpdate({ kind: "library" }, target, request);
   });
-  registerHandle(
-    "library-document-sync:awareness:publish",
-    async (event, request) => {
-      const target = resolveDocumentSyncTarget(event);
-      if (!target) return documentSyncUnauthorized();
-      return await documentSync.publishAwareness(
-        { kind: "library" },
-        target,
-        request,
-      );
-    },
-  );
+  registerHandle("library-document-sync:awareness:publish", async (event, request) => {
+    const target = resolveDocumentSyncTarget(event);
+    if (!target) return documentSyncUnauthorized();
+    return await documentSync.publishAwareness({ kind: "library" }, target, request);
+  });
   registerBlockPropertyMutationIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, request) =>
-        listener(event, projectId, request),
-      );
+      registerHandle(channel, (event, projectId, request) => listener(event, projectId, request));
     },
     resolveTrustedIdentity: (rawEvent) => {
       const event = rawEvent as IpcMainInvokeEvent;
       const target = resolveDocumentSyncTarget(event);
       if (!target) return null;
-      const clientId =
-        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
       return {
         clientSessionId: clientId,
         actor: {
@@ -1907,8 +1746,7 @@ export function registerIpcHandlers(
       const event = rawEvent as IpcMainInvokeEvent;
       const target = resolveDocumentSyncTarget(event);
       if (!target) return null;
-      const clientId =
-        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
       return {
         clientSessionId: clientId,
         actor: { kind: "electron_renderer", clientId },
@@ -1919,18 +1757,19 @@ export function registerIpcHandlers(
 
   registerDatabaseModuleIpcHandlers({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, request) =>
-        listener(event, projectId, request) as
-          | IpcApi[typeof channel]["result"]
-          | Promise<IpcApi[typeof channel]["result"]>,
+      registerHandle(
+        channel,
+        (event, projectId, request) =>
+          listener(event, projectId, request) as
+            | IpcApi[typeof channel]["result"]
+            | Promise<IpcApi[typeof channel]["result"]>,
       );
     },
     resolveTrustedIdentity: (rawEvent) => {
       const event = rawEvent as IpcMainInvokeEvent;
       const target = resolveDocumentSyncTarget(event);
       if (!target) return null;
-      const clientId =
-        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
       return {
         actor: { kind: "electron_renderer", clientId },
       };
@@ -1941,10 +1780,12 @@ export function registerIpcHandlers(
 
   registerLibraryModuleIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, accessContext, request) =>
-        listener(event, accessContext, request) as
-          | IpcApi[typeof channel]["result"]
-          | Promise<IpcApi[typeof channel]["result"]>,
+      registerHandle(
+        channel,
+        (event, accessContext, request) =>
+          listener(event, accessContext, request) as
+            | IpcApi[typeof channel]["result"]
+            | Promise<IpcApi[typeof channel]["result"]>,
       );
     },
     isTrustedEvent: (rawEvent) =>
@@ -1955,10 +1796,12 @@ export function registerIpcHandlers(
 
   registerLibraryDatabaseModuleIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, request) =>
-        listener(event, request) as
-          | IpcApi[typeof channel]["result"]
-          | Promise<IpcApi[typeof channel]["result"]>,
+      registerHandle(
+        channel,
+        (event, request) =>
+          listener(event, request) as
+            | IpcApi[typeof channel]["result"]
+            | Promise<IpcApi[typeof channel]["result"]>,
       );
     },
     isTrustedEvent: (rawEvent) =>
@@ -1981,39 +1824,31 @@ export function registerIpcHandlers(
   registerLibraryPageDetailIpcHandler({
     registerHandle: (channel, listener) => {
       registerHandle(channel, (event, pageId, minimumCommitSeq) =>
-        listener(event, pageId, minimumCommitSeq));
+        listener(event, pageId, minimumCommitSeq),
+      );
     },
     isTrustedEvent: (rawEvent) =>
       resolveDocumentSyncTarget(rawEvent as IpcMainInvokeEvent) !== null,
     read: (pageId, minimumCommitSeq) =>
-      libraryModule.readLibraryPageDetail(
-        pageId,
-        undefined,
-        minimumCommitSeq,
-      ),
+      libraryModule.readLibraryPageDetail(pageId, undefined, minimumCommitSeq),
   });
 
   registerPageLifecyclePreflightIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, pageId) =>
-        listener(event, projectId, pageId),
-      );
+      registerHandle(channel, (event, projectId, pageId) => listener(event, projectId, pageId));
     },
     readPreflight: libraryModule.readPageLifecyclePreflight,
   });
 
   registerPageLifecycleIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, request) =>
-        listener(event, projectId, request),
-      );
+      registerHandle(channel, (event, projectId, request) => listener(event, projectId, request));
     },
     getTrustedIdentity: (rawEvent) => {
       const event = rawEvent as IpcMainInvokeEvent;
       const target = resolveDocumentSyncTarget(event);
       if (!target) return null;
-      const clientId =
-        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
       return {
         clientSessionId: clientId,
         actor: { kind: "electron_renderer", clientId },
@@ -2032,8 +1867,7 @@ export function registerIpcHandlers(
       const event = rawEvent as IpcMainInvokeEvent;
       const target = resolveDocumentSyncTarget(event);
       if (!target) return null;
-      const clientId =
-        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
       return {
         clientSessionId: clientId,
         actor: {
@@ -2047,16 +1881,13 @@ export function registerIpcHandlers(
 
   registerAdditionalDocumentCommandIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, request) =>
-        listener(event, projectId, request),
-      );
+      registerHandle(channel, (event, projectId, request) => listener(event, projectId, request));
     },
     resolveTrustedIdentity: (rawEvent) => {
       const event = rawEvent as IpcMainInvokeEvent;
       const target = resolveDocumentSyncTarget(event);
       if (!target) return null;
-      const clientId =
-        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
       return {
         clientSessionId: clientId,
         actor: { kind: "electron_renderer", clientId },
@@ -2067,16 +1898,13 @@ export function registerIpcHandlers(
 
   registerBlockTransferIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, intent) =>
-        listener(event, projectId, intent),
-      );
+      registerHandle(channel, (event, projectId, intent) => listener(event, projectId, intent));
     },
     resolveTrustedIdentity: (rawEvent) => {
       const event = rawEvent as IpcMainInvokeEvent;
       const target = resolveDocumentSyncTarget(event);
       if (!target) return null;
-      const clientId =
-        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
       return {
         clientSessionId: clientId,
         actor: { kind: "electron_renderer", clientId },
@@ -2087,9 +1915,7 @@ export function registerIpcHandlers(
 
   registerBlockTransferUndoIpcHandler({
     registerHandle: (channel, listener) => {
-      registerHandle(channel, (event, projectId, intent) =>
-        listener(event, projectId, intent),
-      );
+      registerHandle(channel, (event, projectId, intent) => listener(event, projectId, intent));
     },
     resolveTrustedIdentity: (rawEvent) => {
       const event = rawEvent as IpcMainInvokeEvent;
@@ -2101,10 +1927,12 @@ export function registerIpcHandlers(
   registerDocumentHistoryIpcHandlers({
     registerHandle: (channel, listener) => {
       if (channel === "block-documents:history:checkpoint") {
-        registerHandle(channel, (event, projectId, documentId, request) =>
-          listener(event, projectId, documentId, request) as
-            | IpcApi["block-documents:history:checkpoint"]["result"]
-            | Promise<IpcApi["block-documents:history:checkpoint"]["result"]>,
+        registerHandle(
+          channel,
+          (event, projectId, documentId, request) =>
+            listener(event, projectId, documentId, request) as
+              | IpcApi["block-documents:history:checkpoint"]["result"]
+              | Promise<IpcApi["block-documents:history:checkpoint"]["result"]>,
         );
         return;
       }
@@ -2128,18 +1956,19 @@ export function registerIpcHandlers(
         );
         return;
       }
-      registerHandle(channel, (event, projectId, documentId, request) =>
-        listener(event, projectId, documentId, request) as
-          | IpcApi["block-documents:history:restore"]["result"]
-          | Promise<IpcApi["block-documents:history:restore"]["result"]>,
+      registerHandle(
+        channel,
+        (event, projectId, documentId, request) =>
+          listener(event, projectId, documentId, request) as
+            | IpcApi["block-documents:history:restore"]["result"]
+            | Promise<IpcApi["block-documents:history:restore"]["result"]>,
       );
     },
     resolveTrustedIdentity: (rawEvent) => {
       const event = rawEvent as IpcMainInvokeEvent;
       const target = resolveDocumentSyncTarget(event);
       if (!target) return null;
-      const clientId =
-        resolveRendererClientId(event) ?? `electron-window:${target.id}`;
+      const clientId = resolveRendererClientId(event) ?? `electron-window:${target.id}`;
       return {
         clientSessionId: clientId,
         actor: { kind: "electron_renderer", clientId },
@@ -2166,52 +1995,62 @@ export function registerIpcHandlers(
     },
     registerMutation: (listener) => {
       registerHandle("persisted-atom:update", (event, mutation) =>
-        listener(String(event.sender.id), mutation));
+        listener(String(event.sender.id), mutation),
+      );
     },
     broadcast: (persistedEvent) => {
-      safeBroadcastToWindows(
-        BrowserWindow.getAllWindows(),
-        "persisted-atom:updated",
-        [persistedEvent],
-      );
+      safeBroadcastToWindows(BrowserWindow.getAllWindows(), "persisted-atom:updated", [
+        persistedEvent,
+      ]);
     },
   });
 
   // Projects
-  registerHandle("projects:list", async (_, input) =>
-    await projectWorkspace.listProjectWindow(input),
+  registerHandle(
+    "projects:list",
+    async (_, input) => await projectWorkspace.listProjectWindow(input),
   );
 
-  registerHandle("projects:get", async (_, projectId: string) =>
-    await projectWorkspace.getProject(projectId),
+  registerHandle(
+    "projects:get",
+    async (_, projectId: string) => await projectWorkspace.getProject(projectId),
   );
 
-  registerHandle("projects:activity-summaries", async (_, projectIds: string[]) =>
-    await projectWorkspace.readProjectActivitySummaries(projectIds),
+  registerHandle(
+    "projects:activity-summaries",
+    async (_, projectIds: string[]) =>
+      await projectWorkspace.readProjectActivitySummaries(projectIds),
   );
 
-  registerCoreResultHandle("projects:create", async (_, input) =>
-    await createProjectWithDefaultSource(input, {
-      projectsDirectory: resolveNodexProjectsDirectory(app.getPath("documents")),
-      createProject: async (projectInput) =>
-        await projectWorkspace.createProject(projectInput),
-    }),
+  registerCoreResultHandle(
+    "projects:create",
+    async (_, input) =>
+      await createProjectWithDefaultSource(input, {
+        projectsDirectory: resolveNodexProjectsDirectory(app.getPath("documents")),
+        createProject: async (projectInput) => await projectWorkspace.createProject(projectInput),
+      }),
   );
 
-  registerCoreResultHandle("projects:update", async (_, projectId: string, updates) =>
-    await projectWorkspace.updateProject(projectId, updates)
+  registerCoreResultHandle(
+    "projects:update",
+    async (_, projectId: string, updates) =>
+      await projectWorkspace.updateProject(projectId, updates),
   );
 
-  registerHandle("projects:reorder", async (_, input) =>
-    await projectWorkspace.reorderProjects(input),
+  registerHandle(
+    "projects:reorder",
+    async (_, input) => await projectWorkspace.reorderProjects(input),
   );
 
-  registerHandle("projects:set-pinned", async (_, projectId: string, input) =>
-    await projectWorkspace.setProjectPinned(projectId, input),
+  registerHandle(
+    "projects:set-pinned",
+    async (_, projectId: string, input) =>
+      await projectWorkspace.setProjectPinned(projectId, input),
   );
 
-  registerHandle("projects:set-pinned-order", async (_, input) =>
-    await projectWorkspace.setPinnedProjectOrder(input),
+  registerHandle(
+    "projects:set-pinned-order",
+    async (_, input) => await projectWorkspace.setPinnedProjectOrder(input),
   );
 
   registerHandle("projects:pick-source-roots", async (event) => {
@@ -2225,44 +2064,30 @@ export function registerIpcHandlers(
     return showDirectoryPicker(event, {
       title: typeof input?.title === "string" ? input.title : "Choose folder",
       properties:
-        input?.createDirectory === true
-          ? ["openDirectory", "createDirectory"]
-          : ["openDirectory"],
+        input?.createDirectory === true ? ["openDirectory", "createDirectory"] : ["openDirectory"],
     });
   });
 
-  registerHandle(
-    "projects:set-lifecycle",
-    async (_, projectId: string, input) => {
-      const parsed = ProjectLifecycleInputSchema.parse(input);
-      return await projectLifecycleService.setLifecycle(
-        projectId,
-        parsed.lifecycle,
-      );
-    },
-  );
+  registerHandle("projects:set-lifecycle", async (_, projectId: string, input) => {
+    const parsed = ProjectLifecycleInputSchema.parse(input);
+    return await projectLifecycleService.setLifecycle(projectId, parsed.lifecycle);
+  });
 
   // Project sessions
-  registerHandle(
-    "workspace:tasks:list",
-    async (_, projectId: string | null, input) => {
-      const startedAt = getDevRuntimeMetricStart();
-      const window = await projectWorkspace.listProjectSessionSummaryWindow(
-        projectId,
-        input,
-      );
-      logDevRuntimeMetric("ipc.workspace_tasks_list", {
-        projectId,
-        includeArchived: input?.includeArchived === true,
-        requestedFirst: input?.first ?? 50,
-        itemCount: window.items.length,
-        hasMore: window.hasMore,
-        approxPayloadBytes: approximateJsonPayloadBytes(window),
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      return window;
-    },
-  );
+  registerHandle("workspace:tasks:list", async (_, projectId: string | null, input) => {
+    const startedAt = getDevRuntimeMetricStart();
+    const window = await projectWorkspace.listProjectSessionSummaryWindow(projectId, input);
+    logDevRuntimeMetric("ipc.workspace_tasks_list", {
+      projectId,
+      includeArchived: input?.includeArchived === true,
+      requestedFirst: input?.first ?? 50,
+      itemCount: window.items.length,
+      hasMore: window.hasMore,
+      approxPayloadBytes: approximateJsonPayloadBytes(window),
+      durationMs: getDevRuntimeMetricDurationMs(startedAt),
+    });
+    return window;
+  });
 
   registerHandle("project-sessions:get", async (_, sessionId: string) => {
     const startedAt = getDevRuntimeMetricStart();
@@ -2276,27 +2101,25 @@ export function registerIpcHandlers(
     return session;
   });
 
-  registerHandle("project-sessions:create", async (_, input) =>
-    await projectWorkspace.createProjectSession(input)
+  registerHandle(
+    "project-sessions:create",
+    async (_, input) => await projectWorkspace.createProjectSession(input),
   );
 
-  registerHandle("project-sessions:ensure-default-draft", async (_, projectId) =>
-    await projectWorkspace.ensureDefaultDraftProjectSession(projectId)
+  registerHandle(
+    "project-sessions:ensure-default-draft",
+    async (_, projectId) => await projectWorkspace.ensureDefaultDraftProjectSession(projectId),
   );
 
   registerHandle("project-sessions:update", async (_, sessionId: string, input) => {
-    return await projectWorkspace.updateProjectSession(
-      sessionId,
-      input,
-    );
+    return await projectWorkspace.updateProjectSession(sessionId, input);
   });
 
   registerHandle("project-sessions:rename", (_, sessionId: string, input) =>
     renameProjectSessionChat(sessionId, input, {
       getProjectSession: projectWorkspace.getProjectSession,
       renameProjectSession: projectWorkspace.renameProjectSession,
-      setThreadName: (threadId, rawTitle) =>
-        codexService.setThreadName(threadId, rawTitle),
+      setThreadName: (threadId, rawTitle) => codexService.setThreadName(threadId, rawTitle),
     }),
   );
 
@@ -2311,28 +2134,19 @@ export function registerIpcHandlers(
   registerHandle(
     "project-sessions:reorder",
     async (_, projectId: string | null, orderedSessionIds: string[]) =>
-      await projectWorkspace.reorderProjectSessions(
-        projectId,
-        orderedSessionIds,
-      ),
+      await projectWorkspace.reorderProjectSessions(projectId, orderedSessionIds),
   );
 
   registerHandle(
     "project-sessions:set-pinned",
     async (_, sessionId: string, input) =>
-      await projectWorkspace.setProjectSessionPinned(
-        sessionId,
-        input,
-      ),
+      await projectWorkspace.setProjectSessionPinned(sessionId, input),
   );
 
   registerHandle(
     "project-sessions:set-pinned-order",
     async (_, projectId: string, input) =>
-      await projectWorkspace.setPinnedProjectSessionOrder(
-        projectId,
-        input,
-      ),
+      await projectWorkspace.setPinnedProjectSessionOrder(projectId, input),
   );
 
   registerHandle("project-sessions:archive", async (_, sessionId: string) => {
@@ -2358,43 +2172,33 @@ export function registerIpcHandlers(
   registerHandle(
     "project-sessions:mark-unread",
     async (_, sessionId: string, input) =>
-      await projectWorkspace.markProjectSessionUnread(
-        sessionId,
-        input,
-      ),
+      await projectWorkspace.markProjectSessionUnread(sessionId, input),
   );
 
   registerHandle(
     "project-sessions:fork",
     async (event, sessionId: string, input, sourceSceneContext) => {
       if (sourceSceneContext) {
-        requireBrowserViewScope(
-          event.sender.id,
-          sourceSceneContext.browserViewScopeId,
-        );
+        requireBrowserViewScope(event.sender.id, sourceSceneContext.browserViewScopeId);
       }
       const parsedSceneContext = sourceSceneContext
         ? {
             browserViewScopeId: sourceSceneContext.browserViewScopeId,
-            scene: WorkbenchSceneSnapshotSchema.parse(
-              sourceSceneContext.scene,
-            ),
+            scene: WorkbenchSceneSnapshotSchema.parse(sourceSceneContext.scene),
           }
         : undefined;
-      return await codexService.forkProjectSessionThread(
-        sessionId,
-        input,
-        parsedSceneContext,
-      );
+      return await codexService.forkProjectSessionThread(sessionId, input, parsedSceneContext);
     },
   );
 
-  registerHandle("project-session-threads:attach", async (_, input) =>
-    await projectWorkspace.upsertProjectSessionThreadLink(input)
+  registerHandle(
+    "project-session-threads:attach",
+    async (_, input) => await projectWorkspace.upsertProjectSessionThreadLink(input),
   );
 
-  registerHandle("project-session-threads:detach", async (_, sessionId: string) =>
-    await projectWorkspace.detachProjectSessionThread(sessionId)
+  registerHandle(
+    "project-session-threads:detach",
+    async (_, sessionId: string) => await projectWorkspace.detachProjectSessionThread(sessionId),
   );
 
   registerCoreResultHandle("database:view-window:get", async (_, projectId, input) => {
@@ -2425,8 +2229,10 @@ export function registerIpcHandlers(
     return window;
   });
 
-  registerCoreResultHandle("database:view-groups:get", async (_, projectId, input) =>
-    await databaseModule.getDatabaseViewGroups(projectId, input));
+  registerCoreResultHandle(
+    "database:view-groups:get",
+    async (_, projectId, input) => await databaseModule.getDatabaseViewGroups(projectId, input),
+  );
 
   registerCoreResultHandle("library-database:view-window:get", async (_, input) => {
     const startedAt = performance.now();
@@ -2454,8 +2260,10 @@ export function registerIpcHandlers(
     return window;
   });
 
-  registerCoreResultHandle("library-database:view-groups:get", async (_, input) =>
-    await databaseModule.getLibraryDatabaseViewGroups(input));
+  registerCoreResultHandle(
+    "library-database:view-groups:get",
+    async (_, input) => await databaseModule.getLibraryDatabaseViewGroups(input),
+  );
 
   // Database Pages
   registerHandle("pages:search", async (event, requestId, input) => {
@@ -2511,12 +2319,20 @@ export function registerIpcHandlers(
     return snapshot;
   });
 
-  registerHandle("pages:search-facets", async (_, projectIds) =>
-    await libraryModule.pageSearchFacets(projectIds));
+  registerHandle(
+    "pages:search-facets",
+    async (_, projectIds) => await libraryModule.pageSearchFacets(projectIds),
+  );
 
   registerHandle(
     "database-row:get",
-    (_, projectId: string, pageId: string, status?: string, minimumCommitCursor?: ProjectionCursor) =>
+    (
+      _,
+      projectId: string,
+      pageId: string,
+      status?: string,
+      minimumCommitCursor?: ProjectionCursor,
+    ) =>
       databaseModule.getDatabaseRowPage(
         projectId,
         pageId,
@@ -2536,13 +2352,7 @@ export function registerIpcHandlers(
       after?: string | null,
     ) =>
       automationModule
-        .listPageOccurrences(
-          projectId,
-          windowStart,
-          windowEnd,
-          searchQuery,
-          after,
-        )
+        .listPageOccurrences(projectId, windowStart, windowEnd, searchQuery, after)
         .then((window) => ({
           occurrences: [...window.items],
           nextCursor: window.nextCursor,
@@ -2553,11 +2363,7 @@ export function registerIpcHandlers(
     "page:occurrence:complete",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceCompleteIpcInput(input);
-      return await automationModule.completePageOccurrence(
-        projectId,
-        input,
-        sessionId,
-      );
+      return await automationModule.completePageOccurrence(projectId, input, sessionId);
     },
   );
 
@@ -2565,11 +2371,7 @@ export function registerIpcHandlers(
     "page:occurrence:skip",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceIpcInput(input);
-      return await automationModule.skipPageOccurrence(
-        projectId,
-        input,
-        sessionId,
-      );
+      return await automationModule.skipPageOccurrence(projectId, input, sessionId);
     },
   );
 
@@ -2577,11 +2379,7 @@ export function registerIpcHandlers(
     "page:occurrence:update",
     async (_, projectId: string, input, sessionId?: string) => {
       assertValidOccurrenceUpdateIpcInput(input);
-      return await automationModule.updatePageOccurrence(
-        projectId,
-        input,
-        sessionId,
-      );
+      return await automationModule.updatePageOccurrence(projectId, input, sessionId);
     },
   );
 
@@ -2601,33 +2399,23 @@ export function registerIpcHandlers(
 
   registerHandle("settings:history:get", () => getHistorySettings());
 
-  registerHandle("settings:history:update", (_, input) =>
-    updateHistorySettings(input),
-  );
+  registerHandle("settings:history:update", (_, input) => updateHistorySettings(input));
 
   registerHandle("settings:diagnostics:get", () => getDiagnosticsSettings());
 
-  registerHandle("settings:diagnostics:update", (_, input) =>
-    updateDiagnosticsSettings(input),
-  );
+  registerHandle("settings:diagnostics:update", (_, input) => updateDiagnosticsSettings(input));
 
   registerHandle("settings:telemetry:get", () => getTelemetrySettings());
 
-  registerHandle("settings:telemetry:update", (_, input) =>
-    updateTelemetrySettings(input),
-  );
+  registerHandle("settings:telemetry:update", (_, input) => updateTelemetrySettings(input));
 
-  registerHandle("settings:thread-notifications:get", () =>
-    getThreadNotificationSettings(),
-  );
+  registerHandle("settings:thread-notifications:get", () => getThreadNotificationSettings());
 
   registerHandle("settings:thread-notifications:update", (_, input) =>
     updateThreadNotificationSettings(input),
   );
 
-  registerHandle("settings:codex-developer:get", () =>
-    getCodexDeveloperInstructionSettings(),
-  );
+  registerHandle("settings:codex-developer:get", () => getCodexDeveloperInstructionSettings());
 
   registerHandle("settings:codex-developer:update", (_, input) =>
     updateCodexDeveloperInstructionSettings(input),
@@ -2635,9 +2423,7 @@ export function registerIpcHandlers(
 
   registerHandle("settings:git:get", () => getCodexGitSettings());
 
-  registerHandle("settings:git:update", (_, input) =>
-    updateCodexGitSettings(input),
-  );
+  registerHandle("settings:git:update", (_, input) => updateCodexGitSettings(input));
 
   registerHandle("settings:third-party-notices:get", () =>
     readThirdPartyNotices({
@@ -2654,26 +2440,25 @@ export function registerIpcHandlers(
 
   registerHandle(
     "native-context-menu:show",
-    async (
-      event,
-      items: NativeContextMenuItem[],
-      menuOptions?: NativeContextMenuOptions,
-    ) => {
+    async (event, items: NativeContextMenuItem[], menuOptions?: NativeContextMenuOptions) => {
       const window = BrowserWindow.fromWebContents(event.sender);
       return await showNativeContextMenu(window, items, menuOptions);
     },
   );
 
-  registerHandle("settings:app-updates:get", () =>
-    options.onGetAppUpdateSettings?.() ?? getAppUpdateSettings());
-
-  registerHandle("settings:app-updates:update", async (_, input) =>
-    await (options.onUpdateAppUpdateSettings?.(input)
-      ?? Promise.resolve(updateAppUpdateSettings(input))));
-
-  registerHandle("settings:window-restore:get", () =>
-    getWindowRestoreSettings(),
+  registerHandle(
+    "settings:app-updates:get",
+    () => options.onGetAppUpdateSettings?.() ?? getAppUpdateSettings(),
   );
+
+  registerHandle(
+    "settings:app-updates:update",
+    async (_, input) =>
+      await (options.onUpdateAppUpdateSettings?.(input) ??
+        Promise.resolve(updateAppUpdateSettings(input))),
+  );
+
+  registerHandle("settings:window-restore:get", () => getWindowRestoreSettings());
 
   registerHandle("settings:window-restore:update", (_, input) =>
     updateWindowRestoreSettings(input),
@@ -2745,10 +2530,7 @@ export function registerIpcHandlers(
       } satisfies AppUpdateStatus),
   );
 
-  registerHandle(
-    "app:update:install",
-    () => options.onInstallAppUpdate?.() ?? false,
-  );
+  registerHandle("app:update:install", () => options.onInstallAppUpdate?.() ?? false);
 
   registerHandle("shell:open-file-link", (_, target, openerId) =>
     openFileLinkTarget(target, openerId),
@@ -2756,7 +2538,7 @@ export function registerIpcHandlers(
   registerHandle("shell:open-path-default", async (_, inputPath) => {
     const normalizedPath = inputPath.trim();
     if (!isAbsolute(normalizedPath)) return false;
-    return await shell.openPath(normalizedPath) === "";
+    return (await shell.openPath(normalizedPath)) === "";
   });
   registerHandle("shell:path-context:get", () => ({
     homeDirectory: homedir(),
@@ -2764,39 +2546,39 @@ export function registerIpcHandlers(
   }));
 
   registerHandle("workspace-directory-entries", (event, input) =>
-    runWorkspaceFileHandler(event, () => listWorkspaceDirectoryEntries(
-      WorkspaceDirectoryEntriesInputSchema.parse(input),
-    )),
+    runWorkspaceFileHandler(event, () =>
+      listWorkspaceDirectoryEntries(WorkspaceDirectoryEntriesInputSchema.parse(input)),
+    ),
   );
 
   registerHandle("workspace-file-search", (event, input) =>
-    runWorkspaceFileHandler(event, () => searchWorkspaceFiles(
-      WorkspaceFileSearchInputSchema.parse(input),
-    )),
+    runWorkspaceFileHandler(event, () =>
+      searchWorkspaceFiles(WorkspaceFileSearchInputSchema.parse(input)),
+    ),
   );
 
   registerHandle("read-file", (event, input) =>
-    runWorkspaceFileHandler(event, () => readWorkspaceFile(
-      WorkspaceFileTextReadInputSchema.parse(input),
-    )),
+    runWorkspaceFileHandler(event, () =>
+      readWorkspaceFile(WorkspaceFileTextReadInputSchema.parse(input)),
+    ),
   );
 
   registerHandle("read-file-metadata", (event, input) =>
-    runWorkspaceFileHandler(event, () => readWorkspaceFileMetadata(
-      WorkspaceFileMetadataInputSchema.parse(input),
-    )),
+    runWorkspaceFileHandler(event, () =>
+      readWorkspaceFileMetadata(WorkspaceFileMetadataInputSchema.parse(input)),
+    ),
   );
 
   registerHandle("read-file-binary", (event, input) =>
-    runWorkspaceFileHandler(event, () => readWorkspaceFileBinary(
-      WorkspaceFileRequestSchema.parse(input),
-    )),
+    runWorkspaceFileHandler(event, () =>
+      readWorkspaceFileBinary(WorkspaceFileRequestSchema.parse(input)),
+    ),
   );
 
   registerHandle("write-file", (event, input) =>
-    runWorkspaceFileHandler(event, () => writeWorkspaceFile(
-      WorkspaceFileWriteInputSchema.parse(input),
-    )),
+    runWorkspaceFileHandler(event, () =>
+      writeWorkspaceFile(WorkspaceFileWriteInputSchema.parse(input)),
+    ),
   );
 
   registerHandle("workspace-file-watch:start", (event, input) =>
@@ -2816,39 +2598,45 @@ export function registerIpcHandlers(
       let sharedPromise = workspaceFileWatchSessions.get(sharedKey);
       if (!sharedPromise) {
         const subscriptionIds = new Set<string>();
-        sharedPromise = localFileWatchHost.startFileWatch({
-          path: dirname(watchedPath),
-          recursive: false,
-          renameEventHandling: "changed-path-with-parent-directory",
-          onChange: ({ changedPaths }) => {
-            const exactPathChanged = changedPaths.length === 0
-              || changedPaths.some((changedPath) => resolve(changedPath) === watchedPath);
-            if (!exactPathChanged || event.sender.isDestroyed()) return;
-            for (const activeSubscriptionId of subscriptionIds) {
-              sendIpcEvent(event.sender, "workspace-file:changed", {
-                subscriptionId: activeSubscriptionId,
-                path: watchedPath,
-              });
-            }
-          },
-        }).then((session) => ({
-          session,
-          subscriptionIds,
-        })).catch((error: unknown) => {
-          workspaceFileWatchSessions.delete(sharedKey);
-          throw error;
-        });
+        sharedPromise = localFileWatchHost
+          .startFileWatch({
+            path: dirname(watchedPath),
+            recursive: false,
+            renameEventHandling: "changed-path-with-parent-directory",
+            onChange: ({ changedPaths }) => {
+              const exactPathChanged =
+                changedPaths.length === 0 ||
+                changedPaths.some((changedPath) => resolve(changedPath) === watchedPath);
+              if (!exactPathChanged || event.sender.isDestroyed()) return;
+              for (const activeSubscriptionId of subscriptionIds) {
+                sendIpcEvent(event.sender, "workspace-file:changed", {
+                  subscriptionId: activeSubscriptionId,
+                  path: watchedPath,
+                });
+              }
+            },
+          })
+          .then((session) => ({
+            session,
+            subscriptionIds,
+          }))
+          .catch((error: unknown) => {
+            workspaceFileWatchSessions.delete(sharedKey);
+            throw error;
+          });
         workspaceFileWatchSessions.set(sharedKey, sharedPromise);
         const createdPromise = sharedPromise;
-        void createdPromise.then((shared) =>
-          shared.session.closed.then(() => {
-            if (workspaceFileWatchSessions.get(sharedKey) !== createdPromise) return;
-            workspaceFileWatchSessions.delete(sharedKey);
-            for (const activeSubscriptionId of shared.subscriptionIds) {
-              workspaceFileWatchSubscriptions.delete(activeSubscriptionId);
-            }
-          })
-        ).catch(() => {});
+        void createdPromise
+          .then((shared) =>
+            shared.session.closed.then(() => {
+              if (workspaceFileWatchSessions.get(sharedKey) !== createdPromise) return;
+              workspaceFileWatchSessions.delete(sharedKey);
+              for (const activeSubscriptionId of shared.subscriptionIds) {
+                workspaceFileWatchSubscriptions.delete(activeSubscriptionId);
+              }
+            }),
+          )
+          .catch(() => {});
       }
 
       const shared = await sharedPromise;
@@ -2885,9 +2673,7 @@ export function registerIpcHandlers(
     }),
   );
 
-  registerHandle("open-file", (_, target, openerId) =>
-    openFileLinkTarget(target, openerId),
-  );
+  registerHandle("open-file", (_, target, openerId) => openFileLinkTarget(target, openerId));
 
   registerHandle("window:show-emoji-panel", () => {
     if (process.platform !== "darwin") return false;
@@ -2908,22 +2694,16 @@ export function registerIpcHandlers(
     return options.onBootstrapWindowSession(event.sender.id);
   });
 
-  registerHandle(
-    "window-sessions:save-layout",
-    (event, input: WindowSessionSaveLayoutInput) => {
-      if (!options.onSaveWindowSessionLayout) {
-        throw new Error("Window session state is unavailable");
-      }
-      return options.onSaveWindowSessionLayout(event.sender.id, input);
-    },
-  );
+  registerHandle("window-sessions:save-layout", (event, input: WindowSessionSaveLayoutInput) => {
+    if (!options.onSaveWindowSessionLayout) {
+      throw new Error("Window session state is unavailable");
+    }
+    return options.onSaveWindowSessionLayout(event.sender.id, input);
+  });
 
-  registerHandle(
-    "window-sessions:update-bounds",
-    (event, bounds: WindowSessionBounds) => {
-      options.onUpdateWindowSessionBounds?.(event.sender.id, bounds);
-    },
-  );
+  registerHandle("window-sessions:update-bounds", (event, bounds: WindowSessionBounds) => {
+    options.onUpdateWindowSessionBounds?.(event.sender.id, bounds);
+  });
 
   registerHandle("git:repository:identity", (_, cwd: string) => {
     return readGitRepositoryIdentity(cwd);
@@ -2939,9 +2719,7 @@ export function registerIpcHandlers(
   registerHandle("git:action:pull-request-message:generate", (_, input) => {
     return generateGitPullRequestMessage(input, {
       gitWorker: gitActionWorker,
-      generatePullRequestMessage: createGitPullRequestMessageGenerator(
-        input.hostId,
-      ),
+      generatePullRequestMessage: createGitPullRequestMessageGenerator(input.hostId),
     });
   });
 
@@ -2954,10 +2732,12 @@ export function registerIpcHandlers(
 
   registerHandle("git:action:push", async (_, input) => {
     const result = await pushGitChanges(input);
-    await options.gitWorkerHost?.requestFromMain({
-      method: "refresh-repository",
-      params: { cwd: input.cwd },
-    }).catch(() => undefined);
+    await options.gitWorkerHost
+      ?.requestFromMain({
+        method: "refresh-repository",
+        params: { cwd: input.cwd },
+      })
+      .catch(() => undefined);
     return result;
   });
 
@@ -3043,17 +2823,14 @@ export function registerIpcHandlers(
     return readManagedAssetPreview(input);
   });
 
-  registerHandle(
-    "clipboard:write-image",
-    async (event, input: { source?: string }) => {
-      requireTrustedAppRendererSender(event, "Clipboard image writes");
-      if (typeof input?.source !== "string") {
-        return { ok: false, message: "Could not copy image." } as const;
-      }
+  registerHandle("clipboard:write-image", async (event, input: { source?: string }) => {
+    requireTrustedAppRendererSender(event, "Clipboard image writes");
+    if (typeof input?.source !== "string") {
+      return { ok: false, message: "Could not copy image." } as const;
+    }
 
-      return writeImageToClipboard(input.source);
-    },
-  );
+    return writeImageToClipboard(input.source);
+  });
 
   registerHandle("clipboard:read-paste", (event) => {
     requireTrustedAppRendererSender(event, "Clipboard paste reads");
@@ -3089,18 +2866,15 @@ export function registerIpcHandlers(
   );
 
   // Browser sidebar
-  registerHandle(
-    "browser-sidebar-command",
-    async (event, rawCommand: BrowserSidebarCommand) => {
-      requireTrustedAppRendererSender(event, "Browser control");
-      const command = parseBrowserSidebarCommand(rawCommand);
-      validateBrowserCommandScope(event.sender.id, command);
-      return browserSidebarService.handleCommand(command, {
-        browserViewScopeId: requireAssignedWindowSessionId(event.sender.id),
-        ownerWebContentsId: event.sender.id,
-      });
-    },
-  );
+  registerHandle("browser-sidebar-command", async (event, rawCommand: BrowserSidebarCommand) => {
+    requireTrustedAppRendererSender(event, "Browser control");
+    const command = parseBrowserSidebarCommand(rawCommand);
+    validateBrowserCommandScope(event.sender.id, command);
+    return browserSidebarService.handleCommand(command, {
+      browserViewScopeId: requireAssignedWindowSessionId(event.sender.id),
+      ownerWebContentsId: event.sender.id,
+    });
+  });
 
   registerHandle("browser-sidebar-runtime-snapshot", async (event) => {
     requireTrustedAppRendererSender(event, "Browser runtime state");
@@ -3115,30 +2889,22 @@ export function registerIpcHandlers(
         browserViewScopeId,
       ),
       presentationRequests:
-        browserSidebarService.listPendingBrowserUsePresentationRequests(
-          browserViewScopeId,
-        ),
+        browserSidebarService.listPendingBrowserUsePresentationRequests(browserViewScopeId),
     };
   });
 
-  registerHandle(
-    "browser-browsing-data-clear",
-    async (event, rawKind: BrowserBrowsingDataKind) => {
-      requireTrustedAppRendererSender(event, "Browser data clearing");
-      const kind = BrowserBrowsingDataKindSchema.parse(rawKind);
-      return browserSidebarService.clearBrowsingData(kind);
-    },
-  );
+  registerHandle("browser-browsing-data-clear", async (event, rawKind: BrowserBrowsingDataKind) => {
+    requireTrustedAppRendererSender(event, "Browser data clearing");
+    const kind = BrowserBrowsingDataKindSchema.parse(rawKind);
+    return browserSidebarService.clearBrowsingData(kind);
+  });
   registerHandle(
     "browser-sidebar-webview-host-created",
     async (ipcEvent, rawEvent: BrowserSidebarWebviewHostCreated) => {
       requireTrustedAppRendererSender(ipcEvent, "Browser webview registration");
       const event = parseBrowserSidebarWebviewHostCreated(rawEvent);
       requireBrowserViewScope(ipcEvent.sender.id, event.browserViewScopeId);
-      return browserSidebarService.handleWebviewHostCreated(
-        event,
-        ipcEvent.sender.id,
-      );
+      return browserSidebarService.handleWebviewHostCreated(event, ipcEvent.sender.id);
     },
   );
   registerHandle(
@@ -3239,21 +3005,19 @@ export function registerIpcHandlers(
   registerHandle("browser-contact-info-remove", async (event, contactInfoId) => {
     requireTrustedAppRendererSender(event, "Browser contact info removal");
     const input = BrowserContactInfoRemoveInputSchema.parse({ contactInfoId });
-    return await getBrowserProfileServices().credentialService
-      .removeContactInfo(input.contactInfoId);
+    return await getBrowserProfileServices().credentialService.removeContactInfo(
+      input.contactInfoId,
+    );
   });
   registerHandle("browser-contact-info-fill", async (event, rawInput) => {
     requireTrustedAppRendererSender(event, "Browser contact info fill");
     const input = BrowserContactInfoFillInputSchema.parse(rawInput);
     requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
-    return await getBrowserProfileServices().credentialService
-      .fillContactInfo(input);
+    return await getBrowserProfileServices().credentialService.fillContactInfo(input);
   });
   registerHandle("browser-history-list", async (event, rawInput) => {
     requireTrustedAppRendererSender(event, "Browser history");
-    const input = rawInput === undefined
-      ? {}
-      : BrowserHistoryListInputSchema.parse(rawInput);
+    const input = rawInput === undefined ? {} : BrowserHistoryListInputSchema.parse(rawInput);
     return await browserSidebarService.listHistory(input);
   });
   registerHandle("browser-history-delete", async (event, historyId) => {
@@ -3290,9 +3054,7 @@ export function registerIpcHandlers(
     } catch (error) {
       return {
         ok: false as const,
-        message: error instanceof Error
-          ? error.message
-          : "Browser extension removal failed",
+        message: error instanceof Error ? error.message : "Browser extension removal failed",
       };
     }
   });
@@ -3304,136 +3066,101 @@ export function registerIpcHandlers(
     requireTrustedAppRendererSender(event, "Browser Use policy update");
     return await getBrowserProfileServices().usePolicyStore.updateModes(input);
   });
-  registerHandle(
-    "browser-use-policy-update-origin-rule",
-    async (event, input) => {
-      requireTrustedAppRendererSender(event, "Browser Use origin policy update");
-      return await getBrowserProfileServices().usePolicyStore
-        .updateOriginRule(input);
-    },
-  );
+  registerHandle("browser-use-policy-update-origin-rule", async (event, input) => {
+    requireTrustedAppRendererSender(event, "Browser Use origin policy update");
+    return await getBrowserProfileServices().usePolicyStore.updateOriginRule(input);
+  });
   registerHandle("computer-use-settings-get", async (event) => {
     requireTrustedAppRendererSender(event, "Computer Use settings");
     return await computerUseSettingsService.getSnapshot();
   });
-  registerHandle(
-    "computer-use-settings-remove-app-approval",
-    async (event, bundleIdentifier) => {
-      requireTrustedAppRendererSender(event, "Computer Use app approval update");
-      return await computerUseSettingsService.removeAppApproval(bundleIdentifier);
-    },
-  );
-  registerHandle(
-    "computer-use-settings-remove-message-approval",
-    async (event, chatGuid) => {
-      requireTrustedAppRendererSender(event, "Computer Use message approval update");
-      return await computerUseSettingsService.removeMessageApproval(chatGuid);
-    },
-  );
-  registerHandle(
-    "computer-use-settings-set-always-hide-pip",
-    async (event, alwaysHide) => {
-      requireTrustedAppRendererSender(event, "Computer Use picture-in-picture setting");
-      if (typeof alwaysHide !== "boolean") {
-        throw new Error("Computer Use picture-in-picture setting is invalid");
-      }
-      return await computerUseSettingsService
-        .setAlwaysHidePictureInPicture(alwaysHide);
-    },
-  );
-  registerHandle(
-    "computer-use-settings-set-locked-use",
-    async (event, enabled) => {
-      requireTrustedAppRendererSender(event, "Computer Use Locked Use setting");
-      if (typeof enabled !== "boolean") {
-        throw new Error("Computer Use Locked Use setting is invalid");
-      }
-      return await computerUseSettingsService.setLockedUseEnabled(enabled);
-    },
-  );
-  registerHandle(
-    "computer-use-settings-set-sound-mode",
-    async (event, soundMode) => {
-      requireTrustedAppRendererSender(event, "Computer Use sound setting");
-      return await computerUseSettingsService.setSoundMode(soundMode);
-    },
-  );
-  registerHandle(
-    "browser-annotation-capture-evidence",
-    async (event, rawInput) => {
-      requireTrustedAppRendererSender(event, "Browser annotation evidence");
-      const input = BrowserAnnotationEvidenceCaptureInputSchema.parse(rawInput);
-      requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
-      const contents = browserSidebarService.getWebContentsForTab(input);
-      const snapshot = browserSidebarService.getTabSnapshot(input);
-      if (!contents || !snapshot || contents.isDestroyed()) {
-        throw new Error("Browser annotation page is unavailable");
-      }
-      const image = await contents.capturePage();
-      const imageSize = image.getSize();
-      const crop = computeBrowserAnnotationEvidenceCrop({
-        anchors: input.anchors,
-        imageSize,
-        viewport: snapshot.viewport,
+  registerHandle("computer-use-settings-remove-app-approval", async (event, bundleIdentifier) => {
+    requireTrustedAppRendererSender(event, "Computer Use app approval update");
+    return await computerUseSettingsService.removeAppApproval(bundleIdentifier);
+  });
+  registerHandle("computer-use-settings-remove-message-approval", async (event, chatGuid) => {
+    requireTrustedAppRendererSender(event, "Computer Use message approval update");
+    return await computerUseSettingsService.removeMessageApproval(chatGuid);
+  });
+  registerHandle("computer-use-settings-set-always-hide-pip", async (event, alwaysHide) => {
+    requireTrustedAppRendererSender(event, "Computer Use picture-in-picture setting");
+    if (typeof alwaysHide !== "boolean") {
+      throw new Error("Computer Use picture-in-picture setting is invalid");
+    }
+    return await computerUseSettingsService.setAlwaysHidePictureInPicture(alwaysHide);
+  });
+  registerHandle("computer-use-settings-set-locked-use", async (event, enabled) => {
+    requireTrustedAppRendererSender(event, "Computer Use Locked Use setting");
+    if (typeof enabled !== "boolean") {
+      throw new Error("Computer Use Locked Use setting is invalid");
+    }
+    return await computerUseSettingsService.setLockedUseEnabled(enabled);
+  });
+  registerHandle("computer-use-settings-set-sound-mode", async (event, soundMode) => {
+    requireTrustedAppRendererSender(event, "Computer Use sound setting");
+    return await computerUseSettingsService.setSoundMode(soundMode);
+  });
+  registerHandle("browser-annotation-capture-evidence", async (event, rawInput) => {
+    requireTrustedAppRendererSender(event, "Browser annotation evidence");
+    const input = BrowserAnnotationEvidenceCaptureInputSchema.parse(rawInput);
+    requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
+    const contents = browserSidebarService.getWebContentsForTab(input);
+    const snapshot = browserSidebarService.getTabSnapshot(input);
+    if (!contents || !snapshot || contents.isDestroyed()) {
+      throw new Error("Browser annotation page is unavailable");
+    }
+    const image = await contents.capturePage();
+    const imageSize = image.getSize();
+    const crop = computeBrowserAnnotationEvidenceCrop({
+      anchors: input.anchors,
+      imageSize,
+      viewport: snapshot.viewport,
+    });
+    if (!crop) {
+      throw new Error("Browser annotation evidence is outside the page");
+    }
+    let evidenceImage = image.crop(crop);
+    const croppedSize = evidenceImage.getSize();
+    const longestSide = Math.max(croppedSize.width, croppedSize.height);
+    if (longestSide > 2_048) {
+      const ratio = 2_048 / longestSide;
+      evidenceImage = evidenceImage.resize({
+        width: Math.max(1, Math.round(croppedSize.width * ratio)),
+        height: Math.max(1, Math.round(croppedSize.height * ratio)),
+        quality: "best",
       });
-      if (!crop) {
-        throw new Error("Browser annotation evidence is outside the page");
-      }
-      let evidenceImage = image.crop(crop);
-      const croppedSize = evidenceImage.getSize();
-      const longestSide = Math.max(croppedSize.width, croppedSize.height);
-      if (longestSide > 2_048) {
-        const ratio = 2_048 / longestSide;
-        evidenceImage = evidenceImage.resize({
-          width: Math.max(1, Math.round(croppedSize.width * ratio)),
-          height: Math.max(1, Math.round(croppedSize.height * ratio)),
-          quality: "best",
-        });
-      }
-      const saved = saveUploadedImage({
-        name: `browser-annotation-${Date.now()}.png`,
-        mimeType: "image/png",
-        bytes: evidenceImage.toPNG(),
-      });
-      const finalSize = evidenceImage.getSize();
-      return {
-        attachmentId: saved.fileName,
-        source: saved.source,
-        mimeType: "image/png" as const,
-        width: finalSize.width,
-        height: finalSize.height,
-      };
-    },
-  );
-  registerHandle(
-    "browser-local-server-thumbnail",
-    async (event, rawInput) => {
-      requireTrustedAppRendererSender(event, "Local server preview");
-      const input = BrowserSidebarLocalServerThumbnailRequestSchema.parse(
-        rawInput,
-      );
-      requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
-      return await browserSidebarService.captureLocalServerThumbnail(input);
-    },
-  );
+    }
+    const saved = saveUploadedImage({
+      name: `browser-annotation-${Date.now()}.png`,
+      mimeType: "image/png",
+      bytes: evidenceImage.toPNG(),
+    });
+    const finalSize = evidenceImage.getSize();
+    return {
+      attachmentId: saved.fileName,
+      source: saved.source,
+      mimeType: "image/png" as const,
+      width: finalSize.width,
+      height: finalSize.height,
+    };
+  });
+  registerHandle("browser-local-server-thumbnail", async (event, rawInput) => {
+    requireTrustedAppRendererSender(event, "Local server preview");
+    const input = BrowserSidebarLocalServerThumbnailRequestSchema.parse(rawInput);
+    requireBrowserViewScope(event.sender.id, input.browserViewScopeId);
+    return await browserSidebarService.captureLocalServerThumbnail(input);
+  });
   registerHandle("browser-local-server-preferences-get", (event) => {
     requireTrustedAppRendererSender(event, "Local server preferences");
     return getBrowserProfileServices().localServerPreferencesStore.snapshot();
   });
-  registerHandle(
-    "browser-local-server-preferences-update",
-    (event, rawInput) => {
-      requireTrustedAppRendererSender(event, "Local server preferences update");
-      const input = BrowserLocalServerPreferencesUpdateSchema.parse(rawInput);
-      const preferences = getBrowserProfileServices()
-        .localServerPreferencesStore.update(input);
-      broadcastIpcEvent(
-        "browser-local-server-preferences-changed",
-        preferences,
-      );
-      return preferences;
-    },
-  );
+  registerHandle("browser-local-server-preferences-update", (event, rawInput) => {
+    requireTrustedAppRendererSender(event, "Local server preferences update");
+    const input = BrowserLocalServerPreferencesUpdateSchema.parse(rawInput);
+    const preferences = getBrowserProfileServices().localServerPreferencesStore.update(input);
+    broadcastIpcEvent("browser-local-server-preferences-changed", preferences);
+    return preferences;
+  });
 
   // Terminal
   registerHandle("terminal-create", async (event, input) => {
@@ -3467,14 +3194,9 @@ export function registerIpcHandlers(
     const sender = event.sender;
     const windowSessionId = requireAssignedWindowSessionId(sender.id);
     bindTerminalLeaseCleanup(sender);
-    return terminalManager.takeOverViewLease(
-      sender,
-      windowSessionId,
-      input,
-      (channel, payload) => {
-        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-      },
-    );
+    return terminalManager.takeOverViewLease(sender, windowSessionId, input, (channel, payload) => {
+      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+    });
   });
 
   registerHandle("terminal-release-view", (event, sessionId: string) => {
@@ -3493,7 +3215,7 @@ export function registerIpcHandlers(
       sessionId,
       data,
       (channel, payload) => {
-      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
       },
     );
   });
@@ -3506,7 +3228,7 @@ export function registerIpcHandlers(
         requireAssignedWindowSessionId(sender.id),
         input,
         (channel, payload) => {
-        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+          sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
         },
       );
     });
@@ -3524,7 +3246,7 @@ export function registerIpcHandlers(
       sessionId,
       size,
       (channel, payload) => {
-      sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+        sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
       },
     );
   });
@@ -3539,35 +3261,25 @@ export function registerIpcHandlers(
   );
 
   // Codex
-  registerHandle("codex:connection:status", () =>
-    codexService.getConnectionState(),
-  );
+  registerHandle("codex:connection:status", () => codexService.getConnectionState());
 
-  registerHandle("codex:account:read", () =>
-    codexService.readAccountSnapshot(),
-  );
+  registerHandle("codex:account:read", () => codexService.readAccountSnapshot());
 
   registerHandle("codex:account:rate-limit-reset:consume", (_, input) =>
     codexService.consumeAccountRateLimitResetCredit(input),
   );
 
-  registerHandle("codex:dictation:state:read", () =>
-    codexService.readDictationStateSnapshot(),
-  );
+  registerHandle("codex:dictation:state:read", () => codexService.readDictationStateSnapshot());
   registerHandle("codex:dictation:transcribe", (event, input) => {
     requireTrustedAppRendererSender(event, "Dictation transcription");
-    return codexService.transcribeDictation(
-      validateDictationTranscriptionInput(input),
-    );
+    return codexService.transcribeDictation(validateDictationTranscriptionInput(input));
   });
 
   registerHandle("codex:conversation-image-asset:resolve", (_, input) =>
     codexService.resolveConversationImageAsset(input),
   );
 
-  registerHandle("codex:account:login:start", (_, input) =>
-    codexService.startAccountLogin(input),
-  );
+  registerHandle("codex:account:login:start", (_, input) => codexService.startAccountLogin(input));
 
   registerHandle("codex:account:login:cancel", (_, loginId: string) =>
     codexService.cancelAccountLogin(loginId),
@@ -3633,13 +3345,9 @@ export function registerIpcHandlers(
     return result;
   });
 
-  registerHandle("codex:sidebar:thread:move", (_, input) =>
-    codexService.moveSidebarThread(input),
-  );
+  registerHandle("codex:sidebar:thread:move", (_, input) => codexService.moveSidebarThread(input));
 
-  registerHandle("codex:threads:pinned:list", async () =>
-    await codexService.listPinnedThreads(),
-  );
+  registerHandle("codex:threads:pinned:list", async () => await codexService.listPinnedThreads());
 
   registerHandle("codex:threads:pinned:set", (_, threadId: string, input) =>
     codexService.setThreadPinned(threadId, input.pinned),
@@ -3672,24 +3380,19 @@ export function registerIpcHandlers(
     targetThreadId: string | null,
     reason: "upsert" | "delete",
   ) => {
-    safeBroadcastToWindows(
-      BrowserWindow.getAllWindows(),
-      "codex:scheduled-automations:changed",
-      [
-        {
-          automationId,
-          targetThreadId,
-          reason,
-        },
-      ],
-    );
+    safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:scheduled-automations:changed", [
+      {
+        automationId,
+        targetThreadId,
+        reason,
+      },
+    ]);
   };
 
   registerCodexScheduledAutomationIpcHandlers({
     registerHandle,
     automationModule,
-    prepareCreateInput: (input) =>
-      codexService.prepareScheduledAutomationInput(input),
+    prepareCreateInput: (input) => codexService.prepareScheduledAutomationInput(input),
     prepareUpdateInput: (input, current) =>
       codexService.prepareScheduledAutomationInput(input, current),
     runScheduledAutomationNow: (input, rendererClientId) =>
@@ -3701,12 +3404,9 @@ export function registerIpcHandlers(
     broadcastAutomationRunsUpdated: (event) => {
       broadcastIpcEvent("codex:automation-runs:updated", event);
     },
-    onHeartbeatAutomationsEnabledChanged:
-      options.onHeartbeatAutomationsEnabledChanged,
-    resolveRendererClientId: (event) =>
-      resolveRendererClientId(event as IpcMainInvokeEvent),
-    onHeartbeatAutomationThreadStateChanged:
-      options.onHeartbeatAutomationThreadStateChanged,
+    onHeartbeatAutomationsEnabledChanged: options.onHeartbeatAutomationsEnabledChanged,
+    resolveRendererClientId: (event) => resolveRendererClientId(event as IpcMainInvokeEvent),
+    onHeartbeatAutomationThreadStateChanged: options.onHeartbeatAutomationThreadStateChanged,
   });
 
   registerHandle("codex:model:list", () => codexService.listModels());
@@ -3714,31 +3414,23 @@ export function registerIpcHandlers(
     codexService.listComposerPlugins(parseComposerInventoryCwds(input)),
   );
   registerHandle("codex:composer-plugins:activate", (_, input) =>
-    codexService.activateComposerPlugin(
-      parseComposerPluginActivationInput(input),
-    ),
+    codexService.activateComposerPlugin(parseComposerPluginActivationInput(input)),
   );
   registerHandle("codex:composer-skills:list", (_, input) =>
     codexService.listComposerSkills(parseComposerInventoryCwds(input)),
   );
-  registerHandle("codex:composer-sites:list", () =>
-    codexService.listComposerSites(),
-  );
+  registerHandle("codex:composer-sites:list", () => codexService.listComposerSites());
   registerHandle("codex:composer-chatgpt-conversations:list", (_, input) =>
-    codexService.listComposerChatGptConversations(
-      parseComposerChatGptConversationQuery(input),
-    ),
+    codexService.listComposerChatGptConversations(parseComposerChatGptConversationQuery(input)),
   );
-  registerHandle("codex:composer-appshot:target", () =>
-    composerAppshotService.readTarget(),
-  );
+  registerHandle("codex:composer-appshot:target", () => composerAppshotService.readTarget());
   registerHandle("codex:composer-appshot:capture", (_, input) => {
     if (
-      typeof input !== "object"
-      || input === null
-      || typeof input.targetId !== "string"
-      || !input.targetId.trim()
-      || input.targetId.length > 512
+      typeof input !== "object" ||
+      input === null ||
+      typeof input.targetId !== "string" ||
+      !input.targetId.trim() ||
+      input.targetId.length > 512
     ) {
       throw new Error("Invalid Appshot capture target");
     }
@@ -3750,10 +3442,10 @@ export function registerIpcHandlers(
   );
   registerHandle("agent-runtime:credential:set", (_, input) => {
     if (
-      typeof input !== "object"
-      || input === null
-      || typeof input.providerId !== "string"
-      || typeof input.apiKey !== "string"
+      typeof input !== "object" ||
+      input === null ||
+      typeof input.providerId !== "string" ||
+      typeof input.apiKey !== "string"
     ) {
       throw new Error("Invalid provider credential input");
     }
@@ -3763,11 +3455,7 @@ export function registerIpcHandlers(
     });
   });
   registerHandle("agent-runtime:credential:delete", (_, input) => {
-    if (
-      typeof input !== "object"
-      || input === null
-      || typeof input.providerId !== "string"
-    ) {
+    if (typeof input !== "object" || input === null || typeof input.providerId !== "string") {
       throw new Error("Invalid provider credential delete input");
     }
     return codexService.deleteAgentProviderCredential({ providerId: input.providerId });
@@ -3798,11 +3486,11 @@ export function registerIpcHandlers(
   });
   registerHandle("agent-import:apply", (_, input: AgentImportApplyInput) => {
     if (
-      typeof input !== "object"
-      || input === null
-      || typeof input.scanId !== "string"
-      || !Array.isArray(input.itemIds)
-      || !input.itemIds.every((itemId) => typeof itemId === "string")
+      typeof input !== "object" ||
+      input === null ||
+      typeof input.scanId !== "string" ||
+      !Array.isArray(input.itemIds) ||
+      !input.itemIds.every((itemId) => typeof itemId === "string")
     ) {
       throw new Error("Invalid agent import selection");
     }
@@ -3821,9 +3509,7 @@ export function registerIpcHandlers(
     },
   });
 
-  registerHandle("codex:collaboration-mode:list", () =>
-    codexService.listCollaborationModes(),
-  );
+  registerHandle("codex:collaboration-mode:list", () => codexService.listCollaborationModes());
 
   registerHandle("codex:projectless-thread-cwd", (_, rawInput) => {
     const input = parseCodexProjectlessThreadCwdInput(rawInput);
@@ -3836,10 +3522,7 @@ export function registerIpcHandlers(
 
   registerHandle(
     "codex:thread:start-for-session",
-    async (
-      event,
-      input: CodexThreadStartForSessionInput,
-    ) => {
+    async (event, input: CodexThreadStartForSessionInput) => {
       const controller = new AbortController();
       const abortWhenRendererCloses = (): void => controller.abort();
       event.sender.once("destroyed", abortWhenRendererCloses);
@@ -3847,8 +3530,7 @@ export function registerIpcHandlers(
         return await codexService.startThreadForSession(input, {
           signal: controller.signal,
           browserViewScopeId:
-            options.resolveWindowSessionId?.(event.sender.id)
-            ?? `headless:${input.sessionId}`,
+            options.resolveWindowSessionId?.(event.sender.id) ?? `headless:${input.sessionId}`,
           ownerClientId: resolveRendererClientId(event),
         });
       } finally {
@@ -3857,12 +3539,8 @@ export function registerIpcHandlers(
     },
   );
 
-  registerHandle(
-    "codex:thread:side-chat:start",
-    (
-      _,
-      input: CodexSideChatStartInput,
-    ) => codexService.startSideChat(input),
+  registerHandle("codex:thread:side-chat:start", (_, input: CodexSideChatStartInput) =>
+    codexService.startSideChat(input),
   );
 
   registerHandle("codex:thread:side-chat:discard", (_, threadId: string) =>
@@ -3870,33 +3548,29 @@ export function registerIpcHandlers(
   );
 
   registerHandle("worktrees:list", () => codexService.listManagedWorktrees());
-  registerHandle("worktrees:settings:get", () =>
-    codexService.getManagedWorktreeSettings()
-  );
+  registerHandle("worktrees:settings:get", () => codexService.getManagedWorktreeSettings());
   registerHandle("worktrees:settings:update", (_, input) =>
-    codexService.updateManagedWorktreeSettings(input)
+    codexService.updateManagedWorktreeSettings(input),
   );
   registerHandle("worktrees:execution-hosts:get", () =>
-    codexService.getCodexExecutionHostSettings()
+    codexService.getCodexExecutionHostSettings(),
   );
   registerHandle("worktrees:execution-hosts:update", (_, input) =>
-    codexService.updateCodexExecutionHostSettings(input)
+    codexService.updateCodexExecutionHostSettings(input),
   );
   registerHandle("worktrees:thread:availability", (_, threadId: string) =>
-    codexService.inspectThreadManagedWorktree(threadId)
+    codexService.inspectThreadManagedWorktree(threadId),
   );
   registerHandle("worktrees:thread:restore", (_, threadId: string) =>
-    codexService.restoreThreadManagedWorktree(threadId)
+    codexService.restoreThreadManagedWorktree(threadId),
   );
 
   registerHandle("worktrees:environments:list", (_, projectId: string) =>
     codexService.listWorktreeEnvironments(projectId),
   );
 
-  registerHandle(
-    "worktrees:environments:configs:list",
-    (_, projectId: string) =>
-      codexService.listWorktreeEnvironmentConfigs(projectId),
+  registerHandle("worktrees:environments:configs:list", (_, projectId: string) =>
+    codexService.listWorktreeEnvironmentConfigs(projectId),
   );
 
   registerHandle(
@@ -3932,20 +3606,13 @@ export function registerIpcHandlers(
     return codexService.requestRendererConversationResume(threadId, ownerClientId);
   });
 
-  registerHandle(
-    "codex:thread:fresh-owner:adopt",
-    (event, threadId: string, launchId: string) => {
-      const ownerClientId = resolveRendererClientId(event);
-      if (!ownerClientId) {
-        throw new Error("Renderer client is not registered");
-      }
-      return codexService.requestRendererFreshConversationAdoption(
-        threadId,
-        launchId,
-        ownerClientId,
-      );
-    },
-  );
+  registerHandle("codex:thread:fresh-owner:adopt", (event, threadId: string, launchId: string) => {
+    const ownerClientId = resolveRendererClientId(event);
+    if (!ownerClientId) {
+      throw new Error("Renderer client is not registered");
+    }
+    return codexService.requestRendererFreshConversationAdoption(threadId, launchId, ownerClientId);
+  });
 
   registerHandle(
     "codex:thread:background-subagents:hydrate",
@@ -3955,8 +3622,7 @@ export function registerIpcHandlers(
 
   registerHandle(
     "codex:thread:subagents-panel:hydrate",
-    (_, input: CodexSubagentPanelHydrateInput) =>
-      codexService.hydrateSubagentPanel(input),
+    (_, input: CodexSubagentPanelHydrateInput) => codexService.hydrateSubagentPanel(input),
   );
 
   registerHandle("codex:subagent-thread:opened", (_, threadId: string) =>
@@ -3967,102 +3633,79 @@ export function registerIpcHandlers(
     codexService.releaseConversationResumeBuffer(threadId),
   );
 
-  registerHandle(
-    "codex:thread:view-active:set",
-    (event, input: unknown) => {
-      if (typeof input !== "object" || input === null) return false;
-      const threadId = "threadId" in input && typeof input.threadId === "string"
-        ? input.threadId.trim()
-        : "";
-      if (!threadId) return false;
-      const clientId = resolveRendererClientId(event);
-      if (!clientId) return false;
-      codexService.setRendererConversationViewActive(
-        threadId,
-        clientId,
-        "active" in input && input.active === true,
-      );
-      return true;
-    },
-  );
+  registerHandle("codex:thread:view-active:set", (event, input: unknown) => {
+    if (typeof input !== "object" || input === null) return false;
+    const threadId =
+      "threadId" in input && typeof input.threadId === "string" ? input.threadId.trim() : "";
+    if (!threadId) return false;
+    const clientId = resolveRendererClientId(event);
+    if (!clientId) return false;
+    codexService.setRendererConversationViewActive(
+      threadId,
+      clientId,
+      "active" in input && input.active === true,
+    );
+    return true;
+  });
 
-  registerHandle(
-    "codex:thread:stream-following:set",
-    (event, input: unknown) => {
-      if (typeof input !== "object" || input === null) return false;
-      const threadId = "threadId" in input && typeof input.threadId === "string"
-        ? input.threadId.trim()
-        : "";
-      if (!threadId) return false;
-      const clientId = resolveRendererClientId(event);
-      if (!clientId) return false;
-      return codexService.setRendererConversationFollowing(
-        threadId,
-        clientId,
-        "following" in input && input.following === true,
-        {
-          forceSnapshot: "reannounce" in input && input.reannounce === true,
-        },
-      );
-    },
-  );
+  registerHandle("codex:thread:stream-following:set", (event, input: unknown) => {
+    if (typeof input !== "object" || input === null) return false;
+    const threadId =
+      "threadId" in input && typeof input.threadId === "string" ? input.threadId.trim() : "";
+    if (!threadId) return false;
+    const clientId = resolveRendererClientId(event);
+    if (!clientId) return false;
+    return codexService.setRendererConversationFollowing(
+      threadId,
+      clientId,
+      "following" in input && input.following === true,
+      {
+        forceSnapshot: "reannounce" in input && input.reannounce === true,
+      },
+    );
+  });
 
-  registerHandle(
-    "codex:thread:presentation:set",
-    (event, input: unknown) => {
-      if (typeof input !== "object" || input === null) return false;
-      const threadId = "threadId" in input && typeof input.threadId === "string"
-        ? input.threadId.trim()
-        : "";
-      const surfaceId = "surfaceId" in input && typeof input.surfaceId === "string"
-        ? input.surfaceId.trim()
-        : "";
-      if (!threadId || !surfaceId) return false;
-      const clientId = resolveRendererClientId(event);
-      if (!clientId) return false;
-      codexService.setRendererConversationPresented(
-        threadId,
-        clientId,
-        surfaceId,
-        "presented" in input && input.presented === true,
-      );
-      return true;
-    },
-  );
+  registerHandle("codex:thread:presentation:set", (event, input: unknown) => {
+    if (typeof input !== "object" || input === null) return false;
+    const threadId =
+      "threadId" in input && typeof input.threadId === "string" ? input.threadId.trim() : "";
+    const surfaceId =
+      "surfaceId" in input && typeof input.surfaceId === "string" ? input.surfaceId.trim() : "";
+    if (!threadId || !surfaceId) return false;
+    const clientId = resolveRendererClientId(event);
+    if (!clientId) return false;
+    codexService.setRendererConversationPresented(
+      threadId,
+      clientId,
+      surfaceId,
+      "presented" in input && input.presented === true,
+    );
+    return true;
+  });
 
   registerHandle("codex:user-input:auto-resolution:snapshot", () =>
     codexService.getUserInputAutoResolutionSnapshot(),
   );
 
-  registerHandle(
-    "codex:user-input:auto-resolution:activity",
-    (event, input: unknown) => {
-      const conversationId =
-        parseCodexUserInputAutoResolutionActivityInput(input);
-      if (conversationId === null) return false;
-      const clientId = resolveRendererClientId(event);
-      if (!clientId) return false;
-      return codexService.recordUserInputAutoResolutionActivity(
-        conversationId,
-        clientId,
-      );
-    },
-  );
+  registerHandle("codex:user-input:auto-resolution:activity", (event, input: unknown) => {
+    const conversationId = parseCodexUserInputAutoResolutionActivityInput(input);
+    if (conversationId === null) return false;
+    const clientId = resolveRendererClientId(event);
+    if (!clientId) return false;
+    return codexService.recordUserInputAutoResolutionActivity(conversationId, clientId);
+  });
 
-  registerHandle(
-    "codex:user-input:auto-resolution:snooze",
-    (event, input: unknown) => {
-      const target = parseCodexUserInputAutoResolutionTarget(input);
-      if (target === null) return false;
-      const clientId = resolveRendererClientId(event);
-      if (!clientId) return false;
-      return codexService.snoozeUserInputAutoResolution(
-        target.conversationId,
-        target.requestId,
-        clientId,
-      );
-    },
-  );
+  registerHandle("codex:user-input:auto-resolution:snooze", (event, input: unknown) => {
+    const target = parseCodexUserInputAutoResolutionTarget(input);
+    if (target === null) return false;
+    const clientId = resolveRendererClientId(event);
+    if (!clientId) return false;
+    return codexService.snoozeUserInputAutoResolution(
+      target.conversationId,
+      target.requestId,
+      clientId,
+    );
+  });
 
   registerHandle("codex:thread:turns:load-older", (_, threadId: string) =>
     codexService.loadOlderThreadTurns(threadId),
@@ -4075,10 +3718,8 @@ export function registerIpcHandlers(
     codexService.setThreadName(threadId, name),
   );
 
-  registerHandle(
-    "codex:thread:name:set-generated",
-    (_, threadId: string, name: string) =>
-      codexService.setGeneratedThreadName(threadId, name),
+  registerHandle("codex:thread:name:set-generated", (_, threadId: string, name: string) =>
+    codexService.setGeneratedThreadName(threadId, name),
   );
 
   registerHandle(
@@ -4103,10 +3744,7 @@ export function registerIpcHandlers(
   registerHandle(
     "codex:thread:collaboration-mode:set",
     (_, threadId: string, collaborationMode: CodexCollaborationModeKind) =>
-      codexService.setConversationCollaborationMode(
-        threadId,
-        collaborationMode,
-      ),
+      codexService.setConversationCollaborationMode(threadId, collaborationMode),
   );
 
   registerHandle("codex:personality:get", () => codexService.getPersonality());
@@ -4120,42 +3758,27 @@ export function registerIpcHandlers(
       codexService.updateThreadSettingsForNextTurn(threadId, patch),
   );
 
-  registerHandle(
-    "codex:thread:plan-implementation:remove",
-    (_, threadId: string, turnId: string) =>
-      codexService.removePlanImplementationRequest(threadId, turnId),
+  registerHandle("codex:thread:plan-implementation:remove", (_, threadId: string, turnId: string) =>
+    codexService.removePlanImplementationRequest(threadId, turnId),
   );
 
   registerHandle(
     "codex:turn:start",
-    (
-      _,
-      threadId: string,
-      prompt: string,
-      opts?: CodexTurnStartOptions,
-    ) => {
+    (_, threadId: string, prompt: string, opts?: CodexTurnStartOptions) => {
       return codexService.startTurn(threadId, prompt, opts);
     },
   );
 
-  registerHandle("codex:review:start", (_, input) =>
-    codexService.startReview(input),
-  );
+  registerHandle("codex:review:start", (_, input) => codexService.startReview(input));
 
   registerHandle(
     "codex:thread:follow-up:enqueue",
-    (
-      _,
-      threadId: string,
-      prompt: string,
-      opts?: CodexTurnStartOptions,
-    ) => codexService.enqueueQueuedFollowUpPrompt(threadId, prompt, opts),
+    (_, threadId: string, prompt: string, opts?: CodexTurnStartOptions) =>
+      codexService.enqueueQueuedFollowUpPrompt(threadId, prompt, opts),
   );
 
-  registerHandle(
-    "codex:thread:follow-up:remove",
-    (_, threadId: string, followUpId: string) =>
-      codexService.removeQueuedFollowUp(threadId, followUpId),
+  registerHandle("codex:thread:follow-up:remove", (_, threadId: string, followUpId: string) =>
+    codexService.removeQueuedFollowUp(threadId, followUpId),
   );
 
   registerHandle(
@@ -4164,10 +3787,8 @@ export function registerIpcHandlers(
       codexService.reorderQueuedFollowUps(threadId, orderedFollowUpIds),
   );
 
-  registerHandle(
-    "codex:thread:follow-up:send-now",
-    (_, threadId: string, followUpId: string) =>
-      codexService.sendQueuedFollowUpNow(threadId, followUpId),
+  registerHandle("codex:thread:follow-up:send-now", (_, threadId: string, followUpId: string) =>
+    codexService.sendQueuedFollowUpNow(threadId, followUpId),
   );
 
   registerHandle("codex:thread:compact:start", (_, threadId: string) =>
@@ -4178,10 +3799,8 @@ export function registerIpcHandlers(
     codexService.getThreadGoal(threadId),
   );
 
-  registerHandle(
-    "codex:thread:goal:set",
-    (_, params: CodexThreadGoalSetActionInput) =>
-      codexService.setThreadGoal(params),
+  registerHandle("codex:thread:goal:set", (_, params: CodexThreadGoalSetActionInput) =>
+    codexService.setThreadGoal(params),
   );
 
   registerHandle("codex:thread:goal:clear", (_, threadId: string) =>
@@ -4192,10 +3811,8 @@ export function registerIpcHandlers(
     codexService.materializeThreadGoalDraft(draft),
   );
 
-  registerHandle(
-    "codex:thread:goal:materialized-cleanup",
-    (_, attachmentDirectory) =>
-      codexService.cleanupThreadGoalMaterializedDraft(attachmentDirectory),
+  registerHandle("codex:thread:goal:materialized-cleanup", (_, attachmentDirectory) =>
+    codexService.cleanupThreadGoalMaterializedDraft(attachmentDirectory),
   );
 
   registerHandle("codex:thread:goal:editable-objective:read", (_, objective) =>
@@ -4220,34 +3837,24 @@ export function registerIpcHandlers(
       codexService.setThreadMemoryMode({ threadId, mode }),
   );
 
-  registerHandle("codex:feedback:upload", (_, params) =>
-    codexService.uploadFeedback(params),
+  registerHandle("codex:feedback:upload", (_, params) => codexService.uploadFeedback(params));
+
+  registerHandle("codex:turn:steer", (_, input) => codexService.steerTurn(input));
+
+  registerHandle("codex:turn:interrupt", (_, threadId: string, turnId?: string) =>
+    codexService.interruptTurn(threadId, turnId),
   );
 
-  registerHandle("codex:turn:steer", (_, input) =>
-    codexService.steerTurn(input),
+  registerHandle("codex:thread:background-terminals:clean", (_, threadId: string) =>
+    codexService.cleanBackgroundTerminals(threadId),
   );
 
-  registerHandle(
-    "codex:turn:interrupt",
-    (_, threadId: string, turnId?: string) =>
-      codexService.interruptTurn(threadId, turnId),
+  registerHandle("codex:thread:background-terminals:clean-silent", (_, threadId: string) =>
+    codexService.cleanBackgroundTerminalsSilently(threadId),
   );
 
-  registerHandle(
-    "codex:thread:background-terminals:clean",
-    (_, threadId: string) => codexService.cleanBackgroundTerminals(threadId),
-  );
-
-  registerHandle(
-    "codex:thread:background-terminals:clean-silent",
-    (_, threadId: string) =>
-      codexService.cleanBackgroundTerminalsSilently(threadId),
-  );
-
-  registerHandle(
-    "codex:thread:background-terminals:list",
-    (_, threadId: string) => codexService.listBackgroundTerminals(threadId),
+  registerHandle("codex:thread:background-terminals:list", (_, threadId: string) =>
+    codexService.listBackgroundTerminals(threadId),
   );
 
   registerHandle(
@@ -4272,21 +3879,17 @@ export function registerIpcHandlers(
         command: input.command,
         title: input.command,
       };
-      await runWithTerminalProjectAdmission(
-        projectWorkspace,
-        terminalInput,
-        async () => {
-          await codexService.registerBackgroundProcessRunAction(input);
-          await terminalManager.runAction(
-            sender,
-            requireAssignedWindowSessionId(sender.id),
-            terminalInput,
-            (channel, payload) => {
-              sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
-            },
-          );
-        },
-      );
+      await runWithTerminalProjectAdmission(projectWorkspace, terminalInput, async () => {
+        await codexService.registerBackgroundProcessRunAction(input);
+        await terminalManager.runAction(
+          sender,
+          requireAssignedWindowSessionId(sender.id),
+          terminalInput,
+          (channel, payload) => {
+            sendIpcEvent(sender, channel, payload as IpcEvents[typeof channel]);
+          },
+        );
+      });
       return codexService.listBackgroundProcessRows({
         threadId: input.threadId,
         observedTerminals: [],
@@ -4314,11 +3917,7 @@ export function registerIpcHandlers(
     requireTrustedAppRendererSender(event, "MCP external navigation");
     if (value.length > 8_192) throw new Error("MCP external URL is too long");
     const url = new URL(value);
-    if (
-      url.protocol !== "https:"
-      || url.username
-      || url.password
-    ) {
+    if (url.protocol !== "https:" || url.username || url.password) {
       throw new Error("MCP external navigation requires a credential-free HTTPS URL");
     }
     await shell.openExternal(url.toString());
@@ -4334,35 +3933,31 @@ export function registerIpcHandlers(
     return codexService.listExperimentalFeatures();
   });
 
+  registerHandle("codex:mcp-server-statuses:list", (event) => {
+    requireTrustedAppRendererSender(event, "MCP server status access");
+    return codexService.listMcpServerStatuses();
+  });
+
   registerHandle(
-    "codex:mcp-server-statuses:list",
-    (event) => {
-      requireTrustedAppRendererSender(event, "MCP server status access");
-      return codexService.listMcpServerStatuses();
+    "codex:approval:respond",
+    (
+      _,
+      conversationId: string,
+      requestId: CodexProtocolRequestId,
+      response: CodexApprovalResponse,
+    ) => {
+      const parsedResponse = parseCodexApprovalResponse(response);
+      if (!parsedResponse) {
+        throw new Error("Invalid Codex approval response for approval kind.");
+      }
+      return codexService.respondToApproval(requestId, parsedResponse, conversationId);
     },
   );
 
-  registerHandle("codex:approval:respond", (
-    _,
-    conversationId: string,
-    requestId: CodexProtocolRequestId,
-    response: CodexApprovalResponse,
-  ) => {
-    const parsedResponse = parseCodexApprovalResponse(response);
-    if (!parsedResponse) {
-      throw new Error("Invalid Codex approval response for approval kind.");
-    }
-    return codexService.respondToApproval(requestId, parsedResponse, conversationId);
-  },
-  );
-
-  registerHandle("codex:user-input:respond", (
-    _,
-    conversationId: string,
-    requestId: CodexProtocolRequestId,
-    answers,
-  ) =>
-    codexService.respondToUserInput(requestId, answers, conversationId),
+  registerHandle(
+    "codex:user-input:respond",
+    (_, conversationId: string, requestId: CodexProtocolRequestId, answers) =>
+      codexService.respondToUserInput(requestId, answers, conversationId),
   );
 
   registerHandle(
@@ -4423,18 +4018,11 @@ export function registerIpcHandlers(
   registerHandle(
     "codex:permission:config-value:set",
     async (_, projectId: string | null, keyPath: string, value: unknown) => {
-      return await codexService.setPermissionConfigValue(
-        projectId,
-        keyPath,
-        value,
-      );
+      return await codexService.setPermissionConfigValue(projectId, keyPath, value);
     },
   );
 
-  registerHandle(
-    "codex:permission:custom-description:get",
-    async (_, projectId: string | null) => {
-      return await codexService.getCustomPermissionModeDescription(projectId);
-    },
-  );
+  registerHandle("codex:permission:custom-description:get", async (_, projectId: string | null) => {
+    return await codexService.getCustomPermissionModeDescription(projectId);
+  });
 }

@@ -1,10 +1,7 @@
 import type { BlockPropertyJsonValue } from "../block-property-mutations";
 import type { BlockTreeNode } from "./block-document-codec";
 
-
-export type AdditionalDocumentBearingActor = Readonly<
-  Record<string, BlockPropertyJsonValue>
->;
+export type AdditionalDocumentBearingActor = Readonly<Record<string, BlockPropertyJsonValue>>;
 
 interface AdditionalDocumentBearingOperationBase {
   readonly operationId: string;
@@ -14,8 +11,7 @@ interface AdditionalDocumentBearingOperationBase {
   readonly actor: AdditionalDocumentBearingActor;
 }
 
-export interface CreateReusableTemplateSource
-  extends AdditionalDocumentBearingOperationBase {
+export interface CreateReusableTemplateSource extends AdditionalDocumentBearingOperationBase {
   readonly kind: "create_reusable_template_source";
   readonly sourceBlockId: string;
   readonly documentId: string;
@@ -25,8 +21,7 @@ export interface CreateReusableTemplateSource
   readonly expectedBeforeLocationRevision?: number;
 }
 
-export interface CreateReusableTemplateReference
-  extends AdditionalDocumentBearingOperationBase {
+export interface CreateReusableTemplateReference extends AdditionalDocumentBearingOperationBase {
   readonly kind: "create_reusable_template_reference";
   readonly sourceBlockId: string;
   readonly sourceDocumentId: string;
@@ -40,8 +35,7 @@ export interface CreateReusableTemplateReference
   readonly beforeBlockId?: string;
 }
 
-export interface InstantiateReusableTemplate
-  extends AdditionalDocumentBearingOperationBase {
+export interface InstantiateReusableTemplate extends AdditionalDocumentBearingOperationBase {
   readonly kind: "instantiate_reusable_template";
   readonly sourceBlockId: string;
   readonly sourceDocumentId: string;

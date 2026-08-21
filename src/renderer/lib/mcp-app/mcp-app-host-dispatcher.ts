@@ -4,10 +4,7 @@ import {
   type McpAppScopeSnapshot,
 } from "../../../shared/mcp-app/mcp-app-scope";
 import { invoke } from "../api";
-import {
-  parseMcpAppFollowUpMessage,
-  type McpAppFollowUpMessage,
-} from "./mcp-app-follow-up";
+import { parseMcpAppFollowUpMessage, type McpAppFollowUpMessage } from "./mcp-app-follow-up";
 import type { McpAppHostApiHandlers } from "./mcp-app-port-rpc";
 
 export class McpAppRpcError extends Error {
@@ -72,8 +69,7 @@ export class McpAppHostDispatcher {
       notifyIntrinsicHeight: (value) => this.#options.onIntrinsicHeight?.(value),
       notifyIntrinsicWidth: () => undefined,
       notifyNavigation: (value) => this.#options.onNavigation?.(value),
-      notifySecurityPolicyViolation: (value) =>
-        this.#options.onSecurityPolicyViolation?.(value),
+      notifySecurityPolicyViolation: (value) => this.#options.onSecurityPolicyViolation?.(value),
       openExternal: (value) => this.#openExternal(value),
       requestDisplayMode: (value) => this.#options.onDisplayMode?.(value) ?? { mode: "inline" },
       sendFollowUpMessage: (value) => {
@@ -145,10 +141,7 @@ export class McpAppHostDispatcher {
       case "resources/unsubscribe":
         throw new McpAppRpcError("MCP resource subscriptions are unsupported", -32_601);
       default:
-        throw new McpAppRpcError(
-          `Unsupported MCP proxy method: ${request.method}`,
-          -32_601,
-        );
+        throw new McpAppRpcError(`Unsupported MCP proxy method: ${request.method}`, -32_601);
     }
   }
 

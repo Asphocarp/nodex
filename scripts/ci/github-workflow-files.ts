@@ -19,12 +19,11 @@ export const requireRecord = (value: unknown, label: string): UnknownRecord => {
   throw new Error(`${label} must be an object`);
 };
 
-export const workflowFiles = (): readonly string[] => readdirSync(workflowsDirectory)
-  .filter((entry) => entry.endsWith(".yml") || entry.endsWith(".yaml"))
-  .sort()
-  .map((entry) => path.join(workflowsDirectory, entry));
+export const workflowFiles = (): readonly string[] =>
+  readdirSync(workflowsDirectory)
+    .filter((entry) => entry.endsWith(".yml") || entry.endsWith(".yaml"))
+    .sort()
+    .map((entry) => path.join(workflowsDirectory, entry));
 
-export const readWorkflow = (filePath: string): UnknownRecord => requireRecord(
-  load(readFileSync(filePath, "utf8")),
-  relativeRepositoryPath(filePath),
-);
+export const readWorkflow = (filePath: string): UnknownRecord =>
+  requireRecord(load(readFileSync(filePath, "utf8")), relativeRepositoryPath(filePath));

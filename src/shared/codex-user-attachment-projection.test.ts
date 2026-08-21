@@ -3,11 +3,16 @@ import { buildCodexUserAttachmentsFromContent } from "./codex-user-attachment-pr
 
 describe("buildCodexUserAttachmentsFromContent", () => {
   test("preserves inline, local, and remote-pointer image source semantics", () => {
-    expect(buildCodexUserAttachmentsFromContent([
-      { type: "image", url: "data:image/png;base64,aW1hZ2U=" },
-      { type: "localImage", path: "/workspace/screenshot.png" },
-      { type: "image_asset_pointer", asset_pointer: "file-service://asset-1" },
-    ], "user-1")).toEqual([
+    expect(
+      buildCodexUserAttachmentsFromContent(
+        [
+          { type: "image", url: "data:image/png;base64,aW1hZ2U=" },
+          { type: "localImage", path: "/workspace/screenshot.png" },
+          { type: "image_asset_pointer", asset_pointer: "file-service://asset-1" },
+        ],
+        "user-1",
+      ),
+    ).toEqual([
       {
         type: "image",
         id: "user-1:attachment:image:0",

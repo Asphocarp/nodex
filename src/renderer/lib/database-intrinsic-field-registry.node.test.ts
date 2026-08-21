@@ -7,11 +7,7 @@ import {
 
 describe("Database intrinsic field registry", () => {
   test("defines one typed capability registry for every supported intrinsic field", () => {
-    expect(supportedDatabaseIntrinsicFields()).toEqual([
-      "page_key",
-      "created_at",
-      "updated_at",
-    ]);
+    expect(supportedDatabaseIntrinsicFields()).toEqual(["page_key", "created_at", "updated_at"]);
   });
 
   test("exposes semantic labels and layout capabilities", () => {

@@ -14,15 +14,15 @@
 
 The current catalog was measured from the same Zod input schemas, descriptions, namespace description, names, and deferred-loading flags that the dynamic-tool registry publishes. UTF-8 byte counts are deterministic; token estimates are deliberately not used as an acceptance criterion because they depend on the model tokenizer. Size is only one quality dimension. An interface that saves 500 bytes but causes the Agent to choose the wrong tool, omit required wrappers, or need a correction call is a regression.
 
-| Surface | Current size |
-| --- | ---: |
-| Eager catalog (`get_context`, `get_block`, `search`) | 6,459 bytes |
-| Complete published catalog | 40,594 bytes |
-| `query_database` | 3,778 bytes |
-| `create` | 7,345 bytes |
-| `edit_document` | 9,938 bytes |
-| `transfer_blocks` | 9,494 bytes |
-| `edit_database` | 3,575 bytes |
+| Surface                                              | Current size |
+| ---------------------------------------------------- | -----------: |
+| Eager catalog (`get_context`, `get_block`, `search`) |  6,459 bytes |
+| Complete published catalog                           | 40,594 bytes |
+| `query_database`                                     |  3,778 bytes |
+| `create`                                             |  7,345 bytes |
+| `edit_document`                                      |  9,938 bytes |
+| `transfer_blocks`                                    |  9,494 bytes |
+| `edit_database`                                      |  3,575 bytes |
 
 The complete catalog is approximately 10,149 tokens under a rough four-bytes-per-token estimate, but this number is directional only. Deferred loading means the complete catalog is not necessarily model-visible on every turn, so the eager budget and each commonly loaded deferred tool matter more than one undifferentiated total.
 
@@ -53,7 +53,7 @@ Nodex will measure and constrain three different costs:
 1. **Catalog budget:** namespace description, tool descriptions, and published input JSON Schemas. It is divided into the always-eager catalog, each deferred tool when selected, and the complete published catalog.
 2. **Call budget:** actual arguments and results. Nested Markdown authored by the Agent is high-value payload, while duplicated metadata, default ETags, complete post-write documents, and internal receipts are low-value payload.
 3. **Workflow budget:** values that return to the model between reasoning steps. Code Mode should retain search rows, Nested Markdown, cursors, and ETags inside JavaScript and emit only a bounded final summary.
-Tests use UTF-8 bytes and deterministic behavior fixtures. Token estimates may be printed in a developer report but never serve as the stable CI boundary. Contract tests prove the accepted inputs, outputs, loading boundaries, and semantic behavior without starting an Agent session or contacting a model provider.
+   Tests use UTF-8 bytes and deterministic behavior fixtures. Token estimates may be printed in a developer report but never serve as the stable CI boundary. Contract tests prove the accepted inputs, outputs, loading boundaries, and semantic behavior without starting an Agent session or contacting a model provider.
 
 ### Keep intent tools; split default updates from advanced updates
 

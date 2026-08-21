@@ -45,10 +45,7 @@ export interface ThreadActionControllerInput {
     materialized: CodexThreadGoalMaterializedDraft | null,
   ) => Promise<void>;
   onRefreshProjectSessions: (projectId: string | null) => Promise<ProjectSession[]>;
-  onOpenPendingWorktree?: (
-    clientThreadId: string,
-    projectSessionId: string,
-  ) => void;
+  onOpenPendingWorktree?: (clientThreadId: string, projectSessionId: string) => void;
   newThreadStartBlockedReason?: string | null;
   onForkSessionFromTurn?: (input: {
     threadId: string;
@@ -61,9 +58,15 @@ export interface ThreadActionControllerInput {
   onRequestNewChatProjectCreate: NonNullable<ThreadStageActions["onRequestNewChatProjectCreate"]>;
   onStartNewChatWithPrompt?: ThreadStageActions["onStartNewChatWithPrompt"];
   onNewThreadStartInTargetChange: NonNullable<ThreadStageActions["onNewThreadStartInTargetChange"]>;
-  onNewThreadStartInEnvironmentChange: NonNullable<ThreadStageActions["onNewThreadStartInEnvironmentChange"]>;
-  onRefreshNewThreadStartInEnvironments: NonNullable<ThreadStageActions["onRefreshNewThreadStartInEnvironments"]>;
-  onOpenNewThreadLocalEnvironmentsSettings: NonNullable<ThreadStageActions["onOpenNewThreadLocalEnvironmentsSettings"]>;
+  onNewThreadStartInEnvironmentChange: NonNullable<
+    ThreadStageActions["onNewThreadStartInEnvironmentChange"]
+  >;
+  onRefreshNewThreadStartInEnvironments: NonNullable<
+    ThreadStageActions["onRefreshNewThreadStartInEnvironments"]
+  >;
+  onOpenNewThreadLocalEnvironmentsSettings: NonNullable<
+    ThreadStageActions["onOpenNewThreadLocalEnvironmentsSettings"]
+  >;
   onOpenHooksSettings?: ThreadStageActions["onOpenHooksSettings"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
   onOpenMcpAppSidePanel?: ThreadStageActions["onOpenMcpAppSidePanel"];
@@ -114,10 +117,8 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
         codexSessionId,
         projectId,
       },
-      (command) => invoke(
-        "browser-sidebar-command",
-        command,
-      ) as Promise<BrowserSidebarCommandResult>,
+      (command) =>
+        invoke("browser-sidebar-command", command) as Promise<BrowserSidebarCommandResult>,
     );
   };
 
@@ -193,19 +194,19 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       input.codexControl.setExecutionProfile(profile);
       input.codexControl.setDefaultServiceTier(profile.serviceTier);
     },
-    onProviderCredentialSet: async (providerId, apiKey) => (
-      input.codexControl.setProviderCredential({ providerId, apiKey })
-    ),
-    onProviderCredentialDelete: async (providerId) => (
-      input.codexControl.deleteProviderCredential({ providerId })
-    ),
+    onProviderCredentialSet: async (providerId, apiKey) =>
+      input.codexControl.setProviderCredential({ providerId, apiKey }),
+    onProviderCredentialDelete: async (providerId) =>
+      input.codexControl.deleteProviderCredential({ providerId }),
     onPersonalityChange: async (personality) => {
       await Promise.all([
         input.codexControl.setPersonality(personality),
         ...(input.activeThreadId
-          ? [input.codexControl.setConversationThreadSettings(input.activeThreadId, {
-              personality,
-            })]
+          ? [
+              input.codexControl.setConversationThreadSettings(input.activeThreadId, {
+                personality,
+              }),
+            ]
           : []),
       ]);
     },
@@ -246,32 +247,36 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
               draftId: projectDraftId,
             });
           } catch (error) {
-            await (input.cleanupThreadGoalMaterializedDraft
-              ?? cleanupMaterializedThreadGoalDraft)(threadGoalMaterializedDraft ?? null);
+            await (input.cleanupThreadGoalMaterializedDraft ?? cleanupMaterializedThreadGoalDraft)(
+              threadGoalMaterializedDraft ?? null,
+            );
             throw error;
           }
         } else if (projectId !== input.currentSessionProjectId) {
           try {
             targetSession = await input.onEnsureDefaultDraftSessionForProject(projectId);
           } catch (error) {
-            await (input.cleanupThreadGoalMaterializedDraft
-              ?? cleanupMaterializedThreadGoalDraft)(threadGoalMaterializedDraft ?? null);
+            await (input.cleanupThreadGoalMaterializedDraft ?? cleanupMaterializedThreadGoalDraft)(
+              threadGoalMaterializedDraft ?? null,
+            );
             throw error;
           }
         }
-        const projectlessWorkspace = projectId === null
-          ? await invoke("codex:projectless-thread-cwd", {
-              prompt,
-              createSplitDirectories: true,
-            })
-          : undefined;
+        const projectlessWorkspace =
+          projectId === null
+            ? await invoke("codex:projectless-thread-cwd", {
+                prompt,
+                createSplitDirectories: true,
+              })
+            : undefined;
         const targetSessionId = targetSession?.id ?? sessionId;
         const presentationOrigin = resolveBrowserUsePresentationOrigin(targetSessionId);
         try {
           await captureTurnOrigin(targetSessionId, targetSessionId, projectId);
         } catch (error) {
-          await (input.cleanupThreadGoalMaterializedDraft
-            ?? cleanupMaterializedThreadGoalDraft)(threadGoalMaterializedDraft ?? null);
+          await (input.cleanupThreadGoalMaterializedDraft ?? cleanupMaterializedThreadGoalDraft)(
+            threadGoalMaterializedDraft ?? null,
+          );
           throw error;
         }
         const result = await input.codexControl.startThreadForSession({
@@ -286,9 +291,7 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
           runInEnvironmentPath,
           worktreeStartingState,
           collaborationMode: input.selectedCollaborationMode,
-          ...(presentationOrigin
-            ? { browserUsePresentationOrigin: presentationOrigin }
-            : {}),
+          ...(presentationOrigin ? { browserUsePresentationOrigin: presentationOrigin } : {}),
         });
         if (projectDraftId && projectId !== null) {
           input.onCommitMaterializedProjectDraft?.({
@@ -335,17 +338,29 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
     ...(input.onOpenMcpAppSidePanel ? { onOpenMcpAppSidePanel: input.onOpenMcpAppSidePanel } : {}),
     ...(input.onOpenPlanInSidePanel ? { onOpenPlanInSidePanel: input.onOpenPlanInSidePanel } : {}),
     ...(input.onClosePlanSidePanel ? { onClosePlanSidePanel: input.onClosePlanSidePanel } : {}),
-    ...(input.onOpenSummarySideChatRow ? { onOpenSummarySideChatRow: input.onOpenSummarySideChatRow } : {}),
-    ...(input.onOpenSummaryBrowserRow ? { onOpenSummaryBrowserRow: input.onOpenSummaryBrowserRow } : {}),
-    ...(input.onOpenSummaryScheduledAutomation ? { onOpenSummaryScheduledAutomation: input.onOpenSummaryScheduledAutomation } : {}),
-    ...(input.onOpenSummaryOutputInSidePanel ? { onOpenSummaryOutputInSidePanel: input.onOpenSummaryOutputInSidePanel } : {}),
-    ...(input.onOpenSummaryGitReview ? { onOpenSummaryGitReview: input.onOpenSummaryGitReview } : {}),
+    ...(input.onOpenSummarySideChatRow
+      ? { onOpenSummarySideChatRow: input.onOpenSummarySideChatRow }
+      : {}),
+    ...(input.onOpenSummaryBrowserRow
+      ? { onOpenSummaryBrowserRow: input.onOpenSummaryBrowserRow }
+      : {}),
+    ...(input.onOpenSummaryScheduledAutomation
+      ? { onOpenSummaryScheduledAutomation: input.onOpenSummaryScheduledAutomation }
+      : {}),
+    ...(input.onOpenSummaryOutputInSidePanel
+      ? { onOpenSummaryOutputInSidePanel: input.onOpenSummaryOutputInSidePanel }
+      : {}),
+    ...(input.onOpenSummaryGitReview
+      ? { onOpenSummaryGitReview: input.onOpenSummaryGitReview }
+      : {}),
     onStartSummaryGitAction: async ({ action }) => {
       const threadId = requireActiveThreadId(input.activeThreadId, "Starting a Git action");
       await captureTurnOrigin(input.currentSessionId, threadId, input.projectId);
       await input.codexControl.startTurn(
         threadId,
-        action === "commit-or-push" ? GIT_ACTION_COMMIT_OR_PUSH_PROMPT : GIT_ACTION_CREATE_PR_PROMPT,
+        action === "commit-or-push"
+          ? GIT_ACTION_COMMIT_OR_PUSH_PROMPT
+          : GIT_ACTION_CREATE_PR_PROMPT,
         {
           ...(input.projectId === null ? {} : { projectId: input.projectId }),
           collaborationMode: input.selectedCollaborationMode,
@@ -353,8 +368,12 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       );
     },
     ...(input.onOpenProcessManager ? { onOpenProcessManager: input.onOpenProcessManager } : {}),
-    ...(input.onOpenBackgroundTerminalOutput ? { onOpenBackgroundTerminalOutput: input.onOpenBackgroundTerminalOutput } : {}),
-    ...(input.onToggleSummaryComputerUsePip ? { onToggleSummaryComputerUsePip: input.onToggleSummaryComputerUsePip } : {}),
+    ...(input.onOpenBackgroundTerminalOutput
+      ? { onOpenBackgroundTerminalOutput: input.onOpenBackgroundTerminalOutput }
+      : {}),
+    ...(input.onToggleSummaryComputerUsePip
+      ? { onToggleSummaryComputerUsePip: input.onToggleSummaryComputerUsePip }
+      : {}),
     ...(input.onRequestRenameThread ? { onRequestRenameThread: input.onRequestRenameThread } : {}),
     ...(input.onArchiveThread ? { onArchiveThread: input.onArchiveThread } : {}),
     ...(input.onToggleThreadPin ? { onToggleThreadPin: input.onToggleThreadPin } : {}),
@@ -396,13 +415,25 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       );
     },
     onRespondUserInput: async (requestId, answers, context) => {
-      await input.codexControl.respondUserInput(requestId, answers, context?.conversationId ?? null);
+      await input.codexControl.respondUserInput(
+        requestId,
+        answers,
+        context?.conversationId ?? null,
+      );
     },
     onRespondMcpElicitation: async (requestId, response, context) => {
-      await input.codexControl.respondMcpElicitation(requestId, response, context?.conversationId ?? null);
+      await input.codexControl.respondMcpElicitation(
+        requestId,
+        response,
+        context?.conversationId ?? null,
+      );
     },
     onRespondPermissionRequest: async (requestId, response, context) => {
-      await input.codexControl.respondPermissionRequest(requestId, response, context?.conversationId ?? null);
+      await input.codexControl.respondPermissionRequest(
+        requestId,
+        response,
+        context?.conversationId ?? null,
+      );
     },
     onRespondNodexAgentAuthorization: async (requestId, response, context) => {
       await input.codexControl.respondNodexAgentAuthorization(
@@ -490,17 +521,19 @@ export function createThreadStageActions(input: ThreadActionControllerInput): Th
       await input.codexControl.unarchiveThread(threadId, projectId);
       await input.onRefreshProjectSessions(projectId);
     },
-    ...(input.onOpenTurnDiffReview
-      ? { onOpenTurnDiffReview: input.onOpenTurnDiffReview }
-      : {}),
+    ...(input.onOpenTurnDiffReview ? { onOpenTurnDiffReview: input.onOpenTurnDiffReview } : {}),
     ...(input.onOpenHooksSettings ? { onOpenHooksSettings: input.onOpenHooksSettings } : {}),
-    ...(input.onOpenTurnDiffFileInSidePanel ? { onOpenTurnDiffFileInSidePanel: input.onOpenTurnDiffFileInSidePanel } : {}),
+    ...(input.onOpenTurnDiffFileInSidePanel
+      ? { onOpenTurnDiffFileInSidePanel: input.onOpenTurnDiffFileInSidePanel }
+      : {}),
     onConsumeComposerIntent: input.codexControl.consumeComposerIntent,
     onOpenThread: async (threadId, context) => {
       await input.onOpenThread(threadId, context);
     },
     onStopBackgroundAgents: async (threadIds) => {
-      await Promise.all(uniqueThreadIds(threadIds).map((threadId) => input.codexControl.interruptTurn(threadId)));
+      await Promise.all(
+        uniqueThreadIds(threadIds).map((threadId) => input.codexControl.interruptTurn(threadId)),
+      );
     },
     onCleanBackgroundTerminals: async (threadId) => {
       await input.codexControl.cleanBackgroundTerminals(threadId);

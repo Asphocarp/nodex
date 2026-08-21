@@ -7,17 +7,12 @@ import {
 } from "react";
 import { APP_SHELL_FLOATING_UI_LAYER_CLASS } from "@/lib/app-shell-layers";
 import { cn } from "@/lib/utils";
-import {
-  NodexFloatingLayerProvider,
-  useNodexFloatingLayerIndex,
-} from "./floating-layer";
+import { NodexFloatingLayerProvider, useNodexFloatingLayerIndex } from "./floating-layer";
 
 export const NODEX_FLOATING_SURFACE_DISMISS_EVENT = "codex:dismiss-tooltips";
 
-export const NODEX_FLOATING_SURFACE_AVAILABLE_WIDTH =
-  "--nodex-floating-surface-available-width";
-export const NODEX_FLOATING_SURFACE_AVAILABLE_HEIGHT =
-  "--nodex-floating-surface-available-height";
+export const NODEX_FLOATING_SURFACE_AVAILABLE_WIDTH = "--nodex-floating-surface-available-width";
+export const NODEX_FLOATING_SURFACE_AVAILABLE_HEIGHT = "--nodex-floating-surface-available-height";
 
 type FloatingSurfaceBoundaryStyle = CSSProperties & {
   [NODEX_FLOATING_SURFACE_AVAILABLE_WIDTH]?: string;
@@ -50,10 +45,7 @@ export function useNodexFloatingSurfaceGlobalDismissal(): void {
     if (globalDismissalLeaseCount === 1) {
       window.addEventListener("blur", dismissNodexFloatingSurfaces);
       window.addEventListener("pagehide", dismissNodexFloatingSurfaces);
-      document.addEventListener(
-        "visibilitychange",
-        dismissNodexFloatingSurfacesOnHiddenDocument,
-      );
+      document.addEventListener("visibilitychange", dismissNodexFloatingSurfacesOnHiddenDocument);
     }
 
     return () => {
@@ -93,25 +85,22 @@ export const nodexFloatingSurfaceBoundaryStyle: FloatingSurfaceBoundaryStyle = {
     "min(var(--nodex-floating-surface-available-height, calc(100vh - 16px)), calc(100vh - 16px))",
 };
 
-export const NodexFloatingSurface = forwardRef<
-  HTMLDivElement,
-  ComponentPropsWithoutRef<"div">
->(function NodexFloatingSurface({ children, className, style, ...props }, ref) {
-  const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
+export const NodexFloatingSurface = forwardRef<HTMLDivElement, ComponentPropsWithoutRef<"div">>(
+  function NodexFloatingSurface({ children, className, style, ...props }, ref) {
+    const layerIndex = useNodexFloatingLayerIndex(style?.zIndex);
 
-  return (
-    <div
-      ref={ref}
-      className={cn(nodexFloatingSurfaceClassName, className)}
-      style={{ ...nodexFloatingSurfaceBoundaryStyle, zIndex: layerIndex, ...style }}
-      {...props}
-    >
-      <NodexFloatingLayerProvider zIndex={layerIndex}>
-        {children}
-      </NodexFloatingLayerProvider>
-    </div>
-  );
-});
+    return (
+      <div
+        ref={ref}
+        className={cn(nodexFloatingSurfaceClassName, className)}
+        style={{ ...nodexFloatingSurfaceBoundaryStyle, zIndex: layerIndex, ...style }}
+        {...props}
+      >
+        <NodexFloatingLayerProvider zIndex={layerIndex}>{children}</NodexFloatingLayerProvider>
+      </div>
+    );
+  },
+);
 
 export function NodexFloatingSurfaceBody({
   children,
@@ -124,9 +113,7 @@ export function NodexFloatingSurfaceBody({
 }) {
   return (
     <div className="flex min-h-0 flex-1 items-center gap-2">
-      <div className={cn("flex min-h-0 min-w-0 w-full", className)}>
-        {children}
-      </div>
+      <div className={cn("flex min-h-0 min-w-0 w-full", className)}>{children}</div>
       {shortcut ? <span>{shortcut}</span> : null}
     </div>
   );

@@ -17,7 +17,7 @@ type CorePageDetail = components["schemas"]["LibraryPageDetail"];
 
 const record = (value: unknown): Readonly<Record<string, unknown>> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Readonly<Record<string, unknown>>
+    ? (value as Readonly<Record<string, unknown>>)
     : null;
 
 const requiredString = (value: unknown, label: string): string => {
@@ -67,9 +67,7 @@ const selectedProperties = (
   }
   return Object.fromEntries(
     propertyIds.flatMap((propertyId) =>
-      values.has(propertyId)
-        ? [[propertyId, { value: values.get(propertyId) }]]
-        : []
+      values.has(propertyId) ? [[propertyId, { value: values.get(propertyId) }]] : [],
     ),
   );
 };
@@ -134,17 +132,14 @@ export async function readNativeFetch(
       };
     }
     const detail = target.owner_page;
-    const preparesTitle = request.input.prepareFor?.some(
-      (entry) => entry.kind === "title",
-    ) ?? false;
-    const preparesBody = request.input.prepareFor?.some(
-      (entry) => entry.kind === "body",
-    ) ?? false;
+    const preparesTitle =
+      request.input.prepareFor?.some((entry) => entry.kind === "title") ?? false;
+    const preparesBody = request.input.prepareFor?.some((entry) => entry.kind === "body") ?? false;
     const blockGuards = (request.input.prepareFor ?? []).flatMap((entry) => {
       if (entry.kind !== "block_update" && entry.kind !== "block_delete") return [];
       return entry.blockIds.map((blockId) => ({
         block_id: blockId,
-        kind: entry.kind === "block_update" ? "update" as const : "delete" as const,
+        kind: entry.kind === "block_update" ? ("update" as const) : ("delete" as const),
       }));
     });
     const snapshotRead = await client.documentRead(
@@ -169,56 +164,52 @@ export async function readNativeFetch(
     }
     const snapshot = snapshotRead.value.snapshot;
     if (
-      snapshot.document_id !== target.document_id
-      || snapshot.owner_block_id !== target.owner_page_id
-      || snapshot.target_block_id !== target.block_id
-      || snapshot.generation !== target.document_generation
+      snapshot.document_id !== target.document_id ||
+      snapshot.owner_block_id !== target.owner_page_id ||
+      snapshot.target_block_id !== target.block_id ||
+      snapshot.generation !== target.document_generation
     ) {
       throw new Error("Core Agent fetch authorities diverged");
     }
     const format = request.input.format ?? "markdown";
-    const content = format === "summary"
-      ? {
-          format,
-          text: extractPlainText(snapshot.nested_markdown, 4_096),
-        }
-      : format === "blocks"
+    const content =
+      format === "summary"
         ? {
             format,
-            blocks: snapshot.blocks.map((block) => ({
-              id: block.block_id,
-              parentId: block.parent_block_id ?? null,
-              index: block.sibling_index,
-              depth: block.depth,
-              type: block.block_type,
-              props: block.props,
-              ...(block.content === undefined ? {} : { content: block.content }),
-              ...(block.etag ? { etag: block.etag } : {}),
-            })),
+            text: extractPlainText(snapshot.nested_markdown, 4_096),
           }
-        : {
-            format,
-            markdown: snapshot.nested_markdown,
-            contentHash: createHash("sha256")
-              .update(snapshot.nested_markdown)
-              .digest("hex"),
-            ...(snapshot.body_etag ? { etag: snapshot.body_etag } : {}),
-          };
+        : format === "blocks"
+          ? {
+              format,
+              blocks: snapshot.blocks.map((block) => ({
+                id: block.block_id,
+                parentId: block.parent_block_id ?? null,
+                index: block.sibling_index,
+                depth: block.depth,
+                type: block.block_type,
+                props: block.props,
+                ...(block.content === undefined ? {} : { content: block.content }),
+                ...(block.etag ? { etag: block.etag } : {}),
+              })),
+            }
+          : {
+              format,
+              markdown: snapshot.nested_markdown,
+              contentHash: createHash("sha256").update(snapshot.nested_markdown).digest("hex"),
+              ...(snapshot.body_etag ? { etag: snapshot.body_etag } : {}),
+            };
     const ownsDocument = target.block_id === target.owner_page_id;
     const title = ownsDocument
       ? {
-          markdown: serializeInlineMarkdownTitle(
-            canonicalizePortableRichText(snapshot.rich_title),
-          ),
+          markdown: serializeInlineMarkdownTitle(canonicalizePortableRichText(snapshot.rich_title)),
           ...(snapshot.title_etag ? { etag: snapshot.title_etag } : {}),
         }
       : undefined;
     const properties = ownsDocument
       ? selectedProperties(detail, request.input.propertyIds)
       : undefined;
-    const membership = ownsDocument && request.input.includeDataSource !== false
-      ? dataSource(detail)
-      : undefined;
+    const membership =
+      ownsDocument && request.input.includeDataSource !== false ? dataSource(detail) : undefined;
     return {
       ok: true,
       tool: "fetch",
@@ -226,9 +217,10 @@ export async function readNativeFetch(
         data: {
           resource: {
             id: target.block_id,
-            pageKey: ownsDocument && detail.data_source_context.kind === "member"
-              ? detail.data_source_context.page_key ?? null
-              : null,
+            pageKey:
+              ownsDocument && detail.data_source_context.kind === "member"
+                ? (detail.data_source_context.page_key ?? null)
+                : null,
             type: target.block_type,
             ...(title ? { title } : {}),
             lifecycle: target.lifecycle,
@@ -244,9 +236,7 @@ export async function readNativeFetch(
           ? {
               page: {
                 hasMore: snapshot.has_more,
-                ...(snapshot.next_cursor
-                  ? { nextCursor: snapshot.next_cursor }
-                  : {}),
+                ...(snapshot.next_cursor ? { nextCursor: snapshot.next_cursor } : {}),
               },
             }
           : {}),

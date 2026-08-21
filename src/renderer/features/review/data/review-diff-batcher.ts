@@ -1,8 +1,4 @@
-import type {
-  ReviewDiffEntry,
-  ReviewDiffRequest,
-  ReviewDiffResult,
-} from "@/lib/types";
+import type { ReviewDiffEntry, ReviewDiffRequest, ReviewDiffResult } from "@/lib/types";
 import { recordReviewRuntimeEvent } from "@/features/review/testing/review-runtime-probe";
 import type { GitWorkerQueryClient } from "./git-query";
 
@@ -84,10 +80,7 @@ async function invokeReviewDiffGroup(
     settledWaiters.add(waiter);
     waiter.reject(error);
   };
-  const resolveWaiter = (
-    waiter: ReviewDiffWaiter,
-    entry: ReviewDiffEntry | null,
-  ) => {
+  const resolveWaiter = (waiter: ReviewDiffWaiter, entry: ReviewDiffEntry | null) => {
     if (settledWaiters.has(waiter)) return;
     settledWaiters.add(waiter);
     waiter.resolve(entry);

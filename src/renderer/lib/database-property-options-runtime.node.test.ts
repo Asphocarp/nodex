@@ -6,10 +6,18 @@ import {
 
 describe("Property option registry pagination", () => {
   test("appends pages in authority order and refreshes duplicate identities", () => {
-    expect(mergePropertyOptionPages(
-      [{ id: "one", name: "One" }, { id: "two", name: "Old" }],
-      [{ id: "two", name: "Two" }, { id: "three", name: "Three" }],
-    )).toEqual([
+    expect(
+      mergePropertyOptionPages(
+        [
+          { id: "one", name: "One" },
+          { id: "two", name: "Old" },
+        ],
+        [
+          { id: "two", name: "Two" },
+          { id: "three", name: "Three" },
+        ],
+      ),
+    ).toEqual([
       { id: "one", name: "One" },
       { id: "two", name: "Two" },
       { id: "three", name: "Three" },

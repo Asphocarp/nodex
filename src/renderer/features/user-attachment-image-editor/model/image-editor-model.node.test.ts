@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  formatImageCommentPercent,
-  serializeImageCommentGroups,
-} from "./comment-serialization";
+import { formatImageCommentPercent, serializeImageCommentGroups } from "./comment-serialization";
 import {
   normalizeUserAttachmentImageEditorOptions,
   resolveImageInputSupport,
@@ -52,10 +49,7 @@ import {
   redoRemoveStroke,
   undoRemoveStroke,
 } from "./remove-mask";
-import type {
-  EditableImageDescriptor,
-  GeneratedImageDescriptor,
-} from "./types";
+import type { EditableImageDescriptor, GeneratedImageDescriptor } from "./types";
 
 function makeImage(
   id: string,
@@ -89,32 +83,36 @@ function makeGeneratedImage(
 describe("image preview policy", () => {
   test("rejects only a known model that omits image input", () => {
     const catalog = {
-      providers: [{
-        id: "text-provider",
-        displayName: "Text provider",
-        description: null,
-        wireApi: "responses" as const,
-        credentialStatus: "ready" as const,
-        supportedByNodex: true,
-        isDefault: true,
-        credentialEnvKey: null,
-        recommendedHarnessId: null,
-        models: [{
-          providerId: "text-provider",
-          modelId: "text-only",
-          displayName: "Text only",
+      providers: [
+        {
+          id: "text-provider",
+          displayName: "Text provider",
           description: null,
-          hidden: false,
+          wireApi: "responses" as const,
+          credentialStatus: "ready" as const,
+          supportedByNodex: true,
           isDefault: true,
+          credentialEnvKey: null,
           recommendedHarnessId: null,
-          supportedReasoningEfforts: [],
-          defaultReasoningEffort: null,
-          supportedServiceTiers: [],
-          defaultServiceTier: null,
-          inputCapabilities: ["text" as const],
-          switchPolicy: "same-thread" as const,
-        }],
-      }],
+          models: [
+            {
+              providerId: "text-provider",
+              modelId: "text-only",
+              displayName: "Text only",
+              description: null,
+              hidden: false,
+              isDefault: true,
+              recommendedHarnessId: null,
+              supportedReasoningEfforts: [],
+              defaultReasoningEffort: null,
+              supportedServiceTiers: [],
+              defaultServiceTier: null,
+              inputCapabilities: ["text" as const],
+              switchPolicy: "same-thread" as const,
+            },
+          ],
+        },
+      ],
     };
     const executionProfile = {
       providerId: "text-provider",
@@ -516,31 +514,36 @@ describe("remove-mask model", () => {
 
 describe("generated-image collection", () => {
   test("formats group time at the presentation boundary and resolves ring ownership", () => {
-    expect(formatGeneratedImageGroupTime(
-      Date.UTC(2026, 7, 14, 3, 30),
-      "en-US",
-    )).toContain("Aug 14, 2026");
-    expect(isGeneratedImageTileEmphasized({
-      active: true,
-      commentCount: 0,
-      draftActive: false,
-      selected: false,
-      tool: "navigate",
-    })).toBe(true);
-    expect(isGeneratedImageTileEmphasized({
-      active: true,
-      commentCount: 0,
-      draftActive: false,
-      selected: false,
-      tool: "select",
-    })).toBe(false);
-    expect(isGeneratedImageTileEmphasized({
-      active: false,
-      commentCount: 1,
-      draftActive: false,
-      selected: false,
-      tool: "comment",
-    })).toBe(true);
+    expect(formatGeneratedImageGroupTime(Date.UTC(2026, 7, 14, 3, 30), "en-US")).toContain(
+      "Aug 14, 2026",
+    );
+    expect(
+      isGeneratedImageTileEmphasized({
+        active: true,
+        commentCount: 0,
+        draftActive: false,
+        selected: false,
+        tool: "navigate",
+      }),
+    ).toBe(true);
+    expect(
+      isGeneratedImageTileEmphasized({
+        active: true,
+        commentCount: 0,
+        draftActive: false,
+        selected: false,
+        tool: "select",
+      }),
+    ).toBe(false);
+    expect(
+      isGeneratedImageTileEmphasized({
+        active: false,
+        commentCount: 1,
+        draftActive: false,
+        selected: false,
+        tool: "comment",
+      }),
+    ).toBe(true);
   });
 
   test("resolves an optimistic edit from its captured live-tail position", () => {
@@ -568,10 +571,12 @@ describe("generated-image collection", () => {
       optimisticImageId: optimistic.id,
       previousImageId: previous.id,
     });
-    expect(resolveGeneratedImageOptimisticFocus({
-      focus,
-      groups: [{ id: "turn-1", images: [previous, appended] }],
-    })).toBe(appended.id);
+    expect(
+      resolveGeneratedImageOptimisticFocus({
+        focus,
+        groups: [{ id: "turn-1", images: [previous, appended] }],
+      }),
+    ).toBe(appended.id);
   });
 
   test("falls back to the newest ready group when the captured tail is replaced", () => {
@@ -590,13 +595,15 @@ describe("generated-image collection", () => {
       groupId: "turn-2",
     });
 
-    expect(resolveGeneratedImageOptimisticFocus({
-      focus,
-      groups: [
-        { id: "turn-1", images: [previous] },
-        { id: "turn-2", images: [replacement] },
-      ],
-    })).toBe(replacement.id);
+    expect(
+      resolveGeneratedImageOptimisticFocus({
+        focus,
+        groups: [
+          { id: "turn-1", images: [previous] },
+          { id: "turn-2", images: [replacement] },
+        ],
+      }),
+    ).toBe(replacement.id);
   });
 
   test("replaces optimistic identity, removes stale selection, and keeps stable order", () => {
@@ -605,11 +612,7 @@ describe("generated-image collection", () => {
     });
     const generated = makeGeneratedImage("generated-2");
     const state = reconcileGeneratedImageCollection({
-      nextImages: [
-        optimistic,
-        generated,
-        { ...generated, alt: "Latest metadata" },
-      ],
+      nextImages: [optimistic, generated, { ...generated, alt: "Latest metadata" }],
       previous: {
         activeImageId: optimistic.id,
         images: [optimistic],
@@ -623,10 +626,7 @@ describe("generated-image collection", () => {
 
     expect(state.activeImageId).toBe(generated.id);
     expect(state.selectedImageIds).toEqual([generated.id]);
-    expect(state.images.map((image) => image.id)).toEqual([
-      optimistic.id,
-      generated.id,
-    ]);
+    expect(state.images.map((image) => image.id)).toEqual([optimistic.id, generated.id]);
     expect(state.images[1]?.alt).toBe("Latest metadata");
   });
 
@@ -701,14 +701,8 @@ describe("image-edit submission intents", () => {
     });
 
     expect(intent.promptRaw).toBe(IMAGE_REMOVE_PROMPT);
-    expect(intent.attachmentIds).toEqual([
-      "original-attachment",
-      "mask-attachment",
-    ]);
-    expect(intent.attachments.map((attachment) => attachment.role)).toEqual([
-      "original",
-      "mask",
-    ]);
+    expect(intent.attachmentIds).toEqual(["original-attachment", "mask-attachment"]);
+    expect(intent.attachments.map((attachment) => attachment.role)).toEqual(["original", "mask"]);
     expect(intent.analytics.selectedImageCount).toBe(1);
   });
 
@@ -719,9 +713,7 @@ describe("image-edit submission intents", () => {
       commentedImages: [
         { comments: [], image: first },
         {
-          comments: [
-            { id: "comment-1", text: "Brighten this", x: 0.25, y: 0.75 },
-          ],
+          comments: [{ id: "comment-1", text: "Brighten this", x: 0.25, y: 0.75 }],
           image: second,
         },
       ],
@@ -733,10 +725,7 @@ describe("image-edit submission intents", () => {
     expect(intent.promptRaw).toBe(
       "Image 2:\n1. (x: 25%, y: 75%) Brighten this\n\nAdditional instructions:\nKeep the composition",
     );
-    expect(intent.attachmentIds).toEqual([
-      "first-attachment",
-      "second-attachment",
-    ]);
+    expect(intent.attachmentIds).toEqual(["first-attachment", "second-attachment"]);
     expect(intent.analytics).toEqual({
       commentCount: 1,
       hasGeneralInstruction: true,
@@ -752,10 +741,7 @@ describe("image-edit submission intents", () => {
 
     expect(intent.mode).toBe("select");
     expect(intent.promptRaw).toBe("");
-    expect(intent.attachmentIds).toEqual([
-      "second-attachment",
-      "fourth-attachment",
-    ]);
+    expect(intent.attachmentIds).toEqual(["second-attachment", "fourth-attachment"]);
     expect(intent.analytics).toEqual({
       hasGeneralInstruction: false,
       selectedImageCount: 2,

@@ -47,8 +47,11 @@ describe("Git review read wave stress", () => {
     await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
     const bulk = path.join(root, "bulk");
     await mkdir(bulk);
-    await Promise.all(Array.from({ length: 270 }, (_, index) =>
-      writeFile(path.join(bulk, `file-${index}.txt`), `${index}\n`, "utf8")));
+    await Promise.all(
+      Array.from({ length: 270 }, (_, index) =>
+        writeFile(path.join(bulk, `file-${index}.txt`), `${index}\n`, "utf8"),
+      ),
+    );
 
     const metrics: GitPerformanceOperationMetric[] = [];
     const module = new GitWorkerModule({
@@ -90,14 +93,8 @@ describe("Git review read wave stress", () => {
         fileCount: 270,
         untrackedFilesOmitted: 14,
       });
-      expect(metrics.reduce(
-        (total, metric) => total + metric.fullUntrackedScanCount,
-        0,
-      )).toBe(1);
-      expect(metrics.reduce(
-        (total, metric) => total + metric.unscopedAllStatusCount,
-        0,
-      )).toBe(0);
+      expect(metrics.reduce((total, metric) => total + metric.fullUntrackedScanCount, 0)).toBe(1);
+      expect(metrics.reduce((total, metric) => total + metric.unscopedAllStatusCount, 0)).toBe(0);
       expect(Math.max(...metrics.map((metric) => metric.peakConcurrency))).toBe(1);
       expect(metrics.some((metric) => metric.coalescedQueries > 0)).toBe(true);
     } finally {

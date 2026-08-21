@@ -24,13 +24,17 @@ export const WindowSessionBoundsSchema = z.object({
 }) satisfies z.ZodType<WindowSessionBounds>;
 
 export const WindowSessionLifecycleSchema = z.discriminatedUnion("state", [
-  z.object({
-    state: z.literal("open"),
-  }).strict(),
-  z.object({
-    state: z.literal("closed"),
-    closedAt: z.string().min(1),
-  }).strict(),
+  z
+    .object({
+      state: z.literal("open"),
+    })
+    .strict(),
+  z
+    .object({
+      state: z.literal("closed"),
+      closedAt: z.string().min(1),
+    })
+    .strict(),
 ]) satisfies z.ZodType<WindowSessionLifecycle>;
 
 export const WindowSessionRecordSchema = z.object({
@@ -50,34 +54,44 @@ export const WindowSessionCatalogSchema = z.object({
   sessions: z.array(WindowSessionRecordSchema),
 }) satisfies z.ZodType<WindowSessionCatalog>;
 
-const LegacyWindowSessionRecordV2Schema = z.object({
-  id: z.string().min(1),
-  layoutRevision: z.number().int().nonnegative(),
-  layout: WorkbenchLayoutSnapshotSchema,
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  focusedAt: z.string(),
-  bounds: WindowSessionBoundsSchema.optional().catch(undefined),
-}).strict();
-
-export const LegacyWindowSessionCatalogV2Schema = z.object({
-  version: z.literal(2),
-  lastActiveSessionId: z.string().min(1),
-  sessions: z.array(LegacyWindowSessionRecordV2Schema),
-}).strict();
-
-export const LegacyWindowSessionCatalogV1Schema = z.object({
-  version: z.literal(1),
-  lastActiveSessionId: z.string().min(1),
-  sessions: z.array(z.object({
+const LegacyWindowSessionRecordV2Schema = z
+  .object({
     id: z.string().min(1),
+    layoutRevision: z.number().int().nonnegative(),
     layout: WorkbenchLayoutSnapshotSchema,
     createdAt: z.string(),
     updatedAt: z.string(),
     focusedAt: z.string(),
     bounds: WindowSessionBoundsSchema.optional().catch(undefined),
-  }).strict()),
-}).strict();
+  })
+  .strict();
+
+export const LegacyWindowSessionCatalogV2Schema = z
+  .object({
+    version: z.literal(2),
+    lastActiveSessionId: z.string().min(1),
+    sessions: z.array(LegacyWindowSessionRecordV2Schema),
+  })
+  .strict();
+
+export const LegacyWindowSessionCatalogV1Schema = z
+  .object({
+    version: z.literal(1),
+    lastActiveSessionId: z.string().min(1),
+    sessions: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          layout: WorkbenchLayoutSnapshotSchema,
+          createdAt: z.string(),
+          updatedAt: z.string(),
+          focusedAt: z.string(),
+          bounds: WindowSessionBoundsSchema.optional().catch(undefined),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
 
 export const WindowSessionBootstrapSchema = z.object({
   session: WindowSessionRecordSchema,

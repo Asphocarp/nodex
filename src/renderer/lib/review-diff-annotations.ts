@@ -103,16 +103,19 @@ export function buildReviewDiffCommentAttachment(input: {
     ? mapReviewDiffAnnotationSideToPositionSide(input.draft.startSide)
     : undefined;
   const hasRange = Boolean(
-    input.draft.startLine
-      && (input.draft.startLine !== input.draft.lineNumber || input.draft.startSide && input.draft.startSide !== input.draft.side),
+    input.draft.startLine &&
+    (input.draft.startLine !== input.draft.lineNumber ||
+      (input.draft.startSide && input.draft.startSide !== input.draft.side)),
   );
   return {
     id: input.id,
     type: "comment",
-    content: [{
-      content_type: "text",
-      text: input.text.trim(),
-    }],
+    content: [
+      {
+        content_type: "text",
+        text: input.text.trim(),
+      },
+    ],
     position: {
       side: endPositionSide,
       path: input.draft.path,
@@ -177,8 +180,9 @@ export function readReviewDiffDraftStorage(scope: string): Record<string, string
     const scoped = (parsed as Record<string, unknown>)[scope];
     if (!scoped || typeof scoped !== "object" || Array.isArray(scoped)) return {};
     return Object.fromEntries(
-      Object.entries(scoped)
-        .filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+      Object.entries(scoped).filter(
+        (entry): entry is [string, string] => typeof entry[1] === "string",
+      ),
     );
   } catch {
     return {};
@@ -189,10 +193,11 @@ export function writeReviewDiffDraftStorage(scope: string, drafts: Record<string
   if (typeof window === "undefined") return;
   try {
     const raw = window.localStorage.getItem(REVIEW_DIFF_COMMENT_DRAFTS_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) as unknown : {};
-    const root = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed as Record<string, unknown>
-      : {};
+    const parsed = raw ? (JSON.parse(raw) as unknown) : {};
+    const root =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : {};
     const next = {
       ...root,
       [scope]: drafts,

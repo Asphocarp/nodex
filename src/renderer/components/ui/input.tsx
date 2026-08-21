@@ -8,17 +8,16 @@ const nodexFormInputClassName = cn(
   "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
-export const Input = React.forwardRef<
-  HTMLInputElement,
-  React.ComponentPropsWithoutRef<"input">
->(function Input({ className, type, ...props }, ref) {
-  return (
-    <input
-      ref={ref}
-      type={type}
-      data-slot="input"
-      className={cn(nodexFormInputClassName, className)}
-      {...props}
-    />
-  );
-});
+export const Input = React.forwardRef<HTMLInputElement, React.ComponentPropsWithoutRef<"input">>(
+  function Input({ className, type, ...props }, ref) {
+    return (
+      <input
+        ref={ref}
+        type={type}
+        data-slot="input"
+        className={cn(nodexFormInputClassName, className)}
+        {...props}
+      />
+    );
+  },
+);

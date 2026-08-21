@@ -47,8 +47,8 @@ export function shouldUseOpaqueElectronWindowSurface(
   const shortEdge = Math.min(physicalWidth, physicalHeight);
 
   return (
-    longEdge >= CODEX_ELECTRON_OPAQUE_LONG_EDGE_PHYSICAL_PX
-    && shortEdge >= CODEX_ELECTRON_OPAQUE_SHORT_EDGE_PHYSICAL_PX
+    longEdge >= CODEX_ELECTRON_OPAQUE_LONG_EDGE_PHYSICAL_PX &&
+    shortEdge >= CODEX_ELECTRON_OPAQUE_SHORT_EDGE_PHYSICAL_PX
   );
 }
 

@@ -10,15 +10,13 @@ import {
   UpArrowIcon,
 } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
-import {
-  CONTENT_SEARCH_INPUT_ID,
-  type ContentSearchDomain,
-} from "./content-search-model";
+import { CONTENT_SEARCH_INPUT_ID, type ContentSearchDomain } from "./content-search-model";
 import { useContentSearch } from "./content-search-context";
 
 const DOMAIN_BUTTON_CLASS =
   "-m-0.5 flex size-6 items-center justify-center rounded-full text-token-description-foreground transition-colors hover:bg-token-foreground/5 disabled:cursor-default disabled:opacity-40";
-const ACTIVE_DOMAIN_BUTTON_CLASS = "bg-token-foreground/8 text-token-foreground hover:bg-token-foreground/10";
+const ACTIVE_DOMAIN_BUTTON_CLASS =
+  "bg-token-foreground/8 text-token-foreground hover:bg-token-foreground/10";
 const NAV_BUTTON_CLASS =
   "flex size-6 items-center justify-center rounded-full text-token-description-foreground transition-colors hover:bg-token-foreground/5 disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent";
 const NAV_ROW_BASE_CLASS =
@@ -80,7 +78,11 @@ function useDialogOverlaySuppressed(open: boolean): boolean {
     }
 
     const updateSuppressed = () => {
-      setSuppressed(Boolean(document.querySelector(".codex-dialog-overlay, [data-slot='codex-dialog-overlay']")));
+      setSuppressed(
+        Boolean(
+          document.querySelector(".codex-dialog-overlay, [data-slot='codex-dialog-overlay']"),
+        ),
+      );
     };
     updateSuppressed();
 
@@ -164,12 +166,12 @@ export function ContentSearchSurfaceView({
           })}
           {hasBrowserTarget
             ? renderDomainButton({
-              domain: "browser",
-              activeDomain: domain,
-              label: "Search browser page",
-              onDomainChange,
-              children: <GlobeIcon className="size-4" />,
-            })
+                domain: "browser",
+                activeDomain: domain,
+                label: "Search browser page",
+                onDomainChange,
+                children: <GlobeIcon className="size-4" />,
+              })
             : null}
         </div>
 
@@ -185,7 +187,12 @@ export function ContentSearchSurfaceView({
           </button>
         </div>
 
-        <div className={cn(NAV_ROW_BASE_CLASS, navRowVisible ? NAV_ROW_VISIBLE_CLASS : NAV_ROW_HIDDEN_CLASS)}>
+        <div
+          className={cn(
+            NAV_ROW_BASE_CLASS,
+            navRowVisible ? NAV_ROW_VISIBLE_CLASS : NAV_ROW_HIDDEN_CLASS,
+          )}
+        >
           <div className="flex items-center gap-1">
             <button
               type="button"

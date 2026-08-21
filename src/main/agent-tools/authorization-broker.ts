@@ -48,8 +48,7 @@ export interface NodexAgentAuthorizationPresentationTarget {
   readonly turnId: string;
 }
 
-export interface AuthorizeNodexAgentAccessInput
-  extends NodexAgentDynamicAuthorizationInput {
+export interface AuthorizeNodexAgentAccessInput extends NodexAgentDynamicAuthorizationInput {
   readonly rootThreadId: string;
   readonly authority: FrozenNodexAgentTurnAuthority;
   readonly presentation: NodexAgentAuthorizationPresentationTarget | null;
@@ -64,11 +63,12 @@ function parseResponse(value: unknown): NodexAgentAuthorizationResponse | null {
   if (typeof value !== "object" || value === null) return null;
   const decision = (value as { readonly decision?: unknown }).decision;
   if (
-    decision !== "allow_once"
-    && decision !== "allow_task"
-    && decision !== "allow_project"
-    && decision !== "deny"
-  ) return null;
+    decision !== "allow_once" &&
+    decision !== "allow_task" &&
+    decision !== "allow_project" &&
+    decision !== "deny"
+  )
+    return null;
   return { decision };
 }
 
@@ -77,9 +77,7 @@ export class NodexAgentAuthorizationBroker {
   private readonly sessionEpoch: string;
   private readonly now: () => number;
   private readonly readStoreEpoch: () => string | null;
-  private readonly persistProjectGrants: NodexAgentAuthorizationBrokerOptions[
-    "persistProjectGrants"
-  ];
+  private readonly persistProjectGrants: NodexAgentAuthorizationBrokerOptions["persistProjectGrants"];
   private readonly grants = new Map<string, NodexAgentAuthorizationGrant>();
 
   constructor(options: NodexAgentAuthorizationBrokerOptions) {
@@ -90,10 +88,7 @@ export class NodexAgentAuthorizationBroker {
     this.persistProjectGrants = options.persistProjectGrants;
   }
 
-  hasGrant(input: {
-    readonly rootThreadId: string;
-    readonly projectId: string;
-  }): boolean {
+  hasGrant(input: { readonly rootThreadId: string; readonly projectId: string }): boolean {
     const storeEpoch = this.readStoreEpoch();
     if (!storeEpoch) {
       this.revokeAll();
@@ -112,16 +107,14 @@ export class NodexAgentAuthorizationBroker {
       this.revokeAll();
       return undefined;
     }
-    this.revokeStaleRootGrants(
-      authority.rootThreadId,
-      authority.actorProjectId,
-      storeEpoch,
+    this.revokeStaleRootGrants(authority.rootThreadId, authority.actorProjectId, storeEpoch);
+    const grant = this.grants.get(
+      this.grantKey({
+        rootThreadId: authority.rootThreadId,
+        projectId: authority.actorProjectId,
+        storeEpoch,
+      }),
     );
-    const grant = this.grants.get(this.grantKey({
-      rootThreadId: authority.rootThreadId,
-      projectId: authority.actorProjectId,
-      storeEpoch,
-    }));
     if (!grant || grant.libraryId !== authority.libraryId) return undefined;
     return this.taskOverlay(authority, grant.grants);
   }
@@ -142,23 +135,18 @@ export class NodexAgentAuthorizationBroker {
     if (!existing) return;
     this.grants.set(key, {
       ...existing,
-      grants: canonicalizeNodexAgentResourceGrantSpecs([
-        ...existing.grants,
-        ...grants,
-      ]),
+      grants: canonicalizeNodexAgentResourceGrantSpecs([...existing.grants, ...grants]),
     });
   }
 
-  async authorize(
-    input: AuthorizeNodexAgentAccessInput,
-  ): Promise<NodexAgentAuthorizationOutcome> {
+  async authorize(input: AuthorizeNodexAgentAccessInput): Promise<NodexAgentAuthorizationOutcome> {
     const storeEpoch = this.readStoreEpoch();
     if (
-      !storeEpoch
-      || storeEpoch !== input.authority.storeEpoch
-      || input.authority.scope !== "project"
-      || input.rootThreadId !== input.authority.rootThreadId
-      || input.projectId !== input.authority.actorProjectId
+      !storeEpoch ||
+      storeEpoch !== input.authority.storeEpoch ||
+      input.authority.scope !== "project" ||
+      input.rootThreadId !== input.authority.rootThreadId ||
+      input.projectId !== input.authority.actorProjectId
     ) {
       if (!storeEpoch) this.revokeAll();
       return "unavailable";
@@ -193,10 +181,10 @@ export class NodexAgentAuthorizationBroker {
     if (!response) return "unavailable";
     if (response.decision === "deny") return "deny";
     if (
-      this.readStoreEpoch() !== storeEpoch
-      || (input.isAuthorityCurrent
-        && !(await input.isAuthorityCurrent()))
-    ) return "unavailable";
+      this.readStoreEpoch() !== storeEpoch ||
+      (input.isAuthorityCurrent && !(await input.isAuthorityCurrent()))
+    )
+      return "unavailable";
 
     if (response.decision === "allow_once") {
       return {
@@ -242,11 +230,9 @@ export class NodexAgentAuthorizationBroker {
       try {
         await this.persistProjectGrants({
           operationId: `nodex-agent-grants:${createHash("sha256")
-            .update(JSON.stringify([
-              input.authority.threadId,
-              input.authority.turnId,
-              input.callId,
-            ]))
+            .update(
+              JSON.stringify([input.authority.threadId, input.authority.turnId, input.callId]),
+            )
             .digest("hex")}`,
           authority: input.authority,
           grants: persistable,
@@ -256,10 +242,10 @@ export class NodexAgentAuthorizationBroker {
       }
     }
     if (
-      this.readStoreEpoch() !== storeEpoch
-      || (input.isAuthorityCurrent
-        && !(await input.isAuthorityCurrent()))
-    ) return "unavailable";
+      this.readStoreEpoch() !== storeEpoch ||
+      (input.isAuthorityCurrent && !(await input.isAuthorityCurrent()))
+    )
+      return "unavailable";
 
     const taskAccess = this.getTaskAccess(input.authority);
     const nonPersistable = input.requirements
@@ -333,11 +319,7 @@ export class NodexAgentAuthorizationBroker {
     };
   }
 
-  private revokeStaleRootGrants(
-    rootThreadId: string,
-    projectId: string,
-    storeEpoch: string,
-  ): void {
+  private revokeStaleRootGrants(rootThreadId: string, projectId: string, storeEpoch: string): void {
     for (const [key, grant] of this.grants) {
       if (grant.storeEpoch !== storeEpoch) {
         this.grants.delete(key);

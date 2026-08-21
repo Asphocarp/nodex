@@ -6,10 +6,7 @@ import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import type { CodexSidebarThreadItem, Project } from "@/lib/types";
 import { renderWithMaitai as render } from "../../test/dom";
 import { TestQueryProvider } from "../../test/query";
-import {
-  CodexProjectRow,
-  CodexSidebarThreadRow,
-} from "./codex-sidebar";
+import { CodexProjectRow, CodexSidebarThreadRow } from "./codex-sidebar";
 import {
   SidebarThreadReorderRows,
   SidebarThreadSortableRows,
@@ -66,11 +63,7 @@ const THREAD: CodexSidebarThreadItem = {
   disabled: false,
 };
 
-function ThreadReorderHarness({
-  onCommit,
-}: {
-  onCommit: (nextThreadKeys: string[]) => void;
-}) {
+function ThreadReorderHarness({ onCommit }: { onCommit: (nextThreadKeys: string[]) => void }) {
   const [threadKeys, setThreadKeys] = useState(["alpha", "beta"]);
   return (
     <SidebarReorderDndProvider>
@@ -102,11 +95,7 @@ function ThreadReorderHarness({
   );
 }
 
-function SessionReorderHarness({
-  onCommit,
-}: {
-  onCommit: (orderedSessionIds: string[]) => void;
-}) {
+function SessionReorderHarness({ onCommit }: { onCommit: (orderedSessionIds: string[]) => void }) {
   const [threadKeys, setThreadKeys] = useState(["chat", "draft"]);
   const sessionIdByThreadKey = new Map([
     ["chat", "session-chat"],
@@ -115,10 +104,12 @@ function SessionReorderHarness({
   const reorder = useSidebarThreadReorderController({
     visibleThreadKeys: threadKeys,
     onVisibleThreadOrderChange: async ({ nextVisibleThreadKeys }) => {
-      onCommit(nextVisibleThreadKeys.flatMap((threadKey) => {
-        const sessionId = sessionIdByThreadKey.get(threadKey);
-        return sessionId ? [sessionId] : [];
-      }));
+      onCommit(
+        nextVisibleThreadKeys.flatMap((threadKey) => {
+          const sessionId = sessionIdByThreadKey.get(threadKey);
+          return sessionId ? [sessionId] : [];
+        }),
+      );
       setThreadKeys(nextVisibleThreadKeys);
     },
   });
@@ -156,16 +147,21 @@ function SessionReorderHarness({
   );
 }
 
-function SemanticThreadRows({
-  threadKeys,
-}: {
-  threadKeys: string[];
-}) {
+function SemanticThreadRows({ threadKeys }: { threadKeys: string[] }) {
   const pendingDrops = usePendingSidebarThreadDrops();
-  const canonicalLanes = useMemo(() => new Map([["project:alpha", {
-    projectionRevision: 2,
-    threadIds: threadKeys.map((threadKey) => `thread-${threadKey}`),
-  }]]), [threadKeys]);
+  const canonicalLanes = useMemo(
+    () =>
+      new Map([
+        [
+          "project:alpha",
+          {
+            projectionRevision: 2,
+            threadIds: threadKeys.map((threadKey) => `thread-${threadKey}`),
+          },
+        ],
+      ]),
+    [threadKeys],
+  );
   useReportSidebarThreadCanonicalLanes(canonicalLanes);
   const optimisticThreadKeys = resolveSidebarThreadKeysWithPendingDrops({
     containerId: "project:alpha",
@@ -404,9 +400,7 @@ describe("sidebar thread reorder in Chromium", () => {
     const styleObserver = new MutationObserver((records) => {
       for (const record of records) {
         postDropStyleMutations.push(record.oldValue ?? "");
-        postDropStyleMutations.push(
-          (record.target as HTMLElement).getAttribute("style") ?? "",
-        );
+        postDropStyleMutations.push((record.target as HTMLElement).getAttribute("style") ?? "");
       }
     });
 
@@ -465,8 +459,7 @@ describe("sidebar thread reorder in Chromium", () => {
         expect(committedOrders).toEqual([["beta", "alpha"]]);
         expect(readRenderedThreadKeys(list)).toEqual(["beta", "alpha"]);
       });
-      const movedRow = view.getByTestId("thread-beta")
-        .closest<HTMLElement>("[role='listitem']");
+      const movedRow = view.getByTestId("thread-beta").closest<HTMLElement>("[role='listitem']");
       expect(movedRow).not.toBeNull();
       expect(movedRow).toBe(sourceSortableRow);
       expect(postDropStyleMutations).toEqual([]);
@@ -494,10 +487,13 @@ describe("sidebar thread reorder in Chromium", () => {
     });
     const drops: SidebarThreadDropRequest[] = [];
     const view = render(
-      <SemanticThreadReorderHarness beforeCanonicalCommit={canonicalCommit} onDrop={async (drop) => {
-        drops.push(drop);
-        await commit;
-      }} />,
+      <SemanticThreadReorderHarness
+        beforeCanonicalCommit={canonicalCommit}
+        onDrop={async (drop) => {
+          drops.push(drop);
+          await commit;
+        }}
+      />,
     );
     const list = view.getByRole("list", { name: "Canonical Project chats" });
     const beta = view.getByTestId("canonical-thread-beta");
@@ -559,12 +555,14 @@ describe("sidebar thread reorder in Chromium", () => {
       });
 
       await waitFor(() => {
-        expect(drops).toEqual([{
-          beforeThreadId: "thread-alpha",
-          sourceContainerId: "project:alpha",
-          targetContainerId: "project:alpha",
-          threadId: "thread-beta",
-        }]);
+        expect(drops).toEqual([
+          {
+            beforeThreadId: "thread-alpha",
+            sourceContainerId: "project:alpha",
+            targetContainerId: "project:alpha",
+            threadId: "thread-beta",
+          },
+        ]);
         expect(readRenderedThreadKeys(list)).toEqual(["beta", "alpha"]);
       });
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -610,9 +608,11 @@ describe("sidebar thread reorder in Chromium", () => {
       consoleErrors.push(args);
     });
     const view = render(
-      <SemanticThreadReorderHarness onDrop={async (drop) => {
-        drops.push(drop);
-      }} />,
+      <SemanticThreadReorderHarness
+        onDrop={async (drop) => {
+          drops.push(drop);
+        }}
+      />,
     );
     const list = view.getByRole("list", { name: "Canonical Project chats" });
     const beta = view.getByTestId("canonical-thread-beta");
@@ -718,34 +718,34 @@ describe("sidebar thread reorder in Chromium", () => {
         <NodexHoverCardProvider>
           <NodexTooltipProvider>
             <SidebarReorderDndProvider>
-          <SidebarThreadSortableContext threadKeys={[THREAD.key]}>
-            <div role="list" aria-label="Source project chats">
-              <SidebarThreadSortableItem
-                containerId="project:project-alpha"
-                controller={controller}
-                threadId={THREAD.threadId}
-                threadKey={THREAD.key}
-              >
-                <CodexSidebarThreadRow
-                  item={THREAD}
+              <SidebarThreadSortableContext threadKeys={[THREAD.key]}>
+                <div role="list" aria-label="Source project chats">
+                  <SidebarThreadSortableItem
+                    containerId="project:project-alpha"
+                    controller={controller}
+                    threadId={THREAD.threadId}
+                    threadKey={THREAD.key}
+                  >
+                    <CodexSidebarThreadRow
+                      item={THREAD}
+                      active={false}
+                      hoverCardBranchName="codex/stable-ref"
+                      hoverCardProjectLabel="Project alpha"
+                      onSelect={() => {}}
+                    />
+                  </SidebarThreadSortableItem>
+                </div>
+              </SidebarThreadSortableContext>
+              <div role="list" aria-label="Destination projects">
+                <CodexProjectRow
+                  project={PROJECT}
                   active={false}
-                  hoverCardBranchName="codex/stable-ref"
-                  hoverCardProjectLabel="Project alpha"
-                  onSelect={() => {}}
+                  expanded={false}
+                  onActivate={() => {}}
+                  onUpdateProject={async () => PROJECT}
+                  onArchiveProject={async () => ({ kind: "not-found" })}
                 />
-              </SidebarThreadSortableItem>
-            </div>
-          </SidebarThreadSortableContext>
-          <div role="list" aria-label="Destination projects">
-            <CodexProjectRow
-              project={PROJECT}
-              active={false}
-              expanded={false}
-              onActivate={() => {}}
-              onUpdateProject={async () => PROJECT}
-              onArchiveProject={async () => ({ kind: "not-found" })}
-            />
-          </div>
+              </div>
             </SidebarReorderDndProvider>
           </NodexTooltipProvider>
         </NodexHoverCardProvider>
@@ -753,12 +753,10 @@ describe("sidebar thread reorder in Chromium", () => {
     );
 
     try {
-      const row = view.container.querySelector<HTMLElement>(
-        "[data-app-action-sidebar-thread-row]",
-      );
-      const sortableHost = row
-        ?.closest<HTMLElement>("[aria-roledescription='sortable']")
-        ?.parentElement;
+      const row = view.container.querySelector<HTMLElement>("[data-app-action-sidebar-thread-row]");
+      const sortableHost = row?.closest<HTMLElement>(
+        "[aria-roledescription='sortable']",
+      )?.parentElement;
       if (!row || !sortableHost) {
         throw new TypeError("Expected a mounted sortable thread row");
       }

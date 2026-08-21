@@ -52,9 +52,7 @@ function makeEditor({
           return {
             querySelector: () => ({
               getAttribute: (name: string) =>
-                name === "data-show-children"
-                  ? (expanded(blockId) ? "true" : "false")
-                  : null,
+                name === "data-show-children" ? (expanded(blockId) ? "true" : "false") : null,
             }),
           } as unknown as Element;
         },
@@ -86,11 +84,9 @@ describe("embedded surface arrow navigation", () => {
     const first = vi.fn(() => true);
     const second = vi.fn(() => true);
 
-    const unregisterFirst = registerEmbeddedSurfaceBoundaryHandle(
-      firstEditor,
-      "shell",
-      { focusBoundary: first },
-    );
+    const unregisterFirst = registerEmbeddedSurfaceBoundaryHandle(firstEditor, "shell", {
+      focusBoundary: first,
+    });
     registerEmbeddedSurfaceBoundaryHandle(secondEditor, "shell", {
       focusBoundary: second,
     });
@@ -126,18 +122,12 @@ describe("embedded surface arrow navigation", () => {
       paragraph("tail"),
     ];
 
-    expect(findVisibleNeighborBlock(blocks, "child-a", "down", () => true)?.id).toBe(
-      "child-b",
-    );
-    expect(findVisibleNeighborBlock(blocks, "shell", "up", () => true)?.id).toBe(
-      "child-b",
-    );
+    expect(findVisibleNeighborBlock(blocks, "child-a", "down", () => true)?.id).toBe("child-b");
+    expect(findVisibleNeighborBlock(blocks, "shell", "up", () => true)?.id).toBe("child-b");
     expect(findVisibleNeighborBlock(blocks, "shell", "up", (id) => id !== "parent")?.id).toBe(
       "parent",
     );
-    expect(findVisibleNeighborBlock(blocks, "child-b", "down", () => true)?.id).toBe(
-      "shell",
-    );
+    expect(findVisibleNeighborBlock(blocks, "child-b", "down", () => true)?.id).toBe("shell");
   });
 
   test("enters an adjacent surface only at a visual textblock boundary", () => {
@@ -184,9 +174,9 @@ describe("embedded surface arrow navigation", () => {
 
   test("moves from a surface to a structural host neighbor or directly into the next surface", () => {
     const normalNeighbor = makeEditor();
-    expect(
-      moveFromEmbeddedSurfaceToHostNeighbor(normalNeighbor.editor, "shell", "down"),
-    ).toBe(true);
+    expect(moveFromEmbeddedSurfaceToHostNeighbor(normalNeighbor.editor, "shell", "down")).toBe(
+      true,
+    );
     expect(normalNeighbor.cursorMoves).toEqual([{ id: "after", placement: "start" }]);
     expect(normalNeighbor.focused).toBe(true);
 
@@ -197,9 +187,7 @@ describe("embedded surface arrow navigation", () => {
     registerEmbeddedSurfaceBoundaryHandle(consecutive.editor, "second", {
       focusBoundary: focusSecond,
     });
-    expect(
-      moveFromEmbeddedSurfaceToHostNeighbor(consecutive.editor, "shell", "down"),
-    ).toBe(true);
+    expect(moveFromEmbeddedSurfaceToHostNeighbor(consecutive.editor, "shell", "down")).toBe(true);
     expect(focusSecond).toHaveBeenCalledWith("down");
     expect(consecutive.cursorMoves).toEqual([{ id: "second", placement: "start" }]);
   });

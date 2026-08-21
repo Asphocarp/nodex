@@ -91,9 +91,7 @@ export interface BrowserUseSessionRegistryOptions {
   policyStore?: BrowserUsePolicyReader;
   socketPeerAuthorizer: BrowserUseSocketPeerAuthorizer;
   createApi?: (route: BrowserUseRoute) => BrowserUseIabApiPort;
-  createServer?: (
-    handler: BrowserUseNativePipeRequestHandler,
-  ) => BrowserUseNativePipeServerPort;
+  createServer?: (handler: BrowserUseNativePipeRequestHandler) => BrowserUseNativePipeServerPort;
 }
 
 export class BrowserUseSessionRegistry {
@@ -118,20 +116,25 @@ export class BrowserUseSessionRegistry {
     this.browserService = options.browserService;
     this.buildFlavor = options.buildFlavor;
     this.enabled = options.enabled;
-    this.createApi = options.createApi ?? ((route) => new BrowserUseIabApi({
-      appSessionId: this.appSessionId,
-      appVersion: this.appVersion,
-      browserService: this.browserService,
-      buildFlavor: this.buildFlavor,
-      policyStore: options.policyStore,
-      route,
-    }));
-    this.createServer = options.createServer ?? ((handler) =>
-      new BrowserUseNativePipeServer({
-        events: options.nativePipeEvents,
-        handler,
-        socketPeerAuthorizer: options.socketPeerAuthorizer,
-      }));
+    this.createApi =
+      options.createApi ??
+      ((route) =>
+        new BrowserUseIabApi({
+          appSessionId: this.appSessionId,
+          appVersion: this.appVersion,
+          browserService: this.browserService,
+          buildFlavor: this.buildFlavor,
+          policyStore: options.policyStore,
+          route,
+        }));
+    this.createServer =
+      options.createServer ??
+      ((handler) =>
+        new BrowserUseNativePipeServer({
+          events: options.nativePipeEvents,
+          handler,
+          socketPeerAuthorizer: options.socketPeerAuthorizer,
+        }));
   }
 
   availableBackends(): readonly BrowserRuntimeBackend[] {
@@ -156,9 +159,9 @@ export class BrowserUseSessionRegistry {
     const existing = this.sessions.get(input.codexSessionId);
     if (existing) {
       if (
-        existing.route.ownerWebContentsId !== input.ownerWebContentsId
-        || existing.route.browserViewScopeId !== input.browserViewScopeId
-        || existing.route.browserConversationId !== input.browserConversationId
+        existing.route.ownerWebContentsId !== input.ownerWebContentsId ||
+        existing.route.browserViewScopeId !== input.browserViewScopeId ||
+        existing.route.browserConversationId !== input.browserConversationId
       ) {
         if (existing.api.hasActiveControl()) {
           this.record("route-rebind-rejected", input.codexSessionId, {
@@ -169,16 +172,12 @@ export class BrowserUseSessionRegistry {
         await this.releaseSession(input.codexSessionId);
       } else {
         existing.disposeAfterSessionActivity =
-          existing.disposeAfterSessionActivity
-          || input.disposeAfterSessionActivity === true;
+          existing.disposeAfterSessionActivity || input.disposeAfterSessionActivity === true;
         return { pipePath: existing.server.pipePath, route: existing.route };
       }
     }
 
-    const state = await this.ensureBackend(
-      route,
-      input.disposeAfterSessionActivity === true,
-    );
+    const state = await this.ensureBackend(route, input.disposeAfterSessionActivity === true);
     this.record("route-captured", input.codexSessionId, {
       ownerWebContentsId: input.ownerWebContentsId,
     });
@@ -231,10 +230,11 @@ export class BrowserUseSessionRegistry {
   }
 
   notifyCursorArrived(input: BrowserUseCursorArrivalInput): void {
-    const state = [...this.sessions.values()].find((candidate) =>
-      candidate.route.browserConversationId === input.browserConversationId
-      && candidate.route.browserViewScopeId === input.browserViewScopeId
-      && candidate.route.ownerWebContentsId === input.ownerWebContentsId
+    const state = [...this.sessions.values()].find(
+      (candidate) =>
+        candidate.route.browserConversationId === input.browserConversationId &&
+        candidate.route.browserViewScopeId === input.browserViewScopeId &&
+        candidate.route.ownerWebContentsId === input.ownerWebContentsId,
     );
     if (!state) return;
     state.api.notifyCursorArrived(input.moveSequence);
@@ -247,9 +247,11 @@ export class BrowserUseSessionRegistry {
     const sessionIds = [...this.sessions.entries()]
       .filter(([, state]) => state.route.ownerWebContentsId === ownerWebContentsId)
       .map(([sessionId]) => sessionId);
-    await Promise.all(sessionIds.map(async (sessionId) => {
-      await this.releaseSession(sessionId);
-    }));
+    await Promise.all(
+      sessionIds.map(async (sessionId) => {
+        await this.releaseSession(sessionId);
+      }),
+    );
   }
 
   async releaseSession(sessionId: string): Promise<void> {
@@ -285,13 +287,12 @@ export class BrowserUseSessionRegistry {
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    const sessionIds = [...new Set([
-      ...this.sessions.keys(),
-      ...this.starting.keys(),
-    ])];
-    await Promise.all(sessionIds.map(async (sessionId) => {
-      await this.releaseSession(sessionId);
-    }));
+    const sessionIds = [...new Set([...this.sessions.keys(), ...this.starting.keys()])];
+    await Promise.all(
+      sessionIds.map(async (sessionId) => {
+        await this.releaseSession(sessionId);
+      }),
+    );
   }
 
   private ensureBackend(
@@ -305,8 +306,8 @@ export class BrowserUseSessionRegistry {
 
     const operation = (async () => {
       const api = this.createApi(route);
-      const server = this.createServer(async (request) =>
-        await api.dispatch(request.method, request.params)
+      const server = this.createServer(
+        async (request) => await api.dispatch(request.method, request.params),
       );
       let disposeCdpListener: () => void = () => undefined;
       try {
@@ -341,19 +342,18 @@ export class BrowserUseSessionRegistry {
     return operation;
   }
 
-  private async releaseMatchingProvisionalRoute(
-    route: BrowserUseRoute,
-  ): Promise<void> {
+  private async releaseMatchingProvisionalRoute(route: BrowserUseRoute): Promise<void> {
     const provisionalSessionId = route.browserConversationId;
     const pending = this.starting.get(provisionalSessionId);
     if (pending) await pending.catch(() => undefined);
     const provisional = this.sessions.get(provisionalSessionId);
     if (!provisional) return;
     if (
-      provisional.route.browserConversationId !== route.browserConversationId
-      || provisional.route.browserViewScopeId !== route.browserViewScopeId
-      || provisional.route.ownerWebContentsId !== route.ownerWebContentsId
-    ) return;
+      provisional.route.browserConversationId !== route.browserConversationId ||
+      provisional.route.browserViewScopeId !== route.browserViewScopeId ||
+      provisional.route.ownerWebContentsId !== route.ownerWebContentsId
+    )
+      return;
 
     await this.releaseSession(provisionalSessionId);
     this.record("provisional-route-rebound", route.codexSessionId, {

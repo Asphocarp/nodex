@@ -53,41 +53,38 @@ import type {
 } from "../../../shared/block-documents/canvas-scene-sync";
 import type { ProjectionImpact, ProjectionScope } from "../../../shared/projection-stream";
 
-type ApplyOutcome<Result> = Result extends { readonly outcome: infer Outcome }
-  ? Outcome
-  : never;
-type ApplyReceipt<Result> = Result extends { readonly receipt: infer Receipt }
-  ? Receipt
-  : never;
-type ApplyFixtureInput<Result> = Result | {
-  readonly value: ApplyOutcome<Result>;
-  readonly receipt: ApplyReceipt<Result>;
-  readonly store_epoch: string;
-  readonly event_sequence: number;
-  readonly commit_seq?: number;
-  readonly delivery?: Result extends { readonly delivery?: infer Delivery }
-    ? Delivery
-    : never;
-};
+type ApplyOutcome<Result> = Result extends { readonly outcome: infer Outcome } ? Outcome : never;
+type ApplyReceipt<Result> = Result extends { readonly receipt: infer Receipt } ? Receipt : never;
+type ApplyFixtureInput<Result> =
+  | Result
+  | {
+      readonly value: ApplyOutcome<Result>;
+      readonly receipt: ApplyReceipt<Result>;
+      readonly store_epoch: string;
+      readonly event_sequence: number;
+      readonly commit_seq?: number;
+      readonly delivery?: Result extends { readonly delivery?: infer Delivery } ? Delivery : never;
+    };
 
 const fixtureReceiptCommitSeq = (receipt: unknown): number | undefined => {
   if (typeof receipt !== "object" || receipt === null) return undefined;
   const value = Reflect.get(receipt, "commit_seq");
-  return typeof value === "number" && Number.isSafeInteger(value)
-    ? value
-    : undefined;
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : undefined;
 };
 
 /** Test-only builder boundary for concise command-result fixtures. */
-const normalizeApplyFixture = <Result extends {
-  readonly status: "committed" | "no_op";
-  readonly outcome: unknown;
-  readonly receipt: unknown;
-}>(input: ApplyFixtureInput<Result>): Result => {
+const normalizeApplyFixture = <
+  Result extends {
+    readonly status: "committed" | "no_op";
+    readonly outcome: unknown;
+    readonly receipt: unknown;
+  },
+>(
+  input: ApplyFixtureInput<Result>,
+): Result => {
   if ("status" in input) return input;
-  const commitSeq = input.commit_seq
-    ?? fixtureReceiptCommitSeq(input.receipt)
-    ?? input.event_sequence;
+  const commitSeq =
+    input.commit_seq ?? fixtureReceiptCommitSeq(input.receipt) ?? input.event_sequence;
   if (commitSeq < 1) {
     return {
       status: "no_op",
@@ -100,17 +97,24 @@ const normalizeApplyFixture = <Result extends {
     } as unknown as Result;
   }
   const delivery = input.delivery;
-  const identity = delivery && typeof delivery === "object" && "manifest" in delivery
-    ? (delivery as { readonly manifest: { readonly identity: {
-        readonly store_epoch: string;
-        readonly commit_seq: number;
-        readonly manifest_hash: string;
-      } } }).manifest.identity
-    : {
-        store_epoch: input.store_epoch,
-        commit_seq: commitSeq,
-        manifest_hash: "f".repeat(64),
-      };
+  const identity =
+    delivery && typeof delivery === "object" && "manifest" in delivery
+      ? (
+          delivery as {
+            readonly manifest: {
+              readonly identity: {
+                readonly store_epoch: string;
+                readonly commit_seq: number;
+                readonly manifest_hash: string;
+              };
+            };
+          }
+        ).manifest.identity
+      : {
+          store_epoch: input.store_epoch,
+          commit_seq: commitSeq,
+          manifest_hash: "f".repeat(64),
+        };
   return {
     status: "committed",
     outcome: input.value,
@@ -209,14 +213,8 @@ export class FakeCoreClient implements CoreClientPort {
   readonly #awarenessResults: DocumentAwarenessPublishAck[] = [];
   readonly #localMutationResolveResults: CoreLocalMutationResolveResponse[] = [];
   readonly #eventConsumers = new Set<(event: CoreEventEnvelope) => void>();
-  readonly #documentEventConsumers = new Map<
-    string,
-    Set<(event: CoreEventEnvelope) => void>
-  >();
-  readonly #documentRepairConsumers = new Map<
-    string,
-    Set<(repair: DocumentLiveRepair) => void>
-  >();
+  readonly #documentEventConsumers = new Map<string, Set<(event: CoreEventEnvelope) => void>>();
+  readonly #documentRepairConsumers = new Map<string, Set<(repair: DocumentLiveRepair) => void>>();
 
   enqueueRead(result: LibraryReadSnapshot): void {
     this.#readResults.push(result);
@@ -269,9 +267,7 @@ export class FakeCoreClient implements CoreClientPort {
     this.#administrationReadResults.push(result);
   }
 
-  enqueueAdministrationApply(
-    result: ApplyFixtureInput<StoreAdministrationApplyResult>,
-  ): void {
+  enqueueAdministrationApply(result: ApplyFixtureInput<StoreAdministrationApplyResult>): void {
     this.#administrationApplyResults.push(normalizeApplyFixture(result));
   }
 
@@ -436,18 +432,14 @@ export class FakeCoreClient implements CoreClientPort {
     return result;
   }
 
-  async documentCanvasSync(
-    input: CanvasSceneSyncRequest,
-  ): Promise<CanvasSceneSyncResponse> {
+  async documentCanvasSync(input: CanvasSceneSyncRequest): Promise<CanvasSceneSyncResponse> {
     this.documentCanvasSyncs.push(input);
     const result = this.#documentCanvasSyncResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Canvas sync");
     return result;
   }
 
-  async documentApplyUpdate(
-    input: DocumentSyncApplyRequest,
-  ): Promise<DocumentSyncApplyAck> {
+  async documentApplyUpdate(input: DocumentSyncApplyRequest): Promise<DocumentSyncApplyAck> {
     this.documentUpdateApplies.push(input);
     const result = this.#documentUpdateApplyResults.shift();
     if (!result) throw new Error("Fake Core client has no queued Document update apply");
@@ -473,12 +465,14 @@ export class FakeCoreClient implements CoreClientPort {
     _onRealtimeEvent: (event: DocumentSyncRealtimeEvent) => void,
   ): Promise<CoreDocumentEventSubscription> {
     void _onRealtimeEvent;
-    const consumers = this.#documentEventConsumers.get(_input.documentId)
-      ?? new Set<(event: CoreEventEnvelope) => void>();
+    const consumers =
+      this.#documentEventConsumers.get(_input.documentId) ??
+      new Set<(event: CoreEventEnvelope) => void>();
     consumers.add(onEvent);
     this.#documentEventConsumers.set(_input.documentId, consumers);
-    const repairConsumers = this.#documentRepairConsumers.get(_input.documentId)
-      ?? new Set<(repair: DocumentLiveRepair) => void>();
+    const repairConsumers =
+      this.#documentRepairConsumers.get(_input.documentId) ??
+      new Set<(repair: DocumentLiveRepair) => void>();
     repairConsumers.add(onRepair);
     this.#documentRepairConsumers.set(_input.documentId, repairConsumers);
     let finish: (() => void) | undefined;
@@ -553,15 +547,18 @@ export class FakeCoreClient implements CoreClientPort {
         core_generation: "fake-core-start",
         commit_head: 0,
         recipient_leases: scopes.map((scope, index) => {
-          const address = scope.kind === "library"
-            ? { kind: "library" as const, library_id: scope.libraryId }
-            : {
-                kind: "project" as const,
-                library_id: scope.libraryId,
-                project_id: scope.projectId,
-              };
+          const address =
+            scope.kind === "library"
+              ? { kind: "library" as const, library_id: scope.libraryId }
+              : {
+                  kind: "project" as const,
+                  library_id: scope.libraryId,
+                  project_id: scope.projectId,
+                };
           return {
-            lease_id: String(index + 1).padStart(64, "a").slice(-64),
+            lease_id: String(index + 1)
+              .padStart(64, "a")
+              .slice(-64),
             delivery_address: address,
             authorization_scope: address,
           };

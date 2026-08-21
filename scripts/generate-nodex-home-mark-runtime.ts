@@ -43,9 +43,7 @@ interface GlyphLayout {
   slashAngle?: number;
 }
 
-const OUTPUT_PATH = resolve(
-  "src/renderer/components/ui/nodex-home-mark-model.generated.ts",
-);
+const OUTPUT_PATH = resolve("src/renderer/components/ui/nodex-home-mark-model.generated.ts");
 const GLYPH_OUTPUT_PATH = resolve(
   "src/renderer/components/ui/nodex-home-mark-glyph-scenes.generated.ts",
 );
@@ -60,9 +58,8 @@ const GLYPH_TARGET_Z = 0.5008;
 const GLYPH_STROKE = 5.742;
 const PROMPT_STROKE = 50 * HERO_GEOMETRY_SCALE;
 const BASE_ROTATION = [
-  0.9591977392402923, 0, 0.282736090791947,
-  -0.0590442569816084, 0.9779515955840853, 0.2003108893995316,
-  -0.2765022111191914, -0.208831694659938, 0.9380489595706912,
+  0.9591977392402923, 0, 0.282736090791947, -0.0590442569816084, 0.9779515955840853,
+  0.2003108893995316, -0.2765022111191914, -0.208831694659938, 0.9380489595706912,
 ] as const;
 const FITTED_GLYPH_SCREEN: readonly Vec2[] = [
   [305, 352],
@@ -73,10 +70,17 @@ const FITTED_GLYPH_SCREEN: readonly Vec2[] = [
 ];
 
 const SHORT_ARROW: GlyphShape = {
-  vertices: [[9.794, 2.771], [0.221, -2.771], [-9.794, 2.771]],
+  vertices: [
+    [9.794, 2.771],
+    [0.221, -2.771],
+    [-9.794, 2.771],
+  ],
 };
 const SHORT_LINE: GlyphShape = {
-  vertices: [[6.784, 0], [-6.784, 0]],
+  vertices: [
+    [6.784, 0],
+    [-6.784, 0],
+  ],
 };
 const GLYPH_LAYOUTS = {
   prompt: { gap: 1, offsetX: 0, offsetY: 0 },
@@ -120,10 +124,7 @@ const GLYPH_LAYERS = {
     glyphLayer(SHORT_ARROW, 307.52, 250.557, -90),
     glyphLayer(SHORT_LINE, 184.422, 251.768, 90),
   ],
-  split: [
-    glyphLayer(SHORT_ARROW, 207.52, 250.557),
-    glyphLayer(SHORT_LINE, 336.422, 251.768, 90),
-  ],
+  split: [glyphLayer(SHORT_ARROW, 207.52, 250.557), glyphLayer(SHORT_LINE, 336.422, 251.768, 90)],
   inverted: [
     glyphLayer(SHORT_ARROW, 303.52, 234.557, 180),
     glyphLayer(SHORT_LINE, 192.422, 291.768),
@@ -171,20 +172,18 @@ function readSourceArgument(): string {
 function cubicPoint(a: Vec2, b: Vec2, c: Vec2, d: Vec2, amount: number): Vec2 {
   const inverse = 1 - amount;
   return [
-    inverse ** 3 * a[0]
-      + 3 * inverse ** 2 * amount * b[0]
-      + 3 * inverse * amount ** 2 * c[0]
-      + amount ** 3 * d[0],
-    inverse ** 3 * a[1]
-      + 3 * inverse ** 2 * amount * b[1]
-      + 3 * inverse * amount ** 2 * c[1]
-      + amount ** 3 * d[1],
+    inverse ** 3 * a[0] +
+      3 * inverse ** 2 * amount * b[0] +
+      3 * inverse * amount ** 2 * c[0] +
+      amount ** 3 * d[0],
+    inverse ** 3 * a[1] +
+      3 * inverse ** 2 * amount * b[1] +
+      3 * inverse * amount ** 2 * c[1] +
+      amount ** 3 * d[1],
   ];
 }
 
-type PanelSegment =
-  | { kind: "line"; end: Vec2 }
-  | { kind: "cubic"; c1: Vec2; c2: Vec2; end: Vec2 };
+type PanelSegment = { kind: "line"; end: Vec2 } | { kind: "cubic"; c1: Vec2; c2: Vec2; end: Vec2 };
 
 function samplePanel(start: Vec2, segments: readonly PanelSegment[]): Vec2[] {
   const boundary: Vec2[] = [start];
@@ -227,11 +226,7 @@ function dot3(a: Vec3, b: Vec3): number {
 }
 
 function cross3(a: Vec3, b: Vec3): Vec3 {
-  return [
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0],
-  ];
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }
 
 function transposeMatVec3(matrix: readonly number[], vector: Vec3): Vec3 {
@@ -324,7 +319,7 @@ function scale2(x: number, y = x): Mat2 {
 }
 
 function rotate2(degrees: number): Mat2 {
-  const radians = degrees * Math.PI / 180;
+  const radians = (degrees * Math.PI) / 180;
   const cosine = Math.cos(radians);
   const sine = Math.sin(radians);
   return [cosine, sine, -sine, cosine, 0, 0];
@@ -340,10 +335,7 @@ function apply2(matrix: Mat2, point: Vec2): Vec2 {
 function layerMatrix(layer: GlyphLayer): Mat2 {
   return multiply2(
     translate2(layer.x, layer.y),
-    multiply2(
-      rotate2(layer.rotation),
-      scale2(layer.scaleX / 100, layer.scaleY / 100),
-    ),
+    multiply2(rotate2(layer.rotation), scale2(layer.scaleX / 100, layer.scaleY / 100)),
   );
 }
 
@@ -351,11 +343,15 @@ function performanceChevronShape(): GlyphShape {
   const originalUpper = Math.hypot(9.794 - 0.221, 2.771 - -2.771);
   const originalLower = Math.hypot(-9.794 - 0.221, 2.771 - -2.771);
   const armLength = (originalUpper + originalLower) * 0.5 * 1.42;
-  const halfAngle = 73.25 * Math.PI / 360;
+  const halfAngle = (73.25 * Math.PI) / 360;
   const halfSpan = Math.sin(halfAngle) * armLength;
   const depth = Math.cos(halfAngle) * armLength;
   return {
-    vertices: [[halfSpan, depth * 0.5], [0, -depth * 0.5], [-halfSpan, depth * 0.5]],
+    vertices: [
+      [halfSpan, depth * 0.5],
+      [0, -depth * 0.5],
+      [-halfSpan, depth * 0.5],
+    ],
   };
 }
 
@@ -378,9 +374,8 @@ function adjustedLayers(id: keyof typeof GLYPH_LAYERS): GlyphLayer[] {
     code: (323.52 + 179.52) * 0.5,
   };
   return GLYPH_LAYERS[id].map((layer) => {
-    const rotation = id === "code" && layer.role === "slash"
-      ? GLYPH_LAYOUTS.code.slashAngle
-      : layer.rotation;
+    const rotation =
+      id === "code" && layer.role === "slash" ? GLYPH_LAYOUTS.code.slashAngle : layer.rotation;
     if (id === "code" && layer.role === "slash") return { ...layer, rotation };
     return {
       ...layer,
@@ -445,12 +440,11 @@ function exactPromptScreenPoint(point: Vec2): Vec2 {
 }
 
 function unprojectToFrontPlane(point: Vec2): Vec3 {
-  const targetX = (point[0] - GLYPH_PRINCIPAL[0]) / GLYPH_PROJECTION_SCALE
-    - BASE_ROTATION[2] * FRONT_Z;
-  const targetY = (point[1] - GLYPH_PRINCIPAL[1]) / GLYPH_PROJECTION_SCALE
-    - BASE_ROTATION[5] * FRONT_Z;
-  const determinant = BASE_ROTATION[0] * BASE_ROTATION[4]
-    - BASE_ROTATION[1] * BASE_ROTATION[3];
+  const targetX =
+    (point[0] - GLYPH_PRINCIPAL[0]) / GLYPH_PROJECTION_SCALE - BASE_ROTATION[2] * FRONT_Z;
+  const targetY =
+    (point[1] - GLYPH_PRINCIPAL[1]) / GLYPH_PROJECTION_SCALE - BASE_ROTATION[5] * FRONT_Z;
+  const determinant = BASE_ROTATION[0] * BASE_ROTATION[4] - BASE_ROTATION[1] * BASE_ROTATION[3];
   return [
     (targetX * BASE_ROTATION[4] - BASE_ROTATION[1] * targetY) / determinant,
     (BASE_ROTATION[0] * targetY - targetX * BASE_ROTATION[3]) / determinant,
@@ -460,18 +454,15 @@ function unprojectToFrontPlane(point: Vec2): Vec3 {
 
 function projectFittedScreen(target: Vec3): Vec2 {
   const fittedProjectionScale = FITTED_SCALE * HERO_GEOMETRY_SCALE;
-  const screenX = FITTED_PRINCIPAL[0]
-    + (BASE_ROTATION[0] * target[0]
-      + BASE_ROTATION[1] * target[1]
-      + BASE_ROTATION[2] * target[2]) * fittedProjectionScale;
-  const screenY = FITTED_PRINCIPAL[1]
-    + (BASE_ROTATION[3] * target[0]
-      + BASE_ROTATION[4] * target[1]
-      + BASE_ROTATION[5] * target[2]) * fittedProjectionScale;
-  return [
-    400 + (screenX - 400) / HERO_GEOMETRY_SCALE,
-    400 + (screenY - 400) / HERO_GEOMETRY_SCALE,
-  ];
+  const screenX =
+    FITTED_PRINCIPAL[0] +
+    (BASE_ROTATION[0] * target[0] + BASE_ROTATION[1] * target[1] + BASE_ROTATION[2] * target[2]) *
+      fittedProjectionScale;
+  const screenY =
+    FITTED_PRINCIPAL[1] +
+    (BASE_ROTATION[3] * target[0] + BASE_ROTATION[4] * target[1] + BASE_ROTATION[5] * target[2]) *
+      fittedProjectionScale;
+  return [400 + (screenX - 400) / HERO_GEOMETRY_SCALE, 400 + (screenY - 400) / HERO_GEOMETRY_SCALE];
 }
 
 function roundedTuple(values: readonly number[]): number[] {
@@ -483,9 +474,13 @@ function buildGlyphScenes(
   fittedPrompt: readonly number[],
 ): Record<string, unknown> {
   const promptTargets = FITTED_GLYPH_SCREEN.map((point) =>
-    unprojectToFrontPlane(exactPromptScreenPoint(point))
+    unprojectToFrontPlane(exactPromptScreenPoint(point)),
   );
-  const promptPairs = [[0, 1], [1, 2], [3, 4]] as const;
+  const promptPairs = [
+    [0, 1],
+    [1, 2],
+    [3, 4],
+  ] as const;
   const promptSegments = promptPairs.map(([a, b]) => ({
     fittedA: roundedTuple(fittedPrompt.slice(a * 3, a * 3 + 3)),
     fittedB: roundedTuple(fittedPrompt.slice(b * 3, b * 3 + 3)),
@@ -523,13 +518,11 @@ function buildGlyphScenes(
     const svgPaths = adjustedLayers(id).map((layer) => {
       const localTransform = multiply2(map, layerMatrix(layer));
       const shape = resolvedShape(layer.shape);
-      const strokeWidth = id === "code" && layer.role === "slash"
-        ? GLYPH_LAYOUTS.code.slashStroke
-        : GLYPH_STROKE;
-      const areaScale = Math.sqrt(Math.abs(
-        localTransform[0] * localTransform[3]
-          - localTransform[1] * localTransform[2],
-      ));
+      const strokeWidth =
+        id === "code" && layer.role === "slash" ? GLYPH_LAYOUTS.code.slashStroke : GLYPH_STROKE;
+      const areaScale = Math.sqrt(
+        Math.abs(localTransform[0] * localTransform[3] - localTransform[1] * localTransform[2]),
+      );
       for (let index = 0; index < shape.vertices.length - 1; index += 1) {
         const a2 = apply2(localTransform, shape.vertices[index]);
         const b2 = apply2(localTransform, shape.vertices[index + 1]);
@@ -574,19 +567,24 @@ for (let vertex = 0; vertex < vertexCount; vertex += 1) {
   const sourceOffset = vertex * 3;
   const targetOffset = vertex * 12;
   const regularNormal = normalize3(
-    mesh.regularMin.normals[sourceOffset]
-      + (mesh.regularMax.normals[sourceOffset] - mesh.regularMin.normals[sourceOffset]) * regularAmount,
-    mesh.regularMin.normals[sourceOffset + 1]
-      + (mesh.regularMax.normals[sourceOffset + 1] - mesh.regularMin.normals[sourceOffset + 1]) * regularAmount,
-    mesh.regularMin.normals[sourceOffset + 2]
-      + (mesh.regularMax.normals[sourceOffset + 2] - mesh.regularMin.normals[sourceOffset + 2]) * regularAmount,
+    mesh.regularMin.normals[sourceOffset] +
+      (mesh.regularMax.normals[sourceOffset] - mesh.regularMin.normals[sourceOffset]) *
+        regularAmount,
+    mesh.regularMin.normals[sourceOffset + 1] +
+      (mesh.regularMax.normals[sourceOffset + 1] - mesh.regularMin.normals[sourceOffset + 1]) *
+        regularAmount,
+    mesh.regularMin.normals[sourceOffset + 2] +
+      (mesh.regularMax.normals[sourceOffset + 2] - mesh.regularMin.normals[sourceOffset + 2]) *
+        regularAmount,
   );
 
   for (let component = 0; component < 3; component += 1) {
     const fittedPosition = mesh.fitted.positions[sourceOffset + component];
-    const regularPosition = mesh.regularMin.positions[sourceOffset + component]
-      + (mesh.regularMax.positions[sourceOffset + component]
-        - mesh.regularMin.positions[sourceOffset + component]) * regularAmount;
+    const regularPosition =
+      mesh.regularMin.positions[sourceOffset + component] +
+      (mesh.regularMax.positions[sourceOffset + component] -
+        mesh.regularMin.positions[sourceOffset + component]) *
+        regularAmount;
     const fittedPositionQuantized = quantizePosition(fittedPosition);
     const regularPositionQuantized = quantizePosition(regularPosition);
     packed[targetOffset + component] = fittedPositionQuantized;
@@ -603,35 +601,56 @@ for (let vertex = 0; vertex < vertexCount; vertex += 1) {
   }
 }
 
-const topBoundary = samplePanel([137.862, 152.3110570608], [
-  { kind: "cubic", c1: [132.315, 148.2040570608], c2: [134.955, 136.8422343], end: [141.923, 136.3432343] },
-  { kind: "line", end: [519.555, 113.0977657] },
-  { kind: "cubic", c1: [531.588, 112.2347657], c2: [543.543, 113.628], end: [553.273, 120.522] },
-  { kind: "line", end: [629.043, 174.203] },
-  { kind: "cubic", c1: [631.918, 176.241], c2: [630.57, 179.2065641], end: [627.008, 179.4005641] },
-  { kind: "line", end: [227.097, 204.0174359] },
-  { kind: "cubic", c1: [214.994, 204.6754359], c2: [203.048, 198.7999429392], end: [193.425, 191.6759429392] },
-  { kind: "line", end: [137.862, 152.3110570608] },
-]);
-const frontBoundary = samplePanel([208.339, 270.767], [
-  { kind: "cubic", c1: [208.339, 257.775], c2: [218.835, 247.044], end: [232.257, 246.313] },
-  { kind: "line", end: [655.075, 223.286] },
-  { kind: "cubic", c1: [668.158, 222.574], c2: [679.168, 232.633], end: [679.168, 245.295] },
-  { kind: "line", end: [679.168, 627.132] },
-  { kind: "cubic", c1: [679.168, 640.1], c2: [668.71, 650.82], end: [655.315, 651.582] },
-  { kind: "line", end: [235.172, 675.487] },
-  { kind: "cubic", c1: [220.615, 676.317], c2: [208.339, 665.13], end: [208.339, 651.037] },
-  { kind: "line", end: [208.339, 270.767] },
-]);
+const topBoundary = samplePanel(
+  [137.862, 152.3110570608],
+  [
+    {
+      kind: "cubic",
+      c1: [132.315, 148.2040570608],
+      c2: [134.955, 136.8422343],
+      end: [141.923, 136.3432343],
+    },
+    { kind: "line", end: [519.555, 113.0977657] },
+    { kind: "cubic", c1: [531.588, 112.2347657], c2: [543.543, 113.628], end: [553.273, 120.522] },
+    { kind: "line", end: [629.043, 174.203] },
+    {
+      kind: "cubic",
+      c1: [631.918, 176.241],
+      c2: [630.57, 179.2065641],
+      end: [627.008, 179.4005641],
+    },
+    { kind: "line", end: [227.097, 204.0174359] },
+    {
+      kind: "cubic",
+      c1: [214.994, 204.6754359],
+      c2: [203.048, 198.7999429392],
+      end: [193.425, 191.6759429392],
+    },
+    { kind: "line", end: [137.862, 152.3110570608] },
+  ],
+);
+const frontBoundary = samplePanel(
+  [208.339, 270.767],
+  [
+    { kind: "cubic", c1: [208.339, 257.775], c2: [218.835, 247.044], end: [232.257, 246.313] },
+    { kind: "line", end: [655.075, 223.286] },
+    { kind: "cubic", c1: [668.158, 222.574], c2: [679.168, 232.633], end: [679.168, 245.295] },
+    { kind: "line", end: [679.168, 627.132] },
+    { kind: "cubic", c1: [679.168, 640.1], c2: [668.71, 650.82], end: [655.315, 651.582] },
+    { kind: "line", end: [235.172, 675.487] },
+    { kind: "cubic", c1: [220.615, 676.317], c2: [208.339, 665.13], end: [208.339, 651.037] },
+    { kind: "line", end: [208.339, 270.767] },
+  ],
+);
 
 const fittedTopBoundary = topBoundary.flatMap((screen) =>
-  raycastFittedScreen(screen, mesh.fitted.positions)
+  raycastFittedScreen(screen, mesh.fitted.positions),
 );
 const fittedFrontBoundary = frontBoundary.flatMap((screen) =>
-  raycastFittedScreen(screen, mesh.fitted.positions)
+  raycastFittedScreen(screen, mesh.fitted.positions),
 );
 const fittedGlyph = FITTED_GLYPH_SCREEN.flatMap((screen) =>
-  raycastFittedScreen(screen, mesh.fitted.positions)
+  raycastFittedScreen(screen, mesh.fitted.positions),
 );
 const bytes = Buffer.from(packed.buffer, packed.byteOffset, packed.byteLength);
 const sourceHash = createHash("sha256").update(sourceText).digest("hex");
@@ -693,11 +712,17 @@ export const NODEX_HOME_MARK_GLYPH_SCENES = ${JSON.stringify(glyphScenes, null, 
 
 writeFileSync(OUTPUT_PATH, output);
 writeFileSync(GLYPH_OUTPUT_PATH, glyphOutput);
-console.log(JSON.stringify({
-  outputs: [OUTPUT_PATH, GLYPH_OUTPUT_PATH],
-  sourceSha256: sourceHash,
-  vertexCount,
-  packedBytes: packed.byteLength,
-  glyphSceneCount: Object.keys(glyphScenes).length,
-  maxPositionError,
-}, null, 2));
+console.log(
+  JSON.stringify(
+    {
+      outputs: [OUTPUT_PATH, GLYPH_OUTPUT_PATH],
+      sourceSha256: sourceHash,
+      vertexCount,
+      packedBytes: packed.byteLength,
+      glyphSceneCount: Object.keys(glyphScenes).length,
+      maxPositionError,
+    },
+    null,
+    2,
+  ),
+);

@@ -8,12 +8,7 @@ import {
 } from "react";
 import { baseKeymap } from "@tiptap/pm/commands";
 import { keymap } from "@tiptap/pm/keymap";
-import {
-  Schema,
-  Slice,
-  type DOMOutputSpec,
-  type Node as ProseMirrorNode,
-} from "@tiptap/pm/model";
+import { Schema, Slice, type DOMOutputSpec, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { EditorState, Plugin, TextSelection, type Transaction } from "@tiptap/pm/state";
 import { Decoration, DecorationSet, EditorView } from "@tiptap/pm/view";
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
@@ -142,18 +137,12 @@ function normalizePromptMention(input: ComposerPromptMentionInput): ComposerProm
     brandColor: /^#[\da-f]{3,8}$/iu.test(input.brandColor?.trim() ?? "")
       ? input.brandColor!.trim()
       : "",
-    promptLinkLabel: input.kind === "skill"
-      ? input.promptLinkLabel?.trim() ?? ""
-      : "",
+    promptLinkLabel: input.kind === "skill" ? (input.promptLinkLabel?.trim() ?? "") : "",
   };
 }
 
 function mentionLabel(attrs: ComposerPromptMentionAttrs): string {
-  if (
-    attrs.kind === "file"
-    || attrs.kind === "site"
-    || attrs.kind === "chatgpt-conversation"
-  ) {
+  if (attrs.kind === "file" || attrs.kind === "site" || attrs.kind === "chatgpt-conversation") {
     return attrs.displayName;
   }
   if (attrs.kind === "skill" && attrs.promptLinkLabel) {
@@ -169,19 +158,23 @@ function mentionDisplayText(attrs: ComposerPromptMentionAttrs): string {
 }
 
 function isLikelyComposerFileMentionPath(path: string): boolean {
-  return path.startsWith("/")
-    || path.startsWith("./")
-    || path.startsWith("../")
-    || path.startsWith("~/")
-    || /^[a-z]:[\\/]/iu.test(path)
-    || path.includes("/")
-    || path.includes("\\");
+  return (
+    path.startsWith("/") ||
+    path.startsWith("./") ||
+    path.startsWith("../") ||
+    path.startsWith("~/") ||
+    /^[a-z]:[\\/]/iu.test(path) ||
+    path.includes("/") ||
+    path.includes("\\")
+  );
 }
 
 function isUrlLikeComposerMentionPath(path: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:\/\//iu.test(path)
-    || /^(?:mailto|tel):/iu.test(path)
-    || /^www\./iu.test(path);
+  return (
+    /^[a-z][a-z0-9+.-]*:\/\//iu.test(path) ||
+    /^(?:mailto|tel):/iu.test(path) ||
+    /^www\./iu.test(path)
+  );
 }
 
 function humanizeComposerSkillName(name: string): string {
@@ -206,9 +199,7 @@ function parseComposerSkillPromptLabel(label: string): {
     };
   }
   const name = label.slice(0, queryIndex).trim();
-  const displayName = new URLSearchParams(label.slice(queryIndex + 1))
-    .get("label")
-    ?.trim();
+  const displayName = new URLSearchParams(label.slice(queryIndex + 1)).get("label")?.trim();
   return {
     name,
     displayName: displayName || humanizeComposerSkillName(name),
@@ -222,11 +213,7 @@ export function parseComposerPromptMentionLink(
   const path = rawPath.trim();
   const label = rawLabel.trim();
   if (!path || !label) return null;
-  const prefix = label.startsWith("@")
-    ? "@"
-    : label.startsWith("$")
-      ? "$"
-      : null;
+  const prefix = label.startsWith("@") ? "@" : label.startsWith("$") ? "$" : null;
   const unprefixedLabel = prefix ? label.slice(1).trim() : label;
   if (!unprefixedLabel) return null;
 
@@ -234,42 +221,36 @@ export function parseComposerPromptMentionLink(
     ? "plugin"
     : path.startsWith("app://")
       ? "app"
-      : path.startsWith("thread://")
-        || path.startsWith("agent://")
-        || path.startsWith("subagent://")
-          ? "agent"
-          : path.startsWith("chatgpt-conversation://")
-            ? "chatgpt-conversation"
+      : path.startsWith("thread://") ||
+          path.startsWith("agent://") ||
+          path.startsWith("subagent://")
+        ? "agent"
+        : path.startsWith("chatgpt-conversation://")
+          ? "chatgpt-conversation"
           : path.startsWith("site://") || path.startsWith("sites-project://")
             ? "site"
             : prefix === "$" && !isUrlLikeComposerMentionPath(path)
               ? "skill"
-              : !isUrlLikeComposerMentionPath(path)
-                && (
-                  prefix === null
-                  || isLikelyComposerFileMentionPath(path)
-                )
+              : !isUrlLikeComposerMentionPath(path) &&
+                  (prefix === null || isLikelyComposerFileMentionPath(path))
                 ? "file"
                 : null;
   if (kind === null) return null;
 
-  const skillLabel = kind === "skill"
-    ? parseComposerSkillPromptLabel(unprefixedLabel)
-    : null;
+  const skillLabel = kind === "skill" ? parseComposerSkillPromptLabel(unprefixedLabel) : null;
   return {
     kind,
-    name: kind === "app"
-      ? normalizeComposerAppMentionName(unprefixedLabel)
-      : skillLabel?.name ?? unprefixedLabel,
+    name:
+      kind === "app"
+        ? normalizeComposerAppMentionName(unprefixedLabel)
+        : (skillLabel?.name ?? unprefixedLabel),
     displayName: skillLabel?.displayName ?? unprefixedLabel,
     path,
     ...(kind === "skill" ? { promptLinkLabel: label } : {}),
   };
 }
 
-export function serializeComposerPromptMentionLink(
-  input: ComposerPromptMentionInput,
-): string {
+export function serializeComposerPromptMentionLink(input: ComposerPromptMentionInput): string {
   const mention = normalizePromptMention(input);
   if (!mention.name || !mention.path) return "";
   return `[${mentionLabel(mention)}](${mention.path})`;
@@ -296,26 +277,15 @@ function parseMentionDom(element: HTMLElement): ComposerPromptMentionAttrs | fal
   });
 }
 
-function readRequiredMentionDomAttribute(
-  element: HTMLElement,
-  name: string,
-): string | null {
+function readRequiredMentionDomAttribute(element: HTMLElement, name: string): string | null {
   const value = element.getAttribute(name)?.trim() ?? "";
   return value || null;
 }
 
-function parseFileMentionDom(
-  element: HTMLElement,
-): ComposerPromptMentionAttrs | false {
-  const displayName = readRequiredMentionDomAttribute(
-    element,
-    "at-mention-label",
-  );
+function parseFileMentionDom(element: HTMLElement): ComposerPromptMentionAttrs | false {
+  const displayName = readRequiredMentionDomAttribute(element, "at-mention-label");
   const path = readRequiredMentionDomAttribute(element, "at-mention-path");
-  const fsPath = readRequiredMentionDomAttribute(
-    element,
-    "at-mention-fs-path",
-  );
+  const fsPath = readRequiredMentionDomAttribute(element, "at-mention-fs-path");
   if (!displayName || !path || !fsPath) return false;
   return normalizePromptMention({
     kind: "file",
@@ -326,9 +296,7 @@ function parseFileMentionDom(
   });
 }
 
-function parseAgentMentionDom(
-  element: HTMLElement,
-): ComposerPromptMentionAttrs | false {
+function parseAgentMentionDom(element: HTMLElement): ComposerPromptMentionAttrs | false {
   const name = readRequiredMentionDomAttribute(element, "agent-mention-name");
   const path = readRequiredMentionDomAttribute(element, "agent-mention-path");
   if (!name || !path) return false;
@@ -336,9 +304,7 @@ function parseAgentMentionDom(
     kind: "agent",
     name,
     displayName: element.getAttribute("agent-mention-display-name") ?? name,
-    conversationId: element.getAttribute(
-      "agent-mention-conversation-id",
-    ),
+    conversationId: element.getAttribute("agent-mention-conversation-id"),
     path,
   });
 }
@@ -348,14 +314,8 @@ function parseCapabilityMentionDom(
   kind: "app" | "plugin" | "skill",
 ): ComposerPromptMentionAttrs | false {
   const namespace = `${kind}-mention`;
-  const name = readRequiredMentionDomAttribute(
-    element,
-    `${namespace}-name`,
-  );
-  const path = readRequiredMentionDomAttribute(
-    element,
-    `${namespace}-path`,
-  );
+  const name = readRequiredMentionDomAttribute(element, `${namespace}-name`);
+  const path = readRequiredMentionDomAttribute(element, `${namespace}-path`);
   if (!name || !path) return false;
   return normalizePromptMention({
     kind,
@@ -375,14 +335,8 @@ function parseChatGptConversationMentionDom(
     element,
     "chatgpt-conversation-mention-conversation-id",
   );
-  const path = readRequiredMentionDomAttribute(
-    element,
-    "chatgpt-conversation-mention-path",
-  );
-  const title = readRequiredMentionDomAttribute(
-    element,
-    "chatgpt-conversation-mention-title",
-  );
+  const path = readRequiredMentionDomAttribute(element, "chatgpt-conversation-mention-path");
+  const title = readRequiredMentionDomAttribute(element, "chatgpt-conversation-mention-title");
   if (!conversationId || !path || !title) return false;
   return normalizePromptMention({
     kind: "chatgpt-conversation",
@@ -393,17 +347,9 @@ function parseChatGptConversationMentionDom(
   });
 }
 
-function parseSitesProjectMentionDom(
-  element: HTMLElement,
-): ComposerPromptMentionAttrs | false {
-  const path = readRequiredMentionDomAttribute(
-    element,
-    "sites-project-mention-path",
-  );
-  const title = readRequiredMentionDomAttribute(
-    element,
-    "sites-project-mention-title",
-  );
+function parseSitesProjectMentionDom(element: HTMLElement): ComposerPromptMentionAttrs | false {
+  const path = readRequiredMentionDomAttribute(element, "sites-project-mention-path");
+  const title = readRequiredMentionDomAttribute(element, "sites-project-mention-title");
   if (!path || !title) return false;
   return normalizePromptMention({
     kind: "site",
@@ -447,23 +393,19 @@ function buildMentionDom(node: ProseMirrorNode): DOMOutputSpec {
     domAttrs["sites-project-mention-path"] = attrs.path;
     domAttrs["sites-project-mention-title"] = attrs.displayName;
   } else if (attrs.kind === "chatgpt-conversation") {
-    domAttrs["chatgpt-conversation-mention-conversation-id"] =
-      attrs.path.slice("chatgpt-conversation://".length);
+    domAttrs["chatgpt-conversation-mention-conversation-id"] = attrs.path.slice(
+      "chatgpt-conversation://".length,
+    );
     domAttrs["chatgpt-conversation-mention-path"] = attrs.path;
     domAttrs["chatgpt-conversation-mention-title"] = attrs.displayName;
   } else {
-    const namespacedPrefix = attrs.kind === "thread"
-      ? "agent-mention"
-      : `${attrs.kind}-mention`;
+    const namespacedPrefix = attrs.kind === "thread" ? "agent-mention" : `${attrs.kind}-mention`;
     domAttrs[`${namespacedPrefix}-name`] = attrs.name;
     domAttrs[`${namespacedPrefix}-display-name`] = attrs.displayName;
     domAttrs[`${namespacedPrefix}-path`] = attrs.path;
     domAttrs[`${namespacedPrefix}-icon`] = attrs.iconUrl;
     domAttrs[`${namespacedPrefix}-brand-color`] = attrs.brandColor;
-    if (
-      namespacedPrefix === "agent-mention"
-      && attrs.conversationId
-    ) {
+    if (namespacedPrefix === "agent-mention" && attrs.conversationId) {
       domAttrs["agent-mention-conversation-id"] = attrs.conversationId;
     }
   }
@@ -500,29 +442,27 @@ function buildMentionDom(node: ProseMirrorNode): DOMOutputSpec {
           ],
         ]
       : [
-        "span",
-        {
-          "aria-hidden": "true",
-          class: "relative h-[1lh] w-4 shrink-0",
-        },
-        [
-          "img",
+          "span",
           {
-            src: attrs.iconUrl,
-            alt: "",
-            draggable: "false",
-            referrerpolicy: "no-referrer",
-            class:
-              "icon-xs absolute top-1/2 -translate-y-1/2 rounded-2xs object-contain",
+            "aria-hidden": "true",
+            class: "relative h-[1lh] w-4 shrink-0",
           },
-        ],
-      ]
+          [
+            "img",
+            {
+              src: attrs.iconUrl,
+              alt: "",
+              draggable: "false",
+              referrerpolicy: "no-referrer",
+              class: "icon-xs absolute top-1/2 -translate-y-1/2 rounded-2xs object-contain",
+            },
+          ],
+        ]
     : [
         "span",
         {
           "aria-hidden": "true",
-          class:
-            "relative h-[1lh] w-4 shrink-0 text-center text-[10px] leading-[1lh]",
+          class: "relative h-[1lh] w-4 shrink-0 text-center text-[10px] leading-[1lh]",
         },
         "",
       ];
@@ -569,41 +509,30 @@ const promptSchema = new Schema({
       parseDOM: [
         {
           tag: "span[data-composer-mention='true']",
-          getAttrs: (node) =>
-            node instanceof HTMLElement ? parseMentionDom(node) : false,
+          getAttrs: (node) => (node instanceof HTMLElement ? parseMentionDom(node) : false),
         },
         {
           tag: "span[at-mention-label][at-mention-path][at-mention-fs-path]",
-          getAttrs: (node) =>
-            node instanceof HTMLElement ? parseFileMentionDom(node) : false,
+          getAttrs: (node) => (node instanceof HTMLElement ? parseFileMentionDom(node) : false),
         },
         {
           tag: "span[agent-mention-name][agent-mention-path]",
-          getAttrs: (node) =>
-            node instanceof HTMLElement ? parseAgentMentionDom(node) : false,
+          getAttrs: (node) => (node instanceof HTMLElement ? parseAgentMentionDom(node) : false),
         },
         ...(["app", "plugin", "skill"] as const).map((kind) => ({
           tag: `span[${kind}-mention-name][${kind}-mention-path]`,
           getAttrs: (node: HTMLElement) =>
-            node instanceof HTMLElement
-              ? parseCapabilityMentionDom(node, kind)
-              : false,
+            node instanceof HTMLElement ? parseCapabilityMentionDom(node, kind) : false,
         })),
         {
-          tag:
-            "span[chatgpt-conversation-mention-conversation-id][chatgpt-conversation-mention-path][chatgpt-conversation-mention-title]",
+          tag: "span[chatgpt-conversation-mention-conversation-id][chatgpt-conversation-mention-path][chatgpt-conversation-mention-title]",
           getAttrs: (node) =>
-            node instanceof HTMLElement
-              ? parseChatGptConversationMentionDom(node)
-              : false,
+            node instanceof HTMLElement ? parseChatGptConversationMentionDom(node) : false,
         },
         {
-          tag:
-            "span[sites-project-mention-path][sites-project-mention-title]",
+          tag: "span[sites-project-mention-path][sites-project-mention-title]",
           getAttrs: (node) =>
-            node instanceof HTMLElement
-              ? parseSitesProjectMentionDom(node)
-              : false,
+            node instanceof HTMLElement ? parseSitesProjectMentionDom(node) : false,
         },
       ],
       toDOM: buildMentionDom,
@@ -618,9 +547,7 @@ const promptSchema = new Schema({
 export const COMPOSER_LARGE_PASTE_CHAR_THRESHOLD = 5_000;
 
 export function classifyComposerPaste(text: string): "inline" | "attachment" {
-  return text.length >= COMPOSER_LARGE_PASTE_CHAR_THRESHOLD
-    ? "attachment"
-    : "inline";
+  return text.length >= COMPOSER_LARGE_PASTE_CHAR_THRESHOLD ? "attachment" : "inline";
 }
 
 function handleComposerLargeTextPaste(
@@ -629,8 +556,9 @@ function handleComposerLargeTextPaste(
 ): boolean {
   const clipboard = event.clipboardData;
   if (!clipboard) return false;
-  const hasFiles = (clipboard.files?.length ?? 0) > 0
-    || Array.from(clipboard.items ?? []).some((item) => item.kind === "file");
+  const hasFiles =
+    (clipboard.files?.length ?? 0) > 0 ||
+    Array.from(clipboard.items ?? []).some((item) => item.kind === "file");
   if (hasFiles) return false;
 
   const text = clipboard.getData("text/plain");
@@ -645,8 +573,10 @@ function handleComposerPaste(
   onPasteFiles: ((payload: ComposerPastedFiles) => boolean) | undefined,
   onLargeTextPaste: ((text: string) => boolean) | undefined,
 ): boolean {
-  return handleComposerFilePaste(event, onPasteFiles)
-    || handleComposerLargeTextPaste(event, onLargeTextPaste);
+  return (
+    handleComposerFilePaste(event, onPasteFiles) ||
+    handleComposerLargeTextPaste(event, onLargeTextPaste)
+  );
 }
 
 const promptEditingKeymapPlugin = keymap({
@@ -703,9 +633,7 @@ export interface ComposerPromptEditorHandle {
   getText: () => string;
   getPersistedText: () => string;
   isCursorAtEnd: () => boolean;
-  syncMentionMetadata: (
-    inventory: ComposerPromptMentionMetadataInventory,
-  ) => void;
+  syncMentionMetadata: (inventory: ComposerPromptMentionMetadataInventory) => void;
 }
 
 interface ComposerPromptEditorProps {
@@ -726,8 +654,7 @@ interface ComposerPromptEditorProps {
 
 export function measureComposerPromptIntrinsicWidth(element: HTMLElement): number {
   const hasContent = Boolean(
-    element.textContent?.length
-    || element.querySelector("[data-composer-mention='true']"),
+    element.textContent?.length || element.querySelector("[data-composer-mention='true']"),
   );
   if (!hasContent) return 0;
 
@@ -783,10 +710,7 @@ export function buildPromptDoc(value: string): ProseMirrorNode {
       if (index > cursor) {
         children.push(promptSchema.text(line.slice(cursor, index)));
       }
-      const mention = parseComposerPromptMentionLink(
-        match[1] ?? "",
-        match[2] ?? "",
-      );
+      const mention = parseComposerPromptMentionLink(match[1] ?? "", match[2] ?? "");
       if (mention) {
         children.push(mentionType.create(normalizePromptMention(mention)));
       } else {
@@ -816,9 +740,7 @@ function replacePromptTextRange(
   }
 
   const textSelection = TextSelection.create(transaction.doc, range.from, range.to);
-  return transaction
-    .setSelection(textSelection)
-    .replaceSelection(buildPromptTextSlice(range.text));
+  return transaction.setSelection(textSelection).replaceSelection(buildPromptTextSlice(range.text));
 }
 
 function serializePromptInlineContent(paragraph: ProseMirrorNode): string {
@@ -865,17 +787,20 @@ export function promptTextOffsetToDocPosition(doc: ProseMirrorNode, offset: numb
       for (let childIndex = 0; childIndex < paragraph.childCount; childIndex += 1) {
         const child = paragraph.child(childIndex);
         const serialized = child.isText
-          ? child.text ?? ""
+          ? (child.text ?? "")
           : child.type.name === "mention"
             ? `[${mentionLabel(child.attrs as ComposerPromptMentionAttrs)}](${String(child.attrs.path)})`
             : "";
         if (relativeOffset <= serializedOffset + serialized.length) {
           if (child.isText) {
-            return documentPosition + 1 + childDocumentOffset
-              + (relativeOffset - serializedOffset);
+            return documentPosition + 1 + childDocumentOffset + (relativeOffset - serializedOffset);
           }
-          return documentPosition + 1 + childDocumentOffset
-            + (relativeOffset === serialized.length ? child.nodeSize : 0);
+          return (
+            documentPosition +
+            1 +
+            childDocumentOffset +
+            (relativeOffset === serialized.length ? child.nodeSize : 0)
+          );
         }
         serializedOffset += serialized.length;
         childDocumentOffset += child.nodeSize;
@@ -902,16 +827,11 @@ function syncPromptMentionMetadata(
   view: EditorView,
   inventory: ComposerPromptMentionMetadataInventory,
 ): void {
-  const skillsByPath = new Map(
-    inventory.skills.map((skill) => [skill.path, skill] as const),
-  );
+  const skillsByPath = new Map(inventory.skills.map((skill) => [skill.path, skill] as const));
   const skillsByName = new Map(
     inventory.skills.map((skill) => [skill.name.toLocaleLowerCase(), skill] as const),
   );
-  const appsByPath = new Map<
-    string,
-    ComposerPromptMentionMetadataInventory["apps"][number]
-  >(
+  const appsByPath = new Map<string, ComposerPromptMentionMetadataInventory["apps"][number]>(
     inventory.apps.map((app) => [`app://${app.id}`, app] as const),
   );
   const appsByName = new Map(
@@ -920,9 +840,7 @@ function syncPromptMentionMetadata(
       [normalizeComposerAppMentionName(app.name), app] as const,
     ]),
   );
-  const pluginsByPath = new Map(
-    inventory.plugins.map((plugin) => [plugin.path, plugin] as const),
-  );
+  const pluginsByPath = new Map(inventory.plugins.map((plugin) => [plugin.path, plugin] as const));
   const pluginsByName = new Map(
     inventory.plugins.flatMap((plugin) => [
       [plugin.name.toLocaleLowerCase(), plugin] as const,
@@ -938,8 +856,8 @@ function syncPromptMentionMetadata(
     let next: ComposerPromptMentionAttrs | null = null;
 
     if (attrs.kind === "skill") {
-      const skill = skillsByPath.get(attrs.path)
-        ?? skillsByName.get(attrs.name.toLocaleLowerCase());
+      const skill =
+        skillsByPath.get(attrs.path) ?? skillsByName.get(attrs.name.toLocaleLowerCase());
       if (skill) {
         next = normalizePromptMention({
           ...attrs,
@@ -953,8 +871,7 @@ function syncPromptMentionMetadata(
         });
       }
     } else if (attrs.kind === "app") {
-      const app = appsByPath.get(attrs.path)
-        ?? appsByName.get(attrs.name.toLocaleLowerCase());
+      const app = appsByPath.get(attrs.path) ?? appsByName.get(attrs.name.toLocaleLowerCase());
       if (app) {
         next = normalizePromptMention({
           ...attrs,
@@ -968,8 +885,8 @@ function syncPromptMentionMetadata(
         });
       }
     } else if (attrs.kind === "plugin") {
-      const plugin = pluginsByPath.get(attrs.path)
-        ?? pluginsByName.get(attrs.name.toLocaleLowerCase());
+      const plugin =
+        pluginsByPath.get(attrs.path) ?? pluginsByName.get(attrs.name.toLocaleLowerCase());
       if (plugin) {
         next = normalizePromptMention({
           ...attrs,
@@ -986,9 +903,9 @@ function syncPromptMentionMetadata(
     }
 
     if (!next) return true;
-    const metadataChanged = (
-      Object.keys(next) as (keyof ComposerPromptMentionAttrs)[]
-    ).some((key) => next[key] !== attrs[key]);
+    const metadataChanged = (Object.keys(next) as (keyof ComposerPromptMentionAttrs)[]).some(
+      (key) => next[key] !== attrs[key],
+    );
     if (!metadataChanged) return true;
 
     changed = true;
@@ -1036,8 +953,11 @@ function createPromptEditorState(value: string, placeholderRef: { current: strin
   });
 }
 
-export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, ComposerPromptEditorProps>(
-  function ComposerPromptEditor({
+export const ComposerPromptEditor = forwardRef<
+  ComposerPromptEditorHandle,
+  ComposerPromptEditorProps
+>(function ComposerPromptEditor(
+  {
     value,
     placeholder,
     disabled,
@@ -1051,61 +971,55 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
     onIntrinsicContentWidthChange,
     "data-composer-prompt-frame": dataComposerPromptFrame,
     className,
-  }, ref) {
-    const mountRef = useRef<HTMLDivElement | null>(null);
-    const viewRef = useRef<EditorView | null>(null);
-    const valueRef = useRef(value);
-    const onChangeRef = useRef(onChange);
-    const onKeyDownRef = useRef(onKeyDown);
-    const onLargeTextPasteRef = useRef(onLargeTextPaste);
-    const onPasteFilesRef = useRef(onPasteFiles);
-    const onSuggestionStateChangeRef = useRef(onSuggestionStateChange);
-    const onSuggestionActionRef = useRef(onSuggestionAction);
-    const onIntrinsicContentWidthChangeRef = useRef(
-      onIntrinsicContentWidthChange,
+  },
+  ref,
+) {
+  const mountRef = useRef<HTMLDivElement | null>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  const valueRef = useRef(value);
+  const onChangeRef = useRef(onChange);
+  const onKeyDownRef = useRef(onKeyDown);
+  const onLargeTextPasteRef = useRef(onLargeTextPaste);
+  const onPasteFilesRef = useRef(onPasteFiles);
+  const onSuggestionStateChangeRef = useRef(onSuggestionStateChange);
+  const onSuggestionActionRef = useRef(onSuggestionAction);
+  const onIntrinsicContentWidthChangeRef = useRef(onIntrinsicContentWidthChange);
+  const placeholderRef = useRef(placeholder);
+  const singleLineRef = useRef(singleLine);
+  const disabledRef = useRef(disabled);
+  valueRef.current = value;
+  onChangeRef.current = onChange;
+  onKeyDownRef.current = onKeyDown;
+  onLargeTextPasteRef.current = onLargeTextPaste;
+  onPasteFilesRef.current = onPasteFiles;
+  onSuggestionStateChangeRef.current = onSuggestionStateChange;
+  onSuggestionActionRef.current = onSuggestionAction;
+  onIntrinsicContentWidthChangeRef.current = onIntrinsicContentWidthChange;
+  placeholderRef.current = placeholder;
+  singleLineRef.current = singleLine;
+  disabledRef.current = disabled;
+
+  const emitSuggestionState = useCallback((view: EditorView | null) => {
+    onSuggestionStateChangeRef.current?.(
+      view ? readComposerSuggestionState(view.state) : inactiveComposerSuggestionState(),
     );
-    const placeholderRef = useRef(placeholder);
-    const singleLineRef = useRef(singleLine);
-    const disabledRef = useRef(disabled);
-    valueRef.current = value;
-    onChangeRef.current = onChange;
-    onKeyDownRef.current = onKeyDown;
-    onLargeTextPasteRef.current = onLargeTextPaste;
-    onPasteFilesRef.current = onPasteFiles;
-    onSuggestionStateChangeRef.current = onSuggestionStateChange;
-    onSuggestionActionRef.current = onSuggestionAction;
-    onIntrinsicContentWidthChangeRef.current = onIntrinsicContentWidthChange;
-    placeholderRef.current = placeholder;
-    singleLineRef.current = singleLine;
-    disabledRef.current = disabled;
+  }, []);
 
-    const emitSuggestionState = useCallback((view: EditorView | null) => {
-      onSuggestionStateChangeRef.current?.(
-        view
-          ? readComposerSuggestionState(view.state)
-          : inactiveComposerSuggestionState(),
-      );
-    }, []);
+  const reportIntrinsicContentWidth = useCallback(() => {
+    const element = viewRef.current?.dom;
+    if (!(element instanceof HTMLElement)) return;
+    onIntrinsicContentWidthChangeRef.current?.(measureComposerPromptIntrinsicWidth(element));
+  }, []);
 
-    const reportIntrinsicContentWidth = useCallback(() => {
-      const element = viewRef.current?.dom;
-      if (!(element instanceof HTMLElement)) return;
-      onIntrinsicContentWidthChangeRef.current?.(
-        measureComposerPromptIntrinsicWidth(element),
-      );
-    }, []);
-
-    const dispatchSuggestionMeta = useCallback((
-      view: EditorView,
-      meta: ComposerSuggestionTransactionMeta,
-    ) => {
+  const dispatchSuggestionMeta = useCallback(
+    (view: EditorView, meta: ComposerSuggestionTransactionMeta) => {
       view.dispatch(createComposerSuggestionTransaction(view.state, meta));
-    }, []);
+    },
+    [],
+  );
 
-    const handleSuggestionKeyDown = useCallback((
-      view: EditorView,
-      event: KeyboardEvent,
-    ): boolean => {
+  const handleSuggestionKeyDown = useCallback(
+    (view: EditorView, event: KeyboardEvent): boolean => {
       const suggestion = readComposerSuggestionState(view.state);
       if (!suggestion.active) return false;
 
@@ -1118,9 +1032,8 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       }
 
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-        const handled = onSuggestionActionRef.current?.(
-          event.key === "ArrowDown" ? "next" : "previous",
-        ) === true;
+        const handled =
+          onSuggestionActionRef.current?.(event.key === "ArrowDown" ? "next" : "previous") === true;
         if (!handled) return false;
         event.preventDefault();
         event.stopPropagation();
@@ -1128,28 +1041,21 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       }
 
       if (event.key === "Enter" || event.key === "Tab") {
-        const action = event.key === "Tab"
-          ? "complete-query"
-          : "insert-mention";
+        const action = event.key === "Tab" ? "complete-query" : "insert-mention";
         if (onSuggestionActionRef.current?.(action) !== true) return false;
         event.preventDefault();
         event.stopPropagation();
         return true;
       }
 
-      if (
-        event.key === "Backspace"
-        && suggestion.kind === "slash-command"
-      ) {
+      if (event.key === "Backspace" && suggestion.kind === "slash-command") {
         const range = suggestion.range;
-        const selectionOutsideRange = suggestion.activation === "synthetic"
-          && range !== null
-          && (
-            !view.state.selection.empty
-            ||
-            view.state.selection.from < range.from
-            || view.state.selection.from > range.to
-          );
+        const selectionOutsideRange =
+          suggestion.activation === "synthetic" &&
+          range !== null &&
+          (!view.state.selection.empty ||
+            view.state.selection.from < range.from ||
+            view.state.selection.from > range.to);
         if (selectionOutsideRange) {
           dispatchSuggestionMeta(view, { type: "close" });
           onSuggestionActionRef.current?.("backspace");
@@ -1172,48 +1078,60 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       }
 
       return false;
-    }, [dispatchSuggestionMeta]);
+    },
+    [dispatchSuggestionMeta],
+  );
 
-    const setText = useCallback((text: string) => {
-      const view = viewRef.current;
-      if (!view) {
-        onChangeRef.current(text);
-        return text;
-      }
+  const setText = useCallback((text: string) => {
+    const view = viewRef.current;
+    if (!view) {
+      onChangeRef.current(text);
+      return text;
+    }
 
-      const transaction = view.state.tr.replaceWith(0, view.state.doc.content.size, buildPromptDoc(text).content);
-      transaction.setSelection(getPromptDocEndSelection(transaction.doc)).scrollIntoView();
-      view.dispatch(transaction);
-      return readPromptDocText(view.state.doc);
-    }, []);
+    const transaction = view.state.tr.replaceWith(
+      0,
+      view.state.doc.content.size,
+      buildPromptDoc(text).content,
+    );
+    transaction.setSelection(getPromptDocEndSelection(transaction.doc)).scrollIntoView();
+    view.dispatch(transaction);
+    return readPromptDocText(view.state.doc);
+  }, []);
 
-    const replaceTextRange = useCallback((range: { from: number; to: number; text: string }) => {
-      const view = viewRef.current;
-      if (!view) {
-        const nextValue = `${valueRef.current.slice(0, range.from)}${range.text}${valueRef.current.slice(range.to)}`;
-        onChangeRef.current(nextValue);
-        return nextValue;
-      }
+  const replaceTextRange = useCallback((range: { from: number; to: number; text: string }) => {
+    const view = viewRef.current;
+    if (!view) {
+      const nextValue = `${valueRef.current.slice(0, range.from)}${range.text}${valueRef.current.slice(range.to)}`;
+      onChangeRef.current(nextValue);
+      return nextValue;
+    }
 
-      const from = Math.max(0, Math.min(range.from, view.state.doc.content.size));
-      const to = Math.max(from, Math.min(range.to, view.state.doc.content.size));
-      view.dispatch(replacePromptTextRange(view.state.tr, {
+    const from = Math.max(0, Math.min(range.from, view.state.doc.content.size));
+    const to = Math.max(from, Math.min(range.to, view.state.doc.content.size));
+    view.dispatch(
+      replacePromptTextRange(view.state.tr, {
         from,
         to,
         text: range.text,
-      }).scrollIntoView());
-      view.focus();
-      return readPromptDocText(view.state.doc);
-    }, []);
+      }).scrollIntoView(),
+    );
+    view.focus();
+    return readPromptDocText(view.state.doc);
+  }, []);
 
-    useImperativeHandle(ref, () => ({
+  useImperativeHandle(
+    ref,
+    () => ({
       focus: () => {
         viewRef.current?.focus();
       },
       focusAtEnd: () => {
         const view = viewRef.current;
         if (!view) return;
-        view.dispatch(view.state.tr.setSelection(getPromptDocEndSelection(view.state.doc)).scrollIntoView());
+        view.dispatch(
+          view.state.tr.setSelection(getPromptDocEndSelection(view.state.doc)).scrollIntoView(),
+        );
         view.focus();
       },
       setText,
@@ -1244,30 +1162,27 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         }
 
         const suggestion = readComposerSuggestionState(view.state);
-        const from = suggestion.active && suggestion.range
-          ? suggestion.range.from
-          : view.state.selection.from;
-        const to = suggestion.active && suggestion.range
-          ? suggestion.range.to
-          : view.state.selection.to;
+        const from =
+          suggestion.active && suggestion.range ? suggestion.range.from : view.state.selection.from;
+        const to =
+          suggestion.active && suggestion.range ? suggestion.range.to : view.state.selection.to;
         const mentionNode = promptSchema.nodes.mention.create(normalizedMention);
         let transaction = view.state.tr.replaceRangeWith(from, to, mentionNode);
         const mentionEnd = transaction.mapping.map(from, -1) + mentionNode.nodeSize;
         const resolvedEnd = transaction.doc.resolve(mentionEnd);
-        const nextTextCharacter = resolvedEnd.parentOffset < resolvedEnd.parent.content.size
-          ? resolvedEnd.parent.childAfter(resolvedEnd.parentOffset).node?.text?.[0]
-          : undefined;
-        const cursor = nextTextCharacter && /\s/u.test(nextTextCharacter)
-          ? mentionEnd
-          : mentionEnd + 1;
+        const nextTextCharacter =
+          resolvedEnd.parentOffset < resolvedEnd.parent.content.size
+            ? resolvedEnd.parent.childAfter(resolvedEnd.parentOffset).node?.text?.[0]
+            : undefined;
+        const cursor =
+          nextTextCharacter && /\s/u.test(nextTextCharacter) ? mentionEnd : mentionEnd + 1;
         if (cursor > mentionEnd) {
           transaction = transaction.insertText(" ", mentionEnd);
         }
         transaction
-          .setSelection(TextSelection.create(
-            transaction.doc,
-            Math.min(cursor, transaction.doc.content.size),
-          ))
+          .setSelection(
+            TextSelection.create(transaction.doc, Math.min(cursor, transaction.doc.content.size)),
+          )
           .setMeta(composerSuggestionPluginKey, { type: "close" })
           .scrollIntoView();
         view.dispatch(transaction);
@@ -1282,9 +1197,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         const suggestion = readComposerSuggestionState(view.state);
         dispatchSuggestionMeta(
           view,
-          suggestion.active
-            && suggestion.activation === "synthetic"
-            && suggestion.trigger === "+"
+          suggestion.active && suggestion.activation === "synthetic" && suggestion.trigger === "+"
             ? { type: "close" }
             : {
                 type: "open-synthetic",
@@ -1299,11 +1212,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         const view = viewRef.current;
         if (!view) return;
         const suggestion = readComposerSuggestionState(view.state);
-        if (
-          suggestion.active
-          && suggestion.kind === "slash-command"
-          && suggestion.range !== null
-        ) {
+        if (suggestion.active && suggestion.kind === "slash-command" && suggestion.range !== null) {
           const queryFrom = suggestion.anchorPos ?? suggestion.range.from;
           const transaction = view.state.tr;
           if (suggestion.range.to > queryFrom) {
@@ -1322,12 +1231,14 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
               TextSelection.create(transaction.doc, transaction.selection.to),
             );
           }
-          view.dispatch(transaction.setMeta(composerSuggestionPluginKey, {
-            type: "open-synthetic",
-            from: transaction.selection.from,
-            kind: "slash-command",
-            trigger: "/",
-          } satisfies ComposerSuggestionTransactionMeta));
+          view.dispatch(
+            transaction.setMeta(composerSuggestionPluginKey, {
+              type: "open-synthetic",
+              from: transaction.selection.from,
+              kind: "slash-command",
+              trigger: "/",
+            } satisfies ComposerSuggestionTransactionMeta),
+          );
           dispatchSuggestionMeta(view, { type: "set-source", source });
         }
         view.focus();
@@ -1352,9 +1263,7 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
       },
       getSuggestionState: () => {
         const view = viewRef.current;
-        return view
-          ? readComposerSuggestionState(view.state)
-          : inactiveComposerSuggestionState();
+        return view ? readComposerSuggestionState(view.state) : inactiveComposerSuggestionState();
       },
       getText: () => {
         const view = viewRef.current;
@@ -1369,7 +1278,8 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         if (!view || !view.state.selection.empty) return false;
 
         const domSelection = view.dom.ownerDocument.getSelection();
-        if (!domSelection || !domSelection.isCollapsed || domSelection.rangeCount === 0) return false;
+        if (!domSelection || !domSelection.isCollapsed || domSelection.rangeCount === 0)
+          return false;
         if (!domSelection.anchorNode || !view.dom.contains(domSelection.anchorNode)) return false;
 
         const endPosition = getPromptDocEndSelection(view.state.doc).from;
@@ -1386,123 +1296,112 @@ export const ComposerPromptEditor = forwardRef<ComposerPromptEditorHandle, Compo
         if (!view) return;
         syncPromptMentionMetadata(view, inventory);
       },
-    }), [dispatchSuggestionMeta, replaceTextRange, setText]);
+    }),
+    [dispatchSuggestionMeta, replaceTextRange, setText],
+  );
 
-    useLayoutEffect(() => {
-      const mount = mountRef.current;
-      if (!mount || viewRef.current) return;
+  useLayoutEffect(() => {
+    const mount = mountRef.current;
+    if (!mount || viewRef.current) return;
 
-      const view = new EditorView(mount, {
-        state: createPromptEditorState(valueRef.current, placeholderRef),
-        editable: () => !disabledRef.current,
-        attributes: buildPromptEditorAttributes({
-          placeholder: placeholderRef.current,
-          singleLine: singleLineRef.current,
-        }),
-        handleKeyDown: (currentView, event) =>
-          handleSuggestionKeyDown(currentView, event)
-          || onKeyDownRef.current(event),
-        handlePaste: (_view, event) => handleComposerPaste(
-          event,
-          onPasteFilesRef.current,
-          onLargeTextPasteRef.current,
-        ),
-        dispatchTransaction(transaction) {
-          const currentView = viewRef.current;
-          if (!currentView) return;
+    const view = new EditorView(mount, {
+      state: createPromptEditorState(valueRef.current, placeholderRef),
+      editable: () => !disabledRef.current,
+      attributes: buildPromptEditorAttributes({
+        placeholder: placeholderRef.current,
+        singleLine: singleLineRef.current,
+      }),
+      handleKeyDown: (currentView, event) =>
+        handleSuggestionKeyDown(currentView, event) || onKeyDownRef.current(event),
+      handlePaste: (_view, event) =>
+        handleComposerPaste(event, onPasteFilesRef.current, onLargeTextPasteRef.current),
+      dispatchTransaction(transaction) {
+        const currentView = viewRef.current;
+        if (!currentView) return;
 
-          const nextState = currentView.state.apply(transaction);
-          currentView.updateState(nextState);
-          reportIntrinsicContentWidth();
-          const nextValue = readPromptDocText(nextState.doc);
+        const nextState = currentView.state.apply(transaction);
+        currentView.updateState(nextState);
+        reportIntrinsicContentWidth();
+        const nextValue = readPromptDocText(nextState.doc);
 
-          if (nextValue !== valueRef.current) {
-            onChangeRef.current(nextValue);
-          }
-          emitSuggestionState(currentView);
-        },
-      });
+        if (nextValue !== valueRef.current) {
+          onChangeRef.current(nextValue);
+        }
+        emitSuggestionState(currentView);
+      },
+    });
 
-      viewRef.current = view;
+    viewRef.current = view;
+    emitSuggestionState(view);
+    reportIntrinsicContentWidth();
+
+    return () => {
+      view.destroy();
+      viewRef.current = null;
+    };
+  }, [
+    dispatchSuggestionMeta,
+    emitSuggestionState,
+    handleSuggestionKeyDown,
+    reportIntrinsicContentWidth,
+  ]);
+
+  useLayoutEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.setProps({
+      editable: () => !disabled,
+      attributes: buildPromptEditorAttributes({ placeholder, singleLine }),
+      handleKeyDown: (currentView, event) =>
+        handleSuggestionKeyDown(currentView, event) || onKeyDownRef.current(event),
+      handlePaste: (_currentView, event) =>
+        handleComposerPaste(event, onPasteFilesRef.current, onLargeTextPasteRef.current),
+    });
+  }, [disabled, dispatchSuggestionMeta, handleSuggestionKeyDown, placeholder, singleLine]);
+
+  useLayoutEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+
+    const currentValue = readPromptDocText(view.state.doc);
+    if (currentValue !== value) {
+      view.updateState(createPromptEditorState(value, placeholderRef));
       emitSuggestionState(view);
       reportIntrinsicContentWidth();
+      return;
+    }
 
-      return () => {
-        view.destroy();
-        viewRef.current = null;
-      };
-    }, [
-      dispatchSuggestionMeta,
-      emitSuggestionState,
-      handleSuggestionKeyDown,
-      reportIntrinsicContentWidth,
-    ]);
+    view.dispatch(view.state.tr.setMeta("prompt-placeholder", placeholder));
+  }, [emitSuggestionState, placeholder, reportIntrinsicContentWidth, value]);
 
-    useLayoutEffect(() => {
-      const view = viewRef.current;
-      if (!view) return;
-      view.setProps({
-        editable: () => !disabled,
-        attributes: buildPromptEditorAttributes({ placeholder, singleLine }),
-        handleKeyDown: (currentView, event) =>
-          handleSuggestionKeyDown(currentView, event)
-          || onKeyDownRef.current(event),
-        handlePaste: (_currentView, event) => handleComposerPaste(
-          event,
-          onPasteFilesRef.current,
-          onLargeTextPasteRef.current,
-        ),
-      });
-    }, [
-      disabled,
-      dispatchSuggestionMeta,
-      handleSuggestionKeyDown,
-      placeholder,
-      singleLine,
-    ]);
+  useEffect(() => {
+    let active = true;
+    void document.fonts?.ready.then(() => {
+      if (active) reportIntrinsicContentWidth();
+    });
+    return () => {
+      active = false;
+    };
+  }, [reportIntrinsicContentWidth]);
 
-    useLayoutEffect(() => {
-      const view = viewRef.current;
-      if (!view) return;
-
-      const currentValue = readPromptDocText(view.state.doc);
-      if (currentValue !== value) {
-        view.updateState(createPromptEditorState(value, placeholderRef));
-        emitSuggestionState(view);
-        reportIntrinsicContentWidth();
-        return;
-      }
-
-      view.dispatch(view.state.tr.setMeta("prompt-placeholder", placeholder));
-    }, [emitSuggestionState, placeholder, reportIntrinsicContentWidth, value]);
-
-    useEffect(() => {
-      let active = true;
-      void document.fonts?.ready.then(() => {
-        if (active) reportIntrinsicContentWidth();
-      });
-      return () => {
-        active = false;
-      };
-    }, [reportIntrinsicContentWidth]);
-
-    return (
-      <div
-        data-composer-prompt-frame={dataComposerPromptFrame}
-        data-nodex-keyboard-context={dataComposerPromptFrame ? "composer" : undefined}
-        data-single-line={singleLine ? "true" : "false"}
-        className={[
-          "text-size-chat [&_.ProseMirror]:focus-visible:outline-none text-token-foreground h-auto [&_.ProseMirror]:h-auto [&_.ProseMirror]:resize-none [&_.ProseMirror_p]:m-0 text-base [&_.ProseMirror]:leading-5",
-          singleLine
-            ? "max-h-5 overflow-hidden [&_.ProseMirror]:min-h-5"
-            : "max-h-[25dvh] overflow-y-auto [&_.ProseMirror]:min-h-[2rem]",
-          disabled ? "opacity-60" : null,
-          className,
-        ].filter(Boolean).join(" ")}
-        ref={mountRef}
-      />
-    );
-  },
-);
+  return (
+    <div
+      data-composer-prompt-frame={dataComposerPromptFrame}
+      data-nodex-keyboard-context={dataComposerPromptFrame ? "composer" : undefined}
+      data-single-line={singleLine ? "true" : "false"}
+      className={[
+        "text-size-chat [&_.ProseMirror]:focus-visible:outline-none text-token-foreground h-auto [&_.ProseMirror]:h-auto [&_.ProseMirror]:resize-none [&_.ProseMirror_p]:m-0 text-base [&_.ProseMirror]:leading-5",
+        singleLine
+          ? "max-h-5 overflow-hidden [&_.ProseMirror]:min-h-5"
+          : "max-h-[25dvh] overflow-y-auto [&_.ProseMirror]:min-h-[2rem]",
+        disabled ? "opacity-60" : null,
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      ref={mountRef}
+    />
+  );
+});
 
 export type ComposerPromptEditorKeyboardEvent = ReactKeyboardEvent<HTMLElement> | KeyboardEvent;

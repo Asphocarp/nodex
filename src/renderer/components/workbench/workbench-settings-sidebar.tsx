@@ -5,11 +5,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import {
-  BrowserBackIcon,
-  CloseIcon,
-  SettingsSearchIcon,
-} from "@/components/shared/icons";
+import { BrowserBackIcon, CloseIcon, SettingsSearchIcon } from "@/components/shared/icons";
 import {
   buildSettingsSearchResults,
   buildSettingsSearchTargets,
@@ -68,9 +64,7 @@ function SettingsSidebarItem({
     <div
       className={cn(
         "flex min-w-0 flex-1 items-center gap-2 text-base",
-        active
-          ? "text-token-list-active-selection-foreground"
-          : "text-token-foreground",
+        active ? "text-token-list-active-selection-foreground" : "text-token-foreground",
       )}
     >
       <Icon
@@ -85,12 +79,7 @@ function SettingsSidebarItem({
 
   if (disabled) {
     return (
-      <button
-        type="button"
-        disabled
-        aria-label={label}
-        className={className}
-      >
+      <button type="button" disabled aria-label={label} className={className}>
         {content}
       </button>
     );
@@ -127,9 +116,8 @@ function SettingsSearchInput({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const wantsSearch = (event.metaKey || event.ctrlKey)
-        && !event.altKey
-        && event.key.toLowerCase() === "f";
+      const wantsSearch =
+        (event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "f";
 
       if (!wantsSearch) return;
 
@@ -198,11 +186,7 @@ function SettingsSearchResults({
   }, [sections]);
 
   if (results.length === 0) {
-    return (
-      <div className="px-row-x pt-2 text-sm text-token-text-secondary">
-        No results found
-      </div>
-    );
+    return <div className="px-row-x pt-2 text-sm text-token-text-secondary">No results found</div>;
   }
 
   return (
@@ -251,17 +235,19 @@ export function SettingsSidebar({
     [searchContext, sections],
   );
   const visibleSectionIds = useMemo(
-    () => sections
-      .filter((section) => !section.disabled && section.externalUrl == null)
-      .map((section) => section.id),
+    () =>
+      sections
+        .filter((section) => !section.disabled && section.externalUrl == null)
+        .map((section) => section.id),
     [sections],
   );
   const searchResults = useMemo(
-    () => buildSettingsSearchResults({
-      query,
-      targets: searchTargets,
-      visibleSectionIds,
-    }),
+    () =>
+      buildSettingsSearchResults({
+        query,
+        targets: searchTargets,
+        visibleSectionIds,
+      }),
     [query, searchTargets, visibleSectionIds],
   );
   const isSearchActive = settingsQueryRendersResultsMode(query);

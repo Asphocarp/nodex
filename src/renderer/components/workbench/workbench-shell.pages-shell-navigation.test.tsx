@@ -3,18 +3,43 @@ import { describe, test, expect, vi } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { splitWorkbenchPanelLeaf } from "../../../shared/workbench-panel-layout";
-import { makeAttachedSession, makeBlankSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
-import { TITLEBAR_NEW_CHAT_ICON_PREFIX, executeCommandPaletteCommand, getHeaderShellSlot, getLastTerminalPanelProps, getThreadRow, installMotionEnabledMatchMediaForTest, installReducedMotionMatchMediaForTest, invokeCalls, moveSidebarPointer, pointerActivate, pointerDownAndSettle, renderWorkbench, startThreadForSessionCalls, setInvokeCalls } from "./workbench-testkit/workbench-shell-harness";
+import {
+  makeAttachedSession,
+  makeBlankSession,
+  makePanelLayout,
+  makePanels,
+  makeProject,
+  makeSession,
+  makeSessionTab,
+} from "./workbench-testkit/workbench-shell-fixtures";
+import {
+  TITLEBAR_NEW_CHAT_ICON_PREFIX,
+  executeCommandPaletteCommand,
+  getHeaderShellSlot,
+  getLastTerminalPanelProps,
+  getThreadRow,
+  installMotionEnabledMatchMediaForTest,
+  installReducedMotionMatchMediaForTest,
+  invokeCalls,
+  moveSidebarPointer,
+  pointerActivate,
+  pointerDownAndSettle,
+  renderWorkbench,
+  startThreadForSessionCalls,
+  setInvokeCalls,
+} from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / pages-shell-navigation", () => {
   test("projects migrate retired Calendar tabs to the durable View's Board layout", async () => {
     const session = makeSession({
-      tabs: [makeSessionTab({
-        id: "calendar-db",
-        title: "Calendar",
-        kind: "db_view",
-        config: { projectId: "alpha" },
-      })],
+      tabs: [
+        makeSessionTab({
+          id: "calendar-db",
+          title: "Calendar",
+          kind: "db_view",
+          config: { projectId: "alpha" },
+        }),
+      ],
     });
     const screen = renderWorkbench({ sessionsByProject: { alpha: [session] } });
     await settleAsyncRender();
@@ -32,14 +57,17 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.onOpenPage).toBe("function");
     await act(async () => {
-      await (props?.onOpenPage as (
-        pageId: string,
-        titleSnapshot: string,
-        openMode: "preview" | "durable",
-      ) => Promise<void> | void)("card-1", "Card One", "preview");
+      await (
+        props?.onOpenPage as (
+          pageId: string,
+          titleSnapshot: string,
+          openMode: "preview" | "durable",
+        ) => Promise<void> | void
+      )("card-1", "Card One", "preview");
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -47,7 +75,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
     expect(startThreadForSessionCalls).toHaveLength(0);
     expect(screen.getByRole("tab", { name: "Card One" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-shell-tab-preview="true"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-app-shell-tab-preview="true"]') !== null).toBe(
+      true,
+    );
   });
 
   test("opens a Page in an ordinary Chat without claiming the default-draft slot", async () => {
@@ -56,21 +86,27 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     setInvokeCalls([]);
-    const databaseViewSurfaceProps = (globalThis as {
-      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
-    }).__lastDatabaseViewSurfaceProps;
-    const pageActionPort = databaseViewSurfaceProps?.pageActionPort as {
-      readonly openInNewSession?: (input: {
-        projectId: string;
-        pageId: string;
-        titleSnapshot?: string;
-      }) => Promise<void> | void;
-    } | undefined;
-    const openPageInNewChat = pageActionPort?.openInNewSession as ((input: {
-      projectId: string;
-      pageId: string;
-      titleSnapshot?: string;
-    }) => Promise<void> | void) | undefined;
+    const databaseViewSurfaceProps = (
+      globalThis as {
+        __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+      }
+    ).__lastDatabaseViewSurfaceProps;
+    const pageActionPort = databaseViewSurfaceProps?.pageActionPort as
+      | {
+          readonly openInNewSession?: (input: {
+            projectId: string;
+            pageId: string;
+            titleSnapshot?: string;
+          }) => Promise<void> | void;
+        }
+      | undefined;
+    const openPageInNewChat = pageActionPort?.openInNewSession as
+      | ((input: {
+          projectId: string;
+          pageId: string;
+          titleSnapshot?: string;
+        }) => Promise<void> | void)
+      | undefined;
     expect(typeof openPageInNewChat).toBe("function");
     await act(async () => {
       await openPageInNewChat?.({
@@ -89,14 +125,16 @@ describe("workbench session shell / pages-shell-navigation", () => {
       projectId: "alpha",
       noThreadFallbackTitle: "Card One",
     });
-    expect(invokeCalls.some((call) => (
-      call[0] === "project-sessions:ensure-default-draft"
-    ))).toBe(false);
-    const ordinaryTarget = (globalThis as {
-      __lastConnectedThreadStageProps?: {
-        newThreadTarget?: { sessionId?: string };
-      };
-    }).__lastConnectedThreadStageProps?.newThreadTarget;
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:ensure-default-draft")).toBe(
+      false,
+    );
+    const ordinaryTarget = (
+      globalThis as {
+        __lastConnectedThreadStageProps?: {
+          newThreadTarget?: { sessionId?: string };
+        };
+      }
+    ).__lastConnectedThreadStageProps?.newThreadTarget;
     expect(ordinaryTarget?.sessionId).toBe("session:alpha:created");
 
     await act(async () => {
@@ -105,15 +143,18 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) => (
-      call[0] === "project-sessions:ensure-default-draft"
-      && call[1] === "alpha"
-    ))).toBe(true);
-    const defaultDraftTarget = (globalThis as {
-      __lastConnectedThreadStageProps?: {
-        newThreadTarget?: { sessionId?: string };
-      };
-    }).__lastConnectedThreadStageProps?.newThreadTarget;
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "project-sessions:ensure-default-draft" && call[1] === "alpha",
+      ),
+    ).toBe(true);
+    const defaultDraftTarget = (
+      globalThis as {
+        __lastConnectedThreadStageProps?: {
+          newThreadTarget?: { sessionId?: string };
+        };
+      }
+    ).__lastConnectedThreadStageProps?.newThreadTarget;
     expect(defaultDraftTarget?.sessionId).toBe("session:alpha:created:2");
     expect(defaultDraftTarget?.sessionId).not.toBe(ordinaryTarget?.sessionId);
   });
@@ -132,7 +173,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), { button: 0 });
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), {
+        button: 0,
+      });
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -143,12 +186,15 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:database-view"
-      && call[2] === "right"
-      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:database-view" &&
+          call[2] === "right" &&
+          JSON.stringify(call[3]) === JSON.stringify({ collapsed: false }),
+      ),
+    ).toBe(true);
     expect(screen.queryAllByRole("tablist").length > 0).toBe(true);
   });
 
@@ -157,14 +203,17 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -174,50 +223,59 @@ describe("workbench session shell / pages-shell-navigation", () => {
     expect(tab.closest("[data-panel-tab-row]")?.getAttribute("data-panel-tab-row")).not.toBe(
       "right:leaf:right",
     );
-    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null,
+    ).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
-    expect(invokeCalls.some((call) => call[0] === "window-session-view:ensure-right-leaf")).toBe(true);
-    expect(invokeCalls.some((call) => {
-      const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
-      return call[0] === "window-session-view:panel-patch"
-        && call[1] === "session:alpha:database-view"
-        && call[2] === "right"
-        && input?.size?.fullWidth === false;
-    })).toBe(false);
+    expect(invokeCalls.some((call) => call[0] === "window-session-view:ensure-right-leaf")).toBe(
+      true,
+    );
+    expect(
+      invokeCalls.some((call) => {
+        const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
+        return (
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:database-view" &&
+          call[2] === "right" &&
+          input?.size?.fullWidth === false
+        );
+      }),
+    ).toBe(false);
   });
 
   test("opens DB page previews in the active group when the right panel is not full-width", async () => {
     const screen = renderWorkbench({
       sessionsByProject: {
-        alpha: [
-          makeSession({ rightFullWidth: false }),
-        ],
+        alpha: [makeSession({ rightFullWidth: false })],
       },
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (
-        projectId: string,
-        pageId: string,
-        title?: string,
-      ) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
     const tab = screen.getByRole("tab", { name: "Card One" });
     expect(tab.closest('[data-app-shell-tab-preview="true"]') !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null,
+    ).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
-    expect(invokeCalls.some((call) => call[0] === "window-session-view:ensure-right-leaf")).toBe(false);
+    expect(invokeCalls.some((call) => call[0] === "window-session-view:ensure-right-leaf")).toBe(
+      false,
+    );
   });
 
   test("creates a right group before opening a preview from a full-width DB tab", async () => {
@@ -225,27 +283,30 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (
-        projectId: string,
-        pageId: string,
-        title?: string,
-      ) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const ensureCall = invokeCalls.find((call) => call[0] === "window-session-view:ensure-right-leaf");
+    const ensureCall = invokeCalls.find(
+      (call) => call[0] === "window-session-view:ensure-right-leaf",
+    );
     expect(ensureCall !== undefined).toBe(true);
     const tab = screen.getByRole("tab", { name: "Card One" });
     expect(tab.closest('[data-app-shell-tab-preview="true"]') !== null).toBe(true);
-    expect(tab.closest("[data-panel-tab-row]")?.getAttribute("data-panel-tab-row")).not.toBe("right:leaf:right");
+    expect(tab.closest("[data-panel-tab-row]")?.getAttribute("data-panel-tab-row")).not.toBe(
+      "right:leaf:right",
+    );
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
   });
 
@@ -254,14 +315,17 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -283,7 +347,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
     editor.focus();
     expect(document.activeElement).toBe(editor);
     expect((globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts).toBe(1);
-    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(0);
+    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(
+      0,
+    );
     await pointerDownAndSettle(editor);
 
     await waitFor(() => {
@@ -297,16 +363,20 @@ describe("workbench session shell / pages-shell-navigation", () => {
       expect(input?.clientTabId).toBe(previewTabId);
       expect(input?.kind).toBe("page_stage");
       expect(input?.title).toBe("Card One");
-      expect(JSON.stringify(input?.config)).toBe(JSON.stringify({
-        accessContext: { kind: "project", projectId: "alpha" },
-        pageId: "card-1",
-        titleSnapshot: "Card One",
-      }));
+      expect(JSON.stringify(input?.config)).toBe(
+        JSON.stringify({
+          accessContext: { kind: "project", projectId: "alpha" },
+          pageId: "card-1",
+          titleSnapshot: "Card One",
+        }),
+      );
     });
     expect(screen.container.querySelector(".nfm-editor .ProseMirror")).toBe(editor);
     expect(document.activeElement).toBe(editor);
     expect((globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts).toBe(1);
-    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(0);
+    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(
+      0,
+    );
   });
 
   test("double-clicking a page-stage preview tab label pins it without remounting", async () => {
@@ -314,26 +384,35 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
     const previewTab = screen.getByRole("tab", { name: "Card One" });
-    const previewTabId = previewTab.closest("[data-panel-tab-id]")?.getAttribute("data-panel-tab-id");
+    const previewTabId = previewTab
+      .closest("[data-panel-tab-id]")
+      ?.getAttribute("data-panel-tab-id");
     expect(typeof previewTabId).toBe("string");
     expect((globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts).toBe(1);
-    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(0);
-    const previewPageStageProps = (globalThis as {
-      __lastPageStageProps?: Record<string, unknown>;
-    }).__lastPageStageProps;
+    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(
+      0,
+    );
+    const previewPageStageProps = (
+      globalThis as {
+        __lastPageStageProps?: Record<string, unknown>;
+      }
+    ).__lastPageStageProps;
     expect(previewPageStageProps?.editorSessionKey).toBe(
       `session:alpha:database-view\u0000${previewTabId ?? ""}`,
     );
@@ -356,17 +435,21 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
 
     const durableTab = screen.getByRole("tab", { name: "Card One" });
-    expect(durableTab.closest("[data-panel-tab-id]")?.getAttribute("data-panel-tab-id")).toBe(previewTabId);
+    expect(durableTab.closest("[data-panel-tab-id]")?.getAttribute("data-panel-tab-id")).toBe(
+      previewTabId,
+    );
     expect(durableTab.closest('[data-app-shell-tab-preview="true"]')).toBe(null);
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
     expect((globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts).toBe(1);
-    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(0);
-    const durablePageStageProps = (globalThis as {
-      __lastPageStageProps?: Record<string, unknown>;
-    }).__lastPageStageProps;
-    expect(durablePageStageProps?.editorSessionKey).toBe(
-      previewPageStageProps?.editorSessionKey,
+    expect((globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts ?? 0).toBe(
+      0,
     );
+    const durablePageStageProps = (
+      globalThis as {
+        __lastPageStageProps?: Record<string, unknown>;
+      }
+    ).__lastPageStageProps;
+    expect(durablePageStageProps?.editorSessionKey).toBe(previewPageStageProps?.editorSessionKey);
     expect(durablePageStageProps?.retainEditorSession).toBe(true);
   });
 
@@ -375,18 +458,23 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
     await settleAsyncRender();
-    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null,
+    ).toBe(true);
 
     setInvokeCalls([]);
     await pointerActivate(screen.getByRole("button", { name: "Close" }));
@@ -398,23 +486,30 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
     await settleAsyncRender();
-    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null,
+    ).toBe(true);
 
     setInvokeCalls([]);
     await pointerActivate(screen.getByRole("button", { name: "Delete" }));
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
-    expect((globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks).toBe(1);
+    expect(
+      (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks,
+    ).toBe(1);
   });
 
   test("replaces the current page-stage preview when another DB card opens", async () => {
@@ -422,23 +517,28 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
 
     await act(async () => {
-      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
-        "alpha",
-        "card-2",
-        "Card Two",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-2", "Card Two");
     });
     await settleAsyncRender();
     await settleAsyncRender();
@@ -486,17 +586,22 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
-    const pageModel = pageStageProps?.page as {
-      page?: { id?: string };
-    } | undefined;
-    const documentAuthority = pageStageProps?.documentAuthority as {
-      kind?: string;
-      descriptor?: {
-        accessContext?: { kind: string; projectId?: string };
-        ownerBlockId?: string;
-      };
-    } | undefined;
+    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> })
+      .__lastPageStageProps;
+    const pageModel = pageStageProps?.page as
+      | {
+          page?: { id?: string };
+        }
+      | undefined;
+    const documentAuthority = pageStageProps?.documentAuthority as
+      | {
+          kind?: string;
+          descriptor?: {
+            accessContext?: { kind: string; projectId?: string };
+            ownerBlockId?: string;
+          };
+        }
+      | undefined;
     expect(pageModel?.page?.id).toBe("card-beta");
     expect(documentAuthority?.kind).toBe("yjs");
     expect(documentAuthority?.descriptor?.accessContext).toEqual({
@@ -532,14 +637,17 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> })
+      .__lastPageStageProps;
     expect(pageStageProps?.sessionId).toBe("session:alpha:card-empty");
     expect(pageStageProps?.canStartThreadInSession).toBe(true);
-    const startThread = pageStageProps?.onStartNewSessionThreadFromEditor as ((input: {
-      projectId: string;
-      targetSessionId?: string;
-      prompt: string;
-    }) => Promise<{ threadId: string; sessionId?: string }>) | undefined;
+    const startThread = pageStageProps?.onStartNewSessionThreadFromEditor as
+      | ((input: {
+          projectId: string;
+          targetSessionId?: string;
+          prompt: string;
+        }) => Promise<{ threadId: string; sessionId?: string }>)
+      | undefined;
     if (!startThread) {
       throw new Error("missing page-stage start-thread callback");
     }
@@ -555,20 +663,24 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    expect(JSON.stringify(result)).toBe(JSON.stringify({
-      threadId: "thread-started",
-      sessionId: "session:alpha:card-empty",
-    }));
+    expect(JSON.stringify(result)).toBe(
+      JSON.stringify({
+        threadId: "thread-started",
+        sessionId: "session:alpha:card-empty",
+      }),
+    );
     expect(startThreadForSessionCalls.length).toBe(1);
-    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(JSON.stringify({
-      projectId: "alpha",
-      sessionId: "session:alpha:card-empty",
-      prompt: "Send selected blocks",
-      promptInput: undefined,
-      threadName: undefined,
-      skipAutoTitleGeneration: false,
-      runInTarget: "localProject",
-    }));
+    expect(JSON.stringify(startThreadForSessionCalls[0])).toBe(
+      JSON.stringify({
+        projectId: "alpha",
+        sessionId: "session:alpha:card-empty",
+        prompt: "Send selected blocks",
+        promptInput: undefined,
+        threadName: undefined,
+        skipAutoTitleGeneration: false,
+        runInTarget: "localProject",
+      }),
+    );
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
   });
 
@@ -599,8 +711,11 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
-    const openThread = pageStageProps?.onOpenCodexThread as ((threadId: string) => Promise<void>) | undefined;
+    const pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> })
+      .__lastPageStageProps;
+    const openThread = pageStageProps?.onOpenCodexThread as
+      | ((threadId: string) => Promise<void>)
+      | undefined;
     expect(typeof openThread).toBe("function");
     if (!openThread) return;
 
@@ -611,11 +726,16 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "codex:thread:ensure-session"
-      && call[1] === "thread-mentioned"
-    )).toBe(true);
-    expect(getThreadRow(screen.container, "Mention target").getAttribute("data-app-action-sidebar-thread-active")).toBe("true");
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "codex:thread:ensure-session" && call[1] === "thread-mentioned",
+      ),
+    ).toBe(true);
+    expect(
+      getThreadRow(screen.container, "Mention target").getAttribute(
+        "data-app-action-sidebar-thread-active",
+      ),
+    ).toBe("true");
   });
 
   test("labels cross-project page-stage tabs with their target project", async () => {
@@ -654,12 +774,16 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     expect(screen.getByRole("tab", { name: "Beta project, Beta Card" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]')?.textContent).toBe("Beta");
+    expect(
+      screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]')?.textContent,
+    ).toBe("Beta");
     expect(screen.getByLabelText("Close Beta project, Beta Card tab") !== null).toBe(true);
 
-    const pageStageProps = (globalThis as {
-      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
-    }).__mockPageStagePropsByPageId?.["card-beta"];
+    const pageStageProps = (
+      globalThis as {
+        __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+      }
+    ).__mockPageStagePropsByPageId?.["card-beta"];
     const publishLiveTitle = pageStageProps?.__publishPageTitle as
       | ((title: string) => void)
       | undefined;
@@ -706,7 +830,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
       await Promise.resolve();
     });
     expect(screen.getByRole("tab", { name: "Beta project, Untitled" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-shell-tab-title="card-tab"]')?.textContent).toBe("Untitled");
+    expect(
+      screen.container.querySelector('[data-app-shell-tab-title="card-tab"]')?.textContent,
+    ).toBe("Untitled");
     await act(async () => {
       disposeLiveTitle();
       await Promise.resolve();
@@ -745,31 +871,32 @@ describe("workbench session shell / pages-shell-navigation", () => {
           },
         },
       ],
-      rightLayout: makePanelLayout(
-        ["page-tab:first", "page-tab:second"],
-        "page-tab:second",
-      ),
+      rightLayout: makePanelLayout(["page-tab:first", "page-tab:second"], "page-tab:second"),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
-      libraryRoots: [{
-        kind: "page",
-        pageId: "card-1",
-        title: "Card One",
-        hasChildren: false,
-        parentRevision: 1,
-        metadataRevision: 1,
-        documentGeneration: 1,
-        documentHeadSeq: 1,
-        updatedAt: "2026-08-11T00:00:00.000Z",
-      }],
+      libraryRoots: [
+        {
+          kind: "page",
+          pageId: "card-1",
+          title: "Card One",
+          hasChildren: false,
+          parentRevision: 1,
+          metadataRevision: 1,
+          documentGeneration: 1,
+          documentHeadSeq: 1,
+          updatedAt: "2026-08-11T00:00:00.000Z",
+        },
+      ],
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const pageStageProps = (globalThis as {
-      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
-    }).__mockPageStagePropsByPageId?.["card-1"];
+    const pageStageProps = (
+      globalThis as {
+        __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+      }
+    ).__mockPageStagePropsByPageId?.["card-1"];
     const publishLiveTitle = pageStageProps?.__publishPageTitle as
       | ((title: string) => void)
       | undefined;
@@ -782,16 +909,13 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
 
     expect(
-      screen.container.querySelector('[data-app-shell-tab-title="page-tab:first"]')
-        ?.textContent,
+      screen.container.querySelector('[data-app-shell-tab-title="page-tab:first"]')?.textContent,
     ).toBe("Renamed everywhere");
     expect(
-      screen.container.querySelector('[data-app-shell-tab-title="page-tab:second"]')
-        ?.textContent,
+      screen.container.querySelector('[data-app-shell-tab-title="page-tab:second"]')?.textContent,
     ).toBe("Renamed everywhere");
     expect(
-      within(screen.getByRole("list", { name: "Pages" }))
-        .getByText("Renamed everywhere"),
+      within(screen.getByRole("list", { name: "Pages" })).getByText("Renamed everywhere"),
     ).not.toBeNull();
   });
 
@@ -818,7 +942,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     expect(screen.getByRole("tab", { name: "Card One" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]') === null).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]') === null,
+    ).toBe(true);
 
     const tabTitle = screen.container.querySelector('[data-app-shell-tab-title="card-tab"]');
     if (!(tabTitle instanceof HTMLElement)) throw new Error("Expected card tab title");
@@ -867,23 +993,29 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) => {
-      const input = call[1] as {
-        sessionId?: string;
-        panelId?: string;
-        kind?: string;
-        config?: { terminalSessionId?: string };
-      } | undefined;
-      return call[0] === "window-session-view:tab-create"
-        && input?.sessionId === "session:alpha:database-view"
-        && !("projectId" in input)
-        && input.panelId === "bottom"
-        && input.kind === "terminal"
-        && input.config !== undefined
-        && !("projectId" in input.config)
-        && typeof input.config.terminalSessionId === "string"
-        && input.config.terminalSessionId.startsWith("session:session:alpha:database-view:terminal:");
-    })).toBe(true);
+    expect(
+      invokeCalls.some((call) => {
+        const input = call[1] as
+          | {
+              sessionId?: string;
+              panelId?: string;
+              kind?: string;
+              config?: { terminalSessionId?: string };
+            }
+          | undefined;
+        return (
+          call[0] === "window-session-view:tab-create" &&
+          input?.sessionId === "session:alpha:database-view" &&
+          !("projectId" in input) &&
+          input.panelId === "bottom" &&
+          input.kind === "terminal" &&
+          input.config !== undefined &&
+          !("projectId" in input.config) &&
+          typeof input.config.terminalSessionId === "string" &&
+          input.config.terminalSessionId.startsWith("session:session:alpha:database-view:terminal:")
+        );
+      }),
+    ).toBe(true);
     expect(getLastTerminalPanelProps()?.cwd).toBe("/Users/asc/repo/alpha");
   });
 
@@ -908,9 +1040,8 @@ describe("workbench session shell / pages-shell-navigation", () => {
     const screen = renderWorkbench({
       projects: [makeProject("alpha", "Alpha")],
       sessionsByProject: { alpha: [session] },
-      cardGetOverride: (_projectId, pageId) => pageId === "card-1"
-        ? pendingCardDetail
-        : undefined,
+      cardGetOverride: (_projectId, pageId) =>
+        pageId === "card-1" ? pendingCardDetail : undefined,
     });
     await settleAsyncRender();
 
@@ -919,8 +1050,12 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     expect(loadingShell !== null).toBe(true);
     expect(within(loadingShell).queryByRole("button", { name: "Close" })).toBeNull();
-    expect(within(loadingShell).getByRole("button", { name: "Page actions" }).hasAttribute("disabled")).toBe(true);
-    expect(within(loadingShell).getByRole("button", { name: "History" }).hasAttribute("disabled")).toBe(true);
+    expect(
+      within(loadingShell).getByRole("button", { name: "Page actions" }).hasAttribute("disabled"),
+    ).toBe(true);
+    expect(
+      within(loadingShell).getByRole("button", { name: "History" }).hasAttribute("disabled"),
+    ).toBe(true);
     expect(screen.queryByText("Page not found") === null).toBe(true);
     expect(screen.queryByText("Page:card-1") === null).toBe(true);
 
@@ -941,7 +1076,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    expect(await screen.findByText("Page:card-1") !== null).toBe(true);
+    expect((await screen.findByText("Page:card-1")) !== null).toBe(true);
     await waitFor(() => {
       expect(screen.queryByRole("status", { name: "Loading Card One" })).toBeNull();
     });
@@ -969,28 +1104,33 @@ describe("workbench session shell / pages-shell-navigation", () => {
     const screen = renderWorkbench({
       projects: [makeProject("alpha", "Alpha")],
       sessionsByProject: { alpha: [session] },
-      cardGetOverride: (_projectId, pageId) => pageId === "nested-card"
-        ? {
-            id: pageId,
-            title: "Nested Card",
-            description: "Independent body",
-            archived: false,
-            created: new Date("2026-07-14T00:00:00.000Z"),
-            revision: 2,
-            standalone: true,
-          }
-        : undefined,
+      cardGetOverride: (_projectId, pageId) =>
+        pageId === "nested-card"
+          ? {
+              id: pageId,
+              title: "Nested Card",
+              description: "Independent body",
+              archived: false,
+              created: new Date("2026-07-14T00:00:00.000Z"),
+              revision: 2,
+              standalone: true,
+            }
+          : undefined,
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
     expect(screen.getByText("Page:nested-card") !== null).toBe(true);
-    const props = (globalThis as {
-      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
-    }).__mockPageStagePropsByPageId?.["nested-card"];
-    const model = props?.page as {
-      databaseContext?: { kind?: string };
-    } | undefined;
+    const props = (
+      globalThis as {
+        __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+      }
+    ).__mockPageStagePropsByPageId?.["nested-card"];
+    const model = props?.page as
+      | {
+          databaseContext?: { kind?: string };
+        }
+      | undefined;
     expect(model?.databaseContext?.kind).toBe("standalone");
     expect(props?.onDelete).toBeUndefined();
     expect(props?.onMove).toBeUndefined();
@@ -998,29 +1138,33 @@ describe("workbench session shell / pages-shell-navigation", () => {
 
   test("projects the current ownership path into the Page Stage breadcrumb", async () => {
     const session = makeSession({
-      tabs: [{
-        id: "nested-page-tab",
-        sessionId: "session:alpha:database-view",
-        projectId: "alpha",
-        kind: "page_stage",
-        title: "Nested Page",
-        panelId: "right",
-        config: {
+      tabs: [
+        {
+          id: "nested-page-tab",
+          sessionId: "session:alpha:database-view",
           projectId: "alpha",
-          pageId: "nested-page",
-          titleSnapshot: "Nested Page",
+          kind: "page_stage",
+          title: "Nested Page",
+          panelId: "right",
+          config: {
+            projectId: "alpha",
+            pageId: "nested-page",
+            titleSnapshot: "Nested Page",
+          },
         },
-      }],
+      ],
     });
     renderWorkbench({
       projects: [makeProject("alpha", "Alpha")],
       sessionsByProject: { alpha: [session] },
       ownershipPathsByPage: {
-        "nested-page": [{
-          pageId: "actual-parent",
-          title: "Actual Parent",
-          lifecycle: "active",
-        }],
+        "nested-page": [
+          {
+            pageId: "actual-parent",
+            title: "Actual Parent",
+            lifecycle: "active",
+          },
+        ],
       },
       cardGetOverride: (_projectId, pageId) => ({
         id: pageId,
@@ -1037,16 +1181,20 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     await waitFor(() => {
-      const props = (globalThis as {
-        __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
-      }).__mockPageStagePropsByPageId?.["nested-page"];
+      const props = (
+        globalThis as {
+          __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+        }
+      ).__mockPageStagePropsByPageId?.["nested-page"];
       expect(props?.breadcrumb).toMatchObject({
-        ancestors: [{
-          projectId: "alpha",
-          pageId: "actual-parent",
-          title: "Actual Parent",
-          disabled: false,
-        }],
+        ancestors: [
+          {
+            projectId: "alpha",
+            pageId: "actual-parent",
+            title: "Actual Parent",
+            disabled: false,
+          },
+        ],
       });
     });
   });
@@ -1072,30 +1220,35 @@ describe("workbench session shell / pages-shell-navigation", () => {
     renderWorkbench({
       projects: [makeProject("alpha", "Alpha")],
       sessionsByProject: { alpha: [session] },
-      cardGetOverride: (_projectId, pageId) => ["parent-card", "nested-card"].includes(pageId)
-        ? {
-            id: pageId,
-            title: pageId === "parent-card" ? "Parent Card" : "Nested Card",
-            description: "Page body",
-            archived: false,
-            agentBlocked: false,
-            created: new Date("2026-07-14T00:00:00.000Z"),
-            revision: 2,
-            standalone: true,
-          }
-        : undefined,
+      cardGetOverride: (_projectId, pageId) =>
+        ["parent-card", "nested-card"].includes(pageId)
+          ? {
+              id: pageId,
+              title: pageId === "parent-card" ? "Parent Card" : "Nested Card",
+              description: "Page body",
+              archived: false,
+              agentBlocked: false,
+              created: new Date("2026-07-14T00:00:00.000Z"),
+              revision: 2,
+              standalone: true,
+            }
+          : undefined,
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as {
-      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
-    }).__mockPageStagePropsByPageId?.["parent-card"];
-    const onOpenPage = props?.onOpenPage as ((input: {
-      accessContext: { kind: "project"; projectId: string };
-      pageId: string;
-      titleSnapshot?: string;
-    }) => void) | undefined;
+    const props = (
+      globalThis as {
+        __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+      }
+    ).__mockPageStagePropsByPageId?.["parent-card"];
+    const onOpenPage = props?.onOpenPage as
+      | ((input: {
+          accessContext: { kind: "project"; projectId: string };
+          pageId: string;
+          titleSnapshot?: string;
+        }) => void)
+      | undefined;
     expect(typeof onOpenPage).toBe("function");
 
     setInvokeCalls([]);
@@ -1110,23 +1263,27 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     const createCall = invokeCalls.find((call) => call[0] === "window-session-view:tab-create");
-    const input = createCall?.[1] as {
-      config?: {
-        accessContext?: {
-          kind: "project";
-          projectId: string;
-        };
-        pageId?: string;
-      };
-    } | undefined;
+    const input = createCall?.[1] as
+      | {
+          config?: {
+            accessContext?: {
+              kind: "project";
+              projectId: string;
+            };
+            pageId?: string;
+          };
+        }
+      | undefined;
     expect(input?.config).toEqual({
       accessContext: { kind: "project", projectId: "alpha" },
       pageId: "nested-card",
       titleSnapshot: "Nested Card",
     });
-    const nestedProps = (globalThis as {
-      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
-    }).__mockPageStagePropsByPageId?.["nested-card"];
+    const nestedProps = (
+      globalThis as {
+        __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+      }
+    ).__mockPageStagePropsByPageId?.["nested-card"];
     expect(nestedProps?.breadcrumb).toBeUndefined();
   });
 
@@ -1210,20 +1367,19 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
 
     expect(screen.getByRole("tab", { name: "beta project, Beta Card" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]')?.textContent).toBe("beta");
+    expect(
+      screen.container.querySelector('[data-app-shell-tab-context-label="card-tab"]')?.textContent,
+    ).toBe("beta");
   });
 
   test("marks pages active in the database view when selected Page Stage tabs are visible", async () => {
-    const rightLayout = splitWorkbenchPanelLeaf(
-      makePanelLayout(["db-tab", "card-tab"], "db-tab"),
-      {
-        leafId: "main",
-        side: "right",
-        tabId: "card-tab",
-        newLeafId: "leaf:card",
-        newBranchId: "branch:root",
-      },
-    );
+    const rightLayout = splitWorkbenchPanelLeaf(makePanelLayout(["db-tab", "card-tab"], "db-tab"), {
+      leafId: "main",
+      side: "right",
+      tabId: "card-tab",
+      newLeafId: "leaf:card",
+      newBranchId: "branch:root",
+    });
     const panels = makePanels({
       rightTabIds: ["db-tab", "card-tab"],
       rightActiveTabId: "db-tab",
@@ -1268,7 +1424,8 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     const activePageIds = props?.presentedPageIds as ReadonlySet<string> | undefined;
     expect(activePageIds?.has("card-1") ?? false).toBe(true);
   });
@@ -1328,19 +1485,23 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const nextProps = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const nextProps = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     const activePageIds = nextProps?.presentedPageIds as ReadonlySet<string> | undefined;
     expect(activePageIds?.has("card-1") ?? false).toBe(true);
   });
@@ -1386,7 +1547,8 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     const activePageIds = props?.presentedPageIds as ReadonlySet<string> | undefined;
     expect(activePageIds?.has("card-1") ?? false).toBe(false);
   });
@@ -1416,7 +1578,10 @@ describe("workbench session shell / pages-shell-navigation", () => {
                 config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
               },
             ],
-            rightLayout: makePanelLayout(["session:alpha:database-view:db", "card-tab"], "session:alpha:database-view:db"),
+            rightLayout: makePanelLayout(
+              ["session:alpha:database-view:db", "card-tab"],
+              "session:alpha:database-view:db",
+            ),
           }),
         ],
       },
@@ -1424,26 +1589,35 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
 
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
-    expect(invokeCalls.some((call) => call[0] === "window-session-view:ensure-right-leaf")).toBe(false);
-    expect(invokeCalls.some((call) => {
-      const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
-      return call[0] === "window-session-view:panel-patch"
-        && call[1] === "session:alpha:database-view"
-        && call[2] === "right"
-        && input?.size?.fullWidth === false;
-    })).toBe(false);
+    expect(invokeCalls.some((call) => call[0] === "window-session-view:ensure-right-leaf")).toBe(
+      false,
+    );
+    expect(
+      invokeCalls.some((call) => {
+        const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
+        return (
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:database-view" &&
+          call[2] === "right" &&
+          input?.size?.fullWidth === false
+        );
+      }),
+    ).toBe(false);
     expect(screen.queryByRole("button", { name: "Restore panel width" }) !== null).toBe(true);
   });
 
@@ -1501,23 +1675,30 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(typeof props?.openPageStage).toBe("function");
     await act(async () => {
-      await (props?.openPageStage as (projectId: string, pageId: string, title?: string) => Promise<void> | void)(
-        "alpha",
-        "card-1",
-        "Card One",
-      );
+      await (
+        props?.openPageStage as (
+          projectId: string,
+          pageId: string,
+          title?: string,
+        ) => Promise<void> | void
+      )("alpha", "card-1", "Card One");
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
     const tab = screen.getByRole("tab", { name: "Card One" });
     expect(tab.closest('[data-app-shell-tab-preview="true"]') !== null).toBe(true);
-    expect(tab.closest("[data-panel-tab-row]")?.getAttribute("data-panel-tab-row")).toBe("right:leaf:browser");
+    expect(tab.closest("[data-panel-tab-row]")?.getAttribute("data-panel-tab-row")).toBe(
+      "right:leaf:browser",
+    );
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
-    expect(invokeCalls.some((call) => call[0] === "window-session-view:ensure-right-leaf")).toBe(false);
+    expect(invokeCalls.some((call) => call[0] === "window-session-view:ensure-right-leaf")).toBe(
+      false,
+    );
   });
 
   test("persists active tab changes through the session API", async () => {
@@ -1558,13 +1739,17 @@ describe("workbench session shell / pages-shell-navigation", () => {
       await Promise.resolve();
     });
 
-    expect(invokeCalls.some((call) => {
-      if (call[0] !== "window-session-view:panel-activate") return false;
-      const input = call[1] as { sessionId?: string; panelId?: string; tabId?: string };
-      return input.sessionId === "session-1"
-        && input.panelId === "bottom"
-        && input.tabId === "terminal-tab";
-    })).toBe(true);
+    expect(
+      invokeCalls.some((call) => {
+        if (call[0] !== "window-session-view:panel-activate") return false;
+        const input = call[1] as { sessionId?: string; panelId?: string; tabId?: string };
+        return (
+          input.sessionId === "session-1" &&
+          input.panelId === "bottom" &&
+          input.tabId === "terminal-tab"
+        );
+      }),
+    ).toBe(true);
   });
 
   test("another Project's disclosure expands its chats without switching Session", async () => {
@@ -1586,7 +1771,10 @@ describe("workbench session shell / pages-shell-navigation", () => {
           updatedAt: "2026-06-07T00:00:00.000Z",
         },
       ],
-      rightLayout: makePanelLayout(["session:beta:database-view:db"], "session:beta:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:beta:database-view:db"],
+        "session:beta:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       projects: [makeProject(), beta],
@@ -1596,16 +1784,16 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const betaRow = screen.container.querySelector(
-      '[data-app-action-sidebar-project-id="beta"]',
-    );
+    const betaRow = screen.container.querySelector('[data-app-action-sidebar-project-id="beta"]');
     if (!(betaRow instanceof HTMLElement)) {
       throw new Error("Expected Beta project row");
     }
     await act(async () => {
-      fireEvent.click(within(betaRow).getByRole("button", {
-        name: "Expand project",
-      }));
+      fireEvent.click(
+        within(betaRow).getByRole("button", {
+          name: "Expand project",
+        }),
+      );
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -1631,19 +1819,25 @@ describe("workbench session shell / pages-shell-navigation", () => {
       await settleAsyncRender();
       await settleAsyncRender();
 
-      expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+      expect(
+        screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null,
+      ).toBe(true);
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
         await Promise.resolve();
       });
       await settleAsyncRender();
 
-      expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+      expect(
+        screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null,
+      ).toBe(true);
       await moveSidebarPointer(12);
 
       expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBe(true);
       expect(screen.container.querySelector('[data-sidebar-hover-trigger="true"]')).toBe(null);
-      expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(null);
+      expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(
+        null,
+      );
     } finally {
       restoreMatchMedia();
     }
@@ -1661,7 +1855,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(
+      true,
+    );
     expect(screen.getByRole("button", { name: "Hide sidebar" }) !== null).toBe(true);
   });
 
@@ -1679,13 +1875,19 @@ describe("workbench session shell / pages-shell-navigation", () => {
       await settleAsyncRender();
 
       expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBe(true);
-      expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
-      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+      expect(
+        screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null,
+      ).toBe(true);
+      expect(
+        screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]'),
+      ).toBe(null);
 
       await executeCommandPaletteCommand(screen, "toggle sidebar", "Toggle sidebar");
 
       expect(screen.getByRole("button", { name: "Hide sidebar" }) !== null).toBe(true);
-      expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+      expect(
+        screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null,
+      ).toBe(true);
     } finally {
       restoreMatchMedia();
     }
@@ -1705,7 +1907,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(
+      true,
+    );
     expect(sidebar.getAttribute("style")?.includes("width: 240px")).toBe(true);
     expect(screen.queryAllByRole("button", { name: "Hide sidebar" }).length > 0).toBe(true);
 
@@ -1754,7 +1958,8 @@ describe("workbench session shell / pages-shell-navigation", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const workbenchRoot = screen.getByTestId("workbench-global-header").parentElement as HTMLElement | null;
+    const workbenchRoot = screen.getByTestId("workbench-global-header")
+      .parentElement as HTMLElement | null;
     workbenchRoot?.style.setProperty("--codex-window-zoom", "2");
     const sidebar = screen.getByTestId("project-session-sidebar");
     const resizeStrip = screen.getByTestId("sidebar-resize-strip");
@@ -1802,7 +2007,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
 
       expect(screen.container.querySelector('[data-testid="project-session-sidebar"]')).toBe(null);
       expect(screen.container.querySelector('[data-sidebar-hover-trigger="true"]')).toBe(null);
-      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+      expect(
+        screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]'),
+      ).toBe(null);
 
       const globalHeader = screen.getByTestId("workbench-global-header");
       const leftSlot = getHeaderShellSlot(screen, "left");
@@ -1817,20 +2024,31 @@ describe("workbench session shell / pages-shell-navigation", () => {
       expect(globalHeader.contains(leftSlot)).toBe(true);
       expect(globalHeader.contains(collapseButton)).toBe(true);
       expect(visibleLeftLabels).toBe("Show sidebar,Back,Forward,New chat");
-      expect(leftSlot.className.includes("ps-[max(var(--spacing-token-safe-header-left),0.5rem)]")).toBe(true);
+      expect(
+        leftSlot.className.includes("ps-[max(var(--spacing-token-safe-header-left),0.5rem)]"),
+      ).toBe(true);
       expect(leftSlot.getAttribute("style")?.includes("width: 0px")).toBe(true);
       expect(leftSlot.getAttribute("style")?.includes("min-width: 208px")).toBe(true);
       expect(collapseButton.parentElement?.className.includes("fixed")).toBe(false);
       expect(collapseButton.getAttribute("title")).toBe("Toggle sidebar");
       expect(backButton.hasAttribute("disabled")).toBe(true);
       expect(forwardButton.hasAttribute("disabled")).toBe(true);
-      expect(compactNewChatButton.querySelector("path")?.getAttribute("d")?.startsWith(TITLEBAR_NEW_CHAT_ICON_PREFIX)).toBe(true);
+      expect(
+        compactNewChatButton
+          .querySelector("path")
+          ?.getAttribute("d")
+          ?.startsWith(TITLEBAR_NEW_CHAT_ICON_PREFIX),
+      ).toBe(true);
       expect(collapseButton.className.includes("no-drag")).toBe(true);
 
       await moveSidebarPointer(12);
 
-      const floatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') as HTMLElement | null;
-      const floatingAside = screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]') as HTMLElement | null;
+      const floatingShell = screen.container.querySelector(
+        '[data-testid="floating-project-session-sidebar-shell"]',
+      ) as HTMLElement | null;
+      const floatingAside = screen.container.querySelector(
+        '[data-testid="app-shell-floating-left-panel"]',
+      ) as HTMLElement | null;
       const floatingHeader = floatingAside?.querySelector(".app-header-tint") as HTMLElement | null;
       expect(floatingShell !== null).toBe(true);
       expect(floatingShell?.getAttribute("data-sidebar-floating-focus-area")).toBe("true");
@@ -1839,8 +2057,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
       expect(floatingHeader !== null).toBe(true);
       expect(screen.getByTestId("sidebar-resize-strip").parentElement).toBe(floatingShell);
 
-      const floatingFocusButton = Array.from(floatingShell?.querySelectorAll("button") ?? [])
-        .find((button) => !button.disabled) as HTMLButtonElement | undefined;
+      const floatingFocusButton = Array.from(floatingShell?.querySelectorAll("button") ?? []).find(
+        (button) => !button.disabled,
+      ) as HTMLButtonElement | undefined;
       if (!floatingFocusButton) throw new Error("Expected a focusable floating sidebar button");
       await act(async () => {
         floatingFocusButton.focus();
@@ -1849,7 +2068,10 @@ describe("workbench session shell / pages-shell-navigation", () => {
       await settleAsyncRender();
 
       await moveSidebarPointer(301);
-      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') !== null).toBe(true);
+      expect(
+        screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') !==
+          null,
+      ).toBe(true);
 
       await act(async () => {
         floatingFocusButton.blur();
@@ -1862,7 +2084,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
       });
       await settleAsyncRender();
 
-      expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(null);
+      expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(
+        null,
+      );
 
       await act(async () => {
         fireEvent.click(compactNewChatButton);
@@ -1893,7 +2117,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    const expandedFloatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') as HTMLElement | null;
+    const expandedFloatingShell = screen.container.querySelector(
+      '[data-testid="floating-project-session-sidebar-shell"]',
+    ) as HTMLElement | null;
     expect(expandedFloatingShell !== null).toBe(true);
     expect(expandedFloatingShell?.getAttribute("style")?.includes("width: 360px")).toBe(true);
 
@@ -1916,7 +2142,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    const floatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') as HTMLElement | null;
+    const floatingShell = screen.container.querySelector(
+      '[data-testid="floating-project-session-sidebar-shell"]',
+    ) as HTMLElement | null;
     expect(capturedPointerId).toBe(9);
     expect(floatingShell !== null).toBe(true);
     expect(floatingShell?.getAttribute("style")?.includes("width: 240px")).toBe(true);
@@ -1929,7 +2157,9 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     await settleAsyncRender();
 
-    const persistedFloatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') as HTMLElement | null;
+    const persistedFloatingShell = screen.container.querySelector(
+      '[data-testid="floating-project-session-sidebar-shell"]',
+    ) as HTMLElement | null;
     expect(persistedFloatingShell?.getAttribute("style")?.includes("width: 240px")).toBe(true);
     expect(screen.container.querySelector('[data-testid="project-session-sidebar"]')).toBe(null);
   });
@@ -2025,27 +2255,21 @@ describe("workbench session shell / pages-shell-navigation", () => {
       await Promise.resolve();
     });
     await settleAsyncRender();
-    expect(textContent(screen.container).includes(
-      "Thread:thread-projectless-loose",
-    )).toBe(true);
+    expect(textContent(screen.container).includes("Thread:thread-projectless-loose")).toBe(true);
 
     await act(async () => {
       fireEvent.click(screen.getByText("Project work"));
       await Promise.resolve();
     });
     await settleAsyncRender();
-    expect(textContent(screen.container).includes(
-      "Thread:thread-project-work",
-    )).toBe(true);
+    expect(textContent(screen.container).includes("Thread:thread-project-work")).toBe(true);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Back" }));
       await Promise.resolve();
     });
     await settleAsyncRender();
-    expect(textContent(screen.container).includes(
-      "Thread:thread-projectless-loose",
-    )).toBe(true);
+    expect(textContent(screen.container).includes("Thread:thread-projectless-loose")).toBe(true);
   });
 
   test("window navigation command requests use the same shell history path", async () => {
@@ -2111,7 +2335,10 @@ describe("workbench session shell / pages-shell-navigation", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -2130,7 +2357,8 @@ describe("workbench session shell / pages-shell-navigation", () => {
 
     expect(screen.getByRole("tab", { name: "Browser" }).getAttribute("aria-selected")).toBe("true");
 
-    const navigationChrome = screen.getAllByTestId("workbench-window-navigation-chrome")
+    const navigationChrome = screen
+      .getAllByTestId("workbench-window-navigation-chrome")
       .find((element) => element.closest('[aria-hidden="true"]') === null);
     expect(navigationChrome).toBeDefined();
     await act(async () => {
@@ -2172,5 +2400,4 @@ describe("workbench session shell / pages-shell-navigation", () => {
     expect(screen.queryByTestId("session-right-panel") !== null).toBe(true);
     expect(toggleButton.getAttribute("aria-pressed")).toBe("true");
   });
-
 });

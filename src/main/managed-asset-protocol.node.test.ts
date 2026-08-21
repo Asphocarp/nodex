@@ -33,9 +33,7 @@ describe("managed asset protocol", () => {
     const fixture = createFixture();
     fs.writeFileSync(path.join(fixture.rootPath, "image.png"), "png-bytes");
 
-    const result = await fixture.handle(
-      new Request("nodex-asset://managed/image.png"),
-    );
+    const result = await fixture.handle(new Request("nodex-asset://managed/image.png"));
 
     expect(result.status).toBe(200);
     expect(result.headers.get("content-type")).toBe("image/png");
@@ -84,12 +82,12 @@ describe("managed asset protocol", () => {
     fs.symlinkSync(outsidePath, path.join(fixture.rootPath, "linked.png"));
     fs.mkdirSync(path.join(fixture.rootPath, "folder.png"));
     try {
-      expect((await fixture.handle(
-        new Request("nodex-asset://managed/linked.png"),
-      )).status).toBe(404);
-      expect((await fixture.handle(
-        new Request("nodex-asset://managed/folder.png"),
-      )).status).toBe(404);
+      expect((await fixture.handle(new Request("nodex-asset://managed/linked.png"))).status).toBe(
+        404,
+      );
+      expect((await fixture.handle(new Request("nodex-asset://managed/folder.png"))).status).toBe(
+        404,
+      );
     } finally {
       fs.rmSync(outsidePath, { force: true });
     }
@@ -117,10 +115,7 @@ describe("managed asset protocol", () => {
     dispose();
     dispose();
 
-    expect(calls).toEqual([
-      "handle:nodex-asset",
-      "unhandle:nodex-asset",
-    ]);
+    expect(calls).toEqual(["handle:nodex-asset", "unhandle:nodex-asset"]);
   });
 
   test("replaces an existing managed-asset handler before registration", () => {
@@ -143,9 +138,6 @@ describe("managed asset protocol", () => {
 
     registerManagedAssetProtocol(electronSession);
 
-    expect(calls).toEqual([
-      "unhandle:nodex-asset",
-      "handle:nodex-asset",
-    ]);
+    expect(calls).toEqual(["unhandle:nodex-asset", "handle:nodex-asset"]);
   });
 });

@@ -8,7 +8,7 @@ import type { Project, ProjectSession, WorkspaceFileDirectoryEntry } from "@/lib
 import { WORKSPACE_TEXT_LOAD_MAX_BYTES } from "./workspace-file-model";
 import type { WorkspaceFilesTab } from "./workspace-file-types";
 
-let WorkspaceFilesPanel: typeof import("./workspace-files-panel")["WorkspaceFilesPanel"];
+let WorkspaceFilesPanel: (typeof import("./workspace-files-panel"))["WorkspaceFilesPanel"];
 let invokeCalls: unknown[][] = [];
 let openFileTabCalls: {
   path: string;
@@ -29,9 +29,7 @@ const directoryEntries: Record<string, WorkspaceFileDirectoryEntry[]> = {
     entry("README.md", "README.md", "file"),
     entry("archive.zip", "archive.zip", "file"),
   ],
-  src: [
-    entry("index.ts", "src/index.ts", "file"),
-  ],
+  src: [entry("index.ts", "src/index.ts", "file")],
 };
 
 const fileContents: Record<string, string> = {
@@ -58,11 +56,12 @@ vi.mock("@/lib/api", () => ({
       const unsupported = input.path.endsWith(".zip");
       return {
         isFile: true,
-        sizeBytes: input.path === HUGE_FILE
-          ? WORKSPACE_TEXT_LOAD_MAX_BYTES + 1
-          : unsupported
-            ? 12_000
-            : fileContents[input.path]?.length ?? 0,
+        sizeBytes:
+          input.path === HUGE_FILE
+            ? WORKSPACE_TEXT_LOAD_MAX_BYTES + 1
+            : unsupported
+              ? 12_000
+              : (fileContents[input.path]?.length ?? 0),
         createdAtMs: Date.parse(CREATED_AT),
         mtimeMs: Date.parse(CREATED_AT),
         contentKind: unsupported ? "binary" : "text",
@@ -72,9 +71,11 @@ vi.mock("@/lib/api", () => ({
       const input = args[0] as { query: string };
       const matches = Object.values(directoryEntries)
         .flat()
-        .filter((candidate) =>
-          candidate.type === "file"
-          && candidate.path.toLowerCase().includes(input.query.toLowerCase()))
+        .filter(
+          (candidate) =>
+            candidate.type === "file" &&
+            candidate.path.toLowerCase().includes(input.query.toLowerCase()),
+        )
         .map((candidate) => ({
           path: candidate.path,
           kind: "file" as const,
@@ -146,16 +147,20 @@ vi.mock("./workspace-file-tree", () => ({
     >
       <button
         type="button"
-        onClick={() => onStateChange?.({
-          expandedPaths: [...expandedPaths],
-          selectedPath,
-          scrollTop: 420,
-        })}
+        onClick={() =>
+          onStateChange?.({
+            expandedPaths: [...expandedPaths],
+            selectedPath,
+            scrollTop: 420,
+          })
+        }
       >
         Scroll tree
       </button>
       {paths
-        .filter((item) => !searchQuery || item.path.toLowerCase().includes(searchQuery.toLowerCase()))
+        .filter(
+          (item) => !searchQuery || item.path.toLowerCase().includes(searchQuery.toLowerCase()),
+        )
         .map((item) => (
           <button
             type="button"
@@ -220,12 +225,16 @@ describe("WorkspaceFilesPanel", () => {
     fireEvent.click(view.getByText("README.md"));
     await settleAsyncRender();
 
-    expect(JSON.stringify(openFileTabCalls)).toBe(JSON.stringify([{
-      path: `${WORKSPACE_ROOT}/README.md`,
-      title: "README.md",
-      panelId: "right",
-      mode: "preview",
-    }]));
+    expect(JSON.stringify(openFileTabCalls)).toBe(
+      JSON.stringify([
+        {
+          path: `${WORKSPACE_ROOT}/README.md`,
+          title: "README.md",
+          panelId: "right",
+          mode: "preview",
+        },
+      ]),
+    );
   });
 
   test("previews an outside-root file while keeping only the directory request root-scoped", async () => {
@@ -243,10 +252,13 @@ describe("WorkspaceFilesPanel", () => {
       includeHidden: true,
     });
     const fileCalls = invokeCalls.filter((call) =>
-      ["read-file-metadata", "read-file"].includes(String(call[0])));
+      ["read-file-metadata", "read-file"].includes(String(call[0])),
+    );
     expect(fileCalls.some((call) => call[0] === "read-file-metadata")).toBe(true);
     expect(fileCalls.some((call) => call[0] === "read-file")).toBe(true);
-    expect(fileCalls.every((call) => !JSON.stringify(call[1]).includes("workspaceRoot"))).toBe(true);
+    expect(fileCalls.every((call) => !JSON.stringify(call[1]).includes("workspaceRoot"))).toBe(
+      true,
+    );
   });
 
   test("previews a projectless exact file without requesting a directory tree", async () => {
@@ -294,14 +306,19 @@ describe("WorkspaceFilesPanel", () => {
     await settleAsyncRender();
 
     expect(view.getByText("Rich preview is unavailable for large Markdown files.")).not.toBeNull();
-    expect(view.container.querySelector(
-      "[data-source-viewer='true'], [aria-label^='Loading Markdown source']",
-    )).not.toBeNull();
+    expect(
+      view.container.querySelector(
+        "[data-source-viewer='true'], [aria-label^='Loading Markdown source']",
+      ),
+    ).not.toBeNull();
     expect(view.container.querySelector(".codex-markdown-user")).toBe(null);
-    expect(invokeCalls.some((call) => (
-      call[0] === "read-file"
-      && (call[1] as { maxBytes?: number }).maxBytes === WORKSPACE_TEXT_LOAD_MAX_BYTES
-    ))).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "read-file" &&
+          (call[1] as { maxBytes?: number }).maxBytes === WORKSPACE_TEXT_LOAD_MAX_BYTES,
+      ),
+    ).toBe(true);
   });
 
   test("renders unsupported binaries with external-open action", async () => {
@@ -313,11 +330,9 @@ describe("WorkspaceFilesPanel", () => {
     fireEvent.click(view.getByRole("button", { name: "Open externally" }));
     await settleAsyncRender();
 
-    expect(JSON.stringify(invokeCalls.at(-1))).toBe(JSON.stringify([
-      "shell:open-file-link",
-      { path: `${WORKSPACE_ROOT}/archive.zip` },
-      "vscode",
-    ]));
+    expect(JSON.stringify(invokeCalls.at(-1))).toBe(
+      JSON.stringify(["shell:open-file-link", { path: `${WORKSPACE_ROOT}/archive.zip` }, "vscode"]),
+    );
   });
 
   test("restores expanded directory queries after the selected Files body remounts", async () => {
@@ -366,14 +381,19 @@ describe("WorkspaceFilesPanel", () => {
     await settleAsyncRender();
 
     expect(view.getByText("index.ts")).not.toBeNull();
-    expect((view.getByRole("textbox", { name: "Filter files" }) as HTMLInputElement).value)
-      .toBe("index");
-    expect(view.getByRole("tree", { name: "Workspace files" }).getAttribute("data-initial-scroll-top"))
-      .toBe("420");
-    expect(invokeCalls.filter((call) => (
-      call[0] === "workspace-directory-entries"
-      && (call[1] as { directoryPath?: string }).directoryPath === "src"
-    )).length).toBeGreaterThan(0);
+    expect((view.getByRole("textbox", { name: "Filter files" }) as HTMLInputElement).value).toBe(
+      "index",
+    );
+    expect(
+      view.getByRole("tree", { name: "Workspace files" }).getAttribute("data-initial-scroll-top"),
+    ).toBe("420");
+    expect(
+      invokeCalls.filter(
+        (call) =>
+          call[0] === "workspace-directory-entries" &&
+          (call[1] as { directoryPath?: string }).directoryPath === "src",
+      ).length,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -402,7 +422,7 @@ function makeFilesTab(selectedPath?: string): WorkspaceFilesTab {
     browserTabId: null,
     panelId: "right",
     kind: "files",
-    title: selectedPath ? selectedPath.split("/").at(-1) ?? "Files" : "Files",
+    title: selectedPath ? (selectedPath.split("/").at(-1) ?? "Files") : "Files",
     order: 0,
     config: {
       projectId: project.id,
@@ -418,7 +438,11 @@ function makeFilesTab(selectedPath?: string): WorkspaceFilesTab {
   };
 }
 
-function entry(name: string, path: string, kind: "directory" | "file"): WorkspaceFileDirectoryEntry {
+function entry(
+  name: string,
+  path: string,
+  kind: "directory" | "file",
+): WorkspaceFileDirectoryEntry {
   return {
     name,
     path,

@@ -22,9 +22,7 @@ function parsePreferences(value: unknown): RemoteHostedPipPreferences {
   return {
     alwaysHide: candidate.alwaysHide === true,
     maxDisplaySize:
-      typeof maxDisplaySize === "number"
-      && Number.isFinite(maxDisplaySize)
-      && maxDisplaySize > 0
+      typeof maxDisplaySize === "number" && Number.isFinite(maxDisplaySize) && maxDisplaySize > 0
         ? maxDisplaySize
         : null,
     schemaVersion: 2,
@@ -53,9 +51,7 @@ export class RemoteHostedPipPreferenceStore {
 
   private read(): RemoteHostedPipPreferences {
     try {
-      return parsePreferences(
-        JSON.parse(fs.readFileSync(this.filePath, "utf8")),
-      );
+      return parsePreferences(JSON.parse(fs.readFileSync(this.filePath, "utf8")));
     } catch {
       return EMPTY_PREFERENCES;
     }
@@ -64,11 +60,7 @@ export class RemoteHostedPipPreferenceStore {
   private write(preferences: RemoteHostedPipPreferences): void {
     const temporaryPath = `${this.filePath}.tmp`;
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(
-      temporaryPath,
-      `${JSON.stringify(preferences, null, 2)}\n`,
-      { mode: 0o600 },
-    );
+    fs.writeFileSync(temporaryPath, `${JSON.stringify(preferences, null, 2)}\n`, { mode: 0o600 });
     fs.renameSync(temporaryPath, this.filePath);
   }
 }

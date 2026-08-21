@@ -1,11 +1,5 @@
 import { ArrowLeft } from "@/components/shared/icons/generic-icons";
-import {
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   useCodexAppServerControl,
@@ -31,9 +25,8 @@ function mergeUniqueThreadIds(...groups: readonly (readonly string[])[]): string
 }
 
 function resolveSummaryDisplayName(summary: CodexThreadSummary): string {
-  const displayName = summary.agentNickname?.trim()
-    || summary.threadName?.trim()
-    || summary.threadId;
+  const displayName =
+    summary.agentNickname?.trim() || summary.threadName?.trim() || summary.threadId;
   return displayName.startsWith("@") ? displayName.slice(1) : displayName;
 }
 
@@ -74,8 +67,9 @@ export function buildSubagentsPanelMemberships(input: {
   const membershipById = new Map(
     input.memberships.map((membership) => [membership.threadId, membership] as const),
   );
-  const hasInlineActivity = input.memberships.some((membership) => membership.showInlineActivity)
-    || Object.values(input.summaries).some((summary) => Boolean(summary.agentPath));
+  const hasInlineActivity =
+    input.memberships.some((membership) => membership.showInlineActivity) ||
+    Object.values(input.summaries).some((summary) => Boolean(summary.agentPath));
   for (const threadId of input.discoveredThreadIds) {
     if (membershipById.has(threadId)) continue;
     const summary = input.summaries[threadId];
@@ -130,9 +124,10 @@ function SubagentOverviewRow({
   previewLineCount: 1 | 2;
   row: ThreadComposerShellBackgroundAgentRowModel;
 }) {
-  const preview = row.lastAssistantMessage
-    ?? row.statusSummary
-    ?? (row.status === "active" ? "Working" : row.status === "waiting" ? "Thinking" : null);
+  const preview =
+    row.lastAssistantMessage ??
+    row.statusSummary ??
+    (row.status === "active" ? "Working" : row.status === "waiting" ? "Thinking" : null);
   return (
     <button
       type="button"
@@ -234,29 +229,32 @@ export function SubagentsPanelOverview({
   const memberships = useConversationChildMemberships(rootThreadId);
   const [discoveredThreadIds, setDiscoveredThreadIds] = useState<string[]>([]);
   const childThreadIds = useMemo(
-    () => mergeUniqueThreadIds(
-      memberships.map((membership) => membership.threadId),
-      discoveredThreadIds,
-    ),
+    () =>
+      mergeUniqueThreadIds(
+        memberships.map((membership) => membership.threadId),
+        discoveredThreadIds,
+      ),
     [discoveredThreadIds, memberships],
   );
   const summaries = useThreadSummarySubset(rootThreadId, childThreadIds);
   const children = useConversationSubset(childThreadIds);
   const panelMemberships = useMemo(
-    () => buildSubagentsPanelMemberships({
-      discoveredThreadIds,
-      memberships,
-      rootThreadId,
-      summaries,
-    }),
+    () =>
+      buildSubagentsPanelMemberships({
+        discoveredThreadIds,
+        memberships,
+        rootThreadId,
+        summaries,
+      }),
     [discoveredThreadIds, memberships, rootThreadId, summaries],
   );
   const rows = useMemo(
-    () => buildBackgroundSubagentRows({
-      childMemberships: panelMemberships,
-      knownConversationsById: children,
-      parentTurns: turns,
-    }).filter((row) => row.showInlineActivity),
+    () =>
+      buildBackgroundSubagentRows({
+        childMemberships: panelMemberships,
+        knownConversationsById: children,
+        parentTurns: turns,
+      }).filter((row) => row.showInlineActivity),
     [children, panelMemberships, turns],
   );
   const codexControl = useCodexAppServerControl(projectId);
@@ -273,21 +271,28 @@ export function SubagentsPanelOverview({
       });
   }, [hydrateSubagentPanel, onError, rootThreadId]);
 
-  const hydrateVisibleRows = useCallback((visibleRows: readonly ThreadComposerShellBackgroundAgentRowModel[]) => {
-    const threadIds = visibleRows
-      .filter((row) => row.lastAssistantMessage === null && !requestedPreviewIds.current.has(row.conversationId))
-      .map((row) => row.conversationId);
-    if (threadIds.length === 0) return;
-    for (const threadId of threadIds) requestedPreviewIds.current.add(threadId);
-    void hydrateSubagentPanel({
-      rootThreadId,
-      threadIds,
-      includeTurns: true,
-    }).catch(() => {
-      for (const threadId of threadIds) requestedPreviewIds.current.delete(threadId);
-      onError("Unable to load subagent previews");
-    });
-  }, [hydrateSubagentPanel, onError, rootThreadId]);
+  const hydrateVisibleRows = useCallback(
+    (visibleRows: readonly ThreadComposerShellBackgroundAgentRowModel[]) => {
+      const threadIds = visibleRows
+        .filter(
+          (row) =>
+            row.lastAssistantMessage === null &&
+            !requestedPreviewIds.current.has(row.conversationId),
+        )
+        .map((row) => row.conversationId);
+      if (threadIds.length === 0) return;
+      for (const threadId of threadIds) requestedPreviewIds.current.add(threadId);
+      void hydrateSubagentPanel({
+        rootThreadId,
+        threadIds,
+        includeTurns: true,
+      }).catch(() => {
+        for (const threadId of threadIds) requestedPreviewIds.current.delete(threadId);
+        onError("Unable to load subagent previews");
+      });
+    },
+    [hydrateSubagentPanel, onError, rootThreadId],
+  );
 
   return (
     <SubagentsPanelOverviewContent
@@ -313,7 +318,10 @@ export function SubagentsPanelOverviewContent({
   const activeRows = rows.filter((row) => row.status !== "done");
   const doneRows = rows.filter((row) => row.status === "done");
   return (
-    <div className="h-full min-h-0 overflow-y-auto px-3 py-5" data-subagents-panel-overview={rootThreadId}>
+    <div
+      className="h-full min-h-0 overflow-y-auto px-3 py-5"
+      data-subagents-panel-overview={rootThreadId}
+    >
       <PaginatedSubagentOverviewSection
         emptyState="No active subagents"
         onSelect={onSelect}

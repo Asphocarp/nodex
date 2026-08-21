@@ -46,10 +46,13 @@ export interface SkyNativeAddon {
     handler: ((isVisible: boolean, threadIds: string[]) => void) | null,
   ): boolean;
   spawnComputerUseService(executablePath: string): Promise<number | null>;
-  startRemoteHostedPIPContentHost(tooltips: {
-    hide: string;
-    placement: string;
-  }, onServiceConnectionLost?: () => void): boolean;
+  startRemoteHostedPIPContentHost(
+    tooltips: {
+      hide: string;
+      placement: string;
+    },
+    onServiceConnectionLost?: () => void,
+  ): boolean;
   stopRemoteHostedPIPContentHost(): boolean;
   unregisterRemoteHostedPIPContentHost(hostId: string): boolean;
   upsertBrowserUsePIPContent(
@@ -112,16 +115,33 @@ export function resolveSkyNativeAddonPath({
   const candidates = [
     path.join(resourcesPath, "native", "sky.node"),
     path.join(resourcesPath, "browser-runtime", "native", "sky.node"),
-    path.join(appPath, ".generated", "codex-runtime", "agent-runtime", "browser-runtime", "native", "sky.node"),
-    path.join(appPath, ".generated", "native-probe-runtime", "browser-runtime", "native", "sky.node"),
+    path.join(
+      appPath,
+      ".generated",
+      "codex-runtime",
+      "agent-runtime",
+      "browser-runtime",
+      "native",
+      "sky.node",
+    ),
+    path.join(
+      appPath,
+      ".generated",
+      "native-probe-runtime",
+      "browser-runtime",
+      "native",
+      "sky.node",
+    ),
   ];
   return candidates.find((candidate) => fs.existsSync(candidate)) ?? null;
 }
 
-export function loadSkyNativeAddon(options: {
-  appPath?: string;
-  resourcesPath?: string;
-} = {}): SkyNativeAddon | null {
+export function loadSkyNativeAddon(
+  options: {
+    appPath?: string;
+    resourcesPath?: string;
+  } = {},
+): SkyNativeAddon | null {
   if (process.platform !== "darwin") return null;
   const addonPath = resolveSkyNativeAddonPath(options);
   if (!addonPath) return null;

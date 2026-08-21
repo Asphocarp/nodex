@@ -25,9 +25,9 @@ export function renderInitialProjectWelcomePage(input: {
   readonly sourceRoot: string;
 }): InitialProjectWelcomePage {
   if (
-    input.sourceRoot.length === 0
-    || input.sourceRoot.length > MAX_SOURCE_ROOT_BYTES
-    || /[\u0000-\u001f\u007f]/u.test(input.sourceRoot)
+    input.sourceRoot.length === 0 ||
+    input.sourceRoot.length > MAX_SOURCE_ROOT_BYTES ||
+    /[\u0000-\u001f\u007f]/u.test(input.sourceRoot)
   ) {
     throw new Error("Initial Project source root must be one bounded path");
   }

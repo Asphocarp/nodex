@@ -1,9 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  classifyContentBudget,
-  countLinesUpTo,
-  getUtf8ByteLength,
-} from "./content-budget";
+import { classifyContentBudget, countLinesUpTo, getUtf8ByteLength } from "./content-budget";
 
 describe("content budgets", () => {
   test("counts UTF-8 bytes independently from JavaScript characters", () => {

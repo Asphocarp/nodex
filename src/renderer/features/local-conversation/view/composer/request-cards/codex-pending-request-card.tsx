@@ -1,4 +1,7 @@
-import type { ThreadComposerShellPendingRequestModel, ThreadStageActions } from "../../../thread-stage-types";
+import type {
+  ThreadComposerShellPendingRequestModel,
+  ThreadStageActions,
+} from "../../../thread-stage-types";
 import { CodexApprovalRequestCard } from "./codex-approval-request-card";
 import { CodexImplementPlanRequestCard } from "./codex-implement-plan-request-card";
 import { CodexMcpElicitationRequestCard } from "./codex-mcp-elicitation-request-card";
@@ -31,13 +34,10 @@ export function CodexPendingRequestCard({
     conversationId: entry.conversationId,
     onManualApproval,
   });
-  const approvalQuestionActor = entry.surface === "backgroundThread" && entry.actorName?.trim()
-    ? (
-        <span className="font-medium text-token-foreground">
-          {entry.actorName.trim()}
-        </span>
-      )
-    : undefined;
+  const approvalQuestionActor =
+    entry.surface === "backgroundThread" && entry.actorName?.trim() ? (
+      <span className="font-medium text-token-foreground">{entry.actorName.trim()}</span>
+    ) : undefined;
 
   switch (entry.request.type) {
     case "approval": {
@@ -120,10 +120,13 @@ export function CodexPendingRequestCard({
               } else {
                 await actions.onCollaborationModeChange("default");
               }
-              await actions.onSendPrompt(`${PLAN_IMPLEMENTATION_PROMPT_PREFIX}\n${request.planContent}`, {
-                collaborationMode: "default",
-                ...(selection ? buildComposerIntelligenceTurnOverrides(selection) : {}),
-              });
+              await actions.onSendPrompt(
+                `${PLAN_IMPLEMENTATION_PROMPT_PREFIX}\n${request.planContent}`,
+                {
+                  collaborationMode: "default",
+                  ...(selection ? buildComposerIntelligenceTurnOverrides(selection) : {}),
+                },
+              );
               return;
             }
             if (response.type === "followUp") {

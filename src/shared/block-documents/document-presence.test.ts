@@ -26,20 +26,22 @@ const publication = {
 
 describe("Canvas document presence contract", () => {
   test("accepts a bounded canonical publication without transport identity", () => {
-    expect(canonicalizeCanvasPresencePublication(publication)).toEqual(
-      publication,
-    );
+    expect(canonicalizeCanvasPresencePublication(publication)).toEqual(publication);
     expect("clientSessionId" in publication).toBe(false);
     expect("user" in publication).toBe(false);
-    expect(canonicalizeCanvasPresencePublishRequest({
-      accessContext: { kind: "project", projectId: "project-1" },
-      clientSessionId: "session-1",
-      publication,
-    })).toMatchObject({ publication });
-    expect(() => canonicalizeCanvasPresencePublishRequest({
-      accessContext: { kind: "project", projectId: "project-1" },
-      publication,
-    })).toThrow("client session");
+    expect(
+      canonicalizeCanvasPresencePublishRequest({
+        accessContext: { kind: "project", projectId: "project-1" },
+        clientSessionId: "session-1",
+        publication,
+      }),
+    ).toMatchObject({ publication });
+    expect(() =>
+      canonicalizeCanvasPresencePublishRequest({
+        accessContext: { kind: "project", projectId: "project-1" },
+        publication,
+      }),
+    ).toThrow("client session");
   });
 
   test("rejects non-finite pointers and noncanonical or oversized selections", () => {
@@ -50,7 +52,7 @@ describe("Canvas document presence contract", () => {
           ...publication.state,
           pointer: { ...publication.state.pointer, x: Number.NaN },
         },
-      })
+      }),
     ).toThrow("pointer");
     expect(() =>
       canonicalizeCanvasPresencePublication({
@@ -59,7 +61,7 @@ describe("Canvas document presence contract", () => {
           ...publication.state,
           selectedElementIds: ["element-b", "element-a"],
         },
-      })
+      }),
     ).toThrow("sorted and unique");
     expect(() =>
       canonicalizeCanvasPresencePublication({
@@ -71,7 +73,7 @@ describe("Canvas document presence contract", () => {
             (_, index) => `element-${index}`,
           ),
         },
-      })
+      }),
     ).toThrow("invalid");
   });
 
@@ -91,7 +93,7 @@ describe("Canvas document presence contract", () => {
       canonicalizeCanvasPresenceEvent({
         ...event,
         user: { ...event.user, color: "blue" },
-      })
+      }),
     ).toThrow("color");
   });
 
@@ -105,14 +107,16 @@ describe("Canvas document presence contract", () => {
         color: "#1971c2",
       },
     };
-    expect(canonicalizeCanvasPresenceRealtimeEvent({
-      type: "canvas_presence_snapshot",
-      libraryId: "library-1",
-      accessContext: { kind: "project", projectId: "project-1" },
-      documentId: publication.documentId,
-      generation: publication.generation,
-      presences: [event],
-    })).toMatchObject({ presences: [event] });
+    expect(
+      canonicalizeCanvasPresenceRealtimeEvent({
+        type: "canvas_presence_snapshot",
+        libraryId: "library-1",
+        accessContext: { kind: "project", projectId: "project-1" },
+        documentId: publication.documentId,
+        generation: publication.generation,
+        presences: [event],
+      }),
+    ).toMatchObject({ presences: [event] });
     expect(() =>
       canonicalizeCanvasPresenceRealtimeEvent({
         type: "canvas_presence_snapshot",
@@ -121,7 +125,7 @@ describe("Canvas document presence contract", () => {
         documentId: publication.documentId,
         generation: publication.generation,
         presences: [{ ...event, state: null }],
-      })
+      }),
     ).toThrow("snapshot crossed");
     expect(() =>
       canonicalizeCanvasPresenceRealtimeEvent({
@@ -131,7 +135,7 @@ describe("Canvas document presence contract", () => {
         documentId: publication.documentId,
         generation: publication.generation,
         presences: [event, event],
-      })
+      }),
     ).toThrow("snapshot crossed");
     expect(() =>
       canonicalizeCanvasPresenceRealtimeEvent({
@@ -149,7 +153,7 @@ describe("Canvas document presence contract", () => {
             displayName: `Window ${index} ${"x".repeat(100)}`,
           },
         })),
-      })
+      }),
     ).toThrow("byte bound");
   });
 });

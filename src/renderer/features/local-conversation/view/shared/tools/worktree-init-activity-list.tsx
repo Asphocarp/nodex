@@ -1,9 +1,5 @@
 import type { ReactNode } from "react";
-import {
-  ThreadIcon,
-  WorktreeSetupStatusIcon,
-  WorktreeStatusIcon,
-} from "@/components/shared/icons";
+import { ThreadIcon, WorktreeSetupStatusIcon, WorktreeStatusIcon } from "@/components/shared/icons";
 import type { CodexWorktreeInitActivity } from "@/lib/codex-worktree-init-activity";
 import { codexWorktreeInitActivityLabel } from "@/lib/codex-worktree-init-activity";
 import { cn } from "@/lib/utils";
@@ -22,10 +18,7 @@ function WorktreeInitActivityIcon({
   activity: CodexWorktreeInitActivity;
   worktreeIcon: ReactNode;
 }) {
-  const className = cn(
-    "icon-xs shrink-0",
-    semanticActivityTextClassName(activity.status),
-  );
+  const className = cn("icon-xs shrink-0", semanticActivityTextClassName(activity.status));
 
   if (activity.kind === "worktree") {
     if (worktreeIcon !== null) return worktreeIcon;
@@ -78,16 +71,19 @@ export function WorktreeInitActivityList({
             {actions}
           </div>
         ) : null;
-        const body = activity.outputText.length > 0 ? (
-          <ThreadCommandShellBlock
-            command=""
-            output={activity.outputText}
-            isInProgress={activity.status === "running"}
-            embeddedAppearance="plain"
-            footer={footer}
-            variant="embedded"
-          />
-        ) : footer;
+        const body =
+          activity.outputText.length > 0 ? (
+            <ThreadCommandShellBlock
+              command=""
+              output={activity.outputText}
+              isInProgress={activity.status === "running"}
+              embeddedAppearance="plain"
+              footer={footer}
+              variant="embedded"
+            />
+          ) : (
+            footer
+          );
 
         return (
           <ThreadActivityDisclosure
@@ -96,13 +92,13 @@ export function WorktreeInitActivityList({
             canExpand={body !== null}
             defaultExpanded={isActionTarget}
             indentContent={false}
-            icon={(
+            icon={
               <WorktreeInitActivityIcon
                 activity={activity}
                 worktreeIcon={activity.kind === "worktree" ? worktreeIcon : null}
               />
-            )}
-            summary={(
+            }
+            summary={
               <CodexShimmerText
                 active={activity.status === "running"}
                 className={cn(
@@ -112,7 +108,7 @@ export function WorktreeInitActivityList({
               >
                 {codexWorktreeInitActivityLabel(activity)}
               </CodexShimmerText>
-            )}
+            }
             status={activity.status === "skipped" ? "completed" : activity.status}
           >
             {body}

@@ -113,11 +113,7 @@ export function NfmLinkToolbarController(props: {
         onOpenChange: (open, _event, reason) => {
           if (toolbarPositionFrozen) return;
 
-          if (
-            link !== undefined
-            && link.cursorType === "text"
-            && reason === "hover"
-          ) {
+          if (link !== undefined && link.cursorType === "text" && reason === "hover") {
             return;
           }
 

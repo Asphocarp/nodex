@@ -20,13 +20,13 @@ export function readCodexCanonicalThreadGoalTranscriptProjection(
   const firstInput = input[0];
   const sentAtMs = turn.sidecar.turnStartedAtMs;
   if (
-    turn.protocol.id !== null
-    || turn.protocol.status !== "completed"
-    || turn.items.length !== 0
-    || input.length !== 1
-    || firstInput?.type !== "text"
-    || !firstInput.text.startsWith(`${THREAD_GOAL_COMMAND} `)
-    || sentAtMs === null
+    turn.protocol.id !== null ||
+    turn.protocol.status !== "completed" ||
+    turn.items.length !== 0 ||
+    input.length !== 1 ||
+    firstInput?.type !== "text" ||
+    !firstInput.text.startsWith(`${THREAD_GOAL_COMMAND} `) ||
+    sentAtMs === null
   ) {
     return null;
   }
@@ -53,13 +53,15 @@ function isMatchingCodexThreadGoalTurn(
   projection: CodexThreadGoalTranscriptProjection,
 ): boolean {
   const input = turn.sidecar.params.input[0];
-  return turn.protocol.id === null
-    && turn.sidecar.turnStartedAtMs === projection.sentAtMs
-    && turn.protocol.status === "completed"
-    && turn.items.length === 0
-    && turn.sidecar.params.input.length === 1
-    && input?.type === "text"
-    && input.text === projection.promptText;
+  return (
+    turn.protocol.id === null &&
+    turn.sidecar.turnStartedAtMs === projection.sentAtMs &&
+    turn.protocol.status === "completed" &&
+    turn.items.length === 0 &&
+    turn.sidecar.params.input.length === 1 &&
+    input?.type === "text" &&
+    input.text === projection.promptText
+  );
 }
 
 /** Exact `N4e/P4e`: append the app-local raw goal turn; visibility comes from params.input. */
@@ -86,11 +88,13 @@ export function appendCodexCanonicalThreadGoalTranscriptTurn(
     sidecar: {
       params: {
         ...buildCodexCanonicalSyntheticTurnParams(state, previousTurn),
-        input: [{
-          type: "text",
-          text: projection.promptText,
-          text_elements: [],
-        }],
+        input: [
+          {
+            type: "text",
+            text: projection.promptText,
+            text_elements: [],
+          },
+        ],
       },
       diff: null,
       turnStartedAtMs: projection.sentAtMs,

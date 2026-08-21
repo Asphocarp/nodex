@@ -14,51 +14,54 @@ import {
 } from "./codex-optimistic-turn";
 
 function buildState() {
-  return createCodexCanonicalHydratedConversationState({
-    id: "thread-created",
-    extra: null,
-    sessionId: "session-created",
-    forkedFromId: null,
-    parentThreadId: null,
-    preview: "",
-    ephemeral: false,
-    section: null,
-    sectionEnteredAt: null,
-    historyMode: "paginated",
-    modelProvider: "openai",
-    createdAt: 1,
-    updatedAt: 1,
-    recencyAt: 1,
-    status: { type: "idle" },
-    path: null,
-    cwd: "/workspace",
-    cliVersion: "test",
-    source: "appServer",
-    canAcceptDirectInput: true,
-    threadSource: "subagent",
-    agentNickname: null,
-    agentRole: null,
-    gitInfo: null,
-    name: null,
-    turns: [],
-  }, {
-    model: "gpt-test",
-    reasoningEffort: "medium",
-    cwd: "/workspace",
-    approvalPolicy: "on-request",
-    approvalsReviewer: "user",
-    sandboxPolicy: {
-      type: "workspaceWrite",
-      writableRoots: ["/workspace"],
-      networkAccess: false,
-      excludeTmpdirEnvVar: false,
-      excludeSlashTmp: false,
+  return createCodexCanonicalHydratedConversationState(
+    {
+      id: "thread-created",
+      extra: null,
+      sessionId: "session-created",
+      forkedFromId: null,
+      parentThreadId: null,
+      preview: "",
+      ephemeral: false,
+      section: null,
+      sectionEnteredAt: null,
+      historyMode: "paginated",
+      modelProvider: "openai",
+      createdAt: 1,
+      updatedAt: 1,
+      recencyAt: 1,
+      status: { type: "idle" },
+      path: null,
+      cwd: "/workspace",
+      cliVersion: "test",
+      source: "appServer",
+      canAcceptDirectInput: true,
+      threadSource: "subagent",
+      agentNickname: null,
+      agentRole: null,
+      gitInfo: null,
+      name: null,
+      turns: [],
     },
-    activePermissionProfile: { id: ":workspace", extends: null },
-    runtimeWorkspaceRoots: ["/workspace"],
-    pendingRequests: [],
-    hasUnreadTurn: false,
-  });
+    {
+      model: "gpt-test",
+      reasoningEffort: "medium",
+      cwd: "/workspace",
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/workspace"],
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+      activePermissionProfile: { id: ":workspace", extends: null },
+      runtimeWorkspaceRoots: ["/workspace"],
+      pendingRequests: [],
+      hasUnreadTurn: false,
+    },
+  );
 }
 
 function buildParams(): CodexCanonicalLiveTurnParams {
@@ -136,13 +139,15 @@ describe("Codex optimistic worktree initialization ordering", () => {
     });
     const responseTurn: Turn = {
       id: "turn-server",
-      items: [{
-        type: "agentMessage",
-        id: "response-only-item",
-        text: "must arrive through lifecycle",
-        phase: "final_answer",
-        memoryCitation: null,
-      }],
+      items: [
+        {
+          type: "agentMessage",
+          id: "response-only-item",
+          text: "must arrive through lifecycle",
+          phase: "final_answer",
+          memoryCitation: null,
+        },
+      ],
       itemsView: "full",
       status: "completed",
       error: {
@@ -184,35 +189,33 @@ describe("Codex optimistic worktree initialization ordering", () => {
     };
     const raced = {
       ...optimistic,
-      turns: [{
-        ...existing,
-        protocol: {
-          ...existing.protocol,
-          id: "turn-server",
-          status: "completed" as const,
-          durationMs: 90,
+      turns: [
+        {
+          ...existing,
+          protocol: {
+            ...existing.protocol,
+            id: "turn-server",
+            status: "completed" as const,
+            durationMs: 90,
+          },
+          items: [notificationItem],
+          sidecar: {
+            ...existing.sidecar,
+            completedAtMs: 132,
+          },
         },
-        items: [notificationItem],
-        sidecar: {
-          ...existing.sidecar,
-          completedAtMs: 132,
-        },
-      }],
+      ],
     };
-    const rebound = bindCodexCanonicalOptimisticTurn(
-      raced,
-      "unrelated-client-id",
-      {
-        id: "turn-server",
-        items: [],
-        itemsView: "full",
-        status: "failed",
-        error: null,
-        startedAt: null,
-        completedAt: null,
-        durationMs: null,
-      },
-    );
+    const rebound = bindCodexCanonicalOptimisticTurn(raced, "unrelated-client-id", {
+      id: "turn-server",
+      items: [],
+      itemsView: "full",
+      status: "failed",
+      error: null,
+      startedAt: null,
+      completedAt: null,
+      durationMs: null,
+    });
 
     expect(rebound).toBe(raced);
     expect(rebound.turns[0]?.items).toStrictEqual([notificationItem]);
@@ -258,20 +261,16 @@ describe("Codex optimistic worktree initialization ordering", () => {
       ],
     };
 
-    const rebound = bindCodexCanonicalOptimisticTurn(
-      split,
-      "client-message",
-      {
-        id: "turn-server",
-        items: [],
-        itemsView: "full",
-        status: "inProgress",
-        error: null,
-        startedAt: null,
-        completedAt: null,
-        durationMs: null,
-      },
-    );
+    const rebound = bindCodexCanonicalOptimisticTurn(split, "client-message", {
+      id: "turn-server",
+      items: [],
+      itemsView: "full",
+      status: "inProgress",
+      error: null,
+      startedAt: null,
+      completedAt: null,
+      durationMs: null,
+    });
 
     expect(rebound.turns).toHaveLength(1);
     expect(rebound.turns[0]?.protocol.id).toBe("turn-server");
@@ -285,10 +284,7 @@ describe("Codex optimistic worktree initialization ordering", () => {
     const optimistic = appendCodexCanonicalOptimisticTurn(buildState(), {
       params: buildParams(),
     });
-    const failed = failCodexCanonicalOptimisticTurn(
-      optimistic,
-      "client-message",
-    );
+    const failed = failCodexCanonicalOptimisticTurn(optimistic, "client-message");
 
     expect(failed.protocol.id).toBe("thread-created");
     expect(failed.turns[0]?.protocol.id).toBe(null);
@@ -306,11 +302,9 @@ describe("Codex optimistic worktree initialization ordering", () => {
     const optimistic = appendCodexCanonicalOptimisticTurn(withPendingModel, {
       params: { ...buildParams(), input: [] },
     });
-    const restored = removeCodexCanonicalOptimisticTurn(
-      optimistic,
-      "client-message",
-      { previousTurnModel: "gpt-before-resume" },
-    );
+    const restored = removeCodexCanonicalOptimisticTurn(optimistic, "client-message", {
+      previousTurnModel: "gpt-before-resume",
+    });
 
     expect(restored.turns).toEqual([]);
     expect(restored.sidecar.previousTurnModel).toBe("gpt-before-resume");

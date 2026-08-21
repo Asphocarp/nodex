@@ -1,14 +1,7 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef } from "react";
-import type {
-  GitReviewFileSummary,
-  GitReviewSnapshot,
-  ReviewDiffEntry,
-} from "@/lib/types";
-import {
-  requestReviewDiffPath,
-  StaleReviewSnapshot,
-} from "./review-diff-batcher";
+import type { GitReviewFileSummary, GitReviewSnapshot, ReviewDiffEntry } from "@/lib/types";
+import { requestReviewDiffPath, StaleReviewSnapshot } from "./review-diff-batcher";
 import type { GitWorkerQueryClient } from "./git-query";
 
 const REVIEW_PATH_DIFF_STALE_TIME_MS = 5_000;
@@ -57,10 +50,7 @@ function isStaleSnapshotError(error: unknown): boolean {
   return error instanceof StaleReviewSnapshot;
 }
 
-function shouldRetryReviewPathDiff(
-  failureCount: number,
-  error: unknown,
-): boolean {
+function shouldRetryReviewPathDiff(failureCount: number, error: unknown): boolean {
   return (
     failureCount < REVIEW_PATH_DIFF_RETRY_COUNT &&
     !isAbortError(error) &&
@@ -97,24 +87,11 @@ function buildReviewPathDiffComparisonKey(input: {
 }
 
 function buildReviewFileIdentity(file: GitReviewFileSummary): string {
-  return JSON.stringify([
-    file.path,
-    file.previousPath,
-    file.status,
-    file.revision,
-  ]);
+  return JSON.stringify([file.path, file.previousPath, file.status, file.revision]);
 }
 
-function buildReviewPathDiffQueryKey(input: {
-  comparisonKey: string;
-  file: GitReviewFileSummary;
-}) {
-  return [
-    "review",
-    "path-diff",
-    input.comparisonKey,
-    buildReviewFileIdentity(input.file),
-  ] as const;
+function buildReviewPathDiffQueryKey(input: { comparisonKey: string; file: GitReviewFileSummary }) {
+  return ["review", "path-diff", input.comparisonKey, buildReviewFileIdentity(input.file)] as const;
 }
 
 function buildReviewInitialDiffQueryKey(input: {
@@ -131,14 +108,9 @@ function buildReviewInitialDiffQueryKey(input: {
   ] as const;
 }
 
-function isLoadedReviewDiffEntry(
-  file: GitReviewFileSummary,
-): file is ReviewDiffEntry {
+function isLoadedReviewDiffEntry(file: GitReviewFileSummary): file is ReviewDiffEntry {
   const candidate = file as Partial<ReviewDiffEntry>;
-  return (
-    typeof candidate.diff === "string" &&
-    typeof candidate.loadStatus === "string"
-  );
+  return typeof candidate.diff === "string" && typeof candidate.loadStatus === "string";
 }
 
 function isReviewPathDiffEligible(file: GitReviewFileSummary): boolean {
@@ -174,10 +146,7 @@ export function useReviewPathDiffs(
 
   const snapshot = input.snapshot;
   const files = useMemo(() => snapshot?.files ?? [], [snapshot]);
-  const eligibleFiles = useMemo(
-    () => files.filter(isReviewPathDiffEligible),
-    [files],
-  );
+  const eligibleFiles = useMemo(() => files.filter(isReviewPathDiffEligible), [files]);
   const trackedFiles = useMemo(
     () => eligibleFiles.filter((file) => file.status !== "untracked"),
     [eligibleFiles],
@@ -208,119 +177,111 @@ export function useReviewPathDiffs(
     };
   }
 
-  const recordStaleSnapshot = useCallback((
-    pathIdentities: readonly string[],
-    generation: number,
-    nextComparisonKey: string,
-  ) => {
-    let recovery = staleRecoveryRef.current;
-    if (recovery?.comparisonKey !== nextComparisonKey) {
-      recovery = {
-        comparisonKey: nextComparisonKey,
-        highestGeneration: 0,
-        pathGenerations: new Map(),
-      };
-      staleRecoveryRef.current = recovery;
-    }
-    for (const pathIdentity of pathIdentities) {
-      recovery.pathGenerations.set(pathIdentity, generation);
-    }
-    if (generation <= recovery.highestGeneration) return;
-    recovery.highestGeneration = generation;
-    onStaleSnapshotRef.current();
-  }, []);
-
-  const clearRecoveredPath = useCallback((
-    pathIdentity: string,
-    generation: number,
-    nextComparisonKey: string,
-  ) => {
-    const recovery = staleRecoveryRef.current;
-    if (recovery?.comparisonKey !== nextComparisonKey) return;
-    const staleGeneration = recovery.pathGenerations.get(pathIdentity);
-    if (staleGeneration === undefined || generation <= staleGeneration) return;
-    recovery.pathGenerations.delete(pathIdentity);
-  }, []);
-
-  const requestEntry = useCallback(async (inputFile: {
-    file: GitReviewFileSummary;
-    signal: AbortSignal;
-  }): Promise<ReviewDiffEntry> => {
-    if (!snapshot) throw new Error("Missing review diff metadata.");
-    const pathIdentity = buildReviewFileIdentity(inputFile.file);
-    try {
-      const entry = await requestReviewDiffPath({
-        bucketKey: JSON.stringify([
-          comparisonKey,
-          snapshotGeneration,
-        ]),
-        request: {
-          cwd,
-          source,
-          baseRef,
-          commitSha: source === "commit" ? input.commitSha : null,
-          hideWhitespace: input.hideWhitespace,
-          snapshotGeneration,
-          operationSource: "review_model",
-        },
-        path: inputFile.file.path,
-        previousPath: inputFile.file.previousPath,
-        untracked: inputFile.file.status === "untracked",
-        status: inputFile.file.status,
-        revision: inputFile.file.revision,
-        signal: inputFile.signal,
-        client: clientRef.current,
-      });
-      if (!entry) {
-        throw new Error(
-          `Could not load review diff for ${inputFile.file.path}.`,
-        );
+  const recordStaleSnapshot = useCallback(
+    (pathIdentities: readonly string[], generation: number, nextComparisonKey: string) => {
+      let recovery = staleRecoveryRef.current;
+      if (recovery?.comparisonKey !== nextComparisonKey) {
+        recovery = {
+          comparisonKey: nextComparisonKey,
+          highestGeneration: 0,
+          pathGenerations: new Map(),
+        };
+        staleRecoveryRef.current = recovery;
       }
-      clearRecoveredPath(pathIdentity, snapshotGeneration, comparisonKey);
-      return entry;
-    } catch (error) {
-      if (isStaleSnapshotError(error)) {
-        recordStaleSnapshot(
-          [pathIdentity],
-          snapshotGeneration,
-          comparisonKey,
-        );
+      for (const pathIdentity of pathIdentities) {
+        recovery.pathGenerations.set(pathIdentity, generation);
       }
-      throw error;
-    }
-  }, [
-    baseRef,
-    clearRecoveredPath,
-    comparisonKey,
-    cwd,
-    input.commitSha,
-    input.hideWhitespace,
-    recordStaleSnapshot,
-    snapshot,
-    snapshotGeneration,
-    source,
-  ]);
+      if (generation <= recovery.highestGeneration) return;
+      recovery.highestGeneration = generation;
+      onStaleSnapshotRef.current();
+    },
+    [],
+  );
 
-  const initialQueryEnabled =
-    input.enabled && snapshot !== null && snapshotGeneration > 0;
-  const requestInitialGroup = useCallback(async (
-    groupFiles: readonly GitReviewFileSummary[],
-    signal: AbortSignal,
-  ): Promise<ReviewInitialDiffGroup> => {
-    const results = await Promise.allSettled(
-      groupFiles.map((file) => requestEntry({ file, signal })),
-    );
-    const staleFailure = results.find(
-      (result) =>
-        result.status === "rejected" &&
-        isStaleSnapshotError(result.reason),
-    );
-    if (staleFailure?.status === "rejected") throw staleFailure.reason;
-    const entries = results.flatMap((result) =>
-      result.status === "fulfilled" ? [result.value] : [],
-    );
-    return { entries: new Map(entries.map((entry) => [entry.path, entry])) };
-  }, [requestEntry]);
+  const clearRecoveredPath = useCallback(
+    (pathIdentity: string, generation: number, nextComparisonKey: string) => {
+      const recovery = staleRecoveryRef.current;
+      if (recovery?.comparisonKey !== nextComparisonKey) return;
+      const staleGeneration = recovery.pathGenerations.get(pathIdentity);
+      if (staleGeneration === undefined || generation <= staleGeneration) return;
+      recovery.pathGenerations.delete(pathIdentity);
+    },
+    [],
+  );
+
+  const requestEntry = useCallback(
+    async (inputFile: {
+      file: GitReviewFileSummary;
+      signal: AbortSignal;
+    }): Promise<ReviewDiffEntry> => {
+      if (!snapshot) throw new Error("Missing review diff metadata.");
+      const pathIdentity = buildReviewFileIdentity(inputFile.file);
+      try {
+        const entry = await requestReviewDiffPath({
+          bucketKey: JSON.stringify([comparisonKey, snapshotGeneration]),
+          request: {
+            cwd,
+            source,
+            baseRef,
+            commitSha: source === "commit" ? input.commitSha : null,
+            hideWhitespace: input.hideWhitespace,
+            snapshotGeneration,
+            operationSource: "review_model",
+          },
+          path: inputFile.file.path,
+          previousPath: inputFile.file.previousPath,
+          untracked: inputFile.file.status === "untracked",
+          status: inputFile.file.status,
+          revision: inputFile.file.revision,
+          signal: inputFile.signal,
+          client: clientRef.current,
+        });
+        if (!entry) {
+          throw new Error(`Could not load review diff for ${inputFile.file.path}.`);
+        }
+        clearRecoveredPath(pathIdentity, snapshotGeneration, comparisonKey);
+        return entry;
+      } catch (error) {
+        if (isStaleSnapshotError(error)) {
+          recordStaleSnapshot([pathIdentity], snapshotGeneration, comparisonKey);
+        }
+        throw error;
+      }
+    },
+    [
+      baseRef,
+      clearRecoveredPath,
+      comparisonKey,
+      cwd,
+      input.commitSha,
+      input.hideWhitespace,
+      recordStaleSnapshot,
+      snapshot,
+      snapshotGeneration,
+      source,
+    ],
+  );
+
+  const initialQueryEnabled = input.enabled && snapshot !== null && snapshotGeneration > 0;
+  const requestInitialGroup = useCallback(
+    async (
+      groupFiles: readonly GitReviewFileSummary[],
+      signal: AbortSignal,
+    ): Promise<ReviewInitialDiffGroup> => {
+      const results = await Promise.allSettled(
+        groupFiles.map((file) => requestEntry({ file, signal })),
+      );
+      const staleFailure = results.find(
+        (result) => result.status === "rejected" && isStaleSnapshotError(result.reason),
+      );
+      if (staleFailure?.status === "rejected") throw staleFailure.reason;
+      const entries = results.flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      return { entries: new Map(entries.map((entry) => [entry.path, entry])) };
+    },
+    [requestEntry],
+  );
   // The comparison and file revisions in the key are the semantic identity.
   // Callback identity is deliberately excluded so parent rerenders cannot
   // restart an otherwise identical initial group.
@@ -369,18 +330,11 @@ export function useReviewPathDiffs(
   const fallbackResults = useQueries({
     queries: files.map((file) => {
       const untracked = file.status === "untracked";
-      const initialData = untracked
-        ? untrackedInitialData
-        : trackedInitialData;
+      const initialData = untracked ? untrackedInitialData : trackedInitialData;
       const initialEntry = initialData?.entries.get(file.path);
-      const hasMatchingInitialEntry = isMatchingReviewDiffEntry(
-        initialEntry,
-        file,
-      );
+      const hasMatchingInitialEntry = isMatchingReviewDiffEntry(initialEntry, file);
       const pathIdentity = buildReviewFileIdentity(file);
-      const staleGeneration = staleRecoveryRef.current?.pathGenerations.get(
-        pathIdentity,
-      );
+      const staleGeneration = staleRecoveryRef.current?.pathGenerations.get(pathIdentity);
       const staleGenerationRecovered =
         staleGeneration === undefined || snapshotGeneration > staleGeneration;
       const shouldFallback =
@@ -395,8 +349,7 @@ export function useReviewPathDiffs(
         queryKey: snapshot
           ? buildReviewPathDiffQueryKey({ comparisonKey, file })
           : (["review", "path-diff", "disabled", file.path] as const),
-        queryFn: ({ signal }: { signal: AbortSignal }) =>
-          requestEntry({ file, signal }),
+        queryFn: ({ signal }: { signal: AbortSignal }) => requestEntry({ file, signal }),
         enabled:
           initialQueryEnabled &&
           isReviewPathDiffEligible(file) &&
@@ -410,10 +363,7 @@ export function useReviewPathDiffs(
         retryDelay: reviewPathDiffRetryDelay,
       };
     }),
-    combine: useCallback(
-      (results: readonly ReviewPathDiffQueryResult[]) => results,
-      [],
-    ),
+    combine: useCallback((results: readonly ReviewPathDiffQueryResult[]) => results, []),
   });
 
   return useMemo(() => {
@@ -421,9 +371,7 @@ export function useReviewPathDiffs(
     for (const [index, file] of files.entries()) {
       if (!isReviewPathDiffEligible(file)) continue;
       const untracked = file.status === "untracked";
-      const initialData = untracked
-        ? untrackedInitialData
-        : trackedInitialData;
+      const initialData = untracked ? untrackedInitialData : trackedInitialData;
       const initialEntry = initialData?.entries.get(file.path);
       if (isMatchingReviewDiffEntry(initialEntry, file)) {
         byPath.set(file.path, {
@@ -437,14 +385,11 @@ export function useReviewPathDiffs(
       byPath.set(file.path, {
         data: fallback?.data ?? null,
         error: toReviewPathDiffError(
-          fallback?.error
-            ?? (untracked ? untrackedInitialError : trackedInitialError),
+          fallback?.error ?? (untracked ? untrackedInitialError : trackedInitialError),
         ),
         isFetching:
-          (untracked
-            ? untrackedInitialIsFetching
-            : trackedInitialIsFetching)
-          || fallback?.isFetching === true,
+          (untracked ? untrackedInitialIsFetching : trackedInitialIsFetching) ||
+          fallback?.isFetching === true,
       });
     }
     return byPath;

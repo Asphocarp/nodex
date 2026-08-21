@@ -1,12 +1,4 @@
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { animate, motion, useMotionValue, type MotionValue } from "motion/react";
 import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
@@ -108,8 +100,8 @@ function getBottomViewportOverflowPx(input: {
   if (scrollElement === null || turnElement === null) return fallbackBottomViewportOverflowPx;
   return Math.max(
     0,
-    (turnElement.getBoundingClientRect().bottom - scrollElement.getBoundingClientRect().bottom)
-      / windowZoom,
+    (turnElement.getBoundingClientRect().bottom - scrollElement.getBoundingClientRect().bottom) /
+      windowZoom,
   );
 }
 
@@ -132,14 +124,12 @@ function resolveBaseDistanceWithLatestTurnDelta(input: {
   if (allowResponseSpacerGrowth && nextDistanceFromBottomPx < 0) {
     setResponseSpacerHeightPx(responseSpacerHeightPx - nextDistanceFromBottomPx);
   }
-  baseScrollController.scrollToDistanceFromBottomPx(
-    Math.max(0, nextDistanceFromBottomPx),
-    "auto",
-  );
+  baseScrollController.scrollToDistanceFromBottomPx(Math.max(0, nextDistanceFromBottomPx), "auto");
 }
 
-export type LocalConversationVirtualizedTurnTargetResolver =
-  (turnElement: HTMLElement) => HTMLElement | null;
+export type LocalConversationVirtualizedTurnTargetResolver = (
+  turnElement: HTMLElement,
+) => HTMLElement | null;
 
 export type LocalConversationVirtualizedTurnListEntry = VisibleConversationTurnEntry;
 
@@ -329,12 +319,11 @@ function MeasuredTurnComponent({
   latestTurnY,
   observeTurnElement,
 }: MeasuredTurnProps) {
-  const [collapsedOverride, setCollapsedOverride] =
-    useLocalConversationTurnCollapseOverride({
-      conversationId,
-      turnSearchKey: entry.turnSearchKey,
-      initialOverride: initialCollapsedOverride,
-    });
+  const [collapsedOverride, setCollapsedOverride] = useLocalConversationTurnCollapseOverride({
+    conversationId,
+    turnSearchKey: entry.turnSearchKey,
+    initialOverride: initialCollapsedOverride,
+  });
   const cleanupRef = useRef<(() => void) | null>(null);
   const handleElementRef = useCallback(
     (element: HTMLDivElement | null) => {
@@ -392,10 +381,10 @@ function MeasuredTurnComponent({
   );
 
   const animatedTurnContent = latestTurnY ? (
-    <motion.div style={{ y: latestTurnY }}>
-      {turnContent}
-    </motion.div>
-  ) : turnContent;
+    <motion.div style={{ y: latestTurnY }}>{turnContent}</motion.div>
+  ) : (
+    turnContent
+  );
 
   return animatedTurnContent;
 }
@@ -403,31 +392,31 @@ function MeasuredTurnComponent({
 const MeasuredTurn = memo(
   MeasuredTurnComponent,
   (left, right) =>
-    left.entry === right.entry
-    && left.conversationId === right.conversationId
-    && left.backgroundAgentRows === right.backgroundAgentRows
-    && left.threadCwd === right.threadCwd
-    && left.projectWorkspacePath === right.projectWorkspacePath
-    && left.projectlessOutputDirectory === right.projectlessOutputDirectory
-    && left.initialCollapsedOverride === right.initialCollapsedOverride
-    && left.canEditTurnUserPrefix === right.canEditTurnUserPrefix
-    && left.canForkTurn === right.canForkTurn
-    && left.onEditLastTurnMessage === right.onEditLastTurnMessage
-    && left.onForkTurnMessage === right.onForkTurnMessage
-    && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
-    && left.onOpenTurnDiffFileInSidePanel === right.onOpenTurnDiffFileInSidePanel
-    && left.onOpenSideChat === right.onOpenSideChat
-    && left.onOpenThread === right.onOpenThread
-    && left.onOpenSummaryScheduledAutomation === right.onOpenSummaryScheduledAutomation
-    && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
-    && left.onOpenPlanInSidePanel === right.onOpenPlanInSidePanel
-    && left.onClosePlanSidePanel === right.onClosePlanSidePanel
-    && left.planSidePanelState === right.planSidePanelState
-    && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
-    && left.isLatestTurn === right.isLatestTurn
-    && left.latestTurnFollowContentRef === right.latestTurnFollowContentRef
-    && left.latestTurnY === right.latestTurnY
-    && left.observeTurnElement === right.observeTurnElement,
+    left.entry === right.entry &&
+    left.conversationId === right.conversationId &&
+    left.backgroundAgentRows === right.backgroundAgentRows &&
+    left.threadCwd === right.threadCwd &&
+    left.projectWorkspacePath === right.projectWorkspacePath &&
+    left.projectlessOutputDirectory === right.projectlessOutputDirectory &&
+    left.initialCollapsedOverride === right.initialCollapsedOverride &&
+    left.canEditTurnUserPrefix === right.canEditTurnUserPrefix &&
+    left.canForkTurn === right.canForkTurn &&
+    left.onEditLastTurnMessage === right.onEditLastTurnMessage &&
+    left.onForkTurnMessage === right.onForkTurnMessage &&
+    left.onOpenTurnDiffReview === right.onOpenTurnDiffReview &&
+    left.onOpenTurnDiffFileInSidePanel === right.onOpenTurnDiffFileInSidePanel &&
+    left.onOpenSideChat === right.onOpenSideChat &&
+    left.onOpenThread === right.onOpenThread &&
+    left.onOpenSummaryScheduledAutomation === right.onOpenSummaryScheduledAutomation &&
+    left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel &&
+    left.onOpenPlanInSidePanel === right.onOpenPlanInSidePanel &&
+    left.onClosePlanSidePanel === right.onClosePlanSidePanel &&
+    left.planSidePanelState === right.planSidePanelState &&
+    left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled &&
+    left.isLatestTurn === right.isLatestTurn &&
+    left.latestTurnFollowContentRef === right.latestTurnFollowContentRef &&
+    left.latestTurnY === right.latestTurnY &&
+    left.observeTurnElement === right.observeTurnElement,
 );
 
 function LocalConversationVirtualizedTurnListCore({
@@ -473,11 +462,12 @@ function LocalConversationVirtualizedTurnListCore({
   );
   const [listRoot, setListRoot] = useState<HTMLDivElement | null>(null);
   const layout = useMemo(
-    () => buildVirtualizedTurnLayout({
-      entries,
-      gapPx: TURN_GAP_PX,
-      measuredHeightsByKey: measuredHeights,
-    }),
+    () =>
+      buildVirtualizedTurnLayout({
+        entries,
+        gapPx: TURN_GAP_PX,
+        measuredHeightsByKey: measuredHeights,
+      }),
     [entries, measuredHeights],
   );
   const [virtualViewportState, setVirtualViewportState] = useState<VirtualizedTurnViewportState>(
@@ -535,12 +525,16 @@ function LocalConversationVirtualizedTurnListCore({
         Math.min(currentLayout.totalHeightPx, currentLayout.totalHeightPx - distanceFromBottomPx),
       );
       const viewportStartPx = Math.max(0, viewportEndPx - viewportHeightPx);
-      const previousViewportEndPx = previousDistanceFromBottomPx == null
-        ? viewportEndPx
-        : Math.max(
-            0,
-            Math.min(currentLayout.totalHeightPx, currentLayout.totalHeightPx - previousDistanceFromBottomPx),
-          );
+      const previousViewportEndPx =
+        previousDistanceFromBottomPx == null
+          ? viewportEndPx
+          : Math.max(
+              0,
+              Math.min(
+                currentLayout.totalHeightPx,
+                currentLayout.totalHeightPx - previousDistanceFromBottomPx,
+              ),
+            );
       const previousViewportStartPx = Math.max(0, previousViewportEndPx - viewportHeightPx);
       const target =
         previousDistanceFromBottomPx == null
@@ -588,8 +582,8 @@ function LocalConversationVirtualizedTurnListCore({
     for (const [element, elementHeightPx] of followContentHeightsRef.current) {
       heightPx += elementHeightPx;
       if (
-        lastElement === null
-        || lastElement.compareDocumentPosition(element) === Node.DOCUMENT_POSITION_FOLLOWING
+        lastElement === null ||
+        lastElement.compareDocumentPosition(element) === Node.DOCUMENT_POSITION_FOLLOWING
       ) {
         lastElement = element;
       }
@@ -653,13 +647,11 @@ function LocalConversationVirtualizedTurnListCore({
         const bottomOffsetPx = currentLayout.bottomOffsetsPx[turnIndex] ?? 0;
         const isLatestTurn = turnKey === latestTurnKey;
         if (
-          layoutDeltaPx !== 0
-          && scrollController.getScrollMode() !== "programmaticFind"
-          && bottomOffsetPx <= currentViewport.distanceFromBottomPx
-          && (
-            preserveMeasuredTurnViewport
-            || (pendingRestoreDistanceFromBottomPx !== null && !isLatestTurn)
-          )
+          layoutDeltaPx !== 0 &&
+          scrollController.getScrollMode() !== "programmaticFind" &&
+          bottomOffsetPx <= currentViewport.distanceFromBottomPx &&
+          (preserveMeasuredTurnViewport ||
+            (pendingRestoreDistanceFromBottomPx !== null && !isLatestTurn))
         ) {
           measuredDistanceDeltaPx += layoutDeltaPx;
         }
@@ -747,18 +739,15 @@ function LocalConversationVirtualizedTurnListCore({
     [applyTurnMeasurements],
   );
 
-  const flushMeasurements = useCallback(
-    () => {
-      measurementFrameRef.current = null;
-      const followContentChanged = pendingFollowContentMeasurementRef.current;
-      pendingFollowContentMeasurementRef.current = false;
-      flushPendingTurnMeasurements(true);
-      if (followContentChanged) {
-        reportLatestTurnFollowContentHeight();
-      }
-    },
-    [flushPendingTurnMeasurements, reportLatestTurnFollowContentHeight],
-  );
+  const flushMeasurements = useCallback(() => {
+    measurementFrameRef.current = null;
+    const followContentChanged = pendingFollowContentMeasurementRef.current;
+    pendingFollowContentMeasurementRef.current = false;
+    flushPendingTurnMeasurements(true);
+    if (followContentChanged) {
+      reportLatestTurnFollowContentHeight();
+    }
+  }, [flushPendingTurnMeasurements, reportLatestTurnFollowContentHeight]);
   flushMeasurementsRef.current = flushMeasurements;
 
   const scheduleMeasurementFlush = useCallback((followContentChanged = false): void => {
@@ -867,10 +856,7 @@ function LocalConversationVirtualizedTurnListCore({
   }, []);
 
   const scrollToKey = useCallback(
-    (
-      turnKey: string,
-      getTargetElement?: LocalConversationVirtualizedTurnTargetResolver,
-    ) => {
+    (turnKey: string, getTargetElement?: LocalConversationVirtualizedTurnTargetResolver) => {
       activePendingTargetRef.current?.complete();
       requestIdRef.current += 1;
       const requestId = requestIdRef.current;
@@ -929,43 +915,42 @@ function LocalConversationVirtualizedTurnListCore({
     const scrollElement = getScrollElement();
     if (scrollElement === null) return;
     const getViewportHeightPx = () =>
-      scrollElement.clientHeight
-      || virtualViewportStateRef.current.viewportHeightPx
-      || DEFAULT_VIEWPORT_HEIGHT_PX;
+      scrollElement.clientHeight ||
+      virtualViewportStateRef.current.viewportHeightPx ||
+      DEFAULT_VIEWPORT_HEIGHT_PX;
     const syncViewportState = (
       distanceFromBottomPx = scrollController.getLastScrollDistanceFromBottomPx(),
       previousDistanceFromBottomPx?: number,
     ) => {
-      updateViewportState(distanceFromBottomPx, getViewportHeightPx(), previousDistanceFromBottomPx);
+      updateViewportState(
+        distanceFromBottomPx,
+        getViewportHeightPx(),
+        previousDistanceFromBottomPx,
+      );
     };
     syncViewportState();
     const removeScrollListener = scrollController.addScrollListener((distanceFromBottomPx) => {
       syncViewportState(distanceFromBottomPx);
     });
-    const removeUserScrollListener = scrollController.addUserScrollListener((
-      distanceFromBottomPx,
-      previousDistanceFromBottomPx,
-    ) => {
-      syncViewportState(distanceFromBottomPx, previousDistanceFromBottomPx);
-    });
-    const observer = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(() => {
-          syncViewportState(virtualViewportStateRef.current.distanceFromBottomPx);
-          restoreScrollDistanceFromBottomPx();
-        });
+    const removeUserScrollListener = scrollController.addUserScrollListener(
+      (distanceFromBottomPx, previousDistanceFromBottomPx) => {
+        syncViewportState(distanceFromBottomPx, previousDistanceFromBottomPx);
+      },
+    );
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            syncViewportState(virtualViewportStateRef.current.distanceFromBottomPx);
+            restoreScrollDistanceFromBottomPx();
+          });
     observer?.observe(scrollElement);
     return () => {
       removeScrollListener();
       removeUserScrollListener();
       observer?.disconnect();
     };
-  }, [
-    getScrollElement,
-    restoreScrollDistanceFromBottomPx,
-    scrollController,
-    updateViewportState,
-  ]);
+  }, [getScrollElement, restoreScrollDistanceFromBottomPx, scrollController, updateViewportState]);
 
   useLayoutEffect(() => {
     const previousLayout = previousLayoutRef.current;
@@ -974,13 +959,14 @@ function LocalConversationVirtualizedTurnListCore({
 
     setVirtualViewportState((current) => {
       const anchorKey = current.turnKeys[current.renderedRange.startIndex];
-      const anchorRange = anchorKey && current.turnKeys.join("\u0000") !== layout.turnKeys.join("\u0000")
-        ? resolveRenderedRangeFromAnchor({
-            anchorKey,
-            layout,
-            previousRange: current.renderedRange,
-          })
-        : null;
+      const anchorRange =
+        anchorKey && current.turnKeys.join("\u0000") !== layout.turnKeys.join("\u0000")
+          ? resolveRenderedRangeFromAnchor({
+              anchorKey,
+              layout,
+              previousRange: current.renderedRange,
+            })
+          : null;
       return resolveVirtualizedTurnViewportState({
         current: anchorRange ? { ...current, renderedRange: anchorRange } : current,
         distanceFromBottomPx: current.distanceFromBottomPx,
@@ -993,7 +979,8 @@ function LocalConversationVirtualizedTurnListCore({
     if (!preserveMeasuredTurnViewport || pendingScrollTarget !== null) return;
     const pendingRestoreDistance = getPendingRestoreScrollDistanceFromBottomPx();
     if (pendingRestoreDistance !== null) return;
-    if (scrollController.getLastScrollDistanceFromBottomPx() <= THREAD_NEAR_BOTTOM_THRESHOLD_PX) return;
+    if (scrollController.getLastScrollDistanceFromBottomPx() <= THREAD_NEAR_BOTTOM_THRESHOLD_PX)
+      return;
     const anchorKey = resolveMeasuredVisibleAnchorKey({
       distanceFromBottomPx: virtualViewportStateRef.current.distanceFromBottomPx,
       layout: previousLayout,
@@ -1009,8 +996,8 @@ function LocalConversationVirtualizedTurnListCore({
       nextLayout: layout,
     });
     if (
-      preservedDistanceFromBottomPx === null
-      || preservedDistanceFromBottomPx === virtualViewportStateRef.current.distanceFromBottomPx
+      preservedDistanceFromBottomPx === null ||
+      preservedDistanceFromBottomPx === virtualViewportStateRef.current.distanceFromBottomPx
     ) {
       return;
     }
@@ -1060,12 +1047,7 @@ function LocalConversationVirtualizedTurnListCore({
       measurementFrameRef.current = null;
     }
     flushPendingTurnMeasurements(false);
-  }, [
-    entries,
-    flushPendingTurnMeasurements,
-    visibleRange.endIndex,
-    visibleRange.startIndex,
-  ]);
+  }, [entries, flushPendingTurnMeasurements, visibleRange.endIndex, visibleRange.startIndex]);
 
   useLayoutEffect(() => {
     if (pendingScrollTarget === null) return;
@@ -1083,7 +1065,10 @@ function LocalConversationVirtualizedTurnListCore({
         heightPx,
       });
     }
-    if (applyTurnMeasurements(mountedMeasurements, false) || pendingLayoutEffectRef.current !== null) {
+    if (
+      applyTurnMeasurements(mountedMeasurements, false) ||
+      pendingLayoutEffectRef.current !== null
+    ) {
       return;
     }
 
@@ -1094,7 +1079,10 @@ function LocalConversationVirtualizedTurnListCore({
     }
 
     const turnElement = turnElementsByKeyRef.current.get(pendingScrollTarget.turnKey) ?? null;
-    if (turnElement === null && (index < visibleRange.startIndex || index >= visibleRange.endIndex)) {
+    if (
+      turnElement === null &&
+      (index < visibleRange.startIndex || index >= visibleRange.endIndex)
+    ) {
       setVirtualViewportState((current) => ({
         ...current,
         renderedRange: resolveRenderedRangeForPendingScrollTarget({
@@ -1109,32 +1097,33 @@ function LocalConversationVirtualizedTurnListCore({
     }
 
     const targetElement = turnElement
-      ? pendingScrollTarget.getTargetElement?.(turnElement) ?? turnElement
+      ? (pendingScrollTarget.getTargetElement?.(turnElement) ?? turnElement)
       : null;
-    const targetDistanceFromBottomPx = turnElement && targetElement
-      ? pendingScrollTarget.getTargetElement
-        ? (() => {
-            const turnRect = turnElement.getBoundingClientRect();
-            const targetRect = targetElement.getBoundingClientRect();
-            return resolveTargetCenterDistanceFromBottom({
+    const targetDistanceFromBottomPx =
+      turnElement && targetElement
+        ? pendingScrollTarget.getTargetElement
+          ? (() => {
+              const turnRect = turnElement.getBoundingClientRect();
+              const targetRect = targetElement.getBoundingClientRect();
+              return resolveTargetCenterDistanceFromBottom({
+                layout,
+                targetHeightPx: targetRect.height,
+                targetTopWithinTurnPx: targetRect.top - turnRect.top,
+                turnIndex: index,
+                viewportHeightPx: scrollElement.clientHeight,
+                windowZoom: readCodexWindowZoom(scrollElement),
+              });
+            })()
+          : resolveTurnCenterDistanceFromBottom({
               layout,
-              targetHeightPx: targetRect.height,
-              targetTopWithinTurnPx: targetRect.top - turnRect.top,
               turnIndex: index,
               viewportHeightPx: scrollElement.clientHeight,
-              windowZoom: readCodexWindowZoom(scrollElement),
-            });
-          })()
+            })
         : resolveTurnCenterDistanceFromBottom({
             layout,
             turnIndex: index,
             viewportHeightPx: scrollElement.clientHeight,
-          })
-      : resolveTurnCenterDistanceFromBottom({
-          layout,
-          turnIndex: index,
-          viewportHeightPx: scrollElement.clientHeight,
-        });
+          });
     if (targetDistanceFromBottomPx === null) {
       finishPendingScroll(pendingScrollTarget);
       return;
@@ -1177,11 +1166,7 @@ function LocalConversationVirtualizedTurnListCore({
       ]),
       false,
     );
-  }, [
-    applyTurnMeasurements,
-    entries,
-    latestTurnSynchronousMeasurementKey,
-  ]);
+  }, [applyTurnMeasurements, entries, latestTurnSynchronousMeasurementKey]);
 
   useLayoutEffect(() => {
     if (!onVisibleContentReady || visibleContentReadyRef.current || listRoot === null) return;
@@ -1309,17 +1294,18 @@ export function LocalConversationVirtualizedTurnList({
   const isLatestTurnInProgress = latestTurnEntry?.turn.status === "inProgress";
   const initialLatestTurnKey = entries.at(-1)?.turnKey ?? null;
   const [responseSpacerHeightPx, setResponseSpacerHeightPxState] = useState(0);
-  const [latestTurnFollowState, setLatestTurnFollowState] =
-    useState<ThreadLatestTurnFollowState>(() =>
+  const [latestTurnFollowState, setLatestTurnFollowState] = useState<ThreadLatestTurnFollowState>(
+    () =>
       initialLatestTurnRestoreState?.turnKey === initialLatestTurnKey
         ? { followMode: initialLatestTurnRestoreState.followMode }
         : { followMode: "static" },
-    );
-  const [latestTurnFollowContentHeightPx, setLatestTurnFollowContentHeightPx] = useState<number | null>(
-    () =>
-      initialLatestTurnRestoreState?.turnKey === initialLatestTurnKey
-        ? initialLatestTurnRestoreState.latestTurnFollowContentHeightPx
-        : null,
+  );
+  const [latestTurnFollowContentHeightPx, setLatestTurnFollowContentHeightPx] = useState<
+    number | null
+  >(() =>
+    initialLatestTurnRestoreState?.turnKey === initialLatestTurnKey
+      ? initialLatestTurnRestoreState.latestTurnFollowContentHeightPx
+      : null,
   );
   const responseSpacerRef = useRef<HTMLDivElement | null>(null);
   const responseSpacerHeightPxRef = useRef(0);
@@ -1331,8 +1317,8 @@ export function LocalConversationVirtualizedTurnList({
       : null,
   );
   const pendingExpectedLatestTurnHeightPxRef = useRef<number | null>(
-    initialLatestTurnRestoreState?.turnKey === initialLatestTurnKey
-    && shouldAllowResponseSpacerGrowth(initialLatestTurnRestoreState.followMode)
+    initialLatestTurnRestoreState?.turnKey === initialLatestTurnKey &&
+      shouldAllowResponseSpacerGrowth(initialLatestTurnRestoreState.followMode)
       ? initialLatestTurnRestoreState.latestTurnHeightPx
       : null,
   );
@@ -1367,33 +1353,32 @@ export function LocalConversationVirtualizedTurnList({
     return () => {
       controls.stop();
     };
-  }, [
-    prefersReducedMotion,
-    responseSpacerHeightMotion,
-    responseSpacerHeightPx,
-  ]);
+  }, [prefersReducedMotion, responseSpacerHeightMotion, responseSpacerHeightPx]);
 
-  const updateFollowState = useCallback((
-    event: Parameters<typeof resolveThreadLatestTurnFollowState>[1],
-    forceFooterPreserveSync = false,
-  ) => {
-    const previousState = latestTurnFollowStateRef.current;
-    const previousFollowMode = previousState.followMode;
-    const nextState = resolveThreadLatestTurnFollowState(
-      previousState,
-      event,
-    );
-    latestTurnFollowStateRef.current = nextState;
-    if (nextState !== previousState) {
-      setLatestTurnFollowState(nextState);
-    }
-    if (forceFooterPreserveSync || nextState.followMode !== previousFollowMode) {
-      baseScrollController.setFooterResizeViewportPreserveDisabled(
-        Boolean(isLatestTurnInProgressRef.current && shouldAllowResponseSpacerGrowth(nextState.followMode)),
-      );
-    }
-    return nextState;
-  }, [baseScrollController]);
+  const updateFollowState = useCallback(
+    (
+      event: Parameters<typeof resolveThreadLatestTurnFollowState>[1],
+      forceFooterPreserveSync = false,
+    ) => {
+      const previousState = latestTurnFollowStateRef.current;
+      const previousFollowMode = previousState.followMode;
+      const nextState = resolveThreadLatestTurnFollowState(previousState, event);
+      latestTurnFollowStateRef.current = nextState;
+      if (nextState !== previousState) {
+        setLatestTurnFollowState(nextState);
+      }
+      if (forceFooterPreserveSync || nextState.followMode !== previousFollowMode) {
+        baseScrollController.setFooterResizeViewportPreserveDisabled(
+          Boolean(
+            isLatestTurnInProgressRef.current &&
+            shouldAllowResponseSpacerGrowth(nextState.followMode),
+          ),
+        );
+      }
+      return nextState;
+    },
+    [baseScrollController],
+  );
 
   const clearResponseSpacer = useCallback(() => {
     responseSpacerHeightMotion.stop?.();
@@ -1407,17 +1392,15 @@ export function LocalConversationVirtualizedTurnList({
     latestTurnYMotion.stop?.();
     latestTurnYMotion.set(0);
     clearResponseSpacer();
-    updateFollowState({
-      type: "scroll_to_bottom",
-      latestTurnPhase: latestTurnPhaseRef.current,
-    }, true);
-      baseScrollController.scrollToDistanceFromBottomPx(0, "auto");
-  }, [
-    baseScrollController,
-    clearResponseSpacer,
-    latestTurnYMotion,
-    updateFollowState,
-  ]);
+    updateFollowState(
+      {
+        type: "scroll_to_bottom",
+        latestTurnPhase: latestTurnPhaseRef.current,
+      },
+      true,
+    );
+    baseScrollController.scrollToDistanceFromBottomPx(0, "auto");
+  }, [baseScrollController, clearResponseSpacer, latestTurnYMotion, updateFollowState]);
   const scrollResponseSpacerToBottomRef = useRef(scrollResponseSpacerToBottom);
   scrollResponseSpacerToBottomRef.current = scrollResponseSpacerToBottom;
   const registerResponseSpacerState = baseScrollController.registerResponseSpacerState;
@@ -1438,11 +1421,7 @@ export function LocalConversationVirtualizedTurnList({
     return () => {
       registerResponseSpacerState(null);
     };
-  }, [
-    latestTurnKey,
-    registerResponseSpacerState,
-    responseSpacerHeightMotion,
-  ]);
+  }, [latestTurnKey, registerResponseSpacerState, responseSpacerHeightMotion]);
 
   const wrappedScrollController = useMemo<LocalConversationThreadScrollControllerValue>(() => {
     const subtractSpacer = (distanceFromBottomPx: number) =>
@@ -1454,14 +1433,16 @@ export function LocalConversationVirtualizedTurnList({
           listener(subtractSpacer(distanceFromBottomPx));
         }),
       addUserScrollListener: (listener) =>
-        baseScrollController.addUserScrollListener((distanceFromBottomPx, previousDistanceFromBottomPx) => {
-          listener(
-            subtractSpacer(distanceFromBottomPx),
-            previousDistanceFromBottomPx == null
-              ? undefined
-              : subtractSpacer(previousDistanceFromBottomPx),
-          );
-        }),
+        baseScrollController.addUserScrollListener(
+          (distanceFromBottomPx, previousDistanceFromBottomPx) => {
+            listener(
+              subtractSpacer(distanceFromBottomPx),
+              previousDistanceFromBottomPx == null
+                ? undefined
+                : subtractSpacer(previousDistanceFromBottomPx),
+            );
+          },
+        ),
       getLastScrollDistanceFromBottomPx: () =>
         subtractSpacer(baseScrollController.getLastScrollDistanceFromBottomPx()),
       getScrollDistanceFromBottomPx: () =>
@@ -1478,7 +1459,10 @@ export function LocalConversationVirtualizedTurnList({
   const getPendingRestoreScrollDistanceFromBottomPx = useCallback(() => {
     if (hasRestoredInitialScrollRef.current) return null;
     const initialScrollOffset = initialScrollOffsetRef.current;
-    if (initialScrollOffset == null || latestTurnFollowStateRef.current.followMode === "prework_follow") {
+    if (
+      initialScrollOffset == null ||
+      latestTurnFollowStateRef.current.followMode === "prework_follow"
+    ) {
       return null;
     }
     return Math.max(0, initialScrollOffset - responseSpacerHeightMotion.get());
@@ -1487,102 +1471,115 @@ export function LocalConversationVirtualizedTurnList({
   const restoreScrollDistanceFromBottomPx = useCallback(() => {
     if (hasRestoredInitialScrollRef.current) return;
     const initialScrollOffset = initialScrollOffsetRef.current;
-    if (initialScrollOffset == null || latestTurnFollowStateRef.current.followMode === "prework_follow") {
+    if (
+      initialScrollOffset == null ||
+      latestTurnFollowStateRef.current.followMode === "prework_follow"
+    ) {
       hasRestoredInitialScrollRef.current = true;
       return;
     }
     const scrollElement = baseScrollController.getScrollElement();
     if (scrollElement === null) return;
     if (
-      Math.abs(baseScrollController.getScrollDistanceFromBottomPx() - initialScrollOffset)
-      <= THREAD_NEAR_BOTTOM_THRESHOLD_PX
+      Math.abs(baseScrollController.getScrollDistanceFromBottomPx() - initialScrollOffset) <=
+      THREAD_NEAR_BOTTOM_THRESHOLD_PX
     ) {
       hasRestoredInitialScrollRef.current = true;
       return;
     }
     baseScrollController.scrollToDistanceFromBottomPx(initialScrollOffset, "auto");
     if (
-      Math.abs(baseScrollController.getScrollDistanceFromBottomPx() - initialScrollOffset)
-      <= THREAD_NEAR_BOTTOM_THRESHOLD_PX
+      Math.abs(baseScrollController.getScrollDistanceFromBottomPx() - initialScrollOffset) <=
+      THREAD_NEAR_BOTTOM_THRESHOLD_PX
     ) {
       hasRestoredInitialScrollRef.current = true;
     }
   }, [baseScrollController]);
 
-  const shrinkResponseSpacer = useCallback((targetHeightPx: number) => {
-    const currentHeightPx = responseSpacerHeightMotion.get();
-    const nextHeightPx = targetHeightPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX
-      ? 0
-      : Math.min(currentHeightPx, targetHeightPx);
-    if (currentHeightPx - nextHeightPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX) return;
-    const scrollElement = baseScrollController.getScrollElement();
-    const currentDistanceFromBottomPx = scrollElement === null
-      ? 0
-      : baseScrollController.getScrollDistanceFromBottomPx();
-    const heightDeltaPx = nextHeightPx - currentHeightPx;
-    latestTurnYMotion.stop?.();
-    latestTurnYMotion.set(0);
-    responseSpacerHeightMotion.stop?.();
-    responseSpacerHeightMotion.set(nextHeightPx);
-    setResponseSpacerHeightPx(nextHeightPx);
-    if (nextHeightPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX) {
-      baseScrollController.registerResponseSpacerState(null);
-    }
-    if (scrollElement !== null) {
-      baseScrollController.scrollToDistanceFromBottomPx(
-        Math.max(0, currentDistanceFromBottomPx + heightDeltaPx),
-        "auto",
-      );
-    }
-  }, [
-    baseScrollController,
-    latestTurnYMotion,
-    responseSpacerHeightMotion,
-    setResponseSpacerHeightPx,
-  ]);
+  const shrinkResponseSpacer = useCallback(
+    (targetHeightPx: number) => {
+      const currentHeightPx = responseSpacerHeightMotion.get();
+      const nextHeightPx =
+        targetHeightPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX
+          ? 0
+          : Math.min(currentHeightPx, targetHeightPx);
+      if (currentHeightPx - nextHeightPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX) return;
+      const scrollElement = baseScrollController.getScrollElement();
+      const currentDistanceFromBottomPx =
+        scrollElement === null ? 0 : baseScrollController.getScrollDistanceFromBottomPx();
+      const heightDeltaPx = nextHeightPx - currentHeightPx;
+      latestTurnYMotion.stop?.();
+      latestTurnYMotion.set(0);
+      responseSpacerHeightMotion.stop?.();
+      responseSpacerHeightMotion.set(nextHeightPx);
+      setResponseSpacerHeightPx(nextHeightPx);
+      if (nextHeightPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX) {
+        baseScrollController.registerResponseSpacerState(null);
+      }
+      if (scrollElement !== null) {
+        baseScrollController.scrollToDistanceFromBottomPx(
+          Math.max(0, currentDistanceFromBottomPx + heightDeltaPx),
+          "auto",
+        );
+      }
+    },
+    [
+      baseScrollController,
+      latestTurnYMotion,
+      responseSpacerHeightMotion,
+      setResponseSpacerHeightPx,
+    ],
+  );
 
   useLayoutEffect(
-    () => baseScrollController.addUserScrollListener((distanceFromBottomPx, previousDistanceFromBottomPx) => {
-      hasRestoredInitialScrollRef.current = true;
-      const spacerHeightPx = responseSpacerHeightMotion.get();
-      if (distanceFromBottomPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX) {
-        if (
-          (spacerHeightPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX || spacerBottomReachedRef.current)
-          && previousDistanceFromBottomPx != null
-          && previousDistanceFromBottomPx > THREAD_NEAR_BOTTOM_THRESHOLD_PX
-          && isLatestTurnInProgressRef.current
-        ) {
-          updateFollowState({
-            type: "scroll_to_bottom",
-            latestTurnPhase: latestTurnPhaseRef.current,
-          }, true);
-          baseScrollController.scrollToDistanceFromBottomPx(0, "auto");
-        }
-        return;
-      }
-      if (
-        !isLatestTurnInProgressRef.current
-        && latestTurnPhaseRef.current === "idle"
-        && spacerHeightPx > THREAD_NEAR_BOTTOM_THRESHOLD_PX
-      ) {
-        shrinkResponseSpacer(spacerHeightPx - distanceFromBottomPx);
-        return;
-      }
-      if (
-        isLatestTurnInProgressRef.current
-        && latestTurnPhaseRef.current === "prework"
-        && previousDistanceFromBottomPx != null
-        && distanceFromBottomPx > previousDistanceFromBottomPx
-        && spacerHeightPx > THREAD_NEAR_BOTTOM_THRESHOLD_PX
-        && distanceFromBottomPx > spacerHeightPx
-      ) {
-        const nextDistanceFromBottomPx = distanceFromBottomPx - spacerHeightPx;
-        latestTurnYMotion.stop?.();
-        latestTurnYMotion.set(0);
-        clearResponseSpacer();
-        baseScrollController.scrollToDistanceFromBottomPx(nextDistanceFromBottomPx, "auto");
-      }
-    }),
+    () =>
+      baseScrollController.addUserScrollListener(
+        (distanceFromBottomPx, previousDistanceFromBottomPx) => {
+          hasRestoredInitialScrollRef.current = true;
+          const spacerHeightPx = responseSpacerHeightMotion.get();
+          if (distanceFromBottomPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX) {
+            if (
+              (spacerHeightPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX ||
+                spacerBottomReachedRef.current) &&
+              previousDistanceFromBottomPx != null &&
+              previousDistanceFromBottomPx > THREAD_NEAR_BOTTOM_THRESHOLD_PX &&
+              isLatestTurnInProgressRef.current
+            ) {
+              updateFollowState(
+                {
+                  type: "scroll_to_bottom",
+                  latestTurnPhase: latestTurnPhaseRef.current,
+                },
+                true,
+              );
+              baseScrollController.scrollToDistanceFromBottomPx(0, "auto");
+            }
+            return;
+          }
+          if (
+            !isLatestTurnInProgressRef.current &&
+            latestTurnPhaseRef.current === "idle" &&
+            spacerHeightPx > THREAD_NEAR_BOTTOM_THRESHOLD_PX
+          ) {
+            shrinkResponseSpacer(spacerHeightPx - distanceFromBottomPx);
+            return;
+          }
+          if (
+            isLatestTurnInProgressRef.current &&
+            latestTurnPhaseRef.current === "prework" &&
+            previousDistanceFromBottomPx != null &&
+            distanceFromBottomPx > previousDistanceFromBottomPx &&
+            spacerHeightPx > THREAD_NEAR_BOTTOM_THRESHOLD_PX &&
+            distanceFromBottomPx > spacerHeightPx
+          ) {
+            const nextDistanceFromBottomPx = distanceFromBottomPx - spacerHeightPx;
+            latestTurnYMotion.stop?.();
+            latestTurnYMotion.set(0);
+            clearResponseSpacer();
+            baseScrollController.scrollToDistanceFromBottomPx(nextDistanceFromBottomPx, "auto");
+          }
+        },
+      ),
     [
       baseScrollController,
       clearResponseSpacer,
@@ -1606,8 +1603,8 @@ export function LocalConversationVirtualizedTurnList({
         const intersectionHeightPx = entry.intersectionRect.height;
         if (isLatestTurnInProgressRef.current) {
           spacerBottomReachedRef.current =
-            Math.max(0, intersectionHeightPx - readScrollPaddingBottomPx(element))
-            <= THREAD_NEAR_BOTTOM_THRESHOLD_PX;
+            Math.max(0, intersectionHeightPx - readScrollPaddingBottomPx(element)) <=
+            THREAD_NEAR_BOTTOM_THRESHOLD_PX;
           return;
         }
         shrinkResponseSpacer(
@@ -1626,11 +1623,7 @@ export function LocalConversationVirtualizedTurnList({
     return () => {
       observer.disconnect();
     };
-  }, [
-    baseScrollController,
-    responseSpacerHeightMotion,
-    shrinkResponseSpacer,
-  ]);
+  }, [baseScrollController, responseSpacerHeightMotion, shrinkResponseSpacer]);
 
   const clampResponseSpacerForViewport = useCallback(() => {
     const element = scrollElement ?? baseScrollController.getScrollElement();
@@ -1654,12 +1647,7 @@ export function LocalConversationVirtualizedTurnList({
       Math.max(0, baseScrollController.getScrollDistanceFromBottomPx() + heightDeltaPx),
       "auto",
     );
-  }, [
-    baseScrollController,
-    responseSpacerHeightMotion,
-    scrollElement,
-    setResponseSpacerHeightPx,
-  ]);
+  }, [baseScrollController, responseSpacerHeightMotion, scrollElement, setResponseSpacerHeightPx]);
 
   useLayoutEffect(() => {
     const element = scrollElement ?? baseScrollController.getScrollElement();
@@ -1673,9 +1661,8 @@ export function LocalConversationVirtualizedTurnList({
         clampResponseSpacerForViewport();
       });
     };
-    const observer = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(scheduleClamp);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleClamp);
     observer?.observe(element);
     window.addEventListener("resize", scheduleClamp, { passive: true });
     return () => {
@@ -1685,11 +1672,7 @@ export function LocalConversationVirtualizedTurnList({
         window.cancelAnimationFrame(frameId);
       }
     };
-  }, [
-    baseScrollController,
-    clampResponseSpacerForViewport,
-    scrollElement,
-  ]);
+  }, [baseScrollController, clampResponseSpacerForViewport, scrollElement]);
 
   const handleLatestTurnHeightChange = useCallback(
     ({
@@ -1711,9 +1694,9 @@ export function LocalConversationVirtualizedTurnList({
       }
       const expectedLatestTurnHeightPx = pendingExpectedLatestTurnHeightPxRef.current;
       if (
-        expectedLatestTurnHeightPx !== null
-        && heightPx !== null
-        && Math.abs(heightPx - expectedLatestTurnHeightPx) > THREAD_NEAR_BOTTOM_THRESHOLD_PX
+        expectedLatestTurnHeightPx !== null &&
+        heightPx !== null &&
+        Math.abs(heightPx - expectedLatestTurnHeightPx) > THREAD_NEAR_BOTTOM_THRESHOLD_PX
       ) {
         const heightDifferencePx = heightPx - expectedLatestTurnHeightPx;
         pendingExpectedLatestTurnHeightPxRef.current = null;
@@ -1734,16 +1717,16 @@ export function LocalConversationVirtualizedTurnList({
         return;
       }
       if (
-        latestTurnFollowStateRef.current.followMode === "prework_follow"
-        && latestTurnPhaseRef.current === "prework"
+        latestTurnFollowStateRef.current.followMode === "prework_follow" &&
+        latestTurnPhaseRef.current === "prework"
       ) {
         baseScrollController.scrollToDistanceFromBottomPx(0, "auto");
         return;
       }
       if (
-        heightDeltaPx !== null
-        && heightDeltaPx !== 0
-        && shouldAllowResponseSpacerGrowth(latestTurnFollowStateRef.current.followMode)
+        heightDeltaPx !== null &&
+        heightDeltaPx !== 0 &&
+        shouldAllowResponseSpacerGrowth(latestTurnFollowStateRef.current.followMode)
       ) {
         resolveBaseDistanceWithLatestTurnDelta({
           allowResponseSpacerGrowth: isLatestTurnInProgressRef.current,
@@ -1754,9 +1737,9 @@ export function LocalConversationVirtualizedTurnList({
         });
       }
       if (
-        latestTurnFollowStateRef.current.followMode !== "prework_watch"
-        || latestTurnPhaseRef.current !== "prework"
-        || responseSpacerHeightMotion.get() <= THREAD_NEAR_BOTTOM_THRESHOLD_PX
+        latestTurnFollowStateRef.current.followMode !== "prework_watch" ||
+        latestTurnPhaseRef.current !== "prework" ||
+        responseSpacerHeightMotion.get() <= THREAD_NEAR_BOTTOM_THRESHOLD_PX
       ) {
         return;
       }
@@ -1776,8 +1759,8 @@ export function LocalConversationVirtualizedTurnList({
         latestTurnPhase: latestTurnPhaseRef.current,
       });
       if (
-        previousState.followMode !== "prework_follow"
-        && nextState.followMode === "prework_follow"
+        previousState.followMode !== "prework_follow" &&
+        nextState.followMode === "prework_follow"
       ) {
         latestTurnYMotion.stop?.();
         latestTurnYMotion.set(0);
@@ -1796,31 +1779,30 @@ export function LocalConversationVirtualizedTurnList({
   );
 
   useLayoutEffect(
-    () => baseScrollController.addScrollListener((distanceFromBottomPx) => {
-      if (distanceFromBottomPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX) return;
-      const spacerHeightPx = responseSpacerHeightMotion.get();
-      if (
-        isLatestTurnInProgressRef.current
-        && spacerHeightPx > THREAD_NEAR_BOTTOM_THRESHOLD_PX
-        && resolveResponseSpacerBottomViewportOverflowPx({
+    () =>
+      baseScrollController.addScrollListener((distanceFromBottomPx) => {
+        if (distanceFromBottomPx <= THREAD_NEAR_BOTTOM_THRESHOLD_PX) return;
+        const spacerHeightPx = responseSpacerHeightMotion.get();
+        if (
+          isLatestTurnInProgressRef.current &&
+          spacerHeightPx > THREAD_NEAR_BOTTOM_THRESHOLD_PX &&
+          resolveResponseSpacerBottomViewportOverflowPx({
+            distanceFromBottomPx,
+            responseSpacerHeightPx: spacerHeightPx,
+            scrollPaddingBottomPx: readScrollPaddingBottomPx(
+              baseScrollController.getScrollElement(),
+            ),
+          }) <= THREAD_NEAR_BOTTOM_THRESHOLD_PX
+        ) {
+          spacerBottomReachedRef.current = true;
+        }
+        updateFollowState({
+          type: "scroll_distance_changed",
           distanceFromBottomPx,
-          responseSpacerHeightPx: spacerHeightPx,
-          scrollPaddingBottomPx: readScrollPaddingBottomPx(baseScrollController.getScrollElement()),
-        }) <= THREAD_NEAR_BOTTOM_THRESHOLD_PX
-      ) {
-        spacerBottomReachedRef.current = true;
-      }
-      updateFollowState({
-        type: "scroll_distance_changed",
-        distanceFromBottomPx,
-        latestTurnPhase: latestTurnPhaseRef.current,
-      });
-    }),
-    [
-      baseScrollController,
-      responseSpacerHeightMotion,
-      updateFollowState,
-    ],
+          latestTurnPhase: latestTurnPhaseRef.current,
+        });
+      }),
+    [baseScrollController, responseSpacerHeightMotion, updateFollowState],
   );
 
   useLayoutEffect(() => {
@@ -1848,9 +1830,10 @@ export function LocalConversationVirtualizedTurnList({
         latestTurnYMotion.stop?.();
         latestTurnYMotion.set(0);
         clearResponseSpacer();
-        const scrollHeightDeltaPx = placement.scrollHeightPx === null
-          ? 0
-          : scrollElement.scrollHeight - placement.scrollHeightPx;
+        const scrollHeightDeltaPx =
+          placement.scrollHeightPx === null
+            ? 0
+            : scrollElement.scrollHeight - placement.scrollHeightPx;
         baseScrollController.setScrollMode("user");
         baseScrollController.scrollToDistanceFromBottomPx(
           placement.distanceFromBottomPx + scrollHeightDeltaPx,
@@ -1880,15 +1863,18 @@ export function LocalConversationVirtualizedTurnList({
     }
 
     const previousState = latestTurnFollowStateRef.current;
-    updateFollowState({
-      type: "latest_turn_phase_changed",
-      latestTurnPhase,
-      previousLatestTurnPhase,
-    }, true);
+    updateFollowState(
+      {
+        type: "latest_turn_phase_changed",
+        latestTurnPhase,
+        previousLatestTurnPhase,
+      },
+      true,
+    );
     if (
-      previousLatestTurnPhase === "prework"
-      && latestTurnPhase === "final_answer"
-      && previousState.followMode === "prework_follow"
+      previousLatestTurnPhase === "prework" &&
+      latestTurnPhase === "final_answer" &&
+      previousState.followMode === "prework_follow"
     ) {
       latestTurnYMotion.stop?.();
       latestTurnYMotion.set(0);
@@ -1917,14 +1903,16 @@ export function LocalConversationVirtualizedTurnList({
     (change: VirtualizedTurnViewportChange) => {
       if (!onLoadOlderTurns || isHistoryComplete || isOlderHistoryLoading) return;
       if (olderHistoryLoadInFlightRef.current) return;
-      if (!shouldLoadOlderThreadTurns({
-        hasLoadedOldest: isHistoryComplete,
-        isLoading: isOlderHistoryLoading,
-        scrollDistanceFromBottomPx: change.distanceFromBottomPx,
-        totalHeightPx: change.totalHeightPx,
-        turnsBottomInsetPx: 0,
-        viewportHeightPx: change.viewportHeightPx,
-      })) {
+      if (
+        !shouldLoadOlderThreadTurns({
+          hasLoadedOldest: isHistoryComplete,
+          isLoading: isOlderHistoryLoading,
+          scrollDistanceFromBottomPx: change.distanceFromBottomPx,
+          totalHeightPx: change.totalHeightPx,
+          turnsBottomInsetPx: 0,
+          viewportHeightPx: change.viewportHeightPx,
+        })
+      ) {
         return;
       }
       olderHistoryLoadInFlightRef.current = true;
@@ -1932,28 +1920,27 @@ export function LocalConversationVirtualizedTurnList({
         olderHistoryLoadInFlightRef.current = false;
       });
     },
-    [
-      isHistoryComplete,
-      isOlderHistoryLoading,
-      onLoadOlderTurns,
-    ],
+    [isHistoryComplete, isOlderHistoryLoading, onLoadOlderTurns],
   );
 
   useLayoutEffect(
     () => () => {
       const scrollElement = baseScrollController.getScrollElement();
-      const currentDistanceFromBottomPx = scrollElement === null
-        ? baseScrollController.getLastScrollDistanceFromBottomPx()
-        : baseScrollController.getScrollDistanceFromBottomPx();
-      const restoreState = latestTurnKeyRef.current === null
-        ? null
-        : resolveRestoredDistanceWithoutResponseSpacer({
-            distanceFromBottomPx: currentDistanceFromBottomPx,
-            latestTurnPhase: latestTurnPhaseRef.current,
-            responseSpacerHeightPx: responseSpacerHeightMotion.get(),
-            scrollPaddingBottomPx: scrollElement === null ? 0 : readScrollPaddingBottomPx(scrollElement),
-            scrollState: latestTurnFollowStateRef.current,
-          });
+      const currentDistanceFromBottomPx =
+        scrollElement === null
+          ? baseScrollController.getLastScrollDistanceFromBottomPx()
+          : baseScrollController.getScrollDistanceFromBottomPx();
+      const restoreState =
+        latestTurnKeyRef.current === null
+          ? null
+          : resolveRestoredDistanceWithoutResponseSpacer({
+              distanceFromBottomPx: currentDistanceFromBottomPx,
+              latestTurnPhase: latestTurnPhaseRef.current,
+              responseSpacerHeightPx: responseSpacerHeightMotion.get(),
+              scrollPaddingBottomPx:
+                scrollElement === null ? 0 : readScrollPaddingBottomPx(scrollElement),
+              scrollState: latestTurnFollowStateRef.current,
+            });
       if (restoreState !== null) {
         initialScrollOffsetRef.current = restoreState.distanceFromBottomPx;
       }
@@ -1961,9 +1948,8 @@ export function LocalConversationVirtualizedTurnList({
         latestTurnKeyRef.current === null
           ? null
           : {
-              followMode: (
-                restoreState?.scrollState ?? latestTurnFollowStateRef.current
-              ).followMode,
+              followMode: (restoreState?.scrollState ?? latestTurnFollowStateRef.current)
+                .followMode,
               isLatestTurnInProgress: isLatestTurnInProgressRef.current,
               latestTurnFollowContentHeightPx: latestTurnFollowContentHeightPxRef.current,
               latestTurnHeightPx: shouldAllowResponseSpacerGrowth(
@@ -1978,11 +1964,7 @@ export function LocalConversationVirtualizedTurnList({
       );
       baseScrollController.setFooterResizeViewportPreserveDisabled(false);
     },
-    [
-      baseScrollController,
-      onLatestTurnRestoreStateChange,
-      responseSpacerHeightMotion,
-    ],
+    [baseScrollController, onLatestTurnRestoreStateChange, responseSpacerHeightMotion],
   );
 
   return (

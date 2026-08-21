@@ -1,15 +1,6 @@
-import {
-  existsSync,
-  readdirSync,
-  statSync,
-} from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import {
-  dirname,
-  extname,
-  join,
-  resolve,
-} from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import {
   normalizeFileLinkOpenerId,
@@ -24,10 +15,7 @@ import {
   type NormalizedFileLinkPosition,
 } from "./file-link-launch-plan";
 
-const APPLICATIONS_DIRECTORIES = [
-  "/Applications",
-  join(homedir(), "Applications"),
-];
+const APPLICATIONS_DIRECTORIES = ["/Applications", join(homedir(), "Applications")];
 
 const DOCUMENT_LIKE_EXTENSIONS = new Set([
   ".pdf",
@@ -75,11 +63,14 @@ interface SpawnOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-const JETBRAINS_APP_CONFIG: Record<JetBrainsFileLinkOpenerId, {
-  fixedPaths: string[];
-  bundlePrefix: string;
-  executableName: string;
-}> = {
+const JETBRAINS_APP_CONFIG: Record<
+  JetBrainsFileLinkOpenerId,
+  {
+    fixedPaths: string[];
+    bundlePrefix: string;
+    executableName: string;
+  }
+> = {
   androidStudio: {
     fixedPaths: ["/Applications/Android Studio.app/Contents/MacOS/studio"],
     bundlePrefix: "Android Studio",
@@ -112,11 +103,7 @@ const JETBRAINS_APP_CONFIG: Record<JetBrainsFileLinkOpenerId, {
   },
 };
 
-function runSpawn(
-  executable: string,
-  args: string[],
-  options?: SpawnOptions,
-): Promise<boolean> {
+function runSpawn(executable: string, args: string[], options?: SpawnOptions): Promise<boolean> {
   return new Promise((resolvePromise) => {
     let settled = false;
     const child = spawn(executable, args, {
@@ -168,9 +155,10 @@ function findBundleByPrefix(prefix: string): string | null {
       continue;
     }
 
-    const match = entries.find((entry) =>
-      entry.toLowerCase().startsWith(normalizedPrefix)
-      && entry.toLowerCase().endsWith(".app"));
+    const match = entries.find(
+      (entry) =>
+        entry.toLowerCase().startsWith(normalizedPrefix) && entry.toLowerCase().endsWith(".app"),
+    );
     if (!match) continue;
 
     const bundlePath = join(root, match);
@@ -180,10 +168,7 @@ function findBundleByPrefix(prefix: string): string | null {
   return null;
 }
 
-function findExecutableInBundle(
-  bundlePrefix: string,
-  executableName: string,
-): string | null {
+function findExecutableInBundle(bundlePrefix: string, executableName: string): string | null {
   const bundle = findBundleByPrefix(bundlePrefix);
   if (!bundle) return null;
 
@@ -264,9 +249,11 @@ function detectJetBrainsExecutable(
   bundlePrefix: string,
   executableName: string,
 ): string | null {
-  return firstExistingPath(fixedPaths)
-    ?? findExecutableInBundle(bundlePrefix, executableName)
-    ?? scanJetBrainsToolboxExecutable(executableName);
+  return (
+    firstExistingPath(fixedPaths) ??
+    findExecutableInBundle(bundlePrefix, executableName) ??
+    scanJetBrainsToolboxExecutable(executableName)
+  );
 }
 
 function openInJetBrainsApp(
@@ -310,9 +297,7 @@ function detectXcodePaths(): XcodePaths | null {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
   });
-  const developerDir = developerDirResult.status === 0
-    ? developerDirResult.stdout.trim()
-    : "";
+  const developerDir = developerDirResult.status === 0 ? developerDirResult.stdout.trim() : "";
   if (developerDir) {
     const candidate = join(developerDir, "usr", "bin", "xed");
     if (existsSync(candidate)) xedPath = candidate;
@@ -332,13 +317,15 @@ function detectXcodePaths(): XcodePaths | null {
 }
 
 function detectZedExecutable(): string | null {
-  return runWhich("zed")
-    ?? firstExistingPath([
+  return (
+    runWhich("zed") ??
+    firstExistingPath([
       "/Applications/Zed.app/Contents/MacOS/zed",
       "/Applications/Zed Preview.app/Contents/MacOS/zed",
       "/Applications/Zed Nightly.app/Contents/MacOS/zed",
-    ])
-    ?? findExecutableInBundle("Zed", "zed");
+    ]) ??
+    findExecutableInBundle("Zed", "zed")
+  );
 }
 
 function detectZedBundleFromExecutable(executablePath: string): string | null {
@@ -380,9 +367,7 @@ function quoteForShell(value: string): string {
 }
 
 function escapeForAppleScript(value: string): string {
-  return value
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"');
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 function resolveTerminalEditorCommand(): string | null {
@@ -435,15 +420,7 @@ async function openFileInTerminalLikeTarget(
   }
 
   const loginShell = process.env.SHELL?.trim() || "/bin/zsh";
-  return runSpawn("open", [
-    "-na",
-    "Ghostty.app",
-    "--args",
-    "-e",
-    loginShell,
-    "-lc",
-    shellCommand,
-  ]);
+  return runSpawn("open", ["-na", "Ghostty.app", "--args", "-e", loginShell, "-lc", shellCommand]);
 }
 
 function buildCursorEnv(): NodeJS.ProcessEnv {
@@ -578,11 +555,9 @@ export async function openFileLinkTarget(
     case "cursor": {
       const cursorPaths = detectCursorCliPaths();
       if (!cursorPaths) return false;
-      return runSpawn(
-        cursorPaths.electronBin,
-        [cursorPaths.cliJs, "--goto", locationArg],
-        { env: buildCursorEnv() },
-      );
+      return runSpawn(cursorPaths.electronBin, [cursorPaths.cliJs, "--goto", locationArg], {
+        env: buildCursorEnv(),
+      });
     }
 
     case "bbedit":
@@ -592,10 +567,9 @@ export async function openFileLinkTarget(
       return runSpawn("open", ["-a", "BBEdit", target.path]);
 
     case "sublimeText": {
-      const executable = runWhich("subl")
-        ?? firstExistingPath([
-          "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl",
-        ]);
+      const executable =
+        runWhich("subl") ??
+        firstExistingPath(["/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl"]);
       if (!executable) return false;
       return runSpawn(executable, [locationArg]);
     }
@@ -627,12 +601,7 @@ export async function openFileLinkTarget(
     }
 
     case "iterm2": {
-      if (
-        !firstExistingPath([
-          "/Applications/iTerm.app",
-          "/Applications/iTerm2.app",
-        ])
-      ) {
+      if (!firstExistingPath(["/Applications/iTerm.app", "/Applications/iTerm2.app"])) {
         return false;
       }
       const openedInEditor = await openFileInTerminalLikeTarget("iterm2", target.path);
@@ -660,11 +629,7 @@ export async function openFileLinkTarget(
     case "rustrover":
     case "pycharm":
     case "webstorm":
-      return openInJetBrainsApp(
-        openerId as JetBrainsFileLinkOpenerId,
-        target.path,
-        position,
-      );
+      return openInJetBrainsApp(openerId as JetBrainsFileLinkOpenerId, target.path, position);
 
     case "zed":
       return openInZed(target.path, position);

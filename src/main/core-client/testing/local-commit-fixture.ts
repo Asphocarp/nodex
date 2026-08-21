@@ -1,7 +1,4 @@
-import type {
-  CoreAuthorizedDeliveryPacket,
-  CoreModuleEventPayload,
-} from "../types";
+import type { CoreAuthorizedDeliveryPacket, CoreModuleEventPayload } from "../types";
 import type { ResourceRevocation } from "../../../shared/resource-revocation-stream";
 
 interface CoreLocalCommitFixtureInput {
@@ -24,12 +21,18 @@ const atomKind = (
   payload: CoreModuleEventPayload,
 ): CoreAuthorizedDeliveryPacket["atoms"][number]["descriptor"]["kind"] => {
   switch (payload.module) {
-    case "library": return "library_navigation_changed";
-    case "database": return "database_changed";
-    case "owned_document": return "owned_document_changed";
-    case "project_workspace": return "project_workspace_changed";
-    case "automation": return "automation_changed";
-    case "store_administration": return "store_administration_changed";
+    case "library":
+      return "library_navigation_changed";
+    case "database":
+      return "database_changed";
+    case "owned_document":
+      return "owned_document_changed";
+    case "project_workspace":
+      return "project_workspace_changed";
+    case "automation":
+      return "automation_changed";
+    case "store_administration":
+      return "store_administration_changed";
   }
 };
 
@@ -43,30 +46,33 @@ export const createCoreLocalCommitFixture = (
     ...(input.payload === undefined ? [] : [input.payload]),
     ...(input.additionalPayloads ?? []),
   ];
-  const manifestHash = input.canonicalHash
-    ?? String(input.commitSeq).padStart(64, "0").slice(-64);
+  const manifestHash = input.canonicalHash ?? String(input.commitSeq).padStart(64, "0").slice(-64);
   const documentEffects = input.documentEffects ?? [];
   const projectionEffects = input.projectionEffects ?? [];
   const authorizationScope = input.authorizationScope ?? {
     kind: "library" as const,
     library_id: "library-1",
   };
-  const visibilityDeltas = input.visibilityDeltas ?? (input.revocations ?? []).map(
-    (revocation, index): CoreAuthorizedDeliveryPacket["visibility_deltas"][number] => ({
-      authorization_scope: revocation.authorization_scope,
-      change: {
-        kind: "revoke",
-        reason: revocation.reason,
-      },
-      roots: [{
-        kind: revocation.resource_kind,
-        [`${revocation.resource_kind}_id`]: revocation.resource_id,
-      } as CoreAuthorizedDeliveryPacket["visibility_deltas"][number]["roots"][number]],
-      delta_hash: String(input.commitSeq * 100 + index)
-        .padStart(64, "5")
-        .slice(-64),
-    }),
-  );
+  const visibilityDeltas =
+    input.visibilityDeltas ??
+    (input.revocations ?? []).map(
+      (revocation, index): CoreAuthorizedDeliveryPacket["visibility_deltas"][number] => ({
+        authorization_scope: revocation.authorization_scope,
+        change: {
+          kind: "revoke",
+          reason: revocation.reason,
+        },
+        roots: [
+          {
+            kind: revocation.resource_kind,
+            [`${revocation.resource_kind}_id`]: revocation.resource_id,
+          } as CoreAuthorizedDeliveryPacket["visibility_deltas"][number]["roots"][number],
+        ],
+        delta_hash: String(input.commitSeq * 100 + index)
+          .padStart(64, "5")
+          .slice(-64),
+      }),
+    );
   const atoms = payloads.map((payload, atomOrder) => ({
     descriptor: {
       atom_id: String(input.commitSeq * 100 + atomOrder)
@@ -77,10 +83,12 @@ export const createCoreLocalCommitFixture = (
       payload_hash: String(input.commitSeq * 10 + atomOrder)
         .padStart(64, "2")
         .slice(-64),
-      required_resources: input.requiredResources ?? [{
-        kind: "library" as const,
-        library_id: payload.library_id,
-      }],
+      required_resources: input.requiredResources ?? [
+        {
+          kind: "library" as const,
+          library_id: payload.library_id,
+        },
+      ],
     },
     payload,
   }));
@@ -108,9 +116,7 @@ export const createCoreLocalCommitFixture = (
       inline_document_effect_orders: documentEffects
         .filter((effect) => effect.inline_update !== null && effect.inline_update !== undefined)
         .map((effect) => effect.reference.effect_order),
-      projection_scope_keys: projectionEffects.map(
-        (effect) => effect.scope.canonical_key,
-      ),
+      projection_scope_keys: projectionEffects.map((effect) => effect.scope.canonical_key),
     },
     packet_hash: String(input.commitSeq).padStart(64, "4").slice(-64),
   };

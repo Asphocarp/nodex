@@ -2,10 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import {
-  FileBrowserPageSnapshotStore,
-  type BrowserSerializedPage,
-} from "./browser-page-store";
+import { FileBrowserPageSnapshotStore, type BrowserSerializedPage } from "./browser-page-store";
 
 const temporaryDirectories: string[] = [];
 const identity = {
@@ -42,11 +39,13 @@ function page(
     updatedAt: 1,
     navigation: {
       currentIndex: 0,
-      entries: [{
-        title: "Example",
-        url: "https://example.com/",
-        pageState: "state",
-      }],
+      entries: [
+        {
+          title: "Example",
+          url: "https://example.com/",
+          pageState: "state",
+        },
+      ],
     },
     ...overrides,
   };
@@ -55,10 +54,11 @@ function page(
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map(
-      async (directory) => await rm(directory, {
-        recursive: true,
-        force: true,
-      }),
+      async (directory) =>
+        await rm(directory, {
+          recursive: true,
+          force: true,
+        }),
     ),
   );
 });
@@ -69,9 +69,7 @@ describe("FileBrowserPageSnapshotStore", () => {
     await store.set(page("browser:one"));
 
     const reloaded = new FileBrowserPageSnapshotStore({ filePath });
-    await expect(reloaded.get("browser:one")).resolves.toEqual(
-      page("browser:one"),
-    );
+    await expect(reloaded.get("browser:one")).resolves.toEqual(page("browser:one"));
     expect(JSON.parse(await readFile(filePath, "utf8"))).toMatchObject({
       schemaVersion: 1,
       pages: {
@@ -84,21 +82,19 @@ describe("FileBrowserPageSnapshotStore", () => {
 
   test("keeps at most 500 navigation entries and 100 pages", async () => {
     const { store } = await makeStore();
-    await store.set(page("browser:long", {
-      navigation: {
-        currentIndex: 549,
-        entries: Array.from({ length: 550 }, (_, index) => ({
-          title: `Page ${index}`,
-          url: `https://example.com/${index}`,
-        })),
-      },
-    }));
-    expect((await store.get("browser:long"))?.navigation.entries).toHaveLength(
-      500,
+    await store.set(
+      page("browser:long", {
+        navigation: {
+          currentIndex: 549,
+          entries: Array.from({ length: 550 }, (_, index) => ({
+            title: `Page ${index}`,
+            url: `https://example.com/${index}`,
+          })),
+        },
+      }),
     );
-    expect((await store.get("browser:long"))?.navigation.currentIndex).toBe(
-      499,
-    );
+    expect((await store.get("browser:long"))?.navigation.entries).toHaveLength(500);
+    expect((await store.get("browser:long"))?.navigation.currentIndex).toBe(499);
 
     for (let index = 0; index < 101; index += 1) {
       await store.set(page(`browser:${index}`, { updatedAt: index + 1 }));
@@ -116,10 +112,9 @@ describe("FileBrowserPageSnapshotStore", () => {
     });
 
     await expect(store.get("browser:missing")).resolves.toBeNull();
-    await expect(readFile(
-      join(directory, "browser-sidebar-page-states.json.corrupt-42"),
-      "utf8",
-    )).resolves.toBe("{not-json");
+    await expect(
+      readFile(join(directory, "browser-sidebar-page-states.json.corrupt-42"), "utf8"),
+    ).resolves.toBe("{not-json");
   });
 
   test("reassociates a page without retaining the source identity", async () => {

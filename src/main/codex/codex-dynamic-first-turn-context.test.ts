@@ -34,20 +34,14 @@ describe("Codex dynamic first-turn context", () => {
       visualizationDirectory: "/home/.codex/visualizations/day/thread",
     });
 
-    expect(JSON.stringify(context.runtimeWorkspaceRoots)).toBe(JSON.stringify([
-      "/workspace",
-      "/retained",
-      "/home/.codex/visualizations/day/thread",
-    ]));
-    expect(JSON.stringify(
-      context.sandboxPolicy.type === "workspaceWrite"
-        ? context.sandboxPolicy.writableRoots
-        : [],
-    )).toBe(JSON.stringify([
-      "/workspace",
-      "/retained",
-      "/home/.codex/visualizations/day/thread",
-    ]));
+    expect(JSON.stringify(context.runtimeWorkspaceRoots)).toBe(
+      JSON.stringify(["/workspace", "/retained", "/home/.codex/visualizations/day/thread"]),
+    );
+    expect(
+      JSON.stringify(
+        context.sandboxPolicy.type === "workspaceWrite" ? context.sandboxPolicy.writableRoots : [],
+      ),
+    ).toBe(JSON.stringify(["/workspace", "/retained", "/home/.codex/visualizations/day/thread"]));
   });
 
   test("keeps runtime roots absent for an explicit sandbox selection", () => {
@@ -70,10 +64,10 @@ describe("Codex dynamic first-turn context", () => {
     });
 
     expect(context.runtimeWorkspaceRoots).toBe(undefined);
-    expect(JSON.stringify(
-      context.sandboxPolicy.type === "workspaceWrite"
-        ? context.sandboxPolicy.writableRoots
-        : [],
-    )).toBe(JSON.stringify(["/workspace", "/retained"]));
+    expect(
+      JSON.stringify(
+        context.sandboxPolicy.type === "workspaceWrite" ? context.sandboxPolicy.writableRoots : [],
+      ),
+    ).toBe(JSON.stringify(["/workspace", "/retained"]));
   });
 });

@@ -14,36 +14,41 @@ export interface ScenarioDatabasePort {
 }
 
 const requireSuccess = <Value>(
-  result: { readonly ok: true; readonly value: Value } | {
-    readonly ok: false;
-    readonly error: { readonly message: string };
-  },
+  result:
+    | { readonly ok: true; readonly value: Value }
+    | {
+        readonly ok: false;
+        readonly error: { readonly message: string };
+      },
   label: string,
 ): Value => {
   if (result.ok) return result.value;
   throw new Error(`${label} failed: ${result.error.message}`);
 };
 
-const readPrimaryDataSource = async (
-  port: ScenarioDatabasePort,
-  projectId: string,
-) => {
-  const database = requireSuccess(await port.read({
-    projectId,
-    read: { target: { kind: "project_default" }, mode: "database" },
-  }), "Read primary Database");
+const readPrimaryDataSource = async (port: ScenarioDatabasePort, projectId: string) => {
+  const database = requireSuccess(
+    await port.read({
+      projectId,
+      read: { target: { kind: "project_default" }, mode: "database" },
+    }),
+    "Read primary Database",
+  );
   if (database.value.kind !== "database") {
     throw new Error("Primary Database read returned the wrong projection");
   }
   const dataSource = database.value.value.dataSources[0];
   if (!dataSource) throw new Error("Primary Database has no Data Source");
-  const descriptor = requireSuccess(await port.read({
-    projectId,
-    read: {
-      target: { kind: "data_source", dataSourceId: dataSource.dataSourceId },
-      mode: "data_source",
-    },
-  }), "Read primary Data Source");
+  const descriptor = requireSuccess(
+    await port.read({
+      projectId,
+      read: {
+        target: { kind: "data_source", dataSourceId: dataSource.dataSourceId },
+        mode: "data_source",
+      },
+    }),
+    "Read primary Data Source",
+  );
   if (descriptor.value.kind !== "data_source") {
     throw new Error("Primary Data Source read returned the wrong projection");
   }
@@ -80,21 +85,26 @@ export const ensurePrimaryDataSourcePropertyCount = async (
   let schemaRevision = initial.descriptor.dataSource.schemaRevision;
   let commitSeq = initial.snapshot.commitSeq;
   for (let index = activeCount; index < count; index += 1) {
-    const result = requireSuccess(await port.apply({
-      operationId: createUuidV7(),
-      projectId,
-      storeEpoch: initial.snapshot.storeEpoch,
-      actor: { kind: "scenario_seed" },
-      operations: [{
-        kind: "put_property",
-        dataSourceId: initial.descriptor.dataSource.dataSourceId,
-        propertyId: createCustomPropertyId(),
-        expectedDataSourceRevision: schemaRevision,
-        expectedPropertyRevision: 0,
-        name: `Performance Property ${String(index + 1).padStart(2, "0")}`,
-        schema: schemas[index % schemas.length]!,
-      }],
-    }), `Create performance Property ${index + 1}`);
+    const result = requireSuccess(
+      await port.apply({
+        operationId: createUuidV7(),
+        projectId,
+        storeEpoch: initial.snapshot.storeEpoch,
+        actor: { kind: "scenario_seed" },
+        operations: [
+          {
+            kind: "put_property",
+            dataSourceId: initial.descriptor.dataSource.dataSourceId,
+            propertyId: createCustomPropertyId(),
+            expectedDataSourceRevision: schemaRevision,
+            expectedPropertyRevision: 0,
+            name: `Performance Property ${String(index + 1).padStart(2, "0")}`,
+            schema: schemas[index % schemas.length]!,
+          },
+        ],
+      }),
+      `Create performance Property ${index + 1}`,
+    );
     schemaRevision += 1;
     commitSeq = result.commitSeq;
   }

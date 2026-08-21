@@ -23,9 +23,12 @@ const updateMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("./lib/api", () => ({
-  invoke: vi.fn(() => new Promise<AppUpdateStatus>((resolve) => {
-    updateMocks.resolveSnapshot = resolve;
-  })),
+  invoke: vi.fn(
+    () =>
+      new Promise<AppUpdateStatus>((resolve) => {
+        updateMocks.resolveSnapshot = resolve;
+      }),
+  ),
   subscribeAppUpdateStatus: vi.fn((listener: (status: AppUpdateStatus) => void) => {
     updateMocks.listener = listener;
     return updateMocks.unsubscribe;
@@ -103,8 +106,12 @@ describe("renderer state provider", () => {
       return (
         <div>
           <output>{`${preference}:${reduced ? "reduced" : "full"}`}</output>
-          <button type="button" onClick={() => setPreference("on")}>On</button>
-          <button type="button" onClick={() => setPreference("off")}>Off</button>
+          <button type="button" onClick={() => setPreference("on")}>
+            On
+          </button>
+          <button type="button" onClick={() => setPreference("off")}>
+            Off
+          </button>
         </div>
       );
     }

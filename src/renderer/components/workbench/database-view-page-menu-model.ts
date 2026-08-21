@@ -57,17 +57,12 @@ export function buildDatabaseViewPageMenuEntries({
   canDelete,
 }: DatabaseViewPageMenuCapabilities): readonly DatabaseViewPageMenuEntry[] {
   const copyChildren = [
-    ...(hasPageKey
-      ? [entry("copy-id", "Copy ID", ["page", "key", "identifier"])]
-      : []),
+    ...(hasPageKey ? [entry("copy-id", "Copy ID", ["page", "key", "identifier"])] : []),
     entry("copy-deeplink", "Copy deeplink", ["link", "url", "reference"]),
     entry("copy-title", "Copy title", ["name", "heading"]),
-    entry(
-      "copy-markdown",
-      "Copy content as Markdown",
-      ["body", "document", "nfm", "text"],
-      { disabled: !canCopyMarkdown },
-    ),
+    entry("copy-markdown", "Copy content as Markdown", ["body", "document", "nfm", "text"], {
+      disabled: !canCopyMarkdown,
+    }),
   ];
 
   return [
@@ -94,16 +89,11 @@ export function buildDatabaseViewPageMenuEntries({
   ];
 }
 
-const normalizedSearchValue = (value: string): string =>
-  value.trim().toLocaleLowerCase();
+const normalizedSearchValue = (value: string): string => value.trim().toLocaleLowerCase();
 
-const matchesQuery = (
-  item: DatabaseViewPageMenuEntry,
-  query: string,
-): boolean => item.label.toLocaleLowerCase().includes(query)
-  || item.keywords.some((keyword) =>
-    keyword.toLocaleLowerCase().startsWith(query)
-  );
+const matchesQuery = (item: DatabaseViewPageMenuEntry, query: string): boolean =>
+  item.label.toLocaleLowerCase().includes(query) ||
+  item.keywords.some((keyword) => keyword.toLocaleLowerCase().startsWith(query));
 
 /** Keeps a submenu trigger whenever its label or at least one descendant matches. */
 export function filterDatabaseViewPageMenuEntries(
@@ -126,11 +116,7 @@ export function databaseViewPageMoveDirection(
 ): DatabaseViewPageMoveDirection | null {
   if (!actionId.startsWith("move-") || actionId === "move") return null;
   const direction = actionId.slice("move-".length);
-  if (
-    direction === "top"
-    || direction === "up"
-    || direction === "down"
-    || direction === "bottom"
-  ) return direction;
+  if (direction === "top" || direction === "up" || direction === "down" || direction === "bottom")
+    return direction;
   return null;
 }

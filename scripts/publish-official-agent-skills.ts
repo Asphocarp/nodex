@@ -20,12 +20,7 @@ import {
 } from "./official-agent-skills-artifact.mjs";
 
 const DEFAULT_REMOTE = "https://github.com/NodexApp/skills.git";
-const MANAGED_ROOTS = [
-  "README.md",
-  "LICENSE",
-  "release-manifest.json",
-  "skills",
-] as const;
+const MANAGED_ROOTS = ["README.md", "LICENSE", "release-manifest.json", "skills"] as const;
 
 interface PublishOptions {
   readonly artifactDirectory: string;
@@ -57,12 +52,12 @@ interface GitResult {
 const redact = (value: string, secret: string | undefined): string => {
   if (!secret) return value;
   const encodedCredentials = Buffer.from(`x-access-token:${secret}`).toString("base64");
-  return value
-    .replaceAll(secret, "[REDACTED]")
-    .replaceAll(encodedCredentials, "[REDACTED]");
+  return value.replaceAll(secret, "[REDACTED]").replaceAll(encodedCredentials, "[REDACTED]");
 };
 
-export const githubGitAuthorizationConfiguration = (token: string): {
+export const githubGitAuthorizationConfiguration = (
+  token: string,
+): {
   readonly key: string;
   readonly value: string;
 } => ({
@@ -76,9 +71,7 @@ export const resolveGithubToken = (
 ): string | undefined => legacyToken?.trim() || githubCliToken?.trim() || undefined;
 
 const gitEnvironment = (token: string | undefined): NodeJS.ProcessEnv => {
-  const authorization = token
-    ? githubGitAuthorizationConfiguration(token)
-    : null;
+  const authorization = token ? githubGitAuthorizationConfiguration(token) : null;
   return {
     ...process.env,
     GIT_AUTHOR_EMAIL: "release@nodex.app",
@@ -113,9 +106,10 @@ const git = (
   const stdout = redact(result.stdout ?? "", token);
   if (!allowFailure && (result.error || status !== 0)) {
     throw new Error(
-      `git ${arguments_[0] ?? "command"} failed: ${
-        redact(result.error?.message ?? (stderr || stdout), token).trim()
-      }`,
+      `git ${arguments_[0] ?? "command"} failed: ${redact(
+        result.error?.message ?? (stderr || stdout),
+        token,
+      ).trim()}`,
     );
   }
   return { status, stderr, stdout };
@@ -159,12 +153,12 @@ const validateRequestedArtifact = (
   const artifact = inspectOfficialAgentSkillsArtifact(options.artifactDirectory);
   stableVersion(options.expectedVersion, "Expected release version");
   if (
-    artifact.releaseVersion !== options.expectedVersion
-    || artifact.sourceRepository !== options.expectedSourceRepository
-    || artifact.sourceRef !== options.expectedSourceRef
-    || artifact.manifestSha256 !== options.expectedManifestSha256
-    || artifact.treeSha256 !== options.expectedTreeSha256
-    || options.expectedSourceRef !== `v${options.expectedVersion}`
+    artifact.releaseVersion !== options.expectedVersion ||
+    artifact.sourceRepository !== options.expectedSourceRepository ||
+    artifact.sourceRef !== options.expectedSourceRef ||
+    artifact.manifestSha256 !== options.expectedManifestSha256 ||
+    artifact.treeSha256 !== options.expectedTreeSha256 ||
+    options.expectedSourceRef !== `v${options.expectedVersion}`
   ) {
     throw new Error(
       "Official Agent Skills artifact does not match the verified Release Bundle identity",
@@ -173,16 +167,8 @@ const validateRequestedArtifact = (
   return artifact;
 };
 
-const refExists = (
-  worktree: string,
-  ref: string,
-  token: string | undefined,
-): boolean => git(
-  worktree,
-  ["rev-parse", "--verify", "--quiet", ref],
-  token,
-  true,
-).status === 0;
+const refExists = (worktree: string, ref: string, token: string | undefined): boolean =>
+  git(worktree, ["rev-parse", "--verify", "--quiet", ref], token, true).status === 0;
 
 const materializeManagedRef = (
   worktree: string,
@@ -217,23 +203,19 @@ const materializeManagedRef = (
   const paths = entries.map((entry) => entry.path).sort();
   const expected = [...OFFICIAL_AGENT_SKILLS_ARTIFACT_FILES].sort();
   if (
-    JSON.stringify(paths) !== JSON.stringify(expected)
-    || entries.some((entry) => entry.mode !== "100644")
+    JSON.stringify(paths) !== JSON.stringify(expected) ||
+    entries.some((entry) => entry.mode !== "100644")
   ) {
     throw new Error("Public Skill mirror managed paths are not an exact regular-file artifact");
   }
   mkdirSync(destination, { recursive: true });
   for (const entry of entries) {
-    const contents = spawnSync(
-      "git",
-      ["show", `${ref}:${entry.path}`],
-      {
-        cwd: worktree,
-        encoding: null,
-        env: gitEnvironment(token),
-        maxBuffer: 2 * 1024 * 1024,
-      },
-    );
+    const contents = spawnSync("git", ["show", `${ref}:${entry.path}`], {
+      cwd: worktree,
+      encoding: null,
+      env: gitEnvironment(token),
+      maxBuffer: 2 * 1024 * 1024,
+    });
     if (contents.error || contents.status !== 0 || !Buffer.isBuffer(contents.stdout)) {
       throw new Error(`Could not read public Skill mirror entry ${entry.path}`);
     }
@@ -263,8 +245,8 @@ const assertSameArtifact = (
   label: string,
 ): void => {
   if (
-    actual.manifestSha256 !== expected.manifestSha256
-    || actual.treeSha256 !== expected.treeSha256
+    actual.manifestSha256 !== expected.manifestSha256 ||
+    actual.treeSha256 !== expected.treeSha256
   ) {
     throw new Error(`${label} already exists with different official Agent Skills`);
   }
@@ -316,15 +298,14 @@ const replaceManagedPaths = (worktree: string, artifactDirectory: string): void 
   }
 };
 
-const commitMessage = (
-  artifact: InspectedOfficialAgentSkillsArtifact,
-): string => [
-  `release: Nodex Agent Skills v${artifact.releaseVersion}`,
-  "",
-  `Source: ${artifact.sourceRepository}@${artifact.sourceRef}`,
-  `Skill tree SHA-256: ${artifact.treeSha256}`,
-  `Release manifest SHA-256: ${artifact.manifestSha256}`,
-].join("\n");
+const commitMessage = (artifact: InspectedOfficialAgentSkillsArtifact): string =>
+  [
+    `release: Nodex Agent Skills v${artifact.releaseVersion}`,
+    "",
+    `Source: ${artifact.sourceRepository}@${artifact.sourceRef}`,
+    `Skill tree SHA-256: ${artifact.treeSha256}`,
+    `Release manifest SHA-256: ${artifact.manifestSha256}`,
+  ].join("\n");
 
 export function publishOfficialAgentSkills(options: PublishOptions): PublishResult {
   const artifact = validateRequestedArtifact(options);
@@ -337,23 +318,13 @@ export function publishOfficialAgentSkills(options: PublishOptions): PublishResu
   try {
     git(temporaryRoot, ["clone", "--no-tags", remoteUrl, worktree], token);
     git(worktree, ["fetch", "--tags", "--force", "origin"], token);
-    const hasRemoteMain = refExists(
-      worktree,
-      "refs/remotes/origin/main",
-      token,
-    );
+    const hasRemoteMain = refExists(worktree, "refs/remotes/origin/main", token);
     initializeMainWorktree(worktree, hasRemoteMain, token);
 
-    const remoteMain = hasRemoteMain && existsSync(
-      path.join(worktree, "release-manifest.json"),
-    )
-      ? inspectRef(
-          worktree,
-          "refs/remotes/origin/main",
-          temporaryRoot,
-          token,
-        )
-      : null;
+    const remoteMain =
+      hasRemoteMain && existsSync(path.join(worktree, "release-manifest.json"))
+        ? inspectRef(worktree, "refs/remotes/origin/main", temporaryRoot, token)
+        : null;
     if (remoteMain && compareVersions(remoteMain.releaseVersion, artifact.releaseVersion) > 0) {
       throw new Error(
         `Refusing to roll back public Agent Skills from ${remoteMain.releaseVersion} to ${artifact.releaseVersion}`,
@@ -371,11 +342,7 @@ export function publishOfficialAgentSkills(options: PublishOptions): PublishResu
       if (!existingTag) {
         throw new Error(`Remote main contains ${tag}, but its annotated tag is missing`);
       }
-      const commit = git(
-        worktree,
-        ["rev-parse", `${tagRef}^{commit}`],
-        token,
-      ).stdout.trim();
+      const commit = git(worktree, ["rev-parse", `${tagRef}^{commit}`], token).stdout.trim();
       return {
         commit,
         manifestSha256: artifact.manifestSha256,
@@ -390,24 +357,14 @@ export function publishOfficialAgentSkills(options: PublishOptions): PublishResu
     }
 
     replaceManagedPaths(worktree, path.resolve(options.artifactDirectory));
-    git(
-      worktree,
-      ["add", "--all", "--", ...MANAGED_ROOTS],
-      token,
-    );
+    git(worktree, ["add", "--all", "--", ...MANAGED_ROOTS], token);
     const message = commitMessage(artifact);
     git(worktree, ["commit", "-m", message], token);
     git(worktree, ["tag", "-a", tag, "-m", message], token);
     options.beforePush?.(worktree);
     git(
       worktree,
-      [
-        "push",
-        "--atomic",
-        "origin",
-        "HEAD:refs/heads/main",
-        `refs/tags/${tag}:refs/tags/${tag}`,
-      ],
+      ["push", "--atomic", "origin", "HEAD:refs/heads/main", `refs/tags/${tag}:refs/tags/${tag}`],
       token,
     );
     const commit = git(worktree, ["rev-parse", "HEAD"], token).stdout.trim();
@@ -448,10 +405,7 @@ const main = (): void => {
     expectedTreeSha256: requiredOption(arguments_, "--tree-sha256"),
     expectedVersion: requiredOption(arguments_, "--version"),
     remoteUrl: readOption(arguments_, "--remote") ?? undefined,
-    token: resolveGithubToken(
-      process.env.NODEX_SKILLS_GITHUB_TOKEN,
-      process.env.GH_TOKEN,
-    ),
+    token: resolveGithubToken(process.env.NODEX_SKILLS_GITHUB_TOKEN, process.env.GH_TOKEN),
   });
   process.stdout.write(`${JSON.stringify(result)}\n`);
 };

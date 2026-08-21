@@ -11,9 +11,7 @@ import {
   NodexDialogTitle,
 } from "@/components/ui/dialog";
 import { NodexTooltip } from "@/components/ui/tooltip";
-import type {
-  CodexSidebarThreadMoveConfirmationRequired,
-} from "../../../shared/codex-sidebar-thread-move";
+import type { CodexSidebarThreadMoveConfirmationRequired } from "../../../shared/codex-sidebar-thread-move";
 
 export function projectSourceFolderName(sourcePath: string): string {
   const withoutTrailingSeparators = sourcePath.replace(/[\\/]+$/, "");
@@ -45,9 +43,7 @@ export function SidebarThreadMoveConfirmationDialog({
           }}
         >
           <NodexDialogHeader>
-            <NodexDialogTitle>
-              Add folders to {confirmation.targetProjectName}?
-            </NodexDialogTitle>
+            <NodexDialogTitle>Add folders to {confirmation.targetProjectName}?</NodexDialogTitle>
             <NodexDialogDescription>
               All chats in {confirmation.targetProjectName} will gain access to these folders:
             </NodexDialogDescription>
@@ -55,16 +51,10 @@ export function SidebarThreadMoveConfirmationDialog({
           <NodexDialogBody className="pt-2">
             <ul className="flex min-w-0 flex-col gap-1 text-base text-token-foreground">
               {confirmation.missingProjectSources.map((sourcePath) => (
-                <NodexTooltip
-                  key={sourcePath}
-                  tooltipContent={sourcePath}
-                  side="right"
-                >
+                <NodexTooltip key={sourcePath} tooltipContent={sourcePath} side="right">
                   <li className="flex min-w-0 items-center gap-2">
                     <FolderIcon className="icon-xs shrink-0 text-token-text-secondary" />
-                    <span className="min-w-0 truncate">
-                      {projectSourceFolderName(sourcePath)}
-                    </span>
+                    <span className="min-w-0 truncate">{projectSourceFolderName(sourcePath)}</span>
                   </li>
                 </NodexTooltip>
               ))}

@@ -20,26 +20,8 @@ const PATCH = [
   "",
 ].join("\n");
 
-const DELETION_LINES = [
-  "zero\n",
-  "a\n",
-  "b\n",
-  "c\n",
-  "middle\n",
-  "d\n",
-  "tail\n",
-  "after\n",
-];
-const ADDITION_LINES = [
-  "zero\n",
-  "a\n",
-  "B\n",
-  "c\n",
-  "middle\n",
-  "d\n",
-  "tail2\n",
-  "after\n",
-];
+const DELETION_LINES = ["zero\n", "a\n", "b\n", "c\n", "middle\n", "d\n", "tail\n", "after\n"];
+const ADDITION_LINES = ["zero\n", "a\n", "B\n", "c\n", "middle\n", "d\n", "tail2\n", "after\n"];
 
 function parseMetadata(): FileDiffMetadata {
   const metadata = parsePatchFiles(PATCH).flatMap((patch) => patch.files)[0];
@@ -50,11 +32,7 @@ function parseMetadata(): FileDiffMetadata {
 describe("expandPartialDiffMetadata", () => {
   test("expands partial hunk indices without recomputing a full-file diff", () => {
     const metadata = parseMetadata();
-    const result = expandPartialDiffMetadata(
-      metadata,
-      DELETION_LINES,
-      ADDITION_LINES,
-    );
+    const result = expandPartialDiffMetadata(metadata, DELETION_LINES, ADDITION_LINES);
 
     expect(result).not.toBeNull();
     expect(result?.isPartial).toBe(false);
@@ -63,13 +41,15 @@ describe("expandPartialDiffMetadata", () => {
     expect(result?.cacheKey).toBe(
       `${metadata.cacheKey ?? metadata.name}:full:${metadata.prevObjectId ?? "none"}:${metadata.newObjectId ?? "none"}`,
     );
-    expect(result?.hunks.map((hunk) => ({
-      additionLineIndex: hunk.additionLineIndex,
-      deletionLineIndex: hunk.deletionLineIndex,
-      collapsedBefore: hunk.collapsedBefore,
-      splitLineStart: hunk.splitLineStart,
-      unifiedLineStart: hunk.unifiedLineStart,
-    }))).toEqual([
+    expect(
+      result?.hunks.map((hunk) => ({
+        additionLineIndex: hunk.additionLineIndex,
+        deletionLineIndex: hunk.deletionLineIndex,
+        collapsedBefore: hunk.collapsedBefore,
+        splitLineStart: hunk.splitLineStart,
+        unifiedLineStart: hunk.unifiedLineStart,
+      })),
+    ).toEqual([
       {
         additionLineIndex: 1,
         deletionLineIndex: 1,
@@ -92,21 +72,21 @@ describe("expandPartialDiffMetadata", () => {
   test("rejects mismatched collapsed and trailing context", () => {
     const metadata = parseMetadata();
 
-    expect(expandPartialDiffMetadata(
-      metadata,
-      DELETION_LINES,
-      ["different", ...ADDITION_LINES.slice(1)],
-    )).toBeNull();
-    expect(expandPartialDiffMetadata(
-      metadata,
-      DELETION_LINES,
-      [...ADDITION_LINES.slice(0, -1), "different-tail\n"],
-    )).toBeNull();
-    expect(expandPartialDiffMetadata(
-      metadata,
-      [...DELETION_LINES, "old-only"],
-      ADDITION_LINES,
-    )).toBeNull();
+    expect(
+      expandPartialDiffMetadata(metadata, DELETION_LINES, [
+        "different",
+        ...ADDITION_LINES.slice(1),
+      ]),
+    ).toBeNull();
+    expect(
+      expandPartialDiffMetadata(metadata, DELETION_LINES, [
+        ...ADDITION_LINES.slice(0, -1),
+        "different-tail\n",
+      ]),
+    ).toBeNull();
+    expect(
+      expandPartialDiffMetadata(metadata, [...DELETION_LINES, "old-only"], ADDITION_LINES),
+    ).toBeNull();
   });
 
   test("rejects partial hunk content that does not match the full files", () => {
@@ -114,11 +94,7 @@ describe("expandPartialDiffMetadata", () => {
     const changedDeletionLines = [...DELETION_LINES];
     changedDeletionLines[2] = "not-the-deleted-line";
 
-    expect(expandPartialDiffMetadata(
-      metadata,
-      changedDeletionLines,
-      ADDITION_LINES,
-    )).toBeNull();
+    expect(expandPartialDiffMetadata(metadata, changedDeletionLines, ADDITION_LINES)).toBeNull();
   });
 
   test("optionally ignores whitespace while validating context and hunks", () => {
@@ -126,16 +102,13 @@ describe("expandPartialDiffMetadata", () => {
     const whitespaceDeletionLines = DELETION_LINES.map((line) => `  ${line.trimEnd()}\t\n`);
     const whitespaceAdditionLines = ADDITION_LINES.map((line) => `${line.trimEnd()} \n`);
 
-    expect(expandPartialDiffMetadata(
-      metadata,
-      whitespaceDeletionLines,
-      whitespaceAdditionLines,
-    )).toBeNull();
-    expect(expandPartialDiffMetadata(
-      metadata,
-      whitespaceDeletionLines,
-      whitespaceAdditionLines,
-      { ignoreWhitespace: true },
-    )).not.toBeNull();
+    expect(
+      expandPartialDiffMetadata(metadata, whitespaceDeletionLines, whitespaceAdditionLines),
+    ).toBeNull();
+    expect(
+      expandPartialDiffMetadata(metadata, whitespaceDeletionLines, whitespaceAdditionLines, {
+        ignoreWhitespace: true,
+      }),
+    ).not.toBeNull();
   });
 });

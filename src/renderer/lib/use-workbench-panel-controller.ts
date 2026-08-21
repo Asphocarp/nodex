@@ -1,8 +1,4 @@
-import {
-  useCallback,
-  useMemo,
-  useReducer,
-} from "react";
+import { useCallback, useMemo, useReducer } from "react";
 import {
   createWorkbenchEphemeralPanelState,
   reduceWorkbenchEphemeralPanelState,
@@ -39,25 +35,18 @@ import type {
 } from "./workbench-panel-tab-model";
 
 type UpdateCommands = {
-  [Field in WorkbenchEphemeralPanelStateField as `update${Capitalize<Field>}`]:
-    (
-      update: WorkbenchEphemeralPanelStateUpdate<
-        WorkbenchEphemeralPanelState[Field]
-      >,
-    ) => void;
+  [Field in WorkbenchEphemeralPanelStateField as `update${Capitalize<Field>}`]: (
+    update: WorkbenchEphemeralPanelStateUpdate<WorkbenchEphemeralPanelState[Field]>,
+  ) => void;
 };
 
-export type WorkbenchPanelController =
-  WorkbenchEphemeralPanelState
-  & UpdateCommands
-  & {
+export type WorkbenchPanelController = WorkbenchEphemeralPanelState &
+  UpdateCommands & {
     readonly pruneOwner: (ownerKey: string) => void;
     readonly pruneSession: (sessionId: string) => void;
     readonly durable: WorkbenchDurablePanelCommands;
     readonly sceneDurable: WorkbenchSceneDurablePanelCommands | null;
-    readonly selectRenderableTab: (
-      input: WorkbenchRenderableTabSelectionInput,
-    ) => boolean;
+    readonly selectRenderableTab: (input: WorkbenchRenderableTabSelectionInput) => boolean;
     readonly removeEphemeralTab: (
       input: WorkbenchEphemeralTabRemovalInput,
     ) => WorkbenchEphemeralTab | null;
@@ -267,175 +256,139 @@ export function useWorkbenchPanelController({
     undefined,
     createWorkbenchEphemeralPanelState,
   );
-  const update = useCallback(<Field extends WorkbenchEphemeralPanelStateField>(
-    field: Field,
-    value: WorkbenchEphemeralPanelStateUpdate<
-      WorkbenchEphemeralPanelState[Field]
-    >,
-  ) => {
-    dispatch({
-      type: "update",
-      field,
-      update: value,
-    } as Parameters<typeof dispatch>[0]);
-  }, []);
+  const update = useCallback(
+    <Field extends WorkbenchEphemeralPanelStateField>(
+      field: Field,
+      value: WorkbenchEphemeralPanelStateUpdate<WorkbenchEphemeralPanelState[Field]>,
+    ) => {
+      dispatch({
+        type: "update",
+        field,
+        update: value,
+      } as Parameters<typeof dispatch>[0]);
+    },
+    [],
+  );
   const pruneSession = useCallback((sessionId: string) => {
     dispatch({ type: "prune-session", sessionId });
   }, []);
   const pruneOwner = useCallback((ownerKey: string) => {
     dispatch({ type: "prune-owner", ownerKey });
   }, []);
-  const commands = useMemo(() => Object.fromEntries(
-    EPHEMERAL_PANEL_FIELDS.map((field) => [
-      `update${capitalize(field)}`,
-      (
-        value: WorkbenchEphemeralPanelStateUpdate<
-          WorkbenchEphemeralPanelState[typeof field]
-        >,
-      ) => update(field, value),
-    ]),
-  ) as unknown as UpdateCommands, [update]);
-  const durable = useMemo<WorkbenchDurablePanelCommands>(() => ({
-    apply: (session, mutation) => mutateScene(sessionSceneOwner(session), mutation),
-    createTab: (session, input) =>
-      mutateScene(
-        sessionSceneOwner(session),
-        (scene) => createWorkbenchSceneSurface(scene, {
-          panelId: input.panelId,
-          presentation: input.presentation,
-          targetLeafId: input.targetLeafId,
-          surface: input.tab,
-        }),
-      ),
-    updateTab: (session, tabId, surface) =>
-      mutateScene(
-        sessionSceneOwner(session),
-        (scene) => updateWorkbenchSceneSurface(
-          scene,
-          tabId,
-          surface,
+  const commands = useMemo(
+    () =>
+      Object.fromEntries(
+        EPHEMERAL_PANEL_FIELDS.map((field) => [
+          `update${capitalize(field)}`,
+          (value: WorkbenchEphemeralPanelStateUpdate<WorkbenchEphemeralPanelState[typeof field]>) =>
+            update(field, value),
+        ]),
+      ) as unknown as UpdateCommands,
+    [update],
+  );
+  const durable = useMemo<WorkbenchDurablePanelCommands>(
+    () => ({
+      apply: (session, mutation) => mutateScene(sessionSceneOwner(session), mutation),
+      createTab: (session, input) =>
+        mutateScene(sessionSceneOwner(session), (scene) =>
+          createWorkbenchSceneSurface(scene, {
+            panelId: input.panelId,
+            presentation: input.presentation,
+            targetLeafId: input.targetLeafId,
+            surface: input.tab,
+          }),
         ),
-      ),
-    patchPanel: (session, panelId, patch) =>
-      mutateScene(
-        sessionSceneOwner(session),
-        (scene) => patchWorkbenchScenePanel(scene, panelId, patch),
-      ),
-    activateTab: (session, panelId, leafId, tabId) =>
-      mutateScene(
-        sessionSceneOwner(session),
-        (scene) => activateWorkbenchSceneSurface(
-          scene,
-          panelId,
-          leafId,
-          tabId,
+      updateTab: (session, tabId, surface) =>
+        mutateScene(sessionSceneOwner(session), (scene) =>
+          updateWorkbenchSceneSurface(scene, tabId, surface),
         ),
-      ),
-    reorderTabs: (session, input) =>
-      mutateScene(
-        sessionSceneOwner(session),
-        (scene) => reorderWorkbenchSceneSurfaces(scene, {
-          panelId: input.panelId,
-          leafId: input.leafId,
-          orderedSurfaceIds: input.orderedTabIds,
-        }),
-      ),
-    mergeLeaf: (session, input) =>
-      mutateScene(
-        sessionSceneOwner(session),
-        (scene) => mergeWorkbenchSceneLeaf(scene, input),
-      ),
-    removeTab: (session, tabId, options) =>
-      mutateScene(
-        sessionSceneOwner(session),
-        (scene) => removeWorkbenchSceneSurface(scene, tabId, {
-          preserveEmptyLeafIds: options?.preserveEmptyLeafIds,
-          preferredActiveLeafId: options?.preferredActiveLeafId,
-          preferredActiveSurfaceId: options?.preferredActiveTabId,
-        }),
-      ),
-    moveTab: (session, input) =>
-      mutateScene(
-        sessionSceneOwner(session),
-        (scene) => moveWorkbenchSceneSurface(scene, {
-          surfaceId: input.tabId,
-          targetPanelId: input.targetPanelId,
-          targetLeafId: input.targetLeafId,
-          targetIndex: input.targetIndex,
-          preserveEmptyLeafIds: input.preserveEmptyLeafIds,
-          splitTarget: input.splitTarget,
-        }),
-      ),
-    splitLeaf: (session, input) =>
-      mutateScene(
-        sessionSceneOwner(session),
-        (scene) => splitWorkbenchSceneLeaf(scene, {
-          panelId: input.panelId,
-          leafId: input.leafId,
-          side: input.side,
-          surfaceId: input.tabId,
-        }),
-      ),
-    resizeBranch: (session, input) =>
-      mutateScene(
-        sessionSceneOwner(session),
-        (scene) => resizeWorkbenchSceneBranch(scene, input),
-      ),
-    ensureLeafToRight: (session, input) => {
-      let leafId = input.leafId;
-      mutateScene(sessionSceneOwner(session), (scene) => {
-        const result = ensureWorkbenchSceneLeafToRight(scene, input);
-        leafId = result.leafId;
-        return result.scene;
-      });
-      return leafId;
-    },
-  }), [mutateScene]);
-  const sceneDurable = useMemo<WorkbenchSceneDurablePanelCommands>(() => ({
+      patchPanel: (session, panelId, patch) =>
+        mutateScene(sessionSceneOwner(session), (scene) =>
+          patchWorkbenchScenePanel(scene, panelId, patch),
+        ),
+      activateTab: (session, panelId, leafId, tabId) =>
+        mutateScene(sessionSceneOwner(session), (scene) =>
+          activateWorkbenchSceneSurface(scene, panelId, leafId, tabId),
+        ),
+      reorderTabs: (session, input) =>
+        mutateScene(sessionSceneOwner(session), (scene) =>
+          reorderWorkbenchSceneSurfaces(scene, {
+            panelId: input.panelId,
+            leafId: input.leafId,
+            orderedSurfaceIds: input.orderedTabIds,
+          }),
+        ),
+      mergeLeaf: (session, input) =>
+        mutateScene(sessionSceneOwner(session), (scene) => mergeWorkbenchSceneLeaf(scene, input)),
+      removeTab: (session, tabId, options) =>
+        mutateScene(sessionSceneOwner(session), (scene) =>
+          removeWorkbenchSceneSurface(scene, tabId, {
+            preserveEmptyLeafIds: options?.preserveEmptyLeafIds,
+            preferredActiveLeafId: options?.preferredActiveLeafId,
+            preferredActiveSurfaceId: options?.preferredActiveTabId,
+          }),
+        ),
+      moveTab: (session, input) =>
+        mutateScene(sessionSceneOwner(session), (scene) =>
+          moveWorkbenchSceneSurface(scene, {
+            surfaceId: input.tabId,
+            targetPanelId: input.targetPanelId,
+            targetLeafId: input.targetLeafId,
+            targetIndex: input.targetIndex,
+            preserveEmptyLeafIds: input.preserveEmptyLeafIds,
+            splitTarget: input.splitTarget,
+          }),
+        ),
+      splitLeaf: (session, input) =>
+        mutateScene(sessionSceneOwner(session), (scene) =>
+          splitWorkbenchSceneLeaf(scene, {
+            panelId: input.panelId,
+            leafId: input.leafId,
+            side: input.side,
+            surfaceId: input.tabId,
+          }),
+        ),
+      resizeBranch: (session, input) =>
+        mutateScene(sessionSceneOwner(session), (scene) =>
+          resizeWorkbenchSceneBranch(scene, input),
+        ),
+      ensureLeafToRight: (session, input) => {
+        let leafId = input.leafId;
+        mutateScene(sessionSceneOwner(session), (scene) => {
+          const result = ensureWorkbenchSceneLeafToRight(scene, input);
+          leafId = result.leafId;
+          return result.scene;
+        });
+        return leafId;
+      },
+    }),
+    [mutateScene],
+  );
+  const sceneDurable = useMemo<WorkbenchSceneDurablePanelCommands>(
+    () => ({
       apply: mutateScene,
       createSurface: (owner, input) =>
         mutateScene(owner, (scene) => createWorkbenchSceneSurface(scene, input)),
       updateSurface: (owner, surfaceId, patch) =>
-        mutateScene(
-          owner,
-          (scene) => updateWorkbenchSceneSurface(scene, surfaceId, patch),
-        ),
+        mutateScene(owner, (scene) => updateWorkbenchSceneSurface(scene, surfaceId, patch)),
       patchPanel: (owner, panelId, patch) =>
-        mutateScene(
-          owner,
-          (scene) => patchWorkbenchScenePanel(scene, panelId, patch),
-        ),
+        mutateScene(owner, (scene) => patchWorkbenchScenePanel(scene, panelId, patch)),
       activateSurface: (owner, panelId, leafId, surfaceId) =>
-        mutateScene(
-          owner,
-          (scene) => activateWorkbenchSceneSurface(
-            scene,
-            panelId,
-            leafId,
-            surfaceId,
-          ),
+        mutateScene(owner, (scene) =>
+          activateWorkbenchSceneSurface(scene, panelId, leafId, surfaceId),
         ),
       removeSurface: (owner, surfaceId, options) =>
-        mutateScene(
-          owner,
-          (scene) => removeWorkbenchSceneSurface(scene, surfaceId, options),
-        ),
+        mutateScene(owner, (scene) => removeWorkbenchSceneSurface(scene, surfaceId, options)),
       moveSurface: (owner, input) =>
         mutateScene(owner, (scene) => moveWorkbenchSceneSurface(scene, input)),
       reorderSurfaces: (owner, input) =>
-        mutateScene(
-          owner,
-          (scene) => reorderWorkbenchSceneSurfaces(scene, input),
-        ),
+        mutateScene(owner, (scene) => reorderWorkbenchSceneSurfaces(scene, input)),
       splitLeaf: (owner, input) =>
         mutateScene(owner, (scene) => splitWorkbenchSceneLeaf(scene, input)),
       mergeLeaf: (owner, input) =>
         mutateScene(owner, (scene) => mergeWorkbenchSceneLeaf(scene, input)),
       resizeBranch: (owner, input) =>
-        mutateScene(
-          owner,
-          (scene) => resizeWorkbenchSceneBranch(scene, input),
-        ),
+        mutateScene(owner, (scene) => resizeWorkbenchSceneBranch(scene, input)),
       ensureLeafToRight: (owner, input) => {
         let leafId = input.leafId;
         mutateScene(owner, (scene) => {
@@ -445,153 +398,155 @@ export function useWorkbenchPanelController({
         });
         return leafId;
       },
-  }), [mutateScene]);
-  const selectRenderableTab = useCallback(({
-    sessionId,
-    panelId,
-    leafId,
-    tabId,
-    durableTabIds,
-  }: WorkbenchRenderableTabSelectionInput): boolean => {
-    const slotKeys = [
-      makeWorkbenchSessionPanelSlotKey(sessionId, panelId, leafId),
-      makeWorkbenchSessionPanelSlotKey(sessionId, panelId),
-    ];
-    const candidates = [
-      {
-        field: "sideChatActiveTabByPanel" as const,
-        tabs: state.sideChatTabsBySession[sessionId] ?? [],
-      },
-      {
-        field: "mcpAppActiveTabByPanel" as const,
-        tabs: state.mcpAppTabsBySession[sessionId] ?? [],
-      },
-      {
-        field: "planActiveTabByPanel" as const,
-        tabs: state.planTabsBySession[sessionId] ?? [],
-      },
-      {
-        field: "automationActiveTabByPanel" as const,
-        tabs: state.automationTabsBySession[sessionId] ?? [],
-      },
-      {
-        field: "backgroundAgentActiveTabByPanel" as const,
-        tabs: state.backgroundAgentTabsBySession[sessionId] ?? [],
-      },
-      {
-        field: "processOutputActiveTabByPanel" as const,
-        tabs: state.processOutputTabsBySession[sessionId] ?? [],
-      },
-      {
-        field: "imageEditorActiveTabByPanel" as const,
-        tabs: state.imageEditorTabsBySession[sessionId] ?? [],
-      },
-    ];
-    for (const candidate of candidates) {
-      const tab = candidate.tabs.find((item) => item.id === tabId);
-      if (!tab) continue;
+    }),
+    [mutateScene],
+  );
+  const selectRenderableTab = useCallback(
+    ({
+      sessionId,
+      panelId,
+      leafId,
+      tabId,
+      durableTabIds,
+    }: WorkbenchRenderableTabSelectionInput): boolean => {
+      const slotKeys = [
+        makeWorkbenchSessionPanelSlotKey(sessionId, panelId, leafId),
+        makeWorkbenchSessionPanelSlotKey(sessionId, panelId),
+      ];
+      const candidates = [
+        {
+          field: "sideChatActiveTabByPanel" as const,
+          tabs: state.sideChatTabsBySession[sessionId] ?? [],
+        },
+        {
+          field: "mcpAppActiveTabByPanel" as const,
+          tabs: state.mcpAppTabsBySession[sessionId] ?? [],
+        },
+        {
+          field: "planActiveTabByPanel" as const,
+          tabs: state.planTabsBySession[sessionId] ?? [],
+        },
+        {
+          field: "automationActiveTabByPanel" as const,
+          tabs: state.automationTabsBySession[sessionId] ?? [],
+        },
+        {
+          field: "backgroundAgentActiveTabByPanel" as const,
+          tabs: state.backgroundAgentTabsBySession[sessionId] ?? [],
+        },
+        {
+          field: "processOutputActiveTabByPanel" as const,
+          tabs: state.processOutputTabsBySession[sessionId] ?? [],
+        },
+        {
+          field: "imageEditorActiveTabByPanel" as const,
+          tabs: state.imageEditorTabsBySession[sessionId] ?? [],
+        },
+      ];
+      for (const candidate of candidates) {
+        const tab = candidate.tabs.find((item) => item.id === tabId);
+        if (!tab) continue;
+        dispatch({
+          type: "select-slot",
+          slotKeys,
+          activeField: candidate.field,
+          tabId,
+          sessionId,
+          ...("planKey" in tab ? { planKey: tab.planKey } : {}),
+        });
+        return true;
+      }
+      if (!durableTabIds.has(tabId)) return false;
       dispatch({
         type: "select-slot",
         slotKeys,
-        activeField: candidate.field,
-        tabId,
+        activeField: null,
+        tabId: null,
         sessionId,
-        ...("planKey" in tab ? { planKey: tab.planKey } : {}),
       });
       return true;
-    }
-    if (!durableTabIds.has(tabId)) return false;
-    dispatch({
-      type: "select-slot",
-      slotKeys,
-      activeField: null,
-      tabId: null,
+    },
+    [state],
+  );
+  const removeEphemeralTab = useCallback(
+    ({
       sessionId,
-    });
-    return true;
-  }, [state]);
-  const removeEphemeralTab = useCallback(({
-    sessionId,
-    panelId,
-    leafId,
-    tabId,
-  }: WorkbenchEphemeralTabRemovalInput): WorkbenchEphemeralTab | null => {
-    const candidates = [
-      {
-        tabsField: "sideChatTabsBySession" as const,
-        activeField: "sideChatActiveTabByPanel" as const,
-        tabs: state.sideChatTabsBySession[sessionId] ?? [],
-      },
-      {
-        tabsField: "mcpAppTabsBySession" as const,
-        activeField: "mcpAppActiveTabByPanel" as const,
-        tabs: state.mcpAppTabsBySession[sessionId] ?? [],
-      },
-      {
-        tabsField: "planTabsBySession" as const,
-        activeField: "planActiveTabByPanel" as const,
-        tabs: state.planTabsBySession[sessionId] ?? [],
-      },
-      {
-        tabsField: "automationTabsBySession" as const,
-        activeField: "automationActiveTabByPanel" as const,
-        tabs: state.automationTabsBySession[sessionId] ?? [],
-      },
-      {
-        tabsField: "backgroundAgentTabsBySession" as const,
-        activeField: "backgroundAgentActiveTabByPanel" as const,
-        tabs: state.backgroundAgentTabsBySession[sessionId] ?? [],
-      },
-      {
-        tabsField: "processOutputTabsBySession" as const,
-        activeField: "processOutputActiveTabByPanel" as const,
-        tabs: state.processOutputTabsBySession[sessionId] ?? [],
-      },
-      {
-        tabsField: "imageEditorTabsBySession" as const,
-        activeField: "imageEditorActiveTabByPanel" as const,
-        tabs: state.imageEditorTabsBySession[sessionId] ?? [],
-      },
-    ];
-    for (const candidate of candidates) {
-      const tab = candidate.tabs.find((item) => item.id === tabId);
-      if (!tab) continue;
-      const targetLeafId = tab.leafId ?? leafId;
-      const slotKeys = [
-        makeWorkbenchSessionPanelSlotKey(sessionId, panelId, targetLeafId),
-        makeWorkbenchSessionPanelSlotKey(sessionId, panelId),
+      panelId,
+      leafId,
+      tabId,
+    }: WorkbenchEphemeralTabRemovalInput): WorkbenchEphemeralTab | null => {
+      const candidates = [
+        {
+          tabsField: "sideChatTabsBySession" as const,
+          activeField: "sideChatActiveTabByPanel" as const,
+          tabs: state.sideChatTabsBySession[sessionId] ?? [],
+        },
+        {
+          tabsField: "mcpAppTabsBySession" as const,
+          activeField: "mcpAppActiveTabByPanel" as const,
+          tabs: state.mcpAppTabsBySession[sessionId] ?? [],
+        },
+        {
+          tabsField: "planTabsBySession" as const,
+          activeField: "planActiveTabByPanel" as const,
+          tabs: state.planTabsBySession[sessionId] ?? [],
+        },
+        {
+          tabsField: "automationTabsBySession" as const,
+          activeField: "automationActiveTabByPanel" as const,
+          tabs: state.automationTabsBySession[sessionId] ?? [],
+        },
+        {
+          tabsField: "backgroundAgentTabsBySession" as const,
+          activeField: "backgroundAgentActiveTabByPanel" as const,
+          tabs: state.backgroundAgentTabsBySession[sessionId] ?? [],
+        },
+        {
+          tabsField: "processOutputTabsBySession" as const,
+          activeField: "processOutputActiveTabByPanel" as const,
+          tabs: state.processOutputTabsBySession[sessionId] ?? [],
+        },
+        {
+          tabsField: "imageEditorTabsBySession" as const,
+          activeField: "imageEditorActiveTabByPanel" as const,
+          tabs: state.imageEditorTabsBySession[sessionId] ?? [],
+        },
       ];
-      dispatch({
-        type: "remove-ephemeral-tab",
-        tabsField: candidate.tabsField,
-        activeField: candidate.activeField,
-        sessionId,
-        tabId,
-        slotKeys,
-        ...("planKey" in tab ? { planKey: tab.planKey } : {}),
-      });
-      return tab;
-    }
-    return null;
-  }, [state]);
-  const upsertEphemeralTab = useCallback((
-    tab: WorkbenchEphemeralTab,
-  ) => {
-    const upsert = <Tab extends WorkbenchEphemeralTab>(
-      current: readonly Tab[],
-    ): Tab[] => {
-      const existing = current.find(
-        (candidate) => candidate.id === tab.id,
-      );
+      for (const candidate of candidates) {
+        const tab = candidate.tabs.find((item) => item.id === tabId);
+        if (!tab) continue;
+        const targetLeafId = tab.leafId ?? leafId;
+        const slotKeys = [
+          makeWorkbenchSessionPanelSlotKey(sessionId, panelId, targetLeafId),
+          makeWorkbenchSessionPanelSlotKey(sessionId, panelId),
+        ];
+        dispatch({
+          type: "remove-ephemeral-tab",
+          tabsField: candidate.tabsField,
+          activeField: candidate.activeField,
+          sessionId,
+          tabId,
+          slotKeys,
+          ...("planKey" in tab ? { planKey: tab.planKey } : {}),
+        });
+        return tab;
+      }
+      return null;
+    },
+    [state],
+  );
+  const upsertEphemeralTab = useCallback((tab: WorkbenchEphemeralTab) => {
+    const upsert = <Tab extends WorkbenchEphemeralTab>(current: readonly Tab[]): Tab[] => {
+      const existing = current.find((candidate) => candidate.id === tab.id);
       if (!existing) return [...current, tab as Tab];
       return current.map((candidate) =>
         candidate.id === tab.id
-          ? {
+          ? ({
               ...candidate,
               ...tab,
               stateKey: candidate.stateKey + 1,
-            } as Tab
-          : candidate
+            } as Tab)
+          : candidate,
       );
     };
     let activeField:
@@ -676,11 +631,7 @@ export function useWorkbenchPanelController({
     dispatch({
       type: "select-slot",
       slotKeys: [
-        makeWorkbenchSessionPanelSlotKey(
-          tab.sessionId,
-          tab.panelId,
-          tab.leafId,
-        ),
+        makeWorkbenchSessionPanelSlotKey(tab.sessionId, tab.panelId, tab.leafId),
         makeWorkbenchSessionPanelSlotKey(tab.sessionId, tab.panelId),
       ],
       activeField,
@@ -690,25 +641,28 @@ export function useWorkbenchPanelController({
     });
   }, []);
 
-  return useMemo(() => ({
-    ...state,
-    ...commands,
-    pruneOwner,
-    pruneSession,
-    durable,
-    sceneDurable,
-    selectRenderableTab,
-    removeEphemeralTab,
-    upsertEphemeralTab,
-  }), [
-    commands,
-    durable,
-    sceneDurable,
-    pruneOwner,
-    pruneSession,
-    removeEphemeralTab,
-    selectRenderableTab,
-    state,
-    upsertEphemeralTab,
-  ]);
+  return useMemo(
+    () => ({
+      ...state,
+      ...commands,
+      pruneOwner,
+      pruneSession,
+      durable,
+      sceneDurable,
+      selectRenderableTab,
+      removeEphemeralTab,
+      upsertEphemeralTab,
+    }),
+    [
+      commands,
+      durable,
+      sceneDurable,
+      pruneOwner,
+      pruneSession,
+      removeEphemeralTab,
+      selectRenderableTab,
+      state,
+      upsertEphemeralTab,
+    ],
+  );
 }

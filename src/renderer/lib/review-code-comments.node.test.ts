@@ -73,8 +73,11 @@ describe("review code comments", () => {
   });
 
   test("deduplicates comments extracted from conversation strings", () => {
-    const directive = '::code-comment{title="Check" body="Body" file="src/a.ts" start=1 priority=1}';
-    const comments = extractReviewCodeCommentsFromConversation(buildConversationWithComment(directive));
+    const directive =
+      '::code-comment{title="Check" body="Body" file="src/a.ts" start=1 priority=1}';
+    const comments = extractReviewCodeCommentsFromConversation(
+      buildConversationWithComment(directive),
+    );
 
     expect(comments.length).toBe(1);
     expect(comments[0]?.body).toBe("Body");

@@ -36,7 +36,11 @@ function pmBlock(id: string, text = id) {
 
 function pmDocWithIds(ids: string[]) {
   return pmSchema.node("doc", null, [
-    pmSchema.node("blockGroup", null, ids.map((id) => pmBlock(id))),
+    pmSchema.node(
+      "blockGroup",
+      null,
+      ids.map((id) => pmBlock(id)),
+    ),
   ]);
 }
 
@@ -67,26 +71,29 @@ function editorState(selection: EditorState["selection"]) {
 describe("nfm side menu selection helpers", () => {
   test("keeps the active selection when it contains the clicked block", () => {
     const clickedBlock = block("b");
-    const intent = createSideMenuSelectionIntent({
-      getSelection: () => ({
-        blocks: [block("a"), clickedBlock, block("c")],
-      }),
-    }, clickedBlock);
+    const intent = createSideMenuSelectionIntent(
+      {
+        getSelection: () => ({
+          blocks: [block("a"), clickedBlock, block("c")],
+        }),
+      },
+      clickedBlock,
+    );
 
     expect(intent.source).toBe("active-selection");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("a,b,c");
   });
 
   test("expands selected blocks to include descendants in document order", () => {
-    const clickedBlock = block("b", [
-      block("b1"),
-      block("b2", [block("b2a")]),
-    ]);
-    const intent = createSideMenuSelectionIntent({
-      getSelection: () => ({
-        blocks: [block("a"), clickedBlock],
-      }),
-    }, clickedBlock);
+    const clickedBlock = block("b", [block("b1"), block("b2", [block("b2a")])]);
+    const intent = createSideMenuSelectionIntent(
+      {
+        getSelection: () => ({
+          blocks: [block("a"), clickedBlock],
+        }),
+      },
+      clickedBlock,
+    );
 
     expect(intent.source).toBe("active-selection");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("a,b,b1,b2,b2a");
@@ -94,11 +101,14 @@ describe("nfm side menu selection helpers", () => {
 
   test("uses only the clicked block when the active selection is elsewhere", () => {
     const clickedBlock = block("b", [block("b1")]);
-    const intent = createSideMenuSelectionIntent({
-      getSelection: () => ({
-        blocks: [block("x"), block("y")],
-      }),
-    }, clickedBlock);
+    const intent = createSideMenuSelectionIntent(
+      {
+        getSelection: () => ({
+          blocks: [block("x"), block("y")],
+        }),
+      },
+      clickedBlock,
+    );
 
     expect(intent.source).toBe("clicked-block");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b,b1");
@@ -106,9 +116,12 @@ describe("nfm side menu selection helpers", () => {
 
   test("uses only the clicked block when there is no active block selection", () => {
     const clickedBlock = block("b");
-    const intent = createSideMenuSelectionIntent({
-      getSelection: () => undefined,
-    }, clickedBlock);
+    const intent = createSideMenuSelectionIntent(
+      {
+        getSelection: () => undefined,
+      },
+      clickedBlock,
+    );
 
     expect(intent.source).toBe("clicked-block");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b");
@@ -119,19 +132,24 @@ describe("nfm side menu selection helpers", () => {
     const startPosition = blockPosition(doc, "b");
     const endPosition = blockPosition(doc, "c");
     const clickedBlock = block("b");
-    const intent = createSideMenuSelectionIntent({
-      getSelection: () => ({
-        blocks: [clickedBlock, block("c"), block("d")],
-      }),
-      prosemirrorView: {
-        state: editorState(MultipleNodeSelection.create(
-          doc,
-          startPosition.posBeforeNode,
-          endPosition.posBeforeNode + endPosition.node.nodeSize,
-        )),
-        dispatch: () => {},
+    const intent = createSideMenuSelectionIntent(
+      {
+        getSelection: () => ({
+          blocks: [clickedBlock, block("c"), block("d")],
+        }),
+        prosemirrorView: {
+          state: editorState(
+            MultipleNodeSelection.create(
+              doc,
+              startPosition.posBeforeNode,
+              endPosition.posBeforeNode + endPosition.node.nodeSize,
+            ),
+          ),
+          dispatch: () => {},
+        },
       },
-    }, clickedBlock);
+      clickedBlock,
+    );
 
     expect(intent.source).toBe("active-selection");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b,c");
@@ -142,19 +160,24 @@ describe("nfm side menu selection helpers", () => {
     const startPosition = blockPosition(doc, "b");
     const endPosition = blockPosition(doc, "c");
     const clickedBlock = block("b");
-    const intent = createSideMenuSelectionIntent({
-      getSelection: () => ({
-        blocks: [clickedBlock, block("c")],
-      }),
-      prosemirrorView: {
-        state: editorState(TextSelection.create(
-          doc,
-          startPosition.posBeforeNode + 1,
-          endPosition.posBeforeNode + endPosition.node.nodeSize - 1,
-        )),
-        dispatch: () => {},
+    const intent = createSideMenuSelectionIntent(
+      {
+        getSelection: () => ({
+          blocks: [clickedBlock, block("c")],
+        }),
+        prosemirrorView: {
+          state: editorState(
+            TextSelection.create(
+              doc,
+              startPosition.posBeforeNode + 1,
+              endPosition.posBeforeNode + endPosition.node.nodeSize - 1,
+            ),
+          ),
+          dispatch: () => {},
+        },
       },
-    }, clickedBlock);
+      clickedBlock,
+    );
 
     expect(intent.source).toBe("active-selection");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b,c");
@@ -171,15 +194,18 @@ describe("nfm side menu selection helpers", () => {
       endPosition.posBeforeNode + endPosition.node.nodeSize,
     );
 
-    const intent = createSideMenuSelectionIntent({
-      getSelection: () => ({
-        blocks: [block("b"), clickedBlock, block("d")],
-      }),
-      prosemirrorView: {
-        state: editorState(blockSelection),
-        dispatch: () => {},
+    const intent = createSideMenuSelectionIntent(
+      {
+        getSelection: () => ({
+          blocks: [block("b"), clickedBlock, block("d")],
+        }),
+        prosemirrorView: {
+          state: editorState(blockSelection),
+          dispatch: () => {},
+        },
       },
-    }, clickedBlock);
+      clickedBlock,
+    );
 
     expect(intent.source).toBe("active-selection");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b,c");
@@ -189,14 +215,17 @@ describe("nfm side menu selection helpers", () => {
     const doc = pmDoc();
     const position = blockPosition(doc, "b");
     const clickedBlock = block("b");
-    const intent = createSideMenuSelectionIntent({
-      getSelection: () => undefined,
-      getBlock: (blockId) => (blockId === "b" ? clickedBlock : undefined),
-      prosemirrorView: {
-        state: editorState(NodeSelection.create(doc, position.posBeforeNode)),
-        dispatch: () => {},
+    const intent = createSideMenuSelectionIntent(
+      {
+        getSelection: () => undefined,
+        getBlock: (blockId) => (blockId === "b" ? clickedBlock : undefined),
+        prosemirrorView: {
+          state: editorState(NodeSelection.create(doc, position.posBeforeNode)),
+          dispatch: () => {},
+        },
       },
-    }, clickedBlock);
+      clickedBlock,
+    );
 
     expect(intent.source).toBe("active-selection");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("b");
@@ -207,19 +236,24 @@ describe("nfm side menu selection helpers", () => {
     const startPosition = blockPosition(doc, "b");
     const endPosition = blockPosition(doc, "c");
     const clickedBlock = block("d");
-    const intent = createSideMenuSelectionIntent({
-      getSelection: () => ({
-        blocks: [block("b"), block("c"), clickedBlock],
-      }),
-      prosemirrorView: {
-        state: editorState(MultipleNodeSelection.create(
-          doc,
-          startPosition.posBeforeNode,
-          endPosition.posBeforeNode + endPosition.node.nodeSize,
-        )),
-        dispatch: () => {},
+    const intent = createSideMenuSelectionIntent(
+      {
+        getSelection: () => ({
+          blocks: [block("b"), block("c"), clickedBlock],
+        }),
+        prosemirrorView: {
+          state: editorState(
+            MultipleNodeSelection.create(
+              doc,
+              startPosition.posBeforeNode,
+              endPosition.posBeforeNode + endPosition.node.nodeSize,
+            ),
+          ),
+          dispatch: () => {},
+        },
       },
-    }, clickedBlock);
+      clickedBlock,
+    );
 
     expect(intent.source).toBe("clicked-block");
     expect(intent.blocks.map((entry) => entry.id).join(",")).toBe("d");
@@ -248,11 +282,13 @@ describe("nfm side menu selection helpers", () => {
     const endPosition = blockPosition(doc, "c");
     const snapshot = createSideMenuDragSelectionSnapshot({
       prosemirrorView: {
-        state: editorState(MultipleNodeSelection.create(
-          doc,
-          startPosition.posBeforeNode,
-          endPosition.posBeforeNode + endPosition.node.nodeSize,
-        )),
+        state: editorState(
+          MultipleNodeSelection.create(
+            doc,
+            startPosition.posBeforeNode,
+            endPosition.posBeforeNode + endPosition.node.nodeSize,
+          ),
+        ),
         dispatch: () => {},
       },
     });
@@ -292,26 +328,31 @@ describe("nfm side menu selection helpers", () => {
   test("deduplicates repeated descendants while expanding block children", () => {
     const sharedChild = block("shared");
 
-    expect(expandSideMenuSelectionBlocksWithChildren([
-      block("parent", [sharedChild]),
-      sharedChild,
-    ]).map((entry) => entry.id).join(",")).toBe("parent,shared");
+    expect(
+      expandSideMenuSelectionBlocksWithChildren([block("parent", [sharedChild]), sharedChild])
+        .map((entry) => entry.id)
+        .join(","),
+    ).toBe("parent,shared");
   });
 
   test("applies block-level selection with the complete intent scope", () => {
     const calls: string[] = [];
-    const applied = applySideMenuSelectionIntent({
-      getSelection: () => undefined,
-    }, {
-      clickedBlock: block("b"),
-      blocks: [block("a"), block("b"), block("c")],
-      source: "active-selection",
-    }, {
-      selectBlocks: (_editor, blocks, fallbackBlock) => {
-        calls.push(`${blocks.map((entry) => entry.id).join(":")}|${fallbackBlock.id}`);
-        return true;
+    const applied = applySideMenuSelectionIntent(
+      {
+        getSelection: () => undefined,
       },
-    });
+      {
+        clickedBlock: block("b"),
+        blocks: [block("a"), block("b"), block("c")],
+        source: "active-selection",
+      },
+      {
+        selectBlocks: (_editor, blocks, fallbackBlock) => {
+          calls.push(`${blocks.map((entry) => entry.id).join(":")}|${fallbackBlock.id}`);
+          return true;
+        },
+      },
+    );
 
     expect(applied).toBe(true);
     expect(calls.join(",")).toBe("a:b:c|b");
@@ -321,19 +362,22 @@ describe("nfm side menu selection helpers", () => {
     const state = EditorState.create({ schema: pmSchema, doc: pmDoc() });
     let appliedSelection: unknown;
 
-    const applied = applySideMenuSelectionIntent({
-      getSelection: () => undefined,
-      prosemirrorView: {
-        state,
-        dispatch: (transaction) => {
-          appliedSelection = transaction.selection;
+    const applied = applySideMenuSelectionIntent(
+      {
+        getSelection: () => undefined,
+        prosemirrorView: {
+          state,
+          dispatch: (transaction) => {
+            appliedSelection = transaction.selection;
+          },
         },
       },
-    }, {
-      clickedBlock: block("b"),
-      blocks: [block("b")],
-      source: "clicked-block",
-    });
+      {
+        clickedBlock: block("b"),
+        blocks: [block("b")],
+        source: "clicked-block",
+      },
+    );
 
     expect(applied).toBe(true);
     expect(appliedSelection instanceof MultipleNodeSelection).toBe(true);
@@ -341,18 +385,22 @@ describe("nfm side menu selection helpers", () => {
 
   test("reports adapter failure without throwing", () => {
     const calls: string[] = [];
-    const applied = applySideMenuSelectionIntent({
-      getSelection: () => undefined,
-    }, {
-      clickedBlock: block("b"),
-      blocks: [block("a"), block("b")],
-      source: "active-selection",
-    }, {
-      selectBlocks: () => {
-        calls.push("failed");
-        return false;
+    const applied = applySideMenuSelectionIntent(
+      {
+        getSelection: () => undefined,
       },
-    });
+      {
+        clickedBlock: block("b"),
+        blocks: [block("a"), block("b")],
+        source: "active-selection",
+      },
+      {
+        selectBlocks: () => {
+          calls.push("failed");
+          return false;
+        },
+      },
+    );
 
     expect(applied).toBe(false);
     expect(calls.join(",")).toBe("failed");

@@ -65,10 +65,7 @@ function emitCell(cell: ReviewFullContentCell): void {
   for (const listener of cell.listeners) listener();
 }
 
-function updateCell(
-  cell: ReviewFullContentCell,
-  state: ReviewFullContentState,
-): void {
+function updateCell(cell: ReviewFullContentCell, state: ReviewFullContentState): void {
   if (cell.state === state) return;
   cell.state = state;
   emitCell(cell);
@@ -83,10 +80,7 @@ function scheduleCellGc(cell: ReviewFullContentCell): void {
   }, REVIEW_FULL_CONTENT_CELL_GC_MS);
 }
 
-function subscribeCell(
-  cell: ReviewFullContentCell,
-  listener: () => void,
-): () => void {
+function subscribeCell(cell: ReviewFullContentCell, listener: () => void): () => void {
   if (cell.gcTimer !== null) {
     clearTimeout(cell.gcTimer);
     cell.gcTimer = null;
@@ -98,9 +92,7 @@ function subscribeCell(
   };
 }
 
-export function useReviewFullContentState(
-  key: string,
-): ReviewFullContentState {
+export function useReviewFullContentState(key: string): ReviewFullContentState {
   const cell = getReviewFullContentCell(key);
   return useSyncExternalStore(
     (listener) => subscribeCell(cell, listener),
@@ -109,9 +101,7 @@ export function useReviewFullContentState(
   );
 }
 
-export function readReviewFullContentState(
-  key: string,
-): ReviewFullContentState {
+export function readReviewFullContentState(key: string): ReviewFullContentState {
   return getReviewFullContentCell(key).state;
 }
 

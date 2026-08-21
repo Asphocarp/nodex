@@ -1,9 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  lstatSync,
-  readFileSync,
-  readdirSync,
-} from "node:fs";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 const MAX_FILE_BYTES = 128 * 1024;
@@ -26,8 +22,7 @@ export const OFFICIAL_AGENT_SKILLS_ARTIFACT_FILES = Object.freeze([
   ...OFFICIAL_AGENT_SKILL_FILES.map((entry) => `${SKILL_PREFIX}/${entry}`),
 ]);
 
-const isObject = (value) =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+const isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
 
 const assertExactKeys = (value, expected, label) => {
   if (!isObject(value)) throw new Error(`${label} must be an object`);
@@ -52,8 +47,7 @@ const requireSha256 = (value, label) => {
   return value;
 };
 
-const sha256Bytes = (value) =>
-  createHash("sha256").update(value).digest("hex");
+const sha256Bytes = (value) => createHash("sha256").update(value).digest("hex");
 
 const allowedDirectories = () => {
   const directories = new Set([""]);
@@ -82,15 +76,16 @@ const readExactArtifactTree = (root) => {
   let totalBytes = 0;
 
   const visit = (directory) => {
-    const entries = readdirSync(directory, { withFileTypes: true })
-      .sort((left, right) => left.name.localeCompare(right.name));
+    const entries = readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
     for (const entry of entries) {
       const entryPath = path.join(directory, entry.name);
       const relativePath = portableRelativePath(resolvedRoot, entryPath);
       if (
-        relativePath.length === 0
-        || relativePath.startsWith("../")
-        || relativePath.includes("/../")
+        relativePath.length === 0 ||
+        relativePath.startsWith("../") ||
+        relativePath.includes("/../")
       ) {
         throw new Error(`Official Agent Skills artifact contains an unsafe path: ${relativePath}`);
       }
@@ -100,7 +95,9 @@ const readExactArtifactTree = (root) => {
       }
       if (metadata.isDirectory()) {
         if (!directories.has(relativePath)) {
-          throw new Error(`Official Agent Skills artifact contains an unknown directory: ${relativePath}`);
+          throw new Error(
+            `Official Agent Skills artifact contains an unknown directory: ${relativePath}`,
+          );
         }
         visit(entryPath);
         continue;
@@ -112,7 +109,9 @@ const readExactArtifactTree = (root) => {
         throw new Error(`Official Agent Skills artifact contains an unknown file: ${relativePath}`);
       }
       if (metadata.nlink !== 1) {
-        throw new Error(`Official Agent Skills artifact contains a hard-linked file: ${relativePath}`);
+        throw new Error(
+          `Official Agent Skills artifact contains a hard-linked file: ${relativePath}`,
+        );
       }
       if (metadata.size > MAX_FILE_BYTES) {
         throw new Error(`Official Agent Skills artifact file is too large: ${relativePath}`);
@@ -128,8 +127,7 @@ const readExactArtifactTree = (root) => {
   };
 
   visit(resolvedRoot);
-  const missing = OFFICIAL_AGENT_SKILLS_ARTIFACT_FILES
-    .filter((entry) => !files.has(entry));
+  const missing = OFFICIAL_AGENT_SKILLS_ARTIFACT_FILES.filter((entry) => !files.has(entry));
   if (missing.length > 0) {
     throw new Error(
       `Official Agent Skills artifact is missing required files: ${missing.join(", ")}`,
@@ -174,8 +172,8 @@ const parseReleaseManifest = (contents) => {
   }
   assertExactKeys(value.product, ["name", "releaseVersion"], "Skill product");
   if (
-    value.product.name !== "Nodex"
-    || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(
+    value.product.name !== "Nodex" ||
+    !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u.test(
       requireString(value.product.releaseVersion, "Skill release version"),
     )
   ) {
@@ -189,10 +187,7 @@ const parseReleaseManifest = (contents) => {
     ["minimumRevision", "maximumRevision"],
     "Skill Agent interface",
   );
-  if (
-    value.agentInterface.minimumRevision !== 1
-    || value.agentInterface.maximumRevision !== 1
-  ) {
+  if (value.agentInterface.minimumRevision !== 1 || value.agentInterface.maximumRevision !== 1) {
     throw new Error("Official Agent Skills Agent interface range is unsupported");
   }
   if (!Array.isArray(value.skills) || value.skills.length !== 1) {
@@ -205,11 +200,11 @@ const parseReleaseManifest = (contents) => {
     "Official Agent Skill entry",
   );
   if (
-    skill.name !== "nodex"
-    || skill.path !== SKILL_PREFIX
-    || skill.fileCount !== OFFICIAL_AGENT_SKILL_FILES.length
-    || !Number.isSafeInteger(skill.totalBytes)
-    || skill.totalBytes <= 0
+    skill.name !== "nodex" ||
+    skill.path !== SKILL_PREFIX ||
+    skill.fileCount !== OFFICIAL_AGENT_SKILL_FILES.length ||
+    !Number.isSafeInteger(skill.totalBytes) ||
+    skill.totalBytes <= 0
   ) {
     throw new Error("Official Agent Skill entry is invalid");
   }
@@ -231,8 +226,8 @@ export const inspectOfficialAgentSkillsArtifact = (artifactRoot) => {
     0,
   );
   if (
-    manifest.skills[0].treeSha256 !== treeSha256
-    || manifest.skills[0].totalBytes !== skillBytes
+    manifest.skills[0].treeSha256 !== treeSha256 ||
+    manifest.skills[0].totalBytes !== skillBytes
   ) {
     throw new Error("Official Agent Skill tree does not match its release manifest");
   }

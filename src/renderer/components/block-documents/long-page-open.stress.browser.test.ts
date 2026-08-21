@@ -26,9 +26,7 @@ class LongCardAdapter implements DocumentSyncAdapter {
   readonly serverDocument: Y.Doc;
   headSeq = 20;
   applyCalls = 0;
-  private readonly listeners = new Set<
-    (event: DocumentSyncRealtimeEvent) => void
-  >();
+  private readonly listeners = new Set<(event: DocumentSyncRealtimeEvent) => void>();
 
   constructor(document: Y.Doc) {
     this.serverDocument = document;
@@ -103,8 +101,7 @@ const deleteCheckpointDatabase = (): Promise<void> =>
     const request = indexedDB.deleteDatabase("nodex-document-cache");
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
-    request.onblocked = () =>
-      reject(new Error("checkpoint database deletion blocked"));
+    request.onblocked = () => reject(new Error("checkpoint database deletion blocked"));
   });
 
 const waitForRuntimeOutcome = async (
@@ -139,9 +136,9 @@ describe("long Card collaborative open lifecycle", () => {
       title.insert(title.length, transient);
       title.delete(title.length - transient.length, transient.length);
     }
-    expect(
-      Y.decodeUpdate(Y.encodeStateAsUpdate(serverDocument)).ds.clients.size,
-    ).toBeGreaterThan(0);
+    expect(Y.decodeUpdate(Y.encodeStateAsUpdate(serverDocument)).ds.clients.size).toBeGreaterThan(
+      0,
+    );
     const adapter = new LongCardAdapter(serverDocument);
     const descriptor: PrimaryPageBlockDocumentDescriptor = {
       libraryId: "library-edited-long-card",
@@ -174,11 +171,14 @@ describe("long Card collaborative open lifecycle", () => {
         const status = await waitForRuntimeOutcome(runtime);
         const ready = runtime.getReadyDocument();
         if (!ready || ready.kind !== "page") {
-          throw status.error ?? new Error(
-            `runtime did not become ready: ${JSON.stringify({
-              phase: status.phase,
-              provider: status.provider,
-            })}`,
+          throw (
+            status.error ??
+            new Error(
+              `runtime did not become ready: ${JSON.stringify({
+                phase: status.phase,
+                provider: status.provider,
+              })}`,
+            )
           );
         }
         editor = BlockNoteEditor.create(

@@ -50,10 +50,7 @@ import type {
   LibraryAccessedDocumentDescriptor,
   ProjectAccessedDocumentDescriptor,
 } from "./block-documents/contracts";
-import type {
-  BlockTransferCommandResult,
-  BlockTransferUndoCommandResult,
-} from "./block-transfer";
+import type { BlockTransferCommandResult, BlockTransferUndoCommandResult } from "./block-transfer";
 import type { ProjectionCursor } from "./projection-stream";
 import type {
   PublicBlockTransferIntent,
@@ -102,24 +99,15 @@ import type {
 import type { PageLifecyclePreflightResultV2 } from "./page-lifecycle-v2-runtime";
 import type { ListPageHistoryRequest } from "./page-history";
 import type { PageHistoryCommandResult } from "./page-history-transport";
-import type {
-  LibraryPageDetailResult,
-  PageDetailResult,
-} from "./page-detail";
+import type { LibraryPageDetailResult, PageDetailResult } from "./page-detail";
 import type { AdditionalDocumentCommandResult } from "./additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "./additional-document-command-transport";
-import type {
-  PageTargetReadModel,
-  ResolvePageTargetInput,
-} from "./page-targets";
+import type { PageTargetReadModel, ResolvePageTargetInput } from "./page-targets";
 import type {
   PageOwnershipPathReadModel,
   ResolvePageOwnershipPathInput,
 } from "./page-ownership-paths";
-import type {
-  DatabaseViewReadModel,
-  ReadDatabaseViewReferenceInput,
-} from "./database-views";
+import type { DatabaseViewReadModel, ReadDatabaseViewReferenceInput } from "./database-views";
 import type {
   CodexSidebarThreadMoveInput,
   CodexSidebarThreadMoveResult,
@@ -404,10 +392,7 @@ import type {
   LibraryDatabaseViewWindowSnapshot,
 } from "./database-views";
 import type { CoreResult } from "./core-result";
-import type {
-  NativeContextMenuItem,
-  NativeContextMenuOptions,
-} from "./native-context-menu";
+import type { NativeContextMenuItem, NativeContextMenuOptions } from "./native-context-menu";
 import type {
   CodexPendingWorktreeCreateInput,
   CodexPendingWorktreeCreateResult,
@@ -428,10 +413,7 @@ import type {
   WindowSessionSaveLayoutInput,
 } from "./window-session";
 import type { FileLinkOpenerId, FileLinkTarget } from "./file-link-openers";
-import type {
-  CommandKeybindingUpdate,
-  CommandKeymapState,
-} from "./command-keybindings";
+import type { CommandKeybindingUpdate, CommandKeymapState } from "./command-keybindings";
 import type {
   BrowserBrowsingDataClearResult,
   BrowserBrowsingDataKind,
@@ -495,10 +477,7 @@ import type {
   BrowserUsePolicyModesUpdate,
   BrowserUsePolicySnapshot,
 } from "./browser-use-policy";
-import type {
-  ComputerUseSettingsSnapshot,
-  ComputerUseSoundMode,
-} from "./computer-use-settings";
+import type { ComputerUseSettingsSnapshot, ComputerUseSoundMode } from "./computer-use-settings";
 import type {
   FeedbackUploadParams,
   FeedbackUploadResponse,
@@ -506,8 +485,7 @@ import type {
 } from "@nodex/codex-app-server-protocol/v2";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
 
-export type ClipboardWriteImageResult =
-  { ok: true } | { ok: false; message: string };
+export type ClipboardWriteImageResult = { ok: true } | { ok: false; message: string };
 
 export interface ComposerPickedFile {
   label: string;
@@ -629,11 +607,7 @@ export interface IpcApi {
     result: PageHistoryCommandResult;
   };
   "block-documents:mutate": {
-    args: [
-      projectId: string,
-      documentId: string,
-      request: DocumentMutationRequest,
-    ];
+    args: [projectId: string, documentId: string, request: DocumentMutationRequest];
     result: DocumentOperationCommandResult;
   };
   "block-documents:command": {
@@ -641,11 +615,7 @@ export interface IpcApi {
     result: AdditionalDocumentCommandResult;
   };
   "block-documents:history:checkpoint": {
-    args: [
-      projectId: string,
-      documentId: string,
-      request: CreateDocumentVersionCheckpoint,
-    ];
+    args: [projectId: string, documentId: string, request: CreateDocumentVersionCheckpoint];
     result: DocumentHistoryCommandResult<CreatedDocumentVersionSummary>;
   };
   "block-documents:history:list": {
@@ -657,11 +627,7 @@ export interface IpcApi {
     result: DocumentHistoryCommandResult<DocumentVersionDetail>;
   };
   "block-documents:history:restore": {
-    args: [
-      projectId: string,
-      documentId: string,
-      request: DocumentMutationRequest,
-    ];
+    args: [projectId: string, documentId: string, request: DocumentMutationRequest];
     result: DocumentOperationCommandResult;
   };
   "block-properties:mutate": {
@@ -689,17 +655,11 @@ export interface IpcApi {
     result: DatabaseApplyResultV2;
   };
   "library-module:read": {
-    args: [
-      accessContext: ContentAccessContext,
-      request: LibraryModuleReadRequest,
-    ];
+    args: [accessContext: ContentAccessContext, request: LibraryModuleReadRequest];
     result: LibraryModuleReadResult;
   };
   "library-module:apply": {
-    args: [
-      accessContext: ContentAccessContext,
-      request: LibraryModuleApplyRequest,
-    ];
+    args: [accessContext: ContentAccessContext, request: LibraryModuleApplyRequest];
     result: LibraryModuleApplyResult;
   };
   "library-database-module:read": {
@@ -860,10 +820,7 @@ export interface IpcApi {
     result: ProjectLifecycleMutationResult;
   };
   "workspace:tasks:list": {
-    args: [
-      projectId: string | null,
-      input?: ProjectSessionSummaryWindowInput,
-    ];
+    args: [projectId: string | null, input?: ProjectSessionSummaryWindowInput];
     result: ProjectSessionSummaryWindow;
   };
   "project-sessions:get": {
@@ -941,28 +898,22 @@ export interface IpcApi {
   };
   "library-database:view-window:get": {
     args: [
-      input: DatabaseViewWindowInput & (
-        | { readonly databaseViewId: string }
-        | { readonly databaseId: string }
-      ),
+      input: DatabaseViewWindowInput &
+        ({ readonly databaseViewId: string } | { readonly databaseId: string }),
     ];
     result: CoreResult<LibraryDatabaseViewWindowSnapshot>;
   };
   "library-database:list-window:get": {
     args: [
-      input: DatabaseListWindowInput & (
-        | { readonly databaseViewId: string }
-        | { readonly databaseId: string }
-      ),
+      input: DatabaseListWindowInput &
+        ({ readonly databaseViewId: string } | { readonly databaseId: string }),
     ];
     result: CoreResult<LibraryDatabaseListWindowSnapshot>;
   };
   "library-database:view-groups:get": {
     args: [
-      input: DatabaseViewGroupsInput & (
-        | { readonly databaseViewId: string }
-        | { readonly databaseId: string }
-      ),
+      input: DatabaseViewGroupsInput &
+        ({ readonly databaseViewId: string } | { readonly databaseId: string }),
     ];
     result: CoreResult<LibraryDatabaseViewGroupsSnapshot>;
   };
@@ -1005,27 +956,15 @@ export interface IpcApi {
     };
   };
   "page:occurrence:complete": {
-    args: [
-      projectId: string,
-      input: PageOccurrenceCompleteInput,
-      sessionId?: string,
-    ];
+    args: [projectId: string, input: PageOccurrenceCompleteInput, sessionId?: string];
     result: PageOccurrenceMutationResult;
   };
   "page:occurrence:skip": {
-    args: [
-      projectId: string,
-      input: PageOccurrenceActionInput,
-      sessionId?: string,
-    ];
+    args: [projectId: string, input: PageOccurrenceActionInput, sessionId?: string];
     result: PageOccurrenceMutationResult;
   };
   "page:occurrence:update": {
-    args: [
-      projectId: string,
-      input: PageOccurrenceUpdateInput,
-      sessionId?: string,
-    ];
+    args: [projectId: string, input: PageOccurrenceUpdateInput, sessionId?: string];
     result: PageOccurrenceMutationResult;
   };
   "backup:list": { args: []; result: BackupRecord[] };
@@ -1484,9 +1423,7 @@ export interface IpcApi {
   };
   "codex:account:login:start": {
     args: [input: { type: "chatgpt" } | { type: "apiKey"; apiKey: string }];
-    result:
-      | { type: "apiKey" }
-      | { type: "chatgpt"; loginId: string; authUrl: string };
+    result: { type: "apiKey" } | { type: "chatgpt"; loginId: string; authUrl: string };
   };
   "codex:account:login:cancel": {
     args: [loginId: string];
@@ -1725,9 +1662,7 @@ export interface IpcApi {
       requestId: CodexProtocolRequestId,
       context: {
         permissionMode: CodexAgentMode;
-        serviceTierSelector:
-          | { type: "standard" }
-          | { type: "custom"; serviceTier: string };
+        serviceTierSelector: { type: "standard" } | { type: "custom"; serviceTier: string };
       },
     ];
     result: ProtocolDynamicToolCallResponse | null;
@@ -2064,27 +1999,51 @@ export interface IpcApi {
     result: boolean;
   };
   "codex:user-input:respond": {
-    args: [conversationId: string, requestId: CodexProtocolRequestId, answers: Record<string, string[]>];
+    args: [
+      conversationId: string,
+      requestId: CodexProtocolRequestId,
+      answers: Record<string, string[]>,
+    ];
     result: boolean;
   };
   "codex:mcp-elicitation:respond": {
-    args: [conversationId: string, requestId: CodexProtocolRequestId, response: CodexMcpServerElicitationResponse];
+    args: [
+      conversationId: string,
+      requestId: CodexProtocolRequestId,
+      response: CodexMcpServerElicitationResponse,
+    ];
     result: boolean;
   };
   "codex:permission-request:respond": {
-    args: [conversationId: string, requestId: CodexProtocolRequestId, response: CodexPermissionRequestResponse];
+    args: [
+      conversationId: string,
+      requestId: CodexProtocolRequestId,
+      response: CodexPermissionRequestResponse,
+    ];
     result: boolean;
   };
   "codex:option-picker:respond": {
-    args: [conversationId: string, requestId: CodexProtocolRequestId, response: CodexCanonicalOptionPickerResponse];
+    args: [
+      conversationId: string,
+      requestId: CodexProtocolRequestId,
+      response: CodexCanonicalOptionPickerResponse,
+    ];
     result: boolean;
   };
   "codex:setup-context-picker:respond": {
-    args: [conversationId: string, requestId: CodexProtocolRequestId, response: CodexCanonicalSetupContextPickerResponse];
+    args: [
+      conversationId: string,
+      requestId: CodexProtocolRequestId,
+      response: CodexCanonicalSetupContextPickerResponse,
+    ];
     result: boolean;
   };
   "codex:setup-codex-step:respond": {
-    args: [conversationId: string, requestId: CodexProtocolRequestId, response: CodexCanonicalSetupCodexStepResponse];
+    args: [
+      conversationId: string,
+      requestId: CodexProtocolRequestId,
+      response: CodexCanonicalSetupCodexStepResponse,
+    ];
     result: boolean;
   };
   "codex:conversation-unread:set": {

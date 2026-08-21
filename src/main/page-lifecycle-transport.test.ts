@@ -120,11 +120,7 @@ describe("Page lifecycle IPC transport", () => {
     };
     const handlers = new Map<
       string,
-      (
-        event: unknown,
-        projectId: string,
-        pageId: string,
-      ) => Promise<PageLifecyclePreflightResultV2>
+      (event: unknown, projectId: string, pageId: string) => Promise<PageLifecyclePreflightResultV2>
     >();
     registerPageLifecyclePreflightIpcHandler({
       registerHandle: (channel, listener) => handlers.set(channel, listener),

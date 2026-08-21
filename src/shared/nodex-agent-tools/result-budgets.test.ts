@@ -1,10 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { NODEX_AGENT_V3_CATALOG_BUDGETS } from "./budgets";
 import { GetBlockOutputSchema } from "./read-schemas";
-import {
-  FetchV3OutputSchema,
-  QueryDatabaseV3OutputSchema,
-} from "./v3-read-schemas";
+import { FetchV3OutputSchema, QueryDatabaseV3OutputSchema } from "./v3-read-schemas";
 import {
   CreateOutputSchema,
   EditDatabaseOutputSchema,
@@ -52,12 +49,14 @@ describe("Nodex Agent result budgets", () => {
       TransferBlocksOutputSchema.parse({
         data: {
           mode: "move",
-          results: [{
-            sourceBlockId: "card-1",
-            resultBlockId: "card-1",
-            location: { kind: "library", libraryId: "library-1" },
-            transformation: "preserved",
-          }],
+          results: [
+            {
+              sourceBlockId: "card-1",
+              resultBlockId: "card-1",
+              location: { kind: "library", libraryId: "library-1" },
+              transformation: "preserved",
+            },
+          ],
         },
       }),
       EditDatabaseOutputSchema.parse({
@@ -117,16 +116,18 @@ describe("Nodex Agent result budgets", () => {
             ownerBlockId: "card-1",
             body: {
               format: "blocks",
-              blocks: [{
-                blockId: "block-1",
-                parentBlockId: null,
-                siblingIndex: 0,
-                depth: 0,
-                type: "paragraph",
-                props: {},
-                content: [{ type: "text", text: "Body", styles: {} }],
-                etag: ETAG,
-              }],
+              blocks: [
+                {
+                  blockId: "block-1",
+                  parentBlockId: null,
+                  siblingIndex: 0,
+                  depth: 0,
+                  type: "paragraph",
+                  props: {},
+                  content: [{ type: "text", text: "Body", styles: {} }],
+                  etag: ETAG,
+                },
+              ],
             },
           },
         },
@@ -169,12 +170,14 @@ describe("Nodex Agent result budgets", () => {
         dataSource: {
           dataSourceId: "source-1",
           name: "Tasks",
-          properties: [{
-            propertyId: "status",
-            name: "Status",
-            valueType: "select",
-            config: {},
-          }],
+          properties: [
+            {
+              propertyId: "status",
+              name: "Status",
+              valueType: "select",
+              config: {},
+            },
+          ],
         },
         view: {
           viewId: "view-1",
@@ -205,10 +208,12 @@ describe("Nodex Agent result budgets", () => {
       AdvancedUpdatePageV3OutputSchema.parse({ data: { pageId: "page-1", effects } }),
       MovePagesV3OutputSchema.parse({
         data: {
-          pages: [{
-            pageId: "page-1",
-            location: { kind: "library", libraryId: "library-1" },
-          }],
+          pages: [
+            {
+              pageId: "page-1",
+              location: { kind: "library", libraryId: "library-1" },
+            },
+          ],
           moved: 1,
         },
       }),
@@ -243,8 +248,9 @@ describe("Nodex Agent result budgets", () => {
           created: pageCount,
         },
       });
-      const cap = NODEX_AGENT_V3_CATALOG_BUDGETS.defaultCreatePagesBaseBytes
-        + NODEX_AGENT_V3_CATALOG_BUDGETS.defaultCreatePagesPerPageBytes * pageCount;
+      const cap =
+        NODEX_AGENT_V3_CATALOG_BUDGETS.defaultCreatePagesBaseBytes +
+        NODEX_AGENT_V3_CATALOG_BUDGETS.defaultCreatePagesPerPageBytes * pageCount;
 
       expect(etagCount(output)).toBe(0);
       expect(JSON.stringify(output)).not.toContain("markdown");
@@ -276,16 +282,18 @@ describe("Nodex Agent result budgets", () => {
           resource,
           content: {
             format: "blocks",
-            blocks: [{
-              id: "block-1",
-              parentId: null,
-              index: 0,
-              depth: 0,
-              type: "paragraph",
-              props: {},
-              content: [{ type: "text", text: "Body", styles: {} }],
-              etag: ETAG,
-            }],
+            blocks: [
+              {
+                id: "block-1",
+                parentId: null,
+                index: 0,
+                depth: 0,
+                type: "paragraph",
+                props: {},
+                content: [{ type: "text", text: "Body", styles: {} }],
+                etag: ETAG,
+              },
+            ],
           },
         },
       }),

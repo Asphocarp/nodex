@@ -47,9 +47,7 @@ const available: Extract<PageTargetReadModel, { readonly status: "available" }> 
   },
 };
 
-const input = (
-  overrides: Partial<PageOutlinerTargetInput> = {},
-): PageOutlinerTargetInput => ({
+const input = (overrides: Partial<PageOutlinerTargetInput> = {}): PageOutlinerTargetInput => ({
   relationship: "reference",
   targetBlockId: page.pageId,
   model: available,
@@ -74,27 +72,28 @@ describe("resolvePageOutlinerTarget", () => {
   });
 
   test("renders an intentionally empty authoritative title as Untitled", () => {
-    const target = resolvePageOutlinerTarget(input({
-      model: {
-        ...available,
-        page: {
-          ...page,
-          title: "",
-          richTitle: [],
+    const target = resolvePageOutlinerTarget(
+      input({
+        model: {
+          ...available,
+          page: {
+            ...page,
+            title: "",
+            richTitle: [],
+          },
         },
-      },
-    }));
+      }),
+    );
     expect(pageOutlinerPlainTitle(target)).toBe("Untitled");
   });
 
   test("distinguishes self and ancestor cycles while preserving one target", () => {
+    expect(resolvePageOutlinerTarget(input({ hostPageId: page.pageId }))).toMatchObject({
+      status: "available",
+      inlineMode: "self",
+    });
     expect(
-      resolvePageOutlinerTarget(input({ hostPageId: page.pageId })),
-    ).toMatchObject({ status: "available", inlineMode: "self" });
-    expect(
-      resolvePageOutlinerTarget(
-        input({ ancestorPageIds: ["host-page", page.pageId] }),
-      ),
+      resolvePageOutlinerTarget(input({ ancestorPageIds: ["host-page", page.pageId] })),
     ).toMatchObject({ status: "available", inlineMode: "cycle" });
   });
 
@@ -125,11 +124,7 @@ describe("resolvePageOutlinerTarget", () => {
   });
 
   test("does not present a stale hint as a valid empty reference", () => {
-    expect(
-      resolvePageOutlinerTarget(
-        input({ targetBlockId: " ", model: null }),
-      ),
-    ).toEqual({
+    expect(resolvePageOutlinerTarget(input({ targetBlockId: " ", model: null }))).toEqual({
       status: "invalid_reference",
       relationship: "reference",
       targetBlockId: "",

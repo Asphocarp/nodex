@@ -27,8 +27,9 @@ const DEFAULT_TEXT_ACTION_MENU_RUNTIME: NfmTextActionMenuRuntimeValue = {
   canSendBlocks: false,
 };
 
-const NfmTextActionMenuRuntimeContext =
-  createContext<NfmTextActionMenuRuntimeValue>(DEFAULT_TEXT_ACTION_MENU_RUNTIME);
+const NfmTextActionMenuRuntimeContext = createContext<NfmTextActionMenuRuntimeValue>(
+  DEFAULT_TEXT_ACTION_MENU_RUNTIME,
+);
 
 export function NfmTextActionMenuRuntimeProvider({
   children,

@@ -2,10 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
-import {
-  parseDataSourceId,
-  parseDataSourcePropertyId,
-} from "../../shared/database-identities";
+import { parseDataSourceId, parseDataSourcePropertyId } from "../../shared/database-identities";
 import {
   hasCustomDatabaseViewSort,
   summarizeDatabaseViewFilter,
@@ -27,21 +24,26 @@ const property = (propertyId: string, name: string): DataSourcePropertyRecordV2 
 
 describe("database View rule summaries", () => {
   test("groups nested clauses by property and resolves option names", () => {
-    expect(summarizeDatabaseViewFilter({
-      kind: "group",
-      operator: "and",
-      children: [
-        { kind: "clause", propertyId: "p_status00", operator: "equals", value: "build" },
+    expect(
+      summarizeDatabaseViewFilter(
         {
           kind: "group",
-          operator: "or",
+          operator: "and",
           children: [
-            { kind: "clause", propertyId: "p_priorit0", operator: "is_empty" },
-            { kind: "clause", propertyId: "p_priorit0", operator: "equals", value: "build" },
+            { kind: "clause", propertyId: "p_status00", operator: "equals", value: "build" },
+            {
+              kind: "group",
+              operator: "or",
+              children: [
+                { kind: "clause", propertyId: "p_priorit0", operator: "is_empty" },
+                { kind: "clause", propertyId: "p_priorit0", operator: "equals", value: "build" },
+              ],
+            },
           ],
         },
-      ],
-    }, [property("p_status00", "Status"), property("p_priorit0", "Priority")])).toEqual([
+        [property("p_status00", "Status"), property("p_priorit0", "Priority")],
+      ),
+    ).toEqual([
       { key: "p_status00", label: "Status", value: "is Build" },
       { key: "p_priorit0", label: "Priority", value: "2 rules" },
     ]);
@@ -61,22 +63,31 @@ describe("database View rule summaries", () => {
         ],
       },
     };
-    expect(summarizeDatabaseViewFilter({
-      kind: "group",
-      operator: "and",
-      children: [{
-        kind: "group",
-        operator: "or",
-        children: [
-          { kind: "clause", propertyId: "status", operator: "equals", value: "triage" },
-          { kind: "clause", propertyId: "status", operator: "equals", value: "plan" },
-        ],
-      }],
-    }, [taskStatus])).toEqual([{
-      key: "status",
-      label: "Status",
-      value: "Triage, Plan",
-    }]);
+    expect(
+      summarizeDatabaseViewFilter(
+        {
+          kind: "group",
+          operator: "and",
+          children: [
+            {
+              kind: "group",
+              operator: "or",
+              children: [
+                { kind: "clause", propertyId: "status", operator: "equals", value: "triage" },
+                { kind: "clause", propertyId: "status", operator: "equals", value: "plan" },
+              ],
+            },
+          ],
+        },
+        [taskStatus],
+      ),
+    ).toEqual([
+      {
+        key: "status",
+        label: "Status",
+        value: "Triage, Plan",
+      },
+    ]);
   });
 
   test("resolves tag identities only through the bounded option registry", () => {
@@ -93,30 +104,44 @@ describe("database View rule summaries", () => {
       value: "o_AAAAAAAA",
     };
 
-    expect(summarizeDatabaseViewFilter(filter, [tags], {
-      tags: [{ id: "o_AAAAAAAA", name: "Product" }],
-    })).toEqual([{
-      key: "tags",
-      label: "Tags",
-      value: "Any: Product",
-    }]);
-    expect(summarizeDatabaseViewFilter(filter, [tags])).toEqual([{
-      key: "tags",
-      label: "Tags",
-      value: "Any: Unknown option",
-    }]);
+    expect(
+      summarizeDatabaseViewFilter(filter, [tags], {
+        tags: [{ id: "o_AAAAAAAA", name: "Product" }],
+      }),
+    ).toEqual([
+      {
+        key: "tags",
+        label: "Tags",
+        value: "Any: Product",
+      },
+    ]);
+    expect(summarizeDatabaseViewFilter(filter, [tags])).toEqual([
+      {
+        key: "tags",
+        label: "Tags",
+        value: "Any: Unknown option",
+      },
+    ]);
   });
 
   test("treats only canonical manual ordering as the default", () => {
-    expect(hasCustomDatabaseViewSort([{
-      field: { kind: "manual" },
-      direction: "asc",
-      nulls: "last",
-    }])).toBe(false);
-    expect(hasCustomDatabaseViewSort([{
-      field: { kind: "title" },
-      direction: "asc",
-      nulls: "last",
-    }])).toBe(true);
+    expect(
+      hasCustomDatabaseViewSort([
+        {
+          field: { kind: "manual" },
+          direction: "asc",
+          nulls: "last",
+        },
+      ]),
+    ).toBe(false);
+    expect(
+      hasCustomDatabaseViewSort([
+        {
+          field: { kind: "title" },
+          direction: "asc",
+          nulls: "last",
+        },
+      ]),
+    ).toBe(true);
   });
 });

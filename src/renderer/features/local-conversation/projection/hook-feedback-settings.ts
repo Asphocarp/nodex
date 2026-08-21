@@ -1,6 +1,4 @@
-import type {
-  CodexCanonicalHookRun,
-} from "../../../../shared/codex-conversation-state/codex-conversation-state";
+import type { CodexCanonicalHookRun } from "../../../../shared/codex-conversation-state/codex-conversation-state";
 import {
   buildCodexHooksSettingsPath,
   resolveHookFeedbackSettingsTarget,
@@ -17,10 +15,9 @@ export function collectHookFeedbackSources(
 
   return hookRuns.flatMap((hook): HookFeedbackSource[] => {
     if (hook.run.eventName !== "stop") return [];
-    const matches = hook.run.entries.some((entry) => (
-      entry.kind === "feedback"
-      && entry.text.trim() === target
-    ));
+    const matches = hook.run.entries.some(
+      (entry) => entry.kind === "feedback" && entry.text.trim() === target,
+    );
     return matches ? [hook.run.source] : [];
   });
 }

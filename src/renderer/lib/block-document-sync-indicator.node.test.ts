@@ -5,9 +5,7 @@ import {
   resolveBlockDocumentSyncIndicator,
 } from "./block-document-sync-indicator";
 
-const status = (
-  overrides: Partial<NodexYProviderStatus> = {},
-): NodexYProviderStatus => ({
+const status = (overrides: Partial<NodexYProviderStatus> = {}): NodexYProviderStatus => ({
   phase: "synced",
   documentId: "document:card-1",
   clientSessionId: "window-1",
@@ -29,20 +27,24 @@ const TEST_THRESHOLDS = {
 
 describe("Block Document sync indicator", () => {
   test("keeps synced and normal fast saves completely quiet", () => {
-    expect(resolveBlockDocumentSyncIndicator({
-      status: status(),
-      phaseAgeMs: 10_000,
-      hasEverSynced: true,
-      thresholds: TEST_THRESHOLDS,
-    })).toBe(null);
+    expect(
+      resolveBlockDocumentSyncIndicator({
+        status: status(),
+        phaseAgeMs: 10_000,
+        hasEverSynced: true,
+        thresholds: TEST_THRESHOLDS,
+      }),
+    ).toBe(null);
 
-    expect(resolveBlockDocumentSyncIndicator({
-      status: status({ phase: "saving", pendingUpdateCount: 1 }),
-      phaseAgeMs: 9,
-      pendingAgeMs: 9,
-      hasEverSynced: true,
-      thresholds: TEST_THRESHOLDS,
-    })).toBe(null);
+    expect(
+      resolveBlockDocumentSyncIndicator({
+        status: status({ phase: "saving", pendingUpdateCount: 1 }),
+        phaseAgeMs: 9,
+        pendingAgeMs: 9,
+        hasEverSynced: true,
+        thresholds: TEST_THRESHOLDS,
+      }),
+    ).toBe(null);
   });
 
   test("shows delayed saving before escalating long pending work", () => {
@@ -80,16 +82,18 @@ describe("Block Document sync indicator", () => {
   });
 
   test("delays offline flicker while preserving an actionable retained-outbox state", () => {
-    expect(resolveBlockDocumentSyncIndicator({
-      status: status({
-        phase: "offline",
-        connected: false,
-        pendingUpdateCount: 1,
+    expect(
+      resolveBlockDocumentSyncIndicator({
+        status: status({
+          phase: "offline",
+          connected: false,
+          pendingUpdateCount: 1,
+        }),
+        phaseAgeMs: 19,
+        hasEverSynced: true,
+        thresholds: TEST_THRESHOLDS,
       }),
-      phaseAgeMs: 19,
-      hasEverSynced: true,
-      thresholds: TEST_THRESHOLDS,
-    })).toBe(null);
+    ).toBe(null);
 
     const offline = resolveBlockDocumentSyncIndicator({
       status: status({
@@ -116,12 +120,14 @@ describe("Block Document sync indicator", () => {
       storeEpoch: undefined,
       generation: undefined,
     });
-    expect(resolveBlockDocumentSyncIndicator({
-      status: connecting,
-      phaseAgeMs: 1_000,
-      hasEverSynced: false,
-      thresholds: TEST_THRESHOLDS,
-    })).toBe(null);
+    expect(
+      resolveBlockDocumentSyncIndicator({
+        status: connecting,
+        phaseAgeMs: 1_000,
+        hasEverSynced: false,
+        thresholds: TEST_THRESHOLDS,
+      }),
+    ).toBe(null);
 
     const reconnecting = resolveBlockDocumentSyncIndicator({
       status: connecting,

@@ -49,7 +49,10 @@ function createStore(): MaitaiStore {
   return store;
 }
 
-function ScopeTree({ identity, onHandle }: {
+function ScopeTree({
+  identity,
+  onHandle,
+}: {
   readonly identity: string;
   readonly onHandle: (handle: ScopeHandle) => void;
 }) {
@@ -80,17 +83,24 @@ describe("ComposerScope draft ownership", () => {
     let handle: ScopeHandle | null = null;
     render(
       <MaitaiProvider store={store}>
-        <ScopeTree identity="task:clear" onHandle={(next) => { handle = next; }} />
+        <ScopeTree
+          identity="task:clear"
+          onHandle={(next) => {
+            handle = next;
+          }}
+        />
       </MaitaiProvider>,
     );
     const committedHandle = handle as ScopeHandle | null;
     if (!committedHandle) throw new Error("Expected committed ComposerScope handle");
 
     act(() => {
-      committedHandle.set(composerFileAttachmentsAtom, [{
-        uiId: "file_1",
-        attachment: { label: "plan.md", path: "/tmp/plan.md", fsPath: "/tmp/plan.md" },
-      }]);
+      committedHandle.set(composerFileAttachmentsAtom, [
+        {
+          uiId: "file_1",
+          attachment: { label: "plan.md", path: "/tmp/plan.md", fsPath: "/tmp/plan.md" },
+        },
+      ]);
       committedHandle.set(composerGoalModeActiveAtom, true);
       committedHandle.set(clearComposerCompletedDraftAtom);
     });
@@ -105,10 +115,16 @@ describe("ComposerScope draft ownership", () => {
     let appHandle: ScopeHandle | null = null;
     function AppProbe() {
       const handle = useScopeHandle(appScope);
-      useLayoutEffect(() => { appHandle = handle; }, [handle]);
+      useLayoutEffect(() => {
+        appHandle = handle;
+      }, [handle]);
       return null;
     }
-    render(<MaitaiProvider store={store}><AppProbe /></MaitaiProvider>);
+    render(
+      <MaitaiProvider store={store}>
+        <AppProbe />
+      </MaitaiProvider>,
+    );
     const committedAppHandle = appHandle as ScopeHandle | null;
     if (!committedAppHandle) throw new Error("Expected AppScope handle");
     const transfer = createComposerDraftTransfer("thread_target", {
@@ -132,7 +148,12 @@ describe("ComposerScope draft ownership", () => {
     let currentHandle: ScopeHandle | null = null;
     const tree = (identity: string) => (
       <MaitaiProvider store={store}>
-        <ScopeTree identity={identity} onHandle={(next) => { currentHandle = next; }} />
+        <ScopeTree
+          identity={identity}
+          onHandle={(next) => {
+            currentHandle = next;
+          }}
+        />
       </MaitaiProvider>
     );
     const view = render(tree("composer:0"));

@@ -1,7 +1,4 @@
-import {
-  parseContentAccessContext,
-  type ContentAccessContext,
-} from "../content-access-context";
+import { parseContentAccessContext, type ContentAccessContext } from "../content-access-context";
 
 export const MAX_DOCUMENT_PRESENCE_BYTES = 64 * 1024;
 const MAX_CANVAS_PRESENCE_PUBLICATION_BYTES = 56 * 1024;
@@ -107,58 +104,41 @@ const hasOnlyKeys = (
 
 const readIdentity = (value: unknown, label: string): string => {
   if (
-    typeof value !== "string"
-    || value.length < 1
-    || value.length > 512
-    || value.trim() !== value
+    typeof value !== "string" ||
+    value.length < 1 ||
+    value.length > 512 ||
+    value.trim() !== value
   ) {
     throw new TypeError(`${label} must be an exact bounded identity`);
   }
   return value;
 };
 
-const readSafeInteger = (
-  value: unknown,
-  label: string,
-  minimum: number,
-): number => {
-  if (
-    typeof value !== "number"
-    || !Number.isSafeInteger(value)
-    || value < minimum
-  ) {
+const readSafeInteger = (value: unknown, label: string, minimum: number): number => {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum) {
     throw new TypeError(`${label} must be a safe integer at least ${minimum}`);
   }
   return value;
 };
 
-const assertEncodedBound = <Value>(
-  value: Value,
-  maximumBytes: number,
-  label: string,
-): Value => {
-  if (
-    new TextEncoder().encode(JSON.stringify(value)).byteLength
-      > maximumBytes
-  ) {
+const assertEncodedBound = <Value>(value: Value, maximumBytes: number, label: string): Value => {
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > maximumBytes) {
     throw new TypeError(`${label} exceeds its byte bound`);
   }
   return value;
 };
 
-const parsePointer = (
-  value: unknown,
-): NonNullable<CanvasPresenceValue["pointer"]> | undefined => {
+const parsePointer = (value: unknown): NonNullable<CanvasPresenceValue["pointer"]> | undefined => {
   if (value === undefined) return undefined;
   if (
-    !isRecord(value)
-    || !hasOnlyKeys(value, ["x", "y", "button", "tool"])
-    || typeof value.x !== "number"
-    || !Number.isFinite(value.x)
-    || typeof value.y !== "number"
-    || !Number.isFinite(value.y)
-    || (value.button !== "up" && value.button !== "down")
-    || (value.tool !== "pointer" && value.tool !== "laser")
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["x", "y", "button", "tool"]) ||
+    typeof value.x !== "number" ||
+    !Number.isFinite(value.x) ||
+    typeof value.y !== "number" ||
+    !Number.isFinite(value.y) ||
+    (value.button !== "up" && value.button !== "down") ||
+    (value.tool !== "pointer" && value.tool !== "laser")
   ) {
     throw new TypeError("Canvas presence pointer is invalid");
   }
@@ -170,31 +150,25 @@ const parsePointer = (
   };
 };
 
-export const canonicalizeCanvasPresenceValue = (
-  value: unknown,
-): CanvasPresenceValue => {
+export const canonicalizeCanvasPresenceValue = (value: unknown): CanvasPresenceValue => {
   if (
-    !isRecord(value)
-    || !hasOnlyKeys(value, ["pointer", "selectedElementIds", "idle"])
-    || !Array.isArray(value.selectedElementIds)
-    || value.selectedElementIds.length > MAX_CANVAS_PRESENCE_SELECTION_IDS
-    || (value.idle !== "active"
-      && value.idle !== "idle"
-      && value.idle !== "away")
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["pointer", "selectedElementIds", "idle"]) ||
+    !Array.isArray(value.selectedElementIds) ||
+    value.selectedElementIds.length > MAX_CANVAS_PRESENCE_SELECTION_IDS ||
+    (value.idle !== "active" && value.idle !== "idle" && value.idle !== "away")
   ) {
     throw new TypeError("Canvas presence state is invalid");
   }
   const selectedElementIds = value.selectedElementIds.map((id) =>
-    readIdentity(id, "Canvas selected element")
+    readIdentity(id, "Canvas selected element"),
   );
   const canonicalSelection = [...new Set(selectedElementIds)].sort();
   if (
-    canonicalSelection.length !== selectedElementIds.length
-    || canonicalSelection.some((id, index) => id !== selectedElementIds[index])
+    canonicalSelection.length !== selectedElementIds.length ||
+    canonicalSelection.some((id, index) => id !== selectedElementIds[index])
   ) {
-    throw new TypeError(
-      "Canvas selected element identities must be sorted and unique",
-    );
+    throw new TypeError("Canvas selected element identities must be sorted and unique");
   }
   const pointer = parsePointer(value.pointer);
   return {
@@ -208,30 +182,18 @@ export const canonicalizeCanvasPresencePublication = (
   value: unknown,
 ): CanvasPresencePublication => {
   if (
-    !isRecord(value)
-    || !hasOnlyKeys(value, [
-      "engine",
-      "documentId",
-      "generation",
-      "clock",
-      "state",
-    ])
-    || value.engine !== "canvas_scene"
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["engine", "documentId", "generation", "clock", "state"]) ||
+    value.engine !== "canvas_scene"
   ) {
     throw new TypeError("Canvas presence publication is invalid");
   }
   const publication: CanvasPresencePublication = {
     engine: "canvas_scene",
     documentId: readIdentity(value.documentId, "Canvas presence Document"),
-    generation: readSafeInteger(
-      value.generation,
-      "Canvas presence generation",
-      1,
-    ),
+    generation: readSafeInteger(value.generation, "Canvas presence generation", 1),
     clock: readSafeInteger(value.clock, "Canvas presence clock", 0),
-    state: value.state === null
-      ? null
-      : canonicalizeCanvasPresenceValue(value.state),
+    state: value.state === null ? null : canonicalizeCanvasPresenceValue(value.state),
   };
   return assertEncodedBound(
     publication,
@@ -244,41 +206,27 @@ export const canonicalizeCanvasPresencePublishRequest = (
   value: unknown,
 ): CanvasPresencePublishRequest => {
   if (
-    !isRecord(value)
-    || !hasOnlyKeys(value, ["accessContext", "clientSessionId", "publication"])
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["accessContext", "clientSessionId", "publication"])
   ) {
     throw new TypeError("Canvas presence publish request is invalid");
   }
   return {
     accessContext: parseContentAccessContext(value.accessContext),
-    clientSessionId: readIdentity(
-      value.clientSessionId,
-      "Canvas presence client session",
-    ),
+    clientSessionId: readIdentity(value.clientSessionId, "Canvas presence client session"),
     publication: canonicalizeCanvasPresencePublication(value.publication),
   };
 };
 
-export const canonicalizeCanvasPresenceUser = (
-  value: unknown,
-): CanvasPresenceUser => {
-  if (
-    !isRecord(value)
-    || !hasOnlyKeys(value, ["id", "displayName", "color"])
-  ) {
+export const canonicalizeCanvasPresenceUser = (value: unknown): CanvasPresenceUser => {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["id", "displayName", "color"])) {
     throw new TypeError("Canvas presence user is invalid");
   }
-  const displayName = readIdentity(
-    value.displayName,
-    "Canvas presence display name",
-  );
+  const displayName = readIdentity(value.displayName, "Canvas presence display name");
   if (displayName.length > 128) {
     throw new TypeError("Canvas presence display name is too long");
   }
-  if (
-    typeof value.color !== "string"
-    || !/^#[0-9a-f]{6}$/u.test(value.color)
-  ) {
+  if (typeof value.color !== "string" || !/^#[0-9a-f]{6}$/u.test(value.color)) {
     throw new TypeError("Canvas presence color is invalid");
   }
   return {
@@ -288,12 +236,10 @@ export const canonicalizeCanvasPresenceUser = (
   };
 };
 
-export const canonicalizeCanvasPresenceEvent = (
-  value: unknown,
-): CanvasPresenceEvent => {
+export const canonicalizeCanvasPresenceEvent = (value: unknown): CanvasPresenceEvent => {
   if (
-    !isRecord(value)
-    || !hasOnlyKeys(value, [
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
       "engine",
       "documentId",
       "generation",
@@ -313,10 +259,7 @@ export const canonicalizeCanvasPresenceEvent = (
       clock: value.clock,
       state: value.state,
     }),
-    clientSessionId: readIdentity(
-      value.clientSessionId,
-      "Canvas presence client session",
-    ),
+    clientSessionId: readIdentity(value.clientSessionId, "Canvas presence client session"),
     user: canonicalizeCanvasPresenceUser(value.user),
   };
 };
@@ -328,68 +271,59 @@ export const canonicalizeCanvasPresenceRealtimeEvent = (
     throw new TypeError("Canvas presence realtime event is invalid");
   }
   if (value.type === "canvas_presence_updated") {
-    if (
-      !hasOnlyKeys(value, [
-        "type",
-        "libraryId",
-        "accessContext",
-        "presence",
-      ])
-    ) {
+    if (!hasOnlyKeys(value, ["type", "libraryId", "accessContext", "presence"])) {
       throw new TypeError("Canvas presence update event is invalid");
     }
-    return assertEncodedBound({
-      type: value.type,
-      libraryId: readIdentity(value.libraryId, "Canvas presence Library"),
-      accessContext: parseContentAccessContext(value.accessContext),
-      presence: canonicalizeCanvasPresenceEvent(value.presence),
-    }, MAX_DOCUMENT_PRESENCE_BYTES, "Canvas presence update event");
+    return assertEncodedBound(
+      {
+        type: value.type,
+        libraryId: readIdentity(value.libraryId, "Canvas presence Library"),
+        accessContext: parseContentAccessContext(value.accessContext),
+        presence: canonicalizeCanvasPresenceEvent(value.presence),
+      },
+      MAX_DOCUMENT_PRESENCE_BYTES,
+      "Canvas presence update event",
+    );
   }
   if (
-    value.type !== "canvas_presence_snapshot"
-    || !hasOnlyKeys(value, [
+    value.type !== "canvas_presence_snapshot" ||
+    !hasOnlyKeys(value, [
       "type",
       "libraryId",
       "accessContext",
       "documentId",
       "generation",
       "presences",
-    ])
-    || !Array.isArray(value.presences)
+    ]) ||
+    !Array.isArray(value.presences)
   ) {
     throw new TypeError("Canvas presence snapshot event is invalid");
   }
-  const documentId = readIdentity(
-    value.documentId,
-    "Canvas presence Document",
-  );
-  const generation = readSafeInteger(
-    value.generation,
-    "Canvas presence generation",
-    1,
-  );
+  const documentId = readIdentity(value.documentId, "Canvas presence Document");
+  const generation = readSafeInteger(value.generation, "Canvas presence generation", 1);
   const presences = value.presences.map(canonicalizeCanvasPresenceEvent);
-  const sessionIds = new Set(
-    presences.map((presence) => presence.clientSessionId),
-  );
+  const sessionIds = new Set(presences.map((presence) => presence.clientSessionId));
   if (
-    sessionIds.size !== presences.length
-    ||
+    sessionIds.size !== presences.length ||
     presences.some(
       (presence) =>
-        presence.documentId !== documentId
-        || presence.generation !== generation
-        || presence.state === null,
+        presence.documentId !== documentId ||
+        presence.generation !== generation ||
+        presence.state === null,
     )
   ) {
     throw new TypeError("Canvas presence snapshot crossed its boundary");
   }
-  return assertEncodedBound({
-    type: value.type,
-    libraryId: readIdentity(value.libraryId, "Canvas presence Library"),
-    accessContext: parseContentAccessContext(value.accessContext),
-    documentId,
-    generation,
-    presences,
-  }, MAX_DOCUMENT_PRESENCE_BYTES, "Canvas presence snapshot event");
+  return assertEncodedBound(
+    {
+      type: value.type,
+      libraryId: readIdentity(value.libraryId, "Canvas presence Library"),
+      accessContext: parseContentAccessContext(value.accessContext),
+      documentId,
+      generation,
+      presences,
+    },
+    MAX_DOCUMENT_PRESENCE_BYTES,
+    "Canvas presence snapshot event",
+  );
 };

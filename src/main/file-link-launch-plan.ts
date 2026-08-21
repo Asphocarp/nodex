@@ -14,9 +14,8 @@ export function normalizeFileLinkPosition(
     return null;
   }
 
-  const column = Number.isSafeInteger(target.column) && (target.column ?? 0) > 0
-    ? target.column!
-    : 1;
+  const column =
+    Number.isSafeInteger(target.column) && (target.column ?? 0) > 0 ? target.column! : 1;
 
   return {
     line: target.line!,

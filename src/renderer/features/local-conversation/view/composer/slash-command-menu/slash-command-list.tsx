@@ -130,11 +130,7 @@ function SlashCommandRow({
       <div className="flex w-full items-center gap-2">
         {command.icon}
         <div
-          className={cn(
-            command.description
-              ? "flex-shrink-0 truncate"
-              : "min-w-0 flex-1 truncate",
-          )}
+          className={cn(command.description ? "flex-shrink-0 truncate" : "min-w-0 flex-1 truncate")}
         >
           {command.title}
         </div>

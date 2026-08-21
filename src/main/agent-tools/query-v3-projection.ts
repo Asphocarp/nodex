@@ -20,9 +20,7 @@ export const projectNodexAgentQueryV3Data = (
 ) => {
   const query = result.value;
   const selectedPropertyIds = select?.propertyIds?.map(parseDataSourcePropertyId);
-  const activeProperties = query.properties.filter(
-    (property) => property.lifecycle === "active",
-  );
+  const activeProperties = query.properties.filter((property) => property.lifecycle === "active");
   const propertyById = new Map(
     activeProperties.map((property) => [property.propertyId, property] as const),
   );
@@ -55,27 +53,33 @@ export const projectNodexAgentQueryV3Data = (
         config: property.config,
       })),
     },
-    ...(result.kind === "query" ? {
-      view: {
-        viewId: result.value.view.viewId,
-        dataSourceId: result.value.view.dataSourceId,
-        name: result.value.view.name,
-        defaultLayout: result.value.view.defaultLayout,
-      },
-    } : {}),
+    ...(result.kind === "query"
+      ? {
+          view: {
+            viewId: result.value.view.viewId,
+            dataSourceId: result.value.view.dataSourceId,
+            name: result.value.view.name,
+            defaultLayout: result.value.view.defaultLayout,
+          },
+        }
+      : {}),
     rows: query.rows.map((row) => ({
       pageId: row.page.pageId,
       pageKey: row.pageKey,
       title: row.page.title,
-      values: Object.fromEntries(Object.entries(row.values)
-        .filter(([propertyId]) => selected.has(propertyId))
-        .map(([propertyId, value]) => [propertyId, value.value])),
-      ...(result.kind === "query" && row.position ? {
-        placement: {
-          viewId: result.value.view.viewId,
-          groupKey: row.effectiveGroupKey,
-        },
-      } : {}),
+      values: Object.fromEntries(
+        Object.entries(row.values)
+          .filter(([propertyId]) => selected.has(propertyId))
+          .map(([propertyId, value]) => [propertyId, value.value]),
+      ),
+      ...(result.kind === "query" && row.position
+        ? {
+            placement: {
+              viewId: result.value.view.viewId,
+              groupKey: row.effectiveGroupKey,
+            },
+          }
+        : {}),
       ...(select?.documentSummary ? { documentSummary: row.page.preview } : {}),
     })),
   };

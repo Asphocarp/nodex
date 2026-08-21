@@ -10,10 +10,7 @@ import {
 
 const HASH = "a".repeat(64);
 
-const revisionEntry: Extract<
-  PageHistoryEntry,
-  { kind: "document_version" }
-> = {
+const revisionEntry: Extract<PageHistoryEntry, { kind: "document_version" }> = {
   id: "document-version:version-1",
   kind: "document_version",
   libraryId: "library-1",
@@ -107,10 +104,7 @@ const mutationEntry: Extract<PageHistoryEntry, { kind: "block_mutation" }> = {
   fieldIntentCount: 2,
 };
 
-const incompleteRelocationEntry: Extract<
-  PageHistoryEntry,
-  { kind: "block_relocation" }
-> = {
+const incompleteRelocationEntry: Extract<PageHistoryEntry, { kind: "block_relocation" }> = {
   id: "change-log:41",
   kind: "block_relocation",
   libraryId: "library-1",

@@ -77,17 +77,15 @@ export function WorkbenchRouteHost({
   }
 
   if (
-    location.kind === "project"
-    || location.kind === "session"
-    || location.kind === "pages"
-    || location.kind === "empty"
+    location.kind === "project" ||
+    location.kind === "session" ||
+    location.kind === "pages" ||
+    location.kind === "empty"
   ) {
     return (
       <>
         {sidebar}
-        <WorkbenchRouteMain sidebarMounted={sidebarMounted}>
-          {session.content()}
-        </WorkbenchRouteMain>
+        <WorkbenchRouteMain sidebarMounted={sidebarMounted}>{session.content()}</WorkbenchRouteMain>
         {session.afterMain}
       </>
     );
@@ -122,24 +120,14 @@ export function WorkbenchEmptyRoute({
         {projectCatalogError ? "Projects could not be loaded" : "No project selected"}
       </p>
       {projectCatalogError ? (
-        <p className="max-w-sm text-xs text-token-text-secondary">
-          {projectCatalogError}
-        </p>
+        <p className="max-w-sm text-xs text-token-text-secondary">{projectCatalogError}</p>
       ) : null}
       {projectCatalogError && onRetryProjects ? (
-        <NodexButton
-          size="sm"
-          variant="secondary"
-          onClick={() => void onRetryProjects()}
-        >
+        <NodexButton size="sm" variant="secondary" onClick={() => void onRetryProjects()}>
           Retry
         </NodexButton>
       ) : null}
-      <NodexButton
-        size="sm"
-        variant="secondary"
-        onClick={onStartProjectlessChat}
-      >
+      <NodexButton size="sm" variant="secondary" onClick={onStartProjectlessChat}>
         Start a projectless chat
       </NodexButton>
     </div>

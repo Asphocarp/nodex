@@ -29,16 +29,16 @@ export interface ImageAssetMaterializationDependencies {
 }
 
 export class ImageAssetResolutionError extends Error {
-  constructor(message: string, readonly status: number | null = null) {
+  constructor(
+    message: string,
+    readonly status: number | null = null,
+  ) {
     super(message);
     this.name = "ImageAssetResolutionError";
   }
 }
 
-export function buildImageDataUrl(
-  dataBase64: string,
-  mimeType: string | null | undefined,
-): string {
+export function buildImageDataUrl(dataBase64: string, mimeType: string | null | undefined): string {
   return `data:${mimeType?.trim() || "application/octet-stream"};base64,${dataBase64}`;
 }
 
@@ -144,8 +144,8 @@ export async function materializeImageSourceAsDataUrl(
       return await dependencies.resolvePointer(source.source);
     case "remote":
     case "direct":
-      return await (dependencies.fetchSource?.(source.source)
-        ?? fetchImageSourceAsDataUrl(source.source));
+      return await (dependencies.fetchSource?.(source.source) ??
+        fetchImageSourceAsDataUrl(source.source));
     case "invalid":
       throw new ImageAssetResolutionError("Image source is empty or unsupported");
   }
@@ -163,9 +163,9 @@ export function dataUrlToBlob(dataUrl: string): Blob {
   try {
     if (/;base64(?:;|$)/iu.test(metadata)) {
       const binary = globalThis.atob(payload);
-      return new Blob([
-        Uint8Array.from(binary, (character) => character.charCodeAt(0)),
-      ], { type: mimeType });
+      return new Blob([Uint8Array.from(binary, (character) => character.charCodeAt(0))], {
+        type: mimeType,
+      });
     }
     return new Blob([decodeURIComponent(payload)], { type: mimeType });
   } catch (error) {

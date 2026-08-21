@@ -125,45 +125,45 @@ export function buildComposerShellModel(
     };
   }
 
-    const activeRequest = normalized.primaryRequest ?? selectPrimaryConversationRequest({
+  const activeRequest =
+    normalized.primaryRequest ??
+    selectPrimaryConversationRequest({
       threadId: normalized.threadId,
       projectId: null,
-    source: null,
-    threadName: null,
-    threadPreview: "",
-    modelProvider: "",
-    cwd: null,
-    statusType: normalized.statusType ?? "notLoaded",
-    statusActiveFlags: normalized.statusActiveFlags,
-    archived: false,
-    createdAt: 0,
-    updatedAt: 0,
-    linkedAt: "",
-    latestCollaborationMode: undefined,
-    resumeState: "resumed",
-    turns: normalized.turns,
-    canonicalRequests: normalized.canonicalRequests,
-    requests: normalized.requests,
-    queuedFollowUps: normalized.queuedFollowUps,
-    pendingSteers: normalized.pendingSteers,
-    backgroundTerminalRows: normalized.backgroundTerminalRows,
-    childMemberships: normalized.childMemberships,
-    capabilityFlags: {
-      canEditLastUserTurn: false,
-      canForkFromTurn: false,
-      canSearch: true,
-      canCollapseTurns: true,
-    },
-  });
-  const backgroundRequest = resolveBackgroundRequest(
-    normalized,
-    normalized.knownConversationsById,
-  );
+      source: null,
+      threadName: null,
+      threadPreview: "",
+      modelProvider: "",
+      cwd: null,
+      statusType: normalized.statusType ?? "notLoaded",
+      statusActiveFlags: normalized.statusActiveFlags,
+      archived: false,
+      createdAt: 0,
+      updatedAt: 0,
+      linkedAt: "",
+      latestCollaborationMode: undefined,
+      resumeState: "resumed",
+      turns: normalized.turns,
+      canonicalRequests: normalized.canonicalRequests,
+      requests: normalized.requests,
+      queuedFollowUps: normalized.queuedFollowUps,
+      pendingSteers: normalized.pendingSteers,
+      backgroundTerminalRows: normalized.backgroundTerminalRows,
+      childMemberships: normalized.childMemberships,
+      capabilityFlags: {
+        canEditLastUserTurn: false,
+        canForkFromTurn: false,
+        canSearch: true,
+        canCollapseTurns: true,
+      },
+    });
+  const backgroundRequest = resolveBackgroundRequest(normalized, normalized.knownConversationsById);
 
   const showRequestCards = activeRequest !== null || backgroundRequest !== null;
-  const showApprovalMode = activeRequest?.type === "approval"
-    || activeRequest?.type === "permissionRequest"
-    || backgroundRequest !== null;
+  const showApprovalMode =
+    activeRequest?.type === "approval" ||
+    activeRequest?.type === "permissionRequest" ||
+    backgroundRequest !== null;
 
   return {
     activeRequest: activeRequest

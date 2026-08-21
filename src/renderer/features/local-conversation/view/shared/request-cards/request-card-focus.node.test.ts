@@ -11,9 +11,7 @@ const optionQuestion: RequestComposerQuestion = {
   question: "Which option should Codex use?",
   isOther: true,
   isSecret: false,
-  options: [
-    { label: "First", description: "Use the first option." },
-  ],
+  options: [{ label: "First", description: "Use the first option." }],
 };
 
 const freeformQuestion: RequestComposerQuestion = {

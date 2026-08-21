@@ -26,14 +26,10 @@ export const DURABLE_CANVAS_SCENE_APP_STATE_KEYS = [
   "viewBackgroundColor",
 ] as const;
 
-const durableAppStateKeys = new Set<string>(
-  DURABLE_CANVAS_SCENE_APP_STATE_KEYS,
-);
+const durableAppStateKeys = new Set<string>(DURABLE_CANVAS_SCENE_APP_STATE_KEYS);
 
 export type CanvasSceneJsonValue = BlockPropertyJsonValue;
-export type CanvasSceneElement = Readonly<
-  Record<string, CanvasSceneJsonValue>
->;
+export type CanvasSceneElement = Readonly<Record<string, CanvasSceneJsonValue>>;
 
 export interface CanvasSceneFile {
   readonly id: string;
@@ -42,9 +38,7 @@ export interface CanvasSceneFile {
   readonly created?: number;
 }
 
-export type CanvasSceneAppState = Readonly<
-  Record<string, CanvasSceneJsonValue>
->;
+export type CanvasSceneAppState = Readonly<Record<string, CanvasSceneJsonValue>>;
 
 export interface CanvasScenePageReference {
   readonly sourceElementId: string;
@@ -83,10 +77,7 @@ export class CanvasSceneContractError extends TypeError {
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-export const requireCanvasSceneIdentity = (
-  value: unknown,
-  field: string,
-): string => {
+export const requireCanvasSceneIdentity = (value: unknown, field: string): string => {
   if (
     typeof value === "string" &&
     value.length > 0 &&
@@ -95,22 +86,14 @@ export const requireCanvasSceneIdentity = (
   ) {
     return value;
   }
-  throw new CanvasSceneContractError(
-    `${field} must be a canonical bounded identity`,
-  );
+  throw new CanvasSceneContractError(`${field} must be a canonical bounded identity`);
 };
 
-const requireSafeInteger = (
-  value: unknown,
-  field: string,
-  minimum: number,
-): number => {
+const requireSafeInteger = (value: unknown, field: string, minimum: number): number => {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum) {
     return value;
   }
-  throw new CanvasSceneContractError(
-    `${field} must be a safe integer >= ${minimum}`,
-  );
+  throw new CanvasSceneContractError(`${field} must be a safe integer >= ${minimum}`);
 };
 
 const canonicalJsonRecord = (
@@ -126,10 +109,9 @@ const canonicalJsonRecord = (
       return parsed as Readonly<Record<string, CanvasSceneJsonValue>>;
     }
   } catch (error) {
-    throw new CanvasSceneContractError(
-      `${field} must contain bounded portable JSON`,
-      { cause: error },
-    );
+    throw new CanvasSceneContractError(`${field} must contain bounded portable JSON`, {
+      cause: error,
+    });
   }
   throw new CanvasSceneContractError(`${field} must be a JSON object`);
 };
@@ -140,14 +122,10 @@ export const canonicalStringifyCanvasScene = (value: unknown): string => {
   const visit = (candidate: unknown, depth: number): string => {
     nodes += 1;
     if (nodes > MAX_PROJECTION_JSON_NODES) {
-      throw new CanvasSceneContractError(
-        "Canvas scene exceeds the JSON node limit",
-      );
+      throw new CanvasSceneContractError("Canvas scene exceeds the JSON node limit");
     }
     if (depth > MAX_PROJECTION_JSON_DEPTH) {
-      throw new CanvasSceneContractError(
-        "Canvas scene exceeds the JSON depth limit",
-      );
+      throw new CanvasSceneContractError("Canvas scene exceeds the JSON depth limit");
     }
     if (candidate === null || typeof candidate === "boolean") {
       return JSON.stringify(candidate);
@@ -157,9 +135,7 @@ export const canonicalStringifyCanvasScene = (value: unknown): string => {
     }
     if (typeof candidate === "string") return JSON.stringify(candidate);
     if (typeof candidate !== "object" || candidate === null) {
-      throw new CanvasSceneContractError(
-        "Canvas scene must contain only JSON values",
-      );
+      throw new CanvasSceneContractError("Canvas scene must contain only JSON values");
     }
     if (seen.has(candidate)) {
       throw new CanvasSceneContractError("Canvas scene must not be cyclic");
@@ -179,9 +155,7 @@ export const canonicalStringifyCanvasScene = (value: unknown): string => {
             )
             .join(",")}}`;
       if (serialized.length <= MAX_PROJECTION_JSON_LENGTH) return serialized;
-      throw new CanvasSceneContractError(
-        "Canvas scene exceeds the canonical JSON size limit",
-      );
+      throw new CanvasSceneContractError("Canvas scene exceeds the canonical JSON size limit");
     } finally {
       seen.delete(candidate);
     }
@@ -198,9 +172,7 @@ const hashString32 = (value: string, seed: number): string => {
   return hash.toString(16).padStart(8, "0");
 };
 
-export const canvasSceneElementHash = (
-  element: CanvasSceneElement,
-): string => {
+export const canvasSceneElementHash = (element: CanvasSceneElement): string => {
   const canonical = stableStringifyBlockPropertyJson(element);
   return [
     hashString32(canonical, 0x811c9dc5),
@@ -213,11 +185,7 @@ export const canvasSceneElementHash = (
 const elementClock = (
   element: CanvasSceneElement,
 ): { readonly version: number; readonly versionNonce: number } => ({
-  version: requireSafeInteger(
-    element.version,
-    `Canvas element ${String(element.id)}.version`,
-    1,
-  ),
+  version: requireSafeInteger(element.version, `Canvas element ${String(element.id)}.version`, 1),
   versionNonce: requireSafeInteger(
     element.versionNonce,
     `Canvas element ${String(element.id)}.versionNonce`,
@@ -251,19 +219,12 @@ const normalizeRuntimeJson = (
     }
     const prototype = Object.getPrototypeOf(value) as unknown;
     if (prototype !== Object.prototype && prototype !== null) {
-      throw new CanvasSceneContractError(
-        `${field} must contain only plain JSON objects`,
-      );
+      throw new CanvasSceneContractError(`${field} must contain only plain JSON objects`);
     }
     const normalized: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {
       if (entry === undefined) continue;
-      normalized[key] = normalizeRuntimeJson(
-        entry,
-        `${field}.${key}`,
-        depth + 1,
-        state,
-      );
+      normalized[key] = normalizeRuntimeJson(entry, `${field}.${key}`, depth + 1, state);
     }
     return normalized;
   } finally {
@@ -271,15 +232,10 @@ const normalizeRuntimeJson = (
   }
 };
 
-const canonicalizePageReference = (
-  element: CanvasSceneElement,
-): CanvasSceneElement => {
+const canonicalizePageReference = (element: CanvasSceneElement): CanvasSceneElement => {
   const customData = element.customData;
   if (!isRecord(customData)) return element;
-  if (
-    customData.type !== "nodex-card" &&
-    customData.type !== "nodex-card-reference"
-  ) {
+  if (customData.type !== "nodex-card" && customData.type !== "nodex-card-reference") {
     return element;
   }
   const targetBlockId = requireCanvasSceneIdentity(
@@ -287,9 +243,7 @@ const canonicalizePageReference = (
     `Canvas element ${String(element.id)}.customData.targetBlockId`,
   );
   const titleHint =
-    typeof customData.titleHint === "string"
-      ? customData.titleHint.slice(0, 512)
-      : undefined;
+    typeof customData.titleHint === "string" ? customData.titleHint.slice(0, 512) : undefined;
   return {
     ...element,
     customData: {
@@ -322,9 +276,7 @@ export const canonicalizeCanvasSceneElement = (
   }
   elementClock(record);
   if (typeof record.isDeleted !== "boolean") {
-    throw new CanvasSceneContractError(
-      `Canvas element ${id}.isDeleted must be boolean`,
-    );
+    throw new CanvasSceneContractError(`Canvas element ${id}.isDeleted must be boolean`);
   }
   if (
     record.index !== undefined &&
@@ -346,9 +298,7 @@ export const chooseCanvasSceneElementWinner = (
   const left = canonicalizeCanvasSceneElement(leftInput);
   const right = canonicalizeCanvasSceneElement(rightInput);
   if (left.id !== right.id) {
-    throw new CanvasSceneContractError(
-      "Canvas element contenders must have the same id",
-    );
+    throw new CanvasSceneContractError("Canvas element contenders must have the same id");
   }
   const leftClock = elementClock(left);
   const rightClock = elementClock(right);
@@ -393,8 +343,7 @@ export const canonicalizeCanvasSceneFile = (
       `Canvas file ${expectedId}.mimeType must be a bounded string`,
     );
   }
-  const parsedSource =
-    typeof record.source === "string" ? parseAssetSource(record.source) : null;
+  const parsedSource = typeof record.source === "string" ? parseAssetSource(record.source) : null;
   if (!parsedSource || record.source !== getAssetSource(parsedSource.fileName)) {
     throw new CanvasSceneContractError(
       `Canvas file ${expectedId}.source must be a managed asset URI`,
@@ -427,13 +376,8 @@ export const pickPortableCanvasSceneAppState = (
     if (value[key] !== undefined) candidate[key] = value[key];
   }
   const durable = canonicalJsonRecord(candidate, "Canvas appState");
-  if (
-    durable.gridModeEnabled !== undefined &&
-    typeof durable.gridModeEnabled !== "boolean"
-  ) {
-    throw new CanvasSceneContractError(
-      "Canvas appState.gridModeEnabled must be boolean",
-    );
+  if (durable.gridModeEnabled !== undefined && typeof durable.gridModeEnabled !== "boolean") {
+    throw new CanvasSceneContractError("Canvas appState.gridModeEnabled must be boolean");
   }
   for (const key of ["gridSize", "gridStep"] as const) {
     const entry = durable[key];
@@ -449,8 +393,7 @@ export const pickPortableCanvasSceneAppState = (
   }
   if (
     durable.viewBackgroundColor !== undefined &&
-    (typeof durable.viewBackgroundColor !== "string" ||
-      durable.viewBackgroundColor.length > 128)
+    (typeof durable.viewBackgroundColor !== "string" || durable.viewBackgroundColor.length > 128)
   ) {
     throw new CanvasSceneContractError(
       "Canvas appState.viewBackgroundColor must be a bounded string",
@@ -470,9 +413,7 @@ export const canvasSceneElementOrderKey = (
     ? element.index
     : `legacy:${fallbackOrdinal.toString(16).padStart(16, "0")}`;
 
-const readPageReference = (
-  element: CanvasSceneElement,
-): CanvasScenePageReference | null => {
+const readPageReference = (element: CanvasSceneElement): CanvasScenePageReference | null => {
   const customData = element.customData;
   if (!isRecord(customData) || customData.type !== "nodex-card-reference") {
     return null;
@@ -482,9 +423,7 @@ const readPageReference = (
     `Canvas element ${String(element.id)}.customData.targetBlockId`,
   );
   const titleHint =
-    typeof customData.titleHint === "string"
-      ? customData.titleHint.slice(0, 512)
-      : undefined;
+    typeof customData.titleHint === "string" ? customData.titleHint.slice(0, 512) : undefined;
   return {
     sourceElementId: element.id as string,
     targetBlockId,
@@ -521,17 +460,12 @@ export const materializePortableCanvasScene = (input: {
   }
   const fileEntries = Object.entries(input.files ?? {});
   if (fileEntries.length > MAX_CANVAS_SCENE_FILES) {
-    throw new CanvasSceneContractError(
-      `Canvas scene exceeds ${MAX_CANVAS_SCENE_FILES} files`,
-    );
+    throw new CanvasSceneContractError(`Canvas scene exceeds ${MAX_CANVAS_SCENE_FILES} files`);
   }
   const files = Object.fromEntries(
     fileEntries
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([fileId, file]) => [
-        fileId,
-        canonicalizeCanvasSceneFile(file, fileId),
-      ]),
+      .map(([fileId, file]) => [fileId, canonicalizeCanvasSceneFile(file, fileId)]),
   );
   for (const element of elements) {
     if (
@@ -550,9 +484,7 @@ export const materializePortableCanvasScene = (input: {
   const pageReferences = elements
     .filter((element) => element.isDeleted !== true)
     .map(readPageReference)
-    .filter(
-      (reference): reference is CanvasScenePageReference => reference !== null,
-    );
+    .filter((reference): reference is CanvasScenePageReference => reference !== null);
   const plainText = elements
     .map(elementPlainText)
     .filter((text) => text.length > 0)
@@ -570,9 +502,7 @@ export const materializePortableCanvasScene = (input: {
   };
 };
 
-export const canonicalPortableCanvasSceneFingerprint = (
-  scene: PortableCanvasScene,
-): string =>
+export const canonicalPortableCanvasSceneFingerprint = (scene: PortableCanvasScene): string =>
   canonicalStringifyCanvasScene({
     schemaVersion: scene.schemaVersion,
     elements: scene.elements,
@@ -583,9 +513,7 @@ export const canonicalPortableCanvasSceneFingerprint = (
 
 const semanticElement = (element: CanvasSceneElement): CanvasSceneElement =>
   Object.fromEntries(
-    Object.entries(element).filter(
-      ([key]) => key !== "version" && key !== "versionNonce",
-    ),
+    Object.entries(element).filter(([key]) => key !== "version" && key !== "versionNonce"),
   ) as CanvasSceneElement;
 
 export const canonicalPortableCanvasSceneSemanticFingerprint = (
@@ -593,9 +521,7 @@ export const canonicalPortableCanvasSceneSemanticFingerprint = (
 ): string =>
   canonicalStringifyCanvasScene({
     schemaVersion: scene.schemaVersion,
-    elements: scene.elements
-      .filter((element) => element.isDeleted !== true)
-      .map(semanticElement),
+    elements: scene.elements.filter((element) => element.isDeleted !== true).map(semanticElement),
     appState: scene.appState,
     files: scene.files,
   });
@@ -624,19 +550,11 @@ export const parsePortableCanvasScene = (value: unknown): PortableCanvasScene =>
   if (canonicalStringifyCanvasScene(derived) === canonicalStringifyCanvasScene(value)) {
     return derived;
   }
-  throw new CanvasSceneContractError(
-    "Canvas scene does not match its derived projection",
-  );
+  throw new CanvasSceneContractError("Canvas scene does not match its derived projection");
 };
 
-const deterministicVersionNonce = (
-  restoreIdentity: string,
-  elementId: string,
-): number =>
-  Number.parseInt(
-    hashString32(`${restoreIdentity}\0${elementId}`, 0x811c9dc5),
-    16,
-  );
+const deterministicVersionNonce = (restoreIdentity: string, elementId: string): number =>
+  Number.parseInt(hashString32(`${restoreIdentity}\0${elementId}`, 0x811c9dc5), 16);
 
 const nextElementVersion = (
   current: CanvasSceneElement | undefined,
@@ -662,9 +580,7 @@ export const compilePortableCanvasSceneForwardRestore = (input: {
   const currentById = new Map(
     input.current.elements.map((element) => [element.id as string, element]),
   );
-  const targetIds = new Set(
-    input.target.elements.map((element) => element.id as string),
-  );
+  const targetIds = new Set(input.target.elements.map((element) => element.id as string));
   const elementCandidates = input.target.elements.map((target) => {
     const elementId = target.id as string;
     return canonicalizeCanvasSceneElement({
@@ -688,16 +604,12 @@ export const compilePortableCanvasSceneForwardRestore = (input: {
   const files = Object.fromEntries(
     Object.entries(input.target.files)
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([fileId, file]) => [
-        fileId,
-        canonicalizeCanvasSceneFile(file, fileId),
-      ]),
+      .map(([fileId, file]) => [fileId, canonicalizeCanvasSceneFile(file, fileId)]),
   );
   return {
     kind: "canvas_scene_forward_restore",
     restoreIdentity,
-    targetSemanticFingerprint:
-      canonicalPortableCanvasSceneSemanticFingerprint(input.target),
+    targetSemanticFingerprint: canonicalPortableCanvasSceneSemanticFingerprint(input.target),
     elementCandidates,
     appState: pickPortableCanvasSceneAppState(input.target.appState),
     files,

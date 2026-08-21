@@ -15,18 +15,21 @@ export interface ManualSnapshotFormInput {
 }
 
 function integerTextField(label: string, minimum: number) {
-  return z.string().trim().superRefine((value, ctx) => {
-    const parsed = Number.parseInt(value, 10);
-    const isCanonicalInteger = /^-?\d+$/.test(value);
-    if (isCanonicalInteger && Number.isInteger(parsed) && parsed >= minimum) {
-      return;
-    }
+  return z
+    .string()
+    .trim()
+    .superRefine((value, ctx) => {
+      const parsed = Number.parseInt(value, 10);
+      const isCanonicalInteger = /^-?\d+$/.test(value);
+      if (isCanonicalInteger && Number.isInteger(parsed) && parsed >= minimum) {
+        return;
+      }
 
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `${label} must be an integer >= ${minimum}.`,
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${label} must be an integer >= ${minimum}.`,
+      });
     });
-  });
 }
 
 export const BACKUP_SCHEDULE_FORM_DEFAULTS: BackupScheduleFormInput = {
@@ -35,15 +38,17 @@ export const BACKUP_SCHEDULE_FORM_DEFAULTS: BackupScheduleFormInput = {
   retentionCount: "28",
 };
 
-export const BackupScheduleFormSchema = z.object({
-  autoEnabled: z.boolean(),
-  intervalHours: integerTextField("Frequency", 1),
-  retentionCount: integerTextField("Retention", 0),
-}).transform((value) => ({
-  autoEnabled: value.autoEnabled,
-  intervalHours: Number.parseInt(value.intervalHours.trim(), 10),
-  retentionCount: Number.parseInt(value.retentionCount.trim(), 10),
-}));
+export const BackupScheduleFormSchema = z
+  .object({
+    autoEnabled: z.boolean(),
+    intervalHours: integerTextField("Frequency", 1),
+    retentionCount: integerTextField("Retention", 0),
+  })
+  .transform((value) => ({
+    autoEnabled: value.autoEnabled,
+    intervalHours: Number.parseInt(value.intervalHours.trim(), 10),
+    retentionCount: Number.parseInt(value.retentionCount.trim(), 10),
+  }));
 
 export type BackupScheduleFormValue = z.output<typeof BackupScheduleFormSchema>;
 
@@ -51,11 +56,13 @@ export const HISTORY_RETENTION_FORM_DEFAULTS: HistoryRetentionFormInput = {
   retentionCount: "1000",
 };
 
-export const HistoryRetentionFormSchema = z.object({
-  retentionCount: integerTextField("History retention", 0),
-}).transform((value) => ({
-  retentionCount: Number.parseInt(value.retentionCount.trim(), 10),
-}));
+export const HistoryRetentionFormSchema = z
+  .object({
+    retentionCount: integerTextField("History retention", 0),
+  })
+  .transform((value) => ({
+    retentionCount: Number.parseInt(value.retentionCount.trim(), 10),
+  }));
 
 export type HistoryRetentionFormValue = z.output<typeof HistoryRetentionFormSchema>;
 
@@ -63,10 +70,12 @@ export const MANUAL_SNAPSHOT_FORM_DEFAULTS: ManualSnapshotFormInput = {
   label: "",
 };
 
-export const ManualSnapshotFormSchema = z.object({
-  label: z.string(),
-}).transform((value) => ({
-  label: value.label.trim(),
-}));
+export const ManualSnapshotFormSchema = z
+  .object({
+    label: z.string(),
+  })
+  .transform((value) => ({
+    label: value.label.trim(),
+  }));
 
 export type ManualSnapshotFormValue = z.output<typeof ManualSnapshotFormSchema>;

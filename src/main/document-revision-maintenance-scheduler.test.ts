@@ -53,4 +53,3 @@ describe("Document revision maintenance scheduler", () => {
     scheduler.dispose();
   });
 });
-

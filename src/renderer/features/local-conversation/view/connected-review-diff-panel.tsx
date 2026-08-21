@@ -34,31 +34,34 @@ function refreshSelectedTurnDiffTarget(
 ): ResolvedTurnDiffReview | null {
   if (!selectedTurn || !conversation) return null;
 
-  const turn = conversation.turns.find(
-    (candidate) => candidate.turnId === selectedTurn.turnId,
-  );
+  const turn = conversation.turns.find((candidate) => candidate.turnId === selectedTurn.turnId);
   const item = turn?.items.find(
-    (candidate) =>
-      (candidate.entryId ?? candidate.itemId) === selectedTurn.entryId,
+    (candidate) => (candidate.entryId ?? candidate.itemId) === selectedTurn.entryId,
   );
   const rawItem = item?.rawItem;
-  const itemPayload = rawItem !== null && typeof rawItem === "object"
-    ? filterTurnDiffPayload({
-        unifiedDiff: typeof (rawItem as { unifiedDiff?: unknown }).unifiedDiff === "string"
-          ? (rawItem as { unifiedDiff: string }).unifiedDiff
-          : "",
-        cwd: typeof (rawItem as { cwd?: unknown }).cwd === "string"
-          ? (rawItem as { cwd: string }).cwd
-          : conversation.cwd ?? projectWorkspacePath ?? undefined,
-        showRevertButton: (rawItem as { showRevertButton?: unknown }).showRevertButton === true,
-        patchBatches: normalizeTurnDiffPatchBatches(
-          (rawItem as { patchBatches?: unknown }).patchBatches,
-        ),
-      }, {
-        cwd: conversation.cwd ?? projectWorkspacePath,
-        projectlessOutputDirectory: conversation.projectlessOutputDirectory,
-      })
-    : null;
+  const itemPayload =
+    rawItem !== null && typeof rawItem === "object"
+      ? filterTurnDiffPayload(
+          {
+            unifiedDiff:
+              typeof (rawItem as { unifiedDiff?: unknown }).unifiedDiff === "string"
+                ? (rawItem as { unifiedDiff: string }).unifiedDiff
+                : "",
+            cwd:
+              typeof (rawItem as { cwd?: unknown }).cwd === "string"
+                ? (rawItem as { cwd: string }).cwd
+                : (conversation.cwd ?? projectWorkspacePath ?? undefined),
+            showRevertButton: (rawItem as { showRevertButton?: unknown }).showRevertButton === true,
+            patchBatches: normalizeTurnDiffPatchBatches(
+              (rawItem as { patchBatches?: unknown }).patchBatches,
+            ),
+          },
+          {
+            cwd: conversation.cwd ?? projectWorkspacePath,
+            projectlessOutputDirectory: conversation.projectlessOutputDirectory,
+          },
+        )
+      : null;
   const derivedTurnPayload =
     selectedTurn.entryId === `turn-diff:${turn?.turnId ?? ""}` && turn
       ? filterTurnDiffPayload(
@@ -124,10 +127,7 @@ export function ConnectedReviewDiffPanel({
   recordReviewRuntimeEvent({ type: "connected-render" });
   const reviewRouteState = useScopedAtomValue(reviewRouteStateAtom);
   const transcriptThreadId = reviewRouteState.transcriptThreadId ?? threadId;
-  const reviewProjectionSelector = useMemo(
-    createReviewConversationProjectionSelector,
-    [],
-  );
+  const reviewProjectionSelector = useMemo(createReviewConversationProjectionSelector, []);
   const conversationProjection = useCodexConversationValue(
     transcriptThreadId,
     reviewProjectionSelector,
@@ -145,8 +145,7 @@ export function ConnectedReviewDiffPanel({
   );
   const manager = useCodexAppServerManagerForConversationId(transcriptThreadId);
   const startThreadPrompt = useCallback(
-    (targetThreadId: string, prompt: string) =>
-      manager.startTurn(targetThreadId, prompt),
+    (targetThreadId: string, prompt: string) => manager.startTurn(targetThreadId, prompt),
     [manager],
   );
 

@@ -56,7 +56,11 @@ function isUsableRect(rect: SelectedTextRectLike): boolean {
   return rect.width > 0 && rect.height > 0;
 }
 
-function rectIntersectsVerticalRange(rect: SelectedTextRectLike, top: number, bottom: number): boolean {
+function rectIntersectsVerticalRange(
+  rect: SelectedTextRectLike,
+  top: number,
+  bottom: number,
+): boolean {
   return rect.bottom > top && rect.top < bottom;
 }
 
@@ -71,7 +75,10 @@ function toRectLike(rect: DOMRect): SelectedTextRectLike {
   };
 }
 
-function compareRectsByDocumentOrder(left: SelectedTextRectLike, right: SelectedTextRectLike): number {
+function compareRectsByDocumentOrder(
+  left: SelectedTextRectLike,
+  right: SelectedTextRectLike,
+): number {
   const topDelta = left.top - right.top;
   if (Math.abs(topDelta) > 1) return topDelta;
   return left.left - right.left;
@@ -93,7 +100,8 @@ export function resolveCommonSelectedTextTarget(input: {
   const anchorElement = nodeToElement(input.anchorNode);
   const focusElement = nodeToElement(input.focusNode);
   if (!anchorElement || !focusElement) return null;
-  if (!input.rootElement.contains(anchorElement) || !input.rootElement.contains(focusElement)) return null;
+  if (!input.rootElement.contains(anchorElement) || !input.rootElement.contains(focusElement))
+    return null;
 
   const anchorTarget = anchorElement.closest<HTMLElement>(targetSelector);
   const focusTarget = focusElement.closest<HTMLElement>(targetSelector);
@@ -109,26 +117,25 @@ export function resolveSelectedTextOverlayLayout(
   if (!isUsableRect(input.portalRect) || !isUsableRect(input.scrollRect)) return null;
 
   const visibleTop = input.scrollRect.top + OVERLAY_EDGE_GAP_PX;
-  const visibleBottom = Math.min(
-    input.scrollRect.bottom,
-    input.footerRect?.top ?? input.scrollRect.bottom,
-  ) - OVERLAY_EDGE_GAP_PX;
+  const visibleBottom =
+    Math.min(input.scrollRect.bottom, input.footerRect?.top ?? input.scrollRect.bottom) -
+    OVERLAY_EDGE_GAP_PX;
   if (visibleBottom - visibleTop < OVERLAY_HEIGHT_PX) return null;
 
   const visibleRects = input.rangeRects
     .filter(isUsableRect)
     .filter((rect) => rectIntersectsVerticalRange(rect, visibleTop, visibleBottom))
     .sort(compareRectsByDocumentOrder);
-  const anchorRect = visibleRects[0] ?? (
-    rectIntersectsVerticalRange(input.rangeBoundingRect, visibleTop, visibleBottom)
+  const anchorRect =
+    visibleRects[0] ??
+    (rectIntersectsVerticalRange(input.rangeBoundingRect, visibleTop, visibleBottom)
       ? input.rangeBoundingRect
-      : null
-  );
+      : null);
   if (!anchorRect || !isUsableRect(anchorRect)) return null;
 
-  const anchorCenterX = anchorRect.left + (anchorRect.width / 2);
-  const minLeft = OVERLAY_EDGE_GAP_PX + (OVERLAY_WIDTH_PX / 2);
-  const maxLeft = input.portalRect.width - OVERLAY_EDGE_GAP_PX - (OVERLAY_WIDTH_PX / 2);
+  const anchorCenterX = anchorRect.left + anchorRect.width / 2;
+  const minLeft = OVERLAY_EDGE_GAP_PX + OVERLAY_WIDTH_PX / 2;
+  const maxLeft = input.portalRect.width - OVERLAY_EDGE_GAP_PX - OVERLAY_WIDTH_PX / 2;
   const leftPx = clampNumber(anchorCenterX - input.portalRect.left, minLeft, maxLeft);
 
   const aboveTop = anchorRect.top - OVERLAY_SELECTION_GAP_PX - OVERLAY_HEIGHT_PX;
@@ -159,7 +166,11 @@ function readSelectedTextOverlayState(scrollElement: HTMLElement): SelectedTextO
   if (!selectedTarget) return null;
 
   const range = selection.getRangeAt(0);
-  if (!selectedTarget.contains(range.startContainer) || !selectedTarget.contains(range.endContainer)) return null;
+  if (
+    !selectedTarget.contains(range.startContainer) ||
+    !selectedTarget.contains(range.endContainer)
+  )
+    return null;
 
   const layout = resolveSelectedTextOverlayLayout({
     selectedText,
@@ -167,7 +178,10 @@ function readSelectedTextOverlayState(scrollElement: HTMLElement): SelectedTextO
     rangeBoundingRect: toRectLike(range.getBoundingClientRect()),
     portalRect: toRectLike(portalTarget.getBoundingClientRect()),
     scrollRect: toRectLike(scrollElement.getBoundingClientRect()),
-    footerRect: scrollElement.querySelector<HTMLElement>(THREAD_SCROLL_FOOTER_SELECTOR)?.getBoundingClientRect() ?? null,
+    footerRect:
+      scrollElement
+        .querySelector<HTMLElement>(THREAD_SCROLL_FOOTER_SELECTOR)
+        ?.getBoundingClientRect() ?? null,
   });
   if (!layout) return null;
 
@@ -276,25 +290,23 @@ export function LocalConversationSelectedTextSideChatOverlay({
       window.removeEventListener("resize", scheduleMeasure);
       scrollElement.removeEventListener("scroll", scheduleMeasure);
     };
-  }, [
-    clearOverlay,
-    enabled,
-    onOpenSideChat,
-    scrollElement,
-  ]);
+  }, [clearOverlay, enabled, onOpenSideChat, scrollElement]);
 
-  const handleAskInSideChat = useCallback((event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.stopPropagation();
-    const text = overlayState?.text.trim() ?? "";
-    if (!text) return;
+  const handleAskInSideChat = useCallback(
+    (event: ReactMouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      const text = overlayState?.text.trim() ?? "";
+      if (!text) return;
 
-    document.getSelection()?.removeAllRanges();
-    clearOverlay();
-    void onOpenSideChatRef.current?.({
-      kind: "draft",
-      draftPrompt: text,
-    });
-  }, [clearOverlay, overlayState?.text]);
+      document.getSelection()?.removeAllRanges();
+      clearOverlay();
+      void onOpenSideChatRef.current?.({
+        kind: "draft",
+        draftPrompt: text,
+      });
+    },
+    [clearOverlay, overlayState?.text],
+  );
 
   if (!enabled || !overlayState) return null;
 

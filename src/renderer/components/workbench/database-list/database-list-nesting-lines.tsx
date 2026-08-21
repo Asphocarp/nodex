@@ -1,9 +1,6 @@
 import { Fragment } from "react";
 
-import type {
-  DatabaseListPageRow,
-  DatabaseListProjectionRow,
-} from "./database-list-model";
+import type { DatabaseListPageRow, DatabaseListProjectionRow } from "./database-list-model";
 import {
   DATABASE_LIST_CHECKBOX_WIDTH,
   DATABASE_LIST_FIELD_GAP,
@@ -16,10 +13,11 @@ export const DATABASE_LIST_NESTING_OVERLAY_LEFT_PX = 6;
 export const DATABASE_LIST_NESTING_LINE_WIDTH_PX = 1;
 export const DATABASE_LIST_PAGE_ROW_HEIGHT_PX = 44;
 // The visible 1px guide is centered on the leading identity icon lane.
-export const DATABASE_LIST_NESTING_ANCHOR_PX = DATABASE_LIST_CHECKBOX_WIDTH
-  + DATABASE_LIST_FIELD_GAP
-  + DATABASE_LIST_ICON_ACTION_WIDTH / 2
-  - 0.5;
+export const DATABASE_LIST_NESTING_ANCHOR_PX =
+  DATABASE_LIST_CHECKBOX_WIDTH +
+  DATABASE_LIST_FIELD_GAP +
+  DATABASE_LIST_ICON_ACTION_WIDTH / 2 -
+  0.5;
 
 export const databaseListNestingLineLeft = (level: number): number =>
   DATABASE_LIST_NESTING_ANCHOR_PX + level * DATABASE_LIST_NESTING_DEPTH_PX;
@@ -34,10 +32,10 @@ export const databaseListNestingLineInset = (level: number): number =>
 export const databaseListDropIndicatorLeft = (prospectiveDepth: number): number =>
   prospectiveDepth <= 0
     ? DATABASE_LIST_INDENT_WIDTH
-    : DATABASE_LIST_INDENT_WIDTH
-      + DATABASE_LIST_FIELD_GAP
-      + databaseListNestingLineLeft(prospectiveDepth - 1)
-      + DATABASE_LIST_NESTING_LINE_WIDTH_PX / 2;
+    : DATABASE_LIST_INDENT_WIDTH +
+      DATABASE_LIST_FIELD_GAP +
+      databaseListNestingLineLeft(prospectiveDepth - 1) +
+      DATABASE_LIST_NESTING_LINE_WIDTH_PX / 2;
 
 export const databaseListNestingGeometry = (rowHeight: number) => ({
   fullVerticalLineHeight: rowHeight / 2 - 6,
@@ -49,19 +47,11 @@ const DATABASE_LIST_NESTING_GEOMETRY = databaseListNestingGeometry(
   DATABASE_LIST_PAGE_ROW_HEIGHT_PX,
 );
 
-const parentPathKey = (
-  row: DatabaseListPageRow,
-  level: number,
-): string => JSON.stringify([
-  row.groupKey,
-  row.subgroupKey,
-  ...row.ancestorPageIds.slice(0, level + 1),
-]);
+const parentPathKey = (row: DatabaseListPageRow, level: number): string =>
+  JSON.stringify([row.groupKey, row.subgroupKey, ...row.ancestorPageIds.slice(0, level + 1)]);
 
-const directChildAtLevel = (
-  row: DatabaseListPageRow,
-  level: number,
-): string => row.ancestorPageIds[level + 1] ?? row.pageId;
+const directChildAtLevel = (row: DatabaseListPageRow, level: number): string =>
+  row.ancestorPageIds[level + 1] ?? row.pageId;
 
 /**
  * Identifies the ancestor branches that continue beyond each visible row.
@@ -75,21 +65,21 @@ export const databaseListNestingContinuations = (
   for (const row of rows) {
     if (row.kind !== "page") continue;
     for (let level = 0; level < row.depth; level += 1) {
-      lastChildByParentPath.set(
-        parentPathKey(row, level),
-        directChildAtLevel(row, level),
-      );
+      lastChildByParentPath.set(parentPathKey(row, level), directChildAtLevel(row, level));
     }
   }
 
-  return new Map(rows.flatMap((row) => {
-    if (row.kind !== "page" || row.depth === 0) return [];
-    const continuations = Array.from({ length: row.depth }, (_, level) =>
-      lastChildByParentPath.get(parentPathKey(row, level))
-        !== directChildAtLevel(row, level)
-    );
-    return [[row.key, continuations] as const];
-  }));
+  return new Map(
+    rows.flatMap((row) => {
+      if (row.kind !== "page" || row.depth === 0) return [];
+      const continuations = Array.from(
+        { length: row.depth },
+        (_, level) =>
+          lastChildByParentPath.get(parentPathKey(row, level)) !== directChildAtLevel(row, level),
+      );
+      return [[row.key, continuations] as const];
+    }),
+  );
 };
 
 export function DatabaseListNestingLines({

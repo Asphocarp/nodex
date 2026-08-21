@@ -51,5 +51,4 @@ export class ProjectRuntimeLifecycleCoordinator {
   }
 }
 
-export const projectRuntimeLifecycleCoordinator =
-  new ProjectRuntimeLifecycleCoordinator();
+export const projectRuntimeLifecycleCoordinator = new ProjectRuntimeLifecycleCoordinator();

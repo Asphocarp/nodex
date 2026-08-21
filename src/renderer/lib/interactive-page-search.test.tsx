@@ -25,10 +25,20 @@ const PROJECT_IDS = ["project-1"];
 
 function hit(query: string): PageSearchResult {
   return {
-    projectId: "project-1", pageId: "page-1", pageKey: "NDX-1",
-    title: `Canonical ${query}`, status: null, priority: null, tags: [],
-    assignee: null, locationLabel: "Pages", titleParts: [], excerpt: null,
-    excerptParts: [], matches: [], updatedAt: "2026-08-18T00:00:00.000Z",
+    projectId: "project-1",
+    pageId: "page-1",
+    pageKey: "NDX-1",
+    title: `Canonical ${query}`,
+    status: null,
+    priority: null,
+    tags: [],
+    assignee: null,
+    locationLabel: "Pages",
+    titleParts: [],
+    excerpt: null,
+    excerptParts: [],
+    matches: [],
+    updatedAt: "2026-08-18T00:00:00.000Z",
   };
 }
 
@@ -57,23 +67,41 @@ function Harness() {
   const [query, setQuery] = useState("");
   const [unrelated, setUnrelated] = useState(0);
   const search = useInteractivePageSearch({ projectIds: PROJECT_IDS, query, limit: 10 });
-  return <>
-    <input aria-label="Search Pages" value={query} onChange={(event) => setQuery(event.currentTarget.value)} />
-    <button onClick={() => setUnrelated((value) => value + 1)}>Rerender {unrelated}</button>
-    {search.rows.map((row) => <div data-page-id={row.pageId} key={row.pageId}>{row.title}</div>)}
-    {search.enrichment === "loading" ? <div>Loading more Pages…</div> : null}
-    {search.enrichment === "unavailable" ? <div>Full Page search is unavailable</div> : null}
-    {search.enrichment === "settled" && search.rows.length === 0 ? <div>No matching Pages</div> : null}
-  </>;
+  return (
+    <>
+      <input
+        aria-label="Search Pages"
+        value={query}
+        onChange={(event) => setQuery(event.currentTarget.value)}
+      />
+      <button onClick={() => setUnrelated((value) => value + 1)}>Rerender {unrelated}</button>
+      {search.rows.map((row) => (
+        <div data-page-id={row.pageId} key={row.pageId}>
+          {row.title}
+        </div>
+      ))}
+      {search.enrichment === "loading" ? <div>Loading more Pages…</div> : null}
+      {search.enrichment === "unavailable" ? <div>Full Page search is unavailable</div> : null}
+      {search.enrichment === "settled" && search.rows.length === 0 ? (
+        <div>No matching Pages</div>
+      ) : null}
+    </>
+  );
 }
 
 function SharedHarness() {
   const first = useInteractivePageSearch({ projectIds: PROJECT_IDS, query: "shared", limit: 10 });
   const second = useInteractivePageSearch({ projectIds: PROJECT_IDS, query: "shared", limit: 10 });
-  return <>
-    <div data-shared="first">{first.enrichment}:{first.rows[0]?.title ?? "none"}</div>
-    <div data-shared="second">{second.enrichment}:{second.rows[0]?.title ?? "none"}</div>
-  </>;
+  return (
+    <>
+      <div data-shared="first">
+        {first.enrichment}:{first.rows[0]?.title ?? "none"}
+      </div>
+      <div data-shared="second">
+        {second.enrichment}:{second.rows[0]?.title ?? "none"}
+      </div>
+    </>
+  );
 }
 
 afterEach(() => {
@@ -82,11 +110,8 @@ afterEach(() => {
   vi.mocked(invoke).mockImplementation(() => new Promise(() => undefined));
   vi.mocked(searchPages).mockReset();
   vi.mocked(searchPages).mockImplementation(
-    (input) => vi.mocked(invoke)(
-      "pages:search",
-      "test-request",
-      input,
-    ) as Promise<PageSearchSnapshot>,
+    (input) =>
+      vi.mocked(invoke)("pages:search", "test-request", input) as Promise<PageSearchSnapshot>,
   );
   __testing.reset();
 });
@@ -96,7 +121,7 @@ describe("InteractivePageSearch", () => {
     __testing.installIndex(PROJECT_IDS, {
       replace: () => undefined,
       applyDelta: () => undefined,
-      search: (request: { query?: string }) => request.query ? [hit(request.query)] : [],
+      search: (request: { query?: string }) => (request.query ? [hit(request.query)] : []),
     });
     const { container } = render(<Harness />);
     const input = container.querySelector("input")!;
@@ -111,13 +136,11 @@ describe("InteractivePageSearch", () => {
     vi.useFakeTimers();
     const older = deferred<PageSearchSnapshot>();
     const current = deferred<PageSearchSnapshot>();
-    vi.mocked(invoke)
-      .mockReturnValueOnce(older.promise)
-      .mockReturnValueOnce(current.promise);
+    vi.mocked(invoke).mockReturnValueOnce(older.promise).mockReturnValueOnce(current.promise);
     __testing.installIndex(PROJECT_IDS, {
       replace: () => undefined,
       applyDelta: () => undefined,
-      search: (request: { query?: string }) => request.query ? [hit(request.query)] : [],
+      search: (request: { query?: string }) => (request.query ? [hit(request.query)] : []),
     });
     const { container } = render(<Harness />);
     const input = container.querySelector("input")!;
@@ -151,8 +174,10 @@ describe("InteractivePageSearch", () => {
     await act(async () => {
       fireEvent.change(container.querySelector("input")!, { target: { value: "pages" } });
     });
-    const previewIds = () => Array.from(container.querySelectorAll("[data-page-id]"))
-      .map((element) => element.getAttribute("data-page-id"));
+    const previewIds = () =>
+      Array.from(container.querySelectorAll("[data-page-id]")).map((element) =>
+        element.getAttribute("data-page-id"),
+      );
     expect(previewIds()).toEqual(["page-preview-first", "page-preview-second"]);
 
     await act(async () => vi.advanceTimersByTimeAsync(175));
@@ -166,7 +191,7 @@ describe("InteractivePageSearch", () => {
     __testing.installIndex(PROJECT_IDS, {
       replace: () => undefined,
       applyDelta: () => undefined,
-      search: (request: { query?: string }) => request.query ? [hit(request.query)] : [],
+      search: (request: { query?: string }) => (request.query ? [hit(request.query)] : []),
     });
     const { container } = render(<Harness />);
 
@@ -199,8 +224,9 @@ describe("InteractivePageSearch", () => {
     expect(searchPages).toHaveBeenCalledTimes(1);
     await act(async () => shared.resolve(snapshot([hit("shared complete")])));
 
-    const rows = Array.from(container.querySelectorAll("[data-shared]"))
-      .map((element) => element.textContent);
+    const rows = Array.from(container.querySelectorAll("[data-shared]")).map(
+      (element) => element.textContent,
+    );
     expect(rows).toEqual([
       "settled:Canonical shared complete",
       "settled:Canonical shared complete",
@@ -213,7 +239,7 @@ describe("InteractivePageSearch", () => {
     __testing.installIndex(PROJECT_IDS, {
       replace: () => undefined,
       applyDelta: () => undefined,
-      search: (request: { query?: string }) => request.query ? [hit(request.query)] : [],
+      search: (request: { query?: string }) => (request.query ? [hit(request.query)] : []),
     });
     const { container } = render(<Harness />);
 

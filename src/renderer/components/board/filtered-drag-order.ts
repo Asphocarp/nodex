@@ -46,8 +46,7 @@ export function resolveFilteredDropOrder({
 
     return fullTargetPages
       .slice(0, firstDraggedIndex)
-      .filter((card) => !draggedPageIdSet.has(card.id))
-      .length;
+      .filter((card) => !draggedPageIdSet.has(card.id)).length;
   }
 
   if (visibleInsertIndex < visibleRemainingCards.length) {

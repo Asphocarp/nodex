@@ -15,10 +15,7 @@ export interface StartStoreAdministrationBackupSchedulerOptions {
   readonly intervalHours: number;
   readonly retentionCount: number;
   readonly isAuthorityAvailable?: () => boolean;
-  readonly setIntervalImpl?: (
-    callback: () => void,
-    milliseconds: number,
-  ) => BackupSchedulerTimer;
+  readonly setIntervalImpl?: (callback: () => void, milliseconds: number) => BackupSchedulerTimer;
   readonly clearIntervalImpl?: (timer: BackupSchedulerTimer) => void;
   readonly logger?: BackupSchedulerLogger;
 }
@@ -34,10 +31,9 @@ export function startStoreAdministrationBackupScheduler(
   const logger = options.logger ?? getLogger({ subsystem: "backup" });
   const intervalHours = Math.max(1, Math.trunc(options.intervalHours));
   const retentionCount = Math.max(0, Math.trunc(options.retentionCount));
-  const setIntervalImpl = options.setIntervalImpl
-    ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
-  const clearIntervalImpl = options.clearIntervalImpl
-    ?? ((timer) => clearInterval(timer));
+  const setIntervalImpl =
+    options.setIntervalImpl ?? ((callback, milliseconds) => setInterval(callback, milliseconds));
+  const clearIntervalImpl = options.clearIntervalImpl ?? ((timer) => clearInterval(timer));
   const isAuthorityAvailable = options.isAuthorityAvailable ?? (() => true);
   let disposed = false;
   let running = false;
@@ -61,9 +57,12 @@ export function startStoreAdministrationBackupScheduler(
   };
 
   const timer = options.enabled
-    ? setIntervalImpl(() => {
-        void runNow();
-      }, intervalHours * 60 * 60 * 1_000)
+    ? setIntervalImpl(
+        () => {
+          void runNow();
+        },
+        intervalHours * 60 * 60 * 1_000,
+      )
     : null;
   timer?.unref?.();
 

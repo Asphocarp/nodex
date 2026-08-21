@@ -11,9 +11,7 @@ export interface CanvasElementObservationDelta {
 }
 
 export interface CanvasElementChangeTracker {
-  observeLocal(
-    elementsIncludingDeleted: readonly unknown[],
-  ): CanvasElementObservationDelta;
+  observeLocal(elementsIncludingDeleted: readonly unknown[]): CanvasElementObservationDelta;
   acceptRemotePresentation(
     elementsIncludingDeleted: readonly unknown[],
     dirtyElementIds: ReadonlySet<string>,
@@ -42,11 +40,11 @@ const elementStamp = (element: CanvasSceneElement): ElementStamp => ({
 });
 
 const sameStamp = (left: ElementStamp, right: ElementStamp): boolean =>
-  left.version === right.version
-  && left.versionNonce === right.versionNonce
-  && left.orderKey === right.orderKey
-  && left.isDeleted === right.isDeleted
-  && left.hash === right.hash;
+  left.version === right.version &&
+  left.versionNonce === right.versionNonce &&
+  left.orderKey === right.orderKey &&
+  left.isDeleted === right.isDeleted &&
+  left.hash === right.hash;
 
 const canonicalRuntimeElement = (value: unknown): CanvasSceneElement =>
   canonicalizeCanvasSceneElement(value, { runtime: true });
@@ -54,13 +52,10 @@ const canonicalRuntimeElement = (value: unknown): CanvasSceneElement =>
 const chooseLatest = (
   current: CanvasSceneElement | undefined,
   candidate: CanvasSceneElement,
-): CanvasSceneElement =>
-  current ? chooseCanvasSceneElementWinner(current, candidate) : candidate;
+): CanvasSceneElement => (current ? chooseCanvasSceneElementWinner(current, candidate) : candidate);
 
 const isChangedImageCandidate = (element: CanvasSceneElement): boolean =>
-  element.isDeleted !== true
-  && element.type === "image"
-  && typeof element.fileId === "string";
+  element.isDeleted !== true && element.type === "image" && typeof element.fileId === "string";
 
 export const createCanvasElementChangeTracker = (
   initialElementsIncludingDeleted: readonly unknown[],

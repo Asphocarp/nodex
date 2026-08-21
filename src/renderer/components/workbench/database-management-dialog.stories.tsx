@@ -21,75 +21,79 @@ const dataSourceId = parseDataSourceId("source:story");
 const boardViewId = parseDatabaseViewId("view:board");
 const listViewId = parseDatabaseViewId("view:list");
 
-const databases: readonly DatabaseContainerDescriptorV2[] = [{
-  database: {
-    databaseId,
-    libraryId,
-    name: "Product work",
-    lifecycle: "active",
-    defaultViewId: boardViewId,
-    accessRevision: 1,
-    metadataRevision: 1,
-    createdAt: timestamp,
-    updatedAt: timestamp,
+const databases: readonly DatabaseContainerDescriptorV2[] = [
+  {
+    database: {
+      databaseId,
+      libraryId,
+      name: "Product work",
+      lifecycle: "active",
+      defaultViewId: boardViewId,
+      accessRevision: 1,
+      metadataRevision: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+    dataSources: [
+      {
+        dataSourceId,
+        libraryId,
+        homeDatabaseId: databaseId,
+        name: "Pages",
+        schemaKey: "nodex.pages",
+        schemaRevision: 4,
+        lifecycle: "active",
+        rankKey: "a",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    ],
+    views: [
+      {
+        viewId: boardViewId,
+        databaseId,
+        dataSourceId,
+        name: "Board",
+        defaultLayout: "board",
+        config: upgradeDatabaseViewConfigV2({
+          schemaKey: "nodex.database-view",
+          schemaVersion: 2,
+          filter: { kind: "group", operator: "and", children: [] },
+          sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
+          group: { propertyId: "status" },
+          display: { propertyIds: ["priority", "tags"], showTitle: true },
+        }),
+        isDefault: true,
+        revision: 3,
+        rankKey: "a",
+        lifecycle: "active",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      {
+        viewId: listViewId,
+        databaseId,
+        dataSourceId,
+        name: "Upcoming",
+        defaultLayout: "list",
+        config: upgradeDatabaseViewConfigV2({
+          schemaKey: "nodex.database-view",
+          schemaVersion: 2,
+          filter: { kind: "group", operator: "and", children: [] },
+          sort: [],
+          group: null,
+          display: { propertyIds: ["due_date"], showTitle: true },
+        }),
+        isDefault: false,
+        revision: 1,
+        rankKey: "b",
+        lifecycle: "active",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    ],
   },
-  dataSources: [{
-    dataSourceId,
-    libraryId,
-    homeDatabaseId: databaseId,
-    name: "Pages",
-    schemaKey: "nodex.pages",
-    schemaRevision: 4,
-    lifecycle: "active",
-    rankKey: "a",
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }],
-  views: [
-    {
-      viewId: boardViewId,
-      databaseId,
-      dataSourceId,
-      name: "Board",
-      defaultLayout: "board",
-      config: upgradeDatabaseViewConfigV2({
-        schemaKey: "nodex.database-view",
-        schemaVersion: 2,
-        filter: { kind: "group", operator: "and", children: [] },
-        sort: [{ field: { kind: "manual" }, direction: "asc", nulls: "last" }],
-        group: { propertyId: "status" },
-        display: { propertyIds: ["priority", "tags"], showTitle: true },
-      }),
-      isDefault: true,
-      revision: 3,
-      rankKey: "a",
-      lifecycle: "active",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    },
-    {
-      viewId: listViewId,
-      databaseId,
-      dataSourceId,
-      name: "Upcoming",
-      defaultLayout: "list",
-      config: upgradeDatabaseViewConfigV2({
-        schemaKey: "nodex.database-view",
-        schemaVersion: 2,
-        filter: { kind: "group", operator: "and", children: [] },
-        sort: [],
-        group: null,
-        display: { propertyIds: ["due_date"], showTitle: true },
-      }),
-      isDefault: false,
-      revision: 1,
-      rankKey: "b",
-      lifecycle: "active",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    },
-  ],
-}];
+];
 
 const source: DataSourceDescriptorV2 = {
   dataSource: databases[0]!.dataSources[0]!,
@@ -100,7 +104,12 @@ const source: DataSourceDescriptorV2 = {
       name: "Status",
       ...testPropertySemantics("select", 2),
       valueType: "select",
-      config: { options: [{ id: "draft", name: "Draft" }, { id: "done", name: "Done" }] },
+      config: {
+        options: [
+          { id: "draft", name: "Draft" },
+          { id: "done", name: "Done" },
+        ],
+      },
       rankKey: "a",
       lifecycle: "active",
       revision: 2,
@@ -221,7 +230,8 @@ export const ProjectDefaultNames: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Project-created Database containers and their initial Data Source share the `<project-name> DB` display name.",
+        story:
+          "Project-created Database containers and their initial Data Source share the `<project-name> DB` display name.",
       },
     },
   },
@@ -245,19 +255,17 @@ export const DeleteConfirmation: Story = {
   args: { source: overflowSource },
   play: async ({ canvasElement }) => {
     fireEvent.click(getByLabelText(canvasElement, "Delete property Additional Status 1"));
-    await waitFor(() => getByText(
-      canvasElement,
-      "Delete this Property and its values from every Page?",
-    ));
+    await waitFor(() =>
+      getByText(canvasElement, "Delete this Property and its values from every Page?"),
+    );
   },
 };
 
 export const DeleteBlockedByView: Story = {
   play: async ({ canvasElement }) => {
     fireEvent.click(getByLabelText(canvasElement, "Delete property Due date"));
-    await waitFor(() => getByText(
-      canvasElement,
-      "Used by Upcoming. Remove it from those Views first.",
-    ));
+    await waitFor(() =>
+      getByText(canvasElement, "Used by Upcoming. Remove it from those Views first."),
+    );
   },
 };

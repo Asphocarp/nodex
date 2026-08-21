@@ -15,13 +15,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { sortableKeyboardCoordinates } from "@dnd-kit/sortable";
-import {
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   PINNED_PROJECT_CONTAINER_ID,
@@ -103,14 +97,9 @@ const sidebarProjectCollisionDetection: CollisionDetection = (args) => {
     const projectPayload = readSidebarGroupDndPayload(container.data.current);
     const threadPayload = readSidebarThreadDndPayload(container.data.current);
     return (
-      (
-        projectPayload !== null
-        && projectPayload.controller === activePayload.controller
-      )
-      || (
-        threadPayload?.kind === "sidebar-thread-container"
-        && threadPayload.containerId === PINNED_PROJECT_CONTAINER_ID
-      )
+      (projectPayload !== null && projectPayload.controller === activePayload.controller) ||
+      (threadPayload?.kind === "sidebar-thread-container" &&
+        threadPayload.containerId === PINNED_PROJECT_CONTAINER_ID)
     );
   });
   const eligibleArgs = {
@@ -119,9 +108,9 @@ const sidebarProjectCollisionDetection: CollisionDetection = (args) => {
   };
   const pointerCollisions = pointerWithin({
     ...eligibleArgs,
-    droppableContainers: eligibleContainers.filter((container) => (
-      readSidebarGroupDndPayload(container.data.current) !== null
-    )),
+    droppableContainers: eligibleContainers.filter(
+      (container) => readSidebarGroupDndPayload(container.data.current) !== null,
+    ),
   });
   if (pointerCollisions.length > 0) return pointerCollisions;
   if (!args.pointerCoordinates) return closestCenter(eligibleArgs);
@@ -165,10 +154,7 @@ export function SidebarReorderDndProvider({
     resource: SidebarLibraryDragResource;
     parent: LibraryWriteParent;
   }) => void | Promise<void>;
-  onLibraryGrant?: (drop: {
-    resource: SidebarLibraryDragResource;
-    projectId: string;
-  }) => void;
+  onLibraryGrant?: (drop: { resource: SidebarLibraryDragResource; projectId: string }) => void;
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -180,19 +166,17 @@ export function SidebarReorderDndProvider({
   );
   const [activeDrag, setActiveDrag] = useState<ActiveSidebarDrag | null>(null);
   const [pendingThreadDrops, setPendingThreadDrops] = useState<PendingSidebarThreadDrop[]>([]);
-  const canonicalThreadLanesRef = useRef<SidebarThreadCanonicalLanes>(
-    EMPTY_CANONICAL_THREAD_LANES,
-  );
+  const canonicalThreadLanesRef = useRef<SidebarThreadCanonicalLanes>(EMPTY_CANONICAL_THREAD_LANES);
   const pointerYRef = useRef<number | null>(null);
   const destinationControllerRef = useRef<SidebarThreadReorderController | null>(null);
-  const updatePendingThreadDrops = useCallback((
-    update: (current: PendingSidebarThreadDrop[]) => PendingSidebarThreadDrop[],
-  ) => {
-    setPendingThreadDrops((current) => reconcilePendingSidebarThreadDrops(
-      update(current),
-      canonicalThreadLanesRef.current,
-    ));
-  }, []);
+  const updatePendingThreadDrops = useCallback(
+    (update: (current: PendingSidebarThreadDrop[]) => PendingSidebarThreadDrop[]) => {
+      setPendingThreadDrops((current) =>
+        reconcilePendingSidebarThreadDrops(update(current), canonicalThreadLanesRef.current),
+      );
+    },
+    [],
+  );
   const reportCanonicalThreadLanes = useCallback((lanes: SidebarThreadCanonicalLanes) => {
     canonicalThreadLanesRef.current = lanes;
     setPendingThreadDrops((current) => reconcilePendingSidebarThreadDrops(current, lanes));
@@ -201,30 +185,31 @@ export function SidebarReorderDndProvider({
     () => createSidebarThreadCollisionDetection(homeContainerIdByThreadId),
     [homeContainerIdByThreadId],
   );
-  const collisionDetection = useCallback<CollisionDetection>((args) => {
-    pointerYRef.current = args.pointerCoordinates?.y ?? null;
-    if (readSidebarGroupDndPayload(args.active.data.current)) {
-      return sidebarProjectCollisionDetection(args);
-    }
-    if (readSidebarThreadDndPayload(args.active.data.current)?.kind === "sidebar-item") {
-      return threadCollisionDetection(args);
-    }
-    if (readSidebarLibraryDragResource(args.active.data.current)) {
-      const eligibleContainers = args.droppableContainers.filter((container) =>
-        readSidebarLibraryOwnershipDropTarget(container.data.current) !== null ||
-        readSidebarGroupDndPayload(container.data.current) !== null);
-      const eligibleArgs = { ...args, droppableContainers: eligibleContainers };
-      const pointerCollisions = pointerWithin(eligibleArgs);
-      return pointerCollisions.length > 0
-        ? pointerCollisions
-        : closestCenter(eligibleArgs);
-    }
-    return closestCenter(args);
-  }, [threadCollisionDetection]);
+  const collisionDetection = useCallback<CollisionDetection>(
+    (args) => {
+      pointerYRef.current = args.pointerCoordinates?.y ?? null;
+      if (readSidebarGroupDndPayload(args.active.data.current)) {
+        return sidebarProjectCollisionDetection(args);
+      }
+      if (readSidebarThreadDndPayload(args.active.data.current)?.kind === "sidebar-item") {
+        return threadCollisionDetection(args);
+      }
+      if (readSidebarLibraryDragResource(args.active.data.current)) {
+        const eligibleContainers = args.droppableContainers.filter(
+          (container) =>
+            readSidebarLibraryOwnershipDropTarget(container.data.current) !== null ||
+            readSidebarGroupDndPayload(container.data.current) !== null,
+        );
+        const eligibleArgs = { ...args, droppableContainers: eligibleContainers };
+        const pointerCollisions = pointerWithin(eligibleArgs);
+        return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(eligibleArgs);
+      }
+      return closestCenter(args);
+    },
+    [threadCollisionDetection],
+  );
 
-  const cancelDestinationController = useCallback((
-    event?: DragCancelEvent | DragEndEvent,
-  ) => {
+  const cancelDestinationController = useCallback((event?: DragCancelEvent | DragEndEvent) => {
     destinationControllerRef.current?.handleDragCancel?.(event);
     destinationControllerRef.current = null;
   }, []);
@@ -234,186 +219,202 @@ export function SidebarReorderDndProvider({
     setActiveDrag(null);
   }, []);
 
-  const handleDragStart = useCallback((event: DragStartEvent) => {
-    pointerYRef.current = null;
-    cancelDestinationController();
-    clearTextSelection();
-
-    const projectPayload = readSidebarGroupDndPayload(event.active.data.current);
-    if (projectPayload) {
-      setActiveDrag({
-        kind: "project",
-        node: projectPayload.dragOverlay,
-        projectId: projectPayload.projectId,
-        zoom: readWindowZoom(event.activatorEvent),
-      });
-      projectPayload.controller.handleDragStart?.(event);
-      return;
-    }
-
-    const threadPayload = readSidebarThreadDndPayload(event.active.data.current);
-    if (threadPayload?.kind === "sidebar-item") {
-      setActiveDrag({
-        kind: "thread",
-        node: threadPayload.thread.dragOverlay,
-        thread: threadPayload.thread,
-        zoom: readWindowZoom(event.activatorEvent),
-      });
-      threadPayload.controller.handleDragStart?.(event);
-      return;
-    }
-    const libraryResource = readSidebarLibraryDragResource(event.active.data.current);
-    if (!libraryResource) return;
-    setActiveDrag({
-      kind: "library",
-      node: libraryResource.dragOverlay,
-      resource: libraryResource,
-      zoom: readWindowZoom(event.activatorEvent),
-    });
-  }, [cancelDestinationController]);
-
-  const refreshDragTarget = useCallback((event: DragMoveEvent | DragOverEvent) => {
-    const projectPayload = readSidebarGroupDndPayload(event.active.data.current);
-    if (projectPayload) {
-      projectPayload.controller.handleDragOver?.(event, pointerYRef.current);
-      return;
-    }
-
-    const activePayload = readSidebarThreadDndPayload(event.active.data.current);
-    if (activePayload?.kind !== "sidebar-item") return;
-    const pointerY = pointerYRef.current;
-    activePayload.controller.handleDragOver?.(event, pointerY);
-
-    const overPayload = readSidebarThreadDndPayload(event.over?.data.current);
-    const nextDestinationController = overPayload?.kind === "sidebar-item"
-      && overPayload.controller !== activePayload.controller
-      ? overPayload.controller
-      : null;
-    if (destinationControllerRef.current !== nextDestinationController) {
+  const handleDragStart = useCallback(
+    (event: DragStartEvent) => {
+      pointerYRef.current = null;
       cancelDestinationController();
-      destinationControllerRef.current = nextDestinationController;
-    }
-    nextDestinationController?.handleDragOver?.(event, pointerY);
-  }, [cancelDestinationController]);
+      clearTextSelection();
 
-  const handleDragCancel = useCallback((event: DragCancelEvent) => {
-    cancelDestinationController(event);
-    const projectPayload = readSidebarGroupDndPayload(event.active.data.current);
-    if (projectPayload) {
-      projectPayload.controller.handleDragCancel?.(event);
-      resetGestureState();
-      return;
-    }
-
-    const threadPayload = readSidebarThreadDndPayload(event.active.data.current);
-    if (threadPayload?.kind === "sidebar-item") {
-      threadPayload.controller.handleDragCancel?.(event);
-    }
-    resetGestureState();
-  }, [cancelDestinationController, resetGestureState]);
-
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    const pointerY = pointerYRef.current;
-    const destinationController = destinationControllerRef.current;
-    destinationControllerRef.current = null;
-    resetGestureState();
-
-    const projectPayload = readSidebarGroupDndPayload(event.active.data.current);
-    if (projectPayload) {
-      const overPayload = readSidebarThreadDndPayload(event.over?.data.current);
-      if (
-        overPayload?.kind === "sidebar-thread-container"
-        && overPayload.containerId === PINNED_PROJECT_CONTAINER_ID
-      ) {
-        projectPayload.controller.handleDragCancel?.(event);
-        onProjectDrop?.({
+      const projectPayload = readSidebarGroupDndPayload(event.active.data.current);
+      if (projectPayload) {
+        setActiveDrag({
+          kind: "project",
+          node: projectPayload.dragOverlay,
           projectId: projectPayload.projectId,
-          targetContainerId: overPayload.containerId,
+          zoom: readWindowZoom(event.activatorEvent),
         });
+        projectPayload.controller.handleDragStart?.(event);
         return;
       }
 
-      projectPayload.controller.handleDragEnd(event, pointerY);
-      return;
-    }
-
-    const libraryResource = readSidebarLibraryDragResource(event.active.data.current);
-    if (libraryResource) {
-      const overProject = readSidebarGroupDndPayload(event.over?.data.current);
-      const overRect = event.over?.rect;
-      const preferNest = pointerY !== null && overRect
-        ? Math.abs(pointerY - (overRect.top + overRect.height / 2)) <= overRect.height * 0.3
-        : false;
-      const decision = resolveSidebarLibraryDropDecision(
-        event.active.data.current,
-        event.over?.data.current,
-        overProject?.projectId ?? null,
-        preferNest,
-      );
-      if (decision.kind === "move") {
-        void onLibraryMove?.({
-          resource: decision.resource,
-          parent: decision.parent,
+      const threadPayload = readSidebarThreadDndPayload(event.active.data.current);
+      if (threadPayload?.kind === "sidebar-item") {
+        setActiveDrag({
+          kind: "thread",
+          node: threadPayload.thread.dragOverlay,
+          thread: threadPayload.thread,
+          zoom: readWindowZoom(event.activatorEvent),
         });
+        threadPayload.controller.handleDragStart?.(event);
+        return;
       }
-      if (decision.kind === "grant") {
-        onLibraryGrant?.({
-          resource: decision.resource,
-          projectId: decision.projectId,
-        });
-      }
-      return;
-    }
+      const libraryResource = readSidebarLibraryDragResource(event.active.data.current);
+      if (!libraryResource) return;
+      setActiveDrag({
+        kind: "library",
+        node: libraryResource.dragOverlay,
+        resource: libraryResource,
+        zoom: readWindowZoom(event.activatorEvent),
+      });
+    },
+    [cancelDestinationController],
+  );
 
-    dispatchSidebarThreadDragEnd({
-      destinationController,
-      event,
+  const refreshDragTarget = useCallback(
+    (event: DragMoveEvent | DragOverEvent) => {
+      const projectPayload = readSidebarGroupDndPayload(event.active.data.current);
+      if (projectPayload) {
+        projectPayload.controller.handleDragOver?.(event, pointerYRef.current);
+        return;
+      }
+
+      const activePayload = readSidebarThreadDndPayload(event.active.data.current);
+      if (activePayload?.kind !== "sidebar-item") return;
+      const pointerY = pointerYRef.current;
+      activePayload.controller.handleDragOver?.(event, pointerY);
+
+      const overPayload = readSidebarThreadDndPayload(event.over?.data.current);
+      const nextDestinationController =
+        overPayload?.kind === "sidebar-item" && overPayload.controller !== activePayload.controller
+          ? overPayload.controller
+          : null;
+      if (destinationControllerRef.current !== nextDestinationController) {
+        cancelDestinationController();
+        destinationControllerRef.current = nextDestinationController;
+      }
+      nextDestinationController?.handleDragOver?.(event, pointerY);
+    },
+    [cancelDestinationController],
+  );
+
+  const handleDragCancel = useCallback(
+    (event: DragCancelEvent) => {
+      cancelDestinationController(event);
+      const projectPayload = readSidebarGroupDndPayload(event.active.data.current);
+      if (projectPayload) {
+        projectPayload.controller.handleDragCancel?.(event);
+        resetGestureState();
+        return;
+      }
+
+      const threadPayload = readSidebarThreadDndPayload(event.active.data.current);
+      if (threadPayload?.kind === "sidebar-item") {
+        threadPayload.controller.handleDragCancel?.(event);
+      }
+      resetGestureState();
+    },
+    [cancelDestinationController, resetGestureState],
+  );
+
+  const handleDragEnd = useCallback(
+    (event: DragEndEvent) => {
+      const pointerY = pointerYRef.current;
+      const destinationController = destinationControllerRef.current;
+      destinationControllerRef.current = null;
+      resetGestureState();
+
+      const projectPayload = readSidebarGroupDndPayload(event.active.data.current);
+      if (projectPayload) {
+        const overPayload = readSidebarThreadDndPayload(event.over?.data.current);
+        if (
+          overPayload?.kind === "sidebar-thread-container" &&
+          overPayload.containerId === PINNED_PROJECT_CONTAINER_ID
+        ) {
+          projectPayload.controller.handleDragCancel?.(event);
+          onProjectDrop?.({
+            projectId: projectPayload.projectId,
+            targetContainerId: overPayload.containerId,
+          });
+          return;
+        }
+
+        projectPayload.controller.handleDragEnd(event, pointerY);
+        return;
+      }
+
+      const libraryResource = readSidebarLibraryDragResource(event.active.data.current);
+      if (libraryResource) {
+        const overProject = readSidebarGroupDndPayload(event.over?.data.current);
+        const overRect = event.over?.rect;
+        const preferNest =
+          pointerY !== null && overRect
+            ? Math.abs(pointerY - (overRect.top + overRect.height / 2)) <= overRect.height * 0.3
+            : false;
+        const decision = resolveSidebarLibraryDropDecision(
+          event.active.data.current,
+          event.over?.data.current,
+          overProject?.projectId ?? null,
+          preferNest,
+        );
+        if (decision.kind === "move") {
+          void onLibraryMove?.({
+            resource: decision.resource,
+            parent: decision.parent,
+          });
+        }
+        if (decision.kind === "grant") {
+          onLibraryGrant?.({
+            resource: decision.resource,
+            projectId: decision.projectId,
+          });
+        }
+        return;
+      }
+
+      dispatchSidebarThreadDragEnd({
+        destinationController,
+        event,
+        getThreadIdByThreadKey,
+        homeContainerIdByThreadId,
+        onError: onThreadError,
+        onThreadDrop,
+        pointerY,
+        updatePendingThreadDrops,
+      });
+    },
+    [
       getThreadIdByThreadKey,
       homeContainerIdByThreadId,
-      onError: onThreadError,
+      onProjectDrop,
+      onLibraryGrant,
+      onLibraryMove,
       onThreadDrop,
-      pointerY,
+      onThreadError,
+      resetGestureState,
       updatePendingThreadDrops,
-    });
-  }, [
-    getThreadIdByThreadKey,
-    homeContainerIdByThreadId,
-    onProjectDrop,
-    onLibraryGrant,
-    onLibraryMove,
-    onThreadDrop,
-    onThreadError,
-    resetGestureState,
-    updatePendingThreadDrops,
-  ]);
-
-  const overlay = typeof document === "undefined" ? null : createPortal(
-    <DragOverlay
-      adjustScale={false}
-      className="pointer-events-none"
-      dropAnimation={null}
-      zIndex={2_147_483_647}
-    >
-      {activeDrag ? (
-        <div
-          aria-hidden
-          className="[--height-token-row:30px] [--height-token-nav-row:30px] [--radius-token-row:10px]"
-          inert
-          style={{
-            height: `calc(100% / ${activeDrag.zoom})`,
-            transform: `scale(${activeDrag.zoom})`,
-            transformOrigin: "top left",
-            width: `calc(100% / ${activeDrag.zoom})`,
-          }}
-        >
-          <div className="w-fit max-w-80 overflow-hidden rounded-[var(--radius-token-row)] border border-token-border bg-token-bg-primary opacity-70 shadow-lg">
-            {activeDrag.node}
-          </div>
-        </div>
-      ) : null}
-    </DragOverlay>,
-    document.body,
+    ],
   );
+
+  const overlay =
+    typeof document === "undefined"
+      ? null
+      : createPortal(
+          <DragOverlay
+            adjustScale={false}
+            className="pointer-events-none"
+            dropAnimation={null}
+            zIndex={2_147_483_647}
+          >
+            {activeDrag ? (
+              <div
+                aria-hidden
+                className="[--height-token-row:30px] [--height-token-nav-row:30px] [--radius-token-row:10px]"
+                inert
+                style={{
+                  height: `calc(100% / ${activeDrag.zoom})`,
+                  transform: `scale(${activeDrag.zoom})`,
+                  transformOrigin: "top left",
+                  width: `calc(100% / ${activeDrag.zoom})`,
+                }}
+              >
+                <div className="w-fit max-w-80 overflow-hidden rounded-[var(--radius-token-row)] border border-token-border bg-token-bg-primary opacity-70 shadow-lg">
+                  {activeDrag.node}
+                </div>
+              </div>
+            ) : null}
+          </DragOverlay>,
+          document.body,
+        );
   const activeProjectId = activeDrag?.kind === "project" ? activeDrag.projectId : null;
   const activeThread = activeDrag?.kind === "thread" ? activeDrag.thread : null;
 
@@ -425,10 +426,7 @@ export function SidebarReorderDndProvider({
       pendingThreadDrops={pendingThreadDrops}
       reportCanonicalLanes={reportCanonicalThreadLanes}
     >
-      <SidebarProjectDndStateProvider
-        activeProjectId={activeProjectId}
-        onError={onProjectError}
-      >
+      <SidebarProjectDndStateProvider activeProjectId={activeProjectId} onError={onProjectError}>
         <DndContext
           sensors={sensors}
           collisionDetection={collisionDetection}

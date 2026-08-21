@@ -9,15 +9,9 @@ import {
 
 class ManualCommandOutputScheduler implements CodexCommandOutputScheduler {
   private nextHandle = 1;
-  private readonly timeouts = new Map<
-    number,
-    { callback: () => void; delayMs: number }
-  >();
+  private readonly timeouts = new Map<number, { callback: () => void; delayMs: number }>();
 
-  readonly scheduleTimeout = (
-    callback: () => void,
-    delayMs: number,
-  ): (() => void) => {
+  readonly scheduleTimeout = (callback: () => void, delayMs: number): (() => void) => {
     const handle = this.nextHandle;
     this.nextHandle += 1;
     this.timeouts.set(handle, { callback, delayMs });
@@ -52,10 +46,7 @@ interface SequencedOutput extends CodexCommandOutputUpdate {
   readonly sequences?: readonly number[];
 }
 
-function output(
-  delta: string,
-  overrides: Partial<SequencedOutput> = {},
-): SequencedOutput {
+function output(delta: string, overrides: Partial<SequencedOutput> = {}): SequencedOutput {
   return {
     conversationId: "conversation-a",
     turnId: "turn-a",
@@ -129,9 +120,7 @@ describe("appendCodexCommandOutputTail", () => {
 
 describe("CodexCommandOutputQueue", () => {
   test("builds the exact raw colon key including nullable turns", () => {
-    expect(buildCodexCommandOutputKey(output("x"))).toBe(
-      "conversation-a:turn-a:item-a",
-    );
+    expect(buildCodexCommandOutputKey(output("x"))).toBe("conversation-a:turn-a:item-a");
     expect(buildCodexCommandOutputKey(output("x", { turnId: null }))).toBe(
       "conversation-a:null:item-a",
     );
@@ -146,9 +135,10 @@ describe("CodexCommandOutputQueue", () => {
         ...incoming,
         delta: mergedDelta,
         sequences: [
-          ...(existing?.sequences ?? [existing?.sequence].filter(
-            (sequence): sequence is number => typeof sequence === "number",
-          )),
+          ...(existing?.sequences ??
+            [existing?.sequence].filter(
+              (sequence): sequence is number => typeof sequence === "number",
+            )),
           ...(incoming.sequences ?? [incoming.sequence]),
         ],
       }),
@@ -156,11 +146,13 @@ describe("CodexCommandOutputQueue", () => {
     });
 
     queue.enqueue(output("A1", { sequence: 1 }));
-    queue.enqueue(output("B1", {
-      conversationId: "conversation-b",
-      itemId: "item-b",
-      sequence: 2,
-    }));
+    queue.enqueue(
+      output("B1", {
+        conversationId: "conversation-b",
+        itemId: "item-b",
+        sequence: 2,
+      }),
+    );
     queue.enqueue(output("A2", { sequence: 3 }));
     scheduler.runNextTimeout();
 
@@ -236,10 +228,12 @@ describe("CodexCommandOutputQueue", () => {
     });
 
     queue.enqueue(output("a"));
-    queue.enqueue(output("b", {
-      conversationId: "conversation-b",
-      itemId: "item-b",
-    }));
+    queue.enqueue(
+      output("b", {
+        conversationId: "conversation-b",
+        itemId: "item-b",
+      }),
+    );
     queue.discardConversation("conversation-a");
     expect(scheduler.timeoutCount).toBe(1);
     scheduler.runNextTimeout();

@@ -8,19 +8,14 @@ import type {
   CodexRateLimitResetResult,
 } from "../../../../lib/types";
 import { shouldRefreshAccountOnConnectionTooltipOpen } from "./account-tooltip-refresh";
-import {
-  buildRateLimitRingViewModel,
-  type RateLimitRingWindowView,
-} from "./auth-rate-limits";
+import { buildRateLimitRingViewModel, type RateLimitRingWindowView } from "./auth-rate-limits";
 import { renderConnectionAccountTooltipContent } from "./auth-controls";
 
 interface AccountRateLimitRingProps {
   account: CodexAccountSnapshot | null;
   connection: CodexConnectionState;
   onRefreshAccount: () => Promise<CodexAccountSnapshot>;
-  onConsumeRateLimitReset?: (
-    input: CodexRateLimitResetInput,
-  ) => Promise<CodexRateLimitResetResult>;
+  onConsumeRateLimitReset?: (input: CodexRateLimitResetInput) => Promise<CodexRateLimitResetResult>;
   onLogout: () => Promise<void>;
   onErrorMessage?: (message: string | null) => void;
   className?: string;
@@ -47,10 +42,14 @@ function resolveQuotaColor(window: RateLimitRingWindowView | null, fallback: str
 }
 
 function connectionFallbackLabel(connection: CodexConnectionState): string {
-  if (connection.status === "starting") return "Agent runtime connecting. Usage remaining unavailable";
-  if (connection.status === "missingBinary") return "Codex CLI missing. Usage remaining unavailable";
-  if (connection.status === "error") return "Agent runtime connection error. Usage remaining unavailable";
-  if (connection.status === "disconnected") return "Agent runtime disconnected. Usage remaining unavailable";
+  if (connection.status === "starting")
+    return "Agent runtime connecting. Usage remaining unavailable";
+  if (connection.status === "missingBinary")
+    return "Codex CLI missing. Usage remaining unavailable";
+  if (connection.status === "error")
+    return "Agent runtime connection error. Usage remaining unavailable";
+  if (connection.status === "disconnected")
+    return "Agent runtime disconnected. Usage remaining unavailable";
   return "Usage remaining unavailable";
 }
 
@@ -91,7 +90,9 @@ function RateLimitRingSvg({
           strokeWidth="2.2"
           strokeLinecap="round"
           strokeDasharray={formatDashValue(OUTER_RING_CIRCUMFERENCE)}
-          strokeDashoffset={formatDashValue(resolveRingDashOffset(outer.remainingPercent, OUTER_RING_CIRCUMFERENCE))}
+          strokeDashoffset={formatDashValue(
+            resolveRingDashOffset(outer.remainingPercent, OUTER_RING_CIRCUMFERENCE),
+          )}
           transform="rotate(-90 14 14)"
         />
       ) : null}
@@ -113,18 +114,14 @@ function RateLimitRingSvg({
           strokeWidth="2"
           strokeLinecap="round"
           strokeDasharray={formatDashValue(INNER_RING_CIRCUMFERENCE)}
-          strokeDashoffset={formatDashValue(resolveRingDashOffset(inner.remainingPercent, INNER_RING_CIRCUMFERENCE))}
+          strokeDashoffset={formatDashValue(
+            resolveRingDashOffset(inner.remainingPercent, INNER_RING_CIRCUMFERENCE),
+          )}
           transform="rotate(-90 14 14)"
         />
       ) : null}
       {!hasLimits ? (
-        <circle
-          cx="14"
-          cy="14"
-          r="2"
-          fill="var(--sidebar-foreground-tertiary)"
-          opacity={0.55}
-        />
+        <circle cx="14" cy="14" r="2" fill="var(--sidebar-foreground-tertiary)" opacity={0.55} />
       ) : null}
     </svg>
   );
@@ -143,24 +140,27 @@ export function AccountRateLimitRing({
   const refreshInFlightRef = useRef(false);
   const authenticatedAccount = account?.account ?? null;
 
-  const handleTooltipOpenChange = useCallback((isOpen: boolean) => {
-    if (
-      !shouldRefreshAccountOnConnectionTooltipOpen({
-        isOpen,
-        hasAccount: Boolean(account?.account),
-        refreshInFlight: refreshInFlightRef.current,
-      })
-    ) {
-      return;
-    }
+  const handleTooltipOpenChange = useCallback(
+    (isOpen: boolean) => {
+      if (
+        !shouldRefreshAccountOnConnectionTooltipOpen({
+          isOpen,
+          hasAccount: Boolean(account?.account),
+          refreshInFlight: refreshInFlightRef.current,
+        })
+      ) {
+        return;
+      }
 
-    refreshInFlightRef.current = true;
-    void onRefreshAccount()
-      .catch(() => {})
-      .finally(() => {
-        refreshInFlightRef.current = false;
-      });
-  }, [account?.account, onRefreshAccount]);
+      refreshInFlightRef.current = true;
+      void onRefreshAccount()
+        .catch(() => {})
+        .finally(() => {
+          refreshInFlightRef.current = false;
+        });
+    },
+    [account?.account, onRefreshAccount],
+  );
 
   const handleLogout = useCallback(async () => {
     setIsSigningOut(true);
@@ -177,15 +177,20 @@ export function AccountRateLimitRing({
   if (!authenticatedAccount) return null;
 
   const viewModel = buildRateLimitRingViewModel(account?.rateLimits);
-  const ariaLabel = viewModel.hasLimits && connection.status === "connected"
-    ? viewModel.ariaLabel
-    : connectionFallbackLabel(connection);
-  const tooltipContent = renderConnectionAccountTooltipContent(authenticatedAccount, account?.rateLimits, {
-    onSignOut: () => void handleLogout(),
-    isSigningOutDisabled: isSigningOut,
-    rateLimitResetCredits: account?.rateLimitResetCredits,
-    onConsumeRateLimitReset,
-  });
+  const ariaLabel =
+    viewModel.hasLimits && connection.status === "connected"
+      ? viewModel.ariaLabel
+      : connectionFallbackLabel(connection);
+  const tooltipContent = renderConnectionAccountTooltipContent(
+    authenticatedAccount,
+    account?.rateLimits,
+    {
+      onSignOut: () => void handleLogout(),
+      isSigningOutDisabled: isSigningOut,
+      rateLimitResetCredits: account?.rateLimitResetCredits,
+      onConsumeRateLimitReset,
+    },
+  );
 
   return (
     <NodexHoverCard

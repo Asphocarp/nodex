@@ -84,15 +84,17 @@ function createGoalStartRequest(
     ...createStartRequest(id, clientThreadId),
     threadGoalDraft: {
       objective: "Ship the goal",
-      pastedTextAttachments: [{
-        file: {
-          label: "Pasted text.txt",
-          path: "/attachments/source/pasted-text.txt",
-          fsPath: "/attachments/source/pasted-text.txt",
+      pastedTextAttachments: [
+        {
+          file: {
+            label: "Pasted text.txt",
+            path: "/attachments/source/pasted-text.txt",
+            fsPath: "/attachments/source/pasted-text.txt",
+          },
+          preview: "Goal source",
+          characterCount: 11,
         },
-        preview: "Goal source",
-        characterCount: 11,
-      }],
+      ],
       imageAttachments: [],
     },
   };
@@ -252,10 +254,12 @@ describe("Codex pending worktree state", () => {
       "starting",
     );
     expect(store.resolveThread("client-1")?.state).toBe("starting");
-    expect(dispatch(store, {
-      type: "continueWithoutSetup",
-      pendingWorktreeId: "pending-1",
-    }).length).toBe(0);
+    expect(
+      dispatch(store, {
+        type: "continueWithoutSetup",
+        pendingWorktreeId: "pending-1",
+      }).length,
+    ).toBe(0);
   });
 
   test("retry preserves goal sources, resets transient state, and cleans only failed roots", () => {
@@ -362,10 +366,14 @@ describe("Codex pending worktree state", () => {
       worktreeGitRoot: "/worktrees/ready",
       worktreeWorkspaceRoot: "/worktrees/ready/workspace",
     });
-    expect(effectTypes(dispatch(readyDismissStore, {
-      type: "dismiss",
-      pendingWorktreeId: "ready",
-    }))).toBe("abort,remove");
+    expect(
+      effectTypes(
+        dispatch(readyDismissStore, {
+          type: "dismiss",
+          pendingWorktreeId: "ready",
+        }),
+      ),
+    ).toBe("abort,remove");
 
     const failedDismissStore = new CodexPendingWorktreeStateStore();
     dispatch(failedDismissStore, {
@@ -387,10 +395,14 @@ describe("Codex pending worktree state", () => {
       worktreeGitRoot: "/worktrees/failed",
       worktreeWorkspaceRoot: "/worktrees/failed/workspace",
     });
-    expect(effectTypes(dispatch(failedDismissStore, {
-      type: "dismiss",
-      pendingWorktreeId: "failed",
-    }))).toBe("abort,remove,delete");
+    expect(
+      effectTypes(
+        dispatch(failedDismissStore, {
+          type: "dismiss",
+          pendingWorktreeId: "failed",
+        }),
+      ),
+    ).toBe("abort,remove,delete");
   });
 
   test("emits frozen goal-source cleanup before work-local, cancel, dismiss, and success removal", () => {
@@ -405,10 +417,12 @@ describe("Codex pending worktree state", () => {
       pendingWorktreeId: "goal-cancel",
     });
     expect(effectTypes(cancelEffects)).toBe("cleanupGoalSources,abort,remove");
-    expect(cancelEffects[0]?.type === "cleanupGoalSources"
-      && cancelEffects[0].entry.launchMode === "start-conversation"
-      ? cancelEffects[0].entry.threadGoalDraft?.pastedTextAttachments?.[0]?.file?.path
-      : null).toBe("/attachments/source/pasted-text.txt");
+    expect(
+      cancelEffects[0]?.type === "cleanupGoalSources" &&
+        cancelEffects[0].entry.launchMode === "start-conversation"
+        ? cancelEffects[0].entry.threadGoalDraft?.pastedTextAttachments?.[0]?.file?.path
+        : null,
+    ).toBe("/attachments/source/pasted-text.txt");
 
     const dismissStore = new CodexPendingWorktreeStateStore();
     dispatch(dismissStore, {
@@ -416,10 +430,14 @@ describe("Codex pending worktree state", () => {
       request: createGoalStartRequest("goal-dismiss", "goal-dismiss-client"),
       createdAt: 1,
     });
-    expect(effectTypes(dispatch(dismissStore, {
-      type: "dismiss",
-      pendingWorktreeId: "goal-dismiss",
-    }))).toBe("cleanupGoalSources,abort,remove");
+    expect(
+      effectTypes(
+        dispatch(dismissStore, {
+          type: "dismiss",
+          pendingWorktreeId: "goal-dismiss",
+        }),
+      ),
+    ).toBe("cleanupGoalSources,abort,remove");
 
     const localStore = new CodexPendingWorktreeStateStore();
     dispatch(localStore, {
@@ -428,10 +446,14 @@ describe("Codex pending worktree state", () => {
       createdAt: 1,
     });
     dispatch(localStore, { type: "start", pendingWorktreeId: "goal-local", attempt: 1 });
-    expect(effectTypes(dispatch(localStore, {
-      type: "workLocally",
-      pendingWorktreeId: "goal-local",
-    }))).toBe("cleanupGoalSources,abort,launchConversation");
+    expect(
+      effectTypes(
+        dispatch(localStore, {
+          type: "workLocally",
+          pendingWorktreeId: "goal-local",
+        }),
+      ),
+    ).toBe("cleanupGoalSources,abort,launchConversation");
 
     const successStore = new CodexPendingWorktreeStateStore();
     dispatch(successStore, {
@@ -451,11 +473,15 @@ describe("Codex pending worktree state", () => {
       worktreeGitRoot: "/worktrees/goal-success",
       worktreeWorkspaceRoot: "/worktrees/goal-success/workspace",
     });
-    expect(effectTypes(dispatch(successStore, {
-      type: "conversationStartSucceeded",
-      pendingWorktreeId: "goal-success",
-      attempt: 1,
-    }))).toBe("cleanupGoalSources,remove");
+    expect(
+      effectTypes(
+        dispatch(successStore, {
+          type: "conversationStartSucceeded",
+          pendingWorktreeId: "goal-success",
+          attempt: 1,
+        }),
+      ),
+    ).toBe("cleanupGoalSources,remove");
   });
 
   test("works locally from an active setup with the frozen source payload and client identity", () => {
@@ -499,13 +525,15 @@ describe("Codex pending worktree state", () => {
     });
     expect(effectTypes(firstLaunch)).toBe("launchConversation");
     expect(store.resolveThread("client-1")?.state).toBe("starting");
-    expect(dispatch(store, {
-      type: "worktreeReady",
-      pendingWorktreeId: "pending-1",
-      attempt: 1,
-      worktreeGitRoot: "/worktrees/delegated",
-      worktreeWorkspaceRoot: "/worktrees/delegated/workspace",
-    }).length).toBe(0);
+    expect(
+      dispatch(store, {
+        type: "worktreeReady",
+        pendingWorktreeId: "pending-1",
+        attempt: 1,
+        worktreeGitRoot: "/worktrees/delegated",
+        worktreeWorkspaceRoot: "/worktrees/delegated/workspace",
+      }).length,
+    ).toBe(0);
 
     dispatch(store, {
       type: "conversationStartFailed",
@@ -520,10 +548,12 @@ describe("Codex pending worktree state", () => {
     });
     expect(effectTypes(retryLaunch)).toBe("launchConversation");
     expect(store.resolveThread("client-1")?.state).toBe("starting");
-    expect(dispatch(store, {
-      type: "retryConversationStart",
-      pendingWorktreeId: "pending-1",
-    }).length).toBe(0);
+    expect(
+      dispatch(store, {
+        type: "retryConversationStart",
+        pendingWorktreeId: "pending-1",
+      }).length,
+    ).toBe(0);
 
     const successEffects = dispatch(store, {
       type: "conversationStartSucceeded",
@@ -535,10 +565,14 @@ describe("Codex pending worktree state", () => {
     expect(store.resolveThread("client-1")).toBe(null);
     expect(getCodexPendingWorktreeConversationStartSnapshot(store.getState()).length).toBe(0);
 
-    expect(effectTypes(dispatch(store, {
-      type: "dismiss",
-      pendingWorktreeId: "pending-1",
-    }))).toBe("");
+    expect(
+      effectTypes(
+        dispatch(store, {
+          type: "dismiss",
+          pendingWorktreeId: "pending-1",
+        }),
+      ),
+    ).toBe("");
     expect(store.resolveThread("client-1")).toBe(null);
   });
 
@@ -561,9 +595,9 @@ describe("Codex pending worktree state", () => {
     expect(effectTypes(effects)).toBe("registerStableProject");
     expect(store.getSnapshot()[0]?.phase).toBe("worktree-ready");
     expect(effects[0]?.type === "registerStableProject" ? effects[0].attempt : null).toBe(1);
-    expect(
-      effects[0]?.type === "registerStableProject" ? effects[0].workspaceRoots : null,
-    ).toEqual(["/worktrees/stable/workspace", "/shared"]);
+    expect(effects[0]?.type === "registerStableProject" ? effects[0].workspaceRoots : null).toEqual(
+      ["/worktrees/stable/workspace", "/shared"],
+    );
 
     const registeredEffects = dispatch(store, {
       type: "stableProjectRegistered",
@@ -603,8 +637,9 @@ describe("Codex pending worktree state", () => {
     expect(failed?.needsAttention).toBe(true);
     expect(failed?.worktreeGitRoot).toBe("/worktrees/stable");
     expect(failed?.worktreeWorkspaceRoot).toBe("/worktrees/stable/workspace");
-    expect(failed?.worktreeOutputText.endsWith("[stderr] project registration failed\n") ?? false)
-      .toBe(true);
+    expect(
+      failed?.worktreeOutputText.endsWith("[stderr] project registration failed\n") ?? false,
+    ).toBe(true);
 
     const retryEffects = dispatch(store, {
       type: "retry",
@@ -614,11 +649,13 @@ describe("Codex pending worktree state", () => {
     expect(retryEffects[1]?.type === "delete" ? retryEffects[1].worktreeGitRoot : null).toBe(
       "/worktrees/stable",
     );
-    expect(dispatch(store, {
-      type: "stableProjectRegistered",
-      pendingWorktreeId: "stable-1",
-      attempt: 1,
-    }).length).toBe(0);
+    expect(
+      dispatch(store, {
+        type: "stableProjectRegistered",
+        pendingWorktreeId: "stable-1",
+        attempt: 1,
+      }).length,
+    ).toBe(0);
     expect(store.getSnapshot()[0]?.attempt).toBe(2);
   });
 

@@ -5,9 +5,7 @@ export interface PageCreateDialogLayout {
   readonly fillsAvailableHeight: boolean;
 }
 
-export function resolvePageCreateDialogLayout(
-  expanded: boolean,
-): PageCreateDialogLayout {
+export function resolvePageCreateDialogLayout(expanded: boolean): PageCreateDialogLayout {
   if (expanded) {
     return {
       width: 820,

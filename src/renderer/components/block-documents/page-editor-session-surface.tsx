@@ -1,9 +1,4 @@
-import {
-  useLayoutEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   BlockDocumentSurfaceFailureState,
   OwnedBlockDocumentRuntimeSurface,
@@ -23,17 +18,11 @@ import {
 } from "@/lib/document-session-registry";
 import { PageTitleProjectionPublisher } from "@/lib/page-title-projection-context";
 
-interface PageEditorSessionSurfaceProps extends Omit<
-  BlockDocumentSurfaceProps,
-  "children"
-> {
+interface PageEditorSessionSurfaceProps extends Omit<BlockDocumentSurfaceProps, "children"> {
   readonly sessionKey: string;
   readonly retainModelOnUnmount?: boolean;
   readonly registry?: DocumentSessionRegistry;
-  readonly children: (
-    surface: BlockDocumentSurfaceValue,
-    session: EditorSurfaceLease,
-  ) => ReactNode;
+  readonly children: (surface: BlockDocumentSurfaceValue, session: EditorSurfaceLease) => ReactNode;
 }
 
 interface SessionOwnerState {
@@ -49,9 +38,8 @@ const EMPTY_SESSION_OWNER_STATE: SessionOwnerState = {
 const toError = (error: unknown): Error =>
   error instanceof Error ? error : new Error(String(error));
 
-const createRuntime = (
-  options: BlockDocumentSurfaceRuntimeOptions,
-): BlockDocumentSurfaceRuntime => new BlockDocumentSurfaceRuntime(options);
+const createRuntime = (options: BlockDocumentSurfaceRuntimeOptions): BlockDocumentSurfaceRuntime =>
+  new BlockDocumentSurfaceRuntime(options);
 
 /**
  * Attaches the active Page Stage to a PageTab-owned editor session. View
@@ -74,9 +62,7 @@ export function PageEditorSessionSurface({
   children,
 }: PageEditorSessionSurfaceProps) {
   const [revision, setRevision] = useState(0);
-  const [ownerState, setOwnerState] = useState<SessionOwnerState>(
-    EMPTY_SESSION_OWNER_STATE,
-  );
+  const [ownerState, setOwnerState] = useState<SessionOwnerState>(EMPTY_SESSION_OWNER_STATE);
   const descriptorRef = useRef(descriptor);
   descriptorRef.current = descriptor;
   const retainModelOnUnmountRef = useRef(retainModelOnUnmount);
@@ -84,8 +70,7 @@ export function PageEditorSessionSurface({
   const onReloadRef = useRef(onReload);
   onReloadRef.current = onReload;
   const identity = makeDocumentSessionIdentity(descriptor);
-  const adapterFactory = dependencies?.createAdapter
-    ?? createDocumentSyncAdapterForContentAccess;
+  const adapterFactory = dependencies?.createAdapter ?? createDocumentSyncAdapterForContentAccess;
   const runtimeFactory = dependencies?.createRuntime ?? createRuntime;
 
   useLayoutEffect(() => {
@@ -99,10 +84,11 @@ export function PageEditorSessionSurface({
       session = registry.acquire({
         key: sessionKey,
         descriptor: currentDescriptor,
-        createRuntime: () => runtimeFactory({
-          descriptor: currentDescriptor,
-          adapter: adapterFactory(currentDescriptor.accessContext),
-        }),
+        createRuntime: () =>
+          runtimeFactory({
+            descriptor: currentDescriptor,
+            adapter: adapterFactory(currentDescriptor.accessContext),
+          }),
       });
       viewGeneration = session.claimView();
       if (runtimeRef) runtimeRef.current = session.runtime;
@@ -110,9 +96,7 @@ export function PageEditorSessionSurface({
       void session.connect().catch((error) => {
         if (!live) return;
         setOwnerState((current) =>
-          current.session === session
-            ? { session, startupError: toError(error) }
-            : current
+          current.session === session ? { session, startupError: toError(error) } : current,
         );
       });
     } catch (error) {
@@ -132,15 +116,7 @@ export function PageEditorSessionSurface({
       if (!released || retainModel) return;
       void registry.dispose(sessionKey, session).catch(() => undefined);
     };
-  }, [
-    adapterFactory,
-    identity,
-    registry,
-    revision,
-    runtimeFactory,
-    runtimeRef,
-    sessionKey,
-  ]);
+  }, [adapterFactory, identity, registry, revision, runtimeFactory, runtimeRef, sessionKey]);
 
   const restart = async (): Promise<void> => {
     const session = ownerState.session;
@@ -160,9 +136,11 @@ export function PageEditorSessionSurface({
         reloading: false,
         reload: restart,
       };
-      return failureFallback
-        ? failureFallback(failure)
-        : <BlockDocumentSurfaceFailureState {...failure} />;
+      return failureFallback ? (
+        failureFallback(failure)
+      ) : (
+        <BlockDocumentSurfaceFailureState {...failure} />
+      );
     }
     if (pendingFallback !== undefined) return pendingFallback;
     return (
@@ -191,9 +169,7 @@ export function PageEditorSessionSurface({
     >
       {(surface) => {
         if (surface.kind !== "page") {
-          throw new TypeError(
-            "Page editor session resolved a non-Page Document schema",
-          );
+          throw new TypeError("Page editor session resolved a non-Page Document schema");
         }
         const pageSurface = {
           ...surface,

@@ -20,30 +20,32 @@ const createRepository = async (): Promise<string> => {
 };
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) =>
-    rm(root, { force: true, recursive: true })
-  ));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
 
 describe("development environment home", () => {
   test("resolves the default and explicit environment roots from the repository", async () => {
     const repositoryRoot = await createRepository();
-    expect(resolveDevelopmentHomeRoot(repositoryRoot))
-      .toBe(path.join(repositoryRoot, "runs.local/default"));
-    expect(resolveDevelopmentHomeRoot(repositoryRoot, "runs.local/perf"))
-      .toBe(path.join(repositoryRoot, "runs.local/perf"));
+    expect(resolveDevelopmentHomeRoot(repositoryRoot)).toBe(
+      path.join(repositoryRoot, "runs.local/default"),
+    );
+    expect(resolveDevelopmentHomeRoot(repositoryRoot, "runs.local/perf")).toBe(
+      path.join(repositoryRoot, "runs.local/perf"),
+    );
   });
 
   test("creates the owned layout and reopens the same identity", async () => {
     const repositoryRoot = await createRepository();
     const created = await openDevelopmentEnvironmentHome({ repositoryRoot });
     expect(created.wasCreated).toBe(true);
-    await expect(Promise.all([
-      stat(created.nodexHome),
-      stat(created.codexHome),
-      stat(created.workspace),
-      stat(created.artifacts),
-    ])).resolves.toHaveLength(4);
+    await expect(
+      Promise.all([
+        stat(created.nodexHome),
+        stat(created.codexHome),
+        stat(created.workspace),
+        stat(created.artifacts),
+      ]),
+    ).resolves.toHaveLength(4);
 
     const reopened = await openDevelopmentEnvironmentHome({ repositoryRoot });
     expect(reopened.wasCreated).toBe(false);
@@ -70,12 +72,10 @@ describe("development environment home", () => {
     const auth = path.join(repositoryRoot, "source-auth.json");
     const config = path.join(repositoryRoot, "source-config.toml");
     await writeFile(auth, '{"token":"test"}\n');
-    await writeFile(config, [
-      'model = "gpt-5"',
-      "[mcp_servers.node_repl]",
-      'command = "node"',
-      "",
-    ].join("\n"));
+    await writeFile(
+      config,
+      ['model = "gpt-5"', "[mcp_servers.node_repl]", 'command = "node"', ""].join("\n"),
+    );
 
     await updateDevelopmentAgentFiles(home, {
       authJson: auth,
@@ -104,8 +104,9 @@ describe("development environment home", () => {
     const runtimeDirectory = path.join(unsafe.nodexHome, "run/core");
     await mkdir(runtimeDirectory, { recursive: true });
     await writeFile(path.join(runtimeDirectory, "core.json"), "{}");
-    await expect(cleanupDevelopmentEnvironmentHome(unsafe)).resolves
-      .toMatchObject({ status: "unsafe" });
+    await expect(cleanupDevelopmentEnvironmentHome(unsafe)).resolves.toMatchObject({
+      status: "unsafe",
+    });
     await expect(stat(unsafe.root)).resolves.toBeDefined();
   });
 });

@@ -18,9 +18,7 @@ describe("thread goal materialization boundary", () => {
       error = caught;
     }
 
-    expect(error instanceof Error ? error.message : null).toBe(
-      "Goal objective must not be empty",
-    );
+    expect(error instanceof Error ? error.message : null).toBe("Goal objective must not be empty");
   });
 
   test("treats materialized-directory cleanup as best effort", async () => {

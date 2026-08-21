@@ -6,10 +6,7 @@ import {
   type TableContent,
 } from "@blocknote/core";
 
-export type NfmTableContent = TableContent<
-  DefaultInlineContentSchema,
-  DefaultStyleSchema
->;
+export type NfmTableContent = TableContent<DefaultInlineContentSchema, DefaultStyleSchema>;
 
 type NfmTableRows = NfmTableContent["rows"];
 export type NfmTableCell = TableCell<DefaultInlineContentSchema, DefaultStyleSchema>;
@@ -73,10 +70,7 @@ export function cloneNfmTableRows(rows: NfmTableRows): NfmTableClonedRows {
   return rows.map(cloneNfmTableRow);
 }
 
-function duplicateNfmTableRow(
-  content: NfmTableContent,
-  rowIndex: number,
-): NfmTableContent {
+function duplicateNfmTableRow(content: NfmTableContent, rowIndex: number): NfmTableContent {
   const sourceRow = content.rows[rowIndex];
   if (!sourceRow) return content;
 
@@ -90,10 +84,7 @@ function duplicateNfmTableRow(
   };
 }
 
-function duplicateNfmTableColumn(
-  content: NfmTableContent,
-  colIndex: number,
-): NfmTableContent {
+function duplicateNfmTableColumn(content: NfmTableContent, colIndex: number): NfmTableContent {
   const hasSourceColumn = content.rows.some((row) => row.cells[colIndex]);
   if (!hasSourceColumn) return content;
 
@@ -128,10 +119,7 @@ export function duplicateNfmTableTarget(
   return duplicateNfmTableColumn(content, target.index);
 }
 
-function clearNfmTableRow(
-  content: NfmTableContent,
-  rowIndex: number,
-): NfmTableContent {
+function clearNfmTableRow(content: NfmTableContent, rowIndex: number): NfmTableContent {
   const sourceRow = content.rows[rowIndex];
   if (!sourceRow) return content;
 
@@ -150,17 +138,14 @@ function clearNfmTableRow(
   };
 }
 
-function clearNfmTableColumn(
-  content: NfmTableContent,
-  colIndex: number,
-): NfmTableContent {
+function clearNfmTableColumn(content: NfmTableContent, colIndex: number): NfmTableContent {
   const hasSourceColumn = content.rows.some((row) => row.cells[colIndex]);
   if (!hasSourceColumn) return content;
 
   const rows = content.rows.map((row) => ({
     ...row,
     cells: row.cells.map((cell, index) =>
-      index === colIndex ? clearNfmTableCell(cell) : cloneNfmTableCell(cell)
+      index === colIndex ? clearNfmTableCell(cell) : cloneNfmTableCell(cell),
     ),
   }));
 
@@ -184,7 +169,7 @@ function clearNfmTableSingleCell(
     cells: row.cells.map((cell, currentColIndex) =>
       currentRowIndex === rowIndex && currentColIndex === colIndex
         ? clearNfmTableCell(cell)
-        : cloneNfmTableCell(cell)
+        : cloneNfmTableCell(cell),
     ),
   }));
 

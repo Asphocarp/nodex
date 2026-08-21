@@ -31,8 +31,8 @@ interface LatestTurnCollapseTransitionEntry {
 
 const EMPTY_COLLAPSE_KEY_INDEX: Readonly<Record<string, readonly string[]>> = Object.freeze({});
 
-export const EMPTY_LOCAL_CONVERSATION_THREAD_RESTORE_SNAPSHOT:
-  LocalConversationThreadRestoreSnapshot = Object.freeze({
+export const EMPTY_LOCAL_CONVERSATION_THREAD_RESTORE_SNAPSHOT: LocalConversationThreadRestoreSnapshot =
+  Object.freeze({
     distanceFromBottomPx: 0,
     latestTurn: null,
     virtualizedTurnList: null,
@@ -41,11 +41,10 @@ export const EMPTY_LOCAL_CONVERSATION_THREAD_RESTORE_SNAPSHOT:
 export const localConversationThreadRestoreSnapshotFamily = scopedAtomFamily({
   scope: appScope,
   debugLabel: "local-conversation-thread-restore-snapshot",
-  create: () => scopedAtom(
-    appScope,
-    EMPTY_LOCAL_CONVERSATION_THREAD_RESTORE_SNAPSHOT,
-    { debugLabel: "snapshot" },
-  ),
+  create: () =>
+    scopedAtom(appScope, EMPTY_LOCAL_CONVERSATION_THREAD_RESTORE_SNAPSHOT, {
+      debugLabel: "snapshot",
+    }),
 });
 
 export const localConversationTurnCollapseOverrideFamily = scopedAtomFamily({
@@ -55,16 +54,10 @@ export const localConversationTurnCollapseOverrideFamily = scopedAtomFamily({
     conversationId,
     turnSearchKey,
   }),
-  create: () => scopedAtom<boolean | null>(
-    appScope,
-    null,
-    { debugLabel: "override" },
-  ),
+  create: () => scopedAtom<boolean | null>(appScope, null, { debugLabel: "override" }),
 });
 
-const collapseKeysByConversationIdAtom = scopedAtom<
-  Readonly<Record<string, readonly string[]>>
->(
+const collapseKeysByConversationIdAtom = scopedAtom<Readonly<Record<string, readonly string[]>>>(
   appScope,
   EMPTY_COLLAPSE_KEY_INDEX,
   { debugLabel: "local-conversation-collapse-key-index" },
@@ -87,15 +80,8 @@ export function resolveLatestTurnCollapseTransition(input: {
   readonly latestTurnSearchKey: string | null;
   readonly previousLatestTurnSearchKey: string | null;
 }): readonly string[] {
-  const {
-    entries,
-    latestTurnSearchKey,
-    previousLatestTurnSearchKey,
-  } = input;
-  if (
-    previousLatestTurnSearchKey === null
-    || previousLatestTurnSearchKey === latestTurnSearchKey
-  ) {
+  const { entries, latestTurnSearchKey, previousLatestTurnSearchKey } = input;
+  if (previousLatestTurnSearchKey === null || previousLatestTurnSearchKey === latestTurnSearchKey) {
     return [];
   }
 
@@ -170,10 +156,11 @@ export function removeLocalConversationViewState(
   let removed = localConversationThreadRestoreSnapshotFamily.remove(handle, conversationId);
 
   for (const turnSearchKey of collapseKeys) {
-    removed = localConversationTurnCollapseOverrideFamily.remove(handle, {
-      conversationId,
-      turnSearchKey,
-    }) || removed;
+    removed =
+      localConversationTurnCollapseOverrideFamily.remove(handle, {
+        conversationId,
+        turnSearchKey,
+      }) || removed;
   }
 
   if (collapseKeys.length === 0) return removed;
@@ -194,10 +181,7 @@ export function useLocalConversationTurnCollapseOverride({
   readonly initialOverride?: boolean;
 }): readonly [boolean | null, (collapsed: boolean) => void] {
   const handle = useScopeHandle(appScope);
-  const key = useMemo(
-    () => ({ conversationId, turnSearchKey }),
-    [conversationId, turnSearchKey],
-  );
+  const key = useMemo(() => ({ conversationId, turnSearchKey }), [conversationId, turnSearchKey]);
   const member = localConversationTurnCollapseOverrideFamily(key);
   const override = useScopedAtomValue(member);
 
@@ -207,9 +191,12 @@ export function useLocalConversationTurnCollapseOverride({
     setLocalConversationTurnCollapseOverride(handle, key, initialOverride);
   }, [handle, initialOverride, key, member]);
 
-  const setOverride = useCallback((collapsed: boolean) => {
-    setLocalConversationTurnCollapseOverride(handle, key, collapsed);
-  }, [handle, key]);
+  const setOverride = useCallback(
+    (collapsed: boolean) => {
+      setLocalConversationTurnCollapseOverride(handle, key, collapsed);
+    },
+    [handle, key],
+  );
 
   return [override, setOverride] as const;
 }

@@ -1,10 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 
-export type RightPanelComposerPresentation =
-  | "default"
-  | "compact"
-  | "compact-hovered"
-  | "expanded";
+export type RightPanelComposerPresentation = "default" | "compact" | "compact-hovered" | "expanded";
 
 export const RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS =
   "mx-[var(--right-panel-composer-accessory-inline-inset,0px)]";
@@ -23,9 +19,7 @@ const DEFAULT_PRESENTATION: RightPanelComposerPresentationContextValue = {
 };
 
 const RightPanelComposerPresentationContext =
-  createContext<RightPanelComposerPresentationContextValue>(
-    DEFAULT_PRESENTATION,
-  );
+  createContext<RightPanelComposerPresentationContextValue>(DEFAULT_PRESENTATION);
 
 export function RightPanelComposerPresentationProvider({
   children,
@@ -35,9 +29,7 @@ export function RightPanelComposerPresentationProvider({
   presentation: RightPanelComposerPresentation;
 }) {
   return (
-    <RightPanelComposerPresentationContext.Provider
-      value={{ floating: true, presentation }}
-    >
+    <RightPanelComposerPresentationContext.Provider value={{ floating: true, presentation }}>
       {children}
     </RightPanelComposerPresentationContext.Provider>
   );

@@ -12,20 +12,14 @@ export interface SideMenuDragCleanupEditor {
   getExtension?: (extension: unknown) => unknown;
 }
 
-type ProseMirrorDragView = NonNullable<
-  SideMenuDragCleanupEditor["prosemirrorView"]
->;
+type ProseMirrorDragView = NonNullable<SideMenuDragCleanupEditor["prosemirrorView"]>;
 
-function supportsSideMenuDragLifecycle(
-  value: unknown,
-): value is SideMenuDragLifecycle {
+function supportsSideMenuDragLifecycle(value: unknown): value is SideMenuDragLifecycle {
   if (typeof value !== "object" || value === null) return false;
   return typeof (value as { blockDragEnd?: unknown }).blockDragEnd === "function";
 }
 
-function removeDanglingDragPreviews(
-  rootEl: Document | ShadowRoot | undefined,
-): void {
+function removeDanglingDragPreviews(rootEl: Document | ShadowRoot | undefined): void {
   if (!rootEl) return;
   for (const element of rootEl.querySelectorAll(".bn-drag-preview")) {
     element.remove();
@@ -53,9 +47,7 @@ function getMountedProseMirrorRoot(
   }
 }
 
-function clearProseMirrorDragging(
-  pmView: ProseMirrorDragView | undefined,
-): void {
+function clearProseMirrorDragging(pmView: ProseMirrorDragView | undefined): void {
   if (!pmView || !("dragging" in pmView)) return;
   try {
     pmView.dragging = null;
@@ -77,9 +69,7 @@ function getSideMenuDragLifecycle(
   }
 }
 
-export function finalizeSideMenuBlockDrag(
-  editor: SideMenuDragCleanupEditor,
-): void {
+export function finalizeSideMenuBlockDrag(editor: SideMenuDragCleanupEditor): void {
   const pmView = getMountedProseMirrorView(editor);
   const rootEl = getMountedProseMirrorRoot(pmView);
 
@@ -89,7 +79,5 @@ export function finalizeSideMenuBlockDrag(
   if (rootEl && sideMenuExtension) {
     sideMenuExtension.blockDragEnd();
   }
-  removeDanglingDragPreviews(
-    rootEl ?? (typeof document !== "undefined" ? document : undefined),
-  );
+  removeDanglingDragPreviews(rootEl ?? (typeof document !== "undefined" ? document : undefined));
 }

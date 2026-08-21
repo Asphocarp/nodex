@@ -27,9 +27,7 @@ import {
 } from "./block-document-surface-runtime";
 import { BlockDocumentSurfaceError } from "./block-document-surface-failure";
 
-const descriptor = (
-  overrides: Partial<OwnedDocumentDescriptor> = {},
-): OwnedDocumentDescriptor => ({
+const descriptor = (overrides: Partial<OwnedDocumentDescriptor> = {}): OwnedDocumentDescriptor => ({
   libraryId: "library-1",
   accessContext: { kind: "project", projectId: "project-1" },
   ownerBlockId: "card-1",
@@ -133,7 +131,6 @@ class FakeSurfaceProvider implements BlockDocumentSurfaceProvider {
     return this.checkpointPromise;
   };
 
-
   destroy = (): void => {
     this.events.push("provider-destroy");
     this.awareness.destroy();
@@ -163,10 +160,7 @@ class MemoryCheckpointStore implements DocumentLocalCheckpointStore {
       ? {
           ...checkpoint,
           headSeq: Math.max(this.checkpoint.headSeq, checkpoint.headSeq),
-          state: Y.mergeUpdates([
-            this.checkpoint.state,
-            checkpoint.state,
-          ]),
+          state: Y.mergeUpdates([this.checkpoint.state, checkpoint.state]),
         }
       : checkpoint;
   };
@@ -191,11 +185,7 @@ const applyServerDocument = (document: Y.Doc, documentId: string): void => {
     initialTitle: "Server title",
   });
   try {
-    Y.applyUpdate(
-      document,
-      Y.encodeStateAsUpdate(server.document),
-      "server-sync",
-    );
+    Y.applyUpdate(document, Y.encodeStateAsUpdate(server.document), "server-sync");
   } finally {
     server.document.destroy();
   }
@@ -241,16 +231,12 @@ describe("BlockDocumentSurfaceRuntime", () => {
     const ready = runtime.whenReady();
     await runtime.connect();
     const readyDocument = await ready;
-    expect(
-      readyDocument.kind === "page"
-        ? readyDocument.title.toString()
-        : "wrong-kind",
-    ).toBe("Server title");
+    expect(readyDocument.kind === "page" ? readyDocument.title.toString() : "wrong-kind").toBe(
+      "Server title",
+    );
     expect(runtime.getStatus().phase).toBe("ready");
     expect(runtime.getStatus().ready).toBe(true);
-    expect(events.join(",")).toBe(
-      "subscribe,connect,status:connecting,status:synced,open",
-    );
+    expect(events.join(",")).toBe("subscribe,connect,status:connecting,status:synced,open");
     expect(statusNotifications > 0).toBe(true);
     await runtime.flush();
     await runtime.checkpoint();
@@ -284,18 +270,21 @@ describe("BlockDocumentSurfaceRuntime", () => {
 
   test("rejects Canvas before constructing a Yjs surface provider", () => {
     const providers: FakeSurfaceProvider[] = [];
-    expect(() => new BlockDocumentSurfaceRuntime({
-      descriptor: descriptor({
-        ownerBlockId: "canvas-1",
-        ownerType: CANVAS_BLOCK_TYPE,
-        documentId: "document:canvas-1",
-        schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
-        schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
-      }),
-      adapter: unusedAdapter,
-      createProvider: createFactory(providers, []),
-      localCheckpointStore: null,
-    })).toThrow("No owned Document Adapter is registered");
+    expect(
+      () =>
+        new BlockDocumentSurfaceRuntime({
+          descriptor: descriptor({
+            ownerBlockId: "canvas-1",
+            ownerType: CANVAS_BLOCK_TYPE,
+            documentId: "document:canvas-1",
+            schemaKey: CANVAS_DOCUMENT_SCHEMA_KEY,
+            schemaVersion: CANVAS_DOCUMENT_SCHEMA_VERSION,
+          }),
+          adapter: unusedAdapter,
+          createProvider: createFactory(providers, []),
+          localCheckpointStore: null,
+        }),
+    ).toThrow("No owned Document Adapter is registered");
     expect(providers).toHaveLength(0);
   });
 
@@ -314,9 +303,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     }
-    expect(errorMessage).toBe(
-      "No owned Document Adapter is registered for database/nodex.page@2",
-    );
+    expect(errorMessage).toBe("No owned Document Adapter is registered for database/nodex.page@2");
     expect(providersCreated).toBe(0);
   });
 
@@ -421,9 +408,7 @@ describe("BlockDocumentSurfaceRuntime", () => {
     expect(result.timedOut).toBe(true);
     expect(result.flush).toBe("timed-out");
     expect(result.checkpoint).toBe("timed-out");
-    expect(
-      events.indexOf("provider-destroy") < events.indexOf("document-destroy"),
-    ).toBe(true);
+    expect(events.indexOf("provider-destroy") < events.indexOf("document-destroy")).toBe(true);
     expect(runtime.getStatus().phase).toBe("closed");
   });
 
@@ -533,9 +518,9 @@ describe("BlockDocumentSurfaceRuntime", () => {
     expect(runtime.getReadyDocument()).toBe(null);
     expect(runtime.getStatus().phase).toBe("error");
     expect(runtime.getStatus().error).toBeInstanceOf(BlockDocumentSurfaceError);
-    expect(
-      (runtime.getStatus().error as BlockDocumentSurfaceError).syncError?.code,
-    ).toBe("invalid_document_update");
+    expect((runtime.getStatus().error as BlockDocumentSurfaceError).syncError?.code).toBe(
+      "invalid_document_update",
+    );
     expect(reloads.length).toBe(0);
 
     await Promise.all([runtime.reload(), runtime.reload()]);

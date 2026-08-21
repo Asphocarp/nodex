@@ -28,9 +28,7 @@ const ROOTS: GitReviewWatchRoots = {
 interface WatchInput {
   readonly path: string;
   readonly recursive: boolean;
-  readonly renameEventHandling:
-    | "changed-path"
-    | "changed-path-with-parent-directory";
+  readonly renameEventHandling: "changed-path" | "changed-path-with-parent-directory";
   readonly onChange: (change: FileWatchChange) => void;
 }
 
@@ -90,17 +88,17 @@ class FakeFileWatchHost implements FileWatchHost {
     return session;
   }
 
-  activeSessions(input: {
-    readonly path?: string;
-    readonly recursive?: boolean;
-  } = {}): FakeSession[] {
-    return this.sessions.filter((session) =>
-      (input.path === undefined || session.input.path === input.path)
-      && (
-        input.recursive === undefined
-        || session.input.recursive === input.recursive
-      )
-      && !session.isClosed
+  activeSessions(
+    input: {
+      readonly path?: string;
+      readonly recursive?: boolean;
+    } = {},
+  ): FakeSession[] {
+    return this.sessions.filter(
+      (session) =>
+        (input.path === undefined || session.input.path === input.path) &&
+        (input.recursive === undefined || session.input.recursive === input.recursive) &&
+        !session.isClosed,
     );
   }
 
@@ -135,23 +133,28 @@ describe("NodeGitReviewRepositoryWatcher", () => {
     });
     await watcher.start();
 
-    expect(host.activeSessions({
-      path: path.dirname(ROOTS.headPath),
-      recursive: false,
-    }).length).toBeGreaterThan(0);
-    expect(host.activeSessions({
-      path: path.join(COMMON_DIR, "refs", "heads"),
-      recursive: true,
-    })).toHaveLength(1);
-    expect(host.activeSessions({
-      path: path.join(COMMON_DIR, "refs"),
-      recursive: true,
-    })).toHaveLength(1);
-    expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(1);
     expect(
-      host.activeSessions({ path: ROOT, recursive: true })[0]
-        ?.input.renameEventHandling,
-    ).toBe("changed-path-with-parent-directory");
+      host.activeSessions({
+        path: path.dirname(ROOTS.headPath),
+        recursive: false,
+      }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      host.activeSessions({
+        path: path.join(COMMON_DIR, "refs", "heads"),
+        recursive: true,
+      }),
+    ).toHaveLength(1);
+    expect(
+      host.activeSessions({
+        path: path.join(COMMON_DIR, "refs"),
+        recursive: true,
+      }),
+    ).toHaveLength(1);
+    expect(host.activeSessions({ path: ROOT, recursive: true })).toHaveLength(1);
+    expect(host.activeSessions({ path: ROOT, recursive: true })[0]?.input.renameEventHandling).toBe(
+      "changed-path-with-parent-directory",
+    );
 
     host.emitEverywhere([ROOTS.headPath]);
     host.emitEverywhere([ROOTS.indexPath]);
@@ -161,9 +164,7 @@ describe("NodeGitReviewRepositoryWatcher", () => {
     host.emitEverywhere([path.join(COMMON_DIR, "worktrees", "other", "HEAD")]);
     host.emitEverywhere([path.join(ROOT, "src", "example.ts")]);
 
-    await vi.advanceTimersByTimeAsync(
-      GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS - 1,
-    );
+    await vi.advanceTimersByTimeAsync(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS - 1);
     expect(events).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(1);
     expect(new Set(events.map((event) => event.changeType))).toEqual(
@@ -202,9 +203,7 @@ describe("NodeGitReviewRepositoryWatcher", () => {
     workingTreeSession.emit([path.join(ROOT, "src", "nested", "child.ts")]);
     workingTreeSession.emit([path.join(ROOT, "src", "nested")]);
     for (let index = 0; index < 65; index += 1) {
-      workingTreeSession.emit([
-        path.join(ROOT, index % 2 === 0 ? "src" : "tests", `${index}.ts`),
-      ]);
+      workingTreeSession.emit([path.join(ROOT, index % 2 === 0 ? "src" : "tests", `${index}.ts`)]);
     }
 
     await vi.advanceTimersByTimeAsync(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS);
@@ -245,9 +244,7 @@ describe("NodeGitReviewRepositoryWatcher", () => {
 
     firstEmission.resolve();
     await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(
-      GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS - 1,
-    );
+    await vi.advanceTimersByTimeAsync(GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS - 1);
     expect(events).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(events).toEqual([

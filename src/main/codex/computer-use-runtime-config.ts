@@ -44,8 +44,9 @@ function nonEmptyString(value: string | null | undefined): string | null {
 function resolveDirection(locale: string): "ltr" | "rtl" {
   try {
     const intlLocale = new Intl.Locale(locale.replaceAll("_", "-"));
-    const textInfo = Reflect.get(intlLocale, "textInfo")
-      ?? Reflect.get(intlLocale, "getTextInfo")?.call(intlLocale);
+    const textInfo =
+      Reflect.get(intlLocale, "textInfo") ??
+      Reflect.get(intlLocale, "getTextInfo")?.call(intlLocale);
     return Reflect.get(textInfo ?? {}, "direction") === "rtl" ? "rtl" : "ltr";
   } catch {
     return "ltr";
@@ -88,8 +89,7 @@ function localizedString(
   const configured = nonEmptyString(configuredValue);
   if (configured) return configured;
   const catalogValue = catalog?.[key];
-  return nonEmptyString(typeof catalogValue === "string" ? catalogValue : null)
-    ?? fallback;
+  return nonEmptyString(typeof catalogValue === "string" ? catalogValue : null) ?? fallback;
 }
 
 export function buildComputerUseRuntimeConfig(
@@ -144,10 +144,7 @@ async function writeConfigAtomically(
 export async function writeComputerUseRuntimeConfig(
   input: ComputerUseRuntimeConfigWriteInput,
 ): Promise<string> {
-  const directory = path.join(
-    path.resolve(input.runtimeStateHome),
-    COMPUTER_USE_CONFIG_DIRECTORY,
-  );
+  const directory = path.join(path.resolve(input.runtimeStateHome), COMPUTER_USE_CONFIG_DIRECTORY);
   const configPath = path.join(directory, COMPUTER_USE_CONFIG_FILENAME);
   const config = buildComputerUseRuntimeConfig(input);
   const operation = (writeQueues.get(configPath) ?? Promise.resolve(configPath))

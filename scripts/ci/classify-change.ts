@@ -13,94 +13,83 @@ import {
   type StaticGroup,
 } from "./ci-gate-plan.ts";
 
-export type {
-  AppTestSuite,
-  CiGatePlan,
-  DependencyKind,
-  StaticGroup,
-} from "./ci-gate-plan.ts";
+export type { AppTestSuite, CiGatePlan, DependencyKind, StaticGroup } from "./ci-gate-plan.ts";
 
 const RELEASE_PATHS = new Set(["Cargo.lock", "Cargo.toml", "CHANGELOG.md", "package.json"]);
 
 const isDocumentationPath = (path: string): boolean =>
-  path === "AGENTS.md"
-  || path === "CONTEXT.md"
-  || path.endsWith(".md")
-  || path.startsWith("docs/");
+  path === "AGENTS.md" || path === "CONTEXT.md" || path.endsWith(".md") || path.startsWith("docs/");
 
 const isLandingPath = (path: string): boolean =>
-  path.startsWith("packages/landing/")
-  || path === ".github/workflows/deploy-landing-site.yml";
+  path.startsWith("packages/landing/") || path === ".github/workflows/deploy-landing-site.yml";
 
 const isRendererPath = (path: string): boolean =>
-  path.startsWith("src/renderer/")
-  || path.startsWith("packages/storybook/")
-  || path.startsWith("src/shared/")
-  || path.startsWith("config/renderer-")
-  || path.startsWith("vitest.renderer")
-  || path.startsWith("vitest.browser");
+  path.startsWith("src/renderer/") ||
+  path.startsWith("packages/storybook/") ||
+  path.startsWith("src/shared/") ||
+  path.startsWith("config/renderer-") ||
+  path.startsWith("vitest.renderer") ||
+  path.startsWith("vitest.browser");
 
 const isElectronMainPath = (path: string): boolean =>
-  path.startsWith("src/main/")
-  || path.startsWith("src/preload/")
-  || path === "electron.vite.config.ts"
-  || path === "electron-builder.yml"
-  || path === "scripts/run-vitest-in-electron.mjs"
-  || path.startsWith("scripts/scenarios/");
+  path.startsWith("src/main/") ||
+  path.startsWith("src/preload/") ||
+  path === "electron.vite.config.ts" ||
+  path === "electron-builder.yml" ||
+  path === "scripts/run-vitest-in-electron.mjs" ||
+  path.startsWith("scripts/scenarios/");
 
 const isRustPath = (path: string): boolean =>
-  path === "Cargo.toml"
-  || path === "Cargo.lock"
-  || path === "rust-toolchain.toml"
-  || path.startsWith("crates/");
+  path === "Cargo.toml" ||
+  path === "Cargo.lock" ||
+  path === "rust-toolchain.toml" ||
+  path.startsWith("crates/");
 
 const isMigrationPath = (path: string): boolean =>
-  path === "crates/nodex-core/src/infrastructure/migration.rs"
-  || path.startsWith("crates/nodex-core/schema/")
-  || path.startsWith("crates/nodex-store-format/");
+  path === "crates/nodex-core/src/infrastructure/migration.rs" ||
+  path.startsWith("crates/nodex-core/schema/") ||
+  path.startsWith("crates/nodex-store-format/");
 
 const isProtocolPath = (path: string): boolean =>
-  path.startsWith("crates/nodex-core-contracts/")
-  || path.startsWith("crates/nodex-core-protocol/")
-  || path.startsWith("packages/codex-app-server-protocol/")
-  || path.startsWith("packages/core-protocol/")
-  || path.startsWith("src/shared/core-")
-  || path.startsWith("src/shared/codex-")
-  || path.startsWith("src/main/core-client/");
+  path.startsWith("crates/nodex-core-contracts/") ||
+  path.startsWith("crates/nodex-core-protocol/") ||
+  path.startsWith("packages/codex-app-server-protocol/") ||
+  path.startsWith("packages/core-protocol/") ||
+  path.startsWith("src/shared/core-") ||
+  path.startsWith("src/shared/codex-") ||
+  path.startsWith("src/main/core-client/");
 
 const isGeneratedResourcePath = (path: string): boolean =>
-  path === "scripts/build-resources.ts"
-  || path === "scripts/generate-third-party-notices.ts"
-  || path === "src/shared/build-resources.ts"
-  || path.startsWith("resources/");
+  path === "scripts/build-resources.ts" ||
+  path === "scripts/generate-third-party-notices.ts" ||
+  path === "src/shared/build-resources.ts" ||
+  path.startsWith("resources/");
 
 const isKnownAppPath = (path: string): boolean =>
-  path.startsWith("src/")
-  || path.startsWith("packages/")
-  || path.startsWith("third_party/")
-  || path.startsWith("scripts/")
-  || path.startsWith("resources/")
-  || path.startsWith("crates/")
-  || path.startsWith(".config/")
-  || path.startsWith("playwright")
-  || path.startsWith("tests/e2e/")
-  || path.startsWith("vitest")
-  || path.startsWith("tsconfig")
-  || path === "electron.vite.config.ts"
-  || path === "electron-builder.yml"
-  || path === "pnpm-workspace.yaml";
+  path.startsWith("src/") ||
+  path.startsWith("packages/") ||
+  path.startsWith("third_party/") ||
+  path.startsWith("scripts/") ||
+  path.startsWith("resources/") ||
+  path.startsWith("crates/") ||
+  path.startsWith(".config/") ||
+  path.startsWith("playwright") ||
+  path.startsWith("tests/e2e/") ||
+  path.startsWith("vitest") ||
+  path.startsWith("tsconfig") ||
+  path === "electron.vite.config.ts" ||
+  path === "electron-builder.yml" ||
+  path === "pnpm-workspace.yaml";
 
 const isGitHubPath = (path: string): boolean => path.startsWith(".github/");
 
 const isRustDependencyPath = (path: string): boolean =>
-  path === "Cargo.lock"
-  || path === "Cargo.toml"
-  || /^crates\/[^/]+\/Cargo\.toml$/u.test(path);
+  path === "Cargo.lock" || path === "Cargo.toml" || /^crates\/[^/]+\/Cargo\.toml$/u.test(path);
 
 const isJavaScriptDependencyPath = (path: string): boolean =>
-  path === "package.json"
-  || path === "pnpm-lock.yaml"
-  || /^(?:packages|third_party\/blocknote\/packages)\/[^/]+\/package\.json$/u.test(path);
+  path === "package.json" ||
+  path === "pnpm-lock.yaml" ||
+  /^(?:packages|third_party\/blocknote\/packages)\/[^/]+\/package\.json$/u.test(path);
 
 const isStressTestPath = (path: string): boolean => path.includes(".stress.");
 
@@ -124,19 +113,21 @@ const owningTestSuite = (path: string): AppTestSuite | undefined => {
   return undefined;
 };
 
-const requiresFullTests = (paths: readonly string[]): boolean => paths.some((path) => (
-  path === "package.json"
-  || path === "pnpm-lock.yaml"
-  || path === "pnpm-workspace.yaml"
-  || path === "electron.vite.config.ts"
-  || path.startsWith("config/")
-  || path.startsWith("scripts/ci/")
-  || path === "scripts/run-vitest-in-electron.mjs"
-  || path === "src/renderer/test/setup.ts"
-  || path === "src/renderer/test/setup-browser.ts"
-  || path.startsWith("tsconfig")
-  || path.startsWith("vitest")
-));
+const requiresFullTests = (paths: readonly string[]): boolean =>
+  paths.some(
+    (path) =>
+      path === "package.json" ||
+      path === "pnpm-lock.yaml" ||
+      path === "pnpm-workspace.yaml" ||
+      path === "electron.vite.config.ts" ||
+      path.startsWith("config/") ||
+      path.startsWith("scripts/ci/") ||
+      path === "scripts/run-vitest-in-electron.mjs" ||
+      path === "src/renderer/test/setup.ts" ||
+      path === "src/renderer/test/setup-browser.ts" ||
+      path.startsWith("tsconfig") ||
+      path.startsWith("vitest"),
+  );
 
 const testSuitesForPaths = (paths: readonly string[]): readonly AppTestSuite[] => {
   const selected = new Set<AppTestSuite>();
@@ -255,24 +246,25 @@ const createPlan = (overrides: Partial<CiGatePlan>): CiGatePlan => {
   return candidate;
 };
 
-const allGatesPlan = (dependencyKind: DependencyKind, allGates = true): CiGatePlan => createPlan({
-  allGates,
-  appTestSuites: APP_TEST_SUITES,
-  dependencyKind,
-  protocolContracts: true,
-  rustFast: true,
-  rustFull: true,
-  rustMigration: true,
-  staticGroups: STATIC_GROUPS,
-  testMode: "full",
-});
+const allGatesPlan = (dependencyKind: DependencyKind, allGates = true): CiGatePlan =>
+  createPlan({
+    allGates,
+    appTestSuites: APP_TEST_SUITES,
+    dependencyKind,
+    protocolContracts: true,
+    rustFast: true,
+    rustFull: true,
+    rustMigration: true,
+    staticGroups: STATIC_GROUPS,
+    testMode: "full",
+  });
 
 const githubWorkflowPlan = (paths: readonly string[]): CiGatePlan => {
   const appTests = paths.includes(".github/workflows/_app-tests.yml");
   const rustChecks = paths.includes(".github/workflows/_rust-checks.yml");
   const staticGroups = paths.includes(".github/workflows/_static-checks.yml")
     ? STATIC_GROUPS
-    : ["ci-contracts"] as const;
+    : (["ci-contracts"] as const);
   return createPlan({
     appTestSuites: appTests ? APP_TEST_SUITES : [],
     dependencyKind: "github-actions",
@@ -350,13 +342,14 @@ export function classifyChangedPaths(
   const paths = [...new Set(changedPaths.map(normalizePath))];
   if (options.full || paths.length === 0) return allGatesPlan("source");
 
-  const releaseTransition = paths.length === RELEASE_PATHS.size
-    && [...RELEASE_PATHS].every((path) => paths.includes(path));
+  const releaseTransition =
+    paths.length === RELEASE_PATHS.size && [...RELEASE_PATHS].every((path) => paths.includes(path));
   if (releaseTransition) return createPlan({ releaseTransition: true });
 
   if (paths.every(isDocumentationPath)) return createPlan({ docsOnly: true });
-  const landingOnly = paths.some(isLandingPath)
-    && paths.every((path) => isLandingPath(path) || isDocumentationPath(path));
+  const landingOnly =
+    paths.some(isLandingPath) &&
+    paths.every((path) => isLandingPath(path) || isDocumentationPath(path));
   if (landingOnly) return createPlan({ landingOnly: true, staticGroups: ["landing"] });
   const executablePaths = paths.filter((path) => !isDocumentationPath(path));
 
@@ -386,12 +379,13 @@ export function classifyChangedPaths(
     });
   }
 
-  const hasUnknownPath = executablePaths.some((path) => (
-    !isDocumentationPath(path)
-    && !isLandingPath(path)
-    && !isKnownAppPath(path)
-    && !RELEASE_PATHS.has(path)
-  ));
+  const hasUnknownPath = executablePaths.some(
+    (path) =>
+      !isDocumentationPath(path) &&
+      !isLandingPath(path) &&
+      !isKnownAppPath(path) &&
+      !RELEASE_PATHS.has(path),
+  );
   if (hasUnknownPath) {
     return allGatesPlan(dependencyKind === "none" ? "source" : dependencyKind);
   }
@@ -432,7 +426,9 @@ const main = (): void => {
   const base = readOption(args, "--base");
   const head = readOption(args, "--head") ?? "HEAD";
   if (!base && !full) {
-    throw new Error("Usage: classify-change --base <sha> [--head <sha>] [--full] [--output <path>].");
+    throw new Error(
+      "Usage: classify-change --base <sha> [--head <sha>] [--full] [--output <path>].",
+    );
   }
   const cwd = resolve(import.meta.dirname, "../..");
   const paths = full
@@ -441,10 +437,12 @@ const main = (): void => {
         cwd,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "pipe"],
-      }).split("\0").filter(Boolean);
-  const forceFullTests = paths.some((path) => (
-    !isDocumentationPath(path) && !existsSync(resolve(cwd, path))
-  ));
+      })
+        .split("\0")
+        .filter(Boolean);
+  const forceFullTests = paths.some(
+    (path) => !isDocumentationPath(path) && !existsSync(resolve(cwd, path)),
+  );
   const document = buildChangeClassificationDocument(paths, {
     forceFullTests,
     full,
@@ -464,7 +462,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     main();
   } catch (error) {
-    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+    );
     process.exitCode = 1;
   }
 }

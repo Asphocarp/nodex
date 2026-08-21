@@ -58,9 +58,7 @@ class FakeServer {
   }
 }
 
-function capture(
-  overrides: Partial<BrowserUseRouteCapture> = {},
-): BrowserUseRouteCapture {
+function capture(overrides: Partial<BrowserUseRouteCapture> = {}): BrowserUseRouteCapture {
   return {
     browserConversationId: "session-1",
     browserViewScopeId: "window-session-1",
@@ -114,22 +112,22 @@ describe("BrowserUseSessionRegistry", () => {
     await registry.captureRoute(capture());
     apis[0]!.activeControl = true;
 
-    await expect(registry.captureRoute(capture({
-      browserViewScopeId: "window-session-2",
-      ownerWebContentsId: 202,
-    }))).rejects.toThrow("live controlled pages");
+    await expect(
+      registry.captureRoute(
+        capture({
+          browserViewScopeId: "window-session-2",
+          ownerWebContentsId: 202,
+        }),
+      ),
+    ).rejects.toThrow("live controlled pages");
     expect(registry.getDebugSnapshot().sessions[0]?.ownerWebContentsId).toBe(101);
     await registry.dispose();
   });
 
   test("replaces the provisional project-session backend when the Codex session arrives", async () => {
     const { apis, registry, servers } = makeRegistry();
-    const provisionalCapture = registry.captureRoute(
-      capture({ codexSessionId: "session-1" }),
-    );
-    const canonicalCapture = registry.captureRoute(
-      capture({ codexSessionId: "thread-1" }),
-    );
+    const provisionalCapture = registry.captureRoute(capture({ codexSessionId: "session-1" }));
+    const canonicalCapture = registry.captureRoute(capture({ codexSessionId: "thread-1" }));
     await Promise.all([provisionalCapture, canonicalCapture]);
 
     expect(registry.getDebugSnapshot().sessions).toEqual([
@@ -143,9 +141,9 @@ describe("BrowserUseSessionRegistry", () => {
     expect(servers[0]?.closed).toBe(true);
     expect(servers[1]?.started).toBe(true);
     expect(
-      registry.getDebugSnapshot().events.some(
-        (event) => event.kind === "provisional-route-rebound",
-      ),
+      registry
+        .getDebugSnapshot()
+        .events.some((event) => event.kind === "provisional-route-rebound"),
     ).toBe(true);
     await registry.dispose();
   });
@@ -159,9 +157,7 @@ describe("BrowserUseSessionRegistry", () => {
 
     expect(apis[0]?.endedTurns).toEqual(["turn-2"]);
     expect(
-      registry.getDebugSnapshot().events.some(
-        (event) => event.kind === "stale-turn-end-ignored",
-      ),
+      registry.getDebugSnapshot().events.some((event) => event.kind === "stale-turn-end-ignored"),
     ).toBe(true);
     await registry.dispose();
   });

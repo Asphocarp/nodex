@@ -6,10 +6,7 @@ import {
   resolveCodexDynamicCreateTarget,
 } from "./codex-dynamic-thread-target";
 
-function project(
-  id: string,
-  roots: readonly string[],
-): CodexDynamicCreateProjectTarget {
+function project(id: string, roots: readonly string[]): CodexDynamicCreateProjectTarget {
   return {
     id,
     sources: roots.map((root) => ({ root })),
@@ -24,10 +21,12 @@ function workspace(id: string): CodexProjectlessWorkspace {
   };
 }
 
-function dependencies(input: {
-  readonly projects?: readonly CodexDynamicCreateProjectTarget[];
-  readonly workspaces?: readonly CodexProjectlessWorkspace[];
-} = {}): CodexDynamicThreadTargetDependencies & {
+function dependencies(
+  input: {
+    readonly projects?: readonly CodexDynamicCreateProjectTarget[];
+    readonly workspaces?: readonly CodexProjectlessWorkspace[];
+  } = {},
+): CodexDynamicThreadTargetDependencies & {
   readonly workspaceInputs: Array<{
     readonly createSplitDirectories: true;
     readonly directoryName?: string;
@@ -67,89 +66,108 @@ async function captureErrorMessage(run: () => Promise<unknown>): Promise<string 
 describe("Codex dynamic create-thread target resolution", () => {
   test("rejects an unknown project with the exact create_thread diagnostic", async () => {
     const deps = dependencies();
-    expect(await captureErrorMessage(() => resolveCodexDynamicCreateTarget({
-      prompt: "delegate",
-      target: {
-        type: "project",
-        projectId: "missing",
-        environment: { type: "local" },
-      },
-    }, deps))).toBe(
-      "Unknown projectId: missing. Call list_projects to find available projects.",
-    );
+    expect(
+      await captureErrorMessage(() =>
+        resolveCodexDynamicCreateTarget(
+          {
+            prompt: "delegate",
+            target: {
+              type: "project",
+              projectId: "missing",
+              environment: { type: "local" },
+            },
+          },
+          deps,
+        ),
+      ),
+    ).toBe("Unknown projectId: missing. Call list_projects to find available projects.");
     expect(deps.workspaceInputs.length).toBe(0);
   });
 
   test("uses the only local project source directly without creating a workspace", async () => {
     const deps = dependencies({ projects: [project("one", ["/repo"])] });
-    const resolved = await resolveCodexDynamicCreateTarget({
-      prompt: "delegate",
-      target: {
-        type: "project",
-        projectId: "one",
-        environment: { type: "local" },
+    const resolved = await resolveCodexDynamicCreateTarget(
+      {
+        prompt: "delegate",
+        target: {
+          type: "project",
+          projectId: "one",
+          environment: { type: "local" },
+        },
       },
-    }, deps);
+      deps,
+    );
 
-    expect(JSON.stringify(resolved)).toBe(JSON.stringify({
-      launchMode: "direct",
-      projectId: "one",
-      cwd: "/repo",
-      workspaceRoots: ["/repo"],
-      workspaceKind: "project",
-      projectlessOutputDirectory: null,
-      projectlessWorkspaceBrowserRoot: null,
-    }));
+    expect(JSON.stringify(resolved)).toBe(
+      JSON.stringify({
+        launchMode: "direct",
+        projectId: "one",
+        cwd: "/repo",
+        workspaceRoots: ["/repo"],
+        workspaceKind: "project",
+        projectlessOutputDirectory: null,
+        projectlessWorkspaceBrowserRoot: null,
+      }),
+    );
     expect(deps.workspaceInputs.length).toBe(0);
   });
 
   test("creates split workspaces for zero- and multi-source projects while retaining project kind", async () => {
     const deps = dependencies({
-      projects: [
-        project("empty", []),
-        project("many", ["/repo/a", "/repo/b"]),
-      ],
+      projects: [project("empty", []), project("many", ["/repo/a", "/repo/b"])],
       workspaces: [workspace("empty-task"), workspace("many-task")],
     });
-    const empty = await resolveCodexDynamicCreateTarget({
-      prompt: "empty prompt",
-      target: {
-        type: "project",
-        projectId: "empty",
-        environment: { type: "local" },
+    const empty = await resolveCodexDynamicCreateTarget(
+      {
+        prompt: "empty prompt",
+        target: {
+          type: "project",
+          projectId: "empty",
+          environment: { type: "local" },
+        },
       },
-    }, deps);
-    const many = await resolveCodexDynamicCreateTarget({
-      prompt: "many prompt",
-      target: {
-        type: "project",
-        projectId: "many",
-        environment: { type: "local" },
+      deps,
+    );
+    const many = await resolveCodexDynamicCreateTarget(
+      {
+        prompt: "many prompt",
+        target: {
+          type: "project",
+          projectId: "many",
+          environment: { type: "local" },
+        },
       },
-    }, deps);
+      deps,
+    );
 
-    expect(JSON.stringify(empty)).toBe(JSON.stringify({
-      launchMode: "direct",
-      projectId: "empty",
-      cwd: "/Documents/Nodex/2026-07-11/empty-task",
-      workspaceRoots: ["/Documents/Nodex"],
-      workspaceKind: "project",
-      projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/empty-task/outputs",
-      projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
-    }));
-    expect(JSON.stringify(many)).toBe(JSON.stringify({
-      launchMode: "direct",
-      projectId: "many",
-      cwd: "/Documents/Nodex/2026-07-11/many-task",
-      workspaceRoots: ["/Documents/Nodex", "/repo/a", "/repo/b"],
-      workspaceKind: "project",
-      projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/many-task/outputs",
-      projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
-    }));
-    expect(JSON.stringify(deps.workspaceInputs)).toBe(JSON.stringify([
-      { createSplitDirectories: true, prompt: "empty prompt" },
-      { createSplitDirectories: true, prompt: "many prompt" },
-    ]));
+    expect(JSON.stringify(empty)).toBe(
+      JSON.stringify({
+        launchMode: "direct",
+        projectId: "empty",
+        cwd: "/Documents/Nodex/2026-07-11/empty-task",
+        workspaceRoots: ["/Documents/Nodex"],
+        workspaceKind: "project",
+        projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/empty-task/outputs",
+        projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
+      }),
+    );
+    expect(JSON.stringify(many)).toBe(
+      JSON.stringify({
+        launchMode: "direct",
+        projectId: "many",
+        cwd: "/Documents/Nodex/2026-07-11/many-task",
+        workspaceRoots: ["/Documents/Nodex", "/repo/a", "/repo/b"],
+        workspaceKind: "project",
+        projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/many-task/outputs",
+        projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
+      }),
+    );
+    expect(JSON.stringify(deps.workspaceInputs)).toBe(
+      JSON.stringify([
+        { createSplitDirectories: true, prompt: "empty prompt" },
+        { createSplitDirectories: true, prompt: "many prompt" },
+      ]),
+    );
   });
 
   test("creates a fresh split projectless workspace and returns its output and browser roots", async () => {
@@ -160,45 +178,57 @@ describe("Codex dynamic create-thread target resolution", () => {
       type: "projectless" as const,
       directoryName: "Deliverables",
     };
-    const first = await resolveCodexDynamicCreateTarget({
-      prompt: "first prompt",
-      target,
-    }, deps);
-    const second = await resolveCodexDynamicCreateTarget({
-      prompt: "second prompt",
-      target,
-    }, deps);
-
-    expect(JSON.stringify(first)).toBe(JSON.stringify({
-      launchMode: "direct",
-      projectId: null,
-      cwd: "/Documents/Nodex/2026-07-11/first",
-      workspaceRoots: ["/Documents/Nodex"],
-      workspaceKind: "projectless",
-      projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/first/outputs",
-      projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
-    }));
-    expect(JSON.stringify(second)).toBe(JSON.stringify({
-      launchMode: "direct",
-      projectId: null,
-      cwd: "/Documents/Nodex/2026-07-11/second",
-      workspaceRoots: ["/Documents/Nodex"],
-      workspaceKind: "projectless",
-      projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/second/outputs",
-      projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
-    }));
-    expect(JSON.stringify(deps.workspaceInputs)).toBe(JSON.stringify([
+    const first = await resolveCodexDynamicCreateTarget(
       {
-        createSplitDirectories: true,
         prompt: "first prompt",
-        directoryName: "Deliverables",
+        target,
       },
+      deps,
+    );
+    const second = await resolveCodexDynamicCreateTarget(
       {
-        createSplitDirectories: true,
         prompt: "second prompt",
-        directoryName: "Deliverables",
+        target,
       },
-    ]));
+      deps,
+    );
+
+    expect(JSON.stringify(first)).toBe(
+      JSON.stringify({
+        launchMode: "direct",
+        projectId: null,
+        cwd: "/Documents/Nodex/2026-07-11/first",
+        workspaceRoots: ["/Documents/Nodex"],
+        workspaceKind: "projectless",
+        projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/first/outputs",
+        projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
+      }),
+    );
+    expect(JSON.stringify(second)).toBe(
+      JSON.stringify({
+        launchMode: "direct",
+        projectId: null,
+        cwd: "/Documents/Nodex/2026-07-11/second",
+        workspaceRoots: ["/Documents/Nodex"],
+        workspaceKind: "projectless",
+        projectlessOutputDirectory: "/Documents/Nodex/2026-07-11/second/outputs",
+        projectlessWorkspaceBrowserRoot: "/Documents/Nodex",
+      }),
+    );
+    expect(JSON.stringify(deps.workspaceInputs)).toBe(
+      JSON.stringify([
+        {
+          createSplitDirectories: true,
+          prompt: "first prompt",
+          directoryName: "Deliverables",
+        },
+        {
+          createSplitDirectories: true,
+          prompt: "second prompt",
+          directoryName: "Deliverables",
+        },
+      ]),
+    );
   });
 
   test("requires exactly one worktree source and passes the selected starting state through", async () => {
@@ -213,45 +243,66 @@ describe("Codex dynamic create-thread target resolution", () => {
         project("many", ["/repo/a", "/repo/b"]),
       ],
     });
-    const resolved = await resolveCodexDynamicCreateTarget({
-      prompt: "delegate",
-      target: {
-        type: "project",
-        projectId: "one",
-        environment: {
-          type: "worktree",
-          startingState: selectedStartingState,
+    const resolved = await resolveCodexDynamicCreateTarget(
+      {
+        prompt: "delegate",
+        target: {
+          type: "project",
+          projectId: "one",
+          environment: {
+            type: "worktree",
+            startingState: selectedStartingState,
+          },
         },
       },
-    }, deps);
+      deps,
+    );
 
-    expect(JSON.stringify(resolved)).toBe(JSON.stringify({
-      launchMode: "worktree",
-      projectId: "one",
-      cwd: "/repo",
-      workspaceRoots: ["/repo"],
-      workspaceKind: "project",
-      projectlessOutputDirectory: null,
-      projectlessWorkspaceBrowserRoot: null,
-      startingState: selectedStartingState,
-    }));
-    expect(resolved.launchMode === "worktree" && resolved.startingState).toBe(selectedStartingState);
-    expect(await captureErrorMessage(() => resolveCodexDynamicCreateTarget({
-      prompt: "empty",
-      target: {
-        type: "project",
-        projectId: "empty",
-        environment: { type: "worktree" },
-      },
-    }, deps))).toBe("Worktree threads require a project with exactly one directory");
-    expect(await captureErrorMessage(() => resolveCodexDynamicCreateTarget({
-      prompt: "many",
-      target: {
-        type: "project",
-        projectId: "many",
-        environment: { type: "worktree" },
-      },
-    }, deps))).toBe("Worktree threads require a project with exactly one directory");
+    expect(JSON.stringify(resolved)).toBe(
+      JSON.stringify({
+        launchMode: "worktree",
+        projectId: "one",
+        cwd: "/repo",
+        workspaceRoots: ["/repo"],
+        workspaceKind: "project",
+        projectlessOutputDirectory: null,
+        projectlessWorkspaceBrowserRoot: null,
+        startingState: selectedStartingState,
+      }),
+    );
+    expect(resolved.launchMode === "worktree" && resolved.startingState).toBe(
+      selectedStartingState,
+    );
+    expect(
+      await captureErrorMessage(() =>
+        resolveCodexDynamicCreateTarget(
+          {
+            prompt: "empty",
+            target: {
+              type: "project",
+              projectId: "empty",
+              environment: { type: "worktree" },
+            },
+          },
+          deps,
+        ),
+      ),
+    ).toBe("Worktree threads require a project with exactly one directory");
+    expect(
+      await captureErrorMessage(() =>
+        resolveCodexDynamicCreateTarget(
+          {
+            prompt: "many",
+            target: {
+              type: "project",
+              projectId: "many",
+              environment: { type: "worktree" },
+            },
+          },
+          deps,
+        ),
+      ),
+    ).toBe("Worktree threads require a project with exactly one directory");
     expect(deps.workspaceInputs.length).toBe(0);
   });
 });

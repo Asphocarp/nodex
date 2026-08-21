@@ -51,10 +51,7 @@ export function addReviewDiffCommentAttachment(
   if (!key) return;
 
   const current = attachmentsByThreadId.get(key) ?? [];
-  const next = [
-    ...current.filter((candidate) => candidate.id !== attachment.id),
-    attachment,
-  ];
+  const next = [...current.filter((candidate) => candidate.id !== attachment.id), attachment];
   attachmentsByThreadId.set(key, next);
   emitChange();
 }
@@ -68,7 +65,10 @@ export function updateReviewDiffCommentAttachment(
 
   const current = attachmentsByThreadId.get(key) ?? [];
   if (!current.some((candidate) => candidate.id === attachment.id)) return;
-  attachmentsByThreadId.set(key, current.map((candidate) => candidate.id === attachment.id ? attachment : candidate));
+  attachmentsByThreadId.set(
+    key,
+    current.map((candidate) => (candidate.id === attachment.id ? attachment : candidate)),
+  );
   emitChange();
 }
 

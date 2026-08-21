@@ -1,10 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { createRef, type RefObject } from "react";
-import {
-  DropCursorExtension,
-  SideMenuExtension,
-} from "@blocknote/core/extensions";
+import { DropCursorExtension, SideMenuExtension } from "@blocknote/core/extensions";
 import { render, settleAsyncRender } from "@/test/dom";
 import { useEditorDragBehaviors } from "./use-editor-drag-behaviors";
 import {
@@ -32,7 +29,7 @@ function makeEditor(
         querySelectorAll: () => [],
       },
     },
-    getBlock: (id: string) => id === block.id ? block : undefined,
+    getBlock: (id: string) => (id === block.id ? block : undefined),
     getParentBlock: () => undefined,
     getSelection: () => ({ blocks: [block] }),
     removeBlocks: () => undefined,
@@ -40,9 +37,7 @@ function makeEditor(
     transact: <T,>(fn: () => T) => fn(),
     getExtension: (extension: unknown) => ({
       blockDragEnd: onBlockDragEnd,
-      setExternalDragOwnershipResolver: (
-        resolver: (event: DragEvent) => boolean,
-      ) => {
+      setExternalDragOwnershipResolver: (resolver: (event: DragEvent) => boolean) => {
         onExternalDragOwnershipResolver?.(extension, resolver);
         return () => undefined;
       },
@@ -116,12 +111,7 @@ describe("useEditorDragBehaviors", () => {
     });
     const containerRef = createRef<HTMLDivElement>();
 
-    const view = render(
-      <DragBehaviorHarness
-        editor={editor}
-        containerRef={containerRef}
-      />,
-    );
+    const view = render(<DragBehaviorHarness editor={editor} containerRef={containerRef} />);
     await settleAsyncRender();
 
     const container = view.getByTestId("editor-container");
@@ -130,12 +120,7 @@ describe("useEditorDragBehaviors", () => {
       await Promise.resolve();
     });
 
-    view.rerender(
-      <DragBehaviorHarness
-        editor={editor}
-        containerRef={containerRef}
-      />,
-    );
+    view.rerender(<DragBehaviorHarness editor={editor} containerRef={containerRef} />);
     await settleAsyncRender();
 
     expect(editor.prosemirrorView?.dragging === null).toBe(false);
@@ -154,11 +139,7 @@ describe("useEditorDragBehaviors", () => {
     const editor = makeEditor(() => undefined);
     const containerRef = createRef<HTMLDivElement>();
     const view = render(
-      <DragBehaviorHarness
-        editor={editor}
-        containerRef={containerRef}
-        crossSurface
-      />,
+      <DragBehaviorHarness editor={editor} containerRef={containerRef} crossSurface />,
     );
     await settleAsyncRender();
     const container = view.getByTestId("editor-container");
@@ -199,11 +180,7 @@ describe("useEditorDragBehaviors", () => {
     );
     const containerRef = createRef<HTMLDivElement>();
     const view = render(
-      <DragBehaviorHarness
-        editor={editor}
-        containerRef={containerRef}
-        crossSurface
-      />,
+      <DragBehaviorHarness editor={editor} containerRef={containerRef} crossSurface />,
     );
     await settleAsyncRender();
     const container = view.getByTestId("editor-container");

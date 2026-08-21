@@ -65,13 +65,14 @@ function resolveMetadataTurn(
   if (exactIndex >= 0) return { state, index: exactIndex };
   const latest = state.turns.at(-1);
   if (
-    state.turns.length !== 1
-    || !latest
-    || latest.protocol.id !== null
-    || latest.protocol.status !== "completed"
-    || latest.protocol.error !== null
-    || latest.items.length !== 0
-  ) return null;
+    state.turns.length !== 1 ||
+    !latest ||
+    latest.protocol.id !== null ||
+    latest.protocol.status !== "completed" ||
+    latest.protocol.error !== null ||
+    latest.items.length !== 0
+  )
+    return null;
   return {
     state: replaceTurn(state, 0, {
       ...latest,
@@ -96,7 +97,8 @@ export function reduceCodexConversationTurnDiff(
   const resolved = resolveMetadataTurn(state, turnId, observedAtMs);
   if (!resolved) return result(state, "missingTurn");
   const turn = resolved.state.turns[resolved.index]!;
-  if (turn.sidecar.diff === diff) return result(resolved.state, "applied", resolved.state !== state);
+  if (turn.sidecar.diff === diff)
+    return result(resolved.state, "applied", resolved.state !== state);
   const next = replaceTurn(resolved.state, resolved.index, {
     ...turn,
     sidecar: { ...turn.sidecar, diff },
@@ -122,10 +124,7 @@ export function reduceCodexConversationSafetyBuffering(
   return result(next, "applied", true);
 }
 
-function findHookRunIndex(
-  hooks: readonly CodexCanonicalHookRun[],
-  run: HookRunSummary,
-): number {
+function findHookRunIndex(hooks: readonly CodexCanonicalHookRun[], run: HookRunSummary): number {
   for (let index = hooks.length - 1; index >= 0; index -= 1) {
     const hook = hooks[index];
     if (hook?.run.id === run.id && hook.run.status === "running") return index;
@@ -169,8 +168,7 @@ function synthesizeHookTurn(
     },
     items: [],
     sidecar: {
-      params: previous?.sidecar.params
-        ?? buildCodexCanonicalSyntheticTurnParams(state, previous),
+      params: previous?.sidecar.params ?? buildCodexCanonicalSyntheticTurnParams(state, previous),
       diff: null,
       turnStartedAtMs: observedAtMs,
       firstTurnWorkItemStartedAtMs: null,
@@ -228,10 +226,14 @@ export function reduceCodexConversationHookRun(
       hookRuns: upsertHookRun(hooks, run),
     },
   });
-  return result(next, "applied", true,
+  return result(
+    next,
+    "applied",
+    true,
     method === "hook/started"
       ? [{ type: "markConversationStreaming", threadId: conversationId }]
-      : []);
+      : [],
+  );
 }
 
 function replaceResolvedTurnItem(
@@ -245,10 +247,14 @@ function replaceResolvedTurnItem(
   const resolved = resolveMetadataTurn(state, turnId, observedAtMs);
   if (!resolved) return result(state, "missingTurn");
   const turn = ensureCodexCanonicalTurnCollections(resolved.state.turns[resolved.index]!);
-  return result(replaceTurn(resolved.state, resolved.index, {
-    ...turn,
-    items: update(turn.items),
-  }), "applied", true);
+  return result(
+    replaceTurn(resolved.state, resolved.index, {
+      ...turn,
+      items: update(turn.items),
+    }),
+    "applied",
+    true,
+  );
 }
 
 export function reduceCodexConversationTurnPlan(
@@ -343,7 +349,8 @@ function projectGuardianAction(action: GuardianApprovalReviewAction): unknown {
 }
 
 function buildDeniedGuardianEvent(
-  params: NotificationOf<"item/autoApprovalReview/started">["params"]
+  params:
+    | NotificationOf<"item/autoApprovalReview/started">["params"]
     | NotificationOf<"item/autoApprovalReview/completed">["params"],
 ): unknown | null {
   if (params.review.status !== "denied") return null;
@@ -369,7 +376,8 @@ function buildDeniedGuardianEvent(
 
 export function reduceCodexConversationAutomaticApprovalReview(
   state: CodexCanonicalConversationState,
-  notification: NotificationOf<"item/autoApprovalReview/started">
+  notification:
+    | NotificationOf<"item/autoApprovalReview/started">
     | NotificationOf<"item/autoApprovalReview/completed">,
   observedAtMs: number,
 ): CodexTurnMetadataResult {
@@ -391,9 +399,7 @@ export function reduceCodexConversationAutomaticApprovalReview(
         targetItemId: params.targetItemId,
         action: params.action,
         startedAtMs:
-          existing?.type === "automaticApprovalReview"
-            ? existing.startedAtMs
-            : observedAtMs,
+          existing?.type === "automaticApprovalReview" ? existing.startedAtMs : observedAtMs,
         completedAtMs: params.review.status === "inProgress" ? null : observedAtMs,
         event: buildDeniedGuardianEvent(params),
         ...params.review,
@@ -407,11 +413,13 @@ export function reduceCodexConversationAutomaticApprovalReview(
   if (reduced.disposition !== "applied") return reduced;
   return {
     ...reduced,
-    effects: [{
-      type: "touchConversationUpdatedAt",
-      threadId: params.threadId,
-      observedAtMs,
-    }],
+    effects: [
+      {
+        type: "touchConversationUpdatedAt",
+        threadId: params.threadId,
+        observedAtMs,
+      },
+    ],
   };
 }
 
@@ -424,8 +432,12 @@ export function reduceCodexConversationGuardianWarning(
   const index = state.turns.length - 1;
   if (index < 0) return result(state, "missingTurn");
   const turn = ensureCodexCanonicalTurnCollections(state.turns[index]!);
-  return result(replaceTurn(state, index, {
-    ...turn,
-    items: [...turn.items, { id: itemId, type: "autoReviewInterruptionWarning" }],
-  }), "applied", true);
+  return result(
+    replaceTurn(state, index, {
+      ...turn,
+      items: [...turn.items, { id: itemId, type: "autoReviewInterruptionWarning" }],
+    }),
+    "applied",
+    true,
+  );
 }

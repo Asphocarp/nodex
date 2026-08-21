@@ -21,15 +21,15 @@ export interface RustDataAuthorityRuntime {
   clientForProject(projectId: string): DesktopCoreClient;
   close(): Promise<void>;
   retryCoreNow(): Promise<void>;
-  subscribeToCoreAuthority(
-    listener: (state: CoreAuthorityState) => void,
-  ): () => void;
+  subscribeToCoreAuthority(listener: (state: CoreAuthorityState) => void): () => void;
 }
 
 export type DesktopDataAuthorityRuntime = RustDataAuthorityRuntime;
 
-export interface InitializeDesktopDataAuthorityInput
-  extends Omit<ConnectOrStartCoreInput, "nodexHome"> {
+export interface InitializeDesktopDataAuthorityInput extends Omit<
+  ConnectOrStartCoreInput,
+  "nodexHome"
+> {
   readonly nodexHome: string;
   readonly supervisorDependencies?: DesktopCoreAuthoritySupervisorDependencies;
 }

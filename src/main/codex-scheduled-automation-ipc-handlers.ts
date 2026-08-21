@@ -28,10 +28,11 @@ export type CodexScheduledAutomationIpcChannel =
   | "codex:automation-runs:set-read-state"
   | "codex:automation-runs:mark-all-read";
 
-export type CodexScheduledAutomationIpcHandler<Channel extends CodexScheduledAutomationIpcChannel> = (
-  event: unknown,
-  ...args: IpcApi[Channel]["args"]
-) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
+export type CodexScheduledAutomationIpcHandler<Channel extends CodexScheduledAutomationIpcChannel> =
+  (
+    event: unknown,
+    ...args: IpcApi[Channel]["args"]
+  ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
 export interface CodexScheduledAutomationIpcRegistration {
   registerHandle: <Channel extends CodexScheduledAutomationIpcChannel>(
@@ -50,9 +51,7 @@ export interface CodexScheduledAutomationIpcRegistration {
     input: CodexScheduledAutomationUpdateInput,
     current: CodexScheduledAutomation | null,
   ) => Promise<CodexScheduledAutomationUpdateInput>;
-  resolveAutomationArchiveMessages: (
-    threadId: string,
-  ) => Promise<AutomationArchiveMessages>;
+  resolveAutomationArchiveMessages: (threadId: string) => Promise<AutomationArchiveMessages>;
   unarchiveThread: (threadId: string) => Promise<unknown>;
   broadcastScheduledAutomationChanged: (
     automationId: string,
@@ -60,7 +59,9 @@ export interface CodexScheduledAutomationIpcRegistration {
     reason: "upsert" | "delete",
   ) => void;
   broadcastAutomationRunsUpdated: (event: CodexAutomationRunsUpdatedEvent) => void;
-  onHeartbeatAutomationsEnabledChanged?: (input: CodexHeartbeatAutomationsEnabledChangedInput) => void;
+  onHeartbeatAutomationsEnabledChanged?: (
+    input: CodexHeartbeatAutomationsEnabledChangedInput,
+  ) => void;
   resolveRendererClientId?: (event: unknown) => string | null;
   onHeartbeatAutomationThreadStateChanged?: (
     input: CodexHeartbeatAutomationThreadStateChangedInput,
@@ -72,13 +73,15 @@ export function registerCodexScheduledAutomationIpcHandlers(
   options: CodexScheduledAutomationIpcRegistration,
 ): void {
   const automationModule =
-    options.automationModule ?? new Proxy({}, {
-      get: () => () => {
-        throw new Error(
-          "Automation authority is unavailable before Rust Core initialization",
-        );
+    options.automationModule ??
+    (new Proxy(
+      {},
+      {
+        get: () => () => {
+          throw new Error("Automation authority is unavailable before Rust Core initialization");
+        },
       },
-    }) as DesktopAutomationModulePort;
+    ) as DesktopAutomationModulePort);
   const broadcastAutomationRunChanged = (
     event: CodexAutomationRunsUpdatedEvent,
     eventOptions: { refreshAutomationList?: boolean } = {},
@@ -150,13 +153,16 @@ export function registerCodexScheduledAutomationIpcHandlers(
     return { success: true };
   });
 
-  options.registerHandle("codex:scheduled-automations:heartbeat-thread-state-changed", (event, input) => {
-    options.onHeartbeatAutomationThreadStateChanged?.(
-      input,
-      options.resolveRendererClientId?.(event) ?? null,
-    );
-    return { success: true };
-  });
+  options.registerHandle(
+    "codex:scheduled-automations:heartbeat-thread-state-changed",
+    (event, input) => {
+      options.onHeartbeatAutomationThreadStateChanged?.(
+        input,
+        options.resolveRendererClientId?.(event) ?? null,
+      );
+      return { success: true };
+    },
+  );
 
   options.registerHandle("codex:automation-runs:archive", async (_, input) => {
     const run = await automationModule.getRun(input.threadId);

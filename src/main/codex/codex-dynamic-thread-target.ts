@@ -29,13 +29,11 @@ interface CodexResolvedDynamicThreadTargetBase {
   readonly projectlessWorkspaceBrowserRoot: string | null;
 }
 
-export interface CodexResolvedDynamicDirectThreadTarget
-  extends CodexResolvedDynamicThreadTargetBase {
+export interface CodexResolvedDynamicDirectThreadTarget extends CodexResolvedDynamicThreadTargetBase {
   readonly launchMode: "direct";
 }
 
-export interface CodexResolvedDynamicWorktreeThreadTarget
-  extends CodexResolvedDynamicThreadTargetBase {
+export interface CodexResolvedDynamicWorktreeThreadTarget extends CodexResolvedDynamicThreadTargetBase {
   readonly launchMode: "worktree";
   readonly projectId: string;
   readonly workspaceKind: "project";

@@ -75,7 +75,9 @@ const model = (): DatabaseViewRenderModel => {
       schemaKey: "nodex.database-view" as const,
       schemaVersion: 2 as const,
       filter: { kind: "group" as const, operator: "and" as const, children: [] },
-      sort: [{ field: { kind: "manual" as const }, direction: "asc" as const, nulls: "last" as const }],
+      sort: [
+        { field: { kind: "manual" as const }, direction: "asc" as const, nulls: "last" as const },
+      ],
       group: null,
       display: { propertyIds: [scorePropertyId, tagsPropertyId], showTitle: true },
     }),
@@ -135,16 +137,25 @@ const model = (): DatabaseViewRenderModel => {
         createdAt: timestamp,
         updatedAt: timestamp,
       },
-      values: index === 0
-        ? {
-            [scorePropertyId]: { propertyId: scorePropertyId, valueType: "number" as const, value: 1, revision: 3 },
-            [tagsPropertyId]: { propertyId: tagsPropertyId, valueType: "multi_select" as const, value: ["o_AAAAAAAA"], revision: 2 },
-          }
-        : {},
+      values:
+        index === 0
+          ? {
+              [scorePropertyId]: {
+                propertyId: scorePropertyId,
+                valueType: "number" as const,
+                value: 1,
+                revision: 3,
+              },
+              [tagsPropertyId]: {
+                propertyId: tagsPropertyId,
+                valueType: "multi_select" as const,
+                value: ["o_AAAAAAAA"],
+                revision: 2,
+              },
+            }
+          : {},
       taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
-      position: index === 2
-        ? null
-        : { rankKey: String(index), revision: index + 1 },
+      position: index === 2 ? null : { rankKey: String(index), revision: index + 1 },
       effectiveGroupKey: null,
       effectiveSubgroupKey: null,
     }),
@@ -162,25 +173,27 @@ const model = (): DatabaseViewRenderModel => {
     commitSeq: 4,
     authorization: null,
     query: { database, dataSource, view, properties, rows },
-    columns: [{
-      id: "all",
-      groupKey: null,
-      scopeKey: "all",
-      name: "All",
-      rows: rows.map((row) => ({
-        pageId: row.page.pageId,
-        pageKey: row.pageKey,
+    columns: [
+      {
+        id: "all",
         groupKey: null,
-        subgroupKey: null,
-        title: row.page.title,
-        preview: "",
-        plainText: "",
-        tags: [],
-        taskParentValueRevision: 1,
-        metadataRevision: 1,
-        createdAt: new Date(timestamp),
-      })),
-    }],
+        scopeKey: "all",
+        name: "All",
+        rows: rows.map((row) => ({
+          pageId: row.page.pageId,
+          pageKey: row.pageKey,
+          groupKey: null,
+          subgroupKey: null,
+          title: row.page.title,
+          preview: "",
+          plainText: "",
+          tags: [],
+          taskParentValueRevision: 1,
+          metadataRevision: 1,
+          createdAt: new Date(timestamp),
+        })),
+      },
+    ],
     readOnlyReason: null,
   };
 };
@@ -202,27 +215,31 @@ describe("selected Database View Page mutations", () => {
     });
     expect(scalar[0]).toMatchObject({
       kind: "edit_property_values",
-      edits: [{
-        pageId: "page-a",
-        dataSourceId,
-        edit: { kind: "replace", expectedValueRevision: 3 },
-      }],
+      edits: [
+        {
+          pageId: "page-a",
+          dataSourceId,
+          edit: { kind: "replace", expectedValueRevision: 3 },
+        },
+      ],
     });
     expect(setLike[0]).toEqual({
       kind: "edit_property_values",
-      edits: [{
-        pageId: "page-a",
-        dataSourceId,
-        propertyId: tagsPropertyId,
-        edit: {
-          kind: "patch_set",
-          delta: {
-            kind: "multi_select",
-            addOptionIds: ["o_BBBBBBBB"],
-            removeOptionIds: ["o_AAAAAAAA"],
+      edits: [
+        {
+          pageId: "page-a",
+          dataSourceId,
+          propertyId: tagsPropertyId,
+          edit: {
+            kind: "patch_set",
+            delta: {
+              kind: "multi_select",
+              addOptionIds: ["o_BBBBBBBB"],
+              removeOptionIds: ["o_AAAAAAAA"],
+            },
           },
         },
-      }],
+      ],
     });
   });
 
@@ -262,63 +279,55 @@ describe("selected Database View Page mutations", () => {
         },
       },
     };
-    expect(buildDatabaseViewMoveOperations({
-      model: unsortedModel,
-      pageId: "page-a",
-      direction: "down",
-      groupComplete: true,
-    })[0]).toMatchObject({
+    expect(
+      buildDatabaseViewMoveOperations({
+        model: unsortedModel,
+        pageId: "page-a",
+        direction: "down",
+        groupComplete: true,
+      })[0],
+    ).toMatchObject({
       kind: "position_pages",
-      pages: [
-        { pageId: "page-b" },
-        { pageId: "page-a" },
-        { pageId: "page-c" },
-      ],
+      pages: [{ pageId: "page-b" }, { pageId: "page-a" }, { pageId: "page-c" }],
     });
   });
 
   test("moves a Page to either manual-order boundary", () => {
-    expect(buildDatabaseViewMoveOperations({
-      model: model(),
-      pageId: "page-c",
-      direction: "top",
-      groupComplete: true,
-    })[0]).toMatchObject({
+    expect(
+      buildDatabaseViewMoveOperations({
+        model: model(),
+        pageId: "page-c",
+        direction: "top",
+        groupComplete: true,
+      })[0],
+    ).toMatchObject({
       kind: "position_pages",
-      pages: [
-        { pageId: "page-c" },
-        { pageId: "page-a" },
-        { pageId: "page-b" },
-      ],
+      pages: [{ pageId: "page-c" }, { pageId: "page-a" }, { pageId: "page-b" }],
     });
-    expect(buildDatabaseViewMoveOperations({
-      model: model(),
-      pageId: "page-a",
-      direction: "bottom",
-      groupComplete: true,
-    })[0]).toMatchObject({
+    expect(
+      buildDatabaseViewMoveOperations({
+        model: model(),
+        pageId: "page-a",
+        direction: "bottom",
+        groupComplete: true,
+      })[0],
+    ).toMatchObject({
       kind: "position_pages",
-      pages: [
-        { pageId: "page-b" },
-        { pageId: "page-c" },
-        { pageId: "page-a" },
-      ],
+      pages: [{ pageId: "page-b" }, { pageId: "page-c" }, { pageId: "page-a" }],
     });
   });
 
   test("moves a multi-selection atomically in visible order", () => {
-    expect(buildDatabaseViewMovePageRunOperations({
-      model: model(),
-      pageIds: ["page-c", "page-a"],
-      direction: "bottom",
-      groupComplete: true,
-    })[0]).toMatchObject({
+    expect(
+      buildDatabaseViewMovePageRunOperations({
+        model: model(),
+        pageIds: ["page-c", "page-a"],
+        direction: "bottom",
+        groupComplete: true,
+      })[0],
+    ).toMatchObject({
       kind: "position_pages",
-      pages: [
-        { pageId: "page-b" },
-        { pageId: "page-a" },
-        { pageId: "page-c" },
-      ],
+      pages: [{ pageId: "page-b" }, { pageId: "page-a" }, { pageId: "page-c" }],
     });
   });
 
@@ -421,10 +430,12 @@ describe("selected Database View Page mutations", () => {
       },
     });
 
-    expect(libraryRequests).toEqual([{
-      operationId: "operation:library",
-      storeEpoch: "epoch-1",
-      operations,
-    }]);
+    expect(libraryRequests).toEqual([
+      {
+        operationId: "operation:library",
+        storeEpoch: "epoch-1",
+        operations,
+      },
+    ]);
   });
 });

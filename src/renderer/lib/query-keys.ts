@@ -30,23 +30,20 @@ export const queryKeys = {
       databaseId: string | undefined,
       nameHint: string,
       requestedPrefix: string | undefined,
-    ) => [
-      "pageKeys",
-      "prefixPreview",
-      normalizeNullable(projectId),
-      normalizeNullable(databaseId),
-      nameHint,
-      normalizeNullable(requestedPrefix),
-    ] as const,
+    ) =>
+      [
+        "pageKeys",
+        "prefixPreview",
+        normalizeNullable(projectId),
+        normalizeNullable(databaseId),
+        nameHint,
+        normalizeNullable(requestedPrefix),
+      ] as const,
     namespace: (databaseId: string) => ["pageKeys", "namespace", databaseId] as const,
   },
   pageSearch: {
-    destinations: (projectIds: readonly string[], normalizedQuery: string) => [
-      "pageSearch",
-      "destinations",
-      [...projectIds].sort(),
-      normalizedQuery,
-    ] as const,
+    destinations: (projectIds: readonly string[], normalizedQuery: string) =>
+      ["pageSearch", "destinations", [...projectIds].sort(), normalizedQuery] as const,
   },
   boards: {
     all: () => ["boards"] as const,
@@ -58,36 +55,29 @@ export const queryKeys = {
       ["blockDocuments", "owned", accessContext, ownerBlockId] as const,
   },
   pageTargets: {
-    byId: (accessContext: ContentAccessContext, targetBlockId: string) => [
-      "pageTargets",
-      accessContext,
-      targetBlockId,
-    ] as const,
+    byId: (accessContext: ContentAccessContext, targetBlockId: string) =>
+      ["pageTargets", accessContext, targetBlockId] as const,
   },
   pageOwnershipPaths: {
     all: () => ["pageOwnershipPaths"] as const,
-    byScope: (accessContext: ContentAccessContext) => [
-      "pageOwnershipPaths",
-      accessContext,
-    ] as const,
-    byPage: (accessContext: ContentAccessContext, targetPageId: string) => [
-      "pageOwnershipPaths",
-      accessContext,
-      targetPageId,
-    ] as const,
+    byScope: (accessContext: ContentAccessContext) =>
+      ["pageOwnershipPaths", accessContext] as const,
+    byPage: (accessContext: ContentAccessContext, targetPageId: string) =>
+      ["pageOwnershipPaths", accessContext, targetPageId] as const,
   },
   blockReferences: {
     databaseView: (
       accessContext: ContentAccessContext,
       databaseViewId: string,
       hostBlockId?: string,
-    ) => [
-      "blockReferences",
-      "databaseView",
-      accessContext,
-      databaseViewId,
-      normalizeNullable(hostBlockId),
-    ] as const,
+    ) =>
+      [
+        "blockReferences",
+        "databaseView",
+        accessContext,
+        databaseViewId,
+        normalizeNullable(hostBlockId),
+      ] as const,
   },
   libraryDatabases: {
     all: () => ["libraryDatabases"] as const,
@@ -95,95 +85,57 @@ export const queryKeys = {
       accessProjectId: string | undefined,
       databaseId: string | null,
       viewId: string | null,
-    ) => [
-      "libraryDatabases",
-      "descriptor",
-      normalizeNullable(accessProjectId),
-      normalizeNullable(databaseId),
-      normalizeNullable(viewId),
-    ] as const,
-    view: (accessProjectId: string | undefined, viewId: string | null) => [
-      "libraryDatabases",
-      "view",
-      normalizeNullable(accessProjectId),
-      normalizeNullable(viewId),
-    ] as const,
+    ) =>
+      [
+        "libraryDatabases",
+        "descriptor",
+        normalizeNullable(accessProjectId),
+        normalizeNullable(databaseId),
+        normalizeNullable(viewId),
+      ] as const,
+    view: (accessProjectId: string | undefined, viewId: string | null) =>
+      [
+        "libraryDatabases",
+        "view",
+        normalizeNullable(accessProjectId),
+        normalizeNullable(viewId),
+      ] as const,
   },
   library: {
     all: () => ["libraryNavigation"] as const,
     metadata: () => ["libraryNavigation", "metadata"] as const,
-    children: (parentKey: string, input: unknown) => [
-      "libraryNavigation",
-      "children",
-      parentKey,
-      input,
-    ] as const,
-    childrenPages: (parentKey: string, input: unknown) => [
-      "libraryNavigation",
-      "childrenPages",
-      parentKey,
-      input,
-    ] as const,
-    standaloneRoots: (input: unknown) => [
-      "libraryNavigation",
-      "standaloneRoots",
-      input,
-    ] as const,
-    standaloneRootPages: (input: unknown) => [
-      "libraryNavigation",
-      "standaloneRootPages",
-      input,
-    ] as const,
+    children: (parentKey: string, input: unknown) =>
+      ["libraryNavigation", "children", parentKey, input] as const,
+    childrenPages: (parentKey: string, input: unknown) =>
+      ["libraryNavigation", "childrenPages", parentKey, input] as const,
+    standaloneRoots: (input: unknown) => ["libraryNavigation", "standaloneRoots", input] as const,
+    standaloneRootPages: (input: unknown) =>
+      ["libraryNavigation", "standaloneRootPages", input] as const,
     catalog: (input: unknown) => ["libraryNavigation", "catalog", input] as const,
-    catalogPages: (input: unknown) => [
-      "libraryNavigation",
-      "catalogPages",
-      input,
-    ] as const,
-    moveDestinations: (target: unknown, input: unknown) => [
-      "libraryNavigation",
-      "moveDestinations",
-      target,
-      input,
-    ] as const,
-    moveDestinationPages: (target: unknown, input: unknown) => [
-      "libraryNavigation",
-      "moveDestinationPages",
-      target,
-      input,
-    ] as const,
+    catalogPages: (input: unknown) => ["libraryNavigation", "catalogPages", input] as const,
+    moveDestinations: (target: unknown, input: unknown) =>
+      ["libraryNavigation", "moveDestinations", target, input] as const,
+    moveDestinationPages: (target: unknown, input: unknown) =>
+      ["libraryNavigation", "moveDestinationPages", target, input] as const,
     path: (target: unknown) => ["libraryNavigation", "path", target] as const,
-    canvasTarget: (canvasId: string) => [
-      "libraryNavigation",
-      "canvasTarget",
-      canvasId,
-    ] as const,
-    resourceProjectAccess: (target: unknown) => [
-      "libraryNavigation",
-      "resourceProjectAccess",
-      target,
-    ] as const,
+    canvasTarget: (canvasId: string) => ["libraryNavigation", "canvasTarget", canvasId] as const,
+    resourceProjectAccess: (target: unknown) =>
+      ["libraryNavigation", "resourceProjectAccess", target] as const,
     pageDetail: (pageId: string) => ["libraryPages", "detail", pageId] as const,
     pageDocument: (pageId: string) => ["libraryPages", "document", pageId] as const,
-    pageBacklinks: (accessContext: unknown, pageId: string) => [
-      "libraryPages",
-      "backlinks",
-      accessContext,
-      pageId,
-    ] as const,
+    pageBacklinks: (accessContext: unknown, pageId: string) =>
+      ["libraryPages", "backlinks", accessContext, pageId] as const,
   },
   projectSessions: {
     all: () => ["projectSessions"] as const,
-    summaries: (projectId: string | null) => ["projectSessions", "summaries", normalizeNullable(projectId)] as const,
+    summaries: (projectId: string | null) =>
+      ["projectSessions", "summaries", normalizeNullable(projectId)] as const,
     detail: (sessionId: string) => ["projectSessions", "detail", sessionId] as const,
   },
   projectActivity: {
     all: () => ["projectActivity"] as const,
-    summaries: (projectIds: readonly string[]) => [
-      "projectActivity",
-      "summaries",
-      ...[...projectIds].sort(),
-    ] as const,
+    summaries: (projectIds: readonly string[]) =>
+      ["projectActivity", "summaries", ...[...projectIds].sort()] as const,
   },
   settings: {
     all: () => ["settings"] as const,
@@ -238,11 +190,7 @@ export const queryKeys = {
   },
   codexComposerChatGptConversations: {
     all: () => ["codexComposerChatGptConversations"] as const,
-    list: (query: string) => [
-      "codexComposerChatGptConversations",
-      "list",
-      query,
-    ] as const,
+    list: (query: string) => ["codexComposerChatGptConversations", "list", query] as const,
   },
   agentProviderCatalog: {
     all: () => ["agentProviderCatalog"] as const,
@@ -306,12 +254,17 @@ export const queryKeys = {
         input.contentSampleMaxFileBytes ?? 0,
       ] as const,
     text: (input: WorkspaceFileTextReadInput) =>
-      ["workspaceFiles", "text", normalizeHostId(input.hostId), input.path, input.maxBytes] as const,
+      [
+        "workspaceFiles",
+        "text",
+        normalizeHostId(input.hostId),
+        input.path,
+        input.maxBytes,
+      ] as const,
     binary: (input: WorkspaceFileRequest) =>
       ["workspaceFiles", "binary", normalizeHostId(input.hostId), input.path] as const,
   },
   codexConversationImageAssets: {
-    resolve: (pointer: string) =>
-      ["file", "image-src", pointer, "codex"] as const,
+    resolve: (pointer: string) => ["file", "image-src", pointer, "codex"] as const,
   },
 };

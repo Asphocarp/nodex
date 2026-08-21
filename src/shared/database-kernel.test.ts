@@ -213,9 +213,9 @@ describe("general Database mutation contract", () => {
     if (parsed.operations[1]?.kind !== "position_pages") {
       throw new Error("Expected bulk position operation");
     }
-    expect(
-      parsed.operations[1].pages.map((entry) => entry.pageId).join(","),
-    ).toBe(pages.map((entry) => entry.pageId).join(","));
+    expect(parsed.operations[1].pages.map((entry) => entry.pageId).join(",")).toBe(
+      pages.map((entry) => entry.pageId).join(","),
+    );
 
     expect(
       fails(() =>
@@ -307,9 +307,7 @@ describe("general Database mutation contract", () => {
         },
       ],
     };
-    expect(
-      fails(() => parseDatabaseMutationRequest(duplicateOptions)),
-    ).toBe(true);
+    expect(fails(() => parseDatabaseMutationRequest(duplicateOptions))).toBe(true);
     expect(
       fails(() =>
         parseDatabaseMutationRequest({
@@ -390,9 +388,7 @@ describe("general Database mutation contract", () => {
       ["tags", ["urgent", "customer"]],
       ["owner", "person-1"],
     ]);
-    expect(
-      evaluateDatabaseViewFilter(filter, (id) => values.get(id)),
-    ).toBe(true);
+    expect(evaluateDatabaseViewFilter(filter, (id) => values.get(id))).toBe(true);
     expect(
       evaluateDatabaseViewFilter(
         {
@@ -405,16 +401,10 @@ describe("general Database mutation contract", () => {
       ),
     ).toBe(true);
     expect(
-      evaluateDatabaseViewFilter(
-        { kind: "group", operator: "and", children: [] },
-        () => undefined,
-      ),
+      evaluateDatabaseViewFilter({ kind: "group", operator: "and", children: [] }, () => undefined),
     ).toBe(true);
     expect(
-      evaluateDatabaseViewFilter(
-        { kind: "group", operator: "or", children: [] },
-        () => undefined,
-      ),
+      evaluateDatabaseViewFilter({ kind: "group", operator: "or", children: [] }, () => undefined),
     ).toBe(false);
   });
 
@@ -502,10 +492,7 @@ describe("general Database mutation contract", () => {
     const emptySelect = parseDatabasePropertyConfig("select", { options: [] });
     expect(
       fails(() =>
-        normalizeDatabasePropertyValue(
-          { valueType: "select", config: emptySelect },
-          "invented",
-        ),
+        normalizeDatabasePropertyValue({ valueType: "select", config: emptySelect }, "invented"),
       ),
     ).toBe(true);
     const multi = parseDatabasePropertyConfig("multi_select", {
@@ -518,8 +505,6 @@ describe("general Database mutation contract", () => {
       { valueType: "multi_select", config: multi },
       ["b", "a", "b"],
     );
-    expect(Array.isArray(normalized) ? normalized.join(",") : "invalid").toBe(
-      "a,b",
-    );
+    expect(Array.isArray(normalized) ? normalized.join(",") : "invalid").toBe("a,b");
   });
 });

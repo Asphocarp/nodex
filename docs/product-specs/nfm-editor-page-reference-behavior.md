@@ -10,12 +10,12 @@ It distinguishes presentation from ownership and gives each intent one predictab
 
 ## Four Page occurrences
 
-| Occurrence | Editor entry | Stored identity | Owns or moves target |
-|---|---|---|---|
-| Page Mention | type `@`, or choose `/Mention a page` | inline `pageMention.targetPageId` | No |
-| Page Reference Block | `/Embed page…` and choose a Page | `pageRef.targetBlockId` plus the shell Block ID | No |
-| Page Link | create a link or paste over selected text | ordinary link with `nodex://pages/<page-id>` | No |
-| Owning Page Shell | `/Subpage…` or typed Move to | Core-created `page` shell whose Block ID is the Page ID | Yes |
+| Occurrence           | Editor entry                              | Stored identity                                         | Owns or moves target |
+| -------------------- | ----------------------------------------- | ------------------------------------------------------- | -------------------- |
+| Page Mention         | type `@`, or choose `/Mention a page`     | inline `pageMention.targetPageId`                       | No                   |
+| Page Reference Block | `/Embed page…` and choose a Page          | `pageRef.targetBlockId` plus the shell Block ID         | No                   |
+| Page Link            | create a link or paste over selected text | ordinary link with `nodex://pages/<page-id>`            | No                   |
+| Owning Page Shell    | `/Subpage…` or typed Move to              | Core-created `page` shell whose Block ID is the Page ID | Yes                  |
 
 The first three never change parentage, Database membership, grants, or copy closure.
 

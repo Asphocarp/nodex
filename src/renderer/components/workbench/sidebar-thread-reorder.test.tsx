@@ -50,12 +50,13 @@ function makeDragEndEvent({
         },
       },
     },
-    over: overThreadKey === null
-      ? null
-      : {
-          id: overThreadKey,
-          rect: overRect,
-        },
+    over:
+      overThreadKey === null
+        ? null
+        : {
+            id: overThreadKey,
+            rect: overRect,
+          },
   } as unknown as DragEndEvent;
 }
 
@@ -147,11 +148,15 @@ describe("sidebar thread insertion targeting", () => {
     });
 
     expect(target?.beforeThreadKey).toBe("local:alpha");
-    expect(JSON.stringify(moveSidebarThreadBefore(
-      ["local:alpha", "local:beta", "remote:gamma"],
-      "remote:gamma",
-      target?.beforeThreadKey ?? null,
-    ))).toBe(JSON.stringify(["remote:gamma", "local:alpha", "local:beta"]));
+    expect(
+      JSON.stringify(
+        moveSidebarThreadBefore(
+          ["local:alpha", "local:beta", "remote:gamma"],
+          "remote:gamma",
+          target?.beforeThreadKey ?? null,
+        ),
+      ),
+    ).toBe(JSON.stringify(["remote:gamma", "local:alpha", "local:beta"]));
   });
 
   test("places the dragged thread after the hovered row below its midpoint", () => {
@@ -194,14 +199,12 @@ describe("sidebar thread insertion targeting", () => {
   });
 
   test("resolves indicators before a row or after the final row", () => {
-    expect(resolveSidebarThreadDropIndicatorIndex(
-      ["alpha", "beta"],
-      { beforeThreadKey: "beta" },
-    )).toBe(1);
-    expect(resolveSidebarThreadDropIndicatorIndex(
-      ["alpha", "beta"],
-      { beforeThreadKey: null },
-    )).toBe(2);
+    expect(
+      resolveSidebarThreadDropIndicatorIndex(["alpha", "beta"], { beforeThreadKey: "beta" }),
+    ).toBe(1);
+    expect(
+      resolveSidebarThreadDropIndicatorIndex(["alpha", "beta"], { beforeThreadKey: null }),
+    ).toBe(2);
   });
 });
 
@@ -230,15 +233,11 @@ describe("cross-container sidebar thread targeting", () => {
       overPayload: targetPayload,
     });
 
-    const beforeTarget = resolveSidebarThreadExternalDropTarget(
-      event,
-      4,
-      (threadKey) => threadKey.slice("local:".length),
+    const beforeTarget = resolveSidebarThreadExternalDropTarget(event, 4, (threadKey) =>
+      threadKey.slice("local:".length),
     );
-    const afterTarget = resolveSidebarThreadExternalDropTarget(
-      event,
-      26,
-      (threadKey) => threadKey.slice("local:".length),
+    const afterTarget = resolveSidebarThreadExternalDropTarget(event, 26, (threadKey) =>
+      threadKey.slice("local:".length),
     );
 
     expect(beforeTarget?.beforeThreadId).toBe("thread-beta");
@@ -300,29 +299,33 @@ describe("cross-container sidebar thread targeting", () => {
       [alphaPayload, 26],
       [gammaPayload, 4],
     ] as const) {
-      expect(resolveSidebarThreadExternalDropTarget(
-        makeRichDragEndEvent({
-          activePayload: betaPayload,
-          overId: overPayload.thread.threadKey,
-          overPayload,
-        }),
-        pointerY,
-        () => null,
-      )).toBe(null);
+      expect(
+        resolveSidebarThreadExternalDropTarget(
+          makeRichDragEndEvent({
+            activePayload: betaPayload,
+            overId: overPayload.thread.threadKey,
+            overPayload,
+          }),
+          pointerY,
+          () => null,
+        ),
+      ).toBe(null);
     }
 
-    expect(resolveSidebarThreadExternalDropTarget(
-      makeRichDragEndEvent({
-        activePayload: betaPayload,
-        overId: "project:alpha",
-        overPayload: {
-          kind: "sidebar-thread-container",
-          containerId: "project:alpha",
-        },
-      }),
-      4,
-      () => null,
-    )).toBe(null);
+    expect(
+      resolveSidebarThreadExternalDropTarget(
+        makeRichDragEndEvent({
+          activePayload: betaPayload,
+          overId: "project:alpha",
+          overPayload: {
+            kind: "sidebar-thread-container",
+            containerId: "project:alpha",
+          },
+        }),
+        4,
+        () => null,
+      ),
+    ).toBe(null);
   });
 
   test("uses a project container target as default-order placement", () => {
@@ -369,42 +372,48 @@ describe("cross-container sidebar thread targeting", () => {
     );
 
     expect(containerPayload.containerId).toBe("project:beta");
-    expect(resolveSidebarThreadContainerTargetId(
-      containerPayload,
-      "project-pinned:alpha",
-    )).toBe("project-pinned:beta");
+    expect(resolveSidebarThreadContainerTargetId(containerPayload, "project-pinned:alpha")).toBe(
+      "project-pinned:beta",
+    );
     expect(target?.targetContainerId).toBe("project-pinned:beta");
     expect(target?.useDefaultOrder).toBe(true);
   });
 
   test("matches project container edge geometry from the reference coordinator", () => {
-    expect(getSidebarThreadContainerEdgeInsetY({
-      kind: "sidebar-thread-container",
-      containerId: "project:alpha",
-    })).toBe(10);
-    expect(getSidebarThreadContainerEdgeInsetY({
-      kind: "sidebar-thread-container",
-      containerId: "project:alpha",
-      projectDropZone: "project-row",
-    })).toBe(7);
-    expect(getSidebarThreadContainerEdgeInsetY({
-      kind: "sidebar-thread-container",
-      containerId: "project:alpha",
-      projectDropZone: "project-icon",
-    })).toBe(0);
-    expect(getSidebarThreadContainerEdgeInsetY({
-      kind: "sidebar-thread-container",
-      containerId: "chats",
-    })).toBe(0);
+    expect(
+      getSidebarThreadContainerEdgeInsetY({
+        kind: "sidebar-thread-container",
+        containerId: "project:alpha",
+      }),
+    ).toBe(10);
+    expect(
+      getSidebarThreadContainerEdgeInsetY({
+        kind: "sidebar-thread-container",
+        containerId: "project:alpha",
+        projectDropZone: "project-row",
+      }),
+    ).toBe(7);
+    expect(
+      getSidebarThreadContainerEdgeInsetY({
+        kind: "sidebar-thread-container",
+        containerId: "project:alpha",
+        projectDropZone: "project-icon",
+      }),
+    ).toBe(0);
+    expect(
+      getSidebarThreadContainerEdgeInsetY({
+        kind: "sidebar-thread-container",
+        containerId: "chats",
+      }),
+    ).toBe(0);
   });
 });
 
 describe("sidebar thread allowed-target policy", () => {
   test("project folder targets preserve the active pin lane", () => {
-    expect(resolveSidebarThreadProjectDropContainerId(
-      "beta",
-      "project-pinned:alpha",
-    )).toBe("project-pinned:beta");
+    expect(resolveSidebarThreadProjectDropContainerId("beta", "project-pinned:alpha")).toBe(
+      "project-pinned:beta",
+    );
     expect(resolveSidebarThreadProjectDropContainerId("beta", "pinned")).toBe(
       "project-pinned:beta",
     );
@@ -446,27 +455,25 @@ describe("sidebar thread allowed-target policy", () => {
       }),
     ].map((result) => result.status);
 
-    expect(JSON.stringify(statuses)).toBe(JSON.stringify([
-      "allowed",
-      "allowed",
-      "allowed",
-      "allowed",
-      "allowed",
-      "allowed",
-      "allowed",
-    ]));
+    expect(JSON.stringify(statuses)).toBe(
+      JSON.stringify(["allowed", "allowed", "allowed", "allowed", "allowed", "allowed", "allowed"]),
+    );
   });
 
   test("allows a pending local row only inside its current container", () => {
-    expect(policy({
-      sourceContainerId: "project:alpha",
-      targetContainerId: "project:alpha",
-      threadId: null,
-    }).status).toBe("allowed");
-    expect(JSON.stringify(policy({ threadId: null }))).toBe(JSON.stringify({
-      status: "blocked",
-      reason: "pending-cross-container",
-    }));
+    expect(
+      policy({
+        sourceContainerId: "project:alpha",
+        targetContainerId: "project:alpha",
+        threadId: null,
+      }).status,
+    ).toBe("allowed");
+    expect(JSON.stringify(policy({ threadId: null }))).toBe(
+      JSON.stringify({
+        status: "blocked",
+        reason: "pending-cross-container",
+      }),
+    );
   });
 
   test("blocks reorder-only, mismatched, remote, cloud, and unsupported targets", () => {
@@ -476,15 +483,17 @@ describe("sidebar thread allowed-target policy", () => {
       policy({ sourceProjectKind: "remote", targetProjectKind: undefined, threadKind: "remote" }),
       policy({ sourceContainerId: "cloud", targetContainerId: "pinned" }),
       policy({ targetContainerId: "unsupported", sourceContainerId: "pinned" }),
-    ].map((result) => result.status === "blocked" ? result.reason : "allowed");
+    ].map((result) => (result.status === "blocked" ? result.reason : "allowed"));
 
-    expect(JSON.stringify(reasons)).toBe(JSON.stringify([
-      "reorder-only-source",
-      "project-kind-mismatch",
-      "remote-deferred",
-      "cloud-deferred",
-      "unsupported-target",
-    ]));
+    expect(JSON.stringify(reasons)).toBe(
+      JSON.stringify([
+        "reorder-only-source",
+        "project-kind-mismatch",
+        "remote-deferred",
+        "cloud-deferred",
+        "unsupported-target",
+      ]),
+    );
   });
 });
 
@@ -702,23 +711,27 @@ describe("cross-container drag completion", () => {
 
     await Promise.resolve();
     expect(drops.length).toBe(1);
-    expect(JSON.stringify(drops[0])).toBe(JSON.stringify({
-      beforeThreadId: null,
-      afterThreadId: "thread-beta",
-      sourceContainerId: "project:alpha",
-      targetContainerId: "project:beta",
-      threadId: "thread-alpha",
-    }));
+    expect(JSON.stringify(drops[0])).toBe(
+      JSON.stringify({
+        beforeThreadId: null,
+        afterThreadId: "thread-beta",
+        sourceContainerId: "project:alpha",
+        targetContainerId: "project:beta",
+        threadId: "thread-alpha",
+      }),
+    );
     expect(pendingDrops.length).toBe(1);
 
     request.resolve();
     await request.promise;
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(pendingDrops).toEqual([expect.objectContaining({
-      commitOperationId: "move:alpha",
-      phase: "acknowledged",
-      projectionRevision: 1,
-    })]);
+    expect(pendingDrops).toEqual([
+      expect.objectContaining({
+        commitOperationId: "move:alpha",
+        phase: "acknowledged",
+        projectionRevision: 1,
+      }),
+    ]);
   });
 });
 
@@ -735,22 +748,26 @@ describe("optimistic sidebar thread order", () => {
       threadKey: "local:thread-alpha",
     };
 
-    expect(JSON.stringify(resolveSidebarThreadKeysWithPendingDrops({
-      containerId: "project:alpha",
-      pendingThreadDrops: [pendingDrop],
-      threadKeys: ["local:thread-alpha", "local:thread-gamma"],
-      getThreadId: (threadKey) => threadKey.slice("local:".length),
-    }))).toBe(JSON.stringify(["local:thread-gamma"]));
-    expect(JSON.stringify(resolveSidebarThreadKeysWithPendingDrops({
-      containerId: "project:beta",
-      pendingThreadDrops: [pendingDrop],
-      threadKeys: ["local:thread-beta", "local:thread-delta"],
-      getThreadId: (threadKey) => threadKey.slice("local:".length),
-    }))).toBe(JSON.stringify([
-      "local:thread-alpha",
-      "local:thread-beta",
-      "local:thread-delta",
-    ]));
+    expect(
+      JSON.stringify(
+        resolveSidebarThreadKeysWithPendingDrops({
+          containerId: "project:alpha",
+          pendingThreadDrops: [pendingDrop],
+          threadKeys: ["local:thread-alpha", "local:thread-gamma"],
+          getThreadId: (threadKey) => threadKey.slice("local:".length),
+        }),
+      ),
+    ).toBe(JSON.stringify(["local:thread-gamma"]));
+    expect(
+      JSON.stringify(
+        resolveSidebarThreadKeysWithPendingDrops({
+          containerId: "project:beta",
+          pendingThreadDrops: [pendingDrop],
+          threadKeys: ["local:thread-beta", "local:thread-delta"],
+          getThreadId: (threadKey) => threadKey.slice("local:".length),
+        }),
+      ),
+    ).toBe(JSON.stringify(["local:thread-alpha", "local:thread-beta", "local:thread-delta"]));
   });
 
   test("retires an acknowledged move only after rendered canonical lanes contain it", () => {
@@ -766,19 +783,27 @@ describe("optimistic sidebar thread order", () => {
       threadId: "thread-alpha",
       threadKey: "local:thread-alpha",
     };
-    const oldLanes = new Map([["project:alpha", {
-      projectionRevision: 6,
-      threadIds: ["thread-beta", "thread-alpha"],
-    }]]);
-    const committedLanes = new Map([["project:alpha", {
-      projectionRevision: 7,
-      threadIds: ["thread-alpha", "thread-beta"],
-    }]]);
+    const oldLanes = new Map([
+      [
+        "project:alpha",
+        {
+          projectionRevision: 6,
+          threadIds: ["thread-beta", "thread-alpha"],
+        },
+      ],
+    ]);
+    const committedLanes = new Map([
+      [
+        "project:alpha",
+        {
+          projectionRevision: 7,
+          threadIds: ["thread-alpha", "thread-beta"],
+        },
+      ],
+    ]);
 
-    expect(reconcilePendingSidebarThreadDrops([pendingDrop], oldLanes))
-      .toEqual([pendingDrop]);
-    expect(reconcilePendingSidebarThreadDrops([pendingDrop], committedLanes))
-      .toEqual([]);
+    expect(reconcilePendingSidebarThreadDrops([pendingDrop], oldLanes)).toEqual([pendingDrop]);
+    expect(reconcilePendingSidebarThreadDrops([pendingDrop], committedLanes)).toEqual([]);
   });
 
   test("lets a later rendered projection supersede an acknowledged placement", () => {
@@ -794,13 +819,17 @@ describe("optimistic sidebar thread order", () => {
       threadId: "thread-alpha",
       threadKey: "local:thread-alpha",
     };
-    const laterLanes = new Map([["project:alpha", {
-      projectionRevision: 8,
-      threadIds: ["thread-beta", "thread-alpha"],
-    }]]);
+    const laterLanes = new Map([
+      [
+        "project:alpha",
+        {
+          projectionRevision: 8,
+          threadIds: ["thread-beta", "thread-alpha"],
+        },
+      ],
+    ]);
 
-    expect(reconcilePendingSidebarThreadDrops([pendingDrop], laterLanes))
-      .toEqual([]);
+    expect(reconcilePendingSidebarThreadDrops([pendingDrop], laterLanes)).toEqual([]);
   });
 
   test("uses the pending order only while it still describes the authoritative key set", () => {
@@ -809,18 +838,15 @@ describe("optimistic sidebar thread order", () => {
       nextVisibleThreadKeys: ["gamma", "alpha", "beta"],
     };
 
-    expect(JSON.stringify(resolveDisplayedVisibleThreadKeys(
-      ["alpha", "beta", "gamma"],
-      pendingOrder,
-    ))).toBe(JSON.stringify(["gamma", "alpha", "beta"]));
-    expect(JSON.stringify(resolveDisplayedVisibleThreadKeys(
-      ["gamma", "alpha", "beta"],
-      pendingOrder,
-    ))).toBe(JSON.stringify(["gamma", "alpha", "beta"]));
-    expect(JSON.stringify(resolveDisplayedVisibleThreadKeys(
-      ["alpha", "beta", "delta"],
-      pendingOrder,
-    ))).toBe(JSON.stringify(["alpha", "beta", "delta"]));
+    expect(
+      JSON.stringify(resolveDisplayedVisibleThreadKeys(["alpha", "beta", "gamma"], pendingOrder)),
+    ).toBe(JSON.stringify(["gamma", "alpha", "beta"]));
+    expect(
+      JSON.stringify(resolveDisplayedVisibleThreadKeys(["gamma", "alpha", "beta"], pendingOrder)),
+    ).toBe(JSON.stringify(["gamma", "alpha", "beta"]));
+    expect(
+      JSON.stringify(resolveDisplayedVisibleThreadKeys(["alpha", "beta", "delta"], pendingOrder)),
+    ).toBe(JSON.stringify(["alpha", "beta", "delta"]));
   });
 
   test("keeps the acknowledged order until canonical props render it", async () => {
@@ -845,28 +871,25 @@ describe("optimistic sidebar thread order", () => {
     render(<Harness />);
 
     await act(async () => {
-      latest.controller.handleDragEnd(makeDragEndEvent({
-        activeThreadKey: "gamma",
-        overThreadKey: "alpha",
-      }), 4);
+      latest.controller.handleDragEnd(
+        makeDragEndEvent({
+          activeThreadKey: "gamma",
+          overThreadKey: "alpha",
+        }),
+        4,
+      );
       await Promise.resolve();
     });
 
-    expect(JSON.stringify(latest.displayedVisibleThreadKeys)).toBe(JSON.stringify([
-      "gamma",
-      "alpha",
-      "beta",
-    ]));
-    expect(JSON.stringify(changes[0]?.visibleThreadKeys)).toBe(JSON.stringify([
-      "alpha",
-      "beta",
-      "gamma",
-    ]));
-    expect(JSON.stringify(changes[0]?.nextVisibleThreadKeys)).toBe(JSON.stringify([
-      "gamma",
-      "alpha",
-      "beta",
-    ]));
+    expect(JSON.stringify(latest.displayedVisibleThreadKeys)).toBe(
+      JSON.stringify(["gamma", "alpha", "beta"]),
+    );
+    expect(JSON.stringify(changes[0]?.visibleThreadKeys)).toBe(
+      JSON.stringify(["alpha", "beta", "gamma"]),
+    );
+    expect(JSON.stringify(changes[0]?.nextVisibleThreadKeys)).toBe(
+      JSON.stringify(["gamma", "alpha", "beta"]),
+    );
 
     await act(async () => {
       request.resolve();
@@ -874,11 +897,9 @@ describe("optimistic sidebar thread order", () => {
       await Promise.resolve();
     });
 
-    expect(JSON.stringify(latest.displayedVisibleThreadKeys)).toBe(JSON.stringify([
-      "gamma",
-      "alpha",
-      "beta",
-    ]));
+    expect(JSON.stringify(latest.displayedVisibleThreadKeys)).toBe(
+      JSON.stringify(["gamma", "alpha", "beta"]),
+    );
   });
 
   test("keeps a newer optimistic reorder when an older request settles", async () => {
@@ -887,11 +908,7 @@ describe("optimistic sidebar thread order", () => {
     let requestIndex = 0;
     let latest!: ReturnType<typeof useSidebarThreadReorderController>;
 
-    function Harness({
-      visibleThreadKeys,
-    }: {
-      visibleThreadKeys: string[];
-    }) {
+    function Harness({ visibleThreadKeys }: { visibleThreadKeys: string[] }) {
       latest = useSidebarThreadReorderController({
         visibleThreadKeys,
         onVisibleThreadOrderChange() {
@@ -906,28 +923,32 @@ describe("optimistic sidebar thread order", () => {
     const view = render(<Harness visibleThreadKeys={["alpha", "beta", "gamma"]} />);
 
     await act(async () => {
-      latest.controller.handleDragEnd(makeDragEndEvent({
-        activeThreadKey: "gamma",
-        overThreadKey: "alpha",
-      }), 4);
+      latest.controller.handleDragEnd(
+        makeDragEndEvent({
+          activeThreadKey: "gamma",
+          overThreadKey: "alpha",
+        }),
+        4,
+      );
       await Promise.resolve();
     });
     view.rerender(<Harness visibleThreadKeys={["gamma", "alpha", "beta"]} />);
     await act(async () => {
-      latest.controller.handleDragEnd(makeDragEndEvent({
-        activeThreadKey: "beta",
-        overThreadKey: "gamma",
-        activeRect: { top: 60, bottom: 90 },
-        overRect: { top: 0, bottom: 30 },
-      }), 4);
+      latest.controller.handleDragEnd(
+        makeDragEndEvent({
+          activeThreadKey: "beta",
+          overThreadKey: "gamma",
+          activeRect: { top: 60, bottom: 90 },
+          overRect: { top: 0, bottom: 30 },
+        }),
+        4,
+      );
       await Promise.resolve();
     });
 
-    expect(JSON.stringify(latest.displayedVisibleThreadKeys)).toBe(JSON.stringify([
-      "beta",
-      "gamma",
-      "alpha",
-    ]));
+    expect(JSON.stringify(latest.displayedVisibleThreadKeys)).toBe(
+      JSON.stringify(["beta", "gamma", "alpha"]),
+    );
 
     await act(async () => {
       firstRequest.resolve();
@@ -935,11 +956,9 @@ describe("optimistic sidebar thread order", () => {
       await Promise.resolve();
     });
 
-    expect(JSON.stringify(latest.displayedVisibleThreadKeys)).toBe(JSON.stringify([
-      "beta",
-      "gamma",
-      "alpha",
-    ]));
+    expect(JSON.stringify(latest.displayedVisibleThreadKeys)).toBe(
+      JSON.stringify(["beta", "gamma", "alpha"]),
+    );
 
     await act(async () => {
       secondRequest.resolve();
@@ -970,10 +989,13 @@ describe("optimistic sidebar thread order", () => {
     );
 
     await act(async () => {
-      latest.controller.handleDragEnd(makeDragEndEvent({
-        activeThreadKey: "gamma",
-        overThreadKey: "alpha",
-      }), 4);
+      latest.controller.handleDragEnd(
+        makeDragEndEvent({
+          activeThreadKey: "gamma",
+          overThreadKey: "alpha",
+        }),
+        4,
+      );
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
@@ -993,10 +1015,7 @@ describe("sidebar thread sortable wrapper", () => {
       <SidebarReorderDndProvider>
         <SidebarThreadSortableContext threadKeys={["local:alpha"]}>
           <div role="list">
-            <SidebarThreadSortableItem
-              threadKey="local:alpha"
-              controller={controller}
-            >
+            <SidebarThreadSortableItem threadKey="local:alpha" controller={controller}>
               <span>Alpha task</span>
             </SidebarThreadSortableItem>
           </div>
@@ -1019,9 +1038,7 @@ describe("sidebar thread sortable wrapper", () => {
             visibleThreadKeys={["thread:alpha", "pending:worktree", "thread:beta"]}
             sortableThreadKeys={["thread:alpha", "thread:beta"]}
             onVisibleThreadOrderChange={async () => {}}
-            renderThread={(threadKey) => (
-              <span data-testid={threadKey}>{threadKey}</span>
-            )}
+            renderThread={(threadKey) => <span data-testid={threadKey}>{threadKey}</span>}
           />
         </div>
       </SidebarReorderDndProvider>,

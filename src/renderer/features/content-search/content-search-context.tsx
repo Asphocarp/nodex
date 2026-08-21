@@ -67,9 +67,7 @@ export interface ContentSearchBrowserTarget extends BrowserSidebarTabIdentity {
   command: (command: BrowserSidebarCommand) => Promise<BrowserSidebarCommandResult>;
 }
 
-function browserTargetIdentity(
-  target: ContentSearchBrowserTarget,
-): BrowserSidebarTabIdentity {
+function browserTargetIdentity(target: ContentSearchBrowserTarget): BrowserSidebarTabIdentity {
   return {
     browserConversationId: target.browserConversationId,
     browserViewScopeId: target.browserViewScopeId,
@@ -167,14 +165,11 @@ export function ContentSearchProvider({
     setState((current) => {
       const focusedInput = document.activeElement?.id === CONTENT_SEARCH_INPUT_ID;
       const browserAvailable = Boolean(browserTargetRef.current?.available);
-      const preferredDomain = request?.preferredDomain ?? (browserAvailable ? "browser" : undefined);
+      const preferredDomain =
+        request?.preferredDomain ?? (browserAvailable ? "browser" : undefined);
       const nextDomain = focusedInput
         ? cycleContentSearchDomain(current.domain, browserAvailable)
-        : resolveContentSearchDomain(
-          preferredDomain,
-          current.domain,
-          browserAvailable,
-        );
+        : resolveContentSearchDomain(preferredDomain, current.domain, browserAvailable);
       const selectionSeed = readSingleLineSelectionText(window.getSelection?.()?.toString());
       return {
         ...current,
@@ -182,9 +177,9 @@ export function ContentSearchProvider({
         domain: nextDomain,
         queryByDomain: selectionSeed
           ? {
-            ...current.queryByDomain,
-            [nextDomain]: selectionSeed,
-          }
+              ...current.queryByDomain,
+              [nextDomain]: selectionSeed,
+            }
           : current.queryByDomain,
       };
     });
@@ -214,50 +209,53 @@ export function ContentSearchProvider({
     focusContentSearchInput();
   }, []);
 
-  const setQuery = useCallback((query: string) => {
-    const domain = state.domain;
-    if (isLocalDomain(domain)) {
-      activeEnsureAbortRef.current?.abort();
-      sourcesRef.current.get(domain)?.clear();
-    }
+  const setQuery = useCallback(
+    (query: string) => {
+      const domain = state.domain;
+      if (isLocalDomain(domain)) {
+        activeEnsureAbortRef.current?.abort();
+        sourcesRef.current.get(domain)?.clear();
+      }
 
-    setState((current) => {
-      if (!isLocalDomain(current.domain)) {
+      setState((current) => {
+        if (!isLocalDomain(current.domain)) {
+          return {
+            ...current,
+            queryByDomain: {
+              ...current.queryByDomain,
+              [current.domain]: query,
+            },
+          };
+        }
+
+        const normalizedQuery = normalizeContentSearchQuery(query);
         return {
           ...current,
           queryByDomain: {
             ...current.queryByDomain,
             [current.domain]: query,
           },
+          loadingDomain: normalizedQuery ? current.domain : null,
+          activeIndexByDomain: {
+            ...current.activeIndexByDomain,
+            [current.domain]: 0,
+          },
+          resultByDomain: {
+            ...current.resultByDomain,
+            [current.domain]: normalizedQuery
+              ? {
+                  query: normalizedQuery,
+                  matches: [],
+                  totalMatches: 0,
+                  capped: false,
+                }
+              : null,
+          },
         };
-      }
-
-      const normalizedQuery = normalizeContentSearchQuery(query);
-      return {
-        ...current,
-        queryByDomain: {
-          ...current.queryByDomain,
-          [current.domain]: query,
-        },
-        loadingDomain: normalizedQuery ? current.domain : null,
-        activeIndexByDomain: {
-          ...current.activeIndexByDomain,
-          [current.domain]: 0,
-        },
-        resultByDomain: {
-          ...current.resultByDomain,
-          [current.domain]: normalizedQuery
-            ? {
-              query: normalizedQuery,
-              matches: [],
-              totalMatches: 0,
-              capped: false,
-            }
-            : null,
-        },
-      };
-    });
-  }, [state.domain]);
+      });
+    },
+    [state.domain],
+  );
 
   const stepLocal = useCallback((domain: ContentSearchLocalDomain, delta: -1 | 1) => {
     setState((current) => {
@@ -321,7 +319,12 @@ export function ContentSearchProvider({
   }, []);
 
   useEffect(() => {
-    if (!openRequest || openRequest.tick <= 0 || openRequest.tick === lastOpenRequestTickRef.current) return;
+    if (
+      !openRequest ||
+      openRequest.tick <= 0 ||
+      openRequest.tick === lastOpenRequestTickRef.current
+    )
+      return;
     lastOpenRequestTickRef.current = openRequest.tick;
     requestOpen(openRequest);
   }, [openRequest, requestOpen]);
@@ -369,9 +372,7 @@ export function ContentSearchProvider({
         loadingDomain: current.loadingDomain === domain ? null : current.loadingDomain,
         resultByDomain: {
           ...current.resultByDomain,
-          [domain]: query
-            ? { query, matches: [], totalMatches: 0, capped: false }
-            : null,
+          [domain]: query ? { query, matches: [], totalMatches: 0, capped: false } : null,
         },
       }));
       return;
@@ -434,11 +435,11 @@ export function ContentSearchProvider({
     const activeIndex = state.activeIndexByDomain[domain] ?? 0;
     const match = result?.matches[activeIndex] ?? null;
     if (
-      !source
-      || !result
-      || result.query !== liveQuery
-      || state.loadingDomain === domain
-      || !match
+      !source ||
+      !result ||
+      result.query !== liveQuery ||
+      state.loadingDomain === domain ||
+      !match
     ) {
       source?.clear();
       return;
@@ -466,7 +467,15 @@ export function ContentSearchProvider({
         activeEnsureAbortRef.current = null;
       }
     };
-  }, [state.activeIndexByDomain, state.domain, state.loadingDomain, state.open, state.queryByDomain, state.resultByDomain, sourceVersion]);
+  }, [
+    state.activeIndexByDomain,
+    state.domain,
+    state.loadingDomain,
+    state.open,
+    state.queryByDomain,
+    state.resultByDomain,
+    sourceVersion,
+  ]);
 
   const labelInput: ContentSearchLabelInput = {
     domain: state.domain,
@@ -479,40 +488,41 @@ export function ContentSearchProvider({
   const resultLabel = buildContentSearchResultLabel(labelInput);
   const navigationDisabled = !canNavigateContentSearchMatches(labelInput);
 
-  const controller = useMemo<ContentSearchController>(() => ({
-    state,
-    hasBrowserTarget,
-    browserFindState: browserTarget?.findState ?? null,
-    resultLabel,
-    navigationDisabled,
-    requestOpen,
-    close,
-    setDomain,
-    setQuery,
-    goNext,
-    goPrevious,
-    registerLocalSource,
-    registerBrowserTarget,
-  }), [
-    browserTarget?.findState,
-    close,
-    goNext,
-    goPrevious,
-    hasBrowserTarget,
-    navigationDisabled,
-    registerBrowserTarget,
-    registerLocalSource,
-    requestOpen,
-    resultLabel,
-    setDomain,
-    setQuery,
-    state,
-  ]);
+  const controller = useMemo<ContentSearchController>(
+    () => ({
+      state,
+      hasBrowserTarget,
+      browserFindState: browserTarget?.findState ?? null,
+      resultLabel,
+      navigationDisabled,
+      requestOpen,
+      close,
+      setDomain,
+      setQuery,
+      goNext,
+      goPrevious,
+      registerLocalSource,
+      registerBrowserTarget,
+    }),
+    [
+      browserTarget?.findState,
+      close,
+      goNext,
+      goPrevious,
+      hasBrowserTarget,
+      navigationDisabled,
+      registerBrowserTarget,
+      registerLocalSource,
+      requestOpen,
+      resultLabel,
+      setDomain,
+      setQuery,
+      state,
+    ],
+  );
 
   return (
-    <ContentSearchContext.Provider value={controller}>
-      {children}
-    </ContentSearchContext.Provider>
+    <ContentSearchContext.Provider value={controller}>{children}</ContentSearchContext.Provider>
   );
 }
 
@@ -537,7 +547,9 @@ export function useRegisterContentSearchSource(source: ContentSearchLocalSource 
   }, [registerLocalSource, source]);
 }
 
-export function useRegisterContentSearchBrowserTarget(target: ContentSearchBrowserTarget | null): void {
+export function useRegisterContentSearchBrowserTarget(
+  target: ContentSearchBrowserTarget | null,
+): void {
   const context = useContentSearchOptional();
   const registerBrowserTarget = context?.registerBrowserTarget;
   useEffect(() => {

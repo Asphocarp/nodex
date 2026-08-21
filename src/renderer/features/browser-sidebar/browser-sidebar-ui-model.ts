@@ -10,10 +10,7 @@ import {
 } from "../../../shared/browser-sidebar";
 import { isBlankBrowserUrl, normalizeBrowserNavigationUrl } from "../../../shared/browser-url";
 
-export type {
-  BrowserLocalServerShowMode,
-  BrowserLocalServerSortMode,
-};
+export type { BrowserLocalServerShowMode, BrowserLocalServerSortMode };
 
 export interface BrowserLocalServerSettings {
   showMode: BrowserLocalServerShowMode;
@@ -44,7 +41,11 @@ export function readBrowserAddressValue(url: string): string {
 
 export function shouldSkipBrowserAddressCommit(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return Boolean(target.closest("[data-browser-sidebar-open-external],[data-browser-sidebar-skip-address-commit]"));
+  return Boolean(
+    target.closest(
+      "[data-browser-sidebar-open-external],[data-browser-sidebar-skip-address-commit]",
+    ),
+  );
 }
 
 export function shouldCommitBrowserAddressEdit(currentUrl: string, draft: string): boolean {
@@ -70,14 +71,18 @@ export function resolveVisibleLocalServers(
   settings: BrowserLocalServerSettings,
 ): BrowserVisibleLocalServers {
   const servers = snapshot?.servers ?? [];
-  const hiddenServers = sortLocalServers(servers.filter((server) => server.hidden), settings.sortMode);
-  const candidates = settings.showMode === "hidden"
-    ? hiddenServers
-    : servers.filter((server) => {
-        if (server.hidden) return false;
-        if (settings.showMode === "online") return server.online;
-        return true;
-      });
+  const hiddenServers = sortLocalServers(
+    servers.filter((server) => server.hidden),
+    settings.sortMode,
+  );
+  const candidates =
+    settings.showMode === "hidden"
+      ? hiddenServers
+      : servers.filter((server) => {
+          if (server.hidden) return false;
+          if (settings.showMode === "online") return server.online;
+          return true;
+        });
   const sorted = sortLocalServers(candidates, settings.sortMode);
   const expanded = snapshot ? settings.expandedProjectIds.has(snapshot.projectId) : false;
   return {
@@ -91,15 +96,17 @@ export function stepBrowserZoomPercent(current: number, delta: number): number {
   const clamped = clampBrowserZoomPercent(current);
   if (delta === 0) return clamped;
   if (delta > 0) {
-    return BROWSER_SIDEBAR_ZOOM_OPTIONS.find((option) => option > clamped)
-      ?? BROWSER_SIDEBAR_ZOOM_OPTIONS.at(-1)
-      ?? clamped;
+    return (
+      BROWSER_SIDEBAR_ZOOM_OPTIONS.find((option) => option > clamped) ??
+      BROWSER_SIDEBAR_ZOOM_OPTIONS.at(-1) ??
+      clamped
+    );
   }
-  return [...BROWSER_SIDEBAR_ZOOM_OPTIONS]
-    .reverse()
-    .find((option) => option < clamped)
-    ?? BROWSER_SIDEBAR_ZOOM_OPTIONS[0]
-    ?? clamped;
+  return (
+    [...BROWSER_SIDEBAR_ZOOM_OPTIONS].reverse().find((option) => option < clamped) ??
+    BROWSER_SIDEBAR_ZOOM_OPTIONS[0] ??
+    clamped
+  );
 }
 
 export function clampBrowserZoomPercent(value: number): number {
@@ -109,7 +116,8 @@ export function clampBrowserZoomPercent(value: number): number {
 
 export function resolveBrowserZoomOptions(current: number): number[] {
   const clamped = clampBrowserZoomPercent(current);
-  if (BROWSER_SIDEBAR_ZOOM_OPTIONS.some((option) => option === clamped)) return [...BROWSER_SIDEBAR_ZOOM_OPTIONS];
+  if (BROWSER_SIDEBAR_ZOOM_OPTIONS.some((option) => option === clamped))
+    return [...BROWSER_SIDEBAR_ZOOM_OPTIONS];
   return [...BROWSER_SIDEBAR_ZOOM_OPTIONS, clamped].sort((a, b) => a - b);
 }
 

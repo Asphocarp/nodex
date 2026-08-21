@@ -11,11 +11,7 @@ describe("ResizeObserver MotionValue geometry", () => {
       renderCount += 1;
       const size = useElementSizeMotionValues();
       return (
-        <div
-          ref={size.ref}
-          data-testid="measured-shell"
-          style={{ height: 80, width: 120 }}
-        >
+        <div ref={size.ref} data-testid="measured-shell" style={{ height: 80, width: 120 }}>
           <motion.div
             data-testid="geometry-consumer"
             style={{ height: size.height, width: size.width }}

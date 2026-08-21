@@ -36,10 +36,17 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function stringifyValue(value: unknown): string {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.map((entry) => stringifyValue(entry)).filter(Boolean).join(" ");
+  if (Array.isArray(value))
+    return value
+      .map((entry) => stringifyValue(entry))
+      .filter(Boolean)
+      .join(" ");
   const record = asRecord(value);
   if (!record) return "";
-  return Object.values(record).map((entry) => stringifyValue(entry)).filter(Boolean).join(" ");
+  return Object.values(record)
+    .map((entry) => stringifyValue(entry))
+    .filter(Boolean)
+    .join(" ");
 }
 
 function basename(path: string): string {
@@ -106,10 +113,12 @@ function resolveAssistantResponsePreview(
 ): string {
   const nextAssistant = blocks
     .slice(userBlockIndex + 1)
-    .find((block): block is ThreadTranscriptBlockModel =>
-      isThreadTranscriptBlock(block)
-      && block.type === "assistantMessage"
-      && normalizePreviewText(block.entry.markdownText ?? block.searchableText).length > 0);
+    .find(
+      (block): block is ThreadTranscriptBlockModel =>
+        isThreadTranscriptBlock(block) &&
+        block.type === "assistantMessage" &&
+        normalizePreviewText(block.entry.markdownText ?? block.searchableText).length > 0,
+    );
 
   return nextAssistant
     ? normalizePreviewText(nextAssistant.entry.markdownText ?? nextAssistant.searchableText)
@@ -137,10 +146,7 @@ function addFileOutputs(
 ) {
   if (!entry.fileChange) return;
   const paths = getCodexFileChangePaths(entry.fileChange.changes);
-  const label = firstNonEmpty(
-    entry.fileChange.label,
-    paths[0],
-  );
+  const label = firstNonEmpty(entry.fileChange.label, paths[0]);
   if (!label) return;
   addOutput(outputs, { type: "file", label: basename(label) });
 }
@@ -164,9 +170,10 @@ function addWebOutputs(
     const host = hostnameFromUrl(url);
     if (!host) continue;
     addOutput(outputs, {
-      type: host.includes("drive.google.com") || host.includes("googleusercontent.com")
-        ? "google-drive"
-        : "website",
+      type:
+        host.includes("drive.google.com") || host.includes("googleusercontent.com")
+          ? "google-drive"
+          : "website",
       label: host.includes("drive.google.com") ? "Google Drive" : host,
     });
   }
@@ -182,25 +189,30 @@ function addMcpOutputs(
       type: mcp.mcpAppResourceUri.includes("drive.google.com") ? "google-drive" : "app",
       label: mcp.mcpAppResourceUri.includes("drive.google.com")
         ? "Google Drive"
-        : firstNonEmpty(mcp.invocation.server, mcp.invocation.tool, mcp.pluginId) ?? "App",
+        : (firstNonEmpty(mcp.invocation.server, mcp.invocation.tool, mcp.pluginId) ?? "App"),
     });
   }
 
   const dynamicContent = entry.dynamicToolCall?.contentItems ?? [];
-  if (dynamicContent.some((contentItem) => {
-    const type = asRecord(contentItem)?.type;
-    return type === "image" || type === "inputImage";
-  })) {
+  if (
+    dynamicContent.some((contentItem) => {
+      const type = asRecord(contentItem)?.type;
+      return type === "image" || type === "inputImage";
+    })
+  ) {
     addOutput(outputs, { type: "image", label: "Image" });
   }
 
   const mcpResult = mcp?.result;
   if (asRecord(mcpResult)?.type === "success") {
     const content = asRecord(mcpResult)?.content;
-    if (Array.isArray(content) && content.some((contentItem) => {
-      const type = asRecord(contentItem)?.type;
-      return type === "image" || type === "inputImage";
-    })) {
+    if (
+      Array.isArray(content) &&
+      content.some((contentItem) => {
+        const type = asRecord(contentItem)?.type;
+        return type === "image" || type === "inputImage";
+      })
+    ) {
       addOutput(outputs, { type: "image", label: "Image" });
     }
   }
@@ -221,12 +233,18 @@ function addGitOutputs(
   if (text.includes("::git-commit") || /\bcreated commit\b/i.test(text)) {
     addOutput(outputs, { type: "commit", label: "Commit" });
   }
-  if (text.includes("::git-create-pr") || /\bpull request\b/i.test(text) || /\bPR #?\d+\b/.test(text)) {
+  if (
+    text.includes("::git-create-pr") ||
+    /\bpull request\b/i.test(text) ||
+    /\bPR #?\d+\b/.test(text)
+  ) {
     addOutput(outputs, { type: "pull-request", label: "Pull request" });
   }
 }
 
-function collectOutputsFromBlocks(blocks: readonly ThreadBlockModel[]): ThreadUserMessageNavigationOutput[] {
+function collectOutputsFromBlocks(
+  blocks: readonly ThreadBlockModel[],
+): ThreadUserMessageNavigationOutput[] {
   const outputs = new Map<string, ThreadUserMessageNavigationOutput>();
 
   for (const block of blocks) {
@@ -241,9 +259,11 @@ function collectOutputsFromBlocks(blocks: readonly ThreadBlockModel[]): ThreadUs
     addGitOutputs(outputs, block.entry);
   }
 
-  return [...outputs.values()].sort((left, right) =>
-    OUTPUT_TYPE_PRIORITY[left.type] - OUTPUT_TYPE_PRIORITY[right.type]
-    || left.label.localeCompare(right.label));
+  return [...outputs.values()].sort(
+    (left, right) =>
+      OUTPUT_TYPE_PRIORITY[left.type] - OUTPUT_TYPE_PRIORITY[right.type] ||
+      left.label.localeCompare(right.label),
+  );
 }
 
 export function getThreadUserMessageNavigationVisibleOutputs(
@@ -268,9 +288,11 @@ function isHeartbeatUserMessage(block: ThreadTranscriptBlockModel): boolean {
   const rawItem = asRecord(block.entry.rawItem);
   const rawType = typeof rawItem?.type === "string" ? rawItem.type : "";
   const source = typeof block.entry.source === "string" ? block.entry.source : "";
-  return rawType.toLowerCase().includes("heartbeat")
-    || source.toLowerCase().includes("heartbeat")
-    || (block.entry.markdownText ?? "").includes("Sent by scheduled task");
+  return (
+    rawType.toLowerCase().includes("heartbeat") ||
+    source.toLowerCase().includes("heartbeat") ||
+    (block.entry.markdownText ?? "").includes("Sent by scheduled task")
+  );
 }
 
 export function buildThreadUserMessageNavigationItems(
@@ -290,10 +312,12 @@ export function buildThreadUserMessageNavigationItems(
     const blocks = flattenThreadBlocks(turnModel.blocks);
     const userBlocks = blocks
       .map((block, blockIndex) => ({ block, blockIndex }))
-      .filter((candidate): candidate is { block: ThreadTranscriptBlockModel; blockIndex: number } =>
-        isThreadTranscriptBlock(candidate.block)
-        && candidate.block.type === "userMessage"
-        && typeof candidate.block.searchUnitKey === "string");
+      .filter(
+        (candidate): candidate is { block: ThreadTranscriptBlockModel; blockIndex: number } =>
+          isThreadTranscriptBlock(candidate.block) &&
+          candidate.block.type === "userMessage" &&
+          typeof candidate.block.searchUnitKey === "string",
+      );
 
     for (const [userIndex, candidate] of userBlocks.entries()) {
       const remainingBlocks = blocks.slice(candidate.blockIndex + 1);

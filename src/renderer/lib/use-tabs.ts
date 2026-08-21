@@ -63,7 +63,9 @@ function loadState(): TabsState | null {
 
     const normalizedTabs = parsed.tabs
       .filter(
-        (tab): tab is { id: string; projectId: string; viewMode?: unknown; searchQueries?: unknown } =>
+        (
+          tab,
+        ): tab is { id: string; projectId: string; viewMode?: unknown; searchQueries?: unknown } =>
           typeof tab === "object" &&
           tab !== null &&
           typeof (tab as { id?: unknown }).id === "string" &&
@@ -75,7 +77,8 @@ function loadState(): TabsState | null {
 
     return {
       tabs: normalizedTabs,
-      activeTabId: typeof parsed.activeTabId === "string" ? parsed.activeTabId : normalizedTabs[0].id,
+      activeTabId:
+        typeof parsed.activeTabId === "string" ? parsed.activeTabId : normalizedTabs[0].id,
     };
   } catch {
     return null;
@@ -235,9 +238,7 @@ export function useTabs(projects: Project[]) {
   const switchProject = useCallback((tabId: string, projectId: string) => {
     setState((prev) => ({
       ...prev,
-      tabs: prev.tabs.map((t) =>
-        t.id === tabId ? { ...t, projectId } : t
-      ),
+      tabs: prev.tabs.map((t) => (t.id === tabId ? { ...t, projectId } : t)),
     }));
   }, []);
 
@@ -248,24 +249,21 @@ export function useTabs(projects: Project[]) {
     }));
   }, []);
 
-  const setSearchQuery = useCallback(
-    (tabId: string, projectId: string, query: string) => {
-      setState((prev) => ({
-        ...prev,
-        tabs: prev.tabs.map((tab) => {
-          if (tab.id !== tabId) return tab;
-          return {
-            ...tab,
-            searchQueries: {
-              ...tab.searchQueries,
-              [projectId]: query,
-            },
-          };
-        }),
-      }));
-    },
-    []
-  );
+  const setSearchQuery = useCallback((tabId: string, projectId: string, query: string) => {
+    setState((prev) => ({
+      ...prev,
+      tabs: prev.tabs.map((tab) => {
+        if (tab.id !== tabId) return tab;
+        return {
+          ...tab,
+          searchQueries: {
+            ...tab.searchQueries,
+            [projectId]: query,
+          },
+        };
+      }),
+    }));
+  }, []);
 
   const switchToTabIndex = useCallback((index: number) => {
     setState((prev) => {

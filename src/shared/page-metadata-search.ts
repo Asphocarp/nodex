@@ -1,9 +1,5 @@
 import MiniSearch, { type SearchResult } from "minisearch";
-import {
-  normalizeSearchText,
-  resolveFuzzyThreshold,
-  tokenizeSearchQuery,
-} from "./search-text";
+import { normalizeSearchText, resolveFuzzyThreshold, tokenizeSearchQuery } from "./search-text";
 
 export type PageMetadataMatchQuality = "exact" | "prefix" | "fuzzy";
 
@@ -126,18 +122,25 @@ export function searchPageMetadata(
     storeFields: ["id"],
     processTerm: (term) => normalizeSearchText(term) || null,
   });
-  miniSearch.addAll(documents.map((document) => ({
-    id: document.id,
-    identity: normalizeSearchText(document.identity),
-    title: normalizeSearchText(document.title),
-    properties: normalizeSearchText(document.properties.map((property) => property.text).join(" ")),
-  })));
+  miniSearch.addAll(
+    documents.map((document) => ({
+      id: document.id,
+      identity: normalizeSearchText(document.identity),
+      title: normalizeSearchText(document.title),
+      properties: normalizeSearchText(
+        document.properties.map((property) => property.text).join(" "),
+      ),
+    })),
+  );
 
-  const hits = new Map<string, {
-    evidence: PageMetadataSearchEvidence[];
-    matchedTerms: Set<string>;
-    rank: number;
-  }>();
+  const hits = new Map<
+    string,
+    {
+      evidence: PageMetadataSearchEvidence[];
+      matchedTerms: Set<string>;
+      rank: number;
+    }
+  >();
   for (const [termIndex, term] of terms.entries()) {
     const exactIdentityResults = miniSearch.search(term, {
       fields: ["identity"],
@@ -153,8 +156,9 @@ export function searchPageMetadata(
       fuzzy: resolveFuzzyThreshold,
       boost: { title: 8, properties: 4 },
     });
-    const results = [...exactIdentityResults, ...humanTextResults]
-      .sort((left, right) => right.score - left.score || String(left.id).localeCompare(String(right.id)));
+    const results = [...exactIdentityResults, ...humanTextResults].sort(
+      (left, right) => right.score - left.score || String(left.id).localeCompare(String(right.id)),
+    );
     results.forEach((result, resultIndex) => {
       const source = sourceById.get(String(result.id));
       if (!source) return;

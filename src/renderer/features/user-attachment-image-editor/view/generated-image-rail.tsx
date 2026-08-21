@@ -62,15 +62,17 @@ export function GeneratedImageRail({
   images,
   onSelect,
 }: GeneratedImageRailProps) {
-  const activeIndex = Math.max(images.findIndex((image) => image.id === activeId), 0);
+  const activeIndex = Math.max(
+    images.findIndex((image) => image.id === activeId),
+    0,
+  );
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const autoScrolledImageIdRef = useRef<string | null>(null);
   const virtualCenterRef = useRef(
     RAIL_PADDING_PX + activeIndex * THUMBNAIL_STRIDE_PX + THUMBNAIL_SIZE_PX / 2,
   );
-  const contentHeight = RAIL_PADDING_PX * 2
-    + Math.max(images.length - 1, 0) * THUMBNAIL_STRIDE_PX
-    + THUMBNAIL_SIZE_PX;
+  const contentHeight =
+    RAIL_PADDING_PX * 2 + Math.max(images.length - 1, 0) * THUMBNAIL_STRIDE_PX + THUMBNAIL_SIZE_PX;
 
   const initialMetricsRef = useRef({ activeIndex, contentHeight });
   initialMetricsRef.current = { activeIndex, contentHeight };
@@ -81,30 +83,27 @@ export function GeneratedImageRail({
     }
     if (scrollerRef.current) return;
     const metrics = initialMetricsRef.current;
-    const center = RAIL_PADDING_PX
-      + metrics.activeIndex * THUMBNAIL_STRIDE_PX
-      + THUMBNAIL_SIZE_PX / 2;
+    const center =
+      RAIL_PADDING_PX + metrics.activeIndex * THUMBNAIL_STRIDE_PX + THUMBNAIL_SIZE_PX / 2;
     virtualCenterRef.current = center;
-    scroller.scrollTop = resolveRailScrollTop(
-      center,
-      metrics.contentHeight,
-      scroller,
-    );
+    scroller.scrollTop = resolveRailScrollTop(center, metrics.contentHeight, scroller);
     scrollerRef.current = scroller;
   }, []);
 
   useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     if (
-      !scroller
-      || autoScrollImageId === null
-      || autoScrollImageId !== activeId
-      || autoScrolledImageIdRef.current === autoScrollImageId
-    ) return;
+      !scroller ||
+      autoScrollImageId === null ||
+      autoScrollImageId !== activeId ||
+      autoScrolledImageIdRef.current === autoScrollImageId
+    )
+      return;
     autoScrolledImageIdRef.current = autoScrollImageId;
-    const center = RAIL_PADDING_PX
-      + Math.max(images.length - 1, 0) * THUMBNAIL_STRIDE_PX
-      + THUMBNAIL_SIZE_PX / 2;
+    const center =
+      RAIL_PADDING_PX +
+      Math.max(images.length - 1, 0) * THUMBNAIL_STRIDE_PX +
+      THUMBNAIL_SIZE_PX / 2;
     virtualCenterRef.current = center;
     scroller.scrollTo({ top: scroller.scrollHeight });
   }, [activeId, autoScrollImageId, images.length]);
@@ -124,14 +123,16 @@ export function GeneratedImageRail({
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (event.ctrlKey) return;
     event.preventDefault();
-    const pixels = event.deltaMode === WheelEvent.DOM_DELTA_LINE
-      ? event.deltaY * 16
-      : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
-        ? event.deltaY * event.currentTarget.clientHeight
-        : event.deltaY;
-    const maxCenter = RAIL_PADDING_PX
-      + Math.max(images.length - 1, 0) * THUMBNAIL_STRIDE_PX
-      + THUMBNAIL_SIZE_PX / 2;
+    const pixels =
+      event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? event.deltaY * 16
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? event.deltaY * event.currentTarget.clientHeight
+          : event.deltaY;
+    const maxCenter =
+      RAIL_PADDING_PX +
+      Math.max(images.length - 1, 0) * THUMBNAIL_STRIDE_PX +
+      THUMBNAIL_SIZE_PX / 2;
     const center = Math.min(
       Math.max(virtualCenterRef.current + pixels, THUMBNAIL_SIZE_PX / 2 + RAIL_PADDING_PX),
       maxCenter,
@@ -176,9 +177,10 @@ export function GeneratedImageRail({
             transition={{ duration: 0.12 }}
             onClick={() => selectIndex(index)}
             onKeyDown={(event) => {
-              const delta = event.key === "ArrowUp" || event.key === "ArrowLeft"
-                ? -1
-                : Number(event.key === "ArrowDown" || event.key === "ArrowRight");
+              const delta =
+                event.key === "ArrowUp" || event.key === "ArrowLeft"
+                  ? -1
+                  : Number(event.key === "ArrowDown" || event.key === "ArrowRight");
               if (delta === 0) return;
               event.preventDefault();
               selectIndex(activeIndex + delta);

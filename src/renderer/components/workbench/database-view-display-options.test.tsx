@@ -4,10 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import type { EffectiveDatabaseViewPresentation } from "../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
-import {
-  parseDataSourceId,
-  parseDataSourcePropertyId,
-} from "../../../shared/database-identities";
+import { parseDataSourceId, parseDataSourcePropertyId } from "../../../shared/database-identities";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { render } from "../../test/dom";
 import { DatabaseViewDisplayOptions } from "./database-view-display-options";
@@ -28,19 +25,26 @@ const durable: EffectiveDatabaseViewPresentation = {
     },
   },
 };
-const properties: readonly DataSourcePropertyRecordV2[] = [{
-  propertyId: parseDataSourcePropertyId("status"),
-  dataSourceId: parseDataSourceId("source:display-options"),
-  name: "Status",
-  ...testPropertySemantics("select", 2),
-  valueType: "select",
-  config: { options: [{ id: "build", name: "Build" }, { id: "ship", name: "Ship" }] },
-  rankKey: "a",
-  lifecycle: "active",
-  revision: 1,
-  createdAt: timestamp,
-  updatedAt: timestamp,
-}];
+const properties: readonly DataSourcePropertyRecordV2[] = [
+  {
+    propertyId: parseDataSourcePropertyId("status"),
+    dataSourceId: parseDataSourceId("source:display-options"),
+    name: "Status",
+    ...testPropertySemantics("select", 2),
+    valueType: "select",
+    config: {
+      options: [
+        { id: "build", name: "Build" },
+        { id: "ship", name: "Ship" },
+      ],
+    },
+    rankKey: "a",
+    lifecycle: "active",
+    revision: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  },
+];
 
 test("keeps layout edits personal until explicitly published or reset", async () => {
   const publish = vi.fn();
@@ -89,8 +93,7 @@ test("keeps layout edits personal until explicitly published or reset", async ()
   expect(idField.getAttribute("aria-pressed")).toBe("true");
   expect(screen.queryByRole("button", { name: "Internal ID" })).toBeNull();
 
-  expect(screen.getByRole("button", { name: "Reset" }).hasAttribute("disabled"))
-    .toBe(false);
+  expect(screen.getByRole("button", { name: "Reset" }).hasAttribute("disabled")).toBe(false);
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Set default for everyone" }));
     await Promise.resolve();
@@ -98,8 +101,7 @@ test("keeps layout edits personal until explicitly published or reset", async ()
   expect(publish).toHaveBeenCalledTimes(1);
 
   fireEvent.click(screen.getByRole("button", { name: "Reset" }));
-  expect(screen.getByRole("tab", { name: "Board" }).getAttribute("aria-selected"))
-    .toBe("true");
+  expect(screen.getByRole("tab", { name: "Board" }).getAttribute("aria-selected")).toBe("true");
 });
 
 describe("DatabaseViewDisplayOptions", () => {
@@ -124,8 +126,9 @@ describe("DatabaseViewDisplayOptions", () => {
     expect(screen.getByLabelText("Completed Page range")).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Show sub-pages" })).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Nested sub-pages" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-pressed"))
-      .toBe("false");
+    expect(screen.getByRole("button", { name: "Status" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
     expect(screen.getByRole("switch", { name: "Show empty groups" })).toBeTruthy();
     const displayFieldsHeading = screen.getByText("Display fields");
     const displayFields = displayFieldsHeading.parentElement;

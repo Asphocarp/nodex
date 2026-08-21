@@ -22,10 +22,7 @@ import { parseReleaseIdentity, type ReleaseIdentity } from "./release/model";
 const MANIFEST_SCHEMA_VERSION = 4;
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = path.resolve(path.dirname(scriptPath), "..");
-const defaultManifestPath = path.join(
-  repositoryRoot,
-  ".generated/prepared-electron-build.json",
-);
+const defaultManifestPath = path.join(repositoryRoot, ".generated/prepared-electron-build.json");
 const IGNORED_INPUT_DIRECTORY_NAMES = new Set([
   ".generated",
   ".turbo",
@@ -153,26 +150,26 @@ const collectFiles = (
     throw new Error(`Prepared build inputs and outputs must not be symlinks: ${entryPath}`);
   }
   if (stats.isFile()) {
-    return [{
-      executable: (stats.mode & 0o111) !== 0,
-      path: normalizeRelativePath(root, entryPath),
-      sha256: hashFile(entryPath),
-      size: stats.size,
-    }];
+    return [
+      {
+        executable: (stats.mode & 0o111) !== 0,
+        path: normalizeRelativePath(root, entryPath),
+        sha256: hashFile(entryPath),
+        size: stats.size,
+      },
+    ];
   }
   if (!stats.isDirectory()) {
     throw new Error(`Prepared build encountered an unsupported filesystem entry: ${entryPath}`);
   }
   return readdirSync(entryPath, { withFileTypes: true })
-    .filter((entry) => (
-      !ignoreGeneratedInputDirectories || !IGNORED_INPUT_DIRECTORY_NAMES.has(entry.name)
-    ))
+    .filter(
+      (entry) => !ignoreGeneratedInputDirectories || !IGNORED_INPUT_DIRECTORY_NAMES.has(entry.name),
+    )
     .sort((left, right) => left.name.localeCompare(right.name))
-    .flatMap((entry) => collectFiles(
-      root,
-      path.join(entryPath, entry.name),
-      ignoreGeneratedInputDirectories,
-    ));
+    .flatMap((entry) =>
+      collectFiles(root, path.join(entryPath, entry.name), ignoreGeneratedInputDirectories),
+    );
 };
 
 const collectCargoManifests = (currentPath: string): string[] =>
@@ -195,27 +192,25 @@ const buildContext = (): Record<string, string> => {
     "SENTRY_PROJECT",
     "SENTRY_RELEASE",
   ] as const;
-  const digest = (value: string): string =>
-    createHash("sha256").update(value).digest("hex");
+  const digest = (value: string): string => createHash("sha256").update(value).digest("hex");
   return Object.fromEntries([
     ["arch", process.arch],
     ["node", process.version],
     ["nodeEnv", process.env.NODE_ENV ?? ""],
     ["platform", process.platform],
-    ["releaseIdentity", process.env.NODEX_RELEASE_IDENTITY_PATH
-      ? hashFile(process.env.NODEX_RELEASE_IDENTITY_PATH)
-      : ""],
+    [
+      "releaseIdentity",
+      process.env.NODEX_RELEASE_IDENTITY_PATH
+        ? hashFile(process.env.NODEX_RELEASE_IDENTITY_PATH)
+        : "",
+    ],
     ...sensitiveBuildVariables.map((key) => [key, digest(process.env[key] ?? "")]),
     ...viteEnvironment.map(([key, value]) => [key, digest(value ?? "")]),
   ]);
 };
 
-const digestInventory = (
-  files: readonly FileDigest[],
-  context: Record<string, string>,
-): string => createHash("sha256")
-  .update(JSON.stringify({ context, files }))
-  .digest("hex");
+const digestInventory = (files: readonly FileDigest[], context: Record<string, string>): string =>
+  createHash("sha256").update(JSON.stringify({ context, files })).digest("hex");
 
 const sha256Json = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
@@ -231,8 +226,9 @@ const inputInventory = (root: string): FileDigest[] => {
   const environmentFiles = readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.name === ".env" || entry.name.startsWith(".env."))
     .flatMap((entry) => collectFiles(root, path.join(root, entry.name)));
-  return [...configuredInputs, ...environmentFiles]
-    .sort((left, right) => left.path.localeCompare(right.path));
+  return [...configuredInputs, ...environmentFiles].sort((left, right) =>
+    left.path.localeCompare(right.path),
+  );
 };
 
 const currentInputDigest = (root: string): string =>
@@ -270,15 +266,11 @@ const readSource = (root: string, snapshotDigest: string): PreparedBuildSource =
       state: "snapshot",
     };
   }
-  const status = spawnSync(
-    "git",
-    ["status", "--porcelain", "--untracked-files=normal"],
-    {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-    },
-  );
+  const status = spawnSync("git", ["status", "--porcelain", "--untracked-files=normal"], {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
   return {
     baseCommit,
     baseTree,
@@ -291,8 +283,10 @@ const readReleaseIdentity = (root: string): ReleaseIdentity | null => {
   const identityPath = process.env.NODEX_RELEASE_IDENTITY_PATH;
   if (!identityPath) return null;
   const identity = parseReleaseIdentity(JSON.parse(readFileSync(identityPath, "utf8")) as unknown);
-  if (readGitValue(root, ["rev-parse", "HEAD"]) !== identity.sourceSha
-    || readGitValue(root, ["rev-parse", "HEAD^{tree}"]) !== identity.sourceTree) {
+  if (
+    readGitValue(root, ["rev-parse", "HEAD"]) !== identity.sourceSha ||
+    readGitValue(root, ["rev-parse", "HEAD^{tree}"]) !== identity.sourceTree
+  ) {
     throw new Error("Release Identity does not match the prepared source checkout.");
   }
   return identity;
@@ -312,9 +306,8 @@ const readProduct = (root: string, identity: ReleaseIdentity | null): PreparedBu
   return { name: value.name, version: identity?.version ?? value.version };
 };
 
-const generationIdFor = (
-  manifest: Omit<PreparedElectronBuildManifest, "generationId">,
-): string => sha256Json(manifest);
+const generationIdFor = (manifest: Omit<PreparedElectronBuildManifest, "generationId">): string =>
+  sha256Json(manifest);
 
 const currentPrerequisiteSourceDigest = (root: string): string => {
   const files = PREREQUISITE_SOURCE_PATHS.flatMap((relativePath) =>
@@ -334,8 +327,9 @@ const outputInventory = (root: string): FileDigest[] => {
   if (!existsSync(outputRoot)) {
     throw new Error("Prepared Electron output is missing; run the normal build first.");
   }
-  const files = collectFiles(root, outputRoot)
-    .sort((left, right) => left.path.localeCompare(right.path));
+  const files = collectFiles(root, outputRoot).sort((left, right) =>
+    left.path.localeCompare(right.path),
+  );
   if (files.length === 0) {
     throw new Error("Prepared Electron output is empty; run the normal build first.");
   }
@@ -344,14 +338,11 @@ const outputInventory = (root: string): FileDigest[] => {
 
 const manifestPathFor = (options: PreparedElectronBuildOptions): string =>
   path.resolve(
-    options.manifestPath
-      ?? path.join(options.repositoryRoot, ".generated/prepared-electron-build.json"),
+    options.manifestPath ??
+      path.join(options.repositoryRoot, ".generated/prepared-electron-build.json"),
   );
 
-const writeManifest = (
-  manifestPath: string,
-  manifest: PreparedElectronBuildManifest,
-): void => {
+const writeManifest = (manifestPath: string, manifest: PreparedElectronBuildManifest): void => {
   mkdirSync(path.dirname(manifestPath), { recursive: true });
   const temporaryPath = `${manifestPath}.${randomUUID()}.tmp`;
   try {
@@ -374,8 +365,8 @@ export function recordPreparedElectronBuild(
     throw new Error("Electron build inputs changed while the production build was running.");
   }
   if (
-    expectedAgentSkills
-    && JSON.stringify(beforeAgentSkills) !== JSON.stringify(expectedAgentSkills)
+    expectedAgentSkills &&
+    JSON.stringify(beforeAgentSkills) !== JSON.stringify(expectedAgentSkills)
   ) {
     throw new Error("Official Agent Skills changed while the production build was running.");
   }
@@ -413,19 +404,19 @@ const parseManifest = (value: unknown): PreparedElectronBuildManifest => {
   }
   const candidate = value as Partial<PreparedElectronBuildManifest>;
   if (
-    candidate.schemaVersion !== MANIFEST_SCHEMA_VERSION
-    || typeof candidate.agentSkills !== "object"
-    || candidate.agentSkills === null
-    || typeof candidate.generationId !== "string"
-    || typeof candidate.inputDigest !== "string"
-    || !Array.isArray(candidate.outputs)
-    || typeof candidate.buildContext !== "object"
-    || candidate.buildContext === null
-    || typeof candidate.product !== "object"
-    || candidate.product === null
-    || typeof candidate.source !== "object"
-    || !(candidate.releaseIdentity === null || typeof candidate.releaseIdentity === "object")
-    || candidate.source === null
+    candidate.schemaVersion !== MANIFEST_SCHEMA_VERSION ||
+    typeof candidate.agentSkills !== "object" ||
+    candidate.agentSkills === null ||
+    typeof candidate.generationId !== "string" ||
+    typeof candidate.inputDigest !== "string" ||
+    !Array.isArray(candidate.outputs) ||
+    typeof candidate.buildContext !== "object" ||
+    candidate.buildContext === null ||
+    typeof candidate.product !== "object" ||
+    candidate.product === null ||
+    typeof candidate.source !== "object" ||
+    !(candidate.releaseIdentity === null || typeof candidate.releaseIdentity === "object") ||
+    candidate.source === null
   ) {
     throw new Error("Prepared Electron build manifest is invalid.");
   }
@@ -456,16 +447,14 @@ export function verifyPreparedElectronBuild(
   if (manifest.inputDigest !== currentInputDigest(root)) {
     throw new Error("Prepared Electron build inputs are stale; run without --reuse-build first.");
   }
-  if (
-    JSON.stringify(manifest.agentSkills) !== JSON.stringify(currentAgentSkills(root))
-  ) {
-    throw new Error(
-      "Prepared Electron build uses stale or damaged official Agent Skills.",
-    );
+  if (JSON.stringify(manifest.agentSkills) !== JSON.stringify(currentAgentSkills(root))) {
+    throw new Error("Prepared Electron build uses stale or damaged official Agent Skills.");
   }
   const outputs = outputInventory(root);
   if (JSON.stringify(outputs) !== JSON.stringify(manifest.outputs)) {
-    throw new Error("Prepared Electron build outputs are stale or damaged; run without --reuse-build first.");
+    throw new Error(
+      "Prepared Electron build outputs are stale or damaged; run without --reuse-build first.",
+    );
   }
   return manifest;
 }
@@ -473,14 +462,11 @@ export function verifyPreparedElectronBuild(
 function runProductionBuild(): void {
   rmSync(defaultManifestPath, { force: true });
   const beforePrerequisites = currentPrerequisiteSourceDigest(repositoryRoot);
-  const agentSkillsCommand = process.env.NODEX_AGENT_SKILLS_REQUIRE_PREGENERATED === "1"
-    ? "agent-skills:verify"
-    : "agent-skills:generate";
-  for (const script of [
-    agentSkillsCommand,
-    "build-resources:prepare",
-    "sync:icons",
-  ]) {
+  const agentSkillsCommand =
+    process.env.NODEX_AGENT_SKILLS_REQUIRE_PREGENERATED === "1"
+      ? "agent-skills:verify"
+      : "agent-skills:generate";
+  for (const script of [agentSkillsCommand, "build-resources:prepare", "sync:icons"]) {
     execFileSync("pnpm", ["--silent", "run", script], {
       cwd: repositoryRoot,
       stdio: "inherit",
@@ -491,11 +477,10 @@ function runProductionBuild(): void {
   }
   const beforeBuild = currentInputDigest(repositoryRoot);
   const agentSkills = currentAgentSkills(repositoryRoot);
-  execFileSync(
-    "pnpm",
-    ["exec", "electron-vite", "build", "--logLevel", "warn"],
-    { cwd: repositoryRoot, stdio: "inherit" },
-  );
+  execFileSync("pnpm", ["exec", "electron-vite", "build", "--logLevel", "warn"], {
+    cwd: repositoryRoot,
+    stdio: "inherit",
+  });
   // SSH hosts cannot load Electron's split Main chunks or its local
   // node_modules tree. Ship one content-addressable, dependency-contained Node
   // worker that can be copied to a trusted remote login over stdin.

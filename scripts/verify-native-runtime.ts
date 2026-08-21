@@ -42,8 +42,7 @@ export interface PackagedNativeRuntimeStructureOptions {
   readonly verifySignatures: boolean;
 }
 
-export interface PackagedNativeRuntimeSmokeOptions
-  extends PackagedNativeRuntimeStructureOptions {
+export interface PackagedNativeRuntimeSmokeOptions extends PackagedNativeRuntimeStructureOptions {
   readonly launchApp: boolean;
   readonly previousStoreFixturePath?: string;
 }
@@ -109,7 +108,11 @@ const assertMachO = (
 ): void => {
   assertMachOArchitecture(filePath, architecture);
   const loadCommands = run("otool", ["-l", filePath], `Inspect ${filePath} load commands`).stdout;
-  if (!new RegExp(`LC_BUILD_VERSION[\\s\\S]*?minos ${minimumMacOS.replace(".", "\\.")}\\b`).test(loadCommands)) {
+  if (
+    !new RegExp(`LC_BUILD_VERSION[\\s\\S]*?minos ${minimumMacOS.replace(".", "\\.")}\\b`).test(
+      loadCommands,
+    )
+  ) {
     throw new Error(`Native runtime minimum macOS mismatch for ${filePath}`);
   }
 };
@@ -125,7 +128,9 @@ const assertMachOArchitecture = (
   }
 };
 
-const signatureDetails = (artifactPath: string): { adhoc: boolean; teamIdentifier: string | null } => {
+const signatureDetails = (
+  artifactPath: string,
+): { adhoc: boolean; teamIdentifier: string | null } => {
   run("codesign", ["--verify", "--strict", "--verbose=2", artifactPath], `Verify ${artifactPath}`);
   const display = run("codesign", ["-dv", "--verbose=4", artifactPath], `Inspect ${artifactPath}`);
   const output = `${display.stdout}\n${display.stderr}`;
@@ -136,7 +141,11 @@ const signatureDetails = (artifactPath: string): { adhoc: boolean; teamIdentifie
   };
 };
 
-const verifySignatures = (appPath: string, binaryPaths: readonly string[], requireDeveloperId: boolean): void => {
+const verifySignatures = (
+  appPath: string,
+  binaryPaths: readonly string[],
+  requireDeveloperId: boolean,
+): void => {
   const helperApp = join(appPath, "Contents/Helpers/Nodex Service.app");
   const appSignature = signatureDetails(appPath);
   const nestedSignatures = [...binaryPaths.map(signatureDetails), signatureDetails(helperApp)];
@@ -162,10 +171,10 @@ const assertSymlinksStayInside = (rootPath: string, currentPath = rootPath): voi
       const resolvedTarget = realpathSync(resolve(dirname(entryPath), target));
       const relativeTarget = relative(canonicalRoot, resolvedTarget);
       if (
-        target.startsWith("/")
-        || relativeTarget === ".."
-        || relativeTarget.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)
-        || resolve(canonicalRoot, relativeTarget) !== resolvedTarget
+        target.startsWith("/") ||
+        relativeTarget === ".." ||
+        relativeTarget.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) ||
+        resolve(canonicalRoot, relativeTarget) !== resolvedTarget
       ) {
         throw new Error(`Sparkle framework symlink escapes its root: ${entryPath}`);
       }
@@ -184,7 +193,10 @@ const verifySparkleRuntime = (
   const manifestPath = join(resourcesPath, "native/sparkle-runtime.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
     readonly architecture?: unknown;
-    readonly artifacts?: Record<string, { readonly path?: unknown; readonly sha256?: unknown; readonly size?: unknown }>;
+    readonly artifacts?: Record<
+      string,
+      { readonly path?: unknown; readonly sha256?: unknown; readonly size?: unknown }
+    >;
     readonly buildChannel?: unknown;
     readonly feedUrls?: Record<string, unknown> | null;
     readonly minimumMacOS?: unknown;
@@ -200,14 +212,16 @@ const verifySparkleRuntime = (
     updater: "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
   };
   if (
-    manifest.schemaVersion !== 3
-    || manifest.architecture !== options.targetArch
-    || (manifest.buildChannel !== "disabled" && manifest.buildChannel !== "stable" && manifest.buildChannel !== "nightly")
-    || (options.expectedUpdateChannel && manifest.buildChannel !== options.expectedUpdateChannel)
-    || manifest.minimumMacOS !== "12.0"
-    || manifest.sparkleVersion !== "2.9.4"
-    || typeof manifest.publicKey !== "string"
-    || !manifest.artifacts
+    manifest.schemaVersion !== 3 ||
+    manifest.architecture !== options.targetArch ||
+    (manifest.buildChannel !== "disabled" &&
+      manifest.buildChannel !== "stable" &&
+      manifest.buildChannel !== "nightly") ||
+    (options.expectedUpdateChannel && manifest.buildChannel !== options.expectedUpdateChannel) ||
+    manifest.minimumMacOS !== "12.0" ||
+    manifest.sparkleVersion !== "2.9.4" ||
+    typeof manifest.publicKey !== "string" ||
+    !manifest.artifacts
   ) {
     throw new Error("Packaged Sparkle runtime manifest is invalid.");
   }
@@ -216,11 +230,10 @@ const verifySparkleRuntime = (
     nightly: `https://nodex.jyu.app/updates/nightly/${options.targetArch}/appcast.xml`,
   };
   if (
-    (manifest.buildChannel === "disabled" && manifest.feedUrls !== null)
-    || (manifest.buildChannel !== "disabled" && (
-      manifest.feedUrls?.stable !== expectedFeeds.stable
-      || manifest.feedUrls?.nightly !== expectedFeeds.nightly
-    ))
+    (manifest.buildChannel === "disabled" && manifest.feedUrls !== null) ||
+    (manifest.buildChannel !== "disabled" &&
+      (manifest.feedUrls?.stable !== expectedFeeds.stable ||
+        manifest.feedUrls?.nightly !== expectedFeeds.nightly))
   ) {
     throw new Error("Packaged Sparkle feed does not match its channel.");
   }
@@ -229,11 +242,11 @@ const verifySparkleRuntime = (
     const filePath = join(contentsPath, ...relativePath.split("/"));
     const metadata = lstatSync(filePath);
     if (
-      identity?.path !== relativePath
-      || identity.sha256 !== sha256File(filePath)
-      || identity.size !== metadata.size
-      || metadata.isSymbolicLink()
-      || !metadata.isFile()
+      identity?.path !== relativePath ||
+      identity.sha256 !== sha256File(filePath) ||
+      identity.size !== metadata.size ||
+      metadata.isSymbolicLink() ||
+      !metadata.isFile()
     ) {
       throw new Error(`Packaged Sparkle artifact identity mismatch: ${name}.`);
     }
@@ -241,8 +254,8 @@ const verifySparkleRuntime = (
   const frameworkPath = join(contentsPath, "Frameworks/Sparkle.framework");
   assertSymlinksStayInside(frameworkPath);
   if (
-    existsSync(join(frameworkPath, "Versions/B/XPCServices"))
-    || existsSync(join(frameworkPath, "XPCServices"))
+    existsSync(join(frameworkPath, "Versions/B/XPCServices")) ||
+    existsSync(join(frameworkPath, "XPCServices"))
   ) {
     throw new Error("Packaged non-sandboxed Sparkle framework must not contain XPC services.");
   }
@@ -252,8 +265,8 @@ const verifySparkleRuntime = (
   const linkage = run("otool", ["-L", bridgePath], "Inspect Sparkle bridge linkage").stdout;
   const loadCommands = run("otool", ["-l", bridgePath], "Inspect Sparkle bridge rpath").stdout;
   if (
-    !linkage.includes("@rpath/Sparkle.framework/Versions/B/Sparkle")
-    || !loadCommands.includes("@loader_path/../../Frameworks")
+    !linkage.includes("@rpath/Sparkle.framework/Versions/B/Sparkle") ||
+    !loadCommands.includes("@loader_path/../../Frameworks")
   ) {
     throw new Error("Packaged Sparkle bridge linkage is invalid.");
   }
@@ -262,24 +275,29 @@ const verifySparkleRuntime = (
     expectedPaths.autoupdate,
     expectedPaths.updater,
   ]) {
-    const architectures = run("/usr/bin/lipo", [
-      "-archs",
-      join(contentsPath, ...relativePath.split("/")),
-    ], "Inspect Sparkle universal binary").stdout.trim().split(/\s+/u).sort();
+    const architectures = run(
+      "/usr/bin/lipo",
+      ["-archs", join(contentsPath, ...relativePath.split("/"))],
+      "Inspect Sparkle universal binary",
+    )
+      .stdout.trim()
+      .split(/\s+/u)
+      .sort();
     if (JSON.stringify(architectures) !== JSON.stringify(["arm64", "x86_64"])) {
       throw new Error(`Packaged Sparkle framework binary is not universal: ${relativePath}.`);
     }
   }
   const appInfoPlist = join(contentsPath, "Info.plist");
-  const readAppPlist = (key: string): string => run(
-    "/usr/bin/plutil",
-    ["-extract", key, "raw", "-o", "-", appInfoPlist],
-    `Read ${key}`,
-  ).stdout.trim();
+  const readAppPlist = (key: string): string =>
+    run(
+      "/usr/bin/plutil",
+      ["-extract", key, "raw", "-o", "-", appInfoPlist],
+      `Read ${key}`,
+    ).stdout.trim();
   if (
-    readAppPlist("SUPublicEDKey") !== manifest.publicKey
-    || readAppPlist("SURequireSignedFeed") !== "true"
-    || readAppPlist("SUVerifyUpdateBeforeExtraction") !== "true"
+    readAppPlist("SUPublicEDKey") !== manifest.publicKey ||
+    readAppPlist("SURequireSignedFeed") !== "true" ||
+    readAppPlist("SUVerifyUpdateBeforeExtraction") !== "true"
   ) {
     throw new Error("Packaged Sparkle Info.plist security keys are invalid.");
   }
@@ -296,8 +314,8 @@ const verifySparkleRuntime = (
       });
       const output = `${entitlements.stdout ?? ""}\n${entitlements.stderr ?? ""}`;
       if (
-        output.includes("com.apple.security.cs.allow-jit")
-        || output.includes("com.apple.security.cs.allow-unsigned-executable-memory")
+        output.includes("com.apple.security.cs.allow-jit") ||
+        output.includes("com.apple.security.cs.allow-unsigned-executable-memory")
       ) {
         throw new Error(`Sparkle code object carries Electron runtime entitlements: ${codeObject}`);
       }
@@ -388,8 +406,7 @@ const readPackagedCoreIdentity = (
   if (value.artifact?.sha256 !== expectedArtifactSha256) {
     throw new Error("Packaged Core self identity does not match rust-core-runtime.json");
   }
-  if (typeof value.manifest_digest !== "string"
-    || !/^[a-f0-9]{64}$/u.test(value.manifest_digest)) {
+  if (typeof value.manifest_digest !== "string" || !/^[a-f0-9]{64}$/u.test(value.manifest_digest)) {
     throw new Error("Packaged Core published an invalid compatibility manifest digest");
   }
   return { pid: value.pid as number, startNonce: value.start_nonce };
@@ -405,10 +422,10 @@ export const selectPackagedSmokeProjectId = (
   }
   const projectId = projects[0]?.id;
   if (
-    typeof projectId !== "string"
-    || projectId.length === 0
-    || projectId.length > 512
-    || projectId.trim() !== projectId
+    typeof projectId !== "string" ||
+    projectId.length === 0 ||
+    projectId.length > 512 ||
+    projectId.trim() !== projectId
   ) {
     throw new Error("Packaged CLI smoke bootstrap returned an invalid Project ID");
   }
@@ -491,7 +508,8 @@ const smokeNativeRuntime = async (
       "Run packaged Core doctor through its installed symlink",
     );
     const envelope = JSON.parse(doctor.stdout) as { ok?: unknown };
-    if (envelope.ok !== true) throw new Error("Packaged Core doctor did not return a successful envelope");
+    if (envelope.ok !== true)
+      throw new Error("Packaged Core doctor did not return a successful envelope");
     const firstCore = readPackagedCoreIdentity(descriptor, expectedCoreSha256);
     const repeatedDoctor = runWithEnvironment(
       linkedCli,
@@ -622,10 +640,7 @@ const smokePreviousStoreMigration = async (
 const smokeBrowserProfileHelper = (appPath: string): void => {
   const directory = mkdtempSync("/tmp/ndx-browser-profile-helper-");
   try {
-    const helper = join(
-      appPath,
-      "Contents/Resources/bin/nodex-browser-profile-helper",
-    );
+    const helper = join(appPath, "Contents/Resources/bin/nodex-browser-profile-helper");
     const result = spawnSync(helper, [], {
       cwd: directory,
       encoding: "utf8",
@@ -654,9 +669,9 @@ const smokeBrowserProfileHelper = (appPath: string): void => {
       readonly schemaVersion?: unknown;
     };
     if (
-      response.schemaVersion !== 1
-      || response.ok !== false
-      || response.errorCode !== "data_unavailable"
+      response.schemaVersion !== 1 ||
+      response.ok !== false ||
+      response.errorCode !== "data_unavailable"
     ) {
       throw new Error("Packaged Browser Profile helper returned an invalid envelope");
     }
@@ -679,7 +694,9 @@ const runWithEnvironment = (
   });
   if (result.error) throw new Error(`${label} could not complete: ${result.error.message}`);
   if (result.status !== 0) {
-    throw new Error(`${label} failed with status ${result.status}: ${(result.stderr || result.stdout).trim()}`);
+    throw new Error(
+      `${label} failed with status ${result.status}: ${(result.stderr || result.stdout).trim()}`,
+    );
   }
   return { stderr: result.stderr, stdout: result.stdout };
 };
@@ -705,7 +722,9 @@ const launchAppSmoke = async (appPath: string): Promise<void> => {
       throw new Error(`Packaged Nodex.app exited during startup with status ${child.exitCode}`);
     }
     if (!existsSync(descriptor)) {
-      throw new Error("Packaged Nodex.app did not publish its Core runtime descriptor during startup");
+      throw new Error(
+        "Packaged Nodex.app did not publish its Core runtime descriptor during startup",
+      );
     }
     const runtime = JSON.parse(readFileSync(descriptor, "utf8")) as { pid?: unknown };
     if (!Number.isSafeInteger(runtime.pid)) {
@@ -759,16 +778,15 @@ export function verifyPackagedNativeRuntimeStructure(
     );
   }
   if (manifest.targetArch !== options.targetArch) {
-    throw new Error(`Native runtime manifest is ${manifest.targetArch}, expected ${options.targetArch}`);
+    throw new Error(
+      `Native runtime manifest is ${manifest.targetArch}, expected ${options.targetArch}`,
+    );
   }
   const binaryPaths = manifest.binaries.map((binary) => {
     const binaryPath = join(contentsPath, ...binary.bundlePath.split("/"));
     assertRegularExecutable(binaryPath);
     const metadata = statSync(binaryPath);
-    if (
-      metadata.size !== binary.sourceSize
-      || sha256File(binaryPath) !== binary.sourceSha256
-    ) {
+    if (metadata.size !== binary.sourceSize || sha256File(binaryPath) !== binary.sourceSha256) {
       throw new Error(`Native runtime manifest identity mismatch for ${binary.name}`);
     }
     assertMachO(binaryPath, options.targetArch, manifest.minimumMacOS);
@@ -814,11 +832,7 @@ export async function verifyPackagedNativeRuntimeSmoke(
   options: PackagedNativeRuntimeSmokeOptions,
 ): Promise<void> {
   const identity = verifyPackagedNativeRuntimeStructure(options);
-  await smokeNativeRuntime(
-    identity.appPath,
-    identity.coreSha256,
-    identity.expectedVersion,
-  );
+  await smokeNativeRuntime(identity.appPath, identity.coreSha256, identity.expectedVersion);
   await smokePreviousStoreMigration(
     identity.appPath,
     resolve(options.previousStoreFixturePath ?? DEFAULT_PREVIOUS_STORE_FIXTURE),
@@ -843,22 +857,23 @@ const main = async (): Promise<void> => {
   const expectedVersion = readOption(arguments_, "--expected-version");
   if (!appPath || !expectedVersion || (targetArch !== "arm64" && targetArch !== "x64")) {
     throw new Error(
-      "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 "
-      + "--expected-version <semver> [--expected-build-version <build>] "
-      + "[--previous-store-fixture <store-v130.db>] [--verify-signatures] "
-      + "[--require-developer-id] [--verify-notarization] [--launch-app] "
-      + "[--expected-update-channel disabled|stable|nightly]",
+      "usage: verify-native-runtime --app-path <Nodex.app> --target-arch arm64|x64 " +
+        "--expected-version <semver> [--expected-build-version <build>] " +
+        "[--previous-store-fixture <store-v130.db>] [--verify-signatures] " +
+        "[--require-developer-id] [--verify-notarization] [--launch-app] " +
+        "[--expected-update-channel disabled|stable|nightly]",
     );
   }
   const requireDeveloperId = arguments_.includes("--require-developer-id");
   const verifyNotarization = arguments_.includes("--verify-notarization");
   const expectedUpdateChannel = readOption(arguments_, "--expected-update-channel");
-  const expectedBuildVersion = readOption(arguments_, "--expected-build-version") ?? expectedVersion;
+  const expectedBuildVersion =
+    readOption(arguments_, "--expected-build-version") ?? expectedVersion;
   if (
-    expectedUpdateChannel !== null
-    && expectedUpdateChannel !== "disabled"
-    && expectedUpdateChannel !== "stable"
-    && expectedUpdateChannel !== "nightly"
+    expectedUpdateChannel !== null &&
+    expectedUpdateChannel !== "disabled" &&
+    expectedUpdateChannel !== "stable" &&
+    expectedUpdateChannel !== "nightly"
   ) {
     throw new Error("--expected-update-channel must be disabled, stable, or nightly");
   }
@@ -867,21 +882,19 @@ const main = async (): Promise<void> => {
     expectedBuildVersion,
     expectedVersion,
     launchApp: arguments_.includes("--launch-app"),
-    previousStoreFixturePath:
-      readOption(arguments_, "--previous-store-fixture") ?? undefined,
+    previousStoreFixturePath: readOption(arguments_, "--previous-store-fixture") ?? undefined,
     requireDeveloperId,
     targetArch,
     expectedUpdateChannel: expectedUpdateChannel ?? undefined,
     verifyNotarization,
-    verifySignatures: arguments_.includes("--verify-signatures")
-      || requireDeveloperId
-      || verifyNotarization,
+    verifySignatures:
+      arguments_.includes("--verify-signatures") || requireDeveloperId || verifyNotarization,
   });
 };
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   });

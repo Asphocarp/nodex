@@ -42,24 +42,21 @@ export function useContentOverflow(
       animationFrame = null;
       const collapsedHeightPx = readLineHeightPx(element) * collapsedLineCount;
       const isOverflowing = element.scrollHeight > collapsedHeightPx + 0.5;
-      setMeasurement((current) => (
-        current.collapsedHeightPx === collapsedHeightPx
-        && current.isOverflowing === isOverflowing
+      setMeasurement((current) =>
+        current.collapsedHeightPx === collapsedHeightPx && current.isOverflowing === isOverflowing
           ? current
-          : { collapsedHeightPx, isOverflowing }
-      ));
+          : { collapsedHeightPx, isOverflowing },
+      );
     };
     const scheduleMeasurement = () => {
       if (animationFrame !== null) return;
       animationFrame = ownerWindow.requestAnimationFrame(measure);
     };
 
-    const resizeObserver = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(scheduleMeasurement);
-    const mutationObserver = typeof MutationObserver === "undefined"
-      ? null
-      : new MutationObserver(scheduleMeasurement);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(scheduleMeasurement);
+    const mutationObserver =
+      typeof MutationObserver === "undefined" ? null : new MutationObserver(scheduleMeasurement);
 
     resizeObserver?.observe(element);
     mutationObserver?.observe(element, {

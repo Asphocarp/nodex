@@ -7,9 +7,7 @@ export type StoreAdministrationIpcChannel =
   | "backup:delete"
   | "backup:restore";
 
-export type StoreAdministrationIpcHandler<
-  Channel extends StoreAdministrationIpcChannel,
-> = (
+export type StoreAdministrationIpcHandler<Channel extends StoreAdministrationIpcChannel> = (
   event: unknown,
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
@@ -26,17 +24,15 @@ interface RegisterStoreAdministrationIpcHandlersInput {
 export function registerStoreAdministrationIpcHandlers(
   input: RegisterStoreAdministrationIpcHandlersInput,
 ): void {
-  input.registerHandle("backup:list", () =>
-    input.administration.listBackups()
-  );
+  input.registerHandle("backup:list", () => input.administration.listBackups());
   input.registerHandle("backup:create", (_, backupInput) =>
     input.administration.createBackup({
       trigger: "manual",
       label: backupInput?.label,
-    })
+    }),
   );
   input.registerHandle("backup:delete", (_, backupId) =>
-    input.administration.deleteBackup(backupId)
+    input.administration.deleteBackup(backupId),
   );
   input.registerHandle("backup:restore", async (_, restoreInput) => {
     const result = await input.administration.restoreBackup(restoreInput);

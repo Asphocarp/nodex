@@ -45,9 +45,10 @@ function getTextPreview(text: string) {
     };
   }
 
-  const preview = normalizedText.length > TEXT_PREVIEW_CHAR_LIMIT
-    ? `${normalizedText.slice(0, TEXT_PREVIEW_CHAR_LIMIT).trimEnd()}...`
-    : normalizedText;
+  const preview =
+    normalizedText.length > TEXT_PREVIEW_CHAR_LIMIT
+      ? `${normalizedText.slice(0, TEXT_PREVIEW_CHAR_LIMIT).trimEnd()}...`
+      : normalizedText;
   const lineCount = normalizedText.split("\n").length;
   const lineLabel = lineCount === 1 ? "line" : "lines";
 
@@ -70,7 +71,8 @@ export function PasteResourceDialog({
   const primaryActionRef = useRef<HTMLButtonElement | null>(null);
   const count = state?.items.length ?? 0;
   const canSaveCopy = canMaterializePasteResourceItems(state?.items ?? []);
-  const isFolderOnly = (state?.items.length ?? 0) > 0 && (state?.items ?? []).every((item) => item.kind === "folder");
+  const isFolderOnly =
+    (state?.items.length ?? 0) > 0 && (state?.items ?? []).every((item) => item.kind === "folder");
   const title = state?.textPayload
     ? "This text is too large to paste"
     : count === 1
@@ -104,16 +106,18 @@ export function PasteResourceDialog({
             <div className="overflow-hidden rounded-xl bg-[color-mix(in_srgb,var(--foreground)_4%,transparent)] shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--foreground)_9%,transparent)]">
               {(state?.items ?? []).map((item, index) => {
                 const Icon = getItemIcon(item.kind, Boolean(item.path));
-                const textPreview = item.kind === "text" && state?.textPayload
-                  ? getTextPreview(state.textPayload)
-                  : null;
+                const textPreview =
+                  item.kind === "text" && state?.textPayload
+                    ? getTextPreview(state.textPayload)
+                    : null;
 
                 return (
                   <div
                     key={`${item.kind}:${item.name}:${item.path ?? index}`}
                     className={cn(
                       "flex items-center gap-2.5 px-3 py-2.5",
-                      index > 0 && "border-t border-[color-mix(in_srgb,var(--foreground)_8%,transparent)]",
+                      index > 0 &&
+                        "border-t border-[color-mix(in_srgb,var(--foreground)_8%,transparent)]",
                     )}
                   >
                     <div className="rounded-lg bg-[color-mix(in_srgb,var(--foreground)_7%,transparent)] p-1.5 text-[color-mix(in_srgb,var(--foreground)_74%,transparent)]">
@@ -146,10 +150,7 @@ export function PasteResourceDialog({
           </DialogBody>
 
           <DialogFooter>
-            <DialogAction
-              disabled={pending}
-              onClick={() => onOpenChange(false)}
-            >
+            <DialogAction disabled={pending} onClick={() => onOpenChange(false)}>
               Cancel
             </DialogAction>
             {state?.allowLink && (
@@ -162,10 +163,7 @@ export function PasteResourceDialog({
               </DialogAction>
             )}
             {state?.textPayload && (
-              <DialogAction
-                disabled={pending}
-                onClick={() => onContinueInline?.()}
-              >
+              <DialogAction disabled={pending} onClick={() => onContinueInline?.()}>
                 {pending ? "Working..." : "Paste Anyway"}
               </DialogAction>
             )}

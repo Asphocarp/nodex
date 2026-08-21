@@ -142,10 +142,13 @@ export const PendingSend: Story = {
 
 export const LongNames: Story = {
   args: {
-    label: "Thread section with a deliberately long notebook label to stress truncation and hover-reveal density",
+    label:
+      "Thread section with a deliberately long notebook label to stress truncation and hover-reveal density",
     thread: buildThread({
-      threadName: "A very long linked thread name that should stay legible without blowing up the row layout",
-      threadPreview: "Tighten the capsule copy and action choreography for the Storybook editor row.",
+      threadName:
+        "A very long linked thread name that should stay legible without blowing up the row layout",
+      threadPreview:
+        "Tighten the capsule copy and action choreography for the Storybook editor row.",
     }),
   },
 };

@@ -53,10 +53,12 @@ export function reduceCodexConversationThreadName(
 }
 
 function readLatestCollaborationModel(state: CodexCanonicalConversationState): string {
-  return state.sidecar.latestThreadSettings?.collaborationMode.settings.model
-    ?? state.sidecar.hydrationContext?.latestThreadSettings?.collaborationMode?.settings.model
-    ?? state.turns.at(-1)?.sidecar.params.collaborationMode?.settings.model
-    ?? "";
+  return (
+    state.sidecar.latestThreadSettings?.collaborationMode.settings.model ??
+    state.sidecar.hydrationContext?.latestThreadSettings?.collaborationMode?.settings.model ??
+    state.turns.at(-1)?.sidecar.params.collaborationMode?.settings.model ??
+    ""
+  );
 }
 
 export function reduceCodexConversationThreadSettings(
@@ -69,11 +71,12 @@ export function reduceCodexConversationThreadSettings(
   const nextModel = settings.collaborationMode.settings.model;
   let previousTurnModel = state.sidecar.previousTurnModel ?? null;
   if (state.turns.length > 0 && previousModel && nextModel !== previousModel) {
-    previousTurnModel = previousTurnModel === null
-      ? previousModel
-      : nextModel === previousTurnModel
-        ? null
-        : previousTurnModel;
+    previousTurnModel =
+      previousTurnModel === null
+        ? previousModel
+        : nextModel === previousTurnModel
+          ? null
+          : previousTurnModel;
   }
   const hydrationContext = state.sidecar.hydrationContext;
   return {
@@ -100,8 +103,10 @@ export function reduceCodexConversationThreadStatus(
   status: ThreadStatus,
 ): CodexThreadMetadataResult {
   if (state.protocol.id !== conversationId) return result(state);
-  return result({ ...state, protocol: { ...state.protocol, status } },
-    status.type === "idle" ? [{ type: "continueGoalIfIdle", threadId: conversationId }] : []);
+  return result(
+    { ...state, protocol: { ...state.protocol, status } },
+    status.type === "idle" ? [{ type: "continueGoalIfIdle", threadId: conversationId }] : [],
+  );
 }
 
 function keepsGoalResumeConfirmation(status: ThreadGoal["status"]): boolean {
@@ -114,19 +119,22 @@ export function reduceCodexConversationThreadGoalUpdated(
   goal: ThreadGoal,
 ): CodexThreadMetadataResult {
   if (state.protocol.id !== conversationId) return result(state);
-  const shouldClear = goal.status === "complete"
-    && state.sidecar.completedThreadGoal?.updatedAt !== goal.updatedAt;
-  return result({
-    ...state,
-    sidecar: {
-      ...state.sidecar,
-      threadGoal: goal,
-      completedThreadGoal: goal.status === "complete" ? goal : null,
-      threadGoalResumeConfirmation: keepsGoalResumeConfirmation(goal.status)
-        ? state.sidecar.threadGoalResumeConfirmation ?? null
-        : null,
+  const shouldClear =
+    goal.status === "complete" && state.sidecar.completedThreadGoal?.updatedAt !== goal.updatedAt;
+  return result(
+    {
+      ...state,
+      sidecar: {
+        ...state.sidecar,
+        threadGoal: goal,
+        completedThreadGoal: goal.status === "complete" ? goal : null,
+        threadGoalResumeConfirmation: keepsGoalResumeConfirmation(goal.status)
+          ? (state.sidecar.threadGoalResumeConfirmation ?? null)
+          : null,
+      },
     },
-  }, shouldClear ? [{ type: "clearCompletedGoal", threadId: conversationId }] : []);
+    shouldClear ? [{ type: "clearCompletedGoal", threadId: conversationId }] : [],
+  );
 }
 
 export function reduceCodexConversationThreadGoalCleared(
@@ -148,10 +156,8 @@ export function reduceCodexConversationThreadGoalResumeConfirmationDismissed(
   state: CodexCanonicalConversationState,
   conversationId: string,
 ): CodexCanonicalConversationState {
-  if (
-    state.protocol.id !== conversationId
-    || state.sidecar.threadGoalResumeConfirmation === null
-  ) return state;
+  if (state.protocol.id !== conversationId || state.sidecar.threadGoalResumeConfirmation === null)
+    return state;
   return {
     ...state,
     sidecar: {

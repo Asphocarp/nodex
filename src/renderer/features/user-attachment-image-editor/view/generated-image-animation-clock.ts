@@ -9,8 +9,7 @@ export interface GeneratedImageAnimationClockRuntime {
   requestFrame(callback: (nowMs: number) => void): number;
 }
 
-export interface GeneratedImageAnimationClockController
-extends GeneratedImageAnimationClock {
+export interface GeneratedImageAnimationClockController extends GeneratedImageAnimationClock {
   getSubscriberCount(): number;
 }
 

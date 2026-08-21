@@ -30,15 +30,13 @@ export type NfmPopoverReference =
 
 export function getMountedBoundingClientRectCache(reference: NfmPopoverReference) {
   let lastBoundingClientRect = new DOMRect();
-  const getBoundingClientRect = "getBoundingClientRect" in reference
-    ? () => reference.getBoundingClientRect()
-    : () => reference.element.getBoundingClientRect();
+  const getBoundingClientRect =
+    "getBoundingClientRect" in reference
+      ? () => reference.getBoundingClientRect()
+      : () => reference.element.getBoundingClientRect();
 
   return () => {
-    if (
-      reference.element
-      && (reference.cacheMountedBoundingClientRect ?? true)
-    ) {
+    if (reference.element && (reference.cacheMountedBoundingClientRect ?? true)) {
       if (reference.element.isConnected) {
         lastBoundingClientRect = getBoundingClientRect();
       }
@@ -62,14 +60,8 @@ export function NfmFloatingPopover(
     whileElementsMounted: autoUpdate,
     ...props.useFloatingOptions,
   });
-  const { isMounted, styles } = useTransitionStyles(
-    context,
-    props.useTransitionStylesProps,
-  );
-  const { status } = useTransitionStatus(
-    context,
-    props.useTransitionStatusProps,
-  );
+  const { isMounted, styles } = useTransitionStyles(context, props.useTransitionStylesProps);
+  const { status } = useTransitionStatus(context, props.useTransitionStatusProps);
   const dismiss = useDismiss(context, props.useDismissProps);
   const hover = useHover(context, { enabled: false, ...props.useHoverProps });
   const { getFloatingProps } = useInteractions([dismiss, hover]);
@@ -80,9 +72,7 @@ export function NfmFloatingPopover(
   useEffect(() => {
     if (!props.reference) return;
 
-    const element = "element" in props.reference
-      ? props.reference.element
-      : undefined;
+    const element = "element" in props.reference ? props.reference.element : undefined;
 
     if (element !== undefined) {
       refs.setReference(element);
@@ -95,10 +85,7 @@ export function NfmFloatingPopover(
   }, [props.reference, refs]);
 
   useEffect(() => {
-    if (
-      (status === "initial" || status === "open")
-      && ref.current?.innerHTML
-    ) {
+    if ((status === "initial" || status === "open") && ref.current?.innerHTML) {
       innerHTML.current = ref.current.innerHTML;
     }
   }, [props.children, props.reference, status]);

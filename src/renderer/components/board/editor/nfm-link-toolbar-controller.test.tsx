@@ -144,7 +144,9 @@ describe("NfmLinkToolbarController", () => {
     });
 
     expect(Boolean(view.getByTestId("toolbar"))).toBe(true);
-    expect(view.container.textContent?.includes("https://community.openai.com/t/example") ?? false).toBe(true);
+    expect(
+      view.container.textContent?.includes("https://community.openai.com/t/example") ?? false,
+    ).toBe(true);
   });
 
   test("does not retarget the frozen snapshot when editor selection changes", async () => {
@@ -185,12 +187,7 @@ describe("NfmLinkToolbarController", () => {
       await settleAsyncRender();
     });
 
-    currentSelectionLink = makeSelectionLink(
-      "https://example.com/changed",
-      "Changed link",
-      20,
-      27,
-    );
+    currentSelectionLink = makeSelectionLink("https://example.com/changed", "Changed link", 20, 27);
 
     await act(async () => {
       selectionChangeCallback?.();
@@ -198,8 +195,12 @@ describe("NfmLinkToolbarController", () => {
       await settleAsyncRender();
     });
 
-    expect(view.container.textContent?.includes("https://community.openai.com/t/example") ?? false).toBe(true);
-    expect(view.container.textContent?.includes("https://example.com/changed") ?? false).toBe(false);
+    expect(
+      view.container.textContent?.includes("https://community.openai.com/t/example") ?? false,
+    ).toBe(true);
+    expect(view.container.textContent?.includes("https://example.com/changed") ?? false).toBe(
+      false,
+    );
   });
 
   test("clears the toolbar when the editor loses the selected link without freezing", async () => {
@@ -214,9 +215,7 @@ describe("NfmLinkToolbarController", () => {
 
     const view = render(
       <NfmLinkToolbarController
-        linkToolbar={(props) => (
-          <div data-testid="toolbar">{props.url}</div>
-        )}
+        linkToolbar={(props) => <div data-testid="toolbar">{props.url}</div>}
       />,
     );
 

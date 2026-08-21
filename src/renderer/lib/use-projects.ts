@@ -27,13 +27,10 @@ const EMPTY_PROJECTS: Project[] = [];
 // cached data (or the select reference) changes, so the derived array keeps a
 // stable identity across renders. Effects and stores downstream depend on that
 // stability; an inline flatMap here previously fed a render loop.
-const selectProjects = (
-  data: InfiniteData<ProjectWindow, string | null>,
-): Project[] => data.pages.flatMap((window) => window.items);
+const selectProjects = (data: InfiniteData<ProjectWindow, string | null>): Project[] =>
+  data.pages.flatMap((window) => window.items);
 
-const selectArchivedProjects = (
-  data: InfiniteData<ProjectWindow, string | null>,
-): Project[] =>
+const selectArchivedProjects = (data: InfiniteData<ProjectWindow, string | null>): Project[] =>
   selectProjects(data).filter((project) => project.lifecycle === "archived");
 
 function getErrorMessage(err: unknown): string {
@@ -63,9 +60,9 @@ export function useProjects() {
         queryKey: queryKeys.projects.all(),
       });
       if (
-        event.changeType === "create"
-        || event.changeType === "lifecycle"
-        || event.changeType === "delete"
+        event.changeType === "create" ||
+        event.changeType === "lifecycle" ||
+        event.changeType === "delete"
       ) {
         void queryClient.invalidateQueries({
           queryKey: queryKeys.projectActivity.all(),
@@ -75,8 +72,7 @@ export function useProjects() {
   }, [queryClient]);
 
   const { mutateAsync: createProjectRequest } = useMutation({
-    mutationFn: (input: ProjectCreateInput) =>
-      invokeCoreResult("projects:create", input),
+    mutationFn: (input: ProjectCreateInput) => invokeCoreResult("projects:create", input),
     onMutate: () => {
       setActionError(null);
     },
@@ -89,11 +85,10 @@ export function useProjects() {
   });
 
   const { mutateAsync: archiveProjectRequest } = useMutation({
-    mutationFn: (projectId: string) => invoke(
-      "projects:set-lifecycle",
-      projectId,
-      { lifecycle: "archived" },
-    ) as Promise<ProjectLifecycleMutationResult>,
+    mutationFn: (projectId: string) =>
+      invoke("projects:set-lifecycle", projectId, {
+        lifecycle: "archived",
+      }) as Promise<ProjectLifecycleMutationResult>,
     onMutate: () => {
       setActionError(null);
     },
@@ -108,9 +103,8 @@ export function useProjects() {
 
   const { mutateAsync: updateProjectRequest } = useMutation({
     mutationFn: ({ projectId, updates }: { projectId: string; updates: ProjectUpdateInput }) =>
-      runSerializedProjectCatalogUpdate(
-        projectId,
-        () => invokeCoreResult("projects:update", projectId, updates),
+      runSerializedProjectCatalogUpdate(projectId, () =>
+        invokeCoreResult("projects:update", projectId, updates),
       ),
     onMutate: () => {
       setActionError(null);
@@ -163,7 +157,8 @@ export function useProjects() {
   });
 
   const { mutateAsync: setPinnedProjectOrderRequest } = useMutation({
-    mutationFn: (input: ProjectPinnedOrderInput) => invoke("projects:set-pinned-order", input) as Promise<void>,
+    mutationFn: (input: ProjectPinnedOrderInput) =>
+      invoke("projects:set-pinned-order", input) as Promise<void>,
     onMutate: () => {
       setActionError(null);
     },
@@ -194,8 +189,7 @@ export function useProjects() {
   );
 
   const createProjectOrThrow = useCallback(
-    async (input: ProjectCreateInput): Promise<Project> =>
-      await createProjectRequest(input),
+    async (input: ProjectCreateInput): Promise<Project> => await createProjectRequest(input),
     [createProjectRequest],
   );
 
@@ -218,10 +212,7 @@ export function useProjects() {
   );
 
   const updateProjectOrThrow = useCallback(
-    async (
-      projectId: string,
-      updates: ProjectUpdateInput,
-    ): Promise<Project | null> =>
+    async (projectId: string, updates: ProjectUpdateInput): Promise<Project | null> =>
       await updateProjectRequest({ projectId, updates }),
     [updateProjectRequest],
   );
@@ -295,16 +286,19 @@ export function useRemovedProjects(open: boolean) {
     enabled: open,
   });
 
-  useEffect(() => subscribeProjectChanges(() => {
-    void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all() });
-  }), [queryClient]);
+  useEffect(
+    () =>
+      subscribeProjectChanges(() => {
+        void queryClient.invalidateQueries({ queryKey: queryKeys.projects.all() });
+      }),
+    [queryClient],
+  );
 
   const { mutateAsync: restoreProject, isPending: restoring } = useMutation({
-    mutationFn: (projectId: string) => invoke(
-      "projects:set-lifecycle",
-      projectId,
-      { lifecycle: "active" },
-    ) as Promise<ProjectLifecycleMutationResult>,
+    mutationFn: (projectId: string) =>
+      invoke("projects:set-lifecycle", projectId, {
+        lifecycle: "active",
+      }) as Promise<ProjectLifecycleMutationResult>,
     onSuccess: async (result) => {
       if (result.kind !== "updated") return;
       await queryClient.invalidateQueries({ queryKey: queryKeys.projects.all() });

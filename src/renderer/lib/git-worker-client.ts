@@ -41,10 +41,7 @@ export class GitWorkerClient {
   readonly #unsubscribe: () => void;
   #disposed = false;
 
-  constructor(
-    bridge: GitWorkerClientBridge,
-    options: { createRequestId?: () => string } = {},
-  ) {
+  constructor(bridge: GitWorkerClientBridge, options: { createRequestId?: () => string } = {}) {
     this.#bridge = bridge;
     this.#createRequestId = options.createRequestId ?? (() => crypto.randomUUID());
     this.#unsubscribe = bridge.subscribe((message) => {
@@ -58,10 +55,9 @@ export class GitWorkerClient {
     signal?: AbortSignal;
   }): Promise<GitWorkerMethodMap[Method]["result"]> {
     if (this.#disposed) {
-      return Promise.reject(new GitWorkerTransportError(
-        "worker-unavailable",
-        "Git worker client is disposed",
-      ));
+      return Promise.reject(
+        new GitWorkerTransportError("worker-unavailable", "Git worker client is disposed"),
+      );
     }
     if (input.signal?.aborted) return Promise.reject(createAbortError());
     const id = this.#createRequestId();
@@ -82,11 +78,13 @@ export class GitWorkerClient {
         if (!pending) return;
         this.#pending.delete(id);
         pending.cleanup();
-        void this.#bridge.send({
-          type: "worker-request-cancel",
-          workerId: "git",
-          id,
-        }).catch(() => {});
+        void this.#bridge
+          .send({
+            type: "worker-request-cancel",
+            workerId: "git",
+            id,
+          })
+          .catch(() => {});
         reject(createAbortError());
       };
       const cleanup = () => input.signal?.removeEventListener("abort", abort);
@@ -118,10 +116,9 @@ export class GitWorkerClient {
     this.#unsubscribe();
     for (const pending of this.#pending.values()) {
       pending.cleanup();
-      pending.reject(new GitWorkerTransportError(
-        "worker-unavailable",
-        "Git worker client was disposed",
-      ));
+      pending.reject(
+        new GitWorkerTransportError("worker-unavailable", "Git worker client was disposed"),
+      );
     }
     this.#pending.clear();
     this.#listeners.clear();
@@ -129,10 +126,7 @@ export class GitWorkerClient {
 
   #handleMessage(rawMessage: GitWorkerMessageForView): void {
     if (!isGitWorkerMessageForView(rawMessage)) return;
-    if (
-      rawMessage.type === "worker-restarted"
-      || rawMessage.type === "git-live-query-event"
-    ) {
+    if (rawMessage.type === "worker-restarted" || rawMessage.type === "git-live-query-event") {
       for (const listener of this.#listeners) listener(rawMessage);
       return;
     }
@@ -141,17 +135,18 @@ export class GitWorkerClient {
     this.#pending.delete(rawMessage.id);
     pending.cleanup();
     if (pending.method !== rawMessage.method) {
-      pending.reject(new GitWorkerTransportError(
-        "protocol-error",
-        "Git worker response method did not match its request",
-      ));
+      pending.reject(
+        new GitWorkerTransportError(
+          "protocol-error",
+          "Git worker response method did not match its request",
+        ),
+      );
       return;
     }
     if (rawMessage.result.type === "error") {
-      pending.reject(new GitWorkerTransportError(
-        rawMessage.result.error.code,
-        rawMessage.result.error.message,
-      ));
+      pending.reject(
+        new GitWorkerTransportError(rawMessage.result.error.code, rawMessage.result.error.message),
+      );
       return;
     }
     pending.resolve(rawMessage.result.value);

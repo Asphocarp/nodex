@@ -1,8 +1,5 @@
 import { normalizeSearchText } from "./search-text";
-import {
-  buildCurrentPageKeySearchAliases,
-  isExplicitPageKeySearch,
-} from "../../shared/page-key";
+import { buildCurrentPageKeySearchAliases, isExplicitPageKeySearch } from "../../shared/page-key";
 
 export const PAGE_KEY_EXACT_SEARCH_SCORE = 1_000_000;
 export const PAGE_KEY_PREFIX_SEARCH_SCORE = 900_000;
@@ -86,16 +83,14 @@ export function searchCurrentPageKeyIndex<T>(
   const candidate = query.candidate;
   if (!candidate || limit <= 0) return [];
   const exact = index.exact.get(candidate);
-  const hits: CurrentPageKeyIndexedHit<T>[] = (exact ?? [])
-    .slice(0, limit)
-    .map((entry) => ({
-      value: entry.value,
-      match: {
-        kind: "exact",
-        score: PAGE_KEY_EXACT_SEARCH_SCORE,
-        terms: [candidate],
-      },
-    }));
+  const hits: CurrentPageKeyIndexedHit<T>[] = (exact ?? []).slice(0, limit).map((entry) => ({
+    value: entry.value,
+    match: {
+      kind: "exact",
+      score: PAGE_KEY_EXACT_SEARCH_SCORE,
+      terms: [candidate],
+    },
+  }));
   if (hits.length >= limit) return hits;
 
   const seen = new Set((exact ?? []).map((entry) => entry.id));
@@ -128,9 +123,8 @@ export const parsePageKeySearchQuery = (query: string): PageKeySearchQuery => {
   const normalizedQuery = normalizeSearchText(query);
   const explicit = isExplicitPageKeySearch(query);
   const candidate = explicit ? normalizedQuery.slice(1) : normalizedQuery;
-  const isSingleCandidate = candidate.length > 0
-    && !candidate.startsWith("#")
-    && !candidate.includes(" ");
+  const isSingleCandidate =
+    candidate.length > 0 && !candidate.startsWith("#") && !candidate.includes(" ");
   return {
     normalizedQuery,
     explicit,
@@ -144,8 +138,7 @@ export const matchPageKeySearchQuery = (
 ): PageKeySearchMatch | null => {
   if (!pageKey || !query.candidate) return null;
   const candidate = query.candidate;
-  const normalizedAliases = buildCurrentPageKeySearchAliases(pageKey)
-    .map(normalizeSearchText);
+  const normalizedAliases = buildCurrentPageKeySearchAliases(pageKey).map(normalizeSearchText);
   if (normalizedAliases.includes(candidate)) {
     return {
       kind: "exact",

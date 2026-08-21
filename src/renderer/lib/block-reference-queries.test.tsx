@@ -1,25 +1,17 @@
 import { act, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
-import type {
-  ProjectionScope,
-  ProjectionStreamMessage,
-} from "../../shared/projection-stream";
+import type { ProjectionScope, ProjectionStreamMessage } from "../../shared/projection-stream";
 import { render } from "../test/dom";
 import { TestQueryProvider } from "../test/query";
 import { usePageOwnershipPathReadModel } from "./block-reference-queries";
 import { ProjectionInvalidationRegistry } from "./projection-invalidation-registry";
-import {
-  libraryContentAccess,
-  projectContentAccess,
-} from "../../shared/content-access-context";
+import { libraryContentAccess, projectContentAccess } from "../../shared/content-access-context";
 
 const mocks = vi.hoisted(() => ({
   readLibraryModule: vi.fn(),
   resolvePageOwnershipPath: vi.fn(),
-  ownershipPathChangeListener: null as (
-    (event: PageOwnershipPathsChangedEvent) => void
-  ) | null,
+  ownershipPathChangeListener: null as ((event: PageOwnershipPathsChangedEvent) => void) | null,
 }));
 
 vi.mock("./api", () => ({
@@ -46,10 +38,7 @@ vi.mock("./renderer-transport", () => ({
 }));
 
 function OwnershipPathHarness() {
-  const path = usePageOwnershipPathReadModel(
-    projectContentAccess("host-project"),
-    "nested-page",
-  );
+  const path = usePageOwnershipPathReadModel(projectContentAccess("host-project"), "nested-page");
   return (
     <output>
       {path.data?.status === "available"
@@ -60,10 +49,7 @@ function OwnershipPathHarness() {
 }
 
 function LibraryOwnershipPathHarness() {
-  const path = usePageOwnershipPathReadModel(
-    libraryContentAccess,
-    "nested-page",
-  );
+  const path = usePageOwnershipPathReadModel(libraryContentAccess, "nested-page");
   return <output>{path.data?.status ?? "pending"}</output>;
 }
 
@@ -105,11 +91,13 @@ describe("Page reference queries", () => {
       commitSeq: mocks.resolvePageOwnershipPath.mock.calls.length,
       status: "available",
       targetPageId: "nested-page",
-      ancestors: [{
-        pageId: "parent-page",
-        title: parentTitle,
-        lifecycle: "active",
-      }],
+      ancestors: [
+        {
+          pageId: "parent-page",
+          title: parentTitle,
+          lifecycle: "active",
+        },
+      ],
     }));
 
     const view = render(

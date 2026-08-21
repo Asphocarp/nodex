@@ -10,13 +10,15 @@ import type {
   ReviewFileSafety,
   ReviewSkipReason,
 } from "./types";
-import {
-  classifyReviewTextPayload,
-  REVIEW_RENDERABLE_TEXT_MAX_BYTES,
-} from "./review-file-safety";
+import { classifyReviewTextPayload, REVIEW_RENDERABLE_TEXT_MAX_BYTES } from "./review-file-safety";
 import { classifyContentBudget } from "./content-budget";
 
-export type CodexFileChangeDisplayStatus = "applied" | "pending" | "rejected" | "streaming" | "stopped";
+export type CodexFileChangeDisplayStatus =
+  | "applied"
+  | "pending"
+  | "rejected"
+  | "streaming"
+  | "stopped";
 export type CodexFileChangePatchAction = "create" | "delete" | "edit";
 
 export interface CodexUnifiedDiffSummary {
@@ -50,11 +52,13 @@ export const CODEX_FILE_CHANGE_MAX_INLINE_BYTES = 256 * 1024;
 export const CODEX_FILE_CHANGE_MAX_INLINE_LINES = 5_000;
 
 export function canParseCodexFileChangeInline(diffText: string): boolean {
-  return classifyContentBudget({
-    value: diffText,
-    maxBytes: CODEX_FILE_CHANGE_MAX_INLINE_BYTES,
-    maxLines: CODEX_FILE_CHANGE_MAX_INLINE_LINES,
-  }).kind === "withinBudget";
+  return (
+    classifyContentBudget({
+      value: diffText,
+      maxBytes: CODEX_FILE_CHANGE_MAX_INLINE_BYTES,
+      maxLines: CODEX_FILE_CHANGE_MAX_INLINE_LINES,
+    }).kind === "withinBudget"
+  );
 }
 
 const CODEX_VISUALIZATION_PATH_PATTERN =
@@ -108,19 +112,19 @@ function isReviewFileSafety(value: unknown): value is ReviewFileSafety {
   if (typeof value !== "object" || value === null) return false;
   const safety = value as Partial<ReviewFileSafety>;
   const skipReason = safety.skipReason as ReviewSkipReason | null | undefined;
-  return typeof safety.binary === "boolean"
-    && typeof safety.tooLarge === "boolean"
-    && typeof safety.invalidText === "boolean"
-    && typeof safety.renderable === "boolean"
-    && (safety.sizeBytes === null || typeof safety.sizeBytes === "number")
-    && (safety.mimeType === null || typeof safety.mimeType === "string")
-    && (
-      skipReason === null
-      || skipReason === "binary"
-      || skipReason === "tooLarge"
-      || skipReason === "invalidText"
-      || skipReason === "unsupported"
-    );
+  return (
+    typeof safety.binary === "boolean" &&
+    typeof safety.tooLarge === "boolean" &&
+    typeof safety.invalidText === "boolean" &&
+    typeof safety.renderable === "boolean" &&
+    (safety.sizeBytes === null || typeof safety.sizeBytes === "number") &&
+    (safety.mimeType === null || typeof safety.mimeType === "string") &&
+    (skipReason === null ||
+      skipReason === "binary" ||
+      skipReason === "tooLarge" ||
+      skipReason === "invalidText" ||
+      skipReason === "unsupported")
+  );
 }
 
 function buildNonRenderableCodexFileChange(input: {
@@ -216,7 +220,10 @@ export function toCodexFileChangePatch(change: CodexFileChange): CodexFileChange
   };
 }
 
-export function materializeCodexFileChange(path: string, change: CodexFileChangePatch): CodexFileChange {
+export function materializeCodexFileChange(
+  path: string,
+  change: CodexFileChangePatch,
+): CodexFileChange {
   if (change.type === "add") {
     return {
       path,
@@ -266,10 +273,11 @@ export function isCodexFileChangePatch(value: unknown): value is CodexFileChange
   if (patch.type === "update") return typeof patch.unifiedDiff === "string";
   if (patch.type === "nonRenderable") {
     return (
-      patch.originalType === "add"
-      || patch.originalType === "delete"
-      || patch.originalType === "update"
-    ) && isReviewFileSafety(patch.safety);
+      (patch.originalType === "add" ||
+        patch.originalType === "delete" ||
+        patch.originalType === "update") &&
+      isReviewFileSafety(patch.safety)
+    );
   }
   return false;
 }
@@ -279,27 +287,25 @@ export function getCodexFileChangeEntries(
 ): Array<[string, CodexFileChangePatch]> {
   if (!changes) return [];
   if (Array.isArray(changes)) return [];
-  return Object.entries(changes)
-    .filter((entry): entry is [string, CodexFileChangePatch] =>
-      entry[0].trim().length > 0 && isCodexFileChangePatch(entry[1])
-    );
+  return Object.entries(changes).filter(
+    (entry): entry is [string, CodexFileChangePatch] =>
+      entry[0].trim().length > 0 && isCodexFileChangePatch(entry[1]),
+  );
 }
 
-export function hasCodexFileChangeEntries(
-  changes: CodexFileChangeMap | null | undefined,
-): boolean {
+export function hasCodexFileChangeEntries(changes: CodexFileChangeMap | null | undefined): boolean {
   return getCodexFileChangeEntries(changes).length > 0;
 }
 
 export function getCodexFileChangeList(
   changes: CodexFileChangeMap | null | undefined,
 ): CodexFileChange[] {
-  return getCodexFileChangeEntries(changes).map(([path, change]) => materializeCodexFileChange(path, change));
+  return getCodexFileChangeEntries(changes).map(([path, change]) =>
+    materializeCodexFileChange(path, change),
+  );
 }
 
-export function getCodexFileChangePaths(
-  changes: CodexFileChangeMap | null | undefined,
-): string[] {
+export function getCodexFileChangePaths(changes: CodexFileChangeMap | null | undefined): string[] {
   return getCodexFileChangeEntries(changes).map(([path]) => path);
 }
 
@@ -322,13 +328,17 @@ export function resolveCodexFileChangeDisplayStatus(input: {
 }
 
 export function buildCodexFileChangeUnifiedDiff(change: CodexFileChange): string | null;
-export function buildCodexFileChangeUnifiedDiff(path: string, change: CodexFileChangePatch): string | null;
+export function buildCodexFileChangeUnifiedDiff(
+  path: string,
+  change: CodexFileChangePatch,
+): string | null;
 export function buildCodexFileChangeUnifiedDiff(
   pathOrChange: string | CodexFileChange,
   maybeChange?: CodexFileChangePatch,
 ): string | null {
   const path = typeof pathOrChange === "string" ? pathOrChange : pathOrChange.path;
-  const change = typeof pathOrChange === "string" ? maybeChange : toCodexFileChangePatch(pathOrChange);
+  const change =
+    typeof pathOrChange === "string" ? maybeChange : toCodexFileChangePatch(pathOrChange);
   if (!change) return null;
   if (change.type === "nonRenderable") return null;
 
@@ -356,7 +366,9 @@ export function buildCodexFileChangeUnifiedDiff(
       "--- /dev/null",
       `+++ b/${path}`,
       hunk,
-    ].filter(Boolean).join("\n");
+    ]
+      .filter(Boolean)
+      .join("\n");
   }
 
   const deletions = lines.map((line) => `-${line}`).join("\n");
@@ -367,7 +379,9 @@ export function buildCodexFileChangeUnifiedDiff(
     `--- a/${path}`,
     "+++ /dev/null",
     hunk,
-  ].filter(Boolean).join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 function summarizeDiffByLineScan(diffText: string): { additions: number; deletions: number } {
@@ -390,7 +404,10 @@ function summarizeDiffByLineScan(diffText: string): { additions: number; deletio
   return { additions, deletions };
 }
 
-function countFileDiffMetadataLines(fileDiff: FileDiffMetadata): { additions: number; deletions: number } {
+function countFileDiffMetadataLines(fileDiff: FileDiffMetadata): {
+  additions: number;
+  deletions: number;
+} {
   return fileDiff.hunks.reduce(
     (summary, hunk) => ({
       additions: summary.additions + hunk.additionLines,
@@ -405,14 +422,17 @@ function getPositiveNumber(value: unknown): number | null {
 }
 
 function resolveFirstChangedLine(fileDiff: FileDiffMetadata): number {
-  const additionHunk = fileDiff.hunks.find((hunk) =>
-    getPositiveNumber((hunk as { additionCount?: unknown }).additionCount) != null
-    || getPositiveNumber(hunk.additionLines) != null
+  const additionHunk = fileDiff.hunks.find(
+    (hunk) =>
+      getPositiveNumber((hunk as { additionCount?: unknown }).additionCount) != null ||
+      getPositiveNumber(hunk.additionLines) != null,
   );
   const deletionHunk = fileDiff.hunks.find((hunk) => getPositiveNumber(hunk.deletionLines) != null);
-  return getPositiveNumber(additionHunk?.additionStart)
-    ?? getPositiveNumber(deletionHunk?.deletionStart)
-    ?? 1;
+  return (
+    getPositiveNumber(additionHunk?.additionStart) ??
+    getPositiveNumber(deletionHunk?.deletionStart) ??
+    1
+  );
 }
 
 function parseFirstFileDiff(diffText: string): FileDiffMetadata | null {
@@ -437,7 +457,11 @@ export function summarizeCodexUnifiedDiff(
   const fileDiff = parseFirstFileDiff(diffText);
   if (fileDiff) {
     const parsed = countFileDiffMetadataLines(fileDiff);
-    if (parsed.additions > 0 || parsed.deletions > 0 || (fallback.additions === 0 && fallback.deletions === 0)) {
+    if (
+      parsed.additions > 0 ||
+      parsed.deletions > 0 ||
+      (fallback.additions === 0 && fallback.deletions === 0)
+    ) {
       return {
         additions: parsed.additions,
         deletions: parsed.deletions,
@@ -514,13 +538,15 @@ export function isCodexFileChange(value: unknown): value is CodexFileChange {
   const change = value as Partial<CodexFileChange>;
   if (typeof change.path !== "string" || change.path.trim().length === 0) return false;
   if (change.type === "add" || change.type === "delete") return typeof change.content === "string";
-  if (change.type === "update") return typeof change.unifiedDiff === "string" && change.unifiedDiff.trim().length > 0;
+  if (change.type === "update")
+    return typeof change.unifiedDiff === "string" && change.unifiedDiff.trim().length > 0;
   if (change.type === "nonRenderable") {
     return (
-      change.originalType === "add"
-      || change.originalType === "delete"
-      || change.originalType === "update"
-    ) && isReviewFileSafety(change.safety);
+      (change.originalType === "add" ||
+        change.originalType === "delete" ||
+        change.originalType === "update") &&
+      isReviewFileSafety(change.safety)
+    );
   }
   return false;
 }

@@ -56,26 +56,26 @@ const commit = (
     readonly documentEffects?: CoreAuthorizedDeliveryPacket["document_effects"];
     readonly projectionEffects?: CoreAuthorizedDeliveryPacket["projection_effects"];
   } = {},
-): CoreAuthorizedDeliveryPacket => createCoreLocalCommitFixture({
-  commitSeq,
-  canonicalHash: options.manifestHash
-    ?? String(commitSeq).padStart(64, "0"),
-  documentEffects: options.documentEffects,
-  projectionEffects: options.projectionEffects,
-  payload: {
-    module: "project_workspace",
-    library_id: "library-1",
-    event: {
-      kind: "workspace_changed",
-      project_catalog_change: null,
-      project_ids: [],
-      session_ids: [],
-      thread_ids: [],
-      session_summary_scopes: [],
-      session_detail_ids: [],
+): CoreAuthorizedDeliveryPacket =>
+  createCoreLocalCommitFixture({
+    commitSeq,
+    canonicalHash: options.manifestHash ?? String(commitSeq).padStart(64, "0"),
+    documentEffects: options.documentEffects,
+    projectionEffects: options.projectionEffects,
+    payload: {
+      module: "project_workspace",
+      library_id: "library-1",
+      event: {
+        kind: "workspace_changed",
+        project_catalog_change: null,
+        project_ids: [],
+        session_ids: [],
+        thread_ids: [],
+        session_summary_scopes: [],
+        session_detail_ids: [],
+      },
     },
-  },
-});
+  });
 
 const flush = async (): Promise<void> => {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -93,9 +93,14 @@ describe("LocalCommitCoordinator", () => {
       onNotification: vi.fn(),
     });
 
-    expect(coordinator.admit(commit(1, {
-      projectionEffects: [projectionEffect(1)],
-    }), "apply").kind).toBe("accepted");
+    expect(
+      coordinator.admit(
+        commit(1, {
+          projectionEffects: [projectionEffect(1)],
+        }),
+        "apply",
+      ).kind,
+    ).toBe("accepted");
     expect(projection).not.toHaveBeenCalled();
     expect(coordinator.diagnostics().pendingDeliveries).toBe(2);
   });
@@ -120,20 +125,23 @@ describe("LocalCommitCoordinator", () => {
       },
     });
 
-    coordinator.admit(commit(1, {
-      projectionEffects: [projectionEffect(1, "scope-blocked")],
-    }), "apply");
-    coordinator.admit(commit(2, {
-      projectionEffects: [projectionEffect(2, "scope-free")],
-    }), "tailer");
+    coordinator.admit(
+      commit(1, {
+        projectionEffects: [projectionEffect(1, "scope-blocked")],
+      }),
+      "apply",
+    );
+    coordinator.admit(
+      commit(2, {
+        projectionEffects: [projectionEffect(2, "scope-free")],
+      }),
+      "tailer",
+    );
     await flush();
 
-    expect(delivered).toEqual(expect.arrayContaining([
-      "scope-blocked",
-      "scope-free",
-      "notification:1",
-      "notification:2",
-    ]));
+    expect(delivered).toEqual(
+      expect.arrayContaining(["scope-blocked", "scope-free", "notification:1", "notification:2"]),
+    );
     release();
     await flush();
   });
@@ -156,28 +164,27 @@ describe("LocalCommitCoordinator", () => {
       onProjection: vi.fn(),
       onNotification: vi.fn(),
     });
-    coordinator.admit(commit(1, {
-      documentEffects: [
-        documentEffect("document:one", 0, 1, 0),
-        documentEffect("document:two", 0, 1, 1),
-      ],
-    }), "apply");
-    coordinator.admit(commit(2, {
-      documentEffects: [documentEffect("document:one", 1, 2, 0)],
-    }), "tailer");
+    coordinator.admit(
+      commit(1, {
+        documentEffects: [
+          documentEffect("document:one", 0, 1, 0),
+          documentEffect("document:two", 0, 1, 1),
+        ],
+      }),
+      "apply",
+    );
+    coordinator.admit(
+      commit(2, {
+        documentEffects: [documentEffect("document:one", 1, 2, 0)],
+      }),
+      "tailer",
+    );
     await flush();
 
-    expect(delivered).toEqual([
-      "document:one:1",
-      "document:two:1",
-    ]);
+    expect(delivered).toEqual(["document:one:1", "document:two:1"]);
     release();
     await flush();
-    expect(delivered).toEqual([
-      "document:one:1",
-      "document:two:1",
-      "document:one:2",
-    ]);
+    expect(delivered).toEqual(["document:one:1", "document:two:1", "document:one:2"]);
   });
 
   test("serializes one scope while preserving received revision order", async () => {
@@ -197,12 +204,18 @@ describe("LocalCommitCoordinator", () => {
       },
       onNotification: vi.fn(),
     });
-    coordinator.admit(commit(2, {
-      projectionEffects: [projectionEffect(2)],
-    }), "apply");
-    coordinator.admit(commit(1, {
-      projectionEffects: [projectionEffect(1)],
-    }), "tailer");
+    coordinator.admit(
+      commit(2, {
+        projectionEffects: [projectionEffect(2)],
+      }),
+      "apply",
+    );
+    coordinator.admit(
+      commit(1, {
+        projectionEffects: [projectionEffect(1)],
+      }),
+      "tailer",
+    );
     await flush();
     expect(delivered).toEqual([2]);
     release();
@@ -257,7 +270,8 @@ describe("LocalCommitCoordinator", () => {
   });
 
   test("makes a duplicate tailer wait on apply delivery and replay after terminal failure", async () => {
-    const projection = vi.fn()
+    const projection = vi
+      .fn()
       .mockRejectedValueOnce(new Error("one"))
       .mockRejectedValueOnce(new Error("two"))
       .mockRejectedValueOnce(new Error("three"))
@@ -296,18 +310,33 @@ describe("LocalCommitCoordinator", () => {
       onProjection: vi.fn(),
       onNotification: vi.fn(),
     });
-    coordinator.admit(commit(4, {
-      projectionEffects: [projectionEffect(1, "scope-view-1", 4)],
-    }), "apply");
-    expect(() => coordinator.admit(commit(4, {
-      manifestHash: "f".repeat(64),
-    }), "tailer")).toThrow("manifest identity collision");
-    expect(() => coordinator.admit(commit(4, {
-      projectionEffects: [{
-        ...projectionEffect(1, "scope-view-1", 4),
-        effect_hash: "e".repeat(64),
-      }],
-    }), "tailer")).toThrow("resource identity collision");
+    coordinator.admit(
+      commit(4, {
+        projectionEffects: [projectionEffect(1, "scope-view-1", 4)],
+      }),
+      "apply",
+    );
+    expect(() =>
+      coordinator.admit(
+        commit(4, {
+          manifestHash: "f".repeat(64),
+        }),
+        "tailer",
+      ),
+    ).toThrow("manifest identity collision");
+    expect(() =>
+      coordinator.admit(
+        commit(4, {
+          projectionEffects: [
+            {
+              ...projectionEffect(1, "scope-view-1", 4),
+              effect_hash: "e".repeat(64),
+            },
+          ],
+        }),
+        "tailer",
+      ),
+    ).toThrow("resource identity collision");
   });
 
   test("does not retain a valid prefix from a rejected enriched packet", async () => {
@@ -320,27 +349,40 @@ describe("LocalCommitCoordinator", () => {
       onProjection: projection,
       onNotification: vi.fn(),
     });
-    coordinator.admit(commit(7, {
-      projectionEffects: [projectionEffect(1, "scope-view-1", 7)],
-    }), "apply");
+    coordinator.admit(
+      commit(7, {
+        projectionEffects: [projectionEffect(1, "scope-view-1", 7)],
+      }),
+      "apply",
+    );
     await flush();
     projection.mockClear();
     const validEnrichment = projectionEffect(1, "scope-view-2", 7);
 
-    expect(() => coordinator.admit(commit(7, {
-      projectionEffects: [
-        validEnrichment,
-        {
-          ...projectionEffect(1, "scope-view-1", 7),
-          effect_hash: "e".repeat(64),
-        },
-      ],
-    }), "tailer")).toThrow("resource identity collision");
+    expect(() =>
+      coordinator.admit(
+        commit(7, {
+          projectionEffects: [
+            validEnrichment,
+            {
+              ...projectionEffect(1, "scope-view-1", 7),
+              effect_hash: "e".repeat(64),
+            },
+          ],
+        }),
+        "tailer",
+      ),
+    ).toThrow("resource identity collision");
     expect(projection).not.toHaveBeenCalled();
 
-    expect(coordinator.admit(commit(7, {
-      projectionEffects: [validEnrichment],
-    }), "replay").kind).toBe("enriched");
+    expect(
+      coordinator.admit(
+        commit(7, {
+          projectionEffects: [validEnrichment],
+        }),
+        "replay",
+      ).kind,
+    ).toBe("enriched");
     await flush();
     expect(projection).toHaveBeenCalledOnce();
   });
@@ -453,11 +495,7 @@ describe("LocalCommitCoordinator", () => {
     await flush();
 
     expect(onVisibility).toHaveBeenCalledOnce();
-    expect(onVisibility).toHaveBeenCalledWith(
-      apply,
-      apply.visibility_deltas[0],
-      "apply",
-    );
+    expect(onVisibility).toHaveBeenCalledWith(apply, apply.visibility_deltas[0], "apply");
     expect(onNotification).not.toHaveBeenCalled();
   });
 
@@ -501,14 +539,15 @@ describe("LocalCommitCoordinator", () => {
         authorizationScope: revocation.authorization_scope,
         commitSeq: 12,
         revocations: [revocation],
-      })
+      }),
     );
     for (const delivery of deliveries) coordinator.admit(delivery, "tailer");
     await flush();
 
     expect(onVisibility).toHaveBeenCalledTimes(2);
-    expect(onVisibility.mock.calls.map((call) => call[1]))
-      .toEqual(deliveries.flatMap((delivery) => delivery.visibility_deltas));
+    expect(onVisibility.mock.calls.map((call) => call[1])).toEqual(
+      deliveries.flatMap((delivery) => delivery.visibility_deltas),
+    );
   });
 
   test("rejects packet and revocation scopes from another Library", () => {
@@ -520,25 +559,37 @@ describe("LocalCommitCoordinator", () => {
       onNotification: vi.fn(),
       onVisibility: vi.fn(),
     });
-    expect(() => coordinator.admit(createCoreLocalCommitFixture({
-      authorizationScope: {
-        kind: "library",
-        library_id: "library-other",
-      },
-      commitSeq: 12,
-    }), "tailer")).toThrow("another Library");
-    expect(() => coordinator.admit(createCoreLocalCommitFixture({
-      commitSeq: 13,
-      revocations: [{
-        authorization_scope: {
-          kind: "project",
-          library_id: "library-other",
-          project_id: "project-a",
-        },
-        resource_kind: "page",
-        resource_id: "page-a",
-        reason: "access_revoked",
-      }],
-    }), "tailer")).toThrow("visibility delta belongs to another Library");
+    expect(() =>
+      coordinator.admit(
+        createCoreLocalCommitFixture({
+          authorizationScope: {
+            kind: "library",
+            library_id: "library-other",
+          },
+          commitSeq: 12,
+        }),
+        "tailer",
+      ),
+    ).toThrow("another Library");
+    expect(() =>
+      coordinator.admit(
+        createCoreLocalCommitFixture({
+          commitSeq: 13,
+          revocations: [
+            {
+              authorization_scope: {
+                kind: "project",
+                library_id: "library-other",
+                project_id: "project-a",
+              },
+              resource_kind: "page",
+              resource_id: "page-a",
+              reason: "access_revoked",
+            },
+          ],
+        }),
+        "tailer",
+      ),
+    ).toThrow("visibility delta belongs to another Library");
   });
 });

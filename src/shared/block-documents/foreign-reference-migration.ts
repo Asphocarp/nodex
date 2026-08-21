@@ -71,10 +71,12 @@ const collectContainers = (
 };
 
 const readContentNode = (container: Y.XmlElement): Y.XmlElement => {
-  const content = container.toArray().filter(
-    (child): child is Y.XmlElement =>
-      child instanceof Y.XmlElement && child.nodeName !== BLOCK_GROUP_NODE_NAME,
-  );
+  const content = container
+    .toArray()
+    .filter(
+      (child): child is Y.XmlElement =>
+        child instanceof Y.XmlElement && child.nodeName !== BLOCK_GROUP_NODE_NAME,
+    );
   if (content.length === 1 && content[0]) return content[0];
   throw new ForeignReferenceMigrationError(
     "Legacy reference Block must contain exactly one content element",
@@ -101,10 +103,7 @@ const isLegacyProjectionBlock = (block: BlockTreeNode): boolean => {
   if (block.type === "cardToggle" || block.type === "toggleListInlineView") {
     return true;
   }
-  if (
-    block.type !== "cardRef"
-    && block.type !== "pageRef"
-  ) return false;
+  if (block.type !== "cardRef" && block.type !== "pageRef") return false;
   const targetBlockId = block.props.targetBlockId;
   return typeof targetBlockId !== "string" || targetBlockId.length === 0;
 };
@@ -128,24 +127,15 @@ const makePageReferenceNode = (
   resolution: Extract<ForeignReferenceResolution, { readonly kind: "page" }>,
 ): Y.XmlElement => {
   const node = new Y.XmlElement("pageRef");
-  node.setAttribute(
-    "targetBlockId",
-    requireIdentity(resolution.targetBlockId, "targetBlockId"),
-  );
+  node.setAttribute("targetBlockId", requireIdentity(resolution.targetBlockId, "targetBlockId"));
   return node;
 };
 
 const makeDatabaseViewReferenceNode = (
-  resolution: Extract<
-    ForeignReferenceResolution,
-    { readonly kind: "database_view" }
-  >,
+  resolution: Extract<ForeignReferenceResolution, { readonly kind: "database_view" }>,
 ): Y.XmlElement => {
   const node = new Y.XmlElement("databaseViewRef");
-  node.setAttribute(
-    "databaseViewId",
-    requireIdentity(resolution.databaseViewId, "databaseViewId"),
-  );
+  node.setAttribute("databaseViewId", requireIdentity(resolution.databaseViewId, "databaseViewId"));
   const displayHint = requireDisplayHint(resolution.displayHint);
   if (displayHint !== undefined) node.setAttribute("displayHint", displayHint);
   return node;
@@ -157,9 +147,9 @@ const replaceLegacyReference = (
 ): readonly BlockId[] => {
   const content = readContentNode(container);
   const isLegacyPageProjection =
-    content.nodeName === "cardRef"
-    || content.nodeName === "pageRef"
-    || content.nodeName === "cardToggle";
+    content.nodeName === "cardRef" ||
+    content.nodeName === "pageRef" ||
+    content.nodeName === "cardToggle";
   const isLegacyDatabaseQuery = content.nodeName === "toggleListInlineView";
   if (resolution.kind === "page" && !isLegacyPageProjection) {
     throw new ForeignReferenceMigrationError(
@@ -173,9 +163,10 @@ const replaceLegacyReference = (
   }
 
   const removedDescendantBlockIds = collectDescendantBlockIds(container);
-  const nextContent = resolution.kind === "page"
-    ? makePageReferenceNode(resolution)
-    : makeDatabaseViewReferenceNode(resolution);
+  const nextContent =
+    resolution.kind === "page"
+      ? makePageReferenceNode(resolution)
+      : makeDatabaseViewReferenceNode(resolution);
   container.delete(0, container.length);
   container.insert(0, [nextContent]);
   return removedDescendantBlockIds;
@@ -195,8 +186,8 @@ export const migrateForeignReferences = (
   const legacyProjectionRootIds = collectLegacyProjectionRootIds(before.blockTree);
   const legacyReferences = before.references.filter(
     (reference) =>
-      isLegacyForeignBodyReference(reference)
-      && legacyProjectionRootIds.has(reference.sourceBlockId),
+      isLegacyForeignBodyReference(reference) &&
+      legacyProjectionRootIds.has(reference.sourceBlockId),
   );
   const resolutionBySource = new Map<BlockId, ForeignReferenceResolution>();
   for (const resolution of resolutions) {
@@ -220,18 +211,12 @@ export const migrateForeignReferences = (
         `Missing resolution for Block ${reference.sourceBlockId}`,
       );
     }
-    if (
-      reference.kind === "legacy_card_projection"
-      && resolution.kind !== "page"
-    ) {
+    if (reference.kind === "legacy_card_projection" && resolution.kind !== "page") {
       throw new ForeignReferenceMigrationError(
         `Card projection ${reference.sourceBlockId} requires a Card resolution`,
       );
     }
-    if (
-      reference.kind === "legacy_database_query"
-      && resolution.kind !== "database_view"
-    ) {
+    if (reference.kind === "legacy_database_query" && resolution.kind !== "database_view") {
       throw new ForeignReferenceMigrationError(
         `Database query ${reference.sourceBlockId} requires a Database View resolution`,
       );
@@ -254,9 +239,7 @@ export const migrateForeignReferences = (
             `Reference Block ${resolution.sourceBlockId} is missing from its Document`,
           );
         }
-        removedDescendantBlockIds.push(
-          ...replaceLegacyReference(container, resolution),
-        );
+        removedDescendantBlockIds.push(...replaceLegacyReference(container, resolution));
       }
     }, "foreign-reference-migration");
 
@@ -280,10 +263,9 @@ export const migrateForeignReferences = (
     };
   } catch (error) {
     if (error instanceof ForeignReferenceMigrationError) throw error;
-    throw new ForeignReferenceMigrationError(
-      "Could not migrate legacy foreign-body references",
-      { cause: error },
-    );
+    throw new ForeignReferenceMigrationError("Could not migrate legacy foreign-body references", {
+      cause: error,
+    });
   } finally {
     clone.destroy();
   }

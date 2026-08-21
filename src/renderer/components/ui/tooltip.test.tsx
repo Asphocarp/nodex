@@ -2,11 +2,7 @@ import { describe, expect, test } from "vitest";
 import { fireEvent } from "@testing-library/react";
 import { act, useEffect, useState } from "react";
 import { render } from "@/test/dom";
-import {
-  NodexTooltip,
-  NodexTooltipProvider,
-  dismissNodexTooltips,
-} from "./tooltip";
+import { NodexTooltip, NodexTooltipProvider, dismissNodexTooltips } from "./tooltip";
 
 describe("codex tooltip", () => {
   function tooltipIsMounted() {
@@ -55,18 +51,13 @@ describe("codex tooltip", () => {
   test("renders shortcut labels as keyboard input", async () => {
     const view = render(
       <NodexTooltipProvider>
-        <NodexTooltip
-          tooltipContent="Click to dictate or hold"
-          shortcutLabel="Ctrl+M"
-          defaultOpen
-        >
+        <NodexTooltip tooltipContent="Click to dictate or hold" shortcutLabel="Ctrl+M" defaultOpen>
           <button type="button">Dictate</button>
         </NodexTooltip>
       </NodexTooltipProvider>,
     );
 
-    expect(view.getAllByText("Ctrl+M").every((element) => element.tagName === "KBD"))
-      .toBe(true);
+    expect(view.getAllByText("Ctrl+M").every((element) => element.tagName === "KBD")).toBe(true);
   });
 
   test("dismisses an open uncontrolled tooltip through the shared dismiss event", async () => {

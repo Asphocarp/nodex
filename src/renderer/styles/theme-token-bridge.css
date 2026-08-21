@@ -55,37 +55,69 @@
   --color-token-checkbox-background: var(--vscode-checkbox-background);
   --color-token-checkbox-border: var(--vscode-checkbox-border);
   --color-token-checkbox-foreground: var(--vscode-checkbox-foreground);
-  --color-token-conversation-body: color-mix(in oklab, var(--color-token-foreground) 60%, transparent);
-  --color-token-conversation-header: color-mix(in oklab, var(--color-token-foreground) 30%, transparent);
-  --color-token-conversation-summary-leading: color-mix(in oklab, var(--color-token-description-foreground) 90%, transparent);
-  --color-token-conversation-summary-trailing: color-mix(in oklab, var(--color-token-foreground) 40%, transparent);
+  --color-token-conversation-body: color-mix(
+    in oklab,
+    var(--color-token-foreground) 60%,
+    transparent
+  );
+  --color-token-conversation-header: color-mix(
+    in oklab,
+    var(--color-token-foreground) 30%,
+    transparent
+  );
+  --color-token-conversation-summary-leading: color-mix(
+    in oklab,
+    var(--color-token-description-foreground) 90%,
+    transparent
+  );
+  --color-token-conversation-summary-trailing: color-mix(
+    in oklab,
+    var(--color-token-foreground) 40%,
+    transparent
+  );
   --color-token-disabled-foreground: var(--vscode-disabledForeground);
   --color-token-editor-background: var(--vscode-editor-background);
   --color-token-editor-error-foreground: var(--vscode-editorError-foreground);
   --color-token-editor-foreground: var(--vscode-editor-foreground);
   --color-token-editor-group-drop-background: var(--vscode-editorGroup-dropBackground);
-  --color-token-editor-group-drop-into-prompt-background: var(--vscode-editorGroup-dropIntoPromptBackground);
-  --color-token-editor-group-drop-into-prompt-foreground: var(--vscode-editorGroup-dropIntoPromptForeground);
+  --color-token-editor-group-drop-into-prompt-background: var(
+    --vscode-editorGroup-dropIntoPromptBackground
+  );
+  --color-token-editor-group-drop-into-prompt-foreground: var(
+    --vscode-editorGroup-dropIntoPromptForeground
+  );
   --color-token-error-foreground: var(--vscode-errorForeground);
-  --color-token-git-decoration-added-resource-foreground: var(--vscode-gitDecoration-addedResourceForeground);
-  --color-token-git-decoration-deleted-resource-foreground: var(--vscode-gitDecoration-deletedResourceForeground);
+  --color-token-git-decoration-added-resource-foreground: var(
+    --vscode-gitDecoration-addedResourceForeground
+  );
+  --color-token-git-decoration-deleted-resource-foreground: var(
+    --vscode-gitDecoration-deletedResourceForeground
+  );
   --color-token-input-background: var(--vscode-input-background);
   --color-token-input-foreground: var(--vscode-input-foreground);
   --color-token-input-placeholder-foreground: var(--vscode-input-placeholderForeground);
   --color-token-input-validation-error-background: var(--vscode-inputValidation-errorBackground);
   --color-token-input-validation-error-border: var(--vscode-inputValidation-errorBorder);
   --color-token-input-validation-info-background: var(--vscode-inputValidation-infoBackground);
-  --color-token-input-validation-warning-background: var(--vscode-inputValidation-warningBackground);
+  --color-token-input-validation-warning-background: var(
+    --vscode-inputValidation-warningBackground
+  );
   --color-token-input-validation-warning-border: var(--vscode-inputValidation-warningBorder);
   --color-token-link: var(--color-token-text-link-foreground);
   --color-token-list-active-selection-background: var(--vscode-list-activeSelectionBackground);
   --color-token-list-active-selection-foreground: var(--vscode-list-activeSelectionForeground);
-  --color-token-list-active-selection-icon-foreground: var(--vscode-list-activeSelectionIconForeground);
+  --color-token-list-active-selection-icon-foreground: var(
+    --vscode-list-activeSelectionIconForeground
+  );
   --color-token-menu-background: var(--vscode-menu-background);
   --color-token-menu-border: var(--vscode-menu-border);
   --color-token-menubar-selection-background: var(--vscode-menubar-selectionBackground);
   --color-token-menubar-selection-foreground: var(--vscode-menubar-selectionForeground);
-  --color-token-non-assistant-body-descendant: color-mix(in oklab, var(--color-token-foreground) 50%, transparent);
+  --color-token-non-assistant-body-descendant: color-mix(
+    in oklab,
+    var(--color-token-foreground) 50%,
+    transparent
+  );
   --color-token-radio-active-foreground: var(--vscode-radio-activeForeground);
   --color-token-scrollbar-slider-active-background: var(--vscode-scrollbarSlider-activeBackground);
   --color-token-scrollbar-slider-background: var(--vscode-scrollbarSlider-background);
@@ -108,7 +140,9 @@
   --color-token-terminal-background: var(--color-token-main-surface-primary);
   --color-token-terminal-border: var(--vscode-terminal-border);
   --color-token-terminal-foreground: var(--vscode-terminal-foreground);
-  --color-token-terminal-inactive-selection-background: var(--vscode-terminal-inactiveSelectionBackground);
+  --color-token-terminal-inactive-selection-background: var(
+    --vscode-terminal-inactiveSelectionBackground
+  );
   --color-token-terminal-selection-background: var(--vscode-terminal-selectionBackground);
   --color-token-text-code-block-background: var(--vscode-textCodeBlock-background);
   --color-token-text-link-active-foreground: var(--vscode-textLink-activeForeground);

@@ -1,16 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  useState,
-  type ReactNode,
-} from "react";
-import type {
-  CodexProtocolRequestId,
-  CodexUserInputRequest,
-} from "@/lib/types";
+import { useState, type ReactNode } from "react";
+import type { CodexProtocolRequestId, CodexUserInputRequest } from "@/lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
-import {
-  UserInputTranscriptView,
-} from "./local-conversation-request-cards";
+import { UserInputTranscriptView } from "./local-conversation-request-cards";
 import { CodexApprovalRequestCard } from "../../composer/request-cards/codex-approval-request-card";
 import { CodexImplementPlanRequestCard } from "../../composer/request-cards/codex-implement-plan-request-card";
 import { CodexMcpElicitationRequestCard } from "../../composer/request-cards/codex-mcp-elicitation-request-card";
@@ -75,9 +67,7 @@ function UserInputResponsePreview({
         className="rounded-lg border border-(--border) bg-(--background-secondary) px-3 py-2 font-mono text-xs text-(--foreground-secondary)"
         aria-live="polite"
       >
-        {lastResponse
-          ? JSON.stringify(lastResponse)
-          : "No response submitted yet"}
+        {lastResponse ? JSON.stringify(lastResponse) : "No response submitted yet"}
       </output>
     </div>
   );
@@ -116,8 +106,7 @@ const setupRequest = {
   createdAt: 1,
 };
 
-const userInputStoryThreadId =
-  THREAD_REQUEST_CARD_STORY_DATA.userInput.threadId;
+const userInputStoryThreadId = THREAD_REQUEST_CARD_STORY_DATA.userInput.threadId;
 const singleQuestionUserInputRequest = {
   ...THREAD_REQUEST_CARD_STORY_DATA.userInput,
   requestId: "user_input_single_question_story",
@@ -126,13 +115,15 @@ const singleQuestionUserInputRequest = {
 const freeformOnlyUserInputRequest = {
   ...THREAD_REQUEST_CARD_STORY_DATA.userInput,
   requestId: "user_input_freeform_only_story",
-  questions: [{
-    id: "notes",
-    header: "Notes",
-    question: "What else should Codex know?",
-    isOther: true,
-    isSecret: false,
-  }],
+  questions: [
+    {
+      id: "notes",
+      header: "Notes",
+      question: "What else should Codex know?",
+      isOther: true,
+      isSecret: false,
+    },
+  ],
 } satisfies CodexUserInputRequest;
 
 export const Approval: Story = {
@@ -143,8 +134,8 @@ export const Approval: Story = {
     >
       <CodexApprovalRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.approval}
-        onRespond={async () => { }}
-        onSubmitLocalFollowup={async () => { }}
+        onRespond={async () => {}}
+        onSubmitLocalFollowup={async () => {}}
       />
     </RequestSurface>
   ),
@@ -159,8 +150,8 @@ export const FileApprovalPreview: Story = {
       <CodexApprovalRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.fileApproval}
         requestItem={THREAD_REQUEST_CARD_STORY_DATA.fileApprovalItem}
-        onRespond={async () => { }}
-        onSubmitLocalFollowup={async () => { }}
+        onRespond={async () => {}}
+        onSubmitLocalFollowup={async () => {}}
       />
     </RequestSurface>
   ),
@@ -180,8 +171,8 @@ export const BackgroundApproval: Story = {
         }}
         actorName="Worker 1"
         approvalQuestionActor={<span className="font-medium">Worker 1</span>}
-        onRespond={async () => { }}
-        onSubmitLocalFollowup={async () => { }}
+        onRespond={async () => {}}
+        onSubmitLocalFollowup={async () => {}}
       />
     </RequestSurface>
   ),
@@ -217,7 +208,7 @@ export const UserInputSingleQuestion: Story = {
           <CodexUserInputRequestCardView
             request={singleQuestionUserInputRequest}
             autoResolution={null}
-            onUserInteraction={() => { }}
+            onUserInteraction={() => {}}
             onRespond={onRespond}
           />
         )}
@@ -244,7 +235,7 @@ export const UserInputWithSkippedDraft: Story = {
                 { selectedOptionId: null, freeformText: null },
               ],
             }}
-            onUserInteraction={() => { }}
+            onUserInteraction={() => {}}
             onRespond={onRespond}
           />
         )}
@@ -264,7 +255,7 @@ export const UserInputFreeformOnly: Story = {
           <CodexUserInputRequestCardView
             request={freeformOnlyUserInputRequest}
             autoResolution={null}
-            onUserInteraction={() => { }}
+            onUserInteraction={() => {}}
             onRespond={onRespond}
           />
         )}
@@ -281,9 +272,7 @@ export const UserInputAutoResolutionCountdown: Story = {
     >
       <div className="flex items-center gap-2 text-sm text-token-description-foreground">
         <span>Inactive request</span>
-        <CodexUserInputAutoResolutionCountdown
-          deadlineMs={Date.now() + 45_000}
-        />
+        <CodexUserInputAutoResolutionCountdown deadlineMs={Date.now() + 45_000} />
       </div>
     </RequestSurface>
   ),
@@ -302,8 +291,8 @@ export const UserInputWaitingForInactivity: Story = {
           requestId: THREAD_REQUEST_CARD_STORY_DATA.userInput.requestId,
           phase: { type: "waitingForInactivity" },
         }}
-        onUserInteraction={() => { }}
-        onRespond={async () => { }}
+        onUserInteraction={() => {}}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -325,8 +314,8 @@ export const UserInputScheduledForResolution: Story = {
             deadlineMs: Date.now() + 45_000,
           },
         }}
-        onUserInteraction={() => { }}
-        onRespond={async () => { }}
+        onUserInteraction={() => {}}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -345,8 +334,8 @@ export const UserInputSnoozed: Story = {
           requestId: THREAD_REQUEST_CARD_STORY_DATA.userInput.requestId,
           phase: { type: "snoozed" },
         }}
-        onUserInteraction={() => { }}
-        onRespond={async () => { }}
+        onUserInteraction={() => {}}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -383,7 +372,7 @@ export const OptionPicker: Story = {
     >
       <CodexOptionPickerRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.optionPicker}
-        onRespond={async () => { }}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -395,10 +384,7 @@ export const SetupRole: Story = {
       title="Setup Role"
       description="Onboarding role picker with shuffled multi-select roles, a fixed Something else tail, and canonical role IDs in the response."
     >
-      <CodexSetupCodexStepRequestCard
-        request={setupRequest}
-        onRespond={async () => { }}
-      />
+      <CodexSetupCodexStepRequestCard request={setupRequest} onRespond={async () => {}} />
     </RequestSurface>
   ),
 };
@@ -411,7 +397,7 @@ export const SetupTask: Story = {
     >
       <CodexSetupCodexStepRequestCard
         request={{ ...setupRequest, step: "task" }}
-        onRespond={async () => { }}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -469,8 +455,8 @@ export const SetupContext: Story = {
             connected: false,
           },
         ]}
-        onConnectSource={() => { }}
-        onRespond={async () => { }}
+        onConnectSource={() => {}}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -485,10 +471,16 @@ export const AnsweredUserInput: Story = {
       <UserInputTranscriptView
         item={{
           ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse,
-          userInputQuestions: [...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse.userInputQuestions],
+          userInputQuestions: [
+            ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse.userInputQuestions,
+          ],
           userInputAnswers: {
-            thread_scope: [...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse.userInputAnswers.thread_scope],
-            storybook_shape: [...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse.userInputAnswers.storybook_shape],
+            thread_scope: [
+              ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse.userInputAnswers.thread_scope,
+            ],
+            storybook_shape: [
+              ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponse.userInputAnswers.storybook_shape,
+            ],
           },
         }}
       />
@@ -505,7 +497,9 @@ export const AnsweredUserInputEmpty: Story = {
       <UserInputTranscriptView
         item={{
           ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponseEmpty,
-          userInputQuestions: [...THREAD_REQUEST_CARD_STORY_DATA.userInputResponseEmpty.userInputQuestions],
+          userInputQuestions: [
+            ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponseEmpty.userInputQuestions,
+          ],
           userInputAnswers: {},
         }}
       />
@@ -522,7 +516,9 @@ export const AnsweredUserInputInProgress: Story = {
       <UserInputTranscriptView
         item={{
           ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponseInProgress,
-          userInputQuestions: [...THREAD_REQUEST_CARD_STORY_DATA.userInputResponseInProgress.userInputQuestions],
+          userInputQuestions: [
+            ...THREAD_REQUEST_CARD_STORY_DATA.userInputResponseInProgress.userInputQuestions,
+          ],
           userInputAnswers: {},
         }}
       />
@@ -538,7 +534,7 @@ export const ImplementPlan: Story = {
     >
       <CodexImplementPlanRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.implementPlan}
-        onRespond={async () => { }}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -552,7 +548,7 @@ export const PermissionRequest: Story = {
     >
       <CodexPermissionRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.permissionRequest}
-        onRespond={async () => { }}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -581,11 +577,12 @@ export const NodexAgentAuthorization: Story = {
               { label: "Card", value: "Launch brief" },
               { label: "Method", value: "insert" },
             ],
-            markdownPreview: "## Rollout\n\n- Alpha cohort\n- Measure activation\n- Expand gradually",
+            markdownPreview:
+              "## Rollout\n\n- Alpha cohort\n- Measure activation\n- Expand gradually",
           },
           createdAt: 1,
         }}
-        onRespond={async () => { }}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -614,11 +611,12 @@ export const NodexAgentDestructiveAuthorization: Story = {
               { label: "Card", value: "Launch brief" },
               { label: "Method", value: "replace" },
             ],
-            markdownPreview: "# Launch brief\n\n## Revised scope\n\nThe former rollout sections will be removed.",
+            markdownPreview:
+              "# Launch brief\n\n## Revised scope\n\nThe former rollout sections will be removed.",
           },
           createdAt: 1,
         }}
-        onRespond={async () => { }}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -632,7 +630,7 @@ export const McpServerElicitation: Story = {
     >
       <CodexMcpElicitationRequestCard
         request={THREAD_REQUEST_CARD_STORY_DATA.mcpServerElicitation}
-        onRespond={async () => { }}
+        onRespond={async () => {}}
       />
     </RequestSurface>
   ),
@@ -647,7 +645,7 @@ export const AutoReviewApprovalNudge: Story = {
       <AutoReviewApprovalNudgeView
         threadId="thread-auto-review-nudge-story"
         actions={{
-          onPermissionModeChange: async () => { },
+          onPermissionModeChange: async () => {},
         }}
       />
     </RequestSurface>

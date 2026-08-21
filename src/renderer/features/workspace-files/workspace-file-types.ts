@@ -23,66 +23,59 @@ export interface WorkspaceFilesTabState {
   pendingReveal?: WorkspaceFileRevealLocation;
 }
 
-export function normalizeWorkspaceFilesTabState(
-  value: unknown,
-): WorkspaceFilesTabState {
+export function normalizeWorkspaceFilesTabState(value: unknown): WorkspaceFilesTabState {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   const candidate = value as Partial<WorkspaceFilesTabState>;
   const draft = candidate.draft;
-  const validDraft = typeof draft === "object"
-    && draft !== null
-    && typeof draft.path === "string"
-    && typeof draft.content === "string"
-    && (typeof draft.baseMtimeMs === "number" || draft.baseMtimeMs === null)
-    && typeof draft.updatedAt === "string"
-    ? draft
-    : undefined;
+  const validDraft =
+    typeof draft === "object" &&
+    draft !== null &&
+    typeof draft.path === "string" &&
+    typeof draft.content === "string" &&
+    (typeof draft.baseMtimeMs === "number" || draft.baseMtimeMs === null) &&
+    typeof draft.updatedAt === "string"
+      ? draft
+      : undefined;
   return {
     ...(validDraft ? { draft: validDraft } : {}),
     ...(candidate.markdownMode === "source" || candidate.markdownMode === "rendered"
       ? { markdownMode: candidate.markdownMode }
       : {}),
-    ...(typeof candidate.treeVisible === "boolean"
-      ? { treeVisible: candidate.treeVisible }
-      : {}),
+    ...(typeof candidate.treeVisible === "boolean" ? { treeVisible: candidate.treeVisible } : {}),
     ...(typeof candidate.treeWidth === "number" && Number.isFinite(candidate.treeWidth)
       ? { treeWidth: candidate.treeWidth }
       : {}),
-    ...(typeof candidate.wordWrap === "boolean"
-      ? { wordWrap: candidate.wordWrap }
-      : {}),
+    ...(typeof candidate.wordWrap === "boolean" ? { wordWrap: candidate.wordWrap } : {}),
     ...(isValidRevealLocation(candidate.pendingReveal)
       ? { pendingReveal: candidate.pendingReveal }
       : {}),
   };
 }
 
-function isValidRevealLocation(
-  value: unknown,
-): value is WorkspaceFileRevealLocation {
+function isValidRevealLocation(value: unknown): value is WorkspaceFileRevealLocation {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const candidate = value as Record<string, unknown>;
   const hasValidNumber = (key: string) => {
     const item = candidate[key];
-    return item === undefined
-      || (typeof item === "number" && Number.isSafeInteger(item) && item > 0);
+    return (
+      item === undefined || (typeof item === "number" && Number.isSafeInteger(item) && item > 0)
+    );
   };
   const line = candidate.line;
   const endLine = candidate.endLine;
   const endColumn = candidate.endColumn;
-  return hasValidNumber("line")
-    && hasValidNumber("column")
-    && hasValidNumber("endLine")
-    && hasValidNumber("endColumn")
-    && typeof line === "number"
-    && (typeof endLine !== "number" || endLine >= line)
-    && (typeof endColumn !== "number" || typeof endLine === "number");
+  return (
+    hasValidNumber("line") &&
+    hasValidNumber("column") &&
+    hasValidNumber("endLine") &&
+    hasValidNumber("endColumn") &&
+    typeof line === "number" &&
+    (typeof endLine !== "number" || endLine >= line) &&
+    (typeof endColumn !== "number" || typeof endLine === "number")
+  );
 }
 
-export type WorkspaceFilesTab = Omit<
-  WorkbenchTabProjection,
-  "projectId" | "config" | "state"
-> & {
+export type WorkspaceFilesTab = Omit<WorkbenchTabProjection, "projectId" | "config" | "state"> & {
   projectId: string | null;
   panelId: PanelId;
   preview?: true;

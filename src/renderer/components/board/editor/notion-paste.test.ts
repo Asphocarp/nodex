@@ -127,9 +127,7 @@ describe("notion paste", () => {
       ["text/example", '{"x":1}'],
       ["text/second", "value"],
     ]);
-    const bytes = new Uint8Array(
-      Array.from(binaryCustomData).map((char) => char.charCodeAt(0)),
-    );
+    const bytes = new Uint8Array(Array.from(binaryCustomData).map((char) => char.charCodeAt(0)));
 
     const decoded = decodeChromiumWebCustomData(bytes);
     expect(decoded.get("text/example")).toBe('{"x":1}');
@@ -381,7 +379,9 @@ describe("notion paste", () => {
 
     expect(handled).toBe(true);
     expect(replaceCalls.length).toBe(1);
-    expect(JSON.stringify(replaceCalls[0]?.remove)).toBe(JSON.stringify(["selected-1", "selected-2"]));
+    expect(JSON.stringify(replaceCalls[0]?.remove)).toBe(
+      JSON.stringify(["selected-1", "selected-2"]),
+    );
     expect(replaceCalls[0]?.insertCount).toBe(3);
     expect(insertCalls).toBe(0);
   });
@@ -422,7 +422,8 @@ describe("notion paste", () => {
     if (!notionBlocks) return;
 
     let replaceCalls = 0;
-    const insertCalls: Array<{ ref: string; placement: "before" | "after"; insertCount: number }> = [];
+    const insertCalls: Array<{ ref: string; placement: "before" | "after"; insertCount: number }> =
+      [];
 
     const handled = insertNfmBlocksFromPaste(
       {
@@ -470,13 +471,14 @@ function inlineToText(content: NfmInlineContent[]): string {
 function findInlineSpan(content: NfmInlineContent[], text: string): StyledInline | undefined {
   return content.find((item): item is StyledInline => {
     if (
-      item.type === "linebreak"
-      || item.type === "attachment"
-      || item.type === "agentConfig"
-      || item.type === "threadMention"
-      || item.type === "pageMention"
-      || item.type === "dateMention"
-    ) return false;
+      item.type === "linebreak" ||
+      item.type === "attachment" ||
+      item.type === "agentConfig" ||
+      item.type === "threadMention" ||
+      item.type === "pageMention" ||
+      item.type === "dateMention"
+    )
+      return false;
     return item.text === text;
   });
 }
@@ -578,12 +580,7 @@ function pushU16String(target: number[], value: string): void {
 }
 
 function pushU32LE(target: number[], value: number): void {
-  target.push(
-    value & 0xff,
-    (value >> 8) & 0xff,
-    (value >> 16) & 0xff,
-    (value >> 24) & 0xff,
-  );
+  target.push(value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, (value >> 24) & 0xff);
 }
 
 function asParagraph(block: NfmBlock): string {

@@ -8,10 +8,7 @@ import {
   useDatabaseListPageDnd,
   type DatabaseListDndCommit,
 } from "./database-list-dnd";
-import {
-  emptyDatabaseListSelection,
-  type DatabaseListPageRow,
-} from "./database-list-model";
+import { emptyDatabaseListSelection, type DatabaseListPageRow } from "./database-list-model";
 
 const page = (input: {
   readonly key: string;
@@ -72,17 +69,18 @@ const TestPage = ({ item }: { readonly item: DatabaseListPageRow }) => {
   );
 };
 
-const rect = (top: number): DOMRect => ({
-  x: 0,
-  y: top,
-  top,
-  left: 0,
-  right: 600,
-  bottom: top + 44,
-  width: 600,
-  height: 44,
-  toJSON: () => ({}),
-} as DOMRect);
+const rect = (top: number): DOMRect =>
+  ({
+    x: 0,
+    y: top,
+    top,
+    left: 0,
+    right: 600,
+    bottom: top + 44,
+    width: 600,
+    height: 44,
+    toJSON: () => ({}),
+  }) as DOMRect;
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -98,15 +96,15 @@ describe("Database List dnd-kit controller", () => {
     });
     const target = page({ key: "target", pageId: "Target", top: 44, hasChildren: true });
     const commits: DatabaseListDndCommit[] = [];
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
-      this: HTMLElement,
-    ) {
-      if (this instanceof HTMLElement) {
-        if (this.dataset.testRow === "target") return rect(44);
-        if (this.dataset.testRow === "source") return rect(0);
-      }
-      return rect(0);
-    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this instanceof HTMLElement) {
+          if (this.dataset.testRow === "target") return rect(44);
+          if (this.dataset.testRow === "source") return rect(0);
+        }
+        return rect(0);
+      },
+    );
     const scroller = document.createElement("div");
     const scrollerRef = { current: scroller };
     const view = render(
@@ -121,8 +119,7 @@ describe("Database List dnd-kit controller", () => {
         <TestPage item={target} />
       </DatabaseListDndProvider>,
     );
-    const sourceElement = view.getByText("page-019ff012-abcd")
-      .closest("[data-test-row]");
+    const sourceElement = view.getByText("page-019ff012-abcd").closest("[data-test-row]");
     if (!(sourceElement instanceof HTMLElement)) throw new Error("missing source row");
     expect(sourceElement.getAttribute("draggable")).toBeNull();
 
@@ -131,25 +128,21 @@ describe("Database List dnd-kit controller", () => {
       fireEvent.mouseMove(document, { clientX: 23, clientY: 20, buttons: 1 });
       await Promise.resolve();
     });
-    expect(document.body.querySelector("[data-database-list-drag-overlay=true]"))
-      .toBeNull();
+    expect(document.body.querySelector("[data-database-list-drag-overlay=true]")).toBeNull();
 
     await act(async () => {
       fireEvent.mouseMove(document, { clientX: 25, clientY: 20, buttons: 1 });
       await Promise.resolve();
     });
     await waitFor(() => {
-      const overlay = document.body.querySelector(
-        "[data-database-list-drag-overlay=true]",
-      );
+      const overlay = document.body.querySelector("[data-database-list-drag-overlay=true]");
       expect(overlay).not.toBeNull();
       expect(overlay?.parentElement?.parentElement).toBe(document.body);
-      expect(overlay?.querySelector("[data-list-drag-overlay-column=priority]"))
-        .not.toBeNull();
-      expect(overlay?.querySelector("[data-list-drag-overlay-column=identifier]")
-        ?.textContent).toBe("LAB-13");
-      expect(overlay?.querySelector("[data-list-drag-overlay-column=status]"))
-        .not.toBeNull();
+      expect(overlay?.querySelector("[data-list-drag-overlay-column=priority]")).not.toBeNull();
+      expect(
+        overlay?.querySelector("[data-list-drag-overlay-column=identifier]")?.textContent,
+      ).toBe("LAB-13");
+      expect(overlay?.querySelector("[data-list-drag-overlay-column=status]")).not.toBeNull();
       expect(sourceElement.getAttribute("data-active")).toBe("true");
       expect(document.body.textContent).toContain("Picked up page-019ff012-abcd.");
     });
@@ -161,8 +154,7 @@ describe("Database List dnd-kit controller", () => {
 
     expect(commits).toEqual([]);
     await waitFor(() => {
-      expect(document.body.querySelector("[data-database-list-drag-overlay=true]"))
-        .toBeNull();
+      expect(document.body.querySelector("[data-database-list-drag-overlay=true]")).toBeNull();
       expect(document.body.textContent).toContain("List movement cancelled.");
     });
 
@@ -172,16 +164,14 @@ describe("Database List dnd-kit controller", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(document.body.querySelector("[data-database-list-drag-overlay=true]"))
-        .not.toBeNull();
+      expect(document.body.querySelector("[data-database-list-drag-overlay=true]")).not.toBeNull();
     });
     await act(async () => {
       fireEvent.blur(window);
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(document.body.querySelector("[data-database-list-drag-overlay=true]"))
-        .toBeNull();
+      expect(document.body.querySelector("[data-database-list-drag-overlay=true]")).toBeNull();
     });
     expect(commits).toEqual([]);
 
@@ -191,8 +181,7 @@ describe("Database List dnd-kit controller", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(document.body.querySelector("[data-database-list-drag-overlay=true]"))
-        .not.toBeNull();
+      expect(document.body.querySelector("[data-database-list-drag-overlay=true]")).not.toBeNull();
     });
     await act(async () => {
       fireEvent.mouseMove(document, { clientX: 700, clientY: 200, buttons: 1 });
@@ -200,8 +189,7 @@ describe("Database List dnd-kit controller", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(document.body.querySelector("[data-database-list-drag-overlay=true]"))
-        .toBeNull();
+      expect(document.body.querySelector("[data-database-list-drag-overlay=true]")).toBeNull();
     });
     expect(commits).toEqual([]);
   });
@@ -233,8 +221,7 @@ describe("Database List dnd-kit controller", () => {
       await Promise.resolve();
     });
 
-    expect(document.body.querySelector("[data-database-list-drag-overlay=true]"))
-      .toBeNull();
+    expect(document.body.querySelector("[data-database-list-drag-overlay=true]")).toBeNull();
     expect(commits).toEqual([]);
   });
 
@@ -243,13 +230,13 @@ describe("Database List dnd-kit controller", () => {
     const source = page({ key: "source", pageId: "Source", top: 44 });
     const last = page({ key: "last", pageId: "Last", top: 88 });
     const commits: DatabaseListDndCommit[] = [];
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
-      this: HTMLElement,
-    ) {
-      if (this.dataset.testRow === "source") return rect(44);
-      if (this.dataset.testRow === "last") return rect(88);
-      return rect(0);
-    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.dataset.testRow === "source") return rect(44);
+        if (this.dataset.testRow === "last") return rect(88);
+        return rect(0);
+      },
+    );
     const view = render(
       <DatabaseListDndProvider
         rows={[first, source, last]}
@@ -273,8 +260,9 @@ describe("Database List dnd-kit controller", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(view.getByText("First").closest("[data-test-row]")
-        ?.getAttribute("data-target")).toBe("after");
+      expect(view.getByText("First").closest("[data-test-row]")?.getAttribute("data-target")).toBe(
+        "after",
+      );
     });
     await act(async () => {
       fireEvent.mouseUp(document, { clientX: 25, clientY: 40 });
@@ -283,8 +271,7 @@ describe("Database List dnd-kit controller", () => {
 
     expect(commits).toEqual([]);
     await waitFor(() => {
-      expect(document.body.textContent)
-        .toContain("The Page stayed in its current List position.");
+      expect(document.body.textContent).toContain("The Page stayed in its current List position.");
     });
   });
 
@@ -292,12 +279,12 @@ describe("Database List dnd-kit controller", () => {
     const source = page({ key: "source", pageId: "Source", top: 0 });
     const target = page({ key: "target", pageId: "Target", top: 44 });
     const commits: DatabaseListDndCommit[] = [];
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
-      this: HTMLElement,
-    ) {
-      if (this.dataset.testRow === "target") return rect(44);
-      return rect(0);
-    });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        if (this.dataset.testRow === "target") return rect(44);
+        return rect(0);
+      },
+    );
     const scroller = document.createElement("div");
     const view = render(
       <DatabaseListDndProvider
@@ -320,18 +307,16 @@ describe("Database List dnd-kit controller", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(document.body.querySelector("[data-database-list-drag-overlay=true]"))
-        .not.toBeNull();
+      expect(document.body.querySelector("[data-database-list-drag-overlay=true]")).not.toBeNull();
     });
     await act(async () => {
       fireEvent.keyDown(document, { code: "ArrowDown", key: "ArrowDown" });
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(
-        view.getByText("Target").closest("[data-test-row]")
-          ?.getAttribute("data-target"),
-      ).toBe("after");
+      expect(view.getByText("Target").closest("[data-test-row]")?.getAttribute("data-target")).toBe(
+        "after",
+      );
     });
     await act(async () => {
       fireEvent.keyDown(document, { code: "Space", key: " " });

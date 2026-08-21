@@ -27,12 +27,22 @@ export function useCodexAccountActions() {
     return invoke("codex:account:logout");
   }, []);
 
-  return useMemo(() => ({
-    refreshAccount,
-    consumeRateLimitReset,
-    startChatGptLogin,
-    startApiKeyLogin,
-    cancelLogin,
-    logout,
-  }), [cancelLogin, consumeRateLimitReset, logout, refreshAccount, startApiKeyLogin, startChatGptLogin]);
+  return useMemo(
+    () => ({
+      refreshAccount,
+      consumeRateLimitReset,
+      startChatGptLogin,
+      startApiKeyLogin,
+      cancelLogin,
+      logout,
+    }),
+    [
+      cancelLogin,
+      consumeRateLimitReset,
+      logout,
+      refreshAccount,
+      startApiKeyLogin,
+      startChatGptLogin,
+    ],
+  );
 }

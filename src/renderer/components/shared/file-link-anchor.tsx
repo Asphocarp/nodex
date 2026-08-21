@@ -5,9 +5,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
-import {
-  type FileLinkTarget,
-} from "../../../shared/file-link-openers";
+import { type FileLinkTarget } from "../../../shared/file-link-openers";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { invoke } from "@/lib/api";
 import { writeTextToClipboard } from "@/lib/clipboard";
@@ -17,10 +15,7 @@ import {
   useFileReferenceRouter,
 } from "@/lib/file-reference-router";
 import { showNativeContextMenu } from "@/lib/native-context-menu";
-import {
-  resolveNfmLinkAction,
-  resolveNfmLinkTooltipLabel,
-} from "@/lib/nfm-link-actions";
+import { resolveNfmLinkAction, resolveNfmLinkTooltipLabel } from "@/lib/nfm-link-actions";
 import { cn } from "@/lib/utils";
 
 export interface FileLinkWorkspaceContextValue {
@@ -28,7 +23,9 @@ export interface FileLinkWorkspaceContextValue {
   workspacePath?: string | null;
 }
 
-export const FileLinkWorkspaceContext = createContext<FileLinkWorkspaceContextValue | undefined>(undefined);
+export const FileLinkWorkspaceContext = createContext<FileLinkWorkspaceContextValue | undefined>(
+  undefined,
+);
 
 export function FileLinkWorkspaceProvider({
   children,
@@ -62,11 +59,12 @@ function readLinkLabel(children: ReactNode): string {
   return "Open file";
 }
 
-function isFileAction(
-  action: ReturnType<typeof resolveNfmLinkAction>,
-): action is Extract<ReturnType<typeof resolveNfmLinkAction>, {
-  kind: "local-file" | "workspace-file";
-}> {
+function isFileAction(action: ReturnType<typeof resolveNfmLinkAction>): action is Extract<
+  ReturnType<typeof resolveNfmLinkAction>,
+  {
+    kind: "local-file" | "workspace-file";
+  }
+> {
   return action?.kind === "local-file" || action?.kind === "workspace-file";
 }
 
@@ -87,37 +85,40 @@ export async function openFileReferenceContextMenu({
   x,
   y,
 }: FileReferenceContextMenuRequest): Promise<void> {
-  const selected = await showNativeContextMenu([
-    {
-      id: "file-reference:open",
-      label: "Open in Files",
-      iconKey: "folder",
-    },
-    {
-      id: "file-reference:open-with",
-      label: "Open with",
-      iconKey: "window",
-      type: "submenu",
-      submenu: getFileReferenceOpenWithMenuItems(),
-    },
-    { type: "separator" },
-    {
-      id: "file-reference:copy-path",
-      label: "Copy path",
-      iconKey: "copy",
-    },
-    {
-      id: "file-reference:copy-contents",
-      label: "Copy contents",
-      iconKey: "copy",
-    },
-    { type: "separator" },
-    {
-      id: "file-reference:reveal",
-      label: "Reveal in Finder",
-      iconKey: "folder",
-    },
-  ], { x, y });
+  const selected = await showNativeContextMenu(
+    [
+      {
+        id: "file-reference:open",
+        label: "Open in Files",
+        iconKey: "folder",
+      },
+      {
+        id: "file-reference:open-with",
+        label: "Open with",
+        iconKey: "window",
+        type: "submenu",
+        submenu: getFileReferenceOpenWithMenuItems(),
+      },
+      { type: "separator" },
+      {
+        id: "file-reference:copy-path",
+        label: "Copy path",
+        iconKey: "copy",
+      },
+      {
+        id: "file-reference:copy-contents",
+        label: "Copy contents",
+        iconKey: "copy",
+      },
+      { type: "separator" },
+      {
+        id: "file-reference:reveal",
+        label: "Reveal in Finder",
+        iconKey: "folder",
+      },
+    ],
+    { x, y },
+  );
 
   if (!selected) return;
   if (selected === "file-reference:open") {
@@ -175,9 +176,8 @@ export function FileLinkAnchor({
 }: FileLinkAnchorProps) {
   const inheritedWorkspacePath = useContext(FileLinkWorkspaceContext);
   const router = useFileReferenceRouter();
-  const workspacePath = projectWorkspacePath
-    ?? inheritedWorkspacePath?.workspacePath
-    ?? router.workspaceRoot;
+  const workspacePath =
+    projectWorkspacePath ?? inheritedWorkspacePath?.workspacePath ?? router.workspaceRoot;
   const cwd = explicitCwd ?? inheritedWorkspacePath?.cwd ?? workspacePath;
   const action = resolveNfmLinkAction(href, cwd);
   const tooltipLabel = resolveNfmLinkTooltipLabel(action, showLocalFileTooltip);
@@ -200,9 +200,7 @@ export function FileLinkAnchor({
         data-agent-activity-file-link
         onClick={handleClick}
         aria-disabled={
-          action?.kind === "blocked" || action?.kind === "unresolved-file-like"
-            ? true
-            : undefined
+          action?.kind === "blocked" || action?.kind === "unresolved-file-like" ? true : undefined
         }
         className={cn(
           "cursor-interaction inline-block max-w-full appearance-none border-0 bg-transparent p-0 text-left align-baseline whitespace-normal text-token-text-link-foreground hover:underline",
@@ -246,10 +244,7 @@ export function FileLinkAnchor({
         event.preventDefault();
         event.stopPropagation();
         open({
-          external: event.metaKey
-            || event.ctrlKey
-            || event.altKey
-            || event.shiftKey,
+          external: event.metaKey || event.ctrlKey || event.altKey || event.shiftKey,
           mode: "preview",
         });
       }}
@@ -272,12 +267,13 @@ export function FileLinkAnchor({
           void openFileReferenceContextMenu({
             target,
             label,
-            open: (nextTarget, options) => router.open(nextTarget, {
-              cwd: workspacePath,
-              workspaceRoot: workspacePath,
-              title: label,
-              ...options,
-            }),
+            open: (nextTarget, options) =>
+              router.open(nextTarget, {
+                cwd: workspacePath,
+                workspaceRoot: workspacePath,
+                title: label,
+                ...options,
+              }),
             x: bounds.left,
             y: bounds.bottom,
           }).catch(() => undefined);
@@ -292,12 +288,13 @@ export function FileLinkAnchor({
         void handleFileReferenceContextMenu(event, {
           target,
           label,
-          open: (nextTarget, options) => router.open(nextTarget, {
-            cwd: workspacePath,
-            workspaceRoot: workspacePath,
-            title: label,
-            ...options,
-          }),
+          open: (nextTarget, options) =>
+            router.open(nextTarget, {
+              cwd: workspacePath,
+              workspaceRoot: workspacePath,
+              title: label,
+              ...options,
+            }),
         }).catch(() => undefined);
       }}
       title={tooltipLabel ?? undefined}

@@ -36,8 +36,7 @@ function isStartingStateSelected(
   if (selected.type !== candidate.type) return false;
   if (selected.type === "working-tree") return true;
   if (candidate.type !== "branch") return false;
-  return selected.branchName === candidate.branchName
-    && selected.remoteRef === candidate.remoteRef;
+  return selected.branchName === candidate.branchName && selected.remoteRef === candidate.remoteRef;
 }
 
 export function WorktreeStartingStatePopover({
@@ -71,23 +70,22 @@ export function WorktreeStartingStatePopover({
   const [hasLocalChanges, setHasLocalChanges] = useState(false);
   const currentBranch = state.currentBranch ?? state.defaultBranch ?? state.branches[0] ?? "HEAD";
   const localBranches = useMemo(
-    () => filterValues([
-      currentBranch,
-      ...state.branches.filter((branch) => branch !== currentBranch),
-    ], query),
+    () =>
+      filterValues(
+        [currentBranch, ...state.branches.filter((branch) => branch !== currentBranch)],
+        query,
+      ),
     [currentBranch, query, state.branches],
   );
   const remoteBranchRefs = useMemo(
-    () => state.remoteBranchRefs.filter((remoteRef) => (
-      remoteBranchName(remoteRef).toLocaleLowerCase().includes(
-        query.trim().toLocaleLowerCase(),
-      )
-    )),
+    () =>
+      state.remoteBranchRefs.filter((remoteRef) =>
+        remoteBranchName(remoteRef).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
+      ),
     [query, state.remoteBranchRefs],
   );
-  const triggerLabel = startingState.type === "working-tree"
-    ? `${currentBranch} (current)`
-    : startingState.branchName;
+  const triggerLabel =
+    startingState.type === "working-tree" ? `${currentBranch} (current)` : startingState.branchName;
 
   const refreshStatus = useCallback(async () => {
     if (!cwd) {
@@ -122,19 +120,25 @@ export function WorktreeStartingStatePopover({
     await Promise.all([onRefresh(), refreshStatus()]);
   }, [onRefresh, refreshStatus]);
 
-  const handleOpenChange = useCallback((nextOpen: boolean) => {
-    setOpen(nextOpen);
-    if (!nextOpen) {
-      setQuery("");
-      return;
-    }
-    void refresh();
-  }, [refresh]);
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      setOpen(nextOpen);
+      if (!nextOpen) {
+        setQuery("");
+        return;
+      }
+      void refresh();
+    },
+    [refresh],
+  );
 
-  const choose = useCallback((next: CodexPendingWorktreeStartingState) => {
-    onChange(next);
-    setOpen(false);
-  }, [onChange]);
+  const choose = useCallback(
+    (next: CodexPendingWorktreeStartingState) => {
+      onChange(next);
+      setOpen(false);
+    },
+    [onChange],
+  );
 
   return (
     <NodexDropdownMenu
@@ -144,7 +148,7 @@ export function WorktreeStartingStatePopover({
       side="top"
       align="start"
       triggerTooltipContent="What branch should this chat start from?"
-      triggerButton={(
+      triggerButton={
         <NodexDropdownButtonTrigger
           aria-label="Select starting state"
           data-composer-navigation-target="starting-state"
@@ -166,7 +170,7 @@ export function WorktreeStartingStatePopover({
           </span>
           <span className="max-w-40 truncate">{triggerLabel}</span>
         </NodexDropdownButtonTrigger>
-      )}
+      }
       contentClassName="p-0"
     >
       <div className="flex w-72 flex-col gap-1.5 overflow-hidden">
@@ -188,9 +192,11 @@ export function WorktreeStartingStatePopover({
               <NodexDropdownSectionLabel>Local file state</NodexDropdownSectionLabel>
               <NodexDropdownItem
                 leftSlot={<BranchStatusIcon className="icon-xs" />}
-                rightSlot={startingState.type === "working-tree"
-                  ? <CheckmarkIcon className="icon-xs" />
-                  : null}
+                rightSlot={
+                  startingState.type === "working-tree" ? (
+                    <CheckmarkIcon className="icon-xs" />
+                  ) : null
+                }
                 subText="with local code changes"
                 onSelect={() => choose({ type: "working-tree" })}
               >
@@ -227,9 +233,11 @@ export function WorktreeStartingStatePopover({
                   <NodexDropdownItem
                     key={branch}
                     leftSlot={<BranchStatusIcon className="icon-xs" />}
-                    rightSlot={isStartingStateSelected(startingState, candidate)
-                      ? <CheckmarkIcon className="icon-xs" />
-                      : null}
+                    rightSlot={
+                      isStartingStateSelected(startingState, candidate) ? (
+                        <CheckmarkIcon className="icon-xs" />
+                      ) : null
+                    }
                     onSelect={() => choose(candidate)}
                   >
                     {branch}
@@ -254,9 +262,11 @@ export function WorktreeStartingStatePopover({
                       <NodexDropdownItem
                         key={remoteRef}
                         leftSlot={<BranchStatusIcon className="icon-xs" />}
-                        rightSlot={isStartingStateSelected(startingState, candidate)
-                          ? <CheckmarkIcon className="icon-xs" />
-                          : null}
+                        rightSlot={
+                          isStartingStateSelected(startingState, candidate) ? (
+                            <CheckmarkIcon className="icon-xs" />
+                          ) : null
+                        }
                         onSelect={() => choose(candidate)}
                       >
                         {candidate.branchName}

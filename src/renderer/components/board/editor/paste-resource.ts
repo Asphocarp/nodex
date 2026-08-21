@@ -88,15 +88,16 @@ function collectBlockTypes(block: SelectionBlockLike): string[] {
   ];
 }
 
-export function capturePasteResourceTarget(editor: PasteTargetSelectionEditor): PasteResourceTarget {
+export function capturePasteResourceTarget(
+  editor: PasteTargetSelectionEditor,
+): PasteResourceTarget {
   let selectedBlockIds: string[] = [];
   let selectedBlockTypes: string[] = [];
   try {
     const selection = editor.getSelection();
     if (selection?.blocks?.length) {
       selectedBlockIds = selection.blocks.map((block) => block.id);
-      selectedBlockTypes = selection.blocks
-        .flatMap(collectBlockTypes);
+      selectedBlockTypes = selection.blocks.flatMap(collectBlockTypes);
     }
   } catch {
     selectedBlockIds = [];
@@ -151,7 +152,9 @@ export function insertAttachmentsAtPasteTarget(
     options?: { updateSelection?: boolean },
   ) => unknown;
   if (target.canInsertInline) {
-    insertInlineContent.call(editor, createAttachmentInlineSequence(attachments), { updateSelection: true });
+    insertInlineContent.call(editor, createAttachmentInlineSequence(attachments), {
+      updateSelection: true,
+    });
     return true;
   }
 
@@ -234,8 +237,10 @@ export function shouldPromptForOversizedText(
   settings: PasteResourceSettings = DEFAULT_PASTE_RESOURCE_SETTINGS,
 ): boolean {
   if (!text.trim()) return false;
-  return text.length >= settings.textPromptCharThreshold
-    || currentDocumentLength + text.length >= settings.descriptionSoftLimit;
+  return (
+    text.length >= settings.textPromptCharThreshold ||
+    currentDocumentLength + text.length >= settings.descriptionSoftLimit
+  );
 }
 
 function looksLikeMarkdown(src: string): boolean {
@@ -254,19 +259,21 @@ function looksLikeMarkdown(src: string): boolean {
   const tableDivider = /^\s*\|(\s*[-:]+[-:]\s*\|)+\s*$/m;
   const tableRow = /^\s*\|(.+\|)+\s*$/m;
 
-  return h1.test(src)
-    || bold.test(src)
-    || link.test(src)
-    || code.test(src)
-    || ul.test(src)
-    || ol.test(src)
-    || hr.test(src)
-    || fences.test(src)
-    || title.test(src)
-    || blockquote.test(src)
-    || tableHeader.test(src)
-    || tableDivider.test(src)
-    || tableRow.test(src);
+  return (
+    h1.test(src) ||
+    bold.test(src) ||
+    link.test(src) ||
+    code.test(src) ||
+    ul.test(src) ||
+    ol.test(src) ||
+    hr.test(src) ||
+    fences.test(src) ||
+    title.test(src) ||
+    blockquote.test(src) ||
+    tableHeader.test(src) ||
+    tableDivider.test(src) ||
+    tableRow.test(src)
+  );
 }
 
 interface ContinueInlinePasteEditor {
@@ -321,34 +328,34 @@ export function normalizeClipboardFileDraftItems(files: File[]): PasteResourceDr
   return files.map((file) => ({
     ...(typeof window !== "undefined" && window.api?.getPathInfoForFile
       ? (() => {
-        const pathInfo = window.api.getPathInfoForFile?.(file);
-        if (!pathInfo) {
+          const pathInfo = window.api.getPathInfoForFile?.(file);
+          if (!pathInfo) {
+            return {
+              kind: "file" as const,
+              name: file.name || "Untitled file",
+              file,
+              mimeType: file.type || undefined,
+              bytes: file.size,
+            };
+          }
+
           return {
-            kind: "file" as const,
-            name: file.name || "Untitled file",
+            kind: pathInfo.kind,
+            name: pathInfo.name || file.name || "Untitled file",
+            path: pathInfo.path,
             file,
             mimeType: file.type || undefined,
-            bytes: file.size,
+            ...(pathInfo.kind === "file"
+              ? { bytes: typeof pathInfo.bytes === "number" ? pathInfo.bytes : file.size }
+              : {}),
           };
-        }
-
-        return {
-          kind: pathInfo.kind,
-          name: pathInfo.name || file.name || "Untitled file",
-          path: pathInfo.path,
+        })()
+      : {
+          kind: "file" as const,
+          name: file.name || "Untitled file",
           file,
           mimeType: file.type || undefined,
-          ...(pathInfo.kind === "file"
-            ? { bytes: typeof pathInfo.bytes === "number" ? pathInfo.bytes : file.size }
-            : {}),
-        };
-      })()
-      : {
-        kind: "file" as const,
-        name: file.name || "Untitled file",
-        file,
-        mimeType: file.type || undefined,
-        bytes: file.size,
-      }),
+          bytes: file.size,
+        }),
   }));
 }

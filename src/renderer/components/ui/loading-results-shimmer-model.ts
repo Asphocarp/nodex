@@ -30,8 +30,7 @@ export function buildLoadingResultsWidths({
   let state = hashLoadingResultsSeed(`${seed}:${count}:${lower}:${upper}`);
 
   return Array.from({ length: Math.max(0, count) }, () => {
-    state = (state * LOADING_RESULTS_LCG_MULTIPLIER)
-      % LOADING_RESULTS_HASH_MODULUS;
+    state = (state * LOADING_RESULTS_LCG_MULTIPLIER) % LOADING_RESULTS_HASH_MODULUS;
     return lower + (state / LOADING_RESULTS_HASH_MODULUS) * range;
   });
 }

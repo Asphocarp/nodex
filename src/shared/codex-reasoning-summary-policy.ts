@@ -10,18 +10,13 @@ export const CODEX_CONCURRENT_REASONING_SUMMARIES_ENABLED = true as const;
 /** Electron resolves this feature to detailed summaries for ordinary turns. */
 export const CODEX_DEFAULT_REASONING_SUMMARY: ReasoningSummary = "detailed";
 
-const REASONING_SUMMARIES = new Set<ReasoningSummary>([
-  "auto",
-  "concise",
-  "detailed",
-  "none",
-]);
+const REASONING_SUMMARIES = new Set<ReasoningSummary>(["auto", "concise", "detailed", "none"]);
 
 export function parseCodexReasoningSummary(value: unknown): ReasoningSummary | null | undefined {
   if (value === null) return null;
   if (typeof value !== "string") return undefined;
   return REASONING_SUMMARIES.has(value as ReasoningSummary)
-    ? value as ReasoningSummary
+    ? (value as ReasoningSummary)
     : undefined;
 }
 
@@ -31,11 +26,13 @@ export function parseCodexReasoningSummary(value: unknown): ReasoningSummary | n
  * explicit per-turn override. `null` is represented as the protocol's
  * `none` mode because the request must carry a concrete summary policy.
  */
-export function resolveCodexReasoningSummary(input: {
-  configuredSummary?: ReasoningSummary | null;
-  explicitSummary?: ReasoningSummary | null;
-  concurrentReasoningSummaries?: boolean;
-} = {}): ReasoningSummary {
+export function resolveCodexReasoningSummary(
+  input: {
+    configuredSummary?: ReasoningSummary | null;
+    explicitSummary?: ReasoningSummary | null;
+    concurrentReasoningSummaries?: boolean;
+  } = {},
+): ReasoningSummary {
   let summary = input.configuredSummary ?? "none";
   if (input.concurrentReasoningSummaries ?? CODEX_CONCURRENT_REASONING_SUMMARIES_ENABLED) {
     summary = CODEX_DEFAULT_REASONING_SUMMARY;

@@ -117,9 +117,7 @@ export function findAvailableQuotaResetCredit(
 }
 
 export function formatQuotaResetAvailability(availableCount: number): string {
-  return availableCount === 1
-    ? "1 available reset"
-    : `${availableCount} available resets`;
+  return availableCount === 1 ? "1 available reset" : `${availableCount} available resets`;
 }
 
 export function getRemainingRateLimitPercent(usedPercent: number): number {
@@ -149,9 +147,10 @@ export function formatRateLimitSummary(
 ): string | null {
   if (!rateLimits) return null;
 
-  const parts = [buildRateLimitSummaryPart(rateLimits.primary), buildRateLimitSummaryPart(rateLimits.secondary)].filter(
-    (part): part is string => part !== null,
-  );
+  const parts = [
+    buildRateLimitSummaryPart(rateLimits.primary),
+    buildRateLimitSummaryPart(rateLimits.secondary),
+  ].filter((part): part is string => part !== null);
   if (parts.length === 0) return null;
 
   return parts.join(" · ");
@@ -191,7 +190,7 @@ export function buildRateLimitRingViewModel(
     .sort((left, right) => left.windowDurationMins - right.windowDurationMins);
 
   const outer = windows[0] ?? null;
-  const inner = windows.length > 1 ? windows[windows.length - 1] ?? null : null;
+  const inner = windows.length > 1 ? (windows[windows.length - 1] ?? null) : null;
   const ariaParts = [outer, inner]
     .filter((window): window is RateLimitRingWindowView => window !== null)
     .map((window) => `${window.ariaLabel} ${window.remainingPercent}%`);
@@ -199,9 +198,10 @@ export function buildRateLimitRingViewModel(
   return {
     outer,
     inner,
-    ariaLabel: ariaParts.length > 0
-      ? `Usage remaining: ${ariaParts.join(", ")}`
-      : "Usage remaining unavailable",
+    ariaLabel:
+      ariaParts.length > 0
+        ? `Usage remaining: ${ariaParts.join(", ")}`
+        : "Usage remaining unavailable",
     summaryLabel: ariaParts.length > 0 ? ariaParts.join(", ") : null,
     hasLimits: ariaParts.length > 0,
   };
@@ -344,9 +344,11 @@ export function QuotaResetTooltipSection({
           {message ? (
             <p
               aria-live="polite"
-              className={message.kind === "error"
-                ? "m-0 text-xs text-(--destructive)"
-                : "m-0 text-xs text-(--foreground-secondary)"}
+              className={
+                message.kind === "error"
+                  ? "m-0 text-xs text-(--destructive)"
+                  : "m-0 text-xs text-(--foreground-secondary)"
+              }
             >
               {message.text}
             </p>

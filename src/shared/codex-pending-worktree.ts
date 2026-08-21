@@ -158,10 +158,12 @@ export interface CodexPendingWorktreeCreateResult {
 export function canCreateCodexPendingWorktreeSetupRepair(
   entry: CodexPendingWorktreeEntry,
 ): boolean {
-  return entry.phase === "failed"
-    && entry.localEnvironmentConfigPath != null
-    && entry.worktreeGitRoot != null
-    && entry.worktreeWorkspaceRoot != null;
+  return (
+    entry.phase === "failed" &&
+    entry.localEnvironmentConfigPath != null &&
+    entry.worktreeGitRoot != null &&
+    entry.worktreeWorkspaceRoot != null
+  );
 }
 
 /** Exact setup Auto-fix prompt; the repair task must not continue the original request. */
@@ -233,11 +235,12 @@ export function buildCodexPendingWorktreeInitItem(
     type: "worktreeInit",
     id: `${entry.id}:${entry.attempt}`,
     worktreeOutputText: entry.worktreeOutputText,
-    setup: entry.localEnvironmentConfigPath == null
-      ? null
-      : {
-          outcome: entry.errorMessage === null ? "completed" : "skipped",
-          outputText: entry.setupOutputText,
-        },
+    setup:
+      entry.localEnvironmentConfigPath == null
+        ? null
+        : {
+            outcome: entry.errorMessage === null ? "completed" : "skipped",
+            outputText: entry.setupOutputText,
+          },
   };
 }

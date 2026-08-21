@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  findWorkbenchPanelLeafForTab,
-} from "../../shared/workbench-panel-layout";
+import { findWorkbenchPanelLeafForTab } from "../../shared/workbench-panel-layout";
 import {
   collectWorkbenchScenePresentedPageIds,
   materializeInitialWorkbenchScene,
@@ -17,10 +15,7 @@ describe("Workbench Scene preview projection", () => {
     const owner = { kind: "project" as const, projectId: "project:one" };
     const scene = materializeInitialWorkbenchScene(owner);
     if (!scene.primary) throw new Error("Expected Project primary");
-    const leaf = findWorkbenchPanelLeafForTab(
-      scene.panels.right.layout,
-      scene.primary.id,
-    );
+    const leaf = findWorkbenchPanelLeafForTab(scene.panels.right.layout, scene.primary.id);
     if (!leaf) throw new Error("Expected Project primary leaf");
     const durableLayout = scene.panels.right.layout;
     const preview: WorkbenchSurfaceDescriptor = {
@@ -35,11 +30,7 @@ describe("Workbench Scene preview projection", () => {
       state: null,
     };
     const projection = projectWorkbenchScenePreviews(scene, {
-      [makeWorkbenchScenePreviewSlotKey(
-        owner,
-        "right",
-        leaf.id,
-      )]: preview,
+      [makeWorkbenchScenePreviewSlotKey(owner, "right", leaf.id)]: preview,
     });
     const projectedLeaf = findWorkbenchPanelLeafForTab(
       projection.scene.panels.right.layout,
@@ -51,7 +42,6 @@ describe("Workbench Scene preview projection", () => {
     expect(projectedLeaf?.activeTabId).toBe(preview.id);
     expect(projection.scene.panelSurfacesById[preview.id]).toBe(preview);
     expect([...projection.previewSurfaceIds]).toEqual([preview.id]);
-    expect([...collectWorkbenchScenePresentedPageIds(projection.scene)])
-      .toEqual(["page:one"]);
+    expect([...collectWorkbenchScenePresentedPageIds(projection.scene)]).toEqual(["page:one"]);
   });
 });

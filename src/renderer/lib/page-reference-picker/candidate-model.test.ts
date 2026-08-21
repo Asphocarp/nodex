@@ -29,20 +29,26 @@ describe("Page reference candidate model", () => {
       hostPageId: "host",
       ancestorPageIds: ["ancestor"],
     } as const;
-    expect(resolvePageReferenceDisabledReason({ ...context, intent: "reference_block" })).toBe("self");
-    expect(resolvePageReferenceDisabledReason({
-      ...context,
-      pageId: "ancestor",
-      intent: "reference_block",
-    })).toBe("ancestor_cycle");
+    expect(resolvePageReferenceDisabledReason({ ...context, intent: "reference_block" })).toBe(
+      "self",
+    );
+    expect(
+      resolvePageReferenceDisabledReason({
+        ...context,
+        pageId: "ancestor",
+        intent: "reference_block",
+      }),
+    ).toBe("ancestor_cycle");
     expect(resolvePageReferenceDisabledReason({ ...context, intent: "mention" })).toBeNull();
   });
 
   test("uses Page identity for deduplication and selection", () => {
-    expect(deduplicatePageReferenceCandidates(
-      [candidate("one"), candidate("one"), candidate("two")],
-      2,
-    ).map((item) => item.pageId)).toEqual(["one", "two"]);
+    expect(
+      deduplicatePageReferenceCandidates(
+        [candidate("one"), candidate("one"), candidate("two")],
+        2,
+      ).map((item) => item.pageId),
+    ).toEqual(["one", "two"]);
     expect(selectPageReferenceCandidate(candidate("active"))).toEqual({
       pageId: "active",
       titleSnapshot: "active",
@@ -61,17 +67,19 @@ describe("Page reference candidate model", () => {
           { text: "projection", highlighted: true },
           { text: " stays bounded.", highlighted: false },
         ],
-        matches: [{
-          source: "body",
-          quality: "exact",
-          blockId: "block:one",
-          blockType: "paragraph",
-          parts: [
-            { text: "The ", highlighted: false },
-            { text: "projection", highlighted: true },
-            { text: " stays bounded.", highlighted: false },
-          ],
-        }],
+        matches: [
+          {
+            source: "body",
+            quality: "exact",
+            blockId: "block:one",
+            blockType: "paragraph",
+            parts: [
+              { text: "The ", highlighted: false },
+              { text: "projection", highlighted: true },
+              { text: " stays bounded.", highlighted: false },
+            ],
+          },
+        ],
       },
       {
         ...candidate("title-second"),
@@ -81,21 +89,20 @@ describe("Page reference candidate model", () => {
           { text: "Projection", highlighted: true },
           { text: " notes", highlighted: false },
         ],
-        matches: [{
-          source: "title",
-          quality: "prefix",
-          parts: [
-            { text: "Projection", highlighted: true },
-            { text: " notes", highlighted: false },
-          ],
-        }],
+        matches: [
+          {
+            source: "title",
+            quality: "prefix",
+            parts: [
+              { text: "Projection", highlighted: true },
+              { text: " notes", highlighted: false },
+            ],
+          },
+        ],
       },
     ]);
 
-    expect(items.map((item) => item.candidate.pageId)).toEqual([
-      "body-first",
-      "title-second",
-    ]);
+    expect(items.map((item) => item.candidate.pageId)).toEqual(["body-first", "title-second"]);
     expect(items[0]).toMatchObject({ match: "content", detail: "The projection stays bounded." });
     expect(items[1]).toMatchObject({ match: "prefix_title", detail: null });
     expect(items[1]?.titleSegments?.[0]).toEqual({ text: "Projection", highlight: true });

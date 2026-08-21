@@ -43,9 +43,7 @@ describe("buildThreadSummaryPanelPlanRow", () => {
       activeThreadId: "thread-1",
       cwd: "/repo/project",
       turns: [
-        buildTurn("turn-old", "completed", [
-          buildPlanItem("old-plan", "# Old plan\n\n- First"),
-        ]),
+        buildTurn("turn-old", "completed", [buildPlanItem("old-plan", "# Old plan\n\n- First")]),
         buildTurn("turn-new", "completed", [
           buildPlanItem("new-plan", "# Summary panel parity\n\n- Compare reference"),
         ]),
@@ -80,9 +78,7 @@ describe("buildThreadSummaryPanelPlanRow", () => {
       activeThreadId: "thread-1",
       cwd: null,
       turns: [
-        buildTurn("turn-plan", "completed", [
-          buildPlanItem("plan", "1. Inspect\n2. Implement"),
-        ]),
+        buildTurn("turn-plan", "completed", [buildPlanItem("plan", "1. Inspect\n2. Implement")]),
       ],
     });
 

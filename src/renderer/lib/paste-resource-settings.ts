@@ -22,17 +22,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function normalizeInteger(
-  value: unknown,
-  fallback: number,
-  min: number,
-  max: number,
-): number {
-  const parsed = typeof value === "number"
-    ? value
-    : typeof value === "string"
-      ? Number.parseInt(value, 10)
-      : Number.NaN;
+function normalizeInteger(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number.parseInt(value, 10)
+        : Number.NaN;
 
   if (!Number.isFinite(parsed)) return fallback;
   return Math.min(max, Math.max(min, Math.floor(parsed)));
@@ -70,10 +66,7 @@ export function readPasteResourceSettings(): PasteResourceSettings {
 export function writePasteResourceSettings(value: unknown): PasteResourceSettings {
   const normalized = normalizePasteResourceSettings(value);
   try {
-    localStorage.setItem(
-      PASTE_RESOURCE_SETTINGS_STORAGE_KEY,
-      JSON.stringify(normalized),
-    );
+    localStorage.setItem(PASTE_RESOURCE_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
   } catch {
     // localStorage may be unavailable.
   }

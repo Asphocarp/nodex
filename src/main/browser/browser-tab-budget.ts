@@ -45,10 +45,10 @@ export function selectBrowserTabsToSuspend(
   entries: readonly BrowserTabBudgetEntry[],
   options: BrowserTabBudgetOptions = {},
 ): BrowserTabBudgetEntry[] {
-  const maxLiveDetachedPages = options.maxLiveDetachedPages
-    ?? MAX_LIVE_DETACHED_BROWSER_PAGES_PER_WINDOW;
-  const recentProtectionMs = options.recentProtectionMs
-    ?? RECENTLY_SELECTED_BROWSER_PAGE_PROTECTION_MS;
+  const maxLiveDetachedPages =
+    options.maxLiveDetachedPages ?? MAX_LIVE_DETACHED_BROWSER_PAGES_PER_WINDOW;
+  const recentProtectionMs =
+    options.recentProtectionMs ?? RECENTLY_SELECTED_BROWSER_PAGE_PROTECTION_MS;
   const now = options.now ?? Date.now();
   const liveDetached = entries.filter(isLiveDetached);
   const overflow = liveDetached.length - maxLiveDetachedPages;
@@ -56,10 +56,11 @@ export function selectBrowserTabsToSuspend(
 
   return liveDetached
     .filter((entry) => !isProtected(entry, now, recentProtectionMs))
-    .sort((left, right) =>
-      left.lastSelectedAt - right.lastSelectedAt
-      || left.updatedAt - right.updatedAt
-      || left.browserTabId.localeCompare(right.browserTabId)
+    .sort(
+      (left, right) =>
+        left.lastSelectedAt - right.lastSelectedAt ||
+        left.updatedAt - right.updatedAt ||
+        left.browserTabId.localeCompare(right.browserTabId),
     )
     .slice(0, overflow);
 }

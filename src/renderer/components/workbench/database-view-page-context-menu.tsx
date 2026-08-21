@@ -40,11 +40,7 @@ import {
   NodexContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { NodexDropdown } from "@/components/ui/dropdown";
-import {
-  NodexPopover,
-  NodexPopoverAnchor,
-  NodexPopoverContent,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverAnchor, NodexPopoverContent } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
 import { NfmSendToThreadMenu } from "@/components/board/editor/nfm-send-to-thread-menu";
 import { writeTextToClipboard } from "@/lib/clipboard";
@@ -131,12 +127,14 @@ function PageActionSubmenu({
 }) {
   return (
     <NodexContextMenuSubmenu
-      trigger={<NodexContextMenuSubmenuTrigger
-        leftSlot={<DatabaseViewPageMenuActionIcon actionId={entry.id} />}
-        rightSlot={<ChevronRightIcon className="icon-xs opacity-75" />}
-      >
-        {entry.label}
-      </NodexContextMenuSubmenuTrigger>}
+      trigger={
+        <NodexContextMenuSubmenuTrigger
+          leftSlot={<DatabaseViewPageMenuActionIcon actionId={entry.id} />}
+          rightSlot={<ChevronRightIcon className="icon-xs opacity-75" />}
+        >
+          {entry.label}
+        </NodexContextMenuSubmenuTrigger>
+      }
       alignOffset={-4}
       contentClassName="min-w-[220px]"
       renderContent={() => (
@@ -250,11 +248,7 @@ export function DatabaseViewPageContextMenuOverlay({
   const inputRef = useRef<HTMLInputElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const redirectedInitialFocusRef = useRef(false);
-  const presentedTitle = usePresentedPageTitle(
-    page.pageId,
-    page.titleSnapshot,
-    page.libraryId,
-  );
+  const presentedTitle = usePresentedPageTitle(page.pageId, page.titleSnapshot, page.libraryId);
   const presentedPage = { ...page, titleSnapshot: presentedTitle };
   const actions = filterDatabaseViewPageMenuEntries(
     buildDatabaseViewPageMenuEntries({
@@ -268,10 +262,7 @@ export function DatabaseViewPageContextMenuOverlay({
     }),
     query,
   );
-  const hasVisibleProperties = pagePropertyContextMenuHasMatches(
-    propertySource.descriptors,
-    query,
-  );
+  const hasVisibleProperties = pagePropertyContextMenuHasMatches(propertySource.descriptors, query);
 
   const handleMenuOpenChange = (open: boolean): void => {
     onMenuOpenChange(open);
@@ -283,7 +274,7 @@ export function DatabaseViewPageContextMenuOverlay({
   useEffect(() => {
     if (menuOpen || !chatPicker || chatPicker.open) return;
     const frame = requestAnimationFrame(() => {
-      setChatPicker((current) => current ? { ...current, open: true } : null);
+      setChatPicker((current) => (current ? { ...current, open: true } : null));
     });
     return () => cancelAnimationFrame(frame);
   }, [chatPicker, menuOpen]);
@@ -313,23 +304,19 @@ export function DatabaseViewPageContextMenuOverlay({
       });
       if (!request) return;
       if (request.kind === "value") {
-        void copyWithFeedback(
-          request.value,
-          request.successMessage,
-          request.failureMessage,
-        );
+        void copyWithFeedback(request.value, request.successMessage, request.failureMessage);
         return;
       }
       void loadPageDocumentMaterialization({
         accessContext: request.accessContext,
         pageId: request.pageId,
-      }).then((materialized) => copyWithFeedback(
-        materialized.nfm,
-        request.successMessage,
-        request.failureMessage,
-      )).catch(() => {
-        toast.danger(request.failureMessage);
-      });
+      })
+        .then((materialized) =>
+          copyWithFeedback(materialized.nfm, request.successMessage, request.failureMessage),
+        )
+        .catch(() => {
+          toast.danger(request.failureMessage);
+        });
       return;
     }
 
@@ -362,28 +349,18 @@ export function DatabaseViewPageContextMenuOverlay({
       });
   };
 
-  const selectActionAndClose = (
-    actionId: DatabaseViewPageMenuActionId,
-  ): void => {
+  const selectActionAndClose = (actionId: DatabaseViewPageMenuActionId): void => {
     selectAction(actionId);
     handleMenuOpenChange(false);
   };
 
-  const renderAction = (
-    action: DatabaseViewPageMenuEntry,
-    index: number,
-  ): ReactNode => {
-    const separator = action.id === "delete" && index > 0
-      ? <NodexDropdown.Separator />
-      : null;
+  const renderAction = (action: DatabaseViewPageMenuEntry, index: number): ReactNode => {
+    const separator = action.id === "delete" && index > 0 ? <NodexDropdown.Separator /> : null;
     if (action.children) {
       return (
         <Fragment key={action.id}>
           {separator}
-          <PageActionSubmenu
-            entry={action}
-            onSelect={selectActionAndClose}
-          />
+          <PageActionSubmenu entry={action} onSelect={selectActionAndClose} />
         </Fragment>
       );
     }
@@ -463,9 +440,7 @@ export function DatabaseViewPageContextMenu({
   const [menuOpen, setMenuOpen] = useState(false);
   return (
     <NodexContextMenuRoot open={menuOpen} onOpenChange={setMenuOpen}>
-      <NodexContextMenuTrigger className="contents">
-        {children}
-      </NodexContextMenuTrigger>
+      <NodexContextMenuTrigger className="contents">{children}</NodexContextMenuTrigger>
       <DatabaseViewPageContextMenuOverlay
         {...session}
         menuOpen={menuOpen}

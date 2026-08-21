@@ -10,12 +10,14 @@ This is intentionally narrower than the main product spec. It is the detailed so
 ## Scope
 
 Included:
+
 - Copy and cut of editor selections through browser `copy` / `cut` events
 - Image-block toolbar `Copy image`
 - Clipboard MIME types written by each path
 - Selection-shape rules that determine whether copied `text/plain` is raw text or structure-preserving text
 
 Not included:
+
 - Paste behavior
 - Board drag/drop `text/plain` payloads
 - Thread transcript copy actions outside the NFM editor
@@ -36,6 +38,7 @@ The editor installs a ProseMirror plugin named `structured-plain-text-copy` that
 ### When it handles the event
 
 Standard copy/cut is handled only when all of the following are true:
+
 - the browser `ClipboardEvent` exposes `clipboardData`
 - the ProseMirror selection is non-empty
 - structured payload creation succeeds
@@ -46,6 +49,7 @@ If any of those fail, the handler returns `false` and the editor falls back to d
 ### MIME types written
 
 When handled successfully, standard copy writes up to 3 clipboard items:
+
 - `blocknote/html`
 - `text/html`
 - `text/plain`
@@ -59,17 +63,20 @@ On success, the handler calls `preventDefault()`.
 Cut uses the same clipboard payload as copy.
 
 After a successful clipboard write:
+
 - if the editor view is editable, it deletes the selection
 - if clipboard serialization/writing fails, it does not delete the selection
 
 ### How copy payloads are derived
 
 All 3 clipboard payloads are derived from the same cut-aware BlockNote selection snapshot when available:
+
 - `blocknote/html`
 - `text/html`
 - `text/plain`
 
 The helper starts from `editor.getSelectionCutBlocks(false)`, rebuilds a normalized selected block tree, and then exports:
+
 - `clipboardHTML` from `editor.blocksToFullHTML(...)`
 - `externalHTML` from `editor.blocksToHTMLLossy(...)`
 - `structuredText` from `blockNoteToNfm(...)` plus `serializeClipboardText(...)`
@@ -85,6 +92,7 @@ Before writing to the clipboard, standard copy/cut rewrites `nodex://assets/...`
 In Electron, the plain-text rewrite is synchronous and uses the preload-exposed asset path prefix so it can run safely inside the browser `copy` / `cut` event.
 
 After replacement, `text/plain` additionally converts `<image ...>caption</image>` lines into Markdown image syntax:
+
 - indentation before the image line is preserved
 - the `source="..."` attribute becomes the Markdown destination
 - captions become Markdown alt text
@@ -148,6 +156,7 @@ If that is unavailable or throws, it falls back to `editor.getSelection()`.
 When `getSelectionCutBlocks(false)` returns a sliced selection snapshot, all payloads are exported from that same normalized block tree.
 
 That means partial inline selections and full-block selections now share one mental model:
+
 - the selected content is projected from BlockNote selection blocks
 - inline formatting markers are preserved when the sliced selection still carries those marks
 - block-level structure is preserved whenever the sliced selection spans multiple blocks or nested children
@@ -158,6 +167,7 @@ Later blocks are not rewritten, including a partially cut last block.
 ### Structure reconstruction
 
 For cut-aware selections, the helper:
+
 - deduplicates blocks by id
 - prefers the richer variant when the same block appears more than once
 - rebuilds parent/child relations from both explicit child arrays and `getParentBlock(...)`
@@ -332,12 +342,14 @@ third
 ### HTML fallback path
 
 If there are no usable selection blocks, or structured serialization throws, the helper tries to recover structure from clipboard HTML:
+
 - it prefers `clipboardHTML` first
 - then falls back to `externalHTML`
 - it parses HTML through `tryParseHTMLToBlocks(...)`
 - it serializes the parsed blocks with the same clipboard-text serializer
 
 When both a selection-derived result and an HTML-derived result exist, the helper keeps the "richer" one using a simple heuristic that favors:
+
 - deeper tab indentation
 - more blank lines
 - more total lines
@@ -351,6 +363,7 @@ The clipboard serializer preserves block structure and keeps a small subset of i
 ### Inline behavior
 
 Inline serialization currently works like this:
+
 - text spans emit their literal text
 - links keep full link syntax (`[label](url)`)
 - inline line breaks emit real `\n`
@@ -363,6 +376,7 @@ Inline serialization currently works like this:
 - inline markdown/NFM escape backslashes are not added
 
 As a result:
+
 - block-level structured copy keeps all current inline NFM markers
 - special characters are not backslash-escaped just to satisfy NFM serialization
 - partial inline-text copy uses the same inline serializer, so formatting markers are preserved when present in the selection snapshot
@@ -370,6 +384,7 @@ As a result:
 ### Block markers kept in `text/plain`
 
 The serializer keeps the editor's structural markers:
+
 - headings keep `#` prefixes
 - bullet items keep `- `
 - numbered items keep `1. `
@@ -406,6 +421,7 @@ If multiple blocks are selected, or the current block is not a valid image block
 ### What it copies
 
 The button tries to copy actual image bytes first:
+
 - resolve the image URL through `editor.resolveFileUrl(...)` when available
 - fetch the resource
 - if the blob is an `image/*`, `ClipboardItem` exists, `clipboard.write(...)` exists, and the MIME type is supported, write the image blob directly
@@ -415,6 +431,7 @@ If that is not possible, it falls back to copying the resolved image URL as plai
 ### Failure behavior
 
 The image copy action throws on:
+
 - missing source
 - failed URL resolution
 - failed fetch

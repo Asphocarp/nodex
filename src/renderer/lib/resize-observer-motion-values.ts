@@ -1,25 +1,8 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type RefCallback,
-} from "react";
-import {
-  useMotionValue,
-  useMotionValueEvent,
-  type MotionValue,
-} from "motion/react";
-import {
-  normalizeElementSize,
-  readResizeObserverBorderBoxSize,
-} from "./resize-observer-size";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefCallback } from "react";
+import { useMotionValue, useMotionValueEvent, type MotionValue } from "motion/react";
+import { normalizeElementSize, readResizeObserverBorderBoxSize } from "./resize-observer-size";
 
-export {
-  normalizeElementSize,
-  readResizeObserverBorderBoxSize,
-} from "./resize-observer-size";
+export { normalizeElementSize, readResizeObserverBorderBoxSize } from "./resize-observer-size";
 
 type ResizeSubscription = (entry: ResizeObserverEntry) => void;
 
@@ -30,10 +13,7 @@ let sharedResizeObserverConstructor: typeof ResizeObserver | null = null;
 
 function getSharedResizeObserver(): ResizeObserver | null {
   if (typeof ResizeObserver === "undefined") return null;
-  if (
-    sharedResizeObserver !== null
-    && sharedResizeObserverConstructor === ResizeObserver
-  ) {
+  if (sharedResizeObserver !== null && sharedResizeObserverConstructor === ResizeObserver) {
     return sharedResizeObserver;
   }
 
@@ -50,10 +30,7 @@ function getSharedResizeObserver(): ResizeObserver | null {
   return sharedResizeObserver;
 }
 
-function subscribeToElementResize(
-  element: Element,
-  subscription: ResizeSubscription,
-): () => void {
+function subscribeToElementResize(element: Element, subscription: ResizeSubscription): () => void {
   const observer = getSharedResizeObserver();
   if (!observer) {
     const notify = () => {
@@ -133,39 +110,48 @@ export function useElementSizeMotionValues({
   const elementRef = useRef<HTMLElement | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
 
-  const applySize = useCallback((nextWidth: number, nextHeight: number) => {
-    const normalizedWidth = normalizeElementSize(nextWidth);
-    const normalizedHeight = normalizeElementSize(nextHeight);
-    if (width.get() !== normalizedWidth) width.set(normalizedWidth);
-    if (height.get() !== normalizedHeight) height.set(normalizedHeight);
-  }, [height, width]);
+  const applySize = useCallback(
+    (nextWidth: number, nextHeight: number) => {
+      const normalizedWidth = normalizeElementSize(nextWidth);
+      const normalizedHeight = normalizeElementSize(nextHeight);
+      if (width.get() !== normalizedWidth) width.set(normalizedWidth);
+      if (height.get() !== normalizedHeight) height.set(normalizedHeight);
+    },
+    [height, width],
+  );
 
-  const measureElement = useCallback((element: HTMLElement) => {
-    const rect = element.getBoundingClientRect();
-    const fallbackSize = readFallbackSize?.();
-    applySize(
-      rect.width > 0 ? rect.width : (fallbackSize?.width ?? rect.width),
-      rect.height > 0 ? rect.height : (fallbackSize?.height ?? rect.height),
-    );
-  }, [applySize, readFallbackSize]);
+  const measureElement = useCallback(
+    (element: HTMLElement) => {
+      const rect = element.getBoundingClientRect();
+      const fallbackSize = readFallbackSize?.();
+      applySize(
+        rect.width > 0 ? rect.width : (fallbackSize?.width ?? rect.width),
+        rect.height > 0 ? rect.height : (fallbackSize?.height ?? rect.height),
+      );
+    },
+    [applySize, readFallbackSize],
+  );
 
-  const ref = useCallback<RefCallback<HTMLElement>>((element) => {
-    if (elementRef.current === element) return;
-    unsubscribeRef.current?.();
-    unsubscribeRef.current = null;
-    elementRef.current = element;
-    if (!element) return;
+  const ref = useCallback<RefCallback<HTMLElement>>(
+    (element) => {
+      if (elementRef.current === element) return;
+      unsubscribeRef.current?.();
+      unsubscribeRef.current = null;
+      elementRef.current = element;
+      if (!element) return;
 
-    measureElement(element);
-    unsubscribeRef.current = subscribeToElementResize(element, (entry) => {
-      const size = readResizeObserverBorderBoxSize(entry);
-      if (size.width > 0 && size.height > 0) {
-        applySize(size.width, size.height);
-        return;
-      }
       measureElement(element);
-    });
-  }, [applySize, measureElement]);
+      unsubscribeRef.current = subscribeToElementResize(element, (entry) => {
+        const size = readResizeObserverBorderBoxSize(entry);
+        if (size.width > 0 && size.height > 0) {
+          applySize(size.width, size.height);
+          return;
+        }
+        measureElement(element);
+      });
+    },
+    [applySize, measureElement],
+  );
 
   useEffect(() => {
     if (!readFallbackSize) return undefined;
@@ -177,11 +163,14 @@ export function useElementSizeMotionValues({
     return () => window.removeEventListener("resize", measureFallback);
   }, [applySize, readFallbackSize]);
 
-  useEffect(() => () => {
-    unsubscribeRef.current?.();
-    unsubscribeRef.current = null;
-    elementRef.current = null;
-  }, []);
+  useEffect(
+    () => () => {
+      unsubscribeRef.current?.();
+      unsubscribeRef.current = null;
+      elementRef.current = null;
+    },
+    [],
+  );
 
   return { height, ref, width };
 }

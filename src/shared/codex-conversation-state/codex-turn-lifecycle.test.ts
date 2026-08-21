@@ -10,50 +10,53 @@ import { reduceCodexConversationTurnLifecycle } from "./codex-turn-lifecycle";
 const THREAD_ID = "thread-turn-lifecycle";
 
 function buildState() {
-  return createCodexCanonicalHydratedConversationState({
-    id: THREAD_ID,
-    extra: null,
-    sessionId: "session-turn-lifecycle",
-    forkedFromId: null,
-    parentThreadId: null,
-    preview: "",
-    ephemeral: false,
-    section: null,
-    sectionEnteredAt: null,
-    historyMode: "paginated",
-    modelProvider: "openai",
-    createdAt: 1,
-    updatedAt: 1,
-    recencyAt: 1,
-    status: { type: "idle" },
-    path: null,
-    cwd: "/workspace",
-    cliVersion: "test",
-    source: "appServer",
-    canAcceptDirectInput: true,
-    threadSource: null,
-    agentNickname: null,
-    agentRole: null,
-    gitInfo: null,
-    name: null,
-    turns: [],
-  }, {
-    model: "gpt-test",
-    reasoningEffort: "high",
-    cwd: "/workspace",
-    approvalPolicy: "on-request",
-    approvalsReviewer: "user",
-    sandboxPolicy: {
-      type: "workspaceWrite",
-      writableRoots: ["/workspace"],
-      networkAccess: false,
-      excludeTmpdirEnvVar: false,
-      excludeSlashTmp: false,
+  return createCodexCanonicalHydratedConversationState(
+    {
+      id: THREAD_ID,
+      extra: null,
+      sessionId: "session-turn-lifecycle",
+      forkedFromId: null,
+      parentThreadId: null,
+      preview: "",
+      ephemeral: false,
+      section: null,
+      sectionEnteredAt: null,
+      historyMode: "paginated",
+      modelProvider: "openai",
+      createdAt: 1,
+      updatedAt: 1,
+      recencyAt: 1,
+      status: { type: "idle" },
+      path: null,
+      cwd: "/workspace",
+      cliVersion: "test",
+      source: "appServer",
+      canAcceptDirectInput: true,
+      threadSource: null,
+      agentNickname: null,
+      agentRole: null,
+      gitInfo: null,
+      name: null,
+      turns: [],
     },
-    activePermissionProfile: { id: ":workspace", extends: null },
-    runtimeWorkspaceRoots: ["/workspace"],
-    hasUnreadTurn: false,
-  });
+    {
+      model: "gpt-test",
+      reasoningEffort: "high",
+      cwd: "/workspace",
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/workspace"],
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+      activePermissionProfile: { id: ":workspace", extends: null },
+      runtimeWorkspaceRoots: ["/workspace"],
+      hasUnreadTurn: false,
+    },
+  );
 }
 
 function appendPlaceholder() {
@@ -123,28 +126,33 @@ describe("Codex 30751 turn lifecycle", () => {
     };
     const withOldTurn = {
       ...placeholder,
-      turns: [{
-        protocol: {
-          id: "old-turn",
-          itemsView: "full" as const,
-          status: "completed" as const,
-          error: null,
-          durationMs: 1,
+      turns: [
+        {
+          protocol: {
+            id: "old-turn",
+            itemsView: "full" as const,
+            status: "completed" as const,
+            error: null,
+            durationMs: 1,
+          },
+          items: [staleItem],
+          sidecar: {
+            params,
+            diff: null,
+            turnStartedAtMs: 1,
+            finalAssistantStartedAtMs: null,
+          },
         },
-        items: [staleItem],
-        sidecar: {
-          params,
-          diff: null,
-          turnStartedAtMs: 1,
-          finalAssistantStartedAtMs: null,
-        },
-      }, ...placeholder.turns],
-      requests: [createCodexCanonicalPlanImplementationRequest(
-        THREAD_ID,
-        "old-turn",
-        "Old plan",
-        staleItem.id,
-      )],
+        ...placeholder.turns,
+      ],
+      requests: [
+        createCodexCanonicalPlanImplementationRequest(
+          THREAD_ID,
+          "old-turn",
+          "Old plan",
+          staleItem.id,
+        ),
+      ],
     };
     const started = reduceCodexConversationTurnLifecycle(withOldTurn, {
       conversationId: THREAD_ID,
@@ -159,7 +167,9 @@ describe("Codex 30751 turn lifecycle", () => {
         durationMs: null,
       },
     }).state;
-    expect((started.turns[0]?.items[0] as CodexCanonicalPlanImplementationItem).isCompleted).toBe(true);
+    expect((started.turns[0]?.items[0] as CodexCanonicalPlanImplementationItem).isCompleted).toBe(
+      true,
+    );
     expect(started.requests.length).toBe(0);
 
     const activeIndex = started.turns.findIndex((turn) => turn.protocol.id === "turn-1");
@@ -169,19 +179,22 @@ describe("Codex 30751 turn lifecycle", () => {
       ...active,
       items: [{ type: "plan", id: "plan-1", text: "  Ship exact parity  " }],
     };
-    const completed = reduceCodexConversationTurnLifecycle({ ...started, turns }, {
-      conversationId: THREAD_ID,
-      method: "turn/completed",
-      observedAtMs: 120,
-      turn: {
-        id: "turn-1",
-        status: "completed",
-        error: null,
-        startedAt: null,
-        completedAt: 3,
-        durationMs: 42,
+    const completed = reduceCodexConversationTurnLifecycle(
+      { ...started, turns },
+      {
+        conversationId: THREAD_ID,
+        method: "turn/completed",
+        observedAtMs: 120,
+        turn: {
+          id: "turn-1",
+          status: "completed",
+          error: null,
+          startedAt: null,
+          completedAt: 3,
+          durationMs: 42,
+        },
       },
-    }).state;
+    ).state;
     const completedTurn = completed.turns[activeIndex];
     const implementation = completedTurn?.items.find((item) => item.type === "planImplementation");
 

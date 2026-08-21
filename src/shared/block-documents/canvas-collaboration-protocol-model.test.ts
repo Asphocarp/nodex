@@ -10,8 +10,7 @@ interface PendingMutation {
   readonly candidate: CanvasSceneElement;
 }
 
-const elementId = (element: CanvasSceneElement): string =>
-  String(element.id);
+const elementId = (element: CanvasSceneElement): string => String(element.id);
 
 const elementVersion = (element: CanvasSceneElement | undefined): number =>
   Number(element?.version ?? 0);
@@ -30,21 +29,15 @@ const applyCandidate = (
 ): boolean => {
   const id = elementId(candidate);
   const current = scene.get(id);
-  const winner = current
-    ? chooseCanvasSceneElementWinner(current, candidate)
-    : candidate;
+  const winner = current ? chooseCanvasSceneElementWinner(current, candidate) : candidate;
   if (winner === current) return false;
   scene.set(id, winner);
   return true;
 };
 
-const sceneEvidence = (
-  scene: ReadonlyMap<string, CanvasSceneElement>,
-): readonly unknown[] =>
+const sceneEvidence = (scene: ReadonlyMap<string, CanvasSceneElement>): readonly unknown[] =>
   [...scene.values()]
-    .sort((left, right) =>
-      elementId(left).localeCompare(elementId(right))
-    )
+    .sort((left, right) => elementId(left).localeCompare(elementId(right)))
     .map((element) => element.value);
 
 describe("seeded Canvas collaboration protocol model", () => {

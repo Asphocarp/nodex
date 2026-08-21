@@ -31,16 +31,12 @@ const transportFailure = (error: unknown): CanvasSceneMutationError => ({
 
 interface ElectronCanvasSubscriber {
   readonly listener: (event: CanvasSceneRealtimeEvent) => void;
-  readonly presenceListener?: (
-    event: CanvasPresenceRealtimeEvent,
-  ) => void;
+  readonly presenceListener?: (event: CanvasPresenceRealtimeEvent) => void;
 }
 
 interface ElectronCanvasSubscription {
   readonly subscribers: Set<ElectronCanvasSubscriber>;
-  readonly lifecycle: ExactRemoteSubscriptionLifecycle<
-    CanvasSceneSubscriptionCommandResult
-  >;
+  readonly lifecycle: ExactRemoteSubscriptionLifecycle<CanvasSceneSubscriptionCommandResult>;
 }
 
 export const createElectronCanvasSceneSyncAdapter = (
@@ -50,7 +46,7 @@ export const createElectronCanvasSceneSyncAdapter = (
   const accessKey = contentAccessContextKey(identity.accessContext);
   const subscriptions = new Map<string, ElectronCanvasSubscription>();
   const invoke = async <T>(channel: string, request: unknown): Promise<T> =>
-    await bridge.invoke(channel, request) as T;
+    (await bridge.invoke(channel, request)) as T;
   const invokeSubscription = async (
     channel: string,
     request: CanvasSceneSubscribeRequest,
@@ -63,8 +59,7 @@ export const createElectronCanvasSceneSyncAdapter = (
   };
   const ensureRemoteSubscription = (
     entry: ElectronCanvasSubscription,
-  ): Promise<CanvasSceneSubscriptionCommandResult> =>
-    entry.lifecycle.ensure();
+  ): Promise<CanvasSceneSubscriptionCommandResult> => entry.lifecycle.ensure();
   return {
     subscribe(request, listener, presenceListener) {
       if (contentAccessContextKey(request.accessContext) !== accessKey) {
@@ -75,86 +70,71 @@ export const createElectronCanvasSceneSyncAdapter = (
       if (!entry) {
         const subscribers = new Set<ElectronCanvasSubscriber>();
         const fullRequest = { version: 1 as const, ...request };
-        const removeBridgeListener = bridge.on(
-          "document-sync:event",
-          (...args: unknown[]) => {
-            const event = args[0] as
-              | CanvasSceneRealtimeEvent
-              | CanvasPresenceRealtimeEvent;
-            if (
-              event
-              && "type" in event
-              && (event.type === "canvas_presence_snapshot"
-                || event.type === "canvas_presence_updated")
-            ) {
-              try {
-                const presenceEvent = canonicalizeCanvasPresenceRealtimeEvent(
-                  event,
-                );
-                const documentId = presenceEvent.type ===
-                    "canvas_presence_snapshot"
+        const removeBridgeListener = bridge.on("document-sync:event", (...args: unknown[]) => {
+          const event = args[0] as CanvasSceneRealtimeEvent | CanvasPresenceRealtimeEvent;
+          if (
+            event &&
+            "type" in event &&
+            (event.type === "canvas_presence_snapshot" || event.type === "canvas_presence_updated")
+          ) {
+            try {
+              const presenceEvent = canonicalizeCanvasPresenceRealtimeEvent(event);
+              const documentId =
+                presenceEvent.type === "canvas_presence_snapshot"
                   ? presenceEvent.documentId
                   : presenceEvent.presence.documentId;
-                if (
-                  presenceEvent.libraryId === identity.libraryId
-                  && contentAccessContextKey(presenceEvent.accessContext)
-                    === accessKey
-                  && documentId === request.documentId
-                ) {
-                  subscribers.forEach((subscriber) =>
-                    subscriber.presenceListener?.(presenceEvent)
-                  );
-                }
-              } catch {
-                // Invalid Host presence never crosses the adapter boundary.
+              if (
+                presenceEvent.libraryId === identity.libraryId &&
+                contentAccessContextKey(presenceEvent.accessContext) === accessKey &&
+                documentId === request.documentId
+              ) {
+                subscribers.forEach((subscriber) => subscriber.presenceListener?.(presenceEvent));
               }
-              return;
+            } catch {
+              // Invalid Host presence never crosses the adapter boundary.
             }
-            if (
-              !event ||
-              (event.type !== "canvas_scene_committed" &&
-                event.type !== "canvas_scene_resync_required") ||
-              event.libraryId !== identity.libraryId ||
-              contentAccessContextKey(event.accessContext) !== accessKey ||
-              event.documentId !== request.documentId
-            ) {
-              return;
-            }
-            subscribers.forEach((subscriber) =>
-              subscriber.listener(event)
-            );
-          },
-        );
-        const lifecycle = createExactRemoteSubscriptionLifecycle<
-          CanvasSceneSubscriptionCommandResult
-        >({
-          hasSubscribers: () => subscribers.size > 0,
-          open: async () =>
-            await invokeSubscription("canvas-scene:subscribe", fullRequest),
-          isOpenResult: (result) => result.ok,
-          alreadyOpenResult: () => ({
-            ok: true,
-            value: { subscribed: true },
-          }),
-          inactiveResult: () => ({
-            ok: false,
-            error: {
-              code: "access_scope_mismatch",
-              message: "Canvas scene subscription is not active",
-              retryable: false,
-              resetRequired: false,
-            },
-          }),
-          close: async () => {
-            await invokeSubscription("canvas-scene:unsubscribe", fullRequest);
-          },
-          finalize: () => {
-            if (subscriptions.get(key)?.lifecycle === lifecycle) {
-              subscriptions.delete(key);
-            }
-            removeBridgeListener();
-          },
+            return;
+          }
+          if (
+            !event ||
+            (event.type !== "canvas_scene_committed" &&
+              event.type !== "canvas_scene_resync_required") ||
+            event.libraryId !== identity.libraryId ||
+            contentAccessContextKey(event.accessContext) !== accessKey ||
+            event.documentId !== request.documentId
+          ) {
+            return;
+          }
+          subscribers.forEach((subscriber) => subscriber.listener(event));
         });
+        const lifecycle =
+          createExactRemoteSubscriptionLifecycle<CanvasSceneSubscriptionCommandResult>({
+            hasSubscribers: () => subscribers.size > 0,
+            open: async () => await invokeSubscription("canvas-scene:subscribe", fullRequest),
+            isOpenResult: (result) => result.ok,
+            alreadyOpenResult: () => ({
+              ok: true,
+              value: { subscribed: true },
+            }),
+            inactiveResult: () => ({
+              ok: false,
+              error: {
+                code: "access_scope_mismatch",
+                message: "Canvas scene subscription is not active",
+                retryable: false,
+                resetRequired: false,
+              },
+            }),
+            close: async () => {
+              await invokeSubscription("canvas-scene:unsubscribe", fullRequest);
+            },
+            finalize: () => {
+              if (subscriptions.get(key)?.lifecycle === lifecycle) {
+                subscriptions.delete(key);
+              }
+              removeBridgeListener();
+            },
+          });
         const createdEntry: ElectronCanvasSubscription = {
           subscribers,
           lifecycle,
@@ -182,15 +162,20 @@ export const createElectronCanvasSceneSyncAdapter = (
         if (contentAccessContextKey(request.accessContext) !== accessKey) {
           throw new TypeError("Canvas sync crossed its access boundary");
         }
-        const entry = subscriptions.get(JSON.stringify([request.documentId, request.clientSessionId]));
+        const entry = subscriptions.get(
+          JSON.stringify([request.documentId, request.clientSessionId]),
+        );
         const ready = entry ? await ensureRemoteSubscription(entry) : null;
         if (!ready?.ok) {
-          return { ok: false, error: ready?.error ?? {
-            code: "access_scope_mismatch",
-            message: "Canvas scene subscription is not active",
-            retryable: false,
-            resetRequired: false,
-          } };
+          return {
+            ok: false,
+            error: ready?.error ?? {
+              code: "access_scope_mismatch",
+              message: "Canvas scene subscription is not active",
+              retryable: false,
+              resetRequired: false,
+            },
+          };
         }
         return await invoke("canvas-scene:sync", request);
       } catch (error) {
@@ -202,16 +187,21 @@ export const createElectronCanvasSceneSyncAdapter = (
         if (contentAccessContextKey(request.accessContext) !== accessKey) {
           throw new TypeError("Canvas mutation crossed its access boundary");
         }
-        const entry = subscriptions.get(JSON.stringify([request.documentId, request.clientSessionId]));
+        const entry = subscriptions.get(
+          JSON.stringify([request.documentId, request.clientSessionId]),
+        );
         const ready = entry ? await ensureRemoteSubscription(entry) : null;
         if (!ready?.ok) {
-          return { ok: false, error: ready?.error ?? {
-            code: "access_scope_mismatch",
-            message: "Canvas scene subscription is not active",
-            retryable: false,
-            resetRequired: false,
-            mutationId: request.mutationId,
-          } };
+          return {
+            ok: false,
+            error: ready?.error ?? {
+              code: "access_scope_mismatch",
+              message: "Canvas scene subscription is not active",
+              retryable: false,
+              resetRequired: false,
+              mutationId: request.mutationId,
+            },
+          };
         }
         const result = await invoke<CanvasSceneMutationCommandResult>(
           "canvas-scene:apply",
@@ -230,10 +220,9 @@ export const createElectronCanvasSceneSyncAdapter = (
         if (contentAccessContextKey(request.accessContext) !== accessKey) {
           throw new TypeError("Canvas presence crossed its access boundary");
         }
-        const entry = subscriptions.get(JSON.stringify([
-          request.publication.documentId,
-          request.clientSessionId,
-        ]));
+        const entry = subscriptions.get(
+          JSON.stringify([request.publication.documentId, request.clientSessionId]),
+        );
         const ready = entry ? await ensureRemoteSubscription(entry) : null;
         if (!ready?.ok) {
           return {

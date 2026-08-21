@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
   BOARD_PLACEMENT_REMOTE_LANE,
   boardContainsPageIds,
@@ -34,22 +29,11 @@ import type {
   MovePageInput,
   MovePagesInput,
 } from "./types";
-import {
-  invoke,
-} from "./api";
-import {
-  getBoardProjectStore,
-  type LocalProjectionCursor,
-} from "./board-store";
+import { invoke } from "./api";
+import { getBoardProjectStore, type LocalProjectionCursor } from "./board-store";
 import { getDatabaseRowDetail, setDatabaseRowDetail } from "./database-row-detail-store";
-import {
-  deleteBoardPage,
-  moveBoardPage,
-  moveBoardPages,
-} from "./board-page-mutation-command";
-import {
-  isPageMetadataPatch,
-} from "./page-detail-metadata-runtime";
+import { deleteBoardPage, moveBoardPage, moveBoardPages } from "./board-page-mutation-command";
+import { isPageMetadataPatch } from "./page-detail-metadata-runtime";
 import {
   commitPageMetadataPatchForBoardWithReceipt,
   type PageMetadataBoardMutationEnvelope,
@@ -100,18 +84,9 @@ interface UseBoardOptions {
 
 const MAX_CALENDAR_OCCURRENCES = 1_000;
 
-type NewPageOccurrenceAction = Omit<
-  PageOccurrenceActionInput,
-  "operationId"
->;
-type NewPageOccurrenceComplete = Omit<
-  PageOccurrenceCompleteInput,
-  "operationId" | "createdPageId"
->;
-type NewPageOccurrenceUpdate = Omit<
-  PageOccurrenceUpdateInput,
-  "operationId" | "createdPageId"
->;
+type NewPageOccurrenceAction = Omit<PageOccurrenceActionInput, "operationId">;
+type NewPageOccurrenceComplete = Omit<PageOccurrenceCompleteInput, "operationId" | "createdPageId">;
+type NewPageOccurrenceUpdate = Omit<PageOccurrenceUpdateInput, "operationId" | "createdPageId">;
 
 type SuccessfulPageOccurrenceMutation = Extract<
   PageOccurrenceMutationResult,
@@ -140,12 +115,18 @@ function normalizeOccurrenceUpdatesToPagePatch(
   input: PageOccurrenceUpdateInput,
 ): Partial<PageInput> {
   const patch: Partial<PageInput> = {};
-  if (Object.prototype.hasOwnProperty.call(input.updates, "scheduledStart")) patch.scheduledStart = input.updates.scheduledStart;
-  if (Object.prototype.hasOwnProperty.call(input.updates, "scheduledEnd")) patch.scheduledEnd = input.updates.scheduledEnd;
-  if (Object.prototype.hasOwnProperty.call(input.updates, "isAllDay")) patch.isAllDay = input.updates.isAllDay;
-  if (Object.prototype.hasOwnProperty.call(input.updates, "recurrence")) patch.recurrence = input.updates.recurrence;
-  if (Object.prototype.hasOwnProperty.call(input.updates, "reminders")) patch.reminders = input.updates.reminders;
-  if (Object.prototype.hasOwnProperty.call(input.updates, "scheduleTimezone")) patch.scheduleTimezone = input.updates.scheduleTimezone;
+  if (Object.prototype.hasOwnProperty.call(input.updates, "scheduledStart"))
+    patch.scheduledStart = input.updates.scheduledStart;
+  if (Object.prototype.hasOwnProperty.call(input.updates, "scheduledEnd"))
+    patch.scheduledEnd = input.updates.scheduledEnd;
+  if (Object.prototype.hasOwnProperty.call(input.updates, "isAllDay"))
+    patch.isAllDay = input.updates.isAllDay;
+  if (Object.prototype.hasOwnProperty.call(input.updates, "recurrence"))
+    patch.recurrence = input.updates.recurrence;
+  if (Object.prototype.hasOwnProperty.call(input.updates, "reminders"))
+    patch.reminders = input.updates.reminders;
+  if (Object.prototype.hasOwnProperty.call(input.updates, "scheduleTimezone"))
+    patch.scheduleTimezone = input.updates.scheduleTimezone;
   return patch;
 }
 
@@ -179,13 +160,12 @@ export function useBoard(options: UseBoardOptions) {
     () => getBoardProjectStore(projectId, databaseViewId ?? null),
     [databaseViewId, projectId],
   );
-  const setPresentationOverride = useCallback((
-    next: DatabaseViewPresentationOverride | null,
-  ) => {
-    store.setPresentationOverride(
-      next && Object.keys(next).length > 0 ? next : null,
-    );
-  }, [store]);
+  const setPresentationOverride = useCallback(
+    (next: DatabaseViewPresentationOverride | null) => {
+      store.setPresentationOverride(next && Object.keys(next).length > 0 ? next : null);
+    },
+    [store],
+  );
 
   useEffect(() => {
     if (!ownsPresentationOverride || !presentationOverrideReady) return;
@@ -198,26 +178,28 @@ export function useBoard(options: UseBoardOptions) {
   ]);
 
   const subscribe = useCallback(
-    (listener: () => void) => enabled
-      ? store.subscribe(listener)
-      : () => undefined,
+    (listener: () => void) => (enabled ? store.subscribe(listener) : () => undefined),
     [enabled, store],
   );
   const snapshot = useSyncExternalStore(subscribe, store.getSnapshot);
 
-  const fetchBoard = useCallback(async (
-    minimum: number | LocalProjectionCursor = 0,
-  ) => {
-    await store.fetchBoard(minimum);
-  }, [store]);
+  const fetchBoard = useCallback(
+    async (minimum: number | LocalProjectionCursor = 0) => {
+      await store.fetchBoard(minimum);
+    },
+    [store],
+  );
 
   const loadMore = useCallback(async () => {
     await store.loadMore();
   }, [store]);
 
-  const loadMoreGroup = useCallback(async (scopeKey: string) => {
-    await store.loadMoreGroup(scopeKey);
-  }, [store]);
+  const loadMoreGroup = useCallback(
+    async (scopeKey: string) => {
+      await store.loadMoreGroup(scopeKey);
+    },
+    [store],
+  );
 
   const requireWritableSelectedView = useCallback((): boolean => {
     if (!databaseViewId) return true;
@@ -269,16 +251,16 @@ export function useBoard(options: UseBoardOptions) {
         kind: "block:properties",
         conflictKeys,
         apply: buildPatchPageTransform(columnId, pageId, updates, { bumpRevision: true }),
-        runRemote: async () => await commitPageMetadataPatchForBoardWithReceipt({
-          projectId,
-          pageId: pageId,
-          operationId: metadataMutationId,
-          clientSessionId: sessionId,
-          patch: updates,
-        }),
+        runRemote: async () =>
+          await commitPageMetadataPatchForBoardWithReceipt({
+            projectId,
+            pageId: pageId,
+            operationId: metadataMutationId,
+            clientSessionId: sessionId,
+            patch: updates,
+          }),
         getCommitCursor: (result) => result.commitCursor,
-        isCommitMaterialized: (canonicalBoard) =>
-          boardContainsPageIds(canonicalBoard, [pageId]),
+        isCommitMaterialized: (canonicalBoard) => boardContainsPageIds(canonicalBoard, [pageId]),
       });
 
       if (!outcome.ok) {
@@ -315,12 +297,14 @@ export function useBoard(options: UseBoardOptions) {
         store.resolveConflict(conflictKeys);
         await store.refreshBoard();
         if (typeof window !== "undefined") {
-          window.dispatchEvent(new CustomEvent("nodex:card-update-conflict", {
-            detail: {
-              projectId,
-              pageId,
-            },
-          }));
+          window.dispatchEvent(
+            new CustomEvent("nodex:card-update-conflict", {
+              detail: {
+                projectId,
+                pageId,
+              },
+            }),
+          );
         }
         return result;
       }
@@ -424,20 +408,15 @@ export function useBoard(options: UseBoardOptions) {
       });
       if (initialOperations.length === 0) return false;
       const fallbackRows = visibleModel.query.rows.filter((row) =>
-        input.pageIds.includes(row.page.pageId)
+        input.pageIds.includes(row.page.pageId),
       );
 
-      const outcome = await store.runOptimisticDatabaseViewMutation<
-        DatabaseViewMutationReceipt
-      >({
+      const outcome = await store.runOptimisticDatabaseViewMutation<DatabaseViewMutationReceipt>({
         kind: "database:position-many",
         conflictKeys: input.pageIds.map((pageId) => `card:${pageId}:position`),
         remoteLane: BOARD_PLACEMENT_REMOTE_LANE,
         apply: (canonicalModel) => {
-          const model = withEffectiveDatabaseViewPresentation(
-            canonicalModel,
-            input.presentation,
-          );
+          const model = withEffectiveDatabaseViewPresentation(canonicalModel, input.presentation);
           const projected = applyOptimisticDatabaseViewBoardDrop(model, {
             pageIds: input.pageIds,
             target: input.target,
@@ -482,11 +461,7 @@ export function useBoard(options: UseBoardOptions) {
   );
 
   const listPageOccurrences = useCallback(
-    async (
-      windowStart: Date,
-      windowEnd: Date,
-      searchQuery?: string,
-    ): Promise<PageOccurrence[]> => {
+    async (windowStart: Date, windowEnd: Date, searchQuery?: string): Promise<PageOccurrence[]> => {
       try {
         const occurrences: PageOccurrence[] = [];
         let after: string | null = null;
@@ -506,21 +481,15 @@ export function useBoard(options: UseBoardOptions) {
           if (result.nextCursor === after && after !== null) {
             throw new Error("Calendar occurrence continuation did not advance");
           }
-          after = occurrences.length < MAX_CALENDAR_OCCURRENCES
-            ? result.nextCursor ?? null
-            : null;
-          if (
-            occurrences.length >= MAX_CALENDAR_OCCURRENCES
-            && result.nextCursor
-          ) {
+          after =
+            occurrences.length < MAX_CALENDAR_OCCURRENCES ? (result.nextCursor ?? null) : null;
+          if (occurrences.length >= MAX_CALENDAR_OCCURRENCES && result.nextCursor) {
             store.setError(
               `Calendar is limited to ${MAX_CALENDAR_OCCURRENCES.toLocaleString()} occurrences; narrow the date range or search.`,
             );
           }
         } while (after !== null);
-        return occurrences
-          .slice(0, MAX_CALENDAR_OCCURRENCES)
-          .map((occurrence) => ({
+        return occurrences.slice(0, MAX_CALENDAR_OCCURRENCES).map((occurrence) => ({
           ...occurrence,
           created: asDate(occurrence.created),
           dueDate: occurrence.dueDate ? asDate(occurrence.dueDate) : undefined,
@@ -528,7 +497,7 @@ export function useBoard(options: UseBoardOptions) {
           scheduledEnd: asDate(occurrence.scheduledEnd ?? occurrence.occurrenceEnd),
           occurrenceStart: asDate(occurrence.occurrenceStart),
           occurrenceEnd: asDate(occurrence.occurrenceEnd),
-          }));
+        }));
       } catch (err) {
         store.setError(toErrorMessage(err));
         return [];
@@ -549,15 +518,16 @@ export function useBoard(options: UseBoardOptions) {
         kind: "page:occurrence:complete",
         conflictKeys: [conflictKeyForCard(command.pageId)],
         apply: buildCompleteOrSkipOccurrenceTransform(command.pageId),
-        runRemote: async () => requireSuccessfulOccurrenceMutation(
-          (await invoke(
-            "page:occurrence:complete",
-            projectId,
-            command,
-            sessionId,
-          )) as PageOccurrenceMutationResult,
-          "Failed to complete occurrence",
-        ),
+        runRemote: async () =>
+          requireSuccessfulOccurrenceMutation(
+            (await invoke(
+              "page:occurrence:complete",
+              projectId,
+              command,
+              sessionId,
+            )) as PageOccurrenceMutationResult,
+            "Failed to complete occurrence",
+          ),
         getCommitCursor: (result) => result.commitCursor,
         isCommitMaterialized: () => true,
       });
@@ -581,15 +551,16 @@ export function useBoard(options: UseBoardOptions) {
         kind: "page:occurrence:skip",
         conflictKeys: [conflictKeyForCard(command.pageId)],
         apply: buildCompleteOrSkipOccurrenceTransform(command.pageId),
-        runRemote: async () => requireSuccessfulOccurrenceMutation(
-          (await invoke(
-            "page:occurrence:skip",
-            projectId,
-            command,
-            sessionId,
-          )) as PageOccurrenceMutationResult,
-          "Failed to skip occurrence",
-        ),
+        runRemote: async () =>
+          requireSuccessfulOccurrenceMutation(
+            (await invoke(
+              "page:occurrence:skip",
+              projectId,
+              command,
+              sessionId,
+            )) as PageOccurrenceMutationResult,
+            "Failed to skip occurrence",
+          ),
         getCommitCursor: (result) => result.commitCursor,
         isCommitMaterialized: () => true,
       });
@@ -615,15 +586,16 @@ export function useBoard(options: UseBoardOptions) {
         kind: "page:occurrence:update",
         conflictKeys: conflictKeysForPatch(command.pageId, optimisticPatch),
         apply: buildPatchPageTransform(undefined, command.pageId, optimisticPatch),
-        runRemote: async () => requireSuccessfulOccurrenceMutation(
-          (await invoke(
-            "page:occurrence:update",
-            projectId,
-            command,
-            sessionId,
-          )) as PageOccurrenceMutationResult,
-          "Failed to update occurrence",
-        ),
+        runRemote: async () =>
+          requireSuccessfulOccurrenceMutation(
+            (await invoke(
+              "page:occurrence:update",
+              projectId,
+              command,
+              sessionId,
+            )) as PageOccurrenceMutationResult,
+            "Failed to update occurrence",
+          ),
         getCommitCursor: (result) => result.commitCursor,
         isCommitMaterialized: () => true,
       });

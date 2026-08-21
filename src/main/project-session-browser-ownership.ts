@@ -6,9 +6,7 @@ export interface ProjectSessionBrowserRuntime {
 export interface DeleteProjectSessionWithBrowserCleanupInput {
   readonly sessionId: string;
   readonly browserRuntime: ProjectSessionBrowserRuntime;
-  readonly deleteProjectSession: (
-    sessionId: string,
-  ) => boolean | Promise<boolean>;
+  readonly deleteProjectSession: (sessionId: string) => boolean | Promise<boolean>;
 }
 
 export async function deleteProjectSessionWithBrowserCleanupUsing(

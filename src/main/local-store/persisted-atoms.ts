@@ -54,10 +54,7 @@ function writePersistedAtomsFile(state: PersistedAtomState): void {
   const atomsPath = getPersistedAtomsPath();
   const parent = dirname(atomsPath);
   mkdirSync(parent, { recursive: true, mode: 0o700 });
-  const temporaryPath = join(
-    parent,
-    `.${basename(atomsPath)}.${process.pid}.${randomUUID()}.tmp`,
-  );
+  const temporaryPath = join(parent, `.${basename(atomsPath)}.${process.pid}.${randomUUID()}.tmp`);
   const handle = openSync(temporaryPath, "wx", 0o600);
   try {
     writeFileSync(handle, JSON.stringify(state, null, 2), "utf8");
@@ -121,11 +118,14 @@ export function commitPersistedAtomMutation(
 export function updatePersistedAtom(update: PersistedAtomUpdate): PersistedAtomState {
   const key = update.key.trim();
   if (!key) return readPersistedAtomState();
-  commitPersistedAtomMutation({
-    key,
-    value: update.value,
-    mutationId: `main:${crypto.randomUUID()}`,
-  }, null);
+  commitPersistedAtomMutation(
+    {
+      key,
+      value: update.value,
+      mutationId: `main:${crypto.randomUUID()}`,
+    },
+    null,
+  );
   return readPersistedAtomState();
 }
 

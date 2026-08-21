@@ -1,19 +1,10 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import {
-  readFileSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parse as parseToml } from "smol-toml";
 import { extractReleaseNotes, prepareChangelog } from "./changelog";
-import {
-  compareStableVersions,
-  normalizeStableVersion,
-  tagForVersion,
-} from "./model";
+import { compareStableVersions, normalizeStableVersion, tagForVersion } from "./model";
 
 export const RELEASE_SOURCE_PATHS = [
   "package.json",
@@ -61,15 +52,17 @@ export interface NoReleaseTransition {
 
 export type ReleaseTransitionResult = ReleaseTransition | NoReleaseTransition;
 
-const run = (cwd: string, command: string, args: readonly string[]): string => execFileSync(
-  command,
-  [...args],
-  { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-).trim();
+const run = (cwd: string, command: string, args: readonly string[]): string =>
+  execFileSync(command, [...args], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 
 const parsePackageVersion = (content: string): string => {
   const value = JSON.parse(content) as { readonly version?: unknown };
-  if (typeof value.version !== "string") throw new Error("package.json does not contain a string version.");
+  if (typeof value.version !== "string")
+    throw new Error("package.json does not contain a string version.");
   return normalizeStableVersion(value.version, "package.json version");
 };
 
@@ -101,10 +94,14 @@ const parseLocalCargoVersions = (content: string): ReadonlyMap<string, string> =
     if (typeof entry.version !== "string") {
       throw new Error(`Cargo.lock package ${entry.name} does not contain a version.`);
     }
-    versions.set(entry.name, normalizeStableVersion(entry.version, `Cargo.lock ${entry.name} version`));
+    versions.set(
+      entry.name,
+      normalizeStableVersion(entry.version, `Cargo.lock ${entry.name} version`),
+    );
   }
   const missing = [...LOCAL_CARGO_PACKAGES].filter((name) => !versions.has(name));
-  if (missing.length > 0) throw new Error(`Cargo.lock is missing local packages: ${missing.join(", ")}.`);
+  if (missing.length > 0)
+    throw new Error(`Cargo.lock is missing local packages: ${missing.join(", ")}.`);
   return versions;
 };
 
@@ -123,11 +120,15 @@ const snapshotFromFiles = (files: ReleaseSourceFiles): ReleaseSourceSnapshot => 
   const cargoVersion = parseCargoVersion(files.cargoToml);
   const localVersions = parseLocalCargoVersions(files.cargoLock);
   if (packageVersion !== cargoVersion) {
-    throw new Error(`Release version mismatch: package.json=${packageVersion}, Cargo.toml=${cargoVersion}.`);
+    throw new Error(
+      `Release version mismatch: package.json=${packageVersion}, Cargo.toml=${cargoVersion}.`,
+    );
   }
   for (const [name, version] of localVersions) {
     if (version !== packageVersion) {
-      throw new Error(`Release version mismatch: package.json=${packageVersion}, Cargo.lock ${name}=${version}.`);
+      throw new Error(
+        `Release version mismatch: package.json=${packageVersion}, Cargo.lock ${name}=${version}.`,
+      );
     }
   }
   return { cargoVersion, changelog: files.changelog, files, packageVersion };
@@ -139,7 +140,7 @@ export function inspectReleaseSource(cwd: string): ReleaseSourceSnapshot {
 
 const filesAtRef = (cwd: string, ref: string): ReleaseSourceFiles => {
   run(cwd, "git", ["rev-parse", "--verify", `${ref}^{commit}`]);
-  const readAtRef = (path: typeof RELEASE_SOURCE_PATHS[number]): string =>
+  const readAtRef = (path: (typeof RELEASE_SOURCE_PATHS)[number]): string =>
     execFileSync("git", ["show", `${ref}:${path}`], {
       cwd,
       encoding: "utf8",
@@ -159,7 +160,8 @@ export function inspectReleaseSourceAtRef(cwd: string, ref: string): ReleaseSour
 
 const updatePackageVersion = (content: string, version: string): string => {
   const value = JSON.parse(content) as Record<string, unknown>;
-  if (typeof value.version !== "string") throw new Error("package.json does not contain a string version.");
+  if (typeof value.version !== "string")
+    throw new Error("package.json does not contain a string version.");
   value.version = version;
   return `${JSON.stringify(value, null, 2)}\n`;
 };
@@ -171,30 +173,39 @@ const updateCargoTomlVersion = (content: string, current: string, target: string
     throw new Error("Cargo.toml must contain exactly one workspace package version assignment.");
   }
   const updated = content.replace(pattern, `$1"${target}"`);
-  if (parseCargoVersion(updated) !== target) throw new Error("Cargo.toml version update did not validate.");
+  if (parseCargoVersion(updated) !== target)
+    throw new Error("Cargo.toml version update did not validate.");
   return updated;
 };
 
 const updateCargoLockVersions = (content: string, current: string, target: string): string => {
   const chunks = content.split(/(?=^\[\[package\]\]\s*$)/m);
   const updatedPackages = new Set<string>();
-  const updated = chunks.map((chunk) => {
-    if (!chunk.startsWith("[[package]]")) return chunk;
-    const parsed = parseToml(chunk) as {
-      readonly package?: readonly { readonly name?: unknown; readonly source?: unknown; readonly version?: unknown }[];
-    };
-    const entry = parsed.package?.[0];
-    if (typeof entry?.name !== "string" || !LOCAL_CARGO_PACKAGES.has(entry.name)) return chunk;
-    if (entry.source !== undefined || entry.version !== current) {
-      throw new Error(`Cargo.lock local package ${entry.name} is not at ${current}.`);
-    }
-    const versionPattern = new RegExp(`^version = "${current.replaceAll(".", "\\.")}"$`, "m");
-    if (!versionPattern.test(chunk)) throw new Error(`Unable to update Cargo.lock package ${entry.name}.`);
-    updatedPackages.add(entry.name);
-    return chunk.replace(versionPattern, `version = "${target}"`);
-  }).join("");
+  const updated = chunks
+    .map((chunk) => {
+      if (!chunk.startsWith("[[package]]")) return chunk;
+      const parsed = parseToml(chunk) as {
+        readonly package?: readonly {
+          readonly name?: unknown;
+          readonly source?: unknown;
+          readonly version?: unknown;
+        }[];
+      };
+      const entry = parsed.package?.[0];
+      if (typeof entry?.name !== "string" || !LOCAL_CARGO_PACKAGES.has(entry.name)) return chunk;
+      if (entry.source !== undefined || entry.version !== current) {
+        throw new Error(`Cargo.lock local package ${entry.name} is not at ${current}.`);
+      }
+      const versionPattern = new RegExp(`^version = "${current.replaceAll(".", "\\.")}"$`, "m");
+      if (!versionPattern.test(chunk))
+        throw new Error(`Unable to update Cargo.lock package ${entry.name}.`);
+      updatedPackages.add(entry.name);
+      return chunk.replace(versionPattern, `version = "${target}"`);
+    })
+    .join("");
   const missing = [...LOCAL_CARGO_PACKAGES].filter((name) => !updatedPackages.has(name));
-  if (missing.length > 0) throw new Error(`Cargo.lock did not update local packages: ${missing.join(", ")}.`);
+  if (missing.length > 0)
+    throw new Error(`Cargo.lock did not update local packages: ${missing.join(", ")}.`);
   return updated;
 };
 
@@ -203,8 +214,12 @@ const ensureCleanWorktree = (cwd: string): void => {
   if (status) throw new Error("Release preparation requires a clean git worktree.");
 };
 
-const writeFilesAtomically = (cwd: string, before: ReleaseSourceFiles, after: ReleaseSourceFiles): void => {
-  const values: Array<[typeof RELEASE_SOURCE_PATHS[number], string]> = [
+const writeFilesAtomically = (
+  cwd: string,
+  before: ReleaseSourceFiles,
+  after: ReleaseSourceFiles,
+): void => {
+  const values: Array<[(typeof RELEASE_SOURCE_PATHS)[number], string]> = [
     ["package.json", after.packageJson],
     ["Cargo.toml", after.cargoToml],
     ["Cargo.lock", after.cargoLock],
@@ -263,7 +278,9 @@ export function prepareReleaseSource(options: {
     writeFileSync(join(cwd, "Cargo.toml"), currentFiles.cargoToml, "utf8");
     writeFileSync(join(cwd, "Cargo.lock"), currentFiles.cargoLock, "utf8");
     writeFileSync(join(cwd, "CHANGELOG.md"), currentFiles.changelog, "utf8");
-    throw new Error("Cargo rejected the prepared release identity; restored the original files.", { cause: error });
+    throw new Error("Cargo rejected the prepared release identity; restored the original files.", {
+      cause: error,
+    });
   }
   return { releaseNotes: changelog.releaseNotes, tag: tagForVersion(version), version };
 }
@@ -282,7 +299,9 @@ export function evaluateReleaseTransition(options: {
   const actual = [...new Set(options.changedPaths)].sort();
   const expected = [...RELEASE_SOURCE_PATHS].sort();
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
-    throw new Error(`A release commit may change only ${expected.join(", ")}; got ${actual.join(", ") || "no files"}.`);
+    throw new Error(
+      `A release commit may change only ${expected.join(", ")}; got ${actual.join(", ") || "no files"}.`,
+    );
   }
   const releaseNotes = extractReleaseNotes(options.head.changelog, options.head.packageVersion);
   return {
@@ -295,7 +314,11 @@ export function evaluateReleaseTransition(options: {
   };
 }
 
-export function detectReleaseTransition(cwd: string, base: string, head: string): ReleaseTransitionResult {
+export function detectReleaseTransition(
+  cwd: string,
+  base: string,
+  head: string,
+): ReleaseTransitionResult {
   const baseFiles = filesAtRef(cwd, base);
   const headFiles = filesAtRef(cwd, head);
   const headSnapshot = snapshotFromFiles(headFiles);

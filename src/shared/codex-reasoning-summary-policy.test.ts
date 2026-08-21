@@ -11,10 +11,12 @@ describe("codex reasoning summary policy", () => {
   });
 
   it("preserves a configured mode when the capability is disabled", () => {
-    expect(resolveCodexReasoningSummary({
-      configuredSummary: "concise",
-      concurrentReasoningSummaries: false,
-    })).toBe("concise");
+    expect(
+      resolveCodexReasoningSummary({
+        configuredSummary: "concise",
+        concurrentReasoningSummaries: false,
+      }),
+    ).toBe("concise");
   });
 
   it("lets an explicit per-turn mode win over the feature default", () => {

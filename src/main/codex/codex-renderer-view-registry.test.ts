@@ -88,15 +88,9 @@ describe("CodexRendererViewRegistry", () => {
     registry.setActive("thread-1", "hidden-runtime", true);
     registry.setActive("thread-1", "presented-runtime", true);
     registry.setActive("thread-1", "hidden-runtime", true);
-    registry.setPresented(
-      "thread-1",
-      "presented-runtime",
-      "surface-presented",
-      true,
-    );
+    registry.setPresented("thread-1", "presented-runtime", "surface-presented", true);
 
     expect(registry.resolvePresentationClient("thread-1")).toBe("hidden-runtime");
-    expect(registry.resolvePresentedSurfaceClient("thread-1"))
-      .toBe("presented-runtime");
+    expect(registry.resolvePresentedSurfaceClient("thread-1")).toBe("presented-runtime");
   });
 });

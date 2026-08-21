@@ -12,7 +12,8 @@ import {
   ViewIdSchema,
 } from "./base-schemas";
 
-export const InlineMarkdownTitleSchema = z.string()
+export const InlineMarkdownTitleSchema = z
+  .string()
   .max(MAX_PORTABLE_RICH_TEXT_BYTES)
   .superRefine((markdown, context) => {
     try {
@@ -26,7 +27,8 @@ export const InlineMarkdownTitleSchema = z.string()
   })
   .describe("Single-line title using Nested Markdown's title-safe inline subset");
 
-export const NestedMarkdownSchema = z.string()
+export const NestedMarkdownSchema = z
+  .string()
   .max(MAX_PAGE_WRITE_BODY_BYTES)
   .refine(
     (markdown) => new TextEncoder().encode(markdown).byteLength <= MAX_PAGE_WRITE_BODY_BYTES,
@@ -76,8 +78,8 @@ export function uniqueSelectorList<T extends readonly [string, ...string[]]>(
   selectors: T,
   maximum = selectors.length,
 ) {
-  return z.array(z.enum(selectors)).max(maximum).refine(
-    (values) => new Set(values).size === values.length,
-    "Return selectors must be unique",
-  );
+  return z
+    .array(z.enum(selectors))
+    .max(maximum)
+    .refine((values) => new Set(values).size === values.length, "Return selectors must be unique");
 }

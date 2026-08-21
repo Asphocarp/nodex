@@ -53,8 +53,7 @@ const ERROR_CODES = new Set<DocumentSyncErrorCode>([
 
 const transportError = (error: unknown): DocumentSyncCommandError => ({
   code: "transport_unavailable",
-  message:
-    error instanceof Error ? error.message : "Electron IPC is unavailable",
+  message: error instanceof Error ? error.message : "Electron IPC is unavailable",
   retryable: true,
   resetRequired: false,
 });
@@ -86,9 +85,7 @@ const copyBytes = (value: unknown): Uint8Array | null => {
   if (!ArrayBuffer.isView(value)) {
     return null;
   }
-  return new Uint8Array(
-    value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength),
-  );
+  return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
 };
 
 const normalizeError = (value: unknown): DocumentSyncCommandError | null => {
@@ -112,8 +109,7 @@ const normalizeError = (value: unknown): DocumentSyncCommandError | null => {
   }
   if (
     value.recoveryArtifactId !== undefined &&
-    (typeof value.recoveryArtifactId !== "string" ||
-      value.recoveryArtifactId.length === 0)
+    (typeof value.recoveryArtifactId !== "string" || value.recoveryArtifactId.length === 0)
   ) {
     return null;
   }
@@ -122,33 +118,25 @@ const normalizeError = (value: unknown): DocumentSyncCommandError | null => {
     message: value.message,
     retryable: value.retryable,
     resetRequired: value.resetRequired,
-    ...(typeof value.relocationId === "string"
-      ? { relocationId: value.relocationId }
-      : {}),
+    ...(typeof value.relocationId === "string" ? { relocationId: value.relocationId } : {}),
     ...(typeof value.recoveryArtifactId === "string"
       ? { recoveryArtifactId: value.recoveryArtifactId }
       : {}),
   };
 };
 
-const normalizeCommandResult = <T>(
-  value: unknown,
-): DocumentSyncCommandResult<T> => {
+const normalizeCommandResult = <T>(value: unknown): DocumentSyncCommandResult<T> => {
   if (!isRecord(value) || typeof value.ok !== "boolean") {
     return {
       ok: false,
-      error: invalidResponseError(
-        "Electron document sync returned an invalid envelope",
-      ),
+      error: invalidResponseError("Electron document sync returned an invalid envelope"),
     };
   }
   if (value.ok) {
     if (!("value" in value)) {
       return {
         ok: false,
-        error: invalidResponseError(
-          "Electron document sync omitted its result",
-        ),
+        error: invalidResponseError("Electron document sync omitted its result"),
       };
     }
     return { ok: true, value: value.value as T };
@@ -160,9 +148,7 @@ const normalizeCommandResult = <T>(
   }
   return {
     ok: false,
-    error: invalidResponseError(
-      "Electron document sync returned an invalid error",
-    ),
+    error: invalidResponseError("Electron document sync returned an invalid error"),
   };
 };
 
@@ -249,9 +235,9 @@ const normalizeApplyResult = (
   if (value.status === "committed" && isRecord(value.commit)) {
     const commit = value.commit;
     if (
-      typeof commit.store_epoch !== "string"
-      || typeof commit.commit_seq !== "number"
-      || typeof commit.manifest_hash !== "string"
+      typeof commit.store_epoch !== "string" ||
+      typeof commit.commit_seq !== "number" ||
+      typeof commit.manifest_hash !== "string"
     ) {
       return {
         ok: false,
@@ -281,10 +267,7 @@ const normalizeApplyResult = (
   }
   if (value.status === "no_op" && isRecord(value.observed)) {
     const observed = value.observed;
-    if (
-      typeof observed.store_epoch !== "string"
-      || typeof observed.commit_head !== "number"
-    ) {
+    if (typeof observed.store_epoch !== "string" || typeof observed.commit_head !== "number") {
       return {
         ok: false,
         error: invalidResponseError("Invalid document update observation"),
@@ -308,14 +291,8 @@ const normalizeApplyResult = (
   };
 };
 
-const normalizeRealtimeEvent = (
-  value: unknown,
-): DocumentSyncRealtimeEvent | null => {
-  if (
-    !isRecord(value) ||
-    typeof value.kind !== "string" ||
-    typeof value.documentId !== "string"
-  ) {
+const normalizeRealtimeEvent = (value: unknown): DocumentSyncRealtimeEvent | null => {
+  if (!isRecord(value) || typeof value.kind !== "string" || typeof value.documentId !== "string") {
     return null;
   }
   if (value.kind === "connection") {
@@ -435,9 +412,7 @@ const createScopedElectronDocumentSyncAdapter = (
   const scope = <Request extends { readonly documentId: string }>(
     request: Request,
   ): Request | (Request & { readonly projectId: string }) =>
-    accessScope.kind === "library"
-      ? request
-      : { ...request, projectId: accessScope.projectId };
+    accessScope.kind === "library" ? request : { ...request, projectId: accessScope.projectId };
   const channel = (operation: string): string =>
     accessScope.kind === "library"
       ? `library-document-sync:${operation}`
@@ -456,8 +431,7 @@ const createScopedElectronDocumentSyncAdapter = (
 
   const ensureRemoteSubscription = (
     entry: SubscriptionEntry,
-  ): Promise<DocumentSyncCommandResult<DocumentSyncSubscriptionAck>> =>
-    entry.lifecycle.ensure();
+  ): Promise<DocumentSyncCommandResult<DocumentSyncSubscriptionAck>> => entry.lifecycle.ensure();
 
   const requireRemoteSubscription = async <T>(
     request: DocumentSyncSubscribeRequest,
@@ -475,42 +449,29 @@ const createScopedElectronDocumentSyncAdapter = (
 
   return {
     sync: async (request: DocumentSyncRequest) => {
-      const blocked =
-        await requireRemoteSubscription<DocumentSyncResponse>(request);
+      const blocked = await requireRemoteSubscription<DocumentSyncResponse>(request);
       if (blocked) {
         return blocked;
       }
       return normalizeSyncResult(
-        await invokeCommand<DocumentSyncResponse>(
-          channel("sync"),
-          scope(request),
-        ),
+        await invokeCommand<DocumentSyncResponse>(channel("sync"), scope(request)),
       );
     },
     applyUpdate: async (request: DocumentSyncApplyRequest) => {
-      const blocked =
-        await requireRemoteSubscription<DocumentSyncApplyAck>(request);
+      const blocked = await requireRemoteSubscription<DocumentSyncApplyAck>(request);
       if (blocked) {
         return blocked;
       }
       const result = normalizeApplyResult(
-        await invokeCommand<DocumentSyncApplyAck>(
-          channel("apply"),
-          scope(request),
-        ),
+        await invokeCommand<DocumentSyncApplyAck>(channel("apply"), scope(request)),
       );
-      if (
-        result.ok
-        && result.value.status === "committed"
-        && result.value.delivery
-      ) {
+      if (result.ok && result.value.status === "committed" && result.value.delivery) {
         await rendererLocalCommitIngress.admitPacket(result.value.delivery);
       }
       return result;
     },
     publishAwareness: async (request: DocumentAwarenessPublishRequest) => {
-      const blocked =
-        await requireRemoteSubscription<DocumentAwarenessPublishAck>(request);
+      const blocked = await requireRemoteSubscription<DocumentAwarenessPublishAck>(request);
       if (blocked) {
         return blocked;
       }
@@ -526,24 +487,16 @@ const createScopedElectronDocumentSyncAdapter = (
         const subscribers = new Set<{
           readonly listener: (event: DocumentSyncRealtimeEvent) => void;
         }>();
-        const removeBridgeListener = bridge.on(
-          "document-sync:event",
-          (...args: unknown[]) => {
-            const event = normalizeRealtimeEvent(args[0]);
-            if (!event || event.documentId !== request.documentId) {
-              return;
-            }
-            if (
-              event.kind === "connection" &&
-              event.clientSessionId !== request.clientSessionId
-            ) {
-              return;
-            }
-            subscribers.forEach((subscriber) =>
-              subscriber.listener(event)
-            );
-          },
-        );
+        const removeBridgeListener = bridge.on("document-sync:event", (...args: unknown[]) => {
+          const event = normalizeRealtimeEvent(args[0]);
+          if (!event || event.documentId !== request.documentId) {
+            return;
+          }
+          if (event.kind === "connection" && event.clientSessionId !== request.clientSessionId) {
+            return;
+          }
+          subscribers.forEach((subscriber) => subscriber.listener(event));
+        });
         const removeLocalListener = rendererLocalCommitIngress.subscribeDocument(
           request.documentId,
           (event) => {
@@ -562,9 +515,7 @@ const createScopedElectronDocumentSyncAdapter = (
             if (!result.ok || result.value.subscribed === true) return result;
             return {
               ok: false,
-              error: invalidResponseError(
-                "Electron did not confirm document subscription",
-              ),
+              error: invalidResponseError("Electron did not confirm document subscription"),
             };
           },
           isOpenResult: (result) => result.ok,
@@ -577,10 +528,7 @@ const createScopedElectronDocumentSyncAdapter = (
             error: unauthorizedError(),
           }),
           close: async () => {
-            await invokeCommand(
-              channel("unsubscribe"),
-              scope(request),
-            );
+            await invokeCommand(channel("unsubscribe"), scope(request));
           },
           finalize: () => {
             if (subscriptions.get(key)?.lifecycle === lifecycle) {

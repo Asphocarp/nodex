@@ -25,7 +25,6 @@ describe("sidebar-section-prefs", () => {
   });
 
   test("migrates the retired Library collapse preference to Pages", () => {
-    expect(normalizeSidebarCollapsibleSectionsState({ library: true }).pages)
-      .toBe(true);
+    expect(normalizeSidebarCollapsibleSectionsState({ library: true }).pages).toBe(true);
   });
 });

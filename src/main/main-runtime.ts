@@ -38,9 +38,7 @@ import { GitWorkerHost } from "./git-worker-host";
 import { registerGitWorkerIpc } from "./git-worker-ipc";
 import { CodexWorktreeWorkerHost } from "./worktree-worker/worktree-worker-host";
 import { dbNotifier } from "./local-store/notifier";
-import {
-  startAutomationReminderScheduler,
-} from "./automation-reminder-scheduler";
+import { startAutomationReminderScheduler } from "./automation-reminder-scheduler";
 import type { ReminderNotificationPayload } from "./reminder-notification";
 import { getMainServiceComposition } from "./main-service-composition";
 import { FileBrowserPageSnapshotStore } from "./browser/browser-page-store";
@@ -130,14 +128,9 @@ import {
   EXECUTE_WORKBENCH_COMMAND_HOST_CHANNEL,
   type WorkbenchCommandInvocation,
 } from "../shared/workbench-commands";
-import {
-  BROWSER_SIDEBAR_PARTITION,
-} from "../shared/browser-sidebar";
+import { BROWSER_SIDEBAR_PARTITION } from "../shared/browser-sidebar";
 import { resolveBrowserUseHostCapability } from "../shared/browser-use-host-capability";
-import {
-  isAllowedBrowserExternalUrl,
-  isAllowedBrowserNavigationUrl,
-} from "../shared/browser-url";
+import { isAllowedBrowserExternalUrl, isAllowedBrowserNavigationUrl } from "../shared/browser-url";
 import { shouldGrantBrowserPermission } from "./browser/browser-session-permissions";
 import {
   consumePendingBrowserWebviewAttachment,
@@ -162,11 +155,7 @@ import {
   PREVIOUS_PANEL_TAB_COMMAND_ID,
   toElectronAccelerator,
 } from "../shared/command-keybindings";
-import {
-  safeBroadcastToWindows,
-  safeSendToWebContents,
-  safeSendToWindow,
-} from "./ipc-safe-send";
+import { safeBroadcastToWindows, safeSendToWebContents, safeSendToWindow } from "./ipc-safe-send";
 import {
   RendererClientRouter,
   type RendererClientRegistration,
@@ -239,12 +228,8 @@ import {
 import { registerManagedAssetProtocol } from "./managed-asset-protocol";
 import { registerAppRendererProtocol } from "./app-renderer-protocol";
 import { InitialProjectBootstrapService } from "./initial-project-bootstrap-service";
-import {
-  resolveInitialProjectProjectsDirectory,
-} from "./initial-project/initial-project-filesystem";
-import {
-  resolveInitialProjectJournalPath,
-} from "./initial-project/initial-project-journal-store";
+import { resolveInitialProjectProjectsDirectory } from "./initial-project/initial-project-filesystem";
+import { resolveInitialProjectJournalPath } from "./initial-project/initial-project-journal-store";
 // macOS uses the packaged bundle icon from the app resources.
 // We only keep a PNG around for development Dock icon parity and non-macOS window icons.
 const appIconPath = app.isPackaged
@@ -303,17 +288,14 @@ let localCommitAudienceBroker: LocalCommitAudienceBroker | null = null;
 let coreAuthorityStatus: CoreAuthorityStatus = { kind: "ready" };
 let releaseCoreAuthorityStatus: (() => void) | null = null;
 let storeAdministrationBackupScheduler: StoreAdministrationBackupScheduler | null = null;
-let storeAdministrationMaintenanceScheduler:
-  StoreAdministrationMaintenanceScheduler | null = null;
+let storeAdministrationMaintenanceScheduler: StoreAdministrationMaintenanceScheduler | null = null;
 let reminderResumeHandlerRegistered = false;
 const logger = getLogger({ subsystem: "app" });
 const desktopNotificationManager = new DesktopNotificationManager({ logger });
 
 const isCoreAuthorityReady = (): boolean => coreAuthorityStatus.kind === "ready";
 
-function showReminderNotification(
-  payload: ReminderNotificationPayload,
-): void {
+function showReminderNotification(payload: ReminderNotificationPayload): void {
   if (!Notification.isSupported()) return;
 
   const notification = new Notification({
@@ -336,18 +318,15 @@ function showReminderNotification(
     const automation = desktopAutomationModule;
     if (!automation) return;
     const minutes = index === 0 ? 10 : 60;
-    void automation.snoozeReminder(
-      payload.projectId,
-      payload.pageId,
-      payload.occurrenceStart,
-      minutes,
-    ).catch((error) => {
-      logger.warn("Failed to snooze reminder", {
-        projectId: payload.projectId,
-        pageId: payload.pageId,
-        error,
+    void automation
+      .snoozeReminder(payload.projectId, payload.pageId, payload.occurrenceStart, minutes)
+      .catch((error) => {
+        logger.warn("Failed to snooze reminder", {
+          projectId: payload.projectId,
+          pageId: payload.pageId,
+          error,
+        });
       });
-    });
   });
   notification.show();
 }
@@ -488,9 +467,7 @@ function openNewWindow(sourceWebContentsId?: number): BrowserWindow | null {
         windowSessionState.rollbackReopenSession(acquired.previousRecord);
       } catch (rollbackError) {
         logger.error("Could not roll back failed Window Session acquisition", {
-          error: rollbackError instanceof Error
-            ? rollbackError.message
-            : String(rollbackError),
+          error: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
           windowSessionId: acquired.session.id,
         });
         captureMainException(rollbackError, {
@@ -525,8 +502,8 @@ function requestNewWindowFromActiveWindow(): void {
   }
   const sourceWebContentsId = sourceWindow.webContents.id;
   if (
-    rendererInitializationReports.has(sourceWebContentsId)
-    && safeSendToWindow(sourceWindow, REQUEST_NEW_WINDOW_HOST_CHANNEL)
+    rendererInitializationReports.has(sourceWebContentsId) &&
+    safeSendToWindow(sourceWindow, REQUEST_NEW_WINDOW_HOST_CHANNEL)
   ) {
     return;
   }
@@ -538,10 +515,7 @@ function openClonedWindow(
   override: WindowSessionNewWindowRequest,
 ): BrowserWindow | null {
   if (!rendererHostReadyForWindows || !windowSessionState) return null;
-  const session = windowSessionState.cloneSessionForWindow(
-    sourceWebContentsId,
-    override,
-  );
+  const session = windowSessionState.cloneSessionForWindow(sourceWebContentsId, override);
   const window = createWindow({ session });
   window.show();
   window.focus();
@@ -591,11 +565,12 @@ async function installCommandLineTool(): Promise<void> {
       sourcePath: join(process.resourcesPath, "bin/nodex"),
       targetPath: join(app.getPath("home"), ".local/bin/nodex"),
     });
-    const statusMessage = result.status === "already-installed"
-      ? "The Nodex command line tool is already installed."
-      : result.status === "updated"
-        ? "The Nodex command line tool was updated."
-        : "The Nodex command line tool was installed.";
+    const statusMessage =
+      result.status === "already-installed"
+        ? "The Nodex command line tool is already installed."
+        : result.status === "updated"
+          ? "The Nodex command line tool was updated."
+          : "The Nodex command line tool was installed.";
     const pathMessage = result.pathConfigured
       ? `Run it as:\n\nnodex --help\n\nInstalled link: ${result.targetPath}`
       : `Installed link: ${result.targetPath}\n\nAdd this line to your shell profile, then open a new terminal:\n\nexport PATH="$HOME/.local/bin:$PATH"`;
@@ -635,9 +610,7 @@ async function setupAgentSkills(): Promise<void> {
   });
 }
 
-function configureApplicationMenus(
-  commandKeymapState = getCommandKeymapState(),
-): void {
+function configureApplicationMenus(commandKeymapState = getCommandKeymapState()): void {
   const menuAccelerator = (commandId: string): string | undefined => {
     return toElectronAccelerator(getPrimaryCommandAccelerator(commandKeymapState, commandId));
   };
@@ -676,31 +649,35 @@ function configureApplicationMenus(
     if (!targetWindow || targetWindow.isDestroyed()) return;
     targetWindow.close();
   };
-  const setupEnabled = app.isPackaged
-    && (typeof app.isInApplicationsFolder !== "function"
-      || app.isInApplicationsFolder());
+  const setupEnabled =
+    app.isPackaged &&
+    (typeof app.isInApplicationsFolder !== "function" || app.isInApplicationsFolder());
 
   const appMenuTemplate: MenuItemConstructorOptions[] = [
-    ...(process.platform === "darwin" ? [{
-      role: "appMenu",
-      submenu: [
-        {
-          label: "Check for Updates…",
-          click: () => {
-            void appUpdateService?.checkForUpdates("manual");
-          },
-        },
-        ...buildNodexSetupMenuItems({
-          enabled: setupEnabled,
-          onInstallCli: () => {
-            void installCommandLineTool();
-          },
-          onSetupAgentSkills: () => {
-            void setupAgentSkills();
-          },
-        }),
-      ],
-    } satisfies MenuItemConstructorOptions] : []),
+    ...(process.platform === "darwin"
+      ? [
+          {
+            role: "appMenu",
+            submenu: [
+              {
+                label: "Check for Updates…",
+                click: () => {
+                  void appUpdateService?.checkForUpdates("manual");
+                },
+              },
+              ...buildNodexSetupMenuItems({
+                enabled: setupEnabled,
+                onInstallCli: () => {
+                  void installCommandLineTool();
+                },
+                onSetupAgentSkills: () => {
+                  void setupAgentSkills();
+                },
+              }),
+            ],
+          } satisfies MenuItemConstructorOptions,
+        ]
+      : []),
     buildWindowFileMenu({
       commandKeymapState,
       onNewWindow: () => {
@@ -787,18 +764,15 @@ function setAppInitializationStep(step: AppInitializationStep): void {
   if (appInitializationStep.phase === "done") return;
   if (appInitializationStep.phase === "migrating" && step.phase === "opening") return;
   if (
-    appInitializationStep.phase === step.phase
-    && (
-      step.phase !== "migrating"
-      || (
-        appInitializationStep.phase === "migrating"
-        && appInitializationStep.fromVersion === step.fromVersion
-        && appInitializationStep.toVersion === step.toVersion
-        && appInitializationStep.completed === step.completed
-        && appInitializationStep.total === step.total
-      )
-    )
-  ) return;
+    appInitializationStep.phase === step.phase &&
+    (step.phase !== "migrating" ||
+      (appInitializationStep.phase === "migrating" &&
+        appInitializationStep.fromVersion === step.fromVersion &&
+        appInitializationStep.toVersion === step.toVersion &&
+        appInitializationStep.completed === step.completed &&
+        appInitializationStep.total === step.total))
+  )
+    return;
   const now = performance.now();
   logger.info("App initialization phase changed", {
     previousPhase: appInitializationStep.phase,
@@ -814,9 +788,7 @@ function broadcastAppUpdateStatus(status: AppUpdateStatus): void {
   broadcastToWindows("app:update-status", status);
 }
 
-function toRendererCoreAuthorityStatus(
-  state: CoreAuthorityState,
-): CoreAuthorityStatus {
+function toRendererCoreAuthorityStatus(state: CoreAuthorityState): CoreAuthorityStatus {
   if (state.kind === "ready") return { kind: "ready" };
   if (state.kind === "recovering") {
     return { attempt: state.attempt, kind: "recovering" };
@@ -841,22 +813,17 @@ function publishCoreAuthorityStatus(state: CoreAuthorityState): void {
   const next = toRendererCoreAuthorityStatus(state);
   const previous = coreAuthorityStatus;
   if (
-    previous.kind === next.kind
-    && (
-      next.kind === "ready"
-      || (
-        previous.kind === "recovering"
-        && next.kind === "recovering"
-        && previous.attempt === next.attempt
-      )
-      || (
-        previous.kind === "unavailable"
-        && next.kind === "unavailable"
-        && previous.circuitOpen === next.circuitOpen
-        && previous.message === next.message
-      )
-    )
-  ) return;
+    previous.kind === next.kind &&
+    (next.kind === "ready" ||
+      (previous.kind === "recovering" &&
+        next.kind === "recovering" &&
+        previous.attempt === next.attempt) ||
+      (previous.kind === "unavailable" &&
+        next.kind === "unavailable" &&
+        previous.circuitOpen === next.circuitOpen &&
+        previous.message === next.message))
+  )
+    return;
   coreAuthorityStatus = next;
   if (next.kind === "recovering") {
     logger.warn("Native Core generation recovery started", {
@@ -921,12 +888,13 @@ function registerInitializationIpcHandlers(): void {
     if (typeof input !== "object" || input === null || Array.isArray(input)) return;
     const candidate = input as { durationMs?: unknown; outcome?: unknown };
     if (
-      typeof candidate.durationMs !== "number"
-      || !Number.isFinite(candidate.durationMs)
-      || candidate.durationMs < 0
-      || candidate.durationMs > 10 * 60_000
-      || (candidate.outcome !== "ready" && candidate.outcome !== "failed")
-    ) return;
+      typeof candidate.durationMs !== "number" ||
+      !Number.isFinite(candidate.durationMs) ||
+      candidate.durationMs < 0 ||
+      candidate.durationMs > 10 * 60_000 ||
+      (candidate.outcome !== "ready" && candidate.outcome !== "failed")
+    )
+      return;
     rendererInitializationReports.add(event.sender.id);
     logger.info("Renderer initialization finished", {
       durationMs: Math.round(candidate.durationMs),
@@ -942,8 +910,7 @@ interface ProjectionIpcSenderSubscriptions {
   readonly onDestroyed: () => void;
 }
 
-const projectionIpcSubscriptions =
-  new Map<number, ProjectionIpcSenderSubscriptions>();
+const projectionIpcSubscriptions = new Map<number, ProjectionIpcSenderSubscriptions>();
 
 function refreshScopedProjectionLiveScopes(): void {
   localCommitAudienceBroker?.refreshScopes();
@@ -951,8 +918,7 @@ function refreshScopedProjectionLiveScopes(): void {
 
 function registerProjectionStreamIpcHandlers(): void {
   recipientDeliveryRouter ??= new RecipientDeliveryRouter({
-    send: (sender, channel, envelope) =>
-      safeSendToWebContents(sender, channel, [envelope]),
+    send: (sender, channel, envelope) => safeSendToWebContents(sender, channel, [envelope]),
   });
   const recipientRouter = recipientDeliveryRouter;
   localCommitAudienceBroker ??= new LocalCommitAudienceBroker({
@@ -962,17 +928,11 @@ function registerProjectionStreamIpcHandlers(): void {
   });
   const audienceBroker = localCommitAudienceBroker;
   const requireOwnedMainFrame = (event: Electron.IpcMainInvokeEvent): void => {
-    if (
-      event.senderFrame !== event.sender.mainFrame
-      || !openWindows.has(event.sender.id)
-    ) {
+    if (event.senderFrame !== event.sender.mainFrame || !openWindows.has(event.sender.id)) {
       throw new Error("Local commit audience sender is not an owned main frame");
     }
   };
-  const releaseSender = (
-    senderId: number,
-    clearRecipientRecovery: boolean,
-  ): void => {
+  const releaseSender = (senderId: number, clearRecipientRecovery: boolean): void => {
     const state = projectionIpcSubscriptions.get(senderId);
     if (!state) return;
     projectionIpcSubscriptions.delete(senderId);
@@ -1007,10 +967,7 @@ function registerProjectionStreamIpcHandlers(): void {
     requireOwnedMainFrame(event);
     unsubscribe(event.sender.id, address);
     const state = ensureSender(event.sender);
-    state.releases.set(
-      JSON.stringify(address),
-      audienceBroker.subscribe(event.sender, address),
-    );
+    state.releases.set(JSON.stringify(address), audienceBroker.subscribe(event.sender, address));
   });
 
   ipcMain.removeHandler("local-commit-audience:unsubscribe");
@@ -1020,13 +977,10 @@ function registerProjectionStreamIpcHandlers(): void {
   });
 
   ipcMain.removeHandler("recipient-delivery:admit");
-  ipcMain.handle(
-    "recipient-delivery:admit",
-    (event, result: RecipientAdmissionResult) => {
-      requireOwnedMainFrame(event);
-      return recipientRouter.admit(event.sender.id, result);
-    },
-  );
+  ipcMain.handle("recipient-delivery:admit", (event, result: RecipientAdmissionResult) => {
+    requireOwnedMainFrame(event);
+    return recipientRouter.admit(event.sender.id, result);
+  });
 }
 
 function sendReminderOpenEvent(payload: {
@@ -1282,9 +1236,7 @@ function registerDeepLinkProtocol(): void {
   app.setAsDefaultProtocolClient("nodex");
 }
 
-function createWindow(
-  options: { session: WindowSessionRecord },
-): BrowserWindow {
+function createWindow(options: { session: WindowSessionRecord }): BrowserWindow {
   const windowCreatedAt = performance.now();
   const shouldUseSavedBounds = isWindowSessionBoundsVisible(
     options.session.bounds,
@@ -1325,15 +1277,11 @@ function createWindow(
   composerAppshotService.observeWindow(window);
   const mcpAppSandboxHost = new McpAppSandboxHost(window.webContents, {
     allowLocalDevelopment: !app.isPackaged,
-    guestPreloadPath: join(
-      __dirname,
-      "../preload/mcp-app-sandbox-guest.js",
-    ),
+    guestPreloadPath: join(__dirname, "../preload/mcp-app-sandbox-guest.js"),
     logger: logger.child({ subsystem: "mcp-app-sandbox" }),
   });
   mcpAppSandboxHost.installForOwner();
-  const pendingBrowserWebviewAttachments =
-    new Map<number, BrowserAuthorizedAttachment>();
+  const pendingBrowserWebviewAttachments = new Map<number, BrowserAuthorizedAttachment>();
   if (!appPermissionHandlersRegistered) {
     const electronSession = window.webContents.session;
     electronSession.setPermissionCheckHandler((webContents, permission, _origin, details) => {
@@ -1344,35 +1292,35 @@ function createWindow(
       });
     });
     electronSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
-      callback(shouldGrantAppRendererPermission({
-        permission,
-        webContentsType: webContents.getType(),
-        isMainFrame: details.isMainFrame,
-      }));
+      callback(
+        shouldGrantAppRendererPermission({
+          permission,
+          webContentsType: webContents.getType(),
+          isMainFrame: details.isMainFrame,
+        }),
+      );
     });
     appPermissionHandlersRegistered = true;
   }
   if (!browserPermissionHandlersRegistered) {
     const browserSession = electronSession.fromPartition(BROWSER_SIDEBAR_PARTITION);
-    browserSession.setPermissionCheckHandler(
-      (_webContents, permission, _origin, details) =>
+    browserSession.setPermissionCheckHandler((_webContents, permission, _origin, details) =>
+      shouldGrantBrowserPermission({
+        permission,
+        isMainFrame: details.isMainFrame,
+      }),
+    );
+    browserSession.setPermissionRequestHandler((_webContents, permission, callback, details) => {
+      callback(
         shouldGrantBrowserPermission({
           permission,
           isMainFrame: details.isMainFrame,
         }),
-    );
-    browserSession.setPermissionRequestHandler(
-      (_webContents, permission, callback, details) => {
-        callback(shouldGrantBrowserPermission({
-          permission,
-          isMainFrame: details.isMainFrame,
-        }));
-      },
-    );
+      );
+    });
     browserSession.webRequest.onBeforeRequest((details, callback) => {
       const shouldBlockTopFrame =
-        details.resourceType === "mainFrame"
-        && !isAllowedBrowserNavigationUrl(details.url);
+        details.resourceType === "mainFrame" && !isAllowedBrowserNavigationUrl(details.url);
       callback({ cancel: shouldBlockTopFrame });
     });
     browserPermissionHandlersRegistered = true;
@@ -1396,17 +1344,10 @@ function createWindow(
       mcpAppSandboxHost.handleWillAttach(event, webPreferences, webviewParams);
       return;
     }
-    const instanceId = parseBrowserWebviewInstanceId(
-      webviewParams.instanceId,
-    );
-    if (
-      instanceId === null
-      || pendingBrowserWebviewAttachments.has(instanceId)
-    ) {
+    const instanceId = parseBrowserWebviewInstanceId(webviewParams.instanceId);
+    if (instanceId === null || pendingBrowserWebviewAttachments.has(instanceId)) {
       logger.warn("Rejected Browser webview attachment", {
-        reason: instanceId === null
-          ? "invalid-instance-id"
-          : "duplicate-instance-id",
+        reason: instanceId === null ? "invalid-instance-id" : "duplicate-instance-id",
         webContentsId: window.webContents.id,
       });
       event.preventDefault();
@@ -1414,15 +1355,9 @@ function createWindow(
     }
     const decision = decideBrowserWebviewAttachment({
       authorizeAttachment: (route) =>
-        browserSidebarService.authorizeWebviewAttachment(
-          window.webContents.id,
-          route,
-        ),
+        browserSidebarService.authorizeWebviewAttachment(window.webContents.id, route),
       isRegisteredBrowserStorage: (identity, browserStorageId) =>
-        browserSidebarService.isRegisteredBrowserStorage(
-          identity,
-          browserStorageId,
-        ),
+        browserSidebarService.isRegisteredBrowserStorage(identity, browserStorageId),
       ownerBrowserViewScopeId:
         windowSessionState?.getSessionIdForWindow(window.webContents.id) ?? null,
       partition: params.partition,
@@ -1447,13 +1382,10 @@ function createWindow(
       decision.authorization,
     );
     if (!registration.ok) {
-      browserSidebarService.revokeAuthorizedWebviewAttachment(
-        decision.authorization.attachToken,
-      );
+      browserSidebarService.revokeAuthorizedWebviewAttachment(decision.authorization.attachToken);
       logger.warn("Rejected Browser webview attachment", {
         reason: registration.reason,
-        browserConversationId:
-          decision.authorization.browserConversationId,
+        browserConversationId: decision.authorization.browserConversationId,
         browserViewScopeId: decision.authorization.browserViewScopeId,
         browserTabId: decision.authorization.browserTabId,
         webContentsId: window.webContents.id,
@@ -1499,12 +1431,11 @@ function createWindow(
       guestWebContents.close();
       return;
     }
-    const ownership =
-      browserSidebarService.consumeAuthorizedWebviewAttachment(
-        pendingAttachment.attachToken,
-        window.webContents.id,
-        guestWebContentsId,
-      );
+    const ownership = browserSidebarService.consumeAuthorizedWebviewAttachment(
+      pendingAttachment.attachToken,
+      window.webContents.id,
+      guestWebContentsId,
+    );
     if (!ownership) {
       logger.warn("Rejected unauthorized Browser webview attachment", {
         browserConversationId: pendingAttachment.browserConversationId,
@@ -1522,10 +1453,7 @@ function createWindow(
       ownership,
       ownership.browserStorageId,
     );
-    browserSidebarService.prepareAttachedWebviewHistoryRestore(
-      ownership,
-      guestWebContentsId,
-    );
+    browserSidebarService.prepareAttachedWebviewHistoryRestore(ownership, guestWebContentsId);
   });
 
   const rendererUrl = process.env.ELECTRON_RENDERER_URL ?? APP_RENDERER_URL;
@@ -1607,10 +1535,7 @@ function createWindow(
     windowSessionState?.markFocused(webContentsId);
     applyElectronWindowBackdrop(window);
     safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: true }]);
-    codexService.setRendererClientForegrounded(
-      rendererClientRegistration?.clientId,
-      true,
-    );
+    codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, true);
   });
   window.on("resize", () => {
     if (window.isDestroyed()) return;
@@ -1625,10 +1550,7 @@ function createWindow(
   window.on("blur", () => {
     applyElectronWindowBackdrop(window);
     safeSendToWindow(window, "electron-window:focus-changed", [{ isFocused: false }]);
-    codexService.setRendererClientForegrounded(
-      rendererClientRegistration?.clientId,
-      false,
-    );
+    codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, false);
   });
   window.webContents.on("did-finish-load", () => {
     logger.info("Renderer document finished loading", {
@@ -1665,10 +1587,7 @@ function createWindow(
   window.on("closed", () => {
     browserSidebarService.releaseRendererOwner(webContentsId);
     desktopNotificationManager.dismissByOriginWebContentsId(webContentsId);
-    codexService.setRendererClientForegrounded(
-      rendererClientRegistration?.clientId,
-      false,
-    );
+    codexService.setRendererClientForegrounded(rendererClientRegistration?.clientId, false);
     try {
       windowSessionState?.detachWindow(webContentsId, {
         disposition: closeDisposition,
@@ -1737,9 +1656,10 @@ function registerDatabaseNotifierBridges(): void {
         summaryScopeCount: event.summaryScopes.length,
         changeType: event.changeType,
         detailScope: event.detailInvalidation.kind,
-        detailSessionCount: event.detailInvalidation.kind === "sessions"
-          ? event.detailInvalidation.sessionIds.length
-          : 0,
+        detailSessionCount:
+          event.detailInvalidation.kind === "sessions"
+            ? event.detailInvalidation.sessionIds.length
+            : 0,
         windowCount: openWindows.size,
       },
       { groupBy: ["changeType", "windowCount"] },
@@ -1768,9 +1688,7 @@ async function publishCoreResync(eventHead: number): Promise<void> {
     affectedViewIds: [],
   });
   dbNotifier.notifyProjectsChanged("update");
-  dbNotifier.notifyProjectSessionInvalidation(
-    allProjectSessionInvalidation(),
-  );
+  dbNotifier.notifyProjectSessionInvalidation(allProjectSessionInvalidation());
 }
 
 async function initializeDesktopApp(
@@ -1781,10 +1699,9 @@ async function initializeDesktopApp(
   desktopDataAuthorityRuntime = await authority;
   desktopDataAuthorityStartup = null;
   releaseCoreAuthorityStatus?.();
-  releaseCoreAuthorityStatus =
-    desktopDataAuthorityRuntime.subscribeToCoreAuthority(
-      publishCoreAuthorityStatus,
-    );
+  releaseCoreAuthorityStatus = desktopDataAuthorityRuntime.subscribeToCoreAuthority(
+    publishCoreAuthorityStatus,
+  );
   const servicesStartedAt = performance.now();
   logger.info("Native Core authority ready", {
     ...desktopDataAuthorityRuntime.launch.timings,
@@ -1811,11 +1728,7 @@ async function initializeDesktopApp(
         transport_version: coreClient.handshake.selected_transport_version,
         packet,
       };
-      publishCoreModuleEventToNotifiers(
-        envelope,
-        effect,
-        coreIdentity.libraryId,
-      );
+      publishCoreModuleEventToNotifiers(envelope, effect, coreIdentity.libraryId);
     },
     onVisibility: (packet, delta) => {
       for (const revocation of revocationsFromVisibilityDelta(delta)) {
@@ -1830,25 +1743,22 @@ async function initializeDesktopApp(
         laneKey: failure.laneKey,
         commitSeq: failure.packet.manifest.identity.commit_seq,
         storeEpoch: failure.packet.manifest.identity.store_epoch,
-        error: failure.error instanceof Error
-          ? failure.error.message
-          : String(failure.error),
+        error: failure.error instanceof Error ? failure.error.message : String(failure.error),
       });
       if (failure.lane !== "projection" && failure.lane !== "visibility") return;
-      localCommitAudienceBroker?.reset({
-        storeEpoch: failure.packet.manifest.identity.store_epoch,
-        commitSeq: failure.packet.manifest.identity.commit_seq,
-      }, "integrity_failure", [failure.packet.delivery_address]);
+      localCommitAudienceBroker?.reset(
+        {
+          storeEpoch: failure.packet.manifest.identity.store_epoch,
+          commitSeq: failure.packet.manifest.identity.commit_seq,
+        },
+        "integrity_failure",
+        [failure.packet.delivery_address],
+      );
     },
   });
   scopedProjectionLiveSupervisor = new ScopedProjectionLiveSupervisor({
     open: (scopes, onEvent, onRepair, signal) =>
-      coreClient.openProjectionEventStream(
-        scopes,
-        onEvent,
-        onRepair,
-        signal,
-      ),
+      coreClient.openProjectionEventStream(scopes, onEvent, onRepair, signal),
     onPacket: (envelope) => {
       localCommitCoordinator?.admit(envelope.packet, "projection_live");
       localCommitAudienceBroker?.publish(envelope.packet);
@@ -1861,18 +1771,18 @@ async function initializeDesktopApp(
           storeEpoch: barrier.store_epoch,
           commitSeq: barrier.commit_head,
         },
-        (storeEpochChanged ? scopes : resetScopes)
-          .map(projectionScopeDeliveryAddress),
+        (storeEpochChanged ? scopes : resetScopes).map(projectionScopeDeliveryAddress),
         storeEpochChanged ? "store_epoch_replacement" : "stream_gap",
       );
     },
     onRepair: (repair) => {
-      localCommitAudienceBroker?.reset({
-        storeEpoch: repair.store_epoch,
-        commitSeq: repair.commit_head,
-      }, repair.reason === "identity_changed"
-        ? "store_epoch_replacement"
-        : "stream_gap");
+      localCommitAudienceBroker?.reset(
+        {
+          storeEpoch: repair.store_epoch,
+          commitSeq: repair.commit_head,
+        },
+        repair.reason === "identity_changed" ? "store_epoch_replacement" : "stream_gap",
+      );
     },
     onError: (error) => {
       logger.warn("Scoped Projection live broker interrupted", {
@@ -1885,13 +1795,7 @@ async function initializeDesktopApp(
   coreEventSubscription = superviseCoreEventStream({
     initialAfter: coreClient.handshake.commit_head,
     open: (after, onEvent, onCheckpoint, onResyncRequired, signal) =>
-      coreClient.openEventStream(
-        after,
-        onEvent,
-        onCheckpoint,
-        onResyncRequired,
-        signal,
-      ),
+      coreClient.openEventStream(after, onEvent, onCheckpoint, onResyncRequired, signal),
     onEvent: publishCoreModuleEvent,
     onCheckpoint: (checkpoint) => {
       localCommitCoordinator?.observeCheckpoint(checkpoint);
@@ -1911,11 +1815,8 @@ async function initializeDesktopApp(
       coreStreamInterruptionPublished = true;
       localCommitCoordinator?.resetStream("reconnect");
       logger.warn("Native Core event stream interrupted; reconnecting", {
-        error: error instanceof Error
-          ? error.message
-          : error === null
-            ? "stream ended"
-            : String(error),
+        error:
+          error instanceof Error ? error.message : error === null ? "stream ended" : String(error),
       });
     },
     onConnectionStateChanged: (state) => {
@@ -1982,27 +1883,19 @@ function publishCoreModuleEventToNotifiers(
         reason: "upsert",
       });
     }
-    if (
-      automationEvent.automationIds.length > 0
-      || automationEvent.runIds.length > 0
-    ) {
+    if (automationEvent.automationIds.length > 0 || automationEvent.runIds.length > 0) {
       codexService.notifyAutomationRunsUpdated({
-        automationId: automationEvent.automationIds.length === 1
-          ? automationEvent.automationIds[0] ?? null
-          : null,
-        threadId: automationEvent.runIds.length === 1
-          ? automationEvent.runIds[0] ?? null
-          : null,
+        automationId:
+          automationEvent.automationIds.length === 1
+            ? (automationEvent.automationIds[0] ?? null)
+            : null,
+        threadId: automationEvent.runIds.length === 1 ? (automationEvent.runIds[0] ?? null) : null,
         reason: "settle",
       });
     }
     return;
   }
-  const databaseEvent = mapCoreDatabaseEvent(
-    envelope,
-    effect,
-    libraryId,
-  );
+  const databaseEvent = mapCoreDatabaseEvent(envelope, effect, libraryId);
   if (databaseEvent) {
     dbNotifier.notifyDatabaseChanged(databaseEvent);
     if ((databaseEvent.affectedViewIds ?? []).length > 0) {
@@ -2013,20 +1906,12 @@ function publishCoreModuleEventToNotifiers(
     }
     return;
   }
-  const libraryDatabaseEvent = mapCoreLibraryDatabaseEvent(
-    envelope,
-    effect,
-    libraryId,
-  );
+  const libraryDatabaseEvent = mapCoreLibraryDatabaseEvent(envelope, effect, libraryId);
   if (libraryDatabaseEvent) {
     dbNotifier.notifyLibraryNavigationChanged(libraryDatabaseEvent);
     return;
   }
-  const libraryEvent = mapCoreLibraryEvent(
-    envelope,
-    effect,
-    libraryId,
-  );
+  const libraryEvent = mapCoreLibraryEvent(envelope, effect, libraryId);
   if (libraryEvent) {
     dbNotifier.notifyLibraryNavigationChanged(libraryEvent);
     return;
@@ -2079,18 +1964,14 @@ function configureRuntimeBackupScheduler(settings: {
 }
 
 function startRuntimeStoreMaintenanceScheduler(): void {
-  if (
-    !desktopStoreAdministration
-    || storeAdministrationMaintenanceScheduler
-  ) {
+  if (!desktopStoreAdministration || storeAdministrationMaintenanceScheduler) {
     return;
   }
-  storeAdministrationMaintenanceScheduler =
-    startStoreAdministrationMaintenanceScheduler({
-      administration: desktopStoreAdministration,
-      isAuthorityAvailable: isCoreAuthorityReady,
-      readBlockRetentionCount: () => getHistorySettings().retentionCount,
-    });
+  storeAdministrationMaintenanceScheduler = startStoreAdministrationMaintenanceScheduler({
+    administration: desktopStoreAdministration,
+    isAuthorityAvailable: isCoreAuthorityReady,
+    readBlockRetentionCount: () => getHistorySettings().retentionCount,
+  });
 }
 
 let desktopActivationHandlerRegistered = false;
@@ -2122,8 +2003,7 @@ function startRuntimeScheduledAutomationScheduler(): void {
     failClaim: async (leaseId, retryDelayMs, reasonCode) => {
       await automationModule.failLease(leaseId, retryDelayMs, reasonCode);
     },
-    settleInterruptedRuns: async () =>
-      await automationModule.settleInterruptedRuns(),
+    settleInterruptedRuns: async () => await automationModule.settleInterruptedRuns(),
     runAutomation: async (automation, context) => {
       await codexService.runScheduledAutomation(automation, context);
     },
@@ -2197,12 +2077,13 @@ function beginMainRuntimeShutdown(): void {
   coreLaunchAbortController?.abort(
     new DOMException("Nodex runtime is shutting down", "AbortError"),
   );
-  coreAuthorityClosePromise = desktopDataAuthorityRuntime?.close()
-    ?? desktopDataAuthorityStartup?.then(
+  coreAuthorityClosePromise =
+    desktopDataAuthorityRuntime?.close() ??
+    desktopDataAuthorityStartup?.then(
       async (runtime) => await runtime.close(),
       () => undefined,
-    )
-    ?? Promise.resolve();
+    ) ??
+    Promise.resolve();
   for (const state of projectionIpcSubscriptions.values()) {
     state.sender.removeListener("destroyed", state.onDestroyed);
     for (const release of state.releases.values()) release();
@@ -2422,12 +2303,9 @@ export async function runMainAppStartup(
 ): Promise<MainRuntimeController> {
   registerRuntimeLifecycleHandlers(context.requestShutdown);
   disposeManagedAssetProtocol?.();
-  disposeManagedAssetProtocol = registerManagedAssetProtocol(
-    electronSession.defaultSession,
-    {
-      logError: (message, error) => logger.warn(message, { error }),
-    },
-  );
+  disposeManagedAssetProtocol = registerManagedAssetProtocol(electronSession.defaultSession, {
+    logError: (message, error) => logger.warn(message, { error }),
+  });
   disposeAppRendererProtocol?.();
   disposeAppRendererProtocol = process.env.ELECTRON_RENDERER_URL
     ? null
@@ -2453,18 +2331,16 @@ export async function runMainAppStartup(
     app.dock?.setIcon(appDockIcon);
   }
   windowSessionState = new WindowSessionState(app.getPath("userData"));
-  browserSidebarService.setPageStore(new FileBrowserPageSnapshotStore({
-    filePath: join(
-      app.getPath("userData"),
-      "browser-sidebar-page-states.json",
-    ),
-  }));
-  browserSidebarService.setHistoryStore(new FileBrowserHistoryStore({
-    filePath: join(
-      app.getPath("userData"),
-      "browser-history.json",
-    ),
-  }));
+  browserSidebarService.setPageStore(
+    new FileBrowserPageSnapshotStore({
+      filePath: join(app.getPath("userData"), "browser-sidebar-page-states.json"),
+    }),
+  );
+  browserSidebarService.setHistoryStore(
+    new FileBrowserHistoryStore({
+      filePath: join(app.getPath("userData"), "browser-history.json"),
+    }),
+  );
   const browserSession = electronSession.fromPartition(BROWSER_SIDEBAR_PARTITION);
   const browserUsePolicyStore = new BrowserUsePolicyStore(
     join(getNodexHome(), "agent", "browser", "config.toml"),
@@ -2476,16 +2352,11 @@ export async function runMainAppStartup(
       fetchImpl: async (url, init) => await net.fetch(url, init),
       getAppVersion: () => app.getVersion(),
       logger,
-      readAuthStatus: async (input) =>
-        await codexService.readAuthStatusForDesktopService(input),
+      readAuthStatus: async (input) => await codexService.readAuthStatusForDesktopService(input),
     }),
   );
   const browserCredentialVault = new BrowserCredentialVault({
-    filePath: join(
-      getNodexHome(),
-      "secrets",
-      "browser-credentials.v1.json",
-    ),
+    filePath: join(getNodexHome(), "secrets", "browser-credentials.v1.json"),
     encryption: {
       isAvailable: () => safeStorage.isEncryptionAvailable(),
       encryptString: (plaintext) => safeStorage.encryptString(plaintext),
@@ -2502,14 +2373,9 @@ export async function runMainAppStartup(
   });
   configureBrowserProfileServices({
     credentialService: browserCredentialService,
-    extensionsProvider: new BrowserExtensionsProvider(
-      browserSession.extensions ?? null,
-    ),
+    extensionsProvider: new BrowserExtensionsProvider(browserSession.extensions ?? null),
     localServerPreferencesStore: new BrowserLocalServerPreferencesStore(
-      join(
-        app.getPath("userData"),
-        "browser-local-server-preferences.json",
-      ),
+      join(app.getPath("userData"), "browser-local-server-preferences.json"),
     ),
     profileImporter: new BrowserProfileImporter({
       cookieStore: browserSession.cookies,
@@ -2522,10 +2388,7 @@ export async function runMainAppStartup(
         }),
       }),
     }),
-    siteInfoProvider: new BrowserSiteInfoProvider(
-      browserSidebarService,
-      browserSession.cookies,
-    ),
+    siteInfoProvider: new BrowserSiteInfoProvider(browserSidebarService, browserSession.cookies),
     usePolicyStore: browserUsePolicyStore,
   });
   const browserRuntime = codexService.getBrowserRuntimeAvailability();
@@ -2538,26 +2401,25 @@ export async function runMainAppStartup(
   logger.info("Browser Use host capability resolved", {
     availableBackends: browserUseHostCapability.availableBackends,
     peerVerificationMode: browserUseHostCapability.peerAuthorizationMode,
-    reason: browserUseHostCapability.status === "unavailable"
-      ? browserUseHostCapability.reason
-      : null,
+    reason:
+      browserUseHostCapability.status === "unavailable" ? browserUseHostCapability.reason : null,
     runtimeStatus: browserRuntime.status,
     status: browserUseHostCapability.status,
   });
   const browserUsePeerAuthorizer = createBrowserUsePeerAuthorizer({
     addonPath:
-      browserUseHostCapability.status === "available"
-        && browserRuntime.status === "available"
-      ? browserRuntime.bundle.paths.peerAuthorization
-      : null,
+      browserUseHostCapability.status === "available" && browserRuntime.status === "available"
+        ? browserRuntime.bundle.paths.peerAuthorization
+        : null,
     mode: browserUseHostCapability.peerAuthorizationMode,
   });
   browserUseSessionRegistry = new BrowserUseSessionRegistry({
     appVersion: app.getVersion(),
     browserService: browserSidebarService,
-    buildFlavor: browserRuntime.status === "available"
-      ? browserRuntime.bundle.manifest.buildFlavor
-      : "unavailable",
+    buildFlavor:
+      browserRuntime.status === "available"
+        ? browserRuntime.bundle.manifest.buildFlavor
+        : "unavailable",
     enabled: browserUseHostCapability.status === "available",
     nativePipeEvents: {
       onAuthorizationError: (error) => {
@@ -2640,27 +2502,27 @@ export async function runMainAppStartup(
   });
   const browserDownloadService = new BrowserDownloadService({
     downloadsDirectory: app.getPath("downloads"),
-    isAgentControlled: (identity) =>
-      browserSidebarService.isBrowserUseIdentity(identity),
+    isAgentControlled: (identity) => browserSidebarService.isBrowserUseIdentity(identity),
     onSnapshot: (snapshot) => {
       const activeDownloadKeys = new Set(
         snapshot.downloads
-          .filter((download) =>
-            download.status === "starting"
-            || download.status === "progressing"
-            || download.status === "paused"
+          .filter(
+            (download) =>
+              download.status === "starting" ||
+              download.status === "progressing" ||
+              download.status === "paused",
           )
-          .map((download) =>
-            `${download.browserConversationId}\0${download.browserViewScopeId}`
-            + `\0${download.browserTabId}`
+          .map(
+            (download) =>
+              `${download.browserConversationId}\0${download.browserViewScopeId}` +
+              `\0${download.browserTabId}`,
           ),
       );
       for (const tab of browserSidebarService.getStateSnapshot().tabs) {
         browserSidebarService.setDownloadActive(
           tab,
           activeDownloadKeys.has(
-            `${tab.browserConversationId}\0${tab.browserViewScopeId}`
-            + `\0${tab.browserTabId}`,
+            `${tab.browserConversationId}\0${tab.browserViewScopeId}` + `\0${tab.browserTabId}`,
           ),
         );
       }
@@ -2671,15 +2533,10 @@ export async function runMainAppStartup(
     resolveIdentity: (webContentsId) =>
       browserSidebarService.getIdentityForWebContents(webContentsId),
     shell,
-    store: new FileBrowserDownloadStore(join(
-      app.getPath("userData"),
-      "browser-downloads.json",
-    )),
+    store: new FileBrowserDownloadStore(join(app.getPath("userData"), "browser-downloads.json")),
   });
   configureBrowserDownloadService(browserDownloadService);
-  void browserDownloadService.initialize(
-    browserSession,
-  ).catch((error) => {
+  void browserDownloadService.initialize(browserSession).catch((error) => {
     logger.error("Could not initialize Browser download history", {
       error: error instanceof Error ? error.message : String(error),
     });
@@ -2702,9 +2559,10 @@ export async function runMainAppStartup(
   })();
   appUpdateService = new AppUpdateService({
     currentVersion: app.getVersion(),
-    isInApplicationsFolder: process.platform !== "darwin"
-      || typeof app.isInApplicationsFolder !== "function"
-      || app.isInApplicationsFolder(),
+    isInApplicationsFolder:
+      process.platform !== "darwin" ||
+      typeof app.isInApplicationsFolder !== "function" ||
+      app.isInApplicationsFolder(),
     isPackaged: app.isPackaged,
     logger,
     platform: process.platform,
@@ -2712,10 +2570,8 @@ export async function runMainAppStartup(
     initialSettings: getAppUpdateSettings(
       packagedMacAppUpdater?.getBuildDefaultChannel() ?? "stable",
     ),
-    persistSettings: (input) => updateAppUpdateSettings(
-      input,
-      packagedMacAppUpdater?.getBuildDefaultChannel() ?? "stable",
-    ),
+    persistSettings: (input) =>
+      updateAppUpdateSettings(input, packagedMacAppUpdater?.getBuildDefaultChannel() ?? "stable"),
   });
   appUpdateService.onStatusChange((status) => {
     broadcastAppUpdateStatus(status);
@@ -2786,9 +2642,7 @@ export async function runMainAppStartup(
   const nodexAgentResourceAuthority = createDesktopNodexAgentResourceAuthorityPort({
     authority: dataAuthority,
   });
-  codexService.setNodexAgentResourceAuthorityPort(
-    nodexAgentResourceAuthority,
-  );
+  codexService.setNodexAgentResourceAuthorityPort(nodexAgentResourceAuthority);
   const automationModule = createDesktopAutomationModuleBridge({
     authority: dataAuthority,
   });
@@ -2819,8 +2673,8 @@ export async function runMainAppStartup(
   const projectWorkspace = createDesktopProjectWorkspaceBridge({
     authority: dataAuthority,
   });
-  browserSidebarService.setProjectSessionResolver(async (sessionId) =>
-    (await projectWorkspace.getProjectSession(sessionId))?.projectId ?? null
+  browserSidebarService.setProjectSessionResolver(
+    async (sessionId) => (await projectWorkspace.getProjectSession(sessionId))?.projectId ?? null,
   );
   codexService.setProjectWorkspacePort(projectWorkspace);
   configureNodexAgentV3DynamicService(
@@ -2839,10 +2693,7 @@ export async function runMainAppStartup(
     }),
     journalPath: resolveInitialProjectJournalPath(getNodexHome()),
   });
-  appInitializationPromise = initializeDesktopApp(
-    dataAuthority,
-    initialProjectBootstrap,
-  );
+  appInitializationPromise = initializeDesktopApp(dataAuthority, initialProjectBootstrap);
   rendererHostReadyForWindows = true;
   configureApplicationMenus();
   registerInitializationIpcHandlers();
@@ -2897,42 +2748,28 @@ export async function runMainAppStartup(
     isConversationPresentedInForeground: (conversationId) =>
       codexService.isRendererConversationPresentedInForeground(conversationId),
     resolveTargetClientId: (conversationId) => {
-      const presenting = codexService.resolveRendererPresentedSurfaceClient(
-        conversationId,
-      );
+      const presenting = codexService.resolveRendererPresentedSurfaceClient(conversationId);
       if (presenting) return presenting;
       const fallbackWindow = getLastFocusedWindow();
       if (!fallbackWindow) return null;
-      return notificationRendererRouter.getClientIdForWebContentsId(
-        fallbackWindow.webContents.id,
-      );
+      return notificationRendererRouter.getClientIdForWebContentsId(fallbackWindow.webContents.id);
     },
     showNotification: (notification, targetClientId, onAction) => {
-      const webContentsId = notificationRendererRouter.getWebContentsIdForClientId(
-        targetClientId,
-      );
+      const webContentsId = notificationRendererRouter.getWebContentsIdForClientId(targetClientId);
       if (webContentsId === null) return;
       const targetWindow = openWindows.get(webContentsId);
       if (!targetWindow || targetWindow.isDestroyed()) return;
-      desktopNotificationManager.showNotification(
-        notification,
-        targetWindow.webContents,
-        onAction,
-      );
+      desktopNotificationManager.showNotification(notification, targetWindow.webContents, onAction);
     },
     dismissNotification: (selector) => {
       desktopNotificationManager.dismiss(selector);
     },
     dispatchAction: (targetClientId, action) =>
-      notificationRendererRouter.sendToClient(
-        targetClientId,
-        "desktop-notification:action",
-        [action],
-      ),
+      notificationRendererRouter.sendToClient(targetClientId, "desktop-notification:action", [
+        action,
+      ]),
     focusTargetClient: (targetClientId) => {
-      const webContentsId = notificationRendererRouter.getWebContentsIdForClientId(
-        targetClientId,
-      );
+      const webContentsId = notificationRendererRouter.getWebContentsIdForClientId(targetClientId);
       if (webContentsId === null) return;
       const targetWindow = openWindows.get(webContentsId);
       if (!targetWindow || targetWindow.isDestroyed()) return;
@@ -2942,16 +2779,18 @@ export async function runMainAppStartup(
     },
     logger,
   });
-  codexService.setNodexAgentAuthorizationBroker(new NodexAgentAuthorizationBroker({
-    rendererClientRouter,
-    readStoreEpoch: () => {
-      const runtime = desktopDataAuthorityRuntime;
-      if (!runtime) return null;
-      return runtime.identity.storeEpoch;
-    },
-    persistProjectGrants: async (input) =>
-      await nodexAgentResourceAuthority.persistProjectGrants(input),
-  }));
+  codexService.setNodexAgentAuthorizationBroker(
+    new NodexAgentAuthorizationBroker({
+      rendererClientRouter,
+      readStoreEpoch: () => {
+        const runtime = desktopDataAuthorityRuntime;
+        if (!runtime) return null;
+        return runtime.identity.storeEpoch;
+      },
+      persistProjectGrants: async (input) =>
+        await nodexAgentResourceAuthority.persistProjectGrants(input),
+    }),
+  );
   registerIpcHandlers({
     automationModule,
     gitWorkerHost,
@@ -3014,15 +2853,14 @@ export async function runMainAppStartup(
     onGetAppUpdateStatus: () =>
       appUpdateService?.getStatus() ?? resolveUnsupportedAppUpdateStatus(),
     onCheckForAppUpdate: async () =>
-      await (appUpdateService?.checkForUpdates("manual")
-        ?? Promise.resolve(resolveUnsupportedAppUpdateStatus())),
-    onInstallAppUpdate: async () => await (
-      appUpdateService?.installUpdateAndRestart() ?? Promise.resolve(false)
-    ),
+      await (appUpdateService?.checkForUpdates("manual") ??
+        Promise.resolve(resolveUnsupportedAppUpdateStatus())),
+    onInstallAppUpdate: async () =>
+      await (appUpdateService?.installUpdateAndRestart() ?? Promise.resolve(false)),
     onGetAppUpdateSettings: () => appUpdateService?.getSettings() ?? getAppUpdateSettings(),
     onUpdateAppUpdateSettings: async (input) => {
-      const settings = await (appUpdateService?.updateSettings(input)
-        ?? Promise.resolve(updateAppUpdateSettings(input)));
+      const settings = await (appUpdateService?.updateSettings(input) ??
+        Promise.resolve(updateAppUpdateSettings(input)));
       maybeStartAutomaticAppUpdateChecks();
       return settings;
     },

@@ -192,7 +192,9 @@ function ensureStorybookElectronBridge({
     },
     customDescription: null,
   };
-  let commandKeybindingOverrides: CommandKeybindingOverrides = { ...initialCommandKeybindingOverrides };
+  let commandKeybindingOverrides: CommandKeybindingOverrides = {
+    ...initialCommandKeybindingOverrides,
+  };
   let gitSettings = {
     branchPrefix: "codex/",
     commitInstructions: "Keep commits focused and use imperative subjects.",
@@ -304,11 +306,15 @@ function ensureStorybookElectronBridge({
           };
         }
         case "backup:create":
-          return onCreateBackup(typeof args[0] === "object" && args[0] && "label" in (args[0] as Record<string, unknown>)
-            ? typeof (args[0] as { label?: unknown }).label === "string"
-              ? (args[0] as { label?: string }).label ?? null
-              : null
-            : null);
+          return onCreateBackup(
+            typeof args[0] === "object" &&
+              args[0] &&
+              "label" in (args[0] as Record<string, unknown>)
+              ? typeof (args[0] as { label?: unknown }).label === "string"
+                ? ((args[0] as { label?: string }).label ?? null)
+                : null
+              : null,
+          );
         case "settings:backup:get":
           return {
             autoEnabled: false,
@@ -340,22 +346,30 @@ function ensureStorybookElectronBridge({
           };
           diagnosticsSettings = {
             ...diagnosticsSettings,
-            enabled: typeof input.enabled === "boolean" ? input.enabled : diagnosticsSettings.enabled,
+            enabled:
+              typeof input.enabled === "boolean" ? input.enabled : diagnosticsSettings.enabled,
             dsn: typeof input.dsn === "string" ? input.dsn : diagnosticsSettings.dsn,
-            environment: typeof input.environment === "string" ? input.environment : diagnosticsSettings.environment,
+            environment:
+              typeof input.environment === "string"
+                ? input.environment
+                : diagnosticsSettings.environment,
             release: typeof input.release === "string" ? input.release : null,
-            tracesSampleRate: typeof input.tracesSampleRate === "number"
-              ? input.tracesSampleRate
-              : diagnosticsSettings.tracesSampleRate,
-            replayEnabled: typeof input.replayEnabled === "boolean"
-              ? input.replayEnabled
-              : diagnosticsSettings.replayEnabled,
-            replaysSessionSampleRate: typeof input.replaysSessionSampleRate === "number"
-              ? input.replaysSessionSampleRate
-              : diagnosticsSettings.replaysSessionSampleRate,
-            replaysOnErrorSampleRate: typeof input.replaysOnErrorSampleRate === "number"
-              ? input.replaysOnErrorSampleRate
-              : diagnosticsSettings.replaysOnErrorSampleRate,
+            tracesSampleRate:
+              typeof input.tracesSampleRate === "number"
+                ? input.tracesSampleRate
+                : diagnosticsSettings.tracesSampleRate,
+            replayEnabled:
+              typeof input.replayEnabled === "boolean"
+                ? input.replayEnabled
+                : diagnosticsSettings.replayEnabled,
+            replaysSessionSampleRate:
+              typeof input.replaysSessionSampleRate === "number"
+                ? input.replaysSessionSampleRate
+                : diagnosticsSettings.replaysSessionSampleRate,
+            replaysOnErrorSampleRate:
+              typeof input.replaysOnErrorSampleRate === "number"
+                ? input.replaysOnErrorSampleRate
+                : diagnosticsSettings.replaysOnErrorSampleRate,
           };
           return diagnosticsSettings;
         }
@@ -371,11 +385,16 @@ function ensureStorybookElectronBridge({
           telemetrySettings = {
             ...telemetrySettings,
             enabled: typeof input.enabled === "boolean" ? input.enabled : telemetrySettings.enabled,
-            clientKey: typeof input.clientKey === "string" ? input.clientKey : telemetrySettings.clientKey,
-            environment: typeof input.environment === "string" ? input.environment : telemetrySettings.environment,
-            autoCaptureEnabled: typeof input.autoCaptureEnabled === "boolean"
-              ? input.autoCaptureEnabled
-              : telemetrySettings.autoCaptureEnabled,
+            clientKey:
+              typeof input.clientKey === "string" ? input.clientKey : telemetrySettings.clientKey,
+            environment:
+              typeof input.environment === "string"
+                ? input.environment
+                : telemetrySettings.environment,
+            autoCaptureEnabled:
+              typeof input.autoCaptureEnabled === "boolean"
+                ? input.autoCaptureEnabled
+                : telemetrySettings.autoCaptureEnabled,
           };
           return telemetrySettings;
         }
@@ -427,7 +446,9 @@ function SettingsRouteShellStory({
   notificationSettings?: ThreadNotificationSettings;
 }) {
   const [path, setPath] = useState(initialPath);
-  const [environmentSnapshots, setEnvironmentSnapshots] = useState<Record<string, WorktreeEnvironmentSettingsSnapshot>>({
+  const [environmentSnapshots, setEnvironmentSnapshots] = useState<
+    Record<string, WorktreeEnvironmentSettingsSnapshot>
+  >({
     default: buildEnvironmentSnapshot("default"),
   });
   const [backups, setBackups] = useState<BackupRecord[]>([

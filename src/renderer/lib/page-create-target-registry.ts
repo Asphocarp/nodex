@@ -1,12 +1,7 @@
 import type { ContentAccessContext } from "../../shared/content-access-context";
 import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
 import type { ProjectAppearance } from "../../shared/project-appearance";
-import {
-  appScope,
-  scopedAtom,
-  type ScopeHandle,
-  useScopedAtomValue,
-} from "./maitai";
+import { appScope, scopedAtom, type ScopeHandle, useScopedAtomValue } from "./maitai";
 import type { BoardSummaryColumn, WorkflowStatus } from "./types";
 
 export interface PageCreateTarget {
@@ -81,9 +76,7 @@ const pageCreateTargetRegistryAtom = scopedAtom<PageCreateTargetRegistryState>(
   { debugLabel: "page-create-target-registry" },
 );
 
-function resolveColumnId(
-  registration: PageCreateTargetRegistration,
-): WorkflowStatus | null {
+function resolveColumnId(registration: PageCreateTargetRegistration): WorkflowStatus | null {
   const { activeColumnId, target } = registration;
   if (activeColumnId && target.columns.some((column) => column.id === activeColumnId)) {
     return activeColumnId;
@@ -97,7 +90,7 @@ export function resolvePageCreateTarget(
 ): PageCreateTargetResolution {
   const registrations = Object.values(state.boardRegistrations);
   const active = state.activeSurfaceId
-    ? state.boardRegistrations[state.activeSurfaceId] ?? null
+    ? (state.boardRegistrations[state.activeSurfaceId] ?? null)
     : null;
 
   if (active?.target.readOnlyReason) {
@@ -125,12 +118,13 @@ export function resolvePageCreateTarget(
   }
 
   const recentlyActive = registrations
-    .filter((registration) => (
-      registration.target.project.id === activeProjectId
-      && registration.activitySequence > 0
-      && !registration.target.readOnlyReason
-      && resolveColumnId(registration)
-    ))
+    .filter(
+      (registration) =>
+        registration.target.project.id === activeProjectId &&
+        registration.activitySequence > 0 &&
+        !registration.target.readOnlyReason &&
+        resolveColumnId(registration),
+    )
     .toSorted((left, right) => right.activitySequence - left.activitySequence)[0];
   if (recentlyActive) {
     const columnId = resolveColumnId(recentlyActive);
@@ -203,9 +197,7 @@ export function unregisterPageCreateTarget(
     return {
       ...previous,
       boardRegistrations,
-      activeSurfaceId: previous.activeSurfaceId === surfaceId
-        ? null
-        : previous.activeSurfaceId,
+      activeSurfaceId: previous.activeSurfaceId === surfaceId ? null : previous.activeSurfaceId,
     };
   });
 }
@@ -287,17 +279,11 @@ export function resolveRegisteredPageCreateTarget(
   appHandle: ScopeHandle,
   activeProjectId: string | null,
 ): PageCreateTargetResolution {
-  return resolvePageCreateTarget(
-    appHandle.get(pageCreateTargetRegistryAtom),
-    activeProjectId,
-  );
+  return resolvePageCreateTarget(appHandle.get(pageCreateTargetRegistryAtom), activeProjectId);
 }
 
 export function usePageCreateTargetResolution(
   activeProjectId: string | null,
 ): PageCreateTargetResolution {
-  return resolvePageCreateTarget(
-    useScopedAtomValue(pageCreateTargetRegistryAtom),
-    activeProjectId,
-  );
+  return resolvePageCreateTarget(useScopedAtomValue(pageCreateTargetRegistryAtom), activeProjectId);
 }

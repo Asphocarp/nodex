@@ -1,11 +1,4 @@
-import {
-  lazy,
-  Suspense,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DateRange } from "react-day-picker";
 import {
   NodexOptionPicker,
@@ -62,9 +55,7 @@ import {
   type DateMentionProps,
 } from "./date-mention-inline-content";
 
-let dateMentionCalendarPromise:
-  | Promise<typeof import("./date-mention-calendar")>
-  | undefined;
+let dateMentionCalendarPromise: Promise<typeof import("./date-mention-calendar")> | undefined;
 
 /** Warms the deferred calendar before an interaction that is likely to open it. */
 export const preloadDateMentionCalendar = () => {
@@ -76,11 +67,13 @@ const LazyDateMentionCalendar = lazy(async () => ({
   default: (await preloadDateMentionCalendar()).DateMentionCalendar,
 }));
 
-const DATE_FORMAT_OPTIONS: NodexOptionPickerOption[] = NFM_DATE_MENTION_DATE_FORMATS.map((format) => ({
-  value: format,
-  label: getDateFormatLabel(format),
-  subText: format === "relative" ? "Today, Tomorrow, Jun 28 fallback" : format,
-}));
+const DATE_FORMAT_OPTIONS: NodexOptionPickerOption[] = NFM_DATE_MENTION_DATE_FORMATS.map(
+  (format) => ({
+    value: format,
+    label: getDateFormatLabel(format),
+    subText: format === "relative" ? "Today, Tomorrow, Jun 28 fallback" : format,
+  }),
+);
 
 const TIME_FORMAT_OPTIONS: NodexOptionPickerOption[] = [
   { value: "", label: getTimeFormatLabel(undefined), subText: "Use browser locale" },
@@ -122,10 +115,7 @@ function DateMentionSwitch({
       onClick={() => onCheckedChange(!checked)}
     >
       <span
-        className={cn(
-          "size-3 rounded-full bg-token-bg shadow-sm",
-          checked && "translate-x-3",
-        )}
+        className={cn("size-3 rounded-full bg-token-bg shadow-sm", checked && "translate-x-3")}
       />
     </button>
   );
@@ -163,22 +153,17 @@ function DateMentionControlRow({
       ) : null}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {value ? (
-        <span className="min-w-0 max-w-[8rem] truncate text-token-description-foreground">{value}</span>
+        <span className="min-w-0 max-w-[8rem] truncate text-token-description-foreground">
+          {value}
+        </span>
       ) : null}
       {action}
     </>
   );
   const content = action ? (
-    <div className={className}>
-      {children}
-    </div>
+    <div className={className}>{children}</div>
   ) : (
-    <button
-      type="button"
-      disabled={disabled}
-      className={className}
-      onClick={onClick}
-    >
+    <button type="button" disabled={disabled} className={className} onClick={onClick}>
       {children}
     </button>
   );
@@ -209,10 +194,7 @@ function DateMentionPopoverBody({
   const endDateValue = payload.end ? dateMentionValueToIsoDate(payload.end) : null;
   const startTime = dateMentionValueToTime(payload.start);
   const endTime = payload.end ? dateMentionValueToTime(payload.end) : null;
-  const startDate = useMemo(
-    () => isoDateToDate(startDateValue) ?? new Date(),
-    [startDateValue],
-  );
+  const startDate = useMemo(() => isoDateToDate(startDateValue) ?? new Date(), [startDateValue]);
   const selectedRange = payload.end
     ? { from: startDate, to: isoDateToDate(endDateValue ?? startDateValue) ?? startDate }
     : { from: startDate, to: undefined };
@@ -243,12 +225,14 @@ function DateMentionPopoverBody({
   const setSelectedDate = (date: Date | undefined) => {
     if (!date) return;
     const nextDate = dateToIsoDate(date);
-    patchPayload(createDateMentionPayload(buildDateValue(nextDate), {
-      tz: hasTime ? payload.tz : undefined,
-      format: payload.format ?? "relative",
-      timeFormat: payload.timeFormat,
-      reminder: payload.reminder,
-    }));
+    patchPayload(
+      createDateMentionPayload(buildDateValue(nextDate), {
+        tz: hasTime ? payload.tz : undefined,
+        format: payload.format ?? "relative",
+        timeFormat: payload.timeFormat,
+        reminder: payload.reminder,
+      }),
+    );
   };
 
   const setSelectedRange = (range: DateRange | undefined) => {
@@ -264,13 +248,15 @@ function DateMentionPopoverBody({
           dateMentionValueToUtcOffset(payload.end ?? payload.start),
         )
       : nextEndDate;
-    patchPayload(createDateMentionPayload(nextStart, {
-      end: nextEnd,
-      tz: hasTime ? payload.tz : undefined,
-      format: payload.format ?? "relative",
-      timeFormat: payload.timeFormat,
-      reminder: payload.reminder,
-    }));
+    patchPayload(
+      createDateMentionPayload(nextStart, {
+        end: nextEnd,
+        tz: hasTime ? payload.tz : undefined,
+        format: payload.format ?? "relative",
+        timeFormat: payload.timeFormat,
+        reminder: payload.reminder,
+      }),
+    );
   };
 
   const applyInputDate = () => {
@@ -286,15 +272,15 @@ function DateMentionPopoverBody({
   const toggleEndDate = (checked: boolean) => {
     const fallbackEndDate = addIsoDateDays(startDateValue, 1);
     const nextEnd = checked
-      ? payload.end
-        ?? (hasTime
+      ? (payload.end ??
+        (hasTime
           ? createDateMentionDateTimeValue(
               fallbackEndDate,
               endTime ?? startTime ?? currentIsoTime(),
               payload.tz,
               dateMentionValueToUtcOffset(payload.start),
             )
-          : fallbackEndDate)
+          : fallbackEndDate))
       : "";
     onPatch({
       end: nextEnd,
@@ -319,7 +305,7 @@ function DateMentionPopoverBody({
 
     onPatch({
       start: startDateValue,
-      end: hasEndDate ? endDateValue ?? startDateValue : "",
+      end: hasEndDate ? (endDateValue ?? startDateValue) : "",
       tz: "",
       timeFormat: "",
     });
@@ -328,7 +314,9 @@ function DateMentionPopoverBody({
   const timezoneOptions = useMemo(() => {
     const local = getLocalDateMentionTimeZone();
     const current = payload.tz || local;
-    const values = Array.from(new Set([current, local, "UTC", "America/Los_Angeles", "Europe/London", "Asia/Shanghai"]));
+    const values = Array.from(
+      new Set([current, local, "UTC", "America/Los_Angeles", "Europe/London", "Asia/Shanghai"]),
+    );
     return values.map((value) => ({
       value,
       label: value === local ? `${value} (local)` : value,
@@ -405,13 +393,13 @@ function DateMentionPopoverBody({
         <DateMentionControlRow
           icon={<CalendarIcon className="icon-2xs" />}
           label="End date"
-          action={(
+          action={
             <DateMentionSwitch
               checked={hasEndDate}
               label="End date"
               onCheckedChange={toggleEndDate}
             />
-          )}
+          }
         />
 
         <NodexOptionPicker
@@ -419,26 +407,26 @@ function DateMentionPopoverBody({
           options={DATE_FORMAT_OPTIONS}
           onValueChange={(format) => onPatch({ format })}
           contentWidth="menu"
-          triggerButton={(
+          triggerButton={
             <DateMentionControlRow
               icon={<SmallChevronDownIcon className="icon-2xs" />}
               label="Date format"
               value={getDateFormatLabel(payload.format)}
             />
-          )}
+          }
         />
 
         <DateMentionControlRow
           icon={<ClockIcon className="icon-2xs" />}
           label="Include time"
-          value={hasTime ? startTime ?? undefined : undefined}
-          action={(
+          value={hasTime ? (startTime ?? undefined) : undefined}
+          action={
             <DateMentionSwitch
               checked={hasTime}
               label="Include time"
               onCheckedChange={toggleTime}
             />
-          )}
+          }
         />
 
         {hasTime ? (
@@ -448,13 +436,13 @@ function DateMentionPopoverBody({
               options={TIME_FORMAT_OPTIONS}
               onValueChange={(timeFormat) => onPatch({ timeFormat })}
               contentWidth="menu"
-              triggerButton={(
+              triggerButton={
                 <DateMentionControlRow
                   icon={<ClockIcon className="icon-2xs" />}
                   label="Time format"
                   value={getTimeFormatLabel(payload.timeFormat)}
                 />
-              )}
+              }
             />
 
             <NodexOptionPicker
@@ -465,34 +453,42 @@ function DateMentionPopoverBody({
               searchAriaLabel="Search timezones"
               onValueChange={setTimezone}
               contentWidth="workspace"
-              triggerButton={(
+              triggerButton={
                 <DateMentionControlRow
                   icon={<CalendarIcon className="icon-2xs" />}
                   label="Timezone"
                   value={payload.tz || getLocalDateMentionTimeZone()}
                 />
-              )}
+              }
             />
           </>
         ) : null}
 
         <NodexOptionPicker
           value={payload.reminder ?? ""}
-          options={payload.reminder && !NFM_DATE_MENTION_REMINDER_PRESETS.includes(payload.reminder as never)
-            ? [
-                ...REMINDER_OPTIONS,
-                { value: payload.reminder, label: "Custom reminder", subText: payload.reminder, disabled: true },
-              ]
-            : REMINDER_OPTIONS}
+          options={
+            payload.reminder &&
+            !NFM_DATE_MENTION_REMINDER_PRESETS.includes(payload.reminder as never)
+              ? [
+                  ...REMINDER_OPTIONS,
+                  {
+                    value: payload.reminder,
+                    label: "Custom reminder",
+                    subText: payload.reminder,
+                    disabled: true,
+                  },
+                ]
+              : REMINDER_OPTIONS
+          }
           onValueChange={(reminder) => onPatch({ reminder })}
           contentWidth="menu"
-          triggerButton={(
+          triggerButton={
             <DateMentionControlRow
               icon={<BellIcon className="icon-2xs" />}
               label="Remind"
               value={getReminderLabel(payload.reminder)}
             />
-          )}
+          }
         />
       </div>
 

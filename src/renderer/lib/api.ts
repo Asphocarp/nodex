@@ -1,7 +1,4 @@
-import {
-  resolveInvokeTransport,
-  resolveRendererTransport,
-} from "./renderer-transport";
+import { resolveInvokeTransport, resolveRendererTransport } from "./renderer-transport";
 import type { IpcApi } from "../../shared/ipc-api";
 import type {
   ContentAccessContext,
@@ -36,10 +33,7 @@ import type {
   ProjectAccessedDocumentDescriptor,
 } from "../../shared/block-documents/contracts";
 import type { DocumentSyncCommandResult } from "../../shared/block-documents/document-sync";
-import type {
-  PageTargetReadModel,
-  ResolvePageTargetInput,
-} from "../../shared/page-targets";
+import type { PageTargetReadModel, ResolvePageTargetInput } from "../../shared/page-targets";
 import type {
   PageOwnershipPathReadModel,
   ResolvePageOwnershipPathInput,
@@ -66,10 +60,7 @@ import type {
   LibraryModuleReadRequest,
   LibraryModuleReadResult,
 } from "../../shared/library-module";
-import type {
-  LibraryPageDetailResult,
-  PageDetailResult,
-} from "../../shared/page-detail";
+import type { LibraryPageDetailResult, PageDetailResult } from "../../shared/page-detail";
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
@@ -131,14 +122,8 @@ export async function invoke<Channel extends keyof IpcApi>(
   channel: Channel,
   ...args: IpcApi[Channel]["args"]
 ): Promise<IpcApi[Channel]["result"]>;
-export async function invoke(
-  channel: string,
-  ...args: unknown[]
-): Promise<unknown>;
-export async function invoke(
-  channel: string,
-  ...args: unknown[]
-): Promise<unknown> {
+export async function invoke(channel: string, ...args: unknown[]): Promise<unknown>;
+export async function invoke(channel: string, ...args: unknown[]): Promise<unknown> {
   const transport = resolveInvokeTransport();
   return transport.invoke(channel, ...args);
 }
@@ -164,9 +149,7 @@ export async function searchPages(
   }
 }
 
-export function createDocumentSyncAdapter(
-  projectId: string,
-): DocumentSyncAdapter {
+export function createDocumentSyncAdapter(projectId: string): DocumentSyncAdapter {
   const transport = resolveRendererTransport();
   const createAdapter = transport.createDocumentSyncAdapter;
   if (createAdapter) {
@@ -217,20 +200,14 @@ export function getOwnedDocumentDescriptor(
   projectId: string,
   ownerBlockId: string,
 ): Promise<ProjectAccessedDocumentDescriptor> {
-  return resolveRendererTransport().getOwnedDocumentDescriptor(
-    projectId,
-    ownerBlockId,
-  );
+  return resolveRendererTransport().getOwnedDocumentDescriptor(projectId, ownerBlockId);
 }
 
 export function prepareOwnedBlockDocument(
   projectId: string,
   ownerBlockId: string,
 ): Promise<DocumentSyncCommandResult<ProjectAccessedDocumentDescriptor>> {
-  return resolveRendererTransport().prepareOwnedBlockDocument(
-    projectId,
-    ownerBlockId,
-  );
+  return resolveRendererTransport().prepareOwnedBlockDocument(projectId, ownerBlockId);
 }
 
 export function prepareLibraryOwnedBlockDocument(
@@ -242,9 +219,9 @@ export function prepareLibraryOwnedBlockDocument(
 export function prepareOwnedBlockDocumentForContentAccess(
   accessContext: ContentAccessContext,
   ownerBlockId: string,
-): Promise<DocumentSyncCommandResult<
-  ProjectAccessedDocumentDescriptor | LibraryAccessedDocumentDescriptor
->> {
+): Promise<
+  DocumentSyncCommandResult<ProjectAccessedDocumentDescriptor | LibraryAccessedDocumentDescriptor>
+> {
   return accessContext.kind === "project"
     ? prepareOwnedBlockDocument(accessContext.projectId, ownerBlockId)
     : prepareLibraryOwnedBlockDocument(ownerBlockId);
@@ -255,11 +232,7 @@ export async function mutateDocument(
   documentId: string,
   request: DocumentMutationRequest,
 ): Promise<DocumentOperationCommandResult> {
-  const result = await resolveRendererTransport().mutateDocument(
-    projectId,
-    documentId,
-    request,
-  );
+  const result = await resolveRendererTransport().mutateDocument(projectId, documentId, request);
   if (result.ok) await admitLocalCommitApply(result.localCommit);
   return result;
 }
@@ -300,15 +273,11 @@ export function createPastedTextAttachment(
   return invoke("codex:pasted-text:create", input);
 }
 
-export function readPastedTextAttachment(
-  input: ReadPastedTextAttachmentInput,
-): Promise<string> {
+export function readPastedTextAttachment(input: ReadPastedTextAttachmentInput): Promise<string> {
   return invoke("codex:pasted-text:read", input);
 }
 
-export function removePastedTextAttachment(
-  input: RemovePastedTextAttachmentInput,
-): Promise<void> {
+export function removePastedTextAttachment(input: RemovePastedTextAttachmentInput): Promise<void> {
   return invoke("codex:pasted-text:remove", input);
 }
 
@@ -317,11 +286,7 @@ export function createDocumentVersionCheckpoint(
   documentId: string,
   request: CreateDocumentVersionCheckpoint,
 ): Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>> {
-  return resolveRendererTransport().createDocumentVersionCheckpoint(
-    projectId,
-    documentId,
-    request,
-  );
+  return resolveRendererTransport().createDocumentVersionCheckpoint(projectId, documentId, request);
 }
 
 export function listDocumentVersions(
@@ -389,20 +354,14 @@ export function readPageLifecyclePreflight(
   projectId: string,
   pageId: string,
 ): Promise<PageLifecyclePreflightResultV2> {
-  return resolveRendererTransport().readPageLifecyclePreflight(
-    projectId,
-    pageId,
-  );
+  return resolveRendererTransport().readPageLifecyclePreflight(projectId, pageId);
 }
 
 export async function mutatePageLifecycle(
   projectId: string,
   request: PageLifecycleMutationRequestV2,
 ): Promise<PageLifecycleMutationCommandResultV2> {
-  const result = await resolveRendererTransport().mutatePageLifecycle(
-    projectId,
-    request,
-  );
+  const result = await resolveRendererTransport().mutatePageLifecycle(projectId, request);
   if (result.ok) await admitLocalCommitApply(result.localCommit);
   return result;
 }
@@ -466,10 +425,7 @@ export async function invokeCoreResult<Channel extends CoreResultChannel>(
   channel: Channel,
   ...args: IpcApi[Channel]["args"]
 ): Promise<CoreResultChannelValue<Channel>> {
-  const result = (await invoke(
-    channel,
-    ...args,
-  )) as CoreResult<CoreResultChannelValue<Channel>>;
+  const result = (await invoke(channel, ...args)) as CoreResult<CoreResultChannelValue<Channel>>;
   if (result.ok) return result.value;
   throw new CoreApiError(result.error);
 }
@@ -496,28 +452,22 @@ export function readDatabaseViewGroups(
 }
 
 export function readLibraryDatabaseViewWindow(
-  input: DatabaseViewWindowInput & (
-    | { readonly databaseViewId: string }
-    | { readonly databaseId: string }
-  ),
+  input: DatabaseViewWindowInput &
+    ({ readonly databaseViewId: string } | { readonly databaseId: string }),
 ): Promise<LibraryDatabaseViewWindowSnapshot> {
   return invokeCoreResult("library-database:view-window:get", input);
 }
 
 export function readLibraryDatabaseListWindow(
-  input: DatabaseListWindowInput & (
-    | { readonly databaseViewId: string }
-    | { readonly databaseId: string }
-  ),
+  input: DatabaseListWindowInput &
+    ({ readonly databaseViewId: string } | { readonly databaseId: string }),
 ): Promise<LibraryDatabaseListWindowSnapshot> {
   return invokeCoreResult("library-database:list-window:get", input);
 }
 
 export function readLibraryDatabaseViewGroups(
-  input: DatabaseViewGroupsInput & (
-    | { readonly databaseViewId: string }
-    | { readonly databaseId: string }
-  ),
+  input: DatabaseViewGroupsInput &
+    ({ readonly databaseViewId: string } | { readonly databaseId: string }),
 ): Promise<LibraryDatabaseViewGroupsSnapshot> {
   return invokeCoreResult("library-database:view-groups:get", input);
 }
@@ -557,19 +507,18 @@ export async function applyLibraryModule(
 export function readLibraryDatabaseModule(
   request: import("../../shared/database-module-v2").LibraryDatabaseModuleReadRequestV2,
 ): Promise<import("../../shared/database-module-v2").LibraryDatabaseModuleReadResultV2> {
-  return invoke(
-    "library-database-module:read",
-    request,
-  ) as Promise<import("../../shared/database-module-v2").LibraryDatabaseModuleReadResultV2>;
+  return invoke("library-database-module:read", request) as Promise<
+    import("../../shared/database-module-v2").LibraryDatabaseModuleReadResultV2
+  >;
 }
 
 export async function applyLibraryDatabaseModule(
   request: import("../../shared/database-module-v2").LibraryDatabaseApplyV2,
 ): Promise<import("../../shared/database-module-v2").LibraryDatabaseApplyResultV2> {
-  const result = await invoke(
+  const result = (await invoke(
     "library-database-module:apply",
     request,
-  ) as import("../../shared/database-module-v2").LibraryDatabaseApplyResultV2;
+  )) as import("../../shared/database-module-v2").LibraryDatabaseApplyResultV2;
   if (result.ok) await admitLocalCommitApply(result.localCommit);
   return result;
 }
@@ -600,24 +549,17 @@ export function subscribeDatabaseChanges(
   projectId: string,
   callback: (event: import("../../shared/database-events").DatabaseChangeEvent) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeDatabaseChanges(
-    projectId,
-    callback,
-  );
+  return resolveRendererTransport().subscribeDatabaseChanges(projectId, callback);
 }
 
 export function subscribeLibraryChanges(
-  callback: (
-    event: import("../../shared/library-events").LibraryNavigationChangedEvent,
-  ) => void,
+  callback: (event: import("../../shared/library-events").LibraryNavigationChangedEvent) => void,
 ): () => void {
   return resolveRendererTransport().subscribeLibraryChanges?.(callback) ?? (() => {});
 }
 
 export function subscribeProjectSessionChanges(
-  callback: (
-    event: import("../../shared/ipc-api").ProjectSessionsChangeEvent,
-  ) => void,
+  callback: (event: import("../../shared/ipc-api").ProjectSessionsChangeEvent) => void,
 ): () => void {
   return resolveRendererTransport().subscribeProjectSessionChanges(callback);
 }
@@ -641,27 +583,19 @@ export function subscribeCodexEvents(
 }
 
 export function subscribeCodexRendererClientRequests(
-  callback: (
-    message: import("./types").CodexRendererClientRequestMessage,
-  ) => void,
+  callback: (message: import("./types").CodexRendererClientRequestMessage) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeCodexRendererClientRequests(
-    callback,
-  );
+  return resolveRendererTransport().subscribeCodexRendererClientRequests(callback);
 }
 
 export function subscribeDesktopNotificationActions(
   callback: (payload: import("./types").DesktopNotificationActionInvocation) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeDesktopNotificationActions(
-    callback,
-  );
+  return resolveRendererTransport().subscribeDesktopNotificationActions(callback);
 }
 
 export function subscribeWorkspaceFileChanges(
-  callback: (
-    event: import("../../shared/types").WorkspaceFileChangedEvent,
-  ) => void,
+  callback: (event: import("../../shared/types").WorkspaceFileChangedEvent) => void,
 ): () => void {
   return resolveRendererTransport().subscribeWorkspaceFileChanges(callback);
 }
@@ -673,35 +607,25 @@ export function subscribeAppUpdateStatus(
 }
 
 export function subscribeCommandKeymapChanges(
-  callback: (
-    state: import("../../shared/command-keybindings").CommandKeymapState,
-  ) => void,
+  callback: (state: import("../../shared/command-keybindings").CommandKeymapState) => void,
 ): () => void {
   return resolveRendererTransport().subscribeCommandKeymapChanges(callback);
 }
 
 export function subscribeCodexScheduledAutomationChanges(
-  callback: (
-    event: import("./types").CodexScheduledAutomationChangedEvent,
-  ) => void,
+  callback: (event: import("./types").CodexScheduledAutomationChangedEvent) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeCodexScheduledAutomationChanges(
-    callback,
-  );
+  return resolveRendererTransport().subscribeCodexScheduledAutomationChanges(callback);
 }
 
 export function subscribeCodexAutomationRunsUpdates(
   callback: (event: import("./types").CodexAutomationRunsUpdatedEvent) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeCodexAutomationRunsUpdates(
-    callback,
-  );
+  return resolveRendererTransport().subscribeCodexAutomationRunsUpdates(callback);
 }
 
 export function subscribeCodexHooksChanged(
-  callback: (
-    event: import("../../shared/codex-hooks").CodexHooksChangedEvent,
-  ) => void,
+  callback: (event: import("../../shared/codex-hooks").CodexHooksChangedEvent) => void,
 ): () => void {
   return resolveRendererTransport().subscribeCodexHooksChanged(callback);
 }
@@ -726,9 +650,7 @@ export function getWindowFocusState(): Promise<boolean> {
   return resolveRendererTransport().getWindowFocusState();
 }
 
-export function subscribeWindowFocusChanges(
-  callback: (isFocused: boolean) => void,
-): () => void {
+export function subscribeWindowFocusChanges(callback: (isFocused: boolean) => void): () => void {
   return resolveRendererTransport().subscribeWindowFocusChanges(callback);
 }
 
@@ -738,12 +660,8 @@ export function getUserInputAutoResolutionSnapshot(): Promise<
   return resolveRendererTransport().getUserInputAutoResolutionSnapshot();
 }
 
-export function recordUserInputAutoResolutionActivity(
-  conversationId: string,
-): Promise<boolean> {
-  return resolveRendererTransport().recordUserInputAutoResolutionActivity(
-    conversationId,
-  );
+export function recordUserInputAutoResolutionActivity(conversationId: string): Promise<boolean> {
+  return resolveRendererTransport().recordUserInputAutoResolutionActivity(conversationId);
 }
 
 export function snoozeUserInputAutoResolution(
@@ -757,7 +675,5 @@ export function subscribeUserInputAutoResolutionChanges(
     change: import("../../shared/codex-user-input-auto-resolution").CodexUserInputAutoResolutionChange,
   ) => void,
 ): () => void {
-  return resolveRendererTransport().subscribeUserInputAutoResolutionChanges(
-    callback,
-  );
+  return resolveRendererTransport().subscribeUserInputAutoResolutionChanges(callback);
 }

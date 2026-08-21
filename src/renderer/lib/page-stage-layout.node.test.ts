@@ -8,7 +8,10 @@ import {
 
 describe("page-stage layout", () => {
   function withMockLocalStorage(run: () => void): void {
-    const originalLocalStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+    const originalLocalStorageDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "localStorage",
+    );
     const storage = new Map<string, string>();
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,

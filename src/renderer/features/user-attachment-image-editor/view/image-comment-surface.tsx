@@ -1,15 +1,6 @@
-import {
-  useState,
-  type CSSProperties,
-  type MouseEvent,
-  type PointerEvent,
-  type Ref,
-} from "react";
+import { useState, type CSSProperties, type MouseEvent, type PointerEvent, type Ref } from "react";
 import { Trash2 } from "@/components/shared/icons/generic-icons";
-import {
-  ImageCommentMarkerShape,
-  UpArrowIcon,
-} from "@/components/shared/icons";
+import { ImageCommentMarkerShape, UpArrowIcon } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -25,9 +16,10 @@ import type {
   ImageReferrerPolicy,
 } from "../model/types";
 
-type ActiveCommentDraft = ImagePoint & CommentEditorLayoutMetrics & {
-  id?: string;
-};
+type ActiveCommentDraft = ImagePoint &
+  CommentEditorLayoutMetrics & {
+    id?: string;
+  };
 
 export interface ImageCommentSurfaceProps {
   alt: string;
@@ -42,9 +34,7 @@ export interface ImageCommentSurfaceProps {
   onSubmitComment: (comment: ImageComment) => void;
 }
 
-function measureEditorMetrics(
-  surface: HTMLElement,
-): CommentEditorLayoutMetrics | null {
+function measureEditorMetrics(surface: HTMLElement): CommentEditorLayoutMetrics | null {
   const parent = surface.parentElement;
   return computeCommentEditorLayoutMetrics({
     imageOffsetLeft: surface.offsetLeft,
@@ -53,9 +43,7 @@ function measureEditorMetrics(
       height: surface.clientHeight,
       width: surface.clientWidth,
     },
-    parentSize: parent
-      ? { height: parent.clientHeight, width: parent.clientWidth }
-      : null,
+    parentSize: parent ? { height: parent.clientHeight, width: parent.clientWidth } : null,
     point: { x: 0, y: 0 },
   });
 }
@@ -77,10 +65,7 @@ function pointFromPointer(
   };
 }
 
-function resolveEditorPlacement(
-  draft: ActiveCommentDraft,
-  isEditing: boolean,
-): CSSProperties {
+function resolveEditorPlacement(draft: ActiveCommentDraft, isEditing: boolean): CSSProperties {
   const placement = computeCommentEditorPlacement({
     metrics: draft,
     isEditingExistingComment: isEditing,
@@ -171,10 +156,11 @@ export function ImageCommentSurface({
   const [hoverPoint, setHoverPoint] = useState<ImagePoint | null>(null);
   const [draftText, setDraftText] = useState("");
   const activeDraft = isDraftActive ? storedDraft : null;
-  const existingIndex = activeDraft?.id === undefined
-    ? -1
-    : comments.findIndex((comment) => comment.id === activeDraft.id);
-  const editingComment = existingIndex === -1 ? null : comments[existingIndex] ?? null;
+  const existingIndex =
+    activeDraft?.id === undefined
+      ? -1
+      : comments.findIndex((comment) => comment.id === activeDraft.id);
+  const editingComment = existingIndex === -1 ? null : (comments[existingIndex] ?? null);
 
   const cancelDraft = () => {
     setStoredDraft(null);
@@ -241,7 +227,7 @@ export function ImageCommentSurface({
           }}
           onPointerLeave={() => setHoverPoint(null)}
         />
-        {comments.map((comment, index) => (
+        {comments.map((comment, index) =>
           comment.id === activeDraft?.id ? null : (
             <ImageCommentMarker
               key={comment.id}
@@ -258,8 +244,8 @@ export function ImageCommentSurface({
                 setDraftText(comment.text);
               }}
             />
-          )
-        ))}
+          ),
+        )}
         {activeDraft ? (
           <>
             <ImageCommentMarker

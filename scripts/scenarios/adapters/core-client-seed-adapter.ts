@@ -22,10 +22,12 @@ import {
 } from "../seed/primary-data-source-properties";
 
 const requireSuccess = <Value>(
-  result: { readonly ok: true; readonly value: Value } | {
-    readonly ok: false;
-    readonly error: { readonly message: string };
-  },
+  result:
+    | { readonly ok: true; readonly value: Value }
+    | {
+        readonly ok: false;
+        readonly error: { readonly message: string };
+      },
   label: string,
 ): Value => {
   if (result.ok) return result.value;
@@ -96,22 +98,28 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
     const documents = createCoreDocumentSyncAdapter(
       this.#runtime.clientForProject(input.projectId),
     );
-    const descriptor = requireSuccess(await documents.prepareOwner({
-      ownerBlockId: input.pageId,
-      operationId: input.operationId,
-      clientSessionId: input.clientSessionId,
-    }), `Prepare ${input.pageId}`);
-    const mutation = requireSuccess(await documents.applyDocumentMutation({
-      mutationId: input.mutationId,
-      projectId: input.projectId,
-      storeEpoch: descriptor.storeEpoch,
-      clientSessionId: input.clientSessionId,
-      actor: { kind: "scenario_seed" },
-      documentId: descriptor.documentId,
-      generation: descriptor.generation,
-      expectedHeadSeq: descriptor.headSeq,
-      nfm: input.nfm,
-    }), `Replace ${input.pageId}`);
+    const descriptor = requireSuccess(
+      await documents.prepareOwner({
+        ownerBlockId: input.pageId,
+        operationId: input.operationId,
+        clientSessionId: input.clientSessionId,
+      }),
+      `Prepare ${input.pageId}`,
+    );
+    const mutation = requireSuccess(
+      await documents.applyDocumentMutation({
+        mutationId: input.mutationId,
+        projectId: input.projectId,
+        storeEpoch: descriptor.storeEpoch,
+        clientSessionId: input.clientSessionId,
+        actor: { kind: "scenario_seed" },
+        documentId: descriptor.documentId,
+        generation: descriptor.generation,
+        expectedHeadSeq: descriptor.headSeq,
+        nfm: input.nfm,
+      }),
+      `Replace ${input.pageId}`,
+    );
     return { commitSeq: mutation.commitSeq };
   }
 
@@ -121,11 +129,7 @@ export class CoreClientSeedAdapter implements ScenarioSeedPort {
     minimumCommitSeq?: number,
   ): Promise<ScenarioPageObservation> {
     const detail = requireSuccess(
-      await this.#library(projectId).readProjectPageDetail(
-        projectId,
-        pageId,
-        minimumCommitSeq,
-      ),
+      await this.#library(projectId).readProjectPageDetail(projectId, pageId, minimumCommitSeq),
       `Read ${pageId}`,
     );
     return {

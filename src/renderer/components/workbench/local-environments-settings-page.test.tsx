@@ -48,12 +48,14 @@ function buildSnapshot(
       platformScripts: { linux: "linux setup" },
     },
     cleanup: { script: null, platformScripts: {} },
-    actions: [{
-      name: "Run tests",
-      icon: "test" as const,
-      command: "bun test\n--watch",
-      platform: null,
-    }],
+    actions: [
+      {
+        name: "Run tests",
+        icon: "test" as const,
+        command: "bun test\n--watch",
+        platform: null,
+      },
+    ],
   };
   const config = {
     configPath: ".codex/environments/environment.toml",
@@ -89,22 +91,22 @@ function renderPage() {
     <TestQueryProvider>
       <NodexTooltipProvider>
         <LocalEnvironmentsSettingsPage
-        open
-        active
-        projects={[PROJECT]}
-        activeProjectId={PROJECT.id}
-        initialProjectId={PROJECT.id}
-        initialConfigPath=".codex/environments/environment.toml"
-        renderShell={({ title, subtitle, backSlot, action, children }) => (
-          <NodexSettingsPageSurface
-            title={title}
-            subtitle={subtitle}
-            backSlot={backSlot}
-            action={action}
-          >
-            {children}
-          </NodexSettingsPageSurface>
-        )}
+          open
+          active
+          projects={[PROJECT]}
+          activeProjectId={PROJECT.id}
+          initialProjectId={PROJECT.id}
+          initialConfigPath=".codex/environments/environment.toml"
+          renderShell={({ title, subtitle, backSlot, action, children }) => (
+            <NodexSettingsPageSurface
+              title={title}
+              subtitle={subtitle}
+              backSlot={backSlot}
+              action={action}
+            >
+              {children}
+            </NodexSettingsPageSurface>
+          )}
         />
       </NodexTooltipProvider>
     </TestQueryProvider>,
@@ -156,8 +158,9 @@ describe("LocalEnvironmentsSettingsPage", () => {
     const disclosure = view.getByRole("button", { name: "Show full command for Run tests" });
     fireEvent.click(disclosure);
     expect(view.getByRole("button", { name: "Hide full command for Run tests" })).toBeTruthy();
-    expect(document.getElementById(disclosure.getAttribute("aria-controls")!)?.textContent)
-      .toBe("bun test\n--watch");
+    expect(document.getElementById(disclosure.getAttribute("aria-controls")!)?.textContent).toBe(
+      "bun test\n--watch",
+    );
   });
 
   test("gates every submit path and saves with the snapshot revision", async () => {
@@ -243,9 +246,14 @@ describe("LocalEnvironmentsSettingsPage", () => {
     });
     fireEvent.click(view.getByRole("button", { name: "Save" }));
 
-    expect(await view.findByText("This environment changed on disk. Continuing will discard your unsaved edits"))
-      .toBeTruthy();
-    expect((view.getAllByRole("textbox", { name: "Name" })[0] as HTMLInputElement).value).toBe("My draft");
+    expect(
+      await view.findByText(
+        "This environment changed on disk. Continuing will discard your unsaved edits",
+      ),
+    ).toBeTruthy();
+    expect((view.getAllByRole("textbox", { name: "Name" })[0] as HTMLInputElement).value).toBe(
+      "My draft",
+    );
     const callsBeforeDiscard = readCalls;
 
     snapshot = buildSnapshot({
@@ -254,7 +262,9 @@ describe("LocalEnvironmentsSettingsPage", () => {
     });
     fireEvent.click(view.getByRole("button", { name: "Discard edits" }));
 
-    expect(await view.findByRole("heading", { level: 1, name: "External environment" })).toBeTruthy();
+    expect(
+      await view.findByRole("heading", { level: 1, name: "External environment" }),
+    ).toBeTruthy();
     expect(readCalls).toBeGreaterThan(callsBeforeDiscard);
   });
 
@@ -267,8 +277,9 @@ describe("LocalEnvironmentsSettingsPage", () => {
     });
     fireEvent.click(view.getByRole("button", { name: "Save" }));
 
-    expect(await view.findAllByText("Saved the environment file, but could not select it"))
-      .not.toHaveLength(0);
+    expect(
+      await view.findAllByText("Saved the environment file, but could not select it"),
+    ).not.toHaveLength(0);
     expect(view.getByRole("button", { name: "Retry loading" })).toBeTruthy();
     expect(saveInputs).toHaveLength(1);
 
@@ -288,12 +299,14 @@ describe("LocalEnvironmentsSettingsPage", () => {
       revision: null,
       environment: null,
       tooLargeMessage: "Environment file exceeds 262,144 bytes",
-      configs: [{
-        ...buildSnapshot().configs[0]!,
-        state: "tooLarge",
-        environment: null,
-        tooLargeMessage: "Environment file exceeds 262,144 bytes",
-      }],
+      configs: [
+        {
+          ...buildSnapshot().configs[0]!,
+          state: "tooLarge",
+          environment: null,
+          tooLargeMessage: "Environment file exceeds 262,144 bytes",
+        },
+      ],
     });
     const view = renderPage();
 

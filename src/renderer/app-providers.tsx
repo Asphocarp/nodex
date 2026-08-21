@@ -1,10 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { NodexHoverCardProvider } from "./components/ui/hover-card";
 import { NodexTooltipProvider } from "./components/ui/tooltip";
@@ -20,11 +14,7 @@ import { NodexQueryProvider } from "./lib/query-client";
 import { ThemeProvider } from "./lib/use-theme";
 import { invoke, subscribeAppUpdateStatus } from "./lib/api";
 import type { AppUpdateStatus } from "./lib/types";
-import {
-  createMaitaiStore,
-  MaitaiProvider,
-  preloadEagerPersistedAtoms,
-} from "./lib/maitai";
+import { createMaitaiStore, MaitaiProvider, preloadEagerPersistedAtoms } from "./lib/maitai";
 import {
   isCodexCompactWindowUrl,
   resolveCodexRendererOs,
@@ -68,11 +58,13 @@ const INITIAL_APP_UPDATE_STATUS: AppUpdateStatus = {
 };
 
 function isAppUpdateStatus(value: unknown): value is AppUpdateStatus {
-  return typeof value === "object"
-    && value !== null
-    && typeof (value as AppUpdateStatus).status === "string"
-    && typeof (value as AppUpdateStatus).supported === "boolean"
-    && typeof (value as AppUpdateStatus).currentVersion === "string";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as AppUpdateStatus).status === "string" &&
+    typeof (value as AppUpdateStatus).supported === "boolean" &&
+    typeof (value as AppUpdateStatus).currentVersion === "string"
+  );
 }
 
 export function AppUpdateStatusProvider({ children }: AppProvidersProps) {
@@ -87,9 +79,11 @@ export function AppUpdateStatusProvider({ children }: AppProvidersProps) {
       observedPush = true;
       setStatus(nextStatus);
     });
-    void invoke("app:update:status").then((snapshot) => {
-      if (!cancelled && !observedPush && isAppUpdateStatus(snapshot)) setStatus(snapshot);
-    }).catch(() => undefined);
+    void invoke("app:update:status")
+      .then((snapshot) => {
+        if (!cancelled && !observedPush && isAppUpdateStatus(snapshot)) setStatus(snapshot);
+      })
+      .catch(() => undefined);
     return () => {
       cancelled = true;
       unsubscribe();
@@ -97,9 +91,7 @@ export function AppUpdateStatusProvider({ children }: AppProvidersProps) {
   }, []);
 
   return (
-    <AppUpdateStatusContext.Provider value={status}>
-      {children}
-    </AppUpdateStatusContext.Provider>
+    <AppUpdateStatusContext.Provider value={status}>{children}</AppUpdateStatusContext.Provider>
   );
 }
 
@@ -126,10 +118,10 @@ function subscribeElectronOpaqueSurfaceChanges(root: HTMLElement): void {
     "electron-window-opaque-surface-changed",
     (payload) => {
       const opaqueWindowSurfaceEnabled =
-        typeof payload === "object"
-        && payload !== null
-        && "opaqueWindowSurfaceEnabled" in payload
-        && payload.opaqueWindowSurfaceEnabled === true;
+        typeof payload === "object" &&
+        payload !== null &&
+        "opaqueWindowSurfaceEnabled" in payload &&
+        payload.opaqueWindowSurfaceEnabled === true;
       applyElectronOpaqueSurface(root, opaqueWindowSurfaceEnabled);
     },
   );
@@ -188,9 +180,7 @@ export function AppProviders({ children }: AppProvidersProps) {
                     <CodexServiceTierSettingsProvider>
                       <CodexThreadSettingsProvider>
                         <NodexHoverCardProvider>
-                          <NodexTooltipProvider>
-                            {children}
-                          </NodexTooltipProvider>
+                          <NodexTooltipProvider>{children}</NodexTooltipProvider>
                         </NodexHoverCardProvider>
                       </CodexThreadSettingsProvider>
                     </CodexServiceTierSettingsProvider>

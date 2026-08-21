@@ -1,9 +1,5 @@
 import type { ThreadPlanSidePanelState } from "@/features/local-conversation/thread-stage-types";
-import type {
-  PanelId,
-  WorkbenchPanelState,
-  WorkbenchTabProjection,
-} from "@/lib/types";
+import type { PanelId, WorkbenchPanelState, WorkbenchTabProjection } from "@/lib/types";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 import {
   readPageStagePanelTabPageRef,
@@ -44,14 +40,8 @@ export interface SessionPanelRenderModel {
   rightPanelFullWidth: boolean;
   rightActiveRenderableTab: ProjectSessionRenderableTab | null;
   threadPlanSidePanelState: ThreadPlanSidePanelState | null;
-  renderableTabsByPanelLeaf: Record<
-    PanelId,
-    Record<string, ProjectSessionRenderableTab[]>
-  >;
-  activeTabIdsByPanelLeaf: Record<
-    PanelId,
-    Record<string, string | null>
-  >;
+  renderableTabsByPanelLeaf: Record<PanelId, Record<string, ProjectSessionRenderableTab[]>>;
+  activeTabIdsByPanelLeaf: Record<PanelId, Record<string, string | null>>;
   browserRetentionTabs: WorkbenchTabProjection[];
   visibleBrowserTabIds: ReadonlySet<string>;
 }
@@ -82,9 +72,9 @@ export function shouldExpandImageEditorPanelForViewChange(input: {
   readonly previousView: "playground" | "single";
   readonly view: "playground" | "single";
 }): boolean {
-  return !input.panelIsFullWidth
-    && input.previousView !== "playground"
-    && input.view === "playground";
+  return (
+    !input.panelIsFullWidth && input.previousView !== "playground" && input.view === "playground"
+  );
 }
 
 function hasDurablePanelTabInLeaf(
@@ -93,14 +83,9 @@ function hasDurablePanelTabInLeaf(
   leafId: string,
   tabId: string,
 ): boolean {
-  const leaf = findWorkbenchPanelLeaf(
-    session.panels[panelId].layout,
-    leafId,
-  );
+  const leaf = findWorkbenchPanelLeaf(session.panels[panelId].layout, leafId);
   if (!leaf?.tabIds.includes(tabId)) return false;
-  return session.tabs.some(
-    (tab) => tab.id === tabId && tab.panelId === panelId,
-  );
+  return session.tabs.some((tab) => tab.id === tabId && tab.panelId === panelId);
 }
 
 export function getRenderablePanelPreviewTab(
@@ -111,26 +96,13 @@ export function getRenderablePanelPreviewTab(
 ): ProjectSessionPreviewTab | null {
   const activeLeafId = resolveSessionPanelActiveLeafId(session, panelId);
   const previewTab =
-    previewTabsByPanel[
-      makeWorkbenchSessionPanelSlotKey(session.id, panelId, leafId)
-    ]
-    ?? (
-      leafId === activeLeafId
-        ? previewTabsByPanel[
-            makeWorkbenchSessionPanelSlotKey(session.id, panelId)
-          ]
-        : null
-    )
-    ?? null;
+    previewTabsByPanel[makeWorkbenchSessionPanelSlotKey(session.id, panelId, leafId)] ??
+    (leafId === activeLeafId
+      ? previewTabsByPanel[makeWorkbenchSessionPanelSlotKey(session.id, panelId)]
+      : null) ??
+    null;
   if (!previewTab) return null;
-  if (
-    hasDurablePanelTabInLeaf(
-      session,
-      panelId,
-      leafId,
-      previewTab.id,
-    )
-  ) {
+  if (hasDurablePanelTabInLeaf(session, panelId, leafId, previewTab.id)) {
     return null;
   }
   return previewTab;
@@ -147,10 +119,7 @@ function resolveActiveRenderableTabId(
       return candidate;
     }
   }
-  if (
-    fallbackActiveTabId
-    && renderableTabs.some((tab) => tab.id === fallbackActiveTabId)
-  ) {
+  if (fallbackActiveTabId && renderableTabs.some((tab) => tab.id === fallbackActiveTabId)) {
     return fallbackActiveTabId;
   }
   return renderableTabs[0]?.id ?? null;
@@ -163,13 +132,13 @@ function activeEphemeralTabId(
   leafId: string,
   activeLeafId: string,
 ): string | null {
-  return activeByPanel[
-    makeWorkbenchSessionPanelSlotKey(sessionId, panelId, leafId)
-  ] ?? (
-    leafId === activeLeafId
+  return (
+    activeByPanel[makeWorkbenchSessionPanelSlotKey(sessionId, panelId, leafId)] ??
+    (leafId === activeLeafId
       ? activeByPanel[makeWorkbenchSessionPanelSlotKey(sessionId, panelId)]
-      : null
-  ) ?? null;
+      : null) ??
+    null
+  );
 }
 
 export function buildSessionPanelRenderModel(
@@ -197,10 +166,8 @@ export function buildSessionPanelRenderModel(
   } = input;
   const rightPanel = session.panels.right;
   const bottomPanel = session.panels.bottom;
-  const rightActiveLeafId =
-    resolveSessionPanelActiveLeafId(session, "right");
-  const bottomActiveLeafId =
-    resolveSessionPanelActiveLeafId(session, "bottom");
+  const rightActiveLeafId = resolveSessionPanelActiveLeafId(session, "right");
+  const bottomActiveLeafId = resolveSessionPanelActiveLeafId(session, "bottom");
   const renderableTabsByPanelLeaf: Record<
     PanelId,
     Record<string, ProjectSessionRenderableTab[]>
@@ -208,52 +175,31 @@ export function buildSessionPanelRenderModel(
     right: {},
     bottom: {},
   };
-  const activeTabIdsByPanelLeaf: Record<
-    PanelId,
-    Record<string, string | null>
-  > = {
+  const activeTabIdsByPanelLeaf: Record<PanelId, Record<string, string | null>> = {
     right: {},
     bottom: {},
   };
-  const durableById = new Map(
-    session.tabs.map((tab) => [tab.id, tab]),
-  );
+  const durableById = new Map(session.tabs.map((tab) => [tab.id, tab]));
 
   for (const panelId of ["right", "bottom"] as const) {
     const panel = session.panels[panelId];
-    const activeLeafId = panelId === "right"
-      ? rightActiveLeafId
-      : bottomActiveLeafId;
+    const activeLeafId = panelId === "right" ? rightActiveLeafId : bottomActiveLeafId;
     for (const leaf of listWorkbenchPanelLeaves(panel.layout)) {
       const durableTabs = leaf.tabIds.flatMap((tabId) => {
         const tab = durableById.get(tabId);
         return tab && tab.panelId === panelId ? [tab] : [];
       });
-      const matchingLeaf = (
-        tab: { panelId: PanelId; leafId?: string },
-      ) =>
-        tab.panelId === panelId
-        && (tab.leafId ?? activeLeafId) === leaf.id;
-      const sideChatTabs =
-        (sideChatTabsBySession[session.id] ?? []).filter(matchingLeaf);
-      const mcpAppTabs =
-        (mcpAppTabsBySession[session.id] ?? []).filter(matchingLeaf);
-      const planTabs =
-        (planTabsBySession[session.id] ?? []).filter(matchingLeaf);
-      const automationTabs =
-        (automationTabsBySession[session.id] ?? []).filter(matchingLeaf);
-      const backgroundAgentTabs =
-        (backgroundAgentTabsBySession[session.id] ?? []).filter(
-          matchingLeaf,
-        );
-      const processOutputTabs =
-        (processOutputTabsBySession[session.id] ?? []).filter(
-          matchingLeaf,
-        );
-      const imageEditorTabs =
-        (imageEditorTabsBySession[session.id] ?? []).filter(
-          matchingLeaf,
-        );
+      const matchingLeaf = (tab: { panelId: PanelId; leafId?: string }) =>
+        tab.panelId === panelId && (tab.leafId ?? activeLeafId) === leaf.id;
+      const sideChatTabs = (sideChatTabsBySession[session.id] ?? []).filter(matchingLeaf);
+      const mcpAppTabs = (mcpAppTabsBySession[session.id] ?? []).filter(matchingLeaf);
+      const planTabs = (planTabsBySession[session.id] ?? []).filter(matchingLeaf);
+      const automationTabs = (automationTabsBySession[session.id] ?? []).filter(matchingLeaf);
+      const backgroundAgentTabs = (backgroundAgentTabsBySession[session.id] ?? []).filter(
+        matchingLeaf,
+      );
+      const processOutputTabs = (processOutputTabsBySession[session.id] ?? []).filter(matchingLeaf);
+      const imageEditorTabs = (imageEditorTabsBySession[session.id] ?? []).filter(matchingLeaf);
       const previewTab = getRenderablePanelPreviewTab(
         session,
         panelId,
@@ -322,68 +268,51 @@ export function buildSessionPanelRenderModel(
       );
 
       renderableTabsByPanelLeaf[panelId][leaf.id] = renderableTabs;
-      activeTabIdsByPanelLeaf[panelId][leaf.id] =
-        resolveActiveRenderableTabId(
-          renderableTabs,
-          leaf.activeTabId,
-          [
-            previewTab?.id ?? null,
-            planActiveTabId,
-            automationActiveTabId,
-            mcpAppActiveTabId,
-            sideChatActiveTabId,
-            backgroundAgentActiveTabId,
-            processOutputActiveTabId,
-            imageEditorActiveTabId,
-          ],
-        );
+      activeTabIdsByPanelLeaf[panelId][leaf.id] = resolveActiveRenderableTabId(
+        renderableTabs,
+        leaf.activeTabId,
+        [
+          previewTab?.id ?? null,
+          planActiveTabId,
+          automationActiveTabId,
+          mcpAppActiveTabId,
+          sideChatActiveTabId,
+          backgroundAgentActiveTabId,
+          processOutputActiveTabId,
+          imageEditorActiveTabId,
+        ],
+      );
     }
   }
 
-  const rightRenderableTabs =
-    renderableTabsByPanelLeaf.right[rightActiveLeafId] ?? [];
-  const bottomRenderableTabs =
-    renderableTabsByPanelLeaf.bottom[bottomActiveLeafId] ?? [];
-  const rightActiveTabId =
-    activeTabIdsByPanelLeaf.right[rightActiveLeafId] ?? null;
-  const bottomActiveTabId =
-    activeTabIdsByPanelLeaf.bottom[bottomActiveLeafId] ?? null;
+  const rightRenderableTabs = renderableTabsByPanelLeaf.right[rightActiveLeafId] ?? [];
+  const bottomRenderableTabs = renderableTabsByPanelLeaf.bottom[bottomActiveLeafId] ?? [];
+  const rightActiveTabId = activeTabIdsByPanelLeaf.right[rightActiveLeafId] ?? null;
+  const bottomActiveTabId = activeTabIdsByPanelLeaf.bottom[bottomActiveLeafId] ?? null;
   const rightPanelCollapsed =
-    panelCollapsedOverrides[
-      makeWorkbenchSessionPanelSlotKey(session.id, "right")
-    ] ?? rightPanel.collapsed;
+    panelCollapsedOverrides[makeWorkbenchSessionPanelSlotKey(session.id, "right")] ??
+    rightPanel.collapsed;
   const bottomPanelCollapsed =
-    panelCollapsedOverrides[
-      makeWorkbenchSessionPanelSlotKey(session.id, "bottom")
-    ] ?? bottomPanel.collapsed;
+    panelCollapsedOverrides[makeWorkbenchSessionPanelSlotKey(session.id, "bottom")] ??
+    bottomPanel.collapsed;
   const sidePanelOpen = !rightPanelCollapsed;
   const bottomPanelOpen = !bottomPanelCollapsed;
   const rightActiveRenderableTab = rightActiveTabId
-    ? rightRenderableTabs.find(
-      (tab) => tab.id === rightActiveTabId,
-    ) ?? null
+    ? (rightRenderableTabs.find((tab) => tab.id === rightActiveTabId) ?? null)
     : null;
-  const rightPanelFullWidth = sidePanelOpen
-    && (rightPanel.size.fullWidth ?? false);
+  const rightPanelFullWidth = sidePanelOpen && (rightPanel.size.fullWidth ?? false);
   const browserRetentionTabs = [
     ...session.tabs.filter((tab) => tab.kind === "browser"),
     ...Object.values(previewTabsByPanel).filter(
-      (
-        tab,
-      ): tab is WorkbenchTabProjection & { preview: true } =>
-        tab.sessionId === session.id
-        && tab.kind === "browser"
-        && typeof tab.browserTabId === "string",
+      (tab): tab is WorkbenchTabProjection & { preview: true } =>
+        tab.sessionId === session.id &&
+        tab.kind === "browser" &&
+        typeof tab.browserTabId === "string",
     ),
   ];
-  const browserTabIds = new Set(
-    browserRetentionTabs.map((tab) => tab.id),
-  );
+  const browserTabIds = new Set(browserRetentionTabs.map((tab) => tab.id));
   const visibleBrowserTabIds = new Set<string>();
-  const collectVisibleBrowserTabIds = (
-    panelId: PanelId,
-    panelOpen: boolean,
-  ) => {
+  const collectVisibleBrowserTabIds = (panelId: PanelId, panelOpen: boolean) => {
     if (!panelOpen) return;
     const layout = session.panels[panelId].layout;
     const leafIds = layout.maximizedLeafId
@@ -417,9 +346,7 @@ export function buildSessionPanelRenderModel(
     threadPlanSidePanelState: {
       rightPanelEnabled: session.projectId !== null,
       activePlanKey: activePlanKeyBySession[session.id] ?? null,
-      activeRightPanelTabId: sidePanelOpen
-        ? rightActiveTabId
-        : null,
+      activeRightPanelTabId: sidePanelOpen ? rightActiveTabId : null,
     },
     renderableTabsByPanelLeaf,
     activeTabIdsByPanelLeaf,
@@ -433,9 +360,7 @@ export function collectMountedBrowserTabIds(
   model: SessionPanelRenderModel,
   mountedPanels: Readonly<Record<PanelId, boolean>>,
 ): ReadonlySet<string> {
-  const browserTabIds = new Set(
-    model.browserRetentionTabs.map((tab) => tab.id),
-  );
+  const browserTabIds = new Set(model.browserRetentionTabs.map((tab) => tab.id));
   const mountedBrowserTabIds = new Set<string>();
 
   for (const panelId of ["right", "bottom"] as const) {
@@ -460,10 +385,7 @@ export function collectPanelPresentedPageIds(
   model: SessionPanelRenderModel,
 ): ReadonlySet<string> {
   const pageIds = new Set<string>();
-  const collectPanelVisiblePageStagePages = (
-    panelId: PanelId,
-    panelOpen: boolean,
-  ) => {
+  const collectPanelVisiblePageStagePages = (panelId: PanelId, panelOpen: boolean) => {
     if (!panelOpen) return;
 
     const layout = session.panels[panelId].layout;
@@ -472,12 +394,11 @@ export function collectPanelPresentedPageIds(
       : listWorkbenchPanelLeaves(layout).map((leaf) => leaf.id);
 
     for (const leafId of leafIds) {
-      const activeTabId =
-        model.activeTabIdsByPanelLeaf[panelId][leafId] ?? null;
+      const activeTabId = model.activeTabIdsByPanelLeaf[panelId][leafId] ?? null;
       const activeTab = activeTabId
-        ? model.renderableTabsByPanelLeaf[panelId][leafId]?.find(
-          (tab) => tab.id === activeTabId,
-        ) ?? null
+        ? (model.renderableTabsByPanelLeaf[panelId][leafId]?.find(
+            (tab) => tab.id === activeTabId,
+          ) ?? null)
         : null;
       if (!activeTab || isTransientPanelTab(activeTab)) continue;
       if (isProjectSessionFilesPreviewTab(activeTab)) continue;
@@ -489,9 +410,6 @@ export function collectPanelPresentedPageIds(
   };
 
   collectPanelVisiblePageStagePages("right", model.sidePanelOpen);
-  collectPanelVisiblePageStagePages(
-    "bottom",
-    model.bottomPanelOpen,
-  );
+  collectPanelVisiblePageStagePages("bottom", model.bottomPanelOpen);
   return pageIds;
 }

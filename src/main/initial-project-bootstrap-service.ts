@@ -36,9 +36,7 @@ export interface InitialProjectBootstrapServiceOptions {
 }
 
 export interface EnsureInitialProjectInput {
-  readonly onProvisioned: (
-    presentation: InitialProjectPresentation,
-  ) => Promise<void>;
+  readonly onProvisioned: (presentation: InitialProjectPresentation) => Promise<void>;
 }
 
 export class InitialProjectBootstrapService {
@@ -64,9 +62,7 @@ export class InitialProjectBootstrapService {
     await result;
   }
 
-  private async ensureInitialProjectWithinLock(
-    input: EnsureInitialProjectInput,
-  ): Promise<void> {
+  private async ensureInitialProjectWithinLock(input: EnsureInitialProjectInput): Promise<void> {
     const bootstrap = await this.options.projectWorkspace.readProjectBootstrap();
     let attempt = await this.journal.load();
 
@@ -79,10 +75,7 @@ export class InitialProjectBootstrapService {
     await ensureRealDirectory(this.options.projectsDirectory);
     if (!attempt) {
       attempt = this.createAttempt(
-        join(
-          this.options.projectsDirectory,
-          INITIAL_PROJECT_FOLDER_BASENAME,
-        ),
+        join(this.options.projectsDirectory, INITIAL_PROJECT_FOLDER_BASENAME),
       );
       await this.journal.save(attempt);
     }
@@ -94,9 +87,7 @@ export class InitialProjectBootstrapService {
     attempt: InitialProjectJournal,
     input: EnsureInitialProjectInput,
   ): Promise<void> {
-    const ownProject = await this.options.projectWorkspace.getProject(
-      attempt.payload.projectId,
-    );
+    const ownProject = await this.options.projectWorkspace.getProject(attempt.payload.projectId);
     if (!ownProject) {
       await this.cleanupAttempt(attempt);
       logger.info("Accepted another client as the initial Project winner", {
@@ -163,8 +154,8 @@ export class InitialProjectBootstrapService {
     }
     const initialState = await inspectInitialProjectDirectory(initialRoot);
     if (
-      initialState === "real"
-      && await initialProjectMarkerMatches(initialRoot, initialAttempt)
+      initialState === "real" &&
+      (await initialProjectMarkerMatches(initialRoot, initialAttempt))
     ) {
       return initialAttempt;
     }
@@ -179,24 +170,23 @@ export class InitialProjectBootstrapService {
     const parent = dirname(initialRoot);
     await ensureRealDirectory(parent);
     for (let suffix = 1; ; suffix += 1) {
-      const directoryName = suffix === 1
-        ? INITIAL_PROJECT_FOLDER_BASENAME
-        : `${INITIAL_PROJECT_FOLDER_BASENAME} ${suffix}`;
+      const directoryName =
+        suffix === 1
+          ? INITIAL_PROJECT_FOLDER_BASENAME
+          : `${INITIAL_PROJECT_FOLDER_BASENAME} ${suffix}`;
       const sourceRoot = join(parent, directoryName);
-      const attempt = sourceRoot === initialRoot
-        ? initialAttempt
-        : this.retargetAttempt(initialAttempt, sourceRoot);
+      const attempt =
+        sourceRoot === initialRoot
+          ? initialAttempt
+          : this.retargetAttempt(initialAttempt, sourceRoot);
       if (attempt !== initialAttempt) await this.journal.save(attempt);
 
       const state = await inspectInitialProjectDirectory(sourceRoot);
-      if (
-        state === "real"
-        && await initialProjectMarkerMatches(sourceRoot, attempt)
-      ) {
+      if (state === "real" && (await initialProjectMarkerMatches(sourceRoot, attempt))) {
         return attempt;
       }
       if (state !== "missing") continue;
-      if (!await claimInitialProjectDirectory(sourceRoot)) continue;
+      if (!(await claimInitialProjectDirectory(sourceRoot))) continue;
       await writeInitialProjectMarker(sourceRoot, attempt);
       return attempt;
     }
@@ -210,14 +200,11 @@ export class InitialProjectBootstrapService {
     try {
       created = await this.createInitialProject(attempt);
     } catch (error) {
-      const ownProject = await this.options.projectWorkspace.getProject(
-        attempt.payload.projectId,
-      );
+      const ownProject = await this.options.projectWorkspace.getProject(attempt.payload.projectId);
       if (ownProject) {
         created = await this.createInitialProject(attempt);
       } else {
-        const bootstrap = await this.options.projectWorkspace
-          .readProjectBootstrap();
+        const bootstrap = await this.options.projectWorkspace.readProjectBootstrap();
         if (bootstrap.status !== "ready") throw error;
         await this.cleanupAttempt(attempt);
         logger.info("Accepted another client as the initial Project winner", {
@@ -266,9 +253,7 @@ export class InitialProjectBootstrapService {
     });
   }
 
-  private async cleanupAttempt(
-    attempt: InitialProjectJournal,
-  ): Promise<void> {
+  private async cleanupAttempt(attempt: InitialProjectJournal): Promise<void> {
     const sourceRoot = attempt.payload.sources[0];
     if (sourceRoot) {
       await removeOwnedInitialProjectMarker(sourceRoot, attempt);

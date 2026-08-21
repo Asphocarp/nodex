@@ -4,9 +4,7 @@ import type {
   CodexConversationItem,
   CodexConversationSnapshot,
 } from "@/lib/types";
-import type {
-  CodexBackgroundTerminalProcessRow,
-} from "@/lib/codex-background-terminal-processes";
+import type { CodexBackgroundTerminalProcessRow } from "@/lib/codex-background-terminal-processes";
 import {
   buildProcessOutputTargetFromManagerRow,
   buildProcessOutputTargetFromSummaryRow,
@@ -48,27 +46,21 @@ describe("workbench process output target", () => {
       turnId: "turn-2",
     });
     const snapshot = conversation([
-      ["turn-1", [{
-        ...matching,
-        turnId: "turn-1",
-        kind: "assistantMessage",
-      }]],
+      [
+        "turn-1",
+        [
+          {
+            ...matching,
+            turnId: "turn-1",
+            kind: "assistantMessage",
+          },
+        ],
+      ],
       ["turn-2", [matching]],
     ]);
-    expect(findProcessOutputCommandItem(
-      snapshot,
-      "item-1",
-      "turn-1",
-    )).toBeNull();
-    expect(findProcessOutputCommandItem(
-      snapshot,
-      "item-1",
-      "turn-2",
-    )).toBe(matching);
-    expect(findProcessOutputCommandItem(
-      snapshot,
-      "item-1",
-    )).toBe(matching);
+    expect(findProcessOutputCommandItem(snapshot, "item-1", "turn-1")).toBeNull();
+    expect(findProcessOutputCommandItem(snapshot, "item-1", "turn-2")).toBe(matching);
+    expect(findProcessOutputCommandItem(snapshot, "item-1")).toBe(matching);
   });
 
   test("prefers hydrated conversation fields over manager fallback", () => {
@@ -84,10 +76,9 @@ describe("workbench process output target", () => {
       cwd: "/fallback",
       terminalSessionId: "terminal-1",
     } as CodexBackgroundTerminalProcessRow;
-    expect(buildProcessOutputTargetFromManagerRow(
-      row,
-      conversation([["turn-fallback", [item]]]),
-    )).toEqual({
+    expect(
+      buildProcessOutputTargetFromManagerRow(row, conversation([["turn-fallback", [item]]])),
+    ).toEqual({
       threadId: "thread-1",
       itemId: "item-1",
       turnId: "turn-hydrated",
@@ -105,14 +96,13 @@ describe("workbench process output target", () => {
       cwd: "/workspace",
       previewLine: null,
     } satisfies CodexBackgroundTerminalRow;
-    expect(buildProcessOutputTargetFromSummaryRow("thread-1", row))
-      .toEqual({
-        threadId: "thread-1",
-        turnId: "turn-1",
-        itemId: "item-1",
-        command: "pnpm test",
-        cwd: "/workspace",
-        terminalSessionId: null,
-      });
+    expect(buildProcessOutputTargetFromSummaryRow("thread-1", row)).toEqual({
+      threadId: "thread-1",
+      turnId: "turn-1",
+      itemId: "item-1",
+      command: "pnpm test",
+      cwd: "/workspace",
+      terminalSessionId: null,
+    });
   });
 });

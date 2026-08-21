@@ -57,7 +57,14 @@ describe("codex-session-store", () => {
     withTempCodexHome((codexHome) => {
       fs.mkdirSync(path.join(codexHome, "sessions", "2026", "07", "06"), { recursive: true });
       fs.writeFileSync(
-        path.join(codexHome, "sessions", "2026", "07", "06", "rollout-2026-07-06T18-08-45-thr_reviewer.jsonl"),
+        path.join(
+          codexHome,
+          "sessions",
+          "2026",
+          "07",
+          "06",
+          "rollout-2026-07-06T18-08-45-thr_reviewer.jsonl",
+        ),
         [
           JSON.stringify({
             timestamp: "2026-07-06T10:10:30.000Z",
@@ -108,7 +115,14 @@ describe("codex-session-store", () => {
         }) + "\n",
       );
       fs.writeFileSync(
-        path.join(codexHome, "sessions", "2026", "03", "17", "rollout-2026-03-17T10-00-00-thr_session.jsonl"),
+        path.join(
+          codexHome,
+          "sessions",
+          "2026",
+          "03",
+          "17",
+          "rollout-2026-03-17T10-00-00-thr_session.jsonl",
+        ),
         [
           JSON.stringify({
             timestamp: "2026-03-17T10:00:00.000Z",
@@ -142,7 +156,7 @@ describe("codex-session-store", () => {
               type: "function_call",
               call_id: "call_1",
               name: "exec_command",
-              arguments: "{\"cmd\":\"ls\"}",
+              arguments: '{"cmd":"ls"}',
             },
           }),
           JSON.stringify({
@@ -151,7 +165,7 @@ describe("codex-session-store", () => {
             payload: {
               type: "function_call_output",
               call_id: "call_1",
-              output: "{\"ok\":true}",
+              output: '{"ok":true}',
             },
           }),
           JSON.stringify({
@@ -218,7 +232,14 @@ describe("codex-session-store", () => {
         }) + "\n",
       );
       fs.writeFileSync(
-        path.join(codexHome, "sessions", "2026", "03", "23", "rollout-2026-03-23T14-28-12-thr_commentary.jsonl"),
+        path.join(
+          codexHome,
+          "sessions",
+          "2026",
+          "03",
+          "23",
+          "rollout-2026-03-23T14-28-12-thr_commentary.jsonl",
+        ),
         [
           JSON.stringify({
             timestamp: "2026-03-23T14:28:12.000Z",
@@ -261,7 +282,7 @@ describe("codex-session-store", () => {
               type: "function_call",
               call_id: "call_1",
               name: "exec_command",
-              arguments: "{\"cmd\":\"bun test\"}",
+              arguments: '{"cmd":"bun test"}',
             },
           }),
           JSON.stringify({
@@ -303,7 +324,14 @@ describe("codex-session-store", () => {
         }) + "\n",
       );
       fs.writeFileSync(
-        path.join(codexHome, "sessions", "2026", "03", "26", "rollout-2026-03-26T09-00-00-thr_compaction_replay.jsonl"),
+        path.join(
+          codexHome,
+          "sessions",
+          "2026",
+          "03",
+          "26",
+          "rollout-2026-03-26T09-00-00-thr_compaction_replay.jsonl",
+        ),
         [
           JSON.stringify({
             timestamp: "2026-03-26T09:00:00.000Z",
@@ -411,7 +439,14 @@ describe("codex-session-store", () => {
         }) + "\n",
       );
       fs.writeFileSync(
-        path.join(codexHome, "sessions", "2026", "03", "25", "rollout-2026-03-25T10-00-00-thr_reasoning.jsonl"),
+        path.join(
+          codexHome,
+          "sessions",
+          "2026",
+          "03",
+          "25",
+          "rollout-2026-03-25T10-00-00-thr_reasoning.jsonl",
+        ),
         [
           JSON.stringify({
             timestamp: "2026-03-25T10:00:00.000Z",

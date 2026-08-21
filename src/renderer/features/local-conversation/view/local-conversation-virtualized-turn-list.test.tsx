@@ -3,10 +3,7 @@ import { useState, type ReactNode } from "react";
 import { NodexTooltipProvider } from "../../../components/ui/tooltip";
 import { createMaitaiStore, MaitaiProvider } from "../../../lib/maitai";
 import { render } from "../../../test/dom";
-import type {
-  CodexConversationItem,
-  CodexConversationTurn,
-} from "../../../lib/types";
+import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import { EnsureLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
 import {
   LocalConversationVirtualizedTurnList,
@@ -204,7 +201,8 @@ function buildTurnEntries(texts: readonly string[]): LocalConversationVirtualize
       assistantText,
       index: index + 1,
       isMostRecentTurn: index === texts.length - 1,
-    }));
+    }),
+  );
 }
 
 function renderVirtualizedTurnList(input: {
@@ -239,9 +237,9 @@ function hasFixedHeightClippingAncestor(element: Element): boolean {
   let current = element.parentElement;
   while (current) {
     if (
-      current instanceof HTMLElement
-      && current.style.height === "280px"
-      && current.style.overflow === "hidden"
+      current instanceof HTMLElement &&
+      current.style.height === "280px" &&
+      current.style.overflow === "hidden"
     ) {
       return true;
     }
@@ -311,9 +309,7 @@ describe("LocalConversationVirtualizedTurnList", () => {
       status: "inProgress",
       firstTurnWorkItemStartedAtMs: 10,
       items: latestEntry.turn.items.map((item) =>
-        item.kind === "assistantMessage"
-          ? { ...item, assistantPhase: "commentary" }
-          : item,
+        item.kind === "assistantMessage" ? { ...item, assistantPhase: "commentary" } : item,
       ),
     };
     let captured: {

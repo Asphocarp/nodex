@@ -50,14 +50,10 @@ describe("app-close-flush", () => {
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      "first:start",
-      "second:start",
-      "first:end",
-    ]));
-    expect(JSON.stringify(invokeCalls)).toBe(JSON.stringify([
-      ["app:flush-before-close:done", 42],
-    ]));
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify(["first:start", "second:start", "first:end"]),
+    );
+    expect(JSON.stringify(invokeCalls)).toBe(JSON.stringify([["app:flush-before-close:done", 42]]));
 
     unregisterSuccess();
     unregisterFailure();

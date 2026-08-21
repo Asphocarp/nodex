@@ -60,15 +60,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const LocalTask: Story = {
-  render: () => (
-    <ForkFromTurnDialogStory isWorktreeThread={false} showWorktreeOption />
-  ),
+  render: () => <ForkFromTurnDialogStory isWorktreeThread={false} showWorktreeOption />,
 };
 
 export const ManagedWorktree: Story = {
-  render: () => (
-    <ForkFromTurnDialogStory isWorktreeThread showWorktreeOption />
-  ),
+  render: () => <ForkFromTurnDialogStory isWorktreeThread showWorktreeOption />,
 };
 
 export const GitRepositoryRequired: Story = {
@@ -82,11 +78,5 @@ export const GitRepositoryRequired: Story = {
 };
 
 export const Submitting: Story = {
-  render: () => (
-    <ForkFromTurnDialogStory
-      isWorktreeThread
-      showWorktreeOption
-      isSubmitting
-    />
-  ),
+  render: () => <ForkFromTurnDialogStory isWorktreeThread showWorktreeOption isSubmitting />,
 };

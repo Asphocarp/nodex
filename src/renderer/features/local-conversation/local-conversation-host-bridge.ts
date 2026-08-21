@@ -1,7 +1,5 @@
 import type { CodexHostMessage } from "../../lib/types";
-import {
-  dispatchCodexAppServerMessage,
-} from "./app-server-message-bus";
+import { dispatchCodexAppServerMessage } from "./app-server-message-bus";
 import { subscribeCodexHostMessages } from "./local-conversation-deps";
 
 let bridgeRefCount = 0;

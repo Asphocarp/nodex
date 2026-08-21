@@ -1,35 +1,34 @@
 import { z } from "zod";
 
-const BrowserUseRpcIdSchema = z.union([
-  z.number().int().safe(),
-  z.string().min(1).max(512),
-]);
+const BrowserUseRpcIdSchema = z.union([z.number().int().safe(), z.string().min(1).max(512)]);
 
-export const BrowserUseRpcRequestSchema = z.object({
-  jsonrpc: z.literal("2.0"),
-  id: BrowserUseRpcIdSchema.optional(),
-  method: z.string().trim().min(1).max(128),
-  params: z.unknown().optional(),
-}).strict();
+export const BrowserUseRpcRequestSchema = z
+  .object({
+    jsonrpc: z.literal("2.0"),
+    id: BrowserUseRpcIdSchema.optional(),
+    method: z.string().trim().min(1).max(128),
+    params: z.unknown().optional(),
+  })
+  .strict();
 
 export type BrowserUseRpcRequest = z.infer<typeof BrowserUseRpcRequestSchema>;
 export type BrowserUseRpcId = z.infer<typeof BrowserUseRpcIdSchema>;
 
 export type BrowserUseRpcResponse =
   | {
-    jsonrpc: "2.0";
-    id: BrowserUseRpcId;
-    result: unknown;
-  }
+      jsonrpc: "2.0";
+      id: BrowserUseRpcId;
+      result: unknown;
+    }
   | {
-    jsonrpc: "2.0";
-    id: BrowserUseRpcId;
-    error: {
-      code: number;
-      message: string;
-      data?: unknown;
+      jsonrpc: "2.0";
+      id: BrowserUseRpcId;
+      error: {
+        code: number;
+        message: string;
+        data?: unknown;
+      };
     };
-  };
 
 export function parseBrowserUseRpcRequest(raw: string): BrowserUseRpcRequest {
   let parsed: unknown;

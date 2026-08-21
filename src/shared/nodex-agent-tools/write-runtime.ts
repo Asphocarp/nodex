@@ -3,9 +3,7 @@ import type {
   DocumentOperationResult,
 } from "../block-documents/document-operations";
 import type { DocumentCommitRef } from "../block-documents/contracts";
-import type {
-  BlockTransferRequest,
-} from "../block-transfer";
+import type { BlockTransferRequest } from "../block-transfer";
 import type { ToolFailure } from "./base-schemas";
 import type { AgentDocumentEditEffects } from "./document-edit-compiler";
 import type {
@@ -26,10 +24,7 @@ export interface NodexAgentCallIdentity {
   readonly resourceAccess?: NodexAgentResourceAccessOverlay;
 }
 
-export type NodexAgentDocumentEditTool =
-  | "edit_document"
-  | "update_page"
-  | "advanced_update_page";
+export type NodexAgentDocumentEditTool = "edit_document" | "update_page" | "advanced_update_page";
 
 export interface PrepareNodexAgentDocumentEditRequest extends NodexAgentCallIdentity {
   readonly tool: NodexAgentDocumentEditTool;
@@ -155,14 +150,19 @@ export interface PrepareNodexAgentTransferRequest extends NodexAgentCallIdentity
 }
 
 export interface NodexAgentTransferAuthorizationEvidence {
-  readonly roots: Readonly<Record<string, {
-    readonly type: string;
-    readonly transformation: "preserved" | "promote" | "wrap";
-    readonly wrapperReason?:
-      | "type_requires_wrapper"
-      | "unsupported_primary_content"
-      | "unmapped_type_state";
-  }>>;
+  readonly roots: Readonly<
+    Record<
+      string,
+      {
+        readonly type: string;
+        readonly transformation: "preserved" | "promote" | "wrap";
+        readonly wrapperReason?:
+          | "type_requires_wrapper"
+          | "unsupported_primary_content"
+          | "unmapped_type_state";
+      }
+    >
+  >;
   readonly documentIds: readonly string[];
 }
 

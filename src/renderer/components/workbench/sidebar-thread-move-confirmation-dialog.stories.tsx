@@ -2,9 +2,7 @@ import { useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NodexButton } from "@/components/ui/button";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import type {
-  CodexSidebarThreadMoveConfirmationRequired,
-} from "../../../shared/codex-sidebar-thread-move";
+import type { CodexSidebarThreadMoveConfirmationRequired } from "../../../shared/codex-sidebar-thread-move";
 import { SidebarThreadMoveConfirmationDialog } from "./sidebar-thread-move-confirmation-dialog";
 
 const defaultConfirmation: CodexSidebarThreadMoveConfirmationRequired = {
@@ -49,9 +47,7 @@ const meta = {
     onClose: () => undefined,
     onContinue: () => undefined,
   },
-  render: ({ confirmation }) => (
-    <ConfirmationDialogStory confirmation={confirmation} />
-  ),
+  render: ({ confirmation }) => <ConfirmationDialogStory confirmation={confirmation} />,
 } satisfies Meta<typeof SidebarThreadMoveConfirmationDialog>;
 
 export default meta;

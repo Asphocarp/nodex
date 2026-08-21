@@ -16,7 +16,7 @@ export function buildCodexBackgroundTerminalProcessRows(
       (processesByThreadId.get(thread.threadId) ?? []).map((row) => ({
         ...row,
         threadTitle: row.threadTitle ?? thread.title,
-      }))
+      })),
     ),
   );
 }
@@ -33,7 +33,9 @@ export function sortCodexBackgroundTerminalProcessRows(
     const rightMemory = normalizeRssKbForSort(readBackgroundTerminalMemoryKb(right));
     if (leftMemory !== rightMemory) return rightMemory - leftMemory;
 
-    const threadCompare = normalizeThreadTitleForSort(left).localeCompare(normalizeThreadTitleForSort(right));
+    const threadCompare = normalizeThreadTitleForSort(left).localeCompare(
+      normalizeThreadTitleForSort(right),
+    );
     if (threadCompare !== 0) return threadCompare;
     return left.command.localeCompare(right.command);
   });
@@ -56,11 +58,15 @@ export function formatBackgroundTerminalCpuPercent(value: number | null): string
   return `${value.toFixed(1)}%`;
 }
 
-export function readBackgroundTerminalCpuPercent(row: CodexBackgroundTerminalProcessRow): number | null {
+export function readBackgroundTerminalCpuPercent(
+  row: CodexBackgroundTerminalProcessRow,
+): number | null {
   return row.terminal?.cpuPercent ?? row.terminalSession?.cpuPercent ?? null;
 }
 
-export function readBackgroundTerminalMemoryKb(row: CodexBackgroundTerminalProcessRow): bigint | null {
+export function readBackgroundTerminalMemoryKb(
+  row: CodexBackgroundTerminalProcessRow,
+): bigint | null {
   return row.terminal?.rssKb ?? row.terminalSession?.rssKb ?? null;
 }
 
@@ -82,6 +88,8 @@ export function formatBackgroundTerminalMemoryKb(value: bigint | null): string {
   return `${(kb / (1024 * 1024)).toFixed(2)} GB`;
 }
 
-export function formatBackgroundTerminalPid(row: Pick<CodexBackgroundTerminalProcessRow, "osPid" | "processId">): string {
-  return row.osPid === null ? row.processId ?? "n/a" : String(row.osPid);
+export function formatBackgroundTerminalPid(
+  row: Pick<CodexBackgroundTerminalProcessRow, "osPid" | "processId">,
+): string {
+  return row.osPid === null ? (row.processId ?? "n/a") : String(row.osPid);
 }

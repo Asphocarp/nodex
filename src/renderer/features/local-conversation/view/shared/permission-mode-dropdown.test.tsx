@@ -32,7 +32,9 @@ describe("permission mode dropdown", () => {
       );
     });
 
-    expect(view.getByLabelText("Permission mode").textContent?.includes("Approve for me")).toBe(true);
+    expect(view.getByLabelText("Permission mode").textContent?.includes("Approve for me")).toBe(
+      true,
+    );
 
     await openPermissionMenu(view);
 
@@ -69,7 +71,11 @@ describe("permission mode dropdown", () => {
 
     const autoReviewItem = view.getByText("Approve for me");
     expect(autoReviewItem.closest("[data-disabled]") !== null).toBe(true);
-    expect((view.container.ownerDocument.body.textContent ?? "").includes("Requires default sandboxed permissions in this workspace")).toBe(true);
+    expect(
+      (view.container.ownerDocument.body.textContent ?? "").includes(
+        "Requires default sandboxed permissions in this workspace",
+      ),
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.click(autoReviewItem);
@@ -128,8 +134,14 @@ describe("permission mode dropdown", () => {
     });
     await openPermissionMenu(customView);
 
-    expect((customView.container.ownerDocument.body.textContent ?? "").includes("Custom (config.toml)")).toBe(true);
-    expect((customView.container.ownerDocument.body.textContent ?? "").includes("Project config: sandbox_mode=read-only.")).toBe(true);
+    expect(
+      (customView.container.ownerDocument.body.textContent ?? "").includes("Custom (config.toml)"),
+    ).toBe(true);
+    expect(
+      (customView.container.ownerDocument.body.textContent ?? "").includes(
+        "Project config: sandbox_mode=read-only.",
+      ),
+    ).toBe(true);
   });
 
   test("selects Custom when it is available", async () => {
@@ -194,9 +206,11 @@ describe("permission mode dropdown", () => {
       await openPermissionMenu(view);
 
       const fullAccessItem = view.getByText("Full access");
-      expect((view.container.ownerDocument.body.textContent ?? "").includes(
-        "Unrestricted access to the internet and any file on your computer",
-      )).toBe(true);
+      expect(
+        (view.container.ownerDocument.body.textContent ?? "").includes(
+          "Unrestricted access to the internet and any file on your computer",
+        ),
+      ).toBe(true);
 
       await act(async () => {
         fireEvent.click(fullAccessItem);

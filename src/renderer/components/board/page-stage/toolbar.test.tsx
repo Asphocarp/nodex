@@ -1,10 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import { act, useEffect } from "react";
-import {
-  NodexTooltipProvider,
-  dismissNodexTooltips,
-} from "@/components/ui/tooltip";
+import { NodexTooltipProvider, dismissNodexTooltips } from "@/components/ui/tooltip";
 import { render, settleAsyncRender } from "@/test/dom";
 import { PageStageToolbar } from "./toolbar";
 
@@ -84,7 +81,8 @@ describe("page stage toolbar", () => {
       </NodexTooltipProvider>,
     );
 
-    const labels = view.getAllByRole("button")
+    const labels = view
+      .getAllByRole("button")
       .map((button) => button.getAttribute("aria-label"))
       .filter(Boolean)
       .join(",");

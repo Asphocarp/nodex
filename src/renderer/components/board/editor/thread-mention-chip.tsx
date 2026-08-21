@@ -1,18 +1,6 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createReactInlineContentSpec } from "@blocknote/react";
-import {
-  AlertCircle,
-  CheckCircle2,
-  Copy,
-  Play,
-} from "@/components/shared/icons/generic-icons";
+import { AlertCircle, CheckCircle2, Copy, Play } from "@/components/shared/icons/generic-icons";
 
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
@@ -76,7 +64,9 @@ export function useThreadMentionRuntime(): ThreadMentionRuntimeValue {
   return useContext(ThreadMentionRuntimeContext);
 }
 
-export function normalizeThreadMentionProps(input: Partial<ThreadMentionProps> | undefined): ThreadMentionProps {
+export function normalizeThreadMentionProps(
+  input: Partial<ThreadMentionProps> | undefined,
+): ThreadMentionProps {
   return {
     uuid: typeof input?.uuid === "string" ? input.uuid.trim() : "",
   };
@@ -96,8 +86,10 @@ function ThreadMentionStateIcon({
     return <AlertCircle className="inline-block size-3.5 shrink-0" />;
   }
   if (thread?.archived) return <ArchiveIcon className="inline-block size-3.5 shrink-0" />;
-  if (thread?.statusType === "active") return <Play className="inline-block size-3.5 shrink-0 fill-current" />;
-  if (thread?.statusType === "idle") return <CheckCircle2 className="inline-block size-3.5 shrink-0" />;
+  if (thread?.statusType === "active")
+    return <Play className="inline-block size-3.5 shrink-0 fill-current" />;
+  if (thread?.statusType === "idle")
+    return <CheckCircle2 className="inline-block size-3.5 shrink-0" />;
   return <ThreadIcon className="inline-block size-3.5 shrink-0" />;
 }
 
@@ -186,9 +178,7 @@ function ThreadMentionTooltipBody({
 }) {
   return (
     <div className="max-w-[18rem] space-y-0.5 text-left">
-      <div className="truncate text-sm font-medium text-token-foreground">
-        {chip.label}
-      </div>
+      <div className="truncate text-sm font-medium text-token-foreground">{chip.label}</div>
       <div className="truncate text-xs text-token-description-foreground">
         {missing ? "This thread could not be found." : chip.detail}
       </div>
@@ -208,7 +198,7 @@ export function ThreadMentionInlineContentView({
   const [open, setOpen] = useState(false);
   const [missing, setMissing] = useState(false);
   const props = normalizeThreadMentionProps(inlineContent.props);
-  const thread = props.uuid ? runtime.threads[props.uuid] ?? null : null;
+  const thread = props.uuid ? (runtime.threads[props.uuid] ?? null) : null;
   const resolving = props.uuid ? runtime.resolvingIds.has(props.uuid) : false;
   const chip = useMemo(
     () => resolveThreadMentionChip({ uuid: props.uuid, thread, resolving, missing }),
@@ -225,7 +215,8 @@ export function ThreadMentionInlineContentView({
 
     let cancelled = false;
     setMissing(false);
-    void runtime.resolveThread(props.uuid)
+    void runtime
+      .resolveThread(props.uuid)
       .then((resolvedThread) => {
         if (!cancelled) setMissing(resolvedThread === null);
       })
@@ -247,10 +238,7 @@ export function ThreadMentionInlineContentView({
       as="button"
       type="button"
       contentEditable={false}
-      className={cn(
-        "cursor-interaction",
-        missing && "text-token-description-foreground",
-      )}
+      className={cn("cursor-interaction", missing && "text-token-description-foreground")}
       label={chip.label}
       withGuards
       onMouseDown={(event) => {
@@ -268,12 +256,7 @@ export function ThreadMentionInlineContentView({
     />
   );
   const tooltipContent = (
-    <ThreadMentionTooltipBody
-      uuid={props.uuid}
-      thread={thread}
-      chip={chip}
-      missing={missing}
-    />
+    <ThreadMentionTooltipBody uuid={props.uuid} thread={thread} chip={chip} missing={missing} />
   );
   const renderTooltip = (children: ReactNode) => (
     <NodexTooltip
@@ -300,9 +283,7 @@ export function ThreadMentionInlineContentView({
   return (
     <NodexPopover open={open} onOpenChange={setOpen}>
       <NodexPopoverAnchor asChild>
-        <span className="inline align-baseline">
-          {renderTooltip(trigger)}
-        </span>
+        <span className="inline align-baseline">{renderTooltip(trigger)}</span>
       </NodexPopoverAnchor>
 
       <NodexPopoverContent
@@ -324,19 +305,20 @@ export function ThreadMentionInlineContentView({
 }
 
 export function createThreadMentionInlineContentSpec() {
-  return createReactInlineContentSpec(
-    threadMentionInlineContentConfig,
-    {
-      render: ({ inlineContent }) => (
-        <ThreadMentionInlineContentView inlineContent={inlineContent as { props: Partial<ThreadMentionProps> }} />
-      ),
-      toExternalHTML: ({ inlineContent }) => {
-        const props = normalizeThreadMentionProps((inlineContent as { props: Partial<ThreadMentionProps> }).props);
-        const chip = resolveThreadMentionChip({ uuid: props.uuid });
-        return (
-          <ThreadMentionInlineVisual label={chip.label} iconClassName="text-inherit opacity-65" />
-        );
-      },
+  return createReactInlineContentSpec(threadMentionInlineContentConfig, {
+    render: ({ inlineContent }) => (
+      <ThreadMentionInlineContentView
+        inlineContent={inlineContent as { props: Partial<ThreadMentionProps> }}
+      />
+    ),
+    toExternalHTML: ({ inlineContent }) => {
+      const props = normalizeThreadMentionProps(
+        (inlineContent as { props: Partial<ThreadMentionProps> }).props,
+      );
+      const chip = resolveThreadMentionChip({ uuid: props.uuid });
+      return (
+        <ThreadMentionInlineVisual label={chip.label} iconClassName="text-inherit opacity-65" />
+      );
     },
-  );
+  });
 }

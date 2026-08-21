@@ -8,13 +8,7 @@ import {
   Settings2,
 } from "@/components/shared/icons/generic-icons";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
-import {
-  ThreadIcon,
-  BellIcon,
-  CalendarIcon,
-  ClockIcon,
-  PageIcon,
-} from "@/components/shared/icons";
+import { ThreadIcon, BellIcon, CalendarIcon, ClockIcon, PageIcon } from "@/components/shared/icons";
 import { NfmSuggestionMenuSurface, type NfmSuggestionItem } from "./nfm-slash-menu";
 import { StatusIcon } from "@/lib/status-presentation";
 
@@ -106,7 +100,8 @@ const MENTION_ITEMS: NfmSuggestionItem[] = [
       { text: "projection", highlight: true },
       { text: " window stays bounded while results update…", highlight: false },
     ],
-    tooltipContent: "Refine slash menu polish · Product / Editor · The affected projection window stays bounded while results update without replacing the active query.",
+    tooltipContent:
+      "Refine slash menu polish · Product / Editor · The affected projection window stays bounded while results update without replacing the active query.",
     aliases: [],
     group: "Mention a page",
     hint: null,
@@ -227,9 +222,7 @@ const LONG_ITEMS: NfmSuggestionItem[] = [
   },
 ];
 
-function NfmSuggestionMenuStorySurface(
-  props: SuggestionMenuProps<DefaultReactSuggestionItem>,
-) {
+function NfmSuggestionMenuStorySurface(props: SuggestionMenuProps<DefaultReactSuggestionItem>) {
   return (
     <NodexTooltipProvider>
       <div className="bg-token-bg-fog p-4 text-token-foreground">
@@ -246,7 +239,8 @@ const meta = {
     layout: "centered",
     docs: {
       description: {
-        component: "Compact Nodex-native BlockNote suggestion menu surface used by NFM slash commands and mentions.",
+        component:
+          "Compact Nodex-native BlockNote suggestion menu surface used by NFM slash commands and mentions.",
       },
     },
   },

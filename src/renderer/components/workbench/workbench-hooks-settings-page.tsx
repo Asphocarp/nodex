@@ -22,10 +22,7 @@ import {
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
-import {
-  NodexSettingsPageSurface,
-  NodexSettingsSection,
-} from "@/components/ui/settings";
+import { NodexSettingsPageSurface, NodexSettingsSection } from "@/components/ui/settings";
 import { toast } from "@/components/ui/toast";
 import { DEFAULT_CODEX_HOST_ID } from "../../../shared/codex-host";
 import type { Project } from "../../lib/types";
@@ -190,9 +187,7 @@ function HookSourceRow({
 }
 
 function HookSourceGroup({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <NodexSettingsSection title={title}>{children}</NodexSettingsSection>
-  );
+  return <NodexSettingsSection title={title}>{children}</NodexSettingsSection>;
 }
 
 function HooksOverview({
@@ -204,24 +199,30 @@ function HooksOverview({
   projectRootLabels: Readonly<Record<string, string>>;
   onSelect: (selection: CodexHooksSettingsSelection) => void;
 }) {
-  const configSections = sections.filter((section) => section.source === "user" || section.source === "admin");
+  const configSections = sections.filter(
+    (section) => section.source === "user" || section.source === "admin",
+  );
   const pluginSection = sections.find((section) => section.source === "plugin");
   const projectSection = sections.find((section) => section.source === "project");
-  const otherSections = sections.filter((section) => section.source === "sessionFlags" || section.source === "unknown");
+  const otherSections = sections.filter(
+    (section) => section.source === "sessionFlags" || section.source === "unknown",
+  );
 
   return (
     <>
       {configSections.length > 0 ? (
         <HookSourceGroup title="From Config">
-          {configSections.map((section) => section.entry ? (
-            <HookSourceRow
-              key={section.source}
-              entry={section.entry}
-              label={HOOK_SOURCE_LABELS[section.source]}
-              source={section.source}
-              onSelect={onSelect}
-            />
-          ) : null)}
+          {configSections.map((section) =>
+            section.entry ? (
+              <HookSourceRow
+                key={section.source}
+                entry={section.entry}
+                label={HOOK_SOURCE_LABELS[section.source]}
+                source={section.source}
+                onSelect={onSelect}
+              />
+            ) : null,
+          )}
         </HookSourceGroup>
       ) : null}
 
@@ -258,15 +259,17 @@ function HooksOverview({
 
       {otherSections.length > 0 ? (
         <HookSourceGroup title="Other sources">
-          {otherSections.map((section) => section.entry ? (
-            <HookSourceRow
-              key={section.source}
-              entry={section.entry}
-              label={HOOK_SOURCE_LABELS[section.source]}
-              source={section.source}
-              onSelect={onSelect}
-            />
-          ) : null)}
+          {otherSections.map((section) =>
+            section.entry ? (
+              <HookSourceRow
+                key={section.source}
+                entry={section.entry}
+                label={HOOK_SOURCE_LABELS[section.source]}
+                source={section.source}
+                onSelect={onSelect}
+              />
+            ) : null,
+          )}
         </HookSourceGroup>
       ) : null}
     </>
@@ -275,14 +278,24 @@ function HooksOverview({
 
 function HookDetails({ hook }: { hook: HookMetadata }) {
   const rows = [
-    ["Handler", hook.handlerType === "command" ? "Command" : hook.handlerType === "prompt" ? "Prompt" : "Agent"],
+    [
+      "Handler",
+      hook.handlerType === "command"
+        ? "Command"
+        : hook.handlerType === "prompt"
+          ? "Prompt"
+          : "Agent",
+    ],
     ...(hook.command == null ? [] : [["Command", hook.command]]),
     ...(hook.matcher == null ? [] : [["Matcher", hook.matcher]]),
-    ["Timeout", new Intl.NumberFormat(undefined, {
-      style: "unit",
-      unit: "second",
-      unitDisplay: "narrow",
-    }).format(Number(hook.timeoutSec))],
+    [
+      "Timeout",
+      new Intl.NumberFormat(undefined, {
+        style: "unit",
+        unit: "second",
+        unitDisplay: "narrow",
+      }).format(Number(hook.timeoutSec)),
+    ],
     ...(hook.statusMessage == null ? [] : [["Status message", hook.statusMessage]]),
   ];
 
@@ -292,11 +305,15 @@ function HookDetails({ hook }: { hook: HookMetadata }) {
         {rows.map(([label, value]) => (
           <div key={label} className="contents">
             <dt className="text-token-text-secondary">{label}</dt>
-            <dd className={cn(
-              "min-w-0 text-token-text-primary",
-              label === "Command" ? "block font-mono text-xs break-all whitespace-pre-wrap" : null,
-              label === "Matcher" ? "font-mono text-xs break-all" : null,
-            )}>
+            <dd
+              className={cn(
+                "min-w-0 text-token-text-primary",
+                label === "Command"
+                  ? "block font-mono text-xs break-all whitespace-pre-wrap"
+                  : null,
+                label === "Matcher" ? "font-mono text-xs break-all" : null,
+              )}
+            >
               {value}
             </dd>
           </div>
@@ -343,8 +360,9 @@ function HookRow({
               title="Open config file"
               className="absolute top-1/2 right-6 inline-flex size-5 -translate-y-1/2 cursor-interaction items-center justify-center rounded-md text-token-text-tertiary hover:bg-token-list-hover-background hover:text-token-text-primary focus-visible:ring-2 focus-visible:ring-token-focus-border focus-visible:outline-none"
               onClick={() => {
-                void invoke("shell:open-file-link", { path: hook.sourcePath }, "fileManager")
-                  .catch(() => toast.danger("Could not open config file"));
+                void invoke("shell:open-file-link", { path: hook.sourcePath }, "fileManager").catch(
+                  () => toast.danger("Could not open config file"),
+                );
               }}
             >
               <FileIcon className="icon-xxs" aria-hidden="true" />
@@ -363,7 +381,9 @@ function HookRow({
             <NodexButton
               variant="outline"
               size="xs"
-              title={hook.trustStatus === "modified" ? "Hook changed since last trusted" : "New hook"}
+              title={
+                hook.trustStatus === "modified" ? "Hook changed since last trusted" : "New hook"
+              }
               onClick={() => onTrust(hook)}
             >
               <ShieldCheck className="icon-2xs" />
@@ -391,7 +411,11 @@ function HookRow({
           </span>
         </div>
       </div>
-      {expanded ? <div className="pl-7"><HookDetails hook={hook} /></div> : null}
+      {expanded ? (
+        <div className="pl-7">
+          <HookDetails hook={hook} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -412,12 +436,20 @@ function HooksIssues({ entry }: { entry: CodexHooksSourceEntry }) {
           <TriangleAlert className="icon-xs shrink-0 text-token-editor-warning-foreground" />
           {issueCount} {issueCount === 1 ? "issue" : "issues"} loading hooks for this source
         </span>
-        <ChevronDown className={cn("icon-2xs transition-transform", expanded ? "rotate-180" : null)} />
+        <ChevronDown
+          className={cn("icon-2xs transition-transform", expanded ? "rotate-180" : null)}
+        />
       </button>
       {expanded ? (
         <div className="space-y-2 border-t border-token-editor-warning-foreground/20 px-3 py-2 text-sm text-token-text-secondary">
-          {entry.warnings.map((warning) => <div key={warning}>{warning}</div>)}
-          {entry.errors.map((error) => <div key={`${error.path}:${error.message}`}>{error.path}: {error.message}</div>)}
+          {entry.warnings.map((warning) => (
+            <div key={warning}>{warning}</div>
+          ))}
+          {entry.errors.map((error) => (
+            <div key={`${error.path}:${error.message}`}>
+              {error.path}: {error.message}
+            </div>
+          ))}
         </div>
       ) : null}
     </div>
@@ -443,21 +475,26 @@ function HooksDetailDialog({
   onToggle: (hook: HookMetadata, enabled: boolean) => void;
   onTrust: (hook: HookMetadata) => void;
 }) {
-  const summaries = summarizeCodexHookEvents(entry?.hooks ?? []).filter((summary) => summary.installed > 0);
-  const subtitle = selection?.source === "project"
-    ? selection.projectRoot
-    : selection == null
-      ? null
-      : "All projects";
+  const summaries = summarizeCodexHookEvents(entry?.hooks ?? []).filter(
+    (summary) => summary.installed > 0,
+  );
+  const subtitle =
+    selection?.source === "project"
+      ? selection.projectRoot
+      : selection == null
+        ? null
+        : "All projects";
   const needsReview = (entry?.hooks.filter(doesCodexHookNeedReview).length ?? 0) > 0;
   const TitleIcon = selection ? HOOK_SOURCE_ICONS[selection.source] : null;
 
   return (
-    <NodexDialog open={selection != null && (loading || entry != null)} onOpenChange={(open) => { if (!open) onClose(); }}>
-      <NodexDialogContent
-        size="large"
-        className="max-h-[calc(100vh-6rem)] min-h-0"
-      >
+    <NodexDialog
+      open={selection != null && (loading || entry != null)}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <NodexDialogContent size="large" className="max-h-[calc(100vh-6rem)] min-h-0">
         <NodexDialogFrame className="max-h-[calc(100vh-6rem)] min-h-0">
           <NodexDialogHeader>
             <NodexDialogTitle>
@@ -470,21 +507,30 @@ function HooksDetailDialog({
                 <span className="min-w-0">{title}</span>
               </span>
             </NodexDialogTitle>
-            {subtitle ? <NodexDialogDescription className="break-all">{subtitle}</NodexDialogDescription> : null}
+            {subtitle ? (
+              <NodexDialogDescription className="break-all">{subtitle}</NodexDialogDescription>
+            ) : null}
           </NodexDialogHeader>
           <NodexDialogBody className="min-h-0">
             <div className="vertical-scroll-fade-mask flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-              {loading ? <div className="py-10 text-center text-sm text-token-text-secondary">Loading hooks…</div> : null}
+              {loading ? (
+                <div className="py-10 text-center text-sm text-token-text-secondary">
+                  Loading hooks…
+                </div>
+              ) : null}
               {loadError ? (
                 <div className="rounded-lg border border-token-border p-3">
                   <div className="text-sm text-token-text-primary">Could not load hooks</div>
-                  <div className="mt-1 break-words text-sm text-token-text-secondary">{loadError.message}</div>
+                  <div className="mt-1 break-words text-sm text-token-text-secondary">
+                    {loadError.message}
+                  </div>
                 </div>
               ) : null}
               {needsReview ? (
                 <div className="flex gap-2 rounded-lg border border-token-editor-warning-foreground/30 bg-token-editor-warning-background/30 p-3 text-sm text-token-text-primary">
                   <TriangleAlert className="icon-xs shrink-0 text-token-editor-warning-foreground" />
-                  Hooks can run outside of the sandbox so we ask you to review any recently installed or modified hooks
+                  Hooks can run outside of the sandbox so we ask you to review any recently
+                  installed or modified hooks
                 </div>
               ) : null}
               {entry ? <HooksIssues entry={entry} /> : null}
@@ -495,21 +541,29 @@ function HooksDetailDialog({
                       <div className="flex items-center gap-3 p-3">
                         <HooksIcon className="icon-xs text-token-text-secondary" />
                         <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-token-text-primary">{HOOK_EVENT_LABELS[summary.eventName]}</div>
-                          <div className="text-sm text-token-text-secondary">{HOOK_EVENT_DESCRIPTIONS[summary.eventName]}</div>
+                          <div className="text-sm font-medium text-token-text-primary">
+                            {HOOK_EVENT_LABELS[summary.eventName]}
+                          </div>
+                          <div className="text-sm text-token-text-secondary">
+                            {HOOK_EVENT_DESCRIPTIONS[summary.eventName]}
+                          </div>
                         </div>
-                        {summary.needsReview > 0 ? <TriangleAlert className="icon-2xs text-token-editor-warning-foreground" /> : null}
+                        {summary.needsReview > 0 ? (
+                          <TriangleAlert className="icon-2xs text-token-editor-warning-foreground" />
+                        ) : null}
                       </div>
                       <div className="border-t border-token-border px-3">
-                        {sortCodexHooksForEvent(entry.hooks, summary.eventName).map((hook, index) => (
-                          <HookRow
-                            key={hook.key}
-                            hook={hook}
-                            index={index}
-                            onToggle={onToggle}
-                            onTrust={onTrust}
-                          />
-                        ))}
+                        {sortCodexHooksForEvent(entry.hooks, summary.eventName).map(
+                          (hook, index) => (
+                            <HookRow
+                              key={hook.key}
+                              hook={hook}
+                              index={index}
+                              onToggle={onToggle}
+                              onTrust={onTrust}
+                            />
+                          ),
+                        )}
                       </div>
                     </div>
                   ))}
@@ -561,16 +615,18 @@ export function CodexHooksSettingsView({
   const noRoots = projectRoots.length === 0;
   const isEmpty = !loading && !loadError && sections.length === 0;
   const selectSource = (nextSelection: CodexHooksSettingsSelection | null) => {
-    onPathChange(replaceCodexHooksSettingsSelection(path, {
-      hostId,
-      selection: nextSelection,
-    }));
+    onPathChange(
+      replaceCodexHooksSettingsSelection(path, {
+        hostId,
+        selection: nextSelection,
+      }),
+    );
   };
 
   return (
     <NodexSettingsPageSurface
       title="Hooks"
-      subtitle={(
+      subtitle={
         <span className="whitespace-normal">
           Manage lifecycle hooks from config and enabled plugins.{" "}
           <a
@@ -582,8 +638,8 @@ export function CodexHooksSettingsView({
             Learn more
           </a>
         </span>
-      )}
-      action={(
+      }
+      action={
         <NodexButton
           variant="ghost"
           size="icon"
@@ -598,17 +654,21 @@ export function CodexHooksSettingsView({
             <RefreshCw className="icon-xs" />
           )}
         </NodexButton>
-      )}
+      }
     >
       {noRoots || isEmpty ? (
         <div className="rounded-lg border border-token-border p-3">
           <div className="text-sm text-token-text-primary">No hooks found</div>
-          <div className="mt-1 text-sm text-token-text-secondary">Configured hooks will appear here</div>
+          <div className="mt-1 text-sm text-token-text-secondary">
+            Configured hooks will appear here
+          </div>
         </div>
       ) : loadError ? (
         <div className="rounded-lg border border-token-border p-3">
           <div className="text-sm text-token-text-primary">Could not load hooks</div>
-          <div className="mt-1 break-words text-sm text-token-text-secondary">{loadError.message}</div>
+          <div className="mt-1 break-words text-sm text-token-text-secondary">
+            {loadError.message}
+          </div>
         </div>
       ) : loading ? (
         <div className="py-10 text-center text-sm text-token-text-secondary">Loading hooks…</div>
@@ -646,12 +706,14 @@ export function WorkbenchHooksSettingsPage({
   const hostId = parseCodexHooksSettingsHostId(path) ?? DEFAULT_CODEX_HOST_ID;
   const { projectRoots, projectRootLabels } = useMemo(() => {
     const labels: Record<string, string> = {};
-    const roots = normalizeCodexHooksCwds(projects.flatMap((project) => (
-      project.sources.map((source) => {
-        labels[source.root] ??= project.name;
-        return source.root;
-      })
-    )));
+    const roots = normalizeCodexHooksCwds(
+      projects.flatMap((project) =>
+        project.sources.map((source) => {
+          labels[source.root] ??= project.name;
+          return source.root;
+        }),
+      ),
+    );
     return { projectRoots: roots, projectRootLabels: labels };
   }, [projects]);
   const hooksQuery = useCodexHooksList({ hostId, cwds: projectRoots });
@@ -675,7 +737,9 @@ export function WorkbenchHooksSettingsPage({
       refreshing={hooksQuery.isFetching && !hooksQuery.isPending}
       loadError={hooksQuery.error instanceof Error ? hooksQuery.error : null}
       onPathChange={onPathChange}
-      onRefresh={() => { void hooksQuery.refetch(); }}
+      onRefresh={() => {
+        void hooksQuery.refetch();
+      }}
       onToggle={(hook, enabled) => runMutation({ key: hook.key, enabled })}
       onTrust={(hook) => runMutation({ key: hook.key, trustedHash: hook.currentHash })}
     />

@@ -23,8 +23,17 @@ interface RightPanelComposerLatestTurnPreviewProps {
   projectWorkspacePath?: string | null;
   threadCwd?: string | null;
   onExpandedChange: (expanded: boolean) => void;
-  onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
-  onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onEditLastUserTurn?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+  }) => void | Promise<void>;
+  onForkFromTurn?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+    isLatestTurn: boolean;
+  }) => void | Promise<void>;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
@@ -63,19 +72,17 @@ export function RightPanelComposerLatestTurnPreview({
 
   if (!turn || turn.blocks.length === 0) return null;
 
-  const previousMessagesLabel = turn.collapsedMessageCount > 0
-    ? `${turn.collapsedMessageCount} previous ${
-        turn.collapsedMessageCount === 1 ? "message" : "messages"
-      }`
-    : null;
-  const headerText = workedForLabel
-    ?? previousMessagesLabel
-    ?? (turn.isStreamingTurn ? "Working" : "Latest turn");
+  const previousMessagesLabel =
+    turn.collapsedMessageCount > 0
+      ? `${turn.collapsedMessageCount} previous ${
+          turn.collapsedMessageCount === 1 ? "message" : "messages"
+        }`
+      : null;
+  const headerText =
+    workedForLabel ?? previousMessagesLabel ?? (turn.isStreamingTurn ? "Working" : "Latest turn");
   const isCompactPresentation = presentation !== "default";
   const floatingTrayVisible =
-    presentation === "expanded"
-    || presentation === "compact-hovered"
-    || turn.isStreamingTurn;
+    presentation === "expanded" || presentation === "compact-hovered" || turn.isStreamingTurn;
 
   return (
     <div
@@ -88,28 +95,18 @@ export function RightPanelComposerLatestTurnPreview({
           : RIGHT_PANEL_COMPOSER_ACCESSORY_FROSTED_SURFACE_CLASS,
         isCompactPresentation
           ? "absolute inset-x-10 bottom-0 z-0 mx-0 transition-[opacity,translate] duration-150 ease-out motion-reduce:transition-none"
-          : cn(
-              "relative",
-              RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS,
-            ),
-        isCompactPresentation && (
-          floatingTrayVisible
+          : cn("relative", RIGHT_PANEL_COMPOSER_ACCESSORY_INLINE_INSET_CLASS),
+        isCompactPresentation &&
+          (floatingTrayVisible
             ? "pointer-events-auto -translate-y-11 opacity-100"
-            : "pointer-events-none translate-y-0 opacity-0"
-        ),
-        isCompactPresentation
-          && presentation === "compact-hovered"
-          && "delay-150",
-        isCompactPresentation
-          && !floatingTrayVisible
-          && "delay-75",
+            : "pointer-events-none translate-y-0 opacity-0"),
+        isCompactPresentation && presentation === "compact-hovered" && "delay-150",
+        isCompactPresentation && !floatingTrayVisible && "delay-75",
       )}
     >
       <div
         className={cn(
-          contextRailLeadingContent
-            ? "flex min-w-0 items-center gap-1 px-1.5 py-0.5"
-            : "contents",
+          contextRailLeadingContent ? "flex min-w-0 items-center gap-1 px-1.5 py-0.5" : "contents",
         )}
       >
         {contextRailLeadingContent}
@@ -129,10 +126,7 @@ export function RightPanelComposerLatestTurnPreview({
           </span>
           <span className="no-drag flex size-6 shrink-0 items-center justify-center rounded-full text-token-description-foreground select-none electron:rounded-md">
             <ChevronRightIcon
-              className={cn(
-                "icon-2xs transition-transform duration-300",
-                expanded && "rotate-90",
-              )}
+              className={cn("icon-2xs transition-transform duration-300", expanded && "rotate-90")}
             />
           </span>
         </button>

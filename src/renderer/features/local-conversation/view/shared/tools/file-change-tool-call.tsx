@@ -1,12 +1,7 @@
 import { parsePatchFiles } from "@pierre/diffs";
 import type { FileDiffMetadata } from "@pierre/diffs/react";
 import { motion } from "motion/react";
-import {
-  useMemo,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { reviewDiffPreferencesAtom } from "@/features/review/model/review-view-state";
 import { useScopedAtomValue } from "@/lib/maitai";
 import type { CodexVisualizationActivity } from "../../../../../../shared/types";
@@ -33,7 +28,10 @@ import type { CodexFileChange, CodexTranscriptEntry } from "../../../../../lib/t
 import type { ThreadStageActions } from "../../../thread-stage-types";
 import { cn } from "../../../../../lib/utils";
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
-import { AutomaticApprovalReviewRows, AutomaticApprovalReviewShield } from "../automatic-approval-review-surface";
+import {
+  AutomaticApprovalReviewRows,
+  AutomaticApprovalReviewShield,
+} from "../automatic-approval-review-surface";
 import { CodexShimmerText } from "../codex-shimmer-text";
 import { CODEX_THREAD_ACCORDION_TRANSITION } from "../thread-motion";
 import { useMeasuredElementHeight } from "../use-measured-element-height";
@@ -145,7 +143,12 @@ function resolveRowLabels(
 
   if (state === "stopped") {
     return {
-      label: action === "create" ? "Stopped creating" : action === "delete" ? "Stopped deleting" : "Stopped editing",
+      label:
+        action === "create"
+          ? "Stopped creating"
+          : action === "delete"
+            ? "Stopped deleting"
+            : "Stopped editing",
       showActionLabel: true,
       expandedLabel: null,
     };
@@ -162,7 +165,8 @@ function resolveRowLabels(
   return {
     label: action === "create" ? "Created" : action === "delete" ? "Deleted" : "Edited",
     showActionLabel: true,
-    expandedLabel: action === "create" ? "Created file" : action === "delete" ? "Deleted file" : "Edited file",
+    expandedLabel:
+      action === "create" ? "Created file" : action === "delete" ? "Deleted file" : "Edited file",
   };
 }
 
@@ -194,7 +198,8 @@ function resolveChangeBasePath(
 ): string | null {
   if (typeof grantRoot === "string" && grantRoot.trim().length > 0) return grantRoot;
   if (typeof threadCwd === "string" && threadCwd.trim().length > 0) return threadCwd;
-  if (typeof projectWorkspacePath === "string" && projectWorkspacePath.trim().length > 0) return projectWorkspacePath;
+  if (typeof projectWorkspacePath === "string" && projectWorkspacePath.trim().length > 0)
+    return projectWorkspacePath;
   return null;
 }
 
@@ -210,17 +215,18 @@ function buildFileChangeRow(
   const fileDiff = parseSingleFilePatch(unifiedDiff);
   const state = resolveFileChangeStatus(item, isTurnCancelled);
   const labels = resolveRowLabels(patchRow.action, state);
-  const preview: FileChangeRowPreview = fileDiff && unifiedDiff
-    ? {
-        kind: "diff",
-        unifiedDiff,
-        fileDiff,
-        copyText: unifiedDiff,
-      }
-    : {
-        kind: "semantic",
-        copyText: unifiedDiff,
-      };
+  const preview: FileChangeRowPreview =
+    fileDiff && unifiedDiff
+      ? {
+          kind: "diff",
+          unifiedDiff,
+          fileDiff,
+          copyText: unifiedDiff,
+        }
+      : {
+          kind: "semantic",
+          copyText: unifiedDiff,
+        };
 
   return {
     key: patchRow.key,
@@ -258,7 +264,7 @@ export function buildFileChangeRows(
       isTurnCancelled,
       automaticApprovalReviews,
       showDiffDetails,
-    )
+    ),
   );
 }
 
@@ -310,17 +316,18 @@ function PatchFrame({
   onOpenFile: ((intent?: FilenameOpenIntent) => void) | null;
   isShortView: boolean;
 }) {
-  const preview = row.preview.kind === "diff" ? (
-    <InlineFileDiff
-      fileDiff={row.preview.fileDiff}
-      className={cn(diffHostClassName, isShortView ? "max-h-25" : "max-h-60")}
-      style={diffHostStyle}
-      options={diffOptions}
-      displayPath={row.displayPath}
-    />
-  ) : (
-    <SemanticChangePreview row={row} />
-  );
+  const preview =
+    row.preview.kind === "diff" ? (
+      <InlineFileDiff
+        fileDiff={row.preview.fileDiff}
+        className={cn(diffHostClassName, isShortView ? "max-h-25" : "max-h-60")}
+        style={diffHostStyle}
+        options={diffOptions}
+        displayPath={row.displayPath}
+      />
+    ) : (
+      <SemanticChangePreview row={row} />
+    );
 
   return (
     <div className="border-token-border flex flex-col overflow-hidden rounded-lg border mt-1.5">
@@ -352,9 +359,7 @@ function PatchFrame({
           />
         ) : null}
       </div>
-      <div className="bg-token-editor-background">
-        {preview}
-      </div>
+      <div className="bg-token-editor-background">{preview}</div>
     </div>
   );
 }
@@ -366,9 +371,14 @@ function VisualizationActivityStatus({
   kind: "create" | "update";
   isInProgress: boolean;
 }) {
-  const verb = kind === "create"
-    ? isInProgress ? "Creating" : "Created"
-    : isInProgress ? "Updating" : "Updated";
+  const verb =
+    kind === "create"
+      ? isInProgress
+        ? "Creating"
+        : "Created"
+      : isInProgress
+        ? "Updating"
+        : "Updated";
 
   return (
     <div
@@ -379,7 +389,8 @@ function VisualizationActivityStatus({
         <CodexShimmerText>{verb}</CodexShimmerText>
       ) : (
         <span className="text-token-conversation-summary-leading">{verb}</span>
-      )}{" visualization"}
+      )}
+      {" visualization"}
     </div>
   );
 }
@@ -405,9 +416,11 @@ function PatchPathLink({
         className="pointer-events-auto inline-block max-w-full cursor-interaction truncate align-bottom text-inherit underline decoration-dotted decoration-[0.5px] underline-offset-2 group-hover/activity-header:!text-token-foreground hover:!text-token-foreground"
         onClick={(event) => {
           event.stopPropagation();
-          onOpen(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
-            ? "external"
-            : "primary");
+          onOpen(
+            event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
+              ? "external"
+              : "primary",
+          );
         }}
         onDoubleClick={(event) => {
           event.preventDefault();
@@ -454,15 +467,18 @@ function FileChangeRow({
 
   function openExternalFile() {
     if (!row.openPath) return;
-    void fileReferenceRouter.open({
-      path: row.openPath,
-      ...(row.openLine ? { line: row.openLine } : {}),
-    }, {
-      external: true,
-      title: basename(row.displayPath),
-      cwd: row.workspaceRoot,
-      workspaceRoot: row.workspaceRoot,
-    });
+    void fileReferenceRouter.open(
+      {
+        path: row.openPath,
+        ...(row.openLine ? { line: row.openLine } : {}),
+      },
+      {
+        external: true,
+        title: basename(row.displayPath),
+        cwd: row.workspaceRoot,
+        workspaceRoot: row.workspaceRoot,
+      },
+    );
   }
 
   function openCollapsedFile(intent: FilenameOpenIntent = "primary") {
@@ -481,31 +497,39 @@ function FileChangeRow({
       return;
     }
     if (intent === "primary") {
-      void fileReferenceRouter.open({
+      void fileReferenceRouter.open(
+        {
+          path: row.openPath,
+          ...(row.openLine ? { line: row.openLine } : {}),
+        },
+        {
+          title: basename(row.displayPath),
+          cwd: row.workspaceRoot,
+          workspaceRoot: row.workspaceRoot,
+        },
+      );
+      return;
+    }
+    void fileReferenceRouter.open(
+      {
         path: row.openPath,
         ...(row.openLine ? { line: row.openLine } : {}),
-      }, {
+      },
+      {
+        mode: "durable",
         title: basename(row.displayPath),
         cwd: row.workspaceRoot,
         workspaceRoot: row.workspaceRoot,
-      });
-      return;
-    }
-    void fileReferenceRouter.open({
-      path: row.openPath,
-      ...(row.openLine ? { line: row.openLine } : {}),
-    }, {
-      mode: "durable",
-      title: basename(row.displayPath),
-      cwd: row.workspaceRoot,
-      workspaceRoot: row.workspaceRoot,
-    });
+      },
+    );
   }
 
   const useExpandedSettledHeader = isExpanded && row.expandedLabel !== null;
-  const summaryLabel = useExpandedSettledHeader && row.expandedLabel ? row.expandedLabel : row.label;
-  const showInlineStats = !useExpandedSettledHeader
-    && (row.action === "delete" ? row.summary != null : hasVisibleDiffSummary(row.summary));
+  const summaryLabel =
+    useExpandedSettledHeader && row.expandedLabel ? row.expandedLabel : row.label;
+  const showInlineStats =
+    !useExpandedSettledHeader &&
+    (row.action === "delete" ? row.summary != null : hasVisibleDiffSummary(row.summary));
   const actionLabel = row.showActionLabel ? (
     row.state === "streaming" ? (
       <CodexShimmerText className="text-token-description-foreground/80 select-text [@media(hover:hover)]:group-[:hover:not(:has([data-agent-activity-file-link]:hover))]/activity-header:text-token-foreground">
@@ -551,17 +575,18 @@ function FileChangeRow({
       ) : null}
     </>
   );
-  const statsAccessory = showInlineStats && row.summary ? (
-    <div className="flex items-center gap-1.5">
-      <DiffStats
-        additions={row.summary.additions}
-        deletions={row.summary.deletions}
-        showZero={row.action === "delete"}
-        className="text-size-chat-sm"
-      />
-      <DiffSummaryIndicator action={row.action} summary={row.summary} />
-    </div>
-  ) : null;
+  const statsAccessory =
+    showInlineStats && row.summary ? (
+      <div className="flex items-center gap-1.5">
+        <DiffStats
+          additions={row.summary.additions}
+          deletions={row.summary.deletions}
+          showZero={row.action === "delete"}
+          className="text-size-chat-sm"
+        />
+        <DiffSummaryIndicator action={row.action} summary={row.summary} />
+      </div>
+    ) : null;
   const accessory = (
     <>
       {statsAccessory}
@@ -589,7 +614,9 @@ function FileChangeRow({
     />
   );
   const body = !row.canExpand ? null : row.state === "streaming" ? (
-    isExpanded ? <div data-file-change-row-body="">{bodyContent}</div> : null
+    isExpanded ? (
+      <div data-file-change-row-body="">{bodyContent}</div>
+    ) : null
   ) : (
     <motion.div
       data-file-change-row-body=""
@@ -606,12 +633,7 @@ function FileChangeRow({
     </motion.div>
   );
   const rowContent = (
-    <div
-      className={cn(
-        "overflow-clip",
-        row.state === "pending" ? "rounded-xl" : "rounded-lg",
-      )}
-    >
+    <div className={cn("overflow-clip", row.state === "pending" ? "rounded-xl" : "rounded-lg")}>
       {header}
       {body}
     </div>
@@ -631,21 +653,25 @@ export function FileChangeToolCall({
 }: FileChangeToolCallProps) {
   const { resolved } = useTheme();
   const { wrap } = useScopedAtomValue(reviewDiffPreferencesAtom);
-  const rows = useMemo(() => buildFileChangeRows(
-    item,
-    threadCwd,
-    projectWorkspacePath,
-    isTurnCancelled,
-    automaticApprovalReviews,
-    showDiffDetails,
-  ), [
-    automaticApprovalReviews,
-    isTurnCancelled,
-    item,
-    projectWorkspacePath,
-    showDiffDetails,
-    threadCwd,
-  ]);
+  const rows = useMemo(
+    () =>
+      buildFileChangeRows(
+        item,
+        threadCwd,
+        projectWorkspacePath,
+        isTurnCancelled,
+        automaticApprovalReviews,
+        showDiffDetails,
+      ),
+    [
+      automaticApprovalReviews,
+      isTurnCancelled,
+      item,
+      projectWorkspacePath,
+      showDiffDetails,
+      threadCwd,
+    ],
+  );
   const diffOptions = useMemo(
     () => getNodexDiffOptions(resolved, true, { wrap }),
     [resolved, wrap],
@@ -657,12 +683,16 @@ export function FileChangeToolCall({
     status: item.status,
     fileChange: item.fileChange,
   });
-  const visualizationKind = resolveVisualizationActivityKind(item.fileChange?.visualizationActivities ?? []);
-  const showVisualization = visualizationKind !== null && state !== "stopped" && state !== "rejected";
+  const visualizationKind = resolveVisualizationActivityKind(
+    item.fileChange?.visualizationActivities ?? [],
+  );
+  const showVisualization =
+    visualizationKind !== null && state !== "stopped" && state !== "rejected";
   const summaryIcon = <ToolActivityIcon descriptor={semanticToolIcon("edit-files")} />;
 
   if (rows.length === 0 && !showVisualization) {
-    if (activity.visibility !== "active" || state === "stopped" || state === "rejected") return null;
+    if (activity.visibility !== "active" || state === "stopped" || state === "rejected")
+      return null;
     return (
       <div className="text-size-chat text-token-description-foreground/80">
         <CodexShimmerText>Editing files</CodexShimmerText>

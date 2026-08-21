@@ -101,7 +101,10 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     this.hostGeneration = input.hostGeneration;
     this.webview = document.createElement("webview") as BrowserSidebarWebviewElement;
     this.container.setAttribute("data-browser-sidebar-webview-manager-root", "");
-    this.container.setAttribute("data-browser-sidebar-conversation-id", input.browserConversationId);
+    this.container.setAttribute(
+      "data-browser-sidebar-conversation-id",
+      input.browserConversationId,
+    );
     this.container.setAttribute("data-browser-sidebar-view-scope-id", input.browserViewScopeId);
     this.container.setAttribute("data-browser-sidebar-browser-tab-id", input.browserTabId);
     this.container.setAttribute("data-browser-sidebar-webview-host-kind", input.hostKind);
@@ -109,10 +112,7 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     this.webview.style.display = "flex";
     this.webview.style.width = "100%";
     this.webview.style.height = "100%";
-    this.webview.setAttribute(
-      "partition",
-      makeBrowserSidebarRoutePartition(input, input),
-    );
+    this.webview.setAttribute("partition", makeBrowserSidebarRoutePartition(input, input));
     this.webview.setAttribute("src", normalizeInitialWebviewUrl(input.initialUrl));
     this.webview.setAttribute("data-browser-sidebar-conversation-id", input.browserConversationId);
     this.webview.setAttribute("data-browser-sidebar-view-scope-id", input.browserViewScopeId);
@@ -143,11 +143,17 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
     this.scale = input.scale ?? 1;
     this.shouldPaint = input.shouldPaint !== false;
     this.windowZoom = input.windowZoom ?? 1;
-    this.container.setAttribute("data-browser-sidebar-conversation-id", input.browserConversationId);
+    this.container.setAttribute(
+      "data-browser-sidebar-conversation-id",
+      input.browserConversationId,
+    );
     this.container.setAttribute("data-browser-sidebar-view-scope-id", input.browserViewScopeId);
     this.container.setAttribute("data-browser-sidebar-browser-tab-id", input.browserTabId);
     this.container.setAttribute("data-browser-sidebar-webview-host-kind", input.hostKind);
-    this.webview.setAttribute("data-browser-sidebar-mount-generation", String(input.mountGeneration));
+    this.webview.setAttribute(
+      "data-browser-sidebar-mount-generation",
+      String(input.mountGeneration),
+    );
     if (input.projectId === null) {
       this.webview.removeAttribute("data-browser-sidebar-project-id");
     } else {
@@ -208,9 +214,8 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
 
   private syncContainerStyle(): void {
     const captureSurfaceSize = this.browserUseCaptureSurfaceSize;
-    const isCapturing = captureSurfaceSize !== null
-      && captureSurfaceSize.width > 0
-      && captureSurfaceSize.height > 0;
+    const isCapturing =
+      captureSurfaceSize !== null && captureSurfaceSize.width > 0 && captureSurfaceSize.height > 0;
     const bounds = isCapturing
       ? {
           height: captureSurfaceSize.height,
@@ -219,15 +224,11 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
           y: 0,
         }
       : this.bounds;
-    const shouldPaint = (this.shouldPaint || isCapturing)
-      && bounds !== null
-      && bounds.width > 0
-      && bounds.height > 0;
+    const shouldPaint =
+      (this.shouldPaint || isCapturing) && bounds !== null && bounds.width > 0 && bounds.height > 0;
     const shouldPresent = shouldPaint && this.isVisible && !isCapturing;
-    const shouldPaintHidden = shouldPaint && (
-      isCapturing
-      || (!this.isVisible && this.hostKind === "retained")
-    );
+    const shouldPaintHidden =
+      shouldPaint && (isCapturing || (!this.isVisible && this.hostKind === "retained"));
     if ((shouldPresent || shouldPaintHidden) && bounds) {
       Object.assign(this.container.style, {
         position: "fixed",
@@ -242,14 +243,12 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
         zIndex: shouldPaintHidden
           ? String(BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX)
           : resolveBrowserSidebarVisibleWebviewZIndex(this.hostKind),
-        contain: shouldPaintHidden
-          ? "layout paint size style"
-          : "layout style paint",
+        contain: shouldPaintHidden ? "layout paint size style" : "layout style paint",
         transform: shouldPaintHidden
           ? "translate3d(0, 0, 0)"
           : this.scale === 1
-          ? ""
-          : `scale(${this.scale})`,
+            ? ""
+            : `scale(${this.scale})`,
         transformOrigin: "top left",
       });
     } else {
@@ -364,10 +363,7 @@ class BrowserSidebarRendererWebviewHost implements ManagedBrowserWebviewHost {
 }
 
 export class BrowserSidebarRendererWebviewManager {
-  private readonly browserUseCaptureSurfaceSizes = new Map<
-    string,
-    BrowserSidebarSize
-  >();
+  private readonly browserUseCaptureSurfaceSizes = new Map<string, BrowserSidebarSize>();
   private readonly hosts = new Map<string, ManagedBrowserWebviewHost>();
   private readonly mountGenerations = new Map<string, number>();
   private readonly hostGenerations = new Map<string, number>();
@@ -443,9 +439,7 @@ export class BrowserSidebarRendererWebviewManager {
     };
     const host = this.getWebview(resolvedInput);
     this.reservedHostGenerations.delete(key);
-    host.setBrowserUseCaptureSurfaceSize(
-      this.browserUseCaptureSurfaceSizes.get(key) ?? null,
-    );
+    host.setBrowserUseCaptureSurfaceSize(this.browserUseCaptureSurfaceSizes.get(key) ?? null);
     host.sync(resolvedInput);
     const annotationMode = this.annotationModes.get(key);
     if (annotationMode) {
@@ -468,9 +462,7 @@ export class BrowserSidebarRendererWebviewManager {
     this.hosts.get(makeHostKey(input))?.detach(mountGeneration);
   }
 
-  setBrowserUseCaptureSurface(
-    event: BrowserSidebarBrowserUseCaptureSurfaceEvent,
-  ): void {
+  setBrowserUseCaptureSurface(event: BrowserSidebarBrowserUseCaptureSurfaceEvent): void {
     const key = makeHostKey(event);
     if (event.surfaceSize) {
       this.browserUseCaptureSurfaceSizes.set(key, event.surfaceSize);
@@ -561,9 +553,7 @@ export class BrowserSidebarRendererWebviewManager {
     });
   }
 
-  async readIsAtDocumentBottom(
-    input: WebviewHostKey,
-  ): Promise<boolean | null> {
+  async readIsAtDocumentBottom(input: WebviewHostKey): Promise<boolean | null> {
     const host = this.hosts.get(makeHostKey(input));
     if (!host || host.disposed || !host.isVisible) return null;
 
@@ -602,14 +592,14 @@ export class BrowserSidebarRendererWebviewManager {
 function normalizeInitialWebviewUrl(url: string): string {
   if (isBlankBrowserUrl(url)) return "about:blank";
   const normalizedUrl = normalizeBrowserNavigationUrl(url);
-  return isAllowedBrowserNavigationUrl(normalizedUrl)
-    ? normalizedUrl
-    : "about:blank";
+  return isAllowedBrowserNavigationUrl(normalizedUrl) ? normalizedUrl : "about:blank";
 }
 
-function resolveBrowserStorageId(input: WebviewHostKey & {
-  browserStorageId?: string;
-}): string {
+function resolveBrowserStorageId(
+  input: WebviewHostKey & {
+    browserStorageId?: string;
+  },
+): string {
   return input.browserStorageId ?? `browser:legacy:${input.browserTabId}`;
 }
 
@@ -617,7 +607,9 @@ function makeHostKey(input: WebviewHostKey): string {
   return makeBrowserSidebarTabKey(input);
 }
 
-function resolveBrowserSidebarVisibleWebviewZIndex(hostKind: BrowserSidebarWebviewHostKind): string {
+function resolveBrowserSidebarVisibleWebviewZIndex(
+  hostKind: BrowserSidebarWebviewHostKind,
+): string {
   return String(
     hostKind === "retained"
       ? BROWSER_SIDEBAR_VISIBLE_WEBVIEW_Z_INDEX

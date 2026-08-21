@@ -64,22 +64,14 @@ export interface EditorForChildGroupEnter {
   };
 }
 
-export function isToggleOpenInDom(
-  dom: ParentNode | undefined,
-  blockId: string,
-): boolean {
+export function isToggleOpenInDom(dom: ParentNode | undefined, blockId: string): boolean {
   if (!dom) return false;
   const escaped = CSS.escape(blockId);
-  const wrapper = dom.querySelector(
-    `.bn-block[data-id="${escaped}"] .bn-toggle-wrapper`,
-  );
+  const wrapper = dom.querySelector(`.bn-block[data-id="${escaped}"] .bn-toggle-wrapper`);
   return wrapper?.getAttribute("data-show-children") === "true";
 }
 
-function isInlineParentBlock(
-  editor: EditorForChildGroupEnter,
-  block: BlockWithChildren,
-): boolean {
+function isInlineParentBlock(editor: EditorForChildGroupEnter, block: BlockWithChildren): boolean {
   return editor.schema.blockSchema[block.type]?.content === "inline";
 }
 
@@ -89,9 +81,7 @@ function isToggleBlock(type: string, block?: BlockWithChildren): boolean {
   return false;
 }
 
-export function handleParentEnterSplitToFirstChild(
-  editor: EditorForChildGroupEnter,
-): boolean {
+export function handleParentEnterSplitToFirstChild(editor: EditorForChildGroupEnter): boolean {
   const cursor = editor.getTextCursorPosition();
   const parent = editor.getBlock(cursor.block.id);
   if (!parent) return false;
@@ -111,9 +101,7 @@ export function handleParentEnterSplitToFirstChild(
   return true;
 }
 
-export function handleToggleEnterToChild(
-  editor: EditorForChildGroupEnter,
-): boolean {
+export function handleToggleEnterToChild(editor: EditorForChildGroupEnter): boolean {
   // 1. Must be a toggle list item or toggle heading.
   const cursor = editor.getTextCursorPosition();
   const block = editor.getBlock(cursor.block.id);
@@ -148,9 +136,7 @@ export function handleToggleEnterToChild(
  * Enter at position 0 of an empty leaf child block:
  * create a new sibling paragraph after the current block instead of unindenting.
  */
-export function handleChildGroupEmptyEnter(
-  editor: EditorForChildGroupEnter,
-): boolean {
+export function handleChildGroupEmptyEnter(editor: EditorForChildGroupEnter): boolean {
   const cursor = editor.getTextCursorPosition();
   const currentBlock = editor.getBlock(cursor.block.id);
   if (!currentBlock) return false;
@@ -174,11 +160,7 @@ export function handleChildGroupEmptyEnter(
 
   // Insert new empty paragraph after current block (stays inside toggle)
   editor.transact(() => {
-    const [inserted] = editor.insertBlocks(
-      [{} as Record<string, never>],
-      currentBlock.id,
-      "after",
-    );
+    const [inserted] = editor.insertBlocks([{} as Record<string, never>], currentBlock.id, "after");
     editor.setTextCursorPosition(inserted.id, "end");
     editor.focus();
   });

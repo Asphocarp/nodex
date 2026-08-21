@@ -25,15 +25,18 @@ function createDependencies(
 
 describe("Codex thread launch context", () => {
   test("keeps Nodex-owned live transcript capabilities enabled after config merges", () => {
-    const params = mergeCodexDefaultFeatureOverrides({
-      config: {
-        "features.apply_patch_streaming_events": false,
-        "features.thread_tools": false,
+    const params = mergeCodexDefaultFeatureOverrides(
+      {
+        config: {
+          "features.apply_patch_streaming_events": false,
+          "features.thread_tools": false,
+        },
       },
-    }, {
-      apply_patch_streaming_events: true,
-      thread_tools: true,
-    });
+      {
+        apply_patch_streaming_events: true,
+        thread_tools: true,
+      },
+    );
 
     expect(params.config).toMatchObject({
       "features.apply_patch_streaming_events": true,
@@ -93,53 +96,56 @@ describe("Codex thread launch context", () => {
 
   test("builds explicit base fields in exact stage order and keeps MCP config authoritative", async () => {
     const order: string[] = [];
-    const params = await buildCodexNewConversationParams({
-      model: "gpt-test",
-      serviceTier: "fast",
-      cwd: "/workspace",
-      permissions: {
-        approvalPolicy: "on-request",
-        approvalsReviewer: "user",
-        sandbox: "workspace-write",
+    const params = await buildCodexNewConversationParams(
+      {
+        model: "gpt-test",
+        serviceTier: "fast",
+        cwd: "/workspace",
+        permissions: {
+          approvalPolicy: "on-request",
+          approvalsReviewer: "user",
+          sandbox: "workspace-write",
+        },
+        defaultFeatureOverrides: {
+          apply_patch_streaming_events: true,
+          thread_tools: true,
+          writing_blocks: true,
+        },
+        personality: null,
+        additionalDeveloperInstructions: "Additional instructions",
       },
-      defaultFeatureOverrides: {
-        apply_patch_streaming_events: true,
-        thread_tools: true,
-        writing_blocks: true,
-      },
-      personality: null,
-      additionalDeveloperInstructions: "Additional instructions",
-    }, createDependencies({
-      readConfigRequirements: async () => {
-        order.push("requirements");
-        return noRequirements;
-      },
-      resolveModelProviderConfig: async () => {
-        order.push("provider");
-        return {
-          modelProvider: "proxy",
-          config: { collision: "provider", provider_only: true },
-        };
-      },
-      buildMcpCodexConfig: async () => {
-        order.push("mcp");
-        return { collision: "mcp", mcp_only: true };
-      },
-      readWorktreeShellEnvironment: async () => {
-        order.push("shell");
-        return null;
-      },
-      loadDynamicTools: async () => {
-        order.push("dynamic");
-        return [];
-      },
-      resolveDeveloperInstructions: async (input) => {
-        order.push("developer");
-        expect(input.threadToolsEnabled).toBe(true);
-        expect(input.model).toBe("gpt-test");
-        return "Desktop instructions";
-      },
-    }));
+      createDependencies({
+        readConfigRequirements: async () => {
+          order.push("requirements");
+          return noRequirements;
+        },
+        resolveModelProviderConfig: async () => {
+          order.push("provider");
+          return {
+            modelProvider: "proxy",
+            config: { collision: "provider", provider_only: true },
+          };
+        },
+        buildMcpCodexConfig: async () => {
+          order.push("mcp");
+          return { collision: "mcp", mcp_only: true };
+        },
+        readWorktreeShellEnvironment: async () => {
+          order.push("shell");
+          return null;
+        },
+        loadDynamicTools: async () => {
+          order.push("dynamic");
+          return [];
+        },
+        resolveDeveloperInstructions: async (input) => {
+          order.push("developer");
+          expect(input.threadToolsEnabled).toBe(true);
+          expect(input.model).toBe("gpt-test");
+          return "Desktop instructions";
+        },
+      }),
+    );
 
     expect(order.join(",")).toBe("requirements,provider,mcp,shell,dynamic,developer");
     expect(params.modelProvider).toBe("proxy");
@@ -155,44 +161,44 @@ describe("Codex thread launch context", () => {
     expect(params.config?.mcp_only).toBe(true);
     expect(params.config?.["features.apply_patch_streaming_events"]).toBe(true);
     expect(params.config?.["features.thread_tools"]).toBe(true);
-    expect(Object.prototype.hasOwnProperty.call(
-      params.config ?? {},
-      "features.writing_blocks",
-    )).toBe(false);
-    expect(params.developerInstructions).toBe(
-      "Desktop instructions\n\nAdditional instructions",
-    );
+    expect(
+      Object.prototype.hasOwnProperty.call(params.config ?? {}, "features.writing_blocks"),
+    ).toBe(false);
+    expect(params.developerInstructions).toBe("Desktop instructions\n\nAdditional instructions");
   });
 
   test("projects a provider profile into one thread without mutating global runtime config", async () => {
     let requirementsRead = false;
-    const params = await buildCodexNewConversationParams({
-      model: "legacy-model",
-      executionProfile: {
-        providerId: "anthropic",
-        modelId: "claude-opus-4-1",
-        harnessId: "fable",
-        reasoningEffort: "Thinking",
-        serviceTier: "priority",
+    const params = await buildCodexNewConversationParams(
+      {
+        model: "legacy-model",
+        executionProfile: {
+          providerId: "anthropic",
+          modelId: "claude-opus-4-1",
+          harnessId: "fable",
+          reasoningEffort: "Thinking",
+          serviceTier: "priority",
+        },
+        serviceTier: "fast",
+        cwd: "/workspace",
+        permissions: null,
+        defaultFeatureOverrides: null,
+        personality: null,
+        includeDeveloperInstructions: false,
+        skipDynamicTools: true,
       },
-      serviceTier: "fast",
-      cwd: "/workspace",
-      permissions: null,
-      defaultFeatureOverrides: null,
-      personality: null,
-      includeDeveloperInstructions: false,
-      skipDynamicTools: true,
-    }, createDependencies({
-      readConfigRequirements: async () => {
-        requirementsRead = true;
-        return noRequirements;
-      },
-      resolveModelProviderConfig: async () => ({
-        modelProvider: "global-provider",
-        config: { provider_only: true, harness: "global-harness" },
+      createDependencies({
+        readConfigRequirements: async () => {
+          requirementsRead = true;
+          return noRequirements;
+        },
+        resolveModelProviderConfig: async () => ({
+          modelProvider: "global-provider",
+          config: { provider_only: true, harness: "global-harness" },
+        }),
+        buildMcpCodexConfig: async () => ({ mcp_only: true }),
       }),
-      buildMcpCodexConfig: async () => ({ mcp_only: true }),
-    }));
+    );
 
     expect(requirementsRead).toBe(false);
     expect(params.model).toBe("claude-opus-4-1");
@@ -207,29 +213,32 @@ describe("Codex thread launch context", () => {
   });
 
   test("merges a persisted worktree environment over the effective shell policy", async () => {
-    const params = await buildCodexNewConversationParams({
-      model: null,
-      serviceTier: null,
-      cwd: "/worktree",
-      permissions: { approvalPolicy: "on-request" },
-      defaultFeatureOverrides: null,
-      personality: null,
-      includeDeveloperInstructions: false,
-      skipDynamicTools: true,
-    }, createDependencies({
-      readWorktreeShellEnvironment: async () => ({
-        version: 1,
-        set: { SET: "new", REMOVE: "restored" },
-        exclude: ["REMOVE", "STALE"],
+    const params = await buildCodexNewConversationParams(
+      {
+        model: null,
+        serviceTier: null,
+        cwd: "/worktree",
+        permissions: { approvalPolicy: "on-request" },
+        defaultFeatureOverrides: null,
+        personality: null,
+        includeDeveloperInstructions: false,
+        skipDynamicTools: true,
+      },
+      createDependencies({
+        readWorktreeShellEnvironment: async () => ({
+          version: 1,
+          set: { SET: "new", REMOVE: "restored" },
+          exclude: ["REMOVE", "STALE"],
+        }),
+        readEffectiveConfig: async () => ({
+          shell_environment_policy: {
+            inherit: "core",
+            set: { REMOVE: "old", KEEP: "yes" },
+            exclude: ["BASE"],
+          },
+        }),
       }),
-      readEffectiveConfig: async () => ({
-        shell_environment_policy: {
-          inherit: "core",
-          set: { REMOVE: "old", KEEP: "yes" },
-          exclude: ["BASE"],
-        },
-      }),
-    }));
+    );
 
     expect(params.config?.["shell_environment_policy.inherit"]).toBe("core");
     expect(JSON.stringify(params.config?.["shell_environment_policy.set"])).toBe(
@@ -238,24 +247,28 @@ describe("Codex thread launch context", () => {
     expect(JSON.stringify(params.config?.["shell_environment_policy.exclude"])).toBe(
       JSON.stringify(["BASE", "STALE"]),
     );
-    expect(Object.prototype.hasOwnProperty.call(
-      params.config ?? {},
-      "shell_environment_policy",
-    )).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(params.config ?? {}, "shell_environment_policy"),
+    ).toBe(false);
   });
 
   test("enables request_permissions_tool only for default or granular permissions", async () => {
-    const build = (permissions: Parameters<typeof buildCodexNewConversationParams>[0]["permissions"]) =>
-      buildCodexNewConversationParams({
-        model: null,
-        serviceTier: null,
-        cwd: "/workspace",
-        permissions,
-        defaultFeatureOverrides: null,
-        personality: null,
-        includeDeveloperInstructions: false,
-        skipDynamicTools: true,
-      }, createDependencies());
+    const build = (
+      permissions: Parameters<typeof buildCodexNewConversationParams>[0]["permissions"],
+    ) =>
+      buildCodexNewConversationParams(
+        {
+          model: null,
+          serviceTier: null,
+          cwd: "/workspace",
+          permissions,
+          defaultFeatureOverrides: null,
+          personality: null,
+          includeDeveloperInstructions: false,
+          skipDynamicTools: true,
+        },
+        createDependencies(),
+      );
     const appServerDefault = await build(null);
     const granular = await build({
       approvalPolicy: {
@@ -272,44 +285,49 @@ describe("Codex thread launch context", () => {
 
     expect(appServerDefault.config?.["features.request_permissions_tool"]).toBe(true);
     expect(granular.config?.["features.request_permissions_tool"]).toBe(true);
-    expect(Object.prototype.hasOwnProperty.call(
-      ordinary.config ?? {},
-      "features.request_permissions_tool",
-    )).toBe(false);
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        ordinary.config ?? {},
+        "features.request_permissions_tool",
+      ),
+    ).toBe(false);
   });
 
   test("times out dynamic-tool loading to an empty list", async () => {
     let timeoutMs = 0;
-    const tools = await loadCodexDynamicToolsWithTimeout(
-      () => new Promise(() => {}),
-      {
-        scheduleTimeout: (callback, requestedTimeoutMs) => {
-          timeoutMs = requestedTimeoutMs;
-          callback();
-          return 0 as unknown as ReturnType<typeof setTimeout>;
-        },
+    const tools = await loadCodexDynamicToolsWithTimeout(() => new Promise(() => {}), {
+      scheduleTimeout: (callback, requestedTimeoutMs) => {
+        timeoutMs = requestedTimeoutMs;
+        callback();
+        return 0 as unknown as ReturnType<typeof setTimeout>;
       },
-    );
+    });
 
     expect(timeoutMs).toBe(5_000);
     expect(tools.length).toBe(0);
   });
 
   test("rejects malformed persisted shell environment payloads", () => {
-    expect(parseCodexStoredShellEnvironment({
-      version: 1,
-      set: { VALID: "yes", INVALID: 1 },
-      exclude: [],
-    })).toBe(null);
-    expect(parseCodexStoredShellEnvironment({
-      version: 1,
-      set: {},
-      exclude: ["A", 1],
-    })).toBe(null);
-    expect(parseCodexStoredShellEnvironment({
-      version: 1,
-      set: { VALID: "yes" },
-      exclude: ["A"],
-    })?.set.VALID).toBe("yes");
+    expect(
+      parseCodexStoredShellEnvironment({
+        version: 1,
+        set: { VALID: "yes", INVALID: 1 },
+        exclude: [],
+      }),
+    ).toBe(null);
+    expect(
+      parseCodexStoredShellEnvironment({
+        version: 1,
+        set: {},
+        exclude: ["A", 1],
+      }),
+    ).toBe(null);
+    expect(
+      parseCodexStoredShellEnvironment({
+        version: 1,
+        set: { VALID: "yes" },
+        exclude: ["A"],
+      })?.set.VALID,
+    ).toBe("yes");
   });
 });

@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type {
-  AdditionalDocumentCommandResult,
-} from "../shared/additional-document-commands";
+import type { AdditionalDocumentCommandResult } from "../shared/additional-document-commands";
 import type { PublicAdditionalDocumentCommandRequest } from "../shared/additional-document-command-transport";
 import {
   ADDITIONAL_DOCUMENT_COMMAND_IPC_CHANNEL,
@@ -45,9 +43,7 @@ const committed = (
       createdBlockIds: ["template-1"],
       preservedBlockIds: [],
       deletedBlockIds: [],
-      documentHeads: [
-        { documentId: "document-template-1", generation: 1, headSeq: 1 },
-      ],
+      documentHeads: [{ documentId: "document-template-1", generation: 1, headSeq: 1 }],
     },
     commitSeq: 7,
     committedAt: "2026-07-12T00:00:00.000Z",
@@ -115,5 +111,4 @@ describe("Additional Document command IPC", () => {
     expect((await scopedHandler({}, "project-2", request)).ok).toBe(false);
     expect(calls).toBe(0);
   });
-
 });

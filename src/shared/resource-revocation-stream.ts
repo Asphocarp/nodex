@@ -33,11 +33,7 @@ export interface ResourceRevocationResetMessage {
   readonly kind: "reset";
   readonly scope: ProjectionScope;
   readonly stream: ProjectionCursor;
-  readonly reason:
-    | "event_gap"
-    | "reconnect"
-    | "store_epoch_changed"
-    | "recipient_delivery_failed";
+  readonly reason: "event_gap" | "reconnect" | "store_epoch_changed" | "recipient_delivery_failed";
 }
 
 export type ResourceRevocationMessage =

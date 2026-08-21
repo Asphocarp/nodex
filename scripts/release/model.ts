@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { openSync, closeSync, readSync } from "node:fs";
 
 const STABLE_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
-const NIGHTLY_VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-nightly\.(\d{8})\.([1-9]\d*)$/;
+const NIGHTLY_VERSION_PATTERN =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-nightly\.(\d{8})\.([1-9]\d*)$/;
 const APPLE_BUILD_VERSION_PATTERN = /^(0|[1-9]\d{0,3})\.(0|[1-9]\d?)\.(0|[1-9]\d?)$/;
 const GIT_OBJECT_PATTERN = /^[0-9a-f]{40}$/;
 const RELEASE_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -101,8 +102,10 @@ function normalizeReleaseDate(value: unknown, label = "sourceDate"): string {
 function assertExactIdentityKeys(value: Record<string, unknown>): void {
   const actualKeys = Object.keys(value).sort();
   const expectedKeys = [...RELEASE_IDENTITY_KEYS].sort();
-  if (actualKeys.length !== expectedKeys.length
-    || actualKeys.some((key, index) => key !== expectedKeys[index])) {
+  if (
+    actualKeys.length !== expectedKeys.length ||
+    actualKeys.some((key, index) => key !== expectedKeys[index])
+  ) {
     throw new Error(`Release Identity must contain exactly: ${expectedKeys.join(", ")}.`);
   }
 }
@@ -168,10 +171,10 @@ export function normalizeAppleBuildVersion(value: string, label = "buildVersion"
 }
 
 export function compareBuildVersions(leftValue: string, rightValue: string): number {
-  const left = normalizeAppleBuildVersion(leftValue, "left build version")
-    .split(".").map(Number);
+  const left = normalizeAppleBuildVersion(leftValue, "left build version").split(".").map(Number);
   const right = normalizeAppleBuildVersion(rightValue, "right build version")
-    .split(".").map(Number);
+    .split(".")
+    .map(Number);
   for (let index = 0; index < left.length; index += 1) {
     if (left[index] < right[index]) return -1;
     if (left[index] > right[index]) return 1;
@@ -200,13 +203,15 @@ export function latestStableAppVersion(tags: readonly string[]): string | null {
   const versions = tags
     .map(stableVersionFromAppTag)
     .filter((version): version is string => version !== null);
-  return versions.reduce<string | null>((latest, version) => (
-    latest === null || compareStableVersions(version, latest) > 0 ? version : latest
-  ), null);
+  return versions.reduce<string | null>(
+    (latest, version) =>
+      latest === null || compareStableVersions(version, latest) > 0 ? version : latest,
+    null,
+  );
 }
 
 export function parseReleaseIdentity(input: unknown): ReleaseIdentity {
-  const value = typeof input === "string" ? JSON.parse(input) as unknown : input;
+  const value = typeof input === "string" ? (JSON.parse(input) as unknown) : input;
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     throw new Error("Release Identity must be a JSON object.");
   }
@@ -229,13 +234,16 @@ export function parseReleaseIdentity(input: unknown): ReleaseIdentity {
   const sourceVersion = normalizeStableVersion(record.sourceVersion, "sourceVersion");
   const sourceDate = normalizeReleaseDate(record.sourceDate);
   const mainlineOrdinal = normalizeMainlineOrdinal(record.mainlineOrdinal);
-  const expectedVersion = record.channel === "stable"
-    ? sourceVersion
-    : nightlyVersionFor(sourceVersion, sourceDate, mainlineOrdinal);
+  const expectedVersion =
+    record.channel === "stable"
+      ? sourceVersion
+      : nightlyVersionFor(sourceVersion, sourceDate, mainlineOrdinal);
   const expectedBuildVersion = buildVersionForMainlineOrdinal(mainlineOrdinal);
 
   if (record.version !== expectedVersion) {
-    throw new Error(`Release Identity version must be ${expectedVersion} for its source and channel.`);
+    throw new Error(
+      `Release Identity version must be ${expectedVersion} for its source and channel.`,
+    );
   }
   if (record.buildVersion !== expectedBuildVersion) {
     throw new Error(`Release Identity buildVersion must be ${expectedBuildVersion}.`);
@@ -245,8 +253,10 @@ export function parseReleaseIdentity(input: unknown): ReleaseIdentity {
   }
   if (record.channel === "nightly") {
     const parts = nightlyVersionParts(record.version, "version");
-    if (parts.compactDate !== sourceDate.replaceAll("-", "")
-      || parts.mainlineOrdinal !== mainlineOrdinal) {
+    if (
+      parts.compactDate !== sourceDate.replaceAll("-", "") ||
+      parts.mainlineOrdinal !== mainlineOrdinal
+    ) {
       throw new Error("Nightly version does not match sourceDate and mainlineOrdinal.");
     }
   }

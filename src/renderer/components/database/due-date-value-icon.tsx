@@ -17,10 +17,11 @@ const calendarDateStamp = (value: string): number | null => {
   const day = Number(match[3]);
   const candidate = new Date(Date.UTC(year, month - 1, day));
   if (
-    candidate.getUTCFullYear() !== year
-    || candidate.getUTCMonth() !== month - 1
-    || candidate.getUTCDate() !== day
-  ) return null;
+    candidate.getUTCFullYear() !== year ||
+    candidate.getUTCMonth() !== month - 1 ||
+    candidate.getUTCDate() !== day
+  )
+    return null;
   return year * 10_000 + month * 100 + day;
 };
 

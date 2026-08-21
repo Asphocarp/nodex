@@ -20,11 +20,7 @@ import {
   type DefaultReactSuggestionItem,
   type SuggestionMenuProps,
 } from "@blocknote/react";
-import {
-  Ellipsis,
-  SendHorizontal,
-  Settings2,
-} from "@/components/shared/icons/generic-icons";
+import { Ellipsis, SendHorizontal, Settings2 } from "@/components/shared/icons/generic-icons";
 import {
   NodexDropdownActionRow,
   NodexDropdownMessage,
@@ -60,10 +56,7 @@ import {
   CanvasIcon,
   PageIcon,
 } from "@/components/shared/icons";
-import {
-  buildDateMentionQueryMatches,
-  type DateMentionQueryMatch,
-} from "@/lib/nfm/date-mention";
+import { buildDateMentionQueryMatches, type DateMentionQueryMatch } from "@/lib/nfm/date-mention";
 import type { NfmDateMentionInlineContent } from "@/lib/nfm/types";
 import { dateMentionPayloadToProps } from "./date-mention-inline-content";
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
@@ -115,10 +108,7 @@ export type NfmSuggestionItem = DefaultReactSuggestionItem & {
   };
 };
 type UnsafeInlineContentEditor = {
-  insertInlineContent: (
-    content: unknown[],
-    options?: { updateSelection?: boolean },
-  ) => void;
+  insertInlineContent: (content: unknown[], options?: { updateSelection?: boolean }) => void;
 };
 
 const PAGE_EMBED_PICKER_TRIGGER = "\uE000";
@@ -166,27 +156,27 @@ function insertInlineContent(editor: unknown, content: unknown[]) {
 }
 
 type SuggestionMenuEditor = {
-  getExtension: (extension: typeof SuggestionMenu) => {
-    openSuggestionMenu: (
-      triggerCharacter: string,
-      options?: {
-        deleteTriggerCharacter?: boolean;
-        ignoreQueryLength?: boolean;
-      },
-    ) => void;
-  } | undefined;
+  getExtension: (extension: typeof SuggestionMenu) =>
+    | {
+        openSuggestionMenu: (
+          triggerCharacter: string,
+          options?: {
+            deleteTriggerCharacter?: boolean;
+            ignoreQueryLength?: boolean;
+          },
+        ) => void;
+      }
+    | undefined;
 };
 
 /** Replaces the selected slash command with the normal visible @ mention flow. */
 export function startNfmMentionAtCursor(editor: unknown) {
-  (editor as SuggestionMenuEditor)
-    .getExtension(SuggestionMenu)
-    ?.openSuggestionMenu("@", {
-      // BlockNote inserts and tracks the visible trigger when this is true,
-      // then removes the complete @query range only after an item is chosen.
-      deleteTriggerCharacter: true,
-      ignoreQueryLength: true,
-    });
+  (editor as SuggestionMenuEditor).getExtension(SuggestionMenu)?.openSuggestionMenu("@", {
+    // BlockNote inserts and tracks the visible trigger when this is true,
+    // then removes the complete @query range only after an item is chosen.
+    deleteTriggerCharacter: true,
+    ignoreQueryLength: true,
+  });
 }
 
 type CanvasSlashEditor = UnsafeEditor & {
@@ -214,16 +204,13 @@ export function isPageReferenceInsertionBookmarkValid(
   if (!bookmark) return false;
   const typedEditor = editor as PageReferenceBookmarkEditor;
   return Boolean(
-    typedEditor.getBlock(bookmark.blockId)
-      && typedEditor.getTextCursorPosition().block?.id === bookmark.blockId,
+    typedEditor.getBlock(bookmark.blockId) &&
+    typedEditor.getTextCursorPosition().block?.id === bookmark.blockId,
   );
 }
 
 export function prepareCanvasCreateParagraph(editor: unknown): string {
-  insertOrUpdateBlockForSlashMenu(
-    editor as UnsafeEditor,
-    { type: "paragraph" } as UnsafeBlock,
-  );
+  insertOrUpdateBlockForSlashMenu(editor as UnsafeEditor, { type: "paragraph" } as UnsafeBlock);
   const block = (editor as CanvasSlashEditor).getTextCursorPosition().block;
   if (!block?.id || block.type !== "paragraph") {
     throw new Error("Choose an empty paragraph to create a Canvas.");
@@ -256,20 +243,12 @@ function createDefaultNfmTableBlock() {
 function normalizeSuggestionAliasHint(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return null;
-  if (
-    trimmed.startsWith("/") ||
-    trimmed.startsWith("@") ||
-    trimmed.startsWith(":")
-  )
-    return trimmed;
+  if (trimmed.startsWith("/") || trimmed.startsWith("@") || trimmed.startsWith(":")) return trimmed;
   if (trimmed.includes(" ")) return null;
   return `/${trimmed}`;
 }
 
-export function scrollElementIntoContainerView(
-  container: HTMLElement,
-  element: HTMLElement,
-) {
+export function scrollElementIntoContainerView(container: HTMLElement, element: HTMLElement) {
   const containerHeight = container.clientHeight;
   if (containerHeight <= 0) return;
 
@@ -328,11 +307,7 @@ function resolveSuggestionTooltipContent(item: DefaultReactSuggestionItem) {
 
   if (!item.subtext) return null;
 
-  return (
-    <div className="max-w-64 text-sm leading-5 text-token-foreground">
-      {item.subtext}
-    </div>
-  );
+  return <div className="max-w-64 text-sm leading-5 text-token-foreground">{item.subtext}</div>;
 }
 
 function renderSuggestionSegments(
@@ -344,9 +319,7 @@ function renderSuggestionSegments(
   return segments.map((segment, index) => (
     <span
       key={`${keyPrefix}:${index}`}
-      className={segment.highlight
-        ? "font-medium text-token-foreground"
-        : undefined}
+      className={segment.highlight ? "font-medium text-token-foreground" : undefined}
     >
       {segment.text}
     </span>
@@ -363,8 +336,7 @@ export function NfmSuggestionMenuSurface({
 }: SuggestionMenuProps<DefaultReactSuggestionItem> & {
   readonly emptyMessage?: string;
 }) {
-  const loading =
-    loadingState === "loading-initial" || loadingState === "loading";
+  const loading = loadingState === "loading-initial" || loadingState === "loading";
   const listRef = useRef<HTMLDivElement>(null);
 
   useLayoutEffect(() => {
@@ -373,9 +345,7 @@ export function NfmSuggestionMenuSurface({
     const list = listRef.current;
     if (!list) return;
 
-    const item = list.querySelector<HTMLElement>(
-      `#bn-suggestion-menu-item-${selectedIndex}`,
-    );
+    const item = list.querySelector<HTMLElement>(`#bn-suggestion-menu-item-${selectedIndex}`);
     if (!item) return;
 
     scrollElementIntoContainerView(list, item);
@@ -412,8 +382,7 @@ export function NfmSuggestionMenuSurface({
           aria-selected={selected}
           aria-disabled={disabled || undefined}
           data-mention-kind={
-            suggestionItem.mentionRank?.family
-              ?? suggestionItem.mentionUtility?.family
+            suggestionItem.mentionRank?.family ?? suggestionItem.mentionUtility?.family
           }
           data-mention-utility={suggestionItem.mentionUtility?.kind}
           data-selected={selected || undefined}
@@ -442,19 +411,11 @@ export function NfmSuggestionMenuSurface({
                 selected && "text-token-foreground",
               )}
             >
-              {renderSuggestionSegments(
-                suggestionItem.titleSegments,
-                item.title,
-                `${index}:title`,
-              )}
+              {renderSuggestionSegments(suggestionItem.titleSegments, item.title, `${index}:title`)}
             </span>
             {detail ? (
               <span className="block truncate text-xs leading-4 text-token-description-foreground">
-                {renderSuggestionSegments(
-                  suggestionItem.detailSegments,
-                  detail,
-                  `${index}:detail`,
-                )}
+                {renderSuggestionSegments(suggestionItem.detailSegments, detail, `${index}:detail`)}
               </span>
             ) : null}
           </span>
@@ -516,26 +477,12 @@ export function NfmSuggestionMenuSurface({
   );
 }
 
-function NfmMentionSuggestionMenuSurface(
-  props: SuggestionMenuProps<DefaultReactSuggestionItem>,
-) {
-  return (
-    <NfmSuggestionMenuSurface
-      {...props}
-      emptyMessage="No matching mentions"
-    />
-  );
+function NfmMentionSuggestionMenuSurface(props: SuggestionMenuProps<DefaultReactSuggestionItem>) {
+  return <NfmSuggestionMenuSurface {...props} emptyMessage="No matching mentions" />;
 }
 
-function NfmPageSuggestionMenuSurface(
-  props: SuggestionMenuProps<DefaultReactSuggestionItem>,
-) {
-  return (
-    <NfmSuggestionMenuSurface
-      {...props}
-      emptyMessage="No matching Pages"
-    />
-  );
+function NfmPageSuggestionMenuSurface(props: SuggestionMenuProps<DefaultReactSuggestionItem>) {
+  return <NfmSuggestionMenuSurface {...props} emptyMessage="No matching Pages" />;
 }
 
 interface NfmSlashMenuCustomItemActions {
@@ -579,10 +526,7 @@ export function getNfmSlashMenuCustomItems(
     hint: null,
     icon: <SendHorizontal size={16} />,
     onItemClick: () => {
-      insertBlock(
-        editor,
-        createEmptyThreadSectionBlock() as unknown as Record<string, unknown>,
-      );
+      insertBlock(editor, createEmptyThreadSectionBlock() as unknown as Record<string, unknown>);
     },
   };
 
@@ -590,15 +534,7 @@ export function getNfmSlashMenuCustomItems(
     key: "agent_config",
     title: "Agent Config",
     subtext: "Insert a one-send plan-mode config chip",
-    aliases: [
-      "agent-config",
-      "agent config",
-      "plan",
-      "plan mode",
-      "mode",
-      "model",
-      "reasoning",
-    ],
+    aliases: ["agent-config", "agent config", "plan", "plan mode", "mode", "model", "reasoning"],
     group: "Others",
     hint: null,
     icon: <Settings2 size={16} />,
@@ -647,11 +583,7 @@ export function getNfmSlashMenuCustomItems(
                   false,
                 );
               }
-              toast.danger(
-                error instanceof Error
-                  ? error.message
-                  : "Could not create Canvas",
-              );
+              toast.danger(error instanceof Error ? error.message : "Could not create Canvas");
             }
           })();
         },
@@ -719,25 +651,20 @@ export function NfmSlashMenu({
     startNfmMentionAtCursor(editor);
   }, [editor]);
   const openEmbedPagePicker = useCallback(() => {
-    const blockId = (editor as unknown as CanvasSlashEditor)
-      .getTextCursorPosition().block?.id;
+    const blockId = (editor as unknown as CanvasSlashEditor).getTextCursorPosition().block?.id;
     if (!blockId) {
       toast.danger("Could not preserve the Page reference insertion point.");
       return;
     }
     embedPageBookmarkRef.current = { blockId };
-    editor
-      .getExtension(SuggestionMenu)
-      ?.openSuggestionMenu(PAGE_EMBED_PICKER_TRIGGER, {
-        ignoreQueryLength: true,
-      });
+    editor.getExtension(SuggestionMenu)?.openSuggestionMenu(PAGE_EMBED_PICKER_TRIGGER, {
+      ignoreQueryLength: true,
+    });
   }, [editor]);
   const openSubpageCreator = useCallback(() => {
-    editor
-      .getExtension(SuggestionMenu)
-      ?.openSuggestionMenu(SUBPAGE_NAME_TRIGGER, {
-        ignoreQueryLength: true,
-      });
+    editor.getExtension(SuggestionMenu)?.openSuggestionMenu(SUBPAGE_NAME_TRIGGER, {
+      ignoreQueryLength: true,
+    });
   }, [editor]);
 
   const getItems = useMemo(
@@ -750,14 +677,9 @@ export function NfmSlashMenu({
         [
           ...defaults,
           ...getNfmSlashMenuCustomItems(editor, {
-            createCanvasAtEmptyParagraph:
-              hostRuntime?.createCanvasAtEmptyParagraph,
-            startMentionFlow: allowPageReferences
-              ? startMentionFlow
-              : undefined,
-            openEmbedPagePicker: allowPageReferences
-              ? openEmbedPagePicker
-              : undefined,
+            createCanvasAtEmptyParagraph: hostRuntime?.createCanvasAtEmptyParagraph,
+            startMentionFlow: allowPageReferences ? startMentionFlow : undefined,
+            openEmbedPagePicker: allowPageReferences ? openEmbedPagePicker : undefined,
             openSubpageCreator: hostRuntime?.createSubpageAtEmptyParagraph
               ? openSubpageCreator
               : undefined,
@@ -785,13 +707,8 @@ export function NfmSlashMenu({
         {...NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS}
         suggestionMenuComponent={NfmSuggestionMenuSurface}
       />
-      <MentionMenu
-        activeProjectId={executionProjectId}
-        allowPageReferences={allowPageReferences}
-      />
-      {allowPageReferences ? (
-        <EmbedPageMenu bookmarkRef={embedPageBookmarkRef} />
-      ) : null}
+      <MentionMenu activeProjectId={executionProjectId} allowPageReferences={allowPageReferences} />
+      {allowPageReferences ? <EmbedPageMenu bookmarkRef={embedPageBookmarkRef} /> : null}
       {hostRuntime?.createSubpageAtEmptyParagraph ? <SubpageMenu /> : null}
     </NodexFloatingLayerProvider>
   );
@@ -800,30 +717,33 @@ export function NfmSlashMenu({
 function SubpageMenu() {
   const editor = useBlockNoteEditor();
   const hostRuntime = useBlockReferenceHostRuntime();
-  const getItems = useCallback(async (query: string): Promise<NfmSuggestionItem[]> => {
-    const title = query.trim() || "Untitled";
-    return [{
-      key: "create_subpage",
-      title,
-      subtext: "Create Subpage",
-      aliases: [],
-      group: "Subpage name",
-      hint: "Enter",
-      icon: <PageIcon className="size-4" aria-hidden="true" />,
-      onItemClick: () => {
-        void (async () => {
-          try {
-            const blockId = prepareCanvasCreateParagraph(editor);
-            await hostRuntime?.createSubpageAtEmptyParagraph?.({ blockId, title });
-          } catch (error) {
-            toast.danger(
-              error instanceof Error ? error.message : "Could not create Subpage",
-            );
-          }
-        })();
-      },
-    } satisfies NfmSuggestionItem];
-  }, [editor, hostRuntime]);
+  const getItems = useCallback(
+    async (query: string): Promise<NfmSuggestionItem[]> => {
+      const title = query.trim() || "Untitled";
+      return [
+        {
+          key: "create_subpage",
+          title,
+          subtext: "Create Subpage",
+          aliases: [],
+          group: "Subpage name",
+          hint: "Enter",
+          icon: <PageIcon className="size-4" aria-hidden="true" />,
+          onItemClick: () => {
+            void (async () => {
+              try {
+                const blockId = prepareCanvasCreateParagraph(editor);
+                await hostRuntime?.createSubpageAtEmptyParagraph?.({ blockId, title });
+              } catch (error) {
+                toast.danger(error instanceof Error ? error.message : "Could not create Subpage");
+              }
+            })();
+          },
+        } satisfies NfmSuggestionItem,
+      ];
+    },
+    [editor, hostRuntime],
+  );
   return (
     <SuggestionMenuController
       triggerCharacter={SUBPAGE_NAME_TRIGGER}
@@ -843,9 +763,10 @@ const PAGE_MENTION_GROUP = "Pages";
 type ThreadMentionSubtextInput = Pick<
   CommandPaletteThread,
   "threadId" | "projectId" | "statusType" | "statusActiveFlags"
-> & Partial<Pick<CommandPaletteThread, "projectName">> & {
-  archived?: boolean;
-};
+> &
+  Partial<Pick<CommandPaletteThread, "projectName">> & {
+    archived?: boolean;
+  };
 
 function resolveMentionSearchPreviewExcerpt(
   searchPreview: CommandPaletteThread["searchPreview"] | undefined,
@@ -858,19 +779,18 @@ function buildMentionTooltipContent(
   title: string,
   lines: readonly (string | null | undefined)[],
 ): ReactNode {
-  const normalizedLines = Array.from(new Set(
-    lines
-      .map((line) => line?.replace(/\s+/g, " ").trim() ?? "")
-      .filter((line) => line && line !== title),
-  ));
+  const normalizedLines = Array.from(
+    new Set(
+      lines
+        .map((line) => line?.replace(/\s+/g, " ").trim() ?? "")
+        .filter((line) => line && line !== title),
+    ),
+  );
   return (
     <div className="max-w-80 space-y-1 text-sm leading-5">
       <div className="text-token-foreground">{title}</div>
       {normalizedLines.map((line) => (
-        <div
-          key={line}
-          className="wrap-break-word text-token-description-foreground"
-        >
+        <div key={line} className="wrap-break-word text-token-description-foreground">
           {line}
         </div>
       ))}
@@ -890,15 +810,11 @@ function resolveThreadMentionTitle(thread: CommandPaletteThread): string {
 }
 
 function resolveThreadMentionStateLabel(
-  thread: Pick<
-    ThreadMentionSubtextInput,
-    "archived" | "statusType" | "statusActiveFlags"
-  >,
+  thread: Pick<ThreadMentionSubtextInput, "archived" | "statusType" | "statusActiveFlags">,
 ): string {
   if (thread.archived) return "Archived";
   if (thread.statusType === "systemError") return "Error";
-  if (thread.statusActiveFlags.includes("waitingOnApproval"))
-    return "Needs approval";
+  if (thread.statusActiveFlags.includes("waitingOnApproval")) return "Needs approval";
   if (thread.statusActiveFlags.includes("waitingOnUserInput")) return "Waiting";
   if (thread.statusType === "active") return "Running";
   return "";
@@ -915,26 +831,19 @@ export function resolveThreadMentionSubtext(
     thread.projectId ||
     "Chats";
   const stateLabel = resolveThreadMentionStateLabel(thread);
-  return [
-    projectLabel,
-    stateLabel,
-    formatThreadMentionShortUuid(thread.threadId),
-  ]
+  return [projectLabel, stateLabel, formatThreadMentionShortUuid(thread.threadId)]
     .filter(Boolean)
     .join(" / ");
 }
 
 function resolveThreadMentionContext(item: CommandPaletteThread): string {
   const projectLabel =
-    item.projectName?.trim() ||
-    (item.projectless ? "Projectless chat" : "Chats");
+    item.projectName?.trim() || (item.projectless ? "Projectless chat" : "Chats");
   const stateLabel = resolveThreadMentionStateLabel(item);
   return [projectLabel, stateLabel].filter(Boolean).join(" / ");
 }
 
-export function buildNfmThreadMentionInlineContent(
-  item: CommandPaletteThread,
-): unknown[] {
+export function buildNfmThreadMentionInlineContent(item: CommandPaletteThread): unknown[] {
   return [
     {
       type: "threadMention",
@@ -944,9 +853,7 @@ export function buildNfmThreadMentionInlineContent(
   ];
 }
 
-export function buildNfmDateMentionInlineContent(
-  payload: NfmDateMentionInlineContent,
-): unknown[] {
+export function buildNfmDateMentionInlineContent(payload: NfmDateMentionInlineContent): unknown[] {
   return [
     {
       type: "dateMention",
@@ -962,11 +869,7 @@ export function buildNfmDateMentionSuggestionItem(
   sourceOrder = 0,
 ): NfmSuggestionItem {
   const isReminder = match.group === "Reminders";
-  const Icon = isReminder
-    ? BellIcon
-    : match.key === "date:now"
-      ? ClockIcon
-      : CalendarIcon;
+  const Icon = isReminder ? BellIcon : match.key === "date:now" ? ClockIcon : CalendarIcon;
   return {
     key: match.key,
     title: match.title,
@@ -983,10 +886,7 @@ export function buildNfmDateMentionSuggestionItem(
     },
     icon: <Icon className="size-4" aria-hidden="true" />,
     onItemClick: () => {
-      insertInlineContent(
-        editor,
-        buildNfmDateMentionInlineContent(match.payload),
-      );
+      insertInlineContent(editor, buildNfmDateMentionInlineContent(match.payload));
     },
   };
 }
@@ -1008,29 +908,18 @@ export function buildPageReferenceCandidateSuggestionItems(
   beforeSelect?: () => boolean,
 ): NfmSuggestionItem[] {
   return presentPageReferenceCandidates(candidates).map(
-    ({
-      candidate,
-      detail,
-      detailSegments,
-      match,
-      titleSegments,
-    }, sourceOrder) => {
-      const disabledLabel = candidate.disabledReason === "self"
-        ? "Current Page cannot be embedded"
-        : candidate.disabledReason === "ancestor_cycle"
-          ? "An ancestor Page cannot be embedded"
-          : null;
-      const statusLabel = candidate.status
-        ? WORKFLOW_STATUS_LABELS[candidate.status]
-        : null;
-      const metadata = [
-        candidate.pageKey,
-        statusLabel,
-        candidate.locationLabel,
-      ].filter(Boolean).join(" · ");
-      const fullExcerpt = match === "content"
-        ? candidate.matchExcerpt
-        : null;
+    ({ candidate, detail, detailSegments, match, titleSegments }, sourceOrder) => {
+      const disabledLabel =
+        candidate.disabledReason === "self"
+          ? "Current Page cannot be embedded"
+          : candidate.disabledReason === "ancestor_cycle"
+            ? "An ancestor Page cannot be embedded"
+            : null;
+      const statusLabel = candidate.status ? WORKFLOW_STATUS_LABELS[candidate.status] : null;
+      const metadata = [candidate.pageKey, statusLabel, candidate.locationLabel]
+        .filter(Boolean)
+        .join(" · ");
+      const fullExcerpt = match === "content" ? candidate.matchExcerpt : null;
       return {
         title: candidate.title || "Untitled",
         subtext: disabledLabel ?? detail ?? undefined,
@@ -1039,26 +928,28 @@ export function buildPageReferenceCandidateSuggestionItems(
         detailSegments: disabledLabel ? null : detailSegments,
         aliases: [],
         key: `page:${candidate.pageId}`,
-        group: intent === "mention"
-          ? "Mention a page"
-          : PAGE_MENTION_GROUP,
+        group: intent === "mention" ? "Mention a page" : PAGE_MENTION_GROUP,
         hint: null,
         disabled: Boolean(candidate.disabledReason),
-        tooltipContent: buildMentionTooltipContent(
-          candidate.title || "Untitled",
-          [disabledLabel, metadata, fullExcerpt],
+        tooltipContent: buildMentionTooltipContent(candidate.title || "Untitled", [
+          disabledLabel,
+          metadata,
+          fullExcerpt,
+        ]),
+        mentionRank:
+          intent === "mention"
+            ? {
+                family: "page",
+                match,
+                activeContext: true,
+                sourceOrder,
+              }
+            : undefined,
+        icon: candidate.status ? (
+          <StatusIcon statusId={candidate.status} className="size-4" />
+        ) : (
+          <PageIcon className="icon-xs shrink-0" aria-hidden="true" />
         ),
-        mentionRank: intent === "mention"
-          ? {
-              family: "page",
-              match,
-              activeContext: true,
-              sourceOrder,
-            }
-          : undefined,
-        icon: candidate.status
-          ? <StatusIcon statusId={candidate.status} className="size-4" />
-          : <PageIcon className="icon-xs shrink-0" aria-hidden="true" />,
         onItemClick: () => {
           if (candidate.disabledReason) return;
           if (beforeSelect && !beforeSelect()) return;
@@ -1099,10 +990,7 @@ export function buildPageSearchUnavailableSuggestionItem(
   };
 }
 
-function usePageReferenceGetItems(
-  intent: PageReferenceIntent,
-  beforeSelect?: () => boolean,
-) {
+function usePageReferenceGetItems(intent: PageReferenceIntent, beforeSelect?: () => boolean) {
   const editor = useBlockNoteEditor();
   const hostRuntime = useBlockReferenceHostRuntime();
   const controllerRef = useRef(createPageReferenceSearchController());
@@ -1122,46 +1010,52 @@ function usePageReferenceGetItems(
   editorRef.current = editor;
   hostRuntimeRef.current = hostRuntime;
   beforeSelectRef.current = beforeSelect;
-  const getItems = useCallback(async (query: string) => {
-    const currentHostRuntime = hostRuntimeRef.current;
-    if (!currentHostRuntime) return [];
-    try {
-      const result = await controllerRef.current.search({
-        accessContext: currentHostRuntime.contentAccessContext,
-        hostPageId: currentHostRuntime.hostPageId,
-        ancestorPageIds: currentHostRuntime.ancestorPageIds,
-        intent,
-        query,
-        limit: 24,
-      });
-      if (result.status === "stale") return [];
+  const getItems = useCallback(
+    async (query: string) => {
+      const currentHostRuntime = hostRuntimeRef.current;
+      if (!currentHostRuntime) return [];
+      try {
+        const result = await controllerRef.current.search({
+          accessContext: currentHostRuntime.contentAccessContext,
+          hostPageId: currentHostRuntime.hostPageId,
+          ancestorPageIds: currentHostRuntime.ancestorPageIds,
+          intent,
+          query,
+          limit: 24,
+        });
+        if (result.status === "stale") return [];
+        return buildPageReferenceCandidateSuggestionItems(
+          editorRef.current,
+          result.items,
+          intent,
+          beforeSelectRef.current,
+        );
+      } catch {
+        return [buildPageSearchUnavailableSuggestionItem(intent)];
+      }
+    },
+    [intent],
+  );
+  const getImmediateItems = useCallback(
+    (query: string) => {
+      const currentHostRuntime = hostRuntimeRef.current;
+      if (!currentHostRuntime) return [];
       return buildPageReferenceCandidateSuggestionItems(
         editorRef.current,
-        result.items,
+        loadPageReferenceCandidatesSync({
+          accessContext: currentHostRuntime.contentAccessContext,
+          hostPageId: currentHostRuntime.hostPageId,
+          ancestorPageIds: currentHostRuntime.ancestorPageIds,
+          intent,
+          query,
+          limit: 24,
+        }),
         intent,
         beforeSelectRef.current,
       );
-    } catch {
-      return [buildPageSearchUnavailableSuggestionItem(intent)];
-    }
-  }, [intent]);
-  const getImmediateItems = useCallback((query: string) => {
-    const currentHostRuntime = hostRuntimeRef.current;
-    if (!currentHostRuntime) return [];
-    return buildPageReferenceCandidateSuggestionItems(
-      editorRef.current,
-      loadPageReferenceCandidatesSync({
-        accessContext: currentHostRuntime.contentAccessContext,
-        hostPageId: currentHostRuntime.hostPageId,
-        ancestorPageIds: currentHostRuntime.ancestorPageIds,
-        intent,
-        query,
-        limit: 24,
-      }),
-      intent,
-      beforeSelectRef.current,
-    );
-  }, [intent]);
+    },
+    [intent],
+  );
   return useMemo(
     () => ({ getItems, getImmediateItems, requestScopeKey }),
     [getImmediateItems, getItems, requestScopeKey],
@@ -1196,19 +1090,19 @@ export function buildNfmThreadMentionSuggestionItems(
     const title = resolveThreadMentionTitle(item);
     const match = classifyThreadMentionMatch(item, query);
     const excerpt = resolveMentionSearchPreviewExcerpt(item.searchPreview);
-    const preview = match === "content" && excerpt
-      ? buildCommandPaletteQueryHighlightPreview(excerpt, query, {
-          maxCharacters: 88,
-          leadingContextCharacters: 18,
-        })
-      : null;
+    const preview =
+      match === "content" && excerpt
+        ? buildCommandPaletteQueryHighlightPreview(excerpt, query, {
+            maxCharacters: 88,
+            leadingContextCharacters: 18,
+          })
+        : null;
     const fallbackTitleSegments = query.trim()
       ? buildCommandPaletteCharacterHighlightSegments(title, query)
       : null;
-    const titleSegments = item.searchDecorations?.titleSegments
-      ?? (fallbackTitleSegments?.some(({ highlight }) => highlight)
-        ? fallbackTitleSegments
-        : null);
+    const titleSegments =
+      item.searchDecorations?.titleSegments ??
+      (fallbackTitleSegments?.some(({ highlight }) => highlight) ? fallbackTitleSegments : null);
     const duplicateTitle = (titleCounts.get(title.trim().toLocaleLowerCase()) ?? 0) > 1;
     const detail = preview
       ? preview.excerpt
@@ -1252,7 +1146,7 @@ export function selectNfmMentionSuggestionItems(
     query,
     expandedFamilies: options.expandedFamilies,
     candidates: items.flatMap((item) =>
-      item.mentionRank ? [{ rank: item.mentionRank, value: item }] : []
+      item.mentionRank ? [{ rank: item.mentionRank, value: item }] : [],
     ),
   });
   return sections.flatMap((section) => {
@@ -1303,9 +1197,7 @@ const DEFAULT_NFM_MENTION_GET_ITEMS_LOADERS: NfmMentionGetItemsLoaders = {
   createThreadSearchIndex: createCommandPaletteThreadSearchIndex,
 };
 
-type NfmThreadSearchResults = Awaited<
-  ReturnType<NfmMentionGetItemsLoaders["searchThreads"]>
->;
+type NfmThreadSearchResults = Awaited<ReturnType<NfmMentionGetItemsLoaders["searchThreads"]>>;
 
 interface NfmMentionAsyncSearchResults {
   key: string;
@@ -1326,9 +1218,7 @@ export function useNfmMentionGetItems({
   editor,
   activeProjectId,
   loaders = DEFAULT_NFM_MENTION_GET_ITEMS_LOADERS,
-}: NfmMentionGetItemsInput): (
-  query: string,
-) => Promise<NfmSuggestionItem[]> {
+}: NfmMentionGetItemsInput): (query: string) => Promise<NfmSuggestionItem[]> {
   const [asyncRefreshKey, setAsyncRefreshKey] = useState(0);
   const threadItemsRef = useRef<{
     activeProjectId: string | null;
@@ -1343,9 +1233,7 @@ export function useNfmMentionGetItems({
     items: CommandPaletteThread[];
     index: ReturnType<typeof createCommandPaletteThreadSearchIndex>;
   } | null>(null);
-  const asyncSearchResultsRef = useRef<NfmMentionAsyncSearchResults | null>(
-    null,
-  );
+  const asyncSearchResultsRef = useRef<NfmMentionAsyncSearchResults | null>(null);
   const latestAsyncSearchKeyRef = useRef<string | null>(null);
   const threadSearchRequestRef = useRef<{
     key: string;
@@ -1399,36 +1287,24 @@ export function useNfmMentionGetItems({
     return promise;
   }, [bumpAsyncRefresh]);
 
-  const getThreadSearchIndex = useCallback(
-    (threadItems: CommandPaletteThread[]) => {
-      const activeProjectId = activeProjectIdRef.current;
-      const cachedIndex = threadSearchIndexRef.current;
-      if (
-        cachedIndex?.activeProjectId === activeProjectId &&
-        cachedIndex.items === threadItems
-      ) {
-        return cachedIndex.index;
-      }
+  const getThreadSearchIndex = useCallback((threadItems: CommandPaletteThread[]) => {
+    const activeProjectId = activeProjectIdRef.current;
+    const cachedIndex = threadSearchIndexRef.current;
+    if (cachedIndex?.activeProjectId === activeProjectId && cachedIndex.items === threadItems) {
+      return cachedIndex.index;
+    }
 
-      const index = loadersRef.current.createThreadSearchIndex(threadItems);
-      threadSearchIndexRef.current = {
-        activeProjectId,
-        items: threadItems,
-        index,
-      };
-      return index;
-    },
-    [],
-  );
+    const index = loadersRef.current.createThreadSearchIndex(threadItems);
+    threadSearchIndexRef.current = {
+      activeProjectId,
+      items: threadItems,
+      index,
+    };
+    return index;
+  }, []);
 
   const ensureAsyncSearch = useCallback(
-    ({
-      query,
-      requestKey,
-    }: {
-      query: string;
-      requestKey: string;
-    }) => {
+    ({ query, requestKey }: { query: string; requestKey: string }) => {
       const queryText = query.trimStart().trim();
       if (queryText.length === 0) {
         return;
@@ -1519,8 +1395,7 @@ export function useNfmMentionGetItems({
         threadItemsRef.current?.activeProjectId === activeProjectId
           ? threadItemsRef.current.items
           : [];
-      const threadSearchBatch:
-        CommandPaletteThreadSearchBatch | undefined =
+      const threadSearchBatch: CommandPaletteThreadSearchBatch | undefined =
         asyncResults?.threadSearchResults
           ? {
               query,
@@ -1540,20 +1415,11 @@ export function useNfmMentionGetItems({
       });
 
       return [
-        ...buildNfmThreadMentionSuggestionItems(
-          editorRef.current,
-          threadResults,
-          query,
-        ),
+        ...buildNfmThreadMentionSuggestionItems(editorRef.current, threadResults, query),
         ...buildNfmDateMentionSuggestionItems(editorRef.current, query),
       ];
     },
-    [
-      asyncRefreshKey,
-      ensureAsyncSearch,
-      getThreadSearchIndex,
-      loadThreadItems,
-    ],
+    [asyncRefreshKey, ensureAsyncSearch, getThreadSearchIndex, loadThreadItems],
   );
 }
 
@@ -1577,44 +1443,35 @@ function MentionMenu({
   const expandSection = useCallback((query: string, family: MentionSuggestionFamily) => {
     setSectionExpansion((current) => ({
       query,
-      families: new Set([
-        ...(current.query === query ? current.families : []),
-        family,
-      ]),
+      families: new Set([...(current.query === query ? current.families : []), family]),
     }));
   }, []);
-  const getItems = useCallback(async (query: string) => {
-    const [nonPageItems, pageResults] = await Promise.all([
-      getNonPageItems(query),
-      allowPageReferences ? pageItems.getItems(query) : Promise.resolve([]),
-    ]);
-    return selectNfmMentionSuggestionItems(
-      query,
-      [...pageResults, ...nonPageItems],
-      {
-        expandedFamilies: sectionExpansion.query === query
-          ? sectionExpansion.families
-          : undefined,
+  const getItems = useCallback(
+    async (query: string) => {
+      const [nonPageItems, pageResults] = await Promise.all([
+        getNonPageItems(query),
+        allowPageReferences ? pageItems.getItems(query) : Promise.resolve([]),
+      ]);
+      return selectNfmMentionSuggestionItems(query, [...pageResults, ...nonPageItems], {
+        expandedFamilies: sectionExpansion.query === query ? sectionExpansion.families : undefined,
         onExpandSection: (family) => expandSection(query, family),
-      },
-    );
-  }, [
-    allowPageReferences,
-    expandSection,
-    getNonPageItems,
-    pageItems,
-    sectionExpansion,
-  ]);
-  const getImmediateItems = useCallback((query: string) => selectNfmMentionSuggestionItems(
-    query,
-    allowPageReferences ? pageItems.getImmediateItems(query) : [],
-    {
-      expandedFamilies: sectionExpansion.query === query
-        ? sectionExpansion.families
-        : undefined,
-      onExpandSection: (family) => expandSection(query, family),
+      });
     },
-  ), [allowPageReferences, expandSection, pageItems, sectionExpansion]);
+    [allowPageReferences, expandSection, getNonPageItems, pageItems, sectionExpansion],
+  );
+  const getImmediateItems = useCallback(
+    (query: string) =>
+      selectNfmMentionSuggestionItems(
+        query,
+        allowPageReferences ? pageItems.getImmediateItems(query) : [],
+        {
+          expandedFamilies:
+            sectionExpansion.query === query ? sectionExpansion.families : undefined,
+          onExpandSection: (family) => expandSection(query, family),
+        },
+      ),
+    [allowPageReferences, expandSection, pageItems, sectionExpansion],
+  );
   const shouldCloseOnItemClick = useCallback(
     (item: NfmSuggestionItem) => item.mentionUtility?.kind !== "expand_section",
     [],
@@ -1634,7 +1491,9 @@ function MentionMenu({
   );
 }
 
-function EmbedPageMenu({ bookmarkRef }: {
+function EmbedPageMenu({
+  bookmarkRef,
+}: {
   bookmarkRef: MutableRefObject<PageReferenceInsertionBookmark | null>;
 }) {
   const editor = useBlockNoteEditor();
@@ -1649,10 +1508,7 @@ function EmbedPageMenu({ bookmarkRef }: {
     bookmarkRef.current = null;
     return true;
   }, [bookmarkRef, editor]);
-  const pageItems = usePageReferenceGetItems(
-    "reference_block",
-    beforeSelect,
-  );
+  const pageItems = usePageReferenceGetItems("reference_block", beforeSelect);
 
   return (
     <SuggestionMenuController

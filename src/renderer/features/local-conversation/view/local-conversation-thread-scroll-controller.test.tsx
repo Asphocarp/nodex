@@ -112,9 +112,13 @@ describe("LocalConversationThreadScrollLayout", () => {
       </EnsureLocalConversationThreadScrollController>,
     );
 
-    const scrollContainer = view.container.querySelector("[data-local-conversation-thread-body='true']");
+    const scrollContainer = view.container.querySelector(
+      "[data-local-conversation-thread-body='true']",
+    );
     const shiftedContent = scrollContainer?.firstElementChild as HTMLElement | null;
-    const widthWrapper = shiftedContent?.querySelector("[data-mcp-app-portal-target='true']") as HTMLElement | null;
+    const widthWrapper = shiftedContent?.querySelector(
+      "[data-mcp-app-portal-target='true']",
+    ) as HTMLElement | null;
 
     expect(scrollContainer !== null).toBe(true);
     expect(scrollContainer?.getAttribute(REMOTE_HOSTED_PIP_ANCHOR_HOST_ATTRIBUTE)).toBe(
@@ -247,9 +251,13 @@ describe("LocalConversationThreadScrollLayout", () => {
       </EnsureLocalConversationThreadScrollController>,
     );
 
-    const scrollContainer = view.container.querySelector("[data-local-conversation-thread-body='true']") as HTMLElement | null;
+    const scrollContainer = view.container.querySelector(
+      "[data-local-conversation-thread-body='true']",
+    ) as HTMLElement | null;
     const footer = view.container.querySelector("[data-thread-scroll-footer='true']");
-    const footerObstacle = view.container.querySelector(`[${REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE}='thread-footer']`);
+    const footerObstacle = view.container.querySelector(
+      `[${REMOTE_HOSTED_PIP_OBSTACLE_ATTRIBUTE}='thread-footer']`,
+    );
 
     expect(Boolean(footer)).toBe(true);
     expect(Boolean(footerObstacle)).toBe(true);
@@ -304,14 +312,17 @@ describe("LocalConversationThreadScrollLayout", () => {
 
     await settleAsyncRender();
 
-    const layoutMessage = messages.find((message) =>
-      message.type === "remote-hosted-pip-host-layout-changed"
-      && message.layout.anchorRect !== null
+    const layoutMessage = messages.find(
+      (message) =>
+        message.type === "remote-hosted-pip-host-layout-changed" &&
+        message.layout.anchorRect !== null,
     );
     expect(layoutMessage !== undefined).toBe(true);
     if (layoutMessage?.type !== "remote-hosted-pip-host-layout-changed") return;
 
-    const bottomRight = layoutMessage.layout.anchors?.find((anchor) => anchor.alignment === "bottom-right");
+    const bottomRight = layoutMessage.layout.anchors?.find(
+      (anchor) => anchor.alignment === "bottom-right",
+    );
     expect(layoutMessage.layout.hostId).toBe(REMOTE_HOSTED_PIP_MAIN_THREAD_HOST_ID);
     expect(bottomRight?.point.y ?? 0).toBe(718);
 
@@ -382,7 +393,9 @@ describe("LocalConversationThreadScrollLayout", () => {
     expect(placement?.distanceFromBottomPx ?? 0).toBe(280);
     expect(placement?.scrollHeightPx ?? 0).toBe(1000);
     expect(placement?.shouldPlaceLatestTurn ?? false).toBe(true);
-    expect(activeController.consumePendingLatestTurnSubmitPlacement()?.distanceFromBottomPx ?? 0).toBe(280);
+    expect(
+      activeController.consumePendingLatestTurnSubmitPlacement()?.distanceFromBottomPx ?? 0,
+    ).toBe(280);
     expect(activeController.consumePendingLatestTurnSubmitPlacement() === null).toBe(true);
   });
 });

@@ -30,12 +30,14 @@ describe("appendTextTail", () => {
   });
 
   test("preserves prior truncation after later short deltas", () => {
-    expect(appendTextTail({
-      current: "345",
-      delta: "6",
-      maxChars: 5,
-      didTruncate: true,
-    })).toEqual({
+    expect(
+      appendTextTail({
+        current: "345",
+        delta: "6",
+        maxChars: 5,
+        didTruncate: true,
+      }),
+    ).toEqual({
       text: "3456",
       didTruncate: true,
     });

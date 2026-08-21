@@ -198,12 +198,7 @@ describe("calendar event interaction", () => {
     const visibleDays = [new Date(2026, 1, 14)];
     const byId = new Map(cards.map((card) => [card.id, card]));
 
-    expect(
-      isMoveDragPreviewActive(
-        { eventId: "event-1", mode: "move" },
-        preview,
-      ),
-    ).toBe(true);
+    expect(isMoveDragPreviewActive({ eventId: "event-1", mode: "move" }, preview)).toBe(true);
 
     const overlay = resolveMovePreviewOverlayEvent(byId, preview, visibleDays, {
       isMovePreviewActive: true,

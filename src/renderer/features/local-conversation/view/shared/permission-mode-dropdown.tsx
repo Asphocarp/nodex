@@ -115,18 +115,13 @@ function PermissionModeOption({
           event.preventDefault();
         }
       }}
-      leftSlot={(
-        <PermissionModeMenuIcon
-          mode={item.value}
-          className={cn("icon-sm", accentClass)}
-        />
-      )}
+      leftSlot={<PermissionModeMenuIcon mode={item.value} className={cn("icon-sm", accentClass)} />}
       rightSlot={selected ? <NodexDropdownSelectedIcon className={accentClass} /> : null}
-      subText={(
+      subText={
         <span className={accentClass}>
           {disabled && item.disabledDescription ? item.disabledDescription : description}
         </span>
-      )}
+      }
       allowWrap
     >
       <span className={accentClass}>{item.optionLabel}</span>
@@ -157,7 +152,7 @@ export function PermissionModeDropdown({
 
   return (
     <NodexDropdownMenu
-      triggerButton={(
+      triggerButton={
         triggerStyle === "settings" ? (
           <NodexSettingsDropdownTrigger
             aria-label="Permission mode"
@@ -169,7 +164,12 @@ export function PermissionModeDropdown({
               className={cn("icon-xs", currentModeAccentClass)}
             />
             {triggerVariant === "label" ? (
-              <span className={cn("max-w-40 truncate whitespace-nowrap text-left", currentModeAccentClass)}>
+              <span
+                className={cn(
+                  "max-w-40 truncate whitespace-nowrap text-left",
+                  currentModeAccentClass,
+                )}
+              >
                 {triggerLabel}
               </span>
             ) : null}
@@ -178,9 +178,11 @@ export function PermissionModeDropdown({
           <button
             type="button"
             aria-label="Permission mode"
-            className={triggerVariant === "icon"
-              ? COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME
-              : COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME}
+            className={
+              triggerVariant === "icon"
+                ? COMPOSER_FOOTER_GHOST_ICON_BUTTON_CLASS_NAME
+                : COMPOSER_FOOTER_COMPACT_GHOST_BUTTON_CLASS_NAME
+            }
           >
             <PermissionModeMenuIcon
               mode={selectedMode}
@@ -188,15 +190,25 @@ export function PermissionModeDropdown({
             />
             {triggerVariant === "label" ? (
               <>
-                <span className={cn("max-w-40 truncate whitespace-nowrap text-left", currentModeAccentClass)}>
+                <span
+                  className={cn(
+                    "max-w-40 truncate whitespace-nowrap text-left",
+                    currentModeAccentClass,
+                  )}
+                >
                   {triggerLabel}
                 </span>
-                <ChevronDownIcon className={cn("icon-2xs shrink-0", currentModeAccentClass ?? "text-token-input-placeholder-foreground")} />
+                <ChevronDownIcon
+                  className={cn(
+                    "icon-2xs shrink-0",
+                    currentModeAccentClass ?? "text-token-input-placeholder-foreground",
+                  )}
+                />
               </>
             ) : null}
           </button>
         )
-      )}
+      }
       side={triggerStyle === "settings" ? "bottom" : "top"}
       align={triggerStyle === "settings" ? "end" : "start"}
       contentWidth="menu"
@@ -217,42 +229,41 @@ export function PermissionModeDropdown({
           </button>
         </div>
       </NodexDropdownTitle>
-      {PERMISSION_MODE_ITEMS
-        .filter((item) =>
-          item.value === "custom"
-          || item.value === "guardian-approvals"
-          || allowedModes.has(item.value)
-          || item.value === selectedMode,
-        )
-        .map((item) => {
-          const autoReviewDisabled = item.value === "guardian-approvals"
-            && (!autoReviewAvailable || !allowedModes.has("guardian-approvals"));
-          const customDisabled = item.value === "custom"
-            && selectedMode !== "custom"
-            && !allowedModes.has("custom");
-          const presetDisabled = (item.value === "auto" || item.value === "full-access")
-            && !allowedModes.has(item.value);
-          const disabled = autoReviewDisabled || customDisabled || presetDisabled;
+      {PERMISSION_MODE_ITEMS.filter(
+        (item) =>
+          item.value === "custom" ||
+          item.value === "guardian-approvals" ||
+          allowedModes.has(item.value) ||
+          item.value === selectedMode,
+      ).map((item) => {
+        const autoReviewDisabled =
+          item.value === "guardian-approvals" &&
+          (!autoReviewAvailable || !allowedModes.has("guardian-approvals"));
+        const customDisabled =
+          item.value === "custom" && selectedMode !== "custom" && !allowedModes.has("custom");
+        const presetDisabled =
+          (item.value === "auto" || item.value === "full-access") && !allowedModes.has(item.value);
+        const disabled = autoReviewDisabled || customDisabled || presetDisabled;
 
-          return (
-            <PermissionModeOption
-              key={item.value}
-              item={item}
-              description={item.value === "custom"
-                ? customDescription ?? item.description
-                : item.description}
-              disabled={disabled}
-              selected={item.value === selectedMode}
-              onSelect={() => {
-                if (disabled) {
-                  return false;
-                }
-                onSelect(item.value);
-                return true;
-              }}
-            />
-          );
-        })}
+        return (
+          <PermissionModeOption
+            key={item.value}
+            item={item}
+            description={
+              item.value === "custom" ? (customDescription ?? item.description) : item.description
+            }
+            disabled={disabled}
+            selected={item.value === selectedMode}
+            onSelect={() => {
+              if (disabled) {
+                return false;
+              }
+              onSelect(item.value);
+              return true;
+            }}
+          />
+        );
+      })}
     </NodexDropdownMenu>
   );
 }

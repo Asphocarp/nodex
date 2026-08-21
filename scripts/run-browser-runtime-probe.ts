@@ -1,14 +1,7 @@
 #!/usr/bin/env tsx
 
 import { spawnSync } from "node:child_process";
-import {
-  chmodSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,7 +41,9 @@ function writeLauncherApp(root: string): string {
   const executableDirectory = path.join(contentsPath, "MacOS");
   const executablePath = path.join(executableDirectory, LAUNCHER_EXECUTABLE_NAME);
   mkdirSync(executableDirectory, { recursive: true });
-  writeFileSync(path.join(contentsPath, "Info.plist"), `<?xml version="1.0" encoding="UTF-8"?>
+  writeFileSync(
+    path.join(contentsPath, "Info.plist"),
+    `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleExecutable</key><string>${LAUNCHER_EXECUTABLE_NAME}</string>
@@ -57,7 +52,8 @@ function writeLauncherApp(root: string): string {
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSBackgroundOnly</key><true/>
 </dict></plist>
-`);
+`,
+  );
   writeFileSync(executablePath, LAUNCHER_SOURCE);
   chmodSync(executablePath, 0o755);
   return appPath;
@@ -67,28 +63,29 @@ function runInDesktopLaunchContext(
   projectRoot: string,
   invocation: { command: string; args: readonly string[] },
 ): number {
-  const temporaryRoot = mkdtempSync(path.join(
-    tmpdir(),
-    "nodex-browser-runtime-probe-launcher-",
-  ));
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-browser-runtime-probe-launcher-"));
   const outputPath = path.join(temporaryRoot, "output.log");
   const statusPath = path.join(temporaryRoot, "status.txt");
   try {
     const appPath = writeLauncherApp(temporaryRoot);
-    const launched = spawnSync("/usr/bin/open", [
-      "-W",
-      "-n",
-      appPath,
-      "--args",
-      path.resolve(projectRoot),
-      statusPath,
-      outputPath,
-      invocation.command,
-      ...invocation.args,
-    ], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const launched = spawnSync(
+      "/usr/bin/open",
+      [
+        "-W",
+        "-n",
+        appPath,
+        "--args",
+        path.resolve(projectRoot),
+        statusPath,
+        outputPath,
+        invocation.command,
+        ...invocation.args,
+      ],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     const output = readFileSync(outputPath, "utf8");
     process.stdout.write(output);
     if (launched.error) throw launched.error;
@@ -126,11 +123,9 @@ function runDirectly(
 
 if (path.resolve(process.argv[1] ?? "") === fileURLToPath(import.meta.url)) {
   const projectRoot = path.resolve(process.cwd());
-  const invocation = buildBrowserRuntimeProbeInvocation(
-    projectRoot,
-    process.argv.slice(2),
-  );
-  process.exitCode = process.platform === "darwin"
-    ? runInDesktopLaunchContext(projectRoot, invocation)
-    : runDirectly(projectRoot, invocation);
+  const invocation = buildBrowserRuntimeProbeInvocation(projectRoot, process.argv.slice(2));
+  process.exitCode =
+    process.platform === "darwin"
+      ? runInDesktopLaunchContext(projectRoot, invocation)
+      : runDirectly(projectRoot, invocation);
 }

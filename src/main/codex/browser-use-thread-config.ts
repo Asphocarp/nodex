@@ -11,8 +11,7 @@ import type { ComputerUseRuntimeResult } from "./computer-use-runtime";
 
 const BROWSER_USE_IN_APP_INSTRUCTIONS =
   "Control the in-app browser in conjunction with the Browser Plugin.";
-const COMPUTER_USE_INSTRUCTIONS =
-  "Control desktop apps on macOS through Computer Use.";
+const COMPUTER_USE_INSTRUCTIONS = "Control desktop apps on macOS through Computer Use.";
 
 // The native Browser and Computer Use peers validate the code-signing identity
 // of node_repl and its two nearest ancestors. Keep this launcher alive so the
@@ -49,14 +48,14 @@ type BrowserUseThreadConfig = NonNullable<ThreadStartParams["config"]>;
 
 export type BrowserUseThreadConfigResult =
   | {
-    message: string;
-    reason: BrowserRuntimeUnavailableReason;
-    status: "unavailable";
-  }
+      message: string;
+      reason: BrowserRuntimeUnavailableReason;
+      status: "unavailable";
+    }
   | {
-    config: BrowserUseThreadConfig;
-    status: "available";
-  };
+      config: BrowserUseThreadConfig;
+      status: "available";
+    };
 
 type BrowserUseThreadConfigBuilderOptions = {
   availableBackends?: () => readonly BrowserRuntimeBackend[];
@@ -104,8 +103,7 @@ function buildAvailableConfig(
       "Control the Chrome browser in conjunction with the Chrome Plugin.";
   }
   if (computerUseRuntime) {
-    env.NODE_REPL_HOST_SERVICES_PIPE_PATH =
-      computerUseRuntime.hostServicesPipePath;
+    env.NODE_REPL_HOST_SERVICES_PIPE_PATH = computerUseRuntime.hostServicesPipePath;
     env.NODE_REPL_INSTRUCTIONS_USE_CASE_COMPUTER_USE = COMPUTER_USE_INSTRUCTIONS;
     env.SKY_CUA_SERVICE_PATH = computerUseRuntime.appPath;
   }
@@ -132,8 +130,7 @@ function buildAvailableConfig(
   return {
     ...config,
     "shell_environment_policy.set.BROWSER_USE_AVAILABLE_BACKENDS": availableBackendsValue,
-    "shell_environment_policy.set.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S":
-      trustedClientHashes,
+    "shell_environment_policy.set.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S": trustedClientHashes,
     "shell_environment_policy.set.NODE_REPL_TRUSTED_CODE_PATHS": trustedCodePaths,
   };
 }
@@ -161,9 +158,10 @@ export class BrowserUseThreadConfigBuilder {
       requestedBackends = this.availableBackends();
     } catch (error) {
       return {
-        message: error instanceof Error
-          ? `Browser backend availability failed: ${error.message}`
-          : "Browser backend availability failed",
+        message:
+          error instanceof Error
+            ? `Browser backend availability failed: ${error.message}`
+            : "Browser backend availability failed",
         reason: "backend-unavailable",
         status: "unavailable",
       };
@@ -172,12 +170,9 @@ export class BrowserUseThreadConfigBuilder {
       this.browserRuntime.bundle.manifest.supportedBackends,
       requestedBackends,
     );
-    const computerUseRuntime = this.computerUsePluginReady()
-      ? this.computerUseRuntime()
-      : null;
-    const availableComputerUseRuntime = computerUseRuntime?.status === "available"
-      ? computerUseRuntime
-      : null;
+    const computerUseRuntime = this.computerUsePluginReady() ? this.computerUseRuntime() : null;
+    const availableComputerUseRuntime =
+      computerUseRuntime?.status === "available" ? computerUseRuntime : null;
     if (availableBackends.length === 0 && !availableComputerUseRuntime) {
       return {
         message: "Browser runtime bundle is verified, but no browser backend is available",

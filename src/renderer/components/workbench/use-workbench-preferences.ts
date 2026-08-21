@@ -6,11 +6,7 @@ import {
   writeComposerEnterBehavior,
   type ComposerEnterBehavior,
 } from "../../lib/composer-enter-behavior";
-import {
-  appScope,
-  scopedAtomWithInitializer,
-  useScopedAtom,
-} from "../../lib/maitai";
+import { appScope, scopedAtomWithInitializer, useScopedAtom } from "../../lib/maitai";
 import {
   readTaskShorthandPagePromotionEnabled,
   writeTaskShorthandPagePromotionEnabled,
@@ -24,10 +20,7 @@ import {
   readWorktreeAutoBranchPrefix,
   writeWorktreeAutoBranchPrefix,
 } from "../../lib/worktree-branch-prefix";
-import {
-  readWorktreeStartMode,
-  writeWorktreeStartMode,
-} from "../../lib/worktree-start-mode";
+import { readWorktreeStartMode, writeWorktreeStartMode } from "../../lib/worktree-start-mode";
 
 const THREAD_SUMMARY_PANEL_STORAGE_KEY = "nodex:thread-summary-panel:pinned-open";
 
@@ -59,16 +52,12 @@ const threadQueueFollowUpsEnabledAtom = scopedAtomWithInitializer(
   readThreadQueueFollowUpsEnabled,
   { debugLabel: "thread-queue-follow-ups-enabled" },
 );
-const composerEnterBehaviorAtom = scopedAtomWithInitializer(
-  appScope,
-  readComposerEnterBehavior,
-  { debugLabel: "composer-enter-behavior" },
-);
-const worktreeStartModeAtom = scopedAtomWithInitializer(
-  appScope,
-  readWorktreeStartMode,
-  { debugLabel: "worktree-start-mode" },
-);
+const composerEnterBehaviorAtom = scopedAtomWithInitializer(appScope, readComposerEnterBehavior, {
+  debugLabel: "composer-enter-behavior",
+});
+const worktreeStartModeAtom = scopedAtomWithInitializer(appScope, readWorktreeStartMode, {
+  debugLabel: "worktree-start-mode",
+});
 const worktreeAutoBranchPrefixAtom = scopedAtomWithInitializer(
   appScope,
   readWorktreeAutoBranchPrefix,
@@ -87,9 +76,8 @@ export function useWorkbenchPreferences() {
   const [threadQueueFollowUpsEnabled, setThreadQueueFollowUpsEnabled] = useScopedAtom(
     threadQueueFollowUpsEnabledAtom,
   );
-  const [composerEnterBehavior, setComposerEnterBehavior] = useScopedAtom(
-    composerEnterBehaviorAtom,
-  );
+  const [composerEnterBehavior, setComposerEnterBehavior] =
+    useScopedAtom(composerEnterBehaviorAtom);
   const [worktreeStartMode, setWorktreeStartMode] = useScopedAtom(worktreeStartModeAtom);
   const [worktreeAutoBranchPrefix, setWorktreeAutoBranchPrefix] = useScopedAtom(
     worktreeAutoBranchPrefixAtom,
@@ -112,29 +100,43 @@ export function useWorkbenchPreferences() {
   }, [setWorktreeAutoBranchPrefix]);
 
   const toggleThreadSummaryPanelPinnedOpen = useCallback(() => {
-    setThreadSummaryPanelPinnedOpen((current) =>
-      writeThreadSummaryPanelPinnedOpen(!current));
+    setThreadSummaryPanelPinnedOpen((current) => writeThreadSummaryPanelPinnedOpen(!current));
   }, [setThreadSummaryPanelPinnedOpen]);
 
-  const handleThreadQueueFollowUpsEnabledChange = useCallback((value: boolean) => {
-    setThreadQueueFollowUpsEnabled(writeThreadQueueFollowUpsEnabled(value));
-  }, [setThreadQueueFollowUpsEnabled]);
+  const handleThreadQueueFollowUpsEnabledChange = useCallback(
+    (value: boolean) => {
+      setThreadQueueFollowUpsEnabled(writeThreadQueueFollowUpsEnabled(value));
+    },
+    [setThreadQueueFollowUpsEnabled],
+  );
 
-  const handleComposerEnterBehaviorChange = useCallback((value: ComposerEnterBehavior) => {
-    setComposerEnterBehavior(writeComposerEnterBehavior(value));
-  }, [setComposerEnterBehavior]);
+  const handleComposerEnterBehaviorChange = useCallback(
+    (value: ComposerEnterBehavior) => {
+      setComposerEnterBehavior(writeComposerEnterBehavior(value));
+    },
+    [setComposerEnterBehavior],
+  );
 
-  const handleWorktreeStartModeChange = useCallback((value: WorktreeStartMode) => {
-    setWorktreeStartMode(writeWorktreeStartMode(value));
-  }, [setWorktreeStartMode]);
+  const handleWorktreeStartModeChange = useCallback(
+    (value: WorktreeStartMode) => {
+      setWorktreeStartMode(writeWorktreeStartMode(value));
+    },
+    [setWorktreeStartMode],
+  );
 
-  const handleWorktreeAutoBranchPrefixChange = useCallback((value: string) => {
-    setWorktreeAutoBranchPrefix(writeWorktreeAutoBranchPrefix(value));
-  }, [setWorktreeAutoBranchPrefix]);
+  const handleWorktreeAutoBranchPrefixChange = useCallback(
+    (value: string) => {
+      setWorktreeAutoBranchPrefix(writeWorktreeAutoBranchPrefix(value));
+    },
+    [setWorktreeAutoBranchPrefix],
+  );
 
-  const handleTaskShorthandPagePromotionEnabledChange = useCallback((value: boolean) => {
-    setTaskShorthandPagePromotionEnabled(writeTaskShorthandPagePromotionEnabled(value));
-  }, [setTaskShorthandPagePromotionEnabled]);
+  const handleTaskShorthandPagePromotionEnabledChange = useCallback(
+    (value: boolean) => {
+      setTaskShorthandPagePromotionEnabled(writeTaskShorthandPagePromotionEnabled(value));
+    },
+    [setTaskShorthandPagePromotionEnabled],
+  );
 
   return {
     threadSummaryPanelPinnedOpen,

@@ -65,19 +65,21 @@ describe("buildComposerSlashCommands", () => {
     const commands = buildComposerSlashCommands({
       model: {
         ...buildModel(),
-        composerPlugins: [{
-          id: "browser@openai-bundled",
-          name: "Browser",
-          displayName: "Browser",
-          description: "Control the in-app browser",
-          defaultPrompt: null,
-          installed: true,
-          enabled: true,
-          path: "plugin://browser@openai-bundled",
-          iconUrl: null,
-          iconUrlDark: null,
-          brandColor: null,
-        }],
+        composerPlugins: [
+          {
+            id: "browser@openai-bundled",
+            name: "Browser",
+            displayName: "Browser",
+            description: "Control the in-app browser",
+            defaultPrompt: null,
+            installed: true,
+            enabled: true,
+            path: "plugin://browser@openai-bundled",
+            iconUrl: null,
+            iconUrlDark: null,
+            brandColor: null,
+          },
+        ],
       },
       actions: buildActions(),
       serviceTier: null,
@@ -137,14 +139,16 @@ describe("buildComposerSlashCommands", () => {
       invoke: async (channel: string) => {
         if (channel === "codex:mcp-server-statuses:list") {
           return {
-            data: [{
-              name: "docs",
-              serverInfo: null,
-              tools: {},
-              resources: [],
-              resourceTemplates: [],
-              authStatus: "oAuth",
-            }],
+            data: [
+              {
+                name: "docs",
+                serverInfo: null,
+                tools: {},
+                resources: [],
+                resourceTemplates: [],
+                authStatus: "oAuth",
+              },
+            ],
             nextCursor: null,
           };
         }
@@ -168,14 +172,16 @@ describe("buildComposerSlashCommands", () => {
     const Content = mcpCommand.Content;
     const client = createTestQueryClient();
     client.setQueryData(queryKeys.mcp.statuses(), {
-      data: [{
-        name: "docs",
-        serverInfo: null,
-        tools: {},
-        resources: [],
-        resourceTemplates: [],
-        authStatus: "oAuth",
-      }],
+      data: [
+        {
+          name: "docs",
+          serverInfo: null,
+          tools: {},
+          resources: [],
+          resourceTemplates: [],
+          authStatus: "oAuth",
+        },
+      ],
       nextCursor: null,
     });
     const view = render(

@@ -2,9 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { CodexScheduledAutomation } from "@/lib/types";
 import { buildThreadSummaryPanelScheduledAutomationRow } from "./thread-summary-panel-scheduled-automation-model";
 
-function automation(
-  overrides: Partial<CodexScheduledAutomation> = {},
-): CodexScheduledAutomation {
+function automation(overrides: Partial<CodexScheduledAutomation> = {}): CodexScheduledAutomation {
   return {
     id: "automation-1",
     definitionRevision: 1,
@@ -66,16 +64,12 @@ describe("thread summary scheduled automation projection", () => {
 
   test("summarizes common heartbeat schedules and falls back for custom rules", () => {
     const weekday = buildThreadSummaryPanelScheduledAutomationRow({
-      automations: [
-        automation({ rrule: "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" }),
-      ],
+      automations: [automation({ rrule: "RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR" })],
       conversationId: "thread-1",
       now: new Date(2026, 6, 7, 8, 0),
     });
     const custom = buildThreadSummaryPanelScheduledAutomationRow({
-      automations: [
-        automation({ id: "custom", rrule: "FREQ=HOURLY", nextRunAt: null }),
-      ],
+      automations: [automation({ id: "custom", rrule: "FREQ=HOURLY", nextRunAt: null })],
       conversationId: "thread-1",
       now: new Date(2026, 6, 7, 8, 0),
     });

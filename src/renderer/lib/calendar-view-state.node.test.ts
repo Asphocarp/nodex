@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  formatCalendarToolbarMonthYear,
-  resolveCalendarVisibleDays,
-} from "./calendar-view-state";
+import { formatCalendarToolbarMonthYear, resolveCalendarVisibleDays } from "./calendar-view-state";
 
 describe("calendar view state", () => {
   test("resolves visible days from range state", () => {
@@ -17,14 +14,12 @@ describe("calendar view state", () => {
   });
 
   test("formats a compact month and year label", () => {
-    expect(formatCalendarToolbarMonthYear([
-      new Date(2026, 1, 14),
-      new Date(2026, 1, 15),
-    ])).toBe("February 2026");
+    expect(formatCalendarToolbarMonthYear([new Date(2026, 1, 14), new Date(2026, 1, 15)])).toBe(
+      "February 2026",
+    );
 
-    expect(formatCalendarToolbarMonthYear([
-      new Date(2026, 1, 28),
-      new Date(2026, 2, 1),
-    ])).toBe("Feb - Mar 2026");
+    expect(formatCalendarToolbarMonthYear([new Date(2026, 1, 28), new Date(2026, 2, 1)])).toBe(
+      "Feb - Mar 2026",
+    );
   });
 });

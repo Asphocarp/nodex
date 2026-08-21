@@ -20,23 +20,29 @@ describe("telemetry settings guard", () => {
   });
 
   test("rejects incomplete environment override state", () => {
-    expect(isTelemetrySettings({
-      ...VALID_SETTINGS,
-      envOverrides: {
-        enabled: false,
-      },
-    })).toBe(false);
+    expect(
+      isTelemetrySettings({
+        ...VALID_SETTINGS,
+        envOverrides: {
+          enabled: false,
+        },
+      }),
+    ).toBe(false);
   });
 
   test("rejects invalid field types", () => {
-    expect(isTelemetrySettings({
-      ...VALID_SETTINGS,
-      clientKey: null,
-    })).toBe(false);
+    expect(
+      isTelemetrySettings({
+        ...VALID_SETTINGS,
+        clientKey: null,
+      }),
+    ).toBe(false);
 
-    expect(isTelemetrySettings({
-      ...VALID_SETTINGS,
-      autoCaptureEnabled: "true",
-    })).toBe(false);
+    expect(
+      isTelemetrySettings({
+        ...VALID_SETTINGS,
+        autoCaptureEnabled: "true",
+      }),
+    ).toBe(false);
   });
 });

@@ -11,52 +11,57 @@ import {
 import { createCodexCanonicalHydratedConversationState } from "./codex-conversation-state";
 
 function buildState(): CodexCanonicalConversationState {
-  return createCodexCanonicalHydratedConversationState({
-    id: "thread-a",
-    extra: null,
-    sessionId: "session-a",
-    forkedFromId: null,
-    parentThreadId: null,
-    preview: "",
-    ephemeral: false,
-    section: null,
-    sectionEnteredAt: null,
-    historyMode: "paginated",
-    modelProvider: "openai",
-    createdAt: 0,
-    updatedAt: 0,
-    recencyAt: null,
-    status: { type: "active", activeFlags: [] },
-    path: null,
-    cwd: "/workspace",
-    cliVersion: "test",
-    source: "appServer",
-    canAcceptDirectInput: true,
-    threadSource: "appServer",
-    name: null,
-    agentNickname: null,
-    agentRole: null,
-    gitInfo: null,
-    turns: [{
-      id: "turn-a",
-      items: [],
-      itemsView: "full",
-      status: "inProgress",
-      error: null,
-      startedAt: null,
-      completedAt: null,
-      durationMs: null,
-    }],
-  }, {
-    model: "gpt-test",
-    reasoningEffort: null,
-    cwd: "/workspace",
-    approvalPolicy: "on-request",
-    approvalsReviewer: "user",
-    sandboxPolicy: { type: "readOnly", networkAccess: false },
-    activePermissionProfile: null,
-    runtimeWorkspaceRoots: [],
-  });
+  return createCodexCanonicalHydratedConversationState(
+    {
+      id: "thread-a",
+      extra: null,
+      sessionId: "session-a",
+      forkedFromId: null,
+      parentThreadId: null,
+      preview: "",
+      ephemeral: false,
+      section: null,
+      sectionEnteredAt: null,
+      historyMode: "paginated",
+      modelProvider: "openai",
+      createdAt: 0,
+      updatedAt: 0,
+      recencyAt: null,
+      status: { type: "active", activeFlags: [] },
+      path: null,
+      cwd: "/workspace",
+      cliVersion: "test",
+      source: "appServer",
+      canAcceptDirectInput: true,
+      threadSource: "appServer",
+      name: null,
+      agentNickname: null,
+      agentRole: null,
+      gitInfo: null,
+      turns: [
+        {
+          id: "turn-a",
+          items: [],
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: null,
+          completedAt: null,
+          durationMs: null,
+        },
+      ],
+    },
+    {
+      model: "gpt-test",
+      reasoningEffort: null,
+      cwd: "/workspace",
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxPolicy: { type: "readOnly", networkAccess: false },
+      activePermissionProfile: null,
+      runtimeWorkspaceRoots: [],
+    },
+  );
 }
 
 function buildSteer(id = "steer-a"): CodexCanonicalSteeringUserMessageItem {
@@ -107,17 +112,8 @@ describe("canonical steering state", () => {
         },
       ],
     };
-    const pending = upsertCodexCanonicalSteeringItem(
-      withTarget,
-      "turn-a",
-      buildSteer(),
-    );
-    const next = retargetCodexCanonicalSteeringItem(
-      pending,
-      "turn-a",
-      "turn-b",
-      "steer-a",
-    );
+    const pending = upsertCodexCanonicalSteeringItem(withTarget, "turn-a", buildSteer());
+    const next = retargetCodexCanonicalSteeringItem(pending, "turn-a", "turn-b", "steer-a");
 
     expect(next.turns[0]?.items).toEqual([]);
     expect(next.turns[1]?.items[0]).toMatchObject({

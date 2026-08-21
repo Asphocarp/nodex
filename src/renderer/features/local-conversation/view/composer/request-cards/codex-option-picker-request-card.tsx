@@ -35,13 +35,15 @@ export function CodexOptionPickerRequestCard({
   const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [freeformAnswer, setFreeformAnswer] = useState("");
   const trimmedFreeformAnswer = freeformAnswer.trim();
-  const hasAnswer = selectedOptions.length > 0 || (showFreeform && trimmedFreeformAnswer.length > 0);
+  const hasAnswer =
+    selectedOptions.length > 0 || (showFreeform && trimmedFreeformAnswer.length > 0);
 
   const respond = async (action: "submit" | "skip") => {
     await onRespond(request.requestId, {
       action,
       selectedOptions,
-      freeformAnswer: showFreeform && trimmedFreeformAnswer.length > 0 ? trimmedFreeformAnswer : null,
+      freeformAnswer:
+        showFreeform && trimmedFreeformAnswer.length > 0 ? trimmedFreeformAnswer : null,
     });
   };
 

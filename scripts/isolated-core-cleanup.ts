@@ -54,10 +54,7 @@ export interface IsolatedCoreCleanupDependencies {
   readonly readRuntimeGeneration: (nodexHome: string) => RuntimeGeneration;
 }
 
-const isFileSystemError = (
-  error: unknown,
-  code: string,
-): error is NodeJS.ErrnoException =>
+const isFileSystemError = (error: unknown, code: string): error is NodeJS.ErrnoException =>
   error instanceof Error && "code" in error && error.code === code;
 
 const runtimeEntryPaths = (nodexHome: string) => {
@@ -109,9 +106,7 @@ const isPidAlive = (pid: number): boolean => {
   }
 };
 
-const runtimeGenerationFromDescriptor = (
-  descriptor: CoreRuntimeDescriptor,
-): RuntimeGeneration => ({
+const runtimeGenerationFromDescriptor = (descriptor: CoreRuntimeDescriptor): RuntimeGeneration => ({
   artifact_sha256: descriptor.artifact.sha256,
   manifest_digest: descriptor.manifest_digest,
   pid: descriptor.pid,
@@ -122,13 +117,13 @@ const runtimeGenerationFromDescriptor = (
 });
 
 const sameGeneration = (left: RuntimeGeneration, right: RuntimeGeneration): boolean =>
-  left.artifact_sha256 === right.artifact_sha256
-  && left.manifest_digest === right.manifest_digest
-  && left.pid === right.pid
-  && left.profile_id === right.profile_id
-  && left.readiness_generation === right.readiness_generation
-  && left.start_nonce === right.start_nonce
-  && left.store_epoch === right.store_epoch;
+  left.artifact_sha256 === right.artifact_sha256 &&
+  left.manifest_digest === right.manifest_digest &&
+  left.pid === right.pid &&
+  left.profile_id === right.profile_id &&
+  left.readiness_generation === right.readiness_generation &&
+  left.start_nonce === right.start_nonce &&
+  left.store_epoch === right.store_epoch;
 
 const defaultDependencies: IsolatedCoreCleanupDependencies = {
   connectCore: (input) => CoreClient.connect(input),
@@ -137,9 +132,8 @@ const defaultDependencies: IsolatedCoreCleanupDependencies = {
   isPidAlive,
   now: Date.now,
   readClaim: readIsolatedRunClaim,
-  readRuntimeGeneration: (nodexHome) => runtimeGenerationFromDescriptor(
-    readCoreRuntimeConnection(nodexHome).descriptor,
-  ),
+  readRuntimeGeneration: (nodexHome) =>
+    runtimeGenerationFromDescriptor(readCoreRuntimeConnection(nodexHome).descriptor),
 };
 
 const cleanupFailure = (
@@ -197,8 +191,7 @@ export async function cleanupIsolatedCore(input: {
         `Core rejected isolated shutdown with status ${shutdown.status}`,
       );
     }
-    const deadline = dependencies.now()
-      + (input.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS);
+    const deadline = dependencies.now() + (input.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS);
     while (true) {
       const currentEvidence = dependencies.inspectRuntimeEvidence(input.nodexHome);
       if (currentEvidence === "none" && !dependencies.isPidAlive(generation.pid)) {
@@ -207,10 +200,7 @@ export async function cleanupIsolatedCore(input: {
       }
       if (currentEvidence === "complete") {
         try {
-          if (!sameGeneration(
-            dependencies.readRuntimeGeneration(input.nodexHome),
-            generation,
-          )) {
+          if (!sameGeneration(dependencies.readRuntimeGeneration(input.nodexHome), generation)) {
             return cleanupFailure(
               "generation_changed",
               "Core runtime generation changed during isolated shutdown",

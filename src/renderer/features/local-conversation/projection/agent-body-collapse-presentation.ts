@@ -10,8 +10,10 @@ function isCollapsePersistentUnit(unit: ThreadAgentRenderUnit): boolean {
   if (unit.kind !== "entry" || unit.block.type !== "userMessage") return false;
 
   const steeringStatus = unit.block.entry.steeringStatus;
-  return (steeringStatus !== undefined && steeringStatus !== null)
-    || unit.block.entry.hookFeedback === true;
+  return (
+    (steeringStatus !== undefined && steeringStatus !== null) ||
+    unit.block.entry.hookFeedback === true
+  );
 }
 
 /**

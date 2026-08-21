@@ -64,9 +64,11 @@ describe("GeneratedImageRail", () => {
     await act(async () => {
       fireEvent.wheel(rail, { deltaMode: 0, deltaY: -108 });
     });
-    await waitFor(() => expect(
-      view.getByRole("button", { name: "Generated image 1" }).getAttribute("aria-current"),
-    ).toBe("true"));
+    await waitFor(() =>
+      expect(
+        view.getByRole("button", { name: "Generated image 1" }).getAttribute("aria-current"),
+      ).toBe("true"),
+    );
     expect(scrollTo).toHaveBeenCalled();
   });
 });

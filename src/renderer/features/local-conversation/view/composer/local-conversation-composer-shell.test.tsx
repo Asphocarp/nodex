@@ -7,9 +7,7 @@ import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import { render, settleAsyncRender, textContent } from "../../../../test/dom";
 import { installWindowApi } from "@/test/browser-globals";
 import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
-import {
-  useAutoReviewApprovalNudgeActions,
-} from "../../auto-review-approval-nudge-state";
+import { useAutoReviewApprovalNudgeActions } from "../../auto-review-approval-nudge-state";
 import {
   buildThreadStageStorySurfaceModels,
   buildThreadStageStoryScenario,
@@ -47,7 +45,8 @@ function buildThreadGoal(
 ): ThreadGoal {
   return {
     threadId,
-    objective: "Finish goal parity with the Codex Electron resume prompt and keep the thread moving while idle.",
+    objective:
+      "Finish goal parity with the Codex Electron resume prompt and keep the thread moving while idle.",
     status,
     tokenBudget: null,
     tokensUsed: 42,
@@ -97,35 +96,37 @@ function buildComposerShellModelWithGoalResumeConfirmation(status: ThreadGoal["s
 
 function buildActions(overrides?: Partial<ThreadStageActions>): ThreadStageActions {
   return {
-    onCollaborationModeChange: () => { },
-    onModelChange: () => { },
-    onReasoningEffortChange: () => { },
-    onPermissionModeChange: () => { },
-    onQueueingEnabledChange: () => { },
-    onSendPrompt: async () => { },
-    onSteerPrompt: async () => { },
-    onInterruptTurn: async () => { },
-    onRespondApproval: async () => { },
-    onRespondUserInput: async () => { },
-    onRespondMcpElicitation: async () => { },
-    onResolvePlanImplementationRequest: async () => { },
-    onEnqueueQueuedFollowUp: async () => { },
-    onRemoveQueuedFollowUp: async () => { },
-    onReorderQueuedFollowUps: async () => { },
-    onSendQueuedFollowUpNow: async () => { },
-    onEditQueuedFollowUp: async () => { },
-    onEditLastUserTurn: async () => { },
-    onForkFromTurn: async () => { },
-    onUnarchiveThread: async () => { },
-    onOpenTurnDiffReview: () => { },
-    onConsumeComposerIntent: () => { },
-    onOpenThread: () => { },
-    onCleanBackgroundTerminals: async () => { },
+    onCollaborationModeChange: () => {},
+    onModelChange: () => {},
+    onReasoningEffortChange: () => {},
+    onPermissionModeChange: () => {},
+    onQueueingEnabledChange: () => {},
+    onSendPrompt: async () => {},
+    onSteerPrompt: async () => {},
+    onInterruptTurn: async () => {},
+    onRespondApproval: async () => {},
+    onRespondUserInput: async () => {},
+    onRespondMcpElicitation: async () => {},
+    onResolvePlanImplementationRequest: async () => {},
+    onEnqueueQueuedFollowUp: async () => {},
+    onRemoveQueuedFollowUp: async () => {},
+    onReorderQueuedFollowUps: async () => {},
+    onSendQueuedFollowUpNow: async () => {},
+    onEditQueuedFollowUp: async () => {},
+    onEditLastUserTurn: async () => {},
+    onForkFromTurn: async () => {},
+    onUnarchiveThread: async () => {},
+    onOpenTurnDiffReview: () => {},
+    onConsumeComposerIntent: () => {},
+    onOpenThread: () => {},
+    onCleanBackgroundTerminals: async () => {},
     ...overrides,
   };
 }
 
-function installComposerShellWindowApi(testInvoke?: (channel: string, ...args: unknown[]) => Promise<unknown>): void {
+function installComposerShellWindowApi(
+  testInvoke?: (channel: string, ...args: unknown[]) => Promise<unknown>,
+): void {
   let persistedRevision = 0;
   const persistedValues: Record<string, unknown> = {};
   installWindowApi({
@@ -171,7 +172,7 @@ function installComposerShellWindowApi(testInvoke?: (channel: string, ...args: u
           return null;
       }
     },
-    on: () => () => { },
+    on: () => () => {},
   });
 }
 
@@ -195,7 +196,7 @@ function renderComposerShell(
                 model={model}
                 actions={actions}
                 errorMessage={null}
-                onErrorMessage={() => { }}
+                onErrorMessage={() => {}}
               />
             </div>
           </TooltipProvider>
@@ -227,12 +228,42 @@ describe("LocalConversationComposerShell", () => {
 
   test("resolves the exact composer replacement owner precedence", () => {
     const cases = [
-      { threadId: null, hasAutoReviewNudge: true, isResponseInProgress: false, hasRequestCards: true },
-      { threadId: "thread_1", hasAutoReviewNudge: false, isResponseInProgress: false, hasRequestCards: false },
-      { threadId: "thread_1", hasAutoReviewNudge: false, isResponseInProgress: false, hasRequestCards: true },
-      { threadId: "thread_1", hasAutoReviewNudge: true, isResponseInProgress: false, hasRequestCards: true },
-      { threadId: "thread_1", hasAutoReviewNudge: true, isResponseInProgress: true, hasRequestCards: true },
-      { threadId: "thread_1", hasAutoReviewNudge: true, isResponseInProgress: true, hasRequestCards: false },
+      {
+        threadId: null,
+        hasAutoReviewNudge: true,
+        isResponseInProgress: false,
+        hasRequestCards: true,
+      },
+      {
+        threadId: "thread_1",
+        hasAutoReviewNudge: false,
+        isResponseInProgress: false,
+        hasRequestCards: false,
+      },
+      {
+        threadId: "thread_1",
+        hasAutoReviewNudge: false,
+        isResponseInProgress: false,
+        hasRequestCards: true,
+      },
+      {
+        threadId: "thread_1",
+        hasAutoReviewNudge: true,
+        isResponseInProgress: false,
+        hasRequestCards: true,
+      },
+      {
+        threadId: "thread_1",
+        hasAutoReviewNudge: true,
+        isResponseInProgress: true,
+        hasRequestCards: true,
+      },
+      {
+        threadId: "thread_1",
+        hasAutoReviewNudge: true,
+        isResponseInProgress: true,
+        hasRequestCards: false,
+      },
     ];
 
     expect(cases.map(resolveComposerReplacementOwner).join(",")).toBe(
@@ -254,33 +285,30 @@ describe("LocalConversationComposerShell", () => {
     const projected = cases.map(([preset, expected]) => {
       const controls: ThreadStageStoryControls = { ...STORY_CONTROLS, preset };
       const scenario = buildThreadStageStoryScenario(controls);
-      const request = buildThreadStageStorySurfaceModels(
-        scenario,
-        controls,
-        scenario.runtime,
-      ).footerModel.composerShell.activeRequest?.request;
-      const actual = request?.type === "approval"
-        ? `${request.type}:${request.kind}`
-        : request?.type === "userInput" && request.isOnboardingDynamicInput
-          ? `${request.type}:onboarding`
-          : request?.type === "setupCodexStep"
-            ? `${request.type}:${request.step}`
-            : request?.type;
+      const request = buildThreadStageStorySurfaceModels(scenario, controls, scenario.runtime)
+        .footerModel.composerShell.activeRequest?.request;
+      const actual =
+        request?.type === "approval"
+          ? `${request.type}:${request.kind}`
+          : request?.type === "userInput" && request.isOnboardingDynamicInput
+            ? `${request.type}:onboarding`
+            : request?.type === "setupCodexStep"
+              ? `${request.type}:${request.step}`
+              : request?.type;
       return `${expected}=${actual ?? "missing"}`;
     });
 
-    expect(projected.join(",")).toBe(cases.map(([, expected]) => `${expected}=${expected}`).join(","));
+    expect(projected.join(",")).toBe(
+      cases.map(([, expected]) => `${expected}=${expected}`).join(","),
+    );
 
     const controls: ThreadStageStoryControls = {
       ...STORY_CONTROLS,
       preset: "background-permission-option",
     };
     const scenario = buildThreadStageStoryScenario(controls);
-    const shell = buildThreadStageStorySurfaceModels(
-      scenario,
-      controls,
-      scenario.runtime,
-    ).footerModel.composerShell;
+    const shell = buildThreadStageStorySurfaceModels(scenario, controls, scenario.runtime)
+      .footerModel.composerShell;
     expect(shell.backgroundRequest?.request.type).toBe("permissionRequest");
     expect(shell.activeRequest?.request.type).toBe("optionPicker");
   });
@@ -297,7 +325,9 @@ describe("LocalConversationComposerShell", () => {
     const queue = container.querySelector<HTMLElement>("[data-above-composer-queue-portal]");
 
     expect(primary?.id ?? "").toBe("above-composer-portal");
-    expect(primary?.getAttribute("data-above-composer-conversation-id") ?? "").toBe("thread-portal");
+    expect(primary?.getAttribute("data-above-composer-conversation-id") ?? "").toBe(
+      "thread-portal",
+    );
     expect(queue?.id ?? "").toBe("above-composer-queue-portal");
     expect(queue?.getAttribute("data-above-composer-conversation-id") ?? "").toBe("thread-portal");
   });
@@ -309,8 +339,12 @@ describe("LocalConversationComposerShell", () => {
     await settleAsyncRender();
 
     const renderedText = textContent(document.body);
-    expect(Boolean(renderedText.includes("Keep the stage stories on the real projection path."))).toBe(false);
-    expect(Boolean(renderedText.includes("Run final validation once the stories are in place."))).toBe(true);
+    expect(
+      Boolean(renderedText.includes("Keep the stage stories on the real projection path.")),
+    ).toBe(false);
+    expect(
+      Boolean(renderedText.includes("Run final validation once the stories are in place.")),
+    ).toBe(true);
     expect(Boolean(renderedText.includes("Running 1 terminal"))).toBe(true);
     expect(Boolean(renderedText.includes("1 active requests"))).toBe(false);
     expect(Boolean(renderedText.includes("1 working"))).toBe(true);
@@ -321,9 +355,17 @@ describe("LocalConversationComposerShell", () => {
     const activeReason = view.getByText(
       "Foreground thread wants to run lint before Storybook build.",
     );
-    expect(view.getAllByText("Background child wants to run the isolated request-card tests.").length).toBe(1);
-    expect(view.getAllByText("Foreground thread wants to run lint before Storybook build.").length).toBe(1);
-    expect(Boolean(backgroundReason.compareDocumentPosition(activeReason) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(
+      view.getAllByText("Background child wants to run the isolated request-card tests.").length,
+    ).toBe(1);
+    expect(
+      view.getAllByText("Foreground thread wants to run lint before Storybook build.").length,
+    ).toBe(1);
+    expect(
+      Boolean(
+        backgroundReason.compareDocumentPosition(activeReason) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
 
     const lowerStatusRow = view.container.querySelector('[data-composer-lower-status-row="true"]');
     expect(lowerStatusRow === null).toBe(true);
@@ -347,14 +389,19 @@ describe("LocalConversationComposerShell", () => {
       controls,
       scenario.runtime,
     ).footerModel;
-    const view = renderComposerShell(model, buildActions({
-      onIntelligenceSelectionChange: async () => {},
-    }));
+    const view = renderComposerShell(
+      model,
+      buildActions({
+        onIntelligenceSelectionChange: async () => {},
+      }),
+    );
     await settleAsyncRender();
 
     expect(view.getByText("Implement this plan?") !== null).toBe(true);
     expect(view.getAllByLabelText("Select model")).toHaveLength(1);
-    expect(view.container.querySelector('[data-implement-plan-intelligence-footer="true"]')).not.toBeNull();
+    expect(
+      view.container.querySelector('[data-implement-plan-intelligence-footer="true"]'),
+    ).not.toBeNull();
     expect(view.queryByLabelText("Add files and more")).toBeNull();
     expect(view.queryByLabelText("Permission mode")).toBeNull();
     expect(view.queryByLabelText(/Context window/)).toBeNull();
@@ -381,9 +428,17 @@ describe("LocalConversationComposerShell", () => {
     await settleAsyncRender();
 
     expect(view.getByText("Want fewer approval prompts?") !== null).toBe(true);
-    expect(view.queryByText("Background child wants to run the isolated request-card tests.") === null).toBe(true);
-    expect(view.queryByText("Foreground thread wants to run lint before Storybook build.") === null).toBe(true);
-    expect(Boolean(textContent(document.body).includes("Run final validation once the stories are in place."))).toBe(true);
+    expect(
+      view.queryByText("Background child wants to run the isolated request-card tests.") === null,
+    ).toBe(true);
+    expect(
+      view.queryByText("Foreground thread wants to run lint before Storybook build.") === null,
+    ).toBe(true);
+    expect(
+      Boolean(
+        textContent(document.body).includes("Run final validation once the stories are in place."),
+      ),
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: /Approve for me/ }));
@@ -392,8 +447,12 @@ describe("LocalConversationComposerShell", () => {
     await settleAsyncRender();
 
     expect(changedModes.join(",")).toBe("guardian-approvals");
-    expect(view.getByText("Background child wants to run the isolated request-card tests.") !== null).toBe(true);
-    expect(view.getByText("Foreground thread wants to run lint before Storybook build.") !== null).toBe(true);
+    expect(
+      view.getByText("Background child wants to run the isolated request-card tests.") !== null,
+    ).toBe(true);
+    expect(
+      view.getByText("Foreground thread wants to run lint before Storybook build.") !== null,
+    ).toBe(true);
   });
 
   test("restores the normal composer after every request surface clears", async () => {
@@ -416,7 +475,9 @@ describe("LocalConversationComposerShell", () => {
     expect(view.getByLabelText("Add files and more") !== null).toBe(true);
     expect(view.getByLabelText("Permission mode") !== null).toBe(true);
     expect(view.getByLabelText("Select model") !== null).toBe(true);
-    expect(view.queryByText("Foreground thread wants to run lint before Storybook build.") === null).toBe(true);
+    expect(
+      view.queryByText("Foreground thread wants to run lint before Storybook build.") === null,
+    ).toBe(true);
   });
 
   test("opens legacy composer background agents with subagent context", async () => {
@@ -502,7 +563,9 @@ describe("LocalConversationComposerShell", () => {
     await settleAsyncRender();
 
     expect(Boolean(textContent(document.body).includes("(@ to tag agents)"))).toBe(false);
-    expect(view.container.querySelector('[data-subagent-avatar-seed="thread_child"]') !== null).toBe(true);
+    expect(
+      view.container.querySelector('[data-subagent-avatar-seed="thread_child"]') !== null,
+    ).toBe(true);
     const renderedText = textContent(document.body);
     expect(Boolean(renderedText.includes("Scout"))).toBe(true);
     expect(Boolean(renderedText.includes("is working"))).toBe(true);
@@ -520,19 +583,21 @@ describe("LocalConversationComposerShell", () => {
       await Promise.resolve();
     });
 
-    const call = openCalls[0] as {
-      threadId?: string;
-      context?: {
-        subagent?: {
-          conversationId?: string;
-          displayName?: string;
-          agentRole?: string | null;
-          spawnModel?: string | null;
-          statusSummary?: string | null;
-          diffStats?: { linesAdded?: number; linesRemoved?: number } | null;
-        };
-      };
-    } | undefined;
+    const call = openCalls[0] as
+      | {
+          threadId?: string;
+          context?: {
+            subagent?: {
+              conversationId?: string;
+              displayName?: string;
+              agentRole?: string | null;
+              spawnModel?: string | null;
+              statusSummary?: string | null;
+              diffStats?: { linesAdded?: number; linesRemoved?: number } | null;
+            };
+          };
+        }
+      | undefined;
     expect(openCalls.length).toBe(1);
     expect(call?.threadId).toBe("thread_child");
     expect(call?.context?.subagent?.conversationId).toBe("thread_child");
@@ -540,23 +605,40 @@ describe("LocalConversationComposerShell", () => {
     expect(call?.context?.subagent?.agentRole).toBe("explorer");
     expect(call?.context?.subagent?.spawnModel).toBe("gpt-5.3-codex");
     expect(call?.context?.subagent?.statusSummary).toBe("checking files");
-    expect(`${call?.context?.subagent?.diffStats?.linesAdded ?? -1}:${call?.context?.subagent?.diffStats?.linesRemoved ?? -1}`).toBe("2:1");
+    expect(
+      `${call?.context?.subagent?.diffStats?.linesAdded ?? -1}:${call?.context?.subagent?.diffStats?.linesRemoved ?? -1}`,
+    ).toBe("2:1");
   });
 
   test("renders paused goal resume confirmation and dismisses it", async () => {
     installComposerShellWindowApi();
     const model = buildComposerShellModelWithGoalResumeConfirmation("paused");
     const dismissCalls: string[] = [];
-    const view = renderComposerShell(model, buildActions({
-      onDismissThreadGoalResumeConfirmation: async (threadId) => {
-        dismissCalls.push(threadId);
-      },
-    }));
+    const view = renderComposerShell(
+      model,
+      buildActions({
+        onDismissThreadGoalResumeConfirmation: async (threadId) => {
+          dismissCalls.push(threadId);
+        },
+      }),
+    );
     await settleAsyncRender();
 
     expect(Boolean(textContent(document.body).includes("Resume paused goal?"))).toBe(true);
-    expect(Boolean(textContent(document.body).includes("Nodex will keep working toward this goal when the thread is idle"))).toBe(true);
-    expect(Boolean(textContent(document.body).includes("Finish goal parity with the Codex Electron resume prompt"))).toBe(true);
+    expect(
+      Boolean(
+        textContent(document.body).includes(
+          "Nodex will keep working toward this goal when the thread is idle",
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      Boolean(
+        textContent(document.body).includes(
+          "Finish goal parity with the Codex Electron resume prompt",
+        ),
+      ),
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Keep paused" }));
@@ -571,13 +653,16 @@ describe("LocalConversationComposerShell", () => {
     installComposerShellWindowApi();
     const model = buildComposerShellModelWithGoalResumeConfirmation("blocked");
     const setGoalCalls: unknown[] = [];
-    const view = renderComposerShell(model, buildActions({
-      onDismissThreadGoalResumeConfirmation: async () => { },
-      onSetThreadGoal: async (input) => {
-        setGoalCalls.push(input);
-        return null;
-      },
-    }));
+    const view = renderComposerShell(
+      model,
+      buildActions({
+        onDismissThreadGoalResumeConfirmation: async () => {},
+        onSetThreadGoal: async (input) => {
+          setGoalCalls.push(input);
+          return null;
+        },
+      }),
+    );
     await settleAsyncRender();
 
     expect(Boolean(textContent(document.body).includes("Resume goal?"))).toBe(true);
@@ -593,7 +678,9 @@ describe("LocalConversationComposerShell", () => {
       await Promise.resolve();
     });
 
-    const call = setGoalCalls[0] as { threadId?: string; status?: string; objective?: unknown } | undefined;
+    const call = setGoalCalls[0] as
+      | { threadId?: string; status?: string; objective?: unknown }
+      | undefined;
     expect(setGoalCalls.length).toBe(1);
     expect(call?.threadId).toBe(model.threadId);
     expect(call?.status).toBe("active");
@@ -612,12 +699,12 @@ describe("LocalConversationComposerShell", () => {
       model,
       buildActions({
         onSetThreadGoal: async () => null,
-        onClearThreadGoal: async () => { },
+        onClearThreadGoal: async () => {},
       }),
     );
     await settleAsyncRender();
 
-    const row = view.container.querySelector<HTMLElement>("[data-thread-goal-status-row=\"true\"]");
+    const row = view.container.querySelector<HTMLElement>('[data-thread-goal-status-row="true"]');
     if (!row) {
       throw new Error("Expected saved goal status row to render");
     }
@@ -641,7 +728,7 @@ describe("LocalConversationComposerShell", () => {
     const view = renderComposerShell(model);
     await settleAsyncRender();
 
-    const row = view.container.querySelector<HTMLElement>("[data-thread-goal-status-row=\"true\"]");
+    const row = view.container.querySelector<HTMLElement>('[data-thread-goal-status-row="true"]');
     if (!row) {
       throw new Error("Expected saved goal status row to render");
     }
@@ -760,7 +847,9 @@ describe("LocalConversationComposerShell", () => {
     const view = renderComposerShell(model);
     await settleAsyncRender();
 
-    expect(view.container.querySelector("[data-thread-goal-status-row=\"true\"]") === null).toBe(true);
+    expect(view.container.querySelector('[data-thread-goal-status-row="true"]') === null).toBe(
+      true,
+    );
     expect(view.queryByText("Goal achieved") === null).toBe(true);
   });
 });

@@ -42,18 +42,19 @@ describe("Relation candidate runtime", () => {
   );
 
   test("trims a filtered continuation without changing its cursor", () => {
-    expect(buildDataSourceRelationCandidateRead({
-      property,
-      query: "  Ｂlocked  ",
-      after: "opaque-cursor",
-    })).toMatchObject({
+    expect(
+      buildDataSourceRelationCandidateRead({
+        property,
+        query: "  Ｂlocked  ",
+        after: "opaque-cursor",
+      }),
+    ).toMatchObject({
       query: "Ｂlocked",
       window: { after: "opaque-cursor", first: 100 },
     });
   });
 
   test("matches Core's ASCII fold while preserving non-ASCII code points", () => {
-    expect(foldDataSourceRelationSearchText("ÄBC Б Ｂ"))
-      .toBe("Äbc Б Ｂ");
+    expect(foldDataSourceRelationSearchText("ÄBC Б Ｂ")).toBe("Äbc Б Ｂ");
   });
 });

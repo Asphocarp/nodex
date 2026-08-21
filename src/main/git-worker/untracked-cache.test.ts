@@ -36,9 +36,11 @@ class RecordingRunner implements GitCommandRunner {
 }
 
 afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map(async (directory) => {
-    await rm(directory, { force: true, recursive: true });
-  }));
+  await Promise.all(
+    temporaryDirectories.splice(0).map(async (directory) => {
+      await rm(directory, { force: true, recursive: true });
+    }),
+  );
 });
 
 async function createRepository(): Promise<string> {
@@ -69,8 +71,9 @@ describe("UntrackedPathCache", () => {
       paths: ["nested/first.txt", "nested/second.txt"],
       omittedCount: 0,
     });
-    const unscopedStatus = runner.commands.filter((args) =>
-      args[0] === "status" && !args.includes("--"));
+    const unscopedStatus = runner.commands.filter(
+      (args) => args[0] === "status" && !args.includes("--"),
+    );
     expect(unscopedStatus).toHaveLength(1);
     expect(unscopedStatus[0]).toContain("--untracked-files=normal");
     expect(unscopedStatus[0]).not.toContain("--untracked-files=all");
@@ -89,15 +92,17 @@ describe("UntrackedPathCache", () => {
     await writeFile(secondPath, "second\n", "utf8");
 
     const invalidation = await repository.untrackedPaths.invalidatePaths([secondPath]);
-    const scopedStatus = runner.results.find(({ args }) =>
-      args[0] === "status" && args.includes("--untracked-files=all"));
+    const scopedStatus = runner.results.find(
+      ({ args }) => args[0] === "status" && args.includes("--untracked-files=all"),
+    );
     expect(scopedStatus?.result).toMatchObject({ success: true, code: 0 });
     expect(invalidation).toBe("filtered");
     const result = await repository.untrackedPaths.read();
 
     expect(result.paths).toEqual(["first.txt", "second.txt"]);
-    const allStatus = runner.commands.filter((args) =>
-      args[0] === "status" && args.includes("--untracked-files=all"));
+    const allStatus = runner.commands.filter(
+      (args) => args[0] === "status" && args.includes("--untracked-files=all"),
+    );
     expect(allStatus).toHaveLength(1);
     expect(allStatus[0]).toContain("--");
     registry.dispose();
@@ -106,13 +111,15 @@ describe("UntrackedPathCache", () => {
   it("caps materialized files while preserving the omitted count", async () => {
     const root = await createRepository();
     await mkdir(path.join(root, "large"));
-    await Promise.all(Array.from({ length: 260 }, async (_, index) => {
-      await writeFile(
-        path.join(root, "large", `${String(index).padStart(3, "0")}.txt`),
-        `${String(index)}\n`,
-        "utf8",
-      );
-    }));
+    await Promise.all(
+      Array.from({ length: 260 }, async (_, index) => {
+        await writeFile(
+          path.join(root, "large", `${String(index).padStart(3, "0")}.txt`),
+          `${String(index)}\n`,
+          "utf8",
+        );
+      }),
+    );
     const registry = new GitRepositoryRegistry(new LocalGitCommandRunner());
     const repository = await registry.get(root);
     if (!repository) throw new Error("Expected Git repository");

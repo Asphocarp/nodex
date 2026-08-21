@@ -60,7 +60,9 @@ export interface CodexScheduledAutomationScheduler {
   dispose: () => void;
   tick: () => Promise<void>;
   setHeartbeatAutomationsEnabled: (enabled: boolean) => void;
-  setHeartbeatThreadRendererState: (input: CodexScheduledAutomationHeartbeatThreadStateInput) => void;
+  setHeartbeatThreadRendererState: (
+    input: CodexScheduledAutomationHeartbeatThreadStateInput,
+  ) => void;
 }
 
 interface SchedulerLogger {
@@ -82,22 +84,18 @@ export interface StartCodexScheduledAutomationSchedulerOptions {
     automation: CodexScheduledAutomation,
     context: CodexScheduledAutomationRunContext,
   ) => Promise<void>;
-  claimDueAutomations: (
-    limit: number,
-  ) => Promise<readonly CodexScheduledAutomationClaim[]>;
+  claimDueAutomations: (limit: number) => Promise<readonly CodexScheduledAutomationClaim[]>;
   completeClaim: (leaseId: string) => Promise<void>;
-  failClaim: (
-    leaseId: string,
-    retryDelayMs: number | null,
-    reasonCode: string,
-  ) => Promise<void>;
-  settleInterruptedRuns: () => {
-    archivedPendingCount: number;
-    pendingReviewCount: number;
-  } | Promise<{
-    archivedPendingCount: number;
-    pendingReviewCount: number;
-  }>;
+  failClaim: (leaseId: string, retryDelayMs: number | null, reasonCode: string) => Promise<void>;
+  settleInterruptedRuns: () =>
+    | {
+        archivedPendingCount: number;
+        pendingReviewCount: number;
+      }
+    | Promise<{
+        archivedPendingCount: number;
+        pendingReviewCount: number;
+      }>;
   onAutomationRunsUpdated?: () => void;
   setIntervalImpl?: (callback: () => void, ms: number) => SchedulerTimer;
   clearIntervalImpl?: (timer: SchedulerTimer) => void;
@@ -107,8 +105,14 @@ export interface StartCodexScheduledAutomationSchedulerOptions {
 export function startCodexScheduledAutomationScheduler(
   options: StartCodexScheduledAutomationSchedulerOptions,
 ): CodexScheduledAutomationScheduler {
-  const intervalMs = Math.max(5_000, options.intervalMs ?? CODEX_SCHEDULED_AUTOMATION_SCHEDULER_INTERVAL_MS);
-  const maxPerTick = Math.max(1, options.maxPerTick ?? CODEX_SCHEDULED_AUTOMATION_SCHEDULER_MAX_PER_TICK);
+  const intervalMs = Math.max(
+    5_000,
+    options.intervalMs ?? CODEX_SCHEDULED_AUTOMATION_SCHEDULER_INTERVAL_MS,
+  );
+  const maxPerTick = Math.max(
+    1,
+    options.maxPerTick ?? CODEX_SCHEDULED_AUTOMATION_SCHEDULER_MAX_PER_TICK,
+  );
   const now = options.now ?? Date.now;
   const logger = options.logger ?? getLogger({ subsystem: "codex-scheduled-automations" });
   const setIntervalImpl = options.setIntervalImpl ?? ((callback, ms) => setInterval(callback, ms));
@@ -117,8 +121,14 @@ export function startCodexScheduledAutomationScheduler(
   let disposed = false;
   let running = false;
   let heartbeatAutomationsEnabled = false;
-  const heartbeatThreadRendererStates = new Map<string, CodexScheduledAutomationHeartbeatRendererState>();
-  const heartbeatThreadCollaborationModes = new Map<string, CodexHeartbeatAutomationCollaborationMode>();
+  const heartbeatThreadRendererStates = new Map<
+    string,
+    CodexScheduledAutomationHeartbeatRendererState
+  >();
+  const heartbeatThreadCollaborationModes = new Map<
+    string,
+    CodexHeartbeatAutomationCollaborationMode
+  >();
   const heartbeatThreadPermissions = new Map<string, CodexHeartbeatAutomationPermissions>();
 
   logger.info("Starting scheduled automation scheduler", { intervalMs, maxPerTick });
@@ -154,15 +164,9 @@ export function startCodexScheduledAutomationScheduler(
     });
   };
 
-  const runClaim = async (
-    claim: CodexScheduledAutomationClaim,
-    tickNow: number,
-  ): Promise<void> => {
+  const runClaim = async (claim: CodexScheduledAutomationClaim, tickNow: number): Promise<void> => {
     if (!canStartCoreWork()) {
-      await deferClaim(
-        claim,
-        disposed ? "scheduler_stopped" : "core_authority_unavailable",
-      );
+      await deferClaim(claim, disposed ? "scheduler_stopped" : "core_authority_unavailable");
       return;
     }
     try {
@@ -185,19 +189,19 @@ export function startCodexScheduledAutomationScheduler(
       });
       await options.completeClaim(claim.leaseId);
     } catch (error) {
-      const retry = error instanceof CodexScheduledAutomationRetryError
-        ? error
-        : null;
-      await options.failClaim(
-        claim.leaseId,
-        retry?.retryDelayMs ?? null,
-        retry?.reasonCode ?? "execution_failed",
-      ).catch((settlementError) => {
-        logger.warn("Scheduled automation lease settlement failed", {
-          automationId: claim.definition.id,
-          error: settlementError,
+      const retry = error instanceof CodexScheduledAutomationRetryError ? error : null;
+      await options
+        .failClaim(
+          claim.leaseId,
+          retry?.retryDelayMs ?? null,
+          retry?.reasonCode ?? "execution_failed",
+        )
+        .catch((settlementError) => {
+          logger.warn("Scheduled automation lease settlement failed", {
+            automationId: claim.definition.id,
+            error: settlementError,
+          });
         });
-      });
       if (retry?.reasonCode === "heartbeat_disabled") {
         logger.debug("Scheduled heartbeat deferred while disabled", {
           automationId: claim.definition.id,
@@ -223,10 +227,11 @@ export function startCodexScheduledAutomationScheduler(
       if (!canStartCoreWork()) return;
       const claims = await options.claimDueAutomations(maxPerTick);
       if (!canStartCoreWork()) {
-        await Promise.all(claims.map((claim) => deferClaim(
-          claim,
-          disposed ? "scheduler_stopped" : "core_authority_unavailable",
-        )));
+        await Promise.all(
+          claims.map((claim) =>
+            deferClaim(claim, disposed ? "scheduler_stopped" : "core_authority_unavailable"),
+          ),
+        );
         return;
       }
       await Promise.all(claims.map((claim) => runClaim(claim, tickNow)));
@@ -269,9 +274,8 @@ export function startCodexScheduledAutomationScheduler(
       heartbeatThreadRendererStates.set(threadId, {
         rendererClientId: input.rendererClientId,
         isEligible: input.streamRole === "owner" && input.isEligible,
-        reason: input.streamRole === "owner"
-          ? input.reason?.trim() || null
-          : "not_conversation_owner",
+        reason:
+          input.streamRole === "owner" ? input.reason?.trim() || null : "not_conversation_owner",
         updatedAtMs: now(),
       });
 

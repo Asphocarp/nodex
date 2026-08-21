@@ -105,10 +105,12 @@ export const releaseAssetPaths = (bundlePath: string): readonly string[] => {
 };
 
 const expectedLocalAssets = (bundlePath: string): ReadonlyMap<string, ReleaseAssetIdentity> =>
-  new Map(releaseAssetPaths(bundlePath).map((filePath) => [
-    basename(filePath),
-    { bytes: lstatSync(filePath).size, sha256: sha256File(filePath) },
-  ]));
+  new Map(
+    releaseAssetPaths(bundlePath).map((filePath) => [
+      basename(filePath),
+      { bytes: lstatSync(filePath).size, sha256: sha256File(filePath) },
+    ]),
+  );
 
 export const remoteReleaseAssetIdentities = (
   bundlePath: string,
@@ -116,10 +118,9 @@ export const remoteReleaseAssetIdentities = (
   const { bundle, resolvedBundle } = readBundle(bundlePath);
   const checksumPath = verifyChecksumAllowlist(resolvedBundle, bundle);
   return new Map([
-    ...bundle.assets.map((asset) => [
-      asset.name,
-      { bytes: asset.bytes, sha256: asset.sha256 },
-    ] as const),
+    ...bundle.assets.map(
+      (asset) => [asset.name, { bytes: asset.bytes, sha256: asset.sha256 }] as const,
+    ),
     [
       basename(resolvedBundle),
       { bytes: lstatSync(resolvedBundle).size, sha256: sha256File(resolvedBundle) },
@@ -137,14 +138,17 @@ export function planPublication(
   expectedPrerelease: boolean,
 ): PublicationPlan {
   if (!release) return { kind: "create" };
-  if (release.prerelease !== expectedPrerelease) throw new Error("GitHub release channel does not match the Release Bundle.");
+  if (release.prerelease !== expectedPrerelease)
+    throw new Error("GitHub release channel does not match the Release Bundle.");
   const actualNames = new Set(release.assets.map((asset) => asset.name));
   for (const asset of release.assets) {
     const identity = expected.get(asset.name);
     if (!identity) throw new Error(`GitHub release contains an unexpected asset: ${asset.name}.`);
     const digest = asset.digest?.replace(/^sha256:/, "");
     if (asset.size !== identity.bytes || digest !== identity.sha256) {
-      throw new Error(`GitHub release asset ${asset.name} does not match the local Release Bundle.`);
+      throw new Error(
+        `GitHub release asset ${asset.name} does not match the local Release Bundle.`,
+      );
     }
   }
   const missingAssetNames = [...expected.keys()].filter((name) => !actualNames.has(name)).sort();
@@ -166,14 +170,23 @@ const readRelease = (repo: string, tag: string): GitHubRelease | null => {
 export function inspectNightlyRemoteCandidate(
   repo: string,
   identity: ReleaseIdentity,
-): { readonly decision: "publish" | "resume-draft" | "already-published"; readonly tagPlan: "create" | "reuse" } {
-  if (identity.channel !== "nightly") throw new Error("Nightly remote inspection requires a nightly identity.");
+): {
+  readonly decision: "publish" | "resume-draft" | "already-published";
+  readonly tagPlan: "create" | "reuse";
+} {
+  if (identity.channel !== "nightly")
+    throw new Error("Nightly remote inspection requires a nightly identity.");
   const reference = readTagReference(repo, identity.tag);
-  const tagPlan = planTag(reference ? resolveTagTargetSha(repo, reference) : null, identity.sourceSha);
+  const tagPlan = planTag(
+    reference ? resolveTagTargetSha(repo, reference) : null,
+    identity.sourceSha,
+  );
   const release = readRelease(repo, identity.tag);
   if (!release) return { decision: "publish", tagPlan };
-  if (tagPlan !== "reuse") throw new Error("Existing Nightly release has no exact immutable tag target.");
-  if (!release.prerelease) throw new Error("Nightly tag is attached to a non-prerelease GitHub Release.");
+  if (tagPlan !== "reuse")
+    throw new Error("Existing Nightly release has no exact immutable tag target.");
+  if (!release.prerelease)
+    throw new Error("Nightly tag is attached to a non-prerelease GitHub Release.");
   if (release.draft) return { decision: "resume-draft", tagPlan };
   if (release.immutable !== true) throw new Error("Published Nightly release is not immutable.");
   verifyPublishedReleaseIndex(repo, release, identity);
@@ -192,7 +205,17 @@ const verifyPublishedReleaseIndex = (
   const directory = mkdtempSync(join(tmpdir(), "nodex-nightly-candidate-"));
   try {
     for (const pattern of ["release-bundle.json", "SHA256SUMS"]) {
-      gh(["release", "download", identity.tag, "--repo", repo, "--pattern", pattern, "--dir", directory]);
+      gh([
+        "release",
+        "download",
+        identity.tag,
+        "--repo",
+        repo,
+        "--pattern",
+        pattern,
+        "--dir",
+        directory,
+      ]);
     }
     const bundlePath = join(directory, "release-bundle.json");
     const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(bundlePath, "utf8")));
@@ -215,7 +238,7 @@ interface GitReference {
 
 const readTagReference = (repo: string, tag: string): GitReference | null => {
   const response = gh(["api", `repos/${repo}/git/ref/tags/${tag}`], { allowFailure: true });
-  return response ? JSON.parse(response) as GitReference : null;
+  return response ? (JSON.parse(response) as GitReference) : null;
 };
 
 const resolveTagTargetSha = (repo: string, reference: GitReference): string => {
@@ -231,10 +254,13 @@ const resolveTagTargetSha = (repo: string, reference: GitReference): string => {
 };
 
 export function planTag(existingTargetSha: string | null, sourceSha: string): "create" | "reuse" {
-  if (!/^[a-f0-9]{40}$/u.test(sourceSha)) throw new Error("Release source SHA must be a full commit SHA.");
+  if (!/^[a-f0-9]{40}$/u.test(sourceSha))
+    throw new Error("Release source SHA must be a full commit SHA.");
   if (existingTargetSha === null) return "create";
   if (existingTargetSha !== sourceSha) {
-    throw new Error(`Release tag points to ${existingTargetSha}, expected ${sourceSha}; tags never move.`);
+    throw new Error(
+      `Release tag points to ${existingTargetSha}, expected ${sourceSha}; tags never move.`,
+    );
   }
   return "reuse";
 }
@@ -262,7 +288,9 @@ export function assertRemoteReleaseCandidate(options: {
   const otherTags = readStableTagNames(options.repo).filter((candidate) => candidate !== tag);
   const latestVersion = latestStableAppVersion(otherTags);
   if (tagPlan === "create" && latestVersion && compareStableVersions(version, latestVersion) <= 0) {
-    throw new Error(`Release ${version} must be newer than remote stable app version ${latestVersion}.`);
+    throw new Error(
+      `Release ${version} must be newer than remote stable app version ${latestVersion}.`,
+    );
   }
   return { tag, tagPlan };
 }
@@ -275,13 +303,14 @@ export function ensureGitHubReleaseTag(options: {
   releaseAssetPaths(bundlePath);
   const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(bundlePath, "utf8")));
   const reference = readTagReference(options.repo, bundle.tag);
-  const tagPlan = bundle.releaseIdentity.channel === "stable"
-    ? assertRemoteReleaseCandidate({
-        repo: options.repo,
-        sourceSha: bundle.sourceSha,
-        version: bundle.version,
-      }).tagPlan
-    : planTag(reference ? resolveTagTargetSha(options.repo, reference) : null, bundle.sourceSha);
+  const tagPlan =
+    bundle.releaseIdentity.channel === "stable"
+      ? assertRemoteReleaseCandidate({
+          repo: options.repo,
+          sourceSha: bundle.sourceSha,
+          version: bundle.version,
+        }).tagPlan
+      : planTag(reference ? resolveTagTargetSha(options.repo, reference) : null, bundle.sourceSha);
   if (tagPlan === "reuse") return "reuse";
   const annotation = [
     `Nodex ${bundle.tag}`,
@@ -289,21 +318,39 @@ export function ensureGitHubReleaseTag(options: {
     `Source: ${bundle.sourceSha}`,
     `Release-Bundle-SHA256: ${sha256File(bundlePath)}`,
   ].join("\n");
-  const tagObject = JSON.parse(gh([
-    "api", "--method", "POST", `repos/${options.repo}/git/tags`,
-    "-f", `tag=${bundle.tag}`,
-    "-f", `message=${annotation}`,
-    "-f", `object=${bundle.sourceSha}`,
-    "-f", "type=commit",
-    "-f", "tagger[name]=github-actions[bot]",
-    "-f", "tagger[email]=41898282+github-actions[bot]@users.noreply.github.com",
-    "-f", `tagger[date]=${new Date().toISOString()}`,
-  ])) as { readonly sha?: unknown };
-  if (typeof tagObject.sha !== "string") throw new Error("GitHub did not return an annotated tag object SHA.");
+  const tagObject = JSON.parse(
+    gh([
+      "api",
+      "--method",
+      "POST",
+      `repos/${options.repo}/git/tags`,
+      "-f",
+      `tag=${bundle.tag}`,
+      "-f",
+      `message=${annotation}`,
+      "-f",
+      `object=${bundle.sourceSha}`,
+      "-f",
+      "type=commit",
+      "-f",
+      "tagger[name]=github-actions[bot]",
+      "-f",
+      "tagger[email]=41898282+github-actions[bot]@users.noreply.github.com",
+      "-f",
+      `tagger[date]=${new Date().toISOString()}`,
+    ]),
+  ) as { readonly sha?: unknown };
+  if (typeof tagObject.sha !== "string")
+    throw new Error("GitHub did not return an annotated tag object SHA.");
   gh([
-    "api", "--method", "POST", `repos/${options.repo}/git/refs`,
-    "-f", `ref=refs/tags/${bundle.tag}`,
-    "-f", `sha=${tagObject.sha}`,
+    "api",
+    "--method",
+    "POST",
+    `repos/${options.repo}/git/refs`,
+    "-f",
+    `ref=refs/tags/${bundle.tag}`,
+    "-f",
+    `sha=${tagObject.sha}`,
   ]);
   const created = readTagReference(options.repo, bundle.tag);
   if (!created || resolveTagTargetSha(options.repo, created) !== bundle.sourceSha) {
@@ -323,40 +370,58 @@ export function publishGitHubRelease(options: {
   const release = readRelease(options.repo, bundle.tag);
   const prerelease = bundle.releaseIdentity.channel === "nightly";
   const plan = planPublication(release, expected, prerelease);
-  const filesByName = new Map(releaseAssetPaths(bundlePath).map((filePath) => [basename(filePath), filePath]));
+  const filesByName = new Map(
+    releaseAssetPaths(bundlePath).map((filePath) => [basename(filePath), filePath]),
+  );
 
   if (plan.kind === "create") {
     gh([
-      "release", "create", bundle.tag,
-      "--repo", options.repo,
+      "release",
+      "create",
+      bundle.tag,
+      "--repo",
+      options.repo,
       "--verify-tag",
       "--draft",
       ...(prerelease ? ["--prerelease"] : []),
-      "--title", `Nodex ${bundle.tag}`,
-      "--notes-file", resolve(options.notesPath),
+      "--title",
+      `Nodex ${bundle.tag}`,
+      "--notes-file",
+      resolve(options.notesPath),
     ]);
     gh(["release", "upload", bundle.tag, ...filesByName.values(), "--repo", options.repo]);
   }
   if (plan.kind === "resume-draft" || plan.kind === "create") {
-    const missingPaths = (plan.kind === "resume-draft" ? plan.missingAssetNames : []).map((name) => {
-      const filePath = filesByName.get(name);
-      if (!filePath) throw new Error(`Missing local recovery asset ${name}.`);
-      return filePath;
-    });
+    const missingPaths = (plan.kind === "resume-draft" ? plan.missingAssetNames : []).map(
+      (name) => {
+        const filePath = filesByName.get(name);
+        if (!filePath) throw new Error(`Missing local recovery asset ${name}.`);
+        return filePath;
+      },
+    );
     if (missingPaths.length > 0) {
       gh(["release", "upload", bundle.tag, ...missingPaths, "--repo", options.repo]);
     }
-    const completedDraft = planPublication(readRelease(options.repo, bundle.tag), expected, prerelease);
+    const completedDraft = planPublication(
+      readRelease(options.repo, bundle.tag),
+      expected,
+      prerelease,
+    );
     if (completedDraft.kind !== "resume-draft" || completedDraft.missingAssetNames.length > 0) {
       throw new Error("GitHub draft does not contain the exact verified Release Bundle assets.");
     }
     gh([
-      "release", "edit", bundle.tag,
-      "--repo", options.repo,
+      "release",
+      "edit",
+      bundle.tag,
+      "--repo",
+      options.repo,
       "--draft=false",
       ...(prerelease ? ["--prerelease"] : ["--latest"]),
-      "--title", `Nodex ${bundle.tag}`,
-      "--notes-file", resolve(options.notesPath),
+      "--title",
+      `Nodex ${bundle.tag}`,
+      "--notes-file",
+      resolve(options.notesPath),
     ]);
   }
   return plan;
@@ -373,7 +438,8 @@ export function verifyRemoteRelease(options: {
   const expected = remoteReleaseAssetIdentities(bundlePath);
   const prerelease = bundle.releaseIdentity.channel === "nightly";
   const plan = planPublication(release, expected, prerelease);
-  if (plan.kind !== "verify-published" || !release) throw new Error("GitHub release is not fully published.");
+  if (plan.kind !== "verify-published" || !release)
+    throw new Error("GitHub release is not fully published.");
   if (options.requireImmutable !== false && release.immutable !== true) {
     throw new Error("GitHub release is not immutable.");
   }
@@ -381,8 +447,12 @@ export function verifyRemoteRelease(options: {
   if (!tagReference || resolveTagTargetSha(options.repo, tagReference) !== bundle.sourceSha) {
     throw new Error("Published release tag does not target the Release Bundle source SHA.");
   }
-  const latestResponse = gh(["api", `repos/${options.repo}/releases/latest`], { allowFailure: true });
-  const latest = (latestResponse ? JSON.parse(latestResponse) : {}) as { readonly tag_name?: unknown };
+  const latestResponse = gh(["api", `repos/${options.repo}/releases/latest`], {
+    allowFailure: true,
+  });
+  const latest = (latestResponse ? JSON.parse(latestResponse) : {}) as {
+    readonly tag_name?: unknown;
+  };
   if (!prerelease && latest.tag_name !== bundle.tag) {
     throw new Error(`GitHub Latest is ${String(latest.tag_name)}, expected ${bundle.tag}.`);
   }
@@ -397,9 +467,9 @@ export function verifyRemoteRelease(options: {
     for (const [name, identity] of expected) {
       const downloaded = join(downloadRoot, name);
       if (
-        !existsSync(downloaded)
-        || lstatSync(downloaded).size !== identity.bytes
-        || sha256File(downloaded) !== identity.sha256
+        !existsSync(downloaded) ||
+        lstatSync(downloaded).size !== identity.bytes ||
+        sha256File(downloaded) !== identity.sha256
       ) {
         throw new Error(`Re-downloaded GitHub release asset ${name} failed byte verification.`);
       }

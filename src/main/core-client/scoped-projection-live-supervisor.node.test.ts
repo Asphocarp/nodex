@@ -38,15 +38,18 @@ const barrierFor = (
   core_generation: "generation-1",
   commit_head: commitHead,
   recipient_leases: scopes.map((candidate, index) => {
-    const address = candidate.kind === "library"
-      ? { kind: "library" as const, library_id: candidate.libraryId }
-      : {
-          kind: "project" as const,
-          library_id: candidate.libraryId,
-          project_id: candidate.projectId,
-        };
+    const address =
+      candidate.kind === "library"
+        ? { kind: "library" as const, library_id: candidate.libraryId }
+        : {
+            kind: "project" as const,
+            library_id: candidate.libraryId,
+            project_id: candidate.projectId,
+          };
     return {
-      lease_id: String(index + 1).padStart(64, "a").slice(-64),
+      lease_id: String(index + 1)
+        .padStart(64, "a")
+        .slice(-64),
       delivery_address: address,
       authorization_scope: address,
     };
@@ -235,9 +238,9 @@ describe("ScopedProjectionLiveSupervisor", () => {
     supervisor.setScopes([scope("project-1"), scope("project-1")]);
     await vi.waitFor(() => expect(openedScopes).toHaveLength(1));
     expect(openedScopes[0]).toEqual([scope("project-1")]);
-    expect(() => supervisor.setScopes(
-      Array.from({ length: 201 }, (_, index) => scope(`project-${index}`)),
-    )).toThrow(RangeError);
+    expect(() =>
+      supervisor.setScopes(Array.from({ length: 201 }, (_, index) => scope(`project-${index}`))),
+    ).toThrow(RangeError);
     supervisor.stop();
   });
 });

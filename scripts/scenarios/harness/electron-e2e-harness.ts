@@ -2,11 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
-import {
-  _electron as electron,
-  type ElectronApplication,
-  type Page,
-} from "playwright";
+import { _electron as electron, type ElectronApplication, type Page } from "playwright";
 
 import {
   acquireIsolatedRunLease,
@@ -17,21 +13,14 @@ import {
   resolveDevelopmentFeatureOverrides,
 } from "../../../src/shared/development-features";
 import { cleanupIsolatedCore } from "../../isolated-core-cleanup";
-import type {
-  ScenarioFacts,
-  ScenarioManifest,
-  ScenarioSeedPort,
-} from "../contracts";
+import type { ScenarioFacts, ScenarioManifest, ScenarioSeedPort } from "../contracts";
 import { RendererIpcSeedAdapter } from "../adapters/renderer-ipc-seed-adapter";
 import type {
   IsolatedCodexPolicy,
   IsolatedProfile,
   IsolatedProfileRetention,
 } from "../profile/isolated-profile";
-import {
-  cleanupIsolatedProfile,
-  createIsolatedProfile,
-} from "../profile/isolated-profile";
+import { cleanupIsolatedProfile, createIsolatedProfile } from "../profile/isolated-profile";
 import { getScenario } from "../registry";
 import { prepareScenarioAgentRuntime } from "../runtime/agent-runtime-fixture";
 import { inspectScenario, materializeScenario } from "../seed/scenario-seed";
@@ -56,9 +45,11 @@ export const readBoundedElectronRuntimeLogs = async (
     }
     throw error;
   }
-  const sections = await Promise.all(entries.map(async (entry) =>
-    `== ${entry} ==\n${await readFile(path.join(logDirectory, entry), "utf8")}`
-  ));
+  const sections = await Promise.all(
+    entries.map(
+      async (entry) => `== ${entry} ==\n${await readFile(path.join(logDirectory, entry), "utf8")}`,
+    ),
+  );
   return `${sections.join("\n").slice(-maximumCharacters)}\n`;
 };
 
@@ -107,9 +98,7 @@ const waitForApplicationExit = async (
   });
 };
 
-const forceStopApplicationProcess = (
-  child: ReturnType<ElectronApplication["process"]>,
-): void => {
+const forceStopApplicationProcess = (child: ReturnType<ElectronApplication["process"]>): void => {
   if (child.pid === undefined) return;
   try {
     if (process.platform === "win32") {
@@ -258,9 +247,11 @@ export class ElectronScenarioHarness {
     this.#application = application;
     const page = await application.firstWindow();
     await page.evaluate(async () => {
-      const api = (window as unknown as {
-        api?: { awaitInitialization(): Promise<void> };
-      }).api;
+      const api = (
+        window as unknown as {
+          api?: { awaitInitialization(): Promise<void> };
+        }
+      ).api;
       if (!api) throw new Error("Nodex preload API is unavailable");
       await api.awaitInitialization();
     });
@@ -314,16 +305,20 @@ export class ElectronScenarioHarness {
       runId: this.profile.runId,
     });
     if (!cleanup.safeToDeleteRunRoot) {
-      teardownErrors.push(new Error(
-        `Preserved Electron scenario Profile ${this.profile.runRoot}: ${cleanup.reason ?? cleanup.status}`,
-      ));
+      teardownErrors.push(
+        new Error(
+          `Preserved Electron scenario Profile ${this.profile.runRoot}: ${cleanup.reason ?? cleanup.status}`,
+        ),
+      );
     }
     if (teardownErrors.length === 0) {
       const profileCleanup = await cleanupIsolatedProfile(this.profile);
       if (profileCleanup.status === "unsafe") {
-        teardownErrors.push(new Error(
-          `Preserved Electron scenario Profile ${this.profile.runRoot}: ${profileCleanup.reason}`,
-        ));
+        teardownErrors.push(
+          new Error(
+            `Preserved Electron scenario Profile ${this.profile.runRoot}: ${profileCleanup.reason}`,
+          ),
+        );
       }
     }
     if (teardownErrors.length > 0) {
@@ -356,9 +351,7 @@ export interface ElectronScenarioFailureContext {
 
 export interface ElectronScenarioInput extends ElectronHarnessInput {
   readonly scenarioId: string | null;
-  readonly onFailure?: (
-    context: ElectronScenarioFailureContext,
-  ) => Promise<void>;
+  readonly onFailure?: (context: ElectronScenarioFailureContext) => Promise<void>;
 }
 
 export const withElectronScenario = async <Value>(
@@ -380,11 +373,7 @@ export const withElectronScenario = async <Value>(
     page = await harness.launch();
     const seed = new RendererIpcSeedAdapter(page);
     manifest = input.scenarioId
-      ? await materializeScenario(
-        input.scenarioId,
-        seed,
-        harness.profile.initialProjectsDirectory,
-      )
+      ? await materializeScenario(input.scenarioId, seed, harness.profile.initialProjectsDirectory)
       : null;
     facts = manifest ? await inspectScenario(manifest, seed) : null;
     value = await run({

@@ -1,7 +1,5 @@
 import type { z } from "zod";
-import {
-  NODEX_APP_TOOL_NAMESPACE,
-} from "../../shared/nodex-agent-tools/identity";
+import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
 import {
   NODEX_APP_V6_TOOLS,
   NODEX_APP_V6_TOOLSET_REVISION,
@@ -9,10 +7,7 @@ import {
 } from "../../shared/nodex-agent-tools/identity";
 import { NODEX_AGENT_V6_TOOL_CONTRACTS } from "../../shared/nodex-agent-tools/v6-contracts";
 import { NESTED_MARKDOWN_COMPACT_HINT } from "../../shared/nfm/agent-guide";
-import {
-  DynamicToolRegistry,
-  type DynamicToolExecutionRequest,
-} from "./dynamic-tool-registry";
+import { DynamicToolRegistry, type DynamicToolExecutionRequest } from "./dynamic-tool-registry";
 
 export const NODEX_APP_V3_TOOL_NAMESPACE_DESCRIPTION = [
   NESTED_MARKDOWN_COMPACT_HINT,
@@ -47,10 +42,7 @@ interface CatalogContract {
   readonly deferLoading: boolean;
 }
 
-function registerNodexAgentV3Tool<
-  TContext,
-  TTool extends NodexAgentV6ToolName,
->(
+function registerNodexAgentV3Tool<TContext, TTool extends NodexAgentV6ToolName>(
   registry: DynamicToolRegistry<TContext>,
   handlers: NodexAgentV3ToolHandlers<TContext>,
   tool: TTool,
@@ -118,10 +110,12 @@ const nodexAgentV3CatalogRegistry = createNodexCatalogOnlyRegistry({
 });
 
 export function buildNodexAgentV3DynamicToolCatalog() {
-  return nodexAgentV3CatalogRegistry.buildCatalog([{
-    namespace: NODEX_APP_TOOL_NAMESPACE,
-    toolsetRevision: NODEX_APP_V6_TOOLSET_REVISION,
-  }]);
+  return nodexAgentV3CatalogRegistry.buildCatalog([
+    {
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: NODEX_APP_V6_TOOLSET_REVISION,
+    },
+  ]);
 }
 
 export function validateNodexAgentV3DynamicToolCall(input: {
@@ -129,9 +123,12 @@ export function validateNodexAgentV3DynamicToolCall(input: {
   readonly tool: string;
   readonly arguments: unknown;
 }): void {
-  nodexAgentV3CatalogRegistry.validate({
-    namespace: NODEX_APP_TOOL_NAMESPACE,
-    toolsetRevision: input.toolsetRevision,
-    tool: input.tool,
-  }, input.arguments);
+  nodexAgentV3CatalogRegistry.validate(
+    {
+      namespace: NODEX_APP_TOOL_NAMESPACE,
+      toolsetRevision: input.toolsetRevision,
+      tool: input.tool,
+    },
+    input.arguments,
+  );
 }

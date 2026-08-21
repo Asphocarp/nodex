@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, test } from "vitest";
 import type { DiagnosticsSettings } from "../../shared/types";
-import {
-  captureMainException,
-  initializeMainSentry,
-  resetMainSentryForTests,
-} from "./sentry-main";
+import { captureMainException, initializeMainSentry, resetMainSentryForTests } from "./sentry-main";
 
 function buildSettings(overrides: Partial<DiagnosticsSettings> = {}): DiagnosticsSettings {
   return {

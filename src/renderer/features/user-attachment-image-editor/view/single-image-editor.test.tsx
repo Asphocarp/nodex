@@ -4,19 +4,14 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { installWindowApi } from "../../../test/browser-globals";
 import { renderWithMaitai, settleAsyncRender } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
-import type {
-  EditableImageDescriptor,
-  ImageEditSubmissionIntent,
-} from "../model/types";
+import type { EditableImageDescriptor, ImageEditSubmissionIntent } from "../model/types";
 import { SingleImageEditor } from "./single-image-editor";
 
 const IMAGE_SRC = "data:image/png;base64,AQID";
 const invokeCalls: Array<[string, ...unknown[]]> = [];
 
 function createSubmitIntentSpy() {
-  return vi.fn<
-    (intent: ImageEditSubmissionIntent) => Promise<boolean>
-  >(async () => true);
+  return vi.fn<(intent: ImageEditSubmissionIntent) => Promise<boolean>>(async () => true);
 }
 
 beforeEach(() => {
@@ -30,10 +25,7 @@ beforeEach(() => {
   });
 });
 
-function renderEditor(
-  image: EditableImageDescriptor,
-  onSubmitIntent = createSubmitIntentSpy(),
-) {
+function renderEditor(image: EditableImageDescriptor, onSubmitIntent = createSubmitIntentSpy()) {
   return renderWithMaitai(
     <TestQueryProvider>
       <div className="h-[600px] w-[700px]">
@@ -65,8 +57,7 @@ describe("SingleImageEditor", () => {
       fireEvent.click(view.getByRole("button", { name: "Retry" }));
     });
 
-    await waitFor(() => expect(view.getByRole("img", { name: "Uploaded reference" }))
-      .toBeTruthy());
+    await waitFor(() => expect(view.getByRole("img", { name: "Uploaded reference" })).toBeTruthy());
   });
 
   test("offers the five authored aspect ratios and submits the original image", async () => {
@@ -118,8 +109,9 @@ describe("SingleImageEditor", () => {
 
     expect(view.getByLabelText("Generating image...")).toBeTruthy();
     expect(view.queryByRole("button", { name: /^Zoom/u })).toBeNull();
-    expect((view.getByRole("button", { name: "Download" }) as HTMLButtonElement).disabled)
-      .toBe(true);
+    expect((view.getByRole("button", { name: "Download" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
   test("opens a trusted local image with its default app and groups secondary actions", async () => {
@@ -137,10 +129,7 @@ describe("SingleImageEditor", () => {
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Open image" }));
     });
-    expect(invokeCalls).toContainEqual([
-      "shell:open-path-default",
-      "/tmp/local-reference.png",
-    ]);
+    expect(invokeCalls).toContainEqual(["shell:open-path-default", "/tmp/local-reference.png"]);
 
     await act(async () => {
       fireEvent.pointerDown(view.getByRole("button", { name: "Open options" }), {

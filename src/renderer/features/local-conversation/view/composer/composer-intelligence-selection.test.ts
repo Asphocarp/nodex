@@ -16,15 +16,18 @@ const CODEX_SELECTION: ComposerIntelligenceSelection = {
 
 describe("composer intelligence selection", () => {
   test("derives active-thread speed ahead of the renderer default", () => {
-    const selection = deriveComposerIntelligenceSelection({
-      selectedModel: "gpt-5.6-sol",
-      selectedReasoningEffort: "xhigh",
-      agentProviderCatalog: null,
-      executionProfile: null,
-      conversation: {
-        latestThreadSettings: { serviceTier: "fast" },
-      },
-    } as ThreadFooterModel, null);
+    const selection = deriveComposerIntelligenceSelection(
+      {
+        selectedModel: "gpt-5.6-sol",
+        selectedReasoningEffort: "xhigh",
+        agentProviderCatalog: null,
+        executionProfile: null,
+        conversation: {
+          latestThreadSettings: { serviceTier: "fast" },
+        },
+      } as ThreadFooterModel,
+      null,
+    );
 
     expect(selection).toEqual(CODEX_SELECTION);
   });
@@ -35,26 +38,32 @@ describe("composer intelligence selection", () => {
       reasoningEffort: "xhigh",
       serviceTier: "fast",
     });
-    expect(buildComposerIntelligenceTurnOverrides({
-      kind: "agent",
-      change: "model",
-      profile: {
-        providerId: "anthropic",
-        harnessId: "claude-code",
-        modelId: "claude-opus",
-        reasoningEffort: "high",
-        serviceTier: null,
-      },
-    })).toEqual({});
+    expect(
+      buildComposerIntelligenceTurnOverrides({
+        kind: "agent",
+        change: "model",
+        profile: {
+          providerId: "anthropic",
+          harnessId: "claude-code",
+          modelId: "claude-opus",
+          reasoningEffort: "high",
+          serviceTier: null,
+        },
+      }),
+    ).toEqual({});
   });
 
   test("compares semantic values instead of object identity", () => {
-    expect(areComposerIntelligenceSelectionsEqual(CODEX_SELECTION, {
-      ...CODEX_SELECTION,
-    })).toBe(true);
-    expect(areComposerIntelligenceSelectionsEqual(CODEX_SELECTION, {
-      ...CODEX_SELECTION,
-      serviceTier: null,
-    })).toBe(false);
+    expect(
+      areComposerIntelligenceSelectionsEqual(CODEX_SELECTION, {
+        ...CODEX_SELECTION,
+      }),
+    ).toBe(true);
+    expect(
+      areComposerIntelligenceSelectionsEqual(CODEX_SELECTION, {
+        ...CODEX_SELECTION,
+        serviceTier: null,
+      }),
+    ).toBe(false);
   });
 });

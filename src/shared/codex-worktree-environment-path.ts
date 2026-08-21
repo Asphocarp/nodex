@@ -5,9 +5,7 @@ const CODEX_ENVIRONMENT_PATH_MAX_LENGTH = 8_192;
  * deliberately do not carry a source-machine absolute path across IPC or an
  * execution-host boundary.
  */
-export function isCodexWorktreeEnvironmentConfigPath(
-  value: unknown,
-): value is string {
+export function isCodexWorktreeEnvironmentConfigPath(value: unknown): value is string {
   if (typeof value !== "string" || value !== value.trim()) return false;
   if (value.length === 0 || value.length > CODEX_ENVIRONMENT_PATH_MAX_LENGTH) {
     return false;
@@ -24,9 +22,7 @@ export function isCodexWorktreeEnvironmentConfigPath(
   return segments.at(-1)?.toLowerCase().endsWith(".toml") === true;
 }
 
-export function requireCodexWorktreeEnvironmentConfigPath(
-  value: unknown,
-): string {
+export function requireCodexWorktreeEnvironmentConfigPath(value: unknown): string {
   if (isCodexWorktreeEnvironmentConfigPath(value)) return value;
   throw new Error(
     "Local environment config path must be a workspace-relative .toml file inside .codex/environments",

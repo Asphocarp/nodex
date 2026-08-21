@@ -8,10 +8,7 @@ export function tokenizeSearchQuery(query: string): string[] {
   return normalized.split(/\s+/).filter(Boolean);
 }
 
-export function matchesSearchTokens(
-  searchableText: string,
-  tokens: readonly string[],
-): boolean {
+export function matchesSearchTokens(searchableText: string, tokens: readonly string[]): boolean {
   if (tokens.length === 0) return true;
   if (!searchableText) return false;
   return tokens.every((token) => searchableText.includes(token));

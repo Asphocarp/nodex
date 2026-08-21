@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { Maximize2, Minimize2 } from "@/components/shared/icons/generic-icons";
 import { NodexTooltip } from "../../../../../components/ui/tooltip";
 import type { McpAppSurfaceMode } from "../../../../../lib/mcp-app/mcp-app-runtime-manager";
@@ -21,10 +15,7 @@ interface McpCapabilityViewFrameProps {
   capabilityId: string;
   mode?: "inline" | "side-panel";
   resource?: McpRenderableResource;
-  runtimeConfig?: Omit<
-    McpAppRuntimeConfig,
-    "capabilityId" | "resource" | "sendFollowUpMessage"
-  >;
+  runtimeConfig?: Omit<McpAppRuntimeConfig, "capabilityId" | "resource" | "sendFollowUpMessage">;
 }
 
 const UNAVAILABLE_SNAPSHOT = {
@@ -70,12 +61,11 @@ export function McpCapabilityViewFrame({
     });
   }, [capabilityId, runtime, runtimeManager, surfaceElement, surfaceMode]);
 
-  const subscribe = useCallback((listener: () => void) => (
-    runtime?.subscribe(listener) ?? (() => undefined)
-  ), [runtime]);
-  const getSnapshot = useCallback(() => (
-    runtime?.getSnapshot() ?? UNAVAILABLE_SNAPSHOT
-  ), [runtime]);
+  const subscribe = useCallback(
+    (listener: () => void) => runtime?.subscribe(listener) ?? (() => undefined),
+    [runtime],
+  );
+  const getSnapshot = useCallback(() => runtime?.getSnapshot() ?? UNAVAILABLE_SNAPSHOT, [runtime]);
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 
   useEffect(() => {
@@ -87,9 +77,7 @@ export function McpCapabilityViewFrame({
     <div
       className={cn(
         "relative overflow-hidden bg-token-input-background",
-        resource?.metadata.prefersBorder
-          ? "rounded-lg border border-token-border"
-          : "rounded-md",
+        resource?.metadata.prefersBorder ? "rounded-lg border border-token-border" : "rounded-md",
         isSidePanel && "h-full rounded-none border-0",
         isExpanded && "fixed inset-3 z-50 rounded-xl border border-token-border shadow-2xl",
       )}
@@ -97,9 +85,8 @@ export function McpCapabilityViewFrame({
       data-mcp-app-loading={snapshot.status === "loading" ? "true" : "false"}
       data-mcp-app-expanded={isExpanded ? "true" : "false"}
       style={{
-        height: isSidePanel || isExpanded
-          ? undefined
-          : resolveMcpAppFrameHeight(resource?.metadata),
+        height:
+          isSidePanel || isExpanded ? undefined : resolveMcpAppFrameHeight(resource?.metadata),
       }}
     >
       <div className="absolute right-1.5 top-1.5 z-10 flex items-center gap-1">
@@ -114,9 +101,7 @@ export function McpCapabilityViewFrame({
             aria-label={isExpanded ? "Exit fullscreen" : "Open fullscreen"}
             onClick={() => setIsExpanded((value) => !value)}
           >
-            {isExpanded
-              ? <Minimize2 className="size-3.5" />
-              : <Maximize2 className="size-3.5" />}
+            {isExpanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
           </button>
         </NodexTooltip>
       </div>

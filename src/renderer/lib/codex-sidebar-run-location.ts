@@ -2,7 +2,8 @@ import type { CodexSidebarRunLocation } from "./types";
 
 const MANAGED_WORKTREE_SEGMENT_PATTERN = /^\.(?:codex|nodex)$/i;
 const SHORT_ALLOCATION_TOKEN_PATTERN = /^[0-9a-f]{4,}$/i;
-const UUID_ALLOCATION_TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_ALLOCATION_TOKEN_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function normalizePathSegments(value: string): string[] {
   return value
@@ -13,8 +14,9 @@ function normalizePathSegments(value: string): string[] {
 }
 
 function isAllocationToken(segment: string): boolean {
-  return SHORT_ALLOCATION_TOKEN_PATTERN.test(segment)
-    || UUID_ALLOCATION_TOKEN_PATTERN.test(segment);
+  return (
+    SHORT_ALLOCATION_TOKEN_PATTERN.test(segment) || UUID_ALLOCATION_TOKEN_PATTERN.test(segment)
+  );
 }
 
 /**
@@ -27,10 +29,11 @@ export function resolveCodexSidebarWorktreeLabel(path: string | null): string | 
   const segments = normalizePathSegments(path);
   if (segments.length === 0) return null;
 
-  const markerIndex = segments.findIndex((segment, index) => (
-    MANAGED_WORKTREE_SEGMENT_PATTERN.test(segment)
-    && segments[index + 1]?.toLowerCase() === "worktrees"
-  ));
+  const markerIndex = segments.findIndex(
+    (segment, index) =>
+      MANAGED_WORKTREE_SEGMENT_PATTERN.test(segment) &&
+      segments[index + 1]?.toLowerCase() === "worktrees",
+  );
   if (markerIndex < 0) return segments.at(-1) ?? null;
 
   const managedSegments = segments.slice(markerIndex + 2);

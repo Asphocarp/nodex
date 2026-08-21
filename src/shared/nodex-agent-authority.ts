@@ -26,18 +26,19 @@ export interface FrozenNodexAgentTurnAuthority {
   readonly source: NodexAgentAuthoritySource;
 }
 
-export const nodexAgentAuthorityFingerprint = (
-  authority: FrozenNodexAgentTurnAuthority,
-): string => createHash("sha256")
-  .update(JSON.stringify([
-    NODEX_AGENT_AUTHORITY_PROVENANCE_VERSION,
-    authority.threadId,
-    authority.turnId,
-    authority.rootThreadId,
-    authority.actorProjectId,
-    authority.libraryId,
-    authority.storeEpoch,
-    authority.scope,
-    authority.source,
-  ]))
-  .digest("hex");
+export const nodexAgentAuthorityFingerprint = (authority: FrozenNodexAgentTurnAuthority): string =>
+  createHash("sha256")
+    .update(
+      JSON.stringify([
+        NODEX_AGENT_AUTHORITY_PROVENANCE_VERSION,
+        authority.threadId,
+        authority.turnId,
+        authority.rootThreadId,
+        authority.actorProjectId,
+        authority.libraryId,
+        authority.storeEpoch,
+        authority.scope,
+        authority.source,
+      ]),
+    )
+    .digest("hex");

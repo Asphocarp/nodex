@@ -38,19 +38,21 @@ describe("semantic theme CSS parser", () => {
   });
 
   test("preserves window and color-scheme coverage instead of flattening declarations", () => {
-    const facts = collectSemanticThemeCssFacts(`
+    const facts = collectSemanticThemeCssFacts(
+      `
       :root { --global: 1; }
       .electron-light { --electron-light-only: var(--global); }
       .electron-dark { --electron-dark-only: var(--global); }
       :is([data-codex-window-type="browser"], [data-codex-window-type="chrome-extension"]) {
         --web-windows: var(--global);
       }
-    `, "fixture.css");
+    `,
+      "fixture.css",
+    );
 
-    const definitions = new Map(facts.definitions.map((definition) => [
-      definition.name,
-      definition,
-    ]));
+    const definitions = new Map(
+      facts.definitions.map((definition) => [definition.name, definition]),
+    );
     expect(definitions.get("--global")?.targets).toEqual([
       "browser-dark",
       "browser-light",

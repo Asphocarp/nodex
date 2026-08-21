@@ -65,7 +65,13 @@ function completeSnapshot(distanceFromBottomPx: number): LocalConversationThread
 describe("local conversation thread restore atoms", () => {
   test("restores isolated complete snapshots across fresh A/B/A readers", () => {
     let handle: ScopeHandle | null = null;
-    render(<TestStateRoot onHandle={(next) => { handle = next; }} />);
+    render(
+      <TestStateRoot
+        onHandle={(next) => {
+          handle = next;
+        }}
+      />,
+    );
     const appHandle = handle as ScopeHandle | null;
     if (!appHandle) throw new Error("expected app scope handle");
 
@@ -127,7 +133,13 @@ describe("local conversation thread restore atoms", () => {
 
   test("does not evict an earlier snapshot after more than fifty conversations", () => {
     let handle: ScopeHandle | null = null;
-    render(<TestStateRoot onHandle={(next) => { handle = next; }} />);
+    render(
+      <TestStateRoot
+        onHandle={(next) => {
+          handle = next;
+        }}
+      />,
+    );
     const appHandle = handle as ScopeHandle | null;
     if (!appHandle) throw new Error("expected app scope handle");
 
@@ -148,48 +160,72 @@ describe("local conversation thread restore atoms", () => {
 
   test("explicit cleanup removes snapshot and every indexed collapse override idempotently", () => {
     let handle: ScopeHandle | null = null;
-    render(<TestStateRoot onHandle={(next) => { handle = next; }} />);
+    render(
+      <TestStateRoot
+        onHandle={(next) => {
+          handle = next;
+        }}
+      />,
+    );
     const appHandle = handle as ScopeHandle | null;
     if (!appHandle) throw new Error("expected app scope handle");
 
     appHandle.set(localConversationThreadRestoreSnapshotFamily("thread_a"), completeSnapshot(400));
-    setLocalConversationTurnCollapseOverride(appHandle, {
-      conversationId: "thread_a",
-      turnSearchKey: "turn_1",
-    }, true);
-    setLocalConversationTurnCollapseOverride(appHandle, {
-      conversationId: "thread_a",
-      turnSearchKey: "turn_2",
-    }, false);
+    setLocalConversationTurnCollapseOverride(
+      appHandle,
+      {
+        conversationId: "thread_a",
+        turnSearchKey: "turn_1",
+      },
+      true,
+    );
+    setLocalConversationTurnCollapseOverride(
+      appHandle,
+      {
+        conversationId: "thread_a",
+        turnSearchKey: "turn_2",
+      },
+      false,
+    );
 
     expect(removeLocalConversationViewState(appHandle, "thread_a")).toBe(true);
     expect(removeLocalConversationViewState(appHandle, "thread_a")).toBe(false);
     expect(appHandle.get(localConversationThreadRestoreSnapshotFamily("thread_a"))).toBe(
       EMPTY_LOCAL_CONVERSATION_THREAD_RESTORE_SNAPSHOT,
     );
-    expect(appHandle.get(localConversationTurnCollapseOverrideFamily({
-      conversationId: "thread_a",
-      turnSearchKey: "turn_1",
-    }))).toBe(null);
+    expect(
+      appHandle.get(
+        localConversationTurnCollapseOverrideFamily({
+          conversationId: "thread_a",
+          turnSearchKey: "turn_1",
+        }),
+      ),
+    ).toBe(null);
   });
 
   test("cleanup tombstone prevents late layout cleanup from resurrecting deleted state", () => {
     let handle: ScopeHandle | null = null;
-    render(<TestStateRoot onHandle={(next) => { handle = next; }} />);
+    render(
+      <TestStateRoot
+        onHandle={(next) => {
+          handle = next;
+        }}
+      />,
+    );
     const appHandle = handle as ScopeHandle | null;
     if (!appHandle) throw new Error("expected app scope handle");
 
-    expect(updateLocalConversationThreadRestoreSnapshot(
-      appHandle,
-      "thread_race",
-      () => completeSnapshot(500),
-    )).toBe(true);
+    expect(
+      updateLocalConversationThreadRestoreSnapshot(appHandle, "thread_race", () =>
+        completeSnapshot(500),
+      ),
+    ).toBe(true);
     expect(removeLocalConversationViewState(appHandle, "thread_race")).toBe(true);
-    expect(updateLocalConversationThreadRestoreSnapshot(
-      appHandle,
-      "thread_race",
-      () => completeSnapshot(900),
-    )).toBe(false);
+    expect(
+      updateLocalConversationThreadRestoreSnapshot(appHandle, "thread_race", () =>
+        completeSnapshot(900),
+      ),
+    ).toBe(false);
     expect(appHandle.get(localConversationThreadRestoreSnapshotFamily("thread_race"))).toBe(
       EMPTY_LOCAL_CONVERSATION_THREAD_RESTORE_SNAPSHOT,
     );
@@ -198,18 +234,29 @@ describe("local conversation thread restore atoms", () => {
   test("canonical deletion cleans view state while no conversation view is mounted", () => {
     let handle: ScopeHandle | null = null;
     render(
-      <TestStateRoot onHandle={(next) => { handle = next; }}>
+      <TestStateRoot
+        onHandle={(next) => {
+          handle = next;
+        }}
+      >
         <LocalConversationViewStateCleanupController />
       </TestStateRoot>,
     );
     const appHandle = handle as ScopeHandle | null;
     if (!appHandle) throw new Error("expected app scope handle");
 
-    appHandle.set(localConversationThreadRestoreSnapshotFamily("thread_deleted"), completeSnapshot(700));
-    setLocalConversationTurnCollapseOverride(appHandle, {
-      conversationId: "thread_deleted",
-      turnSearchKey: "turn_1",
-    }, true);
+    appHandle.set(
+      localConversationThreadRestoreSnapshotFamily("thread_deleted"),
+      completeSnapshot(700),
+    );
+    setLocalConversationTurnCollapseOverride(
+      appHandle,
+      {
+        conversationId: "thread_deleted",
+        turnSearchKey: "turn_1",
+      },
+      true,
+    );
 
     act(() => {
       dispatchCodexAppServerMessage("thread-deleted", {
@@ -225,9 +272,13 @@ describe("local conversation thread restore atoms", () => {
     expect(appHandle.get(localConversationThreadRestoreSnapshotFamily("thread_deleted"))).toBe(
       EMPTY_LOCAL_CONVERSATION_THREAD_RESTORE_SNAPSHOT,
     );
-    expect(appHandle.get(localConversationTurnCollapseOverrideFamily({
-      conversationId: "thread_deleted",
-      turnSearchKey: "turn_1",
-    }))).toBe(null);
+    expect(
+      appHandle.get(
+        localConversationTurnCollapseOverrideFamily({
+          conversationId: "thread_deleted",
+          turnSearchKey: "turn_1",
+        }),
+      ),
+    ).toBe(null);
   });
 });

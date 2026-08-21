@@ -9,6 +9,7 @@ Generate a clear, informative task title based solely on the prompt provided. Fo
 
 How to write a good title:
 Generate a single-line title that captures the question or core change requested. The title should be easy to scan and useful in changelogs or review queues.
+
 - Use an imperative verb first: "Add", "Fix", "Update", "Refactor", "Remove", "Locate", "Find", etc.
 - Aim for 18-36 characters; keep under 5 words where possible.
 - Capitalize only the first word (unless locale requires otherwise).
@@ -22,6 +23,7 @@ Generate a single-line title that captures the question or core change requested
 - Do NOT respond to the user, answer questions, or attempt to solve the problem; just write a title that can represent the user's query.
 
 Examples:
+
 - User: "Can we add dark-mode support to the settings page?" -> Add dark-mode support
 - User: "Fehlerbehebung: Beim Anmelden erscheint 500." (de-DE) -> Login-Fehler 500 beheben
 - User: "Refactoriser le composant sidebar pour réduire le code dupliqué." (fr-FR) -> Refactoriser composant sidebar

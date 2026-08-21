@@ -1,8 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-} from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { WorkbenchLayoutSnapshot } from "../../shared/workbench-layout";
 import { saveWindowSessionLayout } from "./window-sessions";
 
@@ -15,9 +11,7 @@ export function useWindowSessionLayoutPersistence(input: {
   readonly layout: WorkbenchLayoutSnapshot;
 }) {
   const latestLayoutRef = useRef(input.initialLayout);
-  const latestSerializedLayoutRef = useRef(
-    JSON.stringify(input.initialLayout),
-  );
+  const latestSerializedLayoutRef = useRef(JSON.stringify(input.initialLayout));
   const layoutRevisionRef = useRef(input.initialRevision);
   const layoutSaveChainRef = useRef<Promise<void>>(Promise.resolve());
   const layoutSaveTimerRef = useRef<number | null>(null);

@@ -75,15 +75,15 @@ function isCursorAtBlockStart(editor: EditorForChildGroupBackspace): boolean {
 }
 
 function shouldResetToParagraphAtBlockStart(type: string): boolean {
-  return type === "bulletListItem"
-    || type === "numberedListItem"
-    || type === "checkListItem"
-    || type === "toggleListItem";
+  return (
+    type === "bulletListItem" ||
+    type === "numberedListItem" ||
+    type === "checkListItem" ||
+    type === "toggleListItem"
+  );
 }
 
-export function handleChildGroupBackspace(
-  editor: EditorForChildGroupBackspace,
-): boolean {
+export function handleChildGroupBackspace(editor: EditorForChildGroupBackspace): boolean {
   const cursor = editor.getTextCursorPosition();
   const currentBlock = editor.getBlock(cursor.block.id);
   if (!currentBlock) return false;
@@ -102,14 +102,11 @@ export function handleChildGroupBackspace(
 
   // Merge target: previous sibling if exists, otherwise parent.
   const previousSibling = editor.getPrevBlock(currentBlock.id);
-  const targetBlock = previousSibling
-    ? editor.getBlock(previousSibling.id)
-    : parent;
+  const targetBlock = previousSibling ? editor.getBlock(previousSibling.id) : parent;
   if (!targetBlock) return false;
 
   // Both blocks must have array content to merge
-  if (!Array.isArray(targetBlock.content) || !Array.isArray(currentBlock.content))
-    return false;
+  if (!Array.isArray(targetBlock.content) || !Array.isArray(currentBlock.content)) return false;
 
   editor.mergeIntoBlock(targetBlock.id, currentBlock.id);
   editor.focus();

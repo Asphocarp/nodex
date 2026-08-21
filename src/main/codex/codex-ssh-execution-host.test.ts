@@ -13,9 +13,11 @@ import {
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map(async (root) => {
-    await rm(root, { recursive: true, force: true });
-  }));
+  await Promise.all(
+    temporaryRoots.splice(0).map(async (root) => {
+      await rm(root, { recursive: true, force: true });
+    }),
+  );
 });
 
 const CONFIG: CodexSshExecutionHostConfig = {
@@ -33,16 +35,21 @@ const CONFIG: CodexSshExecutionHostConfig = {
 
 describe("Codex SSH execution host boundary", () => {
   test("builds an argv-only OpenSSH invocation with default trust policy", () => {
-    expect(buildCodexSshArguments(CONFIG, ["node", "/path with spaces/worker.cjs", "ssh:build"]))
-      .toEqual([
-        "-T",
-        "-o", "BatchMode=yes",
-        "-o", "ConnectTimeout=10",
-        "-o", "ClearAllForwardings=yes",
-        "-p", "2202",
-        "build-mac",
-        "'node' '/path with spaces/worker.cjs' 'ssh:build'",
-      ]);
+    expect(
+      buildCodexSshArguments(CONFIG, ["node", "/path with spaces/worker.cjs", "ssh:build"]),
+    ).toEqual([
+      "-T",
+      "-o",
+      "BatchMode=yes",
+      "-o",
+      "ConnectTimeout=10",
+      "-o",
+      "ClearAllForwardings=yes",
+      "-p",
+      "2202",
+      "build-mac",
+      "'node' '/path with spaces/worker.cjs' 'ssh:build'",
+    ]);
   });
 
   test("quotes apostrophes without allowing another remote shell argument", () => {
@@ -50,16 +57,21 @@ describe("Codex SSH execution host boundary", () => {
   });
 
   test("rejects option injection, non-POSIX roots, duplicate repositories, and local id", () => {
-    expect(() => normalizeCodexSshExecutionHostConfig({ ...CONFIG, sshAlias: "-ProxyCommand=bad" }))
-      .toThrow("SSH alias is invalid");
-    expect(() => normalizeCodexSshExecutionHostConfig({ ...CONFIG, managedRoot: "relative" }))
-      .toThrow("absolute POSIX path");
-    expect(() => normalizeCodexSshExecutionHostConfig({
-      ...CONFIG,
-      repositoryRoots: [CONFIG.repositoryRoots[0]!, CONFIG.repositoryRoots[0]!],
-    })).toThrow("must be unique");
-    expect(() => normalizeCodexSshExecutionHostConfig({ ...CONFIG, id: "local" }))
-      .toThrow("invalid or reserved");
+    expect(() =>
+      normalizeCodexSshExecutionHostConfig({ ...CONFIG, sshAlias: "-ProxyCommand=bad" }),
+    ).toThrow("SSH alias is invalid");
+    expect(() =>
+      normalizeCodexSshExecutionHostConfig({ ...CONFIG, managedRoot: "relative" }),
+    ).toThrow("absolute POSIX path");
+    expect(() =>
+      normalizeCodexSshExecutionHostConfig({
+        ...CONFIG,
+        repositoryRoots: [CONFIG.repositoryRoots[0]!, CONFIG.repositoryRoots[0]!],
+      }),
+    ).toThrow("must be unique");
+    expect(() => normalizeCodexSshExecutionHostConfig({ ...CONFIG, id: "local" })).toThrow(
+      "invalid or reserved",
+    );
   });
 
   test("describes only authorized remote files through the fixed SSH script", async () => {
@@ -78,7 +90,7 @@ describe("Codex SSH execution host boundary", () => {
     const sshShim = path.join(root, "ssh-shim");
     await writeFile(
       sshShim,
-      "#!/bin/sh\nfor argument in \"$@\"; do command=$argument; done\nexec /bin/sh -c \"$command\"\n",
+      '#!/bin/sh\nfor argument in "$@"; do command=$argument; done\nexec /bin/sh -c "$command"\n',
     );
     await chmod(sshShim, 0o700);
     const transport = new CodexSshExecutionHostTransport({
@@ -99,7 +111,8 @@ describe("Codex SSH execution host boundary", () => {
       path: statePath,
       size: 4,
     });
-    await expect(transport.describe(path.join(root, "outside.txt")))
-      .rejects.toThrow("unauthorized");
+    await expect(transport.describe(path.join(root, "outside.txt"))).rejects.toThrow(
+      "unauthorized",
+    );
   });
 });

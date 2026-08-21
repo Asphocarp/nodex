@@ -22,27 +22,29 @@ describe("LibraryMoveDestinationPickerSurface", () => {
       <LibraryMoveDestinationPickerSurface
         ariaLabel="Move Roadmap to"
         query=""
-        sections={[{
-          key: "pages",
-          label: "Pages",
-          rows: [
-            {
-              kind: "root",
-              id: "library-root",
-              label: "Pages",
-              metadata: "Current",
-              disabled: true,
-            },
-            {
-              kind: "page",
-              id: "tree:page-product",
-              entry: destination,
-              depth: 0,
-              expanded: false,
-              context: "tree",
-            },
-          ],
-        }]}
+        sections={[
+          {
+            key: "pages",
+            label: "Pages",
+            rows: [
+              {
+                kind: "root",
+                id: "library-root",
+                label: "Pages",
+                metadata: "Current",
+                disabled: true,
+              },
+              {
+                kind: "page",
+                id: "tree:page-product",
+                entry: destination,
+                depth: 0,
+                expanded: false,
+                context: "tree",
+              },
+            ],
+          },
+        ]}
         loading={false}
         stale={false}
         error={null}
@@ -60,20 +62,23 @@ describe("LibraryMoveDestinationPickerSurface", () => {
       fireEvent.keyDown(input, { key: "ArrowRight" });
       await Promise.resolve();
     });
-    expect(onToggle).toHaveBeenCalledWith(expect.objectContaining({
-      id: "tree:page-product",
-    }));
+    expect(onToggle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "tree:page-product",
+      }),
+    );
 
     await act(async () => {
       fireEvent.keyDown(input, { key: "Enter" });
       await Promise.resolve();
     });
-    expect(onAccept).toHaveBeenCalledWith(expect.objectContaining({
-      id: "tree:page-product",
-    }));
+    expect(onAccept).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "tree:page-product",
+      }),
+    );
     expect(
-      screen.getByRole("option", { name: /Pages\s*Current/ })
-        .getAttribute("aria-disabled"),
+      screen.getByRole("option", { name: /Pages\s*Current/ }).getAttribute("aria-disabled"),
     ).toBe("true");
   });
 });

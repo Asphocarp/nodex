@@ -34,19 +34,23 @@ describe("Codex app-server message parser", () => {
   });
 
   it("rejects known notifications and requests with mismatched params", () => {
-    expect(parseCodexAppServerMessage({
-      method: "turn/plan/updated",
-      params: { threadId: "thread-1" },
-    })).toEqual({
+    expect(
+      parseCodexAppServerMessage({
+        method: "turn/plan/updated",
+        params: { threadId: "thread-1" },
+      }),
+    ).toEqual({
       success: false,
       error: "Invalid params for Codex server notification 'turn/plan/updated'.",
     });
 
-    expect(parseCodexAppServerMessage({
-      id: 1,
-      method: "item/commandExecution/requestApproval",
-      params: { threadId: "thread-1" },
-    })).toEqual({
+    expect(
+      parseCodexAppServerMessage({
+        id: 1,
+        method: "item/commandExecution/requestApproval",
+        params: { threadId: "thread-1" },
+      }),
+    ).toEqual({
       success: false,
       error: "Invalid params for Codex server request 'item/commandExecution/requestApproval'.",
     });
@@ -65,22 +69,26 @@ describe("Codex app-server message parser", () => {
     });
     expect(valid.success && valid.data.kind).toBe("request");
 
-    expect(parseCodexAppServerMessage({
-      id: "private-2",
-      method: "item/tool/requestOptionPicker",
-      params: { threadId: "thread-1" },
-    })).toEqual({
+    expect(
+      parseCodexAppServerMessage({
+        id: "private-2",
+        method: "item/tool/requestOptionPicker",
+        params: { threadId: "thread-1" },
+      }),
+    ).toEqual({
       success: false,
       error: "Invalid params for Codex server request 'item/tool/requestOptionPicker'.",
     });
   });
 
   it("classifies unknown server requests so the client can send method-not-found", () => {
-    expect(parseCodexAppServerMessage({
-      id: 99,
-      method: "future/request",
-      params: { value: true },
-    })).toEqual({
+    expect(
+      parseCodexAppServerMessage({
+        id: 99,
+        method: "future/request",
+        params: { value: true },
+      }),
+    ).toEqual({
       success: true,
       data: {
         kind: "unknownRequest",
@@ -91,30 +99,39 @@ describe("Codex app-server message parser", () => {
 
   it("requires exactly one response payload", () => {
     expect(parseCodexAppServerMessage({ id: 1, result: { ok: true } }).success).toBe(true);
-    expect(parseCodexAppServerMessage({
-      id: 2,
-      error: { code: -32000, message: "no" },
-    }).success).toBe(true);
+    expect(
+      parseCodexAppServerMessage({
+        id: 2,
+        error: { code: -32000, message: "no" },
+      }).success,
+    ).toBe(true);
     expect(parseCodexAppServerMessage({ id: 3 })).toEqual({
       success: false,
       error: "Invalid JSON-RPC envelope from codex app-server.",
     });
-    expect(parseCodexAppServerMessage({
-      id: 4,
-      result: {},
-      error: { code: -32000, message: "ambiguous" },
-    })).toEqual({
+    expect(
+      parseCodexAppServerMessage({
+        id: 4,
+        result: {},
+        error: { code: -32000, message: "ambiguous" },
+      }),
+    ).toEqual({
       success: false,
       error: "Codex JSON-RPC response must contain exactly one of result or error.",
     });
   });
 
   it("collects generated discriminator enums without a handwritten method list", () => {
-    expect(generatedStringDiscriminatorValues({
-      anyOf: [
-        { properties: { method: { enum: ["one"] } } },
-        { properties: { method: { const: "two" } } },
-      ],
-    }, "method")).toEqual(new Set(["one", "two"]));
+    expect(
+      generatedStringDiscriminatorValues(
+        {
+          anyOf: [
+            { properties: { method: { enum: ["one"] } } },
+            { properties: { method: { const: "two" } } },
+          ],
+        },
+        "method",
+      ),
+    ).toEqual(new Set(["one", "two"]));
   });
 });

@@ -26,16 +26,16 @@ A rule belongs here only when all of these are true:
 
 Prefer the narrowest enforceable seam. Route information as follows:
 
-| Information | Source of truth |
-| --- | --- |
-| User-visible feature behavior, labels, action order, and acceptance rules | [Product specifications](product-specs/index.md) |
-| Runtime ownership, dependency direction, and cross-runtime flows | [Architecture](ARCHITECTURE.md) and ADRs |
-| Projection delivery, collaborative sync, recovery, and durability | [Reliability](RELIABILITY.md) |
-| Detailed renderer state inventory and migration decisions | [Renderer view-state ownership](renderer-view-state-ownership.md) |
-| Reusable visual direction for agent-built UI | [General design guidelines](../.agents/skills/general-design-guidelines/SKILL.md) |
-| Exact dimensions, classes, timings, layer values, and component states | Shared code, focused tests, and Storybook |
-| Test runtime selection and handoff commands | [AGENTS.md](../AGENTS.md) and [Development](development.md) |
-| A local dependency or lifecycle caveat | The owning Adapter/component plus its behavioral test |
+| Information                                                               | Source of truth                                                                   |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| User-visible feature behavior, labels, action order, and acceptance rules | [Product specifications](product-specs/index.md)                                  |
+| Runtime ownership, dependency direction, and cross-runtime flows          | [Architecture](ARCHITECTURE.md) and ADRs                                          |
+| Projection delivery, collaborative sync, recovery, and durability         | [Reliability](RELIABILITY.md)                                                     |
+| Detailed renderer state inventory and migration decisions                 | [Renderer view-state ownership](renderer-view-state-ownership.md)                 |
+| Reusable visual direction for agent-built UI                              | [General design guidelines](../.agents/skills/general-design-guidelines/SKILL.md) |
+| Exact dimensions, classes, timings, layer values, and component states    | Shared code, focused tests, and Storybook                                         |
+| Test runtime selection and handoff commands                               | [AGENTS.md](../AGENTS.md) and [Development](development.md)                       |
+| A local dependency or lifecycle caveat                                    | The owning Adapter/component plus its behavioral test                             |
 
 When a convention changes, replace the old statement. Do not append a historical
 layer; git history already preserves it.
@@ -80,15 +80,15 @@ One state has one writable owner. Caches, descriptors, and projections may
 mirror an authority for presentation, but they must not become a second place
 that decides truth.
 
-| Owner | Use it for |
-| --- | --- |
-| React component | One mounted interaction: disclosure, hover, menu state, gesture geometry, upload progress, or confirmation UI |
-| Maitai App/Thread/Route/Composer atom | Renderer-local presentation shared for that exact semantic scope |
-| Maitai persisted atom | Authored drafts or preferences that require restart persistence and have a versioned codec plus synchronization policy |
-| TanStack Query | Bounded, low-frequency Main/Core read models and mutation cache coordination |
+| Owner                                   | Use it for                                                                                                                                |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| React component                         | One mounted interaction: disclosure, hover, menu state, gesture geometry, upload progress, or confirmation UI                             |
+| Maitai App/Thread/Route/Composer atom   | Renderer-local presentation shared for that exact semantic scope                                                                          |
+| Maitai persisted atom                   | Authored drafts or preferences that require restart persistence and have a versioned codec plus synchronization policy                    |
+| TanStack Query                          | Bounded, low-frequency Main/Core read models and mutation cache coordination                                                              |
 | Focused feature store or runtime Module | High-frequency, optimistic, streaming, or lifecycle-bearing state such as conversations, Board projections, Browser guests, and Terminals |
-| Document or Canvas session | Collaborative content, sync, presence, and mounted surface lifecycle |
-| Window Session aggregate | Owner-scoped Scenes, surface descriptors, panel trees, navigation, and settled layout state |
+| Document or Canvas session              | Collaborative content, sync, presence, and mounted surface lifecycle                                                                      |
+| Window Session aggregate                | Owner-scoped Scenes, surface descriptors, panel trees, navigation, and settled layout state                                               |
 
 The exhaustive inventory lives in
 [Renderer view-state ownership](renderer-view-state-ownership.md). Apply these
@@ -332,22 +332,22 @@ For new or substantially redesigned surfaces, also follow the
 
 Load the narrow contract only for the branch being changed:
 
-| Feature branch | Read first |
-| --- | --- |
-| Workbench Scenes, sidebar, panels, tabs, navigation, and shell presentation | [Workbench shell](product-specs/workbench-shell.md) and the Scene ADRs |
-| Database Views, Page creation, Page Stage, and Properties | [Database, Pages, and Views](product-specs/database-pages-and-views-behavior.md) |
-| Canvas inline and Stage presentation | [Canvas](product-specs/canvas-behavior.md) |
-| Chat lifecycle, workspaces, worktrees, forks, and runtime integrations | [Codex workspace](product-specs/codex-workspace-behavior.md) |
-| Renderer scope and persistence ownership | [Renderer view-state ownership](renderer-view-state-ownership.md) |
-| Codex transcript, requests, tools, composer, and turn/activity projection | [Codex transcript behavior](product-specs/codex-thread-transcript-behavior.md) |
-| Codex owner/follower publication and recovery | [Owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md) |
-| Thread Summary sections, rows, artifacts, Git actions, Browser, and PiP | [Thread Summary panel](product-specs/thread-summary-panel-behavior.md) |
-| Scheduled task/template route and editor | [Scheduled route](product-specs/scheduled-route-behavior.md) |
-| Settings navigation, catalog, search, page composition, and deep links | [Settings route](product-specs/settings-route-behavior.md) |
-| Review and Git diff presentation | [Review right panel](product-specs/review-right-panel-behavior.md) |
-| Command palette ranking and execution | [Command palette](product-specs/command-palette-behavior.md) |
-| Board and cross-surface drag behavior | [Board drag and drop](product-specs/board-drag-and-drop-behavior.md) |
-| NFM editor interactions | The matching `nfm-*` document in [Product specifications](product-specs/index.md) |
+| Feature branch                                                              | Read first                                                                         |
+| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Workbench Scenes, sidebar, panels, tabs, navigation, and shell presentation | [Workbench shell](product-specs/workbench-shell.md) and the Scene ADRs             |
+| Database Views, Page creation, Page Stage, and Properties                   | [Database, Pages, and Views](product-specs/database-pages-and-views-behavior.md)   |
+| Canvas inline and Stage presentation                                        | [Canvas](product-specs/canvas-behavior.md)                                         |
+| Chat lifecycle, workspaces, worktrees, forks, and runtime integrations      | [Codex workspace](product-specs/codex-workspace-behavior.md)                       |
+| Renderer scope and persistence ownership                                    | [Renderer view-state ownership](renderer-view-state-ownership.md)                  |
+| Codex transcript, requests, tools, composer, and turn/activity projection   | [Codex transcript behavior](product-specs/codex-thread-transcript-behavior.md)     |
+| Codex owner/follower publication and recovery                               | [Owner/follower streaming](product-specs/codex-thread-owner-follower-streaming.md) |
+| Thread Summary sections, rows, artifacts, Git actions, Browser, and PiP     | [Thread Summary panel](product-specs/thread-summary-panel-behavior.md)             |
+| Scheduled task/template route and editor                                    | [Scheduled route](product-specs/scheduled-route-behavior.md)                       |
+| Settings navigation, catalog, search, page composition, and deep links      | [Settings route](product-specs/settings-route-behavior.md)                         |
+| Review and Git diff presentation                                            | [Review right panel](product-specs/review-right-panel-behavior.md)                 |
+| Command palette ranking and execution                                       | [Command palette](product-specs/command-palette-behavior.md)                       |
+| Board and cross-surface drag behavior                                       | [Board drag and drop](product-specs/board-drag-and-drop-behavior.md)               |
+| NFM editor interactions                                                     | The matching `nfm-*` document in [Product specifications](product-specs/index.md)  |
 
 These documents own feature behavior. Keep this file limited to conventions
 that remain useful when those features change.

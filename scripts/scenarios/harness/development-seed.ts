@@ -66,10 +66,7 @@ export const materializeDevelopmentSeed = async (input: {
   }
   if (operationError) throw operationError;
   if (teardownErrors.length > 0) {
-    throw new AggregateError(
-      teardownErrors,
-      `Seed ${input.scenarioId} Core teardown failed`,
-    );
+    throw new AggregateError(teardownErrors, `Seed ${input.scenarioId} Core teardown failed`);
   }
   if (!manifest) throw new Error(`Seed ${input.scenarioId} produced no manifest`);
   return manifest;

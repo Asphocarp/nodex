@@ -13,8 +13,7 @@ import {
 import { createUuidV7FromTimestamp } from "./uuid-v7";
 import { committedLocalCommit } from "./testing/local-commit";
 
-const uuidV7 = (sequence: number): string =>
-  createUuidV7FromTimestamp(1_785_491_085_000, sequence);
+const uuidV7 = (sequence: number): string => createUuidV7FromTimestamp(1_785_491_085_000, sequence);
 
 const primaryCanvasId = primaryCanvasBlockId("project:default");
 const primaryDocumentId = primaryCanvasDocumentId("project:default");
@@ -56,14 +55,16 @@ describe("Library Module transport", () => {
   });
 
   test("binds contextual Page reference reads and preserves Core match provenance", () => {
-    expect(bindLibraryModuleRead({
-      read: {
-        mode: "page_reference_candidates",
-        query: "projection",
-        limit: 24,
-        sourcePageId: "page:host",
-      },
-    })).toEqual({
+    expect(
+      bindLibraryModuleRead({
+        read: {
+          mode: "page_reference_candidates",
+          query: "projection",
+          limit: 24,
+          sourcePageId: "page:host",
+        },
+      }),
+    ).toEqual({
       read: {
         mode: "page_reference_candidates",
         query: "projection",
@@ -72,57 +73,69 @@ describe("Library Module transport", () => {
       },
     });
 
-    expect(parseLibraryModuleReadResult(readResult({
-      kind: "page_reference_candidates",
-      items: [{
-        pageId: "page:target",
-        title: "Projection notes",
-        pageKey: "NDX-42",
-        status: "build",
-        locationLabel: "Product / Editor",
-        matchExcerpt: "The projection stays bounded.",
-        matchSource: "content",
-        titleParts: [
-          { text: "Projection", highlighted: true },
-          { text: " notes", highlighted: false },
-        ],
-        matchExcerptParts: [
-          { text: "The ", highlighted: false },
-          { text: "projection", highlighted: true },
-          { text: " stays bounded.", highlighted: false },
-        ],
-        matches: [{
-          source: "title",
-          quality: "exact",
-          parts: [
-            { text: "Projection", highlighted: true },
-            { text: " notes", highlighted: false },
+    expect(
+      parseLibraryModuleReadResult(
+        readResult({
+          kind: "page_reference_candidates",
+          items: [
+            {
+              pageId: "page:target",
+              title: "Projection notes",
+              pageKey: "NDX-42",
+              status: "build",
+              locationLabel: "Product / Editor",
+              matchExcerpt: "The projection stays bounded.",
+              matchSource: "content",
+              titleParts: [
+                { text: "Projection", highlighted: true },
+                { text: " notes", highlighted: false },
+              ],
+              matchExcerptParts: [
+                { text: "The ", highlighted: false },
+                { text: "projection", highlighted: true },
+                { text: " stays bounded.", highlighted: false },
+              ],
+              matches: [
+                {
+                  source: "title",
+                  quality: "exact",
+                  parts: [
+                    { text: "Projection", highlighted: true },
+                    { text: " notes", highlighted: false },
+                  ],
+                },
+              ],
+            },
           ],
-        }],
-      }],
-    }))).toMatchObject({
+        }),
+      ),
+    ).toMatchObject({
       ok: true,
       value: {
         value: {
           kind: "page_reference_candidates",
-          items: [{
-            pageId: "page:target",
-            matchSource: "content",
-          }],
+          items: [
+            {
+              pageId: "page:target",
+              matchSource: "content",
+            },
+          ],
         },
       },
     });
   });
 
   test("preserves a typed Page-search candidate-budget failure", () => {
-    expect(parseLibraryModuleReadResult({
-      ok: false,
-      error: {
-        code: "resource_exhausted",
-        message: "Page search term matches too many body units",
-        retryable: false,
-      },
-    })).toEqual({
+    expect(
+      parseLibraryModuleReadResult({
+        ok: false,
+        error: {
+          code: "resource_exhausted",
+          message: "Page search term matches too many body units",
+          retryable: false,
+        },
+      }),
+    ).toEqual({
       ok: false,
       error: {
         code: "resource_exhausted",
@@ -133,51 +146,63 @@ describe("Library Module transport", () => {
   });
 
   test("binds and parses the authoritative Project access matrix", () => {
-    expect(bindLibraryModuleRead({
-      read: {
-        mode: "resource_project_access",
-        target: { kind: "page", pageId: "page-1" },
-      },
-    })).toEqual({
+    expect(
+      bindLibraryModuleRead({
+        read: {
+          mode: "resource_project_access",
+          target: { kind: "page", pageId: "page-1" },
+        },
+      }),
+    ).toEqual({
       read: {
         mode: "resource_project_access",
         target: { kind: "page", pageId: "page-1" },
       },
     });
 
-    expect(parseLibraryModuleReadResult(readResult({
-      kind: "resource_project_access",
-      value: {
-        target: { kind: "page", pageId: "page-1" },
-        projects: [{
-          projectId: "project-1",
-          projectName: "Product",
-          appearance: {
-            color: "blue",
-            marker: { kind: "icon", icon: "folder" },
+    expect(
+      parseLibraryModuleReadResult(
+        readResult({
+          kind: "resource_project_access",
+          value: {
+            target: { kind: "page", pageId: "page-1" },
+            projects: [
+              {
+                projectId: "project-1",
+                projectName: "Product",
+                appearance: {
+                  color: "blue",
+                  marker: { kind: "icon", icon: "folder" },
+                },
+                lifecycle: "active",
+                directGrant: { access: "read_write", revision: 3 },
+                inheritedSources: [
+                  {
+                    kind: "ancestor_page",
+                    pageId: "page-parent",
+                    pageTitle: "Strategy",
+                    access: "read",
+                  },
+                ],
+                effectiveAccess: "read_write",
+              },
+            ],
           },
-          lifecycle: "active",
-          directGrant: { access: "read_write", revision: 3 },
-          inheritedSources: [{
-            kind: "ancestor_page",
-            pageId: "page-parent",
-            pageTitle: "Strategy",
-            access: "read",
-          }],
-          effectiveAccess: "read_write",
-        }],
-      },
-    }))).toMatchObject({
+        }),
+      ),
+    ).toMatchObject({
       ok: true,
       value: {
         value: {
           kind: "resource_project_access",
           value: {
-            projects: [{
-              projectId: "project-1",
-              directGrant: { revision: 3 },
-              inheritedSources: [{ kind: "ancestor_page" }],
-            }],
+            projects: [
+              {
+                projectId: "project-1",
+                directGrant: { revision: 3 },
+                inheritedSources: [{ kind: "ancestor_page" }],
+              },
+            ],
           },
         },
       },
@@ -245,17 +270,19 @@ describe("Library Module transport", () => {
   });
 
   test("binds and parses a move destination window", () => {
-    expect(bindLibraryModuleRead({
-      read: {
-        mode: "move_destinations",
-        target: { kind: "page", pageId: "page-source" },
-        scope: {
-          kind: "children",
-          parent: { kind: "page", pageId: "page-parent" },
+    expect(
+      bindLibraryModuleRead({
+        read: {
+          mode: "move_destinations",
+          target: { kind: "page", pageId: "page-source" },
+          scope: {
+            kind: "children",
+            parent: { kind: "page", pageId: "page-parent" },
+          },
+          limit: 50,
         },
-        limit: 50,
-      },
-    })).toEqual({
+      }),
+    ).toEqual({
       read: {
         mode: "move_destinations",
         target: { kind: "page", pageId: "page-source" },
@@ -267,45 +294,53 @@ describe("Library Module transport", () => {
       },
     });
 
-    expect(parseLibraryModuleReadResult(readResult({
-      kind: "move_destinations",
-      target: { kind: "page", pageId: "page-source" },
-      scope: { kind: "search", query: "roadmap" },
-      items: [{
-        pageId: "page-roadmap",
-        title: "Roadmap",
-        path: ["Pages", "Product"],
-        hasChildren: true,
-        isCurrent: false,
-        documentGeneration: 2,
-        documentHeadSeq: 7,
-        updatedAt: "2026-08-11T00:00:00.000Z",
-      }],
-      currentDestination: {
-        pageId: "page-product",
-        title: "Product",
-        path: ["Pages"],
-        hasChildren: true,
-        isCurrent: true,
-        documentGeneration: 1,
-        documentHeadSeq: 12,
-        updatedAt: "2026-08-10T00:00:00.000Z",
-      },
-      nextCursor: null,
-      hasMore: false,
-      total: 1,
-      rootIsCurrent: false,
-    }))).toMatchObject({
+    expect(
+      parseLibraryModuleReadResult(
+        readResult({
+          kind: "move_destinations",
+          target: { kind: "page", pageId: "page-source" },
+          scope: { kind: "search", query: "roadmap" },
+          items: [
+            {
+              pageId: "page-roadmap",
+              title: "Roadmap",
+              path: ["Pages", "Product"],
+              hasChildren: true,
+              isCurrent: false,
+              documentGeneration: 2,
+              documentHeadSeq: 7,
+              updatedAt: "2026-08-11T00:00:00.000Z",
+            },
+          ],
+          currentDestination: {
+            pageId: "page-product",
+            title: "Product",
+            path: ["Pages"],
+            hasChildren: true,
+            isCurrent: true,
+            documentGeneration: 1,
+            documentHeadSeq: 12,
+            updatedAt: "2026-08-10T00:00:00.000Z",
+          },
+          nextCursor: null,
+          hasMore: false,
+          total: 1,
+          rootIsCurrent: false,
+        }),
+      ),
+    ).toMatchObject({
       ok: true,
       value: {
         value: {
           kind: "move_destinations",
-          items: [{
-            pageId: "page-roadmap",
-            path: ["Pages", "Product"],
-            documentGeneration: 2,
-            documentHeadSeq: 7,
-          }],
+          items: [
+            {
+              pageId: "page-roadmap",
+              path: ["Pages", "Product"],
+              documentGeneration: 2,
+              documentHeadSeq: 7,
+            },
+          ],
           currentDestination: {
             pageId: "page-product",
             isCurrent: true,
@@ -317,14 +352,16 @@ describe("Library Module transport", () => {
 
   test("binds and parses standalone roots while rejecting View entries", () => {
     const pageId = uuidV7(31);
-    expect(bindLibraryModuleRead({
-      read: {
-        mode: "standalone_roots",
-        cursor: "cursor-1",
-        limit: 10,
-        forceIncludeTarget: { kind: "page", pageId },
-      },
-    })).toEqual({
+    expect(
+      bindLibraryModuleRead({
+        read: {
+          mode: "standalone_roots",
+          cursor: "cursor-1",
+          limit: 10,
+          forceIncludeTarget: { kind: "page", pageId },
+        },
+      }),
+    ).toEqual({
       read: {
         mode: "standalone_roots",
         cursor: "cursor-1",
@@ -333,23 +370,29 @@ describe("Library Module transport", () => {
       },
     });
 
-    expect(parseLibraryModuleReadResult(readResult({
-      kind: "standalone_roots",
-      items: [{
-        kind: "page",
-        pageId,
-        title: "Prompts",
-        hasChildren: false,
-        parentRevision: 1,
-        metadataRevision: 1,
-        documentGeneration: 1,
-        documentHeadSeq: 0,
-        updatedAt: "2026-08-03T00:00:00.000Z",
-      }],
-      nextCursor: null,
-      hasMore: false,
-      total: 1,
-    }))).toMatchObject({
+    expect(
+      parseLibraryModuleReadResult(
+        readResult({
+          kind: "standalone_roots",
+          items: [
+            {
+              kind: "page",
+              pageId,
+              title: "Prompts",
+              hasChildren: false,
+              parentRevision: 1,
+              metadataRevision: 1,
+              documentGeneration: 1,
+              documentHeadSeq: 0,
+              updatedAt: "2026-08-03T00:00:00.000Z",
+            },
+          ],
+          nextCursor: null,
+          hasMore: false,
+          total: 1,
+        }),
+      ),
+    ).toMatchObject({
       ok: true,
       value: {
         value: {
@@ -360,109 +403,123 @@ describe("Library Module transport", () => {
       },
     });
 
-    expect(() => parseLibraryModuleReadResult(readResult({
-      kind: "standalone_roots",
-      items: [{
-        kind: "view",
-        viewId: uuidV7(32),
-        databaseId: uuidV7(33),
-        dataSourceId: uuidV7(34),
-        title: "Board",
-        defaultLayout: "board",
-        isDefault: true,
-        revision: 1,
-      }],
-      nextCursor: null,
-      hasMore: false,
-      total: 1,
-    }))).toThrow("cannot contain Views");
-  });
-
-  test("binds and parses the deterministic primary Canvas identity", () => {
-    expect(bindLibraryModuleRead({
-      read: {
-        mode: "canvas_target",
-        canvasId: primaryCanvasId,
-      },
-    })).toEqual({
-      read: {
-        mode: "canvas_target",
-        canvasId: primaryCanvasId,
-      },
-    });
-
-    expect(parseLibraryModuleReadResult({
-      ok: true,
-      value: {
-        profileId: "profile-1",
-        libraryId: "library-1",
-        storeEpoch: "epoch-1",
-        commitSeq: 3,
-        authorization: null,
-        value: {
-          kind: "canvas_target",
-          value: {
-            status: "available",
-            summary: {
-              canvasId: primaryCanvasId,
-              projectId: "project:default",
-              title: "Canvas",
-              lifecycle: "active",
-              isPrimary: true,
-              location: { kind: "library" },
-              metadataRevision: 1,
-              locationRevision: 1,
-              documentGeneration: 1,
-              documentHeadSeq: 0,
-              updatedAt: "2026-07-31T00:00:00.000Z",
+    expect(() =>
+      parseLibraryModuleReadResult(
+        readResult({
+          kind: "standalone_roots",
+          items: [
+            {
+              kind: "view",
+              viewId: uuidV7(32),
+              databaseId: uuidV7(33),
+              dataSourceId: uuidV7(34),
+              title: "Board",
+              defaultLayout: "board",
+              isDefault: true,
+              revision: 1,
             },
-          },
-        },
-      },
-    })).toMatchObject({
-      ok: true,
-      value: {
-        value: {
-          kind: "canvas_target",
-          value: {
-            status: "available",
-            summary: {
-              canvasId: primaryCanvasId,
-              isPrimary: true,
-            },
-          },
-        },
-      },
-    });
-
-    expect(parseLibraryModuleReadResult({
-      ok: true,
-      value: {
-        profileId: "profile-1",
-        libraryId: "library-1",
-        storeEpoch: "epoch-1",
-        commitSeq: 3,
-        authorization: null,
-        value: {
-          kind: "children",
-          parent: { kind: "library" },
-          items: [{
-            kind: "canvas",
-            canvasId: primaryCanvasId,
-            title: "Canvas",
-            isPrimary: true,
-            metadataRevision: 1,
-            locationRevision: 1,
-            documentGeneration: 1,
-            documentHeadSeq: 0,
-            updatedAt: "2026-07-31T00:00:00.000Z",
-          }],
+          ],
           nextCursor: null,
           hasMore: false,
           total: 1,
+        }),
+      ),
+    ).toThrow("cannot contain Views");
+  });
+
+  test("binds and parses the deterministic primary Canvas identity", () => {
+    expect(
+      bindLibraryModuleRead({
+        read: {
+          mode: "canvas_target",
+          canvasId: primaryCanvasId,
+        },
+      }),
+    ).toEqual({
+      read: {
+        mode: "canvas_target",
+        canvasId: primaryCanvasId,
+      },
+    });
+
+    expect(
+      parseLibraryModuleReadResult({
+        ok: true,
+        value: {
+          profileId: "profile-1",
+          libraryId: "library-1",
+          storeEpoch: "epoch-1",
+          commitSeq: 3,
+          authorization: null,
+          value: {
+            kind: "canvas_target",
+            value: {
+              status: "available",
+              summary: {
+                canvasId: primaryCanvasId,
+                projectId: "project:default",
+                title: "Canvas",
+                lifecycle: "active",
+                isPrimary: true,
+                location: { kind: "library" },
+                metadataRevision: 1,
+                locationRevision: 1,
+                documentGeneration: 1,
+                documentHeadSeq: 0,
+                updatedAt: "2026-07-31T00:00:00.000Z",
+              },
+            },
+          },
+        },
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: {
+        value: {
+          kind: "canvas_target",
+          value: {
+            status: "available",
+            summary: {
+              canvasId: primaryCanvasId,
+              isPrimary: true,
+            },
+          },
         },
       },
-    })).toMatchObject({
+    });
+
+    expect(
+      parseLibraryModuleReadResult({
+        ok: true,
+        value: {
+          profileId: "profile-1",
+          libraryId: "library-1",
+          storeEpoch: "epoch-1",
+          commitSeq: 3,
+          authorization: null,
+          value: {
+            kind: "children",
+            parent: { kind: "library" },
+            items: [
+              {
+                kind: "canvas",
+                canvasId: primaryCanvasId,
+                title: "Canvas",
+                isPrimary: true,
+                metadataRevision: 1,
+                locationRevision: 1,
+                documentGeneration: 1,
+                documentHeadSeq: 0,
+                updatedAt: "2026-07-31T00:00:00.000Z",
+              },
+            ],
+            nextCursor: null,
+            hasMore: false,
+            total: 1,
+          },
+        },
+      }),
+    ).toMatchObject({
       ok: true,
       value: {
         value: {
@@ -479,66 +536,78 @@ describe("Library Module transport", () => {
       storeEpoch: "epoch-1",
     } as const;
 
-    expect(bindLibraryModuleApply({
-      ...base,
-      operation: {
-        kind: "rename_canvas",
-        canvasId: primaryCanvasId,
-        displayName: "Architecture",
-        expectedMetadataRevision: 1,
-      },
-    }).operation).toMatchObject({ canvasId: primaryCanvasId });
-    expect(bindLibraryModuleApply({
-      ...base,
-      operationId: uuidV7(2),
-      operation: {
-        kind: "move_canvas",
-        canvasId: primaryCanvasId,
-        expectedLocationRevision: 1,
-        destination,
-      },
-    }).operation).toMatchObject({ canvasId: primaryCanvasId });
-    expect(bindLibraryModuleApply({
-      ...base,
-      operationId: uuidV7(3),
-      operation: {
-        kind: "delete_canvas",
-        canvasId: primaryCanvasId,
-        expectedLocationRevision: 1,
-        expectedMetadataRevision: 1,
-      },
-    }).operation).toMatchObject({ canvasId: primaryCanvasId });
-    expect(bindLibraryModuleApply({
-      ...base,
-      operationId: uuidV7(4),
-      operation: {
-        kind: "duplicate_canvas",
-        sourceCanvasId: primaryCanvasId,
-        canvasId: uuidV7(5),
-        documentId: uuidV7(6),
-        expectedDocumentGeneration: 1,
-        expectedDocumentHeadSeq: 0,
-        destination,
-      },
-    }).operation).toMatchObject({ sourceCanvasId: primaryCanvasId });
+    expect(
+      bindLibraryModuleApply({
+        ...base,
+        operation: {
+          kind: "rename_canvas",
+          canvasId: primaryCanvasId,
+          displayName: "Architecture",
+          expectedMetadataRevision: 1,
+        },
+      }).operation,
+    ).toMatchObject({ canvasId: primaryCanvasId });
+    expect(
+      bindLibraryModuleApply({
+        ...base,
+        operationId: uuidV7(2),
+        operation: {
+          kind: "move_canvas",
+          canvasId: primaryCanvasId,
+          expectedLocationRevision: 1,
+          destination,
+        },
+      }).operation,
+    ).toMatchObject({ canvasId: primaryCanvasId });
+    expect(
+      bindLibraryModuleApply({
+        ...base,
+        operationId: uuidV7(3),
+        operation: {
+          kind: "delete_canvas",
+          canvasId: primaryCanvasId,
+          expectedLocationRevision: 1,
+          expectedMetadataRevision: 1,
+        },
+      }).operation,
+    ).toMatchObject({ canvasId: primaryCanvasId });
+    expect(
+      bindLibraryModuleApply({
+        ...base,
+        operationId: uuidV7(4),
+        operation: {
+          kind: "duplicate_canvas",
+          sourceCanvasId: primaryCanvasId,
+          canvasId: uuidV7(5),
+          documentId: uuidV7(6),
+          expectedDocumentGeneration: 1,
+          expectedDocumentHeadSeq: 0,
+          destination,
+        },
+      }).operation,
+    ).toMatchObject({ sourceCanvasId: primaryCanvasId });
 
-    expect(() => bindLibraryModuleApply({
-      ...base,
-      operationId: uuidV7(7),
-      operation: {
-        kind: "create_canvas",
-        canvasId: primaryCanvasId,
-        documentId: uuidV7(8),
-        displayName: "Canvas",
-        destination,
-      },
-    })).toThrow("expected canonical lowercase UUID-v7");
-    expect(() => bindLibraryModuleRead({
-      read: {
-        mode: "canvas_target",
-        canvasId: "canvas:primary:",
-      },
-    })).toThrow("primary Canvas Block ID");
+    expect(() =>
+      bindLibraryModuleApply({
+        ...base,
+        operationId: uuidV7(7),
+        operation: {
+          kind: "create_canvas",
+          canvasId: primaryCanvasId,
+          documentId: uuidV7(8),
+          displayName: "Canvas",
+          destination,
+        },
+      }),
+    ).toThrow("expected canonical lowercase UUID-v7");
+    expect(() =>
+      bindLibraryModuleRead({
+        read: {
+          mode: "canvas_target",
+          canvasId: "canvas:primary:",
+        },
+      }),
+    ).toThrow("primary Canvas Block ID");
   });
 
   test("binds one revision-fenced Project access batch", () => {
@@ -572,27 +641,33 @@ describe("Library Module transport", () => {
       operation: {
         kind: "apply_page_metadata_properties",
         clientSessionId: "window-1",
-        databaseOperations: [{
-          kind: "edit_property_values",
-          edits: [{
-            pageId: "page-1",
-            dataSourceId: "source-1",
-            propertyId: "priority",
-            edit: {
-              kind: "replace",
-              expectedValueRevision: 3,
-              value: { kind: "select", optionId: "p1-high" },
-            },
-          }],
-        }],
-        intrinsicFields: [{
-          scope: "intrinsic",
-          blockId: "page-1",
-          propertyKey: "schedule.isAllDay",
-          operation: "set",
-          expectedRevision: 2,
-          value: true,
-        }],
+        databaseOperations: [
+          {
+            kind: "edit_property_values",
+            edits: [
+              {
+                pageId: "page-1",
+                dataSourceId: "source-1",
+                propertyId: "priority",
+                edit: {
+                  kind: "replace",
+                  expectedValueRevision: 3,
+                  value: { kind: "select", optionId: "p1-high" },
+                },
+              },
+            ],
+          },
+        ],
+        intrinsicFields: [
+          {
+            scope: "intrinsic",
+            blockId: "page-1",
+            propertyKey: "schedule.isAllDay",
+            operation: "set",
+            expectedRevision: 2,
+            value: true,
+          },
+        ],
       },
     }).operation;
 
@@ -600,33 +675,41 @@ describe("Library Module transport", () => {
       kind: "apply_page_metadata_properties",
       clientSessionId: "window-1",
       databaseOperations: [{ kind: "edit_property_values" }],
-      intrinsicFields: [{
-        scope: "intrinsic",
-        propertyKey: "schedule.isAllDay",
-      }],
-    });
-    expect(() => bindLibraryModuleApply({
-      operationId: uuidV7(22),
-      storeEpoch: "epoch-1",
-      operation: {
-        kind: "apply_page_metadata_properties",
-        databaseOperations: [{
-          kind: "delete_property",
-          dataSourceId: "source-1",
-          propertyId: "priority",
-          expectedDataSourceRevision: 1,
-          expectedPropertyRevision: 1,
-        }],
-        intrinsicFields: [{
+      intrinsicFields: [
+        {
           scope: "intrinsic",
-          blockId: "page-1",
           propertyKey: "schedule.isAllDay",
-          operation: "set",
-          expectedRevision: 2,
-          value: true,
-        }],
-      },
-    })).toThrow("only supports Page Property value edits");
+        },
+      ],
+    });
+    expect(() =>
+      bindLibraryModuleApply({
+        operationId: uuidV7(22),
+        storeEpoch: "epoch-1",
+        operation: {
+          kind: "apply_page_metadata_properties",
+          databaseOperations: [
+            {
+              kind: "delete_property",
+              dataSourceId: "source-1",
+              propertyId: "priority",
+              expectedDataSourceRevision: 1,
+              expectedPropertyRevision: 1,
+            },
+          ],
+          intrinsicFields: [
+            {
+              scope: "intrinsic",
+              blockId: "page-1",
+              propertyKey: "schedule.isAllDay",
+              operation: "set",
+              expectedRevision: 2,
+              value: true,
+            },
+          ],
+        },
+      }),
+    ).toThrow("only supports Page Property value edits");
   });
 
   test("parses primary Canvas unavailable, path, and catalog targets", () => {
@@ -655,11 +738,15 @@ describe("Library Module transport", () => {
       });
     }
 
-    expect(parseLibraryModuleReadResult(readResult({
-      kind: "path",
-      target: { kind: "canvas", canvasId: primaryCanvasId },
-      nodes: [],
-    }))).toMatchObject({
+    expect(
+      parseLibraryModuleReadResult(
+        readResult({
+          kind: "path",
+          target: { kind: "canvas", canvasId: primaryCanvasId },
+          nodes: [],
+        }),
+      ),
+    ).toMatchObject({
       ok: true,
       value: {
         value: {
@@ -667,63 +754,73 @@ describe("Library Module transport", () => {
         },
       },
     });
-    expect(parseLibraryModuleReadResult(readResult({
-      kind: "catalog",
-      items: [{
-        target: { kind: "canvas", canvasId: primaryCanvasId },
-        title: "Canvas",
-        kind: "canvas",
-        lifecycle: "active",
-        locationLabel: "Library",
-        updatedAt: "2026-07-31T00:00:00.000Z",
-        locationRevision: 1,
-        metadataRevision: 1,
-      }],
-      nextCursor: null,
-      hasMore: false,
-      total: 1,
-    }))).toMatchObject({
+    expect(
+      parseLibraryModuleReadResult(
+        readResult({
+          kind: "catalog",
+          items: [
+            {
+              target: { kind: "canvas", canvasId: primaryCanvasId },
+              title: "Canvas",
+              kind: "canvas",
+              lifecycle: "active",
+              locationLabel: "Library",
+              updatedAt: "2026-07-31T00:00:00.000Z",
+              locationRevision: 1,
+              metadataRevision: 1,
+            },
+          ],
+          nextCursor: null,
+          hasMore: false,
+          total: 1,
+        }),
+      ),
+    ).toMatchObject({
       ok: true,
       value: {
         value: {
-          items: [{
-            target: { kind: "canvas", canvasId: primaryCanvasId },
-          }],
+          items: [
+            {
+              target: { kind: "canvas", canvasId: primaryCanvasId },
+            },
+          ],
         },
       },
     });
   });
 
   test("parses primary Canvas mutation receipts without weakening new IDs", () => {
-    expect(parseLibraryModuleApplyResult({
-      ok: true,
-      localCommit: committedLocalCommit("epoch-1", 4),
-      value: {
-        operationId: uuidV7(1),
-        storeEpoch: "epoch-1",
-        libraryId: "library-1",
-        operationKind: "rename_canvas",
-        duplicate: false,
-        didMutate: true,
-        createdTarget: null,
-        canvasMutation: {
+    expect(
+      parseLibraryModuleApplyResult({
+        ok: true,
+        localCommit: committedLocalCommit("epoch-1", 4),
+        value: {
+          operationId: uuidV7(1),
+          storeEpoch: "epoch-1",
+          libraryId: "library-1",
           operationKind: "rename_canvas",
-          canvasId: primaryCanvasId,
-          documentId: primaryDocumentId,
-          sourceCanvasId: null,
-          locationRevision: 1,
-          metadataRevision: 2,
-          documentCommits: [],
+          duplicate: false,
+          didMutate: true,
+          createdTarget: null,
+          canvasMutation: {
+            operationKind: "rename_canvas",
+            canvasId: primaryCanvasId,
+            documentId: primaryDocumentId,
+            sourceCanvasId: null,
+            locationRevision: 1,
+            metadataRevision: 2,
+            documentCommits: [],
+          },
+          affectedParentKeys: ["library"],
+          affectedPageIds: [],
+          affectedDatabaseIds: [],
+          affectedViewIds: [],
+          committedRevisions: {},
+          commitSeq: 4,
+          committedAt: "2026-07-31T00:00:00.000Z",
         },
-        affectedParentKeys: ["library"],
-        affectedPageIds: [],
-        affectedDatabaseIds: [],
-        affectedViewIds: [],
-        committedRevisions: {},
-        commitSeq: 4,
-        committedAt: "2026-07-31T00:00:00.000Z",
-      },
-    })).toMatchObject({
+      }),
+    ).toMatchObject({
       ok: true,
       value: {
         canvasMutation: {

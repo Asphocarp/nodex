@@ -39,8 +39,7 @@ function repositoryLabel(identity: GitRepositoryIdentity): string {
     return `${identity.ownerRepo.owner}/${identity.ownerRepo.repo}`;
   }
 
-  return identity.repositoryRoot.split(/[\\/]/).filter(Boolean).at(-1)
-    ?? identity.repositoryRoot;
+  return identity.repositoryRoot.split(/[\\/]/).filter(Boolean).at(-1) ?? identity.repositoryRoot;
 }
 
 export function buildProjectHoverCardMetadataRows(input: {
@@ -50,9 +49,7 @@ export function buildProjectHoverCardMetadataRows(input: {
   pathContext: LocalPathPresentationContext | null | undefined;
 }): ProjectHoverCardMetadataRow[] {
   const rows: ProjectHoverCardMetadataRow[] = [];
-  const seen = new Set<string>([
-    input.projectName.trim().toLocaleLowerCase(),
-  ]);
+  const seen = new Set<string>([input.projectName.trim().toLocaleLowerCase()]);
   const addRow = (row: ProjectHoverCardMetadataRow) => {
     const identity = row.label.trim().toLocaleLowerCase();
     if (!identity) return;

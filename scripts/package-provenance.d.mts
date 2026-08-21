@@ -14,9 +14,7 @@ export interface PackagedBuildProvenance {
   };
 }
 
-export function writePackagedBuildProvenance(
-  appPath: string,
-): PackagedBuildProvenance;
+export function writePackagedBuildProvenance(appPath: string): PackagedBuildProvenance;
 
 export function verifyPackagedBuildProvenance(
   appPath: string,

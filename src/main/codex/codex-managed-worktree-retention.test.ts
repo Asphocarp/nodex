@@ -69,26 +69,43 @@ describe("planManagedWorktreeRetention", () => {
       record("delete-old", { createdAtMs: nowMs - 4 * CODEX_OWNERLESS_WORKTREE_GRACE_MS }),
       record("keep-new", { createdAtMs: nowMs - 2 * CODEX_OWNERLESS_WORKTREE_GRACE_MS }),
     ];
-    const plan = planManagedWorktreeRetention(input(records, {
-      threadMetadata: [
-        { threadId: "thread-pinned", updatedAtMs: 1, pinned: true, inProgress: false, automationProtected: false },
-        { threadId: "thread-active", updatedAtMs: 2, pinned: false, inProgress: true, automationProtected: false },
-        { threadId: "thread-automation", updatedAtMs: 3, pinned: false, inProgress: false, automationProtected: true },
-      ],
-      pathProtections: [
-        { hostId: "local", worktreeGitRoot: records[0]!.worktreeGitRoot, reason: "permanent" },
-        { hostId: "local", worktreeGitRoot: records[1]!.worktreeGitRoot, reason: "pending" },
-        { hostId: "local", worktreeGitRoot: records[2]!.worktreeGitRoot, reason: "newborn" },
-      ],
-    }));
+    const plan = planManagedWorktreeRetention(
+      input(records, {
+        threadMetadata: [
+          {
+            threadId: "thread-pinned",
+            updatedAtMs: 1,
+            pinned: true,
+            inProgress: false,
+            automationProtected: false,
+          },
+          {
+            threadId: "thread-active",
+            updatedAtMs: 2,
+            pinned: false,
+            inProgress: true,
+            automationProtected: false,
+          },
+          {
+            threadId: "thread-automation",
+            updatedAtMs: 3,
+            pinned: false,
+            inProgress: false,
+            automationProtected: true,
+          },
+        ],
+        pathProtections: [
+          { hostId: "local", worktreeGitRoot: records[0]!.worktreeGitRoot, reason: "permanent" },
+          { hostId: "local", worktreeGitRoot: records[1]!.worktreeGitRoot, reason: "pending" },
+          { hostId: "local", worktreeGitRoot: records[2]!.worktreeGitRoot, reason: "newborn" },
+        ],
+      }),
+    );
     expect(plan.status).toBe("planned");
-    expect(plan.delete.map((item) => item.worktreeGitRoot)).toEqual([
-      records[7]!.worktreeGitRoot,
-    ]);
-    expect(Object.fromEntries(plan.items.map((item) => [
-      item.worktreeGitRoot,
-      item.protectionReasons,
-    ]))).toMatchObject({
+    expect(plan.delete.map((item) => item.worktreeGitRoot)).toEqual([records[7]!.worktreeGitRoot]);
+    expect(
+      Object.fromEntries(plan.items.map((item) => [item.worktreeGitRoot, item.protectionReasons])),
+    ).toMatchObject({
       [records[0]!.worktreeGitRoot]: ["permanent"],
       [records[1]!.worktreeGitRoot]: ["pending"],
       [records[2]!.worktreeGitRoot]: ["newborn"],
@@ -100,16 +117,17 @@ describe("planManagedWorktreeRetention", () => {
   });
 
   test("uses the exact migration and one-hour boundaries", () => {
-    const plan = planManagedWorktreeRetention(input([
-      record("migration-before", { createdAtMs: CODEX_OWNER_METADATA_MIGRATION_CUTOFF_MS - 1 }),
-      record("migration-at", { createdAtMs: CODEX_OWNER_METADATA_MIGRATION_CUTOFF_MS }),
-      record("hour-before", { createdAtMs: nowMs - CODEX_OWNERLESS_WORKTREE_GRACE_MS + 1 }),
-      record("hour-at", { createdAtMs: nowMs - CODEX_OWNERLESS_WORKTREE_GRACE_MS }),
-    ]));
-    const reasons = Object.fromEntries(plan.items.map((item) => [
-      item.worktreeGitRoot,
-      item.protectionReasons,
-    ]));
+    const plan = planManagedWorktreeRetention(
+      input([
+        record("migration-before", { createdAtMs: CODEX_OWNER_METADATA_MIGRATION_CUTOFF_MS - 1 }),
+        record("migration-at", { createdAtMs: CODEX_OWNER_METADATA_MIGRATION_CUTOFF_MS }),
+        record("hour-before", { createdAtMs: nowMs - CODEX_OWNERLESS_WORKTREE_GRACE_MS + 1 }),
+        record("hour-at", { createdAtMs: nowMs - CODEX_OWNERLESS_WORKTREE_GRACE_MS }),
+      ]),
+    );
+    const reasons = Object.fromEntries(
+      plan.items.map((item) => [item.worktreeGitRoot, item.protectionReasons]),
+    );
     expect(reasons["/managed/migration-before/repo"]).toContain("pre-migration-ownerless");
     expect(reasons["/managed/migration-at/repo"]).not.toContain("pre-migration-ownerless");
     expect(reasons["/managed/hour-before/repo"]).toContain("young-ownerless");
@@ -117,20 +135,37 @@ describe("planManagedWorktreeRetention", () => {
   });
 
   test("sorts ownerless first by birthtime, then owned by owner update time with path ties", () => {
-    const plan = planManagedWorktreeRetention(input([
-      record("ownerless-new", { createdAtMs: 20 }),
-      record("owner-b", { ownerThreadId: "thread-b" }),
-      record("ownerless-old-b", { createdAtMs: 10 }),
-      record("owner-a", { ownerThreadId: "thread-a" }),
-      record("ownerless-old-a", { createdAtMs: 10 }),
-    ], {
-      keepCount: 2,
-      protectPreMigrationOwnerlessWorktrees: false,
-      threadMetadata: [
-        { threadId: "thread-a", updatedAtMs: 30, pinned: false, inProgress: false, automationProtected: false },
-        { threadId: "thread-b", updatedAtMs: 40, pinned: false, inProgress: false, automationProtected: false },
-      ],
-    }));
+    const plan = planManagedWorktreeRetention(
+      input(
+        [
+          record("ownerless-new", { createdAtMs: 20 }),
+          record("owner-b", { ownerThreadId: "thread-b" }),
+          record("ownerless-old-b", { createdAtMs: 10 }),
+          record("owner-a", { ownerThreadId: "thread-a" }),
+          record("ownerless-old-a", { createdAtMs: 10 }),
+        ],
+        {
+          keepCount: 2,
+          protectPreMigrationOwnerlessWorktrees: false,
+          threadMetadata: [
+            {
+              threadId: "thread-a",
+              updatedAtMs: 30,
+              pinned: false,
+              inProgress: false,
+              automationProtected: false,
+            },
+            {
+              threadId: "thread-b",
+              updatedAtMs: 40,
+              pinned: false,
+              inProgress: false,
+              automationProtected: false,
+            },
+          ],
+        },
+      ),
+    );
     expect(plan.orderedCandidates.map((item) => item.worktreeGitRoot)).toEqual([
       "/managed/ownerless-old-a/repo",
       "/managed/ownerless-old-b/repo",
@@ -144,16 +179,20 @@ describe("planManagedWorktreeRetention", () => {
 
   test("counts only eligible roots against keepCount and keeps shared-owner protection", () => {
     const protectedOwner = record("shared", { ownerThreadId: "owner" });
-    const plan = planManagedWorktreeRetention(input([
-      protectedOwner,
-      record("one"),
-      record("two"),
-    ], {
-      keepCount: 2,
-      threadMetadata: [
-        { threadId: "owner", updatedAtMs: 1, pinned: true, inProgress: false, automationProtected: false },
-      ],
-    }));
+    const plan = planManagedWorktreeRetention(
+      input([protectedOwner, record("one"), record("two")], {
+        keepCount: 2,
+        threadMetadata: [
+          {
+            threadId: "owner",
+            updatedAtMs: 1,
+            pinned: true,
+            inProgress: false,
+            automationProtected: false,
+          },
+        ],
+      }),
+    );
     expect(plan.delete).toEqual([]);
     expect(plan.keep).toHaveLength(3);
   });
@@ -161,10 +200,12 @@ describe("planManagedWorktreeRetention", () => {
 
 describe("executeManagedWorktreeRetentionPlan", () => {
   test("deduplicates paths, caps concurrency at three, and settles every removal", async () => {
-    const plan = planManagedWorktreeRetention(input(
-      Array.from({ length: 7 }, (_, index) => record(String(index))),
-      { keepCount: 1, protectPreMigrationOwnerlessWorktrees: false },
-    ));
+    const plan = planManagedWorktreeRetention(
+      input(
+        Array.from({ length: 7 }, (_, index) => record(String(index))),
+        { keepCount: 1, protectPreMigrationOwnerlessWorktrees: false },
+      ),
+    );
     expect(plan.status).toBe("planned");
     let active = 0;
     let peak = 0;
@@ -176,10 +217,11 @@ describe("executeManagedWorktreeRetentionPlan", () => {
       active -= 1;
       if (item.worktreeGitRoot.endsWith("/2/repo")) throw new Error("expected");
     });
-    const execution = executeManagedWorktreeRetentionPlan([
-      ...plan.delete,
-      plan.delete[0]!,
-    ], remove, 3);
+    const execution = executeManagedWorktreeRetentionPlan(
+      [...plan.delete, plan.delete[0]!],
+      remove,
+      3,
+    );
     while (remove.mock.calls.length < 3) await Promise.resolve();
     expect(peak).toBe(3);
     while (releases.length > 0 || remove.mock.calls.length < plan.delete.length) {

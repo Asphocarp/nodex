@@ -21,7 +21,7 @@ export async function runProjectThreadBatches<Item, Result>(
   const results: Result[] = [];
   for (let index = 0; index < items.length; index += ARCHIVE_BATCH_SIZE) {
     const batch = items.slice(index, index + ARCHIVE_BATCH_SIZE);
-    results.push(...await Promise.all(batch.map(run)));
+    results.push(...(await Promise.all(batch.map(run))));
   }
   return results;
 }
@@ -71,7 +71,9 @@ export function ProjectArchiveChatsDialog({
       if (succeededCount > 0 && failedCount === 0) {
         toast.success(`Archived ${chatCountLabel(succeededCount)}`);
       } else if (succeededCount > 0) {
-        toast.danger(`Archived ${chatCountLabel(succeededCount)} in ${projectName}; ${failedCount} failed`);
+        toast.danger(
+          `Archived ${chatCountLabel(succeededCount)} in ${projectName}; ${failedCount} failed`,
+        );
       } else {
         toast.danger(`Failed to archive active chats in ${projectName}`);
       }
@@ -97,26 +99,17 @@ export function ProjectArchiveChatsDialog({
       >
         <NodexDialogForm onSubmit={(event) => void submit(event)}>
           <NodexDialogHeader>
-            <NodexDialogTitle>
-              Archive {chatCountLabel(items.length)}?
-            </NodexDialogTitle>
+            <NodexDialogTitle>Archive {chatCountLabel(items.length)}?</NodexDialogTitle>
             <NodexDialogDescription>
-              This will archive the chats in {projectName}. You can find them later in your archived chats
+              This will archive the chats in {projectName}. You can find them later in your archived
+              chats
             </NodexDialogDescription>
           </NodexDialogHeader>
           <NodexDialogFooter>
-            <NodexDialogAction
-              type="button"
-              disabled={archiving}
-              onClick={() => setOpen(false)}
-            >
+            <NodexDialogAction type="button" disabled={archiving} onClick={() => setOpen(false)}>
               Cancel
             </NodexDialogAction>
-            <NodexDialogAction
-              tone="danger"
-              type="submit"
-              disabled={archiving}
-            >
+            <NodexDialogAction tone="danger" type="submit" disabled={archiving}>
               {archiving ? "Archiving…" : "Archive all"}
             </NodexDialogAction>
           </NodexDialogFooter>

@@ -3,13 +3,63 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { TOGGLE_BOTTOM_PANEL_COMMAND_ID } from "../../../shared/workbench-commands";
-import { APP_SHELL_GLOBAL_HEADER_LAYER_CLASS, APP_SHELL_RIGHT_PANEL_LAYER_CLASS, APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS } from "@/lib/app-shell-layers";
+import {
+  APP_SHELL_GLOBAL_HEADER_LAYER_CLASS,
+  APP_SHELL_RIGHT_PANEL_LAYER_CLASS,
+  APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS,
+} from "@/lib/app-shell-layers";
 import { type Project } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
 import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follow-up-mode";
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
-import { makeAttachedSession, makeBottomPanelTerminalSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
-import { BOTTOM_PANEL_HIDDEN_ICON_PREFIX, EXPAND_PANEL_ICON_PREFIX, PANEL_VISIBLE_ICON_PREFIX, RESTORE_PANEL_ICON_PREFIX, clickMenuItem, discardSideChatCalls, executeCommandPaletteCommand, getBottomPanelContentSizer, getConnectedThreadStagePropsByThreadId, getFilesPreviewInteractionTarget, getHeaderShellSlot, getLastTerminalPanelProps, getLastThreadStageActions, getPanelTabById, getThreadRow, getWorkbenchTabProjectionDeleteTabIds, hydrateBackgroundSubagentThreadsCalls, hydrateSubagentPanelCalls, installReducedMotionMatchMediaForTest, installTerminalEventApiMock, invokeCalls, moveSidebarPointer, openBottomPanel, openPanelMenu, pointerActivate, pointerDownAndSettle, releasePointerDrag, renderWorkbench, requestPageCreateFromContextMock, requestThreadStreamSnapshotCalls, setComposerIntentCalls, setWindowInnerWidthForTest, sideChatConversations, startSideChatCalls, setInvokeCalls, setRequestThreadStreamSnapshotImpl, setSideChatConversationProjectId } from "./workbench-testkit/workbench-shell-harness";
+import {
+  makeAttachedSession,
+  makeBottomPanelTerminalSession,
+  makePanelLayout,
+  makePanels,
+  makeProject,
+  makeSession,
+  makeSessionTab,
+} from "./workbench-testkit/workbench-shell-fixtures";
+import {
+  BOTTOM_PANEL_HIDDEN_ICON_PREFIX,
+  EXPAND_PANEL_ICON_PREFIX,
+  PANEL_VISIBLE_ICON_PREFIX,
+  RESTORE_PANEL_ICON_PREFIX,
+  clickMenuItem,
+  discardSideChatCalls,
+  executeCommandPaletteCommand,
+  getBottomPanelContentSizer,
+  getConnectedThreadStagePropsByThreadId,
+  getFilesPreviewInteractionTarget,
+  getHeaderShellSlot,
+  getLastTerminalPanelProps,
+  getLastThreadStageActions,
+  getPanelTabById,
+  getThreadRow,
+  getWorkbenchTabProjectionDeleteTabIds,
+  hydrateBackgroundSubagentThreadsCalls,
+  hydrateSubagentPanelCalls,
+  installReducedMotionMatchMediaForTest,
+  installTerminalEventApiMock,
+  invokeCalls,
+  moveSidebarPointer,
+  openBottomPanel,
+  openPanelMenu,
+  pointerActivate,
+  pointerDownAndSettle,
+  releasePointerDrag,
+  renderWorkbench,
+  requestPageCreateFromContextMock,
+  requestThreadStreamSnapshotCalls,
+  setComposerIntentCalls,
+  setWindowInnerWidthForTest,
+  sideChatConversations,
+  startSideChatCalls,
+  setInvokeCalls,
+  setRequestThreadStreamSnapshotImpl,
+  setSideChatConversationProjectId,
+} from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / layout-panel-actions", () => {
   test("collapsed right panel opens from the global side-panel toggle", async () => {
@@ -36,12 +86,15 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:database-view"
-      && call[2] === "right"
-      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:database-view" &&
+          call[2] === "right" &&
+          JSON.stringify(call[3]) === JSON.stringify({ collapsed: false }),
+      ),
+    ).toBe(true);
     expect(screen.queryAllByRole("tablist").length > 0).toBe(true);
   });
 
@@ -57,7 +110,11 @@ describe("workbench session shell / layout-panel-actions", () => {
     const sidePanelToggle = screen.getByRole("button", { name: "Toggle side panel" });
     const toggleIconPath = bottomPanelToggle.querySelector("path")?.getAttribute("d") ?? "";
     expect(globalHeader?.contains(bottomPanelToggle)).toBe(true);
-    expect((bottomPanelToggle.compareDocumentPosition(sidePanelToggle) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+    expect(
+      (bottomPanelToggle.compareDocumentPosition(sidePanelToggle) &
+        Node.DOCUMENT_POSITION_FOLLOWING) !==
+        0,
+    ).toBe(true);
     expect(bottomPanelToggle.getAttribute("aria-pressed")).toBe("false");
     expect(bottomPanelToggle.className.includes("no-drag")).toBe(true);
     expect(toggleIconPath.startsWith(BOTTOM_PANEL_HIDDEN_ICON_PREFIX)).toBe(true);
@@ -69,32 +126,40 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:database-view"
-      && call[2] === "bottom"
-      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:database-view" &&
+          call[2] === "bottom" &&
+          JSON.stringify(call[3]) === JSON.stringify({ collapsed: false }),
+      ),
+    ).toBe(true);
     expect(screen.queryByTestId("session-bottom-panel") !== null).toBe(true);
     expect(screen.getByRole("tab", { name: /^Terminal \d+$/, selected: true }) !== null).toBe(true);
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && (call[1] as { kind?: string; panelId?: string } | undefined)?.kind === "terminal"
-      && (call[1] as { kind?: string; panelId?: string } | undefined)?.panelId === "bottom"
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          (call[1] as { kind?: string; panelId?: string } | undefined)?.kind === "terminal" &&
+          (call[1] as { kind?: string; panelId?: string } | undefined)?.panelId === "bottom",
+      ),
+    ).toBe(true);
   });
 
   test("reopening a non-empty bottom panel preserves its active tab", async () => {
     const session = makeAttachedSession({
       id: "session:alpha:bottom-browser",
       rightCollapsed: true,
-      tabs: [{
-        id: "bottom-browser-tab",
-        kind: "browser",
-        title: "Browser",
-        panelId: "bottom",
-        config: { projectId: "alpha" },
-      }],
+      tabs: [
+        {
+          id: "bottom-browser-tab",
+          kind: "browser",
+          title: "Browser",
+          panelId: "bottom",
+          config: { projectId: "alpha" },
+        },
+      ],
       panels: makePanels({
         rightCollapsed: true,
         bottomTabIds: ["bottom-browser-tab"],
@@ -115,10 +180,13 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     expect(screen.getByRole("tab", { name: "Browser", selected: true }) !== null).toBe(true);
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && (call[1] as { kind?: string } | undefined)?.kind === "terminal"
-    )).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          (call[1] as { kind?: string } | undefined)?.kind === "terminal",
+      ),
+    ).toBe(false);
   });
 
   test("native and command-palette bottom-panel commands share the shell action", async () => {
@@ -139,11 +207,12 @@ describe("workbench session shell / layout-panel-actions", () => {
     await executeCommandPaletteCommand(screen, "bottom panel", "Toggle bottom panel");
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Toggle bottom panel" }).getAttribute("aria-pressed")).toBe("false");
+      expect(
+        screen.getByRole("button", { name: "Toggle bottom panel" }).getAttribute("aria-pressed"),
+      ).toBe("false");
     });
-    const bottomPanelMutations = invokeCalls.filter((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[2] === "bottom"
+    const bottomPanelMutations = invokeCalls.filter(
+      (call) => call[0] === "window-session-view:panel-patch" && call[2] === "bottom",
     );
     expect(bottomPanelMutations.map((call) => call[3])).toEqual([
       { collapsed: false },
@@ -164,10 +233,11 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     expect(screen.queryByTestId("session-bottom-panel") !== null).toBe(true);
-    expect(invokeCalls.filter((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[2] === "bottom"
-    ).map((call) => call[3])).toEqual([{ collapsed: false }]);
+    expect(
+      invokeCalls
+        .filter((call) => call[0] === "window-session-view:panel-patch" && call[2] === "bottom")
+        .map((call) => call[3]),
+    ).toEqual([{ collapsed: false }]);
   });
 
   test("delegates the Page-create command to the registered workflow", async () => {
@@ -180,15 +250,12 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
 
     expect(requestPageCreateFromContextMock).toHaveBeenCalledTimes(1);
-    expect(requestPageCreateFromContextMock).toHaveBeenCalledWith(
-      expect.any(Object),
-      {
-        activeProjectId: "alpha",
-        captureSelection: true,
-        expanded: false,
-        unavailableFeedback: "silent",
-      },
-    );
+    expect(requestPageCreateFromContextMock).toHaveBeenCalledWith(expect.any(Object), {
+      activeProjectId: "alpha",
+      captureSelection: true,
+      expanded: false,
+      unavailableFeedback: "silent",
+    });
   });
 
   test("bottom-panel commands safely no-op without an active session", async () => {
@@ -202,10 +269,11 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[2] === "bottom"
-    )).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "window-session-view:panel-patch" && call[2] === "bottom",
+      ),
+    ).toBe(false);
   });
 
   test("thread summary toggle defaults to pinned open and persists collapsed state", async () => {
@@ -228,11 +296,18 @@ describe("workbench session shell / layout-panel-actions", () => {
     const summaryToggle = screen.getByRole("button", { name: "Toggle pinned summary" });
     const globalHeader = screen.getByTestId("workbench-global-header");
     const summaryRail = screen.getByTestId("thread-stage-header-summary-actions");
-    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(within(globalHeader).queryByRole("button", { name: "Toggle pinned summary" }) !== null).toBe(true);
+    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(
+      within(globalHeader).queryByRole("button", { name: "Toggle pinned summary" }) !== null,
+    ).toBe(true);
     expect(globalHeader.contains(summaryRail)).toBe(true);
-    expect(summaryRail.querySelector('[data-workbench-header-action-rail="visible"]') !== null).toBe(true);
-    expect(within(summaryRail).queryByRole("button", { name: "Toggle pinned summary" }) !== null).toBe(true);
+    expect(
+      summaryRail.querySelector('[data-workbench-header-action-rail="visible"]') !== null,
+    ).toBe(true);
+    expect(
+      within(summaryRail).queryByRole("button", { name: "Toggle pinned summary" }) !== null,
+    ).toBe(true);
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
@@ -244,7 +319,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
 
-    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("false");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(false);
@@ -270,10 +346,13 @@ describe("workbench session shell / layout-panel-actions", () => {
 
     const globalHeader = screen.getByTestId("workbench-global-header");
     const threadFrame = screen.container.querySelector(".app-shell-main-content-frame");
-    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(globalHeader.getAttribute("data-app-shell-header-edge-scroll")).toBe("true");
     expect(threadFrame !== null).toBe(true);
-    expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBe(true);
+    expect(
+      screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null,
+    ).toBe(true);
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
     expect(stageProps?.summaryPanelContentShift).toBe(0);
@@ -297,10 +376,13 @@ describe("workbench session shell / layout-panel-actions", () => {
 
     const globalHeader = screen.getByTestId("workbench-global-header");
     const threadFrame = screen.container.querySelector(".app-shell-main-content-frame");
-    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(globalHeader.getAttribute("data-app-shell-header-edge-scroll")).toBe("false");
     expect(threadFrame !== null).toBe(true);
-    expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBe(true);
+    expect(
+      screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null,
+    ).toBe(true);
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
     expect(stageProps?.summaryPanelContentShift).toBe(-158);
@@ -322,7 +404,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     const summaryToggle = screen.getByRole("button", { name: "Toggle summary" });
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("false");
     expect(stageProps?.summaryPanelMounted).toBe(true);
@@ -348,7 +431,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
     expect(stageProps?.summaryPanelContentShift).toBe(-158);
@@ -360,13 +444,20 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
 
-    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     await waitFor(() => {
-      expect(screen.container.querySelector("[data-app-shell-summary-layout]")?.getAttribute("data-app-shell-summary-layout"))
-        .toBe("overlay");
+      expect(
+        screen.container
+          .querySelector("[data-app-shell-summary-layout]")
+          ?.getAttribute("data-app-shell-summary-layout"),
+      ).toBe("overlay");
     });
-    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(screen.getByRole("button", { name: "Toggle summary" }).getAttribute("aria-pressed")).toBe("false");
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(
+      screen.getByRole("button", { name: "Toggle summary" }).getAttribute("aria-pressed"),
+    ).toBe("false");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(false);
     expect(stageProps?.summaryPanelHideImmediately).toBe(false);
@@ -398,15 +489,24 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     await waitFor(() => {
-      expect(screen.container.querySelector("[data-app-shell-width-class]")?.getAttribute("data-app-shell-width-class"))
-        .toBe("medium");
-      expect(invokeCalls.some((call) => {
-        const input = call[3] as { collapsed?: boolean; size?: { fullWidth?: boolean } } | undefined;
-        return call[0] === "window-session-view:panel-patch"
-          && call[1] === "session:alpha:thread"
-          && call[2] === "right"
-          && input?.collapsed === true;
-      })).toBe(true);
+      expect(
+        screen.container
+          .querySelector("[data-app-shell-width-class]")
+          ?.getAttribute("data-app-shell-width-class"),
+      ).toBe("medium");
+      expect(
+        invokeCalls.some((call) => {
+          const input = call[3] as
+            | { collapsed?: boolean; size?: { fullWidth?: boolean } }
+            | undefined;
+          return (
+            call[0] === "window-session-view:panel-patch" &&
+            call[1] === "session:alpha:thread" &&
+            call[2] === "right" &&
+            input?.collapsed === true
+          );
+        }),
+      ).toBe(true);
     });
 
     setWindowInnerWidthForTest(719);
@@ -438,14 +538,19 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     const rightOpenSummaryToggle = screen.getByRole("button", { name: "Toggle summary" });
     const globalHeader = screen.getByTestId("workbench-global-header");
     const summaryRail = screen.getByTestId("thread-stage-header-summary-actions");
     expect(rightOpenSummaryToggle.getAttribute("aria-pressed")).toBe("false");
-    expect(within(globalHeader).queryByRole("button", { name: "Toggle summary" }) !== null).toBe(true);
+    expect(within(globalHeader).queryByRole("button", { name: "Toggle summary" }) !== null).toBe(
+      true,
+    );
     expect(globalHeader.contains(summaryRail)).toBe(true);
-    expect(within(summaryRail).queryByRole("button", { name: "Toggle summary" }) !== null).toBe(true);
+    expect(within(summaryRail).queryByRole("button", { name: "Toggle summary" }) !== null).toBe(
+      true,
+    );
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(false);
     expect(stageProps?.summaryPanelHideImmediately).toBe(false);
@@ -458,8 +563,11 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
 
-    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(screen.getByRole("button", { name: "Toggle summary" }).getAttribute("aria-pressed")).toBe("true");
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(
+      screen.getByRole("button", { name: "Toggle summary" }).getAttribute("aria-pressed"),
+    ).toBe("true");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(false);
     expect(stageProps?.summaryPanelHideImmediately).toBe(true);
@@ -473,7 +581,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     const summaryToggle = screen.getByRole("button", { name: "Toggle pinned summary" });
-    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(summaryToggle.getAttribute("aria-pressed")).toBe("true");
     expect(stageProps?.summaryPanelMounted).toBe(true);
     expect(stageProps?.summaryPanelOpen).toBe(true);
@@ -518,7 +627,9 @@ describe("workbench session shell / layout-panel-actions", () => {
       if (!tabHeader) throw new Error("Expected right-panel tab header");
       const leadingSpacer = tabHeader.firstElementChild?.firstElementChild;
       const tabRow = tabHeader.children.item(1);
-      const trailingSpacer = screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]');
+      const trailingSpacer = screen.container.querySelector(
+        '[data-testid="right-panel-tab-bar-header-spacer"]',
+      );
       const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
 
       expect(leftSlot.getAttribute("style")?.includes("width: 0px")).toBe(true);
@@ -536,29 +647,42 @@ describe("workbench session shell / layout-panel-actions", () => {
       expect(tabHeader.contains(restoreButton)).toBe(true);
       expect(trailingSpacer?.getAttribute("style")?.includes("width: calc(70px)")).toBe(true);
       expect(trailingSpacer?.className.includes("no-drag")).toBe(true);
-      expect(screen.container.querySelector('[data-testid="right-panel-global-header-actions"]') === null).toBe(true);
+      expect(
+        screen.container.querySelector('[data-testid="right-panel-global-header-actions"]') ===
+          null,
+      ).toBe(true);
 
       await moveSidebarPointer(900);
-      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+      expect(
+        screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]'),
+      ).toBe(null);
 
       await act(async () => {
         restoreButton.focus();
         await Promise.resolve();
       });
       await settleAsyncRender();
-      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+      expect(
+        screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]'),
+      ).toBe(null);
 
       await moveSidebarPointer(12);
-      const floatingShell = screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]') as HTMLElement | null;
+      const floatingShell = screen.container.querySelector(
+        '[data-testid="floating-project-session-sidebar-shell"]',
+      ) as HTMLElement | null;
       expect(floatingShell !== null).toBe(true);
-      expect(floatingShell?.className.includes(APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS)).toBe(true);
+      expect(floatingShell?.className.includes(APP_SHELL_FLOATING_LEFT_PANEL_LAYER_CLASS)).toBe(
+        true,
+      );
 
       await moveSidebarPointer(301);
       await act(async () => {
         await Promise.resolve();
       });
       await settleAsyncRender();
-      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+      expect(
+        screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]'),
+      ).toBe(null);
 
       await act(async () => {
         fireEvent.click(restoreButton);
@@ -566,8 +690,12 @@ describe("workbench session shell / layout-panel-actions", () => {
       });
       await settleAsyncRender();
 
-      expect(screen.getByRole("button", { name: "Expand panel" }).getAttribute("aria-pressed")).toBe("false");
-      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+      expect(
+        screen.getByRole("button", { name: "Expand panel" }).getAttribute("aria-pressed"),
+      ).toBe("false");
+      expect(
+        screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]'),
+      ).toBe(null);
     } finally {
       restoreMatchMedia();
       Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
@@ -587,16 +715,19 @@ describe("workbench session shell / layout-panel-actions", () => {
 
     const rightPanel = screen.getByTestId("session-right-panel");
     const host = rightPanel.querySelector('[data-right-panel-composer-overlay-host="true"]');
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(host !== null).toBe(true);
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
     expect(props?.rightPanelComposerOverlayCompact).toBe(false);
     expect(props?.rightPanelComposerOverlayTarget).toBe(host);
-    const visibility = props?.rightPanelComposerOverlayVisibility as {
-      kind?: string;
-      visible?: boolean;
-      onVisibleChange?: (visible: boolean) => void;
-    } | undefined;
+    const visibility = props?.rightPanelComposerOverlayVisibility as
+      | {
+          kind?: string;
+          visible?: boolean;
+          onVisibleChange?: (visible: boolean) => void;
+        }
+      | undefined;
     expect(visibility?.kind).toBe("controlled");
     expect(visibility?.visible).toBe(true);
 
@@ -606,13 +737,17 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
 
-    const hiddenProps = (globalThis as {
-      __lastConnectedThreadStageProps?: Record<string, unknown>;
-    }).__lastConnectedThreadStageProps;
-    const hiddenVisibility = hiddenProps?.rightPanelComposerOverlayVisibility as {
-      kind?: string;
-      visible?: boolean;
-    } | undefined;
+    const hiddenProps = (
+      globalThis as {
+        __lastConnectedThreadStageProps?: Record<string, unknown>;
+      }
+    ).__lastConnectedThreadStageProps;
+    const hiddenVisibility = hiddenProps?.rightPanelComposerOverlayVisibility as
+      | {
+          kind?: string;
+          visible?: boolean;
+        }
+      | undefined;
     expect(hiddenVisibility).toMatchObject({
       kind: "controlled",
       visible: false,
@@ -644,9 +779,11 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as {
-      __lastConnectedThreadStageProps?: Record<string, unknown>;
-    }).__lastConnectedThreadStageProps;
+    const props = (
+      globalThis as {
+        __lastConnectedThreadStageProps?: Record<string, unknown>;
+      }
+    ).__lastConnectedThreadStageProps;
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
     expect(props?.rightPanelComposerOverlayCompact).toBe(true);
     expect(props?.rightPanelComposerOverlayVisibility).toMatchObject({
@@ -691,18 +828,22 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
     expect(screen.queryByTestId("session-bottom-panel")).toBe(null);
 
     await pointerActivate(screen.getByRole("button", { name: "Toggle bottom panel" }));
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:overlay-bottom-toggle"
-      && call[2] === "bottom"
-      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: false })
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:overlay-bottom-toggle" &&
+          call[2] === "bottom" &&
+          JSON.stringify(call[3]) === JSON.stringify({ collapsed: false }),
+      ),
+    ).toBe(true);
     expect(screen.queryByTestId("session-bottom-panel") !== null).toBe(true);
   });
 
@@ -718,7 +859,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
 
     await pointerActivate(screen.getByRole("button", { name: "Toggle side panel" }));
@@ -741,18 +883,23 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
 
     await pointerActivate(screen.getByRole("button", { name: "Restore panel width" }));
 
-    expect(invokeCalls.some((call) => {
-      const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
-      return call[0] === "window-session-view:panel-patch"
-        && call[1] === "session:alpha:overlay-restore"
-        && call[2] === "right"
-        && input?.size?.fullWidth === false;
-    })).toBe(true);
+    expect(
+      invokeCalls.some((call) => {
+        const input = call[3] as { size?: { fullWidth?: boolean } } | undefined;
+        return (
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:overlay-restore" &&
+          call[2] === "right" &&
+          input?.size?.fullWidth === false
+        );
+      }),
+    ).toBe(true);
   });
 
   test("full-width page-stage overlay state keeps card toolbar actions clickable after pointerdown", async () => {
@@ -779,9 +926,12 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(props?.rightPanelComposerOverlayEnabled).toBe(true);
-    expect(screen.getByTestId("session-right-panel").getAttribute("data-right-panel-width-mode")).toBe("full");
+    expect(
+      screen.getByTestId("session-right-panel").getAttribute("data-right-panel-width-mode"),
+    ).toBe("full");
     expect(
       screen.getByRole("tab", { name: "Card One" }).querySelector("[data-file-page-icon]"),
     ).not.toBeNull();
@@ -789,8 +939,12 @@ describe("workbench session shell / layout-panel-actions", () => {
     await pointerActivate(screen.getByRole("button", { name: "History" }));
     await pointerActivate(screen.getByRole("button", { name: "Delete" }));
 
-    expect((globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks).toBe(1);
-    expect((globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks).toBe(1);
+    expect(
+      (globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks,
+    ).toBe(1);
+    expect(
+      (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks,
+    ).toBe(1);
   });
 
   test("toggles the active page-stage history overlay from the toolbar", async () => {
@@ -817,7 +971,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     expect(screen.queryByTestId("page-history-panel")).toBe(null);
-    let pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    let pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> })
+      .__lastPageStageProps;
     expect(pageStageProps?.historyPanelActive).toBe(false);
 
     await pointerActivate(screen.getByRole("button", { name: "History" }));
@@ -826,16 +981,19 @@ describe("workbench session shell / layout-panel-actions", () => {
     const openedPanel = screen.getByTestId("page-history-panel");
     expect(openedPanel.getAttribute("data-project-id")).toBe("alpha");
     expect(openedPanel.getAttribute("data-uuid-v7")).toBe("card-1");
-    pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> })
+      .__lastPageStageProps;
     expect(pageStageProps?.historyPanelActive).toBe(true);
-    const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
+    const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> })
+      .__lastHistoryPanelProps;
     expect(typeof historyPanelProps?.onPageMutated).toBe("function");
 
     await pointerActivate(screen.getByRole("button", { name: "History" }));
     await settleAsyncRender();
 
     expect(screen.queryByTestId("page-history-panel")).toBe(null);
-    pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> })
+      .__lastPageStageProps;
     expect(pageStageProps?.historyPanelActive).toBe(false);
 
     await pointerActivate(screen.getByRole("button", { name: "History" }));
@@ -844,7 +1002,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     expect(screen.queryByTestId("page-history-panel")).toBe(null);
-    pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
+    pageStageProps = (globalThis as { __lastPageStageProps?: Record<string, unknown> })
+      .__lastPageStageProps;
     expect(pageStageProps?.historyPanelActive).toBe(false);
   });
 
@@ -886,7 +1045,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     expect(screen.queryByTestId("page-history-panel")).toBe(null);
-    const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
+    const historyPanelProps = (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> })
+      .__lastHistoryPanelProps;
     expect(historyPanelProps?.open).toBe(false);
   });
 
@@ -901,7 +1061,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    let props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    let props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(props?.rightPanelComposerOverlayEnabled).toBe(false);
     regularScreen.unmount();
 
@@ -926,8 +1087,11 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(terminalScreen.getByTestId("session-right-panel").getAttribute("data-right-panel-width-mode")).toBe("full");
+    props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(
+      terminalScreen.getByTestId("session-right-panel").getAttribute("data-right-panel-width-mode"),
+    ).toBe("full");
     expect(props?.rightPanelComposerOverlayEnabled).toBe(false);
   });
 
@@ -955,12 +1119,18 @@ describe("workbench session shell / layout-panel-actions", () => {
 
     const sidePanelToggle = screen.getByRole("button", { name: "Toggle side panel" });
     const expandButton = screen.getByRole("button", { name: "Expand panel" });
-    const rightPanelHeaderSpacer = screen.container.querySelector('[data-testid="right-panel-tab-bar-header-spacer"]');
+    const rightPanelHeaderSpacer = screen.container.querySelector(
+      '[data-testid="right-panel-tab-bar-header-spacer"]',
+    );
     const expandIconPath = expandButton.querySelector("path")?.getAttribute("d") ?? "";
-    const visibleGlobalHeaderButtons = Array.from(headerShellSlot?.querySelectorAll("button") ?? []);
+    const visibleGlobalHeaderButtons = Array.from(
+      headerShellSlot?.querySelectorAll("button") ?? [],
+    );
     expect(globalHeader?.contains(sidePanelToggle)).toBe(true);
     expect(headerShellSlot?.contains(sidePanelToggle)).toBe(true);
-    expect(visibleGlobalHeaderButtons.map((button) => button.getAttribute("aria-label")).join(",")).toBe("Toggle bottom panel,Toggle side panel");
+    expect(
+      visibleGlobalHeaderButtons.map((button) => button.getAttribute("aria-label")).join(","),
+    ).toBe("Toggle bottom panel,Toggle side panel");
     expect(rightPanel?.className.includes(APP_SHELL_RIGHT_PANEL_LAYER_CLASS)).toBe(true);
     expect(globalHeader?.className.includes(APP_SHELL_GLOBAL_HEADER_LAYER_CLASS)).toBe(true);
     expect(headerCenterSurface.getAttribute("aria-hidden")).toBe(null);
@@ -977,13 +1147,17 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(expandButton.parentElement?.className.includes("pointer-events-auto")).toBe(true);
     expect(rightPanelHeaderSpacer?.className.includes("pointer-events-none")).toBe(true);
     expect(rightPanelHeaderSpacer?.className.includes("no-drag")).toBe(true);
-    expect(rightPanelHeaderSpacer?.parentElement?.className.includes("pointer-events-auto")).toBe(false);
+    expect(rightPanelHeaderSpacer?.parentElement?.className.includes("pointer-events-auto")).toBe(
+      false,
+    );
     expect(rightPanelHeaderSpacer?.parentElement?.className.includes("no-drag")).toBe(true);
     expect(rightPanelHeaderSpacer?.parentElement?.getAttribute("role")).toBe("presentation");
     expect(expandButton.className.includes("no-drag")).toBe(true);
     expect(expandIconPath.startsWith(EXPAND_PANEL_ICON_PREFIX)).toBe(true);
     expect(rightPanelHeaderSpacer?.getAttribute("style")?.includes("width: calc(70px)")).toBe(true);
-    expect(screen.container.querySelector('[data-testid="right-panel-global-header-actions"]') === null).toBe(true);
+    expect(
+      screen.container.querySelector('[data-testid="right-panel-global-header-actions"]') === null,
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.click(expandButton);
@@ -1003,13 +1177,18 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(threadPage?.className.includes("flex-none")).toBe(true);
     expect(headerShellSlot?.getAttribute("style")?.includes("width: 0px")).toBe(true);
     expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBe(null);
-    const fullWidthTabHeader = rightPanel?.querySelector('[role="tablist"]')?.parentElement?.parentElement;
-    expect(fullWidthTabHeader?.firstElementChild?.querySelector('[role="tablist"]') !== null).toBe(true);
+    const fullWidthTabHeader =
+      rightPanel?.querySelector('[role="tablist"]')?.parentElement?.parentElement;
+    expect(fullWidthTabHeader?.firstElementChild?.querySelector('[role="tablist"]') !== null).toBe(
+      true,
+    );
     const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
     expect(globalHeader?.contains(restoreButton)).toBe(false);
     expect(fullWidthTabHeader?.contains(restoreButton)).toBe(true);
     expect(restoreButton.getAttribute("aria-pressed")).toBe("true");
-    expect(restoreButton.querySelector("path")?.getAttribute("d")?.startsWith(RESTORE_PANEL_ICON_PREFIX)).toBe(true);
+    expect(
+      restoreButton.querySelector("path")?.getAttribute("d")?.startsWith(RESTORE_PANEL_ICON_PREFIX),
+    ).toBe(true);
   });
 
   test("right panel resize previews the dragged width before persistence", async () => {
@@ -1048,22 +1227,28 @@ describe("workbench session shell / layout-panel-actions", () => {
       await waitFor(() => {
         expect(rightPanel.getAttribute("style")?.includes("width: 322px")).toBe(true);
       });
-      expect(invokeCalls.some((call) =>
-        call[0] === "window-session-view:panel-patch"
-        && call[1] === "session:alpha:build"
-        && call[2] === "right"
-        && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322
-      )).toBe(false);
+      expect(
+        invokeCalls.some(
+          (call) =>
+            call[0] === "window-session-view:panel-patch" &&
+            call[1] === "session:alpha:build" &&
+            call[2] === "right" &&
+            ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322,
+        ),
+      ).toBe(false);
     } finally {
       await releasePointerDrag(7);
     }
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:build"
-      && call[2] === "right"
-      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:build" &&
+          call[2] === "right" &&
+          ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322,
+      ),
+    ).toBe(true);
   });
 
   test("right panel content canvas shrinks with the sash after collapse and reopen", async () => {
@@ -1164,12 +1349,15 @@ describe("workbench session shell / layout-panel-actions", () => {
       await releasePointerDrag();
     }
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:build"
-      && call[2] === "right"
-      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 1148
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:build" &&
+          call[2] === "right" &&
+          ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 1148,
+      ),
+    ).toBe(true);
   });
 
   test("right panel resize closes the side panel when dragged below Codex minimum width", async () => {
@@ -1195,12 +1383,15 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await releasePointerDrag();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:build"
-      && call[2] === "right"
-      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: true })
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:build" &&
+          call[2] === "right" &&
+          JSON.stringify(call[3]) === JSON.stringify({ collapsed: true }),
+      ),
+    ).toBe(true);
     expect(screen.queryByRole("separator", { name: "Resize right panel" })).toBe(null);
   });
 
@@ -1219,7 +1410,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const workbenchRoot = screen.getByTestId("workbench-global-header").parentElement as HTMLElement | null;
+    const workbenchRoot = screen.getByTestId("workbench-global-header")
+      .parentElement as HTMLElement | null;
     workbenchRoot?.style.setProperty("--codex-window-zoom", "2");
     const rightPanel = screen.getByTestId("session-right-panel");
     const separator = screen.getByRole("separator", { name: "Resize right panel" });
@@ -1238,12 +1430,15 @@ describe("workbench session shell / layout-panel-actions", () => {
       await releasePointerDrag();
     }
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:build"
-      && call[2] === "right"
-      && ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:build" &&
+          call[2] === "right" &&
+          ((call[3] as { size?: { widthPx?: number } })?.size?.widthPx ?? null) === 322,
+      ),
+    ).toBe(true);
   });
 
   test("bottom panel resize previews the dragged height before persistence", async () => {
@@ -1269,22 +1464,28 @@ describe("workbench session shell / layout-panel-actions", () => {
       await waitFor(() => {
         expect(bottomPanelSizer.getAttribute("style")?.includes("height: 240px")).toBe(true);
       });
-      expect(invokeCalls.some((call) =>
-        call[0] === "window-session-view:panel-patch"
-        && call[1] === "session:alpha:terminal"
-        && call[2] === "bottom"
-        && ((call[3] as { size?: { heightPx?: number } })?.size?.heightPx ?? null) === 240
-      )).toBe(false);
+      expect(
+        invokeCalls.some(
+          (call) =>
+            call[0] === "window-session-view:panel-patch" &&
+            call[1] === "session:alpha:terminal" &&
+            call[2] === "bottom" &&
+            ((call[3] as { size?: { heightPx?: number } })?.size?.heightPx ?? null) === 240,
+        ),
+      ).toBe(false);
     } finally {
       await releasePointerDrag();
     }
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:terminal"
-      && call[2] === "bottom"
-      && ((call[3] as { size?: { heightPx?: number } })?.size?.heightPx ?? null) === 240
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:terminal" &&
+          call[2] === "bottom" &&
+          ((call[3] as { size?: { heightPx?: number } })?.size?.heightPx ?? null) === 240,
+      ),
+    ).toBe(true);
   });
 
   test("bottom panel resize closes the bottom panel when dragged below Codex minimum height", async () => {
@@ -1303,12 +1504,15 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await releasePointerDrag();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:panel-patch"
-      && call[1] === "session:alpha:terminal"
-      && call[2] === "bottom"
-      && JSON.stringify(call[3]) === JSON.stringify({ collapsed: true })
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:panel-patch" &&
+          call[1] === "session:alpha:terminal" &&
+          call[2] === "bottom" &&
+          JSON.stringify(call[3]) === JSON.stringify({ collapsed: true }),
+      ),
+    ).toBe(true);
     expect(screen.queryByRole("separator", { name: "Resize bottom panel" })).toBe(null);
   });
 
@@ -1332,7 +1536,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
 
-    expect(JSON.stringify(getWorkbenchTabProjectionDeleteTabIds())).toBe(JSON.stringify(["terminal-tab"]));
+    expect(JSON.stringify(getWorkbenchTabProjectionDeleteTabIds())).toBe(
+      JSON.stringify(["terminal-tab"]),
+    );
   });
 
   test("overview regular-width override survives hiding and showing the side panel", async () => {
@@ -1370,7 +1576,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     const restoredRightPanel = screen.getByTestId("session-right-panel");
-    const restoredThreadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
+    const restoredThreadPage = screen.container.querySelector(
+      '[data-testid="session-thread-page"]',
+    );
     const restoredExpandButton = screen.getByRole("button", { name: "Expand panel" });
     expect(restoredRightPanel.getAttribute("data-right-panel-width-mode")).toBe("regular");
     expect(restoredThreadPage?.getAttribute("data-session-thread-page-hidden")).toBe("false");
@@ -1393,22 +1601,29 @@ describe("workbench session shell / layout-panel-actions", () => {
 
     expect(screen.getByRole("tab", { name: "Files" }) !== null).toBe(true);
     await waitFor(() => {
-      expect(invokeCalls.some((call) =>
-        call[0] === "window-session-view:tab-create"
-        && JSON.stringify(call[1]).includes('"kind":"files"')
-      )).toBe(true);
+      expect(
+        invokeCalls.some(
+          (call) =>
+            call[0] === "window-session-view:tab-create" &&
+            JSON.stringify(call[1]).includes('"kind":"files"'),
+        ),
+      ).toBe(true);
     });
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
-    const fileTabCreateCount = invokeCalls.filter((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"files"')
+    const fileTabCreateCount = invokeCalls.filter(
+      (call) =>
+        call[0] === "window-session-view:tab-create" &&
+        JSON.stringify(call[1]).includes('"kind":"files"'),
     ).length;
 
     await pointerDownAndSettle(getFilesPreviewInteractionTarget(screen));
-    expect(invokeCalls.filter((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"files"')
-    )).toHaveLength(fileTabCreateCount);
+    expect(
+      invokeCalls.filter(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"files"'),
+      ),
+    ).toHaveLength(fileTabCreateCount);
   });
 
   test("proposed-plan side panel opens as a renderer-local singleton tab", async () => {
@@ -1418,24 +1633,31 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(JSON.stringify(stageProps?.planSidePanelState)).toBe(JSON.stringify({
-      rightPanelEnabled: true,
-      activePlanKey: null,
-      activeRightPanelTabId: null,
-    }));
+    let stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(JSON.stringify(stageProps?.planSidePanelState)).toBe(
+      JSON.stringify({
+        rightPanelEnabled: true,
+        activePlanKey: null,
+        activeRightPanelTabId: null,
+      }),
+    );
 
     const actions = getLastThreadStageActions();
-    const openPlan = actions.onOpenPlanInSidePanel as ((input: {
-      planKey: string;
-      threadId: string;
-      turnId: string;
-      itemId: string;
-      content: string;
-      cwd: string | null;
-    }) => Promise<void>) | undefined;
+    const openPlan = actions.onOpenPlanInSidePanel as
+      | ((input: {
+          planKey: string;
+          threadId: string;
+          turnId: string;
+          itemId: string;
+          content: string;
+          cwd: string | null;
+        }) => Promise<void>)
+      | undefined;
     expect(typeof openPlan).toBe("function");
-    const closePlan = actions.onClosePlanSidePanel as ((input: { planKey: string }) => Promise<void>) | undefined;
+    const closePlan = actions.onClosePlanSidePanel as
+      | ((input: { planKey: string }) => Promise<void>)
+      | undefined;
     expect(typeof closePlan).toBe("function");
 
     await act(async () => {
@@ -1454,12 +1676,15 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(textContent(screen.container).includes("First plan")).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
 
-    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(JSON.stringify(stageProps?.planSidePanelState)).toBe(JSON.stringify({
-      rightPanelEnabled: true,
-      activePlanKey: "turn-plan-1",
-      activeRightPanelTabId: "plan",
-    }));
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(JSON.stringify(stageProps?.planSidePanelState)).toBe(
+      JSON.stringify({
+        rightPanelEnabled: true,
+        activePlanKey: "turn-plan-1",
+        activeRightPanelTabId: "plan",
+      }),
+    );
 
     await act(async () => {
       await openPlan?.({
@@ -1479,12 +1704,15 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(textContent(screen.container).includes("Second plan")).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
 
-    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(JSON.stringify(stageProps?.planSidePanelState)).toBe(JSON.stringify({
-      rightPanelEnabled: true,
-      activePlanKey: "turn-plan-2",
-      activeRightPanelTabId: "plan",
-    }));
+    stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(JSON.stringify(stageProps?.planSidePanelState)).toBe(
+      JSON.stringify({
+        rightPanelEnabled: true,
+        activePlanKey: "turn-plan-2",
+        activeRightPanelTabId: "plan",
+      }),
+    );
   });
 
   test("summary output side-panel opener creates a renderer-local Files preview tab", async () => {
@@ -1495,31 +1723,38 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     const actions = getLastThreadStageActions();
-    const openOutput = actions.onOpenSummaryOutputInSidePanel as ((input: {
-      cwd?: string | null;
-      path: string;
-      title: string;
-      workspaceRoot?: string | null;
-    }) => Promise<boolean>) | undefined;
+    const openOutput = actions.onOpenSummaryOutputInSidePanel as
+      | ((input: {
+          cwd?: string | null;
+          path: string;
+          title: string;
+          workspaceRoot?: string | null;
+        }) => Promise<boolean>)
+      | undefined;
     expect(typeof openOutput).toBe("function");
 
     let opened = false;
     await act(async () => {
-      opened = await openOutput?.({
-        cwd: "/Users/asc/.nodex/worktrees/abcd/nodex",
-        path: "/Users/asc/.nodex/worktrees/abcd/nodex/reports/summary.txt",
-        title: "summary.txt",
-        workspaceRoot: "/Users/asc/.nodex/worktrees/abcd/nodex",
-      }) ?? false;
+      opened =
+        (await openOutput?.({
+          cwd: "/Users/asc/.nodex/worktrees/abcd/nodex",
+          path: "/Users/asc/.nodex/worktrees/abcd/nodex/reports/summary.txt",
+          title: "summary.txt",
+          workspaceRoot: "/Users/asc/.nodex/worktrees/abcd/nodex",
+        })) ?? false;
     });
     await settleAsyncRender();
 
     expect(opened).toBe(true);
     expect(screen.getByRole("tab", { name: "summary.txt" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null,
+    ).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
     const metadataCall = invokeCalls.find((call) => call[0] === "read-file-metadata");
-    expect(JSON.stringify(metadataCall?.[1])).toContain('/Users/asc/.nodex/worktrees/abcd/nodex/reports/summary.txt');
+    expect(JSON.stringify(metadataCall?.[1])).toContain(
+      "/Users/asc/.nodex/worktrees/abcd/nodex/reports/summary.txt",
+    );
     expect(JSON.stringify(metadataCall?.[1])).not.toContain("workspaceRoot");
   });
 
@@ -1530,12 +1765,14 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const openOutput = getLastThreadStageActions().onOpenSummaryOutputInSidePanel as ((input: {
-      cwd?: string | null;
-      path: string;
-      title: string;
-      workspaceRoot?: string | null;
-    }) => Promise<boolean>) | undefined;
+    const openOutput = getLastThreadStageActions().onOpenSummaryOutputInSidePanel as
+      | ((input: {
+          cwd?: string | null;
+          path: string;
+          title: string;
+          workspaceRoot?: string | null;
+        }) => Promise<boolean>)
+      | undefined;
     expect(typeof openOutput).toBe("function");
 
     await act(async () => {
@@ -1572,11 +1809,16 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(screen.queryByRole("tab", { name: "summary.txt" })).toBe(null);
     expect(replacementTab.closest("[data-app-shell-tab-controller]")).toBe(previewChrome);
     expect(replacementTab.querySelector("[data-file-tab-icon='json']")).not.toBe(null);
-    expect(screen.container.querySelectorAll('[data-app-shell-tabpanel-preview="true"]')).toHaveLength(1);
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"files"')
-    )).toBe(false);
+    expect(
+      screen.container.querySelectorAll('[data-app-shell-tabpanel-preview="true"]'),
+    ).toHaveLength(1);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"files"'),
+      ),
+    ).toBe(false);
   });
 
   test("uses the matching secondary Project source only as Files tree context", async () => {
@@ -1596,10 +1838,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const openOutput = getLastThreadStageActions().onOpenSummaryOutputInSidePanel as ((input: {
-      path: string;
-      title: string;
-    }) => Promise<boolean>) | undefined;
+    const openOutput = getLastThreadStageActions().onOpenSummaryOutputInSidePanel as
+      | ((input: { path: string; title: string }) => Promise<boolean>)
+      | undefined;
     await act(async () => {
       await openOutput?.({
         path: `${secondaryRoot}/reports/summary.txt`,
@@ -1609,14 +1850,20 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     expect(screen.getByRole("tab", { name: "summary.txt" }) !== null).toBe(true);
-    expect(invokeCalls.some((call) =>
-      call[0] === "workspace-directory-entries"
-      && JSON.stringify(call[1]).includes(`"workspaceRoot":"${secondaryRoot}"`)
-    )).toBe(true);
-    expect(invokeCalls.some((call) =>
-      ["read-file-metadata", "read-file"].includes(String(call[0]))
-      && JSON.stringify(call[1]).includes("workspaceRoot")
-    )).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "workspace-directory-entries" &&
+          JSON.stringify(call[1]).includes(`"workspaceRoot":"${secondaryRoot}"`),
+      ),
+    ).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          ["read-file-metadata", "read-file"].includes(String(call[0])) &&
+          JSON.stringify(call[1]).includes("workspaceRoot"),
+      ),
+    ).toBe(false);
   });
 
   test("summary output side-panel opener supports projectless file previews", async () => {
@@ -1644,37 +1891,49 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
     await waitFor(() => {
-      expect(Boolean((globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps?.actions)).toBe(true);
+      expect(
+        Boolean(
+          (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+            .__lastConnectedThreadStageProps?.actions,
+        ),
+      ).toBe(true);
     });
 
     const actions = getLastThreadStageActions();
-    const openOutput = actions.onOpenSummaryOutputInSidePanel as ((input: {
-      path: string;
-      title: string;
-    }) => Promise<boolean>) | undefined;
+    const openOutput = actions.onOpenSummaryOutputInSidePanel as
+      | ((input: { path: string; title: string }) => Promise<boolean>)
+      | undefined;
     expect(typeof openOutput).toBe("function");
 
     let opened = false;
     await act(async () => {
-      opened = await openOutput?.({
-        path: "/Users/asc/Downloads/nodex-output/report.md",
-        title: "report.md",
-      }) ?? false;
+      opened =
+        (await openOutput?.({
+          path: "/Users/asc/Downloads/nodex-output/report.md",
+          title: "report.md",
+        })) ?? false;
     });
     await settleAsyncRender();
 
     expect(opened).toBe(true);
     expect(screen.getByRole("tab", { name: "report.md" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-workspace-files-session-id="session:projectless:summary-output"]') !== null).toBe(true);
+    expect(
+      screen.container.querySelector(
+        '[data-workspace-files-session-id="session:projectless:summary-output"]',
+      ) !== null,
+    ).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
 
     await pointerDownAndSettle(getFilesPreviewInteractionTarget(screen));
     await waitFor(() => {
-      expect(invokeCalls.some((call) =>
-        call[0] === "window-session-view:tab-create"
-        && JSON.stringify(call[1]).includes('"kind":"files"')
-        && JSON.stringify(call[1]).includes('"projectId":null')
-      )).toBe(true);
+      expect(
+        invokeCalls.some(
+          (call) =>
+            call[0] === "window-session-view:tab-create" &&
+            JSON.stringify(call[1]).includes('"kind":"files"') &&
+            JSON.stringify(call[1]).includes('"projectId":null'),
+        ),
+      ).toBe(true);
     });
   });
 
@@ -1693,11 +1952,16 @@ describe("workbench session shell / layout-panel-actions", () => {
 
     expect(screen.getByRole("tab", { name: "Files" }) !== null).toBe(true);
     expect(screen.getByRole("tab", { name: "Browser" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"files"')
-    )).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null,
+    ).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"files"'),
+      ),
+    ).toBe(true);
   });
 
   test("empty right panel renders Codex-style new-tab actions", async () => {
@@ -1713,7 +1977,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const actionGrid = screen.container.querySelector('[data-thread-side-panel-new-tab-action-grid="true"]');
+    const actionGrid = screen.container.querySelector(
+      '[data-thread-side-panel-new-tab-action-grid="true"]',
+    );
     expect(actionGrid !== null).toBe(true);
     if (!(actionGrid instanceof HTMLElement)) throw new Error("Expected right-panel action grid");
     const actionText = textContent(actionGrid);
@@ -1756,7 +2022,9 @@ describe("workbench session shell / layout-panel-actions", () => {
       await Promise.resolve();
     });
     await settleAsyncRender();
-    const actionGrid = screen.container.querySelector('[data-thread-side-panel-new-tab-action-grid="true"]');
+    const actionGrid = screen.container.querySelector(
+      '[data-thread-side-panel-new-tab-action-grid="true"]',
+    );
     if (!actionGrid) throw new Error("Expected projectless right-panel action grid");
     const actionText = textContent(actionGrid);
     expect(actionText.indexOf("Side chat") < actionText.indexOf("Browser")).toBe(true);
@@ -1799,14 +2067,17 @@ describe("workbench session shell / layout-panel-actions", () => {
 
     await clickMenuItem(bottomMenu, "Terminal");
     await settleAsyncRender();
-    const createCall = invokeCalls.find((call) =>
-      call[0] === "window-session-view:tab-create"
-      && (call[1] as { kind?: string } | undefined)?.kind === "terminal"
+    const createCall = invokeCalls.find(
+      (call) =>
+        call[0] === "window-session-view:tab-create" &&
+        (call[1] as { kind?: string } | undefined)?.kind === "terminal",
     );
     expect(createCall).toBeDefined();
     const createInput = createCall?.[1] as Record<string, unknown>;
     expect("projectId" in createInput).toBe(false);
-    expect(Object.keys(createInput.config as Record<string, unknown>)).toEqual(["terminalSessionId"]);
+    expect(Object.keys(createInput.config as Record<string, unknown>)).toEqual([
+      "terminalSessionId",
+    ]);
     expect(getLastTerminalPanelProps()).toMatchObject({
       cwd: "/Users/asc/repo/nodex",
       conversationId: "thread-projectless-tools",
@@ -1844,10 +2115,13 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(sideChatShortcut.defaultPrevented).toBe(false);
     expect(terminalShortcut.defaultPrevented).toBe(false);
     expect(startSideChatCalls).toHaveLength(0);
-    expect(invokeCalls.some((call) => (
-      call[0] === "window-session-view:tab-create"
-      && (call[1] as { kind?: string } | undefined)?.kind === "terminal"
-    ))).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          (call[1] as { kind?: string } | undefined)?.kind === "terminal",
+      ),
+    ).toBe(false);
 
     const browserShortcut = new KeyboardEvent("keydown", {
       key: "t",
@@ -1863,10 +2137,13 @@ describe("workbench session shell / layout-panel-actions", () => {
       expect(screen.getByRole("tab", { name: "Browser" })).toBeDefined();
     });
     expect(browserShortcut.defaultPrevented).toBe(true);
-    expect(invokeCalls.some((call) => (
-      call[0] === "window-session-view:tab-create"
-      && (call[1] as { kind?: string } | undefined)?.kind === "browser"
-    ))).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          (call[1] as { kind?: string } | undefined)?.kind === "browser",
+      ),
+    ).toBe(false);
   });
 
   test("bottom panel add menu shows Codex-eligible non-default actions", async () => {
@@ -1923,9 +2200,10 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     expect(screen.queryByRole("dialog", { name: "Open DB view" })).toBe(null);
-    const createCall = invokeCalls.find((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"db_view"')
+    const createCall = invokeCalls.find(
+      (call) =>
+        call[0] === "window-session-view:tab-create" &&
+        JSON.stringify(call[1]).includes('"kind":"db_view"'),
     );
     expect(createCall).toBeDefined();
     expect(JSON.stringify(createCall?.[1]).includes('"targetLeafId"')).toBe(true);
@@ -1954,9 +2232,10 @@ describe("workbench session shell / layout-panel-actions", () => {
     await pointerActivate(screen.getByRole("button", { name: /DB View/ }));
     await settleAsyncRender();
 
-    const createCall = invokeCalls.find((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"db_view"')
+    const createCall = invokeCalls.find(
+      (call) =>
+        call[0] === "window-session-view:tab-create" &&
+        JSON.stringify(call[1]).includes('"kind":"db_view"'),
     );
     expect(createCall).toBeDefined();
     expect(JSON.stringify((createCall?.[1] as { config?: unknown } | undefined)?.config)).toBe(
@@ -1983,10 +2262,11 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const createCall = invokeCalls.find((call) =>
-      call[0] === "window-session-view:tab-create"
-      && (call[1] as { config?: { databaseViewId?: string } }).config
-        ?.databaseViewId === "view:planning"
+    const createCall = invokeCalls.find(
+      (call) =>
+        call[0] === "window-session-view:tab-create" &&
+        (call[1] as { config?: { databaseViewId?: string } }).config?.databaseViewId ===
+          "view:planning",
     );
     expect(createCall).toBeDefined();
   });
@@ -2013,10 +2293,7 @@ describe("workbench session shell / layout-panel-actions", () => {
     const session = makeSession({
       id: "session:alpha:existing-view-deep-link",
       tabs: [targetTab, otherTab],
-      rightLayout: makePanelLayout(
-        [targetTab.id, otherTab.id],
-        otherTab.id,
-      ),
+      rightLayout: makePanelLayout([targetTab.id, otherTab.id], otherTab.id),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -2028,12 +2305,8 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(
-      screen.getByRole("tab", { name: "Planning", selected: true }),
-    ).toBeDefined();
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-    )).toBe(false);
+    expect(screen.getByRole("tab", { name: "Planning", selected: true })).toBeDefined();
+    expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
   });
 
   test("DB View action reports a missing project default View instead of silently doing nothing", async () => {
@@ -2057,14 +2330,19 @@ describe("workbench session shell / layout-panel-actions", () => {
     await pointerActivate(screen.getByRole("button", { name: /DB View/ }));
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"db_view"')
-    )).toBe(false);
     expect(
-      __getNodexToastSnapshotForTests().some((toastItem) =>
-        toastItem.kind === "plain"
-        && toastItem.title === "This project's Database has no default View to open."),
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"db_view"'),
+      ),
+    ).toBe(false);
+    expect(
+      __getNodexToastSnapshotForTests().some(
+        (toastItem) =>
+          toastItem.kind === "plain" &&
+          toastItem.title === "This project's Database has no default View to open.",
+      ),
     ).toBe(true);
   });
 
@@ -2092,10 +2370,13 @@ describe("workbench session shell / layout-panel-actions", () => {
       expect(screen.getByRole("dialog", { name: "Open DB view" }) !== null).toBe(true);
     });
     await waitFor(() => {
-      expect(invokeCalls.some((call) =>
-        call[0] === "database-module:read"
-        && (call[2] as { read?: { mode?: string } } | undefined)?.read?.mode === "database"
-      )).toBe(true);
+      expect(
+        invokeCalls.some(
+          (call) =>
+            call[0] === "database-module:read" &&
+            (call[2] as { read?: { mode?: string } } | undefined)?.read?.mode === "database",
+        ),
+      ).toBe(true);
     });
     await waitFor(() => {
       expect(screen.getByRole("option", { name: /Alpha/ }) !== null).toBe(true);
@@ -2129,11 +2410,14 @@ describe("workbench session shell / layout-panel-actions", () => {
       await Promise.resolve();
     });
     await settleAsyncRender();
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"db_view"')
-      && JSON.stringify(call[1]).includes('"projectId":"beta"')
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"db_view"') &&
+          JSON.stringify(call[1]).includes('"projectId":"beta"'),
+      ),
+    ).toBe(true);
     expect(screen.getByRole("tab", { name: /Beta project, DB View/ }) !== null).toBe(true);
   });
 
@@ -2150,7 +2434,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const actionGrid = screen.container.querySelector('[data-thread-side-panel-new-tab-action-grid="true"]');
+    const actionGrid = screen.container.querySelector(
+      '[data-thread-side-panel-new-tab-action-grid="true"]',
+    );
     if (!(actionGrid instanceof HTMLElement)) throw new Error("Expected right-panel action grid");
     await pointerActivate(within(actionGrid).getByRole("button", { name: "Page" }));
     await waitFor(() => {
@@ -2171,22 +2457,28 @@ describe("workbench session shell / layout-panel-actions", () => {
       expect(screen.getByText("Other projects") !== null).toBe(true);
       expect(screen.getByRole("option", { name: /Beta Card/ }) !== null).toBe(true);
     });
-    expect(invokeCalls.some((call) =>
-      call[0] === "pages:search"
-      && (call[2] as { query?: string } | undefined)?.query === "beta card"
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "pages:search" &&
+          (call[2] as { query?: string } | undefined)?.query === "beta card",
+      ),
+    ).toBe(true);
     await act(async () => {
       fireEvent.click(screen.getByRole("option", { name: /Beta Card/ }));
       await Promise.resolve();
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"page_stage"')
-      && JSON.stringify(call[1]).includes('"projectId":"beta"')
-      && JSON.stringify(call[1]).includes('"pageId":"card-beta"')
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"page_stage"') &&
+          JSON.stringify(call[1]).includes('"projectId":"beta"') &&
+          JSON.stringify(call[1]).includes('"pageId":"card-beta"'),
+      ),
+    ).toBe(true);
   });
 
   test("Files action creates a durable empty tab whose navigation does not trigger preview pinning", async () => {
@@ -2198,24 +2490,31 @@ describe("workbench session shell / layout-panel-actions", () => {
     const menu = await openPanelMenu(screen, "Open bottom panel tab");
     await clickMenuItem(menu, "Files");
     await waitFor(() => {
-      expect(invokeCalls.some((call) =>
-        call[0] === "window-session-view:tab-create"
-        && JSON.stringify(call[1]).includes('"panelId":"bottom"')
-        && JSON.stringify(call[1]).includes('"kind":"files"')
-      )).toBe(true);
+      expect(
+        invokeCalls.some(
+          (call) =>
+            call[0] === "window-session-view:tab-create" &&
+            JSON.stringify(call[1]).includes('"panelId":"bottom"') &&
+            JSON.stringify(call[1]).includes('"kind":"files"'),
+        ),
+      ).toBe(true);
     });
 
     expect(screen.getByRole("tab", { name: "Files" }) !== null).toBe(true);
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
-    const tabCreateCount = invokeCalls.filter((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"files"')
+    const tabCreateCount = invokeCalls.filter(
+      (call) =>
+        call[0] === "window-session-view:tab-create" &&
+        JSON.stringify(call[1]).includes('"kind":"files"'),
     ).length;
     await pointerDownAndSettle(getFilesPreviewInteractionTarget(screen));
-    expect(invokeCalls.filter((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"files"')
-    )).toHaveLength(tabCreateCount);
+    expect(
+      invokeCalls.filter(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"files"'),
+      ),
+    ).toHaveLength(tabCreateCount);
   });
 
   for (const previewCase of [
@@ -2231,23 +2530,31 @@ describe("workbench session shell / layout-panel-actions", () => {
       await clickMenuItem(menu, previewCase.label);
 
       expect(screen.getByRole("tab", { name: previewCase.label }) !== null).toBe(true);
-      expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null).toBe(true);
+      expect(
+        screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]') !== null,
+      ).toBe(true);
       expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-create")).toBe(false);
 
       await pointerDownAndSettle(screen.getByPlaceholderText(previewCase.pinPlaceholder));
       await waitFor(() => {
-        expect(invokeCalls.some((call) =>
-          call[0] === "window-session-view:tab-create"
-          && JSON.stringify(call[1]).includes('"panelId":"bottom"')
-          && JSON.stringify(call[1]).includes(`"kind":"${previewCase.kind}"`)
-        )).toBe(true);
+        expect(
+          invokeCalls.some(
+            (call) =>
+              call[0] === "window-session-view:tab-create" &&
+              JSON.stringify(call[1]).includes('"panelId":"bottom"') &&
+              JSON.stringify(call[1]).includes(`"kind":"${previewCase.kind}"`),
+          ),
+        ).toBe(true);
       });
 
-      expect(invokeCalls.some((call) =>
-        call[0] === "window-session-view:tab-create"
-        && JSON.stringify(call[1]).includes('"panelId":"bottom"')
-        && JSON.stringify(call[1]).includes(`"kind":"${previewCase.kind}"`)
-      )).toBe(true);
+      expect(
+        invokeCalls.some(
+          (call) =>
+            call[0] === "window-session-view:tab-create" &&
+            JSON.stringify(call[1]).includes('"panelId":"bottom"') &&
+            JSON.stringify(call[1]).includes(`"kind":"${previewCase.kind}"`),
+        ),
+      ).toBe(true);
     });
   }
 
@@ -2261,13 +2568,16 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
     await openBottomPanel(screen);
     await waitFor(() => {
-      expect(invokeCalls.some((call) =>
-        call[0] === "window-session-view:tab-create"
-        && (call[1] as { kind?: string } | undefined)?.kind === "terminal"
-      )).toBe(true);
+      expect(
+        invokeCalls.some(
+          (call) =>
+            call[0] === "window-session-view:tab-create" &&
+            (call[1] as { kind?: string } | undefined)?.kind === "terminal",
+        ),
+      ).toBe(true);
     });
-    const durableTabCreateCount = invokeCalls.filter((call) =>
-      call[0] === "window-session-view:tab-create"
+    const durableTabCreateCount = invokeCalls.filter(
+      (call) => call[0] === "window-session-view:tab-create",
     ).length;
 
     const menu = await openPanelMenu(screen, "Open bottom panel tab");
@@ -2283,14 +2593,17 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(screen.getByRole("tab", { name: "Side chat" }) !== null).toBe(true);
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
     expect(String(startSideChatCalls.length)).toBe("1");
-    expect(JSON.stringify(startSideChatCalls[0]).includes('"parentThreadId":"thread-alpha"')).toBe(true);
-    expect(invokeCalls.filter((call) =>
-      call[0] === "window-session-view:tab-create"
-    )).toHaveLength(durableTabCreateCount);
+    expect(JSON.stringify(startSideChatCalls[0]).includes('"parentThreadId":"thread-alpha"')).toBe(
+      true,
+    );
+    expect(invokeCalls.filter((call) => call[0] === "window-session-view:tab-create")).toHaveLength(
+      durableTabCreateCount,
+    );
     expect(textContent(screen.container).includes("Thread:side-thread-1")).toBe(true);
-    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const stageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(JSON.stringify(stageProps?.sideChatContext ?? null)).toBe(
-      "{\"parentThreadId\":\"thread-alpha\",\"tabTitle\":\"Side chat\"}",
+      '{"parentThreadId":"thread-alpha","tabTitle":"Side chat"}',
     );
     expect(typeof stageProps?.composerScopeIdentity).toBe("string");
     expect(String(stageProps?.composerScopeIdentity).startsWith("side-chat:")).toBe(true);
@@ -2322,7 +2635,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     await waitFor(() => {
       expect(getConnectedThreadStagePropsByThreadId("side-thread-1")?.projectId).toBe(null);
     });
-    expect(getConnectedThreadStagePropsByThreadId("side-thread-1")?.projectWorkspacePath).toBe(null);
+    expect(getConnectedThreadStagePropsByThreadId("side-thread-1")?.projectWorkspacePath).toBe(
+      null,
+    );
   });
 
   test("selected-text side chat drafts prefill the side composer without submitting a prompt", async () => {
@@ -2333,10 +2648,9 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     const actions = getLastThreadStageActions();
-    const openSideChat = actions.onOpenSideChat as ((input?: {
-      kind: "draft";
-      draftPrompt: string;
-    }) => Promise<void>) | undefined;
+    const openSideChat = actions.onOpenSideChat as
+      | ((input?: { kind: "draft"; draftPrompt: string }) => Promise<void>)
+      | undefined;
     expect(typeof openSideChat).toBe("function");
 
     await act(async () => {
@@ -2348,14 +2662,20 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
 
-    const startInput = startSideChatCalls[0] as { prompt?: unknown; promptInput?: unknown } | undefined;
+    const startInput = startSideChatCalls[0] as
+      | { prompt?: unknown; promptInput?: unknown }
+      | undefined;
     expect(String(startSideChatCalls.length)).toBe("1");
     expect(Boolean(startInput && "prompt" in startInput)).toBe(false);
     expect(Boolean(startInput && "promptInput" in startInput)).toBe(false);
     expect(String(setComposerIntentCalls.length)).toBe("1");
     expect(setComposerIntentCalls[0]?.[0]).toBe("side-thread-1");
-    expect((setComposerIntentCalls[0]?.[1] as { prompt?: string } | undefined)?.prompt).toBe("Use this selected paragraph");
-    expect(typeof (setComposerIntentCalls[0]?.[1] as { focusNonce?: number } | undefined)?.focusNonce).toBe("number");
+    expect((setComposerIntentCalls[0]?.[1] as { prompt?: string } | undefined)?.prompt).toBe(
+      "Use this selected paragraph",
+    );
+    expect(
+      typeof (setComposerIntentCalls[0]?.[1] as { focusNonce?: number } | undefined)?.focusNonce,
+    ).toBe("number");
   });
 
   test("routes inline subagent contexts inside one Subagents right-panel tab", async () => {
@@ -2411,18 +2731,23 @@ describe("workbench session shell / layout-panel-actions", () => {
     await settleAsyncRender();
 
     const actions = getLastThreadStageActions();
-    const openThread = actions.onOpenThread as ((threadId: string, context?: {
-      subagent?: {
-        conversationId: string;
-        displayName: string;
-        agentRole: string | null;
-        spawnModel: string | null;
-        status: "active" | "waiting" | "done";
-        statusSummary: string | null;
-        showInlineActivity?: boolean;
-        diffStats: { linesAdded: number; linesRemoved: number } | null;
-      };
-    }) => Promise<void>) | undefined;
+    const openThread = actions.onOpenThread as
+      | ((
+          threadId: string,
+          context?: {
+            subagent?: {
+              conversationId: string;
+              displayName: string;
+              agentRole: string | null;
+              spawnModel: string | null;
+              status: "active" | "waiting" | "done";
+              statusSummary: string | null;
+              showInlineActivity?: boolean;
+              diffStats: { linesAdded: number; linesRemoved: number } | null;
+            };
+          },
+        ) => Promise<void>)
+      | undefined;
     expect(typeof openThread).toBe("function");
     if (!openThread) return;
 
@@ -2466,18 +2791,26 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(tab.textContent?.includes("Subagents")).toBe(true);
     expect(tab.getAttribute("aria-selected")).toBe("true");
     expect(tab.querySelector('[data-subagent-glyph-icon="true"]') !== null).toBe(true);
-    expect(screen.container.querySelector('[data-subagents-side-panel-tab="subagents:thread-alpha"]') !== null).toBe(true);
+    expect(
+      screen.container.querySelector('[data-subagents-side-panel-tab="subagents:thread-alpha"]') !==
+        null,
+    ).toBe(true);
     expect(textContent(screen.container).includes("Thread:thread-child")).toBe(true);
-    const detailStageProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
-      .__lastConnectedThreadStageProps;
+    const detailStageProps = (
+      globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }
+    ).__lastConnectedThreadStageProps;
     expect(detailStageProps?.backgroundAgentDetail).toBe(true);
-    const globalHeaderTitles = within(screen.getByTestId("workbench-global-header"))
-      .getAllByTestId("thread-stage-title");
+    const globalHeaderTitles = within(screen.getByTestId("workbench-global-header")).getAllByTestId(
+      "thread-stage-title",
+    );
     expect(globalHeaderTitles).toHaveLength(1);
     expect(globalHeaderTitles[0]?.textContent).toBe("Alpha thread");
     expect(invokeCalls.some((call) => call[0] === "codex:thread:ensure-session")).toBe(false);
     expect(hydrateBackgroundSubagentThreadsCalls).toEqual([]);
-    expect(requestThreadStreamSnapshotCalls.filter((threadId) => threadId === "thread-child").length >= 1).toBe(true);
+    expect(
+      requestThreadStreamSnapshotCalls.filter((threadId) => threadId === "thread-child").length >=
+        1,
+    ).toBe(true);
 
     await act(async () => {
       await openThread("thread-child-2", {
@@ -2496,9 +2829,11 @@ describe("workbench session shell / layout-panel-actions", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.getAllByRole("tab").filter((candidate) =>
-      candidate.textContent?.includes("Subagents")
-    )).toHaveLength(1);
+    expect(
+      screen
+        .getAllByRole("tab")
+        .filter((candidate) => candidate.textContent?.includes("Subagents")),
+    ).toHaveLength(1);
     expect(textContent(screen.container).includes("Thread:thread-child-2")).toBe(true);
     expect(hydrateSubagentPanelCalls).toEqual([
       { rootThreadId: "thread-alpha", threadIds: ["thread-child"], includeTurns: true },
@@ -2525,6 +2860,4 @@ describe("workbench session shell / layout-panel-actions", () => {
     expect(getPanelTabById(screen.container, "background-agent:thread-legacy")).toBeTruthy();
     expect(hydrateBackgroundSubagentThreadsCalls).toEqual([{ threadIds: ["thread-legacy"] }]);
   });
-
-
 });

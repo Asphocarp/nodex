@@ -34,13 +34,19 @@ describe.skipIf(process.platform === "win32")("TerminalManager native PTY contra
       },
     });
 
-    const created = manager.create(owner, windowSessionId, {
-      sessionId,
-      cwd,
-      size: { cols: 80, rows: 24 },
-    }, () => undefined);
+    const created = manager.create(
+      owner,
+      windowSessionId,
+      {
+        sessionId,
+        cwd,
+        size: { cols: 80, rows: 24 },
+      },
+      () => undefined,
+    );
     expect(created).toMatchObject({ status: "acquired" });
-    if (created.status !== "acquired") throw new Error("Expected the native PTY lease to be acquired.");
+    if (created.status !== "acquired")
+      throw new Error("Expected the native PTY lease to be acquired.");
     expect(created.snapshot?.osPid).toBeTypeOf("number");
 
     manager.write(
@@ -53,7 +59,8 @@ describe.skipIf(process.platform === "win32")("TerminalManager native PTY contra
     await expect.poll(() => output, { timeout: 5_000 }).toContain(`__NODEX_PTY_CWD__:${cwd}`);
 
     manager.write(owner, windowSessionId, sessionId, "exit\r", () => undefined);
-    await expect.poll(() => manager.getSessionSnapshot(sessionId)?.exited, { timeout: 5_000 })
+    await expect
+      .poll(() => manager.getSessionSnapshot(sessionId)?.exited, { timeout: 5_000 })
       .toBe(true);
   });
 });

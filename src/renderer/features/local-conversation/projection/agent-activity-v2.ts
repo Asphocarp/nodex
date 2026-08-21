@@ -9,9 +9,7 @@ import type {
   ThreadTranscriptBlockModel,
 } from "../thread-stage-types";
 import { normalizeAutomaticApprovalReviewPayload } from "../../../../shared/codex-transcript-special-items";
-import {
-  resolveCodexMcpAppClassification,
-} from "../../../../shared/codex-mcp-tool-call";
+import { resolveCodexMcpAppClassification } from "../../../../shared/codex-mcp-tool-call";
 import type {
   CodexConversationItem,
   CodexDynamicToolCallView,
@@ -82,9 +80,9 @@ export function removeApprovedThreadAutomaticApprovalReviews<
   } as TItem;
 }
 
-export function classifyThreadExecPatchWebActivityItem<TItem extends ThreadExecPatchWebActivityItem>(
-  item: TItem,
-): ThreadAgentActivityClassification<TItem> {
+export function classifyThreadExecPatchWebActivityItem<
+  TItem extends ThreadExecPatchWebActivityItem,
+>(item: TItem): ThreadAgentActivityClassification<TItem> {
   switch (item.type) {
     case "exec":
       return createThreadAgentActivityItem(
@@ -122,11 +120,13 @@ export function isThreadMcpActivityStandalone(input: {
   if (payload.source?.kind === "computerUse") return true;
   if (payload.invocation.server === "computer-use") return true;
 
-  return resolveCodexMcpAppClassification({
-    payload,
-    mcpServerStatuses: input.mcpServerStatuses,
-    isMcpAppWidgetSuperseded: input.item.isMcpAppWidgetSuperseded,
-  }) === "mcp-app";
+  return (
+    resolveCodexMcpAppClassification({
+      payload,
+      mcpServerStatuses: input.mcpServerStatuses,
+      isMcpAppWidgetSuperseded: input.item.isMcpAppWidgetSuperseded,
+    }) === "mcp-app"
+  );
 }
 
 export function classifyThreadMcpActivityItem<TItem extends ThreadMcpActivityItem>(
@@ -152,9 +152,7 @@ export function classifyThreadDynamicActivityItem<TItem extends ThreadDynamicAct
 ): ThreadAgentActivityClassification<TItem> {
   return createThreadAgentActivityItem(
     item,
-    isDynamicToolStandaloneInConversation(item.entry.dynamicToolCall)
-      ? "standalone"
-      : "groupable",
+    isDynamicToolStandaloneInConversation(item.entry.dynamicToolCall) ? "standalone" : "groupable",
   );
 }
 
@@ -252,9 +250,9 @@ export function isThreadOpenAiFormInteractiveProperty(value: unknown): boolean {
   return asRecord(value)?.type === "openai/imagePicker";
 }
 
-function classifyThreadMcpServerElicitationActivityItem<TItem extends ThreadClassifiableActivityItem>(
-  item: TItem,
-): ThreadAgentActivityClassification<TItem> {
+function classifyThreadMcpServerElicitationActivityItem<
+  TItem extends ThreadClassifiableActivityItem,
+>(item: TItem): ThreadAgentActivityClassification<TItem> {
   const rawItem = asRecord("entry" in item ? item.entry.rawItem : null);
   const elicitation = asRecord(rawItem?.elicitation);
   if (rawItem?.completed !== true || elicitation == null) return null;
@@ -266,12 +264,10 @@ function classifyThreadMcpServerElicitationActivityItem<TItem extends ThreadClas
 
   const schema = asRecord(elicitation.schema);
   const properties = asRecord(schema?.properties);
-  const hasInteractiveProperty = Object.values(properties ?? {})
-    .some(isThreadOpenAiFormInteractiveProperty);
-  return createThreadAgentActivityItem(
-    item,
-    hasInteractiveProperty ? "groupable" : "standalone",
+  const hasInteractiveProperty = Object.values(properties ?? {}).some(
+    isThreadOpenAiFormInteractiveProperty,
   );
+  return createThreadAgentActivityItem(item, hasInteractiveProperty ? "groupable" : "standalone");
 }
 
 function classifyThreadAutomaticApprovalReviewActivityItem<
@@ -349,10 +345,14 @@ export function classifyThreadAgentActivityItem<TItem extends ThreadClassifiable
 }
 
 const VISUALIZATION_PATH_PATTERN = /(?:^|[\\/])visualizations(?:[\\/"'\s;]|$)/i;
-const VISUALIZATION_WRITE_PATTERN = /(?:^|\s)(?:apply_patch|mkdir|tee|touch|cp|mv|install)(?:\s|$)|(?:^|[^<])>>?/;
-const VISUALIZATION_ADD_PATCH_PATTERN = /\*\*\* Add File:[^\r\n]*[\\/]visualizations(?:[\\/"'\s;]|$)/i;
-const VISUALIZATION_UPDATE_PATCH_PATTERN = /\*\*\* Update File:[^\r\n]*[\\/]visualizations(?:[\\/"'\s;]|$)/i;
-const VISUALIZATION_DELETE_PATCH_PATTERN = /\*\*\* Delete File:[^\r\n]*[\\/]visualizations(?:[\\/"'\s;]|$)/i;
+const VISUALIZATION_WRITE_PATTERN =
+  /(?:^|\s)(?:apply_patch|mkdir|tee|touch|cp|mv|install)(?:\s|$)|(?:^|[^<])>>?/;
+const VISUALIZATION_ADD_PATCH_PATTERN =
+  /\*\*\* Add File:[^\r\n]*[\\/]visualizations(?:[\\/"'\s;]|$)/i;
+const VISUALIZATION_UPDATE_PATCH_PATTERN =
+  /\*\*\* Update File:[^\r\n]*[\\/]visualizations(?:[\\/"'\s;]|$)/i;
+const VISUALIZATION_DELETE_PATCH_PATTERN =
+  /\*\*\* Delete File:[^\r\n]*[\\/]visualizations(?:[\\/"'\s;]|$)/i;
 
 export type ThreadVisualizationCommandKind = "create" | "update";
 
@@ -390,12 +390,13 @@ export function shouldFilterThreadAgentActivitySourceItem(
 ): boolean {
   if (item.type === "exec" && "entry" in item) {
     const parsedCommand = item.entry.parsedCmd;
-    const isVisualizationPair = isVisualizationPairableExecutionStatus(item.entry.executionStatus)
-      && parsedCommand != null
-      && resolveThreadVisualizationCommandKind(parsedCommand.cmd) != null
-      && nextItem?.type === "fileChange"
-      && "entry" in nextItem
-      && (nextItem.entry.fileChange?.visualizationActivities?.length ?? 0) > 0;
+    const isVisualizationPair =
+      isVisualizationPairableExecutionStatus(item.entry.executionStatus) &&
+      parsedCommand != null &&
+      resolveThreadVisualizationCommandKind(parsedCommand.cmd) != null &&
+      nextItem?.type === "fileChange" &&
+      "entry" in nextItem &&
+      (nextItem.entry.fileChange?.visualizationActivities?.length ?? 0) > 0;
     if (isVisualizationPair) return true;
   }
 
@@ -466,30 +467,26 @@ function shouldRenderThreadActivityItemInGroupBody(
     if (activity.hasMaterializedChanges) return true;
     const hasVisualization = activity.visualizationActivities.length > 0;
     if (!hasVisualization) return false;
-    return activity.success !== false
-      && (activity.success === true || item.entry.approvalRequestId != null || !isTurnCancelled);
+    return (
+      activity.success !== false &&
+      (activity.success === true || item.entry.approvalRequestId != null || !isTurnCancelled)
+    );
   }
   if (item.type !== "exec") return true;
 
   const parsedCommand = item.entry.parsedCmd;
-  const isFinished = parsedCommand != null
-    ? parsedCommand.isFinished
-    : item.entry.status !== "inProgress";
+  const isFinished =
+    parsedCommand != null ? parsedCommand.isFinished : item.entry.status !== "inProgress";
   if (isFinished) return true;
 
   const firstAction = item.entry.commandActions?.[0];
   const actionType = parsedCommand?.type ?? firstAction?.type;
   if (actionType === "read") {
-    const parsedReadPath = parsedCommand?.type === "read"
-      ? parsedCommand.path ?? parsedCommand.name
-      : undefined;
-    const actionReadPath = firstAction?.type === "read"
-      ? firstAction.path ?? firstAction.name
-      : undefined;
-    const path = resolveExplorationPath(
-      parsedReadPath ?? actionReadPath,
-      item.entry.cwd,
-    );
+    const parsedReadPath =
+      parsedCommand?.type === "read" ? (parsedCommand.path ?? parsedCommand.name) : undefined;
+    const actionReadPath =
+      firstAction?.type === "read" ? (firstAction.path ?? firstAction.name) : undefined;
+    const path = resolveExplorationPath(parsedReadPath ?? actionReadPath, item.entry.cwd);
     return resolveExplorationSkillPathInfo(path)?.isSkillDefinitionFile === true;
   }
   return actionType !== "search" && actionType !== "list_files" && actionType !== "listFiles";
@@ -502,16 +499,19 @@ export function filterThreadAgentActivityGroupBodyItems(
   items: ThreadAgentActivityItem<ThreadClassifiableActivityItem>[];
   canExpand: boolean;
 } {
-  const bodyItems = items.filter((item) => (
-    shouldRenderThreadActivityItemInGroupBody(item, isTurnCancelled)
-  ));
+  const bodyItems = items.filter((item) =>
+    shouldRenderThreadActivityItemInGroupBody(item, isTurnCancelled),
+  );
   return {
     items: bodyItems,
-    canExpand: bodyItems.length > 0 && !bodyItems.every((activityItem) => (
-      activityItem.item.type === "dynamicToolCall"
-      && "entry" in activityItem.item
-      && isDynamicToolSummaryOnlyInConversationGroup(activityItem.item.entry.dynamicToolCall)
-    )),
+    canExpand:
+      bodyItems.length > 0 &&
+      !bodyItems.every(
+        (activityItem) =>
+          activityItem.item.type === "dynamicToolCall" &&
+          "entry" in activityItem.item &&
+          isDynamicToolSummaryOnlyInConversationGroup(activityItem.item.entry.dynamicToolCall),
+      ),
   };
 }
 
@@ -523,43 +523,80 @@ export interface ThreadAgentActivityIdentityCandidates {
   type: string;
 }
 
-function resolveThreadAgentActivityBundleType(type: ThreadClassifiableActivityItem["type"]): string {
+function resolveThreadAgentActivityBundleType(
+  type: ThreadClassifiableActivityItem["type"],
+): string {
   switch (type) {
-    case "assistantMessage": return "assistant-message";
-    case "autoReviewInterruptionWarning": return "auto-review-interruption-warning";
-    case "automaticApprovalReview": return "automatic-approval-review";
-    case "automationUpdate": return "automation-update";
-    case "contextCompaction": return "context-compaction";
-    case "dynamicToolCall": return "dynamic-tool-call";
-    case "exec": return "exec";
-    case "fileChange": return "patch";
-    case "forkedFromConversation": return "forked-from-conversation";
-    case "generatedImage": return "generated-image";
-    case "imageView": return "image-view";
-    case "mcpServerElicitation": return "mcp-server-elicitation";
-    case "mcpToolCall": return "mcp-tool-call";
-    case "modelChanged": return "model-changed";
-    case "modelRerouted": return "model-rerouted";
-    case "multiAgentAction": return "multi-agent-action";
-    case "permissionRequest": return "permission-request";
-    case "personalityChanged": return "personality-changed";
-    case "planImplementation": return "plan-implementation";
-    case "proposedPlan": return "proposed-plan";
-    case "realtimeTranscript": return "realtime-transcript";
-    case "reasoning": return "reasoning";
-    case "remoteTaskCreated": return "remote-task-created";
-    case "steered": return "steered";
-    case "streamError": return "stream-error";
-    case "subagentActivityInlineGroup": return "subagent-activity";
-    case "systemError": return "system-error";
-    case "todoList": return "todo-list";
-    case "turnDiff": return "turn-diff";
-    case "userInput": return "userInput";
-    case "userInputResponse": return "user-input-response";
-    case "userMessage": return "user-message";
-    case "webSearch": return "web-search";
-    case "workedFor": return "worked-for";
-    case "worktreeInit": return "worktree-init";
+    case "assistantMessage":
+      return "assistant-message";
+    case "autoReviewInterruptionWarning":
+      return "auto-review-interruption-warning";
+    case "automaticApprovalReview":
+      return "automatic-approval-review";
+    case "automationUpdate":
+      return "automation-update";
+    case "contextCompaction":
+      return "context-compaction";
+    case "dynamicToolCall":
+      return "dynamic-tool-call";
+    case "exec":
+      return "exec";
+    case "fileChange":
+      return "patch";
+    case "forkedFromConversation":
+      return "forked-from-conversation";
+    case "generatedImage":
+      return "generated-image";
+    case "imageView":
+      return "image-view";
+    case "mcpServerElicitation":
+      return "mcp-server-elicitation";
+    case "mcpToolCall":
+      return "mcp-tool-call";
+    case "modelChanged":
+      return "model-changed";
+    case "modelRerouted":
+      return "model-rerouted";
+    case "multiAgentAction":
+      return "multi-agent-action";
+    case "permissionRequest":
+      return "permission-request";
+    case "personalityChanged":
+      return "personality-changed";
+    case "planImplementation":
+      return "plan-implementation";
+    case "proposedPlan":
+      return "proposed-plan";
+    case "realtimeTranscript":
+      return "realtime-transcript";
+    case "reasoning":
+      return "reasoning";
+    case "remoteTaskCreated":
+      return "remote-task-created";
+    case "steered":
+      return "steered";
+    case "streamError":
+      return "stream-error";
+    case "subagentActivityInlineGroup":
+      return "subagent-activity";
+    case "systemError":
+      return "system-error";
+    case "todoList":
+      return "todo-list";
+    case "turnDiff":
+      return "turn-diff";
+    case "userInput":
+      return "userInput";
+    case "userInputResponse":
+      return "user-input-response";
+    case "userMessage":
+      return "user-message";
+    case "webSearch":
+      return "web-search";
+    case "workedFor":
+      return "worked-for";
+    case "worktreeInit":
+      return "worktree-init";
   }
   return type;
 }
@@ -685,8 +722,7 @@ export function resolveThreadPrimaryActivitySliceClosed(input: {
   isTurnInProgress: boolean;
   keepOpenWhileStreaming: boolean;
 }): boolean {
-  return input.hasRenderableAssistant
-    && (!input.isTurnInProgress || !input.keepOpenWhileStreaming);
+  return input.hasRenderableAssistant && (!input.isTurnInProgress || !input.keepOpenWhileStreaming);
 }
 
 export function buildThreadAgentActivityUnitContexts(input: {

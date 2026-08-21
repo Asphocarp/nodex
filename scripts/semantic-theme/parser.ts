@@ -1,4 +1,10 @@
-import { transform, type Declaration, type Rule, type Selector, type StyleSheet } from "lightningcss";
+import {
+  transform,
+  type Declaration,
+  type Rule,
+  type Selector,
+  type StyleSheet,
+} from "lightningcss";
 
 import type {
   SemanticThemeCssFacts,
@@ -37,8 +43,7 @@ const EMPTY_CONTEXT: CssRuleContext = {
   supportsDepth: 0,
 };
 
-const sanitizeSourceCss = (css: string): string =>
-  css.replace(/\/\*[\s\S]*?\*\//g, "");
+const sanitizeSourceCss = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 const omittedWhitespace = Symbol("omitted-css-whitespace");
 
@@ -109,9 +114,7 @@ const parseSelectorFingerprints = (selectorText: string): readonly string[] => {
   return firstRule.value.selectors.map(selectorFingerprint);
 };
 
-export const collectSelectorFingerprints = (
-  selectors: readonly string[],
-): ReadonlySet<string> => {
+export const collectSelectorFingerprints = (selectors: readonly string[]): ReadonlySet<string> => {
   const fingerprints = new Set<string>();
   for (const selector of selectors) {
     for (const fingerprint of parseSelectorFingerprints(selector)) {
@@ -126,18 +129,20 @@ export const customPropertyName = (declaration: Declaration): string | null =>
 
 const hasDeclarations = (rule: Extract<Rule, { type: "style" }>): boolean => {
   const declarations = rule.value.declarations;
-  return (declarations?.declarations?.length ?? 0) > 0
-    || (declarations?.importantDeclarations?.length ?? 0) > 0;
+  return (
+    (declarations?.declarations?.length ?? 0) > 0 ||
+    (declarations?.importantDeclarations?.length ?? 0) > 0
+  );
 };
 
 const isEmptyRuleContainer = (rule: Rule): boolean => {
   if (
-    rule.type !== "layer-block"
-    && rule.type !== "supports"
-    && rule.type !== "media"
-    && rule.type !== "container"
-    && rule.type !== "scope"
-    && rule.type !== "starting-style"
+    rule.type !== "layer-block" &&
+    rule.type !== "supports" &&
+    rule.type !== "media" &&
+    rule.type !== "container" &&
+    rule.type !== "scope" &&
+    rule.type !== "starting-style"
   ) {
     return false;
   }
@@ -147,18 +152,22 @@ const isEmptyRuleContainer = (rule: Rule): boolean => {
 const keyframeName = (rule: Extract<Rule, { type: "keyframes" }>): string | null =>
   rule.value.name.type === "ident" ? rule.value.name.value : null;
 
-const propertyRuleName = (rule: Extract<Rule, { type: "property" }>): string =>
-  rule.value.name;
+const propertyRuleName = (rule: Extract<Rule, { type: "property" }>): string => rule.value.name;
 
 const isAllowedStyleRule = (
   rule: Extract<Rule, { type: "style" }>,
   fingerprints: ReadonlySet<string>,
-): boolean => rule.value.selectors.some((selector) => fingerprints.has(selectorFingerprint(selector)));
+): boolean =>
+  rule.value.selectors.some((selector) => fingerprints.has(selectorFingerprint(selector)));
 
 const isWindowVariantArbitraryPropertySelector = (selector: Selector): boolean => {
   if (selector.length !== 2) return false;
   const [classNode, whereNode] = selector;
-  if (classNode?.type !== "class" || whereNode?.type !== "pseudo-class" || whereNode.kind !== "where") {
+  if (
+    classNode?.type !== "class" ||
+    whereNode?.type !== "pseudo-class" ||
+    whereNode.kind !== "where"
+  ) {
     return false;
   }
 
@@ -174,13 +183,15 @@ const isWindowVariantArbitraryPropertySelector = (selector: Selector): boolean =
   const nestedSelector = whereNode.selectors?.[0];
   if (!nestedSelector || nestedSelector.length !== 3) return false;
   const [attributeNode, combinatorNode, nestedClassNode] = nestedSelector;
-  return attributeNode?.type === "attribute"
-    && attributeNode.name === "data-codex-window-type"
-    && attributeNode.operation?.value === windowType
-    && combinatorNode?.type === "combinator"
-    && combinatorNode.value === "descendant"
-    && nestedClassNode?.type === "class"
-    && nestedClassNode.name === classNode.name;
+  return (
+    attributeNode?.type === "attribute" &&
+    attributeNode.name === "data-codex-window-type" &&
+    attributeNode.operation?.value === windowType &&
+    combinatorNode?.type === "combinator" &&
+    combinatorNode.value === "descendant" &&
+    nestedClassNode?.type === "class" &&
+    nestedClassNode.name === classNode.name
+  );
 };
 
 export const filterCss = (css: string, options: FilterCssOptions): string => {
@@ -234,13 +245,13 @@ export const filterCss = (css: string, options: FilterCssOptions): string => {
           return options.keepPropertyRules?.has(propertyRuleName(rule)) ? undefined : [];
         }
         if (
-          rule.type === "font-face"
-          || rule.type === "font-feature-values"
-          || rule.type === "font-palette-values"
-          || rule.type === "import"
-          || rule.type === "namespace"
-          || rule.type === "unknown"
-          || rule.type === "custom"
+          rule.type === "font-face" ||
+          rule.type === "font-feature-values" ||
+          rule.type === "font-palette-values" ||
+          rule.type === "import" ||
+          rule.type === "namespace" ||
+          rule.type === "unknown" ||
+          rule.type === "custom"
         ) {
           return [];
         }
@@ -413,11 +424,18 @@ const selectorTargets = (selector: Selector): ReadonlySet<SemanticThemeTarget> =
   };
   visit(selector);
 
-  return new Set(SEMANTIC_THEME_TARGETS.filter((target) => {
-    const [windowType, scheme] = target.split("-") as ["electron" | "browser" | "extension", "light" | "dark"];
-    return (!hasWindowConstraint || windows.has(windowType))
-      && (!hasSchemeConstraint || schemes.has(scheme));
-  }));
+  return new Set(
+    SEMANTIC_THEME_TARGETS.filter((target) => {
+      const [windowType, scheme] = target.split("-") as [
+        "electron" | "browser" | "extension",
+        "light" | "dark",
+      ];
+      return (
+        (!hasWindowConstraint || windows.has(windowType)) &&
+        (!hasSchemeConstraint || schemes.has(scheme))
+      );
+    }),
+  );
 };
 
 const selectorsContainRoot = (selectors: readonly Selector[]): boolean => {
@@ -439,7 +457,9 @@ const selectorsContainRoot = (selectors: readonly Selector[]): boolean => {
   return containsRoot;
 };
 
-const selectorCoverage = (selectors: readonly Selector[]): {
+const selectorCoverage = (
+  selectors: readonly Selector[],
+): {
   readonly scopeKind: SemanticThemeVariableDefinition["scopeKind"];
   readonly selectorKey: string;
   readonly targets: readonly SemanticThemeTarget[];
@@ -451,11 +471,7 @@ const selectorCoverage = (selectors: readonly Selector[]): {
   const allTargets = targets.size === SEMANTIC_THEME_TARGETS.length;
   const isRoot = selectorsContainRoot(selectors);
   return {
-    scopeKind: isRoot && allTargets
-      ? "root"
-      : allTargets
-        ? "local"
-        : "scoped",
+    scopeKind: isRoot && allTargets ? "root" : allTargets ? "local" : "scoped",
     selectorKey: selectors.map(selectorFingerprint).join("|"),
     targets: [...targets].sort(),
   };
@@ -464,11 +480,8 @@ const selectorCoverage = (selectors: readonly Selector[]): {
 const conditionFromDepth = (
   supportsDepth: number,
   mediaDepth: number,
-): SemanticThemeVariableDefinition["condition"] => supportsDepth > 0
-  ? "supports"
-  : mediaDepth > 0
-    ? "media"
-    : "base";
+): SemanticThemeVariableDefinition["condition"] =>
+  supportsDepth > 0 ? "supports" : mediaDepth > 0 ? "media" : "base";
 
 const collectThemeRuleFacts = (
   rule: Extract<Rule, { type: "unknown" }>,

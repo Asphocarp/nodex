@@ -42,7 +42,9 @@ const projectRoot = resolve(import.meta.dirname, "../..");
 
 const normalizedArgs = (): string[] => process.argv.slice(2).filter((value) => value !== "--");
 
-const parseFlags = (args: readonly string[]): { readonly flags: ReadonlyMap<string, string>; readonly positional: readonly string[] } => {
+const parseFlags = (
+  args: readonly string[],
+): { readonly flags: ReadonlyMap<string, string>; readonly positional: readonly string[] } => {
   const flags = new Map<string, string>();
   const positional: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
@@ -91,7 +93,9 @@ const main = async (): Promise<void> => {
       date: flags.get("date") ?? new Date().toISOString().slice(0, 10),
       version,
     });
-    process.stdout.write(`Prepared ${result.tag}; review and commit the four release metadata files.\n`);
+    process.stdout.write(
+      `Prepared ${result.tag}; review and commit the four release metadata files.\n`,
+    );
     return;
   }
   if (command === "check") {
@@ -107,69 +111,91 @@ const main = async (): Promise<void> => {
     }
     const snapshot = inspectReleaseSourceAtRef(projectRoot, head);
     writeJson(flags.get("output"), {
-      sourceSha: execFileSync("git", ["rev-parse", `${head}^{commit}`], { cwd: projectRoot, encoding: "utf8" }).trim(),
-      sourceTree: execFileSync("git", ["rev-parse", `${head}^{tree}`], { cwd: projectRoot, encoding: "utf8" }).trim(),
+      sourceSha: execFileSync("git", ["rev-parse", `${head}^{commit}`], {
+        cwd: projectRoot,
+        encoding: "utf8",
+      }).trim(),
+      sourceTree: execFileSync("git", ["rev-parse", `${head}^{tree}`], {
+        cwd: projectRoot,
+        encoding: "utf8",
+      }).trim(),
       tag: tagForVersion(snapshot.packageVersion),
       version: snapshot.packageVersion,
     });
     return;
   }
   if (command === "detect") {
-    writeJson(required(flags, "output"), detectReleaseTransition(
-      projectRoot,
-      required(flags, "base"),
-      required(flags, "head"),
-    ));
+    writeJson(
+      required(flags, "output"),
+      detectReleaseTransition(projectRoot, required(flags, "base"), required(flags, "head")),
+    );
     return;
   }
   if (command === "resolve-stable") {
-    writeJson(required(flags, "output"), resolveStableReleaseIdentity({
-      base: required(flags, "base"),
-      cwd: projectRoot,
-      head: required(flags, "head"),
-    }));
+    writeJson(
+      required(flags, "output"),
+      resolveStableReleaseIdentity({
+        base: required(flags, "base"),
+        cwd: projectRoot,
+        head: required(flags, "head"),
+      }),
+    );
     return;
   }
   if (command === "resolve-source") {
     const channel = required(flags, "channel");
-    if (channel !== "stable" && channel !== "nightly") throw new Error("--channel must be stable or nightly.");
-    writeJson(required(flags, "output"), resolveReleaseIdentity({
-      channel,
-      cwd: projectRoot,
-      ref: flags.get("head") ?? "HEAD",
-    }));
+    if (channel !== "stable" && channel !== "nightly")
+      throw new Error("--channel must be stable or nightly.");
+    writeJson(
+      required(flags, "output"),
+      resolveReleaseIdentity({
+        channel,
+        cwd: projectRoot,
+        ref: flags.get("head") ?? "HEAD",
+      }),
+    );
     return;
   }
   if (command === "resolve-nightly") {
-    writeJson(required(flags, "output"), resolveNightlyCandidate({
-      cwd: projectRoot,
-      head: flags.get("head") ?? "HEAD",
-    }));
+    writeJson(
+      required(flags, "output"),
+      resolveNightlyCandidate({
+        cwd: projectRoot,
+        head: flags.get("head") ?? "HEAD",
+      }),
+    );
     return;
   }
   if (command === "verify-identity") {
     const identity = parseReleaseIdentity(
       JSON.parse(readFileSync(resolve(required(flags, "identity")), "utf8")),
     );
-    writeJson(flags.get("output"), verifyReleaseIdentityAtRef({
-      cwd: projectRoot,
-      identity,
-      ref: required(flags, "head"),
-    }));
+    writeJson(
+      flags.get("output"),
+      verifyReleaseIdentityAtRef({
+        cwd: projectRoot,
+        identity,
+        ref: required(flags, "head"),
+      }),
+    );
     return;
   }
   if (command === "retain-nightlies") {
-    writeJson(flags.get("output"), runNightlyRetention({
-      destructive: flags.get("destructive") === "true",
-      keepCount: Number(flags.get("keep") ?? "20"),
-      minAgeDays: Number(flags.get("min-age-days") ?? "14"),
-      repo: required(flags, "repo"),
-    }));
+    writeJson(
+      flags.get("output"),
+      runNightlyRetention({
+        destructive: flags.get("destructive") === "true",
+        keepCount: Number(flags.get("keep") ?? "20"),
+        minAgeDays: Number(flags.get("min-age-days") ?? "14"),
+        repo: required(flags, "repo"),
+      }),
+    );
     return;
   }
   if (command === "record-architecture") {
     const architecture = required(flags, "arch");
-    if (architecture !== "arm64" && architecture !== "x64") throw new Error("--arch must be arm64 or x64.");
+    if (architecture !== "arm64" && architecture !== "x64")
+      throw new Error("--arch must be arm64 or x64.");
     recordArchitectureBuild({
       appPath: required(flags, "app-path"),
       architecture: architecture as MacArchitecture,
@@ -182,7 +208,8 @@ const main = async (): Promise<void> => {
   }
   if (command === "build-mac") {
     const architecture = required(flags, "arch");
-    if (architecture !== "arm64" && architecture !== "x64") throw new Error("--arch must be arm64 or x64.");
+    if (architecture !== "arm64" && architecture !== "x64")
+      throw new Error("--arch must be arm64 or x64.");
     await buildMacDistribution({
       architecture,
       cwd: projectRoot,
@@ -211,11 +238,14 @@ const main = async (): Promise<void> => {
     return;
   }
   if (command === "project-pages") {
-    writeJson(flags.get("output"), projectReleaseAppcasts({
-      bundlePath: required(flags, "bundle"),
-      existingSiteDirectory: flags.get("existing-site-dir"),
-      siteDirectory: required(flags, "site-dir"),
-    }));
+    writeJson(
+      flags.get("output"),
+      projectReleaseAppcasts({
+        bundlePath: required(flags, "bundle"),
+        existingSiteDirectory: flags.get("existing-site-dir"),
+        siteDirectory: required(flags, "site-dir"),
+      }),
+    );
     return;
   }
   if (command === "verify-pages") {
@@ -224,7 +254,10 @@ const main = async (): Promise<void> => {
   }
   if (command === "extract-notes") {
     const version = required(flags, "version");
-    const notes = extractReleaseNotes(readFileSync(resolve(flags.get("changelog") ?? "CHANGELOG.md"), "utf8"), version);
+    const notes = extractReleaseNotes(
+      readFileSync(resolve(flags.get("changelog") ?? "CHANGELOG.md"), "utf8"),
+      version,
+    );
     const output = flags.get("output");
     if (output) writeFileSync(resolve(output), notes, "utf8");
     else process.stdout.write(notes);
@@ -234,7 +267,11 @@ const main = async (): Promise<void> => {
     const bundlePath = resolve(required(flags, "bundle"));
     releaseAssetPaths(bundlePath);
     const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(bundlePath, "utf8")));
-    writeFileSync(resolve(required(flags, "output")), generateHomebrewCaskFromBundle(bundle), "utf8");
+    writeFileSync(
+      resolve(required(flags, "output")),
+      generateHomebrewCaskFromBundle(bundle),
+      "utf8",
+    );
     return;
   }
   if (command === "publish-github") {
@@ -246,25 +283,33 @@ const main = async (): Promise<void> => {
     return;
   }
   if (command === "check-remote-candidate") {
-    writeJson(flags.get("output"), assertRemoteReleaseCandidate({
-      repo: required(flags, "repo"),
-      sourceSha: required(flags, "source-sha"),
-      version: required(flags, "version"),
-    }));
+    writeJson(
+      flags.get("output"),
+      assertRemoteReleaseCandidate({
+        repo: required(flags, "repo"),
+        sourceSha: required(flags, "source-sha"),
+        version: required(flags, "version"),
+      }),
+    );
     return;
   }
   if (command === "check-nightly-remote") {
-    const identity = parseReleaseIdentity(JSON.parse(
-      readFileSync(resolve(required(flags, "identity")), "utf8"),
-    ));
-    writeJson(flags.get("output"), inspectNightlyRemoteCandidate(required(flags, "repo"), identity));
+    const identity = parseReleaseIdentity(
+      JSON.parse(readFileSync(resolve(required(flags, "identity")), "utf8")),
+    );
+    writeJson(
+      flags.get("output"),
+      inspectNightlyRemoteCandidate(required(flags, "repo"), identity),
+    );
     return;
   }
   if (command === "ensure-tag") {
-    process.stdout.write(`${ensureGitHubReleaseTag({
-      bundlePath: required(flags, "bundle"),
-      repo: required(flags, "repo"),
-    })}\n`);
+    process.stdout.write(
+      `${ensureGitHubReleaseTag({
+        bundlePath: required(flags, "bundle"),
+        repo: required(flags, "repo"),
+      })}\n`,
+    );
     return;
   }
   if (command === "verify-remote") {
@@ -273,7 +318,9 @@ const main = async (): Promise<void> => {
   }
   if (command === "verify-bundle") {
     const bundlePath = required(flags, "bundle");
-    const bundle = parseReleaseBundleManifest(JSON.parse(readFileSync(resolve(bundlePath), "utf8")));
+    const bundle = parseReleaseBundleManifest(
+      JSON.parse(readFileSync(resolve(bundlePath), "utf8")),
+    );
     releaseAssetPaths(bundlePath);
     writeJson(flags.get("output"), bundle);
     return;
@@ -301,6 +348,8 @@ const main = async (): Promise<void> => {
 };
 
 void main().catch((error: unknown) => {
-  process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+  process.stderr.write(
+    `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+  );
   process.exitCode = 1;
 });

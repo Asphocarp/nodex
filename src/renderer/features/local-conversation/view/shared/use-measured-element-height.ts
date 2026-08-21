@@ -12,7 +12,9 @@ export function useMeasuredElementHeight() {
     }
 
     const nextHeight = element.scrollHeight;
-    setElementHeightPx((currentHeight) => (currentHeight === nextHeight ? currentHeight : nextHeight));
+    setElementHeightPx((currentHeight) =>
+      currentHeight === nextHeight ? currentHeight : nextHeight,
+    );
   });
 
   const elementRef = useCallback((node: HTMLDivElement | null) => {
@@ -36,10 +38,13 @@ export function useMeasuredElementHeight() {
     };
   }, [element]);
 
-  useLayoutEffect(() => () => {
-    resizeObserverRef.current?.disconnect();
-    resizeObserverRef.current = null;
-  }, []);
+  useLayoutEffect(
+    () => () => {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
+    },
+    [],
+  );
 
   return {
     elementHeightPx,

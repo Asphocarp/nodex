@@ -17,16 +17,42 @@ export const DATABASE_PROPERTY_VALUE_ICON_CHIP_CLASS_NAME = [
 ].join(" ");
 
 const DATABASE_PROPERTY_OPTION_COLORS: Readonly<Record<string, string>> = {
-  gray: "#A4A4A6", default: "#A4A4A6", brown: "#B18869", orange: "#F67E49",
-  yellow: "#F8C531", green: "#77D677", blue: "#56ABFD", purple: "#BB87FC",
-  pink: "#F84DD0", red: "#D04A52", teal: "#4ADAD3", cyan: "#4ADAD3",
+  gray: "#A4A4A6",
+  default: "#A4A4A6",
+  brown: "#B18869",
+  orange: "#F67E49",
+  yellow: "#F8C531",
+  green: "#77D677",
+  blue: "#56ABFD",
+  purple: "#BB87FC",
+  pink: "#F84DD0",
+  red: "#D04A52",
+  teal: "#4ADAD3",
+  cyan: "#4ADAD3",
 };
 
 const DATABASE_PROPERTY_OPTION_PALETTE = [
-  "#9A48FF", "#56ABFD", "#4BB449", "#E15F28", "#F67E49", "#CC05FF",
-  "#17A6A4", "#9A3A63", "#F84DD0", "#1D8AF2", "#F8C531", "#BB87FC",
-  "#D04A52", "#831FFF", "#D09808", "#B18869", "#77D677", "#A44907",
-  "#4ADAD3", "#E166FF", "#96D71E",
+  "#9A48FF",
+  "#56ABFD",
+  "#4BB449",
+  "#E15F28",
+  "#F67E49",
+  "#CC05FF",
+  "#17A6A4",
+  "#9A3A63",
+  "#F84DD0",
+  "#1D8AF2",
+  "#F8C531",
+  "#BB87FC",
+  "#D04A52",
+  "#831FFF",
+  "#D09808",
+  "#B18869",
+  "#77D677",
+  "#A44907",
+  "#4ADAD3",
+  "#E166FF",
+  "#96D71E",
 ] as const;
 
 const CSS_COLOR_FUNCTION_OR_HEX = /^(?:#|(?:rgb|hsl|hwb|lab|lch|oklab|oklch|color)\()/i;

@@ -6,19 +6,13 @@ import {
   localEnvironmentSnapshotQueryOptions,
 } from "./query-options";
 import { queryKeys } from "./query-keys";
-import type {
-  UpdateWorktreeEnvironmentConfigInput,
-  WorktreeEnvironmentSaveResult,
-} from "./types";
+import type { UpdateWorktreeEnvironmentConfigInput, WorktreeEnvironmentSaveResult } from "./types";
 
 interface QueryEnabledOptions {
   enabled?: boolean;
 }
 
-export function useLocalEnvironmentConfigs(
-  projectId: string,
-  options: QueryEnabledOptions = {},
-) {
+export function useLocalEnvironmentConfigs(projectId: string, options: QueryEnabledOptions = {}) {
   const enabled = options.enabled !== false && projectId.trim().length > 0;
   return useQuery({
     ...localEnvironmentConfigsQueryOptions(projectId),
@@ -26,10 +20,7 @@ export function useLocalEnvironmentConfigs(
   });
 }
 
-export function useLocalEnvironmentOptions(
-  projectId: string,
-  options: QueryEnabledOptions = {},
-) {
+export function useLocalEnvironmentOptions(projectId: string, options: QueryEnabledOptions = {}) {
   const enabled = options.enabled !== false && projectId.trim().length > 0;
   return useQuery({
     ...localEnvironmentOptionsQueryOptions(projectId),

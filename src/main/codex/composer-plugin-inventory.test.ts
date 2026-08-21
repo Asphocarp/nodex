@@ -13,12 +13,7 @@ import {
 function createPlugin(
   overrides: Partial<PluginSummary> & Pick<PluginSummary, "id" | "name">,
 ): PluginSummary {
-  const {
-    id,
-    name,
-    interface: interfaceOverrides,
-    ...remainingOverrides
-  } = overrides;
+  const { id, name, interface: interfaceOverrides, ...remainingOverrides } = overrides;
   const pluginInterface: PluginInterface = {
     displayName: null,
     shortDescription: null,
@@ -66,10 +61,7 @@ function createPlugin(
   };
 }
 
-function createMarketplace(
-  name: string,
-  plugins: PluginSummary[],
-): PluginMarketplaceEntry {
+function createMarketplace(name: string, plugins: PluginSummary[]): PluginMarketplaceEntry {
   return {
     name,
     path: null,
@@ -176,17 +168,14 @@ describe("composer plugin inventory", () => {
       },
     );
 
-    expect(loadedPaths).toEqual([
-      "/plugins/browser/icon.svg",
-      "/plugins/browser/icon-dark.png",
-    ]);
+    expect(loadedPaths).toEqual(["/plugins/browser/icon.svg", "/plugins/browser/icon-dark.png"]);
     expect(inventory[0]).toMatchObject({
-      iconUrl: `data:image/svg+xml;base64,${
-        Buffer.from("/plugins/browser/icon.svg").toString("base64")
-      }`,
-      iconUrlDark: `data:image/png;base64,${
-        Buffer.from("/plugins/browser/icon-dark.png").toString("base64")
-      }`,
+      iconUrl: `data:image/svg+xml;base64,${Buffer.from("/plugins/browser/icon.svg").toString(
+        "base64",
+      )}`,
+      iconUrlDark: `data:image/png;base64,${Buffer.from("/plugins/browser/icon-dark.png").toString(
+        "base64",
+      )}`,
     });
   });
 
@@ -224,14 +213,16 @@ describe("composer plugin inventory", () => {
     };
 
     expect(buildComposerPluginInventory(response)).toEqual([]);
-    expect(buildComposerPluginInventory(response, {
-      installSuggestionPluginNames: [
-        "browser",
-        "computer-use",
-        "installed-disabled",
-        "record-and-replay",
-      ],
-    })).toEqual([
+    expect(
+      buildComposerPluginInventory(response, {
+        installSuggestionPluginNames: [
+          "browser",
+          "computer-use",
+          "installed-disabled",
+          "record-and-replay",
+        ],
+      }),
+    ).toEqual([
       expect.objectContaining({
         id: "browser@openai-bundled",
         name: "Browser",
@@ -275,30 +266,23 @@ describe("composer plugin inventory", () => {
       ],
     };
 
-    expect(
-      resolveComposerPluginActivation(response, " browser@local "),
-    ).toEqual({
+    expect(resolveComposerPluginActivation(response, " browser@local ")).toEqual({
       kind: "install",
       params: {
         marketplacePath: "/tmp/plugins",
         pluginName: "browser",
       },
     });
-    expect(
-      resolveComposerPluginActivation(
-        response,
-        "computer-use@openai-bundled",
-      ),
-    ).toEqual({
+    expect(resolveComposerPluginActivation(response, "computer-use@openai-bundled")).toEqual({
       kind: "install",
       params: {
         remoteMarketplaceName: "openai-bundled",
         pluginName: "computer-use",
       },
     });
-    expect(
-      resolveComposerPluginActivation(response, "pdf@openai-bundled"),
-    ).toEqual({ kind: "active" });
+    expect(resolveComposerPluginActivation(response, "pdf@openai-bundled")).toEqual({
+      kind: "active",
+    });
   });
 
   test("rejects activation when policy or installed state blocks it", () => {
@@ -327,38 +311,28 @@ describe("composer plugin inventory", () => {
     };
 
     expect(() =>
-      resolveComposerPluginActivation(
-        response,
-        "admin-disabled@openai-bundled",
-      )
+      resolveComposerPluginActivation(response, "admin-disabled@openai-bundled"),
     ).toThrow("disabled by your administrator");
-    expect(() =>
-      resolveComposerPluginActivation(
-        response,
-        "user-disabled@openai-bundled",
-      )
-    ).toThrow("installed but disabled");
-    expect(
-      resolveComposerPluginActivation(
-        response,
-        "record-and-replay@openai-bundled",
-      ),
-    ).toEqual({
+    expect(() => resolveComposerPluginActivation(response, "user-disabled@openai-bundled")).toThrow(
+      "installed but disabled",
+    );
+    expect(resolveComposerPluginActivation(response, "record-and-replay@openai-bundled")).toEqual({
       kind: "enable",
       params: {
-        edits: [{
-          keyPath:
-            "plugins.record-and-replay@openai-bundled.enabled",
-          value: true,
-          mergeStrategy: "upsert",
-        }],
+        edits: [
+          {
+            keyPath: "plugins.record-and-replay@openai-bundled.enabled",
+            value: true,
+            mergeStrategy: "upsert",
+          },
+        ],
         filePath: null,
         expectedVersion: null,
         reloadUserConfig: true,
       },
     });
-    expect(() =>
-      resolveComposerPluginActivation(response, "missing@openai-bundled")
-    ).toThrow("no longer available");
+    expect(() => resolveComposerPluginActivation(response, "missing@openai-bundled")).toThrow(
+      "no longer available",
+    );
   });
 });

@@ -140,9 +140,7 @@ describe("cross-surface Block transfer drag", () => {
     expect(coordinator.resolve(transfer)).toEqual(session);
     expect(transfer.effectAllowed).toBe("copyMove");
     expect(
-      parseBlockTransferDragPayload(
-        values.get(NODEX_BLOCK_TRANSFER_DRAG_MIME) ?? "",
-      ),
+      parseBlockTransferDragPayload(values.get(NODEX_BLOCK_TRANSFER_DRAG_MIME) ?? ""),
     ).toMatchObject({
       sessionId: "session-local",
       sourceSurfaceId: "surface-a",
@@ -157,10 +155,7 @@ describe("cross-surface Block transfer drag", () => {
       }),
     );
     expect(coordinator.resolveDrop(transfer)).toBeNull();
-    values.set(
-      NODEX_BLOCK_TRANSFER_DRAG_MIME,
-      encodeBlockTransferDragPayload(session.payload),
-    );
+    values.set(NODEX_BLOCK_TRANSFER_DRAG_MIME, encodeBlockTransferDragPayload(session.payload));
 
     coordinator.end({ sourceSurfaceId: "another-surface" });
     expect(coordinator.resolve(transfer)).toEqual(session);

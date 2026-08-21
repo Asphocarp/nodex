@@ -1,7 +1,4 @@
-import {
-  createImageBlockConfig,
-  imageParse,
-} from "@blocknote/core";
+import { createImageBlockConfig, imageParse } from "@blocknote/core";
 import {
   AddFileButton,
   createReactBlockSpec,
@@ -17,9 +14,7 @@ import { parseAssetSource } from "../../../../shared/assets";
 
 import { resolveAssetSourceToDisplayUrl } from "../../../lib/assets";
 
-type ImageBlockRenderProps = ReactCustomBlockRenderProps<
-  typeof createImageBlockConfig
->;
+type ImageBlockRenderProps = ReactCustomBlockRenderProps<typeof createImageBlockConfig>;
 
 function resolveImageFileName(source: string, name: string): string {
   const explicitName = name.trim();
@@ -47,12 +42,8 @@ function resolveDataUrlByteLength(source: string): number | null {
   const payload = source.slice(separator + 1);
   if (metadata.toLowerCase().includes(";base64")) {
     const normalizedPayload = payload.replace(/\s/gu, "");
-    const padding = normalizedPayload.endsWith("==")
-      ? 2
-      : normalizedPayload.endsWith("=")
-        ? 1
-        : 0;
-    return Math.max(0, Math.floor(normalizedPayload.length * 3 / 4) - padding);
+    const padding = normalizedPayload.endsWith("==") ? 2 : normalizedPayload.endsWith("=") ? 1 : 0;
+    return Math.max(0, Math.floor((normalizedPayload.length * 3) / 4) - padding);
   }
 
   try {
@@ -74,9 +65,8 @@ export function formatImageFileSize(bytes: number): string {
     unitIndex += 1;
   }
 
-  const formattedValue = value >= 100
-    ? Math.round(value).toString()
-    : value.toFixed(1).replace(/\.0$/u, "");
+  const formattedValue =
+    value >= 100 ? Math.round(value).toString() : value.toFixed(1).replace(/\.0$/u, "");
   return `${formattedValue} ${units[unitIndex]}`;
 }
 
@@ -110,19 +100,13 @@ function useImageFileSize(source: string): number | null {
   return fileSize;
 }
 
-function ImagePreview({
-  block,
-}: Omit<ImageBlockRenderProps, "contentRef">) {
+function ImagePreview({ block }: Omit<ImageBlockRenderProps, "contentRef">) {
   const resolved = useResolveUrl(block.props.url);
 
   return (
     <img
       className="bn-visual-media"
-      src={
-        resolved.loadingState === "loading"
-          ? block.props.url
-          : resolved.downloadUrl
-      }
+      src={resolved.loadingState === "loading" ? block.props.url : resolved.downloadUrl}
       alt={block.props.name || ""}
       width={block.props.previewWidth}
       contentEditable={false}
@@ -131,9 +115,7 @@ function ImagePreview({
   );
 }
 
-function NfmImageFileName({
-  block,
-}: Omit<ImageBlockRenderProps, "contentRef">) {
+function NfmImageFileName({ block }: Omit<ImageBlockRenderProps, "contentRef">) {
   const name = resolveImageFileName(block.props.url, block.props.name);
   const fileSize = useImageFileSize(block.props.url);
 
@@ -144,9 +126,7 @@ function NfmImageFileName({
       draggable={false}
     >
       <FileImage className="size-5 shrink-0 text-token-foreground" />
-      <span className="min-w-0 truncate text-[15px] leading-5 text-token-foreground">
-        {name}
-      </span>
+      <span className="min-w-0 truncate text-[15px] leading-5 text-token-foreground">{name}</span>
       {fileSize !== null ? (
         <span className="shrink-0 text-[15px] leading-5 text-token-text-secondary">
           {formatImageFileSize(fileSize)}
@@ -165,9 +145,7 @@ function NfmImageFileBlock({
   const Wrapper = block.props.caption ? "figure" : "div";
 
   return (
-    <Wrapper
-      className="nfm-image-file-block-content-wrapper flex w-fit max-w-full flex-col"
-    >
+    <Wrapper className="nfm-image-file-block-content-wrapper flex w-fit max-w-full flex-col">
       {children}
       {block.props.caption ? (
         <figcaption className="bn-file-caption text-token-text-secondary">
@@ -226,11 +204,7 @@ function NfmImageExternalHTML({
 
   const name = resolveImageFileName(block.props.url, block.props.name);
   const content = block.props.showPreview ? (
-    <img
-      src={source}
-      alt={block.props.name || ""}
-      width={block.props.previewWidth}
-    />
+    <img src={source} alt={block.props.name || ""} width={block.props.previewWidth} />
   ) : (
     <a href={source}>{name}</a>
   );
@@ -257,15 +231,12 @@ export function resolveExternalImageSource(source: string): string {
   return resolveAssetSourceToDisplayUrl(source);
 }
 
-export const imageBlockSpec = createReactBlockSpec(
-  createImageBlockConfig,
-  {
-    meta: {
-      fileBlockAccept: ["image/*"],
-    },
-    parse: imageParse(),
-    render: NfmImageBlock,
-    toExternalHTML: NfmImageExternalHTML,
-    runsBefore: ["file"],
+export const imageBlockSpec = createReactBlockSpec(createImageBlockConfig, {
+  meta: {
+    fileBlockAccept: ["image/*"],
   },
-);
+  parse: imageParse(),
+  render: NfmImageBlock,
+  toExternalHTML: NfmImageExternalHTML,
+  runsBefore: ["file"],
+});

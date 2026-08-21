@@ -19,12 +19,14 @@ describe("remote-hosted PiP layout", () => {
 
     expect(layout.hostId).toBe("codex-main-thread");
     expect(layout.presentationScope).toBe("thread");
-    expect(JSON.stringify(layout.anchors)).toBe(JSON.stringify([
-      { alignment: "top-left", point: { x: 124, y: 74 } },
-      { alignment: "top-right", point: { x: 1_076, y: 74 } },
-      { alignment: "bottom-left", point: { x: 124, y: 826 } },
-      { alignment: "bottom-right", point: { x: 1_076, y: 826 } },
-    ]));
+    expect(JSON.stringify(layout.anchors)).toBe(
+      JSON.stringify([
+        { alignment: "top-left", point: { x: 124, y: 74 } },
+        { alignment: "top-right", point: { x: 1_076, y: 74 } },
+        { alignment: "bottom-left", point: { x: 124, y: 826 } },
+        { alignment: "bottom-right", point: { x: 1_076, y: 826 } },
+      ]),
+    );
   });
 
   test("moves bottom anchors away from footer obstacles", () => {

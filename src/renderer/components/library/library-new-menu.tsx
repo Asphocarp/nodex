@@ -1,10 +1,7 @@
 import type { ReactElement } from "react";
 
 import { DatabaseIcon, PageIcon } from "@/components/shared/icons";
-import {
-  NodexDropdownItem,
-  NodexDropdownMenu,
-} from "@/components/ui/dropdown";
+import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { toast } from "@/components/ui/toast";
 import { useApplyLibraryOperation } from "@/lib/use-library-navigation";
 import {
@@ -12,10 +9,7 @@ import {
   parseDatabaseViewId,
   parseDataSourceId,
 } from "../../../shared/database-identities";
-import type {
-  LibraryRouteTarget,
-  LibraryWriteParent,
-} from "../../../shared/library-module";
+import type { LibraryRouteTarget, LibraryWriteParent } from "../../../shared/library-module";
 import { createUuidV7 } from "../../../shared/uuid-v7";
 
 export function LibraryNewMenu({
@@ -36,10 +30,7 @@ export function LibraryNewMenu({
       align="end"
       contentWidth="sm"
     >
-      <NodexDropdownItem
-        leftSlot={<PageIcon />}
-        onSelect={() => void commands.createPage()}
-      >
+      <NodexDropdownItem leftSlot={<PageIcon />} onSelect={() => void commands.createPage()}>
         Page
       </NodexDropdownItem>
       <NodexDropdownItem

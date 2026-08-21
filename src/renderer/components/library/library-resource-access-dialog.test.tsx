@@ -11,9 +11,7 @@ import {
   LibraryResourceAccessDialog,
 } from "./library-resource-access-dialog";
 
-const project = (
-  overrides: Partial<LibraryProjectAccessRow> = {},
-): LibraryProjectAccessRow => ({
+const project = (overrides: Partial<LibraryProjectAccessRow> = {}): LibraryProjectAccessRow => ({
   projectId: "project-1",
   projectName: "Product",
   appearance: {
@@ -30,12 +28,14 @@ const project = (
 describe("Library Project access drafts", () => {
   test("keeps the strongest inherited access as the effective floor", () => {
     const inherited = project({
-      inheritedSources: [{
-        kind: "ancestor_page",
-        pageId: "page-parent",
-        pageTitle: "Strategy",
-        access: "read_write",
-      }],
+      inheritedSources: [
+        {
+          kind: "ancestor_page",
+          pageId: "page-parent",
+          pageTitle: "Strategy",
+          access: "read_write",
+        },
+      ],
       effectiveAccess: "read_write",
     });
 
@@ -63,10 +63,12 @@ describe("Library Project access drafts", () => {
       project({ projectId: "project-2", projectName: "Research" }),
     ];
 
-    expect(buildProjectAccessChanges(projects, {
-      "project-1": null,
-      "project-2": "read_write",
-    })).toEqual([
+    expect(
+      buildProjectAccessChanges(projects, {
+        "project-1": null,
+        "project-2": "read_write",
+      }),
+    ).toEqual([
       { projectId: "project-1", access: null, expectedRevision: 4 },
       { projectId: "project-2", access: "read_write", expectedRevision: null },
     ]);
@@ -113,10 +115,12 @@ describe("Library Project access drafts", () => {
       await Promise.resolve();
     });
 
-    expect(onSave).toHaveBeenCalledWith([{
-      projectId: "project-1",
-      access: "read_write",
-      expectedRevision: null,
-    }]);
+    expect(onSave).toHaveBeenCalledWith([
+      {
+        projectId: "project-1",
+        access: "read_write",
+        expectedRevision: null,
+      },
+    ]);
   });
 });

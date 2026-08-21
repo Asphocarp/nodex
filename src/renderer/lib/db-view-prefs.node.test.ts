@@ -43,9 +43,7 @@ describe("db view prefs", () => {
         filter: {
           any: [
             {
-              all: [
-                { field: "status", op: "in", values: ["plan"] },
-              ],
+              all: [{ field: "status", op: "in", values: ["plan"] }],
             },
           ],
         },
@@ -72,13 +70,17 @@ describe("db view prefs", () => {
     const normalized = normalizeDbViewPrefs("list", {
       rules: {
         filter: {
-          any: [{
-            all: [{
-              field: "status",
-              op: "in",
-              values: ["done", "draft", "in_review", "unknown", "done"],
-            }],
-          }],
+          any: [
+            {
+              all: [
+                {
+                  field: "status",
+                  op: "in",
+                  values: ["done", "draft", "in_review", "unknown", "done"],
+                },
+              ],
+            },
+          ],
         },
       },
     });
@@ -95,78 +97,90 @@ describe("db view prefs", () => {
     const value = {
       rules: {
         filter: {
-          any: [{
-            all: [{
-              field: "priority",
-              op: "in",
-              values: ["p4-later", "p3-low", "p4-later"],
-              includeEmpty: false,
-            }],
-          }],
+          any: [
+            {
+              all: [
+                {
+                  field: "priority",
+                  op: "in",
+                  values: ["p4-later", "p3-low", "p4-later"],
+                  includeEmpty: false,
+                },
+              ],
+            },
+          ],
         },
       },
     };
 
     expect(normalizeLegacyDbViewPrefs("list", value).rules.filter).toEqual({
-      any: [{
-        all: [{
-          field: "priority",
-          op: "in",
-          values: ["p3-low"],
-          includeEmpty: false,
-        }],
-      }],
+      any: [
+        {
+          all: [
+            {
+              field: "priority",
+              op: "in",
+              values: ["p3-low"],
+              includeEmpty: false,
+            },
+          ],
+        },
+      ],
     });
     const currentBoundaryValue = {
       rules: {
         filter: {
-          any: [{
-            all: [{
-              field: "priority",
-              op: "in",
-              values: ["p4-later"],
-              includeEmpty: false,
-            }],
-          }],
+          any: [
+            {
+              all: [
+                {
+                  field: "priority",
+                  op: "in",
+                  values: ["p4-later"],
+                  includeEmpty: false,
+                },
+              ],
+            },
+          ],
         },
       },
     };
     expect(normalizeDbViewPrefs("list", currentBoundaryValue).rules.filter).toEqual({
-      any: [{
-        all: [{
-          field: "priority",
-          op: "in",
-          values: [],
-          includeEmpty: false,
-        }],
-      }],
+      any: [
+        {
+          all: [
+            {
+              field: "priority",
+              op: "in",
+              values: [],
+              includeEmpty: false,
+            },
+          ],
+        },
+      ],
     });
   });
 
   test("preserves omitted v1 empty-priority semantics across the P4 cutover", () => {
-    const normalize = (values: string[]) => normalizeLegacyDbViewPrefs("list", {
-      rules: {
-        filter: {
-          any: [{
-            all: [{ field: "priority", op: "in", values }],
-          }],
+    const normalize = (values: string[]) =>
+      normalizeLegacyDbViewPrefs("list", {
+        rules: {
+          filter: {
+            any: [
+              {
+                all: [{ field: "priority", op: "in", values }],
+              },
+            ],
+          },
         },
-      },
-    }).rules.filter.any[0]?.all[0];
+      }).rules.filter.any[0]?.all[0];
 
-    expect(normalize([
-      "p0-critical",
-      "p1-high",
-      "p2-medium",
-      "p3-low",
-    ])).toMatchObject({ includeEmpty: false });
-    expect(normalize([
-      "p0-critical",
-      "p1-high",
-      "p2-medium",
-      "p3-low",
-      "p4-later",
-    ])).toMatchObject({ includeEmpty: true });
+    expect(normalize(["p0-critical", "p1-high", "p2-medium", "p3-low"])).toMatchObject({
+      includeEmpty: false,
+    });
+    expect(normalize(["p0-critical", "p1-high", "p2-medium", "p3-low", "p4-later"])).toMatchObject({
+      includeEmpty: true,
+    });
   });
 
   test("migrates legacy toggle-list display prefs onto the generic display field", () => {
@@ -181,9 +195,7 @@ describe("db view prefs", () => {
     expect(JSON.stringify(normalized.display.propertyOrder)).toBe(
       JSON.stringify(["status", "priority", "estimate", "tags"]),
     );
-    expect(JSON.stringify(normalized.display.hiddenProperties)).toBe(
-      JSON.stringify(["priority"]),
-    );
+    expect(JSON.stringify(normalized.display.hiddenProperties)).toBe(JSON.stringify(["priority"]));
     expect(normalized.display.showEmptyEstimate).toBe(true);
   });
 
@@ -259,12 +271,14 @@ describe("db view prefs", () => {
     });
 
     const priorityClause = normalized.rules.filter.any[0]?.all[1];
-    expect(JSON.stringify(priorityClause)).toBe(JSON.stringify({
-      field: "priority",
-      op: "in",
-      values: [],
-      includeEmpty: true,
-    }));
+    expect(JSON.stringify(priorityClause)).toBe(
+      JSON.stringify({
+        field: "priority",
+        op: "in",
+        values: [],
+        includeEmpty: true,
+      }),
+    );
   });
 
   test("normalization preserves explicit empty status filters", () => {
@@ -273,9 +287,7 @@ describe("db view prefs", () => {
         filter: {
           any: [
             {
-              all: [
-                { field: "status", op: "in", values: [] },
-              ],
+              all: [{ field: "status", op: "in", values: [] }],
             },
           ],
         },
@@ -283,11 +295,13 @@ describe("db view prefs", () => {
       },
     });
 
-    expect(JSON.stringify(normalized.rules.filter.any[0]?.all[0])).toBe(JSON.stringify({
-      field: "status",
-      op: "in",
-      values: [],
-    }));
+    expect(JSON.stringify(normalized.rules.filter.any[0]?.all[0])).toBe(
+      JSON.stringify({
+        field: "status",
+        op: "in",
+        values: [],
+      }),
+    );
   });
 
   test("sortDbViewCards supports list-specific assignee sorting", () => {

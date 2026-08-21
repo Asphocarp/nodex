@@ -24,20 +24,14 @@ interface MentionInlineVisualBaseProps {
   readonly labelClassName?: string;
 }
 
-type MentionInlineVisualSpanProps =
-  & MentionInlineVisualBaseProps
-  & Omit<ComponentPropsWithoutRef<"span">, "children">
-  & { readonly as?: "span" };
+type MentionInlineVisualSpanProps = MentionInlineVisualBaseProps &
+  Omit<ComponentPropsWithoutRef<"span">, "children"> & { readonly as?: "span" };
 
-type MentionInlineVisualButtonProps =
-  & MentionInlineVisualBaseProps
-  & Omit<ComponentPropsWithoutRef<"button">, "children">
-  & { readonly as: "button" };
+type MentionInlineVisualButtonProps = MentionInlineVisualBaseProps &
+  Omit<ComponentPropsWithoutRef<"button">, "children"> & { readonly as: "button" };
 
-type MentionInlineVisualAnchorProps =
-  & MentionInlineVisualBaseProps
-  & Omit<ComponentPropsWithoutRef<"a">, "children">
-  & { readonly as: "a" };
+type MentionInlineVisualAnchorProps = MentionInlineVisualBaseProps &
+  Omit<ComponentPropsWithoutRef<"a">, "children"> & { readonly as: "a" };
 
 export type MentionInlineVisualProps =
   | MentionInlineVisualSpanProps
@@ -88,10 +82,7 @@ function kindDataAttributes(kind: MentionInlineKind | undefined) {
   return {};
 }
 
-function wrapMentionInlineGuards(
-  chip: ReactNode,
-  kind: MentionInlineKind | undefined,
-) {
+function wrapMentionInlineGuards(chip: ReactNode, kind: MentionInlineKind | undefined) {
   return (
     <span
       className="inline align-baseline"
@@ -127,9 +118,7 @@ export function MentionInlineVisual({
     ...kindDataAttributes(kind),
   };
 
-  const renderChip = (
-    chip: ReactNode,
-  ) => withGuards ? wrapMentionInlineGuards(chip, kind) : chip;
+  const renderChip = (chip: ReactNode) => (withGuards ? wrapMentionInlineGuards(chip, kind) : chip);
 
   if (props.as === "button") {
     const {

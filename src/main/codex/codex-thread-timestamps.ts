@@ -1,5 +1,4 @@
-const UUID_V7_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_V7_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MILLIS_TIMESTAMP_THRESHOLD = 10_000_000_000;
 
 export interface CodexThreadTimestampState {
@@ -25,9 +24,8 @@ export interface ReconcileCodexThreadTimestampsInput {
 
 function normalizeObservedTimestamp(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return null;
-  const milliseconds = value > MILLIS_TIMESTAMP_THRESHOLD
-    ? Math.floor(value)
-    : Math.floor(value * 1_000);
+  const milliseconds =
+    value > MILLIS_TIMESTAMP_THRESHOLD ? Math.floor(value) : Math.floor(value * 1_000);
   return Number.isSafeInteger(milliseconds) ? milliseconds : null;
 }
 
@@ -40,10 +38,7 @@ function normalizeMillisecondsTimestamp(value: unknown): number | null {
 /** Codex-generated Thread ids are UUIDv7, whose first 48 bits are Unix milliseconds. */
 export function readCodexThreadUuidV7TimestampMs(threadId: string): number | null {
   if (!UUID_V7_PATTERN.test(threadId)) return null;
-  const milliseconds = Number.parseInt(
-    `${threadId.slice(0, 8)}${threadId.slice(9, 13)}`,
-    16,
-  );
+  const milliseconds = Number.parseInt(`${threadId.slice(0, 8)}${threadId.slice(9, 13)}`, 16);
   return Number.isSafeInteger(milliseconds) ? milliseconds : null;
 }
 
@@ -55,19 +50,18 @@ function resolveNewThreadCreatedAt(input: {
 }): number {
   const { observedCreatedAt, observedUpdatedAt } = input;
   const uuidTimestamp = readCodexThreadUuidV7TimestampMs(input.threadId);
-  const uuidTimestampSeconds = uuidTimestamp === null
-    ? null
-    : Math.floor(uuidTimestamp / 1_000) * 1_000;
+  const uuidTimestampSeconds =
+    uuidTimestamp === null ? null : Math.floor(uuidTimestamp / 1_000) * 1_000;
   if (
-    uuidTimestampSeconds !== null
-    && (observedUpdatedAt === null || uuidTimestampSeconds <= observedUpdatedAt)
+    uuidTimestampSeconds !== null &&
+    (observedUpdatedAt === null || uuidTimestampSeconds <= observedUpdatedAt)
   ) {
     return uuidTimestampSeconds;
   }
 
   if (
-    observedCreatedAt !== null
-    && (observedUpdatedAt === null || observedUpdatedAt >= observedCreatedAt)
+    observedCreatedAt !== null &&
+    (observedUpdatedAt === null || observedUpdatedAt >= observedCreatedAt)
   ) {
     return observedCreatedAt;
   }
@@ -87,8 +81,8 @@ export function reconcileCodexThreadTimestamps(
   input: ReconcileCodexThreadTimestampsInput,
 ): ReconciledCodexThreadTimestamps {
   const observedUpdatedAt = normalizeObservedTimestamp(input.observedUpdatedAt);
-  const observedRecencyAt = normalizeObservedTimestamp(input.observedRecencyAt)
-    ?? observedUpdatedAt;
+  const observedRecencyAt =
+    normalizeObservedTimestamp(input.observedRecencyAt) ?? observedUpdatedAt;
   if (input.existing) {
     return {
       createdAt: input.existing.createdAt,

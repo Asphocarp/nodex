@@ -3,10 +3,7 @@ import { isCodexWebSearchActivityInProgress } from "../../../../../../shared/cod
 import { describeWebSearchAction } from "../../../web-search-display";
 import { CodexShimmerText } from "../codex-shimmer-text";
 import { asRecord, getString } from "./tool-call-utils";
-import {
-  ToolActivityIcon,
-  semanticToolIcon,
-} from "./tool-call-icons";
+import { ToolActivityIcon, semanticToolIcon } from "./tool-call-icons";
 import { ThreadActivityShell, ThreadRichActivityHeader } from "./tool-primitives";
 
 interface WebSearchToolCallProps {
@@ -58,14 +55,14 @@ export function WebSearchToolCall({ item }: WebSearchToolCallProps) {
 
   return (
     <ThreadActivityShell
-      header={(
+      header={
         <ThreadRichActivityHeader
           status={completed ? "completed" : "running"}
           icon={<ToolActivityIcon descriptor={semanticToolIcon("web-search")} />}
           summary={summary}
           testId="web-search-tool-call"
         />
-      )}
+      }
     />
   );
 }

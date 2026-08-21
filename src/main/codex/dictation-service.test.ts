@@ -73,10 +73,12 @@ describe("CodexDictationService", () => {
         }),
     });
 
-    expect(await service.transcribe({
-      contentType: "multipart/form-data; boundary=test",
-      base64Payload: "payload",
-    })).toBe("nested text");
+    expect(
+      await service.transcribe({
+        contentType: "multipart/form-data; boundary=test",
+        base64Payload: "payload",
+      }),
+    ).toBe("nested text");
   });
 
   test("sanitizes upstream HTML failure logs and throws a generic error", async () => {

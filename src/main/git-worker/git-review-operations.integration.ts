@@ -56,9 +56,7 @@ function commitAll(cwd: string, message: string): void {
   runGit(cwd, ["commit", "-m", message]);
 }
 
-function expectSuccessfulDiff(
-  result: ReviewDiffResult,
-): asserts result is ReviewDiffSuccessResult {
+function expectSuccessfulDiff(result: ReviewDiffResult): asserts result is ReviewDiffSuccessResult {
   expect(result.type).toBe("success");
   if (result.type !== "success") throw new Error("Expected a successful diff.");
 }
@@ -98,11 +96,7 @@ describe("git review service", () => {
     writeFileSync(path.join(cwd, "README.md"), "base\n", "utf8");
     commitAll(cwd, "initial");
     runGit(cwd, ["update-ref", "refs/remotes/origin/main", "HEAD"]);
-    runGit(cwd, [
-      "symbolic-ref",
-      "refs/remotes/origin/HEAD",
-      "refs/remotes/origin/main",
-    ]);
+    runGit(cwd, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
 
     await expect(readGitReviewBaseBranch({ cwd })).resolves.toEqual({
       cwd,
@@ -153,11 +147,7 @@ describe("git review service", () => {
     commitAll(cwd, "initial");
 
     writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
-    writeFileSync(
-      path.join(cwd, "new-file.ts"),
-      "export const staged = false;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "new-file.ts"), "export const staged = false;\n", "utf8");
 
     const snapshot = await readGitReviewSnapshot({
       cwd,
@@ -167,9 +157,7 @@ describe("git review service", () => {
     expect(snapshot.isGitRepository).toBe(true);
     expect(snapshot.files.length).toBe(2);
     expect(snapshot.files.some((file) => file.path === "README.md")).toBe(true);
-    expect(
-      snapshot.files.some((file) => file.path === "new-file.ts"),
-    ).toBe(true);
+    expect(snapshot.files.some((file) => file.path === "new-file.ts")).toBe(true);
     expect(snapshot.patch).toBe("");
   });
 
@@ -181,31 +169,24 @@ describe("git review service", () => {
 
     writeFileSync(
       path.join(cwd, "image.png"),
-      Buffer.from([
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x00,
-        ...Buffer.from("secret-binary-body"),
-      ]),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, ...Buffer.from("secret-binary-body")]),
     );
 
     const snapshot = await readGitReviewSnapshot({
       cwd,
       source: "unstaged",
     });
-    const file =
-      snapshot.files.find((candidate) => candidate.path === "image.png") ??
-      null;
+    const file = snapshot.files.find((candidate) => candidate.path === "image.png") ?? null;
     const diff = await readGitReviewDiff({
       cwd,
       source: "unstaged",
-      files: [{
-        path: "image.png",
-        status: file?.status ?? "untracked",
-        revision: file?.revision,
-      }],
+      files: [
+        {
+          path: "image.png",
+          status: file?.status ?? "untracked",
+          revision: file?.revision,
+        },
+      ],
       snapshotGeneration: snapshot.snapshotGeneration,
     });
     expectSuccessfulDiff(diff);
@@ -254,11 +235,13 @@ describe("git review service", () => {
     const diff = await readGitReviewDiff({
       cwd,
       source: "staged",
-      files: [{
-        path: "README.md",
-        status: snapshot.files[0]?.status ?? "modified",
-        revision: snapshot.files[0]?.revision,
-      }],
+      files: [
+        {
+          path: "README.md",
+          status: snapshot.files[0]?.status ?? "modified",
+          revision: snapshot.files[0]?.revision,
+        },
+      ],
       snapshotGeneration: snapshot.snapshotGeneration,
     });
     expectSuccessfulDiff(diff);
@@ -273,14 +256,7 @@ describe("git review service", () => {
 
     writeFileSync(
       path.join(cwd, "logo.png"),
-      Buffer.from([
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x00,
-        ...Buffer.from("binary-logo-body"),
-      ]),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, ...Buffer.from("binary-logo-body")]),
     );
     runGit(cwd, ["add", "logo.png"]);
 
@@ -292,12 +268,8 @@ describe("git review service", () => {
     expect(snapshot.files.length).toBe(1);
     expect(snapshot.files[0]?.path ?? "").toBe("logo.png");
     expect(snapshot.files[0]?.safety.binary ?? false).toBe(true);
-    expect(snapshot.files[0] ? snapshot.files[0].additions : "missing").toBe(
-      null,
-    );
-    expect(snapshot.files[0] ? snapshot.files[0].deletions : "missing").toBe(
-      null,
-    );
+    expect(snapshot.files[0] ? snapshot.files[0].additions : "missing").toBe(null);
+    expect(snapshot.files[0] ? snapshot.files[0].deletions : "missing").toBe(null);
   });
 
   test("returns branch snapshots against the default branch", async () => {
@@ -306,11 +278,7 @@ describe("git review service", () => {
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
     commitAll(cwd, "initial");
     runGit(cwd, ["checkout", "--quiet", "-b", "feature/review"]);
-    writeFileSync(
-      path.join(cwd, "feature.ts"),
-      "export const branchDiff = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "feature.ts"), "export const branchDiff = true;\n", "utf8");
     commitAll(cwd, "feature");
 
     const snapshot = await readGitReviewSnapshot({
@@ -330,17 +298,9 @@ describe("git review service", () => {
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
     commitAll(cwd, "initial");
     runGit(cwd, ["checkout", "--quiet", "-b", "feature/review"]);
-    writeFileSync(
-      path.join(cwd, "feature-a.ts"),
-      "export const featureA = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "feature-a.ts"), "export const featureA = true;\n", "utf8");
     commitAll(cwd, "feat: add feature a");
-    writeFileSync(
-      path.join(cwd, "feature-b.ts"),
-      "export const featureB = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "feature-b.ts"), "export const featureB = true;\n", "utf8");
     commitAll(cwd, "fix: add feature b");
 
     const result = await readGitReviewBranchCommits({
@@ -362,11 +322,7 @@ describe("git review service", () => {
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
     commitAll(cwd, "initial");
-    writeFileSync(
-      path.join(cwd, "feature.ts"),
-      "export const committed = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "feature.ts"), "export const committed = true;\n", "utf8");
     commitAll(cwd, "feature");
     const commitSha = runGit(cwd, ["rev-parse", "HEAD"]).trim();
 
@@ -385,11 +341,13 @@ describe("git review service", () => {
       cwd,
       source: "commit",
       commitSha,
-      files: [{
-        path: "feature.ts",
-        status: snapshot.files[0]?.status ?? "added",
-        revision: snapshot.files[0]?.revision,
-      }],
+      files: [
+        {
+          path: "feature.ts",
+          status: snapshot.files[0]?.status ?? "added",
+          revision: snapshot.files[0]?.revision,
+        },
+      ],
       snapshotGeneration: snapshot.snapshotGeneration,
     });
     expectSuccessfulDiff(diff);
@@ -399,11 +357,7 @@ describe("git review service", () => {
   test("reviews a root commit against Git's empty tree", async () => {
     const cwd = createTempDir("nodex-git-review-root-commit-");
     initializeRepository(cwd);
-    writeFileSync(
-      path.join(cwd, "root.ts"),
-      "export const rootCommit = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "root.ts"), "export const rootCommit = true;\n", "utf8");
     commitAll(cwd, "root");
     const commitSha = runGit(cwd, ["rev-parse", "HEAD"]).trim();
 
@@ -420,11 +374,13 @@ describe("git review service", () => {
       cwd,
       source: "commit",
       commitSha,
-      files: [{
-        path: file.path,
-        status: file.status,
-        revision: file.revision,
-      }],
+      files: [
+        {
+          path: file.path,
+          status: file.status,
+          revision: file.revision,
+        },
+      ],
       snapshotGeneration: snapshot.snapshotGeneration,
     });
     expectSuccessfulDiff(diff);
@@ -437,11 +393,7 @@ describe("git review service", () => {
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
     commitAll(cwd, "initial");
     const quotedPath = 'quote"needle.ts';
-    writeFileSync(
-      path.join(cwd, quotedPath),
-      "export const quotedPath = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, quotedPath), "export const quotedPath = true;\n", "utf8");
     runGit(cwd, ["add", quotedPath]);
 
     const snapshot = await readGitReviewSnapshot({
@@ -453,11 +405,13 @@ describe("git review service", () => {
     const diff = await readGitReviewDiff({
       cwd,
       source: "staged",
-      files: [{
-        path: file.path,
-        status: file.status,
-        revision: file.revision,
-      }],
+      files: [
+        {
+          path: file.path,
+          status: file.status,
+          revision: file.revision,
+        },
+      ],
       snapshotGeneration: snapshot.snapshotGeneration,
     });
     expectSuccessfulDiff(diff);
@@ -473,11 +427,7 @@ describe("git review service", () => {
     commitAll(cwd, "initial");
 
     writeFileSync(path.join(cwd, "README.md"), "alpha\nbeta\n", "utf8");
-    writeFileSync(
-      path.join(cwd, "feature.ts"),
-      "export const feature = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "feature.ts"), "export const feature = true;\n", "utf8");
 
     const snapshot = await readGitReviewSnapshot({
       cwd,
@@ -486,14 +436,13 @@ describe("git review service", () => {
     const result = await readGitReviewDiff({
       cwd,
       source: "unstaged",
-      files: [{
-        path: "feature.ts",
-        status:
-          snapshot.files.find((file) => file.path === "feature.ts")?.status ??
-          "untracked",
-        revision:
-          snapshot.files.find((file) => file.path === "feature.ts")?.revision,
-      }],
+      files: [
+        {
+          path: "feature.ts",
+          status: snapshot.files.find((file) => file.path === "feature.ts")?.status ?? "untracked",
+          revision: snapshot.files.find((file) => file.path === "feature.ts")?.revision,
+        },
+      ],
       snapshotGeneration: snapshot.snapshotGeneration,
     });
     expectSuccessfulDiff(result);
@@ -512,17 +461,9 @@ describe("git review service", () => {
     commitAll(cwd, "initial");
     const mainHead = runGit(cwd, ["rev-parse", "HEAD"]).trim();
     runGit(cwd, ["checkout", "--quiet", "-b", "feature/review"]);
-    writeFileSync(
-      path.join(cwd, "feature.ts"),
-      "export const branchDiff = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "feature.ts"), "export const branchDiff = true;\n", "utf8");
     commitAll(cwd, "feature");
-    writeFileSync(
-      path.join(cwd, "untracked.ts"),
-      "export const untracked = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "untracked.ts"), "export const untracked = true;\n", "utf8");
 
     const stats = await readBranchDiffStats({
       cwd,
@@ -539,10 +480,7 @@ describe("git review service", () => {
       baseBranch: "main",
     });
 
-    expect(stats.files.map((file) => file.path).sort()).toEqual([
-      "feature.ts",
-      "untracked.ts",
-    ]);
+    expect(stats.files.map((file) => file.path).sort()).toEqual(["feature.ts", "untracked.ts"]);
     expect(stats.additions).toBe(2);
     expect(trackedStats.files.map((file) => file.path)).toEqual(["feature.ts"]);
     expect(mergeBase.mergeBaseSha).toBe(mainHead);
@@ -586,11 +524,8 @@ describe("git review service", () => {
 
     expect(snapshot.patch).toBe("");
     expect(patch.diff.type).toBe("success");
-    const unifiedDiff =
-      patch.diff.type === "success" ? patch.diff.unifiedDiff : "";
-    expect(
-      Boolean(unifiedDiff.includes("diff --git a/README.md b/README.md")),
-    ).toBe(true);
+    const unifiedDiff = patch.diff.type === "success" ? patch.diff.unifiedDiff : "";
+    expect(Boolean(unifiedDiff.includes("diff --git a/README.md b/README.md"))).toBe(true);
     expect(Boolean(unifiedDiff.includes("+beta"))).toBe(true);
   });
 
@@ -617,11 +552,13 @@ describe("git review service", () => {
     const unstagedDiff = await readGitReviewDiff({
       cwd,
       source: "unstaged",
-      files: [{
-        path: "README.md",
-        status: unstagedSnapshot.files[0]?.status ?? "modified",
-        revision: unstagedSnapshot.files[0]?.revision,
-      }],
+      files: [
+        {
+          path: "README.md",
+          status: unstagedSnapshot.files[0]?.status ?? "modified",
+          revision: unstagedSnapshot.files[0]?.revision,
+        },
+      ],
       snapshotGeneration: unstagedSnapshot.snapshotGeneration,
     });
     expectSuccessfulDiff(unstagedDiff);
@@ -656,11 +593,13 @@ describe("git review service", () => {
     const stagedDiff = await readGitReviewDiff({
       cwd,
       source: "staged",
-      files: [{
-        path: "README.md",
-        status: stagedSnapshot.files[0]?.status ?? "modified",
-        revision: stagedSnapshot.files[0]?.revision,
-      }],
+      files: [
+        {
+          path: "README.md",
+          status: stagedSnapshot.files[0]?.status ?? "modified",
+          revision: stagedSnapshot.files[0]?.revision,
+        },
+      ],
       snapshotGeneration: stagedSnapshot.snapshotGeneration,
     });
     expectSuccessfulDiff(stagedDiff);
@@ -805,9 +744,7 @@ describe("git review service", () => {
       ],
     });
 
-    expect(catFile.results).toEqual([
-      { type: "error", error: { type: "unknown" } },
-    ]);
+    expect(catFile.results).toEqual([{ type: "error", error: { type: "unknown" } }]);
     await expect(
       readGitReviewDiff({
         cwd,
@@ -834,9 +771,7 @@ describe("git review service", () => {
     if (rootSummary.type !== "success" || nestedSummary.type !== "success") {
       throw new Error("Expected repository summaries.");
     }
-    expect(nestedSummary.snapshotGeneration).toBe(
-      rootSummary.snapshotGeneration,
-    );
+    expect(nestedSummary.snapshotGeneration).toBe(rootSummary.snapshotGeneration);
     const [rootMetadata, nestedMetadata] = await Promise.all([
       readGitReviewRepositoryMetadata({ cwd }),
       readGitReviewRepositoryMetadata({ cwd: nestedCwd }),
@@ -866,9 +801,7 @@ describe("git review service", () => {
     if (refreshed.type !== "success") {
       throw new Error("Expected refreshed summary.");
     }
-    expect(refreshed.snapshotGeneration).toBeGreaterThan(
-      rootSummary.snapshotGeneration,
-    );
+    expect(refreshed.snapshotGeneration).toBeGreaterThan(rootSummary.snapshotGeneration);
   });
 
   test("reads git blame for file source tabs", async () => {
@@ -893,11 +826,7 @@ describe("git review service", () => {
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
     commitAll(cwd, "initial");
 
-    writeFileSync(
-      path.join(cwd, "feature.ts"),
-      "export const reviewSearch = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "feature.ts"), "export const reviewSearch = true;\n", "utf8");
     runGit(cwd, ["add", "feature.ts"]);
     const result = await searchGitReview({
       cwd,
@@ -919,11 +848,7 @@ describe("git review service", () => {
     initializeRepository(cwd);
     writeFileSync(path.join(cwd, "README.md"), "alpha\n", "utf8");
     commitAll(cwd, "initial");
-    writeFileSync(
-      path.join(cwd, "unicode.ts"),
-      "😀 NEEDLE needle\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "unicode.ts"), "😀 NEEDLE needle\n", "utf8");
     runGit(cwd, ["add", "unicode.ts"]);
 
     const result = await searchGitReview({
@@ -1055,11 +980,7 @@ describe("git review service", () => {
     const changedLines = [...baseLines];
     changedLines[1] = "needle first";
     changedLines[17] = "needle second";
-    writeFileSync(
-      path.join(cwd, "hunks.txt"),
-      `${changedLines.join("\n")}\n`,
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "hunks.txt"), `${changedLines.join("\n")}\n`, "utf8");
 
     const result = await searchGitReview({
       cwd,
@@ -1068,12 +989,14 @@ describe("git review service", () => {
     });
     expectSuccessfulSearch(result);
 
-    expect(result.matches.map((match) => ({
-      hunkId: match.hunkId,
-      lineStart: match.lineStart,
-      lineEnd: match.lineEnd,
-      start: match.start,
-    }))).toEqual([
+    expect(
+      result.matches.map((match) => ({
+        hunkId: match.hunkId,
+        lineStart: match.lineStart,
+        lineEnd: match.lineEnd,
+        start: match.start,
+      })),
+    ).toEqual([
       { hunkId: "0", lineStart: 1, lineEnd: 5, start: 14 },
       { hunkId: "1", lineStart: 15, lineEnd: 20, start: 28 },
     ]);
@@ -1094,10 +1017,7 @@ describe("git review service", () => {
     });
     expectSuccessfulSearch(result);
 
-    expect(result.matches.map((match) => match.path)).toEqual([
-      "alpha.ts",
-      "zeta.ts",
-    ]);
+    expect(result.matches.map((match) => match.path)).toEqual(["alpha.ts", "zeta.ts"]);
   });
 
   test("preserves path matches for empty untracked files without a patch body", async () => {
@@ -1113,36 +1033,30 @@ describe("git review service", () => {
       query: "needle-empty",
     });
     expectSuccessfulSearch(result);
-    expect(result.matches).toEqual([{
-      path: "needle-empty.txt",
-      hunkId: "path",
-      lineStart: 1,
-      lineEnd: 1,
-      start: 0,
-      end: "needle-empty".length,
-      snippet: {
-        before: "",
-        match: "needle-empty",
-        after: ".txt",
+    expect(result.matches).toEqual([
+      {
+        path: "needle-empty.txt",
+        hunkId: "path",
+        lineStart: 1,
+        lineEnd: 1,
+        start: 0,
+        end: "needle-empty".length,
+        snippet: {
+          before: "",
+          match: "needle-empty",
+          after: ".txt",
+        },
       },
-    }]);
+    ]);
   });
 
   test("excludes generated file paths and bodies from search", async () => {
     const cwd = createTempDir("nodex-git-review-search-generated-");
     initializeRepository(cwd);
-    writeFileSync(
-      path.join(cwd, ".gitattributes"),
-      "generated.ts linguist-generated\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, ".gitattributes"), "generated.ts linguist-generated\n", "utf8");
     writeFileSync(path.join(cwd, "generated.ts"), "export const base = 1;\n", "utf8");
     commitAll(cwd, "initial");
-    writeFileSync(
-      path.join(cwd, "generated.ts"),
-      "export const generatedNeedle = true;\n",
-      "utf8",
-    );
+    writeFileSync(path.join(cwd, "generated.ts"), "export const generatedNeedle = true;\n", "utf8");
     const bodyResult = await searchGitReview({
       cwd,
       source: "unstaged",

@@ -5,10 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
 import { executeSemanticThemeCommand } from "./module";
-import {
-  MIGRATED_SURFACE_POLICIES,
-  SEMANTIC_THEME_ARTIFACT_PATHS,
-} from "./profile";
+import { MIGRATED_SURFACE_POLICIES, SEMANTIC_THEME_ARTIFACT_PATHS } from "./profile";
 
 const workspaces: string[] = [];
 
@@ -71,7 +68,10 @@ const createWorkspace = async (): Promise<string> => {
   for (const [index, provider] of providers.entries()) {
     const path = join(workspace, "src/renderer/styles", provider);
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, index === 0 ? `
+    await writeFile(
+      path,
+      index === 0
+        ? `
       @theme static { --spacing: 0.25rem; }
       :root {
         --background: white;
@@ -92,7 +92,10 @@ const createWorkspace = async (): Promise<string> => {
         --vscode-descriptionForeground: #666;
         --vscode-editor-background: white;
       }
-    ` : "", "utf8");
+    `
+        : "",
+      "utf8",
+    );
   }
   for (const policy of MIGRATED_SURFACE_POLICIES) {
     const path = join(workspace, policy.path);
@@ -109,10 +112,14 @@ const writeReference = async (directory: string, name: string): Promise<string> 
 };
 
 afterEach(async () => {
-  await Promise.all(workspaces.splice(0).map((workspace) => rm(workspace, {
-    recursive: true,
-    force: true,
-  })));
+  await Promise.all(
+    workspaces.splice(0).map((workspace) =>
+      rm(workspace, {
+        recursive: true,
+        force: true,
+      }),
+    ),
+  );
 });
 
 describe("semantic theme module", () => {
@@ -124,16 +131,22 @@ describe("semantic theme module", () => {
     await mkdir(nested);
     const rightSource = await writeReference(nested, "different-name.css");
 
-    const leftResult = await executeSemanticThemeCommand({
-      kind: "sync",
-      sourcePath: leftSource,
-      refVersion: "ref-1",
-    }, { workspaceRoot: left });
-    const rightResult = await executeSemanticThemeCommand({
-      kind: "sync",
-      sourcePath: rightSource,
-      refVersion: "ref-1",
-    }, { workspaceRoot: right });
+    const leftResult = await executeSemanticThemeCommand(
+      {
+        kind: "sync",
+        sourcePath: leftSource,
+        refVersion: "ref-1",
+      },
+      { workspaceRoot: left },
+    );
+    const rightResult = await executeSemanticThemeCommand(
+      {
+        kind: "sync",
+        sourcePath: rightSource,
+        refVersion: "ref-1",
+      },
+      { workspaceRoot: right },
+    );
 
     expect(leftResult.ok, JSON.stringify(leftResult.diagnostics)).toBe(true);
     expect(rightResult.ok, JSON.stringify(rightResult.diagnostics)).toBe(true);
@@ -144,19 +157,13 @@ describe("semantic theme module", () => {
     }
 
     await rm(leftSource);
-    const verified = await executeSemanticThemeCommand(
-      { kind: "verify" },
-      { workspaceRoot: left },
-    );
+    const verified = await executeSemanticThemeCommand({ kind: "verify" }, { workspaceRoot: left });
     expect(verified, JSON.stringify(verified.diagnostics)).toMatchObject({
       ok: true,
       mode: "verify-source-free",
     });
 
-    const contract = await readFile(
-      join(left, SEMANTIC_THEME_ARTIFACT_PATHS.contract),
-      "utf8",
-    );
+    const contract = await readFile(join(left, SEMANTIC_THEME_ARTIFACT_PATHS.contract), "utf8");
     expect(contract).not.toContain("identity");
     expect(contract).not.toContain("/private/input.css");
     expect(contract).not.toContain("one.css");
@@ -165,11 +172,14 @@ describe("semantic theme module", () => {
   test("source-aware verify reports drift without writing", async () => {
     const workspace = await createWorkspace();
     const source = await writeReference(workspace, "reference.css");
-    await executeSemanticThemeCommand({
-      kind: "sync",
-      sourcePath: source,
-      refVersion: "ref-1",
-    }, { workspaceRoot: workspace });
+    await executeSemanticThemeCommand(
+      {
+        kind: "sync",
+        sourcePath: source,
+        refVersion: "ref-1",
+      },
+      { workspaceRoot: workspace },
+    );
     await writeFile(source, referenceFixture.replace("#2878d0", "#1677cc"), "utf8");
 
     const result = await executeSemanticThemeCommand(
@@ -185,11 +195,14 @@ describe("semantic theme module", () => {
   test("audit exposes a structured, source-neutral contract diff", async () => {
     const workspace = await createWorkspace();
     const source = await writeReference(workspace, "reference.css");
-    const result = await executeSemanticThemeCommand({
-      kind: "audit",
-      sourcePath: source,
-      refVersion: "ref-1",
-    }, { workspaceRoot: workspace });
+    const result = await executeSemanticThemeCommand(
+      {
+        kind: "audit",
+        sourcePath: source,
+        refVersion: "ref-1",
+      },
+      { workspaceRoot: workspace },
+    );
 
     expect(result.ok).toBe(true);
     expect(result.auditReport).toMatchObject({
@@ -219,10 +232,15 @@ describe("semantic theme module", () => {
       "utf8",
     );
 
-    await expect(executeSemanticThemeCommand({
-      kind: "sync",
-      sourcePath: source,
-      refVersion: "ref-1",
-    }, { workspaceRoot: workspace })).rejects.not.toThrow("sensitive-name.css");
+    await expect(
+      executeSemanticThemeCommand(
+        {
+          kind: "sync",
+          sourcePath: source,
+          refVersion: "ref-1",
+        },
+        { workspaceRoot: workspace },
+      ),
+    ).rejects.not.toThrow("sensitive-name.css");
   });
 });

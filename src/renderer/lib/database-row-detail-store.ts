@@ -123,7 +123,9 @@ function setDatabaseRowDetailEntry(
 ): string | null {
   const key = detailKey(projectId, card.id);
   const existing = detailEntries.get(key) ?? EMPTY_DETAIL;
-  const nextCard = shouldAcceptDatabaseRowDetail(existing.card, card, options) ? card : existing.card;
+  const nextCard = shouldAcceptDatabaseRowDetail(existing.card, card, options)
+    ? card
+    : existing.card;
   const nextEntry: DatabaseRowDetailSnapshot = {
     card: nextCard,
     loading: false,
@@ -131,9 +133,9 @@ function setDatabaseRowDetailEntry(
   };
 
   if (
-    existing.card === nextEntry.card
-    && existing.loading === nextEntry.loading
-    && existing.error === nextEntry.error
+    existing.card === nextEntry.card &&
+    existing.loading === nextEntry.loading &&
+    existing.error === nextEntry.error
   ) {
     return null;
   }
@@ -234,11 +236,17 @@ export async function fetchDatabaseRowDetail(
   const requestToken = {};
   const request = (async () => {
     try {
-      const card = (await invoke("database-row:get", projectId, pageId, status)) as DatabasePage | null;
+      const card = (await invoke(
+        "database-row:get",
+        projectId,
+        pageId,
+        status,
+      )) as DatabasePage | null;
       if (
-        requestStoreGeneration !== storeGeneration
-        || generation !== (entryGenerations.get(key) ?? 0)
-      ) return null;
+        requestStoreGeneration !== storeGeneration ||
+        generation !== (entryGenerations.get(key) ?? 0)
+      )
+        return null;
       if (card) {
         setDatabaseRowDetail(projectId, card);
       } else {
@@ -252,9 +260,10 @@ export async function fetchDatabaseRowDetail(
       return card;
     } catch (error) {
       if (
-        requestStoreGeneration !== storeGeneration
-        || generation !== (entryGenerations.get(key) ?? 0)
-      ) return null;
+        requestStoreGeneration !== storeGeneration ||
+        generation !== (entryGenerations.get(key) ?? 0)
+      )
+        return null;
       detailEntries.set(key, {
         card: detailEntries.get(key)?.card ?? null,
         loading: false,
@@ -288,10 +297,7 @@ export function useDatabaseRowDetail(
     () => (listener: Listener) => (key ? subscribeKey(key, listener) : () => undefined),
     [key],
   );
-  const getSnapshot = useMemo(
-    () => () => getKeyVersionSnapshot(key),
-    [key],
-  );
+  const getSnapshot = useMemo(() => () => getKeyVersionSnapshot(key), [key]);
   useSyncExternalStore(subscribe, getSnapshot);
   const snapshot = key ? (detailEntries.get(key) ?? EMPTY_DETAIL) : EMPTY_DETAIL;
 

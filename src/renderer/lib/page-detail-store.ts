@@ -139,12 +139,8 @@ const compareDetailFreshness = (left: PageDetail, right: PageDetail): number => 
     [left.page.parentRevision, right.page.parentRevision],
     [left.page.metadataRevision, right.page.metadataRevision],
     [
-      left.dataSourceContext.kind === "member"
-        ? left.dataSourceContext.membership.revision
-        : 0,
-      right.dataSourceContext.kind === "member"
-        ? right.dataSourceContext.membership.revision
-        : 0,
+      left.dataSourceContext.kind === "member" ? left.dataSourceContext.membership.revision : 0,
+      right.dataSourceContext.kind === "member" ? right.dataSourceContext.membership.revision : 0,
     ],
   ] as const;
   for (const [leftValue, rightValue] of coordinates) {
@@ -161,21 +157,15 @@ export const setPageDetail = (
   const entry = entryFor(key);
   const previous = entry.snapshot.detail;
   if (previous && compareDetailFreshness(detail, previous) < 0) return;
-  if (
-    previous
-    && compareDetailFreshness(detail, previous) === 0
-    && !options.acceptEqualFreshness
-  ) return;
+  if (previous && compareDetailFreshness(detail, previous) === 0 && !options.acceptEqualFreshness)
+    return;
   entry.snapshot = { detail, loading: false, error: null };
   touch(entry);
   pruneInactiveEntries();
   emit(entry);
 };
 
-export const getPageDetail = (
-  projectId: string,
-  pageId: string,
-): PageDetail | null => {
+export const getPageDetail = (projectId: string, pageId: string): PageDetail | null => {
   const entry = entries.get(detailKey(projectId, pageId));
   const detail = entry?.snapshot.detail ?? null;
   if (detail && entry) touch(entry);
@@ -205,15 +195,11 @@ export const revokePageDetail = (projectId: string, pageId: string): void => {
 
 export const pageDetailStoreDiagnostics = () => ({
   entries: entries.size,
-  listeners: [...entries.values()].reduce(
-    (total, entry) => total + entry.listeners.size,
-    0,
-  ),
+  listeners: [...entries.values()].reduce((total, entry) => total + entry.listeners.size, 0),
   inFlight: [...entries.values()].filter((entry) => entry.inFlight).length,
-  projectionRegistrations: [...entries.values()]
-    .filter((entry) => entry.projectionAuthority).length,
-  freshnessRegistrations: [...entries.values()]
-    .filter((entry) => entry.freshnessAuthority).length,
+  projectionRegistrations: [...entries.values()].filter((entry) => entry.projectionAuthority)
+    .length,
+  freshnessRegistrations: [...entries.values()].filter((entry) => entry.freshnessAuthority).length,
 });
 
 export const resetPageDetailStoreForTests = (): void => {
@@ -268,13 +254,8 @@ export const fetchPageDetail = async (
       library_id: libraryId,
       project_id: projectId,
     },
-    ...(startingSnapshot.detail
-      ? { storeEpoch: startingSnapshot.detail.storeEpoch }
-      : {}),
-    observedCommitSeq: Math.max(
-      minimumCommitSeq,
-      startingSnapshot.detail?.commitSeq ?? 0,
-    ),
+    ...(startingSnapshot.detail ? { storeEpoch: startingSnapshot.detail.storeEpoch } : {}),
+    observedCommitSeq: Math.max(minimumCommitSeq, startingSnapshot.detail?.commitSeq ?? 0),
     subject: { kind: "page", page_id: pageId },
     requestDependencies: [{ kind: "page", page_id: pageId }],
   });
@@ -304,18 +285,15 @@ export const fetchPageDetail = async (
         return null;
       }
       if (result.value.projectId !== projectId || result.value.page.pageId !== pageId) {
-        throw new Error(
-          "Page Detail response does not match the requested Project and Page",
-        );
+        throw new Error("Page Detail response does not match the requested Project and Page");
       }
       const freshness = await rendererAuthorityFreshnessIndex.admitRead(
         authorityLease,
         result.value.authorization,
         (fence) => {
-          const subjectRevoked = fence.kind === "revoke"
-            && fence.roots.some((root) =>
-              root.kind === "page" && root.page_id === pageId
-            );
+          const subjectRevoked =
+            fence.kind === "revoke" &&
+            fence.roots.some((root) => root.kind === "page" && root.page_id === pageId);
           if (subjectRevoked) {
             revokePageDetail(projectId, pageId);
             return;
@@ -333,10 +311,8 @@ export const fetchPageDetail = async (
       return result.value;
     } catch (error) {
       rendererAuthorityFreshnessIndex.releaseRead(authorityLease);
-      if (
-        requestStoreGeneration !== storeGeneration
-        || requestEntryGeneration !== entry.generation
-      ) return null;
+      if (requestStoreGeneration !== storeGeneration || requestEntryGeneration !== entry.generation)
+        return null;
       if (error instanceof StaleAuthorizedReadError) {
         staleRetryFloor = Math.max(minimumCommitSeq, error.requiredCommitSeq);
         entry.freshnessAuthority?.release();
@@ -358,11 +334,11 @@ export const fetchPageDetail = async (
         deleteInactiveEntry(key, entry);
       }
       if (
-        staleRetryFloor !== null
-        && requestStoreGeneration === storeGeneration
-        && entries.get(key) === entry
-        && requestEntryGeneration === entry.generation
-        && entry.listeners.size > 0
+        staleRetryFloor !== null &&
+        requestStoreGeneration === storeGeneration &&
+        entries.get(key) === entry &&
+        requestEntryGeneration === entry.generation &&
+        entry.listeners.size > 0
       ) {
         void fetchPageDetail(projectId, pageId, {
           minimumCommitSeq: staleRetryFloor,
@@ -379,29 +355,28 @@ const requestPageDetailRefresh = (
   projectId: string,
   pageId: string,
   cause: ProjectionInvalidationCause,
-): Promise<void> => (async () => {
-  const key = detailKey(projectId, pageId);
-  const entry = entries.get(key);
-  if (
-    cause.kind === "revocation"
-    && cause.delivery.revocation.resource_kind === "page"
-  ) return;
-  if (entry?.inFlight) await entry.inFlight.promise;
-  if (!entry || entry.listeners.size === 0) {
-    invalidatePageDetail(projectId, pageId);
-    return;
-  }
-  const detail = entry.snapshot.detail;
-  if (
-    cause.kind !== "reset"
-    && detail?.storeEpoch === cause.stream.storeEpoch
-    && detail.commitSeq >= cause.stream.commitSeq
-  ) return;
-  await fetchPageDetail(projectId, pageId, {
-    minimumCommitSeq: cause.kind === "reset" ? 0 : cause.stream.commitSeq,
-    libraryId: cause.scope.libraryId,
-  });
-})();
+): Promise<void> =>
+  (async () => {
+    const key = detailKey(projectId, pageId);
+    const entry = entries.get(key);
+    if (cause.kind === "revocation" && cause.delivery.revocation.resource_kind === "page") return;
+    if (entry?.inFlight) await entry.inFlight.promise;
+    if (!entry || entry.listeners.size === 0) {
+      invalidatePageDetail(projectId, pageId);
+      return;
+    }
+    const detail = entry.snapshot.detail;
+    if (
+      cause.kind !== "reset" &&
+      detail?.storeEpoch === cause.stream.storeEpoch &&
+      detail.commitSeq >= cause.stream.commitSeq
+    )
+      return;
+    await fetchPageDetail(projectId, pageId, {
+      minimumCommitSeq: cause.kind === "reset" ? 0 : cause.stream.commitSeq,
+      libraryId: cause.scope.libraryId,
+    });
+  })();
 
 const revokedResource = (
   revocation: Extract<
@@ -410,15 +385,21 @@ const revokedResource = (
   >["delivery"]["revocation"],
 ): AuthorityResource => {
   switch (revocation.resource_kind) {
-    case "page": return { kind: "page", page_id: revocation.resource_id };
-    case "document": return { kind: "document", document_id: revocation.resource_id };
-    case "database": return { kind: "database", database_id: revocation.resource_id };
-    case "data_source": return {
-      kind: "data_source",
-      data_source_id: revocation.resource_id,
-    };
-    case "view": return { kind: "view", view_id: revocation.resource_id };
-    case "canvas": return { kind: "canvas", canvas_id: revocation.resource_id };
+    case "page":
+      return { kind: "page", page_id: revocation.resource_id };
+    case "document":
+      return { kind: "document", document_id: revocation.resource_id };
+    case "database":
+      return { kind: "database", database_id: revocation.resource_id };
+    case "data_source":
+      return {
+        kind: "data_source",
+        data_source_id: revocation.resource_id,
+      };
+    case "view":
+      return { kind: "view", view_id: revocation.resource_id };
+    case "canvas":
+      return { kind: "canvas", canvas_id: revocation.resource_id };
   }
 };
 
@@ -431,9 +412,10 @@ const retainPageDetailAuthority = (
   const key = detailKey(projectId, pageId);
   const entry = entryFor(key);
   if (
-    entry.projectionAuthority?.registry === registry
-    && entry.projectionAuthority.libraryId === libraryId
-  ) return;
+    entry.projectionAuthority?.registry === registry &&
+    entry.projectionAuthority.libraryId === libraryId
+  )
+    return;
   entry.projectionAuthority?.release();
   const release = registry.register({
     scope: { kind: "project", libraryId, projectId },
@@ -447,9 +429,7 @@ const retainPageDetailAuthority = (
     },
     getCursor: () => {
       const detail = entry.snapshot.detail;
-      return detail
-        ? { storeEpoch: detail.storeEpoch, commitSeq: detail.commitSeq }
-        : null;
+      return detail ? { storeEpoch: detail.storeEpoch, commitSeq: detail.commitSeq } : null;
     },
     revoke: (cause) => {
       rendererAuthorityFreshnessIndex.admitVisibility({
@@ -493,13 +473,10 @@ export const usePageDetail = (
 ): PageDetailSnapshot => {
   const registry = useProjectionInvalidationRegistry();
   const key = projectId && pageId ? detailKey(projectId, pageId) : null;
-  const subscribeToDetail = useMemo(
-    () => (listener: Listener) => subscribe(key, listener),
-    [key],
-  );
+  const subscribeToDetail = useMemo(() => (listener: Listener) => subscribe(key, listener), [key]);
   useSyncExternalStore(
     subscribeToDetail,
-    () => key ? (entries.get(key)?.version ?? 0) : 0,
+    () => (key ? (entries.get(key)?.version ?? 0) : 0),
     () => 0,
   );
 

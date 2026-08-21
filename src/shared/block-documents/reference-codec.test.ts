@@ -8,10 +8,7 @@ import {
   createPageDocumentGenesis,
   materializePageDocument,
 } from "./block-document-codec";
-import {
-  isLegacyForeignBodyReference,
-  type BlockDocumentReference,
-} from "./derived-records";
+import { isLegacyForeignBodyReference, type BlockDocumentReference } from "./derived-records";
 import { blockNoteToNfm, nfmToBlockNote } from "./nfm-blocknote-adapter";
 
 const requireCardRef = (block: NfmBlock | undefined) => {
@@ -32,8 +29,7 @@ const appendParagraphChild = (document: Y.Doc): void => {
   const root = document.getXmlFragment("body").get(0);
   if (!(root instanceof Y.XmlElement)) throw new Error("Missing body root");
   const reference = root.get(0);
-  if (!(reference instanceof Y.XmlElement))
-    throw new Error("Missing reference");
+  if (!(reference instanceof Y.XmlElement)) throw new Error("Missing reference");
   const childGroup = new Y.XmlElement("blockGroup");
   const childContainer = new Y.XmlElement("blockContainer");
   childContainer.setAttribute("id", "nested-under-reference");
@@ -67,23 +63,17 @@ describe("Block-first reference codec", () => {
     );
 
     expect(block.targetBlockId).toBe("target-card");
-    expect(serializeNfm([block])).toBe(
-      '<page-ref url="nodex://pages/target-card" />',
-    );
+    expect(serializeNfm([block])).toBe('<page-ref url="nodex://pages/target-card" />');
   });
 
   test("canonicalizes accepted Page reference URL variants and rejects invalid targets", () => {
     const block = requirePageRef(
-      parseNfm(
-        '<page-ref url="nodex:///pages/card%2Fone?block=ignored" />',
-      )[0],
+      parseNfm('<page-ref url="nodex:///pages/card%2Fone?block=ignored" />')[0],
     );
-    expect(serializeNfm([block])).toBe(
-      '<page-ref url="nodex://pages/card%2Fone" />',
+    expect(serializeNfm([block])).toBe('<page-ref url="nodex://pages/card%2Fone" />');
+    expect(() => parseNfm('<page-ref url="https://example.com/card" />')).toThrow(
+      "Page reference URL must identify a Nodex Page",
     );
-    expect(() =>
-      parseNfm('<page-ref url="https://example.com/card" />'),
-    ).toThrow("Page reference URL must identify a Nodex Page");
   });
 
   test("does not serialize an owning Page without identity", () => {
@@ -107,10 +97,12 @@ describe("Block-first reference codec", () => {
     expect(blockNoteBlocks[1]?.type).toBe("databaseViewRef");
     expect(blockNoteBlocks[1]?.props?.databaseViewId).toBe("view-1");
     expect(blockNoteBlocks[1]?.children?.length).toBe(0);
-    expect(serializeNfm(roundTrip)).toBe([
-      '<page-ref url="nodex://pages/card-1" />',
-      '<database-view-ref database-view="view-1" display-hint="Roadmap" />',
-    ].join("\n"));
+    expect(serializeNfm(roundTrip)).toBe(
+      [
+        '<page-ref url="nodex://pages/card-1" />',
+        '<database-view-ref database-view="view-1" display-hint="Roadmap" />',
+      ].join("\n"),
+    );
   });
 
   test("round-trips Template and Card shell projection syntax without foreign bodies", () => {
@@ -132,11 +124,13 @@ describe("Block-first reference codec", () => {
     expect(blockNoteBlocks[2]?.type).toBe("database");
     expect(blockNoteBlocks[2]?.id).toBe("nested-database");
     expect(blockNoteBlocks[2]?.children?.length).toBe(0);
-    expect(serializeNfm(roundTrip)).toBe([
-      '<template-ref source-block="template-1" display-hint="Incident &amp; review" />',
-      '<page uuid="nested-card" />',
-      '<database uuid="nested-database" />',
-    ].join("\n"));
+    expect(serializeNfm(roundTrip)).toBe(
+      [
+        '<template-ref source-block="template-1" display-hint="Incident &amp; review" />',
+        '<page uuid="nested-card" />',
+        '<database uuid="nested-database" />',
+      ].join("\n"),
+    );
   });
 
   test("hoists attempted children out of canonical reference Blocks", () => {
@@ -193,9 +187,9 @@ describe("Block-first reference codec", () => {
       ].join("\n"),
     }).materialization;
 
-    expect(
-      materialization.references.map((reference) => reference.kind).join(","),
-    ).toBe("page,database_view,page,legacy_database_query");
+    expect(materialization.references.map((reference) => reference.kind).join(",")).toBe(
+      "page,database_view,page,legacy_database_query",
+    );
     expect(
       materialization.references
         .filter(isLegacyForeignBodyReference)
@@ -233,9 +227,7 @@ describe("Block-first reference codec", () => {
       title: "References",
       nfm: '<card-ref target-block="card-1" display-hint="Old title" />',
     });
-    expect(genesis.materialization.nfm).toBe(
-      '<page-ref url="nodex://pages/card-1" />',
-    );
+    expect(genesis.materialization.nfm).toBe('<page-ref url="nodex://pages/card-1" />');
     genesis.document.destroy();
   });
 });

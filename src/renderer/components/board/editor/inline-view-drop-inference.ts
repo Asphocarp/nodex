@@ -1,4 +1,10 @@
-import type { PageInput, BoardSummary, DatabasePageSummary, Estimate, Priority } from "../../../lib/types";
+import type {
+  PageInput,
+  BoardSummary,
+  DatabasePageSummary,
+  Estimate,
+  Priority,
+} from "../../../lib/types";
 import type { ToggleListSettings, ToggleListStatusId } from "../../../lib/toggle-list/types";
 import {
   deriveToggleListFilterRule,
@@ -30,10 +36,7 @@ type CardWithColumn = DatabasePageSummary & {
   columnId: ToggleListStatusId;
 };
 
-function clampInsertRowIndex(
-  index: number,
-  total: number,
-): number {
+function clampInsertRowIndex(index: number, total: number): number {
   if (!Number.isFinite(index)) return total;
   if (index <= 0) return 0;
   if (index >= total) return total;
@@ -133,20 +136,18 @@ export function inferInlineViewDropImport(
 ): InferInlineViewDropImportResult {
   const cardById = buildCardById(input.board);
   const insertRowIndex = clampInsertRowIndex(input.insertRowIndex, input.projectedRows.length);
-  const beforeRow = insertRowIndex > 0
-    ? input.projectedRows[insertRowIndex - 1]
-    : undefined;
-  const afterRow = insertRowIndex < input.projectedRows.length
-    ? input.projectedRows[insertRowIndex]
-    : undefined;
+  const beforeRow = insertRowIndex > 0 ? input.projectedRows[insertRowIndex - 1] : undefined;
+  const afterRow =
+    insertRowIndex < input.projectedRows.length ? input.projectedRows[insertRowIndex] : undefined;
 
   const beforeCard = beforeRow ? cardById.get(beforeRow.pageId) : undefined;
   const afterCard = afterRow ? cardById.get(afterRow.pageId) : undefined;
-  const targetStatus = afterCard?.columnId
-    ?? beforeCard?.columnId
-    ?? afterRow?.sourceStatus
-    ?? beforeRow?.sourceStatus
-    ?? resolveFallbackStatus(input.settings);
+  const targetStatus =
+    afterCard?.columnId ??
+    beforeCard?.columnId ??
+    afterRow?.sourceStatus ??
+    beforeRow?.sourceStatus ??
+    resolveFallbackStatus(input.settings);
   const insertIndex = resolveInsertIndexForColumn(
     input.board,
     targetStatus,

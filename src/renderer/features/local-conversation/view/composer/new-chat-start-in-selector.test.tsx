@@ -158,10 +158,12 @@ describe("NewChatStartInSelector", () => {
   });
 
   test("explains the primary worktree and directly accessed folders in multi-root projects", async () => {
-    const view = await renderSelector(buildModel({
-      repositoryName: "nodex",
-      additionalSourceFolderCount: 2,
-    }));
+    const view = await renderSelector(
+      buildModel({
+        repositoryName: "nodex",
+        additionalSourceFolderCount: 2,
+      }),
+    );
 
     await openMenu(view.getByRole("button", { name: "Start in" }));
     const row = document.body.querySelector("[data-new-chat-start-in-option='newWorktree']");

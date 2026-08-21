@@ -26,25 +26,40 @@ test("allows the Sparkle signing key only in a direct protected environment job"
     on: { workflow_dispatch: {} },
   });
 
-  expect(() => verifyDeclaredReferences(filePath, directWorkflow({
-    finalize: {
-      environment: "sparkle-feed-finalization",
-      steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
-    },
-  }))).not.toThrow();
+  expect(() =>
+    verifyDeclaredReferences(
+      filePath,
+      directWorkflow({
+        finalize: {
+          environment: "sparkle-feed-finalization",
+          steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
+        },
+      }),
+    ),
+  ).not.toThrow();
 
-  expect(() => verifyDeclaredReferences(filePath, directWorkflow({
-    assemble: {
-      steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
-    },
-  }))).toThrow("assemble references protected environment secrets outside their environment");
+  expect(() =>
+    verifyDeclaredReferences(
+      filePath,
+      directWorkflow({
+        assemble: {
+          steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
+        },
+      }),
+    ),
+  ).toThrow("assemble references protected environment secrets outside their environment");
 
-  expect(() => verifyDeclaredReferences(filePath, reusableWorkflow({
-    finalize: {
-      environment: "sparkle-feed-finalization",
-      steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
-    },
-  }))).toThrow("must not resolve protected environment secrets across a reusable workflow boundary");
+  expect(() =>
+    verifyDeclaredReferences(
+      filePath,
+      reusableWorkflow({
+        finalize: {
+          environment: "sparkle-feed-finalization",
+          steps: [{ env: { KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}" } }],
+        },
+      }),
+    ),
+  ).toThrow("must not resolve protected environment secrets across a reusable workflow boundary");
 });
 
 test("rejects transporting a protected environment secret from a caller", () => {
@@ -52,12 +67,19 @@ test("rejects transporting a protected environment secret from a caller", () => 
   const calledPath = path.resolve(".github/workflows/called.yml");
   const calledWorkflow = reusableWorkflow({ publish: { steps: [] } });
 
-  expect(() => verifyCall(callerPath, "distribution", {
-    uses: "./.github/workflows/called.yml",
-    secrets: {
-      SPARKLE_ED25519_PRIVATE_KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}",
-    },
-  }, new Map([[calledPath, calledWorkflow]]))).toThrow("must resolve protected environment secrets in the called job");
+  expect(() =>
+    verifyCall(
+      callerPath,
+      "distribution",
+      {
+        uses: "./.github/workflows/called.yml",
+        secrets: {
+          SPARKLE_ED25519_PRIVATE_KEY: "${{ secrets.SPARKLE_ED25519_PRIVATE_KEY }}",
+        },
+      },
+      new Map([[calledPath, calledWorkflow]]),
+    ),
+  ).toThrow("must resolve protected environment secrets in the called job");
 });
 
 test("rejects missing and undeclared reusable workflow inputs", () => {
@@ -69,16 +91,30 @@ test("rejects missing and undeclared reusable workflow inputs", () => {
   );
   const workflows = new Map([[calledPath, calledWorkflow]]);
 
-  expect(() => verifyCall(callerPath, "certify", {
-    uses: "./.github/workflows/called.yml",
-    secrets: { DECLARED_SECRET: "${{ secrets.DECLARED_SECRET }}" },
-  }, workflows)).toThrow("omits required inputs: source_sha");
+  expect(() =>
+    verifyCall(
+      callerPath,
+      "certify",
+      {
+        uses: "./.github/workflows/called.yml",
+        secrets: { DECLARED_SECRET: "${{ secrets.DECLARED_SECRET }}" },
+      },
+      workflows,
+    ),
+  ).toThrow("omits required inputs: source_sha");
 
-  expect(() => verifyCall(callerPath, "certify", {
-    uses: "./.github/workflows/called.yml",
-    with: { source_sha: "abc", surprise: true },
-    secrets: { DECLARED_SECRET: "${{ secrets.DECLARED_SECRET }}" },
-  }, workflows)).toThrow("passes undeclared inputs: surprise");
+  expect(() =>
+    verifyCall(
+      callerPath,
+      "certify",
+      {
+        uses: "./.github/workflows/called.yml",
+        with: { source_sha: "abc", surprise: true },
+        secrets: { DECLARED_SECRET: "${{ secrets.DECLARED_SECRET }}" },
+      },
+      workflows,
+    ),
+  ).toThrow("passes undeclared inputs: surprise");
 });
 
 test("rejects reusable workflow permission escalation before GitHub startup", () => {
@@ -102,20 +138,23 @@ test("rejects reusable workflow permission escalation before GitHub startup", ()
     [calledPath, calledWorkflow],
   ]);
 
-  expect(() => verifyCall(callerPath, "call", callerJob, workflows))
-    .toThrow("does not grant permissions required by the called workflow: actions");
+  expect(() => verifyCall(callerPath, "call", callerJob, workflows)).toThrow(
+    "does not grant permissions required by the called workflow: actions",
+  );
 
   const permittedCaller = {
     ...callerWorkflow,
     permissions: { actions: "read", contents: "read" },
   };
-  expect(() => verifyCall(
-    callerPath,
-    "call",
-    callerJob,
-    new Map([
-      [callerPath, permittedCaller],
-      [calledPath, calledWorkflow],
-    ]),
-  )).not.toThrow();
+  expect(() =>
+    verifyCall(
+      callerPath,
+      "call",
+      callerJob,
+      new Map([
+        [callerPath, permittedCaller],
+        [calledPath, calledWorkflow],
+      ]),
+    ),
+  ).not.toThrow();
 });

@@ -13,8 +13,8 @@ export interface NfmEditorMutationRuntime {
   readonly blur?: () => void;
 }
 
-export type NfmEditorStructuralMutationRuntime =
-  NfmEditorMutationRuntime & SideMenuDragCleanupEditor;
+export type NfmEditorStructuralMutationRuntime = NfmEditorMutationRuntime &
+  SideMenuDragCleanupEditor;
 
 export const prepareNfmEditorForMutation = async (
   editor: NfmEditorMutationRuntime,
@@ -23,8 +23,7 @@ export const prepareNfmEditorForMutation = async (
   const activeElement = container.ownerDocument.activeElement;
   const ownsFocus =
     activeElement instanceof Element &&
-    (container.contains(activeElement) ||
-      editor.isWithinEditor?.(activeElement) === true);
+    (container.contains(activeElement) || editor.isWithinEditor?.(activeElement) === true);
   if (ownsFocus && activeElement instanceof HTMLElement) activeElement.blur();
   if (ownsFocus || editor.isFocused?.()) editor.blur?.();
   await Promise.resolve();

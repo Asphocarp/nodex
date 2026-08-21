@@ -1,7 +1,4 @@
-import {
-  useCallback,
-  type ReactNode,
-} from "react";
+import { useCallback, type ReactNode } from "react";
 import type { ThreadStageActions } from "@/features/local-conversation";
 import { useOpenReview } from "@/features/review/hooks/use-open-review";
 
@@ -12,21 +9,22 @@ export function ReviewRouteOpenAdapter({
   activateReviewTab: () => Promise<boolean>;
   children: (actions: {
     onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
-    onOpenSummaryGitReview: NonNullable<
-      ThreadStageActions["onOpenSummaryGitReview"]
-    >;
+    onOpenSummaryGitReview: NonNullable<ThreadStageActions["onOpenSummaryGitReview"]>;
   }) => ReactNode;
 }) {
   const openReview = useOpenReview({ activateReviewTab });
   const openSummaryGitReview = useCallback<
     NonNullable<ThreadStageActions["onOpenSummaryGitReview"]>
-  >(async ({ source }) => {
-    if (source === "unstaged" || source === "staged") {
-      await openReview({ source: { kind: "git", mode: source } });
-      return;
-    }
-    await openReview({ source: { kind: "git", mode: "branch", baseRef: "" } });
-  }, [openReview]);
+  >(
+    async ({ source }) => {
+      if (source === "unstaged" || source === "staged") {
+        await openReview({ source: { kind: "git", mode: source } });
+        return;
+      }
+      await openReview({ source: { kind: "git", mode: "branch", baseRef: "" } });
+    },
+    [openReview],
+  );
 
   return children({
     onOpenTurnDiffReview: openReview,

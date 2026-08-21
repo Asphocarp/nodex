@@ -100,31 +100,36 @@ describe("useDatabaseViewPresentationPreference", () => {
   test("serializes an optimistic occurrence disclosure behind both authority reads", async () => {
     const presentation = deferred<ReturnType<typeof presentationResult>>();
     const disclosure = deferred<ReturnType<typeof disclosureResult>>();
-    testState.readDatabaseModule.mockImplementation((_: string, request: {
-      readonly read: { readonly mode: string };
-    }) => request.read.mode === "view_personal_presentation"
-      ? presentation.promise
-      : disclosure.promise);
+    testState.readDatabaseModule.mockImplementation(
+      (
+        _: string,
+        request: {
+          readonly read: { readonly mode: string };
+        },
+      ) =>
+        request.read.mode === "view_personal_presentation"
+          ? presentation.promise
+          : disclosure.promise,
+    );
 
     const { result } = renderHook(() =>
-      useDatabaseViewPresentationPreference("project-test", viewId));
+      useDatabaseViewPresentationPreference("project-test", viewId),
+    );
     await waitFor(() => expect(testState.readDatabaseModule).toHaveBeenCalledTimes(2));
 
     let collapseResult: Promise<boolean> | undefined;
     act(() => {
       collapseResult = result.current.setOccurrenceDisclosure(
-        { kind: "group", occurrenceKey: "GROUP_\"local\"" },
+        { kind: "group", occurrenceKey: 'GROUP_"local"' },
         true,
       );
     });
-    expect(result.current.collapsedOccurrenceKeys).toEqual(["GROUP_\"local\""]);
+    expect(result.current.collapsedOccurrenceKeys).toEqual(['GROUP_"local"']);
     expect(testState.applyDatabaseModule).not.toHaveBeenCalled();
 
     await act(async () => {
       presentation.resolve(presentationResult());
-      disclosure.resolve(disclosureResult([
-        { kind: "group", occurrenceKey: "GROUP_\"server\"" },
-      ]));
+      disclosure.resolve(disclosureResult([{ kind: "group", occurrenceKey: 'GROUP_"server"' }]));
       await collapseResult;
     });
 
@@ -133,33 +138,38 @@ describe("useDatabaseViewPresentationPreference", () => {
       "project-test",
       expect.objectContaining({
         storeEpoch: "epoch-loaded",
-        operations: [{
-          kind: "set_view_occurrence_disclosure",
-          viewId,
-          target: { kind: "group", occurrenceKey: "GROUP_\"local\"" },
-          collapsed: true,
-        }],
+        operations: [
+          {
+            kind: "set_view_occurrence_disclosure",
+            viewId,
+            target: { kind: "group", occurrenceKey: 'GROUP_"local"' },
+            collapsed: true,
+          },
+        ],
       }),
     );
-    expect(result.current.collapsedOccurrenceKeys).toEqual([
-      "GROUP_\"local\"",
-      "GROUP_\"server\"",
-    ]);
+    expect(result.current.collapsedOccurrenceKeys).toEqual(['GROUP_"local"', 'GROUP_"server"']);
   });
 
   test("retains one hydrated personal state store across surface remounts", async () => {
-    testState.readDatabaseModule.mockImplementation((_: string, request: {
-      readonly read: { readonly mode: string };
-    }) => Promise.resolve(request.read.mode === "view_personal_presentation"
-      ? presentationResult({ layout: "list" })
-      : disclosureResult([{ kind: "page", occurrenceKey: "ITEM_build/page" }])));
+    testState.readDatabaseModule.mockImplementation(
+      (
+        _: string,
+        request: {
+          readonly read: { readonly mode: string };
+        },
+      ) =>
+        Promise.resolve(
+          request.read.mode === "view_personal_presentation"
+            ? presentationResult({ layout: "list" })
+            : disclosureResult([{ kind: "page", occurrenceKey: "ITEM_build/page" }]),
+        ),
+    );
 
-    const first = renderHook(() =>
-      useDatabaseViewPresentationPreference("project-test", viewId));
+    const first = renderHook(() => useDatabaseViewPresentationPreference("project-test", viewId));
     await waitFor(() => expect(first.result.current.loading).toBe(false));
     first.unmount();
-    const second = renderHook(() =>
-      useDatabaseViewPresentationPreference("project-test", viewId));
+    const second = renderHook(() => useDatabaseViewPresentationPreference("project-test", viewId));
 
     expect(second.result.current).toMatchObject({
       presentationOverride: { layout: "list" },
@@ -172,41 +182,52 @@ describe("useDatabaseViewPresentationPreference", () => {
   });
 
   test("applies cross-window personal deltas without re-reading shared View data", async () => {
-    testState.readDatabaseModule.mockImplementation((_: string, request: {
-      readonly read: { readonly mode: string };
-    }) => Promise.resolve(request.read.mode === "view_personal_presentation"
-      ? presentationResult({ layout: "list" })
-      : disclosureResult()));
+    testState.readDatabaseModule.mockImplementation(
+      (
+        _: string,
+        request: {
+          readonly read: { readonly mode: string };
+        },
+      ) =>
+        Promise.resolve(
+          request.read.mode === "view_personal_presentation"
+            ? presentationResult({ layout: "list" })
+            : disclosureResult(),
+        ),
+    );
     const { result } = renderHook(() =>
-      useDatabaseViewPresentationPreference("project-test", viewId));
+      useDatabaseViewPresentationPreference("project-test", viewId),
+    );
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    act(() => testState.changeListener?.({
-      version: 3,
-      projectId: "project-test",
-      storeEpoch: "epoch-loaded",
-      operationId: "remote-operation",
-      sourceKind: "database_module",
-      affectedDatabaseIds: [],
-      affectedDataSourceIds: [],
-      affectedPageIds: [],
-      affectedViewIds: [],
-      commitSeq: 11,
-      personalViewChanges: [
-        {
-          kind: "presentation",
-          viewId,
-          presentationOverride: { layout: "board" },
-          revision: 5,
-        },
-        {
-          kind: "occurrence_disclosure",
-          viewId,
-          target: { kind: "page", occurrenceKey: "ITEM_build/page" },
-          collapsed: true,
-        },
-      ],
-    }));
+    act(() =>
+      testState.changeListener?.({
+        version: 3,
+        projectId: "project-test",
+        storeEpoch: "epoch-loaded",
+        operationId: "remote-operation",
+        sourceKind: "database_module",
+        affectedDatabaseIds: [],
+        affectedDataSourceIds: [],
+        affectedPageIds: [],
+        affectedViewIds: [],
+        commitSeq: 11,
+        personalViewChanges: [
+          {
+            kind: "presentation",
+            viewId,
+            presentationOverride: { layout: "board" },
+            revision: 5,
+          },
+          {
+            kind: "occurrence_disclosure",
+            viewId,
+            target: { kind: "page", occurrenceKey: "ITEM_build/page" },
+            collapsed: true,
+          },
+        ],
+      }),
+    );
 
     expect(result.current).toMatchObject({
       presentationOverride: { layout: "board" },
@@ -217,18 +238,27 @@ describe("useDatabaseViewPresentationPreference", () => {
   });
 
   test("keeps the latest optimistic disclosure visible while older writes settle", async () => {
-    testState.readDatabaseModule.mockImplementation((_: string, request: {
-      readonly read: { readonly mode: string };
-    }) => Promise.resolve(request.read.mode === "view_personal_presentation"
-      ? presentationResult()
-      : disclosureResult()));
+    testState.readDatabaseModule.mockImplementation(
+      (
+        _: string,
+        request: {
+          readonly read: { readonly mode: string };
+        },
+      ) =>
+        Promise.resolve(
+          request.read.mode === "view_personal_presentation"
+            ? presentationResult()
+            : disclosureResult(),
+        ),
+    );
     const firstWrite = deferred<ReturnType<typeof disclosureWriteResult>>();
     const secondWrite = deferred<ReturnType<typeof disclosureWriteResult>>();
     testState.applyDatabaseModule
       .mockImplementationOnce(() => firstWrite.promise)
       .mockImplementationOnce(() => secondWrite.promise);
     const { result } = renderHook(() =>
-      useDatabaseViewPresentationPreference("project-test", viewId));
+      useDatabaseViewPresentationPreference("project-test", viewId),
+    );
     await waitFor(() => expect(result.current.loading).toBe(false));
     const target = { kind: "page" as const, occurrenceKey: "ITEM_build/page" };
 
@@ -261,21 +291,29 @@ describe("useDatabaseViewPresentationPreference", () => {
     const epochTwoPresentation = deferred<ReturnType<typeof presentationResult>>();
     const epochTwoDisclosure = deferred<ReturnType<typeof disclosureResult>>();
     let reads = 0;
-    testState.readDatabaseModule.mockImplementation((_: string, request: {
-      readonly read: { readonly mode: string };
-    }) => {
-      reads += 1;
-      if (reads <= 2) {
-        return Promise.resolve(request.read.mode === "view_personal_presentation"
-          ? presentationResult({ layout: "list" }, 4, "epoch-one")
-          : disclosureResult([], "epoch-one"));
-      }
-      return request.read.mode === "view_personal_presentation"
-        ? epochTwoPresentation.promise
-        : epochTwoDisclosure.promise;
-    });
+    testState.readDatabaseModule.mockImplementation(
+      (
+        _: string,
+        request: {
+          readonly read: { readonly mode: string };
+        },
+      ) => {
+        reads += 1;
+        if (reads <= 2) {
+          return Promise.resolve(
+            request.read.mode === "view_personal_presentation"
+              ? presentationResult({ layout: "list" }, 4, "epoch-one")
+              : disclosureResult([], "epoch-one"),
+          );
+        }
+        return request.read.mode === "view_personal_presentation"
+          ? epochTwoPresentation.promise
+          : epochTwoDisclosure.promise;
+      },
+    );
     const { result } = renderHook(() =>
-      useDatabaseViewPresentationPreference("project-test", viewId));
+      useDatabaseViewPresentationPreference("project-test", viewId),
+    );
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     act(() => result.current.synchronizeStoreEpoch("epoch-two"));
@@ -285,9 +323,7 @@ describe("useDatabaseViewPresentationPreference", () => {
     });
 
     await act(async () => {
-      epochTwoPresentation.resolve(
-        presentationResult({ layout: "board" }, 1, "epoch-two", 1),
-      );
+      epochTwoPresentation.resolve(presentationResult({ layout: "board" }, 1, "epoch-two", 1));
       epochTwoDisclosure.resolve(disclosureResult([], "epoch-two", 1));
       await Promise.all([epochTwoPresentation.promise, epochTwoDisclosure.promise]);
     });

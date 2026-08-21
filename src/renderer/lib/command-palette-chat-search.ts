@@ -11,10 +11,7 @@ import {
   buildCommandPaletteQueryHighlightPreview,
 } from "./command-palette-highlight";
 import { normalizeSearchText as normalizeCommandPaletteSearchText } from "./search-text";
-import type {
-  CommandPaletteThreadSearchResult,
-  CommandPaletteThreadSummary,
-} from "./types";
+import type { CommandPaletteThreadSearchResult, CommandPaletteThreadSummary } from "./types";
 import {
   createCommandPaletteThreadSearchIndex,
   type CommandPaletteThreadSearchHit,
@@ -33,7 +30,10 @@ interface ThreadSearchCacheEntry {
 
 const commandPaletteThreadItemsCache = new Map<string | null, CommandPaletteThread[]>();
 const threadSearchCache = new Map<string, ThreadSearchCacheEntry>();
-const threadSearchInFlight = new Map<string, Promise<readonly CommandPaletteThreadSearchResult[]>>();
+const threadSearchInFlight = new Map<
+  string,
+  Promise<readonly CommandPaletteThreadSearchResult[]>
+>();
 
 export interface CommandPaletteThreadItemsState {
   threads: CommandPaletteThread[];
@@ -122,9 +122,11 @@ export function useCommandPaletteThreadItems({
 
   useEffect(() => {
     if (!enabled) {
-      setState((current) => current.threads.length === 0 && !current.loading
-        ? current
-        : { threads: [], loading: false });
+      setState((current) =>
+        current.threads.length === 0 && !current.loading
+          ? current
+          : { threads: [], loading: false },
+      );
       return;
     }
 
@@ -189,16 +191,18 @@ export async function searchCommandPaletteThreads({
   const request = invoke("codex:threads:palette:search", {
     query: queryText,
     limit: normalizedLimit,
-  }).then((results) => {
-    const normalized = Array.isArray(results) ? results : [];
-    threadSearchCache.set(key, {
-      expiresAt: Date.now() + THREAD_SEARCH_CACHE_TTL_MS,
-      results: normalized,
+  })
+    .then((results) => {
+      const normalized = Array.isArray(results) ? results : [];
+      threadSearchCache.set(key, {
+        expiresAt: Date.now() + THREAD_SEARCH_CACHE_TTL_MS,
+        results: normalized,
+      });
+      return normalized;
+    })
+    .finally(() => {
+      threadSearchInFlight.delete(key);
     });
-    return normalized;
-  }).finally(() => {
-    threadSearchInFlight.delete(key);
-  });
   threadSearchInFlight.set(key, request);
   return await request;
 }
@@ -225,9 +229,11 @@ export function useCommandPaletteThreadSearch({
     const queryText = query.trim();
     const normalizedQuery = normalizeCommandPaletteSearchText(queryText);
     if (!enabled || normalizedQuery.length < minQueryLength) {
-      setBatch((current) => current.query === "" && current.results.length === 0 && !current.loading && !current.error
-        ? current
-        : { query: "", results: [], loading: false, error: null });
+      setBatch((current) =>
+        current.query === "" && current.results.length === 0 && !current.loading && !current.error
+          ? current
+          : { query: "", results: [], loading: false, error: null },
+      );
       return;
     }
 
@@ -276,7 +282,8 @@ interface RankedThread {
 function compareRankedThreads(left: RankedThread, right: RankedThread): number {
   if (left.fieldPriority !== right.fieldPriority) return left.fieldPriority - right.fieldPriority;
   if (right.score !== left.score) return right.score - left.score;
-  if (right.item.updatedAt !== left.item.updatedAt) return right.item.updatedAt - left.item.updatedAt;
+  if (right.item.updatedAt !== left.item.updatedAt)
+    return right.item.updatedAt - left.item.updatedAt;
   return left.item.threadId.localeCompare(right.item.threadId);
 }
 
@@ -305,9 +312,8 @@ function localHitsForQuery(
   threads: readonly CommandPaletteThread[],
   index: CommandPaletteThreadSearchIndex | null | undefined,
 ): CommandPaletteThreadSearchHit[] {
-  const searchIndex = index === undefined
-    ? createCommandPaletteThreadSearchIndex([...threads])
-    : index;
+  const searchIndex =
+    index === undefined ? createCommandPaletteThreadSearchIndex([...threads]) : index;
   return searchIndex?.search(query) ?? [];
 }
 
@@ -350,17 +356,19 @@ export function selectCommandPaletteChatResults({
     });
   });
 
-  const serverResults = threadSearchBatch
-    && normalizeCommandPaletteSearchText(threadSearchBatch.query) === normalizedQuery
+  const serverResults =
+    threadSearchBatch &&
+    normalizeCommandPaletteSearchText(threadSearchBatch.query) === normalizedQuery
       ? threadSearchBatch.results
       : [];
-  const resolvedActiveProjectId = activeProjectId
-    ?? threads.find((thread) => thread.inActiveProject)?.projectId
-    ?? "";
+  const resolvedActiveProjectId =
+    activeProjectId ?? threads.find((thread) => thread.inActiveProject)?.projectId ?? "";
   serverResults.forEach((result, index) => {
     const serverItem = buildCommandPaletteThreadItem(result.thread, resolvedActiveProjectId);
     serverItem.searchPreview = buildThreadSearchPreview(result.snippet, normalizedQuery);
-    const titleMatches = normalizeCommandPaletteSearchText(serverItem.title).includes(normalizedQuery);
+    const titleMatches = normalizeCommandPaletteSearchText(serverItem.title).includes(
+      normalizedQuery,
+    );
     if (titleMatches) {
       serverItem.searchDecorations = {
         titleSegments: buildCommandPaletteCharacterHighlightSegments(
@@ -386,8 +394,13 @@ export function selectCommandPaletteChatResults({
     });
   });
 
-  const sorted = Array.from(rankedById.values()).sort(compareRankedThreads).map(({ item }) => item);
-  return (preferActiveProject ? prioritizeActiveProjectItems(sorted) : sorted).slice(0, threadLimit);
+  const sorted = Array.from(rankedById.values())
+    .sort(compareRankedThreads)
+    .map(({ item }) => item);
+  return (preferActiveProject ? prioritizeActiveProjectItems(sorted) : sorted).slice(
+    0,
+    threadLimit,
+  );
 }
 
 export function useSelectedCommandPaletteChatResults({
@@ -408,16 +421,25 @@ export function useSelectedCommandPaletteChatResults({
   activeProjectId?: string;
 }): CommandPaletteThread[] {
   return useMemo(
-    () => selectCommandPaletteChatResults({
+    () =>
+      selectCommandPaletteChatResults({
+        query,
+        threads,
+        threadSearchIndex,
+        threadSearchBatch,
+        threadLimit,
+        preferActiveProject,
+        activeProjectId,
+      }),
+    [
+      activeProjectId,
+      preferActiveProject,
       query,
-      threads,
-      threadSearchIndex,
       threadSearchBatch,
       threadLimit,
-      preferActiveProject,
-      activeProjectId,
-    }),
-    [activeProjectId, preferActiveProject, query, threadSearchBatch, threadLimit, threadSearchIndex, threads],
+      threadSearchIndex,
+      threads,
+    ],
   );
 }
 

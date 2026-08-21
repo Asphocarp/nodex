@@ -3,11 +3,7 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { render } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
-import type {
-  GeneratedImageDescriptor,
-  ImageComment,
-  PlaygroundTool,
-} from "../model/types";
+import type { GeneratedImageDescriptor, ImageComment, PlaygroundTool } from "../model/types";
 import { GeneratedImagePlayground } from "./generated-image-playground";
 
 const IMAGE_SRC = "data:image/png;base64,AQID";
@@ -22,15 +18,11 @@ const IMAGES: GeneratedImageDescriptor[] = [1, 2].map((number) => ({
   status: "ready",
 }));
 
-function PlaygroundHarness({ onSendComments = () => undefined }: {
-  onSendComments?: () => void;
-}) {
+function PlaygroundHarness({ onSendComments = () => undefined }: { onSendComments?: () => void }) {
   const [activeId, setActiveId] = useState(IMAGES[0]!.id);
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [comments, setComments] = useState<Readonly<Record<string, readonly ImageComment[]>>>({});
-  const [selected, setSelected] = useState<ReadonlySet<string>>(
-    () => new Set([IMAGES[0]!.id]),
-  );
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set([IMAGES[0]!.id]));
   const [tool, setTool] = useState<PlaygroundTool>("navigate");
   const [zoom, setZoom] = useState(100);
 
@@ -118,8 +110,9 @@ describe("GeneratedImagePlayground", () => {
     });
 
     await waitFor(() => expect(second.getAttribute("aria-pressed")).toBe("true"));
-    expect(view.getByRole("button", { name: "Multi-select" }).getAttribute("aria-pressed"))
-      .toBe("true");
+    expect(view.getByRole("button", { name: "Multi-select" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
   });
 
   test("exposes the multi-image comment surfaces and disabled send state", async () => {
@@ -130,14 +123,10 @@ describe("GeneratedImagePlayground", () => {
       fireEvent.click(view.getByRole("button", { name: "Comment" }));
     });
 
-    expect(view.getByText("Add comments on multiple images to batch edit them"))
-      .toBeTruthy();
-    expect(view.getByRole("button", { name: "Comment on Generated image 1" }))
-      .toBeTruthy();
-    expect(view.getByRole("button", { name: "Comment on Generated image 2" }))
-      .toBeTruthy();
-    expect(view.getByRole("button", { name: "Send" }).hasAttribute("disabled"))
-      .toBe(true);
+    expect(view.getByText("Add comments on multiple images to batch edit them")).toBeTruthy();
+    expect(view.getByRole("button", { name: "Comment on Generated image 1" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Comment on Generated image 2" })).toBeTruthy();
+    expect(view.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
     expect(onSendComments).not.toHaveBeenCalled();
   });
 
@@ -149,8 +138,8 @@ describe("GeneratedImagePlayground", () => {
       fireEvent.click(view.getByRole("button", { name: "Retry" }));
     });
 
-    await waitFor(() => expect(
-      view.getByRole("button", { name: "Failed generated image" }),
-    ).toBeTruthy());
+    await waitFor(() =>
+      expect(view.getByRole("button", { name: "Failed generated image" })).toBeTruthy(),
+    );
   });
 });

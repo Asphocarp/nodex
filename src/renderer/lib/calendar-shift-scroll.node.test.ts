@@ -8,37 +8,45 @@ import {
 
 describe("normalizeShiftWheelDelta", () => {
   test("normalizes shift wheel deltas", () => {
-    expect(normalizeShiftWheelDelta({
-      shiftKey: false,
-      deltaX: 0,
-      deltaY: 120,
-      deltaMode: 0,
-      pageHeight: 600,
-    })).toBe(0);
+    expect(
+      normalizeShiftWheelDelta({
+        shiftKey: false,
+        deltaX: 0,
+        deltaY: 120,
+        deltaMode: 0,
+        pageHeight: 600,
+      }),
+    ).toBe(0);
 
-    expect(normalizeShiftWheelDelta({
-      shiftKey: true,
-      deltaX: 40,
-      deltaY: 120,
-      deltaMode: 0,
-      pageHeight: 600,
-    })).toBe(40);
+    expect(
+      normalizeShiftWheelDelta({
+        shiftKey: true,
+        deltaX: 40,
+        deltaY: 120,
+        deltaMode: 0,
+        pageHeight: 600,
+      }),
+    ).toBe(40);
 
-    expect(normalizeShiftWheelDelta({
-      shiftKey: true,
-      deltaX: 0,
-      deltaY: 3,
-      deltaMode: 1,
-      pageHeight: 600,
-    })).toBe(48);
+    expect(
+      normalizeShiftWheelDelta({
+        shiftKey: true,
+        deltaX: 0,
+        deltaY: 3,
+        deltaMode: 1,
+        pageHeight: 600,
+      }),
+    ).toBe(48);
 
-    expect(normalizeShiftWheelDelta({
-      shiftKey: true,
-      deltaX: 0,
-      deltaY: 1,
-      deltaMode: 2,
-      pageHeight: 600,
-    })).toBe(600);
+    expect(
+      normalizeShiftWheelDelta({
+        shiftKey: true,
+        deltaX: 0,
+        deltaY: 1,
+        deltaMode: 2,
+        pageHeight: 600,
+      }),
+    ).toBe(600);
   });
 });
 

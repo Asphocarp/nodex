@@ -6,11 +6,7 @@ function makeTarget(options?: {
   insideCodeBlock?: boolean;
   insideTable?: boolean;
 }) {
-  const {
-    insideEditor = true,
-    insideCodeBlock = false,
-    insideTable = false,
-  } = options ?? {};
+  const { insideEditor = true, insideCodeBlock = false, insideTable = false } = options ?? {};
 
   const target = {
     closest(selector: string) {
@@ -19,8 +15,8 @@ function makeTarget(options?: {
       }
 
       if (
-        selector.includes('[data-content-type="codeBlock"]')
-        || selector.includes('[data-content-type="table"]')
+        selector.includes('[data-content-type="codeBlock"]') ||
+        selector.includes('[data-content-type="table"]')
       ) {
         return insideCodeBlock || insideTable ? target : null;
       }

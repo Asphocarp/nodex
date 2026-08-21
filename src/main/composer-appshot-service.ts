@@ -55,19 +55,14 @@ export interface ComposerAppshotServiceDependencies {
   readonly processIdentifier: number;
   readonly helperAvailable: () => boolean;
   readonly readFrontmostWindow: () => Promise<ComposerAppshotHelperTarget | null>;
-  readonly listWindowSources: (
-    thumbnailSize: { readonly width: number; readonly height: number },
-  ) => Promise<readonly DesktopCapturerSource[]>;
+  readonly listWindowSources: (thumbnailSize: {
+    readonly width: number;
+    readonly height: number;
+  }) => Promise<readonly DesktopCapturerSource[]>;
   readonly displayScaleFactor: (bounds: HelperWindowBounds) => number;
   readonly createId: () => string;
-  readonly scheduleInterval: (
-    callback: () => void,
-    delayMs: number,
-  ) => NodeJS.Timeout;
-  readonly scheduleTimeout: (
-    callback: () => void,
-    delayMs: number,
-  ) => NodeJS.Timeout;
+  readonly scheduleInterval: (callback: () => void, delayMs: number) => NodeJS.Timeout;
+  readonly scheduleTimeout: (callback: () => void, delayMs: number) => NodeJS.Timeout;
   readonly clearInterval: (timer: NodeJS.Timeout) => void;
   readonly clearTimeout: (timer: NodeJS.Timeout) => void;
 }
@@ -94,21 +89,19 @@ export function parseComposerAppshotHelperTarget(
   const bundleIdentifier = nonEmptyString(value.bundleIdentifier);
   const processIdentifier = finiteNumber(value.processIdentifier);
   const windowId = finiteNumber(value.windowId);
-  const windowTitle = value.windowTitle === null
-    ? null
-    : nonEmptyString(value.windowTitle);
+  const windowTitle = value.windowTitle === null ? null : nonEmptyString(value.windowTitle);
   const axTree = typeof value.axTree === "string" ? value.axTree : null;
   if (
-    !name
-    || !bundleIdentifier
-    || processIdentifier === null
-    || !Number.isSafeInteger(processIdentifier)
-    || processIdentifier <= 0
-    || windowId === null
-    || !Number.isSafeInteger(windowId)
-    || windowId <= 0
-    || axTree === null
-    || !isRecord(value.bounds)
+    !name ||
+    !bundleIdentifier ||
+    processIdentifier === null ||
+    !Number.isSafeInteger(processIdentifier) ||
+    processIdentifier <= 0 ||
+    windowId === null ||
+    !Number.isSafeInteger(windowId) ||
+    windowId <= 0 ||
+    axTree === null ||
+    !isRecord(value.bounds)
   ) {
     return null;
   }
@@ -116,14 +109,7 @@ export function parseComposerAppshotHelperTarget(
   const y = finiteNumber(value.bounds.y);
   const width = finiteNumber(value.bounds.width);
   const height = finiteNumber(value.bounds.height);
-  if (
-    x === null
-    || y === null
-    || width === null
-    || height === null
-    || width < 40
-    || height < 40
-  ) {
+  if (x === null || y === null || width === null || height === null || width < 40 || height < 40) {
     return null;
   }
   return {
@@ -141,28 +127,24 @@ export function resolveComposerAppshotCaptureSize(input: {
   readonly bounds: HelperWindowBounds;
   readonly scaleFactor: number;
 }): { readonly width: number; readonly height: number } {
-  const scaleFactor = Number.isFinite(input.scaleFactor)
-    ? Math.max(1, input.scaleFactor)
-    : 1;
+  const scaleFactor = Number.isFinite(input.scaleFactor) ? Math.max(1, input.scaleFactor) : 1;
   const requestedWidth = Math.max(1, Math.ceil(input.bounds.width * scaleFactor));
   const requestedHeight = Math.max(1, Math.ceil(input.bounds.height * scaleFactor));
   const longestDimension = Math.max(requestedWidth, requestedHeight);
-  const downscale = longestDimension > MAX_CAPTURE_DIMENSION
-    ? MAX_CAPTURE_DIMENSION / longestDimension
-    : 1;
+  const downscale =
+    longestDimension > MAX_CAPTURE_DIMENSION ? MAX_CAPTURE_DIMENSION / longestDimension : 1;
   return {
     width: Math.max(1, Math.round(requestedWidth * downscale)),
     height: Math.max(1, Math.round(requestedHeight * downscale)),
   };
 }
 
-export function findComposerAppshotSource<T extends {
-  readonly id: string;
-  readonly name: string;
-}>(
-  sources: readonly T[],
-  target: ComposerAppshotHelperTarget,
-): T | null {
+export function findComposerAppshotSource<
+  T extends {
+    readonly id: string;
+    readonly name: string;
+  },
+>(sources: readonly T[], target: ComposerAppshotHelperTarget): T | null {
   const sourcePrefix = `window:${target.windowId}:`;
   const exact = sources.find((source) => source.id.startsWith(sourcePrefix));
   if (exact) return exact;
@@ -176,17 +158,13 @@ export function resolveComposerAppshotWindowTitle(input: {
   readonly fallback: string | null;
 }): string | null {
   const firstLine = input.axTree.split(/\r?\n/u, 1)[0] ?? "";
-  const accessibilityTitle =
-    /^Window:\s*"(.*)",\s*App:/u.exec(firstLine)?.[1]?.trim() ?? "";
+  const accessibilityTitle = /^Window:\s*"(.*)",\s*App:/u.exec(firstLine)?.[1]?.trim() ?? "";
   if (accessibilityTitle) return accessibilityTitle;
   return input.fallback?.trim() || null;
 }
 
 function sanitizeAppshotFileNamePart(value: string): string {
-  const normalized = value
-    .replace(/[/:]/gu, "-")
-    .replace(/\s+/gu, " ")
-    .trim();
+  const normalized = value.replace(/[/:]/gu, "-").replace(/\s+/gu, " ").trim();
   return normalized || "App";
 }
 
@@ -201,13 +179,7 @@ function resolveComposerAppshotHelperExecutable(): string {
   if (app.isPackaged) {
     return resolve(process.resourcesPath, "bin", "nodex-appshot-helper");
   }
-  return resolve(
-    app.getAppPath(),
-    ".generated",
-    "dev-runtime",
-    "bin",
-    "nodex-appshot-helper",
-  );
+  return resolve(app.getAppPath(), ".generated", "dev-runtime", "bin", "nodex-appshot-helper");
 }
 
 function runComposerAppshotHelper(): Promise<ComposerAppshotHelperTarget | null> {
@@ -223,19 +195,17 @@ function runComposerAppshotHelper(): Promise<ComposerAppshotHelperTarget | null>
       },
       (error, stdout, stderr) => {
         if (error) {
-          reject(new Error(
-            stderr.trim() || error.message || "Appshot helper failed",
-          ));
+          reject(new Error(stderr.trim() || error.message || "Appshot helper failed"));
           return;
         }
         try {
-          resolvePromise(
-            parseComposerAppshotHelperTarget(JSON.parse(stdout)),
-          );
+          resolvePromise(parseComposerAppshotHelperTarget(JSON.parse(stdout)));
         } catch (parseError) {
-          reject(new Error("Appshot helper returned invalid JSON", {
-            cause: parseError,
-          }));
+          reject(
+            new Error("Appshot helper returned invalid JSON", {
+              cause: parseError,
+            }),
+          );
         }
       },
     );
@@ -247,8 +217,7 @@ function defaultDependencies(): ComposerAppshotServiceDependencies {
     platform: process.platform,
     processIdentifier: process.pid,
     helperAvailable: () =>
-      process.platform === "darwin"
-      && existsSync(resolveComposerAppshotHelperExecutable()),
+      process.platform === "darwin" && existsSync(resolveComposerAppshotHelperExecutable()),
     readFrontmostWindow: runComposerAppshotHelper,
     listWindowSources: (thumbnailSize) =>
       desktopCapturer.getSources({
@@ -256,8 +225,7 @@ function defaultDependencies(): ComposerAppshotServiceDependencies {
         thumbnailSize,
         fetchWindowIcons: true,
       }),
-    displayScaleFactor: (bounds) =>
-      screen.getDisplayMatching(bounds as Rectangle).scaleFactor,
+    displayScaleFactor: (bounds) => screen.getDisplayMatching(bounds as Rectangle).scaleFactor,
     createId: randomUUID,
     scheduleInterval: (callback, delayMs) => setInterval(callback, delayMs),
     scheduleTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
@@ -275,9 +243,7 @@ export class ComposerAppshotService {
   #trackingInterval: NodeJS.Timeout | null = null;
   #trackingStartTimer: NodeJS.Timeout | null = null;
 
-  constructor(
-    dependencies: ComposerAppshotServiceDependencies = defaultDependencies(),
-  ) {
+  constructor(dependencies: ComposerAppshotServiceDependencies = defaultDependencies()) {
     this.#dependencies = dependencies;
   }
 
@@ -343,9 +309,10 @@ export class ComposerAppshotService {
     if (!imageDataUrl.startsWith("data:image/")) {
       throw new Error("The Appshot capture returned an invalid image");
     }
-    const appIconDataUrl = source.appIcon && !source.appIcon.isEmpty()
-      ? source.appIcon.toDataURL()
-      : stored.iconSmallDataUrl;
+    const appIconDataUrl =
+      source.appIcon && !source.appIcon.isEmpty()
+        ? source.appIcon.toDataURL()
+        : stored.iconSmallDataUrl;
     return {
       id: this.#dependencies.createId(),
       appName: target.name,
@@ -362,8 +329,7 @@ export class ComposerAppshotService {
   }
 
   #isAvailable(): boolean {
-    return this.#dependencies.platform === "darwin"
-      && this.#dependencies.helperAvailable();
+    return this.#dependencies.platform === "darwin" && this.#dependencies.helperAvailable();
   }
 
   #startTracking(): void {
@@ -412,11 +378,12 @@ export class ComposerAppshotService {
       return this.#latestTarget;
     }
     const existing = this.#latestTarget;
-    const id = existing
-      && existing.target.processIdentifier === candidate.processIdentifier
-      && existing.target.windowId === candidate.windowId
-      ? existing.id
-      : this.#dependencies.createId();
+    const id =
+      existing &&
+      existing.target.processIdentifier === candidate.processIdentifier &&
+      existing.target.windowId === candidate.windowId
+        ? existing.id
+        : this.#dependencies.createId();
     const stored: StoredComposerAppshotTarget = {
       id,
       target: candidate,
@@ -443,9 +410,10 @@ export class ComposerAppshotService {
         height: 0,
       });
       const source = findComposerAppshotSource(sources, stored.target);
-      const iconSmallDataUrl = source?.appIcon && !source.appIcon.isEmpty()
-        ? source.appIcon.resize({ width: 32, height: 32 }).toDataURL()
-        : null;
+      const iconSmallDataUrl =
+        source?.appIcon && !source.appIcon.isEmpty()
+          ? source.appIcon.resize({ width: 32, height: 32 }).toDataURL()
+          : null;
       if (!iconSmallDataUrl) return stored;
       const hydrated = { ...stored, iconSmallDataUrl };
       this.#targets.set(stored.id, hydrated);

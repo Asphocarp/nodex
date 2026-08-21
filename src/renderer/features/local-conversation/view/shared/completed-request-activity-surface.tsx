@@ -16,15 +16,15 @@ export function CompletedRequestActivitySurface({
 
   return (
     <ThreadActivityShell
-      header={(
+      header={
         <ThreadRichActivityHeader
           status="completed"
-          icon={(
+          icon={
             <ToolActivityIcon
               descriptor={semanticToolIcon("connector")}
               className="icon-xs shrink-0 text-token-conversation-body"
             />
-          )}
+          }
           summary={view.summary}
           disclosure={{
             expanded,
@@ -33,8 +33,8 @@ export function CompletedRequestActivitySurface({
             },
           }}
         />
-      )}
-      body={(
+      }
+      body={
         <motion.div
           initial={false}
           animate={{
@@ -52,13 +52,11 @@ export function CompletedRequestActivitySurface({
               <span className="text-size-chat whitespace-pre-wrap text-token-conversation-body">
                 {view.question}
               </span>
-              <span className="text-size-chat text-token-conversation-header">
-                {view.answer}
-              </span>
+              <span className="text-size-chat text-token-conversation-header">{view.answer}</span>
             </div>
           </div>
         </motion.div>
-      )}
+      }
     />
   );
 }

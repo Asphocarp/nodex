@@ -58,7 +58,9 @@ const quietSurfaceColor = (accentColor: string): string =>
 const quietActiveSurfaceColor = (accentColor: string): string =>
   `color-mix(in srgb, ${accentColor} 8%, var(--background))`;
 
-const statusSurfaceColors = (statusId: string): {
+const statusSurfaceColors = (
+  statusId: string,
+): {
   readonly surfaceColor: string;
   readonly activeSurfaceColor: string;
 } => {
@@ -168,13 +170,15 @@ export const projectDatabaseBoardGroup = ({
   const option = optionIds
     .map((optionId) => options.find((candidate) => candidate.id === optionId))
     .find((candidate) => candidate !== undefined);
-  const optionBacked = property.valueType === "select"
-    || property.valueType === "multi_select"
-    || property.propertyId === "priority"
-    || property.propertyId === "estimate";
+  const optionBacked =
+    property.valueType === "select" ||
+    property.valueType === "multi_select" ||
+    property.propertyId === "priority" ||
+    property.propertyId === "estimate";
   if (optionBacked && option) {
-    const accentColor = semanticAccent(property.propertyId, groupKey)
-      ?? databasePropertyOptionDotColor(option.color, option.id);
+    const accentColor =
+      semanticAccent(property.propertyId, groupKey) ??
+      databasePropertyOptionDotColor(option.color, option.id);
     return {
       pathKey,
       groupKey,
@@ -235,28 +239,28 @@ export const projectDatabaseBoardCardFooter = ({
   return displayedFields.flatMap((field): readonly DatabaseBoardCardFooterSlot[] => {
     if (field.kind === "intrinsic") {
       if (field.field === "page_key") return [];
-      return [{
-        kind: "metadata",
-        field: field.field,
-        value: field.field === "created_at"
-          ? authority.page.createdAt
-          : authority.page.updatedAt,
-      }];
+      return [
+        {
+          kind: "metadata",
+          field: field.field,
+          value: field.field === "created_at" ? authority.page.createdAt : authority.page.updatedAt,
+        },
+      ];
     }
     const property = propertyById.get(field.propertyId);
     if (!property) return [];
-    if (
-      property.propertyId === groupPropertyId
-      || property.propertyId === subgroupPropertyId
-    ) return [];
+    if (property.propertyId === groupPropertyId || property.propertyId === subgroupPropertyId)
+      return [];
     const current = authority.values[property.propertyId];
     if (!current || !databaseBoardValueIsVisible(current.value)) return [];
-    return [{
-      kind: "property",
-      property,
-      value: current.value,
-      revision: current.revision,
-    }];
+    return [
+      {
+        kind: "property",
+        property,
+        value: current.value,
+        revision: current.revision,
+      },
+    ];
   });
 };
 
@@ -269,11 +273,13 @@ export const formatDatabaseBoardMetadataTimestamp = (
   const prefix = field === "created_at" ? "Created" : "Updated";
   const timestamp = new Date(value);
   if (Number.isNaN(timestamp.getTime())) return prefix;
-  const recent = timestamp.getFullYear() === now.getFullYear()
-    && Math.abs(now.getTime() - timestamp.getTime()) <= 31 * 86_400_000;
-  const formatted = new Intl.DateTimeFormat(locale, recent
-    ? { month: "short", day: "numeric" }
-    : { month: "short", year: "numeric" }).format(timestamp);
+  const recent =
+    timestamp.getFullYear() === now.getFullYear() &&
+    Math.abs(now.getTime() - timestamp.getTime()) <= 31 * 86_400_000;
+  const formatted = new Intl.DateTimeFormat(
+    locale,
+    recent ? { month: "short", day: "numeric" } : { month: "short", year: "numeric" },
+  ).format(timestamp);
   return `${prefix} ${formatted}`;
 };
 

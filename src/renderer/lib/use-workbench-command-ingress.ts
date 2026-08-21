@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useEffectEvent,
-  useMemo,
-  useRef,
-} from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef } from "react";
 import type {
   WorkbenchNavigationCommandSource,
   WorkbenchNavigationDirection,
@@ -30,22 +24,15 @@ export interface WorkbenchCommandPort {
     direction: WorkbenchNavigationDirection,
     source: WorkbenchNavigationCommandSource,
   ) => void;
-  readonly toggleSidebar: (
-    source: WorkbenchSidebarToggleCommandSource,
-  ) => void;
-  readonly renameThread: (
-    source: WorkbenchThreadRenameCommandSource,
-  ) => void;
+  readonly toggleSidebar: (source: WorkbenchSidebarToggleCommandSource) => void;
+  readonly renameThread: (source: WorkbenchThreadRenameCommandSource) => void;
   readonly openContentSearch: (
     source: ContentSearchOpenSource,
     preferredDomain?: ContentSearchDomain,
   ) => void;
   readonly cyclePanelTab: (direction: WorkbenchPanelTabCycleDirection) => void;
   readonly closePanelTab: () => void;
-  readonly execute: (
-    commandId: WorkbenchCommandId,
-    source: WorkbenchCommandSource,
-  ) => boolean;
+  readonly execute: (commandId: WorkbenchCommandId, source: WorkbenchCommandSource) => boolean;
   readonly openCommandPalette: (request?: CommandMenuOpenRequest) => void;
   readonly goToPages: () => void;
   readonly goToSettings: () => void;
@@ -91,24 +78,14 @@ export interface WorkbenchViewDeepLinkRequest {
 }
 
 export interface WorkbenchExternalIngressHandlers {
-  readonly onReminderOpen?: (
-    request: WorkbenchReminderOpenRequest,
-  ) => void;
-  readonly onPageDeepLinkOpen?: (
-    request: WorkbenchPageDeepLinkRequest,
-  ) => void;
-  readonly onSessionDeepLinkOpen?: (
-    request: WorkbenchSessionDeepLinkRequest,
-  ) => void;
-  readonly onViewDeepLinkOpen?: (
-    request: WorkbenchViewDeepLinkRequest,
-  ) => void;
+  readonly onReminderOpen?: (request: WorkbenchReminderOpenRequest) => void;
+  readonly onPageDeepLinkOpen?: (request: WorkbenchPageDeepLinkRequest) => void;
+  readonly onSessionDeepLinkOpen?: (request: WorkbenchSessionDeepLinkRequest) => void;
+  readonly onViewDeepLinkOpen?: (request: WorkbenchViewDeepLinkRequest) => void;
   readonly onRequestNewWindow?: () => void;
 }
 
-function parseReminderOpenRequest(
-  value: unknown,
-): WorkbenchReminderOpenRequest | null {
+function parseReminderOpenRequest(value: unknown): WorkbenchReminderOpenRequest | null {
   if (!value || typeof value !== "object") return null;
   const request = value as Record<string, unknown>;
   if (typeof request.projectId !== "string") return null;
@@ -121,9 +98,7 @@ function parseReminderOpenRequest(
   };
 }
 
-function parsePageDeepLinkRequest(
-  value: unknown,
-): WorkbenchPageDeepLinkRequest | null {
+function parsePageDeepLinkRequest(value: unknown): WorkbenchPageDeepLinkRequest | null {
   if (!value || typeof value !== "object") return null;
   const request = value as Record<string, unknown>;
   if (typeof request.projectId !== "string") return null;
@@ -134,15 +109,10 @@ function parsePageDeepLinkRequest(
   };
 }
 
-function parseSessionDeepLinkRequest(
-  value: unknown,
-): WorkbenchSessionDeepLinkRequest | null {
+function parseSessionDeepLinkRequest(value: unknown): WorkbenchSessionDeepLinkRequest | null {
   if (!value || typeof value !== "object") return null;
   const request = value as Record<string, unknown>;
-  if (
-    typeof request.projectId !== "string"
-    && request.projectId !== null
-  ) {
+  if (typeof request.projectId !== "string" && request.projectId !== null) {
     return null;
   }
   if (typeof request.sessionId !== "string") return null;
@@ -152,9 +122,7 @@ function parseSessionDeepLinkRequest(
   };
 }
 
-function parseViewDeepLinkRequest(
-  value: unknown,
-): WorkbenchViewDeepLinkRequest | null {
+function parseViewDeepLinkRequest(value: unknown): WorkbenchViewDeepLinkRequest | null {
   if (!value || typeof value !== "object") return null;
   const request = value as Record<string, unknown>;
   if (typeof request.projectId !== "string") return null;
@@ -174,9 +142,9 @@ export function useWorkbenchCommandIngress(
   externalHandlers: WorkbenchExternalIngressHandlers = {},
 ): WorkbenchCommandDispatcher {
   const portRef = useRef<WorkbenchCommandPort | null>(null);
-  const pendingDesktopNotificationInvocationsRef = useRef<
-    DesktopNotificationActionInvocation[]
-  >([]);
+  const pendingDesktopNotificationInvocationsRef = useRef<DesktopNotificationActionInvocation[]>(
+    [],
+  );
   const desktopNotificationExecutionRef = useRef<Promise<void>>(Promise.resolve());
 
   const scheduleDesktopNotification = useCallback(
@@ -201,17 +169,20 @@ export function useWorkbenchCommandIngress(
     [],
   );
 
-  const register = useCallback((port: WorkbenchCommandPort) => {
-    portRef.current = port;
-    const pending = pendingDesktopNotificationInvocationsRef.current.splice(0);
-    for (const invocation of pending) {
-      scheduleDesktopNotification(invocation);
-    }
-    return () => {
-      if (portRef.current !== port) return;
-      portRef.current = null;
-    };
-  }, [scheduleDesktopNotification]);
+  const register = useCallback(
+    (port: WorkbenchCommandPort) => {
+      portRef.current = port;
+      const pending = pendingDesktopNotificationInvocationsRef.current.splice(0);
+      for (const invocation of pending) {
+        scheduleDesktopNotification(invocation);
+      }
+      return () => {
+        if (portRef.current !== port) return;
+        portRef.current = null;
+      };
+    },
+    [scheduleDesktopNotification],
+  );
 
   const navigate = useCallback<WorkbenchCommandPort["navigate"]>(
     (direction, source) => portRef.current?.navigate(direction, source),
@@ -225,11 +196,8 @@ export function useWorkbenchCommandIngress(
     (source) => portRef.current?.renameThread(source),
     [],
   );
-  const openContentSearch = useCallback<
-    WorkbenchCommandPort["openContentSearch"]
-  >(
-    (source, preferredDomain) =>
-      portRef.current?.openContentSearch(source, preferredDomain),
+  const openContentSearch = useCallback<WorkbenchCommandPort["openContentSearch"]>(
+    (source, preferredDomain) => portRef.current?.openContentSearch(source, preferredDomain),
     [],
   );
   const cyclePanelTab = useCallback<WorkbenchCommandPort["cyclePanelTab"]>(
@@ -241,14 +209,10 @@ export function useWorkbenchCommandIngress(
     [],
   );
   const execute = useCallback<WorkbenchCommandPort["execute"]>(
-    (commandId, source) => (
-      portRef.current?.execute(commandId, source) ?? false
-    ),
+    (commandId, source) => portRef.current?.execute(commandId, source) ?? false,
     [],
   );
-  const openCommandPalette = useCallback<
-    WorkbenchCommandPort["openCommandPalette"]
-  >(
+  const openCommandPalette = useCallback<WorkbenchCommandPort["openCommandPalette"]>(
     (request) => portRef.current?.openCommandPalette(request),
     [],
   );
@@ -264,15 +228,11 @@ export function useWorkbenchCommandIngress(
     () => portRef.current?.toggleSettings(),
     [],
   );
-  const openKeyboardShortcuts = useCallback<
-    WorkbenchCommandPort["openKeyboardShortcuts"]
-  >(
+  const openKeyboardShortcuts = useCallback<WorkbenchCommandPort["openKeyboardShortcuts"]>(
     () => portRef.current?.openKeyboardShortcuts(),
     [],
   );
-  const openDesktopNotification = useCallback<
-    WorkbenchCommandPort["openDesktopNotification"]
-  >(
+  const openDesktopNotification = useCallback<WorkbenchCommandPort["openDesktopNotification"]>(
     (invocation) => {
       if (!portRef.current) {
         pendingDesktopNotificationInvocationsRef.current.push(invocation);
@@ -306,34 +266,27 @@ export function useWorkbenchCommandIngress(
     externalHandlers.onRequestNewWindow?.();
   });
 
-  useEffect(() => window.api?.onNavigateBack?.(
-    () => navigate("back", "menu"),
-  ), [navigate]);
-  useEffect(() => window.api?.onNavigateForward?.(
-    () => navigate("forward", "menu"),
-  ), [navigate]);
-  useEffect(() => window.api?.onToggleSidebar?.(
-    () => toggleSidebar("menu"),
-  ), [toggleSidebar]);
-  useEffect(() => window.api?.onRenameThread?.(
-    () => renameThread("menu"),
-  ), [renameThread]);
-  useEffect(() => window.api?.onOpenContentSearch?.(
-    () => openContentSearch("menu"),
-  ), [openContentSearch]);
-  useEffect(() => window.api?.onCyclePanelTabPrevious?.(
-    () => cyclePanelTab("previous"),
-  ), [cyclePanelTab]);
-  useEffect(() => window.api?.onCyclePanelTabNext?.(
-    () => cyclePanelTab("next"),
-  ), [cyclePanelTab]);
-  useEffect(() => window.api?.onClosePanelTab?.(
-    closePanelTab,
-  ), [closePanelTab]);
-  useEffect(() => window.api?.onWorkbenchCommand?.(
-    (invocation: WorkbenchCommandInvocation) =>
-      execute(invocation.commandId, invocation.source),
-  ), [execute]);
+  useEffect(() => window.api?.onNavigateBack?.(() => navigate("back", "menu")), [navigate]);
+  useEffect(() => window.api?.onNavigateForward?.(() => navigate("forward", "menu")), [navigate]);
+  useEffect(() => window.api?.onToggleSidebar?.(() => toggleSidebar("menu")), [toggleSidebar]);
+  useEffect(() => window.api?.onRenameThread?.(() => renameThread("menu")), [renameThread]);
+  useEffect(
+    () => window.api?.onOpenContentSearch?.(() => openContentSearch("menu")),
+    [openContentSearch],
+  );
+  useEffect(
+    () => window.api?.onCyclePanelTabPrevious?.(() => cyclePanelTab("previous")),
+    [cyclePanelTab],
+  );
+  useEffect(() => window.api?.onCyclePanelTabNext?.(() => cyclePanelTab("next")), [cyclePanelTab]);
+  useEffect(() => window.api?.onClosePanelTab?.(closePanelTab), [closePanelTab]);
+  useEffect(
+    () =>
+      window.api?.onWorkbenchCommand?.((invocation: WorkbenchCommandInvocation) =>
+        execute(invocation.commandId, invocation.source),
+      ),
+    [execute],
+  );
   useEffect(() => {
     if (!window.api?.on) return undefined;
     return window.api.on("reminder:open", (value: unknown) => {
@@ -358,42 +311,47 @@ export function useWorkbenchCommandIngress(
       onSessionDeepLinkOpen(value);
     });
   }, []);
-  useEffect(() => window.api?.onRequestNewWindow?.(
-    onRequestNewWindow,
-  ), []);
-  useEffect(() => subscribeDesktopNotificationActions((invocation) => {
-    void openDesktopNotification(invocation);
-  }), [openDesktopNotification]);
+  useEffect(() => window.api?.onRequestNewWindow?.(onRequestNewWindow), []);
+  useEffect(
+    () =>
+      subscribeDesktopNotificationActions((invocation) => {
+        void openDesktopNotification(invocation);
+      }),
+    [openDesktopNotification],
+  );
 
-  return useMemo(() => ({
-    register,
-    navigate,
-    toggleSidebar,
-    renameThread,
-    openContentSearch,
-    cyclePanelTab,
-    closePanelTab,
-    execute,
-    openCommandPalette,
-    goToPages,
-    goToSettings,
-    toggleSettings,
-    openKeyboardShortcuts,
-    openDesktopNotification,
-  }), [
-    closePanelTab,
-    cyclePanelTab,
-    execute,
-    goToPages,
-    goToSettings,
-    navigate,
-    openCommandPalette,
-    openContentSearch,
-    openKeyboardShortcuts,
-    openDesktopNotification,
-    register,
-    renameThread,
-    toggleSettings,
-    toggleSidebar,
-  ]);
+  return useMemo(
+    () => ({
+      register,
+      navigate,
+      toggleSidebar,
+      renameThread,
+      openContentSearch,
+      cyclePanelTab,
+      closePanelTab,
+      execute,
+      openCommandPalette,
+      goToPages,
+      goToSettings,
+      toggleSettings,
+      openKeyboardShortcuts,
+      openDesktopNotification,
+    }),
+    [
+      closePanelTab,
+      cyclePanelTab,
+      execute,
+      goToPages,
+      goToSettings,
+      navigate,
+      openCommandPalette,
+      openContentSearch,
+      openKeyboardShortcuts,
+      openDesktopNotification,
+      register,
+      renameThread,
+      toggleSettings,
+      toggleSidebar,
+    ],
+  );
 }

@@ -11,10 +11,7 @@ import type {
   ThreadComposerShellBackgroundAgentRowModel,
   ThreadTurnModel,
 } from "../thread-stage-types";
-import {
-  buildTurnRenderModel,
-  createTurnRenderModelSelector,
-} from "./build-turn-render-model";
+import { buildTurnRenderModel, createTurnRenderModelSelector } from "./build-turn-render-model";
 
 const LIVE_DIFF = [
   "--- a/src/app.ts",
@@ -135,13 +132,16 @@ function buildBackgroundAgent(
   };
 }
 
-function readFirstSubagentActivityStatus(model: ReturnType<typeof buildTurnRenderModel>): string | null {
+function readFirstSubagentActivityStatus(
+  model: ReturnType<typeof buildTurnRenderModel>,
+): string | null {
   for (const unit of model.agentBodyUnits) {
-    const entries = unit.block.type === "agentActivityGroup"
-      ? unit.block.entries
-      : unit.block.type === "subagentActivityInlineGroup"
-        ? [unit.block]
-        : [];
+    const entries =
+      unit.block.type === "agentActivityGroup"
+        ? unit.block.entries
+        : unit.block.type === "subagentActivityInlineGroup"
+          ? [unit.block]
+          : [];
     const subagent = entries.find((entry) => entry.type === "subagentActivityInlineGroup");
     if (subagent?.type === "subagentActivityInlineGroup") {
       return subagent.subagentActivityRows?.[0]?.activityStatus ?? null;
@@ -150,7 +150,9 @@ function readFirstSubagentActivityStatus(model: ReturnType<typeof buildTurnRende
   return null;
 }
 
-function buildFileChangeItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
+function buildFileChangeItem(
+  overrides: Partial<CodexConversationItem> = {},
+): CodexConversationItem {
   return {
     threadId: "thread_1",
     turnId: "turn_1",
@@ -161,11 +163,13 @@ function buildFileChangeItem(overrides: Partial<CodexConversationItem> = {}): Co
     semanticKind: "patch",
     status: "inProgress",
     fileChange: {
-      changes: buildCodexFileChangeMap([{
-        type: "add",
-        path: "src/app.ts",
-        content: "new",
-      }]),
+      changes: buildCodexFileChangeMap([
+        {
+          type: "add",
+          path: "src/app.ts",
+          content: "new",
+        },
+      ]),
       label: "Created src/app.ts",
     },
     createdAt: 1,
@@ -213,7 +217,9 @@ function buildExecItem(overrides: Partial<CodexConversationItem> = {}): CodexCon
   };
 }
 
-function buildDynamicToolItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
+function buildDynamicToolItem(
+  overrides: Partial<CodexConversationItem> = {},
+): CodexConversationItem {
   return {
     threadId: "thread_1",
     turnId: "turn_1",
@@ -320,7 +326,9 @@ function buildAssistantItem(overrides: Partial<CodexConversationItem> = {}): Cod
   };
 }
 
-function buildModelChangedItem(overrides: Partial<CodexConversationItem> = {}): CodexConversationItem {
+function buildModelChangedItem(
+  overrides: Partial<CodexConversationItem> = {},
+): CodexConversationItem {
   return {
     threadId: "thread_1",
     turnId: "turn_1",
@@ -399,10 +407,7 @@ describe("buildTurnRenderModel", () => {
     const turn = buildTurn({
       status: "completed",
       itemIds: ["exec_1", "assistant_1"],
-      items: [
-        buildExecItem({ status: "completed" }),
-        buildAssistantItem(),
-      ],
+      items: [buildExecItem({ status: "completed" }), buildAssistantItem()],
     });
     const active = buildTurnRenderModel({
       turn,
@@ -514,19 +519,21 @@ describe("buildTurnRenderModel", () => {
     expect(projectionCount).toBe(2);
 
     patch.fileChange = {
-      changes: buildCodexFileChangeMap([{
-        type: "add",
-        path: "src/fresh.ts",
-        content: "fresh",
-      }]),
+      changes: buildCodexFileChangeMap([
+        {
+          type: "add",
+          path: "src/fresh.ts",
+          content: "fresh",
+        },
+      ]),
       label: "Created src/fresh.ts",
     };
     patch.updatedAt = 4;
     const afterPatchUpdate = selectModel({ entry });
     expect(findRenderedActivityEntry(afterPatchUpdate, patch.itemId)).toBe(patch);
-    expect(
-      findRenderedActivityEntry(afterPatchUpdate, patch.itemId)?.fileChange?.label,
-    ).toBe("Created src/fresh.ts");
+    expect(findRenderedActivityEntry(afterPatchUpdate, patch.itemId)?.fileChange?.label).toBe(
+      "Created src/fresh.ts",
+    );
     expect(selectModel({ entry })).toBe(afterPatchUpdate);
     expect(projectionCount).toBe(3);
 
@@ -534,9 +541,9 @@ describe("buildTurnRenderModel", () => {
     command.updatedAt = 5;
     const afterCommandOutput = selectModel({ entry });
     expect(findRenderedActivityEntry(afterCommandOutput, command.itemId)).toBe(command);
-    expect(
-      findRenderedActivityEntry(afterCommandOutput, command.itemId)?.aggregatedOutput,
-    ).toBe("streamed command output");
+    expect(findRenderedActivityEntry(afterCommandOutput, command.itemId)?.aggregatedOutput).toBe(
+      "streamed command output",
+    );
     expect(selectModel({ entry })).toBe(afterCommandOutput);
     expect(projectionCount).toBe(4);
 
@@ -580,10 +587,7 @@ describe("buildTurnRenderModel", () => {
     const preview = selectModel({ entry, surface: "preview" });
 
     expect(main.leadingBlocks.map((block) => block.type)).toEqual(["userMessage"]);
-    expect(main.blocks.map((block) => block.type)).toEqual([
-      "userMessage",
-      "assistantMessage",
-    ]);
+    expect(main.blocks.map((block) => block.type)).toEqual(["userMessage", "assistantMessage"]);
     expect(preview.leadingBlocks).toEqual([]);
     expect(preview.blocks.map((block) => block.type)).toEqual(["assistantMessage"]);
   });
@@ -592,11 +596,7 @@ describe("buildTurnRenderModel", () => {
     const turn = buildTurn({
       status: "completed",
       itemIds: ["model_changed_1", "user_1", "assistant_1"],
-      items: [
-        buildModelChangedItem(),
-        buildUserItem(),
-        buildAssistantItem(),
-      ],
+      items: [buildModelChangedItem(), buildUserItem(), buildAssistantItem()],
     });
 
     const preview = createTurnRenderModelSelector()({
@@ -719,9 +719,10 @@ describe("buildTurnRenderModel", () => {
       fallback: { owner: "standalone" },
     });
     expect(model.searchableText.includes("+next")).toBe(false);
-    const rawItem = model.aboveComposerBlocks?.[0]?.type === "turnDiff"
-      ? model.aboveComposerBlocks[0].entry.rawItem as { unifiedDiff?: unknown } | undefined
-      : null;
+    const rawItem =
+      model.aboveComposerBlocks?.[0]?.type === "turnDiff"
+        ? (model.aboveComposerBlocks[0].entry.rawItem as { unifiedDiff?: unknown } | undefined)
+        : null;
     expect(String(rawItem?.unifiedDiff ?? "").includes("+next")).toBe(true);
   });
 
@@ -736,9 +737,10 @@ describe("buildTurnRenderModel", () => {
     });
 
     const diffBlock = model.aboveComposerBlocks?.find((block) => block.type === "turnDiff");
-    const rawItem = diffBlock?.type === "turnDiff"
-      ? diffBlock.entry.rawItem as { unifiedDiff?: unknown }
-      : null;
+    const rawItem =
+      diffBlock?.type === "turnDiff"
+        ? (diffBlock.entry.rawItem as { unifiedDiff?: unknown })
+        : null;
     expect(String(rawItem?.unifiedDiff ?? "")).toContain("output/inside.ts");
     expect(String(rawItem?.unifiedDiff ?? "")).not.toContain("src/outside.ts");
   });
@@ -769,7 +771,8 @@ describe("buildTurnRenderModel", () => {
   });
 
   test("does not create a fixed or completed turn-diff surface without actual changes", () => {
-    const headerOnlyDiff = "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts";
+    const headerOnlyDiff =
+      "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts";
     const active = buildTurnRenderModel({
       turn: buildTurn({ diff: headerOnlyDiff, itemIds: [], items: [] }),
       requests: [],
@@ -794,17 +797,20 @@ describe("buildTurnRenderModel", () => {
   });
 
   test("drops an explicit transcript turn-diff without actual changes", () => {
-    const headerOnlyDiff = "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts";
+    const headerOnlyDiff =
+      "diff --git a/src/app.ts b/src/app.ts\n--- a/src/app.ts\n+++ b/src/app.ts";
     const model = buildTurnRenderModel({
       turn: buildTurn({
         status: "completed",
         itemIds: ["turn-diff:turn_1"],
-        items: [buildTurnDiffItem({
-          rawItem: {
-            type: "turn-diff",
-            unifiedDiff: headerOnlyDiff,
-          },
-        })],
+        items: [
+          buildTurnDiffItem({
+            rawItem: {
+              type: "turn-diff",
+              unifiedDiff: headerOnlyDiff,
+            },
+          }),
+        ],
       }),
       requests: [],
       isLatestTurn: true,
@@ -829,10 +835,12 @@ describe("buildTurnRenderModel", () => {
       isStreamingTurn: false,
     });
 
-    expect(model.searchUnits.map((unit) => `${unit.blockType}:${unit.key}:${unit.text}`).join(",")).toBe(
-      "userMessage:turn_1:user:0:,assistantMessage:turn_1:assistant:Done",
-    );
-    expect(model.searchUnits.filter((unit) => unit.text.toLowerCase().includes("missing")).length).toBe(0);
+    expect(
+      model.searchUnits.map((unit) => `${unit.blockType}:${unit.key}:${unit.text}`).join(","),
+    ).toBe("userMessage:turn_1:user:0:,assistantMessage:turn_1:assistant:Done");
+    expect(
+      model.searchUnits.filter((unit) => unit.text.toLowerCase().includes("missing")).length,
+    ).toBe(0);
   });
 
   test("does not index tool-call body text in conversation search units", () => {
@@ -851,11 +859,13 @@ describe("buildTurnRenderModel", () => {
           buildFileChangeItem({
             status: "completed",
             fileChange: {
-              changes: buildCodexFileChangeMap([{
-                type: "add",
-                path: "src/hidden-file.ts",
-                content: "HIDDEN_PATCH_BODY",
-              }]),
+              changes: buildCodexFileChangeMap([
+                {
+                  type: "add",
+                  path: "src/hidden-file.ts",
+                  content: "HIDDEN_PATCH_BODY",
+                },
+              ]),
               label: "HIDDEN_PATCH_LABEL",
             },
           }),
@@ -868,7 +878,11 @@ describe("buildTurnRenderModel", () => {
               readOnlyHint: true,
               mcpAppResourceUri: undefined,
               source: null,
-              invocation: { server: "docs", tool: "search", arguments: { query: "HIDDEN_MCP_QUERY" } },
+              invocation: {
+                server: "docs",
+                tool: "search",
+                arguments: { query: "HIDDEN_MCP_QUERY" },
+              },
               result: {
                 type: "success",
                 content: [{ type: "text", text: "HIDDEN_MCP_RESULT" }],
@@ -926,7 +940,9 @@ describe("buildTurnRenderModel", () => {
       isStreamingTurn: true,
     });
 
-    expect(model.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
+    expect(model.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe(
+      "turn-diff:turn_1",
+    );
   });
 
   test("keeps the live turn-diff banner when a live fileChange row represents the draft edit", () => {
@@ -942,7 +958,9 @@ describe("buildTurnRenderModel", () => {
     });
 
     expect(model.aboveComposerBlocks?.map((block) => block.type).join(",") ?? "").toBe("turnDiff");
-    expect(model.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
+    expect(model.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe(
+      "turn-diff:turn_1",
+    );
     expect(model.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
   });
 
@@ -970,12 +988,14 @@ describe("buildTurnRenderModel", () => {
         items: [
           buildFileChangeItem({
             fileChange: {
-              changes: buildCodexFileChangeMap([{
-                type: "update",
-                path: "src/app.ts",
-                unifiedDiff: LIVE_DIFF,
-                movePath: null,
-              }]),
+              changes: buildCodexFileChangeMap([
+                {
+                  type: "update",
+                  path: "src/app.ts",
+                  unifiedDiff: LIVE_DIFF,
+                  movePath: null,
+                },
+              ]),
               label: "Edited src/app.ts",
             },
           }),
@@ -986,11 +1006,19 @@ describe("buildTurnRenderModel", () => {
       isStreamingTurn: true,
     });
 
-    expect(beforeFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
-    expect(withFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
-    expect(withUpdatedFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe("turn-diff:turn_1");
+    expect(beforeFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe(
+      "turn-diff:turn_1",
+    );
+    expect(withFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "").toBe(
+      "turn-diff:turn_1",
+    );
+    expect(
+      withUpdatedFileChange.aboveComposerBlocks?.map((block) => block.id).join(",") ?? "",
+    ).toBe("turn-diff:turn_1");
     expect(withFileChange.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
-    expect(withUpdatedFileChange.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
+    expect(withUpdatedFileChange.blocks.map((block) => block.type).join(",")).toBe(
+      "agentActivityGroup",
+    );
   });
 
   test("keeps latest live single dynamic and MCP activity grouped until assistant content starts", () => {
@@ -1028,11 +1056,19 @@ describe("buildTurnRenderModel", () => {
       isStreamingTurn: true,
     });
 
-    expect(liveDynamic.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("agentActivityGroup");
+    expect(liveDynamic.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
+      "agentActivityGroup",
+    );
     expect(liveDynamic.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup");
-    expect(liveMcp.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("agentActivityGroup");
-    expect(afterAssistantStarts.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("agentActivityGroup");
-    expect(afterAssistantStarts.blocks.map((block) => block.type).join(",")).toBe("agentActivityGroup,assistantMessage");
+    expect(liveMcp.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
+      "agentActivityGroup",
+    );
+    expect(afterAssistantStarts.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
+      "agentActivityGroup",
+    );
+    expect(afterAssistantStarts.blocks.map((block) => block.type).join(",")).toBe(
+      "agentActivityGroup,assistantMessage",
+    );
   });
 
   test("suppresses empty live fileChange activity and keeps Thinking fallback", () => {
@@ -1100,24 +1136,27 @@ describe("buildTurnRenderModel", () => {
       turn: buildTurn({
         firstTurnWorkItemStartedAtMs: 1_000,
         itemIds: ["user_1", "exec_1"],
-        items: [
-          buildUserItem(),
-          buildExecItem(),
-        ],
+        items: [buildUserItem(), buildExecItem()],
       }),
       requests: [],
       isLatestTurn: true,
       isStreamingTurn: true,
     });
 
-    expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe("workedFor,agentActivityGroup");
-    expect(model.blocks.map((block) => block.type).join(",")).toBe("userMessage,workedFor,agentActivityGroup");
+    expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
+      "workedFor,agentActivityGroup",
+    );
+    expect(model.blocks.map((block) => block.type).join(",")).toBe(
+      "userMessage,workedFor,agentActivityGroup",
+    );
     expect(model.liveActivity).toMatchObject({
       global: { state: { type: "none" } },
       fallback: { owner: "none" },
     });
     const activityGroup = model.agentBodyUnits[1]?.block;
-    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.header.kind : null).toBe("active");
+    expect(activityGroup?.type === "agentActivityGroup" ? activityGroup.header.kind : null).toBe(
+      "active",
+    );
     expect(model.searchableText.includes("Working")).toBe(false);
   });
 
@@ -1128,11 +1167,7 @@ describe("buildTurnRenderModel", () => {
         firstTurnWorkItemStartedAtMs: 1_000,
         finalAssistantStartedAtMs: 8_000,
         itemIds: ["user_1", "exec_1", "assistant_1"],
-        items: [
-          buildUserItem(),
-          buildExecItem({ status: "completed" }),
-          buildAssistantItem(),
-        ],
+        items: [buildUserItem(), buildExecItem({ status: "completed" }), buildAssistantItem()],
       }),
       requests: [],
       isLatestTurn: false,
@@ -1152,11 +1187,7 @@ describe("buildTurnRenderModel", () => {
         status: "completed",
         durationMs: 125_000,
         itemIds: ["user_1", "exec_1", "assistant_1"],
-        items: [
-          buildUserItem(),
-          buildExecItem({ status: "completed" }),
-          buildAssistantItem(),
-        ],
+        items: [buildUserItem(), buildExecItem({ status: "completed" }), buildAssistantItem()],
       }),
       requests: [],
       isLatestTurn: false,
@@ -1175,10 +1206,7 @@ describe("buildTurnRenderModel", () => {
         firstTurnWorkItemStartedAtMs: 1_000,
         finalAssistantStartedAtMs: 8_000,
         itemIds: ["user_1", "exec_1"],
-        items: [
-          buildUserItem(),
-          buildExecItem({ status: "completed" }),
-        ],
+        items: [buildUserItem(), buildExecItem({ status: "completed" })],
       }),
       requests: [],
       isLatestTurn: false,
@@ -1222,17 +1250,17 @@ describe("buildTurnRenderModel", () => {
       isStreamingTurn: false,
     });
 
-    expect(model.agentBodyUnits.map((unit) => unit.kind).join(",")).toBe(
-      "entry,entry,entry",
-    );
+    expect(model.agentBodyUnits.map((unit) => unit.kind).join(",")).toBe("entry,entry,entry");
     expect(model.agentBodyUnits.map((unit) => unit.block.type).join(",")).toBe(
       "exec,dynamicToolCall,fileChange",
     );
     expect(model.agentBodyUnits.map((unit) => unit.block.renderKey).join(",")).toBe(
       "agent-activity-group:exec:0,agent-activity-standalone:handoff_1,agent-activity-group:patch_live",
     );
-    expect(model.agentBodyUnits.map((unit) => (
-      unit.targetAttributes?.["data-local-conversation-item-target-ids"] ?? "none"
-    )).join(",")).toBe("none,handoff_1,patch_live");
+    expect(
+      model.agentBodyUnits
+        .map((unit) => unit.targetAttributes?.["data-local-conversation-item-target-ids"] ?? "none")
+        .join(","),
+    ).toBe("none,handoff_1,patch_live");
   });
 });

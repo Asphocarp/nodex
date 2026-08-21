@@ -38,20 +38,21 @@ describe("app renderer protocol", () => {
   test("does not turn missing or traversal paths into index HTML", async () => {
     const { handler } = createFixture();
 
-    await expect(handler(new Request("app://-/missing")))
-      .resolves.toMatchObject({ status: 404 });
-    await expect(handler(new Request("app://-/%2e%2e%2fsecret")))
-      .resolves.toMatchObject({ status: 400 });
+    await expect(handler(new Request("app://-/missing"))).resolves.toMatchObject({ status: 404 });
+    await expect(handler(new Request("app://-/%2e%2e%2fsecret"))).resolves.toMatchObject({
+      status: 400,
+    });
   });
 
   test("rejects foreign hosts and mutations", async () => {
     const { handler } = createFixture();
 
-    await expect(handler(new Request("app://foreign/index.html")))
-      .resolves.toMatchObject({ status: 400 });
-    await expect(handler(new Request("app:///index.html")))
-      .resolves.toMatchObject({ status: 400 });
-    await expect(handler(new Request("app://-/index.html", { method: "POST" })))
-      .resolves.toMatchObject({ status: 405 });
+    await expect(handler(new Request("app://foreign/index.html"))).resolves.toMatchObject({
+      status: 400,
+    });
+    await expect(handler(new Request("app:///index.html"))).resolves.toMatchObject({ status: 400 });
+    await expect(
+      handler(new Request("app://-/index.html", { method: "POST" })),
+    ).resolves.toMatchObject({ status: 405 });
   });
 });

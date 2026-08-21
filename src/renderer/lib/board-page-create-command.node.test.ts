@@ -4,10 +4,12 @@ import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2
 import type { BoardSummary, DatabasePage } from "./types";
 
 const state = vi.hoisted(() => ({
-  snapshot: { databaseView: null } as { databaseView: null | {
-    readOnlyReason?: string | null;
-    query: { properties: DataSourcePropertyRecordV2[] };
-  } },
+  snapshot: { databaseView: null } as {
+    databaseView: null | {
+      readOnlyReason?: string | null;
+      query: { properties: DataSourcePropertyRecordV2[] };
+    };
+  },
   setError: vi.fn(),
   fetchBoard: vi.fn(),
   runOptimisticMutation: vi.fn(),
@@ -57,12 +59,12 @@ describe("createBoardPage", () => {
     };
     state.setError.mockReset();
     state.fetchBoard.mockReset();
-    state.runOptimisticMutation.mockReset().mockImplementation(
-      async (options: { runRemote: () => Promise<unknown> }) => ({
+    state.runOptimisticMutation
+      .mockReset()
+      .mockImplementation(async (options: { runRemote: () => Promise<unknown> }) => ({
         ok: true,
         result: await options.runRemote(),
-      }),
-    );
+      }));
     state.setDatabaseRowDetail.mockReset();
     state.commitPageLifecycleIntent.mockReset().mockResolvedValue({
       receipt: {
@@ -91,32 +93,37 @@ describe("createBoardPage", () => {
     });
 
     expect(result).toEqual({ status: "created", page });
-    expect(state.commitPageLifecycleIntent).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "create",
-      projectId: "project-test",
-      clientSessionId: "session-test",
-      status: "plan",
-      placement: "top",
-      input: expect.objectContaining({
-        title: "Created Page",
-        priority: undefined,
-        estimate: undefined,
-        tagOptions: [],
+    expect(state.commitPageLifecycleIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "create",
+        projectId: "project-test",
+        clientSessionId: "session-test",
+        status: "plan",
+        placement: "top",
+        input: expect.objectContaining({
+          title: "Created Page",
+          priority: undefined,
+          estimate: undefined,
+          tagOptions: [],
+        }),
       }),
-    }));
+    );
     const optimisticMutation = state.runOptimisticMutation.mock.calls[0]?.[0] as {
       apply: (board: BoardSummary) => BoardSummary;
-      getCommitCursor: (result: {
-        receipt: { storeEpoch: string; commitSeq: number };
-      }) => { storeEpoch: string; commitSeq: number };
+      getCommitCursor: (result: { receipt: { storeEpoch: string; commitSeq: number } }) => {
+        storeEpoch: string;
+        commitSeq: number;
+      };
     };
     const optimisticBoard = optimisticMutation.apply({
       columns: [{ id: "plan", name: "Plan", cards: [] }],
     });
     expect(optimisticBoard.columns[0]?.cards[0]?.status).toBe("plan");
-    expect(optimisticMutation.getCommitCursor({
-      receipt: { storeEpoch: "epoch-test", commitSeq: 42 },
-    })).toEqual({ storeEpoch: "epoch-test", commitSeq: 42 });
+    expect(
+      optimisticMutation.getCommitCursor({
+        receipt: { storeEpoch: "epoch-test", commitSeq: 42 },
+      }),
+    ).toEqual({ storeEpoch: "epoch-test", commitSeq: 42 });
     expect(state.setDatabaseRowDetail).toHaveBeenCalledWith("project-test", page);
   });
 

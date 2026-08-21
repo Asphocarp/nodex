@@ -1,15 +1,8 @@
 import { expect, test } from "vitest";
-import type {
-  CoreEventEnvelope,
-  CoreEventReplayRequired,
-  CoreStreamCheckpoint,
-} from "./types";
+import type { CoreEventEnvelope, CoreEventReplayRequired, CoreStreamCheckpoint } from "./types";
 import { superviseCoreEventStream } from "./core-event-stream-supervisor";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
-import {
-  CoreEventCompatibilityError,
-  CoreHttpError,
-} from "./uds-http";
+import { CoreEventCompatibilityError, CoreHttpError } from "./uds-http";
 
 function deferred<Value = void>(): {
   readonly promise: Promise<Value>;
@@ -189,9 +182,7 @@ test("retries from the same cursor when opening the stream fails", async () => {
 });
 
 test("fails permanently without retrying a compatibility mismatch", async () => {
-  const mismatch = new CoreEventCompatibilityError(
-    "Core event Store epoch is invalid",
-  );
+  const mismatch = new CoreEventCompatibilityError("Core event Store epoch is invalid");
   const interruptions: unknown[] = [];
   let attempts = 0;
   const supervisor = superviseCoreEventStream({
@@ -290,10 +281,14 @@ test("aborts an opening request when the logical subscription closes", async () 
     initialAfter: 0,
     open: async (_after, _onEvent, _onCheckpoint, _onResyncRequired, signal) =>
       await new Promise((resolve, reject) => {
-        signal.addEventListener("abort", () => {
-          aborted = true;
-          reject(signal.reason);
-        }, { once: true });
+        signal.addEventListener(
+          "abort",
+          () => {
+            aborted = true;
+            reject(signal.reason);
+          },
+          { once: true },
+        );
         void resolve;
       }),
     onEvent: () => undefined,
@@ -314,8 +309,7 @@ test("terminates after a non-retryable reopening response", async () => {
   const supervisor = superviseCoreEventStream({
     initialAfter: 0,
     retryDelayMs: 0,
-    shouldRetry: (error) =>
-      !(error instanceof CoreHttpError) || error.status >= 500,
+    shouldRetry: (error) => !(error instanceof CoreHttpError) || error.status >= 500,
     open: async () => {
       attempts += 1;
       if (attempts === 1) {

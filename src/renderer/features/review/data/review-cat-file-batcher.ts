@@ -1,7 +1,4 @@
-import type {
-  GitCatFileResult,
-  GitReviewCatFileRequest,
-} from "@/lib/types";
+import type { GitCatFileResult, GitReviewCatFileRequest } from "@/lib/types";
 import { recordReviewRuntimeEvent } from "@/features/review/testing/review-runtime-probe";
 import type { GitWorkerQueryClient } from "./git-query";
 import { StaleReviewSnapshot } from "./review-diff-batcher";
@@ -33,8 +30,7 @@ function takeNextBatch(waiters: ReviewCatFileWaiter[]): ReviewCatFileWaiter[] {
     if (!candidate) break;
     if (
       batch.length > 0 &&
-      requestCount + candidate.requests.length >
-        REVIEW_CAT_FILE_BATCH_MAX_OBJECTS
+      requestCount + candidate.requests.length > REVIEW_CAT_FILE_BATCH_MAX_OBJECTS
     ) {
       break;
     }
@@ -72,10 +68,7 @@ async function flushBucket(key: string, bucket: ReviewCatFileBucket) {
       }
       let resultOffset = 0;
       for (const waiter of waiters) {
-        const results = output.results.slice(
-          resultOffset,
-          resultOffset + waiter.requests.length,
-        );
+        const results = output.results.slice(resultOffset, resultOffset + waiter.requests.length);
         resultOffset += waiter.requests.length;
         waiter.resolve(results);
       }
@@ -93,11 +86,7 @@ export function requestReviewCatFile(input: {
   client: GitWorkerQueryClient;
 }): Promise<GitCatFileResult[]> {
   return new Promise((resolve, reject) => {
-    const key = JSON.stringify([
-      input.bucketKey,
-      input.cwd,
-      input.snapshotGeneration,
-    ]);
+    const key = JSON.stringify([input.bucketKey, input.cwd, input.snapshotGeneration]);
     const waiter = { requests: input.requests, resolve, reject };
     const existing = buckets.get(key);
     if (existing) {

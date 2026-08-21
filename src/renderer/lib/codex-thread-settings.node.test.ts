@@ -64,11 +64,14 @@ describe("codex-thread-settings", () => {
     };
 
     try {
-      store.set(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({
-        model: " gpt-5.3-codex ",
-        reasoningEffort: "future-effort",
-        detailLevel: "invalid-detail-level",
-      }));
+      store.set(
+        THREAD_SETTINGS_STORAGE_KEY,
+        JSON.stringify({
+          model: " gpt-5.3-codex ",
+          reasoningEffort: "future-effort",
+          detailLevel: "invalid-detail-level",
+        }),
+      );
 
       const settings = readCodexThreadSettings();
 

@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ConnectedThreadComposerDock,
   ConnectedThreadStage,
@@ -13,9 +8,7 @@ import {
   type ThreadActionControllerInput,
   type ThreadStageActions,
 } from "@/features/local-conversation";
-import type {
-  RightPanelComposerOverlayVisibility,
-} from "@/features/local-conversation/view/right-panel-composer-overlay";
+import type { RightPanelComposerOverlayVisibility } from "@/features/local-conversation/view/right-panel-composer-overlay";
 import { createThreadStageActions } from "@/features/local-conversation/thread-action-controller";
 import type {
   NewChatStartInSelectorModel,
@@ -134,39 +127,27 @@ function ConnectedSessionThread({
   onEnsureDefaultDraftSessionForProject: (
     projectId: string | null,
   ) => Promise<WorkbenchSessionRenderProjection>;
-  onStartNewChatWithPrompt?: NonNullable<
-    ThreadStageActions["onStartNewChatWithPrompt"]
-  >;
-  onOpenPendingWorktree: (
-    clientThreadId: string,
-    projectSessionId: string,
-  ) => void;
+  onStartNewChatWithPrompt?: NonNullable<ThreadStageActions["onStartNewChatWithPrompt"]>;
+  onOpenPendingWorktree: (clientThreadId: string, projectSessionId: string) => void;
   newThreadComposerIntent?: CodexComposerIntent | null;
-  onConsumeNewThreadComposerIntent?:
-    ThreadStageActions["onConsumeNewThreadComposerIntent"];
+  onConsumeNewThreadComposerIntent?: ThreadStageActions["onConsumeNewThreadComposerIntent"];
   onRequestProjectPickerOpen: () => void;
   onOpenLocalEnvironmentsSettings: (input?: {
     projectId?: string | null;
     configPath?: string | null;
   }) => void;
-  onOpenHooksSettings: NonNullable<
-    ThreadStageActions["onOpenHooksSettings"]
-  >;
+  onOpenHooksSettings: NonNullable<ThreadStageActions["onOpenHooksSettings"]>;
   threadQueueFollowUpsEnabled: boolean;
   composerEnterBehavior: ComposerEnterBehavior;
   onQueueingEnabledChange: ThreadStageActions["onQueueingEnabledChange"];
   onOpenThread: ThreadStageActions["onOpenThread"];
   onOpenSubagentsPanel: ThreadStageActions["onOpenSubagentsPanel"];
   onOpenTurnDiffReview: ThreadStageActions["onOpenTurnDiffReview"];
-  onOpenTurnDiffFileInSidePanel:
-    ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
+  onOpenTurnDiffFileInSidePanel: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSummaryGitReview: ThreadStageActions["onOpenSummaryGitReview"];
   turnDiffHoverPreviewDisabled: boolean;
   onForkSessionFromTurn?: ThreadActionControllerInput["onForkSessionFromTurn"];
-  onForkFromTurnIntoWorktree: (input: {
-    threadId: string;
-    targetTurnId: string;
-  }) => Promise<void>;
+  onForkFromTurnIntoWorktree: (input: { threadId: string; targetTurnId: string }) => Promise<void>;
   searchOpenTick: number;
   summaryPanelMounted: boolean;
   summaryPanelOpen: boolean;
@@ -174,27 +155,17 @@ function ConnectedSessionThread({
   summaryPanelContentShift: number;
   summarySideChatRows: readonly ThreadSummaryPanelAuxiliaryRow[];
   summaryBrowserRows: readonly ThreadSummaryPanelBrowserRow[];
-  summaryScheduledAutomation:
-    ThreadSummaryPanelScheduledAutomationRow | null;
+  summaryScheduledAutomation: ThreadSummaryPanelScheduledAutomationRow | null;
   summaryComputerUsePip: ThreadSummaryPanelComputerUsePipState | null;
-  onOpenSummarySideChatRow: NonNullable<
-    ThreadStageActions["onOpenSummarySideChatRow"]
-  >;
-  onOpenSummaryBrowserRow: NonNullable<
-    ThreadStageActions["onOpenSummaryBrowserRow"]
-  >;
+  onOpenSummarySideChatRow: NonNullable<ThreadStageActions["onOpenSummarySideChatRow"]>;
+  onOpenSummaryBrowserRow: NonNullable<ThreadStageActions["onOpenSummaryBrowserRow"]>;
   onOpenSummaryScheduledAutomation: NonNullable<
     ThreadStageActions["onOpenSummaryScheduledAutomation"]
   >;
-  onOpenSummaryOutputInSidePanel: NonNullable<
-    ThreadStageActions["onOpenSummaryOutputInSidePanel"]
-  >;
+  onOpenSummaryOutputInSidePanel: NonNullable<ThreadStageActions["onOpenSummaryOutputInSidePanel"]>;
   onOpenProcessManager?: ThreadStageActions["onOpenProcessManager"];
-  onOpenBackgroundTerminalOutput?:
-    ThreadStageActions["onOpenBackgroundTerminalOutput"];
-  onToggleSummaryComputerUsePip: NonNullable<
-    ThreadStageActions["onToggleSummaryComputerUsePip"]
-  >;
+  onOpenBackgroundTerminalOutput?: ThreadStageActions["onOpenBackgroundTerminalOutput"];
+  onToggleSummaryComputerUsePip: NonNullable<ThreadStageActions["onToggleSummaryComputerUsePip"]>;
   rightPanelComposerOverlayEnabled: boolean;
   rightPanelComposerOverlayCompact: boolean;
   rightPanelComposerOverlayTarget: HTMLElement | null;
@@ -210,9 +181,7 @@ function ConnectedSessionThread({
   planSidePanelState: ThreadPlanSidePanelState | null;
   onRequestRenameThread: ThreadStageActions["onRequestRenameThread"];
   onArchiveThread: NonNullable<ThreadStageActions["onArchiveThread"]>;
-  onToggleThreadPin: NonNullable<
-    ThreadStageActions["onToggleThreadPin"]
-  >;
+  onToggleThreadPin: NonNullable<ThreadStageActions["onToggleThreadPin"]>;
   commandKeymapState?: CommandKeymapState | null;
   isMac: boolean;
   presentation?: "primary" | "panel";
@@ -229,91 +198,60 @@ function ConnectedSessionThread({
   onMaterializeProjectDraft?: ThreadActionControllerInput["onMaterializeProjectDraft"];
   onCommitMaterializedProjectDraft?: ThreadActionControllerInput["onCommitMaterializedProjectDraft"];
 }) {
-  const attachedSummary = session.thread
-    ? projectSessionThreadLinkToSummary(session.thread)
-    : null;
-  const [
-    selectedNewThreadProjectId,
-    setSelectedNewThreadProjectId,
-  ] = useState<string | null>(session.projectId);
-  const [
-    selectedNewThreadRunInTarget,
-    setSelectedNewThreadRunInTarget,
-  ] = useState<PageRunInTarget>("localProject");
-  const [
-    selectedNewThreadEnvironmentPath,
-    setSelectedNewThreadEnvironmentPath,
-  ] = useState<string | null>(null);
-  const [
-    selectedNewThreadStartingState,
-    setSelectedNewThreadStartingState,
-  ] = useState<CodexPendingWorktreeStartingState | undefined>(undefined);
-  const [
-    newThreadEnvironmentConfigs,
-    setNewThreadEnvironmentConfigs,
-  ] = useState<WorktreeEnvironmentConfigRecord[]>([]);
-  const [
-    newThreadEnvironmentResolution,
-    setNewThreadEnvironmentResolution,
-  ] = useState<LocalEnvironmentSelectionResolution | null>(null);
-  const [
-    newThreadEnvironmentsLoading,
-    setNewThreadEnvironmentsLoading,
-  ] = useState(false);
+  const attachedSummary = session.thread ? projectSessionThreadLinkToSummary(session.thread) : null;
+  const [selectedNewThreadProjectId, setSelectedNewThreadProjectId] = useState<string | null>(
+    session.projectId,
+  );
+  const [selectedNewThreadRunInTarget, setSelectedNewThreadRunInTarget] =
+    useState<PageRunInTarget>("localProject");
+  const [selectedNewThreadEnvironmentPath, setSelectedNewThreadEnvironmentPath] = useState<
+    string | null
+  >(null);
+  const [selectedNewThreadStartingState, setSelectedNewThreadStartingState] = useState<
+    CodexPendingWorktreeStartingState | undefined
+  >(undefined);
+  const [newThreadEnvironmentConfigs, setNewThreadEnvironmentConfigs] = useState<
+    WorktreeEnvironmentConfigRecord[]
+  >([]);
+  const [newThreadEnvironmentResolution, setNewThreadEnvironmentResolution] =
+    useState<LocalEnvironmentSelectionResolution | null>(null);
+  const [newThreadEnvironmentsLoading, setNewThreadEnvironmentsLoading] = useState(false);
   const [newThreadEnvironmentsError, setNewThreadEnvironmentsError] = useState(false);
-  const [
-    canForkCurrentThreadIntoWorktree,
-    setCanForkCurrentThreadIntoWorktree,
-  ] = useState(false);
-  const selectedNewThreadProject = selectedNewThreadProjectId === null
-    ? null
-    : projects.find(
-      (candidate) => candidate.id === selectedNewThreadProjectId,
-    ) ?? project ?? null;
+  const [canForkCurrentThreadIntoWorktree, setCanForkCurrentThreadIntoWorktree] = useState(false);
+  const selectedNewThreadProject =
+    selectedNewThreadProjectId === null
+      ? null
+      : (projects.find((candidate) => candidate.id === selectedNewThreadProjectId) ??
+        project ??
+        null);
   const progressProjectId = attachedSummary
     ? session.projectId
-    : selectedNewThreadProject?.id ?? null;
-  const threadStartProgress = useCodexThreadStartProgress(
-    progressProjectId,
-    session.id,
-  );
+    : (selectedNewThreadProject?.id ?? null);
+  const threadStartProgress = useCodexThreadStartProgress(progressProjectId, session.id);
   const attachedConversationHasVisibleTurn = useCodexConversationValue(
     attachedSummary?.threadId ?? null,
     (conversation) => (conversation?.turns.length ?? 0) > 0,
   );
-  const summary = resolvePresentedSessionThread(
-    attachedSummary,
-    {
-      rendererLaunchPending:
-        threadStartProgress?.rendererLaunchPending ?? false,
-      waitForFirstVisibleTurn: threadStartProgress !== null,
-      hasVisibleFirstTurn: attachedConversationHasVisibleTurn,
-    },
-  );
+  const summary = resolvePresentedSessionThread(attachedSummary, {
+    rendererLaunchPending: threadStartProgress?.rendererLaunchPending ?? false,
+    waitForFirstVisibleTurn: threadStartProgress !== null,
+    hasVisibleFirstTurn: attachedConversationHasVisibleTurn,
+  });
   const startInSelectorProject = summary ? project : selectedNewThreadProject;
-  const newThreadEnvironmentWorkspaceRoot = projectWorkspaceRootOrNull(
-    startInSelectorProject,
-  );
-  const effectiveProjectId = summary
-    ? session.projectId
-    : selectedNewThreadProject?.id ?? null;
+  const newThreadEnvironmentWorkspaceRoot = projectWorkspaceRootOrNull(startInSelectorProject);
+  const effectiveProjectId = summary ? session.projectId : (selectedNewThreadProject?.id ?? null);
   const codexControl = useCodexAppServerControl(effectiveProjectId);
   const loadModels = codexControl.loadModels;
   const listCollaborationModes = codexControl.listCollaborationModes;
-  const [collaborationModes, setCollaborationModes] = useState<
-    CodexCollaborationModePreset[]
-  >([]);
-  const [
-    selectedCollaborationMode,
-    setSelectedCollaborationMode,
-  ] = useState<CodexCollaborationModeKind>("default");
+  const [collaborationModes, setCollaborationModes] = useState<CodexCollaborationModePreset[]>([]);
+  const [selectedCollaborationMode, setSelectedCollaborationMode] =
+    useState<CodexCollaborationModeKind>("default");
   const projectSelectorOptions = useMemo(
     () => buildNewChatProjectSelectorOptions(projects),
     [projects],
   );
   const resolvedCommandKeymapState = useMemo(
-    () => commandKeymapState
-      ?? createCommandKeymapState({}, isMac ? "macOS" : "windows"),
+    () => commandKeymapState ?? createCommandKeymapState({}, isMac ? "macOS" : "windows"),
     [commandKeymapState, isMac],
   );
   const threadActionShortcuts = useMemo(() => {
@@ -345,11 +283,12 @@ function ConnectedSessionThread({
     };
   }, [resolvedCommandKeymapState]);
   const modelPickerShortcut = useMemo(
-    () => resolveCommandShortcutPresentation(
-      resolvedCommandKeymapState,
-      "openModelPicker",
-      "Ctrl+Shift+M",
-    ),
+    () =>
+      resolveCommandShortcutPresentation(
+        resolvedCommandKeymapState,
+        "openModelPicker",
+        "Ctrl+Shift+M",
+      ),
     [resolvedCommandKeymapState],
   );
 
@@ -364,19 +303,11 @@ function ConnectedSessionThread({
 
   useEffect(() => {
     if (selectedNewThreadProjectId === null) return;
-    if (
-      projects.some(
-        (candidate) => candidate.id === selectedNewThreadProjectId,
-      )
-    ) {
+    if (projects.some((candidate) => candidate.id === selectedNewThreadProjectId)) {
       return;
     }
     setSelectedNewThreadProjectId(session.projectId);
-  }, [
-    projects,
-    selectedNewThreadProjectId,
-    session.projectId,
-  ]);
+  }, [projects, selectedNewThreadProjectId, session.projectId]);
 
   useEffect(() => {
     void loadModels().catch(() => undefined);
@@ -394,17 +325,16 @@ function ConnectedSessionThread({
 
     let disposed = false;
     setCanForkCurrentThreadIntoWorktree(false);
-    void getGitWorkerClient().request({
-      method: "branch-metadata",
-      params: { cwd },
-    })
+    void getGitWorkerClient()
+      .request({
+        method: "branch-metadata",
+        params: { cwd },
+      })
       .then((state) => {
         if (disposed) return;
-        setCanForkCurrentThreadIntoWorktree(Boolean(
-          state.currentBranch
-          || state.defaultBranch
-          || state.branches.length > 0,
-        ));
+        setCanForkCurrentThreadIntoWorktree(
+          Boolean(state.currentBranch || state.defaultBranch || state.branches.length > 0),
+        );
       })
       .catch(() => {
         if (!disposed) setCanForkCurrentThreadIntoWorktree(false);
@@ -426,10 +356,10 @@ function ConnectedSessionThread({
     setNewThreadEnvironmentsLoading(true);
     setNewThreadEnvironmentsError(false);
     try {
-      const configs = await invoke(
+      const configs = (await invoke(
         "worktrees:environments:configs:list",
         effectiveProjectId,
-      ) as WorktreeEnvironmentConfigRecord[];
+      )) as WorktreeEnvironmentConfigRecord[];
       const resolution = resolveLocalEnvironmentSelection({
         candidateSource: {
           status: "loaded",
@@ -449,11 +379,13 @@ function ConnectedSessionThread({
     } catch (error) {
       setNewThreadEnvironmentConfigs([]);
       setNewThreadEnvironmentsError(true);
-      setNewThreadEnvironmentResolution(resolveLocalEnvironmentSelection({
-        candidateSource: { status: "unresolved", reason: "load-error", error },
-        selectionsByWorkspace: readLocalEnvironmentSelections(),
-        workspaceRoot: newThreadEnvironmentWorkspaceRoot,
-      }));
+      setNewThreadEnvironmentResolution(
+        resolveLocalEnvironmentSelection({
+          candidateSource: { status: "unresolved", reason: "load-error", error },
+          selectionsByWorkspace: readLocalEnvironmentSelections(),
+          workspaceRoot: newThreadEnvironmentWorkspaceRoot,
+        }),
+      );
     } finally {
       setNewThreadEnvironmentsLoading(false);
     }
@@ -467,17 +399,19 @@ function ConnectedSessionThread({
         workspaceRoot: newThreadEnvironmentWorkspaceRoot,
         configPath,
       });
-      setNewThreadEnvironmentResolution(resolveLocalEnvironmentSelection({
-        candidateSource: {
-          status: "loaded",
-          candidates: newThreadEnvironmentConfigs.map((config) => ({
-            configPath: config.configPath,
-            state: config.state,
-          })),
-        },
-        selectionsByWorkspace: readLocalEnvironmentSelections(),
-        workspaceRoot: newThreadEnvironmentWorkspaceRoot,
-      }));
+      setNewThreadEnvironmentResolution(
+        resolveLocalEnvironmentSelection({
+          candidateSource: {
+            status: "loaded",
+            candidates: newThreadEnvironmentConfigs.map((config) => ({
+              configPath: config.configPath,
+              state: config.state,
+            })),
+          },
+          selectionsByWorkspace: readLocalEnvironmentSelections(),
+          workspaceRoot: newThreadEnvironmentWorkspaceRoot,
+        }),
+      );
     },
     [newThreadEnvironmentConfigs, newThreadEnvironmentWorkspaceRoot],
   );
@@ -485,57 +419,44 @@ function ConnectedSessionThread({
   useEffect(() => {
     if (selectedNewThreadRunInTarget !== "newWorktree") return;
     void refreshNewThreadEnvironments();
-  }, [
-    refreshNewThreadEnvironments,
-    selectedNewThreadRunInTarget,
-  ]);
+  }, [refreshNewThreadEnvironments, selectedNewThreadRunInTarget]);
 
-  const startInSelectorModel = useMemo<NewChatStartInSelectorModel>(
-    () => {
-      const workspaceRoot = normalizeProjectPrimaryWorkspaceRoot(startInSelectorProject);
-      const repositoryName = workspaceRoot
-        ?.replaceAll("\\", "/")
-        .split("/")
-        .filter(Boolean)
-        .at(-1) ?? null;
-      return {
-        target: {
-          runInTarget: selectedNewThreadRunInTarget,
-          runInEnvironmentPath: selectedNewThreadEnvironmentPath,
-          worktreeStartingState: selectedNewThreadStartingState,
-        },
-        disabled: effectiveProjectId === null,
-        worktreeAvailable: Boolean(workspaceRoot),
-        environments: newThreadEnvironmentConfigs,
-        environmentsLoading: newThreadEnvironmentsLoading,
-        environmentsError: newThreadEnvironmentsError,
-        selectedEnvironmentPath: selectedNewThreadEnvironmentPath,
-        defaultEnvironmentPath: newThreadEnvironmentResolution?.defaultConfigPath ?? null,
-        environmentNeedsAttention:
-          newThreadEnvironmentResolution?.status === "needs-attention",
-        environmentRepairConfigPath:
-          newThreadEnvironmentResolution?.repairConfigPath ?? null,
-        repositoryName,
-        additionalSourceFolderCount: Math.max(
-          0,
-          (startInSelectorProject?.sources.length ?? 0) - 1,
-        ),
-      };
-    },
-    [
-      newThreadEnvironmentConfigs,
-      newThreadEnvironmentsLoading,
-      newThreadEnvironmentsError,
-      newThreadEnvironmentResolution,
-      effectiveProjectId,
-      selectedNewThreadEnvironmentPath,
-      selectedNewThreadRunInTarget,
-      selectedNewThreadStartingState,
-      startInSelectorProject,
-    ],
-  );
-  const effectiveNewThreadStartBlockedReason = newThreadStartBlockedReason ?? (
-    selectedNewThreadRunInTarget !== "newWorktree"
+  const startInSelectorModel = useMemo<NewChatStartInSelectorModel>(() => {
+    const workspaceRoot = normalizeProjectPrimaryWorkspaceRoot(startInSelectorProject);
+    const repositoryName =
+      workspaceRoot?.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? null;
+    return {
+      target: {
+        runInTarget: selectedNewThreadRunInTarget,
+        runInEnvironmentPath: selectedNewThreadEnvironmentPath,
+        worktreeStartingState: selectedNewThreadStartingState,
+      },
+      disabled: effectiveProjectId === null,
+      worktreeAvailable: Boolean(workspaceRoot),
+      environments: newThreadEnvironmentConfigs,
+      environmentsLoading: newThreadEnvironmentsLoading,
+      environmentsError: newThreadEnvironmentsError,
+      selectedEnvironmentPath: selectedNewThreadEnvironmentPath,
+      defaultEnvironmentPath: newThreadEnvironmentResolution?.defaultConfigPath ?? null,
+      environmentNeedsAttention: newThreadEnvironmentResolution?.status === "needs-attention",
+      environmentRepairConfigPath: newThreadEnvironmentResolution?.repairConfigPath ?? null,
+      repositoryName,
+      additionalSourceFolderCount: Math.max(0, (startInSelectorProject?.sources.length ?? 0) - 1),
+    };
+  }, [
+    newThreadEnvironmentConfigs,
+    newThreadEnvironmentsLoading,
+    newThreadEnvironmentsError,
+    newThreadEnvironmentResolution,
+    effectiveProjectId,
+    selectedNewThreadEnvironmentPath,
+    selectedNewThreadRunInTarget,
+    selectedNewThreadStartingState,
+    startInSelectorProject,
+  ]);
+  const effectiveNewThreadStartBlockedReason =
+    newThreadStartBlockedReason ??
+    (selectedNewThreadRunInTarget !== "newWorktree"
       ? null
       : newThreadEnvironmentsLoading || newThreadEnvironmentResolution === null
         ? "Wait for worktree environments to finish loading."
@@ -543,56 +464,94 @@ function ConnectedSessionThread({
           ? "Repair the selected worktree environment before starting."
           : newThreadEnvironmentResolution.status === "unresolved"
             ? "Worktree environments could not be resolved."
-            : null
-  );
+            : null);
 
-  const actions = useMemo<ThreadStageActions>(() => ({
-    ...createThreadStageActions({
-      activeThreadId: summary?.threadId ?? null,
+  const actions = useMemo<ThreadStageActions>(
+    () => ({
+      ...createThreadStageActions({
+        activeThreadId: summary?.threadId ?? null,
+        browserUseViewScopeId,
+        codexControl,
+        currentSessionId: session.id,
+        onEnsureDefaultDraftSessionForProject,
+        onRefreshProjectSessions,
+        onOpenPendingWorktree,
+        newThreadStartBlockedReason: effectiveNewThreadStartBlockedReason,
+        onQueueingEnabledChange,
+        onOpenThread,
+        onOpenSubagentsPanel,
+        onOpenTurnDiffReview,
+        onOpenTurnDiffFileInSidePanel,
+        onForkSessionFromTurn,
+        currentSessionProjectId: session.projectId,
+        projectId: effectiveProjectId,
+        onNewThreadProjectChange: setSelectedNewThreadProjectId,
+        onRequestNewChatProjectCreate: onRequestProjectPickerOpen,
+        onStartNewChatWithPrompt,
+        onNewThreadStartInTargetChange: (target) => {
+          setSelectedNewThreadRunInTarget(target.runInTarget);
+          setSelectedNewThreadStartingState(target.worktreeStartingState);
+          if (target.runInTarget !== "newWorktree") {
+            setSelectedNewThreadEnvironmentPath(null);
+          }
+        },
+        onNewThreadStartInEnvironmentChange: changeNewThreadEnvironment,
+        onRefreshNewThreadStartInEnvironments: refreshNewThreadEnvironments,
+        onOpenNewThreadLocalEnvironmentsSettings: (configPath) =>
+          onOpenLocalEnvironmentsSettings({
+            projectId: effectiveProjectId,
+            configPath: configPath ?? null,
+          }),
+        onOpenHooksSettings,
+        ...(onOpenSideChat
+          ? {
+              onOpenSideChat: async (input: ThreadOpenSideChatInput = {}) => {
+                await onOpenSideChat({
+                  ...input,
+                  collaborationMode: selectedCollaborationMode,
+                });
+              },
+            }
+          : {}),
+        onOpenMcpAppSidePanel,
+        onOpenPlanInSidePanel,
+        onClosePlanSidePanel,
+        onOpenSummarySideChatRow,
+        onOpenSummaryBrowserRow,
+        onOpenSummaryScheduledAutomation,
+        onOpenSummaryOutputInSidePanel,
+        onOpenSummaryGitReview,
+        onOpenProcessManager,
+        onOpenBackgroundTerminalOutput,
+        onToggleSummaryComputerUsePip,
+        onRequestRenameThread,
+        onArchiveThread,
+        onToggleThreadPin,
+        selectedCollaborationMode,
+        setSelectedCollaborationMode,
+        onMaterializeProjectDraft,
+        onCommitMaterializedProjectDraft,
+      }),
+      ...(onConsumeNewThreadComposerIntent ? { onConsumeNewThreadComposerIntent } : {}),
+    }),
+    [
       browserUseViewScopeId,
       codexControl,
-      currentSessionId: session.id,
       onEnsureDefaultDraftSessionForProject,
+      onStartNewChatWithPrompt,
       onRefreshProjectSessions,
       onOpenPendingWorktree,
-      newThreadStartBlockedReason: effectiveNewThreadStartBlockedReason,
+      effectiveNewThreadStartBlockedReason,
       onQueueingEnabledChange,
       onOpenThread,
       onOpenSubagentsPanel,
       onOpenTurnDiffReview,
       onOpenTurnDiffFileInSidePanel,
       onForkSessionFromTurn,
-      currentSessionProjectId: session.projectId,
-      projectId: effectiveProjectId,
-      onNewThreadProjectChange: setSelectedNewThreadProjectId,
-      onRequestNewChatProjectCreate: onRequestProjectPickerOpen,
-      onStartNewChatWithPrompt,
-      onNewThreadStartInTargetChange: (target) => {
-        setSelectedNewThreadRunInTarget(target.runInTarget);
-        setSelectedNewThreadStartingState(target.worktreeStartingState);
-        if (target.runInTarget !== "newWorktree") {
-          setSelectedNewThreadEnvironmentPath(null);
-        }
-      },
-      onNewThreadStartInEnvironmentChange: changeNewThreadEnvironment,
-      onRefreshNewThreadStartInEnvironments:
-        refreshNewThreadEnvironments,
-      onOpenNewThreadLocalEnvironmentsSettings:
-        (configPath) => onOpenLocalEnvironmentsSettings({
-          projectId: effectiveProjectId,
-          configPath: configPath ?? null,
-        }),
+      onRequestProjectPickerOpen,
+      onOpenLocalEnvironmentsSettings,
       onOpenHooksSettings,
-      ...(onOpenSideChat
-        ? {
-            onOpenSideChat: async (input: ThreadOpenSideChatInput = {}) => {
-              await onOpenSideChat({
-                ...input,
-                collaborationMode: selectedCollaborationMode,
-              });
-            },
-          }
-        : {}),
+      onOpenSideChat,
       onOpenMcpAppSidePanel,
       onOpenPlanInSidePanel,
       onClosePlanSidePanel,
@@ -604,60 +563,21 @@ function ConnectedSessionThread({
       onOpenProcessManager,
       onOpenBackgroundTerminalOutput,
       onToggleSummaryComputerUsePip,
+      onConsumeNewThreadComposerIntent,
       onRequestRenameThread,
       onArchiveThread,
       onToggleThreadPin,
+      session.id,
+      session.projectId,
+      changeNewThreadEnvironment,
+      refreshNewThreadEnvironments,
+      effectiveProjectId,
       selectedCollaborationMode,
-      setSelectedCollaborationMode,
       onMaterializeProjectDraft,
       onCommitMaterializedProjectDraft,
-    }),
-    ...(onConsumeNewThreadComposerIntent
-      ? { onConsumeNewThreadComposerIntent }
-      : {}),
-  }), [
-    browserUseViewScopeId,
-    codexControl,
-    onEnsureDefaultDraftSessionForProject,
-    onStartNewChatWithPrompt,
-    onRefreshProjectSessions,
-    onOpenPendingWorktree,
-    effectiveNewThreadStartBlockedReason,
-    onQueueingEnabledChange,
-    onOpenThread,
-    onOpenSubagentsPanel,
-    onOpenTurnDiffReview,
-    onOpenTurnDiffFileInSidePanel,
-    onForkSessionFromTurn,
-    onRequestProjectPickerOpen,
-    onOpenLocalEnvironmentsSettings,
-    onOpenHooksSettings,
-    onOpenSideChat,
-    onOpenMcpAppSidePanel,
-    onOpenPlanInSidePanel,
-    onClosePlanSidePanel,
-    onOpenSummarySideChatRow,
-    onOpenSummaryBrowserRow,
-    onOpenSummaryScheduledAutomation,
-    onOpenSummaryOutputInSidePanel,
-    onOpenSummaryGitReview,
-    onOpenProcessManager,
-    onOpenBackgroundTerminalOutput,
-    onToggleSummaryComputerUsePip,
-    onConsumeNewThreadComposerIntent,
-    onRequestRenameThread,
-    onArchiveThread,
-    onToggleThreadPin,
-    session.id,
-    session.projectId,
-    changeNewThreadEnvironment,
-    refreshNewThreadEnvironments,
-    effectiveProjectId,
-    selectedCollaborationMode,
-    onMaterializeProjectDraft,
-    onCommitMaterializedProjectDraft,
-    summary?.threadId,
-  ]);
+      summary?.threadId,
+    ],
+  );
 
   const connectedStageProps = {
     projectId: effectiveProjectId,
@@ -691,7 +611,7 @@ function ConnectedSessionThread({
         },
     newThreadStartInSelector: startInSelectorModel,
     newThreadStartBlockedReason: effectiveNewThreadStartBlockedReason,
-    newThreadComposerIntent: summary ? null : newThreadComposerIntent ?? null,
+    newThreadComposerIntent: summary ? null : (newThreadComposerIntent ?? null),
     threadStartProgress,
     activeThreadId: summary?.threadId ?? null,
     activeThreadSummary: summary,
@@ -702,8 +622,7 @@ function ConnectedSessionThread({
     collaborationModes,
     selectedCollaborationMode,
     selectedModel: codexControl.threadSettings.model ?? "",
-    selectedReasoningEffort:
-      codexControl.threadSettings.reasoningEffort ?? "medium",
+    selectedReasoningEffort: codexControl.threadSettings.reasoningEffort ?? "medium",
     selectedPersonality: codexControl.personality,
     reasoningEffortOptions: codexControl.reasoningEffortOptions,
     permissionMode: codexControl.permissionMode,
@@ -740,26 +659,16 @@ function ConnectedSessionThread({
         summaryPanelOpen={summaryPanelOpen}
         summaryPanelHideImmediately={summaryPanelHideImmediately}
         summaryPanelContentShift={summaryPanelContentShift}
-        rightPanelComposerOverlayEnabled={
-          rightPanelComposerOverlayEnabled
-        }
-        rightPanelComposerOverlayCompact={
-          rightPanelComposerOverlayCompact
-        }
-        rightPanelComposerOverlayTarget={
-          rightPanelComposerOverlayTarget
-        }
-        rightPanelComposerOverlayVisibility={
-          rightPanelComposerOverlayVisibility
-        }
+        rightPanelComposerOverlayEnabled={rightPanelComposerOverlayEnabled}
+        rightPanelComposerOverlayCompact={rightPanelComposerOverlayCompact}
+        rightPanelComposerOverlayTarget={rightPanelComposerOverlayTarget}
+        rightPanelComposerOverlayVisibility={rightPanelComposerOverlayVisibility}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
         routeActive={routeActive}
         threadBodyVisible={threadBodyVisible}
         presentation={presentation}
         onForkFromTurnIntoWorktree={
-          canForkCurrentThreadIntoWorktree
-            ? onForkFromTurnIntoWorktree
-            : undefined
+          canForkCurrentThreadIntoWorktree ? onForkFromTurnIntoWorktree : undefined
         }
       />
     </div>
@@ -769,7 +678,10 @@ function ConnectedSessionThread({
 type ConnectedSessionThreadProps = Parameters<typeof ConnectedSessionThread>[0];
 
 export function SessionThreadPage(
-  props: Omit<ConnectedSessionThreadProps, "composerDock" | "composerScopeIdentity" | "projectDraftId" | "onMaterializeProjectDraft">,
+  props: Omit<
+    ConnectedSessionThreadProps,
+    "composerDock" | "composerScopeIdentity" | "projectDraftId" | "onMaterializeProjectDraft"
+  >,
 ) {
   return <ConnectedSessionThread {...props} />;
 }

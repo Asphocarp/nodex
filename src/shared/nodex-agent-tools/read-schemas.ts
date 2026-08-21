@@ -80,38 +80,46 @@ const DatabaseSummarySchema = z.strictObject({
   databaseBlockId: BlockIdSchema,
   name: z.string(),
   isPrimary: z.boolean(),
-  views: z.array(z.strictObject({
-    viewId: ViewIdSchema,
-    name: z.string(),
-    defaultLayout: DatabaseViewLayoutSchema,
-    isPrimary: z.boolean(),
-  })),
+  views: z.array(
+    z.strictObject({
+      viewId: ViewIdSchema,
+      name: z.string(),
+      defaultLayout: DatabaseViewLayoutSchema,
+      isPrimary: z.boolean(),
+    }),
+  ),
 });
 
 export const GetContextInputSchema = z.strictObject({
-  include: z.strictObject({
-    databases: z.boolean().optional(),
-    nfmGuide: z.boolean().optional(),
-  }).optional(),
+  include: z
+    .strictObject({
+      databases: z.boolean().optional(),
+      nfmGuide: z.boolean().optional(),
+    })
+    .optional(),
 });
 
 export const GetContextDataSchema = z.strictObject({
-  project: z.strictObject({
-    projectId: ProjectIdSchema,
-    name: z.string(),
-  }).nullable(),
+  project: z
+    .strictObject({
+      projectId: ProjectIdSchema,
+      name: z.string(),
+    })
+    .nullable(),
   access: z.strictObject({
     read: z.enum(["allowed", "unavailable"]),
     write: z.enum(["granted", "consent_required", "unavailable"]),
     domains: z.array(z.enum(["document", "placement", "database"])),
   }),
   databases: z.array(DatabaseSummarySchema).optional(),
-  nfmGuide: z.strictObject({
-    format: z.literal("nfm"),
-    specificationVersion: z.string(),
-    instructions: z.string(),
-    examples: z.array(z.string()),
-  }).optional(),
+  nfmGuide: z
+    .strictObject({
+      format: z.literal("nfm"),
+      specificationVersion: z.string(),
+      instructions: z.string(),
+      examples: z.array(z.string()),
+    })
+    .optional(),
 });
 
 export const GetContextOutputSchema = createToolSuccessSchema(GetContextDataSchema);
@@ -160,17 +168,23 @@ const GetBlockPrepareForSchema = z.discriminatedUnion("kind", [
 
 export const GetBlockInputSchema = z.strictObject({
   blockId: BlockIdSchema,
-  include: z.strictObject({
-    properties: z.strictObject({
-      propertyIds: z.array(PropertyIdSchema).max(512).optional(),
-    }).optional(),
-    database: z.boolean().optional(),
-    document: z.strictObject({
-      format: z.enum(["summary", "nfm", "blocks"]),
-      scope: z.enum(["owner", "subtree"]).optional(),
-      maxDepth: z.number().int().min(0).max(512).optional(),
-    }).optional(),
-  }).optional(),
+  include: z
+    .strictObject({
+      properties: z
+        .strictObject({
+          propertyIds: z.array(PropertyIdSchema).max(512).optional(),
+        })
+        .optional(),
+      database: z.boolean().optional(),
+      document: z
+        .strictObject({
+          format: z.enum(["summary", "nfm", "blocks"]),
+          scope: z.enum(["owner", "subtree"]).optional(),
+          maxDepth: z.number().int().min(0).max(512).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   prepareFor: z.array(GetBlockPrepareForSchema).max(8).optional(),
   page: createPageInputSchema(100).optional(),
 });
@@ -179,25 +193,36 @@ export const GetBlockDataSchema = z.strictObject({
   block: z.strictObject({
     blockId: BlockIdSchema,
     type: z.string().min(1).max(256),
-    title: z.strictObject({
-      value: TextInputSchema,
-      etag: ETagSchema.optional(),
-    }).optional(),
+    title: z
+      .strictObject({
+        value: TextInputSchema,
+        etag: ETagSchema.optional(),
+      })
+      .optional(),
     lifecycle: z.enum(["active", "archived", "deleted"]),
     location: BlockLocationSchema,
-    properties: z.record(PropertyIdSchema, z.strictObject({
-      value: JsonValueSchema,
-      etag: ETagSchema.optional(),
-    })).optional(),
+    properties: z
+      .record(
+        PropertyIdSchema,
+        z.strictObject({
+          value: JsonValueSchema,
+          etag: ETagSchema.optional(),
+        }),
+      )
+      .optional(),
   }),
-  document: z.strictObject({
-    documentId: DocumentIdSchema,
-    ownerBlockId: BlockIdSchema,
-    body: DocumentRepresentationSchema,
-  }).optional(),
-  database: z.strictObject({
-    databaseBlockId: BlockIdSchema,
-  }).optional(),
+  document: z
+    .strictObject({
+      documentId: DocumentIdSchema,
+      ownerBlockId: BlockIdSchema,
+      body: DocumentRepresentationSchema,
+    })
+    .optional(),
+  database: z
+    .strictObject({
+      databaseBlockId: BlockIdSchema,
+    })
+    .optional(),
 });
 
 export const GetBlockOutputSchema = createToolSuccessSchema(GetBlockDataSchema);
@@ -208,10 +233,15 @@ const SearchScopeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("document"), documentId: DocumentIdSchema }),
 ]);
 
-const SearchQuerySchema = z.string().trim().min(1).max(512).refine(
-  (query) => new TextEncoder().encode(query).byteLength <= 512,
-  "Search query must be at most 512 UTF-8 bytes",
-);
+const SearchQuerySchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(512)
+  .refine(
+    (query) => new TextEncoder().encode(query).byteLength <= 512,
+    "Search query must be at most 512 UTF-8 bytes",
+  );
 
 const PageSearchInputSchema = z.strictObject({
   query: SearchQuerySchema,
@@ -225,17 +255,16 @@ const BlockSearchInputSchema = z.strictObject({
   query: SearchQuerySchema,
   target: z.literal("blocks"),
   scope: SearchScopeSchema.optional(),
-  filters: z.strictObject({
-    blockTypes: z.array(z.string().min(1).max(256)).max(64).optional(),
-    includeArchived: z.boolean().optional(),
-  }).optional(),
+  filters: z
+    .strictObject({
+      blockTypes: z.array(z.string().min(1).max(256)).max(64).optional(),
+      includeArchived: z.boolean().optional(),
+    })
+    .optional(),
   page: createPageInputSchema(100).optional(),
 });
 
-export const SearchInputSchema = z.union([
-  PageSearchInputSchema,
-  BlockSearchInputSchema,
-]);
+export const SearchInputSchema = z.union([PageSearchInputSchema, BlockSearchInputSchema]);
 
 const SearchMatchQualitySchema = z.enum(["exact", "prefix", "fuzzy"]);
 
@@ -310,19 +339,24 @@ const DatabaseQuerySourceSchema = z.discriminatedUnion("kind", [
 
 export const QueryDatabaseInputSchema = z.strictObject({
   source: DatabaseQuerySourceSchema,
-  select: z.strictObject({
-    propertyIds: z.array(PropertyIdSchema)
-      .max(MAX_DATABASE_QUERY_PROPERTY_IDS)
-      .optional(),
-    documentSummary: z.boolean().optional(),
-  }).optional(),
-  prepareFor: z.array(z.discriminatedUnion("kind", [
-    z.strictObject({
-      kind: z.literal("value.set"),
-      propertyIds: z.array(PropertyIdSchema).min(1).max(512),
-    }),
-    z.strictObject({ kind: z.literal("view.place") }),
-  ])).max(4).optional(),
+  select: z
+    .strictObject({
+      propertyIds: z.array(PropertyIdSchema).max(MAX_DATABASE_QUERY_PROPERTY_IDS).optional(),
+      documentSummary: z.boolean().optional(),
+    })
+    .optional(),
+  prepareFor: z
+    .array(
+      z.discriminatedUnion("kind", [
+        z.strictObject({
+          kind: z.literal("value.set"),
+          propertyIds: z.array(PropertyIdSchema).min(1).max(512),
+        }),
+        z.strictObject({ kind: z.literal("view.place") }),
+      ]),
+    )
+    .max(4)
+    .optional(),
   page: createPageInputSchema(200).optional(),
 });
 
@@ -330,32 +364,45 @@ export const QueryDatabaseDataSchema = z.strictObject({
   database: z.strictObject({
     databaseBlockId: BlockIdSchema,
     name: z.string(),
-    properties: z.array(z.strictObject({
-      propertyId: PropertyIdSchema,
-      name: z.string(),
-      valueType: DatabasePropertyValueTypeSchema,
-      config: z.record(z.string(), JsonValueSchema),
-    })),
+    properties: z.array(
+      z.strictObject({
+        propertyId: PropertyIdSchema,
+        name: z.string(),
+        valueType: DatabasePropertyValueTypeSchema,
+        config: z.record(z.string(), JsonValueSchema),
+      }),
+    ),
   }),
-  view: z.strictObject({
-    viewId: ViewIdSchema,
-    name: z.string(),
-    defaultLayout: DatabaseViewLayoutSchema,
-  }).optional(),
-  rows: z.array(z.strictObject({
-    blockId: BlockIdSchema,
-    title: z.string(),
-    values: z.record(PropertyIdSchema, z.strictObject({
-      value: JsonValueSchema,
-      etag: ETagSchema.optional(),
-    })),
-    placement: z.strictObject({
+  view: z
+    .strictObject({
       viewId: ViewIdSchema,
-      groupKey: z.string().nullable(),
-      etag: ETagSchema.optional(),
-    }).optional(),
-    documentSummary: z.string().optional(),
-  })).max(200),
+      name: z.string(),
+      defaultLayout: DatabaseViewLayoutSchema,
+    })
+    .optional(),
+  rows: z
+    .array(
+      z.strictObject({
+        blockId: BlockIdSchema,
+        title: z.string(),
+        values: z.record(
+          PropertyIdSchema,
+          z.strictObject({
+            value: JsonValueSchema,
+            etag: ETagSchema.optional(),
+          }),
+        ),
+        placement: z
+          .strictObject({
+            viewId: ViewIdSchema,
+            groupKey: z.string().nullable(),
+            etag: ETagSchema.optional(),
+          })
+          .optional(),
+        documentSummary: z.string().optional(),
+      }),
+    )
+    .max(200),
 });
 
 export const QueryDatabaseOutputSchema = createToolSuccessSchema(QueryDatabaseDataSchema);

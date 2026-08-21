@@ -1,9 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import {
-  constants as fsConstants,
-  createReadStream,
-  existsSync,
-} from "node:fs";
+import { constants as fsConstants, createReadStream, existsSync } from "node:fs";
 import {
   chmod,
   copyFile,
@@ -73,11 +69,7 @@ const CLAUDE_ITEM_DESCRIPTIONS: Record<AgentImportItemKind, string> = {
   subagents: "Import missing subagent definitions without replacing existing definitions.",
 };
 
-const DEFAULT_SELECTED_KINDS = new Set<AgentImportItemKind>([
-  "instructions",
-  "sessions",
-  "skills",
-]);
+const DEFAULT_SELECTED_KINDS = new Set<AgentImportItemKind>(["instructions", "sessions", "skills"]);
 
 const SAFE_CONFIG_KEYS = [
   "features",
@@ -178,9 +170,7 @@ function isAgentImportSourceKind(value: unknown): value is AgentImportSourceKind
   return value === "claude-code" || value === "codex" || value === "open-interpreter";
 }
 
-function mapExternalItemKind(
-  itemType: ExternalAgentConfigMigrationItemType,
-): AgentImportItemKind {
+function mapExternalItemKind(itemType: ExternalAgentConfigMigrationItemType): AgentImportItemKind {
   const kinds: Record<ExternalAgentConfigMigrationItemType, AgentImportItemKind> = {
     AGENTS_MD: "instructions",
     COMMANDS: "commands",
@@ -212,7 +202,9 @@ function migrationItemCount(item: ExternalAgentConfigMigrationItem): number {
   return Math.max(1, collections[kind]?.length ?? 1);
 }
 
-function createPendingItem(input: Omit<PendingImportItem, "id" | "defaultSelected">): PendingImportItem {
+function createPendingItem(
+  input: Omit<PendingImportItem, "id" | "defaultSelected">,
+): PendingImportItem {
   return {
     ...input,
     id: randomUUID(),
@@ -284,12 +276,8 @@ function parseSessionHeader(raw: string): {
     if (!isRecord(parsed) || parsed.type !== "session_meta" || !isRecord(parsed.payload)) {
       continue;
     }
-    const sourceThreadId = typeof parsed.payload.id === "string"
-      ? parsed.payload.id.trim()
-      : "";
-    const cwd = typeof parsed.payload.cwd === "string"
-      ? parsed.payload.cwd.trim()
-      : "";
+    const sourceThreadId = typeof parsed.payload.id === "string" ? parsed.payload.id.trim() : "";
+    const cwd = typeof parsed.payload.cwd === "string" ? parsed.payload.cwd.trim() : "";
     if (!sourceThreadId || !path.isAbsolute(cwd)) return null;
     return { cwd: path.resolve(cwd), sourceThreadId };
   }
@@ -312,11 +300,12 @@ async function readSessionIndex(home: string): Promise<Map<string, string>> {
     try {
       const entry = JSON.parse(line) as unknown;
       if (!isRecord(entry) || typeof entry.id !== "string") continue;
-      const title = typeof entry.thread_name === "string"
-        ? entry.thread_name.trim()
-        : typeof entry.name === "string"
-          ? entry.name.trim()
-          : "";
+      const title =
+        typeof entry.thread_name === "string"
+          ? entry.thread_name.trim()
+          : typeof entry.name === "string"
+            ? entry.name.trim()
+            : "";
       if (title) titles.set(entry.id, title);
     } catch {
       continue;
@@ -369,27 +358,31 @@ function parseSessionLedger(value: unknown): SessionImportLedger {
     if (!isRecord(entry)) return [];
     if (!isAgentImportSourceKind(entry.sourceKind)) return [];
     if (
-      typeof entry.sourcePath !== "string"
-      || typeof entry.sourceContentSha256 !== "string"
-      || typeof entry.targetThreadId !== "string"
-      || typeof entry.importedAt !== "number"
+      typeof entry.sourcePath !== "string" ||
+      typeof entry.sourceContentSha256 !== "string" ||
+      typeof entry.targetThreadId !== "string" ||
+      typeof entry.importedAt !== "number"
     ) {
       return [];
     }
-    return [{
-      importedAt: entry.importedAt,
-      sourceContentSha256: entry.sourceContentSha256,
-      sourceKind: entry.sourceKind,
-      sourcePath: entry.sourcePath,
-      targetThreadId: entry.targetThreadId,
-    }];
+    return [
+      {
+        importedAt: entry.importedAt,
+        sourceContentSha256: entry.sourceContentSha256,
+        sourceKind: entry.sourceKind,
+        sourcePath: entry.sourcePath,
+        targetThreadId: entry.targetThreadId,
+      },
+    ];
   });
   return { version: 1, sessions };
 }
 
 async function readSessionLedger(runtimeStateHome: string): Promise<SessionImportLedger> {
   try {
-    return parseSessionLedger(JSON.parse(await readFile(sessionLedgerPath(runtimeStateHome), "utf8")));
+    return parseSessionLedger(
+      JSON.parse(await readFile(sessionLedgerPath(runtimeStateHome), "utf8")),
+    );
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return { version: 1, sessions: [] };
@@ -407,10 +400,14 @@ async function writeSessionLedger(
   await mkdir(targetDirectory, { recursive: true, mode: 0o700 });
   const temporaryPath = path.join(targetDirectory, `.session-imports-${randomUUID()}.tmp`);
   try {
-    await writeFile(temporaryPath, `${JSON.stringify({ version: 1, sessions: entries }, null, 2)}\n`, {
-      encoding: "utf8",
-      mode: 0o600,
-    });
+    await writeFile(
+      temporaryPath,
+      `${JSON.stringify({ version: 1, sessions: entries }, null, 2)}\n`,
+      {
+        encoding: "utf8",
+        mode: 0o600,
+      },
+    );
     await rename(temporaryPath, targetPath);
     await chmod(targetPath, 0o600);
   } finally {
@@ -423,10 +420,12 @@ function hasImportedSession(
   sourceKind: AgentImportSourceKind,
   session: NativeSessionCandidate,
 ): boolean {
-  return ledger.sessions.some((entry) =>
-    entry.sourceKind === sourceKind
-    && entry.sourcePath === session.sourcePath
-    && entry.sourceContentSha256 === session.sourceContentSha256);
+  return ledger.sessions.some(
+    (entry) =>
+      entry.sourceKind === sourceKind &&
+      entry.sourcePath === session.sourcePath &&
+      entry.sourceContentSha256 === session.sourceContentSha256,
+  );
 }
 
 async function discoverSessions(input: {
@@ -443,9 +442,13 @@ async function discoverSessions(input: {
     path.join(input.sourceHome, "sessions"),
     path.join(input.sourceHome, "archived_sessions"),
   ];
-  const discovered = (await Promise.all(
-    roots.map((root) => collectRecentJsonlFiles(root, input.now - SESSION_LOOKBACK_MS)),
-  )).flat().slice(0, MAX_SESSION_FILES);
+  const discovered = (
+    await Promise.all(
+      roots.map((root) => collectRecentJsonlFiles(root, input.now - SESSION_LOOKBACK_MS)),
+    )
+  )
+    .flat()
+    .slice(0, MAX_SESSION_FILES);
   const sessions: NativeSessionCandidate[] = [];
   let skipped = 0;
 
@@ -487,7 +490,9 @@ async function readTomlRecord(filePath: string): Promise<Record<string, unknown>
     return isRecord(parsed) ? parsed : {};
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw new Error(`Could not read ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Could not read ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -497,7 +502,9 @@ async function readJsonRecord(filePath: string): Promise<Record<string, unknown>
     return isRecord(parsed) ? parsed : {};
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-    throw new Error(`Could not read ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Could not read ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   }
 }
 
@@ -524,11 +531,13 @@ function buildMcpConfigEdits(
       .map(([name, server]) => [name, sanitizeMcpServerConfig(server)]),
   );
   if (Object.keys(missingServers).length === 0) return [];
-  return [{
-    keyPath: "mcp_servers",
-    label: Object.keys(missingServers).join(", "),
-    value: toJsonCompatible(missingServers),
-  }];
+  return [
+    {
+      keyPath: "mcp_servers",
+      label: Object.keys(missingServers).join(", "),
+      value: toJsonCompatible(missingServers),
+    },
+  ];
 }
 
 async function revalidateConfigEdits(
@@ -557,8 +566,9 @@ async function revalidateConfigEdits(
     const incomingServers = isRecord(edit.value) ? edit.value : {};
     const targetServers = isRecord(targetConfig.mcp_servers) ? targetConfig.mcp_servers : {};
     const missingServers = Object.fromEntries(
-      Object.entries(incomingServers).filter(([name]) =>
-        !Object.prototype.hasOwnProperty.call(targetServers, name)),
+      Object.entries(incomingServers).filter(
+        ([name]) => !Object.prototype.hasOwnProperty.call(targetServers, name),
+      ),
     );
     successCount += Object.keys(missingServers).length;
     skippedCount += Object.keys(incomingServers).length - Object.keys(missingServers).length;
@@ -588,9 +598,12 @@ function sanitizeMcpServerConfig(value: unknown): unknown {
     if (/auth|credential|env|header|oauth|password|secret|token/iu.test(key)) return [];
     if (key === "url" && typeof entry === "string") return [[key, sanitizeMcpUrl(entry)]];
     if (
-      key === "args"
-      && Array.isArray(entry)
-      && entry.some((argument) => typeof argument === "string" && /auth|credential|key|secret|token/iu.test(argument))
+      key === "args" &&
+      Array.isArray(entry) &&
+      entry.some(
+        (argument) =>
+          typeof argument === "string" && /auth|credential|key|secret|token/iu.test(argument),
+      )
     ) {
       return [];
     }
@@ -666,7 +679,9 @@ async function copyDirectoryTreeExclusive(source: string, target: string): Promi
   }
 }
 
-async function copyImportCandidate(candidate: NativeCopyCandidate): Promise<"imported" | "skipped"> {
+async function copyImportCandidate(
+  candidate: NativeCopyCandidate,
+): Promise<"imported" | "skipped"> {
   if (existsSync(candidate.targetPath)) return "skipped";
   await mkdir(path.dirname(candidate.targetPath), { recursive: true, mode: 0o700 });
   const metadata = await lstat(candidate.sourcePath);
@@ -706,95 +721,111 @@ async function scanNativeHome(input: {
     path.join(input.sourceHome, "skills"),
     path.join(path.dirname(input.sourceHome), ".agents", "skills"),
   ];
-  const [sessions, sourceConfig, targetConfig, skills, subagents, instructions, hooks] = await Promise.all([
-    discoverSessions(input),
-    readTomlRecord(path.join(input.sourceHome, "config.toml")),
-    readTomlRecord(path.join(input.runtimeStateHome, "config.toml")),
-    listMissingDirectoryCopies(sourceSkillsHomes, targetSkillsHome),
-    listMissingDirectoryCopies(
-      [path.join(input.sourceHome, "agents")],
-      path.join(input.runtimeStateHome, "agents"),
-    ),
-    buildSingleFileCopy(
-      path.join(input.sourceHome, "AGENTS.md"),
-      path.join(input.runtimeStateHome, "AGENTS.md"),
-      "AGENTS.md",
-    ),
-    buildSingleFileCopy(
-      path.join(input.sourceHome, "hooks.json"),
-      path.join(input.runtimeStateHome, "hooks.json"),
-      "hooks.json",
-    ),
-  ]);
+  const [sessions, sourceConfig, targetConfig, skills, subagents, instructions, hooks] =
+    await Promise.all([
+      discoverSessions(input),
+      readTomlRecord(path.join(input.sourceHome, "config.toml")),
+      readTomlRecord(path.join(input.runtimeStateHome, "config.toml")),
+      listMissingDirectoryCopies(sourceSkillsHomes, targetSkillsHome),
+      listMissingDirectoryCopies(
+        [path.join(input.sourceHome, "agents")],
+        path.join(input.runtimeStateHome, "agents"),
+      ),
+      buildSingleFileCopy(
+        path.join(input.sourceHome, "AGENTS.md"),
+        path.join(input.runtimeStateHome, "AGENTS.md"),
+        "AGENTS.md",
+      ),
+      buildSingleFileCopy(
+        path.join(input.sourceHome, "hooks.json"),
+        path.join(input.runtimeStateHome, "hooks.json"),
+        "hooks.json",
+      ),
+    ]);
   const safeConfigEdits = buildSafeConfigEdits(sourceConfig, targetConfig);
   const mcpConfigEdits = buildMcpConfigEdits(sourceConfig, targetConfig);
   const items: PendingImportItem[] = [];
 
   if (sessions.sessions.length > 0) {
-    items.push(createPendingItem({
-      count: sessions.sessions.length,
-      description: `Copy ${sessions.sessions.length} recent conversation${sessions.sessions.length === 1 ? "" : "s"} into Nodex-owned history.`,
-      kind: "sessions",
-      label: ITEM_LABELS.sessions,
-      payload: { sessions: sessions.sessions, type: "sessions" },
-    }));
+    items.push(
+      createPendingItem({
+        count: sessions.sessions.length,
+        description: `Copy ${sessions.sessions.length} recent conversation${sessions.sessions.length === 1 ? "" : "s"} into Nodex-owned history.`,
+        kind: "sessions",
+        label: ITEM_LABELS.sessions,
+        payload: { sessions: sessions.sessions, type: "sessions" },
+      }),
+    );
   }
   if (instructions.length > 0) {
-    items.push(createPendingItem({
-      count: instructions.length,
-      description: "Import AGENTS.md only when Nodex does not already own one.",
-      kind: "instructions",
-      label: ITEM_LABELS.instructions,
-      payload: { copies: instructions, type: "copies" },
-    }));
+    items.push(
+      createPendingItem({
+        count: instructions.length,
+        description: "Import AGENTS.md only when Nodex does not already own one.",
+        kind: "instructions",
+        label: ITEM_LABELS.instructions,
+        payload: { copies: instructions, type: "copies" },
+      }),
+    );
   }
   if (skills.length > 0) {
-    items.push(createPendingItem({
-      count: skills.length,
-      description: `Import ${skills.length} missing skill${skills.length === 1 ? "" : "s"} without replacing existing skills.`,
-      kind: "skills",
-      label: ITEM_LABELS.skills,
-      payload: { copies: skills, type: "copies" },
-    }));
+    items.push(
+      createPendingItem({
+        count: skills.length,
+        description: `Import ${skills.length} missing skill${skills.length === 1 ? "" : "s"} without replacing existing skills.`,
+        kind: "skills",
+        label: ITEM_LABELS.skills,
+        payload: { copies: skills, type: "copies" },
+      }),
+    );
   }
   if (safeConfigEdits.length > 0) {
-    items.push(createPendingItem({
-      count: safeConfigEdits.length,
-      description: "Import model-independent preferences that are absent from the Nodex config.",
-      kind: "settings",
-      label: ITEM_LABELS.settings,
-      payload: { edits: safeConfigEdits, type: "config" },
-    }));
+    items.push(
+      createPendingItem({
+        count: safeConfigEdits.length,
+        description: "Import model-independent preferences that are absent from the Nodex config.",
+        kind: "settings",
+        label: ITEM_LABELS.settings,
+        payload: { edits: safeConfigEdits, type: "config" },
+      }),
+    );
   }
   if (mcpConfigEdits.length > 0) {
     const serverCount = isRecord(mcpConfigEdits[0]?.value)
       ? Object.keys(mcpConfigEdits[0].value).length
       : mcpConfigEdits.length;
-    items.push(createPendingItem({
-      count: serverCount,
-      description: "Import missing MCP server definitions. Credentials and OAuth state are never copied.",
-      kind: "mcpServers",
-      label: ITEM_LABELS.mcpServers,
-      payload: { edits: mcpConfigEdits, type: "config" },
-    }));
+    items.push(
+      createPendingItem({
+        count: serverCount,
+        description:
+          "Import missing MCP server definitions. Credentials and OAuth state are never copied.",
+        kind: "mcpServers",
+        label: ITEM_LABELS.mcpServers,
+        payload: { edits: mcpConfigEdits, type: "config" },
+      }),
+    );
   }
   if (subagents.length > 0) {
-    items.push(createPendingItem({
-      count: subagents.length,
-      description: "Import missing subagent definitions without replacing local definitions.",
-      kind: "subagents",
-      label: ITEM_LABELS.subagents,
-      payload: { copies: subagents, type: "copies" },
-    }));
+    items.push(
+      createPendingItem({
+        count: subagents.length,
+        description: "Import missing subagent definitions without replacing local definitions.",
+        kind: "subagents",
+        label: ITEM_LABELS.subagents,
+        payload: { copies: subagents, type: "copies" },
+      }),
+    );
   }
   if (hooks.length > 0) {
-    items.push(createPendingItem({
-      count: hooks.length,
-      description: "Import hooks only when Nodex does not already own a hooks file.",
-      kind: "hooks",
-      label: ITEM_LABELS.hooks,
-      payload: { copies: hooks, type: "copies" },
-    }));
+    items.push(
+      createPendingItem({
+        count: hooks.length,
+        description: "Import hooks only when Nodex does not already own a hooks file.",
+        kind: "hooks",
+        label: ITEM_LABELS.hooks,
+        payload: { copies: hooks, type: "copies" },
+      }),
+    );
   }
 
   return { items, skippedAlreadyImportedSessions: sessions.skipped };
@@ -811,7 +842,10 @@ function outcomeFromExternalResult(
     kind: item.kind,
     label: item.label,
     messages,
-    skippedCount: Math.max(0, item.count - (result?.successes.length ?? 0) - (result?.failures.length ?? 0)),
+    skippedCount: Math.max(
+      0,
+      item.count - (result?.successes.length ?? 0) - (result?.failures.length ?? 0),
+    ),
     successCount: result?.successes.length ?? 0,
   };
 }
@@ -860,9 +894,10 @@ export class AgentImportCoordinator {
     let skippedAlreadyImportedSessions = 0;
     if (sourceKind === "claude-code") {
       const migrations = await this.detectClaude();
-      const nativeMigrations = migrations.filter((migrationItem) =>
-        migrationItem.itemType !== "CONFIG"
-        && migrationItem.itemType !== "MCP_SERVER_CONFIG");
+      const nativeMigrations = migrations.filter(
+        (migrationItem) =>
+          migrationItem.itemType !== "CONFIG" && migrationItem.itemType !== "MCP_SERVER_CONFIG",
+      );
       const [settings, localSettings, targetConfig] = await Promise.all([
         readJsonRecord(path.join(sourceHome, "settings.json")),
         readJsonRecord(path.join(sourceHome, "settings.local.json")),
@@ -883,18 +918,19 @@ export class AgentImportCoordinator {
           payload: { migrationItem, type: "claude" },
         });
       });
-      items = mcpEdits.length === 0
-        ? mappedMigrations
-        : [
-            ...mappedMigrations,
-            createPendingItem({
-              count: isRecord(mcpEdits[0]?.value) ? Object.keys(mcpEdits[0].value).length : 1,
-              description: CLAUDE_ITEM_DESCRIPTIONS.mcpServers,
-              kind: "mcpServers",
-              label: ITEM_LABELS.mcpServers,
-              payload: { edits: mcpEdits, type: "config" },
-            }),
-          ];
+      items =
+        mcpEdits.length === 0
+          ? mappedMigrations
+          : [
+              ...mappedMigrations,
+              createPendingItem({
+                count: isRecord(mcpEdits[0]?.value) ? Object.keys(mcpEdits[0].value).length : 1,
+                description: CLAUDE_ITEM_DESCRIPTIONS.mcpServers,
+                kind: "mcpServers",
+                label: ITEM_LABELS.mcpServers,
+                payload: { edits: mcpEdits, type: "config" },
+              }),
+            ];
     } else {
       const result = await scanNativeHome({
         now: this.now(),
@@ -967,9 +1003,10 @@ export class AgentImportCoordinator {
       totalItems: selectedItems.length,
     });
 
-    const result = pendingScan.scan.sourceKind === "claude-code"
-      ? await this.applyClaudeItems(importId, pendingScan, selectedItems, startedAt)
-      : await this.applyNativeItems(importId, pendingScan, selectedItems, startedAt);
+    const result =
+      pendingScan.scan.sourceKind === "claude-code"
+        ? await this.applyClaudeItems(importId, pendingScan, selectedItems, startedAt)
+        : await this.applyNativeItems(importId, pendingScan, selectedItems, startedAt);
     this.scans.delete(input.scanId);
     return result;
   }
@@ -983,27 +1020,34 @@ export class AgentImportCoordinator {
     const claudeItems = selectedItems.filter((item) => item.payload.type === "claude");
     const nativeItems = selectedItems.filter((item) => item.payload.type !== "claude");
     const migrationItems = claudeItems.flatMap((item) =>
-      item.payload.type === "claude" ? [item.payload.migrationItem] : []);
-    const completed = migrationItems.length > 0
-      ? await this.importClaude(migrationItems, (progress) => {
-          const completedTypes = new Set(progress.itemTypeResults.map((result) => result.itemType));
-          const activeItem = claudeItems.find((item) =>
-            item.payload.type === "claude"
-            && !completedTypes.has(item.payload.migrationItem.itemType));
-          this.emitProgress({
-            activeItemLabel: activeItem?.label ?? "Importing Claude Code data",
-            completed: false,
-            completedItems: Math.min(completedTypes.size, claudeItems.length),
-            importId,
-            sourceKind: "claude-code",
-            totalItems: selectedItems.length,
-          });
-        })
-      : { importId, itemTypeResults: [] };
+      item.payload.type === "claude" ? [item.payload.migrationItem] : [],
+    );
+    const completed =
+      migrationItems.length > 0
+        ? await this.importClaude(migrationItems, (progress) => {
+            const completedTypes = new Set(
+              progress.itemTypeResults.map((result) => result.itemType),
+            );
+            const activeItem = claudeItems.find(
+              (item) =>
+                item.payload.type === "claude" &&
+                !completedTypes.has(item.payload.migrationItem.itemType),
+            );
+            this.emitProgress({
+              activeItemLabel: activeItem?.label ?? "Importing Claude Code data",
+              completed: false,
+              completedItems: Math.min(completedTypes.size, claudeItems.length),
+              importId,
+              sourceKind: "claude-code",
+              totalItems: selectedItems.length,
+            });
+          })
+        : { importId, itemTypeResults: [] };
     const importedThreadIds = completed.itemTypeResults.flatMap((result) =>
       result.itemType === "SESSIONS"
-        ? result.successes.flatMap((success) => success.target ? [success.target] : [])
-        : []);
+        ? result.successes.flatMap((success) => (success.target ? [success.target] : []))
+        : [],
+    );
     const externalOutcomes = claudeItems.map((item) => {
       if (item.payload.type !== "claude") return outcomeFromExternalResult(item, undefined);
       const migrationItem = item.payload.migrationItem;
@@ -1025,8 +1069,9 @@ export class AgentImportCoordinator {
       nativeOutcomes.push(await this.applyNativeItem("claude-code", item, importedThreadIds));
     }
     const outcomes = selectedItems.map((item) => {
-      const outcome = externalOutcomes.find((candidate) => candidate.itemId === item.id)
-        ?? nativeOutcomes.find((candidate) => candidate.itemId === item.id);
+      const outcome =
+        externalOutcomes.find((candidate) => candidate.itemId === item.id) ??
+        nativeOutcomes.find((candidate) => candidate.itemId === item.id);
       if (!outcome) throw new Error(`Missing import outcome for ${item.label}`);
       return outcome;
     });
@@ -1093,10 +1138,7 @@ export class AgentImportCoordinator {
     }
     if (item.payload.type === "config") {
       try {
-        const revalidated = await revalidateConfigEdits(
-          this.runtimeStateHome,
-          item.payload.edits,
-        );
+        const revalidated = await revalidateConfigEdits(this.runtimeStateHome, item.payload.edits);
         await this.applyConfigEdits(revalidated.edits);
         return {
           failureCount: 0,
@@ -1148,8 +1190,10 @@ export class AgentImportCoordinator {
           skippedCount += 1;
           continue;
         }
-        if (await hashFile(session.sourcePath) !== session.sourceContentSha256) {
-          throw new Error(`${session.title ?? session.sourceThreadId}: source changed after scanning`);
+        if ((await hashFile(session.sourcePath)) !== session.sourceContentSha256) {
+          throw new Error(
+            `${session.title ?? session.sourceThreadId}: source changed after scanning`,
+          );
         }
         const targetThreadId = await this.forkSession(session);
         importedThreadIds.push(targetThreadId);

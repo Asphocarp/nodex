@@ -4,8 +4,34 @@ import { settleAsyncRender, textContent, textContentIncludingShadowRoots } from 
 import { fireEvent, within, act, waitFor } from "@testing-library/react";
 import { splitWorkbenchPanelLeaf } from "../../../shared/workbench-panel-layout";
 import { primaryCanvasBlockId } from "../../../shared/block-documents/canvas-document-identity";
-import { makeAttachedSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
-import { appendMockNfmEditor, executeCommandPaletteCommand, getLastTerminalPanelProps, getPanelTabById, getPanelTabChromeById, getWorkbenchPanelActivateCalls, getWorkbenchTabDeleteInputs, getWorkbenchTabProjectionDeleteTabIds, invokeCalls, listBackgroundProcessesCalls, openBottomPanel, openPanelMenu, pointerDownAndSettle, renderWorkbench, sideChatConversations, startSideChatCalls, setInvokeCalls, setStartSideChatCalls } from "./workbench-testkit/workbench-shell-harness";
+import {
+  makeAttachedSession,
+  makePanelLayout,
+  makePanels,
+  makeProject,
+  makeSession,
+  makeSessionTab,
+} from "./workbench-testkit/workbench-shell-fixtures";
+import {
+  appendMockNfmEditor,
+  executeCommandPaletteCommand,
+  getLastTerminalPanelProps,
+  getPanelTabById,
+  getPanelTabChromeById,
+  getWorkbenchPanelActivateCalls,
+  getWorkbenchTabDeleteInputs,
+  getWorkbenchTabProjectionDeleteTabIds,
+  invokeCalls,
+  listBackgroundProcessesCalls,
+  openBottomPanel,
+  openPanelMenu,
+  pointerDownAndSettle,
+  renderWorkbench,
+  sideChatConversations,
+  startSideChatCalls,
+  setInvokeCalls,
+  setStartSideChatCalls,
+} from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / panel-commands", () => {
   test("plus menu keeps DB and Browser available while hiding singleton Review", async () => {
@@ -29,7 +55,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       projects: [makeProject("alpha", "Alpha", "/Users/asc/repo/project-workspace")],
@@ -38,7 +67,9 @@ describe("workbench session shell / panel-commands", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), { button: 0 });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), {
+      button: 0,
+    });
     await settleAsyncRender();
 
     const menu = screen.getByRole("menu");
@@ -63,13 +94,14 @@ describe("workbench session shell / panel-commands", () => {
     fireEvent.click(within(menu).getByText("Canvas"));
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"canvas_stage"')
-      && JSON.stringify(call[1]).includes(
-        `"canvasBlockId":"${primaryCanvasBlockId("alpha")}"`,
-      )
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"canvas_stage"') &&
+          JSON.stringify(call[1]).includes(`"canvasBlockId":"${primaryCanvasBlockId("alpha")}"`),
+      ),
+    ).toBe(true);
   });
 
   test("bottom plus menu keeps Browser multi-tab and hides singleton Review tabs from either panel", async () => {
@@ -93,7 +125,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeAttachedSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       projects: [makeProject("alpha", "Alpha", "/Users/asc/repo/project-workspace")],
@@ -118,21 +153,28 @@ describe("workbench session shell / panel-commands", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), { button: 0 });
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Open side panel tab" }), {
+      button: 0,
+    });
     await settleAsyncRender();
     fireEvent.click(screen.getByText("Review"));
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"review"')
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"review"'),
+      ),
+    ).toBe(true);
     expect(screen.container.querySelector("[data-review-diff-panel]") !== null).toBe(true);
   });
 
   test("summary Changes action opens Review without routing presentation state through props", async () => {
-    (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps = undefined;
+    (
+      globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }
+    ).__lastConnectedReviewDiffPanelProps = undefined;
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [makeAttachedSession()] },
     });
@@ -146,11 +188,15 @@ describe("workbench session shell / panel-commands", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"review"')
-    )).toBe(true);
-    const props = (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps;
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"review"'),
+      ),
+    ).toBe(true);
+    const props = (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> })
+      .__lastConnectedReviewDiffPanelProps;
     expect("initialGitSource" in (props ?? {})).toBe(false);
     expect("initialGitSourceRequestKey" in (props ?? {})).toBe(false);
     expect("selectedTurnDiff" in (props ?? {})).toBe(false);
@@ -199,31 +245,38 @@ describe("workbench session shell / panel-commands", () => {
 
     setInvokeCalls([]);
     await executeCommandPaletteCommand(screen, "review", "Open review tab");
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"review"')
-      && JSON.stringify(call[1]).includes('"panelId":"right"')
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"review"') &&
+          JSON.stringify(call[1]).includes('"panelId":"right"'),
+      ),
+    ).toBe(true);
 
     setInvokeCalls([]);
     await executeCommandPaletteCommand(screen, "terminal", "Open terminal");
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"terminal"')
-      && JSON.stringify(call[1]).includes('"panelId":"bottom"')
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"terminal"') &&
+          JSON.stringify(call[1]).includes('"panelId":"bottom"'),
+      ),
+    ).toBe(true);
 
     setInvokeCalls([]);
     await executeCommandPaletteCommand(screen, "db", "Open DB View tab");
     // The session already owns its project DB tab, so the command focuses it
     // instead of creating a duplicate.
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"db_view"')
-    )).toBe(false);
     expect(
-      screen.getByRole("tab", { name: "DB View", selected: true }) !== null,
-    ).toBe(true);
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"db_view"'),
+      ),
+    ).toBe(false);
+    expect(screen.getByRole("tab", { name: "DB View", selected: true }) !== null).toBe(true);
   });
 
   test("command palette opens shortcut help before customization", async () => {
@@ -241,9 +294,11 @@ describe("workbench session shell / panel-commands", () => {
       name: "Keyboard shortcuts",
     });
     await act(async () => {
-      fireEvent.click(within(shortcutDialog).getByRole("button", {
-        name: "Customize shortcuts",
-      }));
+      fireEvent.click(
+        within(shortcutDialog).getByRole("button", {
+          name: "Customize shortcuts",
+        }),
+      );
       await Promise.resolve();
     });
     await settleAsyncRender();
@@ -263,7 +318,9 @@ describe("workbench session shell / panel-commands", () => {
 
     await executeCommandPaletteCommand(screen, "automation", "Manage automations");
 
-    expect(screen.container.querySelector('[data-testid="automations-route-shell"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-testid="automations-route-shell"]') !== null).toBe(
+      true,
+    );
     expect(screen.container.querySelector('[data-thread-stage="true"]')).toBe(null);
   });
 
@@ -283,27 +340,31 @@ describe("workbench session shell / panel-commands", () => {
       updatedAt: 1,
       linkedAt: "",
       resumeState: "resumed",
-      turns: [{
-        turnId: "turn-process",
-        status: "completed",
-        userMessages: [],
-        assistantText: "",
-        createdAt: 1,
-        updatedAt: 1,
-        items: [{
-          threadId: "thread-alpha",
+      turns: [
+        {
           turnId: "turn-process",
-          itemId: "item-process",
-          type: "commandExecution",
-          kind: "commandExecution",
-          status: "inProgress",
-          command: "bun run dev",
-          cwd: "/Users/asc/repo/nodex",
-          aggregatedOutput: "ready in 421ms\n",
+          status: "completed",
+          userMessages: [],
+          assistantText: "",
           createdAt: 1,
           updatedAt: 1,
-        }],
-      }],
+          items: [
+            {
+              threadId: "thread-alpha",
+              turnId: "turn-process",
+              itemId: "item-process",
+              type: "commandExecution",
+              kind: "commandExecution",
+              status: "inProgress",
+              command: "bun run dev",
+              cwd: "/Users/asc/repo/nodex",
+              aggregatedOutput: "ready in 421ms\n",
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          ],
+        },
+      ],
       requests: [],
       pendingSteers: [],
       queuedFollowUps: [],
@@ -337,7 +398,9 @@ describe("workbench session shell / panel-commands", () => {
     fireEvent.click(screen.getByText("bun run dev"));
     await waitFor(() => {
       expect(screen.container.querySelector("[data-process-output-panel-tab]") !== null).toBe(true);
-      expect(textContentIncludingShadowRoots(screen.container).includes("ready in 421ms")).toBe(true);
+      expect(textContentIncludingShadowRoots(screen.container).includes("ready in 421ms")).toBe(
+        true,
+      );
     });
   });
 
@@ -377,10 +440,13 @@ describe("workbench session shell / panel-commands", () => {
 
     expect(screen.getByRole("tab", { name: "Files" }) !== null).toBe(true);
     expect(screen.container.querySelector('[data-app-shell-tabpanel-preview="true"]')).toBe(null);
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"files"')
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"files"'),
+      ),
+    ).toBe(true);
   });
 
   test("right-panel shortcuts create tabs and ignore editable targets", async () => {
@@ -396,10 +462,13 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"kind":"review"')
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"kind":"review"'),
+      ),
+    ).toBe(true);
 
     setInvokeCalls([]);
     await act(async () => {
@@ -408,11 +477,14 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-create"
-      && JSON.stringify(call[1]).includes('"panelId":"bottom"')
-      && JSON.stringify(call[1]).includes('"kind":"terminal"')
-    )).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-create" &&
+          JSON.stringify(call[1]).includes('"panelId":"bottom"') &&
+          JSON.stringify(call[1]).includes('"kind":"terminal"'),
+      ),
+    ).toBe(true);
 
     setInvokeCalls([]);
     setStartSideChatCalls([]);
@@ -462,7 +534,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -482,12 +557,15 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(getWorkbenchPanelActivateCalls().some((input) =>
-      input.sessionId === "session:alpha:database-view"
-      && input.panelId === "right"
-      && input.leafId === "main"
-      && input.tabId === browserTab.id
-    )).toBe(true);
+    expect(
+      getWorkbenchPanelActivateCalls().some(
+        (input) =>
+          input.sessionId === "session:alpha:database-view" &&
+          input.panelId === "right" &&
+          input.leafId === "main" &&
+          input.tabId === browserTab.id,
+      ),
+    ).toBe(true);
   });
 
   test("Ctrl+Shift+[ wraps from the first right-panel tab to the last tab in the focused tab group", async () => {
@@ -511,7 +589,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -531,12 +612,15 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(getWorkbenchPanelActivateCalls().some((input) =>
-      input.sessionId === "session:alpha:database-view"
-      && input.panelId === "right"
-      && input.leafId === "main"
-      && input.tabId === reviewTab.id
-    )).toBe(true);
+    expect(
+      getWorkbenchPanelActivateCalls().some(
+        (input) =>
+          input.sessionId === "session:alpha:database-view" &&
+          input.panelId === "right" &&
+          input.leafId === "main" &&
+          input.tabId === reviewTab.id,
+      ),
+    ).toBe(true);
   });
 
   test("panel tab cycling stays inside the focused split tab group", async () => {
@@ -621,12 +705,15 @@ describe("workbench session shell / panel-commands", () => {
     await settleAsyncRender();
 
     const activateCalls = getWorkbenchPanelActivateCalls();
-    expect(activateCalls.some((input) =>
-      input.sessionId === "session:alpha:split-cycle"
-      && input.panelId === "right"
-      && input.leafId === "main"
-      && input.tabId === "db-tab"
-    )).toBe(true);
+    expect(
+      activateCalls.some(
+        (input) =>
+          input.sessionId === "session:alpha:split-cycle" &&
+          input.panelId === "right" &&
+          input.leafId === "main" &&
+          input.tabId === "db-tab",
+      ),
+    ).toBe(true);
     expect(activateCalls.some((input) => input.tabId === "review-tab")).toBe(false);
   });
 
@@ -651,7 +738,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -673,12 +763,15 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(getWorkbenchPanelActivateCalls().some((input) =>
-      input.sessionId === "session:alpha:database-view"
-      && input.panelId === "right"
-      && input.leafId === "main"
-      && input.tabId === browserTab.id
-    )).toBe(true);
+    expect(
+      getWorkbenchPanelActivateCalls().some(
+        (input) =>
+          input.sessionId === "session:alpha:database-view" &&
+          input.panelId === "right" &&
+          input.leafId === "main" &&
+          input.tabId === browserTab.id,
+      ),
+    ).toBe(true);
   });
 
   test("native panel tab cycle requests reuse the focused panel tab group", async () => {
@@ -702,7 +795,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab, reviewTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id, reviewTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id, reviewTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -719,12 +815,15 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(getWorkbenchPanelActivateCalls().some((input) =>
-      input.sessionId === "session:alpha:database-view"
-      && input.panelId === "right"
-      && input.leafId === "main"
-      && input.tabId === browserTab.id
-    )).toBe(true);
+    expect(
+      getWorkbenchPanelActivateCalls().some(
+        (input) =>
+          input.sessionId === "session:alpha:database-view" &&
+          input.panelId === "right" &&
+          input.leafId === "main" &&
+          input.tabId === browserTab.id,
+      ),
+    ).toBe(true);
   });
 
   test("native panel tab cycle requests are ignored while an editable target is focused", async () => {
@@ -739,7 +838,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -775,7 +877,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -802,12 +907,15 @@ describe("workbench session shell / panel-commands", () => {
     editor.remove();
     await settleAsyncRender();
 
-    expect(getWorkbenchPanelActivateCalls().some((input) =>
-      input.sessionId === "session:alpha:database-view"
-      && input.panelId === "right"
-      && input.leafId === "main"
-      && input.tabId === browserTab.id
-    )).toBe(true);
+    expect(
+      getWorkbenchPanelActivateCalls().some(
+        (input) =>
+          input.sessionId === "session:alpha:database-view" &&
+          input.panelId === "right" &&
+          input.leafId === "main" &&
+          input.tabId === browserTab.id,
+      ),
+    ).toBe(true);
   });
 
   test("panel tab cycling mounts only the active durable page stage", async () => {
@@ -871,12 +979,15 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(getWorkbenchPanelActivateCalls().some((input) =>
-      input.sessionId === "session:alpha:database-view"
-      && input.panelId === "right"
-      && input.leafId === "main"
-      && input.tabId === secondPageTab.id
-    )).toBe(true);
+    expect(
+      getWorkbenchPanelActivateCalls().some(
+        (input) =>
+          input.sessionId === "session:alpha:database-view" &&
+          input.panelId === "right" &&
+          input.leafId === "main" &&
+          input.tabId === secondPageTab.id,
+      ),
+    ).toBe(true);
     expect(state.__mockPageStageMountsByPageId?.["card-1"]).toBe(1);
     expect(state.__mockPageStageMountsByPageId?.["card-2"]).toBe(1);
     expect(state.__mockPageStageUnmountsByPageId?.["card-1"]).toBe(1);
@@ -905,12 +1016,15 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(getWorkbenchPanelActivateCalls().some((input) =>
-      input.sessionId === "session:alpha:database-view"
-      && input.panelId === "right"
-      && input.leafId === "main"
-      && input.tabId === firstPageTab.id
-    )).toBe(true);
+    expect(
+      getWorkbenchPanelActivateCalls().some(
+        (input) =>
+          input.sessionId === "session:alpha:database-view" &&
+          input.panelId === "right" &&
+          input.leafId === "main" &&
+          input.tabId === firstPageTab.id,
+      ),
+    ).toBe(true);
     expect(state.__mockPageStageMountsByPageId?.["card-1"]).toBe(2);
     expect(state.__mockPageStageMountsByPageId?.["card-2"]).toBe(1);
     expect(state.__mockPageStageUnmountsByPageId?.["card-1"]).toBe(1);
@@ -934,7 +1048,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -963,12 +1080,15 @@ describe("workbench session shell / panel-commands", () => {
     editor.remove();
     await settleAsyncRender();
 
-    expect(getWorkbenchPanelActivateCalls().some((input) =>
-      input.sessionId === "session:alpha:database-view"
-      && input.panelId === "right"
-      && input.leafId === "main"
-      && input.tabId === browserTab.id
-    )).toBe(true);
+    expect(
+      getWorkbenchPanelActivateCalls().some(
+        (input) =>
+          input.sessionId === "session:alpha:database-view" &&
+          input.panelId === "right" &&
+          input.leafId === "main" &&
+          input.tabId === browserTab.id,
+      ),
+    ).toBe(true);
   });
 
   test("panel tab cycling works in the focused bottom-panel tab group", async () => {
@@ -1021,12 +1141,15 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(getWorkbenchPanelActivateCalls().some((input) =>
-      input.sessionId === "session:alpha:bottom-cycle"
-      && input.panelId === "bottom"
-      && input.leafId === "main"
-      && input.tabId === "bottom-browser-tab"
-    )).toBe(true);
+    expect(
+      getWorkbenchPanelActivateCalls().some(
+        (input) =>
+          input.sessionId === "session:alpha:bottom-cycle" &&
+          input.panelId === "bottom" &&
+          input.leafId === "main" &&
+          input.tabId === "bottom-browser-tab",
+      ),
+    ).toBe(true);
   });
 
   test("panel tab cycling ignores input and dialog targets inside a focused panel", async () => {
@@ -1041,7 +1164,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -1097,7 +1223,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], "session:alpha:database-view:db"),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id],
+        "session:alpha:database-view:db",
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -1131,7 +1260,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], browserTab.id),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id],
+        browserTab.id,
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -1150,7 +1282,9 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(JSON.stringify(getWorkbenchTabProjectionDeleteTabIds())).toBe(JSON.stringify([browserTab.id]));
+    expect(JSON.stringify(getWorkbenchTabProjectionDeleteTabIds())).toBe(
+      JSON.stringify([browserTab.id]),
+    );
   });
 
   test("Ctrl+W routes close focus to the same-leaf most recently active tab", async () => {
@@ -1221,7 +1355,9 @@ describe("workbench session shell / panel-commands", () => {
     expect(deleteInput.preferredActiveLeafId).toBe("main");
     expect(deleteInput.preferredActiveTabId).toBe(secondTab.id);
     await waitFor(() => {
-      expect(getPanelTabById(screen.container, secondTab.id).getAttribute("aria-selected")).toBe("true");
+      expect(getPanelTabById(screen.container, secondTab.id).getAttribute("aria-selected")).toBe(
+        "true",
+      );
     });
   });
 
@@ -1298,7 +1434,9 @@ describe("workbench session shell / panel-commands", () => {
     expect(deleteInput.preferredActiveLeafId).toBe("main");
     expect(deleteInput.preferredActiveTabId).toBe(firstTab.id);
     await waitFor(() => {
-      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe("true");
+      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe(
+        "true",
+      );
     });
   });
 
@@ -1361,7 +1499,9 @@ describe("workbench session shell / panel-commands", () => {
     expect(deleteInput.preferredActiveLeafId).toBe("main");
     expect(deleteInput.preferredActiveTabId).toBe(firstTab.id);
     await waitFor(() => {
-      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe("true");
+      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe(
+        "true",
+      );
     });
   });
 
@@ -1424,7 +1564,9 @@ describe("workbench session shell / panel-commands", () => {
     expect(deleteInput.preferredActiveLeafId).toBe("main");
     expect(deleteInput.preferredActiveTabId).toBe(firstTab.id);
     await waitFor(() => {
-      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe("true");
+      expect(getPanelTabById(screen.container, firstTab.id).getAttribute("aria-selected")).toBe(
+        "true",
+      );
     });
   });
 
@@ -1475,7 +1617,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], browserTab.id),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id],
+        browserTab.id,
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -1492,7 +1637,9 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(JSON.stringify(getWorkbenchTabProjectionDeleteTabIds())).toBe(JSON.stringify([browserTab.id]));
+    expect(JSON.stringify(getWorkbenchTabProjectionDeleteTabIds())).toBe(
+      JSON.stringify([browserTab.id]),
+    );
   });
 
   test("Ctrl+W closes the active bottom-panel tab in the focused tab group", async () => {
@@ -1544,7 +1691,9 @@ describe("workbench session shell / panel-commands", () => {
     });
     await settleAsyncRender();
 
-    expect(JSON.stringify(getWorkbenchTabProjectionDeleteTabIds())).toBe(JSON.stringify(["bottom-browser-tab"]));
+    expect(JSON.stringify(getWorkbenchTabProjectionDeleteTabIds())).toBe(
+      JSON.stringify(["bottom-browser-tab"]),
+    );
   });
 
   test("Ctrl+W closes the active panel tab from focused NFM editor content", async () => {
@@ -1559,7 +1708,10 @@ describe("workbench session shell / panel-commands", () => {
     });
     const session = makeSession({
       tabs: [...makeSession().tabs, browserTab],
-      rightLayout: makePanelLayout(["session:alpha:database-view:db", browserTab.id], browserTab.id),
+      rightLayout: makePanelLayout(
+        ["session:alpha:database-view:db", browserTab.id],
+        browserTab.id,
+      ),
     });
     const screen = renderWorkbench({
       sessionsByProject: { alpha: [session] },
@@ -1586,7 +1738,9 @@ describe("workbench session shell / panel-commands", () => {
     editor.remove();
     await settleAsyncRender();
 
-    expect(JSON.stringify(getWorkbenchTabProjectionDeleteTabIds())).toBe(JSON.stringify([browserTab.id]));
+    expect(JSON.stringify(getWorkbenchTabProjectionDeleteTabIds())).toBe(
+      JSON.stringify([browserTab.id]),
+    );
   });
 
   test("terminal tab default cwd prefers the attached thread cwd", async () => {
@@ -1648,7 +1802,8 @@ describe("workbench session shell / panel-commands", () => {
   });
 
   test("terminal tab does not fall back to the process cwd without a conversation workspace", async () => {
-    delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
+    delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> })
+      .__lastTerminalPanelProps;
     const terminalSession = makeSession({
       id: "session:alpha:terminal-pty-default",
       title: "Default terminal",
@@ -1671,8 +1826,9 @@ describe("workbench session shell / panel-commands", () => {
     await settleAsyncRender();
 
     expect(screen.getByText("Terminal workspace is unavailable") !== null).toBe(true);
-    expect((globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps).toBeUndefined();
+    expect(
+      (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> })
+        .__lastTerminalPanelProps,
+    ).toBeUndefined();
   });
-
-
 });

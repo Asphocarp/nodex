@@ -1,18 +1,9 @@
 import { execFileSync } from "node:child_process";
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import {
-  Awareness,
-  applyAwarenessUpdate,
-} from "y-protocols/awareness";
+import { Awareness, applyAwarenessUpdate } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { materializePageDocument } from "./block-document-codec";
 import { assertValidBlockDocument } from "./block-structure";
@@ -79,9 +70,7 @@ interface SemanticOperationSummary {
   readonly titleWriteFenceRequired: boolean;
 }
 
-const fixtureRoot = path.resolve(
-  "crates/nodex-core/tests/fixtures/yjs-yrs",
-);
+const fixtureRoot = path.resolve("crates/nodex-core/tests/fixtures/yjs-yrs");
 // The first bridge invocation may cold-start rustup and compile the bridge on CI.
 const rustBridgeColdStartTimeoutMs = 300_000;
 const temporaryRoots: string[] = [];
@@ -110,9 +99,7 @@ const runBridge = <T = BridgeSummary>(args: readonly string[]): T =>
   ) as T;
 
 const normalizedStateVector = (bytes: Uint8Array): readonly (readonly [number, number])[] =>
-  [...Y.decodeStateVector(bytes).entries()].sort(
-    ([left], [right]) => left - right,
-  );
+  [...Y.decodeStateVector(bytes).entries()].sort(([left], [right]) => left - right);
 
 const exactElementNames = (body: Y.XmlFragment): readonly string[] =>
   [...body.createTreeWalker((node) => node instanceof Y.XmlElement)].map(
@@ -166,9 +153,7 @@ const semanticXml = (body: Y.XmlFragment): unknown =>
 
 const materializeWithSearchUnits = (document: Y.Doc): unknown => ({
   ...materializePageDocument(document),
-  searchUnits: assertValidBlockDocument(
-    document.getXmlFragment("body"),
-  ).map((block, ordinal) => ({
+  searchUnits: assertValidBlockDocument(document.getXmlFragment("body")).map((block, ordinal) => ({
     blockId: block.id,
     parentBlockId: block.parentBlockId,
     ordinal,
@@ -195,13 +180,11 @@ const createRandom = (seed: number): (() => number) => {
   };
 };
 
-const applyRandomizedEdit = (
-  document: Y.Doc,
-  operation: RandomizedEdit,
-): void => {
-  const target = operation.target === "title"
-    ? document.getText("title")
-    : firstXmlText(document.getXmlFragment("body"));
+const applyRandomizedEdit = (document: Y.Doc, operation: RandomizedEdit): void => {
+  const target =
+    operation.target === "title"
+      ? document.getText("title")
+      : firstXmlText(document.getXmlFragment("body"));
   if (operation.kind === "insert") {
     target.insert(operation.index, operation.text);
     return;
@@ -228,9 +211,10 @@ const generateRandomizedCase = (
 
   for (let step = 0; step < 36; step += 1) {
     const target = random() % 2 === 0 ? "title" : "body";
-    const shared = target === "title"
-      ? document.getText("title")
-      : firstXmlText(document.getXmlFragment("body"));
+    const shared =
+      target === "title"
+        ? document.getText("title")
+        : firstXmlText(document.getXmlFragment("body"));
     const boundaries = utf16Boundaries(shared.toString());
     const requestedKind = step % 3;
     let operation: RandomizedEdit;
@@ -247,16 +231,17 @@ const generateRandomizedCase = (
       const span = 1 + (random() % Math.min(3, remaining));
       const index = boundaries[startBoundary] ?? 0;
       const end = boundaries[startBoundary + span] ?? index;
-      operation = requestedKind === 1
-        ? { kind: "delete", target, index, length: end - index }
-        : {
-            kind: "format",
-            target,
-            index,
-            length: end - index,
-            mark: marks[random() % marks.length] ?? "bold",
-            enabled: random() % 2 === 0,
-          };
+      operation =
+        requestedKind === 1
+          ? { kind: "delete", target, index, length: end - index }
+          : {
+              kind: "format",
+              target,
+              index,
+              length: end - index,
+              mark: marks[random() % marks.length] ?? "bold",
+              enabled: random() % 2 === 0,
+            };
     }
     document.transact(() => applyRandomizedEdit(document, operation));
     operations.push(operation);
@@ -278,23 +263,14 @@ describe("Yjs/Yrs compatibility", () => {
       const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-block-tree-"));
       temporaryRoots.push(temporaryRoot);
       const roundtripUpdatePath = path.join(temporaryRoot, "matrix-roundtrip.bin");
-      runBridge([
-        "matrix-block-tree-roundtrip",
-        fixtureRoot,
-        roundtripUpdatePath,
-      ]);
+      runBridge(["matrix-block-tree-roundtrip", fixtureRoot, roundtripUpdatePath]);
 
       const source = new Y.Doc({ guid: "matrix-source" });
-      Y.applyUpdate(
-        source,
-        readFileSync(path.join(fixtureRoot, "matrix-base.bin")),
-      );
+      Y.applyUpdate(source, readFileSync(path.join(fixtureRoot, "matrix-base.bin")));
       const roundtrip = new Y.Doc({ guid: "matrix-roundtrip" });
       Y.applyUpdate(roundtrip, readFileSync(roundtripUpdatePath));
 
-      expect(materializePageDocument(roundtrip)).toEqual(
-        materializePageDocument(source),
-      );
+      expect(materializePageDocument(roundtrip)).toEqual(materializePageDocument(source));
       expect(semanticXml(roundtrip.getXmlFragment("body"))).toEqual(
         semanticXml(source.getXmlFragment("body")),
       );
@@ -302,72 +278,50 @@ describe("Yjs/Yrs compatibility", () => {
     rustBridgeColdStartTimeoutMs,
   );
 
-  test(
-    "continues editing a rich Page in both engines after a bidirectional round trip",
-    () => {
-      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-yjs-yrs-"));
-      temporaryRoots.push(temporaryRoot);
-      const rustUpdatePath = path.join(temporaryRoot, "rust-update.bin");
-      const thirdUpdatePath = path.join(temporaryRoot, "third-update.bin");
+  test("continues editing a rich Page in both engines after a bidirectional round trip", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-yjs-yrs-"));
+    temporaryRoots.push(temporaryRoot);
+    const rustUpdatePath = path.join(temporaryRoot, "rust-update.bin");
+    const thirdUpdatePath = path.join(temporaryRoot, "third-update.bin");
 
-      const rustAfterConcurrent = runBridge([
-        "generate",
-        fixtureRoot,
-        rustUpdatePath,
-      ]);
+    const rustAfterConcurrent = runBridge(["generate", fixtureRoot, rustUpdatePath]);
 
-      const yjsDocument = new Y.Doc({ guid: "nodex-yjs-yrs-conformance" });
-      for (const name of ["base.bin", "first.bin", "second.bin"]) {
-        Y.applyUpdate(yjsDocument, readFileSync(path.join(fixtureRoot, name)));
-      }
-      Y.applyUpdate(yjsDocument, readFileSync(rustUpdatePath));
-      expect(yjsDocument.getText("title").toString()).toBe(
-        rustAfterConcurrent.title,
-      );
-      expect(semanticXml(yjsDocument.getXmlFragment("body"))).toEqual(
-        rustAfterConcurrent.body_semantic,
-      );
+    const yjsDocument = new Y.Doc({ guid: "nodex-yjs-yrs-conformance" });
+    for (const name of ["base.bin", "first.bin", "second.bin"]) {
+      Y.applyUpdate(yjsDocument, readFileSync(path.join(fixtureRoot, name)));
+    }
+    Y.applyUpdate(yjsDocument, readFileSync(rustUpdatePath));
+    expect(yjsDocument.getText("title").toString()).toBe(rustAfterConcurrent.title);
+    expect(semanticXml(yjsDocument.getXmlFragment("body"))).toEqual(
+      rustAfterConcurrent.body_semantic,
+    );
 
-      const beforeThird = Y.encodeStateVector(yjsDocument);
-      yjsDocument.transact(() => {
-        const title = yjsDocument.getText("title");
-        title.insert(title.length, " · JS3");
-        const text = firstXmlText(yjsDocument.getXmlFragment("body"));
-        text.insert(text.length, " third");
-      }, "third-js-edit");
-      writeFileSync(
-        thirdUpdatePath,
-        Y.encodeStateAsUpdate(yjsDocument, beforeThird),
-      );
+    const beforeThird = Y.encodeStateVector(yjsDocument);
+    yjsDocument.transact(() => {
+      const title = yjsDocument.getText("title");
+      title.insert(title.length, " · JS3");
+      const text = firstXmlText(yjsDocument.getXmlFragment("body"));
+      text.insert(text.length, " third");
+    }, "third-js-edit");
+    writeFileSync(thirdUpdatePath, Y.encodeStateAsUpdate(yjsDocument, beforeThird));
 
-      const rustAfterThird = runBridge([
-        "inspect",
-        fixtureRoot,
-        rustUpdatePath,
-        thirdUpdatePath,
-      ]);
-      expect(rustAfterThird.title).toBe(
-        yjsDocument.getText("title").toString(),
-      );
-      expect(rustAfterThird.body_semantic).toEqual(
-        semanticXml(yjsDocument.getXmlFragment("body")),
-      );
-      expect(rustAfterThird.state_vector.length).toBeGreaterThan(1);
-      expect(
-        normalizedStateVector(Uint8Array.from(rustAfterThird.state_vector)),
-      ).toEqual(normalizedStateVector(Y.encodeStateVector(yjsDocument)));
-    },
-    60_000,
-  );
+    const rustAfterThird = runBridge(["inspect", fixtureRoot, rustUpdatePath, thirdUpdatePath]);
+    expect(rustAfterThird.title).toBe(yjsDocument.getText("title").toString());
+    expect(rustAfterThird.body_semantic).toEqual(semanticXml(yjsDocument.getXmlFragment("body")));
+    expect(rustAfterThird.state_vector.length).toBeGreaterThan(1);
+    expect(normalizedStateVector(Uint8Array.from(rustAfterThird.state_vector))).toEqual(
+      normalizedStateVector(Y.encodeStateVector(yjsDocument)),
+    );
+  }, 60_000);
 
-  test(
-    "consumes Rust semantic title and stable Block operations as one relative update",
-    () => {
-      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-semantic-operations-"));
-      temporaryRoots.push(temporaryRoot);
-      const corpusPath = path.join(temporaryRoot, "operations.json");
-      const updatePath = path.join(temporaryRoot, "operations.bin");
-      writeFileSync(corpusPath, JSON.stringify({
+  test("consumes Rust semantic title and stable Block operations as one relative update", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-semantic-operations-"));
+    temporaryRoots.push(temporaryRoot);
+    const corpusPath = path.join(temporaryRoot, "operations.json");
+    const updatePath = path.join(temporaryRoot, "operations.bin");
+    writeFileSync(
+      corpusPath,
+      JSON.stringify({
         operations: [
           {
             kind: "set_rich_title",
@@ -400,11 +354,13 @@ describe("Yjs/Yrs compatibility", () => {
             kind: "update_block",
             blockId: "matrix-heading",
             patch: {
-              content: [{
-                type: "text",
-                text: "Updated heading",
-                styles: { bold: true },
-              }],
+              content: [
+                {
+                  type: "text",
+                  text: "Updated heading",
+                  styles: { bold: true },
+                },
+              ],
             },
           },
           {
@@ -414,263 +370,212 @@ describe("Yjs/Yrs compatibility", () => {
           },
           { kind: "delete_block", blockId: "matrix-divider" },
         ],
-      }));
+      }),
+    );
 
-      const summary = runBridge<SemanticOperationSummary>([
-        "semantic-operations",
-        fixtureRoot,
-        corpusPath,
-        updatePath,
-      ]);
-      const consumer = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
-      Y.applyUpdate(
-        consumer,
-        readFileSync(path.join(fixtureRoot, "matrix-base.bin")),
-      );
-      Y.applyUpdate(consumer, readFileSync(updatePath));
+    const summary = runBridge<SemanticOperationSummary>([
+      "semantic-operations",
+      fixtureRoot,
+      corpusPath,
+      updatePath,
+    ]);
+    const consumer = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
+    Y.applyUpdate(consumer, readFileSync(path.join(fixtureRoot, "matrix-base.bin")));
+    Y.applyUpdate(consumer, readFileSync(updatePath));
 
-      expect(materializeWithSearchUnits(consumer)).toEqual(summary.materialization);
-      expect(summary.writeFenceBlockIds).toEqual([
-        "matrix-divider",
-        "matrix-heading",
-        "matrix-quote",
-      ]);
-      expect(summary.titleWriteFenceRequired).toBe(true);
-      expect(
-        normalizedStateVector(Uint8Array.from(summary.stateVectorV1)),
-      ).toEqual(normalizedStateVector(Y.encodeStateVector(consumer)));
-    },
-    60_000,
-  );
+    expect(materializeWithSearchUnits(consumer)).toEqual(summary.materialization);
+    expect(summary.writeFenceBlockIds).toEqual([
+      "matrix-divider",
+      "matrix-heading",
+      "matrix-quote",
+    ]);
+    expect(summary.titleWriteFenceRequired).toBe(true);
+    expect(normalizedStateVector(Uint8Array.from(summary.stateVectorV1))).toEqual(
+      normalizedStateVector(Y.encodeStateVector(consumer)),
+    );
+  }, 60_000);
 
-  test(
-    "consumes a Rust exact-NFM body replacement and rich title atomically",
-    () => {
-      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-nfm-patch-"));
-      temporaryRoots.push(temporaryRoot);
-      const corpusPath = path.join(temporaryRoot, "nfm-patch.json");
-      const updatePath = path.join(temporaryRoot, "nfm-patch.bin");
-      writeFileSync(corpusPath, JSON.stringify({
-        patches: [{
-          oldNfm: "## Heading",
-          newNfm: "## Heading from an exact Rust patch",
-          expectedMatches: 1,
-        }],
-        richTitle: [{
-          type: "text",
-          text: "Patched by Rust",
-          styles: { bold: true },
-        }],
-      }));
-
-      const summary = runBridge<SemanticOperationSummary>([
-        "nfm-patch",
-        fixtureRoot,
-        corpusPath,
-        updatePath,
-      ]);
-      const consumer = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
-      Y.applyUpdate(
-        consumer,
-        readFileSync(path.join(fixtureRoot, "matrix-base.bin")),
-      );
-      Y.applyUpdate(consumer, readFileSync(updatePath));
-
-      expect(materializeWithSearchUnits(consumer)).toEqual(summary.materialization);
-      expect(summary.writeFenceBlockIds).toHaveLength(22);
-      expect(summary.titleWriteFenceRequired).toBe(true);
-      expect(
-        normalizedStateVector(Uint8Array.from(summary.stateVectorV1)),
-      ).toEqual(normalizedStateVector(Y.encodeStateVector(consumer)));
-    },
-    60_000,
-  );
-
-  test(
-    "consumes a Rust portable subtree copy with remapped nested identities",
-    () => {
-      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-subtree-copy-"));
-      temporaryRoots.push(temporaryRoot);
-      const updatePath = path.join(temporaryRoot, "subtree-copy.bin");
-      const summary = runBridge<SemanticOperationSummary>([
-        "subtree-copy",
-        fixtureRoot,
-        updatePath,
-      ]);
-      const consumer = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
-      Y.applyUpdate(
-        consumer,
-        readFileSync(path.join(fixtureRoot, "matrix-base.bin")),
-      );
-      Y.applyUpdate(consumer, readFileSync(updatePath));
-
-      expect(materializeWithSearchUnits(consumer)).toEqual(summary.materialization);
-      expect(summary.writeFenceBlockIds).toEqual([
-        "bridge-copy-matrix-toggle",
-        "bridge-copy-matrix-toggle-child",
-      ]);
-      expect(summary.titleWriteFenceRequired).toBe(false);
-      expect(
-        normalizedStateVector(Uint8Array.from(summary.stateVectorV1)),
-      ).toEqual(normalizedStateVector(Y.encodeStateVector(consumer)));
-    },
-    60_000,
-  );
-
-  test(
-    "round-trips every registered Block and inline shape with exact XML tags",
-    () => {
-      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-yjs-yrs-matrix-"));
-      temporaryRoots.push(temporaryRoot);
-      const rustUpdatePath = path.join(temporaryRoot, "matrix-rust-update.bin");
-      const thirdUpdatePath = path.join(temporaryRoot, "matrix-third-update.bin");
-      const manifest = JSON.parse(
-        readFileSync(path.join(fixtureRoot, "manifest.json"), "utf8"),
-      ) as FixtureManifest;
-
-      const rustAfterMatrix = runBridge([
-        "matrix-generate",
-        fixtureRoot,
-        rustUpdatePath,
-      ]);
-      const yjsDocument = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
-      Y.applyUpdate(
-        yjsDocument,
-        readFileSync(path.join(fixtureRoot, "matrix-base.bin")),
-      );
-      Y.applyUpdate(yjsDocument, readFileSync(rustUpdatePath));
-      expect(yjsDocument.getText("title").toString()).toBe(rustAfterMatrix.title);
-      expect(semanticXml(yjsDocument.getXmlFragment("body"))).toEqual(
-        rustAfterMatrix.body_semantic,
-      );
-
-      const nodeNames = exactElementNames(yjsDocument.getXmlFragment("body"));
-      expect(nodeNames).toContain("blockGroup");
-      expect(nodeNames).toContain("blockContainer");
-      for (const blockType of manifest.matrix.blockTypes) {
-        expect(nodeNames, blockType).toContain(blockType);
-      }
-
-      const beforeThird = Y.encodeStateVector(yjsDocument);
-      yjsDocument.transact(() => {
-        const title = yjsDocument.getText("title");
-        title.insert(title.length, " · matrix JS3");
-        const text = firstXmlText(yjsDocument.getXmlFragment("body"));
-        text.insert(text.length, " · matrix third");
-      }, "matrix-third-js-edit");
-      writeFileSync(
-        thirdUpdatePath,
-        Y.encodeStateAsUpdate(yjsDocument, beforeThird),
-      );
-
-      const rustAfterThird = runBridge([
-        "matrix-inspect",
-        fixtureRoot,
-        rustUpdatePath,
-        thirdUpdatePath,
-      ]);
-      expect(rustAfterThird.title).toBe(yjsDocument.getText("title").toString());
-      expect(rustAfterThird.body_semantic).toEqual(
-        semanticXml(yjsDocument.getXmlFragment("body")),
-      );
-      expect(
-        normalizedStateVector(Uint8Array.from(rustAfterThird.state_vector)),
-      ).toEqual(normalizedStateVector(Y.encodeStateVector(yjsDocument)));
-    },
-    60_000,
-  );
-
-  test(
-    "exchanges ephemeral Awareness state in both directions",
-    () => {
-      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-yjs-yrs-awareness-"));
-      temporaryRoots.push(temporaryRoot);
-      const rustUpdatePath = path.join(temporaryRoot, "awareness-rust.bin");
-      const rust = runBridge<AwarenessBridgeSummary>([
-        "awareness",
-        path.join(fixtureRoot, "awareness-added.bin"),
-        rustUpdatePath,
-      ]);
-
-      expect(rust.client_id).toBeGreaterThan(0);
-      expect(rust.client_id).toBeLessThanOrEqual(0xffff_ffff);
-      const remoteDocument = new Y.Doc({ guid: "awareness-yjs-consumer" });
-      const remoteAwareness = new Awareness(remoteDocument);
-      remoteAwareness.setLocalState(null);
-      applyAwarenessUpdate(
-        remoteAwareness,
-        readFileSync(rustUpdatePath),
-        "rust-fixture",
-      );
-      expect(remoteAwareness.getStates().get(rust.client_id)).toEqual(rust.state);
-      expect(remoteAwareness.getStates().size).toBe(2);
-      remoteAwareness.destroy();
-    },
-    60_000,
-  );
-
-  test(
-    "preserves randomized UTF-16 insert delete and format properties bidirectionally",
-    () => {
-      const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-yjs-yrs-properties-"));
-      temporaryRoots.push(temporaryRoot);
-      const yjsUpdateRoot = path.join(temporaryRoot, "yjs");
-      const rustUpdateRoot = path.join(temporaryRoot, "rust");
-      mkdirSync(yjsUpdateRoot);
-      mkdirSync(rustUpdateRoot);
-      const corpusPath = path.join(temporaryRoot, "corpus.json");
-      const base = readFileSync(path.join(fixtureRoot, "base.bin"));
-      const cases: RandomizedCase[] = [];
-      const expected = new Map<number, RandomizedProductSummary>();
-
-      for (let seed = 1; seed <= 24; seed += 1) {
-        const generated = generateRandomizedCase(seed, base);
-        cases.push(generated.fixture);
-        const baseVectorDocument = new Y.Doc({ guid: `randomized-vector-${seed}` });
-        Y.applyUpdate(baseVectorDocument, base);
-        writeFileSync(
-          path.join(yjsUpdateRoot, `${seed}.bin`),
-          Y.encodeStateAsUpdate(
-            generated.document,
-            Y.encodeStateVector(baseVectorDocument),
-          ),
-        );
-        expected.set(seed, {
-          body_semantic: semanticXml(generated.document.getXmlFragment("body")),
-          materialization: materializeWithSearchUnits(generated.document),
-        });
-      }
-      writeFileSync(corpusPath, JSON.stringify({ cases }));
-
-      const summaries = runBridge<readonly RandomizedCaseSummary[]>([
-        "randomized",
-        fixtureRoot,
-        corpusPath,
-        yjsUpdateRoot,
-        rustUpdateRoot,
-      ]);
-      expect(summaries).toHaveLength(cases.length);
-      for (const summary of summaries) {
-        const oracle = expected.get(summary.seed);
-        expect(oracle, `seed ${summary.seed}`).toBeDefined();
-        expect(summary.rust_local, `Rust-local seed ${summary.seed}`).toEqual(oracle);
-        expect(summary.yjs_update, `Yjs-to-Yrs seed ${summary.seed}`).toEqual(oracle);
-
-        const consumer = new Y.Doc({ guid: `randomized-consumer-${summary.seed}` });
-        Y.applyUpdate(consumer, base);
-        Y.applyUpdate(
-          consumer,
-          readFileSync(path.join(rustUpdateRoot, `${summary.seed}.bin`)),
-        );
-        expect(
+  test("consumes a Rust exact-NFM body replacement and rich title atomically", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-nfm-patch-"));
+    temporaryRoots.push(temporaryRoot);
+    const corpusPath = path.join(temporaryRoot, "nfm-patch.json");
+    const updatePath = path.join(temporaryRoot, "nfm-patch.bin");
+    writeFileSync(
+      corpusPath,
+      JSON.stringify({
+        patches: [
           {
-            body_semantic: semanticXml(consumer.getXmlFragment("body")),
-            materialization: materializeWithSearchUnits(consumer),
+            oldNfm: "## Heading",
+            newNfm: "## Heading from an exact Rust patch",
+            expectedMatches: 1,
           },
-          `Yrs-to-Yjs seed ${summary.seed}`,
-        ).toEqual(oracle);
-      }
-    },
-    60_000,
-  );
+        ],
+        richTitle: [
+          {
+            type: "text",
+            text: "Patched by Rust",
+            styles: { bold: true },
+          },
+        ],
+      }),
+    );
+
+    const summary = runBridge<SemanticOperationSummary>([
+      "nfm-patch",
+      fixtureRoot,
+      corpusPath,
+      updatePath,
+    ]);
+    const consumer = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
+    Y.applyUpdate(consumer, readFileSync(path.join(fixtureRoot, "matrix-base.bin")));
+    Y.applyUpdate(consumer, readFileSync(updatePath));
+
+    expect(materializeWithSearchUnits(consumer)).toEqual(summary.materialization);
+    expect(summary.writeFenceBlockIds).toHaveLength(22);
+    expect(summary.titleWriteFenceRequired).toBe(true);
+    expect(normalizedStateVector(Uint8Array.from(summary.stateVectorV1))).toEqual(
+      normalizedStateVector(Y.encodeStateVector(consumer)),
+    );
+  }, 60_000);
+
+  test("consumes a Rust portable subtree copy with remapped nested identities", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-subtree-copy-"));
+    temporaryRoots.push(temporaryRoot);
+    const updatePath = path.join(temporaryRoot, "subtree-copy.bin");
+    const summary = runBridge<SemanticOperationSummary>(["subtree-copy", fixtureRoot, updatePath]);
+    const consumer = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
+    Y.applyUpdate(consumer, readFileSync(path.join(fixtureRoot, "matrix-base.bin")));
+    Y.applyUpdate(consumer, readFileSync(updatePath));
+
+    expect(materializeWithSearchUnits(consumer)).toEqual(summary.materialization);
+    expect(summary.writeFenceBlockIds).toEqual([
+      "bridge-copy-matrix-toggle",
+      "bridge-copy-matrix-toggle-child",
+    ]);
+    expect(summary.titleWriteFenceRequired).toBe(false);
+    expect(normalizedStateVector(Uint8Array.from(summary.stateVectorV1))).toEqual(
+      normalizedStateVector(Y.encodeStateVector(consumer)),
+    );
+  }, 60_000);
+
+  test("round-trips every registered Block and inline shape with exact XML tags", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-yjs-yrs-matrix-"));
+    temporaryRoots.push(temporaryRoot);
+    const rustUpdatePath = path.join(temporaryRoot, "matrix-rust-update.bin");
+    const thirdUpdatePath = path.join(temporaryRoot, "matrix-third-update.bin");
+    const manifest = JSON.parse(
+      readFileSync(path.join(fixtureRoot, "manifest.json"), "utf8"),
+    ) as FixtureManifest;
+
+    const rustAfterMatrix = runBridge(["matrix-generate", fixtureRoot, rustUpdatePath]);
+    const yjsDocument = new Y.Doc({ guid: "nodex-yjs-yrs-schema-matrix" });
+    Y.applyUpdate(yjsDocument, readFileSync(path.join(fixtureRoot, "matrix-base.bin")));
+    Y.applyUpdate(yjsDocument, readFileSync(rustUpdatePath));
+    expect(yjsDocument.getText("title").toString()).toBe(rustAfterMatrix.title);
+    expect(semanticXml(yjsDocument.getXmlFragment("body"))).toEqual(rustAfterMatrix.body_semantic);
+
+    const nodeNames = exactElementNames(yjsDocument.getXmlFragment("body"));
+    expect(nodeNames).toContain("blockGroup");
+    expect(nodeNames).toContain("blockContainer");
+    for (const blockType of manifest.matrix.blockTypes) {
+      expect(nodeNames, blockType).toContain(blockType);
+    }
+
+    const beforeThird = Y.encodeStateVector(yjsDocument);
+    yjsDocument.transact(() => {
+      const title = yjsDocument.getText("title");
+      title.insert(title.length, " · matrix JS3");
+      const text = firstXmlText(yjsDocument.getXmlFragment("body"));
+      text.insert(text.length, " · matrix third");
+    }, "matrix-third-js-edit");
+    writeFileSync(thirdUpdatePath, Y.encodeStateAsUpdate(yjsDocument, beforeThird));
+
+    const rustAfterThird = runBridge([
+      "matrix-inspect",
+      fixtureRoot,
+      rustUpdatePath,
+      thirdUpdatePath,
+    ]);
+    expect(rustAfterThird.title).toBe(yjsDocument.getText("title").toString());
+    expect(rustAfterThird.body_semantic).toEqual(semanticXml(yjsDocument.getXmlFragment("body")));
+    expect(normalizedStateVector(Uint8Array.from(rustAfterThird.state_vector))).toEqual(
+      normalizedStateVector(Y.encodeStateVector(yjsDocument)),
+    );
+  }, 60_000);
+
+  test("exchanges ephemeral Awareness state in both directions", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-yjs-yrs-awareness-"));
+    temporaryRoots.push(temporaryRoot);
+    const rustUpdatePath = path.join(temporaryRoot, "awareness-rust.bin");
+    const rust = runBridge<AwarenessBridgeSummary>([
+      "awareness",
+      path.join(fixtureRoot, "awareness-added.bin"),
+      rustUpdatePath,
+    ]);
+
+    expect(rust.client_id).toBeGreaterThan(0);
+    expect(rust.client_id).toBeLessThanOrEqual(0xffff_ffff);
+    const remoteDocument = new Y.Doc({ guid: "awareness-yjs-consumer" });
+    const remoteAwareness = new Awareness(remoteDocument);
+    remoteAwareness.setLocalState(null);
+    applyAwarenessUpdate(remoteAwareness, readFileSync(rustUpdatePath), "rust-fixture");
+    expect(remoteAwareness.getStates().get(rust.client_id)).toEqual(rust.state);
+    expect(remoteAwareness.getStates().size).toBe(2);
+    remoteAwareness.destroy();
+  }, 60_000);
+
+  test("preserves randomized UTF-16 insert delete and format properties bidirectionally", () => {
+    const temporaryRoot = mkdtempSync(path.join(tmpdir(), "nodex-yjs-yrs-properties-"));
+    temporaryRoots.push(temporaryRoot);
+    const yjsUpdateRoot = path.join(temporaryRoot, "yjs");
+    const rustUpdateRoot = path.join(temporaryRoot, "rust");
+    mkdirSync(yjsUpdateRoot);
+    mkdirSync(rustUpdateRoot);
+    const corpusPath = path.join(temporaryRoot, "corpus.json");
+    const base = readFileSync(path.join(fixtureRoot, "base.bin"));
+    const cases: RandomizedCase[] = [];
+    const expected = new Map<number, RandomizedProductSummary>();
+
+    for (let seed = 1; seed <= 24; seed += 1) {
+      const generated = generateRandomizedCase(seed, base);
+      cases.push(generated.fixture);
+      const baseVectorDocument = new Y.Doc({ guid: `randomized-vector-${seed}` });
+      Y.applyUpdate(baseVectorDocument, base);
+      writeFileSync(
+        path.join(yjsUpdateRoot, `${seed}.bin`),
+        Y.encodeStateAsUpdate(generated.document, Y.encodeStateVector(baseVectorDocument)),
+      );
+      expected.set(seed, {
+        body_semantic: semanticXml(generated.document.getXmlFragment("body")),
+        materialization: materializeWithSearchUnits(generated.document),
+      });
+    }
+    writeFileSync(corpusPath, JSON.stringify({ cases }));
+
+    const summaries = runBridge<readonly RandomizedCaseSummary[]>([
+      "randomized",
+      fixtureRoot,
+      corpusPath,
+      yjsUpdateRoot,
+      rustUpdateRoot,
+    ]);
+    expect(summaries).toHaveLength(cases.length);
+    for (const summary of summaries) {
+      const oracle = expected.get(summary.seed);
+      expect(oracle, `seed ${summary.seed}`).toBeDefined();
+      expect(summary.rust_local, `Rust-local seed ${summary.seed}`).toEqual(oracle);
+      expect(summary.yjs_update, `Yjs-to-Yrs seed ${summary.seed}`).toEqual(oracle);
+
+      const consumer = new Y.Doc({ guid: `randomized-consumer-${summary.seed}` });
+      Y.applyUpdate(consumer, base);
+      Y.applyUpdate(consumer, readFileSync(path.join(rustUpdateRoot, `${summary.seed}.bin`)));
+      expect(
+        {
+          body_semantic: semanticXml(consumer.getXmlFragment("body")),
+          materialization: materializeWithSearchUnits(consumer),
+        },
+        `Yrs-to-Yjs seed ${summary.seed}`,
+      ).toEqual(oracle);
+    }
+  }, 60_000);
 });

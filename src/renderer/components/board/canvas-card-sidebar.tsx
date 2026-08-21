@@ -5,10 +5,7 @@ import { Check } from "@/components/shared/icons/generic-icons";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { BoardSummary, DatabasePageSummary } from "@/lib/types";
-import {
-  getPriorityClassName,
-  getPriorityShortLabel,
-} from "@/lib/priority-presentation";
+import { getPriorityClassName, getPriorityShortLabel } from "@/lib/priority-presentation";
 
 interface CanvasCardSidebarProps {
   board: BoardSummary | null;
@@ -52,9 +49,7 @@ export function CanvasCardSidebar({
   return (
     <Sidebar name="cards" docked={false}>
       <Sidebar.Header>
-        <div className="flex items-center gap-2 text-sm font-medium">
-          Pages
-        </div>
+        <div className="flex items-center gap-2 text-sm font-medium">Pages</div>
       </Sidebar.Header>
       <Sidebar.Tabs>
         <Sidebar.Tab tab="browse">
@@ -120,9 +115,7 @@ export function CanvasCardSidebar({
                             {getPriorityShortLabel(card.priority)}
                           </span>
                         ) : null}
-                        <span className="truncate text-xs text-gray-400">
-                          {columnName}
-                        </span>
+                        <span className="truncate text-xs text-gray-400">{columnName}</span>
                       </div>
                     </div>
                   </button>

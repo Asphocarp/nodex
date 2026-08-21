@@ -21,10 +21,7 @@ import { toast } from "@/components/ui/toast";
 import type { GitRepositoryIdentity } from "../../../shared/git-repository-identity";
 import type { LocalPathPresentationContext } from "../../../shared/local-path-presentation";
 import type { ProjectAppearance } from "../../../shared/project-appearance";
-import type {
-  Project,
-  ProjectActivitySummary,
-} from "@/lib/types";
+import type { Project, ProjectActivitySummary } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import {
   buildProjectHoverCardMetadataRows,
@@ -69,8 +66,7 @@ function ProjectHoverCardRow({
   onClick?: () => void;
   showActionIndicator?: boolean;
 }) {
-  const resolvedShowActionIndicator =
-    showActionIndicator ?? onClick !== undefined;
+  const resolvedShowActionIndicator = showActionIndicator ?? onClick !== undefined;
   const rowClassName = cn(
     "group/project-hover-card-row grid min-w-0 items-center gap-x-1.5 rounded-md",
     resolvedShowActionIndicator
@@ -86,9 +82,7 @@ function ProjectHoverCardRow({
       <span className="flex h-5 w-4 shrink-0 items-center justify-center text-token-description-foreground [&>svg]:size-4">
         {icon}
       </span>
-      <span className="min-w-0">
-        {children}
-      </span>
+      <span className="min-w-0">{children}</span>
       {resolvedShowActionIndicator ? (
         <span className="flex h-5 w-5 shrink-0 items-center justify-center text-token-description-foreground opacity-0 group-hover/project-hover-card-row:opacity-100 group-focus-visible/project-hover-card-row:opacity-100">
           <ProjectOpenActionIcon aria-hidden="true" />
@@ -98,11 +92,7 @@ function ProjectHoverCardRow({
   );
 
   if (!onClick) {
-    return (
-      <div className={rowClassName}>
-        {content}
-      </div>
-    );
+    return <div className={rowClassName}>{content}</div>;
   }
 
   return (
@@ -138,8 +128,7 @@ export function ProjectHoverCard({
   const [internalMarkerPickerOpen, setInternalMarkerPickerOpen] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const cancelRenameRef = useRef(false);
-  const resolvedMarkerPickerOpen =
-    markerPickerOpen ?? internalMarkerPickerOpen;
+  const resolvedMarkerPickerOpen = markerPickerOpen ?? internalMarkerPickerOpen;
   const metadataRows = buildProjectHoverCardMetadataRows({
     projectName: project.name,
     sources: project.sources,
@@ -223,7 +212,7 @@ export function ProjectHoverCard({
     >
       <div className="flex min-w-0 shrink-0 flex-col gap-1">
         <ProjectHoverCardRow
-          icon={(
+          icon={
             <ProjectMarkerPicker
               appearance={appearance}
               onAppearanceChange={onAppearanceChange}
@@ -237,7 +226,7 @@ export function ProjectHoverCard({
               buttonClassName="!h-5 !w-4 !p-0 text-token-description-foreground"
               markerClassName="!size-4"
             />
-          )}
+          }
         >
           <span className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 flex-1">
@@ -271,9 +260,7 @@ export function ProjectHoverCard({
                 className="flex h-5 w-5 items-center justify-center leading-none text-token-description-foreground hover:text-token-foreground focus-visible:outline-none disabled:opacity-50"
                 onClick={() => void onSetPinned(!project.pinned)}
               >
-                {project.pinned
-                  ? <ProjectPinnedIcon />
-                  : <ProjectPinIcon />}
+                {project.pinned ? <ProjectPinnedIcon /> : <ProjectPinIcon />}
               </button>
             ) : null}
           </span>
@@ -290,12 +277,8 @@ export function ProjectHoverCard({
           {metadataRows.map((row) => (
             <ProjectHoverCardRow
               key={`${row.kind}:${row.label}`}
-              icon={row.kind === "repository"
-                ? <ProjectRepositoryIcon />
-                : <ProjectFolderIcon />}
-              onClick={row.path
-                ? () => onOpenSource(row.path as string)
-                : undefined}
+              icon={row.kind === "repository" ? <ProjectRepositoryIcon /> : <ProjectFolderIcon />}
+              onClick={row.path ? () => onOpenSource(row.path as string) : undefined}
             >
               <span
                 className={cn(

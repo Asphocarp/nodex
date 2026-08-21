@@ -1,9 +1,5 @@
 import { useState, type FormEvent } from "react";
-import type {
-  Project,
-  ProjectArchiveBlocker,
-  ProjectLifecycleMutationResult,
-} from "@/lib/types";
+import type { Project, ProjectArchiveBlocker, ProjectLifecycleMutationResult } from "@/lib/types";
 import {
   NodexDialog,
   NodexDialogAction,
@@ -17,9 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 
-export function describeProjectArchiveBlockers(
-  blockers: readonly ProjectArchiveBlocker[],
-): string {
+export function describeProjectArchiveBlockers(blockers: readonly ProjectArchiveBlocker[]): string {
   const kinds = new Set(blockers.map((blocker) => blocker.kind));
   const hasTask = kinds.has("active-turn") || kinds.has("pending-request");
   const hasProcess = kinds.has("terminal") || kinds.has("background-process");
@@ -27,7 +21,8 @@ export function describeProjectArchiveBlockers(
     return "Stop the active task and close its terminals before removing this project.";
   }
   if (hasTask) return "Stop the active task before removing this project.";
-  if (hasProcess) return "Close the project’s terminals and background processes before removing it.";
+  if (hasProcess)
+    return "Close the project’s terminals and background processes before removing it.";
   return "This project still has active work. Stop it before removing the project.";
 }
 
@@ -41,9 +36,7 @@ function blockerAccessibleLabel(blocker: ProjectArchiveBlocker): string {
       : `Background process in thread ${blocker.threadId}`;
   }
   const label = blocker.label ?? blocker.threadId;
-  return blocker.kind === "active-turn"
-    ? `Active task in ${label}`
-    : `Pending request in ${label}`;
+  return blocker.kind === "active-turn" ? `Active task in ${label}` : `Pending request in ${label}`;
 }
 
 export function ProjectRemoveDialog({
@@ -112,7 +105,8 @@ export function ProjectRemoveDialog({
           <NodexDialogHeader>
             <NodexDialogTitle>Remove {project.name}?</NodexDialogTitle>
             <NodexDialogDescription>
-              This removes the project from the app. Files on your computer and existing chats won’t be deleted.
+              This removes the project from the app. Files on your computer and existing chats won’t
+              be deleted.
             </NodexDialogDescription>
           </NodexDialogHeader>
 
@@ -125,9 +119,7 @@ export function ProjectRemoveDialog({
                 {describeProjectArchiveBlockers(blockers)}
                 <ul className="sr-only">
                   {blockers.map((blocker, index) => (
-                    <li key={`${blocker.kind}:${index}`}>
-                      {blockerAccessibleLabel(blocker)}
-                    </li>
+                    <li key={`${blocker.kind}:${index}`}>{blockerAccessibleLabel(blocker)}</li>
                   ))}
                 </ul>
               </div>
@@ -135,18 +127,10 @@ export function ProjectRemoveDialog({
           ) : null}
 
           <NodexDialogFooter>
-            <NodexDialogAction
-              type="button"
-              disabled={pending}
-              onClick={() => setOpen(false)}
-            >
+            <NodexDialogAction type="button" disabled={pending} onClick={() => setOpen(false)}>
               Cancel
             </NodexDialogAction>
-            <NodexDialogAction
-              tone="danger"
-              type="submit"
-              disabled={pending}
-            >
+            <NodexDialogAction tone="danger" type="submit" disabled={pending}>
               {pending ? "Removing…" : "Remove project"}
             </NodexDialogAction>
           </NodexDialogFooter>

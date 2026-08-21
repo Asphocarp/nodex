@@ -4,11 +4,7 @@ const MAX_ENTRIES = 200;
 type ScrollMap = Record<string, number>;
 const hotScrollPositions = new Map<string, number>();
 
-function makeKey(
-  projectId: string,
-  pageId: string,
-  editorSessionKey?: string,
-): string {
+function makeKey(projectId: string, pageId: string, editorSessionKey?: string): string {
   if (editorSessionKey) return `page-stage-session:${editorSessionKey}`;
   return `page-stage:${projectId}:${pageId}`;
 }
@@ -57,10 +53,7 @@ export function rememberScrollPosition(
   scrollTop: number,
   editorSessionKey?: string,
 ): void {
-  rememberHotScrollPosition(
-    makeKey(projectId, pageId, editorSessionKey),
-    scrollTop,
-  );
+  rememberHotScrollPosition(makeKey(projectId, pageId, editorSessionKey), scrollTop);
 }
 
 export function saveScrollPosition(

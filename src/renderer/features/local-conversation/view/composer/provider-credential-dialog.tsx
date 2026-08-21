@@ -30,9 +30,9 @@ export interface ProviderCredentialDialogProps extends ModalCloseProps {
 }
 
 function isReadyStatus(result: AgentProviderCredentialMutationResult): boolean {
-  return result.status === "ready"
-    || result.status === "inherited"
-    || result.status === "runtimeManaged";
+  return (
+    result.status === "ready" || result.status === "inherited" || result.status === "runtimeManaged"
+  );
 }
 
 export function ProviderCredentialDialog({
@@ -85,16 +85,11 @@ export function ProviderCredentialDialog({
         >
           <NodexDialogHeader>
             <NodexDialogTitle>{provider.displayName} credential</NodexDialogTitle>
-            <NodexDialogDescription>
-              Enter an API key to use this provider.
-            </NodexDialogDescription>
+            <NodexDialogDescription>Enter an API key to use this provider.</NodexDialogDescription>
           </NodexDialogHeader>
 
           <NodexDialogBody className="gap-1.5">
-            <label
-              htmlFor="agent-provider-api-key"
-              className="semantic-text-secondary text-sm"
-            >
+            <label htmlFor="agent-provider-api-key" className="semantic-text-secondary text-sm">
               API key
             </label>
             <Input
@@ -108,9 +103,7 @@ export function ProviderCredentialDialog({
               disabled={pendingAction !== null}
               onChange={(event) => setApiKey(event.target.value)}
             />
-            <span className="text-tertiary text-xs">
-              Saved in your operating system keychain.
-            </span>
+            <span className="text-tertiary text-xs">Saved in your operating system keychain.</span>
             {errorMessage ? (
               <span role="alert" className="text-danger text-xs">
                 {errorMessage}
@@ -139,10 +132,7 @@ export function ProviderCredentialDialog({
               </NodexDialogAction>
             ) : null}
             <div className="flex items-center gap-3">
-              <NodexDialogAction
-                disabled={pendingAction !== null}
-                onClick={onClose}
-              >
+              <NodexDialogAction disabled={pendingAction !== null} onClick={onClose}>
                 Cancel
               </NodexDialogAction>
               <NodexDialogAction

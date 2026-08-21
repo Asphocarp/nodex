@@ -33,10 +33,12 @@ vi.mock("@/components/board/editor/nfm-send-to-thread-menu", () => ({
   }) => (
     <button
       type="button"
-      onClick={() => onAccept({
-        target: { kind: "thread", threadId: "thread-1" },
-        mode: "send",
-      })}
+      onClick={() =>
+        onAccept({
+          target: { kind: "thread", threadId: "thread-1" },
+          mode: "send",
+        })
+      }
     >
       Choose chat
     </button>
@@ -116,9 +118,9 @@ describe("DatabaseViewPageContextMenu", () => {
       fireEvent.click(copyDeeplink);
       await Promise.resolve();
     });
-    await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith(
-      "nodex://pages/page-1",
-    ));
+    await waitFor(() =>
+      expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith("nodex://pages/page-1"),
+    );
 
     await openMenu(screen);
     await openSubmenu(screen, "Copy");
@@ -129,21 +131,26 @@ describe("DatabaseViewPageContextMenu", () => {
       fireEvent.click(copyMarkdown);
       await Promise.resolve();
     });
-    await waitFor(() => expect(mocks.loadPageDocumentMaterialization).toHaveBeenCalledWith({
-      accessContext: { kind: "project", projectId: "project-1" },
-      pageId: "page-1",
-    }));
-    await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith(
-      "# Release\n\nShip it",
-    ));
+    await waitFor(() =>
+      expect(mocks.loadPageDocumentMaterialization).toHaveBeenCalledWith({
+        accessContext: { kind: "project", projectId: "project-1" },
+        pageId: "page-1",
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith("# Release\n\nShip it"),
+    );
   });
 
   test("copies canonical Markdown through library access", async () => {
-    const screen = renderMenu({}, {
-      ...page,
-      accessContext: { kind: "library" },
-      projectId: null,
-    });
+    const screen = renderMenu(
+      {},
+      {
+        ...page,
+        accessContext: { kind: "library" },
+        projectId: null,
+      },
+    );
 
     await openMenu(screen);
     await openSubmenu(screen, "Copy");
@@ -156,13 +163,15 @@ describe("DatabaseViewPageContextMenu", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(mocks.loadPageDocumentMaterialization).toHaveBeenCalledWith({
-      accessContext: { kind: "library" },
-      pageId: "page-1",
-    }));
-    await waitFor(() => expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith(
-      "# Release\n\nShip it",
-    ));
+    await waitFor(() =>
+      expect(mocks.loadPageDocumentMaterialization).toHaveBeenCalledWith({
+        accessContext: { kind: "library" },
+        pageId: "page-1",
+      }),
+    );
+    await waitFor(() =>
+      expect(mocks.writeTextToClipboard).toHaveBeenLastCalledWith("# Release\n\nShip it"),
+    );
   });
 
   test("reports clipboard failure through the shared toast surface", async () => {
@@ -177,11 +186,13 @@ describe("DatabaseViewPageContextMenu", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(
-      __getNodexToastSnapshotForTests().some((item) =>
-        item.kind === "plain" && item.title === "Failed to copy title"
-      ),
-    ).toBe(true));
+    await waitFor(() =>
+      expect(
+        __getNodexToastSnapshotForTests().some(
+          (item) => item.kind === "plain" && item.title === "Failed to copy title",
+        ),
+      ).toBe(true),
+    );
   });
 
   test("hands Send to chat off after the context menu closes", async () => {
@@ -201,13 +212,15 @@ describe("DatabaseViewPageContextMenu", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(sendToChat).toHaveBeenCalledWith({
-      projectId: "project-1",
-      pageId: "page-1",
-      pageKey: "LAB-13",
-      titleSnapshot: "Release plan",
-      target: { kind: "thread", threadId: "thread-1" },
-    }));
+    await waitFor(() =>
+      expect(sendToChat).toHaveBeenCalledWith({
+        projectId: "project-1",
+        pageId: "page-1",
+        pageKey: "LAB-13",
+        titleSnapshot: "Release plan",
+        target: { kind: "thread", threadId: "thread-1" },
+      }),
+    );
   });
 
   test("reports failure when opening a Page in a new session fails", async () => {
@@ -224,11 +237,13 @@ describe("DatabaseViewPageContextMenu", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(
-      __getNodexToastSnapshotForTests().some((item) =>
-        item.kind === "plain" && item.title === "Failed to open Page in a new session"
-      ),
-    ).toBe(true));
+    await waitFor(() =>
+      expect(
+        __getNodexToastSnapshotForTests().some(
+          (item) => item.kind === "plain" && item.title === "Failed to open Page in a new session",
+        ),
+      ).toBe(true),
+    );
   });
 
   test("keeps Radix keyboard navigation across the submenu boundary", async () => {
@@ -246,13 +261,15 @@ describe("DatabaseViewPageContextMenu", () => {
     await act(async () => {
       fireEvent.keyDown(document.activeElement ?? search, { key: "ArrowDown" });
     });
-    await waitFor(() => expect(screen.getByRole("menuitem", { name: "Copy" }))
-      .toBe(document.activeElement));
+    await waitFor(() =>
+      expect(screen.getByRole("menuitem", { name: "Copy" })).toBe(document.activeElement),
+    );
     await act(async () => {
       fireEvent.keyDown(document.activeElement ?? search, { key: "ArrowDown" });
     });
-    await waitFor(() => expect(screen.getByRole("menuitem", { name: "Move" }))
-      .toBe(document.activeElement));
+    await waitFor(() =>
+      expect(screen.getByRole("menuitem", { name: "Move" })).toBe(document.activeElement),
+    );
     await act(async () => {
       fireEvent.keyDown(document.activeElement ?? search, { key: "ArrowRight" });
       await Promise.resolve();
@@ -264,16 +281,19 @@ describe("DatabaseViewPageContextMenu", () => {
       fireEvent.keyDown(document.activeElement ?? search, { key: "ArrowLeft" });
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Move to top" }))
-      .toBeNull());
+    await waitFor(() => expect(screen.queryByRole("menuitem", { name: "Move to top" })).toBeNull());
     expect(screen.getByRole("menuitem", { name: "Move" })).toBe(document.activeElement);
 
     await act(async () => {
       fireEvent.keyDown(document.activeElement ?? search, { key: "Escape" });
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.queryByRole("textbox", {
-      name: "Search Page actions and properties",
-    })).toBeNull());
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("textbox", {
+          name: "Search Page actions and properties",
+        }),
+      ).toBeNull(),
+    );
   });
 });

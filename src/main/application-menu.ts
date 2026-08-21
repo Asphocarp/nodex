@@ -44,13 +44,9 @@ interface WindowFileMenuOptions {
   onCloseWindow: () => void;
 }
 
-export function buildWindowFileMenu(
-  options: WindowFileMenuOptions,
-): MenuItemConstructorOptions {
+export function buildWindowFileMenu(options: WindowFileMenuOptions): MenuItemConstructorOptions {
   const accelerator = (commandId: string): string | undefined =>
-    toElectronAccelerator(
-      getPrimaryCommandAccelerator(options.commandKeymapState, commandId),
-    );
+    toElectronAccelerator(getPrimaryCommandAccelerator(options.commandKeymapState, commandId));
 
   return {
     label: "File",

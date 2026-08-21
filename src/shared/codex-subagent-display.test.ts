@@ -26,7 +26,9 @@ describe("resolveCodexSubagentDisplayName", () => {
       },
     };
 
-    expect(resolveCodexSubagentDisplayName({ threadId, membership, receiverThread })).toBe("Feynman");
+    expect(resolveCodexSubagentDisplayName({ threadId, membership, receiverThread })).toBe(
+      "Feynman",
+    );
   });
 
   test("uses hydrated child summary nickname when opener payload is a uuid", () => {
@@ -53,11 +55,13 @@ describe("resolveCodexSubagentDisplayName", () => {
       linkedAt: new Date(0).toISOString(),
     };
 
-    expect(resolveCodexSubagentDisplayName({
-      threadId,
-      childSummary,
-      fallbackDisplayName: threadId,
-    })).toBe("Epicurus");
+    expect(
+      resolveCodexSubagentDisplayName({
+        threadId,
+        childSummary,
+        fallbackDisplayName: threadId,
+      }),
+    ).toBe("Epicurus");
   });
 
   test("falls back to the conversation id when no friendly metadata exists", () => {

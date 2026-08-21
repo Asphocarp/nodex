@@ -16,11 +16,14 @@ describe("BrowserExtensionsProvider", () => {
   test("lists and loads unpacked extensions through Electron's public API", async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-extension-"));
     roots.push(root);
-    fs.writeFileSync(path.join(root, "manifest.json"), JSON.stringify({
-      manifest_version: 3,
-      name: "Example",
-      version: "1.0.0",
-    }));
+    fs.writeFileSync(
+      path.join(root, "manifest.json"),
+      JSON.stringify({
+        manifest_version: 3,
+        name: "Example",
+        version: "1.0.0",
+      }),
+    );
     const loadExtension = vi.fn(async () => ({
       id: "extension-id",
       name: "Example",

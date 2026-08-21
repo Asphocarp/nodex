@@ -13,11 +13,13 @@ describe("workbench settings form schemas", () => {
       retentionCount: "30",
     });
 
-    expect(JSON.stringify(parsed)).toBe(JSON.stringify({
-      autoEnabled: true,
-      intervalHours: 12,
-      retentionCount: 30,
-    }));
+    expect(JSON.stringify(parsed)).toBe(
+      JSON.stringify({
+        autoEnabled: true,
+        intervalHours: 12,
+        retentionCount: 30,
+      }),
+    );
   });
 
   test("rejects invalid backup frequency text", () => {
@@ -40,11 +42,15 @@ describe("workbench settings form schemas", () => {
       label: "  Before risky restore  ",
     });
 
-    expect(JSON.stringify(history)).toBe(JSON.stringify({
-      retentionCount: 1000,
-    }));
-    expect(JSON.stringify(snapshot)).toBe(JSON.stringify({
-      label: "Before risky restore",
-    }));
+    expect(JSON.stringify(history)).toBe(
+      JSON.stringify({
+        retentionCount: 1000,
+      }),
+    );
+    expect(JSON.stringify(snapshot)).toBe(
+      JSON.stringify({
+        label: "Before risky restore",
+      }),
+    );
   });
 });

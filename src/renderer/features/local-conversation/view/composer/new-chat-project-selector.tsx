@@ -37,7 +37,10 @@ export function NewChatProjectSelector({
 }: NewChatProjectSelectorProps) {
   const [search, setSearch] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const selectedOption = resolveSelectedNewChatProjectSelectorOption(model.projects, model.selectedProjectId);
+  const selectedOption = resolveSelectedNewChatProjectSelectorOption(
+    model.projects,
+    model.selectedProjectId,
+  );
   const filteredOptions = useMemo(
     () => filterNewChatProjectSelectorOptions(model.projects, search),
     [model.projects, search],
@@ -70,7 +73,7 @@ export function NewChatProjectSelector({
         contentWidth="workspace"
         contentMaxHeight="tall"
         contentClassName={PROJECT_SELECTOR_MENU_CLASS_NAME}
-        triggerButton={(
+        triggerButton={
           <button
             type="button"
             aria-label="Select project"
@@ -80,7 +83,7 @@ export function NewChatProjectSelector({
           >
             {headingTriggerLabel}
           </button>
-        )}
+        }
       >
         {menuContent}
       </NodexDropdownMenu>
@@ -99,7 +102,7 @@ export function NewChatProjectSelector({
           contentWidth="workspace"
           contentMaxHeight="tall"
           contentClassName={PROJECT_SELECTOR_MENU_CLASS_NAME}
-          triggerButton={(
+          triggerButton={
             <NodexDropdownButtonTrigger
               size="sm"
               shape="pill"
@@ -111,14 +114,11 @@ export function NewChatProjectSelector({
               className="max-w-full px-1.5 text-token-text-tertiary hover:text-token-foreground"
             >
               {selectedOption ? (
-                <ProjectMarker
-                  appearance={selectedOption.appearance}
-                  className="size-4"
-                />
+                <ProjectMarker appearance={selectedOption.appearance} className="size-4" />
               ) : null}
               <span className="max-w-40 truncate whitespace-nowrap text-left">{triggerLabel}</span>
             </NodexDropdownButtonTrigger>
-          )}
+          }
         >
           {menuContent}
         </NodexDropdownMenu>
@@ -141,8 +141,8 @@ function ProjectSelectorMenuContent({
   filteredOptions: ReturnType<typeof filterNewChatProjectSelectorOptions>;
 }) {
   const showFooter = Boolean(
-    (model.canAddProject && actions.onRequestNewChatProjectCreate)
-      || (model.selectedProjectId && actions.onNewThreadProjectChange),
+    (model.canAddProject && actions.onRequestNewChatProjectCreate) ||
+    (model.selectedProjectId && actions.onNewThreadProjectChange),
   );
 
   return (
@@ -164,12 +164,12 @@ function ProjectSelectorMenuContent({
               return (
                 <NodexDropdownItem
                   key={option.id}
-                  leftSlot={(
+                  leftSlot={
                     <ProjectMarker
                       appearance={option.appearance}
                       className="size-4 text-token-description-foreground"
                     />
-                  )}
+                  }
                   rightSlot={selected ? <NodexDropdownSelectedIcon /> : null}
                   tooltipText={option.primaryWorkspaceRoot ?? undefined}
                   onSelect={() => {

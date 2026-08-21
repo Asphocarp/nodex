@@ -56,7 +56,9 @@ describe("PanelGroupTree", () => {
       />
     );
     const view = render(renderTree(layout));
-    const branch = view.container.querySelector<HTMLElement>('[data-panel-group-branch-id="branch:root"]');
+    const branch = view.container.querySelector<HTMLElement>(
+      '[data-panel-group-branch-id="branch:root"]',
+    );
     const sash = view.getByRole("separator");
     if (!branch) throw new Error("Expected split branch");
     branch.getBoundingClientRect = () => new DOMRect(0, 0, 100, 100);
@@ -75,7 +77,11 @@ describe("PanelGroupTree", () => {
     view.rerender(renderTree(persistedLayout));
     expect(view.getByRole("separator").getAttribute("aria-valuenow")).toBe("75");
 
-    const externallyUpdatedLayout = setWorkbenchPanelBranchRatio(persistedLayout, "branch:root", 0.6);
+    const externallyUpdatedLayout = setWorkbenchPanelBranchRatio(
+      persistedLayout,
+      "branch:root",
+      0.6,
+    );
     view.rerender(renderTree(externallyUpdatedLayout));
     expect(view.getByRole("separator").getAttribute("aria-valuenow")).toBe("60");
   });
@@ -103,7 +109,9 @@ describe("PanelGroupTree", () => {
           "leaf:right": "two",
         }}
         renderEmptyLeaf={(leafId) => <div>Empty {leafId}</div>}
-        renderAfterList={(leafId) => <span data-testid={`after-list:${leafId}`}>After {leafId}</span>}
+        renderAfterList={(leafId) => (
+          <span data-testid={`after-list:${leafId}`}>After {leafId}</span>
+        )}
         headerStartInsetPx={208}
         headerEndInsetPx={102}
         tabScrollEndPaddingPx={28}
@@ -132,7 +140,9 @@ describe("PanelGroupTree", () => {
     expect(leftLeaf?.querySelectorAll('[style*="width: 102px"]').length ?? 0).toBe(0);
     expect(rightLeaf?.querySelectorAll('[style*="width: 208px"]').length ?? 0).toBe(0);
     expect(rightLeaf?.querySelectorAll('[style*="width: 102px"]').length ?? 0).toBe(1);
-    expect(rightTabRow instanceof HTMLElement ? rightTabRow.style.scrollPaddingInlineEnd : "").toBe("28px");
+    expect(rightTabRow instanceof HTMLElement ? rightTabRow.style.scrollPaddingInlineEnd : "").toBe(
+      "28px",
+    );
     expect(leftLeaf?.querySelector('[data-testid="after-list:main"]') === null).toBe(true);
     expect(rightLeaf?.querySelector('[data-testid="after-list:leaf:right"]') !== null).toBe(true);
     expect(startSpacer?.className.includes("no-drag")).toBe(true);
@@ -183,7 +193,9 @@ describe("PanelGroupTree", () => {
         }}
         renderEmptyLeaf={(leafId) => <div>Empty {leafId}</div>}
         renderAfterTabs={(leafId) => <span data-testid={`after-tabs:${leafId}`}>New {leafId}</span>}
-        renderAfterList={(leafId) => <span data-testid={`after-list:${leafId}`}>After {leafId}</span>}
+        renderAfterList={(leafId) => (
+          <span data-testid={`after-list:${leafId}`}>After {leafId}</span>
+        )}
         headerStartInsetPx={208}
         onSelectTab={() => undefined}
         onCloseTab={() => undefined}

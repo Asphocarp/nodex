@@ -34,18 +34,20 @@ function buildModelDescription(
   models: readonly CodexAppMetaThreadToolModel[],
 ): string {
   if (models.length === 0) return baseDescription;
-  const combinations = models.map((model) => {
-    const efforts = model.supportedReasoningEfforts
-      .map((option) => option.reasoningEffort)
-      .join(", ");
-    const support = efforts
-      ? `supported reasoning efforts: ${efforts}`
-      : "no reasoning effort overrides";
-    const description = model.description.trim();
-    return description
-      ? `${model.model} (${description}; ${support})`
-      : `${model.model} (${support})`;
-  }).join(", ");
+  const combinations = models
+    .map((model) => {
+      const efforts = model.supportedReasoningEfforts
+        .map((option) => option.reasoningEffort)
+        .join(", ");
+      const support = efforts
+        ? `supported reasoning efforts: ${efforts}`
+        : "no reasoning effort overrides";
+      const description = model.description.trim();
+      return description
+        ? `${model.model} (${description}; ${support})`
+        : `${model.model} (${support})`;
+    })
+    .join(", ");
   return `${baseDescription} Models and supported reasoning efforts on the calling host: ${combinations}. A different destination host's combinations are validated when the tool runs. You may supply a newer model id when explicitly requested, but omit thinking unless its supported reasoning efforts are listed here.`;
 }
 
@@ -217,7 +219,8 @@ function buildAutomationHeartbeatSchema(modes: string[], requiresId: boolean) {
       ...AUTOMATION_COMMON_PROPERTIES,
       destination: {
         type: "string",
-        description: "Optional automation destination. Use thread for heartbeat automations attached to the current local thread.",
+        description:
+          "Optional automation destination. Use thread for heartbeat automations attached to the current local thread.",
         enum: ["local", "worktree", "thread"],
       },
       targetThreadId: {
@@ -226,10 +229,7 @@ function buildAutomationHeartbeatSchema(modes: string[], requiresId: boolean) {
           "Target thread id for heartbeat automations. Prefer destination=thread for the current local thread instead of inventing or copying raw thread ids.",
       },
     },
-    required: [
-      ...AUTOMATION_COMMON_REQUIRED_FIELDS,
-      ...(requiresId ? ["id"] : []),
-    ],
+    required: [...AUTOMATION_COMMON_REQUIRED_FIELDS, ...(requiresId ? ["id"] : [])],
   };
 }
 
@@ -406,7 +406,8 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
                 ...handoffDestinationHostSchema,
                 followUpPrompt: {
                   type: "string",
-                  description: "Optional prompt to send to the destination thread after handoff succeeds.",
+                  description:
+                    "Optional prompt to send to the destination thread after handoff succeeds.",
                 },
               },
               required: ["threadId"],
@@ -427,7 +428,8 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
                 },
                 afterRevision: {
                   type: "number",
-                  description: "Optional last revision already seen. When provided with waitMs, wait until the operation revision is greater than this value or the timeout expires.",
+                  description:
+                    "Optional last revision already seen. When provided with waitMs, wait until the operation revision is greater than this value or the timeout expires.",
                 },
                 waitMs: {
                   type: "number",
@@ -442,7 +444,8 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
     {
       type: "function",
       name: "list_projects",
-      description: "List available Codex projects, including project ids for create_thread targets.",
+      description:
+        "List available Codex projects, including project ids for create_thread targets.",
       inputSchema: {
         type: "object",
         additionalProperties: false,
@@ -670,7 +673,8 @@ export function buildCodexAppMetaThreadToolSpecs(options?: {
     {
       type: "namespace",
       name: CODEX_APP_TOOL_NAMESPACE,
-      description: "Nodex app controls for creating, listing, reading, updating, and handing off Codex threads.",
+      description:
+        "Nodex app controls for creating, listing, reading, updating, and handing off Codex threads.",
       tools: tools.map((tool) => withOptionalDeferLoading(tool, deferLoading)),
     },
   ];

@@ -5,10 +5,7 @@ export function mergeOrderedStringIds(
   return upsertOrderedStringIds(existing, incoming);
 }
 
-export function upsertOrderedStringId(
-  existing: readonly string[],
-  id: string,
-): string[] {
+export function upsertOrderedStringId(existing: readonly string[], id: string): string[] {
   return existing.includes(id) ? [...existing] : [...existing, id];
 }
 

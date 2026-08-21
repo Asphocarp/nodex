@@ -11,9 +11,7 @@ export function WorkbenchAutomationDetailRail({
 }: {
   readonly mounted: boolean;
   readonly width: MotionValue<number>;
-  readonly onResizePointerDown: (
-    event: ReactPointerEvent<HTMLDivElement>,
-  ) => void;
+  readonly onResizePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   readonly onPortalElementChange: (element: HTMLDivElement | null) => void;
 }) {
   if (!mounted) return null;
@@ -43,11 +41,13 @@ export function WorkbenchAutomationDetailRail({
         <motion.div
           ref={onPortalElementChange}
           className="absolute top-0 bottom-0 left-0 min-w-0 border-l border-token-border bg-token-main-surface-primary"
-          style={{
-            width,
-            minWidth: width,
-            "--thread-content-top-inset": "calc(var(--spacing) * 8)",
-          } as MotionStyle}
+          style={
+            {
+              width,
+              minWidth: width,
+              "--thread-content-top-inset": "calc(var(--spacing) * 8)",
+            } as MotionStyle
+          }
         />
       </div>
     </motion.aside>

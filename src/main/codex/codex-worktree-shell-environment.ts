@@ -58,35 +58,31 @@ function indexCodexEnvironment(
 
 function isExcludedCodexEnvironmentKey(key: string, platform: NodeJS.Platform): boolean {
   const normalizedKey = normalizeCodexEnvironmentKey(key, platform);
-  return CODEX_VOLATILE_SETUP_ENVIRONMENT_KEYS.has(normalizedKey)
-    || normalizedKey.startsWith("BASH_FUNC_");
+  return (
+    CODEX_VOLATILE_SETUP_ENVIRONMENT_KEYS.has(normalizedKey) ||
+    normalizedKey.startsWith("BASH_FUNC_")
+  );
 }
 
 function hasLineBreak(value: string | undefined): boolean {
   return value?.includes("\n") === true || value?.includes("\r") === true;
 }
 
-function compactProcessEnvironment(
-  environment: NodeJS.ProcessEnv,
-): Record<string, string> {
+function compactProcessEnvironment(environment: NodeJS.ProcessEnv): Record<string, string> {
   return Object.fromEntries(
-    Object.entries(environment).filter((entry): entry is [string, string] =>
-      typeof entry[1] === "string"),
+    Object.entries(environment).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
   );
 }
 
-function withoutCodexShellEnvironment(
-  environment: NodeJS.ProcessEnv,
-): Record<string, string> {
+function withoutCodexShellEnvironment(environment: NodeJS.ProcessEnv): Record<string, string> {
   const compact = compactProcessEnvironment(environment);
   delete compact.CODEX_SHELL;
   return compact;
 }
 
-function resolveCodexLoginShell(
-  platform: NodeJS.Platform,
-  environment: NodeJS.ProcessEnv,
-): string {
+function resolveCodexLoginShell(platform: NodeJS.Platform, environment: NodeJS.ProcessEnv): string {
   try {
     const shell = userInfo().shell;
     if (shell) return shell;
@@ -98,9 +94,7 @@ function resolveCodexLoginShell(
 }
 
 /** Exact shell-env delimiter parser used by `O0/eI`. */
-export function parseCodexInteractiveShellEnvironment(
-  output: string,
-): Record<string, string> {
+export function parseCodexInteractiveShellEnvironment(output: string): Record<string, string> {
   const environmentBlock = output.split(CODEX_SHELL_ENVIRONMENT_DELIMITER)[1];
   if (environmentBlock === undefined) {
     throw new Error("Shell output did not contain env delimiters");
@@ -152,9 +146,11 @@ function readCodexLoginShellEnvironment(input: {
         }
         return;
       }
-      reject(new Error(
-        `Interactive login shell environment failed (${signal ?? `exit ${code ?? "unknown"}`}).${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
-      ));
+      reject(
+        new Error(
+          `Interactive login shell environment failed (${signal ?? `exit ${code ?? "unknown"}`}).${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
+        ),
+      );
     });
   });
 }
@@ -179,22 +175,22 @@ async function readCodexInteractiveShellEnvironment(
   throw lastError ?? new Error("No interactive login shell is available");
 }
 
-export async function loadCodexLocalShellEnvironment(input: {
-  readonly baseEnvironment?: NodeJS.ProcessEnv;
-  readonly loadInteractiveEnvironment?: () => Promise<NodeJS.ProcessEnv>;
-  readonly onError?: (error: unknown) => void;
-  readonly platform?: NodeJS.Platform;
-} = {}): Promise<NodeJS.ProcessEnv> {
+export async function loadCodexLocalShellEnvironment(
+  input: {
+    readonly baseEnvironment?: NodeJS.ProcessEnv;
+    readonly loadInteractiveEnvironment?: () => Promise<NodeJS.ProcessEnv>;
+    readonly onError?: (error: unknown) => void;
+    readonly platform?: NodeJS.Platform;
+  } = {},
+): Promise<NodeJS.ProcessEnv> {
   const baseEnvironment = input.baseEnvironment ?? process.env;
   const platform = input.platform ?? process.platform;
   if (platform === "win32") return compactProcessEnvironment(baseEnvironment);
 
   const load = async (): Promise<NodeJS.ProcessEnv> => {
     try {
-      const interactiveEnvironment = await (
-        input.loadInteractiveEnvironment?.()
-        ?? readCodexInteractiveShellEnvironment(baseEnvironment, platform)
-      );
+      const interactiveEnvironment = await (input.loadInteractiveEnvironment?.() ??
+        readCodexInteractiveShellEnvironment(baseEnvironment, platform));
       return withoutCodexShellEnvironment({
         ...baseEnvironment,
         ...interactiveEnvironment,
@@ -241,11 +237,12 @@ export function captureCodexShellEnvironmentDelta(
     const afterEntry = afterByKey.get(normalizedKey);
     const key = afterEntry?.key ?? beforeEntry?.key;
     if (
-      !key
-      || isExcludedCodexEnvironmentKey(key, platform)
-      || hasLineBreak(beforeEntry?.value)
-      || hasLineBreak(afterEntry?.value)
-    ) continue;
+      !key ||
+      isExcludedCodexEnvironmentKey(key, platform) ||
+      hasLineBreak(beforeEntry?.value) ||
+      hasLineBreak(afterEntry?.value)
+    )
+      continue;
 
     if (!afterEntry) {
       exclude.push(key);
@@ -317,11 +314,15 @@ export async function runCodexWorktreeSetupScript(
   const beforeCapturePath = path.join(captureRoot, `${randomUUID()}-before-env.txt`);
   const capturePath = path.join(captureRoot, `${randomUUID()}-captured-env.txt`);
   await writeFile(scriptPath, input.script, "utf8");
-  await writeFile(wrapperPath, buildCodexPosixSetupCaptureWrapper({
-    scriptPath,
-    capturePath,
-    beforeCapturePath,
-  }), "utf8");
+  await writeFile(
+    wrapperPath,
+    buildCodexPosixSetupCaptureWrapper({
+      scriptPath,
+      capturePath,
+      beforeCapturePath,
+    }),
+    "utf8",
+  );
 
   try {
     const baseEnvironment = input.loadBaseEnvironment
@@ -425,8 +426,8 @@ export async function runCodexWorktreeSetupScript(
 
         if (code === 0) {
           try {
-            const readEnvironmentCapture = input.readEnvironmentCapture
-              ?? ((filePath: string) => readFile(filePath, "utf8"));
+            const readEnvironmentCapture =
+              input.readEnvironmentCapture ?? ((filePath: string) => readFile(filePath, "utf8"));
             const [beforeCapture, afterCapture] = await Promise.all([
               readEnvironmentCapture(beforeCapturePath),
               readEnvironmentCapture(capturePath),
@@ -435,10 +436,12 @@ export async function runCodexWorktreeSetupScript(
               reject(new Error("Worktree environment setup canceled."));
               return;
             }
-            resolve(captureCodexShellEnvironmentDelta(
-              parseCodexCapturedEnvironment(beforeCapture),
-              parseCodexCapturedEnvironment(afterCapture),
-            ));
+            resolve(
+              captureCodexShellEnvironmentDelta(
+                parseCodexCapturedEnvironment(beforeCapture),
+                parseCodexCapturedEnvironment(afterCapture),
+              ),
+            );
           } catch (error) {
             if (canceled) {
               reject(new Error("Worktree environment setup canceled."));
@@ -456,9 +459,9 @@ export async function runCodexWorktreeSetupScript(
         const output = [stdoutTail.trim(), stderrTail.trim()]
           .filter((chunk) => chunk.length > 0)
           .join("\n");
-        reject(new Error(
-          `Worktree environment setup script failed.${output ? `\n${output}` : ""}`,
-        ));
+        reject(
+          new Error(`Worktree environment setup script failed.${output ? `\n${output}` : ""}`),
+        );
       });
     });
   } finally {
@@ -527,9 +530,11 @@ export async function runCodexWorktreeCleanupScript(input: {
         if (settled) return;
         settled = true;
         input.signal?.removeEventListener("abort", onAbort);
-        reject(canceled
-          ? new Error("Worktree environment cleanup canceled.")
-          : new Error(`Worktree environment cleanup script failed.\n${String(error)}`));
+        reject(
+          canceled
+            ? new Error("Worktree environment cleanup canceled.")
+            : new Error(`Worktree environment cleanup script failed.\n${String(error)}`),
+        );
       });
       child.on("close", (code) => {
         if (settled) return;
@@ -545,9 +550,9 @@ export async function runCodexWorktreeCleanupScript(input: {
           return;
         }
         const output = [stdoutTail.trim(), stderrTail.trim()].filter(Boolean).join("\n");
-        reject(new Error(
-          `Worktree environment cleanup script failed.${output ? `\n${output}` : ""}`,
-        ));
+        reject(
+          new Error(`Worktree environment cleanup script failed.${output ? `\n${output}` : ""}`),
+        );
       });
     });
   } finally {
@@ -573,9 +578,5 @@ export async function persistCodexWorktreeShellEnvironment(input: {
     await rm(configPath, { force: true });
     return;
   }
-  await writeFile(
-    configPath,
-    `${JSON.stringify(input.shellEnvironment, null, 2)}\n`,
-    "utf8",
-  );
+  await writeFile(configPath, `${JSON.stringify(input.shellEnvironment, null, 2)}\n`, "utf8");
 }

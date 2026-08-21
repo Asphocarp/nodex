@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  plainTextToPortableRichText,
-  primaryCanvasBlockId,
-} from "../../shared/block-documents";
+import { plainTextToPortableRichText, primaryCanvasBlockId } from "../../shared/block-documents";
 import type { BlockPropertyMutationRequestV2 } from "../../shared/block-property-mutations-v2";
 import { upgradeDatabaseViewConfigV2 } from "../../shared/database-view-presentation";
 import {
@@ -15,10 +12,7 @@ import { LIBRARY_NAVIGATION_EVENT_VERSION } from "../../shared/library-events";
 import { committedLocalCommit } from "../../shared/testing/local-commit";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import type { PageLifecycleMutationRequestV2 } from "../../shared/page-lifecycle-v2";
-import {
-  createFakeCoreHandshake,
-  FakeCoreClient,
-} from "./testing/fake-core-client";
+import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 import {
@@ -35,16 +29,17 @@ const identity = {
 
 const fakeHandshake = () => createFakeCoreHandshake(identity);
 
-const pageAuthorization = (commitSeq: number) => authorizedReadStampFixture({
-  deliveryAddress: {
-    kind: "project",
-    library_id: identity.libraryId,
-    project_id: "project:test",
-  },
-  subject: { kind: "page", page_id: "page:one" },
-  commitSeq,
-  storeEpoch: identity.storeEpoch,
-});
+const pageAuthorization = (commitSeq: number) =>
+  authorizedReadStampFixture({
+    deliveryAddress: {
+      kind: "project",
+      library_id: identity.libraryId,
+      project_id: "project:test",
+    },
+    subject: { kind: "page", page_id: "page:one" },
+    commitSeq,
+    storeEpoch: identity.storeEpoch,
+  });
 
 const pageDetailSnapshot = () => ({
   contract_version: 9 as const,
@@ -79,12 +74,14 @@ const pageDetailSnapshot = () => ({
         schema_key: "nodex.page",
         schema_version: 1,
       },
-      intrinsic_properties: [{
-        key: "description",
-        value_type: "string",
-        value: null,
-        revision: 1,
-      }],
+      intrinsic_properties: [
+        {
+          key: "description",
+          value_type: "string",
+          value: null,
+          revision: 1,
+        },
+      ],
       data_source_context: { kind: "standalone" as const },
       access_context: { kind: "library" as const },
     },
@@ -102,30 +99,32 @@ const pageHistorySnapshot = () => ({
       library_id: identity.libraryId,
       page_id: "page:one",
       document_id: "document:one",
-      entries: [{
-        id: "change:12",
-        kind: "block_mutation" as const,
-        library_id: identity.libraryId,
-        page_id: "page:one",
-        document_id: "document:one",
-        occurred_at: "2026-07-19T18:12:00.000Z",
-        display: {
-          category: "content" as const,
-          title: "Edited page content",
-          detail: null,
-          actor_label: "Electron renderer",
+      entries: [
+        {
+          id: "change:12",
+          kind: "block_mutation" as const,
+          library_id: identity.libraryId,
+          page_id: "page:one",
+          document_id: "document:one",
+          occurred_at: "2026-07-19T18:12:00.000Z",
+          display: {
+            category: "content" as const,
+            title: "Edited page content",
+            detail: null,
+            actor_label: "Electron renderer",
+          },
+          evidence: { status: "verified" as const },
+          recovery: {
+            kind: "unavailable" as const,
+            reason: "no_inverse_contract" as const,
+          },
+          change_seq: 12,
+          mutation_id: "mutation:12",
+          mutation_kind: "semantic_mutation",
+          affected_block_count: 1,
+          field_intent_count: 2,
         },
-        evidence: { status: "verified" as const },
-        recovery: {
-          kind: "unavailable" as const,
-          reason: "no_inverse_contract" as const,
-        },
-        change_seq: 12,
-        mutation_id: "mutation:12",
-        mutation_kind: "semantic_mutation",
-        affected_block_count: 1,
-        field_intent_count: 2,
-      }],
+      ],
       next_cursor: {
         occurred_at: "2026-07-19T18:12:00.000Z",
         source: "change_log" as const,
@@ -142,26 +141,36 @@ const projectPageSearchSnapshot = () => ({
   authorization: null,
   value: {
     kind: "project_page_search" as const,
-    items: [{
-      project_id: "project:test",
-      page_id: "page:one",
-      page_key: null,
-      title: "Page One",
-      status: "build" as const,
-      priority: "p1-high",
-      tags: [],
-      assignee: "Ada",
-      location_label: "Product / Editor",
-      title_parts: [{ text: "Page", highlighted: true }, { text: " One", highlighted: false }],
-      excerpt: "Page search evidence",
-      excerpt_parts: [{ text: "Page search evidence", highlighted: true }],
-      matches: [{
-        source: "title" as const,
-        quality: "exact" as const,
-        parts: [{ text: "Page", highlighted: true }, { text: " One", highlighted: false }],
-      }],
-      updated_at: "2026-07-19T18:12:00.000Z",
-    }],
+    items: [
+      {
+        project_id: "project:test",
+        page_id: "page:one",
+        page_key: null,
+        title: "Page One",
+        status: "build" as const,
+        priority: "p1-high",
+        tags: [],
+        assignee: "Ada",
+        location_label: "Product / Editor",
+        title_parts: [
+          { text: "Page", highlighted: true },
+          { text: " One", highlighted: false },
+        ],
+        excerpt: "Page search evidence",
+        excerpt_parts: [{ text: "Page search evidence", highlighted: true }],
+        matches: [
+          {
+            source: "title" as const,
+            quality: "exact" as const,
+            parts: [
+              { text: "Page", highlighted: true },
+              { text: " One", highlighted: false },
+            ],
+          },
+        ],
+        updated_at: "2026-07-19T18:12:00.000Z",
+      },
+    ],
   },
 });
 
@@ -173,12 +182,14 @@ const projectPageSearchFacetsSnapshot = () => ({
   value: {
     kind: "project_page_search_facets" as const,
     value: {
-      tags: [{
-        data_source_id: "source:test",
-        property_id: "tags",
-        option_id: "o_AAAAAAAA",
-        label: "Search",
-      }],
+      tags: [
+        {
+          data_source_id: "source:test",
+          property_id: "tags",
+          option_id: "o_AAAAAAAA",
+          label: "Search",
+        },
+      ],
       assignees: ["Ada"],
     },
   },
@@ -191,15 +202,23 @@ const projectPageSearchMetadataSnapshot = () => ({
   authorization: null,
   value: {
     kind: "project_page_search_metadata" as const,
-    items: [{
-      page_id: "page:one", page_key: "NDX-1", title: "Page One",
-      preview: "Preview", status: "build" as const, priority: "p1-high" as const,
-      tags: [], assignee: "Ada", location_label: "Product / Editor",
-      updated_at: "2026-07-19T18:12:00.000Z",
-      properties: [{ property_id: "summary", property_name: "Summary", text: "Canonical" }],
-      authorized_project_ids: ["project:test"],
-      data_source_ids: ["source:test"],
-    }],
+    items: [
+      {
+        page_id: "page:one",
+        page_key: "NDX-1",
+        title: "Page One",
+        preview: "Preview",
+        status: "build" as const,
+        priority: "p1-high" as const,
+        tags: [],
+        assignee: "Ada",
+        location_label: "Product / Editor",
+        updated_at: "2026-07-19T18:12:00.000Z",
+        properties: [{ property_id: "summary", property_name: "Summary", text: "Canonical" }],
+        authorized_project_ids: ["project:test"],
+        data_source_ids: ["source:test"],
+      },
+    ],
   },
 });
 
@@ -210,24 +229,28 @@ const pageReferenceCandidatesSnapshot = () => ({
   authorization: null,
   value: {
     kind: "page_reference_candidates" as const,
-    items: [{
-      page_id: "page:target",
-      title: "Projection notes",
-      page_key: "NDX-42",
-      status: "build" as const,
-      location_label: "Product / Editor",
-      match_excerpt: "The projection stays bounded.",
-      match_source: "content" as const,
-      title_parts: [{ text: "Projection notes", highlighted: false }],
-      match_excerpt_parts: [{ text: "projection", highlighted: true }],
-      matches: [{
-        source: "body" as const,
-        quality: "exact" as const,
-        block_id: "block:match",
-        block_type: "paragraph",
-        parts: [{ text: "projection", highlighted: true }],
-      }],
-    }],
+    items: [
+      {
+        page_id: "page:target",
+        title: "Projection notes",
+        page_key: "NDX-42",
+        status: "build" as const,
+        location_label: "Product / Editor",
+        match_excerpt: "The projection stays bounded.",
+        match_source: "content" as const,
+        title_parts: [{ text: "Projection notes", highlighted: false }],
+        match_excerpt_parts: [{ text: "projection", highlighted: true }],
+        matches: [
+          {
+            source: "body" as const,
+            quality: "exact" as const,
+            block_id: "block:match",
+            block_type: "paragraph",
+            parts: [{ text: "projection", highlighted: true }],
+          },
+        ],
+      },
+    ],
   },
 });
 
@@ -261,11 +284,13 @@ const pageOwnershipPathSnapshot = () => ({
     value: {
       status: "available" as const,
       target_page_id: "page:one",
-      ancestors: [{
-        page_id: "page:root",
-        title: "Root",
-        lifecycle: "active" as const,
-      }],
+      ancestors: [
+        {
+          page_id: "page:root",
+          title: "Root",
+          lifecycle: "active" as const,
+        },
+      ],
     },
   },
 });
@@ -371,11 +396,13 @@ const lifecycleDefaultView = () => ({
       schemaKey: "nodex.database-view",
       schemaVersion: 2,
       filter: { kind: "group", operator: "and", children: [] },
-      sort: [{
-        field: { kind: "manual" },
-        direction: "asc",
-        nulls: "last",
-      }],
+      sort: [
+        {
+          field: { kind: "manual" },
+          direction: "asc",
+          nulls: "last",
+        },
+      ],
       group: null,
       display: { propertyIds: ["tags"], showTitle: true },
     }),
@@ -444,21 +471,20 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
     client.enqueueRead(pageDetailSnapshot());
 
-    await expect(adapter.readProjectPageDetail(
-      "project:test",
-      "page:one",
-    )).resolves.toMatchObject({
+    await expect(adapter.readProjectPageDetail("project:test", "page:one")).resolves.toMatchObject({
       ok: true,
       value: {
         projectId: "project:test",
         libraryId: identity.libraryId,
         commitSeq: 9,
         page: { pageId: "page:one", title: "Page One" },
-        intrinsicProperties: [{
-          key: "description",
-          valueType: "string",
-          value: null,
-        }],
+        intrinsicProperties: [
+          {
+            key: "description",
+            valueType: "string",
+            value: null,
+          },
+        ],
         dataSourceContext: { kind: "standalone" },
       },
     });
@@ -493,10 +519,7 @@ describe("Core Library Module Adapter", () => {
       },
     });
 
-    await expect(adapter.readProjectPageDetail(
-      "project:test",
-      "page:one",
-    )).resolves.toMatchObject({
+    await expect(adapter.readProjectPageDetail("project:test", "page:one")).resolves.toMatchObject({
       ok: false,
       error: {
         message: "Core Page Detail crossed its LocalCommit snapshot boundary",
@@ -527,25 +550,23 @@ describe("Core Library Module Adapter", () => {
       authority: Promise.resolve(runtime),
     });
 
-    await expect(bridge.readProjectPageDetail(
-      "project:test",
-      "page:one",
-    )).resolves.toMatchObject({
+    await expect(bridge.readProjectPageDetail("project:test", "page:one")).resolves.toMatchObject({
       ok: true,
       value: { projectId: "project:test", page: { pageId: "page:one" } },
     });
-    await expect(bridge.readLibraryPageDetail("page:one")).resolves
-      .toMatchObject({
-        ok: true,
-        value: {
-          accessContext: { kind: "library" },
-          page: { pageId: "page:one" },
-        },
-      });
-    await expect(bridge.listPageHistory({
-      requestingProjectId: "project:test",
-      pageId: "page:one",
-    })).resolves.toMatchObject({
+    await expect(bridge.readLibraryPageDetail("page:one")).resolves.toMatchObject({
+      ok: true,
+      value: {
+        accessContext: { kind: "library" },
+        page: { pageId: "page:one" },
+      },
+    });
+    await expect(
+      bridge.listPageHistory({
+        requestingProjectId: "project:test",
+        pageId: "page:one",
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         libraryId: identity.libraryId,
@@ -563,42 +584,46 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead(pageHistorySnapshot());
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.listPageHistory({
-      requestingProjectId: "project:test",
-      pageId: "page:one",
-      before: {
-        occurredAt: "2026-07-19T18:13:00.000Z",
-        source: "document_version",
-        versionId: "version:13",
-      },
-      pageSize: 25,
-    })).resolves.toEqual({
+    await expect(
+      adapter.listPageHistory({
+        requestingProjectId: "project:test",
+        pageId: "page:one",
+        before: {
+          occurredAt: "2026-07-19T18:13:00.000Z",
+          source: "document_version",
+          versionId: "version:13",
+        },
+        pageSize: 25,
+      }),
+    ).resolves.toEqual({
       ok: true,
       value: {
         libraryId: identity.libraryId,
         pageId: "page:one",
         documentId: "document:one",
-        entries: [{
-          id: "change:12",
-          kind: "block_mutation",
-          libraryId: identity.libraryId,
-          pageId: "page:one",
-          documentId: "document:one",
-          occurredAt: "2026-07-19T18:12:00.000Z",
-          display: {
-            category: "content",
-            title: "Edited page content",
-            detail: null,
-            actorLabel: "Electron renderer",
+        entries: [
+          {
+            id: "change:12",
+            kind: "block_mutation",
+            libraryId: identity.libraryId,
+            pageId: "page:one",
+            documentId: "document:one",
+            occurredAt: "2026-07-19T18:12:00.000Z",
+            display: {
+              category: "content",
+              title: "Edited page content",
+              detail: null,
+              actorLabel: "Electron renderer",
+            },
+            evidence: { status: "verified" },
+            recovery: { kind: "unavailable", reason: "no_inverse_contract" },
+            changeSeq: 12,
+            mutationId: "mutation:12",
+            mutationKind: "semantic_mutation",
+            affectedBlockCount: 1,
+            fieldIntentCount: 2,
           },
-          evidence: { status: "verified" },
-          recovery: { kind: "unavailable", reason: "no_inverse_contract" },
-          changeSeq: 12,
-          mutationId: "mutation:12",
-          mutationKind: "semantic_mutation",
-          affectedBlockCount: 1,
-          fieldIntentCount: 2,
-        }],
+        ],
         nextCursor: {
           occurredAt: "2026-07-19T18:12:00.000Z",
           source: "change_log",
@@ -606,16 +631,18 @@ describe("Core Library Module Adapter", () => {
         },
       },
     });
-    expect(client.reads).toEqual([{
-      kind: "page_history",
-      page_id: "page:one",
-      before: {
-        occurred_at: "2026-07-19T18:13:00.000Z",
-        source: "document_version",
-        version_id: "version:13",
+    expect(client.reads).toEqual([
+      {
+        kind: "page_history",
+        page_id: "page:one",
+        before: {
+          occurred_at: "2026-07-19T18:13:00.000Z",
+          source: "document_version",
+          version_id: "version:13",
+        },
+        limit: 25,
       },
-      limit: 25,
-    }]);
+    ]);
   });
 
   test("maps Project-scoped Page references and trusted root locations", async () => {
@@ -626,30 +653,36 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead(viewLocationSnapshot());
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.resolvePageTarget({
-      accessContext: { kind: "project", projectId: "project:test" },
-      targetPageId: "page:one",
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.resolvePageTarget({
+        accessContext: { kind: "project", projectId: "project:test" },
+        targetPageId: "page:one",
+      }),
+    ).resolves.toMatchObject({
       status: "available",
       targetPageId: "page:one",
       page: { pageId: "page:one", lifecycle: "active" },
       document: { readiness: "ready", schemaKey: "nodex.page" },
     });
-    await expect(adapter.resolvePageOwnershipPath({
-      accessContext: { kind: "project", projectId: "project:test" },
-      targetPageId: "page:one",
-    })).resolves.toEqual({
+    await expect(
+      adapter.resolvePageOwnershipPath({
+        accessContext: { kind: "project", projectId: "project:test" },
+        targetPageId: "page:one",
+      }),
+    ).resolves.toEqual({
       libraryId: "library:test",
       storeEpoch: "epoch:test",
       commitSeq: 14,
       authorization: null,
       status: "available",
       targetPageId: "page:one",
-      ancestors: [{
-        pageId: "page:root",
-        title: "Root",
-        lifecycle: "active",
-      }],
+      ancestors: [
+        {
+          pageId: "page:root",
+          title: "Root",
+          lifecycle: "active",
+        },
+      ],
     });
     await expect(adapter.findPageLocation("page:one")).resolves.toEqual({
       pageId: "page:one",
@@ -674,10 +707,9 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead(pageLifecyclePreflightSnapshot());
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.readPageLifecyclePreflight(
-      "project:test",
-      "page:one",
-    )).resolves.toMatchObject({
+    await expect(
+      adapter.readPageLifecyclePreflight("project:test", "page:one"),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         projectId: "project:test",
@@ -706,10 +738,12 @@ describe("Core Library Module Adapter", () => {
         },
       },
     });
-    expect(client.reads).toEqual([{
-      kind: "page_lifecycle_preflight",
-      page_id: "page:one",
-    }]);
+    expect(client.reads).toEqual([
+      {
+        kind: "page_lifecycle_preflight",
+        page_id: "page:one",
+      },
+    ]);
   });
 
   test("maps Page lifecycle mutations through one native Library aggregate", async () => {
@@ -797,17 +831,19 @@ describe("Core Library Module Adapter", () => {
         committedAt: "2026-07-20T08:30:00.000Z",
       },
     });
-    expect(client.applies).toEqual([{
-      operationId: request.operationId,
-      intent: {
-        kind: "apply_page_lifecycle",
-        mutation: {
-          kind: "archive_page",
-          page_id: "page:one",
-          expected_metadata_revision: 3,
+    expect(client.applies).toEqual([
+      {
+        operationId: request.operationId,
+        intent: {
+          kind: "apply_page_lifecycle",
+          mutation: {
+            kind: "archive_page",
+            page_id: "page:one",
+            expected_metadata_revision: 3,
+          },
         },
       },
-    }]);
+    ]);
   });
 
   test("maps intrinsic Page Property mutations through one native Library intent", async () => {
@@ -821,15 +857,17 @@ describe("Core Library Module Adapter", () => {
         block_property_mutation: {
           outcome: {
             status: "committed",
-            fields: [{
-              scope: "intrinsic",
-              path: "intrinsic/page%3Aone/run.target",
-              block_id: "page:one",
-              property_key: "run.target",
-              operation: "set",
-              revision: 2,
-              value: "cloud",
-            }],
+            fields: [
+              {
+                scope: "intrinsic",
+                path: "intrinsic/page%3Aone/run.target",
+                block_id: "page:one",
+                property_key: "run.target",
+                operation: "set",
+                revision: 2,
+                value: "cloud",
+              },
+            ],
             block_metadata_revisions: { "page:one": 7 },
           },
         },
@@ -860,14 +898,16 @@ describe("Core Library Module Adapter", () => {
       storeEpoch: identity.storeEpoch,
       clientSessionId: "session:test",
       actor: { kind: "electron_renderer" },
-      fields: [{
-        scope: "intrinsic",
-        blockId: "page:one",
-        propertyKey: "run.target",
-        operation: "set",
-        expectedRevision: 1,
-        value: "cloud",
-      }],
+      fields: [
+        {
+          scope: "intrinsic",
+          blockId: "page:one",
+          propertyKey: "run.target",
+          operation: "set",
+          expectedRevision: 1,
+          value: "cloud",
+        },
+      ],
     };
 
     await expect(adapter.applyBlockPropertyMutation(request)).resolves.toEqual({
@@ -878,37 +918,43 @@ describe("Core Library Module Adapter", () => {
         projectId: request.projectId,
         storeEpoch: identity.storeEpoch,
         duplicate: false,
-        fields: [{
-          scope: "intrinsic",
-          path: "intrinsic/page%3Aone/run.target",
-          blockId: "page:one",
-          propertyKey: "run.target",
-          operation: "set",
-          revision: 2,
-          value: "cloud",
-        }],
+        fields: [
+          {
+            scope: "intrinsic",
+            path: "intrinsic/page%3Aone/run.target",
+            blockId: "page:one",
+            propertyKey: "run.target",
+            operation: "set",
+            revision: 2,
+            value: "cloud",
+          },
+        ],
         blockMetadataRevisions: { "page:one": 7 },
         commitSeq: 21,
         committedAt: "2026-07-20T12:00:00.000Z",
       },
     });
-    expect(client.applies).toEqual([{
-      operationId: request.mutationId,
-      intent: {
-        kind: "apply_block_property_mutation",
-        mutation: {
-          actor: request.actor,
-          client_session_id: request.clientSessionId,
-          fields: [{
-            kind: "intrinsic_set",
-            block_id: "page:one",
-            property_key: "run.target",
-            expected_revision: 1,
-            value: "cloud",
-          }],
+    expect(client.applies).toEqual([
+      {
+        operationId: request.mutationId,
+        intent: {
+          kind: "apply_block_property_mutation",
+          mutation: {
+            actor: request.actor,
+            client_session_id: request.clientSessionId,
+            fields: [
+              {
+                kind: "intrinsic_set",
+                block_id: "page:one",
+                property_key: "run.target",
+                expected_revision: 1,
+                value: "cloud",
+              },
+            ],
+          },
         },
       },
-    }]);
+    ]);
   });
 
   test("maps atomic Page metadata writes to Database and intrinsic native intents", async () => {
@@ -925,15 +971,17 @@ describe("Core Library Module Adapter", () => {
         block_property_mutation: {
           outcome: {
             status: "committed",
-            fields: [{
-              scope: "intrinsic",
-              path: "intrinsic/page%3Aone/schedule.isAllDay",
-              block_id: "page:one",
-              property_key: "schedule.isAllDay",
-              operation: "set",
-              revision: 3,
-              value: true,
-            }],
+            fields: [
+              {
+                scope: "intrinsic",
+                path: "intrinsic/page%3Aone/schedule.isAllDay",
+                block_id: "page:one",
+                property_key: "schedule.isAllDay",
+                operation: "set",
+                revision: 3,
+                value: true,
+              },
+            ],
             block_metadata_revisions: { "page:one": 8 },
           },
         },
@@ -957,73 +1005,89 @@ describe("Core Library Module Adapter", () => {
     });
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.apply({
-      operationId: "property:metadata",
-      storeEpoch: identity.storeEpoch,
-      operation: {
-        kind: "apply_page_metadata_properties",
-        clientSessionId: "window:one",
-        databaseOperations: [{
-          kind: "edit_property_values",
-          edits: [{
-            pageId: "page:one",
-            dataSourceId,
-            propertyId,
-            edit: {
-              kind: "replace",
-              expectedValueRevision: 4,
-              value: { kind: "select", optionId },
+    await expect(
+      adapter.apply({
+        operationId: "property:metadata",
+        storeEpoch: identity.storeEpoch,
+        operation: {
+          kind: "apply_page_metadata_properties",
+          clientSessionId: "window:one",
+          databaseOperations: [
+            {
+              kind: "edit_property_values",
+              edits: [
+                {
+                  pageId: "page:one",
+                  dataSourceId,
+                  propertyId,
+                  edit: {
+                    kind: "replace",
+                    expectedValueRevision: 4,
+                    value: { kind: "select", optionId },
+                  },
+                },
+              ],
             },
-          }],
-        }],
-        intrinsicFields: [{
-          scope: "intrinsic",
-          blockId: "page:one",
-          propertyKey: "schedule.isAllDay",
-          operation: "set",
-          expectedRevision: 2,
-          value: true,
-        }],
-      },
-    })).resolves.toMatchObject({
+          ],
+          intrinsicFields: [
+            {
+              scope: "intrinsic",
+              blockId: "page:one",
+              propertyKey: "schedule.isAllDay",
+              operation: "set",
+              expectedRevision: 2,
+              value: true,
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         operationKind: "apply_page_metadata_properties",
         didMutate: true,
       },
     });
-    expect(client.applies).toEqual([{
-      operationId: "property:metadata",
-      intent: {
-        kind: "apply_page_metadata_properties",
-        database_intents: [{
-          kind: "edit_property_values",
-          edits: [{
-            address: {
-              page_id: "page:one",
-              data_source_id: dataSourceId,
-              property_id: propertyId,
+    expect(client.applies).toEqual([
+      {
+        operationId: "property:metadata",
+        intent: {
+          kind: "apply_page_metadata_properties",
+          database_intents: [
+            {
+              kind: "edit_property_values",
+              edits: [
+                {
+                  address: {
+                    page_id: "page:one",
+                    data_source_id: dataSourceId,
+                    property_id: propertyId,
+                  },
+                  edit: {
+                    kind: "replace",
+                    expected_value_revision: 4,
+                    value: { kind: "select", option_id: optionId },
+                  },
+                },
+              ],
             },
-            edit: {
-              kind: "replace",
-              expected_value_revision: 4,
-              value: { kind: "select", option_id: optionId },
-            },
-          }],
-        }],
-        intrinsic_mutation: {
-          actor: { kind: "page_metadata" },
-          client_session_id: "window:one",
-          fields: [{
-            kind: "intrinsic_set",
-            block_id: "page:one",
-            property_key: "schedule.isAllDay",
-            expected_revision: 2,
-            value: true,
-          }],
+          ],
+          intrinsic_mutation: {
+            actor: { kind: "page_metadata" },
+            client_session_id: "window:one",
+            fields: [
+              {
+                kind: "intrinsic_set",
+                block_id: "page:one",
+                property_key: "schedule.isAllDay",
+                expected_revision: 2,
+                value: true,
+              },
+            ],
+          },
         },
       },
-    }]);
+    ]);
   });
 
   test("preserves the complete authority-ready Page creation contract", async () => {
@@ -1119,52 +1183,53 @@ describe("Core Library Module Adapter", () => {
       },
     };
 
-    await expect(adapter.applyPageLifecycleMutation(request)).resolves
-      .toMatchObject({
-        ok: true,
-        value: {
-          operationKind: "create_page",
-          operationId: request.operationId,
-          pageId,
-          createdBlockIds: [pageId, "body:created"],
-          createdTagOptionIds: ["o_BBBBBBBB"],
-        },
-      });
-    expect(client.applies).toEqual([{
-      operationId: request.operationId,
-      intent: {
-        kind: "apply_page_lifecycle",
-        mutation: {
-          kind: "create_page",
-          page_id: pageId,
-          title: "Rich Page",
-          rich_title: richTitle,
-          nfm: "# Durable body",
-          status: "build",
-          priority: "p1-high",
-          estimate: "m",
-          due_date: "2026-07-31",
-          scheduled_start: "2026-07-31T01:00:00.000Z",
-          scheduled_end: "2026-07-31T02:00:00.000Z",
-          is_all_day: false,
-          recurrence: null,
-          reminders: [],
-          schedule_timezone: "Asia/Shanghai",
-          assignee: "asc",
-          run_in_target: "localProject",
-          run_in_local_path: "/tmp/nodex",
-          run_in_base_branch: "main",
-          run_in_worktree_path: null,
-          run_in_environment_path: null,
-          before_block_id: "page:before",
-          view_placement: { kind: "before", page_id: "page:view-before" },
-          data_source_id: "source:test",
-          tag_option_ids: ["o_AAAAAAAA", "o_BBBBBBBB"],
-          new_tag_options: [{ option_id: "o_BBBBBBBB", name: "New tag" }],
-          expected_tags_property_revision: 3,
+    await expect(adapter.applyPageLifecycleMutation(request)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        operationKind: "create_page",
+        operationId: request.operationId,
+        pageId,
+        createdBlockIds: [pageId, "body:created"],
+        createdTagOptionIds: ["o_BBBBBBBB"],
+      },
+    });
+    expect(client.applies).toEqual([
+      {
+        operationId: request.operationId,
+        intent: {
+          kind: "apply_page_lifecycle",
+          mutation: {
+            kind: "create_page",
+            page_id: pageId,
+            title: "Rich Page",
+            rich_title: richTitle,
+            nfm: "# Durable body",
+            status: "build",
+            priority: "p1-high",
+            estimate: "m",
+            due_date: "2026-07-31",
+            scheduled_start: "2026-07-31T01:00:00.000Z",
+            scheduled_end: "2026-07-31T02:00:00.000Z",
+            is_all_day: false,
+            recurrence: null,
+            reminders: [],
+            schedule_timezone: "Asia/Shanghai",
+            assignee: "asc",
+            run_in_target: "localProject",
+            run_in_local_path: "/tmp/nodex",
+            run_in_base_branch: "main",
+            run_in_worktree_path: null,
+            run_in_environment_path: null,
+            before_block_id: "page:before",
+            view_placement: { kind: "before", page_id: "page:view-before" },
+            data_source_id: "source:test",
+            tag_option_ids: ["o_AAAAAAAA", "o_BBBBBBBB"],
+            new_tag_options: [{ option_id: "o_BBBBBBBB", name: "New tag" }],
+            expected_tags_property_revision: 3,
+          },
         },
       },
-    }]);
+    ]);
   });
 
   test("binds reference reads to explicit Project or Library authority", async () => {
@@ -1209,10 +1274,9 @@ describe("Core Library Module Adapter", () => {
       accessContext: { kind: "library" },
       targetPageId: "page:one",
     });
-    await expect(bridge.readPageLifecyclePreflight(
-      "project:test",
-      "page:one",
-    )).resolves.toMatchObject({ ok: true });
+    await expect(
+      bridge.readPageLifecyclePreflight("project:test", "page:one"),
+    ).resolves.toMatchObject({ ok: true });
     await bridge.findPageLocation("page:one");
     await bridge.findViewLocation("view:test");
 
@@ -1243,44 +1307,58 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead(projectPageSearchSnapshot());
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.searchPages({
-      projectIds: ["project:test", "project:other"],
-      query: "page evidence",
-      limit: 25,
-    })).resolves.toEqual({
+    await expect(
+      adapter.searchPages({
+        projectIds: ["project:test", "project:other"],
+        query: "page evidence",
+        limit: 25,
+      }),
+    ).resolves.toEqual({
       libraryId: "library:test",
       storeEpoch: "epoch:test",
       commitSeq: 13,
-      results: [{
-      projectId: "project:test",
-      pageId: "page:one",
-      pageKey: null,
-      title: "Page One",
-      status: "build",
-      priority: "p1-high",
-      tags: [],
-      assignee: "Ada",
-      locationLabel: "Product / Editor",
-      titleParts: [{ text: "Page", highlighted: true }, { text: " One", highlighted: false }],
-      excerpt: "Page search evidence",
-      excerptParts: [{ text: "Page search evidence", highlighted: true }],
-      matches: [{
-        source: "title",
-        quality: "exact",
-        parts: [{ text: "Page", highlighted: true }, { text: " One", highlighted: false }],
-      }],
-      updatedAt: "2026-07-19T18:12:00.000Z",
-      }],
+      results: [
+        {
+          projectId: "project:test",
+          pageId: "page:one",
+          pageKey: null,
+          title: "Page One",
+          status: "build",
+          priority: "p1-high",
+          tags: [],
+          assignee: "Ada",
+          locationLabel: "Product / Editor",
+          titleParts: [
+            { text: "Page", highlighted: true },
+            { text: " One", highlighted: false },
+          ],
+          excerpt: "Page search evidence",
+          excerptParts: [{ text: "Page search evidence", highlighted: true }],
+          matches: [
+            {
+              source: "title",
+              quality: "exact",
+              parts: [
+                { text: "Page", highlighted: true },
+                { text: " One", highlighted: false },
+              ],
+            },
+          ],
+          updatedAt: "2026-07-19T18:12:00.000Z",
+        },
+      ],
     });
-    expect(client.reads).toEqual([{
-      kind: "project_page_search",
-      project_ids: ["project:test", "project:other"],
-      query: "page evidence",
-      filters: null,
-      preferred_project_id: null,
-      recent_page_ids: [],
-      limit: 25,
-    }]);
+    expect(client.reads).toEqual([
+      {
+        kind: "project_page_search",
+        project_ids: ["project:test", "project:other"],
+        query: "page evidence",
+        filters: null,
+        preferred_project_id: null,
+        recent_page_ids: [],
+        limit: 25,
+      },
+    ]);
   });
 
   test("maps Page search facets from the same Project scope", async () => {
@@ -1289,18 +1367,22 @@ describe("Core Library Module Adapter", () => {
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
     await expect(adapter.pageSearchFacets(["project:test"])).resolves.toEqual({
-      tags: [{
-        dataSourceId: "source:test",
-        propertyId: "tags",
-        optionId: "o_AAAAAAAA",
-        label: "Search",
-      }],
+      tags: [
+        {
+          dataSourceId: "source:test",
+          propertyId: "tags",
+          optionId: "o_AAAAAAAA",
+          label: "Search",
+        },
+      ],
       assignees: ["Ada"],
     });
-    expect(client.reads).toEqual([{
-      kind: "project_page_search_facets",
-      project_ids: ["project:test"],
-    }]);
+    expect(client.reads).toEqual([
+      {
+        kind: "project_page_search_facets",
+        project_ids: ["project:test"],
+      },
+    ]);
   });
 
   test("keeps metadata projection authorization and revision in one snapshot", async () => {
@@ -1311,11 +1393,16 @@ describe("Core Library Module Adapter", () => {
     const snapshot = await adapter.pageSearchMetadata(["project:test"]);
 
     expect(snapshot.authorization).toEqual({
-      libraryId: "library:test", storeEpoch: "epoch:test",
-      coveredCommitSeq: 13, projectIds: ["project:test"],
+      libraryId: "library:test",
+      storeEpoch: "epoch:test",
+      coveredCommitSeq: 13,
+      projectIds: ["project:test"],
     });
     expect(snapshot.documents[0]).toMatchObject({
-      pageId: "page:one", pageKey: "NDX-1", authorizedProjectIds: ["project:test"], dataSourceIds: ["source:test"],
+      pageId: "page:one",
+      pageKey: "NDX-1",
+      authorizedProjectIds: ["project:test"],
+      dataSourceIds: ["source:test"],
       properties: [{ propertyId: "summary", propertyName: "Summary", text: "Canonical" }],
     });
   });
@@ -1340,31 +1427,37 @@ describe("Core Library Module Adapter", () => {
     client.enqueueRead(pageReferenceCandidatesSnapshot());
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.read({
-      read: {
-        mode: "page_reference_candidates",
-        query: "projection",
-        limit: 24,
-        sourcePageId: "page:host",
-      },
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.read({
+        read: {
+          mode: "page_reference_candidates",
+          query: "projection",
+          limit: 24,
+          sourcePageId: "page:host",
+        },
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         value: {
           kind: "page_reference_candidates",
-          items: [{
-            pageId: "page:target",
-            matchSource: "content",
-          }],
+          items: [
+            {
+              pageId: "page:target",
+              matchSource: "content",
+            },
+          ],
         },
       },
     });
-    expect(client.reads).toEqual([{
-      kind: "page_reference_candidates",
-      query: "projection",
-      limit: 24,
-      source_page_id: "page:host",
-    }]);
+    expect(client.reads).toEqual([
+      {
+        kind: "page_reference_candidates",
+        query: "projection",
+        limit: 24,
+        source_page_id: "page:host",
+      },
+    ]);
   });
 
   test("maps one complete catalog read without exposing transport shapes", async () => {
@@ -1397,9 +1490,11 @@ describe("Core Library Module Adapter", () => {
     });
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.read({
-      read: { mode: "children", parent: { kind: "library" } },
-    })).resolves.toEqual({
+    await expect(
+      adapter.read({
+        read: { mode: "children", parent: { kind: "library" } },
+      }),
+    ).resolves.toEqual({
       ok: true,
       value: {
         profileId: identity.profileId,
@@ -1410,30 +1505,34 @@ describe("Core Library Module Adapter", () => {
         value: {
           kind: "children",
           parent: { kind: "library" },
-          items: [{
-            kind: "page",
-            pageId: "page:one",
-            title: "One",
-            hasChildren: false,
-            parentRevision: 2,
-            metadataRevision: 3,
-            documentGeneration: 1,
-            documentHeadSeq: 4,
-            updatedAt: "2026-07-19T15:00:00.000Z",
-          }],
+          items: [
+            {
+              kind: "page",
+              pageId: "page:one",
+              title: "One",
+              hasChildren: false,
+              parentRevision: 2,
+              metadataRevision: 3,
+              documentGeneration: 1,
+              documentHeadSeq: 4,
+              updatedAt: "2026-07-19T15:00:00.000Z",
+            },
+          ],
           nextCursor: null,
           hasMore: false,
           total: 1,
         },
       },
     });
-    expect(client.reads).toEqual([{
-      kind: "children",
-      parent: { kind: "library" },
-      cursor: null,
-      limit: undefined,
-      force_include_target: null,
-    }]);
+    expect(client.reads).toEqual([
+      {
+        kind: "children",
+        parent: { kind: "library" },
+        cursor: null,
+        limit: undefined,
+        force_include_target: null,
+      },
+    ]);
   });
 
   test("maps move destination authority and exact Document heads", async () => {
@@ -1447,16 +1546,18 @@ describe("Core Library Module Adapter", () => {
         kind: "move_destinations",
         target: { kind: "page", page_id: "page:source" },
         scope: { kind: "search", query: "roadmap" },
-        items: [{
-          page_id: "page:roadmap",
-          title: "Roadmap",
-          path: ["Pages", "Product"],
-          has_children: true,
-          is_current: false,
-          document_generation: 2,
-          document_head_seq: 7,
-          updated_at: "2026-08-11T00:00:00.000Z",
-        }],
+        items: [
+          {
+            page_id: "page:roadmap",
+            title: "Roadmap",
+            path: ["Pages", "Product"],
+            has_children: true,
+            is_current: false,
+            document_generation: 2,
+            document_head_seq: 7,
+            updated_at: "2026-08-11T00:00:00.000Z",
+          },
+        ],
         current_destination: {
           page_id: "page:product",
           title: "Product",
@@ -1475,24 +1576,28 @@ describe("Core Library Module Adapter", () => {
     });
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.read({
-      read: {
-        mode: "move_destinations",
-        target: { kind: "page", pageId: "page:source" },
-        scope: { kind: "search", query: "roadmap" },
-        limit: 50,
-      },
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.read({
+        read: {
+          mode: "move_destinations",
+          target: { kind: "page", pageId: "page:source" },
+          scope: { kind: "search", query: "roadmap" },
+          limit: 50,
+        },
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         value: {
           kind: "move_destinations",
-          items: [{
-            pageId: "page:roadmap",
-            path: ["Pages", "Product"],
-            documentGeneration: 2,
-            documentHeadSeq: 7,
-          }],
+          items: [
+            {
+              pageId: "page:roadmap",
+              path: ["Pages", "Product"],
+              documentGeneration: 2,
+              documentHeadSeq: 7,
+            },
+          ],
           currentDestination: {
             pageId: "page:product",
             isCurrent: true,
@@ -1500,13 +1605,15 @@ describe("Core Library Module Adapter", () => {
         },
       },
     });
-    expect(client.reads).toEqual([{
-      kind: "move_destinations",
-      target: { kind: "page", page_id: "page:source" },
-      scope: { kind: "search", query: "roadmap" },
-      cursor: null,
-      limit: 50,
-    }]);
+    expect(client.reads).toEqual([
+      {
+        kind: "move_destinations",
+        target: { kind: "page", page_id: "page:source" },
+        scope: { kind: "search", query: "roadmap" },
+        cursor: null,
+        limit: 50,
+      },
+    ]);
   });
 
   test("maps standalone root reads without deriving Project ownership", async () => {
@@ -1518,17 +1625,19 @@ describe("Core Library Module Adapter", () => {
       authorization: null,
       value: {
         kind: "standalone_roots",
-        items: [{
-          kind: "page",
-          page_id: "page:standalone",
-          title: "Prompts",
-          has_children: false,
-          parent_revision: 1,
-          metadata_revision: 2,
-          document_generation: 1,
-          document_head_seq: 3,
-          updated_at: "2026-08-03T00:00:00.000Z",
-        }],
+        items: [
+          {
+            kind: "page",
+            page_id: "page:standalone",
+            title: "Prompts",
+            has_children: false,
+            parent_revision: 1,
+            metadata_revision: 2,
+            document_generation: 1,
+            document_head_seq: 3,
+            updated_at: "2026-08-03T00:00:00.000Z",
+          },
+        ],
         next_cursor: null,
         has_more: false,
         total: 1,
@@ -1536,13 +1645,15 @@ describe("Core Library Module Adapter", () => {
     });
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.read({
-      read: {
-        mode: "standalone_roots",
-        limit: 10,
-        forceIncludeTarget: { kind: "page", pageId: "page:standalone" },
-      },
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.read({
+        read: {
+          mode: "standalone_roots",
+          limit: 10,
+          forceIncludeTarget: { kind: "page", pageId: "page:standalone" },
+        },
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         value: {
@@ -1552,12 +1663,14 @@ describe("Core Library Module Adapter", () => {
         },
       },
     });
-    expect(client.reads).toEqual([{
-      kind: "standalone_roots",
-      cursor: null,
-      limit: 10,
-      force_include_target: { kind: "page", page_id: "page:standalone" },
-    }]);
+    expect(client.reads).toEqual([
+      {
+        kind: "standalone_roots",
+        cursor: null,
+        limit: 10,
+        force_include_target: { kind: "page", page_id: "page:standalone" },
+      },
+    ]);
   });
 
   test("maps the Project access matrix and atomic access intent", async () => {
@@ -1571,23 +1684,27 @@ describe("Core Library Module Adapter", () => {
         kind: "resource_project_access",
         value: {
           target: { kind: "page", page_id: "page:one" },
-          projects: [{
-            project_id: "project:test",
-            project_name: "Product",
-            appearance: {
-              color: "blue",
-              marker: { kind: "icon", icon: "folder" },
+          projects: [
+            {
+              project_id: "project:test",
+              project_name: "Product",
+              appearance: {
+                color: "blue",
+                marker: { kind: "icon", icon: "folder" },
+              },
+              lifecycle: "active",
+              direct_grant: { access: "read", revision: 2 },
+              inherited_sources: [
+                {
+                  kind: "ancestor_page",
+                  page_id: "page:parent",
+                  page_title: "Strategy",
+                  access: "read_write",
+                },
+              ],
+              effective_access: "read_write",
             },
-            lifecycle: "active",
-            direct_grant: { access: "read", revision: 2 },
-            inherited_sources: [{
-              kind: "ancestor_page",
-              page_id: "page:parent",
-              page_title: "Strategy",
-              access: "read_write",
-            }],
-            effective_access: "read_write",
-          }],
+          ],
         },
       },
     });
@@ -1617,61 +1734,77 @@ describe("Core Library Module Adapter", () => {
     });
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.read({
-      read: {
-        mode: "resource_project_access",
-        target: { kind: "page", pageId: "page:one" },
-      },
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.read({
+        read: {
+          mode: "resource_project_access",
+          target: { kind: "page", pageId: "page:one" },
+        },
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         value: {
           kind: "resource_project_access",
           value: {
-            projects: [{
-              projectId: "project:test",
-              directGrant: { access: "read", revision: 2 },
-              inheritedSources: [{
-                kind: "ancestor_page",
-                pageId: "page:parent",
-              }],
-            }],
+            projects: [
+              {
+                projectId: "project:test",
+                directGrant: { access: "read", revision: 2 },
+                inheritedSources: [
+                  {
+                    kind: "ancestor_page",
+                    pageId: "page:parent",
+                  },
+                ],
+              },
+            ],
           },
         },
       },
     });
-    await expect(adapter.apply({
-      operationId: "operation:set-access",
-      storeEpoch: identity.storeEpoch,
-      operation: {
-        kind: "set_project_access",
-        target: { kind: "page", pageId: "page:one" },
-        changes: [{
-          projectId: "project:test",
-          access: null,
-          expectedRevision: 2,
-        }],
-      },
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.apply({
+        operationId: "operation:set-access",
+        storeEpoch: identity.storeEpoch,
+        operation: {
+          kind: "set_project_access",
+          target: { kind: "page", pageId: "page:one" },
+          changes: [
+            {
+              projectId: "project:test",
+              access: null,
+              expectedRevision: 2,
+            },
+          ],
+        },
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: { operationKind: "set_project_access", didMutate: true },
     });
-    expect(client.reads).toEqual([{
-      kind: "resource_project_access",
-      target: { kind: "page", page_id: "page:one" },
-    }]);
-    expect(client.applies).toEqual([{
-      operationId: "operation:set-access",
-      intent: {
-        kind: "set_project_access",
+    expect(client.reads).toEqual([
+      {
+        kind: "resource_project_access",
         target: { kind: "page", page_id: "page:one" },
-        changes: [{
-          project_id: "project:test",
-          access: null,
-          expected_revision: 2,
-        }],
       },
-    }]);
+    ]);
+    expect(client.applies).toEqual([
+      {
+        operationId: "operation:set-access",
+        intent: {
+          kind: "set_project_access",
+          target: { kind: "page", page_id: "page:one" },
+          changes: [
+            {
+              project_id: "project:test",
+              access: null,
+              expected_revision: 2,
+            },
+          ],
+        },
+      },
+    ]);
   });
 
   test("maps Canvas targets and typed Canvas lifecycle receipts", async () => {
@@ -1734,9 +1867,11 @@ describe("Core Library Module Adapter", () => {
     });
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.read({
-      read: { mode: "canvas_target", canvasId },
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.read({
+        read: { mode: "canvas_target", canvasId },
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         value: {
@@ -1752,33 +1887,37 @@ describe("Core Library Module Adapter", () => {
         },
       },
     });
-    await expect(adapter.apply({
-      operationId: "operation:create-canvas",
-      storeEpoch: identity.storeEpoch,
-      operation: {
-        kind: "create_canvas",
-        canvasId,
-        documentId,
-        displayName: "Design map",
-        destination: { kind: "library" },
-      },
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.apply({
+        operationId: "operation:create-canvas",
+        storeEpoch: identity.storeEpoch,
+        operation: {
+          kind: "create_canvas",
+          canvasId,
+          documentId,
+          displayName: "Design map",
+          destination: { kind: "library" },
+        },
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         createdTarget: { kind: "canvas", canvasId },
         canvasMutation: { canvasId, documentId },
       },
     });
-    expect(client.applies).toEqual([{
-      operationId: "operation:create-canvas",
-      intent: {
-        kind: "create_canvas",
-        canvas_id: canvasId,
-        document_id: documentId,
-        display_name: "Design map",
-        destination: { kind: "library", before: null },
+    expect(client.applies).toEqual([
+      {
+        operationId: "operation:create-canvas",
+        intent: {
+          kind: "create_canvas",
+          canvas_id: canvasId,
+          document_id: documentId,
+          display_name: "Design map",
+          destination: { kind: "library", before: null },
+        },
       },
-    }]);
+    ]);
   });
 
   test("round-trips the deterministic primary Canvas target", async () => {
@@ -1810,9 +1949,11 @@ describe("Core Library Module Adapter", () => {
     });
     const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
 
-    await expect(adapter.read({
-      read: { mode: "canvas_target", canvasId },
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.read({
+        read: { mode: "canvas_target", canvasId },
+      }),
+    ).resolves.toMatchObject({
       ok: true,
       value: {
         value: {
@@ -1824,10 +1965,12 @@ describe("Core Library Module Adapter", () => {
         },
       },
     });
-    expect(client.reads).toEqual([{
-      kind: "canvas_target",
-      canvas_id: canvasId,
-    }]);
+    expect(client.reads).toEqual([
+      {
+        kind: "canvas_target",
+        canvas_id: canvasId,
+      },
+    ]);
   });
 
   test("maps Canvas host commits without owning document publication", async () => {
@@ -1844,15 +1987,17 @@ describe("Core Library Module Adapter", () => {
           source_canvas_id: null,
           location_revision: 1,
           metadata_revision: 1,
-          document_commits: [{
-            document_id: "document:page",
-            generation: 2,
-            base_head_seq: 7,
-            head_seq: 8,
-            update_id: "update:canvas-shell",
-            update: [1, 2, 3],
-            state_vector: [4, 5],
-          }],
+          document_commits: [
+            {
+              document_id: "document:page",
+              generation: 2,
+              base_head_seq: 7,
+              head_seq: 8,
+              update_id: "update:canvas-shell",
+              update: [1, 2, 3],
+              state_vector: [4, 5],
+            },
+          ],
         },
       },
       receipt: {
@@ -1902,11 +2047,13 @@ describe("Core Library Module Adapter", () => {
       ok: true,
       value: {
         canvasMutation: {
-          documentCommits: [{
-            documentId: "document:page",
-            generation: 2,
-            headSeq: 8,
-          }],
+          documentCommits: [
+            {
+              documentId: "document:page",
+              generation: 2,
+              headSeq: 8,
+            },
+          ],
         },
       },
     });
@@ -1960,19 +2107,23 @@ describe("Core Library Module Adapter", () => {
         commitSeq: 8,
       },
     });
-    expect(client.applies).toEqual([{
-      operationId: request.operationId,
-      intent: {
-        kind: "create_page",
-        page_id: "page:one",
-        document_id: "document:one",
-        title: "One",
-        parent: { kind: "library", before: null },
+    expect(client.applies).toEqual([
+      {
+        operationId: request.operationId,
+        intent: {
+          kind: "create_page",
+          page_id: "page:one",
+          document_id: "document:one",
+          title: "One",
+          parent: { kind: "library", before: null },
+        },
       },
-    }]);
+    ]);
 
-    await expect(adapter.apply({ ...request, storeEpoch: "epoch:stale" })).resolves
-      .toMatchObject({ ok: false, error: { code: "store_epoch_mismatch" } });
+    await expect(adapter.apply({ ...request, storeEpoch: "epoch:stale" })).resolves.toMatchObject({
+      ok: false,
+      error: { code: "store_epoch_mismatch" },
+    });
     expect(client.applies).toHaveLength(1);
   });
 
@@ -2059,11 +2210,7 @@ describe("Core Library Module Adapter", () => {
         canonicalHash: "0".repeat(64),
       }),
     } as const;
-    expect(mapCoreLibraryEvent(
-      envelope,
-      envelope.packet.atoms[0]!,
-      identity.libraryId,
-    )).toEqual({
+    expect(mapCoreLibraryEvent(envelope, envelope.packet.atoms[0]!, identity.libraryId)).toEqual({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: identity.libraryId,
       storeEpoch: identity.storeEpoch,

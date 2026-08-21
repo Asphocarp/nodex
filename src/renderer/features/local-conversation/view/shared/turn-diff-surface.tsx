@@ -1,12 +1,5 @@
 import { motion } from "motion/react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type CSSProperties,
-  type MouseEvent,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 import {
   ChevronDownIcon,
   ContentSearchDiffIcon,
@@ -124,11 +117,7 @@ function TurnDiffToolbarButton({
   disabled?: boolean;
   onClick: () => void;
 }) {
-  const Icon = icon === "undo"
-    ? ShortcutResetIcon
-    : icon === "reapply"
-      ? ReviewRefreshIcon
-      : null;
+  const Icon = icon === "undo" ? ShortcutResetIcon : icon === "reapply" ? ReviewRefreshIcon : null;
 
   return (
     <button
@@ -178,7 +167,11 @@ function TurnDiffPreview({
     <div className="border-token-border bg-token-dropdown-background pointer-events-auto flex min-h-0 max-h-full w-full flex-col overflow-hidden rounded-lg border shadow-xl focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none focus-visible:ring-inset">
       <div className="text-size-chat flex h-9 w-full shrink-0 items-center gap-2 border-b border-token-border bg-token-dropdown-background px-4 py-[var(--turn-diff-row-padding-y)] text-left extension:bg-token-input-background">
         <TurnDiffPathLabel path={row.displayPath} />
-        <DiffStats additions={row.additions} deletions={row.deletions} className="ml-auto shrink-0 text-size-chat" />
+        <DiffStats
+          additions={row.additions}
+          deletions={row.deletions}
+          className="ml-auto shrink-0 text-size-chat"
+        />
       </div>
       <div className="max-h-96 min-h-0 flex-1 overflow-y-auto [contain:layout_paint]">
         <InlineFileDiff
@@ -224,7 +217,11 @@ function TurnDiffFileRow({
           Too large to render inline
         </span>
       ) : null}
-      <DiffStats additions={row.additions} deletions={row.deletions} className="ml-auto shrink-0 text-size-chat" />
+      <DiffStats
+        additions={row.additions}
+        deletions={row.deletions}
+        className="ml-auto shrink-0 text-size-chat"
+      />
     </>
   );
   const handleRowClick = (event: MouseEvent<HTMLButtonElement>) => {
@@ -277,14 +274,14 @@ function TurnDiffFileRow({
         tooltipClassName="flex overflow-visible p-0"
         tooltipBodyClassName="h-full w-full"
         style={TURN_DIFF_PREVIEW_TOOLTIP_STYLE}
-        tooltipContent={(
+        tooltipContent={
           <TurnDiffPreview
             row={row}
             diffHostClassName={diffHostClassName}
             diffHostStyle={diffHostStyle}
             diffOptions={diffOptions}
           />
-        )}
+        }
       >
         {button}
       </NodexTooltip>
@@ -309,7 +306,12 @@ function TurnDiffDisclosureRow({
       onClick={onToggle}
     >
       <span className="min-w-0 truncate">{getTurnDiffDisclosureLabel(fileCount, expanded)}</span>
-      <ChevronDownIcon className={cn("ml-auto icon-2xs text-token-description-foreground transition-transform duration-150", expanded && "rotate-180")} />
+      <ChevronDownIcon
+        className={cn(
+          "ml-auto icon-2xs text-token-description-foreground transition-transform duration-150",
+          expanded && "rotate-180",
+        )}
+      />
     </button>
   );
 }
@@ -328,18 +330,21 @@ function TurnDiffBanner({
       </span>
       {summary.additions > 0 || summary.deletions > 0 ? (
         <>
-          <span className="text-token-description-foreground/60" aria-hidden="true">•</span>
-          <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+          <span className="text-token-description-foreground/60" aria-hidden="true">
+            •
+          </span>
+          <DiffStats
+            additions={summary.additions}
+            deletions={summary.deletions}
+            className="text-size-chat-sm"
+          />
         </>
       ) : null}
     </>
   );
 
   return (
-    <div
-      className="relative overflow-hidden"
-      {...{ "codex.turn_diff.state": "in_progress" }}
-    >
+    <div className="relative overflow-hidden" {...{ "codex.turn_diff.state": "in_progress" }}>
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -392,22 +397,25 @@ export function TurnDiffInProgressInlineSummary({
   );
   const payload = extractTurnDiffPayload(item, scope);
   const resolvedModel = useMemo<TurnDiffModel>(
-    () => model ?? (rows
-      ? rows.length > 0
-        ? { kind: "inline", rows, summary: summarizeTurnDiffRows(rows) }
-        : { kind: "empty", rows: [], summary: { fileCount: 0, additions: 0, deletions: 0 } }
-      : buildTurnDiffModel(item, threadCwd, projectWorkspacePath, scope)),
+    () =>
+      model ??
+      (rows
+        ? rows.length > 0
+          ? { kind: "inline", rows, summary: summarizeTurnDiffRows(rows) }
+          : { kind: "empty", rows: [], summary: { fileCount: 0, additions: 0, deletions: 0 } }
+        : buildTurnDiffModel(item, threadCwd, projectWorkspacePath, scope)),
     [item, model, projectWorkspacePath, rows, scope, threadCwd],
   );
   const summary = resolvedModel.summary;
   const reviewIntent = useMemo(
-    () => buildTurnDiffReviewIntent({
-      item,
-      threadCwd,
-      projectWorkspacePath,
-      source: reviewSource,
-      scope,
-    }),
+    () =>
+      buildTurnDiffReviewIntent({
+        item,
+        threadCwd,
+        projectWorkspacePath,
+        source: reviewSource,
+        scope,
+      }),
     [item, projectWorkspacePath, reviewSource, scope, threadCwd],
   );
   const reviewAffordance = resolveTurnDiffReviewAffordance({
@@ -415,17 +423,14 @@ export function TurnDiffInProgressInlineSummary({
     reviewRouteAvailable: typeof onOpenReview === "function",
   });
 
-  if (
-    !payload
-    || resolvedModel.kind === "empty"
-    || summary.fileCount === 0
-  ) return null;
+  if (!payload || resolvedModel.kind === "empty" || summary.fileCount === 0) return null;
 
-  const handleOpenReview = onOpenReview && reviewAffordance.kind === "available"
-    ? () => {
-        void onOpenReview(reviewAffordance.intent);
-      }
-    : undefined;
+  const handleOpenReview =
+    onOpenReview && reviewAffordance.kind === "available"
+      ? () => {
+          void onOpenReview(reviewAffordance.intent);
+        }
+      : undefined;
 
   return (
     <div {...{ "codex.turn_diff.state": "in_progress" }}>
@@ -450,14 +455,22 @@ export function TurnDiffInProgressInlineSummary({
             <span className="block min-w-0 truncate">
               {summary.fileCount} {summary.fileCount === 1 ? "file" : "files"} changed
             </span>
-            <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+            <DiffStats
+              additions={summary.additions}
+              deletions={summary.deletions}
+              className="text-size-chat-sm"
+            />
           </button>
         ) : (
           <span className="text-size-chat flex min-w-0 items-center gap-1 text-token-text-secondary">
             <span className="block min-w-0 truncate">
               {summary.fileCount} {summary.fileCount === 1 ? "file" : "files"} changed
             </span>
-            <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+            <DiffStats
+              additions={summary.additions}
+              deletions={summary.deletions}
+              className="text-size-chat-sm"
+            />
           </span>
         )}
       </motion.div>
@@ -483,20 +496,31 @@ export function TurnDiffPatchFailureDialog({
   const conflictedCount = result?.conflictedPaths.length ?? 0;
 
   const title = notGitRepo
-    ? (isUndo ? "Undo requires a Git repository" : "Reapply requires a Git repository")
+    ? isUndo
+      ? "Undo requires a Git repository"
+      : "Reapply requires a Git repository"
     : result?.status === "partial-success"
-      ? (isUndo ? "Some changes reverted" : "Some changes reapplied")
+      ? isUndo
+        ? "Some changes reverted"
+        : "Some changes reapplied"
       : appliedCount === 0 && skippedCount === 0 && conflictedCount === 0
-        ? (isUndo ? "No changes reverted" : "No changes reapplied")
-        : (isUndo ? "Failed to revert changes" : "Failed to reapply changes");
+        ? isUndo
+          ? "No changes reverted"
+          : "No changes reapplied"
+        : isUndo
+          ? "Failed to revert changes"
+          : "Failed to reapply changes";
   const description = notGitRepo
     ? "This action only works when running in a Git repository."
     : `There were issues ${isUndo ? "reverting" : "reapplying"} some files.`;
 
   return (
-    <NodexDialog open onOpenChange={(open) => {
-      if (!open) onClose();
-    }}>
+    <NodexDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
       <NodexDialogContent size="wide" showCloseButton={false}>
         <NodexDialogFrame>
           <NodexDialogHeader>
@@ -511,9 +535,15 @@ export function TurnDiffPatchFailureDialog({
                     Git apply error: {result.errorMessage}
                   </div>
                 ) : null}
-                <PatchPathGroup title={`Applied cleanly (${appliedCount})`} paths={result.appliedPaths} />
+                <PatchPathGroup
+                  title={`Applied cleanly (${appliedCount})`}
+                  paths={result.appliedPaths}
+                />
                 <PatchPathGroup title={`Skipped (${skippedCount})`} paths={result.skippedPaths} />
-                <PatchPathGroup title={`Conflicts (${conflictedCount})`} paths={result.conflictedPaths} />
+                <PatchPathGroup
+                  title={`Conflicts (${conflictedCount})`}
+                  paths={result.conflictedPaths}
+                />
               </div>
             </NodexDialogBody>
           ) : null}
@@ -582,21 +612,28 @@ export function TurnDiffSurface({
   const rows = model.rows;
   const summary = model.summary;
   const reviewIntent = useMemo(
-    () => buildTurnDiffReviewIntent({
-      item,
-      threadCwd,
-      projectWorkspacePath,
-      source: reviewSource,
-      scope,
-    }),
+    () =>
+      buildTurnDiffReviewIntent({
+        item,
+        threadCwd,
+        projectWorkspacePath,
+        source: reviewSource,
+        scope,
+      }),
     [item, projectWorkspacePath, reviewSource, scope, threadCwd],
   );
   const reviewAffordance = resolveTurnDiffReviewAffordance({
     intent: reviewIntent,
     reviewRouteAvailable: typeof onOpenReview === "function",
   });
-  const basePath = useMemo(() => normalizeTurnDiffBasePath(payload, threadCwd, projectWorkspacePath), [payload, projectWorkspacePath, threadCwd]);
-  const applyBatches = useMemo(() => buildTurnDiffApplyBatches(payload, basePath), [basePath, payload]);
+  const basePath = useMemo(
+    () => normalizeTurnDiffBasePath(payload, threadCwd, projectWorkspacePath),
+    [payload, projectWorkspacePath, threadCwd],
+  );
+  const applyBatches = useMemo(
+    () => buildTurnDiffApplyBatches(payload, basePath),
+    [basePath, payload],
+  );
   const { resolved } = useTheme();
   const { wrap } = useScopedAtomValue(reviewDiffPreferencesAtom);
   const diffOptions = useMemo(
@@ -628,14 +665,15 @@ export function TurnDiffSurface({
       ? "reapply"
       : "undo";
 
-  const handleOpenReview = onOpenReview && reviewAffordance.kind === "available"
-    ? (path?: TurnDiffRowModel["reviewPath"] | null) => {
-        void onOpenReview({
-          ...reviewAffordance.intent,
-          ...(path ? { targetPath: path } : {}),
-        });
-      }
-    : null;
+  const handleOpenReview =
+    onOpenReview && reviewAffordance.kind === "available"
+      ? (path?: TurnDiffRowModel["reviewPath"] | null) => {
+          void onOpenReview({
+            ...reviewAffordance.intent,
+            ...(path ? { targetPath: path } : {}),
+          });
+        }
+      : null;
 
   const handleToggleExpanded = () => {
     const previousTop = rootRef.current?.getBoundingClientRect().top ?? null;
@@ -696,7 +734,12 @@ export function TurnDiffSurface({
 
   if (isInProgress) {
     if (!handleOpenReview) return null;
-    return <TurnDiffBanner summary={summary} onReview={handleOpenReview ? () => handleOpenReview() : null} />;
+    return (
+      <TurnDiffBanner
+        summary={summary}
+        onReview={handleOpenReview ? () => handleOpenReview() : null}
+      />
+    );
   }
 
   const visibleRows = model.kind === "inline" ? getVisibleTurnDiffRows(rows, expanded) : [];
@@ -723,17 +766,28 @@ export function TurnDiffSurface({
             </div>
             <div className="flex min-w-0 flex-1 flex-col justify-center">
               <div className="text-size-chat min-w-0 truncate text-token-text-primary">
-                {getTurnDiffTitle(summary, model.kind === "inline" ? rows[0]?.displayPath ?? null : null)}
+                {getTurnDiffTitle(
+                  summary,
+                  model.kind === "inline" ? (rows[0]?.displayPath ?? null) : null,
+                )}
               </div>
               <div className="text-size-chat-sm min-h-5 min-w-0 text-token-description-foreground">
                 <span className="turn-diff-default-subtitle inline-flex min-w-0 items-center">
                   {model.kind === "tooLarge" ? (
                     <span className="inline-flex items-center gap-1.5">
                       <span>Too large for inline preview</span>
-                      <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+                      <DiffStats
+                        additions={summary.additions}
+                        deletions={summary.deletions}
+                        className="text-size-chat-sm"
+                      />
                     </span>
                   ) : (
-                    <DiffStats additions={summary.additions} deletions={summary.deletions} className="text-size-chat-sm" />
+                    <DiffStats
+                      additions={summary.additions}
+                      deletions={summary.deletions}
+                      className="text-size-chat-sm"
+                    />
                   )}
                 </span>
                 {handleOpenReview ? (
@@ -756,7 +810,11 @@ export function TurnDiffSurface({
                 />
               ) : null}
               {handleOpenReview ? (
-                <TurnDiffToolbarButton label="Review" disabled={patchActionInFlight} onClick={() => handleOpenReview()} />
+                <TurnDiffToolbarButton
+                  label="Review"
+                  disabled={patchActionInFlight}
+                  onClick={() => handleOpenReview()}
+                />
               ) : null}
             </div>
           </div>

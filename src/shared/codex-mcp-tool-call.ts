@@ -64,7 +64,8 @@ const SOURCE_BRANDS = new Map([
 const SOURCE_LOWERCASE_TITLE_WORDS = new Set(["and", "or", "to", "up", "with"]);
 
 // Exact browserUse/chrome identity asset embedded by Codex Electron.
-export const CODEX_BROWSER_USE_CHROME_LOGO_DATA_URL = "data:image/png;base64,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";
+export const CODEX_BROWSER_USE_CHROME_LOGO_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAHbUlEQVR4AaVXa2wcVxX+Zmaf8WPXsb1rO681KbRNoY1TqSXl0RR+UNGqIAISVSRI2yRITaEJjRBVi5JUUZAKJCmIH6hISUEEVSJJCxQQIvSRKg0SVYhoo7ZOYqeWndhee59e787OzO13Z3Z3ZnbtSk3HOp67d+695zvfedx7FTQ9mUwmbhjGZjbvVBRlrewTQqRwDQ/nj3Julk35fjEYDL7S1dU1uuiEmZmZR9PpdCaXy4n5+XlhmibFENf6yLnValVUKhWRLxQE1x6ZmpravJjy3RR7woc+luWIBGZIqTpvghWWKQcsDojjpI7p6endDZbkP4lK07TD8XgcqqouTI8QwPQ08M+XgddOA2fPAnMlftCAnjiw+jrg7i8DQ7cAn1jFbk36oGUZy7KQzWZBQ3f29fUdkj5PSWoWpVpa+94FIe7fKkRbQgg1KqEsLEF+6xgQYsujQpx/VwjJptXKiGSZLGRkvNnWF/L5RTgjpYd+LUTncipQF1fcIpoQMc7Zd0CIUslZp+nJUSdB7CCr0yfK5XKr8nxRiM2P0Kq2j6DYKwQcXirENrLBAGwGIYN8cnLyBQngbEvgycFbdwoRiFyjcg8TwU4asl2IYtEHQgakdD0c/5t+n+/7FdFHP6byugSFCPUI8fQvhSiXGjFhGqYNQCEDoqenpxGlU5lxJJbfCpQmsUh5AZYsBW5htK9IAVFmjXUeMM5QLLZlxtSkPl4NALEYsP8lZsw6ZkjA/kIACPgyjX87c3/Fl74YwEP/WEg5h3/7O8APH0amqx+jlTDmLA1rug3E1YtQsz/nqn8CKhxqogaGSNQqlaaZxo8D3cfZ19lIUR+AS7T66MS/cGpjPzaemkR8zvAr3/U4slu2YM9IL35/JoBsUdiFJKgpuP+mITx522+Riq6COv4LMuhhoc7I7L8BfYys3dBQrcIz5qR+CSjkMNYTxIF7k37av7kJVx7Yitte68MzZxTMXq3CKugwKeVcFYf/Y2HD820Y79gLq38TUcGuUVA8CiQrsyfITKWxsup1wEvpN0nfvCxXOEgAo4lwbdQSYPsWPH25G8MT5FUnM5Zpj7PFZNswMDZl4KnTEZS7fwp0RJ3VFZ+PgeJ/+a406GkAYGxieG7cWZDtYljF9gdXOh9vX4/CikE8N0yzdKlUONIc8wTy/HkL45UkrNg6F4DiAVIZ4VzdGe9zAX/P64XaYg6Iv62L45WbGDArV+DtuSi4qTnf/GHu+10oC4zmVFiRQUdpMwvVWfmPfU0A5CBhOordVBLY8d0UDC2IYES1jXY3GMUfI56mjF0hNzXv0Hpb1Vz2fABkX3CJxyhn0LlUBPs/ayLZaaG7TXUA2IIF20sI9FPcHNXKsGOE1wVSW7CnZoTiB6Dy9/r2wYblrp9NHOx/H/lgHps+zQof5BRNdSbUFcu2tDigYuONCrq1EWhzb8D31AGEWJCUYIPJBgAen3BHbA0Rhl2+7AgXyIo89o+dwEOf0TGUCnFMwNnvbVGdd0DDjcuCeGydQFzsA/Jww0T1SMcGvkOtDMiOb8R5BIx2Ot/qTNgpVsUfRl7Ec+m/4I/36djxuQD6u0OItIcQpizrDeH7d4Rw9F7gVOEowhO/s+MMaHKB1NvBQ4viGhnwMpQMdeLz/V/A69lj7DDdUiobJbLw1m8wfP0sdq29Dw8PJTGSUVkFWd6jcqUC9l89hgfnfuwq9wKQRamLCENMbTXsfvZuRnIvOFcYw9DpR1ixJmi56RQcx0eOnzWa0dmL23tvRap9hc3U+6UJvDH5JjZbb+Pw0osOcMtDvwQQoXzy72RgPdfotDvlZqTILZFH5VT9LFi1DOwb/TOeOvsMC0PBrXgNyPX0qplWqxsqzb646hJSmu763kv9wPdI8ZOMn6QdhBZTPpPNjLacQIPM0x+tvAdfWX0PJ0ZqChU3MyQrhhMXqOrOm2X4iVgaqYDuKq4HndwTEncDvY/RTV385nidRwIpWZ6bxP90Xfc5LRoI4dkbtuHr138LjDJ2aQ6QmqOc7HD3gZRWwRPdaZdyteZzaXniTqDvAJXTcjWKevAZZJYn5Mty6Kt+AHK+goFwDEfWbMPOm0lde8JJNdVbiJRGbPwkkUZYqymVK0ojZU1b/gNS/yyBLGNfO7xJV63oMvVfUGpXsRHeCeKBgO94wDgSmDcq+D8D82cXjuH45ZOMC960DL2xX6wOF3Hhust+ymN3AUt3MfBupmKentSIT7lF1mZmZ0d5FLzLNkMejxmEBxe6mIgaXXNGGe+UruLlmbdwcuocsqU00pUcjg+8jrUdHayQzIgod8C2r1LpgBPpchu3fe7uFfWLCZU/kEgkjjS+EMQeKt8dj8cIQkPzI1PU4GTdqqJs6nwbLJIGs8tATBN28NoVThYZJdSi2PY7gzWfz8v33mQyuQfNI2oXx93RaCQVYklWWWYlI62sWE72yQXYUBQpaiOCvNbKR8ZYTeRNeW9vb++h+piWy9uVK1dSvCduYIB8jT9TfMfFx7ie24CZaXy9WiwWjwwODma9Yz4AT2tKunYHvhkAAAAASUVORK5CYII=";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
@@ -81,17 +82,17 @@ function normalizeAnnotations(value: unknown): CodexMcpToolCallAnnotations | und
   if (!record) return undefined;
 
   const rawAudience = record.audience;
-  const audience = Array.isArray(rawAudience)
-    && rawAudience.length > 0
-    && rawAudience.every((entry) => entry === "assistant" || entry === "user")
-    ? [...rawAudience] as Array<"assistant" | "user">
-    : undefined;
-  const priority = typeof record.priority === "number" && Number.isFinite(record.priority)
-    ? record.priority
-    : undefined;
-  const lastModified = typeof record.lastModified === "string"
-    ? record.lastModified
-    : undefined;
+  const audience =
+    Array.isArray(rawAudience) &&
+    rawAudience.length > 0 &&
+    rawAudience.every((entry) => entry === "assistant" || entry === "user")
+      ? ([...rawAudience] as Array<"assistant" | "user">)
+      : undefined;
+  const priority =
+    typeof record.priority === "number" && Number.isFinite(record.priority)
+      ? record.priority
+      : undefined;
+  const lastModified = typeof record.lastModified === "string" ? record.lastModified : undefined;
 
   if (audience === undefined && priority === undefined && lastModified === undefined) {
     return undefined;
@@ -226,9 +227,9 @@ function normalizeComputerUseApp(
     return { kind: "appId", appId: record.appId };
   }
   if (
-    record.kind === "displayName"
-    && typeof record.displayName === "string"
-    && record.displayName.length > 0
+    record.kind === "displayName" &&
+    typeof record.displayName === "string" &&
+    record.displayName.length > 0
   ) {
     return { kind: "displayName", displayName: record.displayName };
   }
@@ -285,18 +286,17 @@ function getNestedNativeAppDisplayName(value: unknown): string | null {
   );
 }
 
-function isNativeAppIdentifier(
-  value: string,
-  platform: CodexMcpVisualSourcePlatform,
-): boolean {
+function isNativeAppIdentifier(value: string, platform: CodexMcpVisualSourcePlatform): boolean {
   const trimmed = value.trim();
   if (platform !== "windows") return MACOS_NATIVE_APP_IDENTIFIER_PATTERN.test(trimmed);
-  return MACOS_NATIVE_APP_IDENTIFIER_PATTERN.test(trimmed)
-    || WINDOWS_NATIVE_APP_PROCESS_PATTERN.test(trimmed)
-    || WINDOWS_NATIVE_APP_EXE_PATTERN.test(trimmed)
-    || WINDOWS_NATIVE_APP_UWP_PATTERN.test(trimmed)
-    || WINDOWS_NATIVE_APP_DOTTED_EXE_PATTERN.test(trimmed)
-    || WINDOWS_AUTOGENERATED_APP_PATTERN.test(trimmed);
+  return (
+    MACOS_NATIVE_APP_IDENTIFIER_PATTERN.test(trimmed) ||
+    WINDOWS_NATIVE_APP_PROCESS_PATTERN.test(trimmed) ||
+    WINDOWS_NATIVE_APP_EXE_PATTERN.test(trimmed) ||
+    WINDOWS_NATIVE_APP_UWP_PATTERN.test(trimmed) ||
+    WINDOWS_NATIVE_APP_DOTTED_EXE_PATTERN.test(trimmed) ||
+    WINDOWS_AUTOGENERATED_APP_PATTERN.test(trimmed)
+  );
 }
 
 function resolveComputerUseNativeAppIdentifier(
@@ -354,7 +354,10 @@ function resolveComputerUseNativeAppReference(input: {
   const appId = resolveComputerUseNativeAppIdentifier(input.invocation.arguments, input.platform);
   if (appId !== null) return { kind: "appId", appId };
 
-  const displayName = resolveComputerUseNativeAppDisplayName(input.invocation.arguments, input.platform);
+  const displayName = resolveComputerUseNativeAppDisplayName(
+    input.invocation.arguments,
+    input.platform,
+  );
   return displayName === null ? null : { kind: "displayName", displayName };
 }
 
@@ -368,12 +371,16 @@ function isChromeNativeAppReference(
   reference: NonNullable<CodexMcpVisualSource["nativeAppReference"]>,
 ): boolean {
   if (reference.kind === "appId") {
-    return reference.appId === CHROME_BUNDLE_ID
-      || reference.appId === CHROME_NAME
-      || CHROME_PROCESS_PATTERN.test(reference.appId);
+    return (
+      reference.appId === CHROME_BUNDLE_ID ||
+      reference.appId === CHROME_NAME ||
+      CHROME_PROCESS_PATTERN.test(reference.appId)
+    );
   }
-  return reference.displayName === CHROME_DISPLAY_NAME
-    || reference.displayName.trim().toLowerCase() === "chrome";
+  return (
+    reference.displayName === CHROME_DISPLAY_NAME ||
+    reference.displayName.trim().toLowerCase() === "chrome"
+  );
 }
 
 function formatSourceWord(word: string, index: number): string {
@@ -413,9 +420,11 @@ function tokenSequencesEqual(left: readonly string[], right: readonly string[]):
 }
 
 function tokenSequenceStartsWith(value: readonly string[], prefix: readonly string[]): boolean {
-  return prefix.length > 0
-    && value.length >= prefix.length
-    && prefix.every((part, index) => part === value[index]);
+  return (
+    prefix.length > 0 &&
+    value.length >= prefix.length &&
+    prefix.every((part, index) => part === value[index])
+  );
 }
 
 function getMcpAppAliases(app: ProtocolAppInfo): string[][] {
@@ -425,10 +434,11 @@ function getMcpAppAliases(app: ProtocolAppInfo): string[][] {
     tokenizeMcpAppAlias(app.id.replace(/^connector[_-]/i, "")),
     ...app.pluginDisplayNames.map(tokenizeMcpAppAlias),
   ];
-  return aliases.filter((alias, index) => (
-    alias.length > 0
-    && aliases.findIndex((candidate) => tokenSequencesEqual(candidate, alias)) === index
-  ));
+  return aliases.filter(
+    (alias, index) =>
+      alias.length > 0 &&
+      aliases.findIndex((candidate) => tokenSequencesEqual(candidate, alias)) === index,
+  );
 }
 
 /**
@@ -452,11 +462,12 @@ export function resolveCodexMcpAppInfo(input: {
 
   for (const app of input.resolvedApps) {
     const aliases = getMcpAppAliases(app);
-    const matches = aliases.some((alias) => tokenSequencesEqual(alias, serverTokens))
-      || aliases.some((alias) => tokenSequenceStartsWith(toolTokens, alias))
-      || functionTokenSequences.some((tokens) => (
-        aliases.some((alias) => tokenSequenceStartsWith(tokens, alias))
-      ));
+    const matches =
+      aliases.some((alias) => tokenSequencesEqual(alias, serverTokens)) ||
+      aliases.some((alias) => tokenSequenceStartsWith(toolTokens, alias)) ||
+      functionTokenSequences.some((tokens) =>
+        aliases.some((alias) => tokenSequenceStartsWith(tokens, alias)),
+      );
     if (matches) return app;
   }
   return null;
@@ -551,8 +562,8 @@ export function resolveCodexMcpToolCallSource(
   if (!surface) return null;
 
   if (
-    surface.kind === "browserUse"
-    && (surface.backend === "chrome" || surface.backend === "iab" || surface.backend === "cdp")
+    surface.kind === "browserUse" &&
+    (surface.backend === "chrome" || surface.backend === "iab" || surface.backend === "cdp")
   ) {
     return { kind: "browserUse", backend: surface.backend };
   }
@@ -566,22 +577,25 @@ export function projectCodexMcpToolCall(
   item: ProtocolMcpToolCallItem,
   turnStatus: TurnStatus,
 ): CodexMcpToolCallView {
-  return completeCodexMcpToolCallForTurn({
-    callId: item.id,
-    functionName: `${item.server}__${item.tool}`,
-    mcpAppResourceUri: item.appContext?.resourceUri ?? item.mcpAppResourceUri,
-    pluginId: item.pluginId,
-    readOnlyHint: item.readOnlyHint,
-    source: resolveCodexMcpToolCallSource(item.server, item.result?._meta ?? null),
-    invocation: {
-      server: item.server,
-      tool: item.tool,
-      arguments: item.arguments,
+  return completeCodexMcpToolCallForTurn(
+    {
+      callId: item.id,
+      functionName: `${item.server}__${item.tool}`,
+      mcpAppResourceUri: item.appContext?.resourceUri ?? item.mcpAppResourceUri,
+      pluginId: item.pluginId,
+      readOnlyHint: item.readOnlyHint,
+      source: resolveCodexMcpToolCallSource(item.server, item.result?._meta ?? null),
+      invocation: {
+        server: item.server,
+        tool: item.tool,
+        arguments: item.arguments,
+      },
+      result: projectCodexMcpToolCallResult(item.result, item.error),
+      durationMs: item.durationMs,
+      completed: item.status !== "inProgress",
     },
-    result: projectCodexMcpToolCallResult(item.result, item.error),
-    durationMs: item.durationMs,
-    completed: item.status !== "inProgress",
-  }, turnStatus);
+    turnStatus,
+  );
 }
 
 export function completeCodexMcpToolCallForTurn(
@@ -600,7 +614,11 @@ export function resolveCodexMcpResourceUriFromMetadata(meta: unknown): string | 
   if (!record) return null;
 
   const outputTemplate = record["openai/outputTemplate"];
-  if (outputTemplate !== undefined && outputTemplate !== null && typeof outputTemplate !== "string") {
+  if (
+    outputTemplate !== undefined &&
+    outputTemplate !== null &&
+    typeof outputTemplate !== "string"
+  ) {
     return null;
   }
 
@@ -631,8 +649,10 @@ function resolveToolMetadata(
   const directMetadata = directTool?._meta;
   if (directMetadata !== undefined && directMetadata !== null) return directMetadata;
 
-  return Object.values(server?.tools ?? {})
-    .find((tool) => tool?.name === payload.invocation.tool)?._meta ?? null;
+  return (
+    Object.values(server?.tools ?? {}).find((tool) => tool?.name === payload.invocation.tool)
+      ?._meta ?? null
+  );
 }
 
 export function resolveCodexMcpAppResourceMetadata(input: {
@@ -644,9 +664,8 @@ export function resolveCodexMcpAppResourceMetadata(input: {
   );
   if (toolResourceUri !== null) return { resourceUri: toolResourceUri };
 
-  const resultMeta = input.payload.result?.type === "success"
-    ? input.payload.result.raw._meta
-    : null;
+  const resultMeta =
+    input.payload.result?.type === "success" ? input.payload.result.raw._meta : null;
   const resultResourceUri = resolveCodexMcpResourceUriFromMetadata(resultMeta);
   return resultResourceUri === null ? null : { resourceUri: resultResourceUri };
 }
@@ -661,13 +680,12 @@ export function resolveCodexMcpAppClassification(input: {
 }): CodexMcpAppClassification {
   if (input.isMcpAppWidgetSuperseded === true) return "not-mcp-app";
 
-  const hasResolvedResource = input.payload.mcpAppResourceUri != null
-    || resolveCodexMcpAppResourceMetadata(input) != null;
+  const hasResolvedResource =
+    input.payload.mcpAppResourceUri != null || resolveCodexMcpAppResourceMetadata(input) != null;
   if (hasResolvedResource) return "mcp-app";
 
-  const successfulResult = input.payload.result?.type === "success"
-    ? input.payload.result.raw
-    : null;
+  const successfulResult =
+    input.payload.result?.type === "success" ? input.payload.result.raw : null;
   if (successfulResult == null) return "not-mcp-app";
   return input.mcpServerStatuses == null ? "maybe-mcp-app" : "not-mcp-app";
 }

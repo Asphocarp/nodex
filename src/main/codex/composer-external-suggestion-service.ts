@@ -96,8 +96,7 @@ export function parseComposerChatGptConversations(
   const seenIds = new Set<string>();
   for (const value of root.items.slice(0, MAX_EXTERNAL_SUGGESTION_ROWS)) {
     const item = asRecord(value);
-    const conversationId = nonBlankString(item?.conversation_id)
-      ?? nonBlankString(item?.id);
+    const conversationId = nonBlankString(item?.conversation_id) ?? nonBlankString(item?.id);
     if (!conversationId || seenIds.has(conversationId)) continue;
     seenIds.add(conversationId);
     conversations.push({
@@ -134,9 +133,7 @@ function buildConversationSearchPath(query: string): string {
 }
 
 export class CodexComposerExternalSuggestionService {
-  constructor(
-    private readonly deps: ComposerExternalSuggestionServiceDependencies,
-  ) {}
+  constructor(private readonly deps: ComposerExternalSuggestionServiceDependencies) {}
 
   private async isChatGptAvailable(): Promise<boolean> {
     try {
@@ -147,7 +144,7 @@ export class CodexComposerExternalSuggestionService {
   }
 
   async listSites(): Promise<CodexComposerSiteListResult> {
-    if (!await this.isChatGptAvailable()) {
+    if (!(await this.isChatGptAvailable())) {
       return { available: false, sites: [] };
     }
 
@@ -205,13 +202,11 @@ export class CodexComposerExternalSuggestionService {
   async listChatGptConversations(
     query: string,
   ): Promise<CodexComposerChatGptConversationListResult> {
-    if (!await this.isChatGptAvailable()) {
+    if (!(await this.isChatGptAvailable())) {
       return { available: false, conversations: [] };
     }
 
-    const normalizedQuery = query
-      .trim()
-      .slice(0, CHATGPT_CONVERSATION_QUERY_MAX_CHARACTERS);
+    const normalizedQuery = query.trim().slice(0, CHATGPT_CONVERSATION_QUERY_MAX_CHARACTERS);
     try {
       const config = await this.deps.readConfig();
       const response = await this.deps.requestChatGptDesktop({

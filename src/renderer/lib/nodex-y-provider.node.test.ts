@@ -93,10 +93,7 @@ const captureUpdate = (document: Y.Doc, mutate: () => void): Uint8Array => {
 
 const getRootBlockGroup = (document: Y.Doc): Y.XmlElement => {
   const root = openPageDocument(document).body.toArray()[0];
-  if (
-    !(root instanceof Y.XmlElement) ||
-    root.nodeName !== BLOCK_GROUP_NODE_NAME
-  ) {
+  if (!(root instanceof Y.XmlElement) || root.nodeName !== BLOCK_GROUP_NODE_NAME) {
     throw new TypeError("Expected the canonical Card body blockGroup");
   }
   return root;
@@ -106,10 +103,7 @@ const findBlockElement = (document: Y.Doc, blockId: string): Y.XmlElement => {
   for (const node of openPageDocument(document).body.createTreeWalker(
     (candidate) => candidate instanceof Y.XmlElement,
   )) {
-    if (
-      node instanceof Y.XmlElement &&
-      node.getAttribute(BLOCK_ID_ATTRIBUTE) === blockId
-    ) {
+    if (node instanceof Y.XmlElement && node.getAttribute(BLOCK_ID_ATTRIBUTE) === blockId) {
       return node;
     }
   }
@@ -117,9 +111,7 @@ const findBlockElement = (document: Y.Doc, blockId: string): Y.XmlElement => {
 };
 
 const getFirstBlockText = (block: Y.XmlElement): Y.XmlText => {
-  for (const node of block.createTreeWalker(
-    (candidate) => candidate instanceof Y.XmlText,
-  )) {
+  for (const node of block.createTreeWalker((candidate) => candidate instanceof Y.XmlText)) {
     if (node instanceof Y.XmlText) return node;
   }
   throw new TypeError("Expected the Block to contain text");
@@ -137,20 +129,14 @@ const deleteDirectBlock = (group: Y.XmlElement, blockId: string): void => {
   const index = group
     .toArray()
     .findIndex(
-      (node) =>
-        node instanceof Y.XmlElement &&
-        node.getAttribute(BLOCK_ID_ATTRIBUTE) === blockId,
+      (node) => node instanceof Y.XmlElement && node.getAttribute(BLOCK_ID_ATTRIBUTE) === blockId,
     );
   if (index < 0) throw new Error(`Could not delete Block ${blockId}`);
   deleteXmlSubtreeAt(group, index);
 };
 
 const checkpointKey = (boundary: DocumentCheckpointBoundary): string =>
-  JSON.stringify([
-    boundary.documentId,
-    boundary.storeEpoch,
-    boundary.generation,
-  ]);
+  JSON.stringify([boundary.documentId, boundary.storeEpoch, boundary.generation]);
 
 class MemoryDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore {
   private readonly checkpoints = new Map<string, DocumentLocalCheckpoint>();
@@ -159,13 +145,9 @@ class MemoryDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore
   writeGate: Promise<void> | null = null;
   writeError: Error | null = null;
 
-  read = async (
-    boundary: DocumentCheckpointBoundary,
-  ): Promise<DocumentLocalCheckpoint | null> => {
+  read = async (boundary: DocumentCheckpointBoundary): Promise<DocumentLocalCheckpoint | null> => {
     const checkpoint = this.checkpoints.get(checkpointKey(boundary));
-    return checkpoint
-      ? { ...checkpoint, state: checkpoint.state.slice() }
-      : null;
+    return checkpoint ? { ...checkpoint, state: checkpoint.state.slice() } : null;
   };
 
   write = async (checkpoint: DocumentLocalCheckpoint): Promise<void> => {
@@ -193,28 +175,20 @@ class MemoryDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore
   };
 }
 
-const seedCanonicalPageDocument = (
-  adapter: MemoryDocumentSyncAdapter,
-  title: string,
-): void => {
+const seedCanonicalPageDocument = (adapter: MemoryDocumentSyncAdapter, title: string): void => {
   const genesis = createPageDocument({
     documentId: "document-1",
     initialTitle: title,
   });
   try {
-    Y.applyUpdate(
-      adapter.serverDocument,
-      Y.encodeStateAsUpdate(genesis.document),
-    );
+    Y.applyUpdate(adapter.serverDocument, Y.encodeStateAsUpdate(genesis.document));
     adapter.headSeq = 1;
   } finally {
     genesis.document.destroy();
   }
 };
 
-type ProviderDocumentSchema = NonNullable<
-  NodexYProviderOptions["documentSchema"]
->;
+type ProviderDocumentSchema = NonNullable<NodexYProviderOptions["documentSchema"]>;
 
 const seedRegisteredDocument = (
   adapter: MemoryDocumentSyncAdapter,
@@ -223,10 +197,7 @@ const seedRegisteredDocument = (
   const schemaAdapter = getRegisteredBlockDocumentSchemaAdapter(schema);
   const genesis = schemaAdapter.create("document-1");
   try {
-    Y.applyUpdate(
-      adapter.serverDocument,
-      Y.encodeStateAsUpdate(genesis.document),
-    );
+    Y.applyUpdate(adapter.serverDocument, Y.encodeStateAsUpdate(genesis.document));
     adapter.headSeq = 1;
   } finally {
     genesis.document.destroy();
@@ -247,10 +218,7 @@ const createParagraphBlock = (id: string, value: string): Y.XmlElement => {
 
 const recoverDisconnectedRegisteredDocumentEdit = async (input: {
   readonly schema: ProviderDocumentSchema;
-  readonly mutate: (
-    document: Y.Doc,
-    adapter: RegisteredBlockDocumentSchemaAdapter,
-  ) => void;
+  readonly mutate: (document: Y.Doc, adapter: RegisteredBlockDocumentSchemaAdapter) => void;
   readonly assertRecovered: (
     document: Y.Doc,
     adapter: RegisteredBlockDocumentSchemaAdapter,
@@ -329,9 +297,7 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
       ) => Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>>)
     | null = null;
   syncHandler:
-    | ((
-        request: DocumentSyncRequest,
-      ) => Promise<DocumentSyncCommandResult<DocumentSyncResponse>>)
+    | ((request: DocumentSyncRequest) => Promise<DocumentSyncCommandResult<DocumentSyncResponse>>)
     | null = null;
 
   sync = async (
@@ -354,10 +320,7 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
   ): Promise<DocumentSyncCommandResult<DocumentSyncApplyAck>> => {
     this.applyCalls.push(request);
     this.activeApplyCalls += 1;
-    this.maxActiveApplyCalls = Math.max(
-      this.maxActiveApplyCalls,
-      this.activeApplyCalls,
-    );
+    this.maxActiveApplyCalls = Math.max(this.maxActiveApplyCalls, this.activeApplyCalls);
     try {
       if (this.applyHandler) {
         return await this.applyHandler(request);
@@ -391,9 +354,7 @@ class MemoryDocumentSyncAdapter implements DocumentSyncAdapter {
     return success({ accepted: true });
   };
 
-  commit = (
-    request: DocumentSyncApplyRequest,
-  ): DocumentSyncCommandResult<DocumentSyncApplyAck> => {
+  commit = (request: DocumentSyncApplyRequest): DocumentSyncCommandResult<DocumentSyncApplyAck> => {
     const existingAck = this.committedAcks.get(request.updateId);
     if (existingAck) {
       return success({
@@ -537,10 +498,7 @@ describe("NodexYProvider", () => {
       firstDocument.getText("title").insert(0, "A");
       secondDocument.getText("title").insert(0, "B");
       await Promise.all([first.flush(), second.flush()]);
-      await waitUntil(
-        () =>
-          first.getStatus().headSeq === 2 && second.getStatus().headSeq === 2,
-      );
+      await waitUntil(() => first.getStatus().headSeq === 2 && second.getStatus().headSeq === 2);
 
       const serverText = adapter.serverDocument.getText("title").toString();
       expect(firstDocument.getText("title").toString()).toBe(serverText);
@@ -576,10 +534,7 @@ describe("NodexYProvider", () => {
       nfm: "Inserted **live**",
       allocateBlockId: () => "block-inserted",
     });
-    const insertedPortable = captureXmlSubtreeAt(
-      getRootBlockGroup(insertedGenesis.document),
-      0,
-    );
+    const insertedPortable = captureXmlSubtreeAt(getRootBlockGroup(insertedGenesis.document), 0);
     Y.applyUpdate(adapter.serverDocument, genesis.update);
     adapter.headSeq = 1;
 
@@ -613,9 +568,7 @@ describe("NodexYProvider", () => {
       firstDocument.transact(() => {
         const title = openPageDocument(firstDocument).title;
         title.insert(title.length, " / Alpha");
-        const rootText = getFirstBlockText(
-          findBlockElement(firstDocument, "block-root"),
-        );
+        const rootText = getFirstBlockText(findBlockElement(firstDocument, "block-root"));
         rootText.insert(rootText.length, " edited by Alpha");
         rootText.format(0, "Root".length, { italic: {} });
       }, "window-alpha-edit");
@@ -627,19 +580,12 @@ describe("NodexYProvider", () => {
       }, "window-beta-edit");
 
       await Promise.all([first.flush(), second.flush()]);
-      await waitUntil(
-        () =>
-          first.getStatus().headSeq === 3 && second.getStatus().headSeq === 3,
-      );
+      await waitUntil(() => first.getStatus().headSeq === 3 && second.getStatus().headSeq === 3);
       const concurrentMaterialization = materializePageDocument(firstDocument);
       expect(concurrentMaterialization.title.includes(" / Alpha")).toBe(true);
       expect(concurrentMaterialization.title.includes(" / Beta")).toBe(true);
-      expect(
-        concurrentMaterialization.plainText.includes("Root edited by Alpha"),
-      ).toBe(true);
-      expect(
-        concurrentMaterialization.nfm.includes("*Root* edited by Alpha"),
-      ).toBe(true);
+      expect(concurrentMaterialization.plainText.includes("Root edited by Alpha")).toBe(true);
+      expect(concurrentMaterialization.nfm.includes("*Root* edited by Alpha")).toBe(true);
       expect(JSON.stringify(materializePageDocument(secondDocument))).toBe(
         JSON.stringify(concurrentMaterialization),
       );
@@ -666,10 +612,7 @@ describe("NodexYProvider", () => {
       }, "window-beta-delete");
 
       await Promise.all([first.flush(), second.flush()]);
-      await waitUntil(
-        () =>
-          first.getStatus().headSeq === 5 && second.getStatus().headSeq === 5,
-      );
+      await waitUntil(() => first.getStatus().headSeq === 5 && second.getStatus().headSeq === 5);
       const beforeRestart = materializePageDocument(adapter.serverDocument);
       expect(JSON.stringify(materializePageDocument(firstDocument))).toBe(
         JSON.stringify(beforeRestart),
@@ -702,32 +645,23 @@ describe("NodexYProvider", () => {
       await Promise.all([restartedFirst.connect(), restartedSecond.connect()]);
       expect(restartedFirstDocument.clientID !== firstClientId).toBe(true);
       expect(restartedSecondDocument.clientID !== secondClientId).toBe(true);
-      expect(
-        restartedFirstDocument.clientID !== restartedSecondDocument.clientID,
-      ).toBe(true);
+      expect(restartedFirstDocument.clientID !== restartedSecondDocument.clientID).toBe(true);
 
-      const restartedMaterialization = materializePageDocument(
-        restartedFirstDocument,
-      );
-      expect(JSON.stringify(restartedMaterialization)).toBe(
+      const restartedMaterialization = materializePageDocument(restartedFirstDocument);
+      expect(JSON.stringify(restartedMaterialization)).toBe(JSON.stringify(beforeRestart));
+      expect(JSON.stringify(materializePageDocument(restartedSecondDocument))).toBe(
         JSON.stringify(beforeRestart),
       );
-      expect(
-        JSON.stringify(materializePageDocument(restartedSecondDocument)),
-      ).toBe(JSON.stringify(beforeRestart));
       expect(restartedMaterialization.blockTree.length).toBe(2);
       expect(restartedMaterialization.blockTree[0]?.id).toBe("block-root");
       expect(restartedMaterialization.blockTree[0]?.children.length).toBe(0);
       expect(restartedMaterialization.blockTree[1]?.id).toBe("block-inserted");
-      expect(restartedMaterialization.blockTree[1]?.children[0]?.id).toBe(
-        "block-child",
-      );
-      const survivingIds = restartedMaterialization.blockTree.flatMap(
-        (block) => [block.id, ...block.children.map((child) => child.id)],
-      );
-      expect(survivingIds.join(",")).toBe(
-        "block-root,block-inserted,block-child",
-      );
+      expect(restartedMaterialization.blockTree[1]?.children[0]?.id).toBe("block-child");
+      const survivingIds = restartedMaterialization.blockTree.flatMap((block) => [
+        block.id,
+        ...block.children.map((child) => child.id),
+      ]);
+      expect(survivingIds.join(",")).toBe("block-root,block-inserted,block-child");
       expect(new Set(survivingIds).size).toBe(survivingIds.length);
     } finally {
       restartedFirst?.destroy();
@@ -959,9 +893,7 @@ describe("NodexYProvider", () => {
 
       const checkpoint = checkpoints.writeCalls.at(-1);
       if (!checkpoint) throw new Error("Missing local recovery checkpoint");
-      expect(checkpoint.state.byteLength).toBeLessThan(
-        Y.encodeStateAsUpdate(document).byteLength,
-      );
+      expect(checkpoint.state.byteLength).toBeLessThan(Y.encodeStateAsUpdate(document).byteLength);
 
       const recovered = new Y.Doc({ guid: "document-1" });
       try {
@@ -1028,9 +960,7 @@ describe("NodexYProvider", () => {
       expect(firstRequest?.update === secondRequest?.update).toBe(true);
       expect(adapter.syncCalls.length).toBe(2);
       expect(adapter.headSeq).toBe(1);
-      expect(adapter.serverDocument.getText("title").toString()).toBe(
-        "retry me",
-      );
+      expect(adapter.serverDocument.getText("title").toString()).toBe("retry me");
     } finally {
       provider.destroy();
       document.destroy();
@@ -1051,9 +981,7 @@ describe("NodexYProvider", () => {
     try {
       await provider.connect();
       adapter.commitExternal((title) => title.insert(0, "a"));
-      const secondUpdate = adapter.commitExternal((title) =>
-        title.insert(1, "b"),
-      );
+      const secondUpdate = adapter.commitExternal((title) => title.insert(1, "b"));
       adapter.emit({
         kind: "document-update",
         documentId: "document-1",
@@ -1065,10 +993,7 @@ describe("NodexYProvider", () => {
         update: secondUpdate,
       });
 
-      await waitUntil(
-        () =>
-          adapter.syncCalls.length === 2 && provider.getStatus().headSeq === 2,
-      );
+      await waitUntil(() => adapter.syncCalls.length === 2 && provider.getStatus().headSeq === 2);
       expect(document.getText("title").toString()).toBe("ab");
       expect(provider.getStatus().phase).toBe("synced");
     } finally {
@@ -1099,23 +1024,16 @@ describe("NodexYProvider", () => {
     try {
       await Promise.all([first.connect(), second.connect()]);
       first.awareness.setLocalStateField("user", { name: "Ada" });
-      await waitUntil(() =>
-        second.awareness.getStates().has(firstDocument.clientID),
-      );
+      await waitUntil(() => second.awareness.getStates().has(firstDocument.clientID));
 
-      const remoteState = second.awareness
-        .getStates()
-        .get(firstDocument.clientID) as
-        { user?: { name?: string } } | undefined;
+      const remoteState = second.awareness.getStates().get(firstDocument.clientID) as
+        | { user?: { name?: string } }
+        | undefined;
       expect(remoteState?.user?.name).toBe("Ada");
       expect(adapter.applyCalls.length).toBe(0);
       first.destroy();
-      await waitUntil(
-        () => !second.awareness.getStates().has(firstDocument.clientID),
-      );
-      expect(
-        second.awareness.getStates().has(firstDocument.clientID),
-      ).toBe(false);
+      await waitUntil(() => !second.awareness.getStates().has(firstDocument.clientID));
+      expect(second.awareness.getStates().has(firstDocument.clientID)).toBe(false);
     } finally {
       first.destroy();
       second.destroy();
@@ -1140,9 +1058,7 @@ describe("NodexYProvider", () => {
     try {
       await epochProvider.connect();
       expect(epochProvider.getStatus().phase).toBe("reset-required");
-      expect(epochProvider.getStatus().error?.code).toBe(
-        "store_epoch_mismatch",
-      );
+      expect(epochProvider.getStatus().error?.code).toBe("store_epoch_mismatch");
       epochDocument.getText("title").insert(0, "must not replay");
       await Promise.resolve();
       expect(epochProvider.getStatus().pendingUpdateCount).toBe(0);
@@ -1173,9 +1089,7 @@ describe("NodexYProvider", () => {
         reason: "transport-reconnected",
       });
       expect(generationProvider.getStatus().phase).toBe("reset-required");
-      expect(generationProvider.getStatus().error?.code).toBe(
-        "document_generation_mismatch",
-      );
+      expect(generationProvider.getStatus().error?.code).toBe("document_generation_mismatch");
     } finally {
       generationProvider.destroy();
       generationDocument.destroy();
@@ -1386,16 +1300,11 @@ describe("NodexYProvider", () => {
     try {
       await restarted.connect();
       await waitUntil(
-        () => openPageDocument(restartedDocument).title.toString()
-          === "Base offline",
+        () => openPageDocument(restartedDocument).title.toString() === "Base offline",
       );
-      expect(openPageDocument(restartedDocument).title.toString()).toBe(
-        "Base offline",
-      );
+      expect(openPageDocument(restartedDocument).title.toString()).toBe("Base offline");
       await restarted.flush();
-      expect(openPageDocument(adapter.serverDocument).title.toString()).toBe(
-        "Base offline",
-      );
+      expect(openPageDocument(adapter.serverDocument).title.toString()).toBe("Base offline");
       expect(adapter.headSeq).toBe(2);
     } finally {
       restarted.destroy();
@@ -1419,17 +1328,13 @@ describe("NodexYProvider", () => {
         if (!(root instanceof Y.XmlElement)) {
           throw new TypeError("Expected the Template body root");
         }
-        root.insert(0, [
-          createParagraphBlock("offline-block", "Recovered offline body"),
-        ]);
+        root.insert(0, [createParagraphBlock("offline-block", "Recovered offline body")]);
       },
       assertRecovered: (document, adapter) => {
         if (adapter.contentModel !== "block_tree") {
           throw new TypeError("Expected the Template block-tree Adapter");
         }
-        expect(adapter.inspect(document).materialization.plainText).toBe(
-          "Recovered offline body",
-        );
+        expect(adapter.inspect(document).materialization.plainText).toBe("Recovered offline body");
       },
     });
   });
@@ -1457,9 +1362,7 @@ describe("NodexYProvider", () => {
       const flushing = provider.flush();
       await flushing;
       expect(adapter.applyCalls.length).toBe(1);
-      expect(openPageDocument(adapter.serverDocument).title.toString()).toBe(
-        "Base pending",
-      );
+      expect(openPageDocument(adapter.serverDocument).title.toString()).toBe("Base pending");
       expect(provider.getStatus().checkpoint.phase).toBe("saving");
 
       gate.resolve(undefined);
@@ -1492,13 +1395,9 @@ describe("NodexYProvider", () => {
 
       openPageDocument(document).title.insert(4, " durable");
       await provider.flush();
-      await expect(provider.checkpoint()).rejects.toThrow(
-        "checkpoint quota exhausted",
-      );
+      await expect(provider.checkpoint()).rejects.toThrow("checkpoint quota exhausted");
 
-      expect(openPageDocument(adapter.serverDocument).title.toString()).toBe(
-        "Base durable",
-      );
+      expect(openPageDocument(adapter.serverDocument).title.toString()).toBe("Base durable");
       expect(provider.getStatus().phase).toBe("synced");
       expect(provider.getStatus().checkpoint).toMatchObject({
         phase: "degraded",
@@ -1592,5 +1491,4 @@ describe("NodexYProvider", () => {
       adapter.destroy();
     }
   });
-
 });

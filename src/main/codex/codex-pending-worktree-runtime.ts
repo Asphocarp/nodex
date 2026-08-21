@@ -83,10 +83,7 @@ type CodexPendingWorktreeProgressAction = Extract<
   { readonly type: "appendOutput" | "setupStarted" }
 >;
 
-function assertNeverCodexPendingWorktreeRuntimeVariant(
-  value: never,
-  owner: string,
-): never {
+function assertNeverCodexPendingWorktreeRuntimeVariant(value: never, owner: string): never {
   throw new Error(`Unhandled ${owner}: ${JSON.stringify(value)}`);
 }
 
@@ -167,9 +164,7 @@ export class CodexPendingWorktreeRuntime {
     if (this.disposed) return;
     const state = this.store.getState();
     const entry = state.entriesById.get(pendingWorktreeId);
-    const conversationStart = state.conversationStartsByPendingWorktreeId.get(
-      pendingWorktreeId,
-    );
+    const conversationStart = state.conversationStartsByPendingWorktreeId.get(pendingWorktreeId);
     if (entry?.phase === "worktree-ready" && conversationStart?.value.state === "failed") {
       this.dispatch({ type: "retryConversationStart", pendingWorktreeId });
       return;
@@ -185,8 +180,8 @@ export class CodexPendingWorktreeRuntime {
     const launch = createLocalLaunch();
     this.localLaunchesByPendingWorktreeId.set(pendingWorktreeId, launch);
     const effects = this.dispatch({ type: "workLocally", pendingWorktreeId });
-    const started = effects.some((effect) =>
-      effect.type === "launchConversation" && effect.includeWorktreeInit === false
+    const started = effects.some(
+      (effect) => effect.type === "launchConversation" && effect.includeWorktreeInit === false,
     );
     if (started) return launch.promise;
 
@@ -230,10 +225,7 @@ export class CodexPendingWorktreeRuntime {
     }
   }
 
-  setPinnedBeforeThreadId(
-    pendingWorktreeId: string,
-    beforeThreadId: string | null,
-  ): void {
+  setPinnedBeforeThreadId(pendingWorktreeId: string, beforeThreadId: string | null): void {
     if (this.disposed) return;
     this.updateMetadata(pendingWorktreeId, {
       type: "pinnedBeforeThreadId",
@@ -282,11 +274,7 @@ export class CodexPendingWorktreeRuntime {
         this.abort(effect.pendingWorktreeId);
         return;
       case "delete":
-        void this.removeWorktree(
-          effect.pendingWorktreeId,
-          effect.hostId,
-          effect.worktreeGitRoot,
-        );
+        void this.removeWorktree(effect.pendingWorktreeId, effect.hostId, effect.worktreeGitRoot);
         return;
       case "remove":
         this.abort(effect.pendingWorktreeId);
@@ -338,10 +326,13 @@ export class CodexPendingWorktreeRuntime {
         signal: abortController.signal,
         onEvent: (event) => {
           if (!this.isCurrentAttempt(pendingWorktreeId, attempt)) return;
-          const action = projectCodexWorktreeWorkerEventToPendingAction({
-            pendingWorktreeId,
-            attempt,
-          }, event);
+          const action = projectCodexWorktreeWorkerEventToPendingAction(
+            {
+              pendingWorktreeId,
+              attempt,
+            },
+            event,
+          );
           if (action) this.dispatch(action);
         },
       });
@@ -388,19 +379,13 @@ export class CodexPendingWorktreeRuntime {
   private async launchConversation(
     effect: Extract<CodexPendingWorktreeEffect, { readonly type: "launchConversation" }>,
   ): Promise<void> {
-    const {
-      attempt,
-      entry,
-      includeWorktreeInit,
-      pendingWorktreeId,
-      workspaceRoot,
-    } = effect;
+    const { attempt, entry, includeWorktreeInit, pendingWorktreeId, workspaceRoot } = effect;
     const currentEntry = this.store.getState().entriesById.get(pendingWorktreeId);
     if (includeWorktreeInit) {
       if (
-        !currentEntry
-        || currentEntry.attempt !== attempt
-        || currentEntry.phase !== "worktree-ready"
+        !currentEntry ||
+        currentEntry.attempt !== attempt ||
+        currentEntry.phase !== "worktree-ready"
       ) {
         return;
       }
@@ -454,12 +439,13 @@ export class CodexPendingWorktreeRuntime {
       }
     } catch (error) {
       const mappingNotification = threadMappedNotification as Promise<void> | null;
-      const mappingError = mappingNotification === null
-        ? null
-        : await mappingNotification.then(
-            () => null,
-            (notificationError: unknown) => notificationError,
-          );
+      const mappingError =
+        mappingNotification === null
+          ? null
+          : await mappingNotification.then(
+              () => null,
+              (notificationError: unknown) => notificationError,
+            );
       this.dependencies.onError?.("launch", mappingError ?? error, pendingWorktreeId);
       if (mappedThreadId !== null) {
         if (includeWorktreeInit) {

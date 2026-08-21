@@ -13,19 +13,14 @@ import {
 } from "../../../shared/workbench-scene";
 import type { WorkbenchLayoutSnapshot } from "../../../shared/workbench-layout";
 import { makeProject } from "./workbench-testkit/workbench-shell-fixtures";
-import {
-  getPanelTabById,
-  renderWorkbench,
-} from "./workbench-testkit/workbench-shell-harness";
+import { getPanelTabById, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
 import { settleAsyncRender } from "../../test/dom";
 
-function pageSurface(
-  owner: WorkbenchSceneOwner,
-  id: string,
-): WorkbenchSurfaceDescriptor {
-  const accessContext = owner.kind === "project"
-    ? { kind: "project" as const, projectId: owner.projectId }
-    : { kind: "library" as const };
+function pageSurface(owner: WorkbenchSceneOwner, id: string): WorkbenchSurfaceDescriptor {
+  const accessContext =
+    owner.kind === "project"
+      ? { kind: "project" as const, projectId: owner.projectId }
+      : { kind: "library" as const };
   return {
     id,
     kind: "page_stage",
@@ -79,15 +74,14 @@ function makeScene(owner: WorkbenchSceneOwner): WorkbenchSceneSnapshot {
   );
 }
 
-function makeLayout(
-  owner: WorkbenchSceneOwner,
-): WorkbenchLayoutSnapshot {
+function makeLayout(owner: WorkbenchSceneOwner): WorkbenchLayoutSnapshot {
   const scene = makeScene(owner);
   return {
     version: 7,
-    location: owner.kind === "project"
-      ? { kind: "project", projectId: owner.projectId }
-      : { kind: "pages" },
+    location:
+      owner.kind === "project"
+        ? { kind: "project", projectId: owner.projectId }
+        : { kind: "pages" },
     databaseSearchByProject: {},
     scenesByOwnerKey: {
       [makeWorkbenchSceneKey(owner)]: scene,
@@ -120,9 +114,7 @@ describe("owner-scoped workbench panel commands", () => {
     await settleAsyncRender();
 
     const browserTab = getPanelTabById(screen.container, "project-browser");
-    expect(
-      browserTab.querySelector('[data-browser-tab-icon-phase="settled"]'),
-    ).not.toBeNull();
+    expect(browserTab.querySelector('[data-browser-tab-icon-phase="settled"]')).not.toBeNull();
   });
 
   test("cycles and closes Project Scene tabs without a Session", async () => {
@@ -151,10 +143,9 @@ describe("owner-scoped workbench panel commands", () => {
     });
     await settleAsyncRender();
 
-    expect(
-      getPanelTabById(screen.container, "second-page")
-        .getAttribute("aria-selected"),
-    ).toBe("true");
+    expect(getPanelTabById(screen.container, "second-page").getAttribute("aria-selected")).toBe(
+      "true",
+    );
 
     await act(async () => {
       fireEvent.keyDown(getPanelTabById(screen.container, "second-page"), {
@@ -167,11 +158,9 @@ describe("owner-scoped workbench panel commands", () => {
     await settleAsyncRender();
 
     await waitFor(() => {
-      expect(screen.container.querySelector('[data-panel-tab-id="second-page"]'))
-        .toBeNull();
+      expect(screen.container.querySelector('[data-panel-tab-id="second-page"]')).toBeNull();
     });
-    expect(screen.container.querySelector('[data-panel-tab-id="first-page"]'))
-      .not.toBeNull();
+    expect(screen.container.querySelector('[data-panel-tab-id="first-page"]')).not.toBeNull();
   });
 
   test("cycles Pages Scene tabs through the native command port", async () => {
@@ -195,10 +184,9 @@ describe("owner-scoped workbench panel commands", () => {
     });
     await settleAsyncRender();
 
-    expect(
-      getPanelTabById(screen.container, "second-page")
-        .getAttribute("aria-selected"),
-    ).toBe("true");
+    expect(getPanelTabById(screen.container, "second-page").getAttribute("aria-selected")).toBe(
+      "true",
+    );
 
     await act(async () => {
       screen.requestPanelTabClose();
@@ -207,10 +195,8 @@ describe("owner-scoped workbench panel commands", () => {
     await settleAsyncRender();
 
     await waitFor(() => {
-      expect(screen.container.querySelector('[data-panel-tab-id="second-page"]'))
-        .toBeNull();
+      expect(screen.container.querySelector('[data-panel-tab-id="second-page"]')).toBeNull();
     });
-    expect(screen.container.querySelector('[data-panel-tab-id="first-page"]'))
-      .not.toBeNull();
+    expect(screen.container.querySelector('[data-panel-tab-id="first-page"]')).not.toBeNull();
   });
 });

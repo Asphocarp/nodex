@@ -25,13 +25,7 @@ const initial: EffectiveDatabaseViewPresentation = {
 test("edits ordered sort rules through accessible menu controls", async () => {
   function Harness() {
     const [effective, setEffective] = useState(initial);
-    return (
-      <DatabaseViewSort
-        effective={effective}
-        properties={[]}
-        onChange={setEffective}
-      />
-    );
+    return <DatabaseViewSort effective={effective} properties={[]} onChange={setEffective} />;
   }
 
   const screen = render(<Harness />);
@@ -42,8 +36,7 @@ test("edits ordered sort rules through accessible menu controls", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Sort" }));
 
   expect(screen.getByLabelText("Sort field 2")).toBeTruthy();
-  expect(screen.getByLabelText("Sort direction 2").getAttribute("aria-haspopup"))
-    .toBe("menu");
+  expect(screen.getByLabelText("Sort direction 2").getAttribute("aria-haspopup")).toBe("menu");
 
   fireEvent.click(screen.getByLabelText("Remove sort 1"));
   expect(screen.queryByLabelText("Sort field 2")).toBeNull();

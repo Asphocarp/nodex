@@ -15,9 +15,7 @@ export interface ElementVisibility {
  * Keeps heavyweight nested editors out of offscreen rows. A small root margin
  * prewarms a Card shortly before it scrolls into view.
  */
-export const useElementVisibility = (
-  rootMargin = "160px 0px",
-): ElementVisibility => {
+export const useElementVisibility = (rootMargin = "160px 0px"): ElementVisibility => {
   const canObserve = typeof globalThis.IntersectionObserver === "function";
   const [element, setElement] = useState<HTMLElement | null>(null);
   const [visibility, setVisibility] = useState(() => ({
@@ -60,17 +58,12 @@ export const useElementVisibility = (
           Math.min(rect.bottom, viewportHeight) - Math.max(rect.top, 0),
         );
         const area = Math.max(1, rect.width * rect.height);
-        const ratio = Math.min(
-          1,
-          (intersectionWidth * intersectionHeight) / area,
-        );
+        const ratio = Math.min(1, (intersectionWidth * intersectionHeight) / area);
         setVisibility({
           visible: entry.isIntersecting,
           intersecting: ratio > 0,
           intersectionRatio: ratio,
-          viewportCenterDistance: Math.abs(
-            rect.top + rect.height / 2 - viewportHeight / 2,
-          ),
+          viewportCenterDistance: Math.abs(rect.top + rect.height / 2 - viewportHeight / 2),
           documentOrder: element.offsetTop,
         });
       },

@@ -67,9 +67,7 @@ function serializeItem(item: NfmInlineContent): string {
     );
     const fence = "`".repeat(longestBacktickRun + 1);
     const needsPadding = item.text.startsWith("`") || item.text.endsWith("`");
-    return needsPadding
-      ? `${fence} ${item.text} ${fence}`
-      : `${fence}${item.text}${fence}`;
+    return needsPadding ? `${fence} ${item.text} ${fence}` : `${fence}${item.text}${fence}`;
   }
 
   let text = escapeNfm(item.text);

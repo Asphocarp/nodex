@@ -1,5 +1,1 @@
-export {
-  useBlockNoteEditor,
-  useComponentsContext,
-  useEditorState,
-} from "@blocknote/react";
+export { useBlockNoteEditor, useComponentsContext, useEditorState } from "@blocknote/react";

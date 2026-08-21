@@ -36,9 +36,11 @@ describe("CodexProjectRow interaction chrome in Chromium", () => {
           <NodexTooltipProvider>
             <div
               className="w-72"
-              style={{
-                "--color-token-list-hover-background": "rgba(13, 13, 13, 0.08)",
-              } as CSSProperties}
+              style={
+                {
+                  "--color-token-list-hover-background": "rgba(13, 13, 13, 0.08)",
+                } as CSSProperties
+              }
             >
               <CodexProjectRow
                 project={PROJECT}
@@ -54,9 +56,7 @@ describe("CodexProjectRow interaction chrome in Chromium", () => {
         </NodexHoverCardProvider>
       </TestQueryProvider>,
     );
-    const row = view.container.querySelector<HTMLElement>(
-      "[data-app-action-sidebar-project-row]",
-    );
+    const row = view.container.querySelector<HTMLElement>("[data-app-action-sidebar-project-row]");
     const marker = view.container.querySelector<HTMLElement>(
       "[data-app-action-sidebar-project-marker]",
     );

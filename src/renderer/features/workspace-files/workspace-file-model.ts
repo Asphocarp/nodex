@@ -4,7 +4,16 @@ import {
   type SupportedLanguages,
 } from "@pierre/diffs";
 
-const IMAGE_EXTENSIONS = new Set([".bmp", ".gif", ".ico", ".jpeg", ".jpg", ".png", ".svg", ".webp"]);
+const IMAGE_EXTENSIONS = new Set([
+  ".bmp",
+  ".gif",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".png",
+  ".svg",
+  ".webp",
+]);
 
 export const WORKSPACE_TEXT_EDITABLE_MAX_BYTES = 10 * 1024 * 1024;
 export const WORKSPACE_TEXT_LOAD_MAX_BYTES = 20 * 1024 * 1024;
@@ -65,7 +74,10 @@ export function getWorkspaceFileExtension(path: string): string {
   return dotIndex > 0 ? name.slice(dotIndex).toLowerCase() : "";
 }
 
-export function getWorkspaceFileDomTabId(hostId: string | undefined, path: string | undefined): string | undefined {
+export function getWorkspaceFileDomTabId(
+  hostId: string | undefined,
+  path: string | undefined,
+): string | undefined {
   if (!path) return undefined;
   return `file:${hostId || "local"}:${path}`;
 }
@@ -82,9 +94,7 @@ export function resolveWorkspaceSourceLanguage(path: string): SupportedLanguages
   }
 
   const extension = name.match(/\.([^.]+)$/)?.[1] ?? "";
-  return EXTENSION_TO_FILE_FORMAT[extension] === undefined
-    ? null
-    : getFiletypeFromFileName(name);
+  return EXTENSION_TO_FILE_FORMAT[extension] === undefined ? null : getFiletypeFromFileName(name);
 }
 
 export function resolveWorkspaceFilePresentation({
@@ -107,9 +117,9 @@ export function resolveWorkspaceFilePresentation({
   }
   if (contentKind !== "text" && !mimeType?.startsWith("text/")) return "unsupported";
   if (
-    sizeBytes !== null
-    && sizeBytes < WORKSPACE_TEXT_EDITABLE_MAX_BYTES
-    && resolveWorkspaceSourceLanguage(path) !== null
+    sizeBytes !== null &&
+    sizeBytes < WORKSPACE_TEXT_EDITABLE_MAX_BYTES &&
+    resolveWorkspaceSourceLanguage(path) !== null
   ) {
     return "editable-text";
   }

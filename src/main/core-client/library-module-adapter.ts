@@ -56,9 +56,7 @@ import {
 } from "../../shared/block-property-mutations-v2";
 import type { LocalCommitApply } from "../../shared/local-commit-delivery";
 import { parsePage } from "../../shared/page";
-import {
-  type PageLifecyclePreflightResultV2,
-} from "../../shared/page-lifecycle-v2-runtime";
+import { type PageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-runtime";
 import { parsePageLifecyclePreflightResultV2 } from "../../shared/page-lifecycle-v2-transport";
 import {
   parsePageLifecycleMutationCommandResultV2,
@@ -67,10 +65,7 @@ import {
   type PageLifecycleMutationRequestV2,
   type PageLifecycleOperationV2,
 } from "../../shared/page-lifecycle-v2";
-import type {
-  PageTargetReadModel,
-  ResolvePageTargetInput,
-} from "../../shared/page-targets";
+import type { PageTargetReadModel, ResolvePageTargetInput } from "../../shared/page-targets";
 import type {
   PageOwnershipPathReadModel,
   ResolvePageOwnershipPathInput,
@@ -79,15 +74,8 @@ import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import { isWorkflowStatus } from "../../shared/workflow-status";
 import { isPriority } from "../../shared/priority";
 import { CoreModuleResponseError } from "./core-client";
-import {
-  applyResultCursor,
-  applyResultStoreEpoch,
-  rendererLocalCommitApply,
-} from "./types";
-import {
-  mapCorePropertyDescriptor,
-  toCoreDatabaseIntent,
-} from "./database-module-adapter";
+import { applyResultCursor, applyResultStoreEpoch, rendererLocalCommitApply } from "./types";
+import { mapCorePropertyDescriptor, toCoreDatabaseIntent } from "./database-module-adapter";
 import type {
   CoreClientPort,
   CoreModuleError,
@@ -115,27 +103,18 @@ export interface CoreLibraryModuleAdapter {
     pageId: string,
     minimumCommitSeq?: number,
   ): Promise<LibraryPageDetailResult>;
-  listPageHistory(
-    request: ListPageHistoryRequest,
-  ): Promise<PageHistoryCommandResult>;
+  listPageHistory(request: ListPageHistoryRequest): Promise<PageHistoryCommandResult>;
   searchPages(input: PageSearchInput, signal?: AbortSignal): Promise<PageSearchSnapshot>;
-  pageSearchMetadata(
-    projectIds: string[],
-    pageIds?: string[],
-  ): Promise<PageSearchMetadataSnapshot>;
+  pageSearchMetadata(projectIds: string[], pageIds?: string[]): Promise<PageSearchMetadataSnapshot>;
   pageSearchFacets(projectIds: string[]): Promise<PageSearchFacets>;
-  resolvePageTarget(
-    input: ResolvePageTargetInput,
-  ): Promise<PageTargetReadModel | null>;
+  resolvePageTarget(input: ResolvePageTargetInput): Promise<PageTargetReadModel | null>;
   resolvePageOwnershipPath(
     input: ResolvePageOwnershipPathInput,
   ): Promise<PageOwnershipPathReadModel | null>;
   findPageLocation(
     pageId: string,
   ): Promise<{ readonly pageId: string; readonly projectId: string } | null>;
-  findViewLocation(
-    viewId: string,
-  ): Promise<{
+  findViewLocation(viewId: string): Promise<{
     readonly viewId: string;
     readonly dataSourceId: string;
     readonly databaseId: string;
@@ -229,8 +208,7 @@ const toCoreCanvasDestination = (destination: LibraryCanvasDestination) => {
       before: destination.before
         ? {
             block_id: destination.before.blockId,
-            expected_location_revision:
-              destination.before.expectedLocationRevision,
+            expected_location_revision: destination.before.expectedLocationRevision,
           }
         : null,
     } as const;
@@ -479,20 +457,20 @@ const toCorePageLifecycleMutation = (
         run_in_worktree_path: operation.runInWorktreePath,
         run_in_environment_path: operation.runInEnvironmentPath,
         before_block_id: operation.beforeBlockId ?? null,
-        view_placement: operation.viewPlacement.kind === "before"
-          ? {
-              kind: operation.viewPlacement.kind,
-              page_id: operation.viewPlacement.pageId,
-            }
-          : { kind: operation.viewPlacement.kind },
+        view_placement:
+          operation.viewPlacement.kind === "before"
+            ? {
+                kind: operation.viewPlacement.kind,
+                page_id: operation.viewPlacement.pageId,
+              }
+            : { kind: operation.viewPlacement.kind },
         data_source_id: operation.dataSourceId,
         tag_option_ids: [...operation.tagOptionIds],
         new_tag_options: operation.newTagOptions.map((option) => ({
           option_id: option.optionId,
           name: option.name,
         })),
-        expected_tags_property_revision:
-          operation.expectedTagsPropertyRevision,
+        expected_tags_property_revision: operation.expectedTagsPropertyRevision,
       };
     case "archive_page":
     case "unarchive_page":
@@ -531,8 +509,7 @@ const toCorePageLifecycleMutation = (
               position: operation.membership.position
                 ? {
                     view_id: operation.membership.position.viewId,
-                    before_view_page_id:
-                      operation.membership.position.beforeViewPageId ?? null,
+                    before_view_page_id: operation.membership.position.beforeViewPageId ?? null,
                   }
                 : null,
             }
@@ -556,44 +533,28 @@ const toCorePageLifecycleMutation = (
   }
 };
 
-type CoreRouteTarget = Extract<
-  LibraryReadSnapshot["value"],
-  { kind: "path" }
->["target"];
-type CoreNavigationParent = Extract<
-  LibraryReadSnapshot["value"],
-  { kind: "children" }
->["parent"];
+type CoreRouteTarget = Extract<LibraryReadSnapshot["value"], { kind: "path" }>["target"];
+type CoreNavigationParent = Extract<LibraryReadSnapshot["value"], { kind: "children" }>["parent"];
 type CoreNavigationNode = Extract<
   LibraryReadSnapshot["value"],
   { kind: "children" | "standalone_roots" }
 >["items"][number];
-type CorePageDetail = Extract<
-  LibraryReadSnapshot["value"],
-  { kind: "page_detail" }
->["value"];
-type CorePageHistory = Extract<
-  LibraryReadSnapshot["value"],
-  { kind: "page_history" }
->["value"];
+type CorePageDetail = Extract<LibraryReadSnapshot["value"], { kind: "page_detail" }>["value"];
+type CorePageHistory = Extract<LibraryReadSnapshot["value"], { kind: "page_history" }>["value"];
 type CorePageHistoryCursor = NonNullable<CorePageHistory["next_cursor"]>;
 type CorePageHistoryEntry = CorePageHistory["entries"][number];
-type CorePageTarget = NonNullable<Extract<
-  LibraryReadSnapshot["value"],
-  { kind: "page_target" }
->["value"]>;
-type CorePageOwnershipPath = NonNullable<Extract<
-  LibraryReadSnapshot["value"],
-  { kind: "page_ownership_path" }
->["value"]>;
+type CorePageTarget = NonNullable<
+  Extract<LibraryReadSnapshot["value"], { kind: "page_target" }>["value"]
+>;
+type CorePageOwnershipPath = NonNullable<
+  Extract<LibraryReadSnapshot["value"], { kind: "page_ownership_path" }>["value"]
+>;
 type CorePageLifecyclePreflight = Extract<
   LibraryReadSnapshot["value"],
   { kind: "page_lifecycle_preflight" }
 >["value"];
 
-const fromCoreRouteTarget = (
-  target: CoreRouteTarget,
-): LibraryRouteTarget => {
+const fromCoreRouteTarget = (target: CoreRouteTarget): LibraryRouteTarget => {
   if (target.kind === "page") return { kind: target.kind, pageId: target.page_id };
   if (target.kind === "database") {
     return { kind: target.kind, databaseId: parseDatabaseId(target.database_id) };
@@ -604,9 +565,7 @@ const fromCoreRouteTarget = (
   return { kind: target.kind, viewId: parseDatabaseViewId(target.view_id) };
 };
 
-const fromCoreParent = (
-  parent: CoreNavigationParent,
-): LibraryNavigationParent => {
+const fromCoreParent = (parent: CoreNavigationParent): LibraryNavigationParent => {
   if (parent.kind === "library") return parent;
   if (parent.kind === "page") return { kind: parent.kind, pageId: parent.page_id };
   return { kind: parent.kind, databaseId: parseDatabaseId(parent.database_id) };
@@ -619,9 +578,7 @@ const parseViewLayout = (value: string): DatabaseViewLayout => {
   throw new Error(`Core returned unsupported Database View layout ${value}`);
 };
 
-const fromCoreNode = (
-  node: CoreNavigationNode,
-): LibraryNavigationNode => {
+const fromCoreNode = (node: CoreNavigationNode): LibraryNavigationNode => {
   if (node.kind === "page") {
     return {
       kind: node.kind,
@@ -681,16 +638,17 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
       return {
         kind: value.kind,
         value: {
-          target: value.value.target.kind === "page"
-            ? { kind: "page" as const, pageId: value.value.target.page_id }
-            : value.value.target.kind === "database"
-              ? {
-                kind: "database" as const,
-                databaseId: parseDatabaseId(value.value.target.database_id),
-              }
-              : (() => {
-                throw new Error("Canvas access is inherited and cannot be managed directly");
-              })(),
+          target:
+            value.value.target.kind === "page"
+              ? { kind: "page" as const, pageId: value.value.target.page_id }
+              : value.value.target.kind === "database"
+                ? {
+                    kind: "database" as const,
+                    databaseId: parseDatabaseId(value.value.target.database_id),
+                  }
+                : (() => {
+                    throw new Error("Canvas access is inherited and cannot be managed directly");
+                  })(),
           projects: value.value.projects.map((project) => ({
             projectId: project.project_id,
             projectName: project.project_name,
@@ -698,9 +656,9 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
             lifecycle: project.lifecycle,
             directGrant: project.direct_grant
               ? {
-                access: project.direct_grant.access,
-                revision: project.direct_grant.revision,
-              }
+                  access: project.direct_grant.access,
+                  revision: project.direct_grant.revision,
+                }
               : null,
             inheritedSources: project.inherited_sources.map((source) => {
               if (source.kind === "ancestor_page") {
@@ -725,38 +683,40 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
     case "canvas_target":
       return {
         kind: value.kind,
-        value: value.value.status === "available"
-          ? {
-              status: value.value.status,
-              summary: {
-                canvasId: value.value.summary.canvas_id,
-                title: value.value.summary.title,
-                lifecycle: value.value.summary.lifecycle,
-                isPrimary: value.value.summary.is_primary,
-                location: value.value.summary.location.kind === "library"
-                  ? { kind: "library" as const }
-                  : {
-                      kind: "page" as const,
-                      pageId: value.value.summary.location.page_id,
-                      documentId: value.value.summary.location.document_id,
-                    },
-                metadataRevision: value.value.summary.metadata_revision,
-                locationRevision: value.value.summary.location_revision,
-                documentGeneration: value.value.summary.document_generation,
-                documentHeadSeq: value.value.summary.document_head_seq,
-                updatedAt: value.value.summary.updated_at,
-              },
-            }
-          : value.value.status === "deleted"
+        value:
+          value.value.status === "available"
             ? {
                 status: value.value.status,
-                canvasId: value.value.canvas_id,
-                libraryId: value.value.library_id,
+                summary: {
+                  canvasId: value.value.summary.canvas_id,
+                  title: value.value.summary.title,
+                  lifecycle: value.value.summary.lifecycle,
+                  isPrimary: value.value.summary.is_primary,
+                  location:
+                    value.value.summary.location.kind === "library"
+                      ? { kind: "library" as const }
+                      : {
+                          kind: "page" as const,
+                          pageId: value.value.summary.location.page_id,
+                          documentId: value.value.summary.location.document_id,
+                        },
+                  metadataRevision: value.value.summary.metadata_revision,
+                  locationRevision: value.value.summary.location_revision,
+                  documentGeneration: value.value.summary.document_generation,
+                  documentHeadSeq: value.value.summary.document_head_seq,
+                  updatedAt: value.value.summary.updated_at,
+                },
               }
-            : {
-                status: value.value.status,
-                canvasId: value.value.canvas_id,
-              },
+            : value.value.status === "deleted"
+              ? {
+                  status: value.value.status,
+                  canvasId: value.value.canvas_id,
+                  libraryId: value.value.library_id,
+                }
+              : {
+                  status: value.value.status,
+                  canvasId: value.value.canvas_id,
+                },
       } as const;
     case "children":
       return {
@@ -770,9 +730,7 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
     case "standalone_roots":
       return {
         kind: value.kind,
-        items: value.items.map(fromCoreNode).filter(
-          (node) => node.kind !== "view",
-        ),
+        items: value.items.map(fromCoreNode).filter((node) => node.kind !== "view"),
         nextCursor: value.next_cursor ?? null,
         hasMore: value.has_more,
         total: value.total,
@@ -792,9 +750,9 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
               ? { kind: "page" as const, pageId: item.target.page_id }
               : item.target.kind === "database"
                 ? {
-                  kind: "database" as const,
-                  databaseId: parseDatabaseId(item.target.database_id),
-                }
+                    kind: "database" as const,
+                    databaseId: parseDatabaseId(item.target.database_id),
+                  }
                 : {
                     kind: "canvas" as const,
                     canvasId: item.target.canvas_id,
@@ -836,9 +794,7 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
                   parent: (() => {
                     const parent = fromCoreParent(value.scope.parent);
                     if (parent.kind === "database") {
-                      throw new Error(
-                        "Core returned a Database move destination scope",
-                      );
+                      throw new Error("Core returned a Database move destination scope");
                     }
                     return parent;
                   })(),
@@ -909,9 +865,7 @@ const mapReadValue = (snapshot: LibraryReadSnapshot): LibraryReadValue => {
   }
 };
 
-const mapPageDataSourceContext = (
-  context: CorePageDetail["data_source_context"],
-): unknown => {
+const mapPageDataSourceContext = (context: CorePageDetail["data_source_context"]): unknown => {
   if (context.kind === "standalone") return { kind: "standalone" };
   return {
     kind: "member",
@@ -952,9 +906,7 @@ const mapPageDetail = (
   dataSourceContext: mapPageDataSourceContext(detail.data_source_context),
 });
 
-const mapPageHistoryCursor = (
-  cursor: CorePageHistoryCursor,
-): Readonly<Record<string, unknown>> => {
+const mapPageHistoryCursor = (cursor: CorePageHistoryCursor): Readonly<Record<string, unknown>> => {
   if (cursor.source === "document_version") {
     return {
       occurredAt: cursor.occurred_at,
@@ -984,18 +936,17 @@ const mapPageHistoryEntryBase = (
     actorLabel: entry.display.actor_label ?? null,
   },
   evidence: entry.evidence,
-  recovery: entry.recovery.kind === "restore_document_version"
-    ? {
-        kind: entry.recovery.kind,
-        documentId: entry.recovery.document_id,
-        versionId: entry.recovery.version_id,
-      }
-    : entry.recovery,
+  recovery:
+    entry.recovery.kind === "restore_document_version"
+      ? {
+          kind: entry.recovery.kind,
+          documentId: entry.recovery.document_id,
+          versionId: entry.recovery.version_id,
+        }
+      : entry.recovery,
 });
 
-const mapPageHistoryEntry = (
-  entry: CorePageHistoryEntry,
-): Readonly<Record<string, unknown>> => {
+const mapPageHistoryEntry = (entry: CorePageHistoryEntry): Readonly<Record<string, unknown>> => {
   const base = mapPageHistoryEntryBase(entry);
   if (entry.kind === "document_version") {
     return {
@@ -1039,9 +990,7 @@ const mapPageHistoryEntry = (
   };
 };
 
-const mapPageHistory = (
-  page: CorePageHistory,
-): Readonly<Record<string, unknown>> => ({
+const mapPageHistory = (page: CorePageHistory): Readonly<Record<string, unknown>> => ({
   libraryId: page.library_id,
   pageId: page.page_id,
   documentId: page.document_id,
@@ -1063,10 +1012,11 @@ type CorePageSearchMetadataItem = CoreProjectPageSearchMetadataValue["items"][nu
 
 const mapPageSearchParts = (
   parts: readonly { readonly text: string; readonly highlighted: boolean }[],
-): PageSearchTextPart[] => parts.map((part) => ({
-  text: part.text,
-  highlighted: part.highlighted,
-}));
+): PageSearchTextPart[] =>
+  parts.map((part) => ({
+    text: part.text,
+    highlighted: part.highlighted,
+  }));
 
 const mapPageSearchMatch = (match: CorePageSearchMatch): PageSearchMatch => {
   const parts = mapPageSearchParts(match.parts);
@@ -1126,10 +1076,14 @@ function validatePageSearchMetadataItem(item: CorePageSearchMetadataItem): void 
     throw new Error("Core Page search metadata returned invalid property collections");
   }
   if (
-    !Array.isArray(item.authorized_project_ids)
-    || item.authorized_project_ids.some((projectId) => typeof projectId !== "string" || projectId.length === 0)
-    || !Array.isArray(item.data_source_ids)
-    || item.data_source_ids.some((dataSourceId) => typeof dataSourceId !== "string" || dataSourceId.length === 0)
+    !Array.isArray(item.authorized_project_ids) ||
+    item.authorized_project_ids.some(
+      (projectId) => typeof projectId !== "string" || projectId.length === 0,
+    ) ||
+    !Array.isArray(item.data_source_ids) ||
+    item.data_source_ids.some(
+      (dataSourceId) => typeof dataSourceId !== "string" || dataSourceId.length === 0,
+    )
   ) {
     throw new Error("Core Page search metadata returned invalid authorization scope");
   }
@@ -1176,11 +1130,7 @@ const mapPageTarget = (
     throw new Error("Core Page target escaped its requested active Page boundary");
   }
   const readiness = value.document.readiness;
-  if (
-    readiness !== "pending_genesis"
-    && readiness !== "ready"
-    && readiness !== "failed"
-  ) {
+  if (readiness !== "pending_genesis" && readiness !== "ready" && readiness !== "failed") {
     throw new Error("Core Page target returned invalid Document readiness");
   }
   return {
@@ -1220,10 +1170,7 @@ const mapPageOwnershipPath = (
   };
 };
 
-const coreRecord = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const coreRecord = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     return value as Readonly<Record<string, unknown>>;
   }
@@ -1242,9 +1189,7 @@ const mapLifecycleTagsProperty = (value: unknown) => {
   };
 };
 
-const mapLifecycleDefaultView = (
-  value: unknown,
-): Readonly<Record<string, unknown>> => {
+const mapLifecycleDefaultView = (value: unknown): Readonly<Record<string, unknown>> => {
   const defaultView = coreRecord(value, "Page lifecycle default View");
   if (!Array.isArray(defaultView.properties)) {
     throw new Error("Core Page lifecycle default View has no Property descriptors");
@@ -1274,20 +1219,14 @@ const mapLifecycleParent = (
   } as const;
 };
 
-const mapLifecyclePage = (
-  page: NonNullable<CorePageLifecyclePreflight["page"]>,
-) => {
-  if (![
-    "active",
-    "archived",
-    "deleted",
-  ].includes(page.lifecycle)) {
+const mapLifecyclePage = (page: NonNullable<CorePageLifecyclePreflight["page"]>) => {
+  if (!["active", "archived", "deleted"].includes(page.lifecycle)) {
     throw new Error("Core Page lifecycle preflight returned invalid lifecycle");
   }
   if (
-    page.document.readiness !== "ready"
-    || page.document.authority !== "ydoc_primary"
-    || !isWorkflowStatus(page.membership?.status ?? "triage")
+    page.document.readiness !== "ready" ||
+    page.document.authority !== "ydoc_primary" ||
+    !isWorkflowStatus(page.membership?.status ?? "triage")
   ) {
     throw new Error("Core Page lifecycle preflight returned invalid authority");
   }
@@ -1317,18 +1256,12 @@ const mapLifecyclePage = (
         membership: page.restore_evidence.membership
           ? {
               membershipId: page.restore_evidence.membership.membership_id,
-              databaseId: parseDatabaseId(
-                page.restore_evidence.membership.database_id,
-              ),
-              dataSourceId: parseDataSourceId(
-                page.restore_evidence.membership.data_source_id,
-              ),
+              databaseId: parseDatabaseId(page.restore_evidence.membership.database_id),
+              dataSourceId: parseDataSourceId(page.restore_evidence.membership.data_source_id),
               status: page.restore_evidence.membership.status,
               position: page.restore_evidence.membership.view_id
                 ? {
-                    viewId: parseDatabaseViewId(
-                      page.restore_evidence.membership.view_id,
-                    ),
+                    viewId: parseDatabaseViewId(page.restore_evidence.membership.view_id),
                   }
                 : null,
             }
@@ -1336,10 +1269,8 @@ const mapLifecyclePage = (
         nestedParent: page.restore_evidence.nested_parent
           ? {
               documentId: page.restore_evidence.nested_parent.document_id,
-              parentBlockId:
-                page.restore_evidence.nested_parent.parent_block_id ?? null,
-              beforeBlockId:
-                page.restore_evidence.nested_parent.before_block_id ?? null,
+              parentBlockId: page.restore_evidence.nested_parent.parent_block_id ?? null,
+              beforeBlockId: page.restore_evidence.nested_parent.before_block_id ?? null,
             }
           : null,
       }
@@ -1365,18 +1296,14 @@ const mapLifecyclePage = (
   };
 };
 
-const mapPageLifecyclePreflight = (
-  input: CorePageLifecyclePreflight,
-) => ({
+const mapPageLifecyclePreflight = (input: CorePageLifecyclePreflight) => ({
   defaultView: mapLifecycleDefaultView(input.default_view),
   tagsProperty: mapLifecycleTagsProperty(input.tags_property),
   reservedBlockType: input.reserved_block_type ?? null,
   page: input.page ? mapLifecyclePage(input.page) : null,
 });
 
-const pageLifecyclePreflightFailure = (
-  error: unknown,
-): PageLifecyclePreflightResultV2 => {
+const pageLifecyclePreflightFailure = (error: unknown): PageLifecyclePreflightResultV2 => {
   if (error instanceof CoreModuleResponseError) {
     const code = (() => {
       switch (error.coreError.code) {
@@ -1394,10 +1321,7 @@ const pageLifecyclePreflightFailure = (
         default:
           return "unknown";
       }
-    })() satisfies Extract<
-      PageLifecyclePreflightResultV2,
-      { readonly ok: false }
-    >["error"]["code"];
+    })() satisfies Extract<PageLifecyclePreflightResultV2, { readonly ok: false }>["error"]["code"];
     return {
       ok: false,
       error: {
@@ -1421,9 +1345,7 @@ const pageLifecycleMutationFailure = (
   request: PageLifecycleMutationRequestV2,
   error: unknown,
 ): PageLifecycleMutationCommandResultV2 => {
-  const coreError = error instanceof CoreModuleResponseError
-    ? error.coreError
-    : null;
+  const coreError = error instanceof CoreModuleResponseError ? error.coreError : null;
   const code = (() => {
     switch (coreError?.code) {
       case "invalid_input":
@@ -1547,11 +1469,7 @@ const pageHistoryError = (error: unknown): PageHistoryCommandError => {
           return "unknown";
       }
     })() satisfies PageHistoryCommandError["code"];
-    return pageHistoryFailure(
-      code,
-      error.message,
-      error.coreError.retryable,
-    );
+    return pageHistoryFailure(code, error.message, error.coreError.retryable);
   }
   return pageHistoryFailure(
     "unknown",
@@ -1561,9 +1479,7 @@ const pageHistoryError = (error: unknown): PageHistoryCommandError => {
 };
 
 const fromCoreCreatedTarget = (
-  target: NonNullable<
-    Extract<LibraryIntent, { kind: "archive_resource" }>["target"]
-  >,
+  target: NonNullable<Extract<LibraryIntent, { kind: "archive_resource" }>["target"]>,
 ): Exclude<LibraryRouteTarget, { kind: "view" }> => {
   if (target.kind === "page") return { kind: target.kind, pageId: target.page_id };
   if (target.kind === "database") {
@@ -1617,9 +1533,7 @@ const blockPropertyFailure = (
   mutationId: string,
   error: unknown,
 ): BlockPropertyMutationCommandResultV2 => {
-  const coreError = error instanceof CoreModuleResponseError
-    ? error.coreError
-    : null;
+  const coreError = error instanceof CoreModuleResponseError ? error.coreError : null;
   const code = (() => {
     switch (coreError?.code) {
       case "invalid_input":
@@ -1662,16 +1576,13 @@ const fromCoreBlockPropertyOutcome = (
       message: outcome.error.message,
       retryable: outcome.error.retryable,
       mutationId,
-      ...(outcome.error.field_path === undefined
-        || outcome.error.field_path === null
+      ...(outcome.error.field_path === undefined || outcome.error.field_path === null
         ? {}
         : { fieldPath: outcome.error.field_path }),
-      ...(outcome.error.expected_revision === undefined
-        || outcome.error.expected_revision === null
+      ...(outcome.error.expected_revision === undefined || outcome.error.expected_revision === null
         ? {}
         : { expectedRevision: outcome.error.expected_revision }),
-      ...(outcome.error.actual_revision === undefined
-        || outcome.error.actual_revision === null
+      ...(outcome.error.actual_revision === undefined || outcome.error.actual_revision === null
         ? {}
         : { actualRevision: outcome.error.actual_revision }),
     },
@@ -1697,10 +1608,7 @@ export const createCoreLibraryModuleAdapter = (
         throw new Error("Core returned a non-Page-detail Library read value");
       }
       const detail = snapshot.value.value;
-      if (
-        detail.library_id !== input.libraryId
-        || detail.store_epoch !== snapshot.store_epoch
-      ) {
+      if (detail.library_id !== input.libraryId || detail.store_epoch !== snapshot.store_epoch) {
         throw new Error("Core Page Detail escaped its Library snapshot boundary");
       }
       if (detail.commit_seq !== snapshot.commit_head) {
@@ -1714,9 +1622,7 @@ export const createCoreLibraryModuleAdapter = (
       }
       await new Promise<void>((resolve) => setTimeout(resolve, 5));
     }
-    throw new Error(
-      `Core Page Detail read did not reach local commit ${minimumCommitSeq}`,
-    );
+    throw new Error(`Core Page Detail read did not reach local commit ${minimumCommitSeq}`);
   };
 
   type CoreBlockPropertyApplyRequest = {
@@ -1763,19 +1669,14 @@ export const createCoreLibraryModuleAdapter = (
       const receipt = committed.outcome.block_property_mutation;
       const storeEpoch = applyResultStoreEpoch(committed);
       if (
-        !receipt
-        || storeEpoch !== request.storeEpoch
-        || committed.receipt.operation_id !== request.mutationId
-        || committed.receipt.operation_kind !== "property_batch"
+        !receipt ||
+        storeEpoch !== request.storeEpoch ||
+        committed.receipt.operation_id !== request.mutationId ||
+        committed.receipt.operation_kind !== "property_batch"
       ) {
-        throw new Error(
-          "Core Property mutation receipt escaped its operation boundary",
-        );
+        throw new Error("Core Property mutation receipt escaped its operation boundary");
       }
-      const rejected = fromCoreBlockPropertyOutcome(
-        request.mutationId,
-        receipt.outcome,
-      );
+      const rejected = fromCoreBlockPropertyOutcome(request.mutationId, receipt.outcome);
       if (rejected) return rejected;
       if (receipt.outcome.status !== "committed") {
         throw new Error("Core returned an invalid Property mutation outcome");
@@ -1788,8 +1689,7 @@ export const createCoreLibraryModuleAdapter = (
           storeEpoch,
           duplicate: committed.receipt.duplicate,
           fields: receipt.outcome.fields.map(fromCoreBlockPropertyField),
-          blockMetadataRevisions:
-            receipt.outcome.block_metadata_revisions,
+          blockMetadataRevisions: receipt.outcome.block_metadata_revisions,
           commitSeq: applyResultCursor(committed),
           committedAt: committed.receipt.committed_at,
         },
@@ -1862,35 +1762,28 @@ export const createCoreLibraryModuleAdapter = (
               : null,
             canvasMutation: committed.outcome.canvas_mutation
               ? {
-                  operationKind:
-                    committed.outcome.canvas_mutation.operation_kind,
+                  operationKind: committed.outcome.canvas_mutation.operation_kind,
                   canvasId: committed.outcome.canvas_mutation.canvas_id,
                   documentId: committed.outcome.canvas_mutation.document_id,
-                  sourceCanvasId:
-                    committed.outcome.canvas_mutation.source_canvas_id ?? null,
-                  locationRevision:
-                    committed.outcome.canvas_mutation.location_revision,
-                  metadataRevision:
-                    committed.outcome.canvas_mutation.metadata_revision,
-                  documentCommits:
-                    committed.outcome.canvas_mutation.document_commits.map(
-                      (commit) => ({
-                        documentId: commit.document_id,
-                        generation: commit.generation,
-                        baseHeadSeq: commit.base_head_seq,
-                        headSeq: commit.head_seq,
-                        updateId: commit.update_id,
-                        update: Uint8Array.from(commit.update),
-                        stateVector: Uint8Array.from(commit.state_vector),
-                      }),
-                    ),
+                  sourceCanvasId: committed.outcome.canvas_mutation.source_canvas_id ?? null,
+                  locationRevision: committed.outcome.canvas_mutation.location_revision,
+                  metadataRevision: committed.outcome.canvas_mutation.metadata_revision,
+                  documentCommits: committed.outcome.canvas_mutation.document_commits.map(
+                    (commit) => ({
+                      documentId: commit.document_id,
+                      generation: commit.generation,
+                      baseHeadSeq: commit.base_head_seq,
+                      headSeq: commit.head_seq,
+                      updateId: commit.update_id,
+                      update: Uint8Array.from(commit.update),
+                      stateVector: Uint8Array.from(commit.state_vector),
+                    }),
+                  ),
                 }
               : null,
             affectedParentKeys: receipt.affected_parent_keys,
             affectedPageIds: receipt.affected_page_ids,
-            affectedDatabaseIds: receipt.affected_database_ids.map(
-              parseDatabaseId,
-            ),
+            affectedDatabaseIds: receipt.affected_database_ids.map(parseDatabaseId),
             affectedViewIds: receipt.affected_view_ids.map(parseDatabaseViewId),
             committedRevisions: receipt.committed_revisions,
             commitSeq: applyResultCursor(committed),
@@ -1953,10 +1846,7 @@ export const createCoreLibraryModuleAdapter = (
           throw new Error("Core returned a non-Page-history Library read value");
         }
         const page = snapshot.value.value;
-        if (
-          page.library_id !== input.libraryId
-          || page.page_id !== request.pageId
-        ) {
+        if (page.library_id !== input.libraryId || page.page_id !== request.pageId) {
           throw new Error("Core Page history escaped its Library Page scope");
         }
         return parsePageHistoryCommandResult({
@@ -1968,44 +1858,47 @@ export const createCoreLibraryModuleAdapter = (
       }
     },
     searchPages: async (searchInput, signal) => {
-      const snapshot = await input.client.libraryRead({
-        kind: "project_page_search",
-        project_ids: searchInput.projectIds,
-        query: searchInput.query,
-        filters: searchInput.filters
-          ? {
-              statuses: searchInput.filters.statuses ?? null,
-              priorities: searchInput.filters.priorities ?? null,
-              include_empty_priority: searchInput.filters.includeEmptyPriority,
-              tags: searchInput.filters.tags.map((tag) => ({
-                data_source_id: tag.dataSourceId,
-                property_id: tag.propertyId,
-                option_id: tag.optionId,
-              })),
-              tag_mode: searchInput.filters.tagMode,
-              assignees: searchInput.filters.assignees,
-            }
-          : null,
-        preferred_project_id: searchInput.preferredProjectId ?? null,
-        recent_page_ids: searchInput.recentPageIds ?? [],
-        limit: searchInput.limit ?? null,
-      }, { signal });
+      const snapshot = await input.client.libraryRead(
+        {
+          kind: "project_page_search",
+          project_ids: searchInput.projectIds,
+          query: searchInput.query,
+          filters: searchInput.filters
+            ? {
+                statuses: searchInput.filters.statuses ?? null,
+                priorities: searchInput.filters.priorities ?? null,
+                include_empty_priority: searchInput.filters.includeEmptyPriority,
+                tags: searchInput.filters.tags.map((tag) => ({
+                  data_source_id: tag.dataSourceId,
+                  property_id: tag.propertyId,
+                  option_id: tag.optionId,
+                })),
+                tag_mode: searchInput.filters.tagMode,
+                assignees: searchInput.filters.assignees,
+              }
+            : null,
+          preferred_project_id: searchInput.preferredProjectId ?? null,
+          recent_page_ids: searchInput.recentPageIds ?? [],
+          limit: searchInput.limit ?? null,
+        },
+        { signal },
+      );
       if (
-        snapshot.store_epoch !== input.storeEpoch
-        || snapshot.value.kind !== "project_page_search"
+        snapshot.store_epoch !== input.storeEpoch ||
+        snapshot.value.kind !== "project_page_search"
       ) {
         throw new Error("Core Project Page search escaped its snapshot boundary");
       }
       const results = snapshot.value.items.map((item): PageSearchResult => {
         if (
-          !item.project_id
-          || !item.page_id
-          || typeof item.title !== "string"
-          || (item.page_key !== null && typeof item.page_key !== "string")
-          || (item.status != null && !isWorkflowStatus(item.status))
-          || (item.priority != null && !isPriority(item.priority))
-          || typeof item.location_label !== "string"
-          || typeof item.updated_at !== "string"
+          !item.project_id ||
+          !item.page_id ||
+          typeof item.title !== "string" ||
+          (item.page_key !== null && typeof item.page_key !== "string") ||
+          (item.status != null && !isWorkflowStatus(item.status)) ||
+          (item.priority != null && !isPriority(item.priority)) ||
+          typeof item.location_label !== "string" ||
+          typeof item.updated_at !== "string"
         ) {
           throw new Error("Core Project Page search returned invalid evidence");
         }
@@ -2040,8 +1933,8 @@ export const createCoreLibraryModuleAdapter = (
         page_ids: pageIds ?? null,
       });
       if (
-        snapshot.store_epoch !== input.storeEpoch
-        || snapshot.value.kind !== "project_page_search_metadata"
+        snapshot.store_epoch !== input.storeEpoch ||
+        snapshot.value.kind !== "project_page_search_metadata"
       ) {
         throw new Error("Core Page search metadata escaped its snapshot boundary");
       }
@@ -2064,9 +1957,7 @@ export const createCoreLibraryModuleAdapter = (
             title: item.title,
             preview: item.preview,
             status: item.status ?? null,
-            priority: item.priority !== null && isPriority(item.priority)
-              ? item.priority
-              : null,
+            priority: item.priority !== null && isPriority(item.priority) ? item.priority : null,
             tags: item.tags.map(mapPageSearchOption),
             assignee: item.assignee ?? null,
             locationLabel: item.location_label,
@@ -2088,8 +1979,8 @@ export const createCoreLibraryModuleAdapter = (
         project_ids: projectIds,
       });
       if (
-        snapshot.store_epoch !== input.storeEpoch
-        || snapshot.value.kind !== "project_page_search_facets"
+        snapshot.store_epoch !== input.storeEpoch ||
+        snapshot.value.kind !== "project_page_search_facets"
       ) {
         throw new Error("Core Page search facets escaped its snapshot boundary");
       }
@@ -2180,12 +2071,10 @@ export const createCoreLibraryModuleAdapter = (
           page_id: pageId,
         });
         if (
-          snapshot.value.kind !== "page_lifecycle_preflight"
-          || snapshot.store_epoch !== input.storeEpoch
+          snapshot.value.kind !== "page_lifecycle_preflight" ||
+          snapshot.store_epoch !== input.storeEpoch
         ) {
-          throw new Error(
-            "Core Page lifecycle preflight escaped its snapshot boundary",
-          );
+          throw new Error("Core Page lifecycle preflight escaped its snapshot boundary");
         }
         return parsePageLifecyclePreflightResultV2({
           ok: true,
@@ -2225,16 +2114,14 @@ export const createCoreLibraryModuleAdapter = (
         const lifecycle = committed.outcome.page_lifecycle;
         const storeEpoch = applyResultStoreEpoch(committed);
         if (
-          !lifecycle
-          || storeEpoch !== request.storeEpoch
-          || committed.receipt.operation_id !== request.operationId
-          || committed.receipt.operation_kind !== request.operation.kind
-          || lifecycle.operation_kind !== request.operation.kind
-          || lifecycle.page_id !== request.operation.pageId
+          !lifecycle ||
+          storeEpoch !== request.storeEpoch ||
+          committed.receipt.operation_id !== request.operationId ||
+          committed.receipt.operation_kind !== request.operation.kind ||
+          lifecycle.operation_kind !== request.operation.kind ||
+          lifecycle.page_id !== request.operation.pageId
         ) {
-          throw new Error(
-            "Core Page lifecycle receipt escaped its operation boundary",
-          );
+          throw new Error("Core Page lifecycle receipt escaped its operation boundary");
         }
         return parsePageLifecycleMutationCommandResultV2({
           ok: true,
@@ -2268,8 +2155,7 @@ export const createCoreLibraryModuleAdapter = (
         return pageLifecycleMutationFailure(request, error);
       }
     },
-    applyBlockPropertyMutation: async (request) =>
-      await applyBlockProperty(request),
+    applyBlockPropertyMutation: async (request) => await applyBlockProperty(request),
     applyLibraryBlockPropertyMutation: async ({ request, actor }) => {
       const result = await applyCoreBlockProperty({
         ...request,

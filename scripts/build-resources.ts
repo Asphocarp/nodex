@@ -55,22 +55,27 @@ const defaultRepositoryRoot = path.resolve(".");
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const hasOnlyKeys = (value: Readonly<Record<string, unknown>>, keys: readonly string[]): boolean => {
+const hasOnlyKeys = (
+  value: Readonly<Record<string, unknown>>,
+  keys: readonly string[],
+): boolean => {
   const expected = new Set(keys);
-  return Object.keys(value).length === expected.size
-    && Object.keys(value).every((key) => expected.has(key));
+  return (
+    Object.keys(value).length === expected.size &&
+    Object.keys(value).every((key) => expected.has(key))
+  );
 };
 
 const pathsForRoot = (root: string): BuildResourcesPaths => buildResourcesPathsAtRoot(root);
 
-const resolveInput = (input: BuildResourcesInput): {
+const resolveInput = (
+  input: BuildResourcesInput,
+): {
   readonly outputRoot: string;
   readonly repositoryRoot: string;
 } => {
   const repositoryRoot = path.resolve(input.repositoryRoot ?? defaultRepositoryRoot);
-  const outputRoot = path.resolve(
-    input.outputRoot ?? resolveBuildResources(repositoryRoot).root,
-  );
+  const outputRoot = path.resolve(input.outputRoot ?? resolveBuildResources(repositoryRoot).root);
   return { outputRoot, repositoryRoot };
 };
 
@@ -108,11 +113,11 @@ const parseOutput = (value: unknown, filename: BuildResourceFilename): BuildReso
 
 const parseManifest = (value: unknown): BuildResourcesManifest => {
   if (
-    !isObject(value)
-    || !hasOnlyKeys(value, ["outputs", "schemaVersion"])
-    || value.schemaVersion !== 2
-    || !isObject(value.outputs)
-    || !hasOnlyKeys(value.outputs, BUILD_RESOURCE_FILENAMES)
+    !isObject(value) ||
+    !hasOnlyKeys(value, ["outputs", "schemaVersion"]) ||
+    value.schemaVersion !== 2 ||
+    !isObject(value.outputs) ||
+    !hasOnlyKeys(value.outputs, BUILD_RESOURCE_FILENAMES)
   ) {
     throw new Error("Build resources manifest is invalid");
   }
@@ -166,7 +171,10 @@ const verifyTreeInventory = (resourceRoot: string): void => {
   }
   const entries = readdirSync(resourceRoot).sort();
   const expected = [...BUILD_RESOURCE_TREE_FILENAMES].sort();
-  if (entries.length !== expected.length || entries.some((entry, index) => entry !== expected[index])) {
+  if (
+    entries.length !== expected.length ||
+    entries.some((entry, index) => entry !== expected[index])
+  ) {
     throw new Error("Build resources tree contains an unexpected entry");
   }
 };
@@ -270,15 +278,14 @@ const main = async (): Promise<void> => {
   if (extraArguments.length > 0 || (command !== "prepare" && command !== "verify")) {
     throw new Error("Usage: build-resources.ts <prepare|verify>");
   }
-  const manifest = command === "verify"
-    ? await verifyBuildResources()
-    : await prepareBuildResources();
+  const manifest =
+    command === "verify" ? await verifyBuildResources() : await prepareBuildResources();
   process.stdout.write(`${JSON.stringify(manifest)}\n`);
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   });

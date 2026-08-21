@@ -10,10 +10,15 @@ describe("readNfmLinkHrefAtElement", () => {
       href: "nodex://pages/018f47b1-93e1-7a25-b58e-8d9018a460d3",
     }));
 
-    expect(readNfmLinkHrefAtElement({
-      prosemirrorView: { posAtDOM },
-      getLinkMarkAtPos,
-    }, anchor)).toBe("nodex://pages/018f47b1-93e1-7a25-b58e-8d9018a460d3");
+    expect(
+      readNfmLinkHrefAtElement(
+        {
+          prosemirrorView: { posAtDOM },
+          getLinkMarkAtPos,
+        },
+        anchor,
+      ),
+    ).toBe("nodex://pages/018f47b1-93e1-7a25-b58e-8d9018a460d3");
     expect(posAtDOM).toHaveBeenCalledWith(anchor, 0);
     expect(getLinkMarkAtPos).toHaveBeenCalledWith(13);
   });
@@ -22,9 +27,14 @@ describe("readNfmLinkHrefAtElement", () => {
     const anchor = document.createElement("a");
     anchor.setAttribute("href", "https://example.com/docs");
 
-    expect(readNfmLinkHrefAtElement({
-      prosemirrorView: { posAtDOM: () => 4 },
-      getLinkMarkAtPos: () => undefined,
-    }, anchor)).toBe("https://example.com/docs");
+    expect(
+      readNfmLinkHrefAtElement(
+        {
+          prosemirrorView: { posAtDOM: () => 4 },
+          getLinkMarkAtPos: () => undefined,
+        },
+        anchor,
+      ),
+    ).toBe("https://example.com/docs");
   });
 });

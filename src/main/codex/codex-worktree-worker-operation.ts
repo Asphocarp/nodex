@@ -39,9 +39,10 @@ function canceled(signal: AbortSignal): never {
 }
 
 function isCanceled(signal: AbortSignal, error: unknown): boolean {
-  return signal.aborted
-    || (error instanceof Error
-      && (error.name === "AbortError" || error.message.includes("canceled")));
+  return (
+    signal.aborted ||
+    (error instanceof Error && (error.name === "AbortError" || error.message.includes("canceled")))
+  );
 }
 
 export async function executeCodexWorktreeWorkerCreate(
@@ -54,8 +55,9 @@ export async function executeCodexWorktreeWorkerCreate(
 ): Promise<CodexWorktreeWorkerCreateResult> {
   const { signal } = options;
   if (signal.aborted) return canceled(signal);
-  const startingState = input.startingState
-    ?? await resolveManagedWorktreeDefaultStartingState(input.repositoryPath, signal);
+  const startingState =
+    input.startingState ??
+    (await resolveManagedWorktreeDefaultStartingState(input.repositoryPath, signal));
   const created = await createManagedWorktree({
     repositoryPath: input.repositoryPath,
     nodexHome: input.nodexHome,
@@ -113,28 +115,29 @@ export async function executeCodexWorktreeWorkerCreate(
       environmentPath: input.localEnvironmentConfigPath,
     });
     signal.throwIfAborted();
-    const shellEnvironment = environment.setupScript === null
-      ? null
-      : await runCodexWorktreeSetupScript({
-          script: environment.setupScript,
-          cwd: created.worktreeGitRoot,
-          loadBaseEnvironment: options.loadBaseEnvironment,
-          signal,
-          environment: {
-            CODEX_SOURCE_TREE_PATH: input.repositoryPath,
-            CODEX_WORKTREE_PATH: created.worktreeWorkspaceRoot,
-          },
-          onOutput: (output) => {
-            if (!output.data) return;
-            options.onEvent({
-              operation: "create",
-              type: "output",
-              phase: "setup",
-              stream: output.stream,
-              data: output.data,
-            });
-          },
-        });
+    const shellEnvironment =
+      environment.setupScript === null
+        ? null
+        : await runCodexWorktreeSetupScript({
+            script: environment.setupScript,
+            cwd: created.worktreeGitRoot,
+            loadBaseEnvironment: options.loadBaseEnvironment,
+            signal,
+            environment: {
+              CODEX_SOURCE_TREE_PATH: input.repositoryPath,
+              CODEX_WORKTREE_PATH: created.worktreeWorkspaceRoot,
+            },
+            onOutput: (output) => {
+              if (!output.data) return;
+              options.onEvent({
+                operation: "create",
+                type: "output",
+                phase: "setup",
+                stream: output.stream,
+                data: output.data,
+              });
+            },
+          });
     signal.throwIfAborted();
     return {
       ...paths,
@@ -262,10 +265,12 @@ export async function executeCodexWorktreeWorkerOperation(
   }
 }
 
-export function createInProcessCodexWorktreeWorkerPort(options: {
-  readonly hostId?: string;
-  readonly loadBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
-} = {}): CodexWorktreeWorkerPort {
+export function createInProcessCodexWorktreeWorkerPort(
+  options: {
+    readonly hostId?: string;
+    readonly loadBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
+  } = {},
+): CodexWorktreeWorkerPort {
   const hostId = options.hostId?.trim() || "local";
   const execute = async (
     request: CodexWorktreeWorkerRequest,
@@ -314,30 +319,21 @@ export function createInProcessCodexWorktreeWorkerPort(options: {
       return success.value;
     },
     prepareHandoff: async (input, requestOptions) => {
-      const success = await execute(
-        { operation: "prepare-handoff", input },
-        requestOptions,
-      );
+      const success = await execute({ operation: "prepare-handoff", input }, requestOptions);
       if (success.operation !== "prepare-handoff") {
         throw new Error("Worktree worker result mismatch");
       }
       return success.value;
     },
     rollbackHandoff: async (input, requestOptions) => {
-      const success = await execute(
-        { operation: "rollback-handoff", input },
-        requestOptions,
-      );
+      const success = await execute({ operation: "rollback-handoff", input }, requestOptions);
       if (success.operation !== "rollback-handoff") {
         throw new Error("Worktree worker result mismatch");
       }
       return success.value;
     },
     cleanupHandoff: async (input, requestOptions) => {
-      const success = await execute(
-        { operation: "cleanup-handoff", input },
-        requestOptions,
-      );
+      const success = await execute({ operation: "cleanup-handoff", input }, requestOptions);
       if (success.operation !== "cleanup-handoff") {
         throw new Error("Worktree worker result mismatch");
       }

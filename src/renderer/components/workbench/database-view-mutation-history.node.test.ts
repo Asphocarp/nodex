@@ -48,10 +48,12 @@ describe("Database View mutation history", () => {
     const undonePageIds: string[] = [];
 
     for (let index = 0; index < 3; index += 1) {
-      await expect(history.undoListMove(async (entry) => {
-        undonePageIds.push(entry.postParentGuards[0]?.pageId ?? "missing");
-        return true;
-      })).resolves.toBe(true);
+      await expect(
+        history.undoListMove(async (entry) => {
+          undonePageIds.push(entry.postParentGuards[0]?.pageId ?? "missing");
+          return true;
+        }),
+      ).resolves.toBe(true);
     }
 
     expect(undonePageIds).toEqual(["page-c", "page-b", "page-a"]);
@@ -90,19 +92,21 @@ describe("Database View mutation history", () => {
     const stopPropagation = vi.fn();
     const undo = vi.fn(async () => true);
 
-    expect(handleDatabaseViewMutationHistoryKeyDown({
-      event: {
-        key: "z",
-        metaKey: true,
-        ctrlKey: false,
-        shiftKey: false,
-        target: null,
-        preventDefault,
-        stopPropagation,
-      },
-      history,
-      undoListMove: undo,
-    })).toBe(true);
+    expect(
+      handleDatabaseViewMutationHistoryKeyDown({
+        event: {
+          key: "z",
+          metaKey: true,
+          ctrlKey: false,
+          shiftKey: false,
+          target: null,
+          preventDefault,
+          stopPropagation,
+        },
+        history,
+        undoListMove: undo,
+      }),
+    ).toBe(true);
     await vi.waitFor(() => expect(history.size()).toBe(0));
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(stopPropagation).toHaveBeenCalledOnce();

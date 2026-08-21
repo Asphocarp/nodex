@@ -31,8 +31,18 @@ const FIXTURE_FILES = [
     kind: "native-addon",
     path: "native/sky.node",
   },
-  { architecture: "any", executable: false, kind: "data", path: "native/remote-hosted-pip/pop-in-window-egg@3x.png" },
-  { architecture: "any", executable: false, kind: "data", path: "native/remote-hosted-pip/pop-out-window-egg@3x.png" },
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
+    path: "native/remote-hosted-pip/pop-in-window-egg@3x.png",
+  },
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
+    path: "native/remote-hosted-pip/pop-out-window-egg@3x.png",
+  },
   {
     architecture: "any",
     executable: false,
@@ -66,9 +76,24 @@ const FIXTURE_FILES = [
 ] as const;
 
 const COMPUTER_USE_FIXTURE_FILES = [
-  { architecture: "any", executable: false, kind: "data", path: "marketplace/plugins/computer-use/manifest.json" },
-  { architecture: "any", executable: false, kind: "data", path: "marketplace/plugins/computer-use/client.mjs" },
-  { architecture: "any", executable: false, kind: "data", path: "marketplace/plugins/computer-use/docs/SKILL.md" },
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
+    path: "marketplace/plugins/computer-use/manifest.json",
+  },
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
+    path: "marketplace/plugins/computer-use/client.mjs",
+  },
+  {
+    architecture: "any",
+    executable: false,
+    kind: "data",
+    path: "marketplace/plugins/computer-use/docs/SKILL.md",
+  },
   {
     architecture: "any",
     executable: false,
@@ -101,24 +126,26 @@ function sha256(content: string): string {
 
 function fixtureContent(relativePath: string): string {
   if (relativePath === "marketplace/.agents/plugins/marketplace.json") {
-    return `${JSON.stringify({
-      name: "openai-bundled",
-      plugins: [
-        {
-          name: "browser",
-          source: { path: "./plugins/browser", source: "local" },
-        },
-        {
-          name: "computer-use",
-          source: { path: "./plugins/computer-use", source: "local" },
-        },
-      ],
-    }, null, 2)}\n`;
+    return `${JSON.stringify(
+      {
+        name: "openai-bundled",
+        plugins: [
+          {
+            name: "browser",
+            source: { path: "./plugins/browser", source: "local" },
+          },
+          {
+            name: "computer-use",
+            source: { path: "./plugins/computer-use", source: "local" },
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`;
   }
   if (relativePath.endsWith("/.codex-plugin/plugin.json")) {
-    const name = relativePath.includes("/computer-use/")
-      ? "computer-use"
-      : "browser";
+    const name = relativePath.includes("/computer-use/") ? "computer-use" : "browser";
     return `${JSON.stringify({ name, version: "1.0.0-test" }, null, 2)}\n`;
   }
   if (relativePath.endsWith("/computer-use-node-repl.md")) {
@@ -135,9 +162,8 @@ export function writeBrowserRuntimeFixture(
   options: BrowserRuntimeFixtureOptions = {},
 ): BrowserRuntimeManifest {
   const targetArch = options.targetArch ?? "arm64";
-  const definitions = targetArch === "arm64"
-    ? [...FIXTURE_FILES, ...COMPUTER_USE_FIXTURE_FILES]
-    : FIXTURE_FILES;
+  const definitions =
+    targetArch === "arm64" ? [...FIXTURE_FILES, ...COMPUTER_USE_FIXTURE_FILES] : FIXTURE_FILES;
   const artifacts: BrowserRuntimeArtifact[] = definitions.map((definition) => {
     const content = fixtureContent(definition.path);
     const artifactPath = path.join(bundleRoot, ...definition.path.split("/"));
@@ -175,28 +201,30 @@ export function writeBrowserRuntimeFixture(
     },
     buildFlavor: "test",
     capabilities: {
-      computerUse: targetArch === "arm64"
-        ? {
-          appBundle: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app",
-          appBundleIdentifier: "com.openai.CodexComputerUse",
-          client: "marketplace/plugins/computer-use/client.mjs",
-          ipcProtocol: "CodexComputerUseIPC-2",
-          minimumMacOSVersion: "14.4",
-          plugin: {
-            docs: "marketplace/plugins/computer-use/docs/SKILL.md",
-            id: "computer-use@openai-bundled",
-            manifest: "marketplace/plugins/computer-use/manifest.json",
-            marketplaceManifest: "marketplace/.agents/plugins/marketplace.json",
-            marketplaceRoot: "marketplace",
-            nodeModuleDirs: ["runtime/lib/node_modules"],
-            root: "marketplace/plugins/computer-use",
-            version: "1.0.0-test",
-          },
-          serviceExecutable: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
-          signingTeamId: "TESTTEAM",
-          status: "available",
-        }
-        : { reason: "architecture-unsupported", status: "unavailable" },
+      computerUse:
+        targetArch === "arm64"
+          ? {
+              appBundle: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app",
+              appBundleIdentifier: "com.openai.CodexComputerUse",
+              client: "marketplace/plugins/computer-use/client.mjs",
+              ipcProtocol: "CodexComputerUseIPC-2",
+              minimumMacOSVersion: "14.4",
+              plugin: {
+                docs: "marketplace/plugins/computer-use/docs/SKILL.md",
+                id: "computer-use@openai-bundled",
+                manifest: "marketplace/plugins/computer-use/manifest.json",
+                marketplaceManifest: "marketplace/.agents/plugins/marketplace.json",
+                marketplaceRoot: "marketplace",
+                nodeModuleDirs: ["runtime/lib/node_modules"],
+                root: "marketplace/plugins/computer-use",
+                version: "1.0.0-test",
+              },
+              serviceExecutable:
+                "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+              signingTeamId: "TESTTEAM",
+              status: "available",
+            }
+          : { reason: "architecture-unsupported", status: "unavailable" },
       nativePip: {
         addon: "native/sky.node",
         controlAssets: [

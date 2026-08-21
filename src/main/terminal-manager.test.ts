@@ -6,10 +6,7 @@ const ptyMock = vi.hoisted(() => ({
 
 vi.mock("node-pty", () => ptyMock);
 
-import {
-  TerminalManager,
-  resolveDefaultTerminalCommand,
-} from "./terminal-manager";
+import { TerminalManager, resolveDefaultTerminalCommand } from "./terminal-manager";
 
 interface FakePty {
   pid: number;
@@ -75,11 +72,7 @@ function makeHarness() {
 
 describe("resolveDefaultTerminalCommand", () => {
   test("starts zsh as an interactive login shell", () => {
-    expect(resolveDefaultTerminalCommand("/bin/zsh", "darwin")).toEqual([
-      "/bin/zsh",
-      "-l",
-      "-i",
-    ]);
+    expect(resolveDefaultTerminalCommand("/bin/zsh", "darwin")).toEqual(["/bin/zsh", "-l", "-i"]);
   });
 
   test("starts bash with its login and interactive flags", () => {
@@ -91,16 +84,11 @@ describe("resolveDefaultTerminalCommand", () => {
   });
 
   test("starts unknown POSIX shells interactively without assuming login support", () => {
-    expect(resolveDefaultTerminalCommand("/bin/sh", "linux")).toEqual([
-      "/bin/sh",
-      "-i",
-    ]);
+    expect(resolveDefaultTerminalCommand("/bin/sh", "linux")).toEqual(["/bin/sh", "-i"]);
   });
 
   test("does not add POSIX shell flags on Windows", () => {
-    expect(resolveDefaultTerminalCommand("powershell.exe", "win32")).toEqual([
-      "powershell.exe",
-    ]);
+    expect(resolveDefaultTerminalCommand("powershell.exe", "win32")).toEqual(["powershell.exe"]);
   });
 });
 
@@ -148,12 +136,7 @@ describe("TerminalManager view leases", () => {
       size: { cols: 80, rows: 24 },
     };
 
-    const created = harness.manager.create(
-      firstOwner,
-      "window-session-a",
-      request,
-      harness.emit,
-    );
+    const created = harness.manager.create(firstOwner, "window-session-a", request, harness.emit);
     expect(created.status).toBe("acquired");
 
     const conflict = harness.manager.acquireViewLease(
@@ -238,17 +221,8 @@ describe("TerminalManager view leases", () => {
       size: { cols: 80, rows: 24 },
     };
 
-    harness.manager.create(
-      renderer,
-      "window-session-a",
-      request,
-      harness.emit,
-    );
-    harness.manager.releaseViewLease(
-      renderer,
-      "window-session-a",
-      request.sessionId,
-    );
+    harness.manager.create(renderer, "window-session-a", request, harness.emit);
+    harness.manager.releaseViewLease(renderer, "window-session-a", request.sessionId);
 
     expect(harness.manager.getSessionSnapshot(request.sessionId)?.viewLease).toBeNull();
     expect(fakePty.kill).not.toHaveBeenCalled();
@@ -279,18 +253,9 @@ describe("TerminalManager view leases", () => {
       size: { cols: 80, rows: 24 },
     };
 
-    const created = harness.manager.create(
-      renderer,
-      "window-session-a",
-      request,
-      harness.emit,
-    );
+    const created = harness.manager.create(renderer, "window-session-a", request, harness.emit);
     fakePty.emitData("draft shell\r\n");
-    harness.manager.releaseViewLease(
-      renderer,
-      "window-session-a",
-      request.sessionId,
-    );
+    harness.manager.releaseViewLease(renderer, "window-session-a", request.sessionId);
     const attached = harness.manager.acquireViewLease(
       renderer,
       "window-session-a",
@@ -325,9 +290,7 @@ describe("TerminalManager view leases", () => {
   test("explicit kill and backend exit broadcast resource termination", () => {
     const killedPty = makeFakePty(100);
     const exitedPty = makeFakePty(200);
-    ptyMock.spawn
-      .mockReturnValueOnce(killedPty)
-      .mockReturnValueOnce(exitedPty);
+    ptyMock.spawn.mockReturnValueOnce(killedPty).mockReturnValueOnce(exitedPty);
     const harness = makeHarness();
     const renderer = owner(11);
 
@@ -377,9 +340,7 @@ describe("TerminalManager view leases", () => {
   test("app shutdown kills every live PTY", () => {
     const first = makeFakePty(100);
     const second = makeFakePty(200);
-    ptyMock.spawn
-      .mockReturnValueOnce(first)
-      .mockReturnValueOnce(second);
+    ptyMock.spawn.mockReturnValueOnce(first).mockReturnValueOnce(second);
     const harness = makeHarness();
     const renderer = owner(11);
 

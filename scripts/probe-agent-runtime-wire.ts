@@ -124,7 +124,9 @@ function respondToWireRequest(wireApi: WireApi, response: ServerResponse): void 
         object: "chat.completion.chunk",
         created: 0,
         model: "mock-chat-model",
-        choices: [{ index: 0, delta: { role: "assistant", content: conformanceText }, finish_reason: null }],
+        choices: [
+          { index: 0, delta: { role: "assistant", content: conformanceText }, finish_reason: null },
+        ],
       })}\n\n`,
       `data: ${JSON.stringify({
         id: "chatcmpl_nodex_wire",
@@ -189,7 +191,9 @@ async function startMockServer(): Promise<{
       respondToWireRequest(wireApi, response);
     })().catch((error: unknown) => {
       response.writeHead(500, { "content-type": "application/json" });
-      response.end(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }));
+      response.end(
+        JSON.stringify({ error: error instanceof Error ? error.message : String(error) }),
+      );
     });
   });
 
@@ -198,12 +202,14 @@ async function startMockServer(): Promise<{
     server.listen(0, "127.0.0.1", () => resolve());
   });
   const address = server.address();
-  if (!address || typeof address === "string") throw new Error("Mock wire server did not bind a TCP port");
+  if (!address || typeof address === "string")
+    throw new Error("Mock wire server did not bind a TCP port");
   return {
     baseUrl: `http://127.0.0.1:${address.port}`,
-    close: async () => await new Promise<void>((resolve, reject) => {
-      server.close((error) => error ? reject(error) : resolve());
-    }),
+    close: async () =>
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
     requests,
   };
 }
@@ -223,8 +229,8 @@ function waitForTurnCompletion(
       const params = isRecord(rawParams) ? rawParams : {};
       if (params.threadId !== threadId) return;
       if (
-        notification.method === "item/completed"
-        && JSON.stringify(params).includes(conformanceText)
+        notification.method === "item/completed" &&
+        JSON.stringify(params).includes(conformanceText)
       ) {
         responseTextObserved = true;
       }
@@ -232,7 +238,11 @@ function waitForTurnCompletion(
       cleanup();
       const turn = isRecord(params.turn) ? params.turn : {};
       if (turn.status !== "completed") {
-        reject(new Error(`Conformance turn failed for ${threadId}: ${JSON.stringify(turn.error ?? turn)}`));
+        reject(
+          new Error(
+            `Conformance turn failed for ${threadId}: ${JSON.stringify(turn.error ?? turn)}`,
+          ),
+        );
         return;
       }
       resolve({ responseTextObserved });
@@ -257,9 +267,8 @@ async function runWireCase(input: {
   readonly wireCase: WireCase;
 }): Promise<WireCaseResult> {
   const requestStart = input.requests.length;
-  const providerBaseUrl = input.wireCase.wireApi === "messages"
-    ? input.baseUrl
-    : `${input.baseUrl}/v1`;
+  const providerBaseUrl =
+    input.wireCase.wireApi === "messages" ? input.baseUrl : `${input.baseUrl}/v1`;
   const providerConfig = {
     name: input.wireCase.providerId,
     base_url: providerBaseUrl,
@@ -281,7 +290,11 @@ async function runWireCase(input: {
       "features.plugins": false,
     },
   });
-  if (!isRecord(startResponse) || !isRecord(startResponse.thread) || typeof startResponse.thread.id !== "string") {
+  if (
+    !isRecord(startResponse) ||
+    !isRecord(startResponse.thread) ||
+    typeof startResponse.thread.id !== "string"
+  ) {
     throw new Error(`Invalid thread/start response for ${input.wireCase.providerId}`);
   }
   const threadId = startResponse.thread.id;
@@ -305,11 +318,12 @@ async function runWireCase(input: {
   }
   const request = recorded.find((candidate) => candidate.body.model === input.wireCase.modelId);
   if (!request) throw new Error(`Missing recorded request for ${input.wireCase.providerId}`);
-  const expectedPath = input.wireCase.wireApi === "responses"
-    ? "/v1/responses"
-    : input.wireCase.wireApi === "chat"
-      ? "/v1/chat/completions"
-      : "/v1/messages";
+  const expectedPath =
+    input.wireCase.wireApi === "responses"
+      ? "/v1/responses"
+      : input.wireCase.wireApi === "chat"
+        ? "/v1/chat/completions"
+        : "/v1/messages";
   const unexpectedPath = recorded.find((candidate) => candidate.path !== expectedPath);
   if (unexpectedPath) {
     throw new Error(
@@ -317,11 +331,12 @@ async function runWireCase(input: {
     );
   }
   if (!result.responseTextObserved) {
-    throw new Error(`Runtime did not project ${input.wireCase.wireApi} response text to app-server events`);
+    throw new Error(
+      `Runtime did not project ${input.wireCase.wireApi} response text to app-server events`,
+    );
   }
-  const expectedCredentialHeader = input.wireCase.wireApi === "messages"
-    ? "x-api-key"
-    : "authorization";
+  const expectedCredentialHeader =
+    input.wireCase.wireApi === "messages" ? "x-api-key" : "authorization";
   if (request.credentialHeader !== expectedCredentialHeader) {
     throw new Error(
       `${input.wireCase.providerId} used credential header ${String(request.credentialHeader)}; expected ${expectedCredentialHeader}`,
@@ -383,13 +398,15 @@ export async function probeAgentRuntimeWire(input: {
     await client.start();
     const cases: WireCaseResult[] = [];
     for (const wireCase of wireCases) {
-      cases.push(await runWireCase({
-        baseUrl: server.baseUrl,
-        client,
-        cwd,
-        requests: server.requests,
-        wireCase,
-      }));
+      cases.push(
+        await runWireCase({
+          baseUrl: server.baseUrl,
+          client,
+          cwd,
+          requests: server.requests,
+          wireCase,
+        }),
+      );
     }
     const report: AgentRuntimeWireConformanceReport = {
       binaryPath: path.resolve(input.binaryPath),
@@ -422,8 +439,8 @@ async function main(): Promise<void> {
   const runtime = resolveCodexRuntime({ isPackaged: false, projectRootPath: projectRoot });
   const binaryPath = path.resolve(readOption(argv, "--binary") ?? runtime.binaryPath);
   const outputPath = path.resolve(
-    readOption(argv, "--out")
-      ?? path.join(projectRoot, ".generated", "agent-runtime-conformance", "wire.json"),
+    readOption(argv, "--out") ??
+      path.join(projectRoot, ".generated", "agent-runtime-conformance", "wire.json"),
   );
   const report = await probeAgentRuntimeWire({ binaryPath, outputPath });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -431,7 +448,9 @@ async function main(): Promise<void> {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch((error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+    );
     process.exitCode = 1;
   });
 }

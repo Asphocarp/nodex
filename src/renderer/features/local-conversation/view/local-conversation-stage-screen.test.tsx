@@ -15,8 +15,12 @@ describe("LocalConversationStageScreen", () => {
     );
 
     expect(Boolean(container.querySelector("[data-local-conversation-header='true']"))).toBe(true);
-    expect(Boolean(container.querySelector("[data-local-conversation-floating='true']"))).toBe(true);
-    expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-local-conversation-floating='true']"))).toBe(
+      true,
+    );
+    expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBe(
+      true,
+    );
     expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBe(true);
   });
 
@@ -30,7 +34,9 @@ describe("LocalConversationStageScreen", () => {
       />,
     );
 
-    expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBe(true);
+    expect(Boolean(container.querySelector("[data-local-conversation-thread-body='true']"))).toBe(
+      true,
+    );
     expect(Boolean(container.querySelector("[data-local-conversation-footer='true']"))).toBe(true);
   });
 });

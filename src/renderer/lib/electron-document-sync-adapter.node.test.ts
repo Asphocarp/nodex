@@ -59,10 +59,7 @@ class FakeBridge {
     };
   };
 
-  on = (
-    event: string,
-    callback: (...args: unknown[]) => void,
-  ): (() => void) => {
+  on = (event: string, callback: (...args: unknown[]) => void): (() => void) => {
     const active = this.listeners.get(event) ?? new Set();
     active.add(callback);
     this.listeners.set(event, active);
@@ -116,26 +113,23 @@ describe("createElectronDocumentSyncAdapter", () => {
       bridge as unknown as ElectronRendererBridge,
       "project-1",
     );
-    adapter.subscribe(
-      { documentId: "doc-1", clientSessionId: "session-1" },
-      () => undefined,
-    );
+    adapter.subscribe({ documentId: "doc-1", clientSessionId: "session-1" }, () => undefined);
     bridge.subscription.resolve({ ok: true, value: { subscribed: true } });
     const order: string[] = [];
-    const release = rendererLocalCommitIngress.subscribeAtoms(
-      () => order.push("admitted"),
-    );
+    const release = rendererLocalCommitIngress.subscribeAtoms(() => order.push("admitted"));
 
-    await adapter.applyUpdate({
-      documentId: "doc-1",
-      storeEpoch: "epoch-1",
-      generation: 1,
-      updateId: "update-1",
-      clientSessionId: "session-1",
-      baseHeadSeq: 0,
-      touchedBlockIds: [],
-      update: new Uint8Array([1]),
-    }).then(() => order.push("resolved"));
+    await adapter
+      .applyUpdate({
+        documentId: "doc-1",
+        storeEpoch: "epoch-1",
+        generation: 1,
+        updateId: "update-1",
+        clientSessionId: "session-1",
+        baseHeadSeq: 0,
+        touchedBlockIds: [],
+        update: new Uint8Array([1]),
+      })
+      .then(() => order.push("resolved"));
 
     expect(order).toEqual(["admitted", "resolved"]);
     release();
@@ -158,9 +152,7 @@ describe("createElectronDocumentSyncAdapter", () => {
       stateVector: new Uint8Array([0]),
     });
     await Promise.resolve();
-    expect(bridge.calls.map((call) => call.channel).join(",")).toBe(
-      "document-sync:subscribe",
-    );
+    expect(bridge.calls.map((call) => call.channel).join(",")).toBe("document-sync:subscribe");
 
     bridge.emit("document-sync:event", {
       kind: "connection",
@@ -184,9 +176,7 @@ describe("createElectronDocumentSyncAdapter", () => {
     );
     expect(
       bridge.calls.every(
-        (call) =>
-          (call.args[0] as { readonly projectId?: string }).projectId ===
-          "project-1",
+        (call) => (call.args[0] as { readonly projectId?: string }).projectId === "project-1",
       ),
     ).toBe(true);
   });
@@ -207,10 +197,12 @@ describe("createElectronDocumentSyncAdapter", () => {
     const closeSecond = adapter.subscribe(request, listener);
 
     bridge.subscription.resolve({ ok: true, value: { subscribed: true } });
-    await expect(adapter.sync({
-      ...request,
-      stateVector: new Uint8Array([0]),
-    })).resolves.toMatchObject({ ok: true });
+    await expect(
+      adapter.sync({
+        ...request,
+        stateVector: new Uint8Array([0]),
+      }),
+    ).resolves.toMatchObject({ ok: true });
     expect(bridge.calls.map((call) => call.channel)).toEqual([
       "document-sync:subscribe",
       "document-sync:sync",
@@ -230,13 +222,11 @@ describe("createElectronDocumentSyncAdapter", () => {
     );
     const events: DocumentSyncRealtimeEvent[] = [];
     const otherSessionEvents: DocumentSyncRealtimeEvent[] = [];
-    adapter.subscribe(
-      { documentId: "doc-1", clientSessionId: "session-1" },
-      (event) => events.push(event),
+    adapter.subscribe({ documentId: "doc-1", clientSessionId: "session-1" }, (event) =>
+      events.push(event),
     );
-    adapter.subscribe(
-      { documentId: "doc-1", clientSessionId: "session-2" },
-      (event) => otherSessionEvents.push(event),
+    adapter.subscribe({ documentId: "doc-1", clientSessionId: "session-2" }, (event) =>
+      otherSessionEvents.push(event),
     );
 
     bridge.emit("document-sync:event", {
@@ -287,10 +277,7 @@ describe("createElectronDocumentSyncAdapter", () => {
       bridge as unknown as ElectronRendererBridge,
       "project-1",
     );
-    adapter.subscribe(
-      { documentId: "doc-1", clientSessionId: "session-1" },
-      () => undefined,
-    );
+    adapter.subscribe({ documentId: "doc-1", clientSessionId: "session-1" }, () => undefined);
     bridge.subscription.resolve({
       ok: false,
       error: {
@@ -312,5 +299,4 @@ describe("createElectronDocumentSyncAdapter", () => {
       expect(result.error.retryable).toBe(true);
     }
   });
-
 });

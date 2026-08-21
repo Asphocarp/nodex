@@ -5,7 +5,12 @@ import {
   type SelectedTextRectLike,
 } from "./local-conversation-selected-text-side-chat-overlay";
 
-function rect(input: { left: number; top: number; width: number; height: number }): SelectedTextRectLike {
+function rect(input: {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}): SelectedTextRectLike {
   return {
     left: input.left,
     top: input.top,

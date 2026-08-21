@@ -47,11 +47,7 @@ const labelAtom = scopedDerivedAtom(
 const routeValueAtom = scopedAtom(routeScope, "empty", { debugLabel: "route-value" });
 const composerValueAtom = scopedAtom(composerScope, "empty", { debugLabel: "composer-value" });
 
-function ThreadProbe({
-  onHandle,
-}: {
-  onHandle(handle: ScopeHandle): void;
-}) {
+function ThreadProbe({ onHandle }: { onHandle(handle: ScopeHandle): void }) {
   const handle = useScopeHandle(threadScope);
   const label = useScopedAtomValue(labelAtom);
   const setCount = useSetScopedAtom(countAtom);
@@ -117,10 +113,7 @@ describe("Maitai scoped lifecycle", () => {
 
     const view = render(
       <MaitaiProvider store={store}>
-        <ScopeProvider
-          scope={threadScope}
-          descriptor={{ stableKey: "session:a", label: "A" }}
-        >
+        <ScopeProvider scope={threadScope} descriptor={{ stableKey: "session:a", label: "A" }}>
           <ThreadProbe onHandle={onHandle} />
         </ScopeProvider>
       </MaitaiProvider>,
@@ -134,10 +127,7 @@ describe("Maitai scoped lifecycle", () => {
 
     view.rerender(
       <MaitaiProvider store={store}>
-        <ScopeProvider
-          scope={threadScope}
-          descriptor={{ stableKey: "session:a", label: "A" }}
-        >
+        <ScopeProvider scope={threadScope} descriptor={{ stableKey: "session:a", label: "A" }}>
           <ThreadProbe onHandle={onHandle} />
         </ScopeProvider>
       </MaitaiProvider>,
@@ -159,8 +149,10 @@ describe("Maitai scoped lifecycle", () => {
     expect(view.getByRole("button").textContent).toBe("A renamed:1");
     expect(handleRef.current?.resolve(countAtom)).toBe(firstConcrete);
     expect(handleRef.current?.resolve(labelAtom)).not.toBe(firstDerivedConcrete);
-    expect(getMaitaiDebugSnapshot(store).find((entry) => entry.path.endsWith("session:a"))?.contextVersion)
-      .toBe(1);
+    expect(
+      getMaitaiDebugSnapshot(store).find((entry) => entry.path.endsWith("session:a"))
+        ?.contextVersion,
+    ).toBe(1);
   });
 
   test("equal route keys below different thread parents are isolated", () => {
@@ -215,11 +207,13 @@ describe("Maitai scoped lifecycle", () => {
       </StrictMode>,
     );
 
-    expect(getMaitaiDebugSnapshot(store).find((entry) => entry.path.endsWith("session:a"))?.mountedCount)
-      .toBe(1);
+    expect(
+      getMaitaiDebugSnapshot(store).find((entry) => entry.path.endsWith("session:a"))?.mountedCount,
+    ).toBe(1);
     view.unmount();
-    expect(getMaitaiDebugSnapshot(store).find((entry) => entry.path.endsWith("session:a"))?.mountedCount)
-      .toBe(0);
+    expect(
+      getMaitaiDebugSnapshot(store).find((entry) => entry.path.endsWith("session:a"))?.mountedCount,
+    ).toBe(0);
   });
 
   test("ThreadScope retains exactly 20 unmounted entries and finalizes an evicted handle", () => {
@@ -232,9 +226,11 @@ describe("Maitai scoped lifecycle", () => {
           scope={threadScope}
           descriptor={{ stableKey: `session:${index}`, label: `Thread ${index}` }}
         >
-          <ThreadProbe onHandle={(handle) => {
-            handles[index] = handle;
-          }} />
+          <ThreadProbe
+            onHandle={(handle) => {
+              handles[index] = handle;
+            }}
+          />
         </ScopeProvider>
       </MaitaiProvider>
     );
@@ -244,8 +240,9 @@ describe("Maitai scoped lifecycle", () => {
       view.rerender(renderThread(index));
     }
 
-    const retainedThreads = getMaitaiDebugSnapshot(store)
-      .filter((entry) => entry.definitionLabel === "ThreadScope");
+    const retainedThreads = getMaitaiDebugSnapshot(store).filter(
+      (entry) => entry.definitionLabel === "ThreadScope",
+    );
     expect(retainedThreads).toHaveLength(20);
     expect(retainedThreads.some((entry) => entry.path.endsWith("session:0"))).toBe(false);
     expect(() => handles[0]?.get(countAtom)).toThrow(/disposed/i);
@@ -269,10 +266,15 @@ describe("Maitai scoped lifecycle", () => {
     for (let index = 1; index <= 20; index += 1) view.rerender(renderRoute("a", index));
     for (let index = 0; index <= 20; index += 1) view.rerender(renderRoute("b", index));
 
-    const routes = getMaitaiDebugSnapshot(store)
-      .filter((entry) => entry.definitionLabel === "RouteScope");
-    expect(routes.filter((entry) => entry.path.includes("ThreadScope:session:a/"))).toHaveLength(20);
-    expect(routes.filter((entry) => entry.path.includes("ThreadScope:session:b/"))).toHaveLength(20);
+    const routes = getMaitaiDebugSnapshot(store).filter(
+      (entry) => entry.definitionLabel === "RouteScope",
+    );
+    expect(routes.filter((entry) => entry.path.includes("ThreadScope:session:a/"))).toHaveLength(
+      20,
+    );
+    expect(routes.filter((entry) => entry.path.includes("ThreadScope:session:b/"))).toHaveLength(
+      20,
+    );
   });
 
   test("ComposerScope retains exactly 100 entries below its RouteScope", () => {
@@ -299,8 +301,9 @@ describe("Maitai scoped lifecycle", () => {
     const view = render(renderComposer(0));
     for (let index = 1; index <= 100; index += 1) view.rerender(renderComposer(index));
 
-    expect(getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "ComposerScope"))
-      .toHaveLength(100);
+    expect(
+      getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "ComposerScope"),
+    ).toHaveLength(100);
     expect(() => handles[0]?.get(composerValueAtom)).toThrow(/disposed/i);
   });
 
@@ -357,8 +360,12 @@ describe("Maitai scoped lifecycle", () => {
     const tree = (firstKey: string, secondKey: string) => (
       <MaitaiProvider store={store}>
         <ScopeProvider scope={threadScope} descriptor={{ stableKey: "session:a", label: "A" }}>
-          <ScopeProvider scope={firstScope} descriptor={firstKey}><Fragment /></ScopeProvider>
-          <ScopeProvider scope={secondScope} descriptor={secondKey}><Fragment /></ScopeProvider>
+          <ScopeProvider scope={firstScope} descriptor={firstKey}>
+            <Fragment />
+          </ScopeProvider>
+          <ScopeProvider scope={secondScope} descriptor={secondKey}>
+            <Fragment />
+          </ScopeProvider>
         </ScopeProvider>
       </MaitaiProvider>
     );
@@ -366,6 +373,8 @@ describe("Maitai scoped lifecycle", () => {
     view.rerender(tree("b", "b"));
     const snapshot = getMaitaiDebugSnapshot(store);
     expect(snapshot.filter((entry) => entry.definitionLabel === "FirstChildScope")).toHaveLength(1);
-    expect(snapshot.filter((entry) => entry.definitionLabel === "SecondChildScope")).toHaveLength(1);
+    expect(snapshot.filter((entry) => entry.definitionLabel === "SecondChildScope")).toHaveLength(
+      1,
+    );
   });
 });

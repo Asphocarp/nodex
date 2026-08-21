@@ -1,10 +1,6 @@
 export type CodexWorktreeInitActivityKind = "worktree" | "setup" | "conversation";
 
-export type CodexWorktreeInitActivityStatus =
-  | "running"
-  | "completed"
-  | "skipped"
-  | "failed";
+export type CodexWorktreeInitActivityStatus = "running" | "completed" | "skipped" | "failed";
 
 export interface CodexWorktreeInitActivity {
   id: string;
@@ -13,9 +9,7 @@ export interface CodexWorktreeInitActivity {
   outputText: string;
 }
 
-export function codexWorktreeInitActivityLabel(
-  activity: CodexWorktreeInitActivity,
-): string {
+export function codexWorktreeInitActivityLabel(activity: CodexWorktreeInitActivity): string {
   if (activity.kind === "worktree") {
     if (activity.status === "running") return "Creating a worktree";
     if (activity.status === "failed") return "Failed to create worktree";

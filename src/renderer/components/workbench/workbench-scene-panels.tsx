@@ -1,13 +1,8 @@
 import type { ReactNode } from "react";
 import { BrowserTabFavicon } from "@/features/browser-sidebar/browser-tab-favicon";
-import {
-  isPanelActionTargetAllowed,
-  type PanelNewTabAction,
-} from "@/lib/workbench-panel-actions";
+import { isPanelActionTargetAllowed, type PanelNewTabAction } from "@/lib/workbench-panel-actions";
 import { resolveWorkbenchSceneTabPresentation } from "@/lib/workbench-scene-tab-presentation";
-import type {
-  WorkbenchSceneDurablePanelCommands,
-} from "@/lib/use-workbench-panel-controller";
+import type { WorkbenchSceneDurablePanelCommands } from "@/lib/use-workbench-panel-controller";
 import type { PanelId, Project } from "@/lib/types";
 import {
   makePageTitleResourceKey,
@@ -18,9 +13,7 @@ import {
   makeBrowserSidebarTabKey,
   type BrowserSidebarTabSnapshot,
 } from "../../../shared/browser-sidebar";
-import {
-  listWorkbenchPanelLeaves,
-} from "../../../shared/workbench-panel-layout";
+import { listWorkbenchPanelLeaves } from "../../../shared/workbench-panel-layout";
 import {
   makeWorkbenchSceneKey,
   resolveWorkbenchSceneSurface,
@@ -38,10 +31,7 @@ export interface WorkbenchScenePanelsProps {
   readonly projects: Project[];
   readonly currentLibraryId: string | null;
   readonly browserViewScopeId: string;
-  readonly browserTabSnapshotByKey: ReadonlyMap<
-    string,
-    BrowserSidebarTabSnapshot
-  >;
+  readonly browserTabSnapshotByKey: ReadonlyMap<string, BrowserSidebarTabSnapshot>;
   readonly pageTitleStore: PageTitleProjectionStore;
   readonly commands: WorkbenchSceneDurablePanelCommands;
   readonly previewSurfaceIds: ReadonlySet<string>;
@@ -70,16 +60,8 @@ export interface WorkbenchScenePanelsProps {
     destination: PanelDestination,
   ) => Promise<void>;
   readonly onFocusGroup?: (panelId: PanelId, leafId: string) => void;
-  readonly onClearPreview: (
-    panelId: PanelId,
-    leafId: string,
-    surfaceId: string,
-  ) => void;
-  readonly onPinPreview: (
-    panelId: PanelId,
-    leafId: string,
-    surfaceId: string,
-  ) => void;
+  readonly onClearPreview: (panelId: PanelId, leafId: string, surfaceId: string) => void;
+  readonly onPinPreview: (panelId: PanelId, leafId: string, surfaceId: string) => void;
   readonly onCloseSurface?: (
     surface: WorkbenchSurfaceDescriptor,
     removeDescriptor: () => void,
@@ -110,49 +92,46 @@ function makePanelItems(
     });
     itemsByLeafId[leaf.id] = surfaces.map((surface) => {
       const preview = previewSurfaceIds.has(surface.id);
-      const isProjectHomeRoot = scene.owner.kind === "project"
-        && surface.id === scene.primary?.id
-        && surface.kind === "db_view";
-      const presentation = resolveWorkbenchSceneTabPresentation(
-        surface,
-        isProjectHomeRoot,
-      );
-      const browserTabSnapshot = surface.kind === "browser"
-        ? browserTabSnapshotByKey.get(makeBrowserSidebarTabKey({
-            browserConversationId,
-            browserViewScopeId,
-            browserTabId: surface.config.browserTabId,
-          }))
-        : undefined;
-      const title = scene.owner.kind === "pages"
-        ? surface.titleSnapshot.trim() || presentation.title
-        : presentation.title;
-      const titleSource = surface.kind === "page_stage" && currentLibraryId
-        ? pageTitleStore.createSource(
-            makePageTitleResourceKey(
-              currentLibraryId,
-              surface.config.pageId,
-            ),
-            title,
-          )
-        : undefined;
+      const isProjectHomeRoot =
+        scene.owner.kind === "project" &&
+        surface.id === scene.primary?.id &&
+        surface.kind === "db_view";
+      const presentation = resolveWorkbenchSceneTabPresentation(surface, isProjectHomeRoot);
+      const browserTabSnapshot =
+        surface.kind === "browser"
+          ? browserTabSnapshotByKey.get(
+              makeBrowserSidebarTabKey({
+                browserConversationId,
+                browserViewScopeId,
+                browserTabId: surface.config.browserTabId,
+              }),
+            )
+          : undefined;
+      const title =
+        scene.owner.kind === "pages"
+          ? surface.titleSnapshot.trim() || presentation.title
+          : presentation.title;
+      const titleSource =
+        surface.kind === "page_stage" && currentLibraryId
+          ? pageTitleStore.createSource(
+              makePageTitleResourceKey(currentLibraryId, surface.config.pageId),
+              title,
+            )
+          : undefined;
       return {
         id: surface.id,
         title,
         titleSource,
         icon: presentation.icon,
-        iconElement: surface.kind === "browser" ? (
-          <BrowserTabFavicon
-            className="icon-xs"
-            faviconUrl={
-              browserTabSnapshot?.faviconUrl ?? surface.config.faviconUrl
-            }
-            isLoading={browserTabSnapshot?.isLoading ?? false}
-            isWaitingForResponse={
-              browserTabSnapshot?.isWaitingForResponse ?? false
-            }
-          />
-        ) : isProjectHomeRoot && project ? (
+        iconElement:
+          surface.kind === "browser" ? (
+            <BrowserTabFavicon
+              className="icon-xs"
+              faviconUrl={browserTabSnapshot?.faviconUrl ?? surface.config.faviconUrl}
+              isLoading={browserTabSnapshot?.isLoading ?? false}
+              isWaitingForResponse={browserTabSnapshot?.isWaitingForResponse ?? false}
+            />
+          ) : isProjectHomeRoot && project ? (
             <ProjectMarker
               appearance={project.appearance}
               className="size-4"
@@ -163,16 +142,17 @@ function makePanelItems(
         preview,
         reorderable: !preview && surface.id !== scene.primary?.id,
         splittable: !preview && surface.id !== scene.primary?.id,
-        renderPanel: (_close, context) => renderSurface(surface, {
-          active: context.active,
-          panelId,
-        }),
+        renderPanel: (_close, context) =>
+          renderSurface(surface, {
+            active: context.active,
+            panelId,
+          }),
       };
     });
     activeTabIdsByLeafId[leaf.id] =
       leaf.activeTabId && resolveWorkbenchSceneSurface(scene, leaf.activeTabId)
         ? leaf.activeTabId
-        : surfaces[0]?.id ?? null;
+        : (surfaces[0]?.id ?? null);
   }
   return { itemsByLeafId, activeTabIdsByLeafId };
 }
@@ -230,43 +210,26 @@ export function buildWorkbenchScenePanels({
         tabItemsByLeafId={projection.itemsByLeafId}
         activeTabIdsByLeafId={projection.activeTabIdsByLeafId}
         availableActions={availableActions.filter((action) =>
-          isPanelActionTargetAllowed(action, panelId)
+          isPanelActionTargetAllowed(action, panelId),
         )}
         projects={projects}
         isMac={isMac}
         commandKeymapState={commandKeymapState}
         currentProjectDbViewExists={currentProjectDbViewExists}
-        renderAfterList={panelId === "right"
-          ? () => rightPanelHeaderAfterList
-          : undefined}
-        headerStartInsetPx={panelId === "right"
-          ? rightPanelHeaderStartInsetWidth
-          : undefined}
-        headerEndInsetPx={panelId === "bottom"
-          ? bottomPanelGlobalHeaderInsetWidth
-          : undefined}
+        renderAfterList={panelId === "right" ? () => rightPanelHeaderAfterList : undefined}
+        headerStartInsetPx={panelId === "right" ? rightPanelHeaderStartInsetWidth : undefined}
+        headerEndInsetPx={panelId === "bottom" ? bottomPanelGlobalHeaderInsetWidth : undefined}
         tabScrollEndPaddingPx={panelTabScrollEndPaddingPx}
-        renderNewTab={renderNewTab
-          ? (leafId) => renderNewTab(panelId, leafId)
-          : undefined}
-        renderEmptyLeaf={renderEmptyLeaf
-          ? (leafId) => renderEmptyLeaf(panelId, leafId)
-          : undefined}
+        renderNewTab={renderNewTab ? (leafId) => renderNewTab(panelId, leafId) : undefined}
+        renderEmptyLeaf={renderEmptyLeaf ? (leafId) => renderEmptyLeaf(panelId, leafId) : undefined}
         commands={{
           selectTab: (leafId, surfaceId) => {
             if (previewSurfaceIds.has(surfaceId)) return;
-            const activePreview = projection.itemsByLeafId[leafId]?.find(
-              (item) => item.preview,
-            );
+            const activePreview = projection.itemsByLeafId[leafId]?.find((item) => item.preview);
             if (activePreview) {
               onClearPreview(panelId, leafId, activePreview.id);
             }
-            commands.activateSurface(
-              scene.owner,
-              panelId,
-              leafId,
-              surfaceId,
-            );
+            commands.activateSurface(scene.owner, panelId, leafId, surfaceId);
           },
           closeTab: (_leafId, surfaceId) => {
             if (previewSurfaceIds.has(surfaceId)) {
@@ -292,9 +255,9 @@ export function buildWorkbenchScenePanels({
           },
           reorderTab: (leafId, surfaceId, targetIndex) => {
             if (previewSurfaceIds.has(surfaceId)) return;
-            const leaf = listWorkbenchPanelLeaves(
-              scene.panels[panelId].layout,
-            ).find((candidate) => candidate.id === leafId);
+            const leaf = listWorkbenchPanelLeaves(scene.panels[panelId].layout).find(
+              (candidate) => candidate.id === leafId,
+            );
             if (!leaf) return;
             const orderedSurfaceIds = [...leaf.tabIds];
             const sourceIndex = orderedSurfaceIds.indexOf(surfaceId);
@@ -307,13 +270,7 @@ export function buildWorkbenchScenePanels({
               orderedSurfaceIds,
             });
           },
-          moveTab: (
-            surfaceId,
-            targetPanelId,
-            targetLeafId,
-            targetIndex,
-            splitTarget,
-          ) => {
+          moveTab: (surfaceId, targetPanelId, targetLeafId, targetIndex, splitTarget) => {
             if (previewSurfaceIds.has(surfaceId)) return;
             commands.moveSurface(scene.owner, {
               surfaceId,
@@ -337,12 +294,7 @@ export function buildWorkbenchScenePanels({
             commands.activateSurface(scene.owner, panelId, leafId);
           },
           activateGroup: (leafId, surfaceId) => {
-            commands.activateSurface(
-              scene.owner,
-              panelId,
-              leafId,
-              surfaceId,
-            );
+            commands.activateSurface(scene.owner, panelId, leafId, surfaceId);
           },
           resizeGroup: (branchId, ratio) => {
             commands.resizeBranch(scene.owner, {

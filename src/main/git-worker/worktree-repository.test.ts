@@ -105,12 +105,11 @@ describe("WorktreeRepository", () => {
 
   it("discovers attribute filters once and neutralizes every execution hook", async () => {
     const runner: GitCommandRunner = {
-      run: vi.fn(async () => commandResult([
-        "filter.lfs.process",
-        "filter.lfs.required",
-        "filter.custom.clean",
-        "",
-      ].join("\n"))),
+      run: vi.fn(async () =>
+        commandResult(
+          ["filter.lfs.process", "filter.lfs.required", "filter.custom.clean", ""].join("\n"),
+        ),
+      ),
     };
     const repository = new WorktreeRepository(identity, runner);
 

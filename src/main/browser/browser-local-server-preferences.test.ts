@@ -48,9 +48,9 @@ describe("BrowserLocalServerPreferencesStore", () => {
     const store = new BrowserLocalServerPreferencesStore(filePath);
     expect(store.snapshot().showMode).toBe("online");
     expect(
-      fs.readdirSync(path.dirname(filePath)).some((entry) =>
-        entry.startsWith("browser-local-server-preferences.json.corrupt-")
-      ),
+      fs
+        .readdirSync(path.dirname(filePath))
+        .some((entry) => entry.startsWith("browser-local-server-preferences.json.corrupt-")),
     ).toBe(true);
   });
 });

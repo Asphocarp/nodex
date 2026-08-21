@@ -35,7 +35,7 @@ export function splitShellWords(input: string): string[] | null {
   const words: string[] = [];
   let current = "";
   let hasCurrentWord = false;
-  let quote: "'" | "\"" | null = null;
+  let quote: "'" | '"' | null = null;
   let escaped = false;
 
   for (let index = 0; index < input.length; index += 1) {
@@ -67,7 +67,7 @@ export function splitShellWords(input: string): string[] | null {
       continue;
     }
 
-    if (char === "'" || char === "\"") {
+    if (char === "'" || char === '"') {
       quote = char;
       hasCurrentWord = true;
       continue;
@@ -138,12 +138,12 @@ export function getDisplayCommand(command: string): string {
 function quoteShellWord(value: string): string {
   if (value === "") return "''";
   if (!/[^\w@%\-+=:,./]/.test(value)) return value;
-  return (`'${value.replace(/('+)/g, "'\"$1\"'")}'`).replace(/^''|''$/g, "");
+  return `'${value.replace(/('+)/g, "'\"$1\"'")}'`.replace(/^''|''$/g, "");
 }
 
 function quoteExecPolicyWord(value: string): string {
   if (/^[A-Za-z0-9_@+=:,./-]+$/.test(value)) return value;
-  if (!/[`$\\!]/.test(value) && !value.includes("\"")) return `"${value}"`;
+  if (!/[`$\\!]/.test(value) && !value.includes('"')) return `"${value}"`;
   return quoteShellWord(value);
 }
 
@@ -163,11 +163,11 @@ export function formatCodexExecPolicyAmendmentMenuSummary(
   return command;
 }
 
-function getCommandActionCommands(actions: readonly CodexCommandAction[] | null | undefined): string[] {
+function getCommandActionCommands(
+  actions: readonly CodexCommandAction[] | null | undefined,
+): string[] {
   if (!actions) return [];
-  return actions
-    .map((action) => action.command.trim())
-    .filter((command) => command.length > 0);
+  return actions.map((action) => action.command.trim()).filter((command) => command.length > 0);
 }
 
 export function buildCodexCommandApprovalPreview(
@@ -186,16 +186,15 @@ export function buildCodexCommandApprovalPreview(
   }
 
   const commandActionCommands = getCommandActionCommands(request.commandActions);
-  const commandFromActions = commandActionCommands.length > 0
-    ? commandActionCommands.join(" && ")
-    : null;
+  const commandFromActions =
+    commandActionCommands.length > 0 ? commandActionCommands.join(" && ") : null;
   const commandFromRequest = request.command?.trim() || null;
-  const commandFromAmendment = formatCodexExecPolicyAmendmentCommand(request.proposedExecpolicyAmendment);
+  const commandFromAmendment = formatCodexExecPolicyAmendmentCommand(
+    request.proposedExecpolicyAmendment,
+  );
   const commandFromLegacyArgs = request.cmd?.join(" ").trim() || null;
-  const commandText = commandFromActions
-    ?? commandFromRequest
-    ?? commandFromAmendment
-    ?? commandFromLegacyArgs;
+  const commandText =
+    commandFromActions ?? commandFromRequest ?? commandFromAmendment ?? commandFromLegacyArgs;
 
   if (!commandText) return null;
 

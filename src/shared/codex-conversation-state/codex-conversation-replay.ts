@@ -1,18 +1,16 @@
-import type {
-  ServerNotification,
-} from "@nodex/codex-app-server-protocol";
+import type { ServerNotification } from "@nodex/codex-app-server-protocol";
 import type { Thread } from "@nodex/codex-app-server-protocol/v2/Thread";
 import type { CodexCanonicalServerRequest } from "./codex-conversation-state";
 
 export type CodexConversationReplayEvent =
   | {
-    readonly type: "notification";
-    readonly notification: ServerNotification;
-  }
+      readonly type: "notification";
+      readonly notification: ServerNotification;
+    }
   | {
-    readonly type: "request";
-    readonly request: CodexCanonicalServerRequest;
-  };
+      readonly type: "request";
+      readonly request: CodexCanonicalServerRequest;
+    };
 
 export type CodexConversationReplayProvenanceKind =
   | "bundle-synthesized"
@@ -86,8 +84,10 @@ interface ReplayTextDeltaScan {
 function isReplayTextDeltaNotification(
   notification: ServerNotification,
 ): notification is ReplayTextDeltaNotification {
-  return notification.method === "item/agentMessage/delta"
-    || notification.method === "item/commandExecution/outputDelta";
+  return (
+    notification.method === "item/agentMessage/delta" ||
+    notification.method === "item/commandExecution/outputDelta"
+  );
 }
 
 function buildTextDeltaKey(
@@ -139,14 +139,16 @@ function scanReplayTextDeltas(
 
     const { notification } = event;
     if (
-      notification.method === "item/completed"
-      && notification.params.item.type === "agentMessage"
+      notification.method === "item/completed" &&
+      notification.params.item.type === "agentMessage"
     ) {
-      completedAgentMessageKeys.add(buildTextDeltaKey(
-        "item/agentMessage/delta",
-        notification.params.turnId,
-        notification.params.item.id,
-      ));
+      completedAgentMessageKeys.add(
+        buildTextDeltaKey(
+          "item/agentMessage/delta",
+          notification.params.turnId,
+          notification.params.item.id,
+        ),
+      );
       continue;
     }
 
@@ -229,8 +231,8 @@ function prepareReplayEvent(
     notification.params.itemId,
   );
   if (
-    notification.method === "item/agentMessage/delta"
-    && scan.completedAgentMessageKeys.has(key)
+    notification.method === "item/agentMessage/delta" &&
+    scan.completedAgentMessageKeys.has(key)
   ) {
     return null;
   }

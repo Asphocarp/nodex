@@ -60,7 +60,8 @@ function parseArtifact(value: unknown): AgentRuntimeArtifact | null {
   if (!isObject(value)) return null;
   if (typeof value.path !== "string" || !isSafeRelativePath(value.path)) return null;
   if (typeof value.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(value.sha256)) return null;
-  if (typeof value.size !== "number" || !Number.isSafeInteger(value.size) || value.size < 0) return null;
+  if (typeof value.size !== "number" || !Number.isSafeInteger(value.size) || value.size < 0)
+    return null;
   if (typeof value.executable !== "boolean") return null;
   return {
     path: value.path,
@@ -72,12 +73,14 @@ function parseArtifact(value: unknown): AgentRuntimeArtifact | null {
 
 function parsePackageManifest(value: unknown): OpenInterpreterPackageManifest | null {
   if (!isObject(value)) return null;
-  if (typeof value.layoutVersion !== "number" || !Number.isSafeInteger(value.layoutVersion)) return null;
+  if (typeof value.layoutVersion !== "number" || !Number.isSafeInteger(value.layoutVersion))
+    return null;
   if (typeof value.version !== "string" || value.version.length === 0) return null;
   if (typeof value.target !== "string" || value.target.length === 0) return null;
   if (value.variant !== "open-interpreter") return null;
   if (typeof value.entrypoint !== "string" || !isSafeRelativePath(value.entrypoint)) return null;
-  if (typeof value.resourcesDir !== "string" || !isSafeRelativePath(value.resourcesDir)) return null;
+  if (typeof value.resourcesDir !== "string" || !isSafeRelativePath(value.resourcesDir))
+    return null;
   if (typeof value.pathDir !== "string" || !isSafeRelativePath(value.pathDir)) return null;
   return {
     layoutVersion: value.layoutVersion,
@@ -90,7 +93,9 @@ function parsePackageManifest(value: unknown): OpenInterpreterPackageManifest | 
   };
 }
 
-function parseArtifactRelease(value: unknown): BundledAgentRuntimeMetadata["artifactRelease"] | null {
+function parseArtifactRelease(
+  value: unknown,
+): BundledAgentRuntimeMetadata["artifactRelease"] | null {
   if (!isObject(value)) return null;
   if (typeof value.repository !== "string" || value.repository.length === 0) return null;
   if (typeof value.tag !== "string" || value.tag.length === 0) return null;
@@ -127,15 +132,18 @@ function parseSourceRevision(value: unknown): BundledAgentRuntimeMetadata["sourc
   };
 }
 
-export function parseBundledAgentRuntimeMetadata(value: unknown): BundledAgentRuntimeMetadata | null {
+export function parseBundledAgentRuntimeMetadata(
+  value: unknown,
+): BundledAgentRuntimeMetadata | null {
   if (!isObject(value)) return null;
   if (value.layoutVersion !== AGENT_RUNTIME_LAYOUT_VERSION) return null;
   if (value.runtimeFamily !== "open-interpreter") return null;
   if (typeof value.runtimeVersion !== "string" || value.runtimeVersion.length === 0) return null;
   if (
-    typeof value.codexCompatibilityVersion !== "string"
-    || value.codexCompatibilityVersion.length === 0
-  ) return null;
+    typeof value.codexCompatibilityVersion !== "string" ||
+    value.codexCompatibilityVersion.length === 0
+  )
+    return null;
   if (typeof value.entrypoint !== "string" || !isSafeRelativePath(value.entrypoint)) return null;
   if (typeof value.targetArch !== "string" || value.targetArch.length === 0) return null;
   if (typeof value.targetPlatform !== "string" || value.targetPlatform.length === 0) return null;
@@ -147,7 +155,9 @@ export function parseBundledAgentRuntimeMetadata(value: unknown): BundledAgentRu
   const parsedArtifacts = artifacts as AgentRuntimeArtifact[];
   const artifactPaths = new Set(parsedArtifacts.map((artifact) => artifact.path));
   if (artifactPaths.size !== parsedArtifacts.length) return null;
-  if (!parsedArtifacts.some((artifact) => artifact.path === value.entrypoint && artifact.executable)) {
+  if (
+    !parsedArtifacts.some((artifact) => artifact.path === value.entrypoint && artifact.executable)
+  ) {
     return null;
   }
 
@@ -159,7 +169,10 @@ export function parseBundledAgentRuntimeMetadata(value: unknown): BundledAgentRu
 
   const packageManifest = parsePackageManifest(value.packageManifest);
   if (!packageManifest || packageManifest.entrypoint !== value.entrypoint) return null;
-  if (packageManifest.version !== value.runtimeVersion || packageManifest.target !== value.targetTriple) {
+  if (
+    packageManifest.version !== value.runtimeVersion ||
+    packageManifest.target !== value.targetTriple
+  ) {
     return null;
   }
   if (!artifactPaths.has("codex-package.json")) return null;

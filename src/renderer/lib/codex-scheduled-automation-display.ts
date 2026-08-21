@@ -17,8 +17,8 @@ export function formatCodexScheduledAutomationRruleSummary(rrule: string | null)
 
   if (frequency === "WEEKLY") {
     const byDay = fields.get("BYDAY")?.split(",").filter(Boolean) ?? [];
-    const isWeekday = byDay.length === WEEKDAY_CODES.length
-      && WEEKDAY_CODES.every((day) => byDay.includes(day));
+    const isWeekday =
+      byDay.length === WEEKDAY_CODES.length && WEEKDAY_CODES.every((day) => byDay.includes(day));
     if (isWeekday && normalizedInterval === 1) return "Every weekday";
     return normalizedInterval === 1 ? "Weekly" : `Every ${normalizedInterval} weeks`;
   }
@@ -35,9 +35,11 @@ export function formatCodexScheduledAutomationRruleSummary(rrule: string | null)
 }
 
 function isSameLocalDate(left: Date, right: Date): boolean {
-  return left.getFullYear() === right.getFullYear()
-    && left.getMonth() === right.getMonth()
-    && left.getDate() === right.getDate();
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
 }
 
 function addLocalDays(date: Date, days: number): Date {

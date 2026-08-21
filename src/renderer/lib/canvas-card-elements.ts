@@ -28,12 +28,11 @@ const PRIORITY_COLORS: Record<Priority, string> = {
 const DEFAULT_CARD_COLOR = "#f8f9fa";
 
 /** Build an ExcalidrawElementSkeleton representing a card on the canvas. */
-export function createPageElement(
-  card: DatabasePageSummary,
-  position: { x: number; y: number },
-) {
+export function createPageElement(card: DatabasePageSummary, position: { x: number; y: number }) {
   const label = card.title.length > 60 ? `${card.title.slice(0, 57)}...` : card.title;
-  const bg = card.priority ? (PRIORITY_COLORS[card.priority] ?? DEFAULT_CARD_COLOR) : DEFAULT_CARD_COLOR;
+  const bg = card.priority
+    ? (PRIORITY_COLORS[card.priority] ?? DEFAULT_CARD_COLOR)
+    : DEFAULT_CARD_COLOR;
 
   return {
     type: "rectangle" as const,
@@ -107,7 +106,10 @@ export function haveSamePageIds(left: ReadonlySet<string>, right: ReadonlySet<st
   return true;
 }
 
-export function syncPlacedPageIds(previous: Set<string>, elements: readonly unknown[]): Set<string> {
+export function syncPlacedPageIds(
+  previous: Set<string>,
+  elements: readonly unknown[],
+): Set<string> {
   const next = collectPlacedPageIds(elements);
   return haveSamePageIds(previous, next) ? previous : next;
 }
@@ -149,10 +151,7 @@ export function updatePageElements(
     const card = cardMap.get(pageId);
     if (!card) return el; // card was deleted, leave element as-is
 
-    const expectedLabel =
-      card.title.length > 60
-        ? `${card.title.slice(0, 57)}...`
-        : card.title;
+    const expectedLabel = card.title.length > 60 ? `${card.title.slice(0, 57)}...` : card.title;
     const expectedBg = card.priority
       ? (PRIORITY_COLORS[card.priority] ?? DEFAULT_CARD_COLOR)
       : DEFAULT_CARD_COLOR;

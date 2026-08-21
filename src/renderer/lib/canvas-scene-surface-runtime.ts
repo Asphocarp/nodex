@@ -1,22 +1,14 @@
 import type { ReadyRegisteredOwnedBlockDocumentDescriptor } from "./owned-block-document";
-import type {
-  CanvasLocalSceneObservation,
-  CanvasSceneBinding,
-} from "./canvas-scene-binding";
+import type { CanvasLocalSceneObservation, CanvasSceneBinding } from "./canvas-scene-binding";
 import type { CanvasBinaryFileResolver } from "./canvas-assets";
-import type {
-  CanvasSceneProvider,
-  CanvasSceneSubmission,
-} from "./canvas-scene-provider";
+import type { CanvasSceneProvider, CanvasSceneSubmission } from "./canvas-scene-provider";
 import type { CanvasPresenceController } from "./canvas-presence-controller";
 
 export interface CanvasSceneSurfaceRuntime {
   readonly key: string;
   readonly descriptor: ReadyRegisteredOwnedBlockDocumentDescriptor;
   connect(): Promise<void>;
-  submitLocalScene(
-    observation: CanvasLocalSceneObservation,
-  ): CanvasSceneSubmission;
+  submitLocalScene(observation: CanvasLocalSceneObservation): CanvasSceneSubmission;
   persistDurable(): Promise<void>;
   flushCommitted(): Promise<void>;
   close(): Promise<void>;
@@ -37,10 +29,7 @@ export interface CanvasSceneSurfaceAcquireInput {
 
 export interface CanvasSceneSurfaceRegistry {
   acquire(input: CanvasSceneSurfaceAcquireInput): CanvasSceneSurfaceRuntime;
-  release(
-    key: string,
-    expected: CanvasSceneSurfaceRuntime,
-  ): Promise<void>;
+  release(key: string, expected: CanvasSceneSurfaceRuntime): Promise<void>;
   dispose(key: string): Promise<void>;
   flushOwnerCommitted(ownerBlockId: string): Promise<void>;
   persistAllDurable(): Promise<void>;
@@ -51,8 +40,7 @@ export const makeCanvasSceneSurfaceKey = (
   windowSessionId: string,
   projectSessionId: string,
   tabId: string,
-): string =>
-  JSON.stringify([windowSessionId, projectSessionId, tabId]);
+): string => JSON.stringify([windowSessionId, projectSessionId, tabId]);
 
 class DefaultCanvasSceneSurfaceRuntime implements CanvasSceneSurfaceRuntime {
   readonly key: string;
@@ -89,16 +77,10 @@ class DefaultCanvasSceneSurfaceRuntime implements CanvasSceneSurfaceRuntime {
   connect = async (): Promise<void> => {
     if (this.closed) throw new Error("Canvas scene surface runtime is closed");
     await this.connectBarrier;
-    await (
-      this.connectDocumentSession
-        ? this.connectDocumentSession()
-        : this.provider.connect()
-    );
+    await (this.connectDocumentSession ? this.connectDocumentSession() : this.provider.connect());
   };
 
-  submitLocalScene = (
-    observation: CanvasLocalSceneObservation,
-  ): CanvasSceneSubmission => {
+  submitLocalScene = (observation: CanvasLocalSceneObservation): CanvasSceneSubmission => {
     if (!this.closed) return this.binding.submitLocalScene(observation);
     const error = new Error("Canvas scene surface runtime is closed");
     const durable = Promise.reject(error);
@@ -136,11 +118,11 @@ class DefaultCanvasSceneSurfaceRuntime implements CanvasSceneSurfaceRuntime {
     await run(() => this.binding.persistDurable());
     const status = this.provider.getStatus();
     if (
-      this.maintainIfIdle
-      && status.phase === "ready"
-      && status.connected
-      && status.pendingMutationCount === 0
-      && !status.writeFrozen
+      this.maintainIfIdle &&
+      status.phase === "ready" &&
+      status.connected &&
+      status.pendingMutationCount === 0 &&
+      !status.writeFrozen
     ) {
       await this.maintainIfIdle().catch(() => undefined);
     }
@@ -148,7 +130,7 @@ class DefaultCanvasSceneSurfaceRuntime implements CanvasSceneSurfaceRuntime {
     await run(() =>
       this.releaseDocumentSession
         ? this.releaseDocumentSession()
-        : this.provider.close({ requireCommitted: false })
+        : this.provider.close({ requireCommitted: false }),
     );
     await run(() => this.disposeSubscriptions());
     await run(() => this.fileResolver.destroy());
@@ -162,18 +144,12 @@ export const createCanvasSceneSurfaceRegistry = (): CanvasSceneSurfaceRegistry =
   const currentByKey = new Map<string, CanvasSceneSurfaceRuntime>();
   const activeOrClosing = new Set<CanvasSceneSurfaceRuntime>();
 
-  const forgetSettled = (
-    key: string,
-    runtime: CanvasSceneSurfaceRuntime,
-  ): void => {
+  const forgetSettled = (key: string, runtime: CanvasSceneSurfaceRuntime): void => {
     activeOrClosing.delete(runtime);
     if (currentByKey.get(key) === runtime) currentByKey.delete(key);
   };
 
-  const release = async (
-    key: string,
-    expected: CanvasSceneSurfaceRuntime,
-  ): Promise<void> => {
+  const release = async (key: string, expected: CanvasSceneSurfaceRuntime): Promise<void> => {
     try {
       await expected.close();
     } finally {
@@ -187,10 +163,7 @@ export const createCanvasSceneSurfaceRegistry = (): CanvasSceneSurfaceRegistry =
       const connectBarrier = predecessor
         ? release(input.key, predecessor).catch(() => undefined)
         : Promise.resolve();
-      const runtime = new DefaultCanvasSceneSurfaceRuntime(
-        input,
-        connectBarrier,
-      );
+      const runtime = new DefaultCanvasSceneSurfaceRuntime(input, connectBarrier);
       currentByKey.set(input.key, runtime);
       activeOrClosing.add(runtime);
       return runtime;
@@ -208,14 +181,10 @@ export const createCanvasSceneSurfaceRegistry = (): CanvasSceneSurfaceRegistry =
       }
     },
     async persistAllDurable() {
-      await Promise.all(
-        [...activeOrClosing].map((runtime) => runtime.persistDurable()),
-      );
+      await Promise.all([...activeOrClosing].map((runtime) => runtime.persistDurable()));
     },
     async flushAllCommitted() {
-      await Promise.all(
-        [...activeOrClosing].map((runtime) => runtime.flushCommitted()),
-      );
+      await Promise.all([...activeOrClosing].map((runtime) => runtime.flushCommitted()));
     },
   };
 };

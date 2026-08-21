@@ -1,37 +1,30 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  type ReactNode,
-} from "react";
+import { useCallback, useLayoutEffect, type ReactNode } from "react";
 import {
   applyCodeFontSizeRootVariable,
   readCodeFontSize,
   writeCodeFontSize,
 } from "./code-font-size";
-import {
-  appScope,
-  scopedAtomWithInitializer,
-  useScopedAtom,
-} from "./maitai";
+import { appScope, scopedAtomWithInitializer, useScopedAtom } from "./maitai";
 
 interface CodeFontSizeContextValue {
   codeFontSize: number;
   setCodeFontSize: (value: number) => void;
 }
 
-const codeFontSizeAtom = scopedAtomWithInitializer(
-  appScope,
-  readCodeFontSize,
-  { debugLabel: "code-font-size" },
-);
+const codeFontSizeAtom = scopedAtomWithInitializer(appScope, readCodeFontSize, {
+  debugLabel: "code-font-size",
+});
 
 function useCodeFontSizeInternal(): CodeFontSizeContextValue {
   const [codeFontSize, setCodeFontSizeState] = useScopedAtom(codeFontSizeAtom);
 
-  const setCodeFontSize = useCallback((value: number) => {
-    const normalized = writeCodeFontSize(value);
-    setCodeFontSizeState(normalized);
-  }, [setCodeFontSizeState]);
+  const setCodeFontSize = useCallback(
+    (value: number) => {
+      const normalized = writeCodeFontSize(value);
+      setCodeFontSizeState(normalized);
+    },
+    [setCodeFontSizeState],
+  );
 
   return { codeFontSize, setCodeFontSize };
 }

@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import * as Y from "yjs";
-import {
-  createPageDocumentGenesis,
-  materializePageDocument,
-} from "./block-document-codec";
+import { createPageDocumentGenesis, materializePageDocument } from "./block-document-codec";
 import {
   LegacyNfmShadowTranslationError,
   translateLegacyNfmIntoPageDocument,
@@ -121,18 +118,14 @@ describe("LegacyNfmShadowTranslator", () => {
       nfm: "Gamma\n\tAlpha\n- Inserted",
       allocateBlockId: () => `inserted-${++allocationCount}`,
     });
-    const [movedGamma, nestedAlpha, inserted] = flatten(
-      result.materialization.blockTree,
-    );
+    const [movedGamma, nestedAlpha, inserted] = flatten(result.materialization.blockTree);
 
     expect(movedGamma?.id).toBe(gamma?.id);
     expect(nestedAlpha?.id).toBe(alpha?.id);
     expect(inserted?.id).toBe("inserted-1");
-    expect(
-      flatten(result.materialization.blockTree).some(
-        (block) => block.id === beta?.id,
-      ),
-    ).toBe(false);
+    expect(flatten(result.materialization.blockTree).some((block) => block.id === beta?.id)).toBe(
+      false,
+    );
     expect(allocationCount).toBe(1);
   });
 
@@ -155,9 +148,7 @@ describe("LegacyNfmShadowTranslator", () => {
       nfm: "Inserted introduction\nFirst sentence revised\nSecond sentence",
       allocateBlockId: () => `sequence-new-${++allocationCount}`,
     });
-    const [inserted, editedFirst, unchangedSecond] = flatten(
-      result.materialization.blockTree,
-    );
+    const [inserted, editedFirst, unchangedSecond] = flatten(result.materialization.blockTree);
 
     expect(inserted?.id).toBe("sequence-new-1");
     expect(editedFirst?.id).toBe(first?.id);
@@ -191,16 +182,10 @@ describe("LegacyNfmShadowTranslator", () => {
     expect(encodedState(genesis.document)).toBe(sourceBefore);
     Y.applyUpdate(replica, result.update);
     expect(materializePageDocument(replica).title).toBe("Replay after");
-    expect(materializePageDocument(replica).nfm).toBe(
-      result.materialization.nfm,
-    );
-    const vectorAfterFirstApply = Array.from(Y.encodeStateVector(replica)).join(
-      ",",
-    );
+    expect(materializePageDocument(replica).nfm).toBe(result.materialization.nfm);
+    const vectorAfterFirstApply = Array.from(Y.encodeStateVector(replica)).join(",");
     Y.applyUpdate(replica, result.update);
-    expect(Array.from(Y.encodeStateVector(replica)).join(",")).toBe(
-      vectorAfterFirstApply,
-    );
+    expect(Array.from(Y.encodeStateVector(replica)).join(",")).toBe(vectorAfterFirstApply);
 
     const repeated = translateLegacyNfmIntoPageDocument({
       document: replica,

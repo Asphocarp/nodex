@@ -65,7 +65,8 @@ export function resolveContentSearchDomain(
   hasBrowserTarget: boolean,
 ): ContentSearchDomain {
   if (preferredDomain === "browser" && hasBrowserTarget) return "browser";
-  if (preferredDomain === "browser") return currentDomain === "browser" ? "conversation" : currentDomain;
+  if (preferredDomain === "browser")
+    return currentDomain === "browser" ? "conversation" : currentDomain;
   if (preferredDomain) return preferredDomain;
   return currentDomain;
 }

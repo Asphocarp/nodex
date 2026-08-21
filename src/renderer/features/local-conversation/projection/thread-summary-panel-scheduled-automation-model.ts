@@ -15,9 +15,11 @@ function isActiveHeartbeatAutomationForThread(
   automation: CodexScheduledAutomation,
   conversationId: string,
 ): boolean {
-  return automation.kind === "heartbeat"
-    && automation.status === "ACTIVE"
-    && automation.targetThreadId === conversationId;
+  return (
+    automation.kind === "heartbeat" &&
+    automation.status === "ACTIVE" &&
+    automation.targetThreadId === conversationId
+  );
 }
 
 export function buildThreadSummaryPanelScheduledAutomationRow({
@@ -28,7 +30,7 @@ export function buildThreadSummaryPanelScheduledAutomationRow({
   if (!conversationId) return null;
 
   const automation = automations.find((candidate) =>
-    isActiveHeartbeatAutomationForThread(candidate, conversationId)
+    isActiveHeartbeatAutomationForThread(candidate, conversationId),
   );
   if (!automation) return null;
 

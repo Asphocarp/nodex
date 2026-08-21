@@ -28,9 +28,9 @@ function renderController(input: {
 }) {
   let id = 0;
   return renderHook(() => {
-    const [attachments, setAttachments] = useState<readonly import(
-      "./composer-image-attachment-model"
-    ).ComposerImageAttachment[]>([]);
+    const [attachments, setAttachments] = useState<
+      readonly import("./composer-image-attachment-model").ComposerImageAttachment[]
+    >([]);
     const controller = useComposerImageAttachments({
       attachments,
       setAttachments,
@@ -49,9 +49,11 @@ function renderController(input: {
 
 describe("useComposerImageAttachments", () => {
   test("normalizes an extension-qualified generic File into an image data URL", async () => {
-    await expect(readComposerImageFileAsDataUrl(
-      new File(["image"], "diagram.WEBP", { type: "application/octet-stream" }),
-    )).resolves.toMatch(/^data:image\/webp;base64,/u);
+    await expect(
+      readComposerImageFileAsDataUrl(
+        new File(["image"], "diagram.WEBP", { type: "application/octet-stream" }),
+      ),
+    ).resolves.toMatch(/^data:image\/webp;base64,/u);
   });
 
   test("gives an unnamed pasted image a stable readable filename", async () => {
@@ -65,13 +67,13 @@ describe("useComposerImageAttachments", () => {
     });
 
     await act(async () => {
-      await hook.result.current.controller.addFiles([
-        new File(["image"], "", { type: "image/png" }),
-      ], "paste");
+      await hook.result.current.controller.addFiles(
+        [new File(["image"], "", { type: "image/png" })],
+        "paste",
+      );
     });
 
-    expect(hook.result.current.attachments[0]?.filename)
-      .toBe("pasted-image-1.png");
+    expect(hook.result.current.attachments[0]?.filename).toBe("pasted-image-1.png");
   });
 
   test("shows a readable image before local materialization completes and patches it in place", async () => {
@@ -168,8 +170,10 @@ describe("useComposerImageAttachments", () => {
     await act(async () => {
       await hook.result.current.controller.addFiles([file, file], "paste");
     });
-    expect(hook.result.current.attachments.map((attachment) => attachment.id))
-      .toEqual(["image-2", "image-3"]);
+    expect(hook.result.current.attachments.map((attachment) => attachment.id)).toEqual([
+      "image-2",
+      "image-3",
+    ]);
   });
 
   test("rejects files when the selected model lacks image input", async () => {
@@ -183,9 +187,10 @@ describe("useComposerImageAttachments", () => {
     });
 
     await act(async () => {
-      await hook.result.current.controller.addFiles([
-        new File(["image"], "diagram.png", { type: "image/png" }),
-      ], "paste");
+      await hook.result.current.controller.addFiles(
+        [new File(["image"], "diagram.png", { type: "image/png" })],
+        "paste",
+      );
     });
 
     expect(readFileAsDataUrl).not.toHaveBeenCalled();
@@ -202,26 +207,30 @@ describe("useComposerImageAttachments", () => {
     });
 
     act(() => {
-      hook.result.current.controller.addPickedFiles([{
-        label: "diagram.png",
-        path: "/picked/diagram.png",
-        bytes: 5,
-        mimeType: "image/png",
-        imageDataUrl: "data:image/png;base64,aW1hZ2U=",
-      }]);
+      hook.result.current.controller.addPickedFiles([
+        {
+          label: "diagram.png",
+          path: "/picked/diagram.png",
+          bytes: 5,
+          mimeType: "image/png",
+          imageDataUrl: "data:image/png;base64,aW1hZ2U=",
+        },
+      ]);
     });
 
-    expect(hook.result.current.attachments).toEqual([expect.objectContaining({
-      filename: "diagram.png",
-      materialization: {
-        hostId: "default",
-        localPath: "/picked/diagram.png",
-        managedSource: null,
-      },
-      materializationStatus: "ready",
-      origin: "picker",
-      src: "data:image/png;base64,aW1hZ2U=",
-    })]);
+    expect(hook.result.current.attachments).toEqual([
+      expect.objectContaining({
+        filename: "diagram.png",
+        materialization: {
+          hostId: "default",
+          localPath: "/picked/diagram.png",
+          managedSource: null,
+        },
+        materializationStatus: "ready",
+        origin: "picker",
+        src: "data:image/png;base64,aW1hZ2U=",
+      }),
+    ]);
   });
 
   test("preserves a Composer-owned attachment when an editor draft reuses its id", () => {
@@ -231,27 +240,33 @@ describe("useComposerImageAttachments", () => {
     });
 
     act(() => {
-      hook.result.current.controller.addResolvedImages([{
-        id: "shared-image",
-        filename: "before.png",
-        mimeType: "image/png",
-        origin: "browser",
-        src: "data:image/png;base64,YmVmb3Jl",
-      }]);
-      hook.result.current.controller.syncResolvedImages("image-editor", [{
-        id: "shared-image",
-        filename: "after.png",
-        mimeType: "image/png",
-        origin: "image-editor",
-        src: "data:image/png;base64,YWZ0ZXI=",
-      }]);
+      hook.result.current.controller.addResolvedImages([
+        {
+          id: "shared-image",
+          filename: "before.png",
+          mimeType: "image/png",
+          origin: "browser",
+          src: "data:image/png;base64,YmVmb3Jl",
+        },
+      ]);
+      hook.result.current.controller.syncResolvedImages("image-editor", [
+        {
+          id: "shared-image",
+          filename: "after.png",
+          mimeType: "image/png",
+          origin: "image-editor",
+          src: "data:image/png;base64,YWZ0ZXI=",
+        },
+      ]);
     });
 
-    expect(hook.result.current.attachments).toEqual([expect.objectContaining({
-      id: "shared-image",
-      filename: "before.png",
-      origin: "browser",
-    })]);
+    expect(hook.result.current.attachments).toEqual([
+      expect.objectContaining({
+        id: "shared-image",
+        filename: "before.png",
+        origin: "browser",
+      }),
+    ]);
   });
 
   test("drops late work even when the owning composer scope changes away and back", async () => {
@@ -260,9 +275,9 @@ describe("useComposerImageAttachments", () => {
     let id = 0;
     const hook = renderHook(
       ({ scopeKey }: { scopeKey: string }) => {
-        const [attachments, setAttachments] = useState<readonly import(
-          "./composer-image-attachment-model"
-        ).ComposerImageAttachment[]>([]);
+        const [attachments, setAttachments] = useState<
+          readonly import("./composer-image-attachment-model").ComposerImageAttachment[]
+        >([]);
         const controller = useComposerImageAttachments({
           attachments,
           setAttachments,

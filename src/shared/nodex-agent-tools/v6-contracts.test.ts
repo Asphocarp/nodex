@@ -13,66 +13,66 @@ describe("nodex_app@6 contracts", () => {
   test("publishes the Page-key catalog without changing mutation inputs", () => {
     expect(NODEX_APP_V6_TOOLSET_REVISION).toBe(6);
     expect(NODEX_APP_TOOLSET_REVISION).toBe(6);
-    expect(Object.keys(NODEX_AGENT_V6_TOOL_CONTRACTS)).toEqual(
-      NODEX_APP_V6_TOOLS,
-    );
+    expect(Object.keys(NODEX_AGENT_V6_TOOL_CONTRACTS)).toEqual(NODEX_APP_V6_TOOLS);
 
-    expect(NODEX_AGENT_V6_TOOL_CONTRACTS.move_pages.inputSchema.safeParse({
-      pageKeys: ["LAB-13"],
-      destination: { kind: "library" },
-    }).success).toBe(false);
-    expect(NODEX_AGENT_V6_TOOL_CONTRACTS.duplicate_page.inputSchema.safeParse({
-      pageKey: "LAB-13",
-      destination: { kind: "library" },
-    }).success).toBe(false);
+    expect(
+      NODEX_AGENT_V6_TOOL_CONTRACTS.move_pages.inputSchema.safeParse({
+        pageKeys: ["LAB-13"],
+        destination: { kind: "library" },
+      }).success,
+    ).toBe(false);
+    expect(
+      NODEX_AGENT_V6_TOOL_CONTRACTS.duplicate_page.inputSchema.safeParse({
+        pageKey: "LAB-13",
+        destination: { kind: "library" },
+      }).success,
+    ).toBe(false);
   });
 
   test("keeps v5 output parsing frozen while v6 requires Page-key projections", () => {
     const legacySearchOutput = {
       data: {
-        results: [{
-          kind: "page",
-          id: "page-1",
-          title: "Release plan",
-          location,
-          matches: [{ source: "title", quality: "exact", excerpt: "Release plan" }],
-        }],
+        results: [
+          {
+            kind: "page",
+            id: "page-1",
+            title: "Release plan",
+            location,
+            matches: [{ source: "title", quality: "exact", excerpt: "Release plan" }],
+          },
+        ],
       },
     };
     const v6SearchOutput = {
       data: {
-        results: [{
-          ...legacySearchOutput.data.results[0],
-          pageKey: "LAB-13",
-          matches: [{
-            source: "page_key",
-            quality: "exact",
-            pageKey: "OLD-7",
-            isCurrent: false,
-          }],
-        }],
+        results: [
+          {
+            ...legacySearchOutput.data.results[0],
+            pageKey: "LAB-13",
+            matches: [
+              {
+                source: "page_key",
+                quality: "exact",
+                pageKey: "OLD-7",
+                isCurrent: false,
+              },
+            ],
+          },
+        ],
       },
     };
 
     expect(
-      NODEX_AGENT_V5_TOOL_CONTRACTS.search.outputSchema.safeParse(
-        legacySearchOutput,
-      ).success,
+      NODEX_AGENT_V5_TOOL_CONTRACTS.search.outputSchema.safeParse(legacySearchOutput).success,
     ).toBe(true);
     expect(
-      NODEX_AGENT_V5_TOOL_CONTRACTS.search.outputSchema.safeParse(
-        v6SearchOutput,
-      ).success,
+      NODEX_AGENT_V5_TOOL_CONTRACTS.search.outputSchema.safeParse(v6SearchOutput).success,
     ).toBe(false);
     expect(
-      NODEX_AGENT_V6_TOOL_CONTRACTS.search.outputSchema.safeParse(
-        legacySearchOutput,
-      ).success,
+      NODEX_AGENT_V6_TOOL_CONTRACTS.search.outputSchema.safeParse(legacySearchOutput).success,
     ).toBe(false);
     expect(
-      NODEX_AGENT_V6_TOOL_CONTRACTS.search.outputSchema.safeParse(
-        v6SearchOutput,
-      ).success,
+      NODEX_AGENT_V6_TOOL_CONTRACTS.search.outputSchema.safeParse(v6SearchOutput).success,
     ).toBe(true);
   });
 
@@ -123,12 +123,14 @@ describe("nodex_app@6 contracts", () => {
         contract: NODEX_AGENT_V6_TOOL_CONTRACTS.create_pages,
         valid: {
           data: {
-            pages: [{
-              pageId: "page-1",
-              pageKey: "LAB-13",
-              location,
-              bodyBlocksCreated: 0,
-            }],
+            pages: [
+              {
+                pageId: "page-1",
+                pageKey: "LAB-13",
+                location,
+                bodyBlocksCreated: 0,
+              },
+            ],
             created: 1,
           },
         },

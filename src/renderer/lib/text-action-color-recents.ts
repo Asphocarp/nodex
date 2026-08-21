@@ -13,7 +13,7 @@ export const TEXT_ACTION_COLOR_VALUES = [
 
 export const TEXT_ACTION_NOTION_COLOR_ORDER = TEXT_ACTION_COLOR_VALUES;
 
-export type TextActionColorValue = typeof TEXT_ACTION_COLOR_VALUES[number];
+export type TextActionColorValue = (typeof TEXT_ACTION_COLOR_VALUES)[number];
 export type TextActionRecentColorKind = "text" | "background";
 
 export interface TextActionRecentColor {
@@ -77,8 +77,8 @@ function parseTextActionRecentColor(value: unknown): TextActionRecentColor | nul
 
   const candidate = value as Partial<TextActionRecentColor>;
   if (
-    (candidate.kind === "text" || candidate.kind === "background")
-    && isRecentColorValue(candidate.color)
+    (candidate.kind === "text" || candidate.kind === "background") &&
+    isRecentColorValue(candidate.color)
   ) {
     return {
       kind: candidate.kind,

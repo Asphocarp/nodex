@@ -27,7 +27,11 @@ export interface PendingWorktreeProgressStep {
 }
 
 export interface PendingWorktreeProgressModel {
-  readonly title: "Creating a worktree" | "Worktree created" | "Worktree setup failed" | "Task failed to start";
+  readonly title:
+    | "Creating a worktree"
+    | "Worktree created"
+    | "Worktree setup failed"
+    | "Task failed to start";
   readonly titleIsRunning: boolean;
   readonly cardVisible: boolean;
   readonly detailsInitiallyExpanded: boolean;
@@ -50,18 +54,14 @@ function worktreeLifecycleStatus(
 
 function checkoutProgressPercentage(output: string): number | null {
   let result: number | null = null;
-  for (const match of output.matchAll(
-    /(?:^|[\r\n])Updating files:\s+(\d{1,3})%\s+\(\d+\/\d+\)/g,
-  )) {
+  for (const match of output.matchAll(/(?:^|[\r\n])Updating files:\s+(\d{1,3})%\s+\(\d+\/\d+\)/g)) {
     const value = Number(match[1]);
     if (value >= 0 && value <= 100) result = value;
   }
   return result;
 }
 
-function setupStatus(
-  entry: CodexPendingWorktreeEntry,
-): PendingWorktreeProgressStatus {
+function setupStatus(entry: CodexPendingWorktreeEntry): PendingWorktreeProgressStatus {
   if (entry.phase === "queued" || entry.phase === "creating") return "pending";
   if (entry.phase === "setting-up") return "running";
   if (entry.phase === "worktree-ready") {
@@ -73,15 +73,23 @@ function setupStatus(
 function progressSteps(entry: CodexPendingWorktreeEntry): readonly PendingWorktreeProgressStep[] {
   const lifecycleStatus = worktreeLifecycleStatus(entry);
   const progressPercentage = checkoutProgressPercentage(entry.worktreeOutputText);
-  const checkoutStarted = progressPercentage !== null
-    || /(?:^|[\r\n])(?:Preparing worktree|Updating index flags:)/.test(entry.worktreeOutputText);
+  const checkoutStarted =
+    progressPercentage !== null ||
+    /(?:^|[\r\n])(?:Preparing worktree|Updating index flags:)/.test(entry.worktreeOutputText);
   const creationDone = lifecycleStatus === "completed";
-  const workspaceStatus = creationDone || checkoutStarted
-    ? "completed"
-    : lifecycleStatus === "failed" ? "failed" : "running";
+  const workspaceStatus =
+    creationDone || checkoutStarted
+      ? "completed"
+      : lifecycleStatus === "failed"
+        ? "failed"
+        : "running";
   const checkoutStatus = creationDone
     ? "completed"
-    : checkoutStarted ? lifecycleStatus === "failed" ? "failed" : "running" : "pending";
+    : checkoutStarted
+      ? lifecycleStatus === "failed"
+        ? "failed"
+        : "running"
+      : "pending";
   const steps: PendingWorktreeProgressStep[] = [
     { kind: "workspace", status: workspaceStatus, progressPercentage: null },
     {
@@ -140,9 +148,8 @@ export function resolvePendingWorktreeRouteActions(
   entry: CodexPendingWorktreeEntry,
   resolution: CodexPendingWorktreeThreadResolution | null,
 ): PendingWorktreeRouteActions {
-  const worktreeIsActive = entry.phase === "queued"
-    || entry.phase === "creating"
-    || entry.phase === "setting-up";
+  const worktreeIsActive =
+    entry.phase === "queued" || entry.phase === "creating" || entry.phase === "setting-up";
   const worktreeFailed = entry.phase === "failed";
   const conversationFailed = resolution?.state === "failed";
 

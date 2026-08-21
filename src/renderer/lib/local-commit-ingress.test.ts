@@ -114,8 +114,7 @@ const databaseRowEffect = (
   effect_hash: "c".repeat(64),
 });
 
-type AuthorizedProjectionEffect =
-  AuthorizedDeliveryPacket["projection_effects"][number];
+type AuthorizedProjectionEffect = AuthorizedDeliveryPacket["projection_effects"][number];
 
 const patchlessEffect = (
   canonicalKey: string,
@@ -135,26 +134,27 @@ const patchlessEffect = (
   effect_hash: effectHash,
 });
 
-const patchlessPageEffect = (
-  pageId = "page-1",
-): AuthorizedProjectionEffect => patchlessEffect(
-  `page:project-1:${pageId}`,
-  {
-    kind: "page",
-    project_id: "project-1",
-    page_id: pageId,
-  },
-  "d".repeat(64),
-);
+const patchlessPageEffect = (pageId = "page-1"): AuthorizedProjectionEffect =>
+  patchlessEffect(
+    `page:project-1:${pageId}`,
+    {
+      kind: "page",
+      project_id: "project-1",
+      page_id: pageId,
+    },
+    "d".repeat(64),
+  );
 
-const packet = (input: {
-  readonly authorization?: AuthorizedDeliveryPacket["authorization_scope"];
-  readonly projections?: AuthorizedDeliveryPacket["projection_effects"];
-  readonly documents?: AuthorizedDeliveryPacket["document_effects"];
-  readonly atoms?: AuthorizedDeliveryPacket["atoms"];
-  readonly visibility?: AuthorizedDeliveryPacket["visibility_deltas"];
-  readonly packetHash?: string;
-} = {}): AuthorizedDeliveryPacket => {
+const packet = (
+  input: {
+    readonly authorization?: AuthorizedDeliveryPacket["authorization_scope"];
+    readonly projections?: AuthorizedDeliveryPacket["projection_effects"];
+    readonly documents?: AuthorizedDeliveryPacket["document_effects"];
+    readonly atoms?: AuthorizedDeliveryPacket["atoms"];
+    readonly visibility?: AuthorizedDeliveryPacket["visibility_deltas"];
+    readonly packetHash?: string;
+  } = {},
+): AuthorizedDeliveryPacket => {
   const projections = input.projections ?? [effect(1)];
   const documents = input.documents ?? [];
   const atoms = input.atoms ?? [];
@@ -199,9 +199,7 @@ const apply = (delivery: AuthorizedDeliveryPacket) => ({
   delivery,
 });
 
-const addressReset = (
-  overrides: Partial<AddressReset> = {},
-): AddressReset => ({
+const addressReset = (overrides: Partial<AddressReset> = {}): AddressReset => ({
   reset_id: "a".repeat(64),
   recipient_lease_id: "b".repeat(64),
   delivery_address: {
@@ -227,16 +225,18 @@ describe("RendererLocalCommitIngress", () => {
     ingress.subscribeRevocation(scope, () => order.push("revoke"));
     ingress.subscribeProjection(scope, () => order.push("projection"));
     const delivery = packet({
-      visibility: [{
-        authorization_scope: {
-          kind: "project",
-          library_id: "library-1",
-          project_id: "project-1",
+      visibility: [
+        {
+          authorization_scope: {
+            kind: "project",
+            library_id: "library-1",
+            project_id: "project-1",
+          },
+          change: { kind: "revoke", reason: "access_revoked" },
+          roots: [{ kind: "page", page_id: "page-1" }],
+          delta_hash: "9".repeat(64),
         },
-        change: { kind: "revoke", reason: "access_revoked" },
-        roots: [{ kind: "page", page_id: "page-1" }],
-        delta_hash: "9".repeat(64),
-      }],
+      ],
     });
 
     await ingress.admitPacket(delivery);
@@ -251,21 +251,25 @@ describe("RendererLocalCommitIngress", () => {
     ingress.subscribeProjection(scope, (message) => projections.push(message));
     ingress.subscribeRevocation(scope, (message) => revocations.push(message));
 
-    await ingress.admitPacket(packet({
-      visibility: [{
-        authorization_scope: {
-          kind: "project",
-          library_id: "library-1",
-          project_id: "project-1",
-        },
-        change: {
-          kind: "conservative_reset",
-          reason: "authorization_closure_exceeded",
-        },
-        roots: [],
-        delta_hash: "8".repeat(64),
-      }],
-    }));
+    await ingress.admitPacket(
+      packet({
+        visibility: [
+          {
+            authorization_scope: {
+              kind: "project",
+              library_id: "library-1",
+              project_id: "project-1",
+            },
+            change: {
+              kind: "conservative_reset",
+              reason: "authorization_closure_exceeded",
+            },
+            roots: [],
+            delta_hash: "8".repeat(64),
+          },
+        ],
+      }),
+    );
 
     expect(projections).toEqual([expect.objectContaining({ kind: "reset" })]);
     expect(revocations).toEqual([expect.objectContaining({ kind: "reset" })]);
@@ -284,9 +288,13 @@ describe("RendererLocalCommitIngress", () => {
 
     expect(projection).toHaveBeenCalledTimes(1);
     expect(revocation).toHaveBeenCalledTimes(1);
-    expect(() => ingress.admitAddressReset(addressReset({
-      required_commit_seq: 2,
-    }))).toThrow("identity collision");
+    expect(() =>
+      ingress.admitAddressReset(
+        addressReset({
+          required_commit_seq: 2,
+        }),
+      ),
+    ).toThrow("identity collision");
   });
 
   test("does not replay a conservative reset packet after it was admitted", async () => {
@@ -294,19 +302,21 @@ describe("RendererLocalCommitIngress", () => {
     const projection = vi.fn();
     ingress.subscribeProjection(scope, projection);
     const delivery = packet({
-      visibility: [{
-        authorization_scope: {
-          kind: "project",
-          library_id: "library-1",
-          project_id: "project-1",
+      visibility: [
+        {
+          authorization_scope: {
+            kind: "project",
+            library_id: "library-1",
+            project_id: "project-1",
+          },
+          change: {
+            kind: "conservative_reset",
+            reason: "authorization_closure_exceeded",
+          },
+          roots: [],
+          delta_hash: "8".repeat(64),
         },
-        change: {
-          kind: "conservative_reset",
-          reason: "authorization_closure_exceeded",
-        },
-        roots: [],
-        delta_hash: "8".repeat(64),
-      }],
+      ],
     });
 
     await ingress.admitPacket(delivery);
@@ -332,23 +342,25 @@ describe("RendererLocalCommitIngress", () => {
         library_id: "library-1",
         project_id: "project-2",
       },
-      projections: [{
-        ...effect(1),
-        scope: {
-          ...effect(1).scope,
-          canonical_key: "page:project-2:page-1",
+      projections: [
+        {
+          ...effect(1),
           scope: {
-            kind: "page",
+            ...effect(1).scope,
+            canonical_key: "page:project-2:page-1",
+            scope: {
+              kind: "page",
+              project_id: "project-2",
+              page_id: "page-1",
+            },
+          },
+          patch: {
+            kind: "page_changed",
             project_id: "project-2",
             page_id: "page-1",
           },
         },
-        patch: {
-          kind: "page_changed",
-          project_id: "project-2",
-          page_id: "page-1",
-        },
-      }],
+      ],
       packetHash: "7".repeat(64),
     });
 
@@ -376,13 +388,15 @@ describe("RendererLocalCommitIngress", () => {
     const messages: ProjectionStreamMessage[] = [];
     ingress.subscribeProjection(libraryScope, (message) => messages.push(message));
 
-    await ingress.admitPacket(packet({
-      authorization: {
-        kind: "library",
-        library_id: "library-1",
-      },
-      projections: [patchlessPageEffect("page-1")],
-    }));
+    await ingress.admitPacket(
+      packet({
+        authorization: {
+          kind: "library",
+          library_id: "library-1",
+        },
+        projections: [patchlessPageEffect("page-1")],
+      }),
+    );
 
     expect(messages).toEqual([
       expect.objectContaining({
@@ -406,39 +420,41 @@ describe("RendererLocalCommitIngress", () => {
     const messages: ProjectionStreamMessage[] = [];
     ingress.subscribeProjection(libraryScope, (message) => messages.push(message));
 
-    await ingress.admitPacket(packet({
-      authorization: {
-        kind: "library",
-        library_id: "library-1",
-      },
-      projections: [
-        patchlessEffect(
-          "database-view:project-1:view-1",
-          {
-            kind: "database_view",
-            project_id: "project-1",
-            database_id: "database-1",
-            data_source_id: "source-1",
-            view_id: "view-1",
-          },
-          "e".repeat(64),
-        ),
-        patchlessEffect(
-          "project:project-1",
-          { kind: "project", project_id: "project-1" },
-          "f".repeat(64),
-        ),
-        patchlessEffect(
-          "library:library-1",
-          { kind: "library", library_id: "library-1" },
-          "0".repeat(64),
-        ),
-      ],
-    }));
+    await ingress.admitPacket(
+      packet({
+        authorization: {
+          kind: "library",
+          library_id: "library-1",
+        },
+        projections: [
+          patchlessEffect(
+            "database-view:project-1:view-1",
+            {
+              kind: "database_view",
+              project_id: "project-1",
+              database_id: "database-1",
+              data_source_id: "source-1",
+              view_id: "view-1",
+            },
+            "e".repeat(64),
+          ),
+          patchlessEffect(
+            "project:project-1",
+            { kind: "project", project_id: "project-1" },
+            "f".repeat(64),
+          ),
+          patchlessEffect(
+            "library:library-1",
+            { kind: "library", library_id: "library-1" },
+            "0".repeat(64),
+          ),
+        ],
+      }),
+    );
 
-    expect(messages.map((message) =>
-      message.kind === "effect" ? message.delivery.impact : null
-    )).toEqual([
+    expect(
+      messages.map((message) => (message.kind === "effect" ? message.delivery.impact : null)),
+    ).toEqual([
       {
         kind: "resources",
         page_ids: [],
@@ -457,9 +473,11 @@ describe("RendererLocalCommitIngress", () => {
     const messages: ProjectionStreamMessage[] = [];
     ingress.subscribeProjection(scope, (message) => messages.push(message));
 
-    await ingress.admitPacket(packet({
-      projections: [databaseRowEffect(3)],
-    }));
+    await ingress.admitPacket(
+      packet({
+        projections: [databaseRowEffect(3)],
+      }),
+    );
 
     expect(messages).toEqual([
       expect.objectContaining({
@@ -541,16 +559,24 @@ describe("RendererLocalCommitIngress", () => {
         },
       },
     };
-    expect(await ingress.admitPacket(packet({
-      projections: [effect(1), secondEffect],
-      packetHash: "4".repeat(64),
-    }))).toMatchObject({ kind: "enriched" });
+    expect(
+      await ingress.admitPacket(
+        packet({
+          projections: [effect(1), secondEffect],
+          packetHash: "4".repeat(64),
+        }),
+      ),
+    ).toMatchObject({ kind: "enriched" });
     expect(listener).toHaveBeenCalledTimes(2);
 
-    await expect(ingress.admitPacket(packet({
-      projections: [effect(1, "f".repeat(64))],
-      packetHash: "5".repeat(64),
-    }))).rejects.toThrow("resource identity collision");
+    await expect(
+      ingress.admitPacket(
+        packet({
+          projections: [effect(1, "f".repeat(64))],
+          packetHash: "5".repeat(64),
+        }),
+      ),
+    ).rejects.toThrow("resource identity collision");
   });
 
   test("keeps semantic atom admission scoped to its authorization audience", async () => {
@@ -615,16 +641,24 @@ describe("RendererLocalCommitIngress", () => {
       },
     };
 
-    await expect(ingress.admitPacket(packet({
-      projections: [validNewEffect, effect(1, "f".repeat(64))],
-      packetHash: "7".repeat(64),
-    }))).rejects.toThrow("resource identity collision");
+    await expect(
+      ingress.admitPacket(
+        packet({
+          projections: [validNewEffect, effect(1, "f".repeat(64))],
+          packetHash: "7".repeat(64),
+        }),
+      ),
+    ).rejects.toThrow("resource identity collision");
     expect(listener).not.toHaveBeenCalled();
 
-    await expect(ingress.admitPacket(packet({
-      projections: [validNewEffect],
-      packetHash: "8".repeat(64),
-    }))).resolves.toMatchObject({ kind: "enriched" });
+    await expect(
+      ingress.admitPacket(
+        packet({
+          projections: [validNewEffect],
+          packetHash: "8".repeat(64),
+        }),
+      ),
+    ).resolves.toMatchObject({ kind: "enriched" });
     expect(listener).toHaveBeenCalledOnce();
   });
 
@@ -639,21 +673,15 @@ describe("RendererLocalCommitIngress", () => {
       ingress.admitPacket(delivery),
     ]);
 
-    expect(results.map((result) => result.kind).sort()).toEqual([
-      "accepted",
-      "duplicate",
-    ]);
+    expect(results.map((result) => result.kind).sort()).toEqual(["accepted", "duplicate"]);
     expect(listener).toHaveBeenCalledOnce();
   });
 
   test("fails closed at admission capacity instead of dropping semantic work", async () => {
-    const digest = new Uint8Array(await crypto.subtle.digest(
-      "SHA-256",
-      Uint8Array.from([1]).buffer,
-    ));
-    const updateHash = [...digest]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
+    const digest = new Uint8Array(
+      await crypto.subtle.digest("SHA-256", Uint8Array.from([1]).buffer),
+    );
+    const updateHash = [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
     const document = {
       reference: {
         effect_order: 0,
@@ -671,23 +699,23 @@ describe("RendererLocalCommitIngress", () => {
     };
     const ingress = new RendererLocalCommitIngress({ maxInFlightAdmissions: 1 });
     const first = ingress.admitPacket(packet({ projections: [], documents: [document] }));
-    await expect(ingress.admitPacket(packet({
-      projections: [],
-      documents: [document],
-      packetHash: "6".repeat(64),
-    }))).rejects.toBeInstanceOf(LocalCommitIngressCapacityError);
+    await expect(
+      ingress.admitPacket(
+        packet({
+          projections: [],
+          documents: [document],
+          packetHash: "6".repeat(64),
+        }),
+      ),
+    ).rejects.toBeInstanceOf(LocalCommitIngressCapacityError);
     await first;
   });
 
   test("bounds inline Document verification concurrency for large deliveries", async () => {
     const update = Uint8Array.from([1]);
-    const actualDigest = globalThis.crypto.subtle.digest.bind(
-      globalThis.crypto.subtle,
-    );
+    const actualDigest = globalThis.crypto.subtle.digest.bind(globalThis.crypto.subtle);
     const digest = new Uint8Array(await actualDigest("SHA-256", update));
-    const updateHash = [...digest]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
+    const updateHash = [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
     const documents = Array.from({ length: 24 }, (_, effectOrder) => ({
       reference: {
         effect_order: effectOrder,
@@ -709,7 +737,8 @@ describe("RendererLocalCommitIngress", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const digestSpy = vi.spyOn(globalThis.crypto.subtle, "digest")
+    const digestSpy = vi
+      .spyOn(globalThis.crypto.subtle, "digest")
       .mockImplementation(async (algorithm, data) => {
         activeDigests += 1;
         maxActiveDigests = Math.max(maxActiveDigests, activeDigests);
@@ -722,10 +751,12 @@ describe("RendererLocalCommitIngress", () => {
       });
     try {
       const ingress = new RendererLocalCommitIngress();
-      const admission = ingress.admitPacket(packet({
-        projections: [],
-        documents,
-      }));
+      const admission = ingress.admitPacket(
+        packet({
+          projections: [],
+          documents,
+        }),
+      );
       await Promise.resolve();
 
       expect(digestSpy).toHaveBeenCalledTimes(8);

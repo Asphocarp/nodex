@@ -22,12 +22,15 @@ export const createExactRemoteSubscriptionLifecycle = <Result>(input: {
     if (closing) return closing.then(ensure);
     if (remoteOpen) return Promise.resolve(input.alreadyOpenResult());
     if (opening) return opening;
-    const command = input.open().then((result) => {
-      if (input.isOpenResult(result)) remoteOpen = true;
-      return result;
-    }).finally(() => {
-      opening = null;
-    });
+    const command = input
+      .open()
+      .then((result) => {
+        if (input.isOpenResult(result)) remoteOpen = true;
+        return result;
+      })
+      .finally(() => {
+        opening = null;
+      });
     opening = command;
     return command;
   };

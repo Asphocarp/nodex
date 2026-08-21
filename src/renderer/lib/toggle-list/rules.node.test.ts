@@ -60,24 +60,28 @@ describe("toggle-list rules", () => {
       }),
     ];
 
-    const filtered = filterCards(cards, makeSettings({
-      mode: "basic",
-      includeHostCard: false,
-      filter: {
-        any: [
-          {
-            all: [
-              { field: "status", op: "in", values: ["plan"] },
-              { field: "priority", op: "in", values: ["p0-critical"] },
-            ],
-          },
+    const filtered = filterCards(
+      cards,
+      makeSettings({
+        mode: "basic",
+        includeHostCard: false,
+        filter: {
+          any: [
+            {
+              all: [
+                { field: "status", op: "in", values: ["plan"] },
+                { field: "priority", op: "in", values: ["p0-critical"] },
+              ],
+            },
+          ],
+        },
+        sort: [
+          { field: "board-order", direction: "asc" },
+          { field: "created", direction: "desc" },
         ],
-      },
-      sort: [
-        { field: "board-order", direction: "asc" },
-        { field: "created", direction: "desc" },
-      ],
-    }), "fix ready");
+      }),
+      "fix ready",
+    );
 
     expect(filtered.length).toBe(1);
     expect(filtered[0]?.id).toBe("card-c");
@@ -108,37 +112,43 @@ describe("toggle-list rules", () => {
       }),
     ];
 
-    const ranked = rankCards(cards, makeSettings({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: {
-        any: [{ all: [] }],
-      },
-      sort: [
-        { field: "priority", direction: "asc" },
-        { field: "created", direction: "desc" },
-      ],
-    }));
+    const ranked = rankCards(
+      cards,
+      makeSettings({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: {
+          any: [{ all: [] }],
+        },
+        sort: [
+          { field: "priority", direction: "asc" },
+          { field: "created", direction: "desc" },
+        ],
+      }),
+    );
 
     expect(ranked.map((card) => card.id).join(",")).toBe("beta,gamma,alpha");
   });
 
   test("rankCards can place empty priorities first", () => {
-    const ranked = rankCards([
-      makeCard({ id: "filled-low", priority: "p2-medium", boardIndex: 2 }),
-      makeCard({ id: "empty", priority: undefined, boardIndex: 1 }),
-      makeCard({ id: "filled-high", priority: "p1-high", boardIndex: 0 }),
-    ], makeSettings({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: {
-        any: [{ all: [] }],
-      },
-      sort: [
-        { field: "priority", direction: "asc", emptyPlacement: "first" },
-        { field: "created", direction: "desc" },
+    const ranked = rankCards(
+      [
+        makeCard({ id: "filled-low", priority: "p2-medium", boardIndex: 2 }),
+        makeCard({ id: "empty", priority: undefined, boardIndex: 1 }),
+        makeCard({ id: "filled-high", priority: "p1-high", boardIndex: 0 }),
       ],
-    }));
+      makeSettings({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: {
+          any: [{ all: [] }],
+        },
+        sort: [
+          { field: "priority", direction: "asc", emptyPlacement: "first" },
+          { field: "created", direction: "desc" },
+        ],
+      }),
+    );
 
     expect(ranked.map((card) => card.id).join(",")).toBe("empty,filled-high,filled-low");
   });
@@ -168,17 +178,20 @@ describe("toggle-list rules", () => {
       }),
     ];
 
-    const ranked = rankCards(cards, makeSettings({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: {
-        any: [{ all: [] }],
-      },
-      sort: [
-        { field: "title", direction: "asc" },
-        { field: "created", direction: "asc" },
-      ],
-    }));
+    const ranked = rankCards(
+      cards,
+      makeSettings({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: {
+          any: [{ all: [] }],
+        },
+        sort: [
+          { field: "title", direction: "asc" },
+          { field: "created", direction: "asc" },
+        ],
+      }),
+    );
 
     expect(ranked.map((card) => card.id).join(",")).toBe("a-card,b-card,c-card");
   });
@@ -189,12 +202,9 @@ describe("toggle-list rules", () => {
       makeCard({ id: "other-card", title: "Other card", boardIndex: 1 }),
     ];
 
-    const filtered = filterCards(
-      cards,
-      makeSettings(),
-      "",
-      { excludedPageIds: new Set(["host-card"]) },
-    );
+    const filtered = filterCards(cards, makeSettings(), "", {
+      excludedPageIds: new Set(["host-card"]),
+    });
 
     expect(filtered.length).toBe(1);
     expect(filtered[0]?.id).toBe("other-card");
@@ -217,23 +227,29 @@ describe("toggle-list rules", () => {
       makeCard({ id: "has-priority", priority: "p1-high", boardIndex: 1 }),
     ];
 
-    const filtered = filterCards(cards, makeSettings({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: {
-        any: [
-          {
-            all: [
-              { field: "status", op: "in", values: ["plan"] },
-              { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low"] },
-            ],
-          },
-        ],
-      },
-      sort: [
-        { field: "board-order", direction: "asc" },
-      ],
-    }), "");
+    const filtered = filterCards(
+      cards,
+      makeSettings({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: {
+          any: [
+            {
+              all: [
+                { field: "status", op: "in", values: ["plan"] },
+                {
+                  field: "priority",
+                  op: "in",
+                  values: ["p0-critical", "p1-high", "p2-medium", "p3-low"],
+                },
+              ],
+            },
+          ],
+        },
+        sort: [{ field: "board-order", direction: "asc" }],
+      }),
+      "",
+    );
 
     expect(filtered.map((card) => card.id).join(",")).toBe("no-priority,has-priority");
   });
@@ -244,21 +260,25 @@ describe("toggle-list rules", () => {
       makeCard({ id: "has-priority", priority: "p1-high", boardIndex: 1 }),
     ];
 
-    const filtered = filterCards(cards, makeSettings({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: {
-        any: [
-          {
-            all: [
-              { field: "status", op: "in", values: ["plan"] },
-              { field: "priority", op: "in", values: ["p1-high"], includeEmpty: false },
-            ],
-          },
-        ],
-      },
-      sort: [{ field: "board-order", direction: "asc" }],
-    }), "");
+    const filtered = filterCards(
+      cards,
+      makeSettings({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: {
+          any: [
+            {
+              all: [
+                { field: "status", op: "in", values: ["plan"] },
+                { field: "priority", op: "in", values: ["p1-high"], includeEmpty: false },
+              ],
+            },
+          ],
+        },
+        sort: [{ field: "board-order", direction: "asc" }],
+      }),
+      "",
+    );
 
     expect(filtered.map((card) => card.id).join(",")).toBe("has-priority");
   });
@@ -269,21 +289,25 @@ describe("toggle-list rules", () => {
       makeCard({ id: "has-priority", priority: "p1-high", boardIndex: 1 }),
     ];
 
-    const filtered = filterCards(cards, makeSettings({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: {
-        any: [
-          {
-            all: [
-              { field: "status", op: "in", values: ["plan"] },
-              { field: "priority", op: "in", values: [], includeEmpty: true },
-            ],
-          },
-        ],
-      },
-      sort: [{ field: "board-order", direction: "asc" }],
-    }), "");
+    const filtered = filterCards(
+      cards,
+      makeSettings({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: {
+          any: [
+            {
+              all: [
+                { field: "status", op: "in", values: ["plan"] },
+                { field: "priority", op: "in", values: [], includeEmpty: true },
+              ],
+            },
+          ],
+        },
+        sort: [{ field: "board-order", direction: "asc" }],
+      }),
+      "",
+    );
 
     expect(filtered.map((card) => card.id).join(",")).toBe("no-priority");
   });
@@ -310,34 +334,38 @@ describe("toggle-list rules", () => {
       }),
     ];
 
-    const filtered = filterCards(cards, makeSettings({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: {
-        any: [
-          {
-            all: [
-              { field: "status", op: "in", values: ["triage"] },
-              { field: "priority", op: "in", values: ["p0-critical"] },
-              { field: "tags", op: "hasNone", values: ["sidebar"] },
-            ],
-          },
-          {
-            all: [
-              { field: "status", op: "in", values: ["plan"] },
-              { field: "priority", op: "in", values: ["p0-critical", "p1-high"] },
-              { field: "tags", op: "hasNone", values: ["sidebar"] },
-            ],
-          },
+    const filtered = filterCards(
+      cards,
+      makeSettings({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: {
+          any: [
+            {
+              all: [
+                { field: "status", op: "in", values: ["triage"] },
+                { field: "priority", op: "in", values: ["p0-critical"] },
+                { field: "tags", op: "hasNone", values: ["sidebar"] },
+              ],
+            },
+            {
+              all: [
+                { field: "status", op: "in", values: ["plan"] },
+                { field: "priority", op: "in", values: ["p0-critical", "p1-high"] },
+                { field: "tags", op: "hasNone", values: ["sidebar"] },
+              ],
+            },
+          ],
+        },
+        sort: [
+          { field: "status", direction: "asc" },
+          { field: "priority", direction: "asc" },
+          { field: "created", direction: "asc" },
+          { field: "board-order", direction: "asc" },
         ],
-      },
-      sort: [
-        { field: "status", direction: "asc" },
-        { field: "priority", direction: "asc" },
-        { field: "created", direction: "asc" },
-        { field: "board-order", direction: "asc" },
-      ],
-    }), "");
+      }),
+      "",
+    );
 
     expect(filtered.map((card) => card.id).join(",")).toBe("ideas-p0,backlog-p1");
   });
@@ -367,19 +395,22 @@ describe("toggle-list rules", () => {
       }),
     ];
 
-    const ranked = rankCards(cards, makeSettings({
-      mode: "advanced",
-      includeHostCard: false,
-      filter: {
-        any: [{ all: [] }],
-      },
-      sort: [
-        { field: "status", direction: "asc" },
-        { field: "priority", direction: "asc" },
-        { field: "created", direction: "asc" },
-        { field: "board-order", direction: "asc" },
-      ],
-    }));
+    const ranked = rankCards(
+      cards,
+      makeSettings({
+        mode: "advanced",
+        includeHostCard: false,
+        filter: {
+          any: [{ all: [] }],
+        },
+        sort: [
+          { field: "status", direction: "asc" },
+          { field: "priority", direction: "asc" },
+          { field: "created", direction: "asc" },
+          { field: "board-order", direction: "asc" },
+        ],
+      }),
+    );
 
     expect(ranked.map((card) => card.id).join(",")).toBe("c,b,a");
   });

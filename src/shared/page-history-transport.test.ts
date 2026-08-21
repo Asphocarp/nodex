@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  MAX_PAGE_HISTORY_PAGE_SIZE,
-  type PageHistoryPage,
-} from "./page-history";
+import { MAX_PAGE_HISTORY_PAGE_SIZE, type PageHistoryPage } from "./page-history";
 import {
   PageHistoryContractError,
   parsePageHistoryCommandResult,

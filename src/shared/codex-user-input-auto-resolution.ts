@@ -20,12 +20,7 @@ export type CodexUserInputAutoResolutionChange =
       type: "removed";
       conversationId: string;
       requestId: CodexProtocolRequestId;
-      reason:
-        | "responded"
-        | "resolved"
-        | "replaced"
-        | "disconnected"
-        | "disposed";
+      reason: "responded" | "resolved" | "replaced" | "disconnected" | "disposed";
     }
   | {
       type: "timedOut";
@@ -54,9 +49,7 @@ function parseRequestId(value: unknown): CodexProtocolRequestId | null {
   return value;
 }
 
-export function parseCodexUserInputAutoResolutionActivityInput(
-  value: unknown,
-): string | null {
+export function parseCodexUserInputAutoResolutionActivityInput(value: unknown): string | null {
   if (!isRecord(value)) return null;
   return parseConversationId(value.conversationId);
 }

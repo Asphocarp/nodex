@@ -81,10 +81,13 @@ const readSource = async (sourcePath: string): Promise<string> => {
 const readCommittedArtifacts = async (
   workspaceRoot: string,
   paths: readonly string[],
-): Promise<readonly SemanticThemeArtifact[]> => Promise.all(paths.map(async (path) => ({
-  path,
-  content: await readFile(artifactAbsolutePath(workspaceRoot, path), "utf8"),
-})));
+): Promise<readonly SemanticThemeArtifact[]> =>
+  Promise.all(
+    paths.map(async (path) => ({
+      path,
+      content: await readFile(artifactAbsolutePath(workspaceRoot, path), "utf8"),
+    })),
+  );
 
 const compareArtifacts = (
   expected: readonly SemanticThemeArtifact[],
@@ -108,8 +111,10 @@ const compareKeyedRecords = <T>(
     added: [...expectedByKey.keys()].filter((key) => !actualByKey.has(key)).sort(),
     removed: [...actualByKey.keys()].filter((key) => !expectedByKey.has(key)).sort(),
     changed: [...expectedByKey.entries()]
-      .filter(([key, value]) => actualByKey.has(key)
-        && JSON.stringify(actualByKey.get(key)) !== JSON.stringify(value))
+      .filter(
+        ([key, value]) =>
+          actualByKey.has(key) && JSON.stringify(actualByKey.get(key)) !== JSON.stringify(value),
+      )
       .map(([key]) => key)
       .sort(),
   };
@@ -179,7 +184,7 @@ const writeArtifactsAtomically = async (
       const temporary = `${target}.${transactionId}.tmp`;
       temporaryPaths.set(target, temporary);
       await writeFile(temporary, artifact.content, { encoding: "utf8", flag: "wx" });
-      if (await readFile(temporary, "utf8") !== artifact.content) {
+      if ((await readFile(temporary, "utf8")) !== artifact.content) {
         throw new Error("THEME_ARTIFACT_WRITE_INVALID");
       }
     }
@@ -222,9 +227,7 @@ const generateArtifacts = (
   ];
 };
 
-const verifySourceFree = async (
-  workspaceRoot: string,
-): Promise<SemanticThemeCommandResult> => {
+const verifySourceFree = async (workspaceRoot: string): Promise<SemanticThemeCommandResult> => {
   const diagnostics: SemanticThemeDiagnostic[] = [];
   let provenance;
   try {
@@ -238,28 +241,34 @@ const verifySourceFree = async (
     return {
       ok: false,
       mode: "verify-source-free",
-      diagnostics: [diagnostic(
-        "THEME_PROVENANCE_INVALID",
-        "error",
-        "Semantic theme provenance is missing or invalid.",
-      )],
+      diagnostics: [
+        diagnostic(
+          "THEME_PROVENANCE_INVALID",
+          "error",
+          "Semantic theme provenance is missing or invalid.",
+        ),
+      ],
       changedArtifacts: [],
     };
   }
 
   if (provenance.profileSha256 !== semanticThemeProfileSha256()) {
-    diagnostics.push(diagnostic(
-      "THEME_PROFILE_STALE",
-      "error",
-      "The semantic theme profile changed without regenerating artifacts.",
-    ));
+    diagnostics.push(
+      diagnostic(
+        "THEME_PROFILE_STALE",
+        "error",
+        "The semantic theme profile changed without regenerating artifacts.",
+      ),
+    );
   }
   if (provenance.generatorVersion !== SEMANTIC_THEME_GENERATOR_VERSION) {
-    diagnostics.push(diagnostic(
-      "THEME_GENERATOR_VERSION_MISMATCH",
-      "error",
-      "The semantic theme generator version does not match provenance.",
-    ));
+    diagnostics.push(
+      diagnostic(
+        "THEME_GENERATOR_VERSION_MISMATCH",
+        "error",
+        "The semantic theme generator version does not match provenance.",
+      ),
+    );
   }
 
   const artifacts: SemanticThemeArtifact[] = [];
@@ -268,55 +277,61 @@ const verifySourceFree = async (
       const content = await readFile(artifactAbsolutePath(workspaceRoot, identity.path), "utf8");
       artifacts.push({ path: identity.path, content });
       if (sha256(content) !== identity.sha256) {
-        diagnostics.push(diagnostic(
-          "THEME_ARTIFACT_DRIFT",
-          "error",
-          "A generated semantic theme artifact differs from provenance.",
-          identity.path,
-        ));
+        diagnostics.push(
+          diagnostic(
+            "THEME_ARTIFACT_DRIFT",
+            "error",
+            "A generated semantic theme artifact differs from provenance.",
+            identity.path,
+          ),
+        );
       }
       if (identity.path.endsWith(".css")) parseStylesheet(content);
     } catch {
-      diagnostics.push(diagnostic(
-        "THEME_ARTIFACT_INVALID",
-        "error",
-        "A generated semantic theme artifact is missing or invalid.",
-        identity.path,
-      ));
+      diagnostics.push(
+        diagnostic(
+          "THEME_ARTIFACT_INVALID",
+          "error",
+          "A generated semantic theme artifact is missing or invalid.",
+          identity.path,
+        ),
+      );
     }
   }
 
-  const utilities = artifacts.find(
-    (artifact) => artifact.path === SEMANTIC_THEME_ARTIFACT_PATHS.utilities,
-  )?.content ?? "";
+  const utilities =
+    artifacts.find((artifact) => artifact.path === SEMANTIC_THEME_ARTIFACT_PATHS.utilities)
+      ?.content ?? "";
   for (const utility of SEMANTIC_UTILITY_PROFILE) {
     const selector = utility.outputSelector ?? utility.selector;
     if (!utilities.includes(selector)) {
-      diagnostics.push(diagnostic(
-        "THEME_UTILITY_MISSING",
-        "error",
-        "A required semantic utility is missing.",
-        selector,
-      ));
+      diagnostics.push(
+        diagnostic(
+          "THEME_UTILITY_MISSING",
+          "error",
+          "A required semantic utility is missing.",
+          selector,
+        ),
+      );
     }
   }
 
   const providers = await readCommittedArtifacts(workspaceRoot, PROVIDER_PATHS);
-  diagnostics.push(...collectSemanticThemeIntegrityDiagnostics(
-    artifacts,
-    providers,
-    INTEGRITY_OPTIONS,
-  ));
+  diagnostics.push(
+    ...collectSemanticThemeIntegrityDiagnostics(artifacts, providers, INTEGRITY_OPTIONS),
+  );
 
   for (const policy of MIGRATED_SURFACE_POLICIES) {
     const sourceText = await readFile(artifactAbsolutePath(workspaceRoot, policy.path), "utf8");
     for (const violation of collectSemanticMigrationViolations(sourceText, policy)) {
-      diagnostics.push(diagnostic(
-        "THEME_MIGRATION_REGRESSION",
-        "error",
-        "A migrated surface reintroduced a deprecated visual token.",
-        `${policy.path}:${violation.line}:${violation.column} ${violation.className}`,
-      ));
+      diagnostics.push(
+        diagnostic(
+          "THEME_MIGRATION_REGRESSION",
+          "error",
+          "A migrated surface reintroduced a deprecated visual token.",
+          `${policy.path}:${violation.line}:${violation.column} ${violation.className}`,
+        ),
+      );
     }
   }
 
@@ -356,30 +371,38 @@ const verifyWithSource = async (
       changedArtifacts: [],
     };
   }
-  const actual = await readCommittedArtifacts(workspaceRoot, expected.map((item) => item.path));
+  const actual = await readCommittedArtifacts(
+    workspaceRoot,
+    expected.map((item) => item.path),
+  );
   const changedArtifacts = compareArtifacts(expected, actual);
   return {
     ok: changedArtifacts.length === 0,
     mode: "verify-source-aware",
-    diagnostics: changedArtifacts.length === 0
-      ? []
-      : [diagnostic(
-        "THEME_CONTRACT_DIFF",
-        "error",
-        "The supplied reference does not reproduce the committed semantic theme contract. Run audit before sync.",
-      )],
+    diagnostics:
+      changedArtifacts.length === 0
+        ? []
+        : [
+            diagnostic(
+              "THEME_CONTRACT_DIFF",
+              "error",
+              "The supplied reference does not reproduce the committed semantic theme contract. Run audit before sync.",
+            ),
+          ],
     changedArtifacts,
   };
 };
 
 const findLatestBuildCss = async (workspaceRoot: string): Promise<string> => {
   const assetsDirectory = resolve(workspaceRoot, "out/renderer/assets");
-  const candidates = await Promise.all((await readdir(assetsDirectory))
-    .filter((name) => /^index-.*\.css$/.test(name))
-    .map(async (name) => {
-      const path = resolve(assetsDirectory, name);
-      return { path, modifiedAt: (await stat(path)).mtimeMs };
-    }));
+  const candidates = await Promise.all(
+    (await readdir(assetsDirectory))
+      .filter((name) => /^index-.*\.css$/.test(name))
+      .map(async (name) => {
+        const path = resolve(assetsDirectory, name);
+        return { path, modifiedAt: (await stat(path)).mtimeMs };
+      }),
+  );
   const latest = candidates.sort((left, right) => left.modifiedAt - right.modifiedAt).at(-1);
   if (!latest) throw new Error("THEME_BUILD_ARTIFACT_MISSING");
   return latest.path;
@@ -390,17 +413,19 @@ const verifyBuild = async (
   buildCssPath?: string,
 ): Promise<SemanticThemeCommandResult> => {
   try {
-    const css = await readFile(buildCssPath ?? await findLatestBuildCss(workspaceRoot), "utf8");
-    const missing = SEMANTIC_UTILITY_PROFILE
-      .map((utility) => utility.outputSelector ?? utility.selector)
-      .filter((selector) => !css.includes(selector.replaceAll("\\", "")) && !css.includes(selector));
+    const css = await readFile(buildCssPath ?? (await findLatestBuildCss(workspaceRoot)), "utf8");
+    const missing = SEMANTIC_UTILITY_PROFILE.map(
+      (utility) => utility.outputSelector ?? utility.selector,
+    ).filter((selector) => !css.includes(selector.replaceAll("\\", "")) && !css.includes(selector));
     const diagnostics = [
-      ...missing.map((selector) => diagnostic(
-        "THEME_BUILD_UTILITY_MISSING",
-        "error",
-        "A required semantic utility is absent from the renderer build.",
-        selector,
-      )),
+      ...missing.map((selector) =>
+        diagnostic(
+          "THEME_BUILD_UTILITY_MISSING",
+          "error",
+          "A required semantic utility is absent from the renderer build.",
+          selector,
+        ),
+      ),
       ...collectSemanticThemeIntegrityDiagnostics(
         [{ path: "renderer-build.css", content: css }],
         [],
@@ -417,11 +442,13 @@ const verifyBuild = async (
     return {
       ok: false,
       mode: "verify-build",
-      diagnostics: [diagnostic(
-        "THEME_BUILD_ARTIFACT_MISSING",
-        "error",
-        "No renderer CSS build artifact is available to verify.",
-      )],
+      diagnostics: [
+        diagnostic(
+          "THEME_BUILD_ARTIFACT_MISSING",
+          "error",
+          "No renderer CSS build artifact is available to verify.",
+        ),
+      ],
       changedArtifacts: [],
     };
   }
@@ -458,7 +485,10 @@ export const executeSemanticThemeCommand = async (
   }
   let actual: readonly SemanticThemeArtifact[] = [];
   try {
-    actual = await readCommittedArtifacts(workspaceRoot, expected.map((item) => item.path));
+    actual = await readCommittedArtifacts(
+      workspaceRoot,
+      expected.map((item) => item.path),
+    );
   } catch {
     // A first sync legitimately has no committed neutral artifacts yet.
   }
@@ -468,20 +498,17 @@ export const executeSemanticThemeCommand = async (
     return {
       ok: true,
       mode: "audit",
-      diagnostics: [diagnostic(
-        "THEME_AUDIT_COMPLETE",
-        "info",
-        changedArtifacts.length === 0
-          ? "The supplied reference matches the committed semantic theme contract."
-          : "The supplied reference changes the semantic theme contract.",
-      )],
+      diagnostics: [
+        diagnostic(
+          "THEME_AUDIT_COMPLETE",
+          "info",
+          changedArtifacts.length === 0
+            ? "The supplied reference matches the committed semantic theme contract."
+            : "The supplied reference changes the semantic theme contract.",
+        ),
+      ],
       changedArtifacts,
-      auditReport: createAuditReport(
-        command.refVersion,
-        expected,
-        actual,
-        changedArtifacts,
-      ),
+      auditReport: createAuditReport(command.refVersion, expected, actual, changedArtifacts),
     };
   }
 
@@ -489,11 +516,13 @@ export const executeSemanticThemeCommand = async (
   return {
     ok: true,
     mode: "sync",
-    diagnostics: [diagnostic(
-      "THEME_SYNC_COMPLETE",
-      "info",
-      "Semantic theme artifacts were regenerated atomically.",
-    )],
+    diagnostics: [
+      diagnostic(
+        "THEME_SYNC_COMPLETE",
+        "info",
+        "Semantic theme artifacts were regenerated atomically.",
+      ),
+    ],
     changedArtifacts,
   };
 };

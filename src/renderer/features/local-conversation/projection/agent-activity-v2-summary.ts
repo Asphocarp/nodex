@@ -2,19 +2,14 @@ import type {
   ThreadAgentActivityCompletedSummaryPart,
   ThreadAgentActivityGroupMcpSourceStats,
 } from "../thread-stage-types";
-import type {
-  ThreadAgentActivityItem,
-  ThreadAgentActivityUnit,
-} from "../thread-stage-types";
+import type { ThreadAgentActivityItem, ThreadAgentActivityUnit } from "../thread-stage-types";
 import {
   normalizeAutomaticApprovalReviewPayload,
   type CodexAutomaticApprovalReviewStatus,
 } from "../../../../shared/codex-transcript-special-items";
 import { resolveCodexPatchSuccess } from "../../../../shared/codex-file-change";
 import { isCodexWebSearchActivityInProgress } from "../../../../shared/codex-web-search";
-import {
-  type ThreadClassifiableActivityItem,
-} from "./agent-activity-v2";
+import { type ThreadClassifiableActivityItem } from "./agent-activity-v2";
 import { describeWebSearchAction } from "../web-search-display";
 
 export type ThreadAgentActivityApprovalFailure = {
@@ -30,45 +25,45 @@ export type ThreadAgentActivityVisualizationKind = "create" | "update";
 
 export type ThreadAgentActivitySummaryFact =
   | ({
-    type: "exploration";
-    readPaths: ReadonlySet<string>;
-    runningReadPaths: ReadonlySet<string>;
-    loadedToolPaths: ReadonlySet<string>;
-    runningLoadedToolPaths: ReadonlySet<string>;
-    searchCount: number;
-    runningSearchCount: number;
-    listCount: number;
-    runningListCount: number;
-  } & ThreadAgentActivityFactWithApprovalFailures)
+      type: "exploration";
+      readPaths: ReadonlySet<string>;
+      runningReadPaths: ReadonlySet<string>;
+      loadedToolPaths: ReadonlySet<string>;
+      runningLoadedToolPaths: ReadonlySet<string>;
+      searchCount: number;
+      runningSearchCount: number;
+      listCount: number;
+      runningListCount: number;
+    } & ThreadAgentActivityFactWithApprovalFailures)
   | ({
-    type: "patch";
-    createdPaths: ReadonlySet<string>;
-    runningCreatedPaths: ReadonlySet<string>;
-    stoppedCreatedPaths: ReadonlySet<string>;
-    runningCreatedLineCount: number;
-    changedLineCount: number;
-    editedPaths: ReadonlySet<string>;
-    runningEditedPaths: ReadonlySet<string>;
-    deletedPaths: ReadonlySet<string>;
-    runningDeletedPaths: ReadonlySet<string>;
-    visualizationActivity?: {
-      activities: readonly { path: string; kind: ThreadAgentActivityVisualizationKind }[];
+      type: "patch";
+      createdPaths: ReadonlySet<string>;
+      runningCreatedPaths: ReadonlySet<string>;
+      stoppedCreatedPaths: ReadonlySet<string>;
+      runningCreatedLineCount: number;
+      changedLineCount: number;
+      editedPaths: ReadonlySet<string>;
+      runningEditedPaths: ReadonlySet<string>;
+      deletedPaths: ReadonlySet<string>;
+      runningDeletedPaths: ReadonlySet<string>;
+      visualizationActivity?: {
+        activities: readonly { path: string; kind: ThreadAgentActivityVisualizationKind }[];
+        isInProgress: boolean;
+      };
+    } & ThreadAgentActivityFactWithApprovalFailures)
+  | ({
+      type: "exec";
       isInProgress: boolean;
-    };
-  } & ThreadAgentActivityFactWithApprovalFailures)
+      createsFolder?: true;
+      searchesWeb?: true;
+      visualizationActivityKind?: ThreadAgentActivityVisualizationKind;
+    } & ThreadAgentActivityFactWithApprovalFailures)
   | ({
-    type: "exec";
-    isInProgress: boolean;
-    createsFolder?: true;
-    searchesWeb?: true;
-    visualizationActivityKind?: ThreadAgentActivityVisualizationKind;
-  } & ThreadAgentActivityFactWithApprovalFailures)
-  | ({
-    type: "mcpToolCall";
-    isInProgress: boolean;
-    source: Omit<ThreadAgentActivityGroupMcpSourceStats, "count" | "runningCount"> | null;
-  } & ThreadAgentActivityFactWithApprovalFailures)
-  | ThreadAgentActivityApprovalFailure & { type: "automaticApprovalReview" }
+      type: "mcpToolCall";
+      isInProgress: boolean;
+      source: Omit<ThreadAgentActivityGroupMcpSourceStats, "count" | "runningCount"> | null;
+    } & ThreadAgentActivityFactWithApprovalFailures)
+  | (ThreadAgentActivityApprovalFailure & { type: "automaticApprovalReview" })
   | { type: "webSearch"; count: number; runningCount: number }
   | { type: "other" };
 
@@ -141,8 +136,11 @@ export function isThreadExplorationActivityItem(item: ThreadClassifiableActivity
   const parsedType = item.entry.parsedCmd?.type;
   if (parsedType === "read" || parsedType === "search" || parsedType === "list_files") return true;
   const actions = item.entry.commandActions ?? [];
-  return actions.length > 0 && actions.every(
-    (action) => action.type === "read" || action.type === "search" || action.type === "listFiles",
+  return (
+    actions.length > 0 &&
+    actions.every(
+      (action) => action.type === "read" || action.type === "search" || action.type === "listFiles",
+    )
   );
 }
 
@@ -153,10 +151,12 @@ export function isThreadAgentActivityItemInProgress(
   if (!("entry" in item)) return item.status === "working";
   switch (item.type) {
     case "exec":
-      return item.entry.executionStatus !== "interrupted"
-        && (item.entry.parsedCmd != null
+      return (
+        item.entry.executionStatus !== "interrupted" &&
+        (item.entry.parsedCmd != null
           ? item.entry.parsedCmd.isFinished === false
-          : item.entry.status === "inProgress");
+          : item.entry.status === "inProgress")
+      );
     case "automaticApprovalReview":
       return normalizeAutomaticApprovalReviewPayload(item.entry.rawItem)?.status === "inProgress";
     case "dynamicToolCall":
@@ -196,9 +196,8 @@ export function resolveThreadAgentActivityGroupState(input: {
   isActivitySliceClosed: boolean;
   isExploring: boolean;
 }): ThreadAgentActivityGroupState {
-  const isOpenLatestUnit = input.isLatestVisibleUnit
-    && input.isTurnInProgress
-    && !input.isActivitySliceClosed;
+  const isOpenLatestUnit =
+    input.isLatestVisibleUnit && input.isTurnInProgress && !input.isActivitySliceClosed;
   if (!isOpenLatestUnit) return { kind: "summary" };
 
   if (input.isExploring) {
@@ -239,14 +238,10 @@ export function demoteSettledThreadAgentActivitySingleton(
 
 export function buildThreadAgentActivityDynamicCompletedParts<TItem>(
   items: readonly ThreadAgentActivityDynamicCompletedEvidence<TItem>[],
-): Array<Extract<
-  ThreadAgentActivityCompletedSummaryPart<TItem>,
-  { kind: "dynamicToolCall" }
->> {
-  const parts: Array<Extract<
-    ThreadAgentActivityCompletedSummaryPart<TItem>,
-    { kind: "dynamicToolCall" }
-  >> = [];
+): Array<Extract<ThreadAgentActivityCompletedSummaryPart<TItem>, { kind: "dynamicToolCall" }>> {
+  const parts: Array<
+    Extract<ThreadAgentActivityCompletedSummaryPart<TItem>, { kind: "dynamicToolCall" }>
+  > = [];
   const seenKeys = new Set<string>();
   for (const { item, key } of items) {
     if (seenKeys.has(key)) continue;
@@ -278,30 +273,52 @@ export function formatThreadAgentActivityCompletedSummaryPart<TDynamicItem>(
     }
     case "unnamedMcpCalls":
       return leading
-        ? part.count === 1 ? "Called a tool" : "Called tools"
-        : part.count === 1 ? "called a tool" : "called tools";
+        ? part.count === 1
+          ? "Called a tool"
+          : "Called tools"
+        : part.count === 1
+          ? "called a tool"
+          : "called tools";
     case "loadedTools":
       return leading
-        ? part.count === 1 ? "Loaded a tool" : "Loaded tools"
-        : part.count === 1 ? "loaded a tool" : "loaded tools";
+        ? part.count === 1
+          ? "Loaded a tool"
+          : "Loaded tools"
+        : part.count === 1
+          ? "loaded a tool"
+          : "loaded tools";
     case "fileChanges":
       return leading
-        ? part.count === 1 ? "Edited a file" : "Edited files"
-        : part.count === 1 ? "edited a file" : "edited files";
+        ? part.count === 1
+          ? "Edited a file"
+          : "Edited files"
+        : part.count === 1
+          ? "edited a file"
+          : "edited files";
     case "stoppedFileCreation":
       return leading
-        ? part.count === 1 ? "Stopped creating a file" : "Stopped creating files"
-        : part.count === 1 ? "stopped creating a file" : "stopped creating files";
+        ? part.count === 1
+          ? "Stopped creating a file"
+          : "Stopped creating files"
+        : part.count === 1
+          ? "stopped creating a file"
+          : "stopped creating files";
     case "exploration":
       return leading ? "Read files" : "read files";
     case "visualization": {
       const verb = part.activity.kind === "create" ? "created" : "updated";
-      return leading ? `${verb[0]?.toUpperCase() ?? ""}${verb.slice(1)} visualization` : `${verb} visualization`;
+      return leading
+        ? `${verb[0]?.toUpperCase() ?? ""}${verb.slice(1)} visualization`
+        : `${verb} visualization`;
     }
     case "commands":
       return leading
-        ? part.count === 1 ? "Ran a command" : "Ran commands"
-        : part.count === 1 ? "ran a command" : "ran commands";
+        ? part.count === 1
+          ? "Ran a command"
+          : "Ran commands"
+        : part.count === 1
+          ? "ran a command"
+          : "ran commands";
     case "webSearch":
       return leading ? "Searched the web" : "searched the web";
     case "dynamicToolCall":
@@ -331,7 +348,10 @@ export function formatThreadAgentActivityGroupHeader(input: {
   conversationDetailLevel?: "STEPS_PROSE" | string | null;
   activeExplorationLabel?: string | null;
   formatMcpToolCall?: (item: ThreadClassifiableActivityItem) => string | null;
-  formatDynamicToolCall?: (item: ThreadClassifiableActivityItem, completed: boolean) => string | null;
+  formatDynamicToolCall?: (
+    item: ThreadClassifiableActivityItem,
+    completed: boolean,
+  ) => string | null;
 }): string {
   if (input.state.kind === "summary") {
     return formatThreadAgentActivityCompletedSummary(input.completedParts, {
@@ -347,9 +367,7 @@ export function formatThreadAgentActivityGroupHeader(input: {
       const explorationLabel = input.activeExplorationLabel?.trim();
       if (explorationLabel) return explorationLabel;
       if (input.conversationDetailLevel === "STEPS_PROSE") return "Running command";
-      const command = item.entry.parsedCmd?.cmd?.trim()
-        || item.entry.command?.trim()
-        || "";
+      const command = item.entry.parsedCmd?.cmd?.trim() || item.entry.command?.trim() || "";
       return command ? `Running ${command}` : "Running command";
     }
     case "fileChange":
@@ -362,13 +380,17 @@ export function formatThreadAgentActivityGroupHeader(input: {
       return detail ? `Searching the web for ${detail}` : "Searching the web";
     }
     case "mcpToolCall":
-      return input.formatMcpToolCall?.(item)?.trim()
-        || item.entry.mcpToolCall?.invocation.tool
-        || "Thinking";
+      return (
+        input.formatMcpToolCall?.(item)?.trim() ||
+        item.entry.mcpToolCall?.invocation.tool ||
+        "Thinking"
+      );
     case "dynamicToolCall":
-      return input.formatDynamicToolCall?.(item, false)?.trim()
-        || item.entry.dynamicToolCall?.tool
-        || "Thinking";
+      return (
+        input.formatDynamicToolCall?.(item, false)?.trim() ||
+        item.entry.dynamicToolCall?.tool ||
+        "Thinking"
+      );
     default:
       return "Thinking";
   }
@@ -379,13 +401,13 @@ export function orderThreadAgentActivityMcpSources(
   items: readonly ThreadAgentActivityMcpItemEvidence[],
 ): ThreadAgentActivityGroupMcpSourceStats[] {
   const visuallyIdentifiedSourceKeys = new Set(
-    items.flatMap((item) => (
-      item.sourceKey != null
-      && item.sourceKey !== NODE_REPL_MCP_SOURCE_KEY
-      && item.visuallyIdentified
+    items.flatMap((item) =>
+      item.sourceKey != null &&
+      item.sourceKey !== NODE_REPL_MCP_SOURCE_KEY &&
+      item.visuallyIdentified
         ? [item.sourceKey]
-        : []
-    )),
+        : [],
+    ),
   );
   const visibleSources = sources.filter((source) => source.key !== NODE_REPL_MCP_SOURCE_KEY);
   return [
@@ -397,9 +419,13 @@ export function orderThreadAgentActivityMcpSources(
 export function buildThreadAgentActivityMcpSourcesWording(
   sources: readonly ThreadAgentActivityGroupMcpSourceStats[],
 ): ThreadAgentActivityMcpSourcesWording {
-  const names = [...new Set(sources.map((source) => (
-    source.key === BROWSER_USE_MCP_SOURCE_KEY ? "the browser" : source.name
-  )))];
+  const names = [
+    ...new Set(
+      sources.map((source) =>
+        source.key === BROWSER_USE_MCP_SOURCE_KEY ? "the browser" : source.name,
+      ),
+    ),
+  ];
   return {
     names,
     sourceCount: names.length,
@@ -416,9 +442,11 @@ export function selectThreadAgentActivityMcpIconItem<TItem>(
   if (firstPart?.kind === "mcpSources") {
     const sourceKey = firstPart.sources[0]?.key;
     if (sourceKey == null) return null;
-    return items.find((item) => item.sourceKey === sourceKey && item.visuallyIdentified)?.item
-      ?? items.find((item) => item.sourceKey === sourceKey)?.item
-      ?? null;
+    return (
+      items.find((item) => item.sourceKey === sourceKey && item.visuallyIdentified)?.item ??
+      items.find((item) => item.sourceKey === sourceKey)?.item ??
+      null
+    );
   }
   if (firstPart?.kind !== "unnamedMcpCalls") return null;
   return items.find((item) => item.server !== "node_repl" && item.sourceKey == null)?.item ?? null;
@@ -441,15 +469,15 @@ export function buildThreadAgentActivityCompletedSummaryParts<TDynamicItem = unk
   facts: ThreadAgentActivitySummaryFacts,
   options: {
     orderedMcpSources?: ThreadAgentActivityGroupMcpSourceStats[];
-    dynamicParts?: Array<Extract<
-      ThreadAgentActivityCompletedSummaryPart<TDynamicItem>,
-      { kind: "dynamicToolCall" }
-    >>;
+    dynamicParts?: Array<
+      Extract<ThreadAgentActivityCompletedSummaryPart<TDynamicItem>, { kind: "dynamicToolCall" }>
+    >;
   } = {},
 ): ThreadAgentActivityCompletedSummaryPart<TDynamicItem>[] {
   const parts: ThreadAgentActivityCompletedSummaryPart<TDynamicItem>[] = [];
-  const orderedMcpSources = options.orderedMcpSources
-    ?? facts.mcpToolCallSources.filter((source) => source.key !== NODE_REPL_MCP_SOURCE_KEY);
+  const orderedMcpSources =
+    options.orderedMcpSources ??
+    facts.mcpToolCallSources.filter((source) => source.key !== NODE_REPL_MCP_SOURCE_KEY);
   if (orderedMcpSources.length > 0) parts.push({ kind: "mcpSources", sources: orderedMcpSources });
 
   appendPositiveCountPart(parts, { kind: "loadedTools", count: facts.loadedToolCount });
@@ -463,10 +491,11 @@ export function buildThreadAgentActivityCompletedSummaryParts<TDynamicItem = unk
   });
   appendPositiveCountPart(parts, {
     kind: "fileChanges",
-    count: facts.createdFileCount
-      + facts.editedFileCount
-      + facts.deletedFileCount
-      - facts.stoppedCreatedFileCount,
+    count:
+      facts.createdFileCount +
+      facts.editedFileCount +
+      facts.deletedFileCount -
+      facts.stoppedCreatedFileCount,
   });
   appendPositiveCountPart(parts, {
     kind: "stoppedFileCreation",
@@ -479,18 +508,18 @@ export function buildThreadAgentActivityCompletedSummaryParts<TDynamicItem = unk
     parts.push({ kind: "visualization", activity: facts.visualizationActivity });
   }
 
-  const nodeReplCallCount = facts.mcpToolCallSources.find(
-    (source) => source.key === NODE_REPL_MCP_SOURCE_KEY,
-  )?.count ?? 0;
-  const webSearchCommandCount = facts.completedWebSearchCommandCount
-    + facts.runningWebSearchCommandCount;
+  const nodeReplCallCount =
+    facts.mcpToolCallSources.find((source) => source.key === NODE_REPL_MCP_SOURCE_KEY)?.count ?? 0;
+  const webSearchCommandCount =
+    facts.completedWebSearchCommandCount + facts.runningWebSearchCommandCount;
   appendPositiveCountPart(parts, {
     kind: "commands",
-    count: facts.commandCount
-      - facts.completedVisualizationCommandCount
-      - facts.runningVisualizationCommandCount
-      + nodeReplCallCount
-      - webSearchCommandCount,
+    count:
+      facts.commandCount -
+      facts.completedVisualizationCommandCount -
+      facts.runningVisualizationCommandCount +
+      nodeReplCallCount -
+      webSearchCommandCount,
   });
   if (facts.webSearchCount > 0 || webSearchCommandCount > 0) {
     parts.push({ kind: "webSearch" });
@@ -509,10 +538,13 @@ interface ThreadAgentActivitySummaryFactAccumulator {
   runningEditedPaths: Set<string>;
   deletedPaths: Set<string>;
   runningDeletedPaths: Set<string>;
-  visualizationActivitiesByPath: Map<string, {
-    kind: ThreadAgentActivityVisualizationKind;
-    isInProgress: boolean;
-  }>;
+  visualizationActivitiesByPath: Map<
+    string,
+    {
+      kind: ThreadAgentActivityVisualizationKind;
+      isInProgress: boolean;
+    }
+  >;
   visualizationCommandKind: ThreadAgentActivityVisualizationKind | null;
   exploredPaths: Set<string>;
   runningExploredPaths: Set<string>;
@@ -634,7 +666,8 @@ export function accumulateThreadAgentActivitySummaryFact(
         const existing = accumulator.visualizationActivitiesByPath.get(activity.path);
         accumulator.visualizationActivitiesByPath.set(activity.path, {
           kind: mergeVisualizationKind(existing?.kind ?? null, activity.kind),
-          isInProgress: existing?.isInProgress === true || fact.visualizationActivity?.isInProgress === true,
+          isInProgress:
+            existing?.isInProgress === true || fact.visualizationActivity?.isInProgress === true,
         });
       }
       return;
@@ -688,16 +721,18 @@ export function materializeThreadAgentActivitySummaryFacts(
   accumulator: ThreadAgentActivitySummaryFactAccumulator,
 ): ThreadAgentActivitySummaryFacts {
   const visualizationActivities = [...accumulator.visualizationActivitiesByPath.values()];
-  const hasVisualizationActivity = accumulator.visualizationCommandKind != null
-    || visualizationActivities.length > 0;
+  const hasVisualizationActivity =
+    accumulator.visualizationCommandKind != null || visualizationActivities.length > 0;
   const visualizationActivity = hasVisualizationActivity
     ? {
-        kind: accumulator.visualizationCommandKind === "create"
-          || visualizationActivities.some((activity) => activity.kind === "create")
-          ? "create" as const
-          : "update" as const,
-        isInProgress: accumulator.runningVisualizationCommandCount > 0
-          || visualizationActivities.some((activity) => activity.isInProgress),
+        kind:
+          accumulator.visualizationCommandKind === "create" ||
+          visualizationActivities.some((activity) => activity.kind === "create")
+            ? ("create" as const)
+            : ("update" as const),
+        isInProgress:
+          accumulator.runningVisualizationCommandCount > 0 ||
+          visualizationActivities.some((activity) => activity.isInProgress),
       }
     : undefined;
 

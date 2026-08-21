@@ -36,14 +36,14 @@ const taskChoiceSummary = (
   defaultValue: DatabaseTaskChoiceFilter | undefined,
 ): DatabaseViewRuleSummary | null => {
   if (!property || !value || !defaultValue) return null;
-  const unchanged = value.includeEmpty === defaultValue.includeEmpty
-    && value.selectedOptionIds.length === defaultValue.selectedOptionIds.length
-    && value.selectedOptionIds.every((optionId) =>
-      defaultValue.selectedOptionIds.includes(optionId)
-    );
+  const unchanged =
+    value.includeEmpty === defaultValue.includeEmpty &&
+    value.selectedOptionIds.length === defaultValue.selectedOptionIds.length &&
+    value.selectedOptionIds.every((optionId) => defaultValue.selectedOptionIds.includes(optionId));
   if (unchanged) return null;
-  const optionNames = value.selectedOptionIds.map((optionId) =>
-    property.options.find((option) => option.id === optionId)?.name ?? "Unknown option"
+  const optionNames = value.selectedOptionIds.map(
+    (optionId) =>
+      property.options.find((option) => option.id === optionId)?.name ?? "Unknown option",
   );
   if (value.includeEmpty) optionNames.push("Empty");
   return {
@@ -64,34 +64,27 @@ const summarizeTaskFilter = (
   const state = decodeDatabaseTaskFilter(filter, capabilities);
   if (!state) return null;
   if (state.groups.length > 1) {
-    return [{
-      key: "task-filter-groups",
-      label: "Filter",
-      value: `${state.groups.length} groups`,
-    }];
+    return [
+      {
+        key: "task-filter-groups",
+        label: "Filter",
+        value: `${state.groups.length} groups`,
+      },
+    ];
   }
   const group = state.groups[0];
   if (!group) return [];
   const defaults = createDefaultDatabaseTaskFilterGroup(capabilities);
   const summaries = [
-    taskChoiceSummary(
-      capabilities.status,
-      group.status,
-      defaults.status,
-    ),
-    taskChoiceSummary(
-      capabilities.priority,
-      group.priority,
-      defaults.priority,
-    ),
+    taskChoiceSummary(capabilities.status, group.status, defaults.status),
+    taskChoiceSummary(capabilities.priority, group.priority, defaults.priority),
   ].filter((summary): summary is DatabaseViewRuleSummary => summary !== null);
   if (capabilities.tags && group.tags && group.tags.selectedOptionIds.length > 0) {
-    const mode = group.tags.mode === "any"
-      ? "Any"
-      : group.tags.mode === "all" ? "All" : "None";
-    const names = group.tags.selectedOptionIds.map((optionId) =>
-      capabilities.tags?.options.find((option) => option.id === optionId)?.name
-        ?? "Unknown option"
+    const mode = group.tags.mode === "any" ? "Any" : group.tags.mode === "all" ? "All" : "None";
+    const names = group.tags.selectedOptionIds.map(
+      (optionId) =>
+        capabilities.tags?.options.find((option) => option.id === optionId)?.name ??
+        "Unknown option",
     );
     summaries.push({
       key: capabilities.tags.propertyId,
@@ -102,9 +95,7 @@ const summarizeTaskFilter = (
   return summaries;
 };
 
-const collectClauses = (
-  node: DatabaseViewFilterNode,
-): readonly DatabaseViewFilterClause[] => {
+const collectClauses = (node: DatabaseViewFilterNode): readonly DatabaseViewFilterClause[] => {
   if (node.kind === "clause") return [node];
   return node.children.flatMap(collectClauses);
 };
@@ -122,11 +113,9 @@ const formatValue = (
   }
   if (typeof value === "object") return "Configured";
   const options = property
-    ? optionRegistries[property.propertyId] ?? readDatabasePropertyOptions(property)
+    ? (optionRegistries[property.propertyId] ?? readDatabasePropertyOptions(property))
     : [];
-  const option = property
-    ? options.find((candidate) => candidate.id === value)
-    : null;
+  const option = property ? options.find((candidate) => candidate.id === value) : null;
   if (option) return option.name;
   if (property?.valueType === "select" || property?.valueType === "multi_select") {
     return "Unknown option";
@@ -162,9 +151,10 @@ export const summarizeDatabaseViewFilter = (
     }
     const clause = clauses[0]!;
     const operator = FILTER_OPERATOR_LABELS[clause.operator];
-    const value = clause.operator === "is_empty" || clause.operator === "is_not_empty"
-      ? operator
-      : `${operator} ${formatValue(clause.value, property, optionRegistries)}`;
+    const value =
+      clause.operator === "is_empty" || clause.operator === "is_not_empty"
+        ? operator
+        : `${operator} ${formatValue(clause.value, property, optionRegistries)}`;
     return {
       key: propertyId,
       label: property?.name ?? "Missing property",
@@ -181,17 +171,13 @@ export const databaseViewSortFieldLabel = (
   if (sort.field.kind === "title") return "Title";
   if (sort.field.kind === "created") return "Created";
   const propertyId = sort.field.propertyId;
-  return properties.find(
-    (property) => property.propertyId === propertyId,
-  )?.name ?? "Missing property";
+  return (
+    properties.find((property) => property.propertyId === propertyId)?.name ?? "Missing property"
+  );
 };
 
-export const hasCustomDatabaseViewSort = (
-  sorts: readonly DatabaseViewSort[],
-): boolean => {
+export const hasCustomDatabaseViewSort = (sorts: readonly DatabaseViewSort[]): boolean => {
   if (sorts.length !== 1) return true;
   const sort = sorts[0];
-  return sort?.field.kind !== "manual"
-    || sort.direction !== "asc"
-    || sort.nulls !== "last";
+  return sort?.field.kind !== "manual" || sort.direction !== "asc" || sort.nulls !== "last";
 };

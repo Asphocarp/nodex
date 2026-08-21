@@ -21,19 +21,14 @@ export interface BlockDocumentSyncStatusProps {
 
 const readNow = (): number => Date.now();
 
-const toneClassName = (
-  model: BlockDocumentSyncIndicatorModel,
-): string => {
+const toneClassName = (model: BlockDocumentSyncIndicatorModel): string => {
   if (model.tone === "danger") return "text-(--destructive)";
   if (model.tone === "warning") return "text-(--orange-text)";
   return "text-(--foreground-tertiary)";
 };
 
 /** Sparse status chrome: the normal durable ACK path renders nothing. */
-export function BlockDocumentSyncStatus({
-  runtime,
-  status,
-}: BlockDocumentSyncStatusProps) {
+export function BlockDocumentSyncStatus({ runtime, status }: BlockDocumentSyncStatusProps) {
   const [, setClock] = useState(0);
   const timingRef = useRef<SyncTimingState>({
     phase: status.phase,
@@ -65,9 +60,7 @@ export function BlockDocumentSyncStatus({
   const model = resolveBlockDocumentSyncIndicator({
     status,
     phaseAgeMs: Math.max(0, now - timing.phaseStartedAt),
-    pendingAgeMs: timing.pendingStartedAt === null
-      ? 0
-      : Math.max(0, now - timing.pendingStartedAt),
+    pendingAgeMs: timing.pendingStartedAt === null ? 0 : Math.max(0, now - timing.pendingStartedAt),
     hasEverSynced: timing.hasEverSynced,
   });
   if (!model) return null;
@@ -84,10 +77,7 @@ export function BlockDocumentSyncStatus({
     <div
       role="status"
       aria-live={model.announce}
-      className={cn(
-        "flex min-h-5 items-center justify-end gap-2 text-xs",
-        toneClassName(model),
-      )}
+      className={cn("flex min-h-5 items-center justify-end gap-2 text-xs", toneClassName(model))}
       data-block-document-sync-phase={model.phase}
     >
       <span title={model.detail ?? undefined}>{model.label}</span>

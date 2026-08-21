@@ -30,15 +30,11 @@ export interface NfmEditorSource {
 
 export type NfmEditorCollaborativeDocumentSource = NfmEditorSource;
 
-const transactionOriginsByFragment = new WeakMap<
-  Y.XmlFragment,
-  Map<string, object>
->();
+const transactionOriginsByFragment = new WeakMap<Y.XmlFragment, Map<string, object>>();
 
 const resolveTransactionOrigin = (source: NfmEditorSource): object => {
   if (source.transactionOrigin) return source.transactionOrigin;
-  const origins = transactionOriginsByFragment.get(source.fragment)
-    ?? new Map<string, object>();
+  const origins = transactionOriginsByFragment.get(source.fragment) ?? new Map<string, object>();
   transactionOriginsByFragment.set(source.fragment, origins);
   const existing = origins.get(source.clientSessionId);
   if (existing) return existing;
@@ -62,9 +58,7 @@ export interface NfmEditorModeOptions {
   readonly initialContent?: never;
 }
 
-export function createNfmEditorModeOptions(
-  source: NfmEditorSource,
-): NfmEditorModeOptions {
+export function createNfmEditorModeOptions(source: NfmEditorSource): NfmEditorModeOptions {
   return {
     collaboration: {
       fragment: source.fragment,
@@ -110,7 +104,6 @@ export function resolveNfmEditorBlockActionCapabilities(
 } {
   return {
     canMoveBlocks: hasSourcePageContext && executionProjectId !== null,
-    canSendBlocksToThread:
-      hasSourcePageContext && executionProjectId !== null,
+    canSendBlocksToThread: hasSourcePageContext && executionProjectId !== null,
   };
 }

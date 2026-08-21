@@ -64,10 +64,7 @@ interface MainRequestState {
 export class GitWorkerHostError extends Error {
   readonly code: "protocol-error" | "worker-unavailable";
 
-  constructor(
-    code: "protocol-error" | "worker-unavailable",
-    message: string,
-  ) {
+  constructor(code: "protocol-error" | "worker-unavailable", message: string) {
     super(message);
     this.name = "GitWorkerHostError";
     this.code = code;
@@ -113,12 +110,8 @@ function createNodeGitWorkerProcess(input: {
 export class GitWorkerHost {
   readonly #workerPath: string;
   readonly #createProcess: GitWorkerProcessFactory;
-  readonly #onInfrastructureError: NonNullable<
-    GitWorkerHostOptions["onInfrastructureError"]
-  >;
-  readonly #onPerformanceOperation: NonNullable<
-    GitWorkerHostOptions["onPerformanceOperation"]
-  >;
+  readonly #onInfrastructureError: NonNullable<GitWorkerHostOptions["onInfrastructureError"]>;
+  readonly #onPerformanceOperation: NonNullable<GitWorkerHostOptions["onPerformanceOperation"]>;
   readonly #renderers = new Map<number, RendererState>();
   readonly #requestOwners = new Map<
     string,
@@ -137,10 +130,7 @@ export class GitWorkerHost {
     this.#onPerformanceOperation = options.onPerformanceOperation ?? (() => {});
   }
 
-  handleRendererMessage(
-    target: GitWorkerRendererTarget,
-    message: GitWorkerMessageFromView,
-  ): void {
+  handleRendererMessage(target: GitWorkerRendererTarget, message: GitWorkerMessageFromView): void {
     if (message.type === "worker-request-cancel") {
       this.#cancelRendererRequest(target.id, message.id);
       return;
@@ -155,10 +145,7 @@ export class GitWorkerHost {
       );
       return;
     }
-    if (
-      this.#requestOwners.has(message.request.id)
-      || this.#mainRequests.has(message.request.id)
-    ) {
+    if (this.#requestOwners.has(message.request.id) || this.#mainRequests.has(message.request.id)) {
       this.#sendInfrastructureError(
         renderer.target,
         message.request,
@@ -182,10 +169,9 @@ export class GitWorkerHost {
     signal?: AbortSignal;
   }): Promise<GitWorkerMethodMap[Method]["result"]> {
     if (this.#shuttingDown) {
-      return Promise.reject(new GitWorkerHostError(
-        "worker-unavailable",
-        "Git worker is shutting down",
-      ));
+      return Promise.reject(
+        new GitWorkerHostError("worker-unavailable", "Git worker is shutting down"),
+      );
     }
     if (input.signal?.aborted) {
       return Promise.reject(input.signal.reason);
@@ -336,9 +322,7 @@ export class GitWorkerHost {
       return;
     }
     if (message.type === "git-live-query-event") {
-      const ownerId = this.#subscriptionOwners.get(
-        message.event.subscriptionId,
-      );
+      const ownerId = this.#subscriptionOwners.get(message.event.subscriptionId);
       if (ownerId === undefined) return;
       const renderer = this.#renderers.get(ownerId);
       if (!renderer || renderer.target.isDestroyed()) return;
@@ -365,10 +349,9 @@ export class GitWorkerHost {
       this.#mainRequests.delete(message.id);
       mainRequest.cleanup();
       if (message.result.type === "error") {
-        mainRequest.reject(new GitWorkerHostError(
-          message.result.error.code,
-          message.result.error.message,
-        ));
+        mainRequest.reject(
+          new GitWorkerHostError(message.result.error.code, message.result.error.message),
+        );
       } else {
         mainRequest.resolve(message.result.value);
       }
@@ -462,12 +445,7 @@ export class GitWorkerHost {
       };
       this.#releaseRequest(requestId, owner.ownerId);
       if (!renderer || renderer.target.isDestroyed()) continue;
-      this.#sendInfrastructureError(
-        renderer.target,
-        request,
-        "worker-unavailable",
-        message,
-      );
+      this.#sendInfrastructureError(renderer.target, request, "worker-unavailable", message);
     }
     for (const request of this.#mainRequests.values()) {
       request.cleanup();
@@ -508,10 +486,10 @@ export class GitWorkerHost {
   ): boolean {
     const method = message.request.method;
     if (
-      method !== "subscribe-live-query"
-      && method !== "unsubscribe-live-query"
-      && method !== "recover-live-query"
-      && method !== "refresh-live-query"
+      method !== "subscribe-live-query" &&
+      method !== "unsubscribe-live-query" &&
+      method !== "recover-live-query" &&
+      method !== "refresh-live-query"
     ) {
       return true;
     }

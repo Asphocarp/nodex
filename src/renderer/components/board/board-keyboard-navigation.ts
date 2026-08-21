@@ -19,9 +19,7 @@ export function findBoardKeyboardLocation(
   pageId: string | null,
 ): BoardKeyboardLocation | null {
   for (const [columnIndex, column] of board.columns.entries()) {
-    const cardIndex = pageId
-      ? column.cards.findIndex((card) => card.id === pageId)
-      : -1;
+    const cardIndex = pageId ? column.cards.findIndex((card) => card.id === pageId) : -1;
     if (cardIndex < 0) continue;
     return {
       pageId: column.cards[cardIndex]!.id,
@@ -68,8 +66,7 @@ export function resolveBoardKeyboardNavigation(
     );
     const index = locations.findIndex((location) => location.pageId === current.pageId);
     const offset = direction === "next" ? 1 : -1;
-    return locations[Math.max(0, Math.min(locations.length - 1, index + offset))]
-      ?? current;
+    return locations[Math.max(0, Math.min(locations.length - 1, index + offset))] ?? current;
   }
 
   const columnOffset = direction === "right" ? 1 : -1;
@@ -100,8 +97,6 @@ export function resolveBoardKeyboardActionPageIds(
   if (!highlightedPageId) return [];
   if (!selectedPageIds.has(highlightedPageId)) return [highlightedPageId];
   return board.columns.flatMap((column) =>
-    column.cards.flatMap((card) =>
-      selectedPageIds.has(card.id) ? [card.id] : []
-    )
+    column.cards.flatMap((card) => (selectedPageIds.has(card.id) ? [card.id] : [])),
   );
 }

@@ -23,12 +23,14 @@ const viewId = parseDatabaseViewId("view-alpha");
 const statusPropertyId = parseDataSourcePropertyId("status");
 const tagsPropertyId = parseDataSourcePropertyId("tags");
 
-const makeSnapshot = (input: {
-  readonly primary?: boolean;
-  readonly groupedByStatus?: boolean;
-  readonly viewId?: string;
-  readonly title?: string;
-} = {}): DatabaseModuleReadSnapshotV2 => {
+const makeSnapshot = (
+  input: {
+    readonly primary?: boolean;
+    readonly groupedByStatus?: boolean;
+    readonly viewId?: string;
+    readonly title?: string;
+  } = {},
+): DatabaseModuleReadSnapshotV2 => {
   const resolvedViewId = parseDatabaseViewId(input.viewId ?? viewId);
   const database = {
     databaseId,
@@ -63,14 +65,14 @@ const makeSnapshot = (input: {
       schemaKey: "nodex.database-view" as const,
       schemaVersion: 2 as const,
       filter: { kind: "group" as const, operator: "and" as const, children: [] },
-      sort: [{
-        field: { kind: "manual" as const },
-        direction: "asc" as const,
-        nulls: "last" as const,
-      }],
-      group: input.groupedByStatus === false
-        ? null
-        : { propertyId: statusPropertyId },
+      sort: [
+        {
+          field: { kind: "manual" as const },
+          direction: "asc" as const,
+          nulls: "last" as const,
+        },
+      ],
+      group: input.groupedByStatus === false ? null : { propertyId: statusPropertyId },
       display: { propertyIds: [statusPropertyId, tagsPropertyId], showTitle: true },
     }),
     isDefault: input.primary !== false,
@@ -114,50 +116,52 @@ const makeSnapshot = (input: {
     dataSource,
     properties,
     view,
-    rows: [{
-      pageKey: null,
-      membership: {
-        membershipId: "membership-1",
-        dataSourceId,
-        revision: 1,
-        createdAt: timestamp,
-      },
-      page: {
-        pageId: "page-1",
-        libraryId,
-        parent: { kind: "data_source", dataSourceId },
-        lifecycle: "active",
-        parentRevision: 1,
-        metadataRevision: 9,
-        documentId: "document-1",
-        documentGeneration: 1,
-        documentHeadSeq: 5,
-        title,
-        richTitle: plainTextToPortableRichText(title),
-        preview: "One line",
-        plainText: "One line body",
-        createdAt: timestamp,
-        updatedAt: timestamp,
-      },
-      values: {
-        [statusPropertyId]: {
-          propertyId: statusPropertyId,
-          valueType: "select",
-          value: "build",
-          revision: 2,
-        },
-        [tagsPropertyId]: {
-          propertyId: tagsPropertyId,
-          valueType: "multi_select",
-          value: ["sync", "page-first"],
+    rows: [
+      {
+        pageKey: null,
+        membership: {
+          membershipId: "membership-1",
+          dataSourceId,
           revision: 1,
+          createdAt: timestamp,
         },
+        page: {
+          pageId: "page-1",
+          libraryId,
+          parent: { kind: "data_source", dataSourceId },
+          lifecycle: "active",
+          parentRevision: 1,
+          metadataRevision: 9,
+          documentId: "document-1",
+          documentGeneration: 1,
+          documentHeadSeq: 5,
+          title,
+          richTitle: plainTextToPortableRichText(title),
+          preview: "One line",
+          plainText: "One line body",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        values: {
+          [statusPropertyId]: {
+            propertyId: statusPropertyId,
+            valueType: "select",
+            value: "build",
+            revision: 2,
+          },
+          [tagsPropertyId]: {
+            propertyId: tagsPropertyId,
+            valueType: "multi_select",
+            value: ["sync", "page-first"],
+            revision: 1,
+          },
+        },
+        taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
+        position: { rankKey: "a", revision: 2 },
+        effectiveGroupKey: input.groupedByStatus === false ? null : "build",
+        effectiveSubgroupKey: null,
       },
-      taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
-      position: { rankKey: "a", revision: 2 },
-      effectiveGroupKey: input.groupedByStatus === false ? null : "build",
-      effectiveSubgroupKey: null,
-    }],
+    ],
   };
   return {
     projectId,
@@ -180,21 +184,25 @@ describe("Database View render model", () => {
   });
 
   test("keeps a secondary View writable through its own canonical identity", () => {
-    const model = buildDatabaseViewRenderModel(makeSnapshot({
-      primary: false,
-      viewId: "view-focused",
-      title: "Only in focused view",
-    }));
+    const model = buildDatabaseViewRenderModel(
+      makeSnapshot({
+        primary: false,
+        viewId: "view-focused",
+        title: "Only in focused view",
+      }),
+    );
     expect(model.databaseViewId).toBe("view-focused");
     expect(model.readOnlyReason).toBe(null);
     expect(model.columns[2]?.rows[0]?.title).toBe("Only in focused view");
   });
 
   test("preserves ordered Pages for a non-status grouped View", () => {
-    const model = buildDatabaseViewRenderModel(makeSnapshot({
-      primary: false,
-      groupedByStatus: false,
-    }));
+    const model = buildDatabaseViewRenderModel(
+      makeSnapshot({
+        primary: false,
+        groupedByStatus: false,
+      }),
+    );
     expect(model.columns).toHaveLength(1);
     expect(model.columns[0]?.rows[0]?.pageId).toBe("page-1");
   });

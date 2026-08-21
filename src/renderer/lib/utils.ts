@@ -1,5 +1,5 @@
-import { clsx, type ClassValue } from "clsx"
-import { extendTailwindMerge } from "tailwind-merge"
+import { clsx, type ClassValue } from "clsx";
+import { extendTailwindMerge } from "tailwind-merge";
 
 const mergeClasses = extendTailwindMerge<"icon-size">({
   extend: {
@@ -20,8 +20,8 @@ const mergeClasses = extendTailwindMerge<"icon-size">({
       size: ["icon-size"],
     },
   },
-})
+});
 
 export function cn(...inputs: ClassValue[]) {
-  return mergeClasses(clsx(inputs))
+  return mergeClasses(clsx(inputs));
 }

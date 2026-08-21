@@ -24,10 +24,7 @@ import {
   UpdatePageV3OutputSchema,
 } from "./v3-write-schemas";
 
-function defineV3Contract<
-  TInputSchema extends z.ZodType,
-  TOutputSchema extends z.ZodType,
->(
+function defineV3Contract<TInputSchema extends z.ZodType, TOutputSchema extends z.ZodType>(
   contract: NodexAgentToolContract<TInputSchema, TOutputSchema>,
 ): NodexAgentToolContract<TInputSchema, TOutputSchema> {
   return contract;

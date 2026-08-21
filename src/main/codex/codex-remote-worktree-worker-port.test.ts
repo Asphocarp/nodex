@@ -30,10 +30,12 @@ describe("Codex remote worktree worker port", () => {
       openWorker,
     });
 
-    await expect(port.create(createInput(), {
-      signal: new AbortController().signal,
-      onEvent: () => undefined,
-    })).rejects.toThrow("violates protocol version");
+    await expect(
+      port.create(createInput(), {
+        signal: new AbortController().signal,
+        onEvent: () => undefined,
+      }),
+    ).rejects.toThrow("violates protocol version");
     expect(openWorker).not.toHaveBeenCalled();
   });
 });

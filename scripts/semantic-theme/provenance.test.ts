@@ -16,9 +16,13 @@ describe("semantic theme provenance", () => {
 
     expect(parseSemanticThemeProvenance(rendered)).toEqual(provenance);
     expect(provenance.artifacts.map((artifact) => artifact.path)).toEqual(["a.css", "z.css"]);
-    expect(() => parseSemanticThemeProvenance(JSON.stringify({
-      ...provenance,
-      sourcePath: "/private/reference.css",
-    }))).toThrow("THEME_PROVENANCE_INVALID");
+    expect(() =>
+      parseSemanticThemeProvenance(
+        JSON.stringify({
+          ...provenance,
+          sourcePath: "/private/reference.css",
+        }),
+      ),
+    ).toThrow("THEME_PROVENANCE_INVALID");
   });
 });

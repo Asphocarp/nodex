@@ -1,15 +1,9 @@
-export const PRIORITY_VALUES = [
-  "p0-critical",
-  "p1-high",
-  "p2-medium",
-  "p3-low",
-] as const;
+export const PRIORITY_VALUES = ["p0-critical", "p1-high", "p2-medium", "p3-low"] as const;
 
 export type Priority = (typeof PRIORITY_VALUES)[number];
 
 export function isPriority(value: unknown): value is Priority {
-  return typeof value === "string"
-    && PRIORITY_VALUES.includes(value as Priority);
+  return typeof value === "string" && PRIORITY_VALUES.includes(value as Priority);
 }
 
 export function parsePriority(value: unknown): Priority {

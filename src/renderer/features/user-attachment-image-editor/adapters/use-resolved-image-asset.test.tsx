@@ -76,8 +76,7 @@ describe("useResolvedImageAsset", () => {
       fireEvent.click(view.getByRole("button", { name: "Materialize" }));
     });
     await waitFor(() => {
-      expect(view.getByTestId("materialized").textContent)
-        .toBe("data:image/png;base64,AQID");
+      expect(view.getByTestId("materialized").textContent).toBe("data:image/png;base64,AQID");
     });
     expect(invokeCalls.map(([channel]) => channel)).toEqual(["read-file-binary"]);
   });
@@ -105,8 +104,7 @@ describe("useResolvedImageAsset", () => {
 
     expect(view.getByTestId("status").textContent).toBe("loading");
     await waitFor(() => {
-      expect(view.getByTestId("preview").textContent)
-        .toBe("blob:pointer-preview");
+      expect(view.getByTestId("preview").textContent).toBe("blob:pointer-preview");
     });
     expect(view.getByTestId("status").textContent).toBe("ready");
 
@@ -114,20 +112,23 @@ describe("useResolvedImageAsset", () => {
       fireEvent.click(view.getByRole("button", { name: "Materialize" }));
     });
     await waitFor(() => {
-      expect(view.getByTestId("materialized").textContent)
-        .toBe("data:image/webp;base64,BAUG");
+      expect(view.getByTestId("materialized").textContent).toBe("data:image/webp;base64,BAUG");
     });
-    expect(invokeCalls.map(([channel]) => channel))
-      .toEqual(["codex:conversation-image-asset:resolve"]);
+    expect(invokeCalls.map(([channel]) => channel)).toEqual([
+      "codex:conversation-image-asset:resolve",
+    ]);
   });
 
   test("replaces a failed remote source with fetched image data on retry", async () => {
-    const fetchSource = vi.fn()
+    const fetchSource = vi
+      .fn()
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
-      .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3]), {
-        status: 200,
-        headers: { "content-type": "image/png" },
-      }));
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), {
+          status: 200,
+          headers: { "content-type": "image/png" },
+        }),
+      );
     vi.stubGlobal("fetch", fetchSource);
     const view = render(
       <TestQueryProvider>
@@ -135,8 +136,7 @@ describe("useResolvedImageAsset", () => {
       </TestQueryProvider>,
     );
 
-    expect(view.getByTestId("preview").textContent)
-      .toBe("https://example.test/hero.png");
+    expect(view.getByTestId("preview").textContent).toBe("https://example.test/hero.png");
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Retry" }));
     });
@@ -148,8 +148,7 @@ describe("useResolvedImageAsset", () => {
       fireEvent.click(view.getByRole("button", { name: "Retry" }));
     });
     await waitFor(() => {
-      expect(view.getByTestId("preview").textContent)
-        .toBe("data:image/png;base64,AQID");
+      expect(view.getByTestId("preview").textContent).toBe("data:image/png;base64,AQID");
     });
     expect(view.getByTestId("status").textContent).toBe("ready");
     expect(fetchSource).toHaveBeenCalledTimes(2);

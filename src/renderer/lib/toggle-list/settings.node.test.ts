@@ -31,7 +31,9 @@ describe("toggle-list settings rules v2", () => {
 
     const defaults = getDefaultToggleListSettings();
     expect(JSON.stringify(normalized.rulesV2)).toBe(JSON.stringify(defaults.rulesV2));
-    expect(JSON.stringify(normalized.propertyOrder)).toBe(JSON.stringify(["status", "priority", "estimate", "tags"]));
+    expect(JSON.stringify(normalized.propertyOrder)).toBe(
+      JSON.stringify(["status", "priority", "estimate", "tags"]),
+    );
     expect(JSON.stringify(normalized.hiddenProperties)).toBe(JSON.stringify(["estimate"]));
     expect(normalized.showEmptyEstimate).toBe(true);
   });
@@ -63,7 +65,9 @@ describe("toggle-list settings rules v2", () => {
     expect(next.rulesV2.mode).toBe("advanced");
     expect(next.rulesV2.includeHostCard).toBe(true);
     expect(JSON.stringify(derivedFilter.statuses)).toBe(JSON.stringify(["triage", "plan"]));
-    expect(JSON.stringify(derivedFilter.priorities)).toBe(JSON.stringify(["p0-critical", "p1-high"]));
+    expect(JSON.stringify(derivedFilter.priorities)).toBe(
+      JSON.stringify(["p0-critical", "p1-high"]),
+    );
     expect(derivedFilter.includeEmptyPriority).toBe(false);
     expect(JSON.stringify(derivedFilter.tags)).toBe(JSON.stringify(["blocked"]));
     expect(derivedFilter.tagMode).toBe("none");
@@ -80,7 +84,11 @@ describe("toggle-list settings rules v2", () => {
           any: [
             {
               all: [
-                { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low"] },
+                {
+                  field: "priority",
+                  op: "in",
+                  values: ["p0-critical", "p1-high", "p2-medium", "p3-low"],
+                },
               ],
             },
           ],

@@ -27,7 +27,8 @@ export const THREAD_GOAL_DEFAULT_MESSAGES = {
   "composer.threadGoal.pauseTooltip": "Pause goal",
   "composer.threadGoal.replaceConfirmation.cancel": "Cancel",
   "composer.threadGoal.replaceConfirmation.confirm": "Replace goal",
-  "composer.threadGoal.replaceConfirmation.subtitle": "This will keep the thread but replace the saved goal with your current composer text",
+  "composer.threadGoal.replaceConfirmation.subtitle":
+    "This will keep the thread but replace the saved goal with your current composer text",
   "composer.threadGoal.replaceConfirmation.title": "Replace current goal?",
   "composer.threadGoal.resume": "Resume goal",
   "composer.threadGoal.resumeConfirmation.dismissError": "Failed to dismiss goal prompt",
@@ -35,7 +36,8 @@ export const THREAD_GOAL_DEFAULT_MESSAGES = {
   "composer.threadGoal.resumeConfirmation.notNow": "Not now",
   "composer.threadGoal.resumeConfirmation.resumableTitle": "Resume goal?",
   "composer.threadGoal.resumeConfirmation.resume": "Resume goal",
-  "composer.threadGoal.resumeConfirmation.subtitle": "Nodex will keep working toward this goal when the thread is idle",
+  "composer.threadGoal.resumeConfirmation.subtitle":
+    "Nodex will keep working toward this goal when the thread is idle",
   "composer.threadGoal.resumeConfirmation.title": "Resume paused goal?",
   "composer.threadGoal.resumeTooltip": "Resume goal",
   "composer.threadGoal.setError": "Failed to set goal",
@@ -73,10 +75,7 @@ export function formatThreadGoalStatusLabel(status: ThreadGoal["status"]): strin
   return THREAD_GOAL_STATUS_LABELS[status];
 }
 
-export function formatThreadGoalTokenProgress(input: {
-  used: number;
-  budget: number;
-}): string {
+export function formatThreadGoalTokenProgress(input: { used: number; budget: number }): string {
   return getThreadGoalMessage("composer.threadGoal.tokenProgress")
     .replace("{used}", COMPACT_NUMBER_FORMATTER.format(input.used))
     .replace("{budget}", COMPACT_NUMBER_FORMATTER.format(input.budget));

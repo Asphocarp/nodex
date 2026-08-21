@@ -52,12 +52,11 @@ function parseGoalSlashObjective(promptRaw: string): string | null {
 }
 
 function stripGoalActionLinks(objective: string): string {
-  return objective.replace(GOAL_APP_LINK_PATTERN, (_match, label: string) => unescapeMarkdownLinkLabel(label));
+  return objective.replace(GOAL_APP_LINK_PATTERN, (_match, label: string) =>
+    unescapeMarkdownLinkLabel(label),
+  );
 }
 
 function unescapeMarkdownLinkLabel(label: string): string {
-  return label
-    .replaceAll("\\]\\(", "](")
-    .replaceAll("\\]", "]")
-    .replaceAll("\\\\", "\\");
+  return label.replaceAll("\\]\\(", "](").replaceAll("\\]", "]").replaceAll("\\\\", "\\");
 }

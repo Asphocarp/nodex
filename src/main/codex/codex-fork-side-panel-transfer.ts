@@ -29,16 +29,12 @@ export interface CodexForkSidePanelTargetConsumeInput {
   readonly targetBrowserViewScopeId?: string;
 }
 
-export interface CodexForkSidePanelTransferLifecycle<
-  Snapshot = CodexForkBrowserSidePanelSnapshot,
-> {
+export interface CodexForkSidePanelTransferLifecycle<Snapshot = CodexForkBrowserSidePanelSnapshot> {
   stageDirect(input: CodexForkSidePanelDirectStageInput): Promise<void>;
   capturePending(input: CodexForkSidePanelPendingCaptureInput): Promise<void>;
   promotePending(input: CodexForkSidePanelPendingPromotionInput): Promise<boolean>;
   discardPending(pendingWorktreeId: string): void;
-  consumeTarget(
-    input: CodexForkSidePanelTargetConsumeInput,
-  ): Promise<Snapshot | null>;
+  consumeTarget(input: CodexForkSidePanelTargetConsumeInput): Promise<Snapshot | null>;
   clear(): void;
 }
 
@@ -75,12 +71,10 @@ interface PendingForkSidePanelSnapshot<Snapshot> {
  * deliberately adapter-owned so browser identity and heterogeneous tab copying
  * can evolve without changing the exact two-slot ownership state machine.
  */
-export class CodexForkSidePanelTransferManager<Snapshot>
-  implements CodexForkSidePanelTransferLifecycle<Snapshot> {
-  private readonly pendingByWorktreeId = new Map<
-    string,
-    PendingForkSidePanelSnapshot<Snapshot>
-  >();
+export class CodexForkSidePanelTransferManager<
+  Snapshot,
+> implements CodexForkSidePanelTransferLifecycle<Snapshot> {
+  private readonly pendingByWorktreeId = new Map<string, PendingForkSidePanelSnapshot<Snapshot>>();
   private readonly targetByConversationId = new Map<string, Snapshot>();
 
   constructor(private readonly adapter: CodexForkSidePanelSnapshotAdapter<Snapshot>) {}
@@ -125,9 +119,7 @@ export class CodexForkSidePanelTransferManager<Snapshot>
     this.pendingByWorktreeId.delete(pendingWorktreeId);
   }
 
-  async consumeTarget(
-    input: CodexForkSidePanelTargetConsumeInput,
-  ): Promise<Snapshot | null> {
+  async consumeTarget(input: CodexForkSidePanelTargetConsumeInput): Promise<Snapshot | null> {
     if (input.routeKind !== "local-thread") {
       throw new Error("Expected local conversation route");
     }
@@ -137,8 +129,8 @@ export class CodexForkSidePanelTransferManager<Snapshot>
     const applied = await this.adapter.apply(snapshot, {
       targetConversationId: input.targetConversationId,
       targetProjectSessionId: input.targetProjectSessionId,
-      targetBrowserViewScopeId: input.targetBrowserViewScopeId
-        ?? `headless:${input.targetProjectSessionId}`,
+      targetBrowserViewScopeId:
+        input.targetBrowserViewScopeId ?? `headless:${input.targetProjectSessionId}`,
     });
     this.targetByConversationId.delete(input.targetConversationId);
     return applied ?? snapshot;

@@ -2,9 +2,10 @@ export const CODEX_COMMAND_OUTPUT_FLUSH_INTERVAL_MS = 50;
 export const CODEX_COMMAND_OUTPUT_MAX_BUFFERED_CHARS = 20_000;
 export const CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX = "[output truncated]\n";
 
-export function stripCodexCommandOutputTruncationPrefix(
-  value: string | null | undefined,
-): { readonly text: string; readonly hadPrefix: boolean } {
+export function stripCodexCommandOutputTruncationPrefix(value: string | null | undefined): {
+  readonly text: string;
+  readonly hadPrefix: boolean;
+} {
   if (!value?.startsWith(CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX)) {
     return { text: value ?? "", hadPrefix: false };
   }
@@ -75,15 +76,10 @@ export interface CodexCommandOutputUpdate {
 }
 
 export interface CodexCommandOutputScheduler {
-  readonly scheduleTimeout: (
-    callback: () => void,
-    delayMs: number,
-  ) => () => void;
+  readonly scheduleTimeout: (callback: () => void, delayMs: number) => () => void;
 }
 
-export interface CodexCommandOutputQueueOptions<
-  TUpdate extends CodexCommandOutputUpdate,
-> {
+export interface CodexCommandOutputQueueOptions<TUpdate extends CodexCommandOutputUpdate> {
   readonly onFlush: (updates: readonly TUpdate[]) => void;
   readonly scheduler?: CodexCommandOutputScheduler;
   readonly flushIntervalMs?: number;
@@ -96,9 +92,7 @@ export interface CodexCommandOutputQueueOptions<
   ) => TUpdate;
 }
 
-export function buildCodexCommandOutputKey(
-  update: CodexCommandOutputUpdate,
-): string {
+export function buildCodexCommandOutputKey(update: CodexCommandOutputUpdate): string {
   return `${update.conversationId}:${update.turnId ?? "null"}:${update.itemId}`;
 }
 
@@ -120,22 +114,20 @@ export class CodexCommandOutputQueue<
   private readonly scheduler: CodexCommandOutputScheduler;
   private readonly flushIntervalMs: number;
   private readonly maxBufferedChars: number;
-  private readonly mergeUpdate: NonNullable<
-    CodexCommandOutputQueueOptions<TUpdate>["mergeUpdate"]
-  >;
+  private readonly mergeUpdate: NonNullable<CodexCommandOutputQueueOptions<TUpdate>["mergeUpdate"]>;
   private cancelScheduledFlush: (() => void) | null = null;
 
   constructor(options: CodexCommandOutputQueueOptions<TUpdate>) {
     this.onFlush = options.onFlush;
     this.scheduler = options.scheduler ?? createCodexCommandOutputScheduler();
-    this.flushIntervalMs =
-      options.flushIntervalMs ?? CODEX_COMMAND_OUTPUT_FLUSH_INTERVAL_MS;
-    this.maxBufferedChars =
-      options.maxBufferedChars ?? CODEX_COMMAND_OUTPUT_MAX_BUFFERED_CHARS;
-    this.mergeUpdate = options.mergeUpdate ?? ((_, incoming, mergedDelta) => ({
-      ...incoming,
-      delta: mergedDelta,
-    }));
+    this.flushIntervalMs = options.flushIntervalMs ?? CODEX_COMMAND_OUTPUT_FLUSH_INTERVAL_MS;
+    this.maxBufferedChars = options.maxBufferedChars ?? CODEX_COMMAND_OUTPUT_MAX_BUFFERED_CHARS;
+    this.mergeUpdate =
+      options.mergeUpdate ??
+      ((_, incoming, mergedDelta) => ({
+        ...incoming,
+        delta: mergedDelta,
+      }));
   }
 
   enqueue(update: TUpdate): void {

@@ -48,10 +48,7 @@ const providerFactory = () => {
   };
 };
 
-const input = (
-  factory: ReturnType<typeof providerFactory>,
-  generation = 1,
-) => ({
+const input = (factory: ReturnType<typeof providerFactory>, generation = 1) => ({
   libraryId: "library-1",
   accessContext: { kind: "project" as const, projectId: "project-1" },
   ownerBlockId: "canvas-1",

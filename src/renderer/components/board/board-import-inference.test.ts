@@ -46,7 +46,12 @@ function makeRules(partial: Partial<DbViewRules> = {}): DbViewRules {
         {
           all: [
             { field: "status", op: "in", values: ["triage", "plan", "build", "review", "ship"] },
-            { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low"], includeEmpty: true },
+            {
+              field: "priority",
+              op: "in",
+              values: ["p0-critical", "p1-high", "p2-medium", "p3-low"],
+              includeEmpty: true,
+            },
           ],
         },
       ],

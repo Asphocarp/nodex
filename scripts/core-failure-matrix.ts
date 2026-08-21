@@ -1,8 +1,4 @@
-import {
-  execFileSync,
-  spawn,
-  type ChildProcessWithoutNullStreams,
-} from "node:child_process";
+import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -163,9 +159,7 @@ function assertMatrixTestsExist(): void {
   );
 }
 
-function readCoreDescriptor(
-  child: ChildProcessWithoutNullStreams,
-): Promise<CoreRuntimeDescriptor> {
+function readCoreDescriptor(child: ChildProcessWithoutNullStreams): Promise<CoreRuntimeDescriptor> {
   return new Promise((resolve, reject) => {
     const lines = createInterface({ input: child.stdout });
     const timeout = setTimeout(() => {
@@ -185,9 +179,7 @@ function readCoreDescriptor(
   });
 }
 
-function waitForCoreExit(
-  child: ChildProcessWithoutNullStreams,
-): Promise<number | null> {
+function waitForCoreExit(child: ChildProcessWithoutNullStreams): Promise<number | null> {
   if (child.exitCode !== null) return Promise.resolve(child.exitCode);
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -271,11 +263,11 @@ async function seedProfile(profile: string): Promise<void> {
     }
     for (const name of readdirSync(runtimeProfile)) {
       if (name === "run") continue;
-      cpSync(
-        path.join(runtimeProfile, name),
-        path.join(profile, name),
-        { recursive: true, errorOnExist: true, force: false },
-      );
+      cpSync(path.join(runtimeProfile, name), path.join(profile, name), {
+        recursive: true,
+        errorOnExist: true,
+        force: false,
+      });
     }
   } finally {
     if (child.exitCode === null) child.kill();
@@ -298,10 +290,10 @@ async function verifyProfile(profile: string): Promise<ProfileVerification> {
   ]).trim();
   const verification = JSON.parse(output) as ProfileVerification;
   if (
-    !verification.recovered
-    || verification.integrityCheck !== "ok"
-    || verification.foreignKeyViolations !== 0
-    || verification.finalCommittedSequence <= 0
+    !verification.recovered ||
+    verification.integrityCheck !== "ok" ||
+    verification.foreignKeyViolations !== 0 ||
+    verification.finalCommittedSequence <= 0
   ) {
     throw new Error(`Failure-matrix verification failed: ${output}`);
   }
@@ -313,14 +305,7 @@ async function main(): Promise<void> {
   const profile = resolveDisposableProfile(repositoryRoot, requestedProfile);
   assertMatrixTestsExist();
   run("cargo", ["test", "-p", "nodex-core", "--lib", "--all-features"]);
-  run("cargo", [
-    "test",
-    "-p",
-    "nodex-core",
-    "--test",
-    "store_recovery",
-    "--all-features",
-  ]);
+  run("cargo", ["test", "-p", "nodex-core", "--test", "store_recovery", "--all-features"]);
   run("cargo", ["build", "-p", "nodex-core-server"]);
   const verification = await verifyProfile(profile);
   const rows = [
@@ -340,13 +325,19 @@ async function main(): Promise<void> {
       foreignKeyViolations: verification.foreignKeyViolations,
     },
   ];
-  console.log(JSON.stringify({
-    profile,
-    recovered: rows.length,
-    integrityFailures: 0,
-    verification,
-    rows,
-  }, null, 2));
+  console.log(
+    JSON.stringify(
+      {
+        profile,
+        recovered: rows.length,
+        integrityFailures: 0,
+        verification,
+        rows,
+      },
+      null,
+      2,
+    ),
+  );
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {

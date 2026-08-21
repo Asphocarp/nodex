@@ -25,10 +25,12 @@ export type DatabaseViewPageCopyRequest =
 export function isDatabaseViewPageCopyActionId(
   actionId: string,
 ): actionId is DatabaseViewPageCopyActionId {
-  return actionId === "copy-id"
-    || actionId === "copy-deeplink"
-    || actionId === "copy-title"
-    || actionId === "copy-markdown";
+  return (
+    actionId === "copy-id" ||
+    actionId === "copy-deeplink" ||
+    actionId === "copy-title" ||
+    actionId === "copy-markdown"
+  );
 }
 
 /** Resolves copy intent without coupling product payload rules to menu lifecycle. */

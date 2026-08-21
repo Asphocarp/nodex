@@ -5,16 +5,15 @@ import {
   resolveCodexSetupTaskSuggestions,
   shuffleCodexSetupRoles,
 } from "./setup-codex-onboarding";
-import {
-  DEFAULT_SETUP_CODEX_ROLE_STATE,
-  updateCodexSetupRoles,
-} from "./setup-codex-role-state";
+import { DEFAULT_SETUP_CODEX_ROLE_STATE, updateCodexSetupRoles } from "./setup-codex-role-state";
 import {
   buildCodexSetupSelectedSourceIds,
   resolveCodexSetupFallbackSources,
 } from "./setup-codex-context-sources";
 
-function app(input: Partial<ProtocolAppInfo> & Pick<ProtocolAppInfo, "id" | "name">): ProtocolAppInfo {
+function app(
+  input: Partial<ProtocolAppInfo> & Pick<ProtocolAppInfo, "id" | "name">,
+): ProtocolAppInfo {
   return {
     description: null,
     logoUrl: null,
@@ -42,30 +41,22 @@ describe("setup Codex onboarding model", () => {
   });
 
   test("interleaves at most three task suggestions across normalized roles", () => {
-    const suggestions = resolveCodexSetupTaskSuggestions([
-      "engineering",
-      "product_management",
-    ]);
-    expect(JSON.stringify(suggestions.map((suggestion) => suggestion.title))).toBe(JSON.stringify([
-      "Debug an issue",
-      "Review a PRD",
-      "Plan implementation",
-    ]));
+    const suggestions = resolveCodexSetupTaskSuggestions(["engineering", "product_management"]);
+    expect(JSON.stringify(suggestions.map((suggestion) => suggestion.title))).toBe(
+      JSON.stringify(["Debug an issue", "Review a PRD", "Plan implementation"]),
+    );
 
     const fallback = resolveCodexSetupTaskSuggestions([]);
     expect(fallback[0]?.title).toBe("Summarize updates");
   });
 
   test("derives work mode while preserving the remaining role preferences", () => {
-    const state = updateCodexSetupRoles(
-      DEFAULT_SETUP_CODEX_ROLE_STATE,
-      ["engineering", "product_management"],
-    );
-
-    expect(JSON.stringify(state.roles)).toBe(JSON.stringify([
+    const state = updateCodexSetupRoles(DEFAULT_SETUP_CODEX_ROLE_STATE, [
       "engineering",
       "product_management",
-    ]));
+    ]);
+
+    expect(JSON.stringify(state.roles)).toBe(JSON.stringify(["engineering", "product_management"]));
     expect(state.personalizedSuggestionsEnabled).toBe(true);
     expect(state.workMode).toBe("coding");
   });
@@ -77,19 +68,11 @@ describe("setup Codex onboarding model", () => {
       app({ id: "mail", name: "Gmail" }),
     ]);
 
-    expect(JSON.stringify(recommended.map((source) => source.id))).toBe(JSON.stringify([
-      "google-drive",
-      "slack",
-      "gmail",
-    ]));
-    expect(JSON.stringify(buildCodexSetupSelectedSourceIds(
-      ["notion", "slack"],
-      recommended,
-    ))).toBe(JSON.stringify([
-      "notion",
-      "slack",
-      "google-drive",
-      "gmail",
-    ]));
+    expect(JSON.stringify(recommended.map((source) => source.id))).toBe(
+      JSON.stringify(["google-drive", "slack", "gmail"]),
+    );
+    expect(JSON.stringify(buildCodexSetupSelectedSourceIds(["notion", "slack"], recommended))).toBe(
+      JSON.stringify(["notion", "slack", "google-drive", "gmail"]),
+    );
   });
 });

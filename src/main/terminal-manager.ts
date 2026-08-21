@@ -34,10 +34,7 @@ type TerminalEventPayload =
   | { sessionId: string; exitCode: number | null; reason: "exited" | "killed" }
   | { sessionId: string; generation: number; ownerWindowSessionId: string };
 
-type EmitTerminalEvent = (
-  channel: TerminalEventName,
-  payload: TerminalEventPayload,
-) => void;
+type EmitTerminalEvent = (channel: TerminalEventName, payload: TerminalEventPayload) => void;
 
 interface TerminalBackendHandle {
   process: pty.IPty;
@@ -289,11 +286,9 @@ export class TerminalManager {
     this.linkSession(session);
     const existingLease = session.lease;
     if (
-      existingLease
-      && (
-        existingLease.webContentsId !== owner.id
-        || existingLease.windowSessionId !== windowSessionId
-      )
+      existingLease &&
+      (existingLease.webContentsId !== owner.id ||
+        existingLease.windowSessionId !== windowSessionId)
     ) {
       return {
         status: "conflict",
@@ -362,10 +357,7 @@ export class TerminalManager {
     const normalizedSize = normalizeSize(size);
     const lease = session.lease;
     if (!lease) return;
-    if (
-      normalizedSize.cols === lease.size.cols &&
-      normalizedSize.rows === lease.size.rows
-    ) {
+    if (normalizedSize.cols === lease.size.cols && normalizedSize.rows === lease.size.rows) {
       return;
     }
 
@@ -373,19 +365,11 @@ export class TerminalManager {
     this.resizeBackend(session, normalizedSize, emit);
   }
 
-  releaseViewLease(
-    owner: Electron.WebContents,
-    windowSessionId: string,
-    sessionId: string,
-  ): void {
+  releaseViewLease(owner: Electron.WebContents, windowSessionId: string, sessionId: string): void {
     const session = this.sessionsById.get(sessionId);
     if (!session) return;
     const lease = session.lease;
-    if (
-      !lease
-      || lease.webContentsId !== owner.id
-      || lease.windowSessionId !== windowSessionId
-    ) {
+    if (!lease || lease.webContentsId !== owner.id || lease.windowSessionId !== windowSessionId) {
       return;
     }
     session.lease = null;
@@ -415,19 +399,29 @@ export class TerminalManager {
     if (!session) return { status: "not_found" };
     const previousLease = session.lease;
     if (!previousLease) {
-      return this.acquireViewLease(owner, windowSessionId, {
-        sessionId: request.sessionId,
-        size: request.size,
-      }, emit);
+      return this.acquireViewLease(
+        owner,
+        windowSessionId,
+        {
+          sessionId: request.sessionId,
+          size: request.size,
+        },
+        emit,
+      );
     }
     if (
-      previousLease.webContentsId === owner.id
-      && previousLease.windowSessionId === windowSessionId
+      previousLease.webContentsId === owner.id &&
+      previousLease.windowSessionId === windowSessionId
     ) {
-      return this.acquireViewLease(owner, windowSessionId, {
-        sessionId: request.sessionId,
-        size: request.size,
-      }, emit);
+      return this.acquireViewLease(
+        owner,
+        windowSessionId,
+        {
+          sessionId: request.sessionId,
+          size: request.size,
+        },
+        emit,
+      );
     }
     if (previousLease.generation !== request.expectedGeneration) {
       return {
@@ -440,15 +434,11 @@ export class TerminalManager {
 
     session.leaseGeneration += 1;
     const nextGeneration = session.leaseGeneration;
-    this.sendToWebContentsId(
-      previousLease.webContentsId,
-      "terminal-view-lease-revoked",
-      {
-        sessionId: session.sessionId,
-        generation: nextGeneration,
-        ownerWindowSessionId: windowSessionId,
-      },
-    );
+    this.sendToWebContentsId(previousLease.webContentsId, "terminal-view-lease-revoked", {
+      sessionId: session.sessionId,
+      generation: nextGeneration,
+      ownerWindowSessionId: windowSessionId,
+    });
     session.lease = {
       windowSessionId,
       webContentsId: owner.id,
@@ -510,13 +500,7 @@ export class TerminalManager {
     const previousAction = session.pendingAction ?? Promise.resolve();
     const nextAction = previousAction
       .catch(() => undefined)
-      .then(() => this.restartForAction(
-        owner,
-        windowSessionId,
-        session,
-        request,
-        emit,
-      ));
+      .then(() => this.restartForAction(owner, windowSessionId, session, request, emit));
     const trackedAction = nextAction.finally(() => {
       if (session.pendingAction === trackedAction) session.pendingAction = null;
     });
@@ -545,8 +529,11 @@ export class TerminalManager {
     return [...this.sessionsById.values()]
       .filter((session) => {
         if (!session.backend || session.exited) return false;
-        return (session.conversationId !== null && input.conversationIds.has(session.conversationId))
-          || (session.projectSessionId !== null && input.projectSessionIds.has(session.projectSessionId));
+        return (
+          (session.conversationId !== null && input.conversationIds.has(session.conversationId)) ||
+          (session.projectSessionId !== null &&
+            input.projectSessionIds.has(session.projectSessionId))
+        );
       })
       .map((session) => this.snapshotSession(session));
   }
@@ -558,8 +545,10 @@ export class TerminalManager {
     const discardedSessionIds: string[] = [];
     for (const session of this.sessionsById.values()) {
       if (!session.exited) continue;
-      const owned = (session.conversationId !== null && input.conversationIds.has(session.conversationId))
-        || (session.projectSessionId !== null && input.projectSessionIds.has(session.projectSessionId));
+      const owned =
+        (session.conversationId !== null && input.conversationIds.has(session.conversationId)) ||
+        (session.projectSessionId !== null &&
+          input.projectSessionIds.has(session.projectSessionId));
       if (!owned) continue;
 
       this.disposeBackend(session, false);
@@ -571,7 +560,9 @@ export class TerminalManager {
   }
 
   async refreshSessionProcessMetrics(sessionIds: readonly string[]): Promise<void> {
-    const uniqueSessionIds = [...new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean))];
+    const uniqueSessionIds = [
+      ...new Set(sessionIds.map((sessionId) => sessionId.trim()).filter(Boolean)),
+    ];
     const sessions = uniqueSessionIds.flatMap((sessionId) => {
       const session = this.sessionsById.get(sessionId);
       if (!session) return [];
@@ -590,7 +581,11 @@ export class TerminalManager {
         sessions.map((session) => session.osPid!),
       );
       for (const session of sessions) {
-        if (this.sessionsById.get(session.sessionId) !== session || session.exited || !session.backend) {
+        if (
+          this.sessionsById.get(session.sessionId) !== session ||
+          session.exited ||
+          !session.backend
+        ) {
           continue;
         }
 
@@ -777,32 +772,21 @@ export class TerminalManager {
     emit: EmitTerminalEvent,
   ): boolean {
     if (
-      session.lease?.webContentsId === owner.id
-      && session.lease.windowSessionId === windowSessionId
+      session.lease?.webContentsId === owner.id &&
+      session.lease.windowSessionId === windowSessionId
     ) {
       return true;
     }
 
-    this.emitError(
-      emit,
-      session.sessionId,
-      "Terminal is active in another window.",
-    );
+    this.emitError(emit, session.sessionId, "Terminal is active in another window.");
     return false;
   }
 
-  private emitError(
-    emit: EmitTerminalEvent,
-    sessionId: string,
-    message: string,
-  ): void {
+  private emitError(emit: EmitTerminalEvent, sessionId: string, message: string): void {
     emit("terminal-error", { sessionId, message });
   }
 
-  private flushInit(
-    session: TerminalManagerSession,
-    force = false,
-  ): void {
+  private flushInit(session: TerminalManagerSession, force = false): void {
     if (force || session.buffer.length > 0) {
       this.sendToLease(session, "terminal-init-log", {
         sessionId: session.sessionId,
@@ -812,9 +796,7 @@ export class TerminalManager {
     }
   }
 
-  private sendAttached(
-    session: TerminalManagerSession,
-  ): void {
+  private sendAttached(session: TerminalManagerSession): void {
     this.sendToLease(session, "terminal-attached", {
       sessionId: session.sessionId,
       snapshot: this.snapshotSession(session),
@@ -830,17 +812,12 @@ export class TerminalManager {
     try {
       session.backend.process.resize(size.cols, size.rows);
     } catch (error) {
-      const message = error instanceof Error
-        ? error.message
-        : "Failed to resize terminal.";
+      const message = error instanceof Error ? error.message : "Failed to resize terminal.";
       this.emitError(emit, session.sessionId, message);
     }
   }
 
-  private rememberEmitter(
-    webContentsId: number,
-    emit: EmitTerminalEvent,
-  ): void {
+  private rememberEmitter(webContentsId: number, emit: EmitTerminalEvent): void {
     this.fallbackEmittersByWebContentsId.set(webContentsId, emit);
   }
 
@@ -866,10 +843,7 @@ export class TerminalManager {
     this.fallbackEmittersByWebContentsId.get(webContentsId)?.(channel, payload);
   }
 
-  private broadcast(
-    channel: TerminalEventName,
-    payload: TerminalEventPayload,
-  ): void {
+  private broadcast(channel: TerminalEventName, payload: TerminalEventPayload): void {
     if (this.eventPublisher) {
       this.eventPublisher.broadcast(channel, payload);
       return;

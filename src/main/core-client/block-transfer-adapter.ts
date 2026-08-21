@@ -15,11 +15,7 @@ import type { BlockLocation } from "../../shared/block-documents/contracts";
 import { CoreModuleResponseError } from "./core-client";
 import { applyResultCursor, rendererLocalCommitApply } from "./types";
 import { toCoreDatabaseViewPresentationOverride } from "./database-presentation-adapter";
-import type {
-  CoreClientPort,
-  LibraryIntent,
-  LibraryApplyResult,
-} from "./types";
+import type { CoreClientPort, LibraryIntent, LibraryApplyResult } from "./types";
 
 export interface CoreBlockTransferAdapterInput {
   readonly client: CoreClientPort;
@@ -29,17 +25,13 @@ export interface CoreBlockTransferAdapterInput {
 }
 
 export interface CoreBlockTransferAdapter {
-  commit(
-    intent: BlockTransferIntent,
-  ): Promise<BlockTransferCommandResult>;
+  commit(intent: BlockTransferIntent): Promise<BlockTransferCommandResult>;
   undo(intent: BlockTransferUndoIntent): Promise<BlockTransferUndoCommandResult>;
 }
 
 type CoreTransferResult = NonNullable<LibraryApplyResult["outcome"]["block_transfer"]>;
 type CoreTransferIntent = Extract<LibraryIntent, { kind: "transfer_blocks" }>["intent"];
-type CoreUndoTransferResult = NonNullable<
-  LibraryApplyResult["outcome"]["block_transfer_undo"]
->;
+type CoreUndoTransferResult = NonNullable<LibraryApplyResult["outcome"]["block_transfer_undo"]>;
 const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
   actor: intent.actor,
   mode: intent.mode,
@@ -87,48 +79,50 @@ const toCoreIntent = (intent: BlockTransferIntent): CoreTransferIntent => ({
         return {
           kind: "data_source" as const,
           data_source_id: intent.target.dataSourceId,
-          placement: intent.target.placement.kind === "direct"
-            ? {
-                kind: intent.target.placement.kind,
-                view_id: intent.target.placement.viewId,
-                presentation_override: toCoreDatabaseViewPresentationOverride(
-                  intent.target.placement.presentationOverride,
-                ),
-                group_key: intent.target.placement.groupKey,
-                before_page_id: intent.target.placement.beforePageId ?? null,
-                sorted_property_values: (intent.target.placement.sortedPropertyValues ?? [])
-                  .map((entry) => ({
-                    property_id: entry.propertyId,
-                    value: entry.value,
-                  })),
-              }
-            : {
-                kind: intent.target.placement.kind,
-                view_id: intent.target.placement.viewId,
-                presentation_override: toCoreDatabaseViewPresentationOverride(
-                  intent.target.placement.presentationOverride,
-                ),
-                expected_projection: {
-                  scope_key: intent.target.placement.expectedProjection.scopeKey,
-                  schema_version: intent.target.placement.expectedProjection.schemaVersion,
-                  revision: intent.target.placement.expectedProjection.revision,
-                  covered_commit_seq:
-                    intent.target.placement.expectedProjection.coveredCommitSeq,
-                  effect_hash: intent.target.placement.expectedProjection.effectHash,
+          placement:
+            intent.target.placement.kind === "direct"
+              ? {
+                  kind: intent.target.placement.kind,
+                  view_id: intent.target.placement.viewId,
+                  presentation_override: toCoreDatabaseViewPresentationOverride(
+                    intent.target.placement.presentationOverride,
+                  ),
+                  group_key: intent.target.placement.groupKey,
+                  before_page_id: intent.target.placement.beforePageId ?? null,
+                  sorted_property_values: (intent.target.placement.sortedPropertyValues ?? []).map(
+                    (entry) => ({
+                      property_id: entry.propertyId,
+                      value: entry.value,
+                    }),
+                  ),
+                }
+              : {
+                  kind: intent.target.placement.kind,
+                  view_id: intent.target.placement.viewId,
+                  presentation_override: toCoreDatabaseViewPresentationOverride(
+                    intent.target.placement.presentationOverride,
+                  ),
+                  expected_projection: {
+                    scope_key: intent.target.placement.expectedProjection.scopeKey,
+                    schema_version: intent.target.placement.expectedProjection.schemaVersion,
+                    revision: intent.target.placement.expectedProjection.revision,
+                    covered_commit_seq: intent.target.placement.expectedProjection.coveredCommitSeq,
+                    effect_hash: intent.target.placement.expectedProjection.effectHash,
+                  },
+                  target:
+                    intent.target.placement.target.kind === "page"
+                      ? {
+                          kind: intent.target.placement.target.kind,
+                          occurrence_key: intent.target.placement.target.occurrenceKey,
+                          edge: intent.target.placement.target.edge,
+                        }
+                      : intent.target.placement.target.kind === "group"
+                        ? {
+                            kind: intent.target.placement.target.kind,
+                            occurrence_key: intent.target.placement.target.occurrenceKey,
+                          }
+                        : { kind: intent.target.placement.target.kind },
                 },
-                target: intent.target.placement.target.kind === "page"
-                  ? {
-                      kind: intent.target.placement.target.kind,
-                      occurrence_key: intent.target.placement.target.occurrenceKey,
-                      edge: intent.target.placement.target.edge,
-                    }
-                  : intent.target.placement.target.kind === "group"
-                    ? {
-                        kind: intent.target.placement.target.kind,
-                        occurrence_key: intent.target.placement.target.occurrenceKey,
-                      }
-                    : { kind: intent.target.placement.target.kind },
-              },
         };
     }
   })(),
@@ -195,9 +189,9 @@ const fromCoreTransformation = (
   }
   const promotion = (() => {
     if (
-      evidence.promotion.kind === "not_requested"
-      || evidence.promotion.kind === "not_applicable"
-      || evidence.promotion.kind === "no_match"
+      evidence.promotion.kind === "not_requested" ||
+      evidence.promotion.kind === "not_applicable" ||
+      evidence.promotion.kind === "no_match"
     ) {
       return evidence.promotion;
     }
@@ -227,7 +221,10 @@ const fromCoreTransformation = (
     consumedPropertyKeys: evidence.consumedPropertyKeys,
     ...(evidence.wrapperReason == null
       ? {}
-      : { wrapperReason: evidence.wrapperReason as BlockTransferTransformationEvidence["wrapperReason"] }),
+      : {
+          wrapperReason:
+            evidence.wrapperReason as BlockTransferTransformationEvidence["wrapperReason"],
+        }),
     bodyRootBlockIds: evidence.bodyRootBlockIds,
     sourceToResultBlockIds: evidence.sourceToResultBlockIds,
     promotion,
@@ -312,11 +309,10 @@ const coreFailure = (
   error: unknown,
 ): BlockTransferCommandError => {
   if (!(error instanceof CoreModuleResponseError)) {
-    return blockTransferFailure(
-      "unknown",
-      error instanceof Error ? error.message : String(error),
-      { operationId: intent.operationId, retryable: true },
-    );
+    return blockTransferFailure("unknown", error instanceof Error ? error.message : String(error), {
+      operationId: intent.operationId,
+      retryable: true,
+    });
   }
   const options = {
     operationId: intent.operationId,
@@ -347,9 +343,9 @@ const coreFailure = (
         intent.token === undefined ? "source_head_mismatch" : "undo_conflict",
         error.message,
         {
-        ...options,
-        reloadRequired: intent.token === undefined,
-      },
+          ...options,
+          reloadRequired: intent.token === undefined,
+        },
       );
     case "store_corrupt":
       return blockTransferFailure("recovery_required", error.message, {

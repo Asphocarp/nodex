@@ -32,7 +32,7 @@ const storageMap = new Map<string, string>();
 
 const mockStorage = {
   getItem(key: string): string | null {
-    return storageMap.has(key) ? storageMap.get(key) ?? null : null;
+    return storageMap.has(key) ? (storageMap.get(key) ?? null) : null;
   },
   setItem(key: string, value: string): void {
     storageMap.set(key, value);
@@ -196,5 +196,4 @@ describe("SettingsRouteShell service tier", () => {
 
     expect(backCalls).toBe(1);
   });
-
 });

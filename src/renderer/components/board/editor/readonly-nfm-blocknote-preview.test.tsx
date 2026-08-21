@@ -4,11 +4,7 @@ import {
   createDateMentionClockStore,
   setDateMentionClockStoreForTest,
 } from "@/lib/nfm/date-mention-clock";
-import {
-  renderWithMaitai as render,
-  settleAsyncRender,
-  textContent,
-} from "../../../test/dom";
+import { renderWithMaitai as render, settleAsyncRender, textContent } from "../../../test/dom";
 import { ReadonlyNfmBlockNotePreview } from "./readonly-nfm-blocknote-preview";
 
 let restoreDateMentionClockStore: (() => void) | null = null;
@@ -62,7 +58,9 @@ describe("readonly NFM BlockNote preview", () => {
     });
 
     expect(textContent(view.container).includes("Snapshot body")).toBe(true);
-    expect(view.container.querySelector('[data-testid="readonly-nfm-blocknote-preview"]')).not.toBeNull();
+    expect(
+      view.container.querySelector('[data-testid="readonly-nfm-blocknote-preview"]'),
+    ).not.toBeNull();
     expect(view.container.querySelector('[contenteditable="true"]') === null).toBe(true);
   });
 
@@ -96,7 +94,9 @@ describe("readonly NFM BlockNote preview", () => {
   test("renders attachment, agent config, and thread mention as inert inline content", async () => {
     const view = render(
       <ReadonlyNfmBlockNotePreview
-        content={'Before <attachment kind="file" mode="link" source="/tmp/report.md" name="report.md" /> after\n\nUse <agent-config mode="plan" model="gpt-5.5" reasoning="high" />\n\nSee <mention-thread uuid="019-thread" />'}
+        content={
+          'Before <attachment kind="file" mode="link" source="/tmp/report.md" name="report.md" /> after\n\nUse <agent-config mode="plan" model="gpt-5.5" reasoning="high" />\n\nSee <mention-thread uuid="019-thread" />'
+        }
         projectId="alpha"
         pageId="card-1"
         historyId={3}
@@ -109,8 +109,9 @@ describe("readonly NFM BlockNote preview", () => {
       }
     });
 
-    const attachmentChip = Array.from(view.container.querySelectorAll("span"))
-      .find((element) => textContent(element).includes("report.md"));
+    const attachmentChip = Array.from(view.container.querySelectorAll("span")).find((element) =>
+      textContent(element).includes("report.md"),
+    );
     expect(attachmentChip).not.toBeNull();
     if (!attachmentChip) return;
 
@@ -121,7 +122,7 @@ describe("readonly NFM BlockNote preview", () => {
     expect(textContent(view.container).includes("Plan mode")).toBe(true);
     expect(textContent(view.container).includes("019-thread")).toBe(true);
     expect(document.body.querySelector('[role="dialog"]') === null).toBe(true);
-    expect(document.body.querySelector('[data-radix-popper-content-wrapper]') === null).toBe(true);
+    expect(document.body.querySelector("[data-radix-popper-content-wrapper]") === null).toBe(true);
   });
 
   test("refreshes readonly date mention labels while mounted", async () => {

@@ -3,16 +3,30 @@ import { describe, test, expect } from "vitest";
 import { settleAsyncRender, textContent } from "../../test/dom";
 import { within, act, fireEvent, waitFor } from "@testing-library/react";
 import { type CodexSidebarSyncResult, type CodexSidebarThreadItem } from "@/lib/types";
-import { makeAttachedSession, makePanelLayout, makeProject, makeSession, makeSidebarSnapshotItemForSession } from "./workbench-testkit/workbench-shell-fixtures";
-import { NEW_CHAT_ICON_PREFIX, codexHostMessageListener, getSidebarProjectGroup, getSidebarSection, getThreadRow, getThreadRowTitles, invokeCalls, openPanelMenu, renderWorkbench } from "./workbench-testkit/workbench-shell-harness";
+import {
+  makeAttachedSession,
+  makePanelLayout,
+  makeProject,
+  makeSession,
+  makeSidebarSnapshotItemForSession,
+} from "./workbench-testkit/workbench-shell-fixtures";
+import {
+  NEW_CHAT_ICON_PREFIX,
+  codexHostMessageListener,
+  getSidebarProjectGroup,
+  getSidebarSection,
+  getThreadRow,
+  getThreadRowTitles,
+  invokeCalls,
+  openPanelMenu,
+  renderWorkbench,
+} from "./workbench-testkit/workbench-shell-harness";
 
 async function ensureProjectRowExpanded(
   container: HTMLElement,
   projectId = "alpha",
 ): Promise<HTMLElement> {
-  const row = container.querySelector(
-    `[data-app-action-sidebar-project-id="${projectId}"]`,
-  );
+  const row = container.querySelector(`[data-app-action-sidebar-project-id="${projectId}"]`);
   if (!(row instanceof HTMLElement)) {
     throw new Error(`Expected ${projectId} project row`);
   }
@@ -35,11 +49,13 @@ describe("workbench session shell / sidebar-projects", () => {
       initialSelectedSessionId: null,
       sessionsByProject: {
         alpha: [makeSession()],
-        beta: [makeSession({
-          id: "session:beta:database-view",
-          projectId: "beta",
-          title: "Beta Database",
-        })],
+        beta: [
+          makeSession({
+            id: "session:beta:database-view",
+            projectId: "beta",
+            title: "Beta Database",
+          }),
+        ],
       },
     });
     await settleAsyncRender();
@@ -57,15 +73,27 @@ describe("workbench session shell / sidebar-projects", () => {
 
     expect(options.getAttribute("aria-disabled")).toBe(null);
     expect(addNewProject.getAttribute("aria-label")).toBe("Add new project");
-    expect(within(alphaRow).getByRole("button", { name: "Open Alpha" }).getAttribute("aria-current")).toBe("page");
-    expect(within(alphaRow).getByRole("button", { name: "Collapse project" }).getAttribute("aria-expanded")).toBe("true");
-    expect(within(betaRow).getByRole("button", { name: "Expand project" }).getAttribute("aria-expanded")).toBe("false");
+    expect(
+      within(alphaRow).getByRole("button", { name: "Open Alpha" }).getAttribute("aria-current"),
+    ).toBe("page");
+    expect(
+      within(alphaRow)
+        .getByRole("button", { name: "Collapse project" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(
+      within(betaRow).getByRole("button", { name: "Expand project" }).getAttribute("aria-expanded"),
+    ).toBe("false");
     expect(within(section).queryByRole("button", { name: "Collapse all" }) === null).toBe(true);
 
     await ensureProjectRowExpanded(screen.container, "alpha");
     await ensureProjectRowExpanded(screen.container, "beta");
 
-    expect(within(betaRow).getByRole("button", { name: "Collapse project" }).getAttribute("aria-expanded")).toBe("true");
+    expect(
+      within(betaRow)
+        .getByRole("button", { name: "Collapse project" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
     const collapseAll = within(section).getByRole("button", { name: "Collapse all" });
 
     await act(async () => {
@@ -74,10 +102,18 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(within(alphaRow).getByRole("button", { name: "Expand project" }).getAttribute("aria-expanded")).toBe("false");
-    expect(within(betaRow).getByRole("button", { name: "Expand project" }).getAttribute("aria-expanded")).toBe("false");
+    expect(
+      within(alphaRow)
+        .getByRole("button", { name: "Expand project" })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(
+      within(betaRow).getByRole("button", { name: "Expand project" }).getAttribute("aria-expanded"),
+    ).toBe("false");
     const reopenPrevious = within(section).getByRole("button", { name: "Reopen previous" });
-    expect(reopenPrevious.getAttribute("data-app-action-sidebar-projects-collapse-action")).toBe("reopen-previous");
+    expect(reopenPrevious.getAttribute("data-app-action-sidebar-projects-collapse-action")).toBe(
+      "reopen-previous",
+    );
 
     await act(async () => {
       fireEvent.click(reopenPrevious);
@@ -85,9 +121,21 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(within(alphaRow).getByRole("button", { name: "Collapse project" }).getAttribute("aria-expanded")).toBe("true");
-    expect(within(betaRow).getByRole("button", { name: "Collapse project" }).getAttribute("aria-expanded")).toBe("true");
-    expect(within(section).getByRole("button", { name: "Collapse all" }).getAttribute("data-app-action-sidebar-projects-collapse-action")).toBe("collapse-all");
+    expect(
+      within(alphaRow)
+        .getByRole("button", { name: "Collapse project" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(
+      within(betaRow)
+        .getByRole("button", { name: "Collapse project" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(
+      within(section)
+        .getByRole("button", { name: "Collapse all" })
+        .getAttribute("data-app-action-sidebar-projects-collapse-action"),
+    ).toBe("collapse-all");
   });
 
   test("project navigation does not toggle its independent chat disclosure", async () => {
@@ -115,12 +163,18 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    const projectRow = screen.container.querySelector('[data-app-action-sidebar-project-id="alpha"]');
+    const projectRow = screen.container.querySelector(
+      '[data-app-action-sidebar-project-id="alpha"]',
+    );
     if (!(projectRow instanceof HTMLElement)) {
       throw new Error("Expected active project row");
     }
     expect(projectRow.getAttribute("data-active")).toBe(null);
-    expect(getThreadRow(screen.container, "Active thread").getAttribute("data-app-action-sidebar-thread-active")).toBe("true");
+    expect(
+      getThreadRow(screen.container, "Active thread").getAttribute(
+        "data-app-action-sidebar-thread-active",
+      ),
+    ).toBe("true");
     await act(async () => {
       fireEvent.click(within(projectRow).getByRole("button", { name: "Open Alpha" }));
       await Promise.resolve();
@@ -130,8 +184,12 @@ describe("workbench session shell / sidebar-projects", () => {
 
     expect(projectRow.getAttribute("data-app-action-sidebar-project-collapsed")).toBe("false");
     expect(screen.queryByTestId("project-database-surface") !== null).toBe(true);
-    const exitingThreadRow = screen.container.querySelector('[data-app-action-sidebar-thread-title="Active thread"]');
-    expect(Boolean(exitingThreadRow?.closest("[data-app-action-sidebar-project-list-motion]"))).toBe(true);
+    const exitingThreadRow = screen.container.querySelector(
+      '[data-app-action-sidebar-thread-title="Active thread"]',
+    );
+    expect(
+      Boolean(exitingThreadRow?.closest("[data-app-action-sidebar-project-list-motion]")),
+    ).toBe(true);
   });
 
   test("top new-chat row ensures the Project's default draft Session", async () => {
@@ -148,17 +206,21 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(invokeCalls.some((call) => (
-      call[0] === "project-sessions:ensure-default-draft"
-      && call[1] === "alpha"
-    ))).toBe(true);
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "project-sessions:ensure-default-draft" && call[1] === "alpha",
+      ),
+    ).toBe(true);
     expect(props?.isNewThreadTab).toBe(true);
     expect(props?.newThreadTarget).toMatchObject({
       projectId: "alpha",
       sessionId: "session:alpha:created",
     });
-    expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe("Write the first prompt for this new thread...");
+    expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe(
+      "Write the first prompt for this new thread...",
+    );
     expect(screen.queryByTestId("session-right-panel")).toBe(null);
   });
 
@@ -177,19 +239,18 @@ describe("workbench session shell / sidebar-projects", () => {
 
     expect(screen.queryByTestId("project-database-surface") !== null).toBe(true);
     expect(
-      screen.getByTestId("project-database-surface")
+      screen
+        .getByTestId("project-database-surface")
         .getAttribute("data-app-shell-main-content-layout"),
     ).toBe("default");
     const projectHomeTab = screen.getByRole("tab", { name: "Project Home" });
-    expect(
-      projectHomeTab.querySelector('[data-project-home-tab-marker="true"]'),
-    ).not.toBeNull();
-    expect(
-      screen.queryByRole("button", { name: "Close Project Home tab" }),
-    ).toBeNull();
+    expect(projectHomeTab.querySelector('[data-project-home-tab-marker="true"]')).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Close Project Home tab" })).toBeNull();
     expect(screen.queryByTestId("project-scene-header")).toBeNull();
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Database View"]')).toBe(null);
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-thread-title="Database View"]'),
+    ).toBe(null);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Canvas" }));
@@ -200,15 +261,11 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
 
-    expect(invokeCalls.filter((call) =>
-      call[0] === "project-sessions:create"
-    )).toHaveLength(0);
+    expect(invokeCalls.filter((call) => call[0] === "project-sessions:create")).toHaveLength(0);
     expect(screen.queryByTestId("project-right-panel") !== null).toBe(true);
 
     expect(screen.queryByTestId("project-database-surface") !== null).toBe(true);
-    expect(invokeCalls.some((call) =>
-      call[0] === "project-sessions:archive"
-    )).toBe(false);
+    expect(invokeCalls.some((call) => call[0] === "project-sessions:archive")).toBe(false);
   });
 
   test("empty Project bottom panel opens a Project-scoped Terminal", async () => {
@@ -238,27 +295,29 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as {
-      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
-    }).__lastDatabaseViewSurfaceProps;
+    const props = (
+      globalThis as {
+        __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+      }
+    ).__lastDatabaseViewSurfaceProps;
     if (typeof props?.onOpenPage !== "function") {
       throw new Error("Expected Project Home Database Page opener");
     }
     await act(async () => {
-      await (props.onOpenPage as (
-        pageId: string,
-        title?: string,
-        openMode?: "preview" | "durable",
-      ) => Promise<void> | void)("card-1", "Card One", "preview");
+      await (
+        props.onOpenPage as (
+          pageId: string,
+          title?: string,
+          openMode?: "preview" | "durable",
+        ) => Promise<void> | void
+      )("card-1", "Card One", "preview");
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
     const projectHomeTab = screen.getByRole("tab", { name: "Project Home" });
     const pageTab = screen.getByRole("tab", { name: "Card One" });
-    expect(
-      pageTab.closest('[data-app-shell-tab-preview="true"]'),
-    ).not.toBeNull();
+    expect(pageTab.closest('[data-app-shell-tab-preview="true"]')).not.toBeNull();
     const projectHomeRow = projectHomeTab.closest("[data-panel-tab-row]");
     const pageRow = pageTab.closest("[data-panel-tab-row]");
     expect(projectHomeRow).not.toBeNull();
@@ -266,12 +325,12 @@ describe("workbench session shell / sidebar-projects", () => {
     expect(pageRow?.getAttribute("data-panel-tab-row")).not.toBe(
       projectHomeRow?.getAttribute("data-panel-tab-row"),
     );
-    const nextProps = (globalThis as {
-      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
-    }).__lastDatabaseViewSurfaceProps;
-    const presentedPageIds = nextProps?.presentedPageIds as
-      | ReadonlySet<string>
-      | undefined;
+    const nextProps = (
+      globalThis as {
+        __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+      }
+    ).__lastDatabaseViewSurfaceProps;
+    const presentedPageIds = nextProps?.presentedPageIds as ReadonlySet<string> | undefined;
     expect(presentedPageIds?.has("card-1")).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "project-sessions:create")).toBe(false);
 
@@ -295,25 +354,31 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const hostProps = (globalThis as {
-      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
-    }).__lastDatabaseViewSurfaceProps;
+    const hostProps = (
+      globalThis as {
+        __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+      }
+    ).__lastDatabaseViewSurfaceProps;
     if (typeof hostProps?.onOpenPage !== "function") {
       throw new Error("Expected Project Home Database Page opener");
     }
     await act(async () => {
-      await (hostProps.onOpenPage as (
-        pageId: string,
-        title?: string,
-        openMode?: "preview" | "durable",
-      ) => Promise<void> | void)("card-1", "Card One", "preview");
+      await (
+        hostProps.onOpenPage as (
+          pageId: string,
+          title?: string,
+          openMode?: "preview" | "durable",
+        ) => Promise<void> | void
+      )("card-1", "Card One", "preview");
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const pageStageProps = (globalThis as {
-      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
-    }).__mockPageStagePropsByPageId?.["card-1"];
+    const pageStageProps = (
+      globalThis as {
+        __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+      }
+    ).__mockPageStagePropsByPageId?.["card-1"];
     const publishTitle = pageStageProps?.__publishPageTitle as
       | ((title: string) => void)
       | undefined;
@@ -375,13 +440,16 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    const props = (globalThis as {
-      __lastConnectedThreadStageProps?: Record<string, unknown>;
-    }).__lastConnectedThreadStageProps;
-    expect(invokeCalls.some((call) => (
-      call[0] === "project-sessions:ensure-default-draft"
-      && call[1] === null
-    ))).toBe(true);
+    const props = (
+      globalThis as {
+        __lastConnectedThreadStageProps?: Record<string, unknown>;
+      }
+    ).__lastConnectedThreadStageProps;
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "project-sessions:ensure-default-draft" && call[1] === null,
+      ),
+    ).toBe(true);
     expect(props?.isNewThreadTab).toBe(true);
     expect(props?.newThreadTarget).toMatchObject({
       projectId: null,
@@ -425,9 +493,7 @@ describe("workbench session shell / sidebar-projects", () => {
     const chatsSection = getSidebarSection(screen.container, "Chats");
     expect(getThreadRowTitles(chatsSection)).toEqual(["Root chat"]);
     expect(
-      chatsSection.querySelector(
-        '[data-app-action-sidebar-thread-title="Subagent chat"]',
-      ),
+      chatsSection.querySelector('[data-app-action-sidebar-thread-title="Subagent chat"]'),
     ).toBeNull();
   });
 
@@ -543,17 +609,19 @@ describe("workbench session shell / sidebar-projects", () => {
   });
 
   test("project chat list follows Codex Show more and Show less paging", async () => {
-    const projectChats = Array.from({ length: 16 }, (_, index) => makeAttachedSession({
-      id: `session:alpha:paged-${index + 1}`,
-      threadId: `thread-paged-${index + 1}`,
-      title: `Paged chat ${index + 1}`,
-      order: index + 1,
-      pinned: false,
-      pinnedOrder: null,
-      rightCollapsed: true,
-      rightLayout: makePanelLayout([], null),
-      tabs: [],
-    }));
+    const projectChats = Array.from({ length: 16 }, (_, index) =>
+      makeAttachedSession({
+        id: `session:alpha:paged-${index + 1}`,
+        threadId: `thread-paged-${index + 1}`,
+        title: `Paged chat ${index + 1}`,
+        order: index + 1,
+        pinned: false,
+        pinnedOrder: null,
+        rightCollapsed: true,
+        rightLayout: makePanelLayout([], null),
+        tabs: [],
+      }),
+    );
     const screen = renderWorkbench({
       sessionsByProject: {
         alpha: projectChats,
@@ -569,8 +637,13 @@ describe("workbench session shell / sidebar-projects", () => {
       "alpha",
     );
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !==
+        null,
+    ).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]'),
+    ).toBe(null);
 
     await act(async () => {
       fireEvent.click(within(projectGroup).getByRole("button", { name: "Show more" }));
@@ -578,8 +651,13 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 15"]') !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 16"]')).toBe(null);
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 15"]') !==
+        null,
+    ).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 16"]'),
+    ).toBe(null);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Show less" }));
@@ -587,31 +665,43 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !== null).toBe(true);
-    expect(screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]')).toBe(null);
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 5"]') !==
+        null,
+    ).toBe(true);
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-thread-title="Paged chat 6"]'),
+    ).toBe(null);
   });
 
   test("projectless Chats starts at fifty rows and expands through the pager", async () => {
-    const projectlessChats = Array.from({ length: 52 }, (_, index) => makeAttachedSession({
-      id: `session:projectless:paged-${index + 1}`,
-      projectId: null,
-      threadId: `thread-projectless-paged-${index + 1}`,
-      title: `Projectless chat ${index + 1}`,
-      order: index + 1,
-      pinned: false,
-      pinnedOrder: null,
-      rightCollapsed: true,
-      rightLayout: makePanelLayout([], null),
-      tabs: [],
-    }));
+    const projectlessChats = Array.from({ length: 52 }, (_, index) =>
+      makeAttachedSession({
+        id: `session:projectless:paged-${index + 1}`,
+        projectId: null,
+        threadId: `thread-projectless-paged-${index + 1}`,
+        title: `Projectless chat ${index + 1}`,
+        order: index + 1,
+        pinned: false,
+        pinnedOrder: null,
+        rightCollapsed: true,
+        rightLayout: makePanelLayout([], null),
+        tabs: [],
+      }),
+    );
     const screen = renderWorkbench({ projectlessSessions: projectlessChats });
     await settleAsyncRender();
     await settleAsyncRender();
 
     const chatsSection = getSidebarSection(screen.container, "Chats");
     expect(chatsSection.querySelectorAll("[data-app-action-sidebar-thread-row]").length).toBe(50);
-    expect(chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 50"]') !== null).toBe(true);
-    expect(chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 51"]')).toBe(null);
+    expect(
+      chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 50"]') !==
+        null,
+    ).toBe(true);
+    expect(
+      chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 51"]'),
+    ).toBe(null);
 
     await act(async () => {
       fireEvent.click(within(chatsSection).getByRole("button", { name: "Show more" }));
@@ -620,7 +710,10 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     expect(chatsSection.querySelectorAll("[data-app-action-sidebar-thread-row]").length).toBe(52);
-    expect(chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 51"]') !== null).toBe(true);
+    expect(
+      chatsSection.querySelector('[data-app-action-sidebar-thread-title="Projectless chat 51"]') !==
+        null,
+    ).toBe(true);
     expect(within(chatsSection).queryByRole("button", { name: "Show more" })).toBe(null);
     expect(within(chatsSection).queryByRole("button", { name: "Show less" }) !== null).toBe(true);
   });
@@ -638,12 +731,16 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) => (
-      call[0] === "project-sessions:ensure-default-draft" && call[1] === "alpha"
-    ))).toBe(true);
-    const props = (globalThis as {
-      __lastConnectedThreadStageProps?: Record<string, unknown>;
-    }).__lastConnectedThreadStageProps;
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "project-sessions:ensure-default-draft" && call[1] === "alpha",
+      ),
+    ).toBe(true);
+    const props = (
+      globalThis as {
+        __lastConnectedThreadStageProps?: Record<string, unknown>;
+      }
+    ).__lastConnectedThreadStageProps;
     expect(props?.newThreadTarget).toMatchObject({
       projectId: "alpha",
       sessionId: "session:alpha:created",
@@ -686,11 +783,15 @@ describe("workbench session shell / sidebar-projects", () => {
       await settleAsyncRender();
 
       expect(promptCalls.length).toBe(0);
-      expect(invokeCalls.some((call) => (
-        call[0] === "project-sessions:ensure-default-draft" && call[1] === "beta"
-      ))).toBe(true);
+      expect(
+        invokeCalls.some(
+          (call) => call[0] === "project-sessions:ensure-default-draft" && call[1] === "beta",
+        ),
+      ).toBe(true);
       await waitFor(() => {
-        const latestProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+        const latestProps = (
+          globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }
+        ).__lastConnectedThreadStageProps;
         expect(latestProps?.newThreadTarget).toMatchObject({
           projectId: "beta",
           sessionId: "session:beta:created",
@@ -733,21 +834,24 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "codex:sidebar:sync"
-      && JSON.stringify(call[1]) === JSON.stringify({ policy: "force", reason: "mount" })
-    )).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "codex:sidebar:sync" &&
+          JSON.stringify(call[1]) === JSON.stringify({ policy: "force", reason: "mount" }),
+      ),
+    ).toBe(false);
 
     await waitFor(() => {
       if (codexHostMessageListener === null) {
         throw new Error("missing host message listener");
       }
     });
-    const betaFullRefreshCountBefore = invokeCalls.filter((call) =>
-      call[0] === "project-sessions:list" && call[1] === "beta"
+    const betaFullRefreshCountBefore = invokeCalls.filter(
+      (call) => call[0] === "project-sessions:list" && call[1] === "beta",
     ).length;
-    const betaSummaryRefreshCountBefore = invokeCalls.filter((call) =>
-      call[0] === "workspace:tasks:list" && call[1] === "beta"
+    const betaSummaryRefreshCountBefore = invokeCalls.filter(
+      (call) => call[0] === "workspace:tasks:list" && call[1] === "beta",
     ).length;
     await act(async () => {
       codexHostMessageListener?.({
@@ -761,12 +865,12 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     await waitFor(() => {
-      const betaSummaryRefreshCount = invokeCalls.filter((call) =>
-        call[0] === "workspace:tasks:list" && call[1] === "beta"
+      const betaSummaryRefreshCount = invokeCalls.filter(
+        (call) => call[0] === "workspace:tasks:list" && call[1] === "beta",
       ).length;
       expect(betaSummaryRefreshCount).toBe(betaSummaryRefreshCountBefore);
-      const betaFullRefreshCountAfter = invokeCalls.filter((call) =>
-        call[0] === "project-sessions:list" && call[1] === "beta"
+      const betaFullRefreshCountAfter = invokeCalls.filter(
+        (call) => call[0] === "project-sessions:list" && call[1] === "beta",
       ).length;
       expect(betaFullRefreshCountAfter).toBe(betaFullRefreshCountBefore);
     });
@@ -791,7 +895,10 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     await act(async () => {
-      fireEvent.pointerDown(screen.getByLabelText("Project actions for Beta"), { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(screen.getByLabelText("Project actions for Beta"), {
+        button: 0,
+        ctrlKey: false,
+      });
       await Promise.resolve();
     });
 
@@ -811,28 +918,44 @@ describe("workbench session shell / sidebar-projects", () => {
       projects: [makeProject(), beta, makeProject("gamma", "Gamma")],
       sessionsByProject: {
         alpha: [makeSession()],
-        beta: [makeSession({
-          id: "session:beta:database-view",
-          projectId: "beta",
-          title: "Beta Database View",
-        })],
-        gamma: [makeSession({
-          id: "session:gamma:database-view",
-          projectId: "gamma",
-          title: "Gamma Database View",
-        })],
+        beta: [
+          makeSession({
+            id: "session:beta:database-view",
+            projectId: "beta",
+            title: "Beta Database View",
+          }),
+        ],
+        gamma: [
+          makeSession({
+            id: "session:gamma:database-view",
+            projectId: "gamma",
+            title: "Gamma Database View",
+          }),
+        ],
       },
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const pinnedSections = Array.from(screen.container.querySelectorAll('[data-app-action-sidebar-section-heading="Pinned"]'));
-    const projectsSection = screen.container.querySelector('[data-app-action-sidebar-section-heading="Projects"]');
+    const pinnedSections = Array.from(
+      screen.container.querySelectorAll('[data-app-action-sidebar-section-heading="Pinned"]'),
+    );
+    const projectsSection = screen.container.querySelector(
+      '[data-app-action-sidebar-section-heading="Projects"]',
+    );
     expect(pinnedSections.length).toBe(1);
-    expect(pinnedSections[0]?.querySelector('[data-app-action-sidebar-project-id="beta"]') !== null).toBe(true);
-    expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="beta"]') === null).toBe(true);
-    expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="alpha"]') !== null).toBe(true);
-    expect(projectsSection?.querySelector('[data-app-action-sidebar-project-id="gamma"]') !== null).toBe(true);
+    expect(
+      pinnedSections[0]?.querySelector('[data-app-action-sidebar-project-id="beta"]') !== null,
+    ).toBe(true);
+    expect(
+      projectsSection?.querySelector('[data-app-action-sidebar-project-id="beta"]') === null,
+    ).toBe(true);
+    expect(
+      projectsSection?.querySelector('[data-app-action-sidebar-project-id="alpha"]') !== null,
+    ).toBe(true);
+    expect(
+      projectsSection?.querySelector('[data-app-action-sidebar-project-id="gamma"]') !== null,
+    ).toBe(true);
   });
 
   test("keeps individually pinned chats at the top of their project subtree", async () => {
@@ -865,13 +988,12 @@ describe("workbench session shell / sidebar-projects", () => {
     const projectsSection = getSidebarSection(screen.container, "Projects");
     const alphaGroup = getSidebarProjectGroup(projectsSection, "alpha");
 
-    expect(screen.container.querySelector(
-      '[data-app-action-sidebar-section-heading="Pinned"]',
-    )).toBe(null);
-    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify([
-      "Pinned Alpha",
-      "Normal Alpha",
-    ]));
+    expect(
+      screen.container.querySelector('[data-app-action-sidebar-section-heading="Pinned"]'),
+    ).toBe(null);
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(
+      JSON.stringify(["Pinned Alpha", "Normal Alpha"]),
+    );
   });
 
   test("keeps projectless pinned chats in the Pinned section", async () => {
@@ -906,7 +1028,10 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     const pinnedSection = getSidebarSection(screen.container, "Pinned");
-    expect(pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Projectless"]') !== null).toBe(true);
+    expect(
+      pinnedSection.querySelector('[data-app-action-sidebar-thread-title="Pinned Projectless"]') !==
+        null,
+    ).toBe(true);
   });
 
   test("renders Chats in canonical TaskWindow order", async () => {
@@ -946,11 +1071,9 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     const chatsSection = getSidebarSection(screen.container, "Chats");
-    expect(JSON.stringify(getThreadRowTitles(chatsSection))).toBe(JSON.stringify([
-      "Chat B",
-      "Chat New",
-      "Chat A",
-    ]));
+    expect(JSON.stringify(getThreadRowTitles(chatsSection))).toBe(
+      JSON.stringify(["Chat B", "Chat New", "Chat A"]),
+    );
   });
 
   test("keeps a pre-thread New Chat in its canonical Session position", async () => {
@@ -979,11 +1102,7 @@ describe("workbench session shell / sidebar-projects", () => {
     await settleAsyncRender();
 
     const projectsSection = getSidebarSection(screen.container, "Projects");
-    expect(getThreadRowTitles(projectsSection)).toEqual([
-      "Alpha A",
-      "New chat",
-      "Alpha B",
-    ]);
+    expect(getThreadRowTitles(projectsSection)).toEqual(["Alpha A", "New chat", "Alpha B"]);
   });
 
   test("keeps canonical project TaskWindow order stable across session selection", async () => {
@@ -1031,24 +1150,18 @@ describe("workbench session shell / sidebar-projects", () => {
       getSidebarSection(screen.container, "Projects"),
       "alpha",
     );
-    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify([
-      "Pinned Alpha",
-      "Alpha B",
-      "Alpha New",
-      "Alpha A",
-    ]));
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(
+      JSON.stringify(["Pinned Alpha", "Alpha B", "Alpha New", "Alpha A"]),
+    );
 
     await act(async () => {
       fireEvent.click(getThreadRow(alphaGroup, "Alpha A"));
       await Promise.resolve();
     });
 
-    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(JSON.stringify([
-      "Pinned Alpha",
-      "Alpha B",
-      "Alpha New",
-      "Alpha A",
-    ]));
+    expect(JSON.stringify(getThreadRowTitles(alphaGroup))).toBe(
+      JSON.stringify(["Pinned Alpha", "Alpha B", "Alpha New", "Alpha A"]),
+    );
   });
 
   test("keeps an individually pinned chat inside its pinned project group", async () => {
@@ -1118,16 +1231,18 @@ describe("workbench session shell / sidebar-projects", () => {
 
     const pinnedSection = getSidebarSection(screen.container, "Pinned");
     const betaGroup = getSidebarProjectGroup(pinnedSection, "beta");
-    const normalTitle = betaGroup.querySelector('[data-app-action-sidebar-thread-title="Normal Beta"]');
-    const pendingTitle = betaGroup.querySelector('[data-app-action-sidebar-thread-title="Pending Beta"]');
+    const normalTitle = betaGroup.querySelector(
+      '[data-app-action-sidebar-thread-title="Normal Beta"]',
+    );
+    const pendingTitle = betaGroup.querySelector(
+      '[data-app-action-sidebar-thread-title="Pending Beta"]',
+    );
     const normalSortableActivator = normalTitle?.closest('[aria-roledescription="sortable"]');
     const pendingSortableActivator = pendingTitle?.closest('[aria-roledescription="sortable"]');
 
-    expect(JSON.stringify(getThreadRowTitles(betaGroup))).toBe(JSON.stringify([
-      "Pinned Beta",
-      "Normal Beta",
-      "Pending Beta",
-    ]));
+    expect(JSON.stringify(getThreadRowTitles(betaGroup))).toBe(
+      JSON.stringify(["Pinned Beta", "Normal Beta", "Pending Beta"]),
+    );
     expect(normalSortableActivator !== null).toBe(true);
     expect(pendingSortableActivator == null).toBe(true);
   });
@@ -1142,7 +1257,10 @@ describe("workbench session shell / sidebar-projects", () => {
     const projectsSection = getSidebarSection(screen.container, "Projects");
 
     await act(async () => {
-      fireEvent.pointerDown(within(projectsSection).getByLabelText("Project sidebar options"), { button: 0, ctrlKey: false });
+      fireEvent.pointerDown(within(projectsSection).getByLabelText("Project sidebar options"), {
+        button: 0,
+        ctrlKey: false,
+      });
       await Promise.resolve();
     });
 
@@ -1188,17 +1306,19 @@ describe("workbench session shell / sidebar-projects", () => {
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) => (
-      call[0] === "project-sessions:ensure-default-draft" && call[1] === "beta"
-    ))).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) => call[0] === "project-sessions:ensure-default-draft" && call[1] === "beta",
+      ),
+    ).toBe(true);
     await waitFor(() => {
-      const latestProps = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+      const latestProps = (
+        globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }
+      ).__lastConnectedThreadStageProps;
       expect(latestProps?.newThreadTarget).toMatchObject({
         projectId: "beta",
         sessionId: "session:beta:blank",
       });
     });
   });
-
-
 });

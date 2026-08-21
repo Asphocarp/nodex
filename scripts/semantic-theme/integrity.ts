@@ -27,11 +27,7 @@ export interface SemanticThemeIntegrityOptions {
   readonly checkedOwnerTargets?: ReadonlyMap<string, ReadonlySet<SemanticThemeTarget>>;
 }
 
-const diagnostic = (
-  code: string,
-  message: string,
-  subject?: string,
-): SemanticThemeDiagnostic => ({
+const diagnostic = (code: string, message: string, subject?: string): SemanticThemeDiagnostic => ({
   code,
   severity: "error",
   message,
@@ -53,9 +49,15 @@ const targetsForDefinitions = (
 const runtimeProviderTargets = (
   name: string,
   providers: readonly SemanticThemeRuntimeProvider[],
-): ReadonlySet<SemanticThemeTarget> => new Set(providers
-  .filter((provider) => provider.name === name || (provider.prefix && name.startsWith(provider.prefix)))
-  .flatMap((provider) => provider.targets));
+): ReadonlySet<SemanticThemeTarget> =>
+  new Set(
+    providers
+      .filter(
+        (provider) =>
+          provider.name === name || (provider.prefix && name.startsWith(provider.prefix)),
+      )
+      .flatMap((provider) => provider.targets),
+  );
 
 const collectDependencyDiagnostics = (
   definitions: readonly SemanticThemeVariableDefinition[],
@@ -73,7 +75,10 @@ const collectDependencyDiagnostics = (
   const seen = new Set<string>();
   for (const use of uses) {
     if (use.reference.hasFallback) continue;
-    if (options.checkedOwnerNames && (!use.ownerName || !options.checkedOwnerNames.has(use.ownerName))) {
+    if (
+      options.checkedOwnerNames &&
+      (!use.ownerName || !options.checkedOwnerNames.has(use.ownerName))
+    ) {
       continue;
     }
     const ownerTargets = use.ownerName
@@ -91,11 +96,13 @@ const collectDependencyDiagnostics = (
     const key = `${use.reference.name}:${missingTargets.join(",")}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    diagnostics.push(diagnostic(
-      "THEME_DEPENDENCY_SCOPE_UNRESOLVED",
-      "A theme dependency is not provided in every supported window and color-scheme scope.",
-      `${use.reference.name} [${missingTargets.join(", ")}]`,
-    ));
+    diagnostics.push(
+      diagnostic(
+        "THEME_DEPENDENCY_SCOPE_UNRESOLVED",
+        "A theme dependency is not provided in every supported window and color-scheme scope.",
+        `${use.reference.name} [${missingTargets.join(", ")}]`,
+      ),
+    );
   }
   return diagnostics;
 };
@@ -117,11 +124,13 @@ const collectCollisionDiagnostics = (
     const artifacts = new Set(entries.map((entry) => entry.artifactPath));
     const values = new Set(entries.map((entry) => entry.valueKey));
     if (artifacts.size < 2 || values.size < 2 || options.collisionResolutions[name]) continue;
-    diagnostics.push(diagnostic(
-      "THEME_COLLISION_UNOWNED",
-      "A root theme property has multiple values without an explicit owner or alias decision.",
-      `${name} [${[...artifacts].sort().join(", ")}]`,
-    ));
+    diagnostics.push(
+      diagnostic(
+        "THEME_COLLISION_UNOWNED",
+        "A root theme property has multiple values without an explicit owner or alias decision.",
+        `${name} [${[...artifacts].sort().join(", ")}]`,
+      ),
+    );
   }
   return diagnostics;
 };
@@ -129,16 +138,20 @@ const collectCollisionDiagnostics = (
 const definitionForTarget = (
   definitions: readonly SemanticThemeVariableDefinition[],
   target: SemanticThemeTarget,
-): SemanticThemeVariableDefinition | undefined => definitions
-  .filter((definition) => definition.condition === "base"
-    && definition.scopeKind !== "local"
-    && definition.targets.includes(target))
-  .sort((left, right) => {
-    const scopeRank = (definition: SemanticThemeVariableDefinition): number =>
-      definition.scopeKind === "scoped" ? 1 : 0;
-    return scopeRank(left) - scopeRank(right);
-  })
-  .at(-1);
+): SemanticThemeVariableDefinition | undefined =>
+  definitions
+    .filter(
+      (definition) =>
+        definition.condition === "base" &&
+        definition.scopeKind !== "local" &&
+        definition.targets.includes(target),
+    )
+    .sort((left, right) => {
+      const scopeRank = (definition: SemanticThemeVariableDefinition): number =>
+        definition.scopeKind === "scoped" ? 1 : 0;
+      return scopeRank(left) - scopeRank(right);
+    })
+    .at(-1);
 
 const cycleForTarget = (
   definitions: readonly SemanticThemeVariableDefinition[],
@@ -153,7 +166,11 @@ const cycleForTarget = (
   const graph = new Map<string, readonly string[]>();
   for (const [name, entries] of byName) {
     const winner = definitionForTarget(entries, target);
-    if (winner) graph.set(name, winner.references.map((reference) => reference.name));
+    if (winner)
+      graph.set(
+        name,
+        winner.references.map((reference) => reference.name),
+      );
   }
 
   const visiting = new Set<string>();
@@ -203,11 +220,13 @@ const collectCycleDiagnostics = (
     const key = cycle.join(" -> ");
     if (seen.has(key)) continue;
     seen.add(key);
-    diagnostics.push(diagnostic(
-      "THEME_DEPENDENCY_CYCLE",
-      "Theme custom properties form a dependency cycle.",
-      `${target}: ${key}`,
-    ));
+    diagnostics.push(
+      diagnostic(
+        "THEME_DEPENDENCY_CYCLE",
+        "Theme custom properties form a dependency cycle.",
+        `${target}: ${key}`,
+      ),
+    );
   }
   return diagnostics;
 };
@@ -227,11 +246,13 @@ const collectRequiredVariableDiagnostics = (
     const targets = definitionsByName.get(requirement.name) ?? new Set<SemanticThemeTarget>();
     const missingTargets = requirement.targets.filter((target) => !targets.has(target));
     if (missingTargets.length === 0) return [];
-    return [diagnostic(
-      "THEME_REQUIRED_VARIABLE_MISSING",
-      "A required theme variable is absent from a supported consumer scope.",
-      `${requirement.name} [${missingTargets.join(", ")}]`,
-    )];
+    return [
+      diagnostic(
+        "THEME_REQUIRED_VARIABLE_MISSING",
+        "A required theme variable is absent from a supported consumer scope.",
+        `${requirement.name} [${missingTargets.join(", ")}]`,
+      ),
+    ];
   });
 };
 
@@ -261,11 +282,13 @@ const collectTransitiveDependencyDiagnostics = (
           const key = `${target}:${name}:${chain.join("->")}`;
           if (seen.has(key)) return;
           seen.add(key);
-          diagnostics.push(diagnostic(
-            "THEME_DEPENDENCY_SCOPE_UNRESOLVED",
-            "A transitive theme dependency is not provided in a supported consumer scope.",
-            `${target}: ${[...chain, name].join(" -> ")}`,
-          ));
+          diagnostics.push(
+            diagnostic(
+              "THEME_DEPENDENCY_SCOPE_UNRESOLVED",
+              "A transitive theme dependency is not provided in a supported consumer scope.",
+              `${target}: ${[...chain, name].join(" -> ")}`,
+            ),
+          );
           return;
         }
         for (const reference of definition.references) {
@@ -292,17 +315,22 @@ const CASCADE_PATH_ORDER = [
 
 const sortArtifactsByCascade = (
   artifacts: readonly SemanticThemeArtifact[],
-): readonly SemanticThemeArtifact[] => artifacts
-  .map((artifact, index) => ({ artifact, index }))
-  .sort((left, right) => {
-    const leftRank = CASCADE_PATH_ORDER.indexOf(left.artifact.path as typeof CASCADE_PATH_ORDER[number]);
-    const rightRank = CASCADE_PATH_ORDER.indexOf(right.artifact.path as typeof CASCADE_PATH_ORDER[number]);
-    if (leftRank === -1 && rightRank === -1) return left.index - right.index;
-    if (leftRank === -1) return 1;
-    if (rightRank === -1) return -1;
-    return leftRank - rightRank;
-  })
-  .map(({ artifact }) => artifact);
+): readonly SemanticThemeArtifact[] =>
+  artifacts
+    .map((artifact, index) => ({ artifact, index }))
+    .sort((left, right) => {
+      const leftRank = CASCADE_PATH_ORDER.indexOf(
+        left.artifact.path as (typeof CASCADE_PATH_ORDER)[number],
+      );
+      const rightRank = CASCADE_PATH_ORDER.indexOf(
+        right.artifact.path as (typeof CASCADE_PATH_ORDER)[number],
+      );
+      if (leftRank === -1 && rightRank === -1) return left.index - right.index;
+      if (leftRank === -1) return 1;
+      if (rightRank === -1) return -1;
+      return leftRank - rightRank;
+    })
+    .map(({ artifact }) => artifact);
 
 export const collectSemanticThemeIntegrityDiagnostics = (
   artifacts: readonly SemanticThemeArtifact[],
@@ -317,11 +345,16 @@ export const collectSemanticThemeIntegrityDiagnostics = (
   const uses = artifactFacts
     .flatMap((facts) => facts.uses)
     .filter((use) => artifactPaths.has(use.artifactPath));
-  const checkedOwnerNames = options.checkedOwnerNames
-    ?? new Set(options.requiredVariables.map((requirement) => requirement.name));
-  const checkedOwnerTargets = options.checkedOwnerTargets ?? new Map(options.requiredVariables.map(
-    (requirement) => [requirement.name, new Set(requirement.targets)] as const,
-  ));
+  const checkedOwnerNames =
+    options.checkedOwnerNames ??
+    new Set(options.requiredVariables.map((requirement) => requirement.name));
+  const checkedOwnerTargets =
+    options.checkedOwnerTargets ??
+    new Map(
+      options.requiredVariables.map(
+        (requirement) => [requirement.name, new Set(requirement.targets)] as const,
+      ),
+    );
 
   return [
     ...collectRequiredVariableDiagnostics(definitions, options.requiredVariables),

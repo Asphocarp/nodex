@@ -8,11 +8,7 @@ type PriorityValueIconProps = ComponentProps<"svg"> & {
 };
 
 /** The compact value glyph shared by priority cells, labels, and picker rows. */
-export function PriorityValueIcon({
-  priority,
-  className,
-  ...props
-}: PriorityValueIconProps) {
+export function PriorityValueIcon({ priority, className, ...props }: PriorityValueIconProps) {
   const sharedProps = {
     ...props,
     "aria-hidden": true,

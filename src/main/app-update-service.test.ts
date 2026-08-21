@@ -1,10 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { AppUpdateSettings } from "../shared/types";
-import type {
-  MacAppUpdater,
-  MacAppUpdaterCheckKind,
-  MacAppUpdaterEvent,
-} from "./mac-app-updater";
+import type { MacAppUpdater, MacAppUpdaterCheckKind, MacAppUpdaterEvent } from "./mac-app-updater";
 import { AppUpdateService, reduceAppUpdateStatus } from "./app-update-service";
 
 class FakeUpdater implements MacAppUpdater {
@@ -58,16 +54,17 @@ function createLogger() {
   };
 }
 
-function createService(overrides?: Partial<{
-  currentVersion: string;
-  isInApplicationsFolder: boolean;
-  isPackaged: boolean;
-  platform: NodeJS.Platform;
-  updater: FakeUpdater | null;
-}>) {
-  const updater = overrides && "updater" in overrides
-    ? overrides.updater ?? null
-    : new FakeUpdater();
+function createService(
+  overrides?: Partial<{
+    currentVersion: string;
+    isInApplicationsFolder: boolean;
+    isPackaged: boolean;
+    platform: NodeJS.Platform;
+    updater: FakeUpdater | null;
+  }>,
+) {
+  const updater =
+    overrides && "updater" in overrides ? (overrides.updater ?? null) : new FakeUpdater();
   const service = new AppUpdateService({
     currentVersion: overrides?.currentVersion ?? "0.2.1",
     isInApplicationsFolder: overrides?.isInApplicationsFolder ?? true,
@@ -160,8 +157,9 @@ describe("AppUpdateService", () => {
     });
 
     await service.checkForUpdates("manual");
-    await expect(service.updateSettings({ channel: "stable" }))
-      .rejects.toThrow("cannot change during an update session");
+    await expect(service.updateSettings({ channel: "stable" })).rejects.toThrow(
+      "cannot change during an update session",
+    );
   });
 
   test("starts a fresh automatic check after switching channels", async () => {
@@ -220,11 +218,13 @@ describe("AppUpdateService", () => {
       version: "0.2.2",
     });
 
-    expect(reduceAppUpdateStatus(ready, {
-      expectedBytes: 100,
-      receivedBytes: 50,
-      type: "download-progress",
-    })).toBe(ready);
+    expect(
+      reduceAppUpdateStatus(ready, {
+        expectedBytes: 100,
+        receivedBytes: 50,
+        type: "download-progress",
+      }),
+    ).toBe(ready);
   });
 
   test("surfaces structured updater errors and disposes the adapter", async () => {

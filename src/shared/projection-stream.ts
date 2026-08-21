@@ -117,9 +117,7 @@ export const projectionScopeKey = (scope: ProjectionScope): string =>
 export const projectionCursorCovers = (
   actual: ProjectionCursor | null,
   required: ProjectionCursor,
-): boolean =>
-  actual?.storeEpoch === required.storeEpoch
-  && actual.commitSeq >= required.commitSeq;
+): boolean => actual?.storeEpoch === required.storeEpoch && actual.commitSeq >= required.commitSeq;
 
 export const projectionCoordinateFromSnapshot = (input: {
   readonly storeEpoch: string;

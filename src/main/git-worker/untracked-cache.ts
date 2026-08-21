@@ -26,10 +26,7 @@ interface UntrackedRepositoryAdapter {
     run: (signal: AbortSignal) => Promise<Result>;
   }): Promise<Result>;
   readSafeAttributeFilterOverrides(signal?: AbortSignal): Promise<readonly string[]>;
-  runGit(
-    args: readonly string[],
-    options?: GitCommandOptions,
-  ): Promise<GitCommandResult>;
+  runGit(args: readonly string[], options?: GitCommandOptions): Promise<GitCommandResult>;
 }
 
 interface CachedUntrackedPaths {
@@ -58,10 +55,7 @@ export class UntrackedPathCache {
   #slow = false;
   #cached: CachedUntrackedPaths | null = null;
 
-  constructor(
-    repository: UntrackedRepositoryAdapter,
-    options: { now?: () => number } = {},
-  ) {
+  constructor(repository: UntrackedRepositoryAdapter, options: { now?: () => number } = {}) {
     this.#repository = repository;
     this.#now = options.now ?? Date.now;
   }
@@ -69,11 +63,7 @@ export class UntrackedPathCache {
   async read(signal?: AbortSignal): Promise<UntrackedPathsResult> {
     signal?.throwIfAborted();
     const cached = this.#cached;
-    if (
-      cached
-      && cached.generation === this.#generation
-      && cached.expiresAt > this.#now()
-    ) {
+    if (cached && cached.generation === this.#generation && cached.expiresAt > this.#now()) {
       recordGitQueryCacheOutcome("hit");
       return cached.result;
     }
@@ -94,9 +84,7 @@ export class UntrackedPathCache {
     }
     this.#cached = {
       generation,
-      expiresAt: this.#now() + (
-        this.#slow ? GIT_UNTRACKED_SLOW_FRESH_MS : GIT_UNTRACKED_FRESH_MS
-      ),
+      expiresAt: this.#now() + (this.#slow ? GIT_UNTRACKED_SLOW_FRESH_MS : GIT_UNTRACKED_FRESH_MS),
       result,
     };
     return result;
@@ -113,10 +101,10 @@ export class UntrackedPathCache {
     signal?: AbortSignal,
   ): Promise<"filtered" | "full"> {
     if (
-      changedPaths.length === 0
-      || changedPaths.length > GIT_UNTRACKED_CHANGED_PATH_LIMIT
-      || !this.#cached?.result.success
-      || this.#cached.result.omittedCount > 0
+      changedPaths.length === 0 ||
+      changedPaths.length > GIT_UNTRACKED_CHANGED_PATH_LIMIT ||
+      !this.#cached?.result.success ||
+      this.#cached.result.omittedCount > 0
     ) {
       this.invalidateFull();
       return "full";
@@ -124,18 +112,14 @@ export class UntrackedPathCache {
     const relativePaths = changedPaths.flatMap((changedPath) => {
       const absolutePath = path.resolve(changedPath);
       const relativePath = path.relative(this.#repository.identity.root, absolutePath);
-      if (
-        relativePath === ""
-        || relativePath.startsWith("..")
-        || path.isAbsolute(relativePath)
-      ) {
+      if (relativePath === "" || relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
         return [];
       }
       return [relativePath.split(path.sep).join("/")];
     });
     if (
-      relativePaths.length !== changedPaths.length
-      || relativePaths.some((changedPath) => changedPath === ".gitignore")
+      relativePaths.length !== changedPaths.length ||
+      relativePaths.some((changedPath) => changedPath === ".gitignore")
     ) {
       this.invalidateFull();
       return "full";
@@ -143,7 +127,8 @@ export class UntrackedPathCache {
     const scopes = relativePaths.map((changedPath) =>
       changedPath.endsWith("/.gitignore")
         ? changedPath.slice(0, -"/.gitignore".length)
-        : changedPath);
+        : changedPath,
+    );
     const overrides = await this.#repository.readSafeAttributeFilterOverrides(signal);
     const status = await this.#repository.runGit(
       [
@@ -162,34 +147,29 @@ export class UntrackedPathCache {
       this.invalidateFull();
       return "full";
     }
-    const nextPaths = this.#cached.result.paths.filter((cachedPath) =>
-      !scopes.some((scope) => cachedPath === scope || cachedPath.startsWith(`${scope}/`)));
+    const nextPaths = this.#cached.result.paths.filter(
+      (cachedPath) =>
+        !scopes.some((scope) => cachedPath === scope || cachedPath.startsWith(`${scope}/`)),
+    );
     for (const record of status.stdout.split("\0")) {
       if (record.startsWith("?? ")) nextPaths.push(record.slice(3));
     }
     this.#generation += 1;
     this.#cached = {
       generation: this.#generation,
-      expiresAt: this.#now() + (
-        this.#slow ? GIT_UNTRACKED_SLOW_FRESH_MS : GIT_UNTRACKED_FRESH_MS
-      ),
+      expiresAt: this.#now() + (this.#slow ? GIT_UNTRACKED_SLOW_FRESH_MS : GIT_UNTRACKED_FRESH_MS),
       result: materializePaths(nextPaths),
     };
     return "filtered";
   }
 
   async #scanAll(signal: AbortSignal): Promise<UntrackedPathsResult> {
-    const overrides = await this.#repository.readSafeAttributeFilterOverrides(signal)
+    const overrides = await this.#repository
+      .readSafeAttributeFilterOverrides(signal)
       .catch(() => null);
     if (!overrides) return failedResult();
     const status = await this.#repository.runGit(
-      [
-        "status",
-        "--no-renames",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=normal",
-      ],
+      ["status", "--no-renames", "--porcelain=v1", "-z", "--untracked-files=normal"],
       { configOverrides: overrides, signal },
     );
     if (!status.success) return failedResult();
@@ -207,8 +187,10 @@ export class UntrackedPathCache {
     if (!expanded.success) return failedResult();
     return materializePaths([
       ...files,
-      ...expanded.stdout.split("\0").filter(Boolean).map((entry) =>
-        entry.endsWith("/") ? entry.slice(0, -1) : entry),
+      ...expanded.stdout
+        .split("\0")
+        .filter(Boolean)
+        .map((entry) => (entry.endsWith("/") ? entry.slice(0, -1) : entry)),
     ]);
   }
 }

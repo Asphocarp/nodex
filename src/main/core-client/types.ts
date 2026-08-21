@@ -24,8 +24,7 @@ export type CoreModuleEventPayload = CoreAuthorizedDeliveryAtom["payload"];
 export type CoreEventReplayRequired = components["schemas"]["EventReplayRequired"];
 export type CoreStreamCheckpoint = components["schemas"]["StreamCheckpoint"];
 export type CoreModuleError = components["schemas"]["CoreError"];
-export type CoreLocalMutationResolveRequest =
-  components["schemas"]["LocalMutationResolveRequest"];
+export type CoreLocalMutationResolveRequest = components["schemas"]["LocalMutationResolveRequest"];
 export type CoreLocalMutationResolveResponse =
   components["schemas"]["LocalMutationResolveResponse"];
 
@@ -42,41 +41,35 @@ export type CoreApplyCoordinate =
 
 /** Semantic commit cursor, or the exact store cursor observed by a no-op. */
 export const applyResultCursor = (result: CoreApplyCoordinate): number =>
-  result.status === "committed"
-    ? result.commit.commit_seq
-    : result.observed.commit_head;
+  result.status === "committed" ? result.commit.commit_seq : result.observed.commit_head;
 
 export const applyResultStoreEpoch = (result: CoreApplyCoordinate): string =>
-  result.status === "committed"
-    ? result.commit.store_epoch
-    : result.observed.store_epoch;
+  result.status === "committed" ? result.commit.store_epoch : result.observed.store_epoch;
 
 /** Post-state-authorized fast-path packet. No-op commands never fabricate one. */
 export const applyResultDelivery = (
   result: CoreApplyCoordinate,
 ): CoreAuthorizedDeliveryPacket | undefined =>
-  result.status === "committed" ? result.delivery ?? undefined : undefined;
+  result.status === "committed" ? (result.delivery ?? undefined) : undefined;
 
 /** Projects a Core command response into renderer-safe causal evidence. */
-export const rendererLocalCommitApply = (
-  result: CoreApplyCoordinate,
-): LocalCommitApply => result.status === "committed"
-  ? {
-      status: "committed",
-      commit: result.commit,
-      delivery: result.delivery ?? null,
-    }
-  : {
-      status: "no_op",
-      observed: result.observed,
-    };
+export const rendererLocalCommitApply = (result: CoreApplyCoordinate): LocalCommitApply =>
+  result.status === "committed"
+    ? {
+        status: "committed",
+        commit: result.commit,
+        delivery: result.delivery ?? null,
+      }
+    : {
+        status: "no_op",
+        observed: result.observed,
+      };
 
 export const findCoreModulePayload = (
   envelope: CoreEventEnvelope,
   module: CoreModuleEventPayload["module"],
-): CoreModuleEventPayload | undefined => envelope.packet.atoms
-  .find((atom) => atom.payload.module === module)
-  ?.payload;
+): CoreModuleEventPayload | undefined =>
+  envelope.packet.atoms.find((atom) => atom.payload.module === module)?.payload;
 
 export type LibraryReadRequest = components["schemas"]["LibraryReadRequest"];
 export type LibraryRead = LibraryReadRequest["read"];
@@ -103,12 +96,9 @@ export type DatabaseIntent = DatabaseApplyRequest["intent"];
 export type DatabaseApplyResponse = components["schemas"]["DatabaseApplyResponse"];
 export type DatabaseReadSnapshot = SuccessfulPayload<DatabaseReadResponse>;
 export type DatabaseApplyResult = SuccessfulPayload<DatabaseApplyResponse>;
-export type CoreDatabaseRowSummary =
-  components["schemas"]["DatabaseRowSummary"];
-export type CoreDatabaseRowDetail =
-  components["schemas"]["DatabaseRowDetail"];
-export type CoreDatabaseViewWindow =
-  components["schemas"]["DatabaseViewWindow"];
+export type CoreDatabaseRowSummary = components["schemas"]["DatabaseRowSummary"];
+export type CoreDatabaseRowDetail = components["schemas"]["DatabaseRowDetail"];
+export type CoreDatabaseViewWindow = components["schemas"]["DatabaseViewWindow"];
 
 export type ProjectWorkspaceReadRequest = components["schemas"]["ProjectWorkspaceReadRequest"];
 export type ProjectWorkspaceRead = ProjectWorkspaceReadRequest["read"];
@@ -133,15 +123,13 @@ export type StoreAdministrationReadRequest =
 export type StoreAdministrationRead = StoreAdministrationReadRequest["read"];
 export type StoreAdministrationReadResponse =
   components["schemas"]["StoreAdministrationReadResponse"];
-export type StoreAdministrationReadSnapshot =
-  SuccessfulPayload<StoreAdministrationReadResponse>;
+export type StoreAdministrationReadSnapshot = SuccessfulPayload<StoreAdministrationReadResponse>;
 export type StoreAdministrationApplyRequest =
   components["schemas"]["StoreAdministrationApplyRequest"];
 export type StoreAdministrationIntent = StoreAdministrationApplyRequest["intent"];
 export type StoreAdministrationApplyResponse =
   components["schemas"]["StoreAdministrationApplyResponse"];
-export type StoreAdministrationApplyResult =
-  SuccessfulPayload<StoreAdministrationApplyResponse>;
+export type StoreAdministrationApplyResult = SuccessfulPayload<StoreAdministrationApplyResponse>;
 
 export interface ProjectWorkspaceApplyInput {
   readonly operationId: string;
@@ -245,10 +233,7 @@ export interface CoreClientPort {
   resolveLocalMutation(
     input: CoreLocalMutationResolveRequest,
   ): Promise<CoreLocalMutationResolveResponse>;
-  libraryRead(
-    read: LibraryRead,
-    options?: CoreRequestOptions,
-  ): Promise<LibraryReadSnapshot>;
+  libraryRead(read: LibraryRead, options?: CoreRequestOptions): Promise<LibraryReadSnapshot>;
   libraryApply(input: LibraryApplyInput): Promise<LibraryApplyResult>;
   filterProjectionImpactForProject(
     projectId: string,
@@ -272,9 +257,7 @@ export interface CoreClientPort {
     input: AutomationApplyInput,
     options?: CoreRequestOptions,
   ): Promise<AutomationApplyResult>;
-  administrationRead(
-    read: StoreAdministrationRead,
-  ): Promise<StoreAdministrationReadSnapshot>;
+  administrationRead(read: StoreAdministrationRead): Promise<StoreAdministrationReadSnapshot>;
   administrationApply(
     input: StoreAdministrationApplyInput,
   ): Promise<StoreAdministrationApplyResult>;

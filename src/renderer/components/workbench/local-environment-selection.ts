@@ -1,12 +1,8 @@
 import type { WorktreeEnvironmentOption } from "@/lib/types";
 
-export const LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY =
-  "local-env-selections-by-workspace";
+export const LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY = "local-env-selections-by-workspace";
 
-export type LocalEnvironmentSelectionsByWorkspace = Record<
-  string,
-  string | null
->;
+export type LocalEnvironmentSelectionsByWorkspace = Record<string, string | null>;
 
 export interface LocalEnvironmentConfigCandidate {
   readonly configPath: string;
@@ -31,25 +27,25 @@ interface LocalEnvironmentSelectionResolutionBase {
 }
 
 export type LocalEnvironmentSelectionResolution =
-  | LocalEnvironmentSelectionResolutionBase & {
+  | (LocalEnvironmentSelectionResolutionBase & {
       readonly status: "selected";
       readonly source: "default" | "saved";
       readonly resolvedConfigPath: string;
       readonly repairConfigPath: null;
-    }
-  | LocalEnvironmentSelectionResolutionBase & {
+    })
+  | (LocalEnvironmentSelectionResolutionBase & {
       readonly status: "without-environment";
       readonly source: "default" | "saved";
       readonly resolvedConfigPath: null;
       readonly repairConfigPath: null;
-    }
-  | LocalEnvironmentSelectionResolutionBase & {
+    })
+  | (LocalEnvironmentSelectionResolutionBase & {
       readonly status: "needs-attention";
       readonly issue: "missing" | "parseError" | "readError" | "tooLarge";
       readonly resolvedConfigPath: null;
       readonly repairConfigPath: string;
-    }
-  | LocalEnvironmentSelectionResolutionBase & {
+    })
+  | (LocalEnvironmentSelectionResolutionBase & {
       readonly status: "unresolved";
       readonly reason:
         | "workspace-unavailable"
@@ -60,10 +56,11 @@ export type LocalEnvironmentSelectionResolution =
       readonly error: unknown | null;
       readonly resolvedConfigPath: null;
       readonly repairConfigPath: null;
-    };
+    });
 
 function normalizePath(value: string): string {
-  const withoutExtendedPrefix = value.trim()
+  const withoutExtendedPrefix = value
+    .trim()
     .replace(/^\\\\\?\\UNC\\/i, "\\\\")
     .replace(/^\\\\\?\\(?=[a-z]:[\\/])/i, "");
   const slashNormalized = withoutExtendedPrefix.replaceAll("\\", "/");
@@ -79,9 +76,7 @@ function windowsComparablePath(value: string): {
   explicit: boolean;
 } | null {
   const normalized = normalizePath(value);
-  const wslUncMatch = normalized.match(
-    /^\/\/(?:wsl\$|wsl\.localhost)\/([^/]+)(?:\/(.*))?$/i,
-  );
+  const wslUncMatch = normalized.match(/^\/\/(?:wsl\$|wsl\.localhost)\/([^/]+)(?:\/(.*))?$/i);
   if (wslUncMatch) {
     const innerPath = `/${wslUncMatch[2] ?? ""}`;
     if (!/^\/mnt\/[a-z](?:\/|$)/i.test(innerPath)) return null;
@@ -115,10 +110,10 @@ export function areLocalEnvironmentPathsEquivalent(left: string, right: string):
   const comparableLeft = windowsComparablePath(normalizedLeft);
   const comparableRight = windowsComparablePath(normalizedRight);
   return Boolean(
-    comparableLeft
-    && comparableRight
-    && (comparableLeft.explicit || comparableRight.explicit)
-    && comparableLeft.comparablePath === comparableRight.comparablePath,
+    comparableLeft &&
+    comparableRight &&
+    (comparableLeft.explicit || comparableRight.explicit) &&
+    comparableLeft.comparablePath === comparableRight.comparablePath,
   );
 }
 
@@ -130,15 +125,12 @@ function fileName(path: string): string {
 function resolveDefaultConfigPath(
   candidates: readonly LocalEnvironmentConfigCandidate[],
 ): string | null {
-  const preferred = candidates.find((candidate) =>
-    fileName(candidate.configPath) === "environment.toml"
-    && candidate.state === "success"
+  const preferred = candidates.find(
+    (candidate) =>
+      fileName(candidate.configPath) === "environment.toml" && candidate.state === "success",
   );
   const successful = candidates.find((candidate) => candidate.state === "success");
-  return preferred?.configPath
-    ?? successful?.configPath
-    ?? candidates[0]?.configPath
-    ?? null;
+  return preferred?.configPath ?? successful?.configPath ?? candidates[0]?.configPath ?? null;
 }
 
 export function resolveLocalEnvironmentSelection({
@@ -171,9 +163,8 @@ export function resolveLocalEnvironmentSelection({
     selectionsByWorkspace,
     workspaceKey,
   });
-  const storedConfigPath = storedSelection.status === "selected"
-    ? storedSelection.configPath
-    : undefined;
+  const storedConfigPath =
+    storedSelection.status === "selected" ? storedSelection.configPath : undefined;
   if (candidateSource.status === "unresolved") {
     return {
       status: "unresolved",
@@ -201,8 +192,8 @@ export function resolveLocalEnvironmentSelection({
 
   const defaultConfigPath = resolveDefaultConfigPath(candidateSource.candidates);
   if (storedConfigPath === undefined) {
-    const defaultCandidate = candidateSource.candidates.find((candidate) =>
-      candidate.configPath === defaultConfigPath
+    const defaultCandidate = candidateSource.candidates.find(
+      (candidate) => candidate.configPath === defaultConfigPath,
     );
     if (!defaultCandidate) {
       return {
@@ -250,7 +241,7 @@ export function resolveLocalEnvironmentSelection({
   }
 
   const matchingCandidate = candidateSource.candidates.find((candidate) =>
-    areLocalEnvironmentPathsEquivalent(candidate.configPath, storedConfigPath)
+    areLocalEnvironmentPathsEquivalent(candidate.configPath, storedConfigPath),
   );
   if (matchingCandidate?.state === "success") {
     return {
@@ -326,10 +317,7 @@ export function writeLocalEnvironmentSelection({
   if (!workspaceKey) return;
   const selections = readLocalEnvironmentSelections();
   selections[workspaceKey] = configPath;
-  window.localStorage.setItem(
-    LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY,
-    JSON.stringify(selections),
-  );
+  window.localStorage.setItem(LOCAL_ENVIRONMENT_SELECTIONS_STORAGE_KEY, JSON.stringify(selections));
 }
 
 export function resolveStoredLocalEnvironmentSelection({
@@ -376,7 +364,8 @@ function resolveStoredLocalEnvironmentSelectionResult({
   let resolved: string | null | undefined;
   for (const [candidateKey, candidateValue] of Object.entries(selectionsByWorkspace)) {
     if (!candidateKey.startsWith(hostPrefix)) continue;
-    if (!areLocalEnvironmentPathsEquivalent(candidateKey.slice(hostPrefix.length), workspacePath)) continue;
+    if (!areLocalEnvironmentPathsEquivalent(candidateKey.slice(hostPrefix.length), workspacePath))
+      continue;
 
     const normalizedCandidateValue = candidateValue ?? null;
     if (resolved === undefined) {
@@ -409,18 +398,20 @@ export function resolveLocalEnvironmentConfigSelection({
   selectionsByWorkspace: Readonly<LocalEnvironmentSelectionsByWorkspace>;
   workspaceRoot: string | null | undefined;
 }): string | null {
-  return projectLegacyLocalEnvironmentConfigPath(resolveLocalEnvironmentSelection({
-    candidateSource: canValidateSelection
-      ? { status: "loaded", candidates }
-      : {
-          status: "unresolved",
-          reason: "candidates-unavailable",
-          error: null,
-        },
-    hostId,
-    selectionsByWorkspace,
-    workspaceRoot,
-  }));
+  return projectLegacyLocalEnvironmentConfigPath(
+    resolveLocalEnvironmentSelection({
+      candidateSource: canValidateSelection
+        ? { status: "loaded", candidates }
+        : {
+            status: "unresolved",
+            reason: "candidates-unavailable",
+            error: null,
+          },
+      hostId,
+      selectionsByWorkspace,
+      workspaceRoot,
+    }),
+  );
 }
 
 /** Compatibility projection until all UI call sites render attention/error states. */
@@ -430,9 +421,9 @@ function projectLegacyLocalEnvironmentConfigPath(
   if (resolution.status === "selected") return resolution.resolvedConfigPath;
   if (resolution.status !== "unresolved") return null;
   if (
-    resolution.reason !== "loading"
-    && resolution.reason !== "load-error"
-    && resolution.reason !== "candidates-unavailable"
+    resolution.reason !== "loading" &&
+    resolution.reason !== "load-error" &&
+    resolution.reason !== "candidates-unavailable"
   ) {
     return null;
   }
@@ -446,9 +437,7 @@ export async function loadLocalEnvironmentSelection({
   workspaceRoot,
 }: {
   hostId?: string;
-  loadCandidates: (
-    workspaceRoot: string,
-  ) => Promise<readonly LocalEnvironmentConfigCandidate[]>;
+  loadCandidates: (workspaceRoot: string) => Promise<readonly LocalEnvironmentConfigCandidate[]>;
   selectionsByWorkspace: Readonly<LocalEnvironmentSelectionsByWorkspace>;
   workspaceRoot: string | null | undefined;
 }): Promise<LocalEnvironmentSelectionResolution> {
@@ -490,18 +479,18 @@ export async function loadLocalEnvironmentConfigSelection({
   workspaceRoot,
 }: {
   hostId?: string;
-  loadCandidates: (
-    workspaceRoot: string,
-  ) => Promise<readonly LocalEnvironmentConfigCandidate[]>;
+  loadCandidates: (workspaceRoot: string) => Promise<readonly LocalEnvironmentConfigCandidate[]>;
   selectionsByWorkspace: Readonly<LocalEnvironmentSelectionsByWorkspace>;
   workspaceRoot: string | null | undefined;
 }): Promise<string | null> {
-  return projectLegacyLocalEnvironmentConfigPath(await loadLocalEnvironmentSelection({
-    hostId,
-    loadCandidates,
-    selectionsByWorkspace,
-    workspaceRoot,
-  }));
+  return projectLegacyLocalEnvironmentConfigPath(
+    await loadLocalEnvironmentSelection({
+      hostId,
+      loadCandidates,
+      selectionsByWorkspace,
+      workspaceRoot,
+    }),
+  );
 }
 
 export function resolveLocalEnvironmentOptionSelection({

@@ -66,11 +66,9 @@ describe("request card questionnaire state", () => {
     expect(buildUserInputAnswers(optionOnlyRequest, draft)).toEqual({
       q_option_only: ["First"],
     });
-    expect(isRequestQuestionnaireSubmittable(
-      optionOnlyRequest,
-      draft,
-      EXPLICIT_REQUEST_FORM_POLICY,
-    )).toBe(true);
+    expect(
+      isRequestQuestionnaireSubmittable(optionOnlyRequest, draft, EXPLICIT_REQUEST_FORM_POLICY),
+    ).toBe(true);
   });
 
   test("uses the active freeform answer instead of dormant option text", () => {
@@ -94,13 +92,17 @@ describe("request card questionnaire state", () => {
   });
 
   test("does not treat freeform text as an answer for an option-only question", () => {
-    expect(buildUserInputAnswers(optionOnlyRequest, {
-      answers: [{
-        selectedOptionId: null,
-        freeformText: "Choose none of the above.",
-      }],
-      questionIndex: 0,
-    })).toEqual({});
+    expect(
+      buildUserInputAnswers(optionOnlyRequest, {
+        answers: [
+          {
+            selectedOptionId: null,
+            freeformText: "Choose none of the above.",
+          },
+        ],
+        questionIndex: 0,
+      }),
+    ).toEqual({});
   });
 
   test("requires non-empty text for an explicit freeform question", () => {
@@ -118,25 +120,31 @@ describe("request card questionnaire state", () => {
       ],
     };
 
-    expect(isRequestQuestionnaireSubmittable(
-      freeformRequest,
-      {
-        answers: [{ selectedOptionId: null, freeformText: "" }],
-        questionIndex: 0,
-      },
-      EXPLICIT_REQUEST_FORM_POLICY,
-    )).toBe(false);
-    expect(isRequestQuestionnaireSubmittable(
-      freeformRequest,
-      {
-        answers: [{
-          selectedOptionId: null,
-          freeformText: "Focus on the failing type errors only.",
-        }],
-        questionIndex: 0,
-      },
-      EXPLICIT_REQUEST_FORM_POLICY,
-    )).toBe(true);
+    expect(
+      isRequestQuestionnaireSubmittable(
+        freeformRequest,
+        {
+          answers: [{ selectedOptionId: null, freeformText: "" }],
+          questionIndex: 0,
+        },
+        EXPLICIT_REQUEST_FORM_POLICY,
+      ),
+    ).toBe(false);
+    expect(
+      isRequestQuestionnaireSubmittable(
+        freeformRequest,
+        {
+          answers: [
+            {
+              selectedOptionId: null,
+              freeformText: "Focus on the failing type errors only.",
+            },
+          ],
+          questionIndex: 0,
+        },
+        EXPLICIT_REQUEST_FORM_POLICY,
+      ),
+    ).toBe(true);
   });
 
   test("initializes option and freeform questions coherently", () => {
@@ -185,31 +193,19 @@ describe("request card questionnaire state", () => {
     expect(buildUserInputAnswers(request, completed)).toEqual({
       q_2: ["Focus on the failing type errors."],
     });
-    expect(isRequestQuestionnaireSubmittable(
-      request,
-      completed,
-      REQUEST_INPUT_COMPOSER_POLICY,
-    )).toBe(true);
-    expect(isRequestQuestionnaireSubmittable(
-      request,
-      completed,
-      EXPLICIT_REQUEST_FORM_POLICY,
-    )).toBe(false);
+    expect(
+      isRequestQuestionnaireSubmittable(request, completed, REQUEST_INPUT_COMPOSER_POLICY),
+    ).toBe(true);
+    expect(
+      isRequestQuestionnaireSubmittable(request, completed, EXPLICIT_REQUEST_FORM_POLICY),
+    ).toBe(false);
   });
 
   test("prefers an active option over dormant freeform text", () => {
     const initial = createInitialRequestQuestionnaireDraft(request);
     const other = activateRequestQuestionnaireOther(initial, 0);
-    const withText = setRequestQuestionnaireFreeform(
-      other,
-      0,
-      "Try another approach",
-    );
-    const selected = selectRequestQuestionnaireOption(
-      withText,
-      0,
-      "2 (Recommended)",
-    );
+    const withText = setRequestQuestionnaireFreeform(other, 0, "Try another approach");
+    const selected = selectRequestQuestionnaireOption(withText, 0, "2 (Recommended)");
 
     expect(buildUserInputAnswers(request, selected)).toEqual({
       q_1: ["2 (Recommended)"],

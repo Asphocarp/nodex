@@ -96,10 +96,10 @@ function toPersistedScript(
   return {
     script: definition.script.length > 0 ? definition.script : null,
     platformScripts: Object.fromEntries(
-      Object.entries(definition.platformScripts)
-        .filter((entry): entry is [WorktreeEnvironmentPlatform, string] => (
-          typeof entry[1] === "string" && entry[1].length > 0
-        )),
+      Object.entries(definition.platformScripts).filter(
+        (entry): entry is [WorktreeEnvironmentPlatform, string] =>
+          typeof entry[1] === "string" && entry[1].length > 0,
+      ),
     ),
   };
 }
@@ -116,12 +116,14 @@ export function toPersistedLocalEnvironmentDefinition(
       const name = action.name.trim();
       const command = action.command.trim();
       if (!name || !command) return [];
-      return [{
-        name,
-        icon: action.icon,
-        command,
-        platform: action.platform,
-      }];
+      return [
+        {
+          name,
+          icon: action.icon,
+          command,
+          platform: action.platform,
+        },
+      ];
     }),
   };
 }
@@ -169,9 +171,7 @@ export function readLocalEnvironmentPlatformSlot(
   definition: LocalEnvironmentDraftScriptDefinition,
   platform: "default" | WorktreeEnvironmentPlatform,
 ): string {
-  return platform === "default"
-    ? definition.script
-    : definition.platformScripts[platform] ?? "";
+  return platform === "default" ? definition.script : (definition.platformScripts[platform] ?? "");
 }
 
 export function writeLocalEnvironmentPlatformSlot(

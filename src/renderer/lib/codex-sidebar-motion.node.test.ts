@@ -13,19 +13,25 @@ describe("Codex sidebar motion controller helpers", () => {
   });
 
   test("defaults collapse to hover suppression and allows explicit opt-out", () => {
-    expect(resolveCodexSidebarMotionSetOpen({
-      nextOpen: false,
-      reducedMotion: false,
-    }).suppressHoverOpen).toBe(true);
-    expect(resolveCodexSidebarMotionSetOpen({
-      nextOpen: false,
-      reducedMotion: false,
-      suppressHoverOpen: false,
-    }).suppressHoverOpen).toBe(false);
-    expect(resolveCodexSidebarMotionSetOpen({
-      nextOpen: true,
-      reducedMotion: false,
-    }).suppressHoverOpen).toBe(false);
+    expect(
+      resolveCodexSidebarMotionSetOpen({
+        nextOpen: false,
+        reducedMotion: false,
+      }).suppressHoverOpen,
+    ).toBe(true);
+    expect(
+      resolveCodexSidebarMotionSetOpen({
+        nextOpen: false,
+        reducedMotion: false,
+        suppressHoverOpen: false,
+      }).suppressHoverOpen,
+    ).toBe(false);
+    expect(
+      resolveCodexSidebarMotionSetOpen({
+        nextOpen: true,
+        reducedMotion: false,
+      }).suppressHoverOpen,
+    ).toBe(false);
   });
 
   test("snaps reduced-motion and animate false updates to the target progress", () => {
@@ -47,13 +53,17 @@ describe("Codex sidebar motion controller helpers", () => {
   });
 
   test("ignores stale animation completions after a newer toggle generation starts", () => {
-    expect(shouldCommitCodexSidebarMotionCompletion({
-      completionGeneration: 3,
-      currentGeneration: 4,
-    })).toBe(false);
-    expect(shouldCommitCodexSidebarMotionCompletion({
-      completionGeneration: 4,
-      currentGeneration: 4,
-    })).toBe(true);
+    expect(
+      shouldCommitCodexSidebarMotionCompletion({
+        completionGeneration: 3,
+        currentGeneration: 4,
+      }),
+    ).toBe(false);
+    expect(
+      shouldCommitCodexSidebarMotionCompletion({
+        completionGeneration: 4,
+        currentGeneration: 4,
+      }),
+    ).toBe(true);
   });
 });

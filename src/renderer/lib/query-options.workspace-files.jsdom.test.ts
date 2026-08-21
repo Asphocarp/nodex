@@ -57,21 +57,30 @@ describe("workspace file query options", () => {
     });
 
     expect(invokeCalls).toEqual([
-      ["read-file-metadata", {
-        hostId: "local",
-        path: "/tmp/worktree/image.png",
-        contentSampleByteLimit: 8_192,
-        contentSampleMaxFileBytes: 25_000_000,
-      }],
-      ["read-file", {
-        hostId: "local",
-        path: "/tmp/worktree/image.png",
-        maxBytes: 1_500_000,
-      }],
-      ["read-file-binary", {
-        hostId: "local",
-        path: "/tmp/worktree/image.png",
-      }],
+      [
+        "read-file-metadata",
+        {
+          hostId: "local",
+          path: "/tmp/worktree/image.png",
+          contentSampleByteLimit: 8_192,
+          contentSampleMaxFileBytes: 25_000_000,
+        },
+      ],
+      [
+        "read-file",
+        {
+          hostId: "local",
+          path: "/tmp/worktree/image.png",
+          maxBytes: 1_500_000,
+        },
+      ],
+      [
+        "read-file-binary",
+        {
+          hostId: "local",
+          path: "/tmp/worktree/image.png",
+        },
+      ],
     ]);
   });
 });

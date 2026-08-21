@@ -32,7 +32,12 @@ describe("workbench automation previous runs", () => {
       automationId: "automation-alpha",
       items: [
         inboxItem({ id: "old", threadId: "old", createdAt: 100 }),
-        inboxItem({ id: "other", threadId: "other", automationId: "automation-other", createdAt: 300 }),
+        inboxItem({
+          id: "other",
+          threadId: "other",
+          automationId: "automation-other",
+          createdAt: 300,
+        }),
         inboxItem({ id: "new", threadId: "new", createdAt: 200 }),
       ],
       now: 200,

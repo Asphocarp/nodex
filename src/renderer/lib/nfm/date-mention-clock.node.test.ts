@@ -23,11 +23,7 @@ function createManualClock(start: string) {
     window: new Map<string, Set<Listener>>(),
   };
 
-  const addListener = (
-    target: "document" | "window",
-    type: string,
-    listener: Listener,
-  ) => {
+  const addListener = (target: "document" | "window", type: string, listener: Listener) => {
     const targetListeners = listeners[target];
     const typeListeners = targetListeners.get(type) ?? new Set<Listener>();
     typeListeners.add(listener);

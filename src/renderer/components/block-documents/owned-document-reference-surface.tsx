@@ -1,7 +1,6 @@
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { useId, type ReactNode } from "react";
 
-
 import {
   BlockDisclosureStateStore,
   blockDisclosureStateStore,
@@ -60,17 +59,12 @@ export function OwnedDocumentReferenceSurface({
 }: OwnedDocumentReferenceSurfaceProps) {
   const surfaceInstanceId = useId();
   const surfaceInstanceKey = `owned-document:${disclosureKey}:mount:${surfaceInstanceId}`;
-  const [preferredExpanded, setExpanded] = useBlockDisclosure(
-    disclosureKey,
-    disclosureStore,
-  );
+  const [preferredExpanded, setExpanded] = useBlockDisclosure(disclosureKey, disclosureStore);
   const visibility = useElementVisibility();
   const visible = visibilityOverride ?? visibility.visible;
   const normalizedOwnerBlockId = ownerBlockId.trim();
   const expandable =
-    normalizedOwnerBlockId.length > 0 &&
-    !disabledReason &&
-    typeof renderDocument === "function";
+    normalizedOwnerBlockId.length > 0 && !disabledReason && typeof renderDocument === "function";
   const expanded = expandable && preferredExpanded;
   const eligible = expandable && expanded && visible;
   const budgetActive = useReferenceSurfaceActivation(
@@ -114,11 +108,7 @@ export function OwnedDocumentReferenceSurface({
       <div className="group/owned-document flex min-h-8 min-w-0 items-center gap-1 rounded-md px-1 hover:bg-token-foreground/5">
         <button
           type="button"
-          aria-label={
-            expanded
-              ? `Collapse ${accessibleName}`
-              : `Expand ${accessibleName}`
-          }
+          aria-label={expanded ? `Collapse ${accessibleName}` : `Expand ${accessibleName}`}
           aria-expanded={expanded}
           disabled={!expandable}
           className={cn(
@@ -137,12 +127,8 @@ export function OwnedDocumentReferenceSurface({
             )}
           />
         </button>
-        <span className="shrink-0 text-token-description-foreground">
-          {icon}
-        </span>
-        <span className="shrink-0 text-xs font-medium text-token-text-secondary">
-          {label}
-        </span>
+        <span className="shrink-0 text-token-description-foreground">{icon}</span>
+        <span className="shrink-0 text-xs font-medium text-token-text-secondary">{label}</span>
         <span className="min-w-0 flex-1 truncate text-xs text-token-description-foreground">
           {displayDetail}
         </span>

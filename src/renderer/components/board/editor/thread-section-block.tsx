@@ -42,18 +42,15 @@ function ThreadSectionBlock({
   );
 }
 
-export const createThreadSectionBlockSpec = createReactBlockSpec(
-  threadSectionBlockConfig,
-  {
-    render: ({ block, editor }) => (
-      <ThreadSectionBlock
-        blockId={block.id}
-        label={typeof block.props.label === "string" ? block.props.label : ""}
-        threadId={typeof block.props.threadId === "string" ? block.props.threadId.trim() : ""}
-        onLabelChange={(nextLabel) => {
-          editor.updateBlock(block, { props: { ...block.props, label: nextLabel } });
-        }}
-      />
-    ),
-  },
-);
+export const createThreadSectionBlockSpec = createReactBlockSpec(threadSectionBlockConfig, {
+  render: ({ block, editor }) => (
+    <ThreadSectionBlock
+      blockId={block.id}
+      label={typeof block.props.label === "string" ? block.props.label : ""}
+      threadId={typeof block.props.threadId === "string" ? block.props.threadId.trim() : ""}
+      onLabelChange={(nextLabel) => {
+        editor.updateBlock(block, { props: { ...block.props, label: nextLabel } });
+      }}
+    />
+  ),
+});

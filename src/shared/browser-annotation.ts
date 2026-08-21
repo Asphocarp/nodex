@@ -10,8 +10,7 @@ export const BROWSER_ANNOTATION_DESIGN_PROPERTIES = [
   "opacity",
 ] as const;
 
-export type BrowserAnnotationDesignProperty =
-  typeof BROWSER_ANNOTATION_DESIGN_PROPERTIES[number];
+export type BrowserAnnotationDesignProperty = (typeof BROWSER_ANNOTATION_DESIGN_PROPERTIES)[number];
 
 export interface BrowserAnnotationComputedStyle {
   color: string;
@@ -101,113 +100,135 @@ export interface BrowserAnnotationAttachment {
 const FiniteCoordinateSchema = z.number().finite().min(-100_000).max(100_000);
 const BoundedStyleValueSchema = z.string().max(512);
 
-export const BrowserAnnotationDesignPropertySchema = z.enum(
-  BROWSER_ANNOTATION_DESIGN_PROPERTIES,
-);
+export const BrowserAnnotationDesignPropertySchema = z.enum(BROWSER_ANNOTATION_DESIGN_PROPERTIES);
 
-export const BrowserAnnotationComputedStyleSchema = z.object({
-  color: BoundedStyleValueSchema,
-  backgroundColor: BoundedStyleValueSchema,
-  fontSize: BoundedStyleValueSchema,
-  borderRadius: BoundedStyleValueSchema,
-  opacity: BoundedStyleValueSchema,
-}).strict() satisfies z.ZodType<BrowserAnnotationComputedStyle>;
+export const BrowserAnnotationComputedStyleSchema = z
+  .object({
+    color: BoundedStyleValueSchema,
+    backgroundColor: BoundedStyleValueSchema,
+    fontSize: BoundedStyleValueSchema,
+    borderRadius: BoundedStyleValueSchema,
+    opacity: BoundedStyleValueSchema,
+  })
+  .strict() satisfies z.ZodType<BrowserAnnotationComputedStyle>;
 
-export const BrowserAnnotationAnchorSchema = z.object({
-  id: z.string().min(1).max(512),
-  kind: z.enum(["element", "text", "region"]),
-  pageUrl: z.string().max(16_384),
-  frameUrl: z.string().max(16_384).optional(),
-  framePath: z.array(z.string().max(8_192)).max(16).optional(),
-  elementPath: z.string().max(8_192).optional(),
-  selector: z.string().max(8_192).optional(),
-  textExcerpt: z.string().max(2_048).optional(),
-  nearbyText: z.string().max(2_048).optional(),
-  computedStyle: BrowserAnnotationComputedStyleSchema.optional(),
-  viewportSize: z.object({
-    width: z.number().finite().positive().max(100_000),
-    height: z.number().finite().positive().max(100_000),
-  }).strict().optional(),
-  rect: z.object({
-    x: FiniteCoordinateSchema,
-    y: FiniteCoordinateSchema,
-    width: FiniteCoordinateSchema.nonnegative().max(100_000),
-    height: FiniteCoordinateSchema.nonnegative().max(100_000),
-  }).strict(),
-}).strict() satisfies z.ZodType<BrowserAnnotationAnchor>;
+export const BrowserAnnotationAnchorSchema = z
+  .object({
+    id: z.string().min(1).max(512),
+    kind: z.enum(["element", "text", "region"]),
+    pageUrl: z.string().max(16_384),
+    frameUrl: z.string().max(16_384).optional(),
+    framePath: z.array(z.string().max(8_192)).max(16).optional(),
+    elementPath: z.string().max(8_192).optional(),
+    selector: z.string().max(8_192).optional(),
+    textExcerpt: z.string().max(2_048).optional(),
+    nearbyText: z.string().max(2_048).optional(),
+    computedStyle: BrowserAnnotationComputedStyleSchema.optional(),
+    viewportSize: z
+      .object({
+        width: z.number().finite().positive().max(100_000),
+        height: z.number().finite().positive().max(100_000),
+      })
+      .strict()
+      .optional(),
+    rect: z
+      .object({
+        x: FiniteCoordinateSchema,
+        y: FiniteCoordinateSchema,
+        width: FiniteCoordinateSchema.nonnegative().max(100_000),
+        height: FiniteCoordinateSchema.nonnegative().max(100_000),
+      })
+      .strict(),
+  })
+  .strict() satisfies z.ZodType<BrowserAnnotationAnchor>;
 
-export const BrowserAnnotationSelectionEventSchema = z.object({
-  sessionId: z.string().min(1).max(512),
-  multiSelect: z.boolean(),
-  anchor: BrowserAnnotationAnchorSchema,
-}).strict() satisfies z.ZodType<BrowserAnnotationSelectionEvent>;
+export const BrowserAnnotationSelectionEventSchema = z
+  .object({
+    sessionId: z.string().min(1).max(512),
+    multiSelect: z.boolean(),
+    anchor: BrowserAnnotationAnchorSchema,
+  })
+  .strict() satisfies z.ZodType<BrowserAnnotationSelectionEvent>;
 
-export const BrowserAnnotationRoutedSelectionEventSchema = z.object({
-  browserConversationId: z.string().min(1).max(512),
-  browserViewScopeId: z.string().min(1).max(512),
-  browserTabId: z.string().min(1).max(512),
-  selection: BrowserAnnotationSelectionEventSchema,
-}).strict() satisfies z.ZodType<BrowserAnnotationRoutedSelectionEvent>;
+export const BrowserAnnotationRoutedSelectionEventSchema = z
+  .object({
+    browserConversationId: z.string().min(1).max(512),
+    browserViewScopeId: z.string().min(1).max(512),
+    browserTabId: z.string().min(1).max(512),
+    selection: BrowserAnnotationSelectionEventSchema,
+  })
+  .strict() satisfies z.ZodType<BrowserAnnotationRoutedSelectionEvent>;
 
-export const BrowserAnnotationAnchorUpdateEventSchema = z.object({
-  sessionId: z.string().min(1).max(512),
-  anchor: BrowserAnnotationAnchorSchema,
-}).strict() satisfies z.ZodType<BrowserAnnotationAnchorUpdateEvent>;
+export const BrowserAnnotationAnchorUpdateEventSchema = z
+  .object({
+    sessionId: z.string().min(1).max(512),
+    anchor: BrowserAnnotationAnchorSchema,
+  })
+  .strict() satisfies z.ZodType<BrowserAnnotationAnchorUpdateEvent>;
 
-export const BrowserAnnotationRoutedAnchorUpdateEventSchema = z.object({
-  browserConversationId: z.string().min(1).max(512),
-  browserViewScopeId: z.string().min(1).max(512),
-  browserTabId: z.string().min(1).max(512),
-  update: BrowserAnnotationAnchorUpdateEventSchema,
-}).strict() satisfies z.ZodType<BrowserAnnotationRoutedAnchorUpdateEvent>;
+export const BrowserAnnotationRoutedAnchorUpdateEventSchema = z
+  .object({
+    browserConversationId: z.string().min(1).max(512),
+    browserViewScopeId: z.string().min(1).max(512),
+    browserTabId: z.string().min(1).max(512),
+    update: BrowserAnnotationAnchorUpdateEventSchema,
+  })
+  .strict() satisfies z.ZodType<BrowserAnnotationRoutedAnchorUpdateEvent>;
 
-export const BrowserAnnotationDesignChangeSchema = z.object({
-  anchorId: z.string().min(1).max(512),
-  property: BrowserAnnotationDesignPropertySchema,
-  before: BoundedStyleValueSchema,
-  after: BoundedStyleValueSchema,
-}).strict() satisfies z.ZodType<BrowserAnnotationDesignChange>;
+export const BrowserAnnotationDesignChangeSchema = z
+  .object({
+    anchorId: z.string().min(1).max(512),
+    property: BrowserAnnotationDesignPropertySchema,
+    before: BoundedStyleValueSchema,
+    after: BoundedStyleValueSchema,
+  })
+  .strict() satisfies z.ZodType<BrowserAnnotationDesignChange>;
 
-export const BrowserAnnotationEvidenceCaptureInputSchema = z.object({
-  browserConversationId: z.string().min(1).max(512),
-  browserViewScopeId: z.string().min(1).max(512),
-  browserTabId: z.string().min(1).max(512),
-  anchors: z.array(BrowserAnnotationAnchorSchema).min(1).max(32),
-}).strict();
+export const BrowserAnnotationEvidenceCaptureInputSchema = z
+  .object({
+    browserConversationId: z.string().min(1).max(512),
+    browserViewScopeId: z.string().min(1).max(512),
+    browserTabId: z.string().min(1).max(512),
+    anchors: z.array(BrowserAnnotationAnchorSchema).min(1).max(32),
+  })
+  .strict();
 export type BrowserAnnotationEvidenceCaptureInput = z.infer<
   typeof BrowserAnnotationEvidenceCaptureInputSchema
 >;
 
-export const BrowserAnnotationAttachmentSchema = z.object({
-  schemaVersion: z.literal(1),
-  id: z.string().min(1).max(512),
-  browserTabId: z.string().min(1).max(512),
-  createdAt: z.number().int().nonnegative(),
-  intent: z.enum(["comment", "designChange"]).default("comment"),
-  designChange: BrowserAnnotationDesignChangeSchema.optional(),
-  note: z.string().max(10_000),
-  pageTitle: z.string().max(2_048),
-  pageUrl: z.string().max(16_384),
-  anchors: z.array(BrowserAnnotationAnchorSchema).min(1).max(32),
-  evidence: z.object({
-    attachmentId: z.string().min(1).max(512),
-    mimeType: z.enum(["image/png", "image/jpeg"]),
-    source: z.string().min(1).max(16_384),
-    width: z.number().int().positive().max(16_384),
-    height: z.number().int().positive().max(16_384),
-  }).strict().optional(),
-}).strict() satisfies z.ZodType<BrowserAnnotationAttachment>;
+export const BrowserAnnotationAttachmentSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    id: z.string().min(1).max(512),
+    browserTabId: z.string().min(1).max(512),
+    createdAt: z.number().int().nonnegative(),
+    intent: z.enum(["comment", "designChange"]).default("comment"),
+    designChange: BrowserAnnotationDesignChangeSchema.optional(),
+    note: z.string().max(10_000),
+    pageTitle: z.string().max(2_048),
+    pageUrl: z.string().max(16_384),
+    anchors: z.array(BrowserAnnotationAnchorSchema).min(1).max(32),
+    evidence: z
+      .object({
+        attachmentId: z.string().min(1).max(512),
+        mimeType: z.enum(["image/png", "image/jpeg"]),
+        source: z.string().min(1).max(16_384),
+        width: z.number().int().positive().max(16_384),
+        height: z.number().int().positive().max(16_384),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict() satisfies z.ZodType<BrowserAnnotationAttachment>;
 
 export const BROWSER_ANNOTATIONS_ADDITIONAL_CONTEXT_KEY = "browser-annotations";
 
-function formatAnchorForPrompt(
-  anchor: BrowserAnnotationAnchor,
-  index: number,
-): string {
+function formatAnchorForPrompt(anchor: BrowserAnnotationAnchor, index: number): string {
   const label = `${index + 1}. ${anchor.kind}`;
-  const target = anchor.textExcerpt?.trim()
-    || anchor.selector?.trim()
-    || `rect(${anchor.rect.x}, ${anchor.rect.y}, ${anchor.rect.width}, ${anchor.rect.height})`;
+  const target =
+    anchor.textExcerpt?.trim() ||
+    anchor.selector?.trim() ||
+    `rect(${anchor.rect.x}, ${anchor.rect.y}, ${anchor.rect.width}, ${anchor.rect.height})`;
   return `${label}: ${target}`;
 }
 
@@ -239,7 +260,7 @@ export function serializeBrowserAnnotationAttachmentsForAdditionalContext(
   return JSON.stringify({
     schemaVersion: 1,
     attachments: attachments.map((attachment) =>
-      BrowserAnnotationAttachmentSchema.parse(attachment)
+      BrowserAnnotationAttachmentSchema.parse(attachment),
     ),
   });
 }

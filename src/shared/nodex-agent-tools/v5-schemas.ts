@@ -20,11 +20,7 @@ import {
 
 type IssuePath = readonly PropertyKey[];
 
-const addIdentityIssue = (
-  context: z.RefinementCtx,
-  path: IssuePath,
-  message: string,
-): void => {
+const addIdentityIssue = (context: z.RefinementCtx, path: IssuePath, message: string): void => {
   context.addIssue({
     code: "custom",
     message,
@@ -43,9 +39,7 @@ const checkPropertyId = (
     addIdentityIssue(
       context,
       path,
-      error instanceof Error
-        ? error.message
-        : "Invalid Data Source Property identity",
+      error instanceof Error ? error.message : "Invalid Data Source Property identity",
     );
     return null;
   }
@@ -93,19 +87,17 @@ const checkFilter = (
 };
 
 const checkSort = (
-  sort: readonly {
-    readonly field: { readonly kind: string; readonly propertyId?: unknown };
-  }[] | undefined,
+  sort:
+    | readonly {
+        readonly field: { readonly kind: string; readonly propertyId?: unknown };
+      }[]
+    | undefined,
   context: z.RefinementCtx,
   path: IssuePath,
 ): void => {
   sort?.forEach((entry, index) => {
     if (entry.field.kind !== "property") return;
-    checkPropertyId(
-      entry.field.propertyId,
-      context,
-      [...path, index, "field", "propertyId"],
-    );
+    checkPropertyId(entry.field.propertyId, context, [...path, index, "field", "propertyId"]);
   });
 };
 
@@ -116,18 +108,17 @@ export const checkQueryV5Output = (
   const properties = output.data.dataSource.properties;
   const propertyTypes = new Map<DataSourcePropertyId, string>();
   properties.forEach((property, index) => {
-    const propertyId = checkPropertyId(
-      property.propertyId,
-      context,
-      ["data", "dataSource", "properties", index, "propertyId"],
-    );
+    const propertyId = checkPropertyId(property.propertyId, context, [
+      "data",
+      "dataSource",
+      "properties",
+      index,
+      "propertyId",
+    ]);
     if (!propertyId) return;
     propertyTypes.set(propertyId, property.valueType);
 
-    if (
-      property.valueType !== "select" &&
-      property.valueType !== "multi_select"
-    ) {
+    if (property.valueType !== "select" && property.valueType !== "multi_select") {
       return;
     }
     const options = property.config.options;
@@ -142,19 +133,8 @@ export const checkQueryV5Output = (
       } catch (error) {
         addIdentityIssue(
           context,
-          [
-            "data",
-            "dataSource",
-            "properties",
-            index,
-            "config",
-            "options",
-            optionIndex,
-            "id",
-          ],
-          error instanceof Error
-            ? error.message
-            : "Invalid Data Source option identity",
+          ["data", "dataSource", "properties", index, "config", "options", optionIndex, "id"],
+          error instanceof Error ? error.message : "Invalid Data Source option identity",
         );
       }
     });
@@ -162,17 +142,24 @@ export const checkQueryV5Output = (
 
   output.data.rows.forEach((row, rowIndex) => {
     Object.entries(row.values).forEach(([rawPropertyId, value]) => {
-      const propertyId = checkPropertyId(
+      const propertyId = checkPropertyId(rawPropertyId, context, [
+        "data",
+        "rows",
+        rowIndex,
+        "values",
         rawPropertyId,
-        context,
-        ["data", "rows", rowIndex, "values", rawPropertyId],
-      );
+      ]);
       if (!propertyId) return;
       const valueType = propertyTypes.get(propertyId);
       if (valueType !== "select" && valueType !== "multi_select") return;
-      const candidates = valueType === "multi_select"
-        ? (Array.isArray(value) ? value : [])
-        : (typeof value === "string" ? [value] : []);
+      const candidates =
+        valueType === "multi_select"
+          ? Array.isArray(value)
+            ? value
+            : []
+          : typeof value === "string"
+            ? [value]
+            : [];
       candidates.forEach((candidate, optionIndex) => {
         try {
           parseDataSourceOptionId({ propertyId, value: candidate });
@@ -180,9 +167,7 @@ export const checkQueryV5Output = (
           addIdentityIssue(
             context,
             ["data", "rows", rowIndex, "values", rawPropertyId, optionIndex],
-            error instanceof Error
-              ? error.message
-              : "Invalid Data Source option identity",
+            error instanceof Error ? error.message : "Invalid Data Source option identity",
           );
         }
       });
@@ -190,11 +175,9 @@ export const checkQueryV5Output = (
   });
 };
 
-export const FetchV5InputSchema = FetchV3InputSchema.superRefine(
-  (input, context) => {
-    checkPropertyIds(input.propertyIds, context, ["propertyIds"]);
-  },
-);
+export const FetchV5InputSchema = FetchV3InputSchema.superRefine((input, context) => {
+  checkPropertyIds(input.propertyIds, context, ["propertyIds"]);
+});
 
 export const checkFetchV5Output = (
   output: {
@@ -209,17 +192,11 @@ export const checkFetchV5Output = (
   const properties = output.data.resource.properties;
   if (!properties) return;
   Object.keys(properties).forEach((propertyId) => {
-    checkPropertyId(
-      propertyId,
-      context,
-      ["data", "resource", "properties", propertyId],
-    );
+    checkPropertyId(propertyId, context, ["data", "resource", "properties", propertyId]);
   });
 };
 
-export const FetchV5OutputSchema = FetchV3OutputSchema.superRefine(
-  checkFetchV5Output,
-);
+export const FetchV5OutputSchema = FetchV3OutputSchema.superRefine(checkFetchV5Output);
 
 export const checkSearchV5Output = (
   output: {
@@ -227,12 +204,12 @@ export const checkSearchV5Output = (
       readonly results: readonly (
         | { readonly kind: "block" }
         | {
-          readonly kind: "page";
-          readonly matches: readonly {
-            readonly source: string;
-            readonly propertyId?: unknown;
-          }[];
-        }
+            readonly kind: "page";
+            readonly matches: readonly {
+              readonly source: string;
+              readonly propertyId?: unknown;
+            }[];
+          }
       )[];
     };
   },
@@ -242,64 +219,51 @@ export const checkSearchV5Output = (
     if (result.kind !== "page") return;
     result.matches.forEach((match, matchIndex) => {
       if (match.source !== "property") return;
-      checkPropertyId(
-        match.propertyId,
-        context,
-        ["data", "results", resultIndex, "matches", matchIndex, "propertyId"],
-      );
+      checkPropertyId(match.propertyId, context, [
+        "data",
+        "results",
+        resultIndex,
+        "matches",
+        matchIndex,
+        "propertyId",
+      ]);
     });
   });
 };
 
-export const SearchV5OutputSchema = SearchV3OutputSchema.superRefine(
-  checkSearchV5Output,
+export const SearchV5OutputSchema = SearchV3OutputSchema.superRefine(checkSearchV5Output);
+
+export const QueryDatabaseViewV5InputSchema = QueryDatabaseViewV3InputSchema.superRefine(
+  (input, context) => {
+    checkPropertyIds(input.select?.propertyIds, context, ["select", "propertyIds"]);
+  },
 );
 
-export const QueryDatabaseViewV5InputSchema =
-  QueryDatabaseViewV3InputSchema.superRefine((input, context) => {
-    checkPropertyIds(input.select?.propertyIds, context, ["select", "propertyIds"]);
-  });
-
-export const QueryDataSourceV5InputSchema =
-  QueryDataSourceV3InputSchema.superRefine((input, context) => {
+export const QueryDataSourceV5InputSchema = QueryDataSourceV3InputSchema.superRefine(
+  (input, context) => {
     checkFilter(input.filter as FilterNode | undefined, context, ["filter"]);
     checkSort(input.sort, context, ["sort"]);
     checkPropertyIds(input.select?.propertyIds, context, ["select", "propertyIds"]);
-  });
+  },
+);
 
 export const QueryDatabaseV5OutputSchema =
   QueryDatabaseV3OutputSchema.superRefine(checkQueryV5Output);
 
-export const CreatePagesV5InputSchema = CreatePagesV3InputSchema.superRefine(
-  (input, context) => {
-    input.pages.forEach((page, pageIndex) => {
-      checkPropertyValueDrafts(
-        page.values,
-        context,
-        ["pages", pageIndex, "values"],
-      );
-    });
-  },
-);
+export const CreatePagesV5InputSchema = CreatePagesV3InputSchema.superRefine((input, context) => {
+  input.pages.forEach((page, pageIndex) => {
+    checkPropertyValueDrafts(page.values, context, ["pages", pageIndex, "values"]);
+  });
+});
 
-export const MovePagesV5InputSchema = MovePagesV3InputSchema.superRefine(
-  (input, context) => {
-    if (input.destination.kind !== "data_source") return;
-    checkPropertyValueDrafts(
-      input.destination.values,
-      context,
-      ["destination", "values"],
-    );
-  },
-);
+export const MovePagesV5InputSchema = MovePagesV3InputSchema.superRefine((input, context) => {
+  if (input.destination.kind !== "data_source") return;
+  checkPropertyValueDrafts(input.destination.values, context, ["destination", "values"]);
+});
 
 export const DuplicatePageV5InputSchema = DuplicatePageV3InputSchema.superRefine(
   (input, context) => {
     if (input.destination.kind !== "data_source") return;
-    checkPropertyValueDrafts(
-      input.destination.values,
-      context,
-      ["destination", "values"],
-    );
+    checkPropertyValueDrafts(input.destination.values, context, ["destination", "values"]);
   },
 );

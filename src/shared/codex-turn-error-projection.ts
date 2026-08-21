@@ -1,9 +1,6 @@
 import type { CodexItemView } from "./types";
 
-function resolveTurnErrorMarkdown(
-  message: string | null | undefined,
-  willRetry: boolean,
-): string {
+function resolveTurnErrorMarkdown(message: string | null | undefined, willRetry: boolean): string {
   const trimmed = message?.trim();
   if (trimmed) return trimmed;
   return willRetry ? "Reconnecting..." : "Thread hit an error";

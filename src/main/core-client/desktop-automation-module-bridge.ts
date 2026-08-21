@@ -54,9 +54,7 @@ type CoreScheduledPageOccurrence = Extract<
   { readonly kind: "occurrences" }
 >["window"]["items"][number];
 
-type CoreAutomationIntent = Parameters<
-  CoreClientPort["automationApply"]
->[0]["intent"];
+type CoreAutomationIntent = Parameters<CoreClientPort["automationApply"]>[0]["intent"];
 type CorePageOccurrenceSchedulePatch = Extract<
   CoreAutomationIntent,
   { readonly kind: "update_page_occurrence" }
@@ -67,8 +65,7 @@ export interface AutomationArchiveMessages {
   readonly archivedAssistantMessage: string | null;
 }
 
-export interface DesktopAutomationDefinitionDeleteResult
-  extends CodexScheduledAutomationDeleteResponse {
+export interface DesktopAutomationDefinitionDeleteResult extends CodexScheduledAutomationDeleteResponse {
   readonly deletedRunCount: number;
 }
 
@@ -109,13 +106,9 @@ export type DesktopAutomationReadClass = "interactive" | "background";
 export interface DesktopAutomationModulePort {
   peekRunAutomationId?(threadId: string): string | null;
   peekActiveHeartbeatAutomationId?(threadId: string): string | null;
-  listDefinitions(
-    requestClass?: DesktopAutomationReadClass,
-  ): Promise<CodexScheduledAutomation[]>;
+  listDefinitions(requestClass?: DesktopAutomationReadClass): Promise<CodexScheduledAutomation[]>;
   getDefinition(id: string): Promise<CodexScheduledAutomation | null>;
-  createDefinition(
-    input: CodexScheduledAutomationCreateInput,
-  ): Promise<CodexScheduledAutomation>;
+  createDefinition(input: CodexScheduledAutomationCreateInput): Promise<CodexScheduledAutomation>;
   updateDefinition(
     input: CodexScheduledAutomationUpdateInput,
   ): Promise<CodexScheduledAutomation | null>;
@@ -129,16 +122,9 @@ export interface DesktopAutomationModulePort {
       readonly retryWithinMs?: number;
     },
   ): Promise<CodexScheduledAutomation | null>;
-  claimDueDefinitions(
-    limit: number,
-    leaseDurationMs: number,
-  ): Promise<DesktopAutomationClaim[]>;
+  claimDueDefinitions(limit: number, leaseDurationMs: number): Promise<DesktopAutomationClaim[]>;
   completeLease(leaseId: string): Promise<void>;
-  failLease(
-    leaseId: string,
-    retryDelayMs: number | null,
-    reasonCode: string,
-  ): Promise<void>;
+  failLease(leaseId: string, retryDelayMs: number | null, reasonCode: string): Promise<void>;
   settleInterruptedRuns(): Promise<{
     readonly archivedPendingCount: number;
     readonly pendingReviewCount: number;
@@ -149,10 +135,7 @@ export interface DesktopAutomationModulePort {
     readonly pendingThreadId: string;
     readonly threadId: string;
   }): Promise<boolean>;
-  setRunThreadTitle(
-    threadId: string,
-    threadTitle: string | null,
-  ): Promise<boolean>;
+  setRunThreadTitle(threadId: string, threadTitle: string | null): Promise<boolean>;
   completeRunForReview(input: {
     readonly threadId: string;
     readonly inboxTitle?: string | null;
@@ -206,10 +189,7 @@ export interface DesktopAutomationModulePort {
     occurrenceStart: string,
     snoozeMinutes: number,
   ): Promise<void>;
-  claimDueReminders(
-    limit: number,
-    leaseDurationMs: number,
-  ): Promise<DesktopReminderClaim[]>;
+  claimDueReminders(limit: number, leaseDurationMs: number): Promise<DesktopReminderClaim[]>;
   completeReminderLease(leaseId: string): Promise<void>;
   failReminderLease(
     leaseId: string,
@@ -238,9 +218,7 @@ export function mapCoreAutomationEvent(
   };
 }
 
-const mapDefinition = (
-  definition: CoreAutomationDefinition,
-): CodexScheduledAutomation => ({
+const mapDefinition = (definition: CoreAutomationDefinition): CodexScheduledAutomation => ({
   id: definition.automation_id,
   definitionRevision: definition.definition_revision,
   kind: definition.kind,
@@ -256,8 +234,7 @@ const mapDefinition = (
   serviceTier: definition.service_tier ?? null,
   cwds: [...definition.cwds],
   executionEnvironment: definition.execution_environment,
-  localEnvironmentConfigPath:
-    definition.local_environment_config_path ?? null,
+  localEnvironmentConfigPath: definition.local_environment_config_path ?? null,
   nextRunAt: definition.next_run_at_ms ?? null,
   lastRunAt: definition.last_run_at_ms ?? null,
   createdAt: definition.created_at_ms,
@@ -280,9 +257,7 @@ const mapRun = (run: CoreAutomationRun): CodexAutomationRun => ({
   updatedAt: run.updated_at_ms,
 });
 
-const mapInboxItem = (
-  item: CoreAutomationInboxItem,
-): CodexAutomationInboxItem => ({
+const mapInboxItem = (item: CoreAutomationInboxItem): CodexAutomationInboxItem => ({
   id: item.thread_id,
   automationId: item.automation_id,
   automationName: item.automation_name ?? null,
@@ -300,11 +275,7 @@ const mapInboxItem = (
 
 const PRIORITIES = new Set<Priority>(PRIORITY_VALUES);
 const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
-const RUN_TARGETS = new Set<PageRunInTarget>([
-  "localProject",
-  "newWorktree",
-  "cloud",
-]);
+const RUN_TARGETS = new Set<PageRunInTarget>(["localProject", "newWorktree", "cloud"]);
 
 const optionalSetValue = <T extends string>(
   value: string | null | undefined,
@@ -323,38 +294,26 @@ const mapOccurrenceRecurrence = (
   return {
     frequency: recurrence.frequency,
     interval: recurrence.interval,
-    ...(recurrence.byWeekdays
-      ? { byWeekdays: [...recurrence.byWeekdays] }
-      : {}),
-    ...(recurrence.endCondition
-      ? { endCondition: { ...recurrence.endCondition } }
-      : {}),
+    ...(recurrence.byWeekdays ? { byWeekdays: [...recurrence.byWeekdays] } : {}),
+    ...(recurrence.endCondition ? { endCondition: { ...recurrence.endCondition } } : {}),
   };
 };
 
-const mapOccurrence = (
-  occurrence: CoreScheduledPageOccurrence,
-): PageOccurrence => {
+const mapOccurrence = (occurrence: CoreScheduledPageOccurrence): PageOccurrence => {
   if (!isWorkflowStatus(occurrence.status)) {
     throw new Error("Core Scheduled Page workflow status is invalid");
   }
   const occurrenceStart = new Date(occurrence.occurrence_start_ms);
   const occurrenceEnd = new Date(occurrence.occurrence_end_ms);
-  const dueDate = occurrence.due_date
-    ? new Date(occurrence.due_date)
-    : undefined;
+  const dueDate = occurrence.due_date ? new Date(occurrence.due_date) : undefined;
   const created = new Date(occurrence.created_at);
-  const runInTarget = optionalSetValue(
-    occurrence.run_in_target,
-    RUN_TARGETS,
-    "run target",
-  );
+  const runInTarget = optionalSetValue(occurrence.run_in_target, RUN_TARGETS, "run target");
   const recurrence = mapOccurrenceRecurrence(occurrence.recurrence);
   if (
-    !Number.isFinite(occurrenceStart.getTime())
-    || !Number.isFinite(occurrenceEnd.getTime())
-    || (dueDate && !Number.isFinite(dueDate.getTime()))
-    || !Number.isFinite(created.getTime())
+    !Number.isFinite(occurrenceStart.getTime()) ||
+    !Number.isFinite(occurrenceEnd.getTime()) ||
+    (dueDate && !Number.isFinite(dueDate.getTime())) ||
+    !Number.isFinite(created.getTime())
   ) {
     throw new Error("Core Scheduled Page returned an invalid date");
   }
@@ -382,17 +341,11 @@ const mapOccurrence = (
     reminders: occurrence.reminders.map((reminder) => ({
       offsetMinutes: reminder.offsetMinutes,
     })),
-    ...(occurrence.schedule_timezone
-      ? { scheduleTimezone: occurrence.schedule_timezone }
-      : {}),
+    ...(occurrence.schedule_timezone ? { scheduleTimezone: occurrence.schedule_timezone } : {}),
     ...(occurrence.assignee ? { assignee: occurrence.assignee } : {}),
     ...(runInTarget ? { runInTarget } : {}),
-    ...(occurrence.run_in_local_path
-      ? { runInLocalPath: occurrence.run_in_local_path }
-      : {}),
-    ...(occurrence.run_in_base_branch
-      ? { runInBaseBranch: occurrence.run_in_base_branch }
-      : {}),
+    ...(occurrence.run_in_local_path ? { runInLocalPath: occurrence.run_in_local_path } : {}),
+    ...(occurrence.run_in_base_branch ? { runInBaseBranch: occurrence.run_in_base_branch } : {}),
     ...(occurrence.run_in_worktree_path
       ? { runInWorktreePath: occurrence.run_in_worktree_path }
       : {}),
@@ -405,14 +358,11 @@ const mapOccurrence = (
     occurrenceStart,
     occurrenceEnd,
     isRecurring: occurrence.is_recurring,
-    thisAndFutureEquivalentToAll:
-      occurrence.this_and_future_equivalent_to_all,
+    thisAndFutureEquivalentToAll: occurrence.this_and_future_equivalent_to_all,
   };
 };
 
-const toCoreDefinitionInput = (
-  input: CodexScheduledAutomationCreateInput,
-) => ({
+const toCoreDefinitionInput = (input: CodexScheduledAutomationCreateInput) => ({
   kind: input.kind,
   target_thread_id: input.targetThreadId ?? null,
   name: input.name,
@@ -429,14 +379,8 @@ const toCoreDefinitionInput = (
 });
 
 function finiteDateMilliseconds(value: Date, label: string): number;
-function finiteDateMilliseconds(
-  value: Date | null | undefined,
-  label: string,
-): number | null;
-function finiteDateMilliseconds(
-  value: Date | null | undefined,
-  label: string,
-): number | null {
+function finiteDateMilliseconds(value: Date | null | undefined, label: string): number | null;
+function finiteDateMilliseconds(value: Date | null | undefined, label: string): number | null {
   if (value === null || value === undefined) return null;
   const milliseconds = value.getTime();
   if (Number.isFinite(milliseconds)) return milliseconds;
@@ -448,41 +392,26 @@ const toCoreOccurrenceSchedulePatch = (
 ): CorePageOccurrenceSchedulePatch => ({
   ...(Object.hasOwn(updates, "scheduledStart")
     ? {
-        scheduled_start_ms: finiteDateMilliseconds(
-          updates.scheduledStart,
-          "start",
-        ),
+        scheduled_start_ms: finiteDateMilliseconds(updates.scheduledStart, "start"),
       }
     : {}),
   ...(Object.hasOwn(updates, "scheduledEnd")
     ? {
-        scheduled_end_ms: finiteDateMilliseconds(
-          updates.scheduledEnd,
-          "end",
-        ),
+        scheduled_end_ms: finiteDateMilliseconds(updates.scheduledEnd, "end"),
       }
     : {}),
-  ...(Object.hasOwn(updates, "isAllDay")
-    ? { is_all_day: updates.isAllDay }
-    : {}),
-  ...(Object.hasOwn(updates, "recurrence")
-    ? { recurrence: updates.recurrence ?? null }
-    : {}),
-  ...(Object.hasOwn(updates, "reminders")
-    ? { reminders: updates.reminders ?? [] }
-    : {}),
+  ...(Object.hasOwn(updates, "isAllDay") ? { is_all_day: updates.isAllDay } : {}),
+  ...(Object.hasOwn(updates, "recurrence") ? { recurrence: updates.recurrence ?? null } : {}),
+  ...(Object.hasOwn(updates, "reminders") ? { reminders: updates.reminders ?? [] } : {}),
   ...(Object.hasOwn(updates, "scheduleTimezone")
     ? { schedule_timezone: updates.scheduleTimezone ?? null }
     : {}),
 });
 
-const operationId = (kind: string): string =>
-  `electron:automation:${kind}:${randomUUID()}`;
+const operationId = (kind: string): string => `electron:automation:${kind}:${randomUUID()}`;
 
 const stableOperationId = (kind: string, payload: unknown): string => {
-  const hash = createHash("sha256")
-    .update(JSON.stringify(payload))
-    .digest("hex");
+  const hash = createHash("sha256").update(JSON.stringify(payload)).digest("hex");
   return `electron:automation:${kind}:${hash}`;
 };
 
@@ -515,20 +444,15 @@ const requireDefinition = (
   committed: AutomationApplyResult,
   automationId: string,
 ): CoreAutomationDefinition => {
-  const definition = committed.outcome.definitions.find((candidate) =>
-    candidate.automation_id === automationId
+  const definition = committed.outcome.definitions.find(
+    (candidate) => candidate.automation_id === automationId,
   );
   if (definition) return definition;
   throw new Error("Core Automation commit omitted its Definition result");
 };
 
-const requireRun = (
-  committed: AutomationApplyResult,
-  threadId: string,
-): CoreAutomationRun => {
-  const run = committed.outcome.runs.find((candidate) =>
-    candidate.thread_id === threadId
-  );
+const requireRun = (committed: AutomationApplyResult, threadId: string): CoreAutomationRun => {
+  const run = committed.outcome.runs.find((candidate) => candidate.thread_id === threadId);
   if (run) return run;
   throw new Error("Core Automation commit omitted its Run result");
 };
@@ -537,9 +461,7 @@ const createCoreAutomationPort = (
   client: CoreClientPort,
   clientForProject: (projectId: string) => CoreClientPort,
 ): DesktopAutomationModulePort => {
-  const readDefinition = async (
-    automationId: string,
-  ): Promise<CoreAutomationDefinition | null> => {
+  const readDefinition = async (automationId: string): Promise<CoreAutomationDefinition | null> => {
     const snapshot = await client.automationRead({
       kind: "definition",
       automation_id: automationId,
@@ -553,10 +475,13 @@ const createCoreAutomationPort = (
     threadId: string,
     options?: CoreRequestOptions,
   ): Promise<CoreAutomationRun | null> => {
-    const snapshot = await client.automationRead({
-      kind: "run",
-      thread_id: threadId,
-    }, options);
+    const snapshot = await client.automationRead(
+      {
+        kind: "run",
+        thread_id: threadId,
+      },
+      options,
+    );
     if (snapshot.value.kind !== "run") {
       throw new Error("Core returned a non-Run Automation read");
     }
@@ -570,10 +495,13 @@ const createCoreAutomationPort = (
     const run = await readRun(threadId, options);
     if (!run) return null;
     const requestedIntent = intent(run);
-    const committed = await client.automationApply({
-      operationId: stableOperationId(`run:${threadId}`, requestedIntent),
-      intent: requestedIntent,
-    }, options);
+    const committed = await client.automationApply(
+      {
+        operationId: stableOperationId(`run:${threadId}`, requestedIntent),
+        intent: requestedIntent,
+      },
+      options,
+    );
     return requireRun(committed, threadId);
   };
   const applyPageOccurrence = async (
@@ -600,32 +528,34 @@ const createCoreAutomationPort = (
     if (!result.success) {
       return { success: false, error: result.error ?? "Occurrence update failed" };
     }
-    const commitCursor = committed.status === "committed"
-      ? {
-          storeEpoch: committed.commit.store_epoch,
-          commitSeq: committed.commit.commit_seq,
-        }
-      : {
-          storeEpoch: committed.observed.store_epoch,
-          commitSeq: committed.observed.commit_head,
-        };
+    const commitCursor =
+      committed.status === "committed"
+        ? {
+            storeEpoch: committed.commit.store_epoch,
+            commitSeq: committed.commit.commit_seq,
+          }
+        : {
+            storeEpoch: committed.observed.store_epoch,
+            commitSeq: committed.observed.commit_head,
+          };
     return { success: true, commitCursor };
   };
   const readActiveDefinitions = async (
     requestClass: DesktopAutomationReadClass = "interactive",
   ): Promise<CoreAutomationDefinition[]> => {
-    const snapshot = await client.automationRead({
-      kind: "definitions",
-      include_deleted: false,
-      window: { after: null, first: 200 },
-    }, requestClass === "background" ? BACKGROUND_CORE_REQUEST : undefined);
+    const snapshot = await client.automationRead(
+      {
+        kind: "definitions",
+        include_deleted: false,
+        window: { after: null, first: 200 },
+      },
+      requestClass === "background" ? BACKGROUND_CORE_REQUEST : undefined,
+    );
     if (snapshot.value.kind !== "definitions") {
       throw new Error("Core returned a non-Definitions Automation read");
     }
     if (snapshot.value.window.next_cursor) {
-      throw new Error(
-        "Active Scheduled Automation collection exceeded its fixed Core bound",
-      );
+      throw new Error("Active Scheduled Automation collection exceeded its fixed Core bound");
     }
     return [...snapshot.value.window.items];
   };
@@ -657,19 +587,20 @@ const createCoreAutomationPort = (
       if (!current) return null;
       const committed = await client.automationApply({
         operationId: operationId(`update:${input.id}`),
-        intent: input.status === "DELETED"
-          ? {
-              kind: "delete_definition",
-              automation_id: input.id,
-              expected_revision: current.definition_revision,
-            }
-          : {
-              kind: "update_definition",
-              automation_id: input.id,
-              expected_revision: current.definition_revision,
-              status: input.status,
-              definition: toCoreDefinitionInput(input),
-            },
+        intent:
+          input.status === "DELETED"
+            ? {
+                kind: "delete_definition",
+                automation_id: input.id,
+                expected_revision: current.definition_revision,
+              }
+            : {
+                kind: "update_definition",
+                automation_id: input.id,
+                expected_revision: current.definition_revision,
+                status: input.status,
+                definition: toCoreDefinitionInput(input),
+              },
       });
       return mapDefinition(requireDefinition(committed, input.id));
     },
@@ -708,35 +639,38 @@ const createCoreAutomationPort = (
       return mapDefinition(requireDefinition(committed, id));
     },
     rescheduleDefinition: async (id, expectedRevision, policy) => {
-      const committed = await client.automationApply({
-        operationId: stableOperationId(`reschedule:${id}`, {
-          expectedRevision,
-          ...policy,
-        }),
-        intent: {
-          kind: "reschedule_definition",
-          automation_id: id,
-          expected_revision: expectedRevision,
-          not_before_ms: policy.notBefore ?? null,
-          retry_within_ms: policy.retryWithinMs ?? null,
+      const committed = await client.automationApply(
+        {
+          operationId: stableOperationId(`reschedule:${id}`, {
+            expectedRevision,
+            ...policy,
+          }),
+          intent: {
+            kind: "reschedule_definition",
+            automation_id: id,
+            expected_revision: expectedRevision,
+            not_before_ms: policy.notBefore ?? null,
+            retry_within_ms: policy.retryWithinMs ?? null,
+          },
         },
-      }, BACKGROUND_CORE_REQUEST);
+        BACKGROUND_CORE_REQUEST,
+      );
       return mapDefinition(requireDefinition(committed, id));
     },
     claimDueDefinitions: async (limit, leaseDurationMs) => {
-      const committed = await client.automationApply({
-        operationId: operationId("claim-due"),
-        intent: {
-          kind: "claim_due",
-          limit,
-          lease_duration_ms: leaseDurationMs,
+      const committed = await client.automationApply(
+        {
+          operationId: operationId("claim-due"),
+          intent: {
+            kind: "claim_due",
+            limit,
+            lease_duration_ms: leaseDurationMs,
+          },
         },
-      }, BACKGROUND_CORE_REQUEST);
+        BACKGROUND_CORE_REQUEST,
+      );
       const definitions = new Map(
-        committed.outcome.definitions.map((item) => [
-          item.automation_id,
-          item,
-        ]),
+        committed.outcome.definitions.map((item) => [item.automation_id, item]),
       );
       return committed.outcome.claimed_leases.map((lease) => {
         const claimedDefinition = definitions.get(lease.automation_id);
@@ -753,32 +687,39 @@ const createCoreAutomationPort = (
       });
     },
     completeLease: async (leaseId) => {
-      await client.automationApply({
-        operationId: operationId(`complete-lease:${leaseId}`),
-        intent: { kind: "complete_lease", lease_id: leaseId },
-      }, BACKGROUND_CORE_REQUEST);
+      await client.automationApply(
+        {
+          operationId: operationId(`complete-lease:${leaseId}`),
+          intent: { kind: "complete_lease", lease_id: leaseId },
+        },
+        BACKGROUND_CORE_REQUEST,
+      );
     },
     failLease: async (leaseId, retryDelayMs, reasonCode) => {
-      await client.automationApply({
-        operationId: operationId(`fail-lease:${leaseId}`),
-        intent: {
-          kind: "fail_lease",
-          lease_id: leaseId,
-          retry_delay_ms: retryDelayMs,
-          reason_code: reasonCode,
+      await client.automationApply(
+        {
+          operationId: operationId(`fail-lease:${leaseId}`),
+          intent: {
+            kind: "fail_lease",
+            lease_id: leaseId,
+            retry_delay_ms: retryDelayMs,
+            reason_code: reasonCode,
+          },
         },
-      }, BACKGROUND_CORE_REQUEST);
+        BACKGROUND_CORE_REQUEST,
+      );
     },
     settleInterruptedRuns: async () => {
-      const committed = await client.automationApply({
-        operationId: operationId("settle-interrupted-runs"),
-        intent: { kind: "settle_interrupted_runs" },
-      }, BACKGROUND_CORE_REQUEST);
+      const committed = await client.automationApply(
+        {
+          operationId: operationId("settle-interrupted-runs"),
+          intent: { kind: "settle_interrupted_runs" },
+        },
+        BACKGROUND_CORE_REQUEST,
+      );
       return {
-        archivedPendingCount:
-          committed.outcome.run_bulk?.archived_pending_count ?? 0,
-        pendingReviewCount:
-          committed.outcome.run_bulk?.pending_review_count ?? 0,
+        archivedPendingCount: committed.outcome.run_bulk?.archived_pending_count ?? 0,
+        pendingReviewCount: committed.outcome.run_bulk?.pending_review_count ?? 0,
       };
     },
     getRun: async (threadId) => {
@@ -786,61 +727,73 @@ const createCoreAutomationPort = (
       return run ? mapRun(run) : null;
     },
     beginRun: async (input) => {
-      const committed = await client.automationApply({
-        operationId: operationId(`begin-run:${input.threadId}`),
-        intent: {
-          kind: "begin_run",
-          thread_id: input.threadId,
-          automation_id: input.automationId,
-          thread_title: input.threadTitle ?? null,
-          source_cwd: input.sourceCwd ?? null,
+      const committed = await client.automationApply(
+        {
+          operationId: operationId(`begin-run:${input.threadId}`),
+          intent: {
+            kind: "begin_run",
+            thread_id: input.threadId,
+            automation_id: input.automationId,
+            thread_title: input.threadTitle ?? null,
+            source_cwd: input.sourceCwd ?? null,
+          },
         },
-      }, BACKGROUND_CORE_REQUEST);
-      return committed.outcome.runs.some((candidate) =>
-        candidate.thread_id === input.threadId
+        BACKGROUND_CORE_REQUEST,
       );
+      return committed.outcome.runs.some((candidate) => candidate.thread_id === input.threadId);
     },
     replacePendingRunThread: async (input) => {
       const pending = await readRun(input.pendingThreadId, BACKGROUND_CORE_REQUEST);
       if (!pending) return false;
-      const committed = await client.automationApply({
-        operationId: operationId(
-          `replace-run:${input.pendingThreadId}:${input.threadId}`,
-        ),
-        intent: {
-          kind: "replace_pending_run_thread",
-          pending_thread_id: input.pendingThreadId,
-          thread_id: input.threadId,
-          expected_revision: pending.run_revision,
+      const committed = await client.automationApply(
+        {
+          operationId: operationId(`replace-run:${input.pendingThreadId}:${input.threadId}`),
+          intent: {
+            kind: "replace_pending_run_thread",
+            pending_thread_id: input.pendingThreadId,
+            thread_id: input.threadId,
+            expected_revision: pending.run_revision,
+          },
         },
-      }, BACKGROUND_CORE_REQUEST);
-      return committed.outcome.runs.some((candidate) =>
-        candidate.thread_id === input.threadId
+        BACKGROUND_CORE_REQUEST,
       );
+      return committed.outcome.runs.some((candidate) => candidate.thread_id === input.threadId);
     },
     setRunThreadTitle: async (threadId, threadTitle) =>
-      (await applyRun(threadId, (current) => ({
-        kind: "set_run_thread_title",
-        thread_id: threadId,
-        expected_revision: current.run_revision,
-        thread_title: threadTitle,
-      }), BACKGROUND_CORE_REQUEST)) !== null,
+      (await applyRun(
+        threadId,
+        (current) => ({
+          kind: "set_run_thread_title",
+          thread_id: threadId,
+          expected_revision: current.run_revision,
+          thread_title: threadTitle,
+        }),
+        BACKGROUND_CORE_REQUEST,
+      )) !== null,
     completeRunForReview: async (input) =>
-      (await applyRun(input.threadId, (current) => ({
-        kind: "complete_run_for_review",
-        thread_id: input.threadId,
-        expected_revision: current.run_revision,
-        inbox_title: input.inboxTitle ?? null,
-        inbox_summary: input.inboxSummary ?? null,
-      }), BACKGROUND_CORE_REQUEST)) !== null,
+      (await applyRun(
+        input.threadId,
+        (current) => ({
+          kind: "complete_run_for_review",
+          thread_id: input.threadId,
+          expected_revision: current.run_revision,
+          inbox_title: input.inboxTitle ?? null,
+          inbox_summary: input.inboxSummary ?? null,
+        }),
+        BACKGROUND_CORE_REQUEST,
+      )) !== null,
     setRunInboxItem: async (input) =>
-      (await applyRun(input.threadId, (current) => ({
-        kind: "set_run_inbox_item",
-        thread_id: input.threadId,
-        expected_revision: current.run_revision,
-        inbox_title: input.inboxTitle ?? null,
-        inbox_summary: input.inboxSummary ?? null,
-      }), BACKGROUND_CORE_REQUEST)) !== null,
+      (await applyRun(
+        input.threadId,
+        (current) => ({
+          kind: "set_run_inbox_item",
+          thread_id: input.threadId,
+          expected_revision: current.run_revision,
+          inbox_title: input.inboxTitle ?? null,
+          inbox_summary: input.inboxSummary ?? null,
+        }),
+        BACKGROUND_CORE_REQUEST,
+      )) !== null,
     acceptRun: async (threadId) =>
       (await applyRun(threadId, (current) => ({
         kind: "accept_run",
@@ -884,34 +837,33 @@ const createCoreAutomationPort = (
       let after: string | null = null;
       let unreadTotal = 0;
       do {
-        const snapshot = await client.automationRead({
-          kind: "inbox",
-          window: {
-            after,
-            first: Math.min(200, requested - items.length),
+        const snapshot = await client.automationRead(
+          {
+            kind: "inbox",
+            window: {
+              after,
+              first: Math.min(200, requested - items.length),
+            },
           },
-        }, requestClass === "background" ? BACKGROUND_CORE_REQUEST : undefined);
+          requestClass === "background" ? BACKGROUND_CORE_REQUEST : undefined,
+        );
         if (snapshot.value.kind !== "inbox") {
           throw new Error("Core returned a non-Inbox Automation read");
         }
         items.push(...snapshot.value.window.items);
         unreadTotal = snapshot.value.unread_counts.total;
-        after = items.length < requested
-          ? snapshot.value.window.next_cursor ?? null
-          : null;
+        after = items.length < requested ? (snapshot.value.window.next_cursor ?? null) : null;
       } while (after !== null);
       const mappedItems = items.map(mapInboxItem);
-      const unreadItems = mappedItems.filter((item) =>
-        item.readAt === null &&
-        (item.status === "PENDING_REVIEW" || item.status === "ACCEPTED")
+      const unreadItems = mappedItems.filter(
+        (item) =>
+          item.readAt === null && (item.status === "PENDING_REVIEW" || item.status === "ACCEPTED"),
       );
       return {
         items: mappedItems,
         unreadRunCounts: {
           total: unreadTotal,
-          automationIds: [...new Set(unreadItems.map((item) =>
-            item.automationId
-          ))],
+          automationIds: [...new Set(unreadItems.map((item) => item.automationId))],
           unreadRuns: unreadItems.map((item) => ({
             automationId: item.automationId,
             threadId: item.threadId,
@@ -934,8 +886,8 @@ const createCoreAutomationPort = (
       if (inbox.value.kind !== "inbox") {
         throw new Error("Core returned a non-Inbox Automation read");
       }
-      const item = inbox.value.window.items.find((candidate) =>
-        candidate.thread_id === input.threadId
+      const item = inbox.value.window.items.find(
+        (candidate) => candidate.thread_id === input.threadId,
       );
       return item ? mapInboxItem(item) : null;
     },
@@ -946,13 +898,7 @@ const createCoreAutomationPort = (
       });
       return committed.outcome.run_bulk?.changed_count ?? 0;
     },
-    listPageOccurrences: async (
-      projectId,
-      windowStart,
-      windowEnd,
-      searchQuery,
-      after,
-    ) => {
+    listPageOccurrences: async (projectId, windowStart, windowEnd, searchQuery, after) => {
       const windowStartMs = finiteDateMilliseconds(windowStart, "window start");
       const windowEndMs = finiteDateMilliseconds(windowEnd, "window end");
       const snapshot = await clientForProject(projectId).automationRead({
@@ -974,41 +920,25 @@ const createCoreAutomationPort = (
       await applyPageOccurrence(projectId, input.operationId, {
         kind: "complete_page_occurrence",
         page_id: input.pageId,
-        occurrence_start_ms: finiteDateMilliseconds(
-          input.occurrenceStart,
-          "occurrence start",
-        ),
+        occurrence_start_ms: finiteDateMilliseconds(input.occurrenceStart, "occurrence start"),
         created_page_id: input.createdPageId,
       }),
     skipPageOccurrence: async (projectId, input) =>
       await applyPageOccurrence(projectId, input.operationId, {
         kind: "skip_page_occurrence",
         page_id: input.pageId,
-        occurrence_start_ms: finiteDateMilliseconds(
-          input.occurrenceStart,
-          "occurrence start",
-        ),
+        occurrence_start_ms: finiteDateMilliseconds(input.occurrenceStart, "occurrence start"),
       }),
     updatePageOccurrence: async (projectId, input) =>
       await applyPageOccurrence(projectId, input.operationId, {
         kind: "update_page_occurrence",
         page_id: input.pageId,
-        occurrence_start_ms: finiteDateMilliseconds(
-          input.occurrenceStart,
-          "occurrence start",
-        ),
-        scope: input.scope === "this-and-future"
-          ? "this_and_future"
-          : input.scope,
+        occurrence_start_ms: finiteDateMilliseconds(input.occurrenceStart, "occurrence start"),
+        scope: input.scope === "this-and-future" ? "this_and_future" : input.scope,
         created_page_id: input.scope === "all" ? null : input.createdPageId,
         updates: toCoreOccurrenceSchedulePatch(input.updates),
       }),
-    snoozeReminder: async (
-      projectId,
-      pageId,
-      occurrenceStart,
-      snoozeMinutes,
-    ) => {
+    snoozeReminder: async (projectId, pageId, occurrenceStart, snoozeMinutes) => {
       const occurrenceStartMs = new Date(occurrenceStart).getTime();
       if (!Number.isFinite(occurrenceStartMs)) {
         throw new Error("Reminder occurrence start is invalid");
@@ -1027,14 +957,17 @@ const createCoreAutomationPort = (
       });
     },
     claimDueReminders: async (limit, leaseDurationMs) => {
-      const committed = await client.automationApply({
-        operationId: operationId("claim-due-reminders"),
-        intent: {
-          kind: "claim_due_reminders",
-          limit,
-          lease_duration_ms: leaseDurationMs,
+      const committed = await client.automationApply(
+        {
+          operationId: operationId("claim-due-reminders"),
+          intent: {
+            kind: "claim_due_reminders",
+            limit,
+            lease_duration_ms: leaseDurationMs,
+          },
         },
-      }, BACKGROUND_CORE_REQUEST);
+        BACKGROUND_CORE_REQUEST,
+      );
       return committed.outcome.reminder_leases.map((lease) => ({
         leaseId: lease.lease_id,
         projectId: lease.project_id,
@@ -1048,21 +981,27 @@ const createCoreAutomationPort = (
       }));
     },
     completeReminderLease: async (leaseId) => {
-      await client.automationApply({
-        operationId: operationId(`complete-reminder:${leaseId}`),
-        intent: { kind: "complete_reminder_lease", lease_id: leaseId },
-      }, BACKGROUND_CORE_REQUEST);
+      await client.automationApply(
+        {
+          operationId: operationId(`complete-reminder:${leaseId}`),
+          intent: { kind: "complete_reminder_lease", lease_id: leaseId },
+        },
+        BACKGROUND_CORE_REQUEST,
+      );
     },
     failReminderLease: async (leaseId, retryDelayMs, reasonCode) => {
-      await client.automationApply({
-        operationId: operationId(`fail-reminder:${leaseId}`),
-        intent: {
-          kind: "fail_reminder_lease",
-          lease_id: leaseId,
-          retry_delay_ms: retryDelayMs,
-          reason_code: reasonCode,
+      await client.automationApply(
+        {
+          operationId: operationId(`fail-reminder:${leaseId}`),
+          intent: {
+            kind: "fail_reminder_lease",
+            lease_id: leaseId,
+            retry_delay_ms: retryDelayMs,
+            reason_code: reasonCode,
+          },
         },
-      }, BACKGROUND_CORE_REQUEST);
+        BACKGROUND_CORE_REQUEST,
+      );
     },
   };
 };
@@ -1073,23 +1012,16 @@ export const createDesktopAutomationModuleBridge = (
   let corePort: DesktopAutomationModulePort | null = null;
   const port = async (): Promise<DesktopAutomationModulePort> => {
     const runtime = await input.authority;
-    corePort ??= createCoreAutomationPort(
-      runtime.rootClient,
-      runtime.clientForProject,
-    );
+    corePort ??= createCoreAutomationPort(runtime.rootClient, runtime.clientForProject);
     return corePort;
   };
   return {
-    listDefinitions: async (requestClass) =>
-      (await port()).listDefinitions(requestClass),
+    listDefinitions: async (requestClass) => (await port()).listDefinitions(requestClass),
     getDefinition: async (id) => (await port()).getDefinition(id),
-    createDefinition: async (definition) =>
-      (await port()).createDefinition(definition),
-    updateDefinition: async (definition) =>
-      (await port()).updateDefinition(definition),
+    createDefinition: async (definition) => (await port()).createDefinition(definition),
+    updateDefinition: async (definition) => (await port()).updateDefinition(definition),
     deleteDefinition: async (id) => (await port()).deleteDefinition(id),
-    dispatchDefinitionNow: async (id) =>
-      (await port()).dispatchDefinitionNow(id),
+    dispatchDefinitionNow: async (id) => (await port()).dispatchDefinitionNow(id),
     rescheduleDefinition: async (id, expectedRevision, policy) =>
       (await port()).rescheduleDefinition(id, expectedRevision, policy),
     claimDueDefinitions: async (limit, leaseDurationMs) =>
@@ -1097,80 +1029,35 @@ export const createDesktopAutomationModuleBridge = (
     completeLease: async (leaseId) => (await port()).completeLease(leaseId),
     failLease: async (leaseId, retryDelayMs, reasonCode) =>
       (await port()).failLease(leaseId, retryDelayMs, reasonCode),
-    settleInterruptedRuns: async () =>
-      (await port()).settleInterruptedRuns(),
+    settleInterruptedRuns: async () => (await port()).settleInterruptedRuns(),
     getRun: async (threadId) => (await port()).getRun(threadId),
     beginRun: async (runInput) => (await port()).beginRun(runInput),
-    replacePendingRunThread: async (runInput) =>
-      (await port()).replacePendingRunThread(runInput),
+    replacePendingRunThread: async (runInput) => (await port()).replacePendingRunThread(runInput),
     setRunThreadTitle: async (threadId, threadTitle) =>
       (await port()).setRunThreadTitle(threadId, threadTitle),
-    completeRunForReview: async (runInput) =>
-      (await port()).completeRunForReview(runInput),
-    setRunInboxItem: async (runInput) =>
-      (await port()).setRunInboxItem(runInput),
+    completeRunForReview: async (runInput) => (await port()).completeRunForReview(runInput),
+    setRunInboxItem: async (runInput) => (await port()).setRunInboxItem(runInput),
     acceptRun: async (threadId) => (await port()).acceptRun(threadId),
-    archiveRun: async (archiveInput, messages) =>
-      (await port()).archiveRun(archiveInput, messages),
+    archiveRun: async (archiveInput, messages) => (await port()).archiveRun(archiveInput, messages),
     deleteRun: async (threadId) => (await port()).deleteRun(threadId),
     unarchiveRun: async (threadId) => (await port()).unarchiveRun(threadId),
-    readInbox: async (limit, requestClass) =>
-      (await port()).readInbox(limit, requestClass),
-    setRunReadState: async (readInput) =>
-      (await port()).setRunReadState(readInput),
-    markAllRunsRead: async (readInput) =>
-      (await port()).markAllRunsRead(readInput),
-    listPageOccurrences: async (
-      projectId,
-      windowStart,
-      windowEnd,
-      searchQuery,
-      after,
-    ) => (await port()).listPageOccurrences(
-      projectId,
-      windowStart,
-      windowEnd,
-      searchQuery,
-      after,
-    ),
+    readInbox: async (limit, requestClass) => (await port()).readInbox(limit, requestClass),
+    setRunReadState: async (readInput) => (await port()).setRunReadState(readInput),
+    markAllRunsRead: async (readInput) => (await port()).markAllRunsRead(readInput),
+    listPageOccurrences: async (projectId, windowStart, windowEnd, searchQuery, after) =>
+      (await port()).listPageOccurrences(projectId, windowStart, windowEnd, searchQuery, after),
     completePageOccurrence: async (projectId, occurrenceInput, sessionId) =>
-      (await port()).completePageOccurrence(
-        projectId,
-        occurrenceInput,
-        sessionId,
-      ),
+      (await port()).completePageOccurrence(projectId, occurrenceInput, sessionId),
     skipPageOccurrence: async (projectId, occurrenceInput, sessionId) =>
-      (await port()).skipPageOccurrence(
-        projectId,
-        occurrenceInput,
-        sessionId,
-      ),
+      (await port()).skipPageOccurrence(projectId, occurrenceInput, sessionId),
     updatePageOccurrence: async (projectId, occurrenceInput, sessionId) =>
-      (await port()).updatePageOccurrence(
-        projectId,
-        occurrenceInput,
-        sessionId,
-      ),
-    snoozeReminder: async (
-      projectId,
-      pageId,
-      occurrenceStart,
-      snoozeMinutes,
-    ) => (await port()).snoozeReminder(
-      projectId,
-      pageId,
-      occurrenceStart,
-      snoozeMinutes,
-    ),
+      (await port()).updatePageOccurrence(projectId, occurrenceInput, sessionId),
+    snoozeReminder: async (projectId, pageId, occurrenceStart, snoozeMinutes) =>
+      (await port()).snoozeReminder(projectId, pageId, occurrenceStart, snoozeMinutes),
     claimDueReminders: async (limit, leaseDurationMs) =>
       (await port()).claimDueReminders(limit, leaseDurationMs),
-    completeReminderLease: async (leaseId) =>
-      (await port()).completeReminderLease(leaseId),
+    completeReminderLease: async (leaseId) => (await port()).completeReminderLease(leaseId),
     failReminderLease: async (leaseId, retryDelayMs, reasonCode) =>
-      (await port()).failReminderLease(
-        leaseId,
-        retryDelayMs,
-        reasonCode,
-      ),
+      (await port()).failReminderLease(leaseId, retryDelayMs, reasonCode),
   };
 };

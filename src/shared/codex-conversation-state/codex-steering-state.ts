@@ -66,7 +66,7 @@ export function retargetCodexCanonicalSteeringItem(
             targetTurnId: toTurnId,
             targetTurnStartedAtMs: null,
           }
-        : candidate
+        : candidate,
     );
     const turns = [...state.turns];
     turns[sourceTurnIndex] = { ...sourceTurn, items: sourceItems };

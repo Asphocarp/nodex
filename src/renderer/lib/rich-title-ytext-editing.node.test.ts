@@ -67,24 +67,28 @@ describe("rich title Y.Text editing", () => {
       { type: "text", text: "Read", styles: {} },
       { type: "threadMention", uuid: "thread-1" },
     ]);
-    expect(setRichTitleLink({
-      title,
-      start: 0,
-      end: title.length,
-      href: "https://nodex.local",
-      origin: "test",
-    })).toBe(true);
+    expect(
+      setRichTitleLink({
+        title,
+        start: 0,
+        end: title.length,
+        href: "https://nodex.local",
+        origin: "test",
+      }),
+    ).toBe(true);
     expect(readPortableRichTextFromYText(title)).toEqual([
       { type: "link", text: "Read", href: "https://nodex.local", styles: {} },
       { type: "threadMention", uuid: "thread-1" },
     ]);
-    expect(setRichTitleLink({
-      title,
-      start: 0,
-      end: 4,
-      href: null,
-      origin: "test",
-    })).toBe(true);
+    expect(
+      setRichTitleLink({
+        title,
+        start: 0,
+        end: 4,
+        href: null,
+        origin: "test",
+      }),
+    ).toBe(true);
     expect(readPortableRichTextFromYText(title)[0]).toEqual({
       type: "text",
       text: "Read",

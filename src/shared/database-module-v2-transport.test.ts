@@ -43,19 +43,21 @@ const applyRequest = () => ({
     },
     {
       kind: "edit_property_values",
-      edits: [{
-        pageId: "page-1",
-        dataSourceId: "source-1",
-        propertyId: CUSTOM_PROPERTY_ID,
-        edit: {
-          kind: "patch_set",
-          delta: {
-            kind: "multi_select",
-            addOptionIds: [CUSTOM_OPTION_ID],
-            removeOptionIds: [],
+      edits: [
+        {
+          pageId: "page-1",
+          dataSourceId: "source-1",
+          propertyId: CUSTOM_PROPERTY_ID,
+          edit: {
+            kind: "patch_set",
+            delta: {
+              kind: "multi_select",
+              addOptionIds: [CUSTOM_OPTION_ID],
+              removeOptionIds: [],
+            },
           },
         },
-      }],
+      ],
     },
   ],
 });
@@ -95,50 +97,70 @@ const propertyRecord = () => ({
 
 describe("Database Module v2 transport boundary", () => {
   test("binds Page-key namespace reads and rename as Database authority", () => {
-    expect(bindDatabaseModuleReadV2({
-      projectId: "project-1",
-      read: {
-        target: { kind: "page_key_namespace", databaseId: "database-1" },
-        mode: "page_key_prefix_preview",
-        nameHint: "Lab",
-        requestedPrefix: "lab",
-      },
-    }, "project-1")).toMatchObject({
+    expect(
+      bindDatabaseModuleReadV2(
+        {
+          projectId: "project-1",
+          read: {
+            target: { kind: "page_key_namespace", databaseId: "database-1" },
+            mode: "page_key_prefix_preview",
+            nameHint: "Lab",
+            requestedPrefix: "lab",
+          },
+        },
+        "project-1",
+      ),
+    ).toMatchObject({
       read: {
         target: { kind: "page_key_namespace", databaseId: "database-1" },
         mode: "page_key_prefix_preview",
       },
     });
-    expect(bindDatabaseModuleReadV2({
-      projectId: "project-1",
-      read: {
-        target: { kind: "database", databaseId: "database-1" },
-        mode: "page_key_namespace",
-      },
-    }, "project-1")).toMatchObject({
+    expect(
+      bindDatabaseModuleReadV2(
+        {
+          projectId: "project-1",
+          read: {
+            target: { kind: "database", databaseId: "database-1" },
+            mode: "page_key_namespace",
+          },
+        },
+        "project-1",
+      ),
+    ).toMatchObject({
       read: {
         target: { kind: "database", databaseId: "database-1" },
         mode: "page_key_namespace",
       },
     });
-    expect(bindDatabaseApplyV2({
-      operationId: "operation:rename-key",
-      projectId: "project-1",
-      storeEpoch: "epoch-1",
-      actor: {},
-      operations: [{
-        kind: "rename_page_key_prefix",
-        databaseId: "database-1",
-        expectedRevision: 2,
-        prefix: "RND",
-      }],
-    }, "project-1", { actor: { kind: "electron_renderer" } })).toMatchObject({
-      operations: [{
-        kind: "rename_page_key_prefix",
-        databaseId: "database-1",
-        expectedRevision: 2,
-        prefix: "RND",
-      }],
+    expect(
+      bindDatabaseApplyV2(
+        {
+          operationId: "operation:rename-key",
+          projectId: "project-1",
+          storeEpoch: "epoch-1",
+          actor: {},
+          operations: [
+            {
+              kind: "rename_page_key_prefix",
+              databaseId: "database-1",
+              expectedRevision: 2,
+              prefix: "RND",
+            },
+          ],
+        },
+        "project-1",
+        { actor: { kind: "electron_renderer" } },
+      ),
+    ).toMatchObject({
+      operations: [
+        {
+          kind: "rename_page_key_prefix",
+          databaseId: "database-1",
+          expectedRevision: 2,
+          prefix: "RND",
+        },
+      ],
     });
   });
 
@@ -147,14 +169,16 @@ describe("Database Module v2 transport boundary", () => {
       parseDataSourcePropertyRecordV2({
         ...propertyRecord(),
         optionCount: 101,
-      })).toThrow("optionCount diverges from its Property schema");
+      }),
+    ).toThrow("optionCount diverges from its Property schema");
     expect(() =>
       parseDataSourcePropertyRecordV2({
         ...propertyRecord(),
         schema: { kind: "text" },
         valueType: "text",
         optionCount: 1,
-      })).toThrow("optionCount diverges from its Property schema");
+      }),
+    ).toThrow("optionCount diverges from its Property schema");
   });
 
   test("binds ordered option creation and value writes under one apply", () => {
@@ -209,22 +233,26 @@ describe("Database Module v2 transport boundary", () => {
 
   test("rejects a reserved Property with a non-canonical value type", () => {
     const request = applyRequest();
-    expect(() => bindDatabaseApplyV2(
-      {
-        ...request,
-        operations: [{
-          kind: "put_property",
-          dataSourceId: "source-1",
-          propertyId: "status",
-          expectedDataSourceRevision: 2,
-          expectedPropertyRevision: 3,
-          name: "Workflow",
-          schema: { kind: "multi_select" },
-        }],
-      },
-      "project-1",
-      { actor: { kind: "test" } },
-    )).toThrow("reserved Property status must use select");
+    expect(() =>
+      bindDatabaseApplyV2(
+        {
+          ...request,
+          operations: [
+            {
+              kind: "put_property",
+              dataSourceId: "source-1",
+              propertyId: "status",
+              expectedDataSourceRevision: 2,
+              expectedPropertyRevision: 3,
+              name: "Workflow",
+              schema: { kind: "multi_select" },
+            },
+          ],
+        },
+        "project-1",
+        { actor: { kind: "test" } },
+      ),
+    ).toThrow("reserved Property status must use select");
   });
 
   test("rejects legacy inline config and the removed Property key", () => {
@@ -288,8 +316,7 @@ describe("Database Module v2 transport boundary", () => {
           operations: [
             {
               ...request.operations[0],
-              propertyId:
-                "database:db:primary:property:database:db:primary:property:tags",
+              propertyId: "database:db:primary:property:database:db:primary:property:tags",
             },
           ],
         },
@@ -307,42 +334,40 @@ describe("Database Module v2 transport boundary", () => {
       }),
     ).toThrow("does not match its Project route scope");
     expect(() =>
-      bindDatabaseApplyV2(
-        { ...request, version: 1 },
-        "project-1",
-        { actor: { kind: "test" } },
-      ),
+      bindDatabaseApplyV2({ ...request, version: 1 }, "project-1", { actor: { kind: "test" } }),
     ).toThrow("databaseApplyV2.version is not supported");
     expect(() =>
-      bindDatabaseApplyV2(
-        { ...request, databaseBlockId: "block-1" },
-        "project-1",
-        { actor: { kind: "test" } },
-      ),
+      bindDatabaseApplyV2({ ...request, databaseBlockId: "block-1" }, "project-1", {
+        actor: { kind: "test" },
+      }),
     ).toThrow("databaseApplyV2.databaseBlockId is not supported");
   });
 
   test("keeps presentation conflicts separate from per-occurrence disclosure", () => {
-    const bound = bindDatabaseApplyV2({
-      operationId: "personal-view-state",
-      projectId: "project-1",
-      storeEpoch: "epoch-1",
-      actor: {},
-      operations: [
-        {
-          kind: "put_view_personal_presentation",
-          viewId: "view-1",
-          expectedRevision: 4,
-          presentationOverride: { layout: "list" },
-        },
-        {
-          kind: "set_view_occurrence_disclosure",
-          viewId: "view-1",
-          target: { kind: "page", occurrenceKey: "ITEM_parent/child" },
-          collapsed: true,
-        },
-      ],
-    }, "project-1", { actor: { kind: "test" } });
+    const bound = bindDatabaseApplyV2(
+      {
+        operationId: "personal-view-state",
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        actor: {},
+        operations: [
+          {
+            kind: "put_view_personal_presentation",
+            viewId: "view-1",
+            expectedRevision: 4,
+            presentationOverride: { layout: "list" },
+          },
+          {
+            kind: "set_view_occurrence_disclosure",
+            viewId: "view-1",
+            target: { kind: "page", occurrenceKey: "ITEM_parent/child" },
+            collapsed: true,
+          },
+        ],
+      },
+      "project-1",
+      { actor: { kind: "test" } },
+    );
     expect(bound.operations).toEqual([
       {
         kind: "put_view_personal_presentation",
@@ -358,33 +383,41 @@ describe("Database Module v2 transport boundary", () => {
       },
     ]);
 
-    for (const mode of [
-      "view_personal_presentation",
-      "view_collapsed_occurrences",
-    ] as const) {
-      expect(bindDatabaseModuleReadV2({
-        projectId: "project-1",
-        read: {
-          target: { kind: "view", viewId: "view-1" },
-          mode,
-        },
-      }, "project-1").read.mode).toBe(mode);
+    for (const mode of ["view_personal_presentation", "view_collapsed_occurrences"] as const) {
+      expect(
+        bindDatabaseModuleReadV2(
+          {
+            projectId: "project-1",
+            read: {
+              target: { kind: "view", viewId: "view-1" },
+              mode,
+            },
+          },
+          "project-1",
+        ).read.mode,
+      ).toBe(mode);
     }
 
-    expect(() => bindDatabaseApplyV2({
-      operationId: "bad-disclosure-target",
-      projectId: "project-1",
-      storeEpoch: "epoch-1",
-      actor: {},
-      operations: [{
-        kind: "set_view_occurrence_disclosure",
-        viewId: "view-1",
-        target: { kind: "group", occurrenceKey: "ITEM_parent/child" },
-        collapsed: true,
-      }],
-    }, "project-1", { actor: { kind: "test" } })).toThrow(
-      "does not match its occurrence kind",
-    );
+    expect(() =>
+      bindDatabaseApplyV2(
+        {
+          operationId: "bad-disclosure-target",
+          projectId: "project-1",
+          storeEpoch: "epoch-1",
+          actor: {},
+          operations: [
+            {
+              kind: "set_view_occurrence_disclosure",
+              viewId: "view-1",
+              target: { kind: "group", occurrenceKey: "ITEM_parent/child" },
+              collapsed: true,
+            },
+          ],
+        },
+        "project-1",
+        { actor: { kind: "test" } },
+      ),
+    ).toThrow("does not match its occurrence kind");
   });
 
   test("rejects removed ad hoc query reads at the transport boundary", () => {
@@ -432,111 +465,143 @@ describe("Database Module v2 transport boundary", () => {
   });
 
   test("binds catalog and source-scoped Relation candidate windows", () => {
-    expect(bindDatabaseModuleReadV2({
-      projectId: "project-1",
-      read: {
-        target: { kind: "project_default" },
-        mode: "catalog_window",
-        window: { first: 100 },
-        minimumCommitSeq: 7,
-      },
-    }, "project-1").read).toMatchObject({
+    expect(
+      bindDatabaseModuleReadV2(
+        {
+          projectId: "project-1",
+          read: {
+            target: { kind: "project_default" },
+            mode: "catalog_window",
+            window: { first: 100 },
+            minimumCommitSeq: 7,
+          },
+        },
+        "project-1",
+      ).read,
+    ).toMatchObject({
       mode: "catalog_window",
       minimumCommitSeq: 7,
     });
 
-    expect(bindDatabaseModuleReadV2({
-      projectId: "project-1",
-      read: {
-        target: { kind: "data_source", dataSourceId: "source-1" },
-        mode: "relation_candidate_window",
-        query: "blocked",
-        window: { first: 25 },
-      },
-    }, "project-1").read).toMatchObject({
+    expect(
+      bindDatabaseModuleReadV2(
+        {
+          projectId: "project-1",
+          read: {
+            target: { kind: "data_source", dataSourceId: "source-1" },
+            mode: "relation_candidate_window",
+            query: "blocked",
+            window: { first: 25 },
+          },
+        },
+        "project-1",
+      ).read,
+    ).toMatchObject({
       mode: "relation_candidate_window",
       query: "blocked",
       window: { first: 25 },
     });
 
-    const unfiltered = bindDatabaseModuleReadV2({
-      projectId: "project-1",
-      read: {
-        target: { kind: "data_source", dataSourceId: "source-1" },
-        mode: "relation_candidate_window",
-        window: { first: 25 },
+    const unfiltered = bindDatabaseModuleReadV2(
+      {
+        projectId: "project-1",
+        read: {
+          target: { kind: "data_source", dataSourceId: "source-1" },
+          mode: "relation_candidate_window",
+          window: { first: 25 },
+        },
       },
-    }, "project-1").read;
+      "project-1",
+    ).read;
     expect(unfiltered.mode).toBe("relation_candidate_window");
     expect("query" in unfiltered).toBe(false);
-    expect(() => bindDatabaseModuleReadV2({
-      projectId: "project-1",
-      read: {
-        target: { kind: "data_source", dataSourceId: "source-1" },
-        mode: "relation_candidate_window",
-        query: "",
-      },
-    }, "project-1")).toThrow(
-      "databaseModuleReadV2.read.query must be a canonical non-empty string",
-    );
-    expect(() => bindDatabaseModuleReadV2({
-      projectId: "project-1",
-      read: {
-        target: { kind: "data_source", dataSourceId: "source-1" },
-        mode: "relation_candidate_window",
-        query: "€".repeat(171),
-      },
-    }, "project-1")).toThrow(
-      "databaseModuleReadV2.read.query must be at most 512 UTF-8 bytes",
-    );
+    expect(() =>
+      bindDatabaseModuleReadV2(
+        {
+          projectId: "project-1",
+          read: {
+            target: { kind: "data_source", dataSourceId: "source-1" },
+            mode: "relation_candidate_window",
+            query: "",
+          },
+        },
+        "project-1",
+      ),
+    ).toThrow("databaseModuleReadV2.read.query must be a canonical non-empty string");
+    expect(() =>
+      bindDatabaseModuleReadV2(
+        {
+          projectId: "project-1",
+          read: {
+            target: { kind: "data_source", dataSourceId: "source-1" },
+            mode: "relation_candidate_window",
+            query: "€".repeat(171),
+          },
+        },
+        "project-1",
+      ),
+    ).toThrow("databaseModuleReadV2.read.query must be at most 512 UTF-8 bytes");
   });
 
   test("rejects Relation replacement and matches patch cardinality limits", () => {
-    const replacementIds = Array.from(
-      { length: 101 },
-      (_, index) => `page-${index}`,
-    );
-    expect(() => bindDatabaseApplyV2({
-      operationId: "relation-replace",
-      projectId: "project-1",
-      storeEpoch: "epoch-1",
-      actor: {},
-      operations: [{
-        kind: "edit_property_values",
-        edits: [{
-          pageId: "page-source",
-          dataSourceId: "source-1",
-          propertyId: CUSTOM_PROPERTY_ID,
-          edit: {
-            kind: "replace",
-            expectedValueRevision: 1,
-            value: { kind: "relation", pageIds: replacementIds },
-          },
-        }],
-      }],
-    }, "project-1", { actor: { kind: "test" } })).toThrow(
-      "databaseApplyV2.operations[0].edits[0].edit.value.kind is unsupported",
-    );
+    const replacementIds = Array.from({ length: 101 }, (_, index) => `page-${index}`);
+    expect(() =>
+      bindDatabaseApplyV2(
+        {
+          operationId: "relation-replace",
+          projectId: "project-1",
+          storeEpoch: "epoch-1",
+          actor: {},
+          operations: [
+            {
+              kind: "edit_property_values",
+              edits: [
+                {
+                  pageId: "page-source",
+                  dataSourceId: "source-1",
+                  propertyId: CUSTOM_PROPERTY_ID,
+                  edit: {
+                    kind: "replace",
+                    expectedValueRevision: 1,
+                    value: { kind: "relation", pageIds: replacementIds },
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        "project-1",
+        { actor: { kind: "test" } },
+      ),
+    ).toThrow("databaseApplyV2.operations[0].edits[0].edit.value.kind is unsupported");
 
-    const replaceOne = bindDatabaseApplyV2({
-      operationId: "relation-clear",
-      projectId: "project-1",
-      storeEpoch: "epoch-1",
-      actor: {},
-      operations: [{
-        kind: "edit_property_values",
-        edits: [{
-          pageId: "page-source",
-          dataSourceId: "source-1",
-          propertyId: CUSTOM_PROPERTY_ID,
-          edit: {
-            kind: "replace_one_relation",
-            expectedValueRevision: 7,
-            targetPageId: "page:parent",
+    const replaceOne = bindDatabaseApplyV2(
+      {
+        operationId: "relation-clear",
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        actor: {},
+        operations: [
+          {
+            kind: "edit_property_values",
+            edits: [
+              {
+                pageId: "page-source",
+                dataSourceId: "source-1",
+                propertyId: CUSTOM_PROPERTY_ID,
+                edit: {
+                  kind: "replace_one_relation",
+                  expectedValueRevision: 7,
+                  targetPageId: "page:parent",
+                },
+              },
+            ],
           },
-        }],
-      }],
-    }, "project-1", { actor: { kind: "test" } });
+        ],
+      },
+      "project-1",
+      { actor: { kind: "test" } },
+    );
     expect(
       replaceOne.operations[0]?.kind === "edit_property_values"
         ? replaceOne.operations[0].edits[0]?.edit
@@ -547,72 +612,93 @@ describe("Database Module v2 transport boundary", () => {
       targetPageId: "page:parent",
     });
 
-    const clearMany = bindDatabaseApplyV2({
-      operationId: "relation-clear-many",
-      projectId: "project-1",
-      storeEpoch: "epoch-1",
-      actor: {},
-      operations: [{
-        kind: "edit_property_values",
-        edits: [{
-          pageId: "page-source",
-          dataSourceId: "source-1",
-          propertyId: CUSTOM_PROPERTY_ID,
-          edit: {
-            kind: "clear_many_relation",
-            expectedValueRevision: 8,
+    const clearMany = bindDatabaseApplyV2(
+      {
+        operationId: "relation-clear-many",
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        actor: {},
+        operations: [
+          {
+            kind: "edit_property_values",
+            edits: [
+              {
+                pageId: "page-source",
+                dataSourceId: "source-1",
+                propertyId: CUSTOM_PROPERTY_ID,
+                edit: {
+                  kind: "clear_many_relation",
+                  expectedValueRevision: 8,
+                },
+              },
+            ],
           },
-        }],
-      }],
-    }, "project-1", { actor: { kind: "test" } });
+        ],
+      },
+      "project-1",
+      { actor: { kind: "test" } },
+    );
     expect(
       clearMany.operations[0]?.kind === "edit_property_values"
         ? clearMany.operations[0].edits[0]?.edit
         : null,
     ).toEqual({ kind: "clear_many_relation", expectedValueRevision: 8 });
 
-    expect(() => bindDatabaseApplyV2({
-      operationId: "relation-patch",
-      projectId: "project-1",
-      storeEpoch: "epoch-1",
-      actor: {},
-      operations: [{
-        kind: "edit_property_values",
-        edits: [{
-          pageId: "page-source",
-          dataSourceId: "source-1",
-          propertyId: CUSTOM_PROPERTY_ID,
-          edit: {
-            kind: "patch_set",
-            delta: {
-              kind: "relation",
-              addPageIds: Array.from({ length: 60 }, (_, index) => `add-${index}`),
-              removeEdgeIds: Array.from(
-                { length: 41 },
-                (_, index) => index.toString(16).padStart(64, "0"),
-              ),
+    expect(() =>
+      bindDatabaseApplyV2(
+        {
+          operationId: "relation-patch",
+          projectId: "project-1",
+          storeEpoch: "epoch-1",
+          actor: {},
+          operations: [
+            {
+              kind: "edit_property_values",
+              edits: [
+                {
+                  pageId: "page-source",
+                  dataSourceId: "source-1",
+                  propertyId: CUSTOM_PROPERTY_ID,
+                  edit: {
+                    kind: "patch_set",
+                    delta: {
+                      kind: "relation",
+                      addPageIds: Array.from({ length: 60 }, (_, index) => `add-${index}`),
+                      removeEdgeIds: Array.from({ length: 41 }, (_, index) =>
+                        index.toString(16).padStart(64, "0"),
+                      ),
+                    },
+                  },
+                },
+              ],
             },
-          },
-        }],
-      }],
-    }, "project-1", { actor: { kind: "test" } })).toThrow(
-      "may change at most 100 Relation targets",
-    );
+          ],
+        },
+        "project-1",
+        { actor: { kind: "test" } },
+      ),
+    ).toThrow("may change at most 100 Relation targets");
   });
 
   test("binds task-parent runs to Relation value revisions", () => {
-    const request = bindDatabaseApplyV2({
-      operationId: "task-parent-run",
-      projectId: "project-1",
-      storeEpoch: "epoch-1",
-      actor: {},
-      operations: [{
-        kind: "set_task_parent",
-        dataSourceId: "source-1",
-        pages: [{ pageId: "page:child", expectedValueRevision: 4 }],
-        parentPageId: "page:parent",
-      }],
-    }, "project-1", { actor: { kind: "test" } });
+    const request = bindDatabaseApplyV2(
+      {
+        operationId: "task-parent-run",
+        projectId: "project-1",
+        storeEpoch: "epoch-1",
+        actor: {},
+        operations: [
+          {
+            kind: "set_task_parent",
+            dataSourceId: "source-1",
+            pages: [{ pageId: "page:child", expectedValueRevision: 4 }],
+            parentPageId: "page:parent",
+          },
+        ],
+      },
+      "project-1",
+      { actor: { kind: "test" } },
+    );
 
     expect(request.operations[0]).toEqual({
       kind: "set_task_parent",
@@ -697,10 +783,14 @@ describe("Database Module v2 transport boundary", () => {
         value,
       },
     });
-    expect(parseDatabaseModuleReadResultV2(envelope({
-      kind: "view_personal_presentation",
-      value: { presentationOverride: { layout: "list" }, revision: 5 },
-    }))).toMatchObject({
+    expect(
+      parseDatabaseModuleReadResultV2(
+        envelope({
+          kind: "view_personal_presentation",
+          value: { presentationOverride: { layout: "list" }, revision: 5 },
+        }),
+      ),
+    ).toMatchObject({
       ok: true,
       value: {
         value: {
@@ -709,15 +799,19 @@ describe("Database Module v2 transport boundary", () => {
         },
       },
     });
-    expect(parseDatabaseModuleReadResultV2(envelope({
-      kind: "view_collapsed_occurrences",
-      value: {
-        targets: [
-          { kind: "group", occurrenceKey: "GROUP_\"ship\"" },
-          { kind: "page", occurrenceKey: "ITEM_parent/child" },
-        ],
-      },
-    }))).toMatchObject({
+    expect(
+      parseDatabaseModuleReadResultV2(
+        envelope({
+          kind: "view_collapsed_occurrences",
+          value: {
+            targets: [
+              { kind: "group", occurrenceKey: 'GROUP_"ship"' },
+              { kind: "page", occurrenceKey: "ITEM_parent/child" },
+            ],
+          },
+        }),
+      ),
+    ).toMatchObject({
       ok: true,
       value: {
         value: {
@@ -726,15 +820,19 @@ describe("Database Module v2 transport boundary", () => {
         },
       },
     });
-    expect(() => parseDatabaseModuleReadResultV2(envelope({
-      kind: "view_collapsed_occurrences",
-      value: {
-        targets: [
-          { kind: "page", occurrenceKey: "ITEM_parent/child" },
-          { kind: "page", occurrenceKey: "ITEM_parent/child" },
-        ],
-      },
-    }))).toThrow("must contain unique targets");
+    expect(() =>
+      parseDatabaseModuleReadResultV2(
+        envelope({
+          kind: "view_collapsed_occurrences",
+          value: {
+            targets: [
+              { kind: "page", occurrenceKey: "ITEM_parent/child" },
+              { kind: "page", occurrenceKey: "ITEM_parent/child" },
+            ],
+          },
+        }),
+      ),
+    ).toThrow("must contain unique targets");
   });
 
   test("admits only unique opaque handles in Relation target windows", () => {
@@ -769,36 +867,40 @@ describe("Database Module v2 transport boundary", () => {
         },
       },
     });
-    expect(() => parseDatabaseModuleReadResultV2({
-      ...result,
-      value: {
-        ...result.value,
+    expect(() =>
+      parseDatabaseModuleReadResultV2({
+        ...result,
         value: {
-          ...result.value.value,
+          ...result.value,
           value: {
-            ...result.value.value.value,
-            targets: [{ kind: "restricted", edgeId: "page-hidden" }],
+            ...result.value.value,
+            value: {
+              ...result.value.value.value,
+              targets: [{ kind: "restricted", edgeId: "page-hidden" }],
+            },
           },
         },
-      },
-    })).toThrow("must be an opaque Relation edge handle");
-    expect(() => parseDatabaseModuleReadResultV2({
-      ...result,
-      value: {
-        ...result.value,
+      }),
+    ).toThrow("must be an opaque Relation edge handle");
+    expect(() =>
+      parseDatabaseModuleReadResultV2({
+        ...result,
         value: {
-          ...result.value.value,
+          ...result.value,
           value: {
-            ...result.value.value.value,
-            totalCount: 2,
-            targets: [
-              { kind: "restricted", edgeId },
-              { kind: "restricted", edgeId },
-            ],
+            ...result.value.value,
+            value: {
+              ...result.value.value.value,
+              totalCount: 2,
+              targets: [
+                { kind: "restricted", edgeId },
+                { kind: "restricted", edgeId },
+              ],
+            },
           },
         },
-      },
-    })).toThrow("contains duplicate edge handles");
+      }),
+    ).toThrow("contains duplicate edge handles");
   });
 
   test("round-trips identity conflicts and validates strict apply receipts", () => {
@@ -808,9 +910,10 @@ describe("Database Module v2 transport boundary", () => {
       "operation-1",
     );
     expect(databaseModuleHttpStatusV2(conflict)).toBe(409);
-    expect(
-      parseDatabaseApplyResultV2({ ok: false, error: conflict }),
-    ).toEqual({ ok: false, error: conflict });
+    expect(parseDatabaseApplyResultV2({ ok: false, error: conflict })).toEqual({
+      ok: false,
+      error: conflict,
+    });
 
     const receipt = {
       ok: true,
@@ -859,32 +962,40 @@ describe("Database Module v2 transport boundary", () => {
         minimumCommitSeq: 4,
       },
     });
-    expect(() => bindLibraryDatabaseModuleReadV2({
-      read: { target: { kind: "project_default" }, mode: "database" },
-    })).toThrow("require a concrete Database");
+    expect(() =>
+      bindLibraryDatabaseModuleReadV2({
+        read: { target: { kind: "project_default" }, mode: "database" },
+      }),
+    ).toThrow("require a concrete Database");
 
-    expect(bindLibraryDatabaseApplyV2({
+    expect(
+      bindLibraryDatabaseApplyV2({
+        operationId: "library-operation-1",
+        storeEpoch: "epoch-1",
+        operations: [
+          {
+            kind: "put_option",
+            dataSourceId: "source-1",
+            propertyId: CUSTOM_PROPERTY_ID,
+            optionId: CUSTOM_OPTION_ID,
+            name: "Platform",
+            expectedPropertyRevision: 2,
+          },
+        ],
+      }),
+    ).toEqual({
       operationId: "library-operation-1",
       storeEpoch: "epoch-1",
-      operations: [{
-        kind: "put_option",
-        dataSourceId: "source-1",
-        propertyId: CUSTOM_PROPERTY_ID,
-        optionId: CUSTOM_OPTION_ID,
-        name: "Platform",
-        expectedPropertyRevision: 2,
-      }],
-    })).toEqual({
-      operationId: "library-operation-1",
-      storeEpoch: "epoch-1",
-      operations: [{
-        kind: "put_option",
-        dataSourceId: "source-1",
-        propertyId: CUSTOM_PROPERTY_ID,
-        optionId: CUSTOM_OPTION_ID,
-        name: "Platform",
-        expectedPropertyRevision: 2,
-      }],
+      operations: [
+        {
+          kind: "put_option",
+          dataSourceId: "source-1",
+          propertyId: CUSTOM_PROPERTY_ID,
+          optionId: CUSTOM_OPTION_ID,
+          name: "Platform",
+          expectedPropertyRevision: 2,
+        },
+      ],
     });
 
     const read = parseLibraryDatabaseModuleReadResultV2({

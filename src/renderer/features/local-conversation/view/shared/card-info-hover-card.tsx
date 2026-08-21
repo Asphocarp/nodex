@@ -2,10 +2,7 @@ import type { ReactNode } from "react";
 import * as HoverCardPrimitive from "@radix-ui/react-hover-card";
 import { EstimateIcon, PriorityValueIcon } from "@/components/shared/icons";
 import { StatusLabel } from "@/lib/status-presentation";
-import {
-  BOARD_STATUS_LABELS,
-  resolveBoardPriorityOption,
-} from "../../../../lib/board-options";
+import { BOARD_STATUS_LABELS, resolveBoardPriorityOption } from "../../../../lib/board-options";
 import { cn } from "../../../../lib/utils";
 import type { DatabasePage } from "../../../../lib/types";
 
@@ -18,7 +15,10 @@ const ESTIMATE_LABEL: Record<string, string> = {
 };
 
 function formatColumnName(columnId: string): string {
-  return BOARD_STATUS_LABELS[columnId] ?? columnId.replace(/_/g, " ").replace(/^\w/, (char) => char.toUpperCase());
+  return (
+    BOARD_STATUS_LABELS[columnId] ??
+    columnId.replace(/_/g, " ").replace(/^\w/, (char) => char.toUpperCase())
+  );
 }
 
 export function CardInfoHoverCard({
@@ -40,9 +40,7 @@ export function CardInfoHoverCard({
 
   return (
     <HoverCardPrimitive.Root openDelay={0} closeDelay={0}>
-      <HoverCardPrimitive.Trigger asChild>
-        {children}
-      </HoverCardPrimitive.Trigger>
+      <HoverCardPrimitive.Trigger asChild>{children}</HoverCardPrimitive.Trigger>
       <HoverCardPrimitive.Portal>
         <HoverCardPrimitive.Content
           side="bottom"
@@ -117,7 +115,6 @@ export function CardInfoHoverCard({
                 )}
               </div>
             )}
-
           </div>
         </HoverCardPrimitive.Content>
       </HoverCardPrimitive.Portal>

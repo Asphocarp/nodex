@@ -37,9 +37,7 @@ export interface ContentCanvasNavigationTarget {
   readonly titleSnapshot?: string;
 }
 
-const isRecord = (
-  value: unknown,
-): value is Readonly<Record<string, unknown>> =>
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const canonicalId = (value: unknown, label: string): string => {
@@ -70,9 +68,7 @@ const assertExactKeys = (
   }
 };
 
-export const parseContentAccessContext = (
-  value: unknown,
-): ContentAccessContext => {
+export const parseContentAccessContext = (value: unknown): ContentAccessContext => {
   if (!isRecord(value)) {
     throw new TypeError("contentAccessContext must be an object");
   }
@@ -84,18 +80,13 @@ export const parseContentAccessContext = (
     assertExactKeys(value, ["kind", "projectId"]);
     return {
       kind: "project",
-      projectId: canonicalId(
-        value.projectId,
-        "contentAccessContext.projectId",
-      ),
+      projectId: canonicalId(value.projectId, "contentAccessContext.projectId"),
     };
   }
   throw new TypeError("contentAccessContext.kind is unsupported");
 };
 
-export const projectContentAccess = (
-  projectId: string,
-): ProjectContentAccessContext => {
+export const projectContentAccess = (projectId: string): ProjectContentAccessContext => {
   const context = parseContentAccessContext({ kind: "project", projectId });
   if (context.kind === "project") return context;
   throw new TypeError("Project content access context is invalid");
@@ -111,22 +102,16 @@ export const libraryContentAccess: LibraryContentAccessContext = {
  * Renderer-local keys are never valid Project credentials. Project-only
  * capabilities must stay unavailable when this function returns null.
  */
-export const projectIdFromContentAccessContext = (
-  context: ContentAccessContext,
-): string | null => context.kind === "project" ? context.projectId : null;
+export const projectIdFromContentAccessContext = (context: ContentAccessContext): string | null =>
+  context.kind === "project" ? context.projectId : null;
 
-export const contentAccessContextKey = (
-  context: ContentAccessContext,
-): string => {
+export const contentAccessContextKey = (context: ContentAccessContext): string => {
   const parsed = parseContentAccessContext(context);
-  return parsed.kind === "project"
-    ? `project:${parsed.projectId}`
-    : "library";
+  return parsed.kind === "project" ? `project:${parsed.projectId}` : "library";
 };
 
-export const contentAccessIdentityKey = (
-  identity: ContentAccessIdentity,
-): string => JSON.stringify([
-  canonicalId(identity.libraryId, "contentAccessIdentity.libraryId"),
-  contentAccessContextKey(identity.accessContext),
-]);
+export const contentAccessIdentityKey = (identity: ContentAccessIdentity): string =>
+  JSON.stringify([
+    canonicalId(identity.libraryId, "contentAccessIdentity.libraryId"),
+    contentAccessContextKey(identity.accessContext),
+  ]);

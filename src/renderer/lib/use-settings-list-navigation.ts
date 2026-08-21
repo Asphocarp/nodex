@@ -1,9 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 export interface UseSettingsListNavigationOptions<TItem> {
   items: readonly TItem[];
@@ -31,9 +26,7 @@ export function useSettingsListNavigation<TItem>({
       return;
     }
 
-    setHighlightedIndex((current) => (
-      current >= items.length ? -1 : current
-    ));
+    setHighlightedIndex((current) => (current >= items.length ? -1 : current));
   }, [isActive, items.length]);
 
   useEffect(() => {
@@ -71,11 +64,7 @@ export function useSettingsListNavigation<TItem>({
 
     if (event.key !== "Enter") return;
 
-    const selectedIndex = highlightedIndex >= 0
-      ? highlightedIndex
-      : autoHighlightFirst
-        ? 0
-        : -1;
+    const selectedIndex = highlightedIndex >= 0 ? highlightedIndex : autoHighlightFirst ? 0 : -1;
 
     if (selectedIndex < 0 || selectedIndex >= items.length) return;
 
@@ -91,11 +80,7 @@ export function useSettingsListNavigation<TItem>({
   };
 }
 
-function nextHighlightedIndex(
-  currentIndex: number,
-  direction: 1 | -1,
-  itemCount: number,
-): number {
+function nextHighlightedIndex(currentIndex: number, direction: 1 | -1, itemCount: number): number {
   if (itemCount === 0) return -1;
   if (currentIndex < 0) return direction > 0 ? 0 : itemCount - 1;
 

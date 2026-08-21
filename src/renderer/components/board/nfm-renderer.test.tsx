@@ -41,19 +41,16 @@ describe("NfmRenderer", () => {
   test("renders owning Page UUIDs and Page mention URLs", async () => {
     const { container } = render(
       <NfmRenderer
-        content={[
-          '<page uuid="019f-card" />',
-          '<page-ref url="nodex://pages/019f-target" />',
-        ].join("\n")}
+        content={['<page uuid="019f-card" />', '<page-ref url="nodex://pages/019f-target" />'].join(
+          "\n",
+        )}
       />,
     );
 
     await settleAsyncRender();
 
     expect(textContent(container)).toContain("Page · 019f-card");
-    expect(textContent(container)).toContain(
-      "Page Mention · nodex://pages/019f-target",
-    );
+    expect(textContent(container)).toContain("Page Mention · nodex://pages/019f-target");
   });
 
   test("renders inline code with the shared inline-markdown span contract", async () => {
@@ -70,9 +67,7 @@ describe("NfmRenderer", () => {
   });
 
   test("marks heading inline code with the heading-inline-code scope", async () => {
-    const { container } = render(
-      <NfmRenderer content={"## Heading with `inline code`"} />,
-    );
+    const { container } = render(<NfmRenderer content={"## Heading with `inline code`"} />);
 
     await settleAsyncRender();
 
@@ -83,9 +78,7 @@ describe("NfmRenderer", () => {
   });
 
   test("renders code blocks through Streamdown's code block renderer", async () => {
-    const { container } = render(
-      <NfmRenderer content={"```ts\nconst answer = 42\n```"} />,
-    );
+    const { container } = render(<NfmRenderer content={"```ts\nconst answer = 42\n```"} />);
     await waitForStreamdownCodeHighlight(container);
 
     expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
@@ -95,9 +88,7 @@ describe("NfmRenderer", () => {
   });
 
   test("falls back to plain code rendering for unknown languages without custom shiki HTML", async () => {
-    const { container } = render(
-      <NfmRenderer content={"```madeuplang\nhello()\n```"} />,
-    );
+    const { container } = render(<NfmRenderer content={"```madeuplang\nhello()\n```"} />);
     await settleAsyncRender();
 
     expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
@@ -117,7 +108,9 @@ describe("NfmRenderer", () => {
     const link = container.querySelector("a[href='folder/abc/file']");
     expect(Boolean(link)).toBe(true);
     expect(link?.getAttribute("aria-disabled")).toBe("true");
-    expect(link?.getAttribute("title")).toBe("Cannot resolve relative file link without project workspace.");
+    expect(link?.getAttribute("title")).toBe(
+      "Cannot resolve relative file link without project workspace.",
+    );
   });
 
   test("passes project workspace context to relative file-like links", async () => {
@@ -152,7 +145,9 @@ describe("NfmRenderer", () => {
   test("refreshes relative date mention labels while mounted", async () => {
     const clock = installDateMentionClock("2026-06-28T12:00:00");
     const { container } = render(
-      <NfmRenderer content={'Plan around <mention-date start="2026-06-28" format="relative" />.'} />,
+      <NfmRenderer
+        content={'Plan around <mention-date start="2026-06-28" format="relative" />.'}
+      />,
     );
 
     await settleAsyncRender();
@@ -169,9 +164,7 @@ describe("NfmRenderer", () => {
 
   test("renders Page mentions as lightweight inline references", () => {
     const { container } = render(
-      <NfmRenderer
-        content={'See <mention-page url="nodex://pages/page-1" /> now.'}
-      />,
+      <NfmRenderer content={'See <mention-page url="nodex://pages/page-1" /> now.'} />,
     );
 
     expect(textContent(container).includes("page-1")).toBe(true);
@@ -179,9 +172,7 @@ describe("NfmRenderer", () => {
   });
 
   test("renders consecutive numbered list items in one ordered list with preserved numbering", async () => {
-    const { container } = render(
-      <NfmRenderer content={"1. first\n2. second\n3. third"} />,
-    );
+    const { container } = render(<NfmRenderer content={"1. first\n2. second\n3. third"} />);
 
     await settleAsyncRender();
 

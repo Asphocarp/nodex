@@ -10,10 +10,7 @@ import { createAgentConfigInlineContentSpec } from "./agent-config-chip";
 import { createAttachmentInlineContentSpec } from "./attachment-chip";
 import { createCalloutBlock } from "./callout-block";
 import { createCanvasBlockSpec } from "./canvas-block";
-import {
-  createPageBlockSpec,
-  createPageRefBlockSpec,
-} from "./page-outliner-block";
+import { createPageBlockSpec, createPageRefBlockSpec } from "./page-outliner-block";
 import { createDateMentionInlineContentSpec } from "./date-mention-inline-content-spec";
 import { createDatabaseViewRefBlockSpec } from "./database-view-ref-block";
 import { createDatabaseBlockSpec } from "./database-block";

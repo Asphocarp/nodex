@@ -41,14 +41,10 @@ describe("BrowserCredentialVault", () => {
       "utf8",
     );
     expect(raw).not.toContain("correct horse battery staple");
-    expect((fs.statSync(path.join(
-      roots[0]!,
-      "secrets",
-      "browser-credentials.v1.json",
-    )).mode & 0o077)).toBe(0);
-    expect((await vault.get(summary.id))?.password).toBe(
-      "correct horse battery staple",
-    );
+    expect(
+      fs.statSync(path.join(roots[0]!, "secrets", "browser-credentials.v1.json")).mode & 0o077,
+    ).toBe(0);
+    expect((await vault.get(summary.id))?.password).toBe("correct horse battery staple");
   });
 
   test("uses origin and username as the idempotent credential key", async () => {
@@ -67,11 +63,13 @@ describe("BrowserCredentialVault", () => {
     expect(second.id).toBe(first.id);
     expect(await vault.list()).toHaveLength(1);
     expect((await vault.get(first.id))?.password).toBe("replacement-secret");
-    expect(await vault.matches({
-      origin: "https://example.com",
-      username: "person",
-      password: "replacement-secret",
-    })).toBe(true);
+    expect(
+      await vault.matches({
+        origin: "https://example.com",
+        username: "person",
+        password: "replacement-secret",
+      }),
+    ).toBe(true);
   });
 
   test("fails closed when secure storage is unavailable", async () => {
@@ -80,11 +78,13 @@ describe("BrowserCredentialVault", () => {
       available: false,
       provider: "unavailable",
     });
-    await expect(vault.save({
-      origin: "https://example.com",
-      username: "person",
-      password: "secret",
-    })).rejects.toThrow("unavailable");
+    await expect(
+      vault.save({
+        origin: "https://example.com",
+        username: "person",
+        password: "secret",
+      }),
+    ).rejects.toThrow("unavailable");
   });
 
   test("generates passwords with every required character class", () => {

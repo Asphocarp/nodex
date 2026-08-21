@@ -34,12 +34,7 @@ export type DatabasePropertyValueType =
   | "relation";
 export type DatabaseViewLayout = "board" | "list";
 
-export type DatabaseViewCompletedRange =
-  | "all"
-  | "past_month"
-  | "past_week"
-  | "past_day"
-  | "none";
+export type DatabaseViewCompletedRange = "all" | "past_month" | "past_week" | "past_day" | "none";
 
 export type DatabaseViewField =
   | {
@@ -56,11 +51,7 @@ export function databaseGroupValueFromKey(
   groupKey: string | null,
 ): DatabaseJsonValue {
   if (groupKey === null) return null;
-  if (
-    valueType !== "number"
-    && valueType !== "checkbox"
-    && valueType !== "multi_select"
-  ) {
+  if (valueType !== "number" && valueType !== "checkbox" && valueType !== "multi_select") {
     return groupKey;
   }
   try {
@@ -70,14 +61,12 @@ export function databaseGroupValueFromKey(
   }
 }
 
-export function databaseGroupKeyForValue(
-  value: DatabaseJsonValue | undefined,
-): string | null {
+export function databaseGroupKeyForValue(value: DatabaseJsonValue | undefined): string | null {
   if (
-    value === undefined
-    || value === null
-    || value === ""
-    || (Array.isArray(value) && value.length === 0)
+    value === undefined ||
+    value === null ||
+    value === "" ||
+    (Array.isArray(value) && value.length === 0)
   ) {
     return null;
   }
@@ -112,8 +101,7 @@ export interface DatabaseViewFilterGroup {
   readonly children: readonly DatabaseViewFilterNode[];
 }
 
-export type DatabaseViewFilterNode =
-  DatabaseViewFilterClause | DatabaseViewFilterGroup;
+export type DatabaseViewFilterNode = DatabaseViewFilterClause | DatabaseViewFilterGroup;
 
 export type DatabaseViewSortField =
   | { readonly kind: "manual" }
@@ -143,8 +131,7 @@ export interface DatabaseViewConfig {
   };
 }
 
-export interface DatabaseViewConfigV2
-  extends Omit<DatabaseViewConfig, "schemaVersion"> {
+export interface DatabaseViewConfigV2 extends Omit<DatabaseViewConfig, "schemaVersion"> {
   readonly schemaVersion: 2;
 }
 
@@ -480,10 +467,7 @@ export class DatabaseMutationContractError extends Error {
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readRecord = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const readRecord = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
   throw new DatabaseMutationContractError(`${label} must be an object`);
 };
@@ -520,9 +504,7 @@ const readString = (
   ) {
     return value;
   }
-  throw new DatabaseMutationContractError(
-    `${label}.${key} must be a canonical non-empty string`,
-  );
+  throw new DatabaseMutationContractError(`${label}.${key} must be a canonical non-empty string`);
 };
 
 const readOptionalString = (
@@ -555,17 +537,13 @@ const readCanonicalStringArray = (
 ): readonly string[] => {
   const value = record[key];
   if (!Array.isArray(value) || value.length > MAX_COLLECTION_ENTRIES) {
-    throw new DatabaseMutationContractError(
-      `${label}.${key} must be a bounded string array`,
-    );
+    throw new DatabaseMutationContractError(`${label}.${key} must be a bounded string array`);
   }
   const entries = value.map((entry, index) =>
     readString({ value: entry }, "value", `${label}.${key}[${index}]`),
   );
   if (new Set(entries).size !== entries.length) {
-    throw new DatabaseMutationContractError(
-      `${label}.${key} must not contain duplicate IDs`,
-    );
+    throw new DatabaseMutationContractError(`${label}.${key} must not contain duplicate IDs`);
   }
   return entries;
 };
@@ -586,16 +564,10 @@ const readRevision = (
   minimum = 0,
 ): number => {
   const value = record[key];
-  if (
-    typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= minimum
-  ) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum) {
     return value;
   }
-  throw new DatabaseMutationContractError(
-    `${label}.${key} must be a safe integer >= ${minimum}`,
-  );
+  throw new DatabaseMutationContractError(`${label}.${key} must be a safe integer >= ${minimum}`);
 };
 
 const readBoolean = (
@@ -610,9 +582,7 @@ const readBoolean = (
 
 const canonicalizeJson = (value: unknown, label: string): DatabaseJsonValue => {
   try {
-    return JSON.parse(
-      stableStringifyBlockPropertyJson(value),
-    ) as DatabaseJsonValue;
+    return JSON.parse(stableStringifyBlockPropertyJson(value)) as DatabaseJsonValue;
   } catch (error) {
     throw new DatabaseMutationContractError(
       `${label} must be bounded canonical JSON: ${(error as Error).message}`,
@@ -636,23 +606,13 @@ const readOptions = (
   label: string,
 ): readonly DatabasePropertyOption[] | undefined => {
   if (config.options === undefined) return undefined;
-  if (
-    !Array.isArray(config.options)
-    || config.options.length > MAX_DATA_SOURCE_PROPERTY_OPTIONS
-  ) {
-    throw new DatabaseMutationContractError(
-      `${label}.options must be a bounded array`,
-    );
+  if (!Array.isArray(config.options) || config.options.length > MAX_DATA_SOURCE_PROPERTY_OPTIONS) {
+    throw new DatabaseMutationContractError(`${label}.options must be a bounded array`);
   }
   const seen = new Set<string>();
   return config.options.map((candidate, index) => {
     const option = readRecord(candidate, `${label}.options[${index}]`);
-    assertExactKeys(
-      option,
-      `${label}.options[${index}]`,
-      ["id", "name"],
-      ["color"],
-    );
+    assertExactKeys(option, `${label}.options[${index}]`, ["id", "name"], ["color"]);
     const id = readString(option, "id", `${label}.options[${index}]`);
     if (seen.has(id)) {
       throw new DatabaseMutationContractError(
@@ -688,8 +648,7 @@ const parsePropertyConfig = (
   label: string,
 ): Readonly<Record<string, DatabaseJsonValue>> => {
   const config = readJsonRecord(value, label);
-  const allowedKeys =
-    valueType === "select" || valueType === "multi_select" ? ["options"] : [];
+  const allowedKeys = valueType === "select" || valueType === "multi_select" ? ["options"] : [];
   for (const key of Object.keys(config)) {
     if (allowedKeys.includes(key)) continue;
     throw new DatabaseMutationContractError(
@@ -697,22 +656,13 @@ const parsePropertyConfig = (
     );
   }
   const options = readOptions(config, label);
-  if (
-    (valueType === "select" || valueType === "multi_select") &&
-    options === undefined
-  ) {
+  if ((valueType === "select" || valueType === "multi_select") && options === undefined) {
     throw new DatabaseMutationContractError(
       `${label}.options is required by ${valueType} schema version 1`,
     );
   }
-  if (
-    options !== undefined &&
-    valueType !== "select" &&
-    valueType !== "multi_select"
-  ) {
-    throw new DatabaseMutationContractError(
-      `${label}.options is only valid for select properties`,
-    );
+  if (options !== undefined && valueType !== "select" && valueType !== "multi_select") {
+    throw new DatabaseMutationContractError(`${label}.options is only valid for select properties`);
   }
   if (options === undefined) return config;
   return {
@@ -741,10 +691,7 @@ export const normalizeDatabasePropertyValue = (
   const invalid = (message: string): never => {
     throw new DatabaseMutationContractError(message);
   };
-  const config = parseDatabasePropertyConfig(
-    definition.valueType,
-    definition.config,
-  );
+  const config = parseDatabasePropertyConfig(definition.valueType, definition.config);
   if (value === null) return null;
   switch (definition.valueType) {
     case "text":
@@ -799,14 +746,11 @@ export const normalizeDatabasePropertyValue = (
       return invalid(`select does not define option ID ${value}`);
     }
     case "multi_select": {
-      if (
-        !Array.isArray(value) ||
-        !value.every((entry) => typeof entry === "string")
-      ) {
+      if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
         return invalid("multi_select requires an array of stable option IDs");
       }
-      const normalized = [...new Set(value as readonly string[])].sort(
-        (left, right) => left.localeCompare(right),
+      const normalized = [...new Set(value as readonly string[])].sort((left, right) =>
+        left.localeCompare(right),
       );
       const optionIds = new Set(
         (config.options as readonly DatabaseJsonValue[]).flatMap((option) =>
@@ -846,32 +790,21 @@ const parseViewFilterNode = (
   if (node.kind === "group") {
     assertExactKeys(node, label, ["kind", "operator", "children"]);
     if (node.operator !== "and" && node.operator !== "or") {
-      throw new DatabaseMutationContractError(
-        `${label}.operator must be and or or`,
-      );
+      throw new DatabaseMutationContractError(`${label}.operator must be and or or`);
     }
     if (!Array.isArray(node.children)) {
-      throw new DatabaseMutationContractError(
-        `${label}.children must be an array`,
-      );
+      throw new DatabaseMutationContractError(`${label}.children must be an array`);
     }
     return {
       kind: "group",
       operator: node.operator,
       children: node.children.map((child, index) =>
-        parseViewFilterNode(
-          child,
-          `${label}.children[${index}]`,
-          depth + 1,
-          state,
-        ),
+        parseViewFilterNode(child, `${label}.children[${index}]`, depth + 1, state),
       ),
     };
   }
   if (node.kind !== "clause") {
-    throw new DatabaseMutationContractError(
-      `${label}.kind must be group or clause`,
-    );
+    throw new DatabaseMutationContractError(`${label}.kind must be group or clause`);
   }
   assertExactKeys(node, label, ["kind", "propertyId", "operator"], ["value"]);
   if (
@@ -884,27 +817,19 @@ const parseViewFilterNode = (
   ) {
     throw new DatabaseMutationContractError(`${label}.operator is unsupported`);
   }
-  const requiresValue =
-    node.operator !== "is_empty" && node.operator !== "is_not_empty";
+  const requiresValue = node.operator !== "is_empty" && node.operator !== "is_not_empty";
   if (requiresValue !== (node.value !== undefined)) {
-    throw new DatabaseMutationContractError(
-      `${label} has an invalid value arity`,
-    );
+    throw new DatabaseMutationContractError(`${label} has an invalid value arity`);
   }
   return {
     kind: "clause",
     propertyId: readString(node, "propertyId", label),
     operator: node.operator,
-    ...(node.value === undefined
-      ? {}
-      : { value: canonicalizeJson(node.value, `${label}.value`) }),
+    ...(node.value === undefined ? {} : { value: canonicalizeJson(node.value, `${label}.value`) }),
   };
 };
 
-const parseViewSorts = (
-  value: unknown,
-  label: string,
-): readonly DatabaseViewSort[] => {
+const parseViewSorts = (value: unknown, label: string): readonly DatabaseViewSort[] => {
   if (!Array.isArray(value)) {
     throw new DatabaseMutationContractError(`${label} must be an array`);
   }
@@ -913,27 +838,15 @@ const parseViewSorts = (
   }
   return value.map((candidate, index): DatabaseViewSort => {
     const item = readRecord(candidate, `${label}[${index}]`);
-    assertExactKeys(item, `${label}[${index}]`, [
-      "field",
-      "direction",
-      "nulls",
-    ]);
+    assertExactKeys(item, `${label}[${index}]`, ["field", "direction", "nulls"]);
     if (item.direction !== "asc" && item.direction !== "desc") {
-      throw new DatabaseMutationContractError(
-        `${label}[${index}].direction is unsupported`,
-      );
+      throw new DatabaseMutationContractError(`${label}[${index}].direction is unsupported`);
     }
     if (item.nulls !== "first" && item.nulls !== "last") {
-      throw new DatabaseMutationContractError(
-        `${label}[${index}].nulls is unsupported`,
-      );
+      throw new DatabaseMutationContractError(`${label}[${index}].nulls is unsupported`);
     }
     const field = readRecord(item.field, `${label}[${index}].field`);
-    if (
-      field.kind === "manual" ||
-      field.kind === "title" ||
-      field.kind === "created"
-    ) {
+    if (field.kind === "manual" || field.kind === "title" || field.kind === "created") {
       assertExactKeys(field, `${label}[${index}].field`, ["kind"]);
       return {
         field: { kind: field.kind },
@@ -942,14 +855,9 @@ const parseViewSorts = (
       };
     }
     if (field.kind !== "property") {
-      throw new DatabaseMutationContractError(
-        `${label}[${index}].field.kind is unsupported`,
-      );
+      throw new DatabaseMutationContractError(`${label}[${index}].field.kind is unsupported`);
     }
-    assertExactKeys(field, `${label}[${index}].field`, [
-      "kind",
-      "propertyId",
-    ]);
+    assertExactKeys(field, `${label}[${index}].field`, ["kind", "propertyId"]);
     return {
       field: {
         kind: "property",
@@ -986,10 +894,7 @@ const parseViewConfig = (
     ["schemaKey", "schemaVersion", "filter", "sort", "group", "display"],
     ["options"],
   );
-  if (
-    config.schemaKey !== "nodex.database-view" ||
-    config.schemaVersion !== schemaVersion
-  ) {
+  if (config.schemaKey !== "nodex.database-view" || config.schemaVersion !== schemaVersion) {
     throw new DatabaseMutationContractError(
       `${label} must use nodex.database-view schema version ${schemaVersion}`,
     );
@@ -1012,9 +917,7 @@ const parseViewConfig = (
     !Array.isArray(display.propertyIds) ||
     !display.propertyIds.every((entry) => typeof entry === "string")
   ) {
-    throw new DatabaseMutationContractError(
-      `${label}.display.propertyIds must be a string array`,
-    );
+    throw new DatabaseMutationContractError(`${label}.display.propertyIds must be a string array`);
   }
   const rawPropertyIds = display.propertyIds as readonly string[];
   const propertyIds = rawPropertyIds.map((_, index) =>
@@ -1025,20 +928,14 @@ const parseViewConfig = (
     ),
   );
   if (new Set(propertyIds).size !== propertyIds.length) {
-    throw new DatabaseMutationContractError(
-      `${label}.display.propertyIds contains duplicates`,
-    );
+    throw new DatabaseMutationContractError(`${label}.display.propertyIds contains duplicates`);
   }
   let options: DatabaseViewConfig["options"];
   if (config.options !== undefined) {
     const candidate = readRecord(config.options, `${label}.options`);
     assertExactKeys(candidate, `${label}.options`, ["includeHostPage"]);
     options = {
-      includeHostPage: readBoolean(
-        candidate,
-        "includeHostPage",
-        `${label}.options`,
-      ),
+      includeHostPage: readBoolean(candidate, "includeHostPage", `${label}.options`),
     };
   }
   return {
@@ -1055,9 +952,7 @@ const parseViewConfig = (
   };
 };
 
-export const parseDatabaseViewConfig = (
-  value: unknown,
-): DatabaseViewConfig =>
+export const parseDatabaseViewConfig = (value: unknown): DatabaseViewConfig =>
   parseViewConfig(value, "databaseViewConfig", 1) as DatabaseViewConfig;
 
 const visitViewPropertyIds = (
@@ -1089,40 +984,26 @@ export const databaseViewReferencedPropertyIds = (
   return [...propertyIds];
 };
 
-export const parseDatabaseViewConfigV2 = (
-  value: unknown,
-): DatabaseViewConfigV2 => {
-  const parsed = parseViewConfig(
-    value,
-    "databaseViewConfig",
-    2,
-  ) as DatabaseViewConfigV2;
+export const parseDatabaseViewConfigV2 = (value: unknown): DatabaseViewConfigV2 => {
+  const parsed = parseViewConfig(value, "databaseViewConfig", 2) as DatabaseViewConfigV2;
   visitViewPropertyIds(parsed, (propertyId) => {
     parseDataSourcePropertyId(propertyId);
   });
   return parsed;
 };
 
-const parseViewGroup = (
-  value: unknown,
-  label: string,
-): { readonly propertyId: string } | null => {
+const parseViewGroup = (value: unknown, label: string): { readonly propertyId: string } | null => {
   if (value === null) return null;
   const group = readRecord(value, label);
   assertExactKeys(group, label, ["propertyId"]);
   return { propertyId: readString(group, "propertyId", label) };
 };
 
-const parseViewLayoutDisplay = (
-  value: unknown,
-  label: string,
-): DatabaseViewLayoutDisplayConfig => {
+const parseViewLayoutDisplay = (value: unknown, label: string): DatabaseViewLayoutDisplayConfig => {
   const display = readRecord(value, label);
   assertExactKeys(display, label, ["fields", "showEmptyGroups"], ["showDescription"]);
   if (!Array.isArray(display.fields) || display.fields.length > 64) {
-    throw new DatabaseMutationContractError(
-      `${label}.fields must contain at most 64 fields`,
-    );
+    throw new DatabaseMutationContractError(`${label}.fields must contain at most 64 fields`);
   }
   const fields = display.fields.map((candidate, index): DatabaseViewField => {
     const field = readRecord(candidate, `${label}.fields[${index}]`);
@@ -1130,34 +1011,24 @@ const parseViewLayoutDisplay = (
       assertExactKeys(field, `${label}.fields[${index}]`, ["kind", "propertyId"]);
       return {
         kind: "property",
-        propertyId: readString(
-          field,
-          "propertyId",
-          `${label}.fields[${index}]`,
-        ),
+        propertyId: readString(field, "propertyId", `${label}.fields[${index}]`),
       };
     }
     if (field.kind !== "intrinsic") {
-      throw new DatabaseMutationContractError(
-        `${label}.fields[${index}].kind is unsupported`,
-      );
+      throw new DatabaseMutationContractError(`${label}.fields[${index}].kind is unsupported`);
     }
     assertExactKeys(field, `${label}.fields[${index}]`, ["kind", "field"]);
     if (
-      field.field !== "page_key"
-      && field.field !== "created_at"
-      && field.field !== "updated_at"
+      field.field !== "page_key" &&
+      field.field !== "created_at" &&
+      field.field !== "updated_at"
     ) {
-      throw new DatabaseMutationContractError(
-        `${label}.fields[${index}].field is unsupported`,
-      );
+      throw new DatabaseMutationContractError(`${label}.fields[${index}].field is unsupported`);
     }
     return { kind: "intrinsic", field: field.field };
   });
   const identities = fields.map((field) =>
-    field.kind === "property"
-      ? `property:${field.propertyId}`
-      : `intrinsic:${field.field}`
+    field.kind === "property" ? `property:${field.propertyId}` : `intrinsic:${field.field}`,
   );
   if (new Set(identities).size !== identities.length) {
     throw new DatabaseMutationContractError(`${label}.fields contains duplicates`);
@@ -1165,9 +1036,8 @@ const parseViewLayoutDisplay = (
   return {
     fields,
     showEmptyGroups: readBoolean(display, "showEmptyGroups", label),
-    showDescription: display.showDescription === undefined
-      ? true
-      : readBoolean(display, "showDescription", label),
+    showDescription:
+      display.showDescription === undefined ? true : readBoolean(display, "showDescription", label),
   };
 };
 
@@ -1188,19 +1058,14 @@ const visitViewConfigV4PropertyIds = (
   }
   if (config.presentation.group) visit(config.presentation.group.propertyId);
   if (config.presentation.subgroup) visit(config.presentation.subgroup.propertyId);
-  for (const layout of [
-    config.presentation.layouts.board,
-    config.presentation.layouts.list,
-  ]) {
+  for (const layout of [config.presentation.layouts.board, config.presentation.layouts.list]) {
     for (const field of layout.fields) {
       if (field.kind === "property") visit(field.propertyId);
     }
   }
 };
 
-export const parseDatabaseViewConfigV4 = (
-  value: unknown,
-): DatabaseViewConfigV4 => {
+export const parseDatabaseViewConfigV4 = (value: unknown): DatabaseViewConfigV4 => {
   let canonical: string;
   try {
     canonical = stableStringifyBlockPropertyJson(value);
@@ -1221,35 +1086,22 @@ export const parseDatabaseViewConfigV4 = (
     "filter",
     "presentation",
   ]);
-  if (
-    config.schemaKey !== "nodex.database-view"
-    || config.schemaVersion !== 4
-  ) {
+  if (config.schemaKey !== "nodex.database-view" || config.schemaVersion !== 4) {
     throw new DatabaseMutationContractError(
       "databaseViewConfig must use nodex.database-view schema version 4",
     );
   }
-  const presentation = readRecord(
-    config.presentation,
-    "databaseViewConfig.presentation",
-  );
-  assertExactKeys(
-    presentation,
-    "databaseViewConfig.presentation",
-    [
-      "sort",
-      "group",
-      "subgroup",
-      "groupDirection",
-      "completion",
-      "hierarchy",
-      "layouts",
-    ],
-  );
-  const group = parseViewGroup(
-    presentation.group,
-    "databaseViewConfig.presentation.group",
-  );
+  const presentation = readRecord(config.presentation, "databaseViewConfig.presentation");
+  assertExactKeys(presentation, "databaseViewConfig.presentation", [
+    "sort",
+    "group",
+    "subgroup",
+    "groupDirection",
+    "completion",
+    "hierarchy",
+    "layouts",
+  ]);
+  const group = parseViewGroup(presentation.group, "databaseViewConfig.presentation.group");
   const subgroup = parseViewGroup(
     presentation.subgroup,
     "databaseViewConfig.presentation.subgroup",
@@ -1274,20 +1126,17 @@ export const parseDatabaseViewConfigV4 = (
     "orderByRecency",
   ]);
   if (
-    completion.range !== "all"
-    && completion.range !== "past_month"
-    && completion.range !== "past_week"
-    && completion.range !== "past_day"
-    && completion.range !== "none"
+    completion.range !== "all" &&
+    completion.range !== "past_month" &&
+    completion.range !== "past_week" &&
+    completion.range !== "past_day" &&
+    completion.range !== "none"
   ) {
     throw new DatabaseMutationContractError(
       "databaseViewConfig.presentation.completion.range is unsupported",
     );
   }
-  const hierarchy = readRecord(
-    presentation.hierarchy,
-    "databaseViewConfig.presentation.hierarchy",
-  );
+  const hierarchy = readRecord(presentation.hierarchy, "databaseViewConfig.presentation.hierarchy");
   assertExactKeys(hierarchy, "databaseViewConfig.presentation.hierarchy", [
     "showSubPages",
     "nestedSubPages",
@@ -1307,14 +1156,8 @@ export const parseDatabaseViewConfigV4 = (
       "databaseViewConfig nested sub-pages require visible sub-pages",
     );
   }
-  const layouts = readRecord(
-    presentation.layouts,
-    "databaseViewConfig.presentation.layouts",
-  );
-  assertExactKeys(layouts, "databaseViewConfig.presentation.layouts", [
-    "board",
-    "list",
-  ]);
+  const layouts = readRecord(presentation.layouts, "databaseViewConfig.presentation.layouts");
+  assertExactKeys(layouts, "databaseViewConfig.presentation.layouts", ["board", "list"]);
   const parsed: DatabaseViewConfigV4 = {
     schemaKey: "nodex.database-view",
     schemaVersion: 4,
@@ -1322,10 +1165,7 @@ export const parseDatabaseViewConfigV4 = (
       nodeCount: 0,
     }),
     presentation: {
-      sort: parseViewSorts(
-        presentation.sort,
-        "databaseViewConfig.presentation.sort",
-      ),
+      sort: parseViewSorts(presentation.sort, "databaseViewConfig.presentation.sort"),
       group,
       subgroup,
       groupDirection,
@@ -1343,10 +1183,7 @@ export const parseDatabaseViewConfigV4 = (
           layouts.board,
           "databaseViewConfig.presentation.layouts.board",
         ),
-        list: parseViewLayoutDisplay(
-          layouts.list,
-          "databaseViewConfig.presentation.layouts.list",
-        ),
+        list: parseViewLayoutDisplay(layouts.list, "databaseViewConfig.presentation.layouts.list"),
       },
     },
   };
@@ -1373,27 +1210,24 @@ const parseViewLayoutDisplayOverride = (
   return {
     ...(display.fields === undefined
       ? {}
-      : { fields: parseViewLayoutDisplay({
-          fields: display.fields,
-          showEmptyGroups: false,
-        }, label).fields }),
+      : {
+          fields: parseViewLayoutDisplay(
+            {
+              fields: display.fields,
+              showEmptyGroups: false,
+            },
+            label,
+          ).fields,
+        }),
     ...(display.showEmptyGroups === undefined
       ? {}
       : {
-          showEmptyGroups: readBoolean(
-            display,
-            "showEmptyGroups",
-            label,
-          ),
+          showEmptyGroups: readBoolean(display, "showEmptyGroups", label),
         }),
     ...(display.showDescription === undefined
       ? {}
       : {
-          showDescription: readBoolean(
-            display,
-            "showDescription",
-            label,
-          ),
+          showDescription: readBoolean(display, "showDescription", label),
         }),
   };
 };
@@ -1415,61 +1249,44 @@ export const parseDatabaseViewPresentationOverride = (
       `databaseViewPresentationOverride exceeds the maximum JSON size of ${MAX_VIEW_CONFIG_LENGTH} bytes`,
     );
   }
-  const override = readRecord(
-    JSON.parse(canonical) as unknown,
+  const override = readRecord(JSON.parse(canonical) as unknown, "databaseViewPresentationOverride");
+  assertExactKeys(
+    override,
     "databaseViewPresentationOverride",
+    [],
+    ["layout", "sort", "group", "subgroup", "groupDirection", "completion", "hierarchy", "layouts"],
   );
-  assertExactKeys(override, "databaseViewPresentationOverride", [], [
-    "layout",
-    "sort",
-    "group",
-    "subgroup",
-    "groupDirection",
-    "completion",
-    "hierarchy",
-    "layouts",
-  ]);
-  if (
-    override.layout !== undefined
-    && override.layout !== "board"
-    && override.layout !== "list"
-  ) {
+  if (override.layout !== undefined && override.layout !== "board" && override.layout !== "list") {
     throw new DatabaseMutationContractError(
       "databaseViewPresentationOverride.layout is unsupported",
     );
   }
-  const group = override.group === undefined
-    ? undefined
-    : parseViewGroup(
-        override.group,
-        "databaseViewPresentationOverride.group",
-      );
-  const subgroup = override.subgroup === undefined
-    ? undefined
-    : parseViewGroup(
-        override.subgroup,
-        "databaseViewPresentationOverride.subgroup",
-      );
+  const group =
+    override.group === undefined
+      ? undefined
+      : parseViewGroup(override.group, "databaseViewPresentationOverride.group");
+  const subgroup =
+    override.subgroup === undefined
+      ? undefined
+      : parseViewGroup(override.subgroup, "databaseViewPresentationOverride.subgroup");
   if (group && subgroup && group.propertyId === subgroup.propertyId) {
     throw new DatabaseMutationContractError(
       "databaseViewPresentationOverride group and subgroup must be different",
     );
   }
   if (
-    override.groupDirection !== undefined
-    && override.groupDirection !== "asc"
-    && override.groupDirection !== "desc"
+    override.groupDirection !== undefined &&
+    override.groupDirection !== "asc" &&
+    override.groupDirection !== "desc"
   ) {
     throw new DatabaseMutationContractError(
       "databaseViewPresentationOverride.groupDirection is unsupported",
     );
   }
-  const completion = override.completion === undefined
-    ? undefined
-    : readRecord(
-        override.completion,
-        "databaseViewPresentationOverride.completion",
-      );
+  const completion =
+    override.completion === undefined
+      ? undefined
+      : readRecord(override.completion, "databaseViewPresentationOverride.completion");
   if (completion) {
     assertExactKeys(
       completion,
@@ -1478,24 +1295,22 @@ export const parseDatabaseViewPresentationOverride = (
       ["range", "orderByRecency"],
     );
     if (
-      completion.range !== undefined
-      && completion.range !== "all"
-      && completion.range !== "past_month"
-      && completion.range !== "past_week"
-      && completion.range !== "past_day"
-      && completion.range !== "none"
+      completion.range !== undefined &&
+      completion.range !== "all" &&
+      completion.range !== "past_month" &&
+      completion.range !== "past_week" &&
+      completion.range !== "past_day" &&
+      completion.range !== "none"
     ) {
       throw new DatabaseMutationContractError(
         "databaseViewPresentationOverride.completion.range is unsupported",
       );
     }
   }
-  const hierarchy = override.hierarchy === undefined
-    ? undefined
-    : readRecord(
-        override.hierarchy,
-        "databaseViewPresentationOverride.hierarchy",
-      );
+  const hierarchy =
+    override.hierarchy === undefined
+      ? undefined
+      : readRecord(override.hierarchy, "databaseViewPresentationOverride.hierarchy");
   if (hierarchy) {
     assertExactKeys(
       hierarchy,
@@ -1504,35 +1319,23 @@ export const parseDatabaseViewPresentationOverride = (
       ["showSubPages", "nestedSubPages"],
     );
   }
-  const layouts = override.layouts === undefined
-    ? undefined
-    : readRecord(
-        override.layouts,
-        "databaseViewPresentationOverride.layouts",
-      );
+  const layouts =
+    override.layouts === undefined
+      ? undefined
+      : readRecord(override.layouts, "databaseViewPresentationOverride.layouts");
   if (layouts) {
-    assertExactKeys(
-      layouts,
-      "databaseViewPresentationOverride.layouts",
-      [],
-      ["board", "list"],
-    );
+    assertExactKeys(layouts, "databaseViewPresentationOverride.layouts", [], ["board", "list"]);
   }
   const parsed: DatabaseViewPresentationOverride = {
     ...(override.layout === undefined ? {} : { layout: override.layout }),
     ...(override.sort === undefined
       ? {}
       : {
-          sort: parseViewSorts(
-            override.sort,
-            "databaseViewPresentationOverride.sort",
-          ),
+          sort: parseViewSorts(override.sort, "databaseViewPresentationOverride.sort"),
         }),
     ...(override.group === undefined ? {} : { group: group ?? null }),
     ...(override.subgroup === undefined ? {} : { subgroup: subgroup ?? null }),
-    ...(override.groupDirection === undefined
-      ? {}
-      : { groupDirection: override.groupDirection }),
+    ...(override.groupDirection === undefined ? {} : { groupDirection: override.groupDirection }),
     ...(completion
       ? {
           completion: {
@@ -1613,27 +1416,17 @@ export const parseDatabaseViewPresentationOverride = (
   return parsed;
 };
 
-const parseInitialView = (
-  value: unknown,
-  label: string,
-): InitialDatabaseView => {
+const parseInitialView = (value: unknown, label: string): InitialDatabaseView => {
   const view = readRecord(value, label);
   assertExactKeys(view, label, ["viewId", "name", "defaultLayout", "config"]);
-  if (
-    view.defaultLayout !== "board" &&
-    view.defaultLayout !== "list"
-  ) {
+  if (view.defaultLayout !== "board" && view.defaultLayout !== "list") {
     throw new DatabaseMutationContractError(`${label}.defaultLayout is unsupported`);
   }
   return {
     viewId: readString(view, "viewId", label),
     name: readString(view, "name", label, MAX_NAME_LENGTH),
     defaultLayout: view.defaultLayout,
-    config: parseViewConfig(
-      view.config,
-      `${label}.config`,
-      1,
-    ) as DatabaseViewConfig,
+    config: parseViewConfig(view.config, `${label}.config`, 1) as DatabaseViewConfig,
   };
 };
 
@@ -1652,18 +1445,11 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
       databaseBlockId: readString(operation, "databaseBlockId", label),
       name: readString(operation, "name", label, MAX_NAME_LENGTH),
       isPrimary: readBoolean(operation, "isPrimary", label),
-      initialView: parseInitialView(
-        operation.initialView,
-        `${label}.initialView`,
-      ),
+      initialView: parseInitialView(operation.initialView, `${label}.initialView`),
       ...(operation.beforeBlockId === undefined
         ? {}
         : {
-            beforeBlockId: readOptionalString(
-              operation,
-              "beforeBlockId",
-              label,
-            ),
+            beforeBlockId: readOptionalString(operation, "beforeBlockId", label),
           }),
     };
   }
@@ -1693,9 +1479,7 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
       operation.valueType !== "date" &&
       operation.valueType !== "datetime"
     ) {
-      throw new DatabaseMutationContractError(
-        `${label}.valueType is unsupported`,
-      );
+      throw new DatabaseMutationContractError(`${label}.valueType is unsupported`);
     }
     return {
       kind: "put_property",
@@ -1707,27 +1491,15 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
         label,
         1,
       ),
-      expectedPropertyRevision: readRevision(
-        operation,
-        "expectedPropertyRevision",
-        label,
-      ),
+      expectedPropertyRevision: readRevision(operation, "expectedPropertyRevision", label),
       key: readString(operation, "key", label, MAX_KEY_LENGTH),
       name: readString(operation, "name", label, MAX_NAME_LENGTH),
       valueType: operation.valueType,
-      config: parsePropertyConfig(
-        operation.config,
-        operation.valueType,
-        `${label}.config`,
-      ),
+      config: parsePropertyConfig(operation.config, operation.valueType, `${label}.config`),
       ...(operation.beforePropertyId === undefined
         ? {}
         : {
-            beforePropertyId: readOptionalString(
-              operation,
-              "beforePropertyId",
-              label,
-            ),
+            beforePropertyId: readOptionalString(operation, "beforePropertyId", label),
           }),
     };
   }
@@ -1749,21 +1521,11 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
         label,
         1,
       ),
-      expectedPropertyRevision: readRevision(
-        operation,
-        "expectedPropertyRevision",
-        label,
-        1,
-      ),
+      expectedPropertyRevision: readRevision(operation, "expectedPropertyRevision", label, 1),
     };
   }
   if (operation.kind === "transfer_membership") {
-    assertExactKeys(operation, label, [
-      "kind",
-      "pageId",
-      "expectedMembership",
-      "target",
-    ]);
+    assertExactKeys(operation, label, ["kind", "pageId", "expectedMembership", "target"]);
     const expected = operation.expectedMembership;
     const target = operation.target;
     const parsedExpected =
@@ -1771,22 +1533,10 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
         ? null
         : (() => {
             const record = readRecord(expected, `${label}.expectedMembership`);
-            assertExactKeys(record, `${label}.expectedMembership`, [
-              "membershipId",
-              "revision",
-            ]);
+            assertExactKeys(record, `${label}.expectedMembership`, ["membershipId", "revision"]);
             return {
-              membershipId: readString(
-                record,
-                "membershipId",
-                `${label}.expectedMembership`,
-              ),
-              revision: readRevision(
-                record,
-                "revision",
-                `${label}.expectedMembership`,
-                1,
-              ),
+              membershipId: readString(record, "membershipId", `${label}.expectedMembership`),
+              revision: readRevision(record, "revision", `${label}.expectedMembership`, 1),
             };
           })();
     const parsedTarget =
@@ -1800,47 +1550,32 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
               ["databaseBlockId", "membershipId"],
               ["viewId", "groupKey", "beforePageId"],
             );
-            const viewId = record.viewId === undefined
-              ? undefined
-              : readString(record, "viewId", `${label}.target`);
+            const viewId =
+              record.viewId === undefined
+                ? undefined
+                : readString(record, "viewId", `${label}.target`);
             if (
-              (viewId === undefined && (
-                record.groupKey !== undefined
-                || record.beforePageId !== undefined
-              ))
-              || (viewId !== undefined && record.groupKey === undefined)
+              (viewId === undefined &&
+                (record.groupKey !== undefined || record.beforePageId !== undefined)) ||
+              (viewId !== undefined && record.groupKey === undefined)
             ) {
               throw new DatabaseMutationContractError(
                 `${label}.target View position requires viewId and groupKey together`,
               );
             }
             return {
-              databaseBlockId: readString(
-                record,
-                "databaseBlockId",
-                `${label}.target`,
-              ),
-              membershipId: readString(
-                record,
-                "membershipId",
-                `${label}.target`,
-              ),
-              ...(viewId === undefined ? {} : {
-                viewId,
-                groupKey: readNullableString(
-                  record,
-                  "groupKey",
-                  `${label}.target`,
-                ),
-              }),
+              databaseBlockId: readString(record, "databaseBlockId", `${label}.target`),
+              membershipId: readString(record, "membershipId", `${label}.target`),
+              ...(viewId === undefined
+                ? {}
+                : {
+                    viewId,
+                    groupKey: readNullableString(record, "groupKey", `${label}.target`),
+                  }),
               ...(record.beforePageId === undefined
                 ? {}
                 : {
-                    beforePageId: readOptionalString(
-                      record,
-                      "beforePageId",
-                      `${label}.target`,
-                    ),
+                    beforePageId: readOptionalString(record, "beforePageId", `${label}.target`),
                   }),
             };
           })();
@@ -1867,13 +1602,8 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
       ],
       ["beforeViewId"],
     );
-    if (
-      operation.defaultLayout !== "board" &&
-      operation.defaultLayout !== "list"
-    ) {
-      throw new DatabaseMutationContractError(
-        `${label}.defaultLayout is unsupported`,
-      );
+    if (operation.defaultLayout !== "board" && operation.defaultLayout !== "list") {
+      throw new DatabaseMutationContractError(`${label}.defaultLayout is unsupported`);
     }
     return {
       kind: "put_view",
@@ -1882,11 +1612,7 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
       expectedRevision: readRevision(operation, "expectedRevision", label),
       name: readString(operation, "name", label, MAX_NAME_LENGTH),
       defaultLayout: operation.defaultLayout,
-      config: parseViewConfig(
-        operation.config,
-        `${label}.config`,
-        1,
-      ) as DatabaseViewConfig,
+      config: parseViewConfig(operation.config, `${label}.config`, 1) as DatabaseViewConfig,
       isPrimary: readBoolean(operation, "isPrimary", label),
       ...(operation.beforeViewId === undefined
         ? {}
@@ -1896,12 +1622,7 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
     };
   }
   if (operation.kind === "delete_view") {
-    assertExactKeys(operation, label, [
-      "kind",
-      "databaseBlockId",
-      "viewId",
-      "expectedRevision",
-    ]);
+    assertExactKeys(operation, label, ["kind", "databaseBlockId", "viewId", "expectedRevision"]);
     return {
       kind: "delete_view",
       databaseBlockId: readString(operation, "databaseBlockId", label),
@@ -1920,29 +1641,16 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
       kind: "position_page",
       viewId: readString(operation, "viewId", label),
       pageId: readString(operation, "pageId", label),
-      expectedPositionRevision: readRevision(
-        operation,
-        "expectedPositionRevision",
-        label,
-      ),
+      expectedPositionRevision: readRevision(operation, "expectedPositionRevision", label),
       ...(operation.beforePageId === undefined
         ? {}
         : {
-            beforePageId: readOptionalString(
-              operation,
-              "beforePageId",
-              label,
-            ),
+            beforePageId: readOptionalString(operation, "beforePageId", label),
           }),
     };
   }
   if (operation.kind === "position_pages") {
-    assertExactKeys(
-      operation,
-      label,
-      ["kind", "viewId", "pages"],
-      ["beforePageId"],
-    );
+    assertExactKeys(operation, label, ["kind", "viewId", "pages"], ["beforePageId"]);
     if (
       !Array.isArray(operation.pages) ||
       operation.pages.length < 1 ||
@@ -1955,30 +1663,17 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
     const pages = operation.pages.map((candidate, index) => {
       const entryLabel = `${label}.pages[${index}]`;
       const entry = readRecord(candidate, entryLabel);
-      assertExactKeys(entry, entryLabel, [
-        "pageId",
-        "expectedPositionRevision",
-      ]);
+      assertExactKeys(entry, entryLabel, ["pageId", "expectedPositionRevision"]);
       return {
         pageId: readString(entry, "pageId", entryLabel),
-        expectedPositionRevision: readRevision(
-          entry,
-          "expectedPositionRevision",
-          entryLabel,
-        ),
+        expectedPositionRevision: readRevision(entry, "expectedPositionRevision", entryLabel),
       };
     });
     const pageIds = new Set(pages.map((entry) => entry.pageId));
     if (pageIds.size !== pages.length) {
-      throw new DatabaseMutationContractError(
-        `${label}.pages must use unique Page IDs`,
-      );
+      throw new DatabaseMutationContractError(`${label}.pages must use unique Page IDs`);
     }
-    const beforePageId = readOptionalString(
-      operation,
-      "beforePageId",
-      label,
-    );
+    const beforePageId = readOptionalString(operation, "beforePageId", label);
     if (beforePageId && pageIds.has(beforePageId)) {
       throw new DatabaseMutationContractError(
         `${label}.beforePageId must be external to the moved Page set`,
@@ -2005,20 +1700,12 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
       pageId: readString(operation, "pageId", label),
       databaseBlockId: readString(operation, "databaseBlockId", label),
       propertyId: readString(operation, "propertyId", label),
-      expectedValueRevision: readRevision(
-        operation,
-        "expectedValueRevision",
-        label,
-      ),
+      expectedValueRevision: readRevision(operation, "expectedValueRevision", label),
       value: canonicalizeJson(operation.value, `${label}.value`),
     };
   }
   if (operation.kind === "set_values") {
-    assertExactKeys(operation, label, [
-      "kind",
-      "databaseBlockId",
-      "entries",
-    ]);
+    assertExactKeys(operation, label, ["kind", "databaseBlockId", "entries"]);
     if (
       !Array.isArray(operation.entries) ||
       operation.entries.length < 1 ||
@@ -2043,11 +1730,7 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
         return {
           pageId: readString(entry, "pageId", entryLabel),
           propertyId: readString(entry, "propertyId", entryLabel),
-          expectedValueRevision: readRevision(
-            entry,
-            "expectedValueRevision",
-            entryLabel,
-          ),
+          expectedValueRevision: readRevision(entry, "expectedValueRevision", entryLabel),
           value: canonicalizeJson(entry.value, `${entryLabel}.value`),
         };
       }),
@@ -2065,31 +1748,21 @@ const parseOperation = (value: unknown): DatabaseMutationOperation => {
     const readMembers = (key: "add" | "remove"): readonly string[] => {
       const value = operation[key];
       if (!Array.isArray(value) || value.length > MAX_COLLECTION_ENTRIES) {
-        throw new DatabaseMutationContractError(
-          `${label}.${key} must be a bounded array`,
-        );
+        throw new DatabaseMutationContractError(`${label}.${key} must be a bounded array`);
       }
       const members = value.map((_, index) =>
-        readString(
-          { member: value[index] },
-          "member",
-          `${label}.${key}[${index}]`,
-        ),
+        readString({ member: value[index] }, "member", `${label}.${key}[${index}]`),
       );
       return [...new Set(members)].sort();
     };
     const add = readMembers("add");
     const remove = readMembers("remove");
     if (add.length === 0 && remove.length === 0) {
-      throw new DatabaseMutationContractError(
-        `${label} must add or remove at least one value`,
-      );
+      throw new DatabaseMutationContractError(`${label} must add or remove at least one value`);
     }
     const removed = new Set(remove);
     if (add.some((member) => removed.has(member))) {
-      throw new DatabaseMutationContractError(
-        `${label} cannot add and remove the same value`,
-      );
+      throw new DatabaseMutationContractError(`${label} cannot add and remove the same value`);
     }
     return {
       kind: "add_remove_value",
@@ -2143,9 +1816,7 @@ export const databaseMutationOperationPaths = (
   }
 };
 
-const operationEntities = (
-  operation: DatabaseMutationOperation,
-): ReadonlySet<string> => {
+const operationEntities = (operation: DatabaseMutationOperation): ReadonlySet<string> => {
   const entities = new Set<string>();
   const add = (kind: string, id: string): void => {
     entities.add(`${kind}:${id}`);
@@ -2254,10 +1925,7 @@ const databasePageMutationTargets = (
 const validateDatabaseMutationOperations = (
   operations: readonly DatabaseMutationOperation[],
 ): void => {
-  if (
-    operations.length < 1 ||
-    operations.length > MAX_DATABASE_MUTATION_OPERATIONS
-  ) {
+  if (operations.length < 1 || operations.length > MAX_DATABASE_MUTATION_OPERATIONS) {
     throw new DatabaseMutationContractError(
       `databaseMutation.operations must contain 1-${MAX_DATABASE_MUTATION_OPERATIONS} operations`,
     );
@@ -2282,10 +1950,7 @@ const validateDatabaseMutationOperations = (
     }
 
     const entities = operationEntities(operation);
-    if (
-      index > 0 &&
-      ![...entities].some((entity) => connectedEntities.has(entity))
-    ) {
+    if (index > 0 && ![...entities].some((entity) => connectedEntities.has(entity))) {
       throw new DatabaseMutationContractError(
         `databaseMutation.operations[${index}] is not connected to the same semantic intent`,
       );
@@ -2327,10 +1992,7 @@ const validateDatabaseMutationOperations = (
             `databaseMutation.operations must express the initial View position on transfer_membership.target`,
           );
         }
-        if (
-          target.kind === "value" &&
-          target.databaseBlockId !== transfer.target.databaseBlockId
-        ) {
+        if (target.kind === "value" && target.databaseBlockId !== transfer.target.databaseBlockId) {
           throw new DatabaseMutationContractError(
             `databaseMutation.operations cannot write Page ${pageId} in a Database other than its transfer target`,
           );
@@ -2340,30 +2002,18 @@ const validateDatabaseMutationOperations = (
   }
 };
 
-export const parseDatabaseMutationRequest = (
-  value: unknown,
-): DatabaseMutationRequest => {
+export const parseDatabaseMutationRequest = (value: unknown): DatabaseMutationRequest => {
   const request = readRecord(value, "databaseMutation");
   assertExactKeys(
     request,
     "databaseMutation",
-    [
-      "operationId",
-      "projectId",
-      "storeEpoch",
-      "actor",
-      "operations",
-    ],
+    ["operationId", "projectId", "storeEpoch", "actor", "operations"],
     ["clientSessionId"],
   );
   if (!Array.isArray(request.operations)) {
-    throw new DatabaseMutationContractError(
-      "databaseMutation.operations must be an array",
-    );
+    throw new DatabaseMutationContractError("databaseMutation.operations must be an array");
   }
-  const operations = request.operations.map((operation) =>
-    parseOperation(operation),
-  );
+  const operations = request.operations.map((operation) => parseOperation(operation));
   validateDatabaseMutationOperations(operations);
   const parsed: DatabaseMutationRequest = {
     operationId: readString(request, "operationId", "databaseMutation"),
@@ -2372,19 +2022,12 @@ export const parseDatabaseMutationRequest = (
     ...(request.clientSessionId === undefined
       ? {}
       : {
-          clientSessionId: readOptionalString(
-            request,
-            "clientSessionId",
-            "databaseMutation",
-          ),
+          clientSessionId: readOptionalString(request, "clientSessionId", "databaseMutation"),
         }),
     actor: readJsonRecord(request.actor, "databaseMutation.actor"),
     operations,
   };
-  if (
-    canonicalizeDatabaseMutationIntent(parsed).length <=
-    MAX_CANONICAL_REQUEST_LENGTH
-  ) {
+  if (canonicalizeDatabaseMutationIntent(parsed).length <= MAX_CANONICAL_REQUEST_LENGTH) {
     return parsed;
   }
   throw new DatabaseMutationContractError(
@@ -2395,9 +2038,7 @@ export const parseDatabaseMutationRequest = (
 export const stableStringifyDatabaseJson = (value: unknown): string =>
   stableStringifyBlockPropertyJson(value);
 
-const isEmptyDatabaseViewValue = (
-  value: DatabaseJsonValue | undefined,
-): boolean =>
+const isEmptyDatabaseViewValue = (value: DatabaseJsonValue | undefined): boolean =>
   value === undefined ||
   value === null ||
   value === "" ||
@@ -2416,8 +2057,7 @@ const evaluateDatabaseViewFilterClause = (
   }
   const expected = clause.value;
   const equals =
-    stableStringifyDatabaseJson(current ?? null) ===
-    stableStringifyDatabaseJson(expected ?? null);
+    stableStringifyDatabaseJson(current ?? null) === stableStringifyDatabaseJson(expected ?? null);
   if (clause.operator === "equals") return equals;
   if (clause.operator === "not_equals") return !equals;
   if (typeof current === "string" && typeof expected === "string") {
@@ -2441,21 +2081,16 @@ export const evaluateDatabaseViewFilter = (
     return evaluateDatabaseViewFilterClause(filter, valueForPropertyId);
   }
   if (filter.operator === "and") {
-    return filter.children.every((child) =>
-      evaluateDatabaseViewFilter(child, valueForPropertyId),
-    );
+    return filter.children.every((child) => evaluateDatabaseViewFilter(child, valueForPropertyId));
   }
-  return filter.children.some((child) =>
-    evaluateDatabaseViewFilter(child, valueForPropertyId),
-  );
+  return filter.children.some((child) => evaluateDatabaseViewFilter(child, valueForPropertyId));
 };
 
 /** Actor/session are first-seen audit attribution, not logical retry identity. */
 export const canonicalizeDatabaseMutationIntent = (value: unknown): string => {
-  const request =
-    isRecord(value)
-      ? (value as unknown as DatabaseMutationRequest)
-      : parseDatabaseMutationRequest(value);
+  const request = isRecord(value)
+    ? (value as unknown as DatabaseMutationRequest)
+    : parseDatabaseMutationRequest(value);
   return stableStringifyDatabaseJson({
     operationId: request.operationId,
     projectId: request.projectId,
@@ -2464,9 +2099,7 @@ export const canonicalizeDatabaseMutationIntent = (value: unknown): string => {
   });
 };
 
-export const parseDatabaseMutationReceipt = (
-  value: unknown,
-): DatabaseMutationReceipt => {
+export const parseDatabaseMutationReceipt = (value: unknown): DatabaseMutationReceipt => {
   const receipt = readRecord(value, "databaseMutationReceipt");
   assertExactKeys(receipt, "databaseMutationReceipt", [
     "operationId",
@@ -2498,16 +2131,14 @@ export const parseDatabaseMutationReceipt = (
     receipt.operationKinds.length > MAX_DATABASE_MUTATION_OPERATIONS ||
     !receipt.operationKinds.every(
       (kind) =>
-        typeof kind === "string" &&
-        supportedKinds.has(kind as DatabaseMutationOperation["kind"]),
+        typeof kind === "string" && supportedKinds.has(kind as DatabaseMutationOperation["kind"]),
     )
   ) {
     throw new DatabaseMutationContractError(
       "databaseMutationReceipt.operationKinds is unsupported",
     );
   }
-  const operationKinds =
-    receipt.operationKinds as DatabaseMutationOperation["kind"][];
+  const operationKinds = receipt.operationKinds as DatabaseMutationOperation["kind"][];
   return {
     operationId: readString(receipt, "operationId", "databaseMutationReceipt"),
     projectId: readString(receipt, "projectId", "databaseMutationReceipt"),
@@ -2520,19 +2151,12 @@ export const parseDatabaseMutationReceipt = (
     ),
     duplicate: readBoolean(receipt, "duplicate", "databaseMutationReceipt"),
     payload: readJsonRecord(receipt.payload, "databaseMutationReceipt.payload"),
-    commitSeq: readRevision(
-      receipt,
-      "commitSeq",
-      "databaseMutationReceipt",
-      1,
-    ),
+    commitSeq: readRevision(receipt, "commitSeq", "databaseMutationReceipt", 1),
     committedAt: readString(receipt, "committedAt", "databaseMutationReceipt"),
   };
 };
 
-export const parseDatabaseMutationCommandError = (
-  value: unknown,
-): DatabaseMutationCommandError => {
+export const parseDatabaseMutationCommandError = (value: unknown): DatabaseMutationCommandError => {
   const error = readRecord(value, "databaseMutationError");
   assertExactKeys(
     error,
@@ -2544,9 +2168,7 @@ export const parseDatabaseMutationCommandError = (
     typeof error.code !== "string" ||
     !DATABASE_MUTATION_ERROR_CODES.has(error.code as DatabaseMutationErrorCode)
   ) {
-    throw new DatabaseMutationContractError(
-      "databaseMutationError.code is invalid",
-    );
+    throw new DatabaseMutationContractError("databaseMutationError.code is invalid");
   }
   return {
     code: error.code as DatabaseMutationErrorCode,
@@ -2555,29 +2177,17 @@ export const parseDatabaseMutationCommandError = (
     ...(error.operationId === undefined
       ? {}
       : {
-          operationId: readOptionalString(
-            error,
-            "operationId",
-            "databaseMutationError",
-          ),
+          operationId: readOptionalString(error, "operationId", "databaseMutationError"),
         }),
     ...(error.expectedRevision === undefined
       ? {}
       : {
-          expectedRevision: readRevision(
-            error,
-            "expectedRevision",
-            "databaseMutationError",
-          ),
+          expectedRevision: readRevision(error, "expectedRevision", "databaseMutationError"),
         }),
     ...(error.actualRevision === undefined
       ? {}
       : {
-          actualRevision: readRevision(
-            error,
-            "actualRevision",
-            "databaseMutationError",
-          ),
+          actualRevision: readRevision(error, "actualRevision", "databaseMutationError"),
         }),
   };
 };

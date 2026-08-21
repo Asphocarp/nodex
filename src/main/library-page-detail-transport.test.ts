@@ -27,14 +27,12 @@ describe("Library Page Detail transport", () => {
       isTrustedEvent: (event) => event === "trusted",
       read,
     });
-    expect(await handlers.get(LIBRARY_PAGE_DETAIL_IPC_CHANNEL)?.(
-      "trusted",
-      "page/one",
-    )).toEqual(missing());
-    expect(await handlers.get(LIBRARY_PAGE_DETAIL_IPC_CHANNEL)?.(
-      "subframe",
-      "page/two",
-    )).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
+    expect(await handlers.get(LIBRARY_PAGE_DETAIL_IPC_CHANNEL)?.("trusted", "page/one")).toEqual(
+      missing(),
+    );
+    expect(
+      await handlers.get(LIBRARY_PAGE_DETAIL_IPC_CHANNEL)?.("subframe", "page/two"),
+    ).toMatchObject({ ok: false, error: { code: "authorization_denied" } });
 
     expect(pageIds).toEqual(["page/one"]);
   });

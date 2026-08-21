@@ -37,39 +37,43 @@ describe("ComposerImageAttachmentRow", () => {
       return true;
     });
 
-    await expect(openComposerImageAttachment({
-      attachment,
-      attachmentCount: 2,
-      composerTarget: {
-        channelId: "session:session-1::root",
-        placement: "root",
-      },
-      policy: "image_click",
-      projectId: "project-1",
-      threadId: "thread-1",
-    })).resolves.toBe(true);
+    await expect(
+      openComposerImageAttachment({
+        attachment,
+        attachmentCount: 2,
+        composerTarget: {
+          channelId: "session:session-1::root",
+          placement: "root",
+        },
+        policy: "image_click",
+        projectId: "project-1",
+        threadId: "thread-1",
+      }),
+    ).resolves.toBe(true);
 
-    expect(opened).toEqual([{
-      alt: "User attachment",
-      attachmentSrc: attachment.src,
-      attachmentId: "image-1",
-      availableImageCount: 2,
-      downloadSrc: attachment.src,
-      entrypoint: "image_click",
-      imageSource: "uploaded",
-      openInEditor: true,
-      policy: "image_click",
-      previewSrc: attachment.src,
-      projectId: "project-1",
-      src: attachment.src,
-      threadId: "thread-1",
-      title: "User attachment",
-      composerTarget: {
-        channelId: "session:session-1::root",
-        placement: "root",
+    expect(opened).toEqual([
+      {
+        alt: "User attachment",
+        attachmentSrc: attachment.src,
+        attachmentId: "image-1",
+        availableImageCount: 2,
+        downloadSrc: attachment.src,
+        entrypoint: "image_click",
+        imageSource: "uploaded",
+        openInEditor: true,
+        policy: "image_click",
+        previewSrc: attachment.src,
+        projectId: "project-1",
+        src: attachment.src,
+        threadId: "thread-1",
+        title: "User attachment",
+        composerTarget: {
+          channelId: "session:session-1::root",
+          placement: "root",
+        },
+        dataUrl: attachment.src,
       },
-      dataUrl: attachment.src,
-    }]);
+    ]);
   });
 
   test("does not mount a Composer-owned lightbox after a thumbnail click", async () => {

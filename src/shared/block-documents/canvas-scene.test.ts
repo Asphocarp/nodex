@@ -40,9 +40,7 @@ describe("portable Canvas scene kernel", () => {
       label: { text: "hello", optional: undefined },
     };
 
-    expect(
-      canonicalizeCanvasSceneElement(runtime, { runtime: true }),
-    ).toEqual({
+    expect(canonicalizeCanvasSceneElement(runtime, { runtime: true })).toEqual({
       id: "shape",
       type: "rectangle",
       isDeleted: false,
@@ -51,9 +49,7 @@ describe("portable Canvas scene kernel", () => {
       index: "a0",
       label: { text: "hello" },
     });
-    expect(() => canonicalizeCanvasSceneElement(runtime)).toThrow(
-      "bounded portable JSON",
-    );
+    expect(() => canonicalizeCanvasSceneElement(runtime)).toThrow("bounded portable JSON");
   });
 
   test("rejects cyclic and non-plain runtime values", () => {
@@ -65,9 +61,9 @@ describe("portable Canvas scene kernel", () => {
       versionNonce: 1,
     };
     cyclic.customData = cyclic;
-    expect(() =>
-      canonicalizeCanvasSceneElement(cyclic, { runtime: true }),
-    ).toThrow("must not be cyclic");
+    expect(() => canonicalizeCanvasSceneElement(cyclic, { runtime: true })).toThrow(
+      "must not be cyclic",
+    );
 
     class CustomData {}
     expect(() =>
@@ -98,9 +94,7 @@ describe("portable Canvas scene kernel", () => {
       for (const right of candidates) {
         expect(choose(left, right)).toEqual(choose(right, left));
         for (const third of candidates) {
-          expect(choose(choose(left, right), third)).toEqual(
-            choose(left, choose(right, third)),
-          );
+          expect(choose(choose(left, right), third)).toEqual(choose(left, choose(right, third)));
         }
       }
     }
@@ -116,10 +110,7 @@ describe("portable Canvas scene kernel", () => {
 
   test("rejects contenders from different element identities", () => {
     expect(() =>
-      chooseCanvasSceneElementWinner(
-        element("left", 1, 1),
-        element("right", 2, 1),
-      ),
+      chooseCanvasSceneElementWinner(element("left", 1, 1), element("right", 2, 1)),
     ).toThrow("same id");
   });
 
@@ -200,16 +191,14 @@ describe("portable Canvas scene kernel", () => {
     const scene = materializePortableCanvasScene({
       elements: [element("text", 1, 1, { type: "text", text: "truth" })],
     });
-    expect(() => parsePortableCanvasScene({ ...scene, preview: "tampered" }))
-      .toThrow("does not match its derived projection");
+    expect(() => parsePortableCanvasScene({ ...scene, preview: "tampered" })).toThrow(
+      "does not match its derived projection",
+    );
   });
 
   test("compiles deterministic forward restore candidates and tombstones", () => {
     const current = materializePortableCanvasScene({
-      elements: [
-        element("kept", 8, 4, { x: 100 }),
-        element("removed", 6, 5),
-      ],
+      elements: [element("kept", 8, 4, { x: 100 }), element("removed", 6, 5)],
     });
     const target = materializePortableCanvasScene({
       elements: [element("kept", 3, 9, { x: 5 })],

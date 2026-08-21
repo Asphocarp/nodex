@@ -48,14 +48,14 @@ export type VerifiedBrowserRuntimeBundle = {
 
 export type BrowserRuntimeAvailability =
   | {
-    message: string;
-    reason: BrowserRuntimeUnavailableReason;
-    status: "unavailable";
-  }
+      message: string;
+      reason: BrowserRuntimeUnavailableReason;
+      status: "unavailable";
+    }
   | {
-    bundle: VerifiedBrowserRuntimeBundle;
-    status: "available";
-  };
+      bundle: VerifiedBrowserRuntimeBundle;
+      status: "available";
+    };
 
 type ResolveBrowserRuntimeBundleOptions = {
   expectedCodexCompatibilityVersion: string;
@@ -129,10 +129,7 @@ function validateArtifact(
   try {
     stats = fs.lstatSync(artifactPath);
   } catch {
-    return unavailable(
-      "artifact-missing",
-      `Browser runtime artifact is missing: ${artifact.path}`,
-    );
+    return unavailable("artifact-missing", `Browser runtime artifact is missing: ${artifact.path}`);
   }
   if (!stats.isFile() || stats.isSymbolicLink()) {
     return unavailable(
@@ -198,18 +195,15 @@ export function resolveBrowserRuntimeBundle(
   if (!manifest) {
     return unavailable("invalid-manifest", "Browser runtime bundle manifest is invalid");
   }
-  if (!isBrowserRuntimeCompatibleWithCodex(
-    manifest,
-    options.expectedCodexCompatibilityVersion,
-  )) {
+  if (!isBrowserRuntimeCompatibleWithCodex(manifest, options.expectedCodexCompatibilityVersion)) {
     return unavailable(
       "incompatible-codex",
       "Browser runtime bundle does not match the active Codex compatibility version",
     );
   }
   if (
-    manifest.targetPlatform !== (options.targetPlatform ?? process.platform)
-    || manifest.targetArch !== (options.targetArch ?? process.arch)
+    manifest.targetPlatform !== (options.targetPlatform ?? process.platform) ||
+    manifest.targetArch !== (options.targetArch ?? process.arch)
   ) {
     return unavailable(
       "target-mismatch",
@@ -256,9 +250,7 @@ export function resolveBrowserRuntimeBundle(
     }
   }
 
-  const artifactByPath = new Map(
-    manifest.artifacts.map((artifact) => [artifact.path, artifact]),
-  );
+  const artifactByPath = new Map(manifest.artifacts.map((artifact) => [artifact.path, artifact]));
   const resolve = (relativePath: string): string => resolveRelativePath(rootPath, relativePath);
   return {
     status: "available",
@@ -268,29 +260,35 @@ export function resolveBrowserRuntimeBundle(
       browserPluginRoot: resolve(manifest.browserPlugin.root),
       manifest,
       manifestPath,
-      nodeModuleDirs: [...new Set([
-        ...manifest.browserPlugin.nodeModuleDirs,
-        ...(manifest.capabilities.computerUse.status === "available"
-          ? manifest.capabilities.computerUse.plugin.nodeModuleDirs
-          : []),
-      ])].map(resolve),
+      nodeModuleDirs: [
+        ...new Set([
+          ...manifest.browserPlugin.nodeModuleDirs,
+          ...(manifest.capabilities.computerUse.status === "available"
+            ? manifest.capabilities.computerUse.plugin.nodeModuleDirs
+            : []),
+        ]),
+      ].map(resolve),
       paths: {
         browserPluginClient: resolve(manifest.browserPlugin.client),
         browserPluginDocs: resolve(manifest.browserPlugin.docs),
         browserPluginManifest: resolve(manifest.browserPlugin.manifest),
         codexCli: resolve(manifest.entrypoints.codexCli),
-        computerUseApp: manifest.capabilities.computerUse.status === "available"
-          ? resolve(manifest.capabilities.computerUse.appBundle)
-          : null,
-        computerUseClient: manifest.capabilities.computerUse.status === "available"
-          ? resolve(manifest.capabilities.computerUse.client)
-          : null,
-        computerUsePluginRoot: manifest.capabilities.computerUse.status === "available"
-          ? resolve(manifest.capabilities.computerUse.plugin.root)
-          : null,
-        computerUseService: manifest.capabilities.computerUse.status === "available"
-          ? resolve(manifest.capabilities.computerUse.serviceExecutable)
-          : null,
+        computerUseApp:
+          manifest.capabilities.computerUse.status === "available"
+            ? resolve(manifest.capabilities.computerUse.appBundle)
+            : null,
+        computerUseClient:
+          manifest.capabilities.computerUse.status === "available"
+            ? resolve(manifest.capabilities.computerUse.client)
+            : null,
+        computerUsePluginRoot:
+          manifest.capabilities.computerUse.status === "available"
+            ? resolve(manifest.capabilities.computerUse.plugin.root)
+            : null,
+        computerUseService:
+          manifest.capabilities.computerUse.status === "available"
+            ? resolve(manifest.capabilities.computerUse.serviceExecutable)
+            : null,
         node: resolve(manifest.entrypoints.node),
         nodeRepl: resolve(manifest.entrypoints.nodeRepl),
         peerAuthorization: resolve(manifest.entrypoints.peerAuthorization),

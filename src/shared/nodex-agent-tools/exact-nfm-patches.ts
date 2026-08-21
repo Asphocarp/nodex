@@ -28,10 +28,7 @@ interface PatchSpan {
   readonly patchIndex: number;
 }
 
-export function applyExactNfmPatches(
-  source: string,
-  patches: readonly ExactNfmPatch[],
-): string {
+export function applyExactNfmPatches(source: string, patches: readonly ExactNfmPatch[]): string {
   const spans: PatchSpan[] = [];
   patches.forEach((patch, patchIndex) => {
     const starts: number[] = [];
@@ -49,12 +46,14 @@ export function applyExactNfmPatches(
         `NFM patch ${patchIndex} matched ${starts.length} span(s); expected ${expected}`,
       );
     }
-    starts.forEach((start) => spans.push({
-      start,
-      end: start + patch.oldNfm.length,
-      replacement: patch.newNfm,
-      patchIndex,
-    }));
+    starts.forEach((start) =>
+      spans.push({
+        start,
+        end: start + patch.oldNfm.length,
+        replacement: patch.newNfm,
+        patchIndex,
+      }),
+    );
   });
   spans.sort((left, right) => left.start - right.start || left.end - right.end);
   for (let index = 1; index < spans.length; index += 1) {

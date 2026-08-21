@@ -5,11 +5,7 @@ import { render, settleAsyncRender } from "@/test/dom";
 import type { CalendarRangeState } from "@/lib/calendar-range";
 import { CalendarRangeDropdown } from "./calendar-range-dropdown";
 
-function CalendarRangeDropdownHarness({
-  initialRange,
-}: {
-  initialRange: CalendarRangeState;
-}) {
+function CalendarRangeDropdownHarness({ initialRange }: { initialRange: CalendarRangeState }) {
   const [range, setRange] = useState(initialRange);
   return <CalendarRangeDropdown range={range} onRangeChange={setRange} />;
 }
@@ -55,8 +51,12 @@ describe("CalendarRangeDropdown", () => {
       await settleAsyncRender();
     });
 
-    expect(view.getByLabelText("Calendar range").textContent?.includes("5 Days") ?? false).toBe(true);
-    expect(view.container.ownerDocument.body.textContent?.includes("Multi-Day") ?? false).toBe(true);
+    expect(view.getByLabelText("Calendar range").textContent?.includes("5 Days") ?? false).toBe(
+      true,
+    );
+    expect(view.container.ownerDocument.body.textContent?.includes("Multi-Day") ?? false).toBe(
+      true,
+    );
   });
 
   test("selects an inactive custom mode when its stepper changes", async () => {
@@ -73,7 +73,9 @@ describe("CalendarRangeDropdown", () => {
       await settleAsyncRender();
     });
 
-    expect(view.getByLabelText("Calendar range").textContent?.includes("3 Weeks") ?? false).toBe(true);
+    expect(view.getByLabelText("Calendar range").textContent?.includes("3 Weeks") ?? false).toBe(
+      true,
+    );
   });
 
   test("supports keyboard adjustment from the custom row", async () => {
@@ -93,6 +95,8 @@ describe("CalendarRangeDropdown", () => {
       await settleAsyncRender();
     });
 
-    expect(view.getByLabelText("Calendar range").textContent?.includes("5 Days") ?? false).toBe(true);
+    expect(view.getByLabelText("Calendar range").textContent?.includes("5 Days") ?? false).toBe(
+      true,
+    );
   });
 });

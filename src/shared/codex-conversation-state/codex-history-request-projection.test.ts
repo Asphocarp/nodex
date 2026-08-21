@@ -58,10 +58,9 @@ test("projects and attaches exact history request families", () => {
   expect(command?.proposedNetworkPolicyAmendments?.[0]?.host).toBe("example.invalid");
   expect(userInput?.requestId).toBe(203);
   expect(userInput?.userInputQuestions?.[0]?.isOther).toBe(true);
-  expect(Object.prototype.hasOwnProperty.call(
-    userInput?.userInputQuestions?.[0] ?? {},
-    "isSecret",
-  )).toBe(false);
+  expect(
+    Object.prototype.hasOwnProperty.call(userInput?.userInputQuestions?.[0] ?? {}, "isSecret"),
+  ).toBe(false);
   expect(permission?.requestId).toBe("permission-204");
 
   const deduped = projectCodexHistoryRequestViews({

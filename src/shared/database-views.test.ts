@@ -6,10 +6,7 @@ import {
   inlineDatabaseViewId,
   type DatabaseViewReadModel,
 } from "./database-views";
-import {
-  evaluateDatabaseViewFilter,
-  parseDatabaseViewConfig,
-} from "./database-kernel";
+import { evaluateDatabaseViewFilter, parseDatabaseViewConfig } from "./database-kernel";
 import type { DatabasePageSummary } from "./types";
 import { authorizedReadStampFixture } from "./testing/authorized-read-stamp-fixture";
 
@@ -72,9 +69,7 @@ const makeReadModel = (includeHostCard: boolean): DatabaseViewReadModel => {
       projectId: "source-project",
       name: "Query",
       defaultLayout: "list",
-      config: JSON.parse(
-        JSON.stringify(config),
-      ) as DatabaseViewReadModel["view"]["config"],
+      config: JSON.parse(JSON.stringify(config)) as DatabaseViewReadModel["view"]["config"],
       isPrimary: false,
       createdAt: "2026-01-01T00:00:00.000Z",
       updatedAt: "2026-01-01T00:00:00.000Z",
@@ -147,10 +142,7 @@ describe("durable Database View contracts", () => {
     expect(parseDatabaseViewConfig(config)).toEqual(config);
     expect(config.schemaKey).toBe("nodex.database-view");
     expect(config.options?.includeHostPage).toBe(true);
-    expect(config.sort.map((sort) => sort.field.kind)).toEqual([
-      "property",
-      "created",
-    ]);
+    expect(config.sort.map((sort) => sort.field.kind)).toEqual(["property", "created"]);
     expect(config.display.propertyIds).toEqual([
       "database-primary:property:priority",
       "database-primary:property:status",
@@ -159,22 +151,14 @@ describe("durable Database View contracts", () => {
       ["database-primary:property:status", "plan"],
       ["database-primary:property:tags", ["customer"]],
     ]);
-    expect(
-      evaluateDatabaseViewFilter(config.filter, (id) => values.get(id)),
-    ).toBe(true);
+    expect(evaluateDatabaseViewFilter(config.filter, (id) => values.get(id))).toBe(true);
     values.set("database-primary:property:tags", ["blocked"]);
-    expect(
-      evaluateDatabaseViewFilter(config.filter, (id) => values.get(id)),
-    ).toBe(false);
+    expect(evaluateDatabaseViewFilter(config.filter, (id) => values.get(id))).toBe(false);
   });
 
   test("derives one durable inline view identity per source reference Block", () => {
-    expect(inlineDatabaseViewId("inline-a")).toBe(
-      "database-view:inline:inline-a",
-    );
-    expect(inlineDatabaseViewId("inline-b")).toBe(
-      "database-view:inline:inline-b",
-    );
+    expect(inlineDatabaseViewId("inline-a")).toBe("database-view:inline:inline-a");
+    expect(inlineDatabaseViewId("inline-b")).toBe("database-view:inline:inline-b");
   });
 
   test("preserves legacy rules losslessly while exposing durable view fields", () => {
@@ -182,9 +166,7 @@ describe("durable Database View contracts", () => {
       mode: "advanced",
       includeHostCard: true,
       filter: {
-        any: [
-          { all: [{ field: "status", op: "in", values: ["build"] }] },
-        ],
+        any: [{ all: [{ field: "status", op: "in", values: ["build"] }] }],
       },
       sort: [{ field: "priority", direction: "desc" }],
       futureRule: { keep: "exactly" },
@@ -233,23 +215,12 @@ describe("durable Database View contracts", () => {
               {
                 field: "status",
                 op: "in",
-                values: [
-                  "triage",
-                  "plan",
-                  "build",
-                  "review",
-                  "ship",
-                ],
+                values: ["triage", "plan", "build", "review", "ship"],
               },
               {
                 field: "priority",
                 op: "in",
-                values: [
-                  "p0-critical",
-                  "p1-high",
-                  "p2-medium",
-                  "p3-low",
-                ],
+                values: ["p0-critical", "p1-high", "p2-medium", "p3-low"],
                 includeEmpty: true,
               },
             ],
@@ -296,9 +267,7 @@ describe("durable Database View contracts", () => {
       },
     });
     expect(partial.legacy.rulesV2B64).toBe(partialRulesV2B64);
-    expect(JSON.stringify(partial.legacy.rulesV2)).toBe(
-      JSON.stringify(partialRules),
-    );
+    expect(JSON.stringify(partial.legacy.rulesV2)).toBe(JSON.stringify(partialRules));
     expect(JSON.stringify(partial.filter)).toBe(JSON.stringify(noRules.filter));
     expect(JSON.stringify(partial.sort)).toBe(JSON.stringify(noRules.sort));
     expect(partial.options.includeHostCard).toBe(false);
@@ -347,39 +316,37 @@ describe("durable Database View contracts", () => {
   });
 
   test("derives omitted legacy empty-priority semantics before P4 collapses", () => {
-    const compile = (values: string[]) => createLegacyInlineDatabaseViewConfig({
-      sourceBlockId: `inline-${values.length}`,
-      props: {
-        sourceProjectId: "source-project",
-        rulesV2B64: encodeBase64Url(JSON.stringify({
-          filter: {
-            any: [{
-              all: [{ field: "priority", op: "in", values }],
-            }],
-          },
-        })),
-      },
-    });
+    const compile = (values: string[]) =>
+      createLegacyInlineDatabaseViewConfig({
+        sourceBlockId: `inline-${values.length}`,
+        props: {
+          sourceProjectId: "source-project",
+          rulesV2B64: encodeBase64Url(
+            JSON.stringify({
+              filter: {
+                any: [
+                  {
+                    all: [{ field: "priority", op: "in", values }],
+                  },
+                ],
+              },
+            }),
+          ),
+        },
+      });
     const clause = (values: string[]) => {
       const config = compile(values);
-      return (config.filter as {
-        any: readonly { all: readonly { includeEmpty?: boolean }[] }[];
-      }).any[0]?.all[0];
+      return (
+        config.filter as {
+          any: readonly { all: readonly { includeEmpty?: boolean }[] }[];
+        }
+      ).any[0]?.all[0];
     };
 
-    expect(clause([
-      "p0-critical",
-      "p1-high",
-      "p2-medium",
-      "p3-low",
-    ])?.includeEmpty).toBe(false);
-    expect(clause([
-      "p0-critical",
-      "p1-high",
-      "p2-medium",
-      "p3-low",
-      "p4-later",
-    ])?.includeEmpty).toBe(true);
+    expect(clause(["p0-critical", "p1-high", "p2-medium", "p3-low"])?.includeEmpty).toBe(false);
+    expect(
+      clause(["p0-critical", "p1-high", "p2-medium", "p3-low", "p4-later"])?.includeEmpty,
+    ).toBe(true);
   });
 
   test("keeps an explicit empty-priority exclusion and defaults an empty sort", () => {
@@ -392,13 +359,7 @@ describe("durable Database View contracts", () => {
               {
                 field: "priority",
                 op: "in",
-                values: [
-                  "p0-critical",
-                  "p1-high",
-                  "p2-medium",
-                  "p3-low",
-                  "p4-later",
-                ],
+                values: ["p0-critical", "p1-high", "p2-medium", "p3-low", "p4-later"],
                 includeEmpty: false,
               },
             ],
@@ -474,9 +435,7 @@ describe("durable Database View contracts", () => {
     const rows = evaluateDatabaseViewRows(malformed, {
       hostBlockId: "host-card",
     });
-    expect(rows.map((row) => row.page.id).join(",")).toBe(
-      "filtered-backlog,p0-other,p1-a,p1-b",
-    );
+    expect(rows.map((row) => row.page.id).join(",")).toBe("filtered-backlog,p0-other,p1-a,p1-b");
   });
 
   test("defaults invalid sorts to semantic board order with a stable created tie-break", () => {

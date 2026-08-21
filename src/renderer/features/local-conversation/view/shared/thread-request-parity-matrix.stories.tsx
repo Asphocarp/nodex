@@ -47,21 +47,21 @@ const THREAD_REQUEST_STORY_MATRIX = [
     family: "Permission request",
     packet: "Q-01",
     evidence: "bKe/yKe/eV · owner predicate ot",
-    direct: [
-      { label: "Permission", href: `${REQUEST_STORY}permission-request` },
-    ],
+    direct: [{ label: "Permission", href: `${REQUEST_STORY}permission-request` }],
     placement: [
       { label: "Active permission", href: `${STAGE_STORY}permission-lane` },
-      { label: "Background permission + active option", href: `${STAGE_STORY}background-permission-option` },
+      {
+        label: "Background permission + active option",
+        href: `${STAGE_STORY}background-permission-option`,
+      },
     ],
-    actions: [
-      { label: "Turn / session access", href: `${REQUEST_STORY}permission-request` },
-    ],
+    actions: [{ label: "Turn / session access", href: `${REQUEST_STORY}permission-request` }],
   },
   {
     family: "Ordinary and onboarding input",
     packet: "Q-02D",
-    evidence: "choice activation → 180ms acknowledgement → advance/submit · host 60s inactivity + 90s countdown",
+    evidence:
+      "choice activation → 180ms acknowledgement → advance/submit · host 60s inactivity + 90s countdown",
     direct: [
       { label: "Ordinary input", href: `${REQUEST_STORY}user-input` },
       { label: "Onboarding input", href: `${REQUEST_STORY}onboarding-dynamic-input` },
@@ -79,36 +79,32 @@ const THREAD_REQUEST_STORY_MATRIX = [
     family: "MCP elicitation",
     packet: "Q-02B",
     evidence: "Ty/Ey/Dy · pKe/QW/ot",
-    direct: [
-      { label: "Pending elicitation", href: `${REQUEST_STORY}mcp-server-elicitation` },
-    ],
-    placement: [
-      { label: "Active MCP lane", href: `${STAGE_STORY}mcp-elicitation-lane` },
-    ],
+    direct: [{ label: "Pending elicitation", href: `${REQUEST_STORY}mcp-server-elicitation` }],
+    placement: [{ label: "Active MCP lane", href: `${STAGE_STORY}mcp-elicitation-lane` }],
     actions: [
       { label: "Continue / skip / cancel", href: `${REQUEST_STORY}mcp-server-elicitation` },
-      { label: "Completed transcript", href: "?path=/story/workbench-threads-transcript-specials--completed-mcp-elicitation" },
+      {
+        label: "Completed transcript",
+        href: "?path=/story/workbench-threads-transcript-specials--completed-mcp-elicitation",
+      },
     ],
   },
   {
     family: "Option picker",
     packet: "Q-02C",
     evidence: "g2/_2 · canonical option response handlers",
-    direct: [
-      { label: "Option picker", href: `${REQUEST_STORY}option-picker` },
-    ],
+    direct: [{ label: "Option picker", href: `${REQUEST_STORY}option-picker` }],
     placement: [
       { label: "Active option lane", href: `${STAGE_STORY}option-picker-lane` },
       { label: "With background permission", href: `${STAGE_STORY}background-permission-option` },
     ],
-    actions: [
-      { label: "Select / freeform / skip", href: `${REQUEST_STORY}option-picker` },
-    ],
+    actions: [{ label: "Select / freeform / skip", href: `${REQUEST_STORY}option-picker` }],
   },
   {
     family: "Setup role / task / context",
     packet: "Q-02E",
-    evidence: "task choice activation → immediate submit · role/context retain explicit confirmation",
+    evidence:
+      "task choice activation → immediate submit · role/context retain explicit confirmation",
     direct: [
       { label: "Role", href: `${REQUEST_STORY}setup-role` },
       { label: "First task", href: `${REQUEST_STORY}setup-task` },
@@ -129,26 +125,16 @@ const THREAD_REQUEST_STORY_MATRIX = [
     family: "Implement-plan follow-up",
     packet: "Q-02A",
     evidence: "choice activation → 180ms acknowledgement → submit",
-    direct: [
-      { label: "Implement plan", href: `${REQUEST_STORY}implement-plan` },
-    ],
-    placement: [
-      { label: "Completed-turn fallback", href: `${STAGE_STORY}implement-plan` },
-    ],
-    actions: [
-      { label: "Implement / dismiss", href: `${REQUEST_STORY}implement-plan` },
-    ],
+    direct: [{ label: "Implement plan", href: `${REQUEST_STORY}implement-plan` }],
+    placement: [{ label: "Completed-turn fallback", href: `${STAGE_STORY}implement-plan` }],
+    actions: [{ label: "Implement / dismiss", href: `${REQUEST_STORY}implement-plan` }],
   },
   {
     family: "Auto-review approval nudge",
     packet: "Q-02F",
     evidence: "manual_approval_threshold=3 · composer ct/lt",
-    direct: [
-      { label: "Nudge", href: `${REQUEST_STORY}auto-review-approval-nudge` },
-    ],
-    placement: [
-      { label: "Exclusive replacement", href: `${STAGE_STORY}auto-review-nudge` },
-    ],
+    direct: [{ label: "Nudge", href: `${REQUEST_STORY}auto-review-approval-nudge` }],
+    placement: [{ label: "Exclusive replacement", href: `${STAGE_STORY}auto-review-nudge` }],
     actions: [
       { label: "Keep manual / approve for me", href: `${REQUEST_STORY}auto-review-approval-nudge` },
     ],
@@ -201,11 +187,14 @@ function ThreadRequestParityMatrix() {
           <div className="min-w-0">
             <h1 className="text-base font-medium">Thread request parity matrix</h1>
             <p className="mt-1 max-w-3xl text-xs text-token-text-secondary">
-              Manual review index for pending request surfaces, their canonical composer placement, and response actions.
+              Manual review index for pending request surfaces, their canonical composer placement,
+              and response actions.
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2 text-xs tabular-nums text-token-description-foreground">
-            <span data-parity-provenance="exact-bundle">Exact bundle {EXACT_BUNDLE_PROVENANCE.version} / {EXACT_BUNDLE_PROVENANCE.build}</span>
+            <span data-parity-provenance="exact-bundle">
+              Exact bundle {EXACT_BUNDLE_PROVENANCE.version} / {EXACT_BUNDLE_PROVENANCE.build}
+            </span>
             <span aria-hidden="true">·</span>
             <span data-parity-runtime="source-audited">Interaction source audited</span>
           </div>
@@ -214,7 +203,8 @@ function ThreadRequestParityMatrix() {
         <div className="overflow-x-auto rounded-lg border-[0.5px] border-token-border bg-token-bg-fog">
           <table className="w-full min-w-[1240px] table-fixed border-collapse text-left text-xs">
             <caption className="sr-only">
-              Frozen bundle evidence mapped to direct request surfaces, production placement, and action coverage.
+              Frozen bundle evidence mapped to direct request surfaces, production placement, and
+              action coverage.
             </caption>
             <thead className="text-token-description-foreground">
               <tr className="border-b-[0.5px] border-token-border">
@@ -234,12 +224,22 @@ function ThreadRequestParityMatrix() {
                   data-provenance="exact-bundle"
                   className="align-top"
                 >
-                  <td className="px-3 py-2 font-medium text-token-text-primary tabular-nums">{row.packet}</td>
+                  <td className="px-3 py-2 font-medium text-token-text-primary tabular-nums">
+                    {row.packet}
+                  </td>
                   <td className="px-3 py-2 text-token-text-primary">{row.family}</td>
-                  <td className="px-3 py-2 font-mono text-[11px] leading-4 text-token-description-foreground">{row.evidence}</td>
-                  <td className="px-3 py-2"><StoryLinks links={row.direct} /></td>
-                  <td className="px-3 py-2"><StoryLinks links={row.placement} /></td>
-                  <td className="px-3 py-2"><StoryLinks links={row.actions} /></td>
+                  <td className="px-3 py-2 font-mono text-[11px] leading-4 text-token-description-foreground">
+                    {row.evidence}
+                  </td>
+                  <td className="px-3 py-2">
+                    <StoryLinks links={row.direct} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <StoryLinks links={row.placement} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <StoryLinks links={row.actions} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -247,7 +247,9 @@ function ThreadRequestParityMatrix() {
         </div>
 
         <p className="mt-2 text-[11px] leading-4 text-token-description-foreground">
-          ASAR SHA-256: <span className="font-mono">{EXACT_BUNDLE_PROVENANCE.asarSha256}</span>. Bundle provenance and request-input interaction evidence are frozen; visual review remains a manual Storybook handoff.
+          ASAR SHA-256: <span className="font-mono">{EXACT_BUNDLE_PROVENANCE.asarSha256}</span>.
+          Bundle provenance and request-input interaction evidence are frozen; visual review remains
+          a manual Storybook handoff.
         </p>
       </div>
     </main>
@@ -261,7 +263,8 @@ const meta = {
     layout: "fullscreen",
     docs: {
       description: {
-        component: "Bundle-provenance index for manual review of direct request surfaces, composer placement, and response-state coverage.",
+        component:
+          "Bundle-provenance index for manual review of direct request surfaces, composer placement, and response-state coverage.",
       },
     },
   },

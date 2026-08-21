@@ -23,7 +23,10 @@ class FakeNotification {
     this.emit("close");
   }
 
-  on(event: "action" | "click" | "close" | "failed" | "reply", listener: (...args: unknown[]) => void): void {
+  on(
+    event: "action" | "click" | "close" | "failed" | "reply",
+    listener: (...args: unknown[]) => void,
+  ): void {
     const existing = this.listeners.get(event) ?? [];
     existing.push(listener);
     this.listeners.set(event, existing);
@@ -59,27 +62,35 @@ describe("DesktopNotificationManager", () => {
       },
     });
 
-    manager.showNotification({
-      id: "turn-1",
-      kind: "turn-complete",
-      title: "Turn complete",
-      body: "Done",
-      conversationId: "thread-1",
-      replyPlaceholder: "Reply to Codex",
-      actions: Array.from({ length: 5 }, (_, index) => ({
-        id: `action-${index + 1}`,
-        title: `Action ${index + 1}`,
-        actionType: "approve",
-      })),
-    }, createOriginWebContents(), () => undefined);
+    manager.showNotification(
+      {
+        id: "turn-1",
+        kind: "turn-complete",
+        title: "Turn complete",
+        body: "Done",
+        conversationId: "thread-1",
+        replyPlaceholder: "Reply to Codex",
+        actions: Array.from({ length: 5 }, (_, index) => ({
+          id: `action-${index + 1}`,
+          title: `Action ${index + 1}`,
+          actionType: "approve",
+        })),
+      },
+      createOriginWebContents(),
+      () => undefined,
+    );
 
-    manager.showNotification({
-      id: "question-1",
-      kind: "question",
-      title: "Need your input",
-      body: "Answer 1 question to proceed.",
-      conversationId: "thread-1",
-    }, createOriginWebContents(8), () => undefined);
+    manager.showNotification(
+      {
+        id: "question-1",
+        kind: "question",
+        title: "Need your input",
+        body: "Answer 1 question to proceed.",
+        conversationId: "thread-1",
+      },
+      createOriginWebContents(8),
+      () => undefined,
+    );
 
     expect(constructorOptions[0]?.hasReply).toBe(true);
     expect(constructorOptions[0]?.replyPlaceholder).toBe("Reply to Codex");
@@ -104,23 +115,27 @@ describe("DesktopNotificationManager", () => {
     });
     const actions: DesktopNotificationActionPayload[] = [];
 
-    manager.showNotification({
-      id: "turn-1",
-      kind: "turn-complete",
-      title: "Turn complete",
-      body: "Done",
-      conversationId: "thread-1",
-      replyPlaceholder: "Reply to Codex",
-      actions: [
-        {
-          id: "approve",
-          title: "Approve",
-          actionType: "approve",
-        },
-      ],
-    }, createOriginWebContents(), (payload) => {
-      actions.push(payload);
-    });
+    manager.showNotification(
+      {
+        id: "turn-1",
+        kind: "turn-complete",
+        title: "Turn complete",
+        body: "Done",
+        conversationId: "thread-1",
+        replyPlaceholder: "Reply to Codex",
+        actions: [
+          {
+            id: "approve",
+            title: "Approve",
+            actionType: "approve",
+          },
+        ],
+      },
+      createOriginWebContents(),
+      (payload) => {
+        actions.push(payload);
+      },
+    );
 
     notifications[0]?.emit("click");
     notifications[0]?.emit("action", {}, 0);
@@ -148,15 +163,20 @@ describe("DesktopNotificationManager", () => {
       },
     });
     const show = (body: string, path: string, removeLabel: string) => {
-      manager.showNotification({
-        id: "question-1",
-        kind: "question",
-        title: "Need input",
-        body,
-        navigationPath: path,
-      }, createOriginWebContents(), () => undefined, () => {
-        removed.push(removeLabel);
-      });
+      manager.showNotification(
+        {
+          id: "question-1",
+          kind: "question",
+          title: "Need input",
+          body,
+          navigationPath: path,
+        },
+        createOriginWebContents(),
+        () => undefined,
+        () => {
+          removed.push(removeLabel);
+        },
+      );
     };
 
     show("First", "thread:first", "first");
@@ -189,14 +209,22 @@ describe("DesktopNotificationManager", () => {
       title: "Need input",
       body: "Answer a question to proceed.",
     };
-    manager.showNotification({
-      ...base,
-      occurrenceId: '["question","default","thread-1",73]',
-    }, createOriginWebContents(), () => undefined);
-    manager.showNotification({
-      ...base,
-      occurrenceId: '["question","default","thread-1","73"]',
-    }, createOriginWebContents(), () => undefined);
+    manager.showNotification(
+      {
+        ...base,
+        occurrenceId: '["question","default","thread-1",73]',
+      },
+      createOriginWebContents(),
+      () => undefined,
+    );
+    manager.showNotification(
+      {
+        ...base,
+        occurrenceId: '["question","default","thread-1","73"]',
+      },
+      createOriginWebContents(),
+      () => undefined,
+    );
 
     expect(notifications[0]?.closed).toBe(false);
     expect(notifications[1]?.closed).toBe(false);
@@ -216,12 +244,16 @@ describe("DesktopNotificationManager", () => {
         return new FakeNotification();
       },
     });
-    manager.showNotification({
-      id: "turn-unsafe",
-      kind: "turn-complete",
-      title: "**Task** <style>bad</style>",
-      body: "Done <script>bad()</script> [details](https://example.com)",
-    }, createOriginWebContents(), () => undefined);
+    manager.showNotification(
+      {
+        id: "turn-unsafe",
+        kind: "turn-complete",
+        title: "**Task** <style>bad</style>",
+        body: "Done <script>bad()</script> [details](https://example.com)",
+      },
+      createOriginWebContents(),
+      () => undefined,
+    );
 
     expect(constructorOptions[0]?.title).toBe("Task");
     expect(constructorOptions[0]?.body).toBe("Done details");
@@ -243,12 +275,17 @@ describe("DesktopNotificationManager", () => {
       },
     });
 
-    manager.showNotification({
-      id: "question-failed",
-      kind: "question",
-      title: "Need input",
-      body: "Answer a question to proceed.",
-    }, createOriginWebContents(), () => undefined, onRemove);
+    manager.showNotification(
+      {
+        id: "question-failed",
+        kind: "question",
+        title: "Need input",
+        body: "Answer a question to proceed.",
+      },
+      createOriginWebContents(),
+      () => undefined,
+      onRemove,
+    );
     notifications[0]?.emit("failed", new Error("native failure"));
     manager.dismissByNotificationId("question-failed");
 
@@ -276,12 +313,17 @@ describe("DesktopNotificationManager", () => {
       },
     });
 
-    manager.showNotification({
-      id: "question-show-throws",
-      kind: "question",
-      title: "Need input",
-      body: "Answer a question to proceed.",
-    }, createOriginWebContents(), () => undefined, onRemove);
+    manager.showNotification(
+      {
+        id: "question-show-throws",
+        kind: "question",
+        title: "Need input",
+        body: "Answer a question to proceed.",
+      },
+      createOriginWebContents(),
+      () => undefined,
+      onRemove,
+    );
     manager.dismissByNotificationId("question-show-throws");
 
     expect(onRemove).toHaveBeenCalledTimes(1);
@@ -306,20 +348,29 @@ describe("DesktopNotificationManager", () => {
       },
     });
 
-    manager.showNotification({
-      id: "question-callback-throws",
-      kind: "question",
-      title: "Need input",
-      body: "First",
-    }, createOriginWebContents(), () => undefined, () => {
-      throw new Error("cleanup failure");
-    });
-    manager.showNotification({
-      id: "question-after-callback",
-      kind: "question",
-      title: "Need input",
-      body: "Second",
-    }, createOriginWebContents(), () => undefined);
+    manager.showNotification(
+      {
+        id: "question-callback-throws",
+        kind: "question",
+        title: "Need input",
+        body: "First",
+      },
+      createOriginWebContents(),
+      () => undefined,
+      () => {
+        throw new Error("cleanup failure");
+      },
+    );
+    manager.showNotification(
+      {
+        id: "question-after-callback",
+        kind: "question",
+        title: "Need input",
+        body: "Second",
+      },
+      createOriginWebContents(),
+      () => undefined,
+    );
     manager.dispose();
 
     expect(notifications.every((notification) => notification.closed)).toBe(true);

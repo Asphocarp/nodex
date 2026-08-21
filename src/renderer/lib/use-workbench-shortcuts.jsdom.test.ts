@@ -38,8 +38,7 @@ function makeComposerTarget(): EventTarget {
   return {
     tagName: "TEXTAREA",
     isContentEditable: false,
-    getAttribute: (name: string) =>
-      name === "data-nodex-keyboard-context" ? "composer" : null,
+    getAttribute: (name: string) => (name === "data-nodex-keyboard-context" ? "composer" : null),
   } as unknown as EventTarget;
 }
 
@@ -47,8 +46,7 @@ function makeTerminalTarget(): EventTarget {
   return {
     tagName: "DIV",
     isContentEditable: false,
-    getAttribute: (name: string) =>
-      name === "data-nodex-keyboard-scope" ? "terminal" : null,
+    getAttribute: (name: string) => (name === "data-nodex-keyboard-scope" ? "terminal" : null),
   } as unknown as EventTarget;
 }
 
@@ -85,15 +83,19 @@ describe("handleWorkbenchShortcut", () => {
     });
     markContextualKeyboardActionTargetActive("composer");
 
-    const handled = handleWorkbenchShortcut({
-      key: "m",
-      code: "KeyM",
-      ctrlKey: true,
-      metaKey: false,
-      shiftKey: true,
-      altKey: false,
-      target: makeComposerTarget(),
-    }, makeActions(), true);
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "m",
+        code: "KeyM",
+        ctrlKey: true,
+        metaKey: false,
+        shiftKey: true,
+        altKey: false,
+        target: makeComposerTarget(),
+      },
+      makeActions(),
+      true,
+    );
 
     expect(handled).toBe(true);
     expect(captured).toEqual(["openModelPicker"]);
@@ -131,15 +133,21 @@ describe("handleWorkbenchShortcut", () => {
 
     try {
       for (const input of cases) {
-        expect(handleWorkbenchShortcut({
-          key: input.key,
-          code: input.code,
-          ctrlKey: false,
-          metaKey: false,
-          shiftKey: input.shiftKey ?? false,
-          altKey: input.altKey ?? false,
-          target: null,
-        }, makeActions(), true)).toBe(true);
+        expect(
+          handleWorkbenchShortcut(
+            {
+              key: input.key,
+              code: input.code,
+              ctrlKey: false,
+              metaKey: false,
+              shiftKey: input.shiftKey ?? false,
+              altKey: input.altKey ?? false,
+              target: null,
+            },
+            makeActions(),
+            true,
+          ),
+        ).toBe(true);
       }
       expect(captured).toEqual([
         "boardFocusNext",
@@ -280,7 +288,12 @@ describe("handleWorkbenchShortcut", () => {
     });
     const event = (
       target: EventTarget | null,
-      overrides: { metaKey?: boolean; shiftKey?: boolean; isComposing?: boolean; repeat?: boolean } = {},
+      overrides: {
+        metaKey?: boolean;
+        shiftKey?: boolean;
+        isComposing?: boolean;
+        repeat?: boolean;
+      } = {},
     ) => ({
       key: "c",
       ctrlKey: false,
@@ -292,7 +305,7 @@ describe("handleWorkbenchShortcut", () => {
       isComposing: overrides.isComposing ?? false,
       repeat: overrides.repeat ?? false,
       keyCode: 67,
-      composedPath: () => target ? [target] : [],
+      composedPath: () => (target ? [target] : []),
     });
 
     expect(handleWorkbenchShortcut(event(null), actions, true)).toBe(true);
@@ -302,47 +315,53 @@ describe("handleWorkbenchShortcut", () => {
     expect(handleWorkbenchShortcut(event(makeTerminalTarget()), actions, true)).toBe(false);
     expect(handleWorkbenchShortcut(event(null, { isComposing: true }), actions, true)).toBe(false);
     expect(handleWorkbenchShortcut(event(null, { repeat: true }), actions, true)).toBe(false);
-    expect(handleWorkbenchShortcut(
-      event(null, { metaKey: true, shiftKey: true }),
-      actions,
-      true,
-    )).toBe(true);
+    expect(
+      handleWorkbenchShortcut(event(null, { metaKey: true, shiftKey: true }), actions, true),
+    ).toBe(true);
     expect(requests).toBe(2);
   });
 
   test("leaves Create Page unhandled when the workflow rejects the request", () => {
-    const handled = handleWorkbenchShortcut({
-      key: "c",
-      ctrlKey: false,
-      metaKey: false,
-      shiftKey: false,
-      altKey: false,
-      target: null,
-      defaultPrevented: false,
-      isComposing: false,
-      repeat: false,
-      keyCode: 67,
-      composedPath: () => [],
-    }, makeActions({ onRequestCreatePage: () => false }), true);
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "c",
+        ctrlKey: false,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+        target: null,
+        defaultPrevented: false,
+        isComposing: false,
+        repeat: false,
+        keyCode: 67,
+        composedPath: () => [],
+      },
+      makeActions({ onRequestCreatePage: () => false }),
+      true,
+    );
 
     expect(handled).toBe(false);
   });
 
   test("opens the expanded Page composer with V outside editable surfaces", () => {
     const commands: string[] = [];
-    const handled = handleWorkbenchShortcut({
-      key: "v",
-      ctrlKey: false,
-      metaKey: false,
-      shiftKey: false,
-      altKey: false,
-      target: null,
-    }, makeActions({
-      onRequestCreatePageExpanded: () => {
-        commands.push("createPageExpanded");
-        return true;
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "v",
+        ctrlKey: false,
+        metaKey: false,
+        shiftKey: false,
+        altKey: false,
+        target: null,
       },
-    }), true);
+      makeActions({
+        onRequestCreatePageExpanded: () => {
+          commands.push("createPageExpanded");
+          return true;
+        },
+      }),
+      true,
+    );
 
     expect(handled).toBe(true);
     expect(commands).toEqual(["createPageExpanded"]);
@@ -371,36 +390,34 @@ describe("handleWorkbenchShortcut", () => {
     expect(goToPagesCalls).toBe(1);
 
     const inputRuntime = createWorkbenchShortcutRuntimeState();
-    expect(handleWorkbenchShortcut(
-      event("g", makeInputTarget()),
-      actions,
-      true,
-      inputRuntime,
-    )).toBe(false);
-    expect(handleWorkbenchShortcut(
-      event("p", makeInputTarget()),
-      actions,
-      true,
-      inputRuntime,
-    )).toBe(false);
+    expect(
+      handleWorkbenchShortcut(event("g", makeInputTarget()), actions, true, inputRuntime),
+    ).toBe(false);
+    expect(
+      handleWorkbenchShortcut(event("p", makeInputTarget()), actions, true, inputRuntime),
+    ).toBe(false);
     expect(goToPagesCalls).toBe(1);
   });
 
   test("shows contextual shortcut help with question mark", () => {
     let calls = 0;
-    const handled = handleWorkbenchShortcut({
-      key: "?",
-      code: "Slash",
-      ctrlKey: false,
-      metaKey: false,
-      shiftKey: true,
-      altKey: false,
-      target: null,
-    }, makeActions({
-      onRequestKeyboardShortcuts: () => {
-        calls += 1;
+    const handled = handleWorkbenchShortcut(
+      {
+        key: "?",
+        code: "Slash",
+        ctrlKey: false,
+        metaKey: false,
+        shiftKey: true,
+        altKey: false,
+        target: null,
       },
-    }), true);
+      makeActions({
+        onRequestKeyboardShortcuts: () => {
+          calls += 1;
+        },
+      }),
+      true,
+    );
 
     expect(handled).toBe(true);
     expect(calls).toBe(1);
@@ -409,31 +426,46 @@ describe("handleWorkbenchShortcut", () => {
   test("uses a remapped Create Page binding instead of the default", () => {
     let requests = 0;
     const actions = makeActions({
-      commandKeymapState: createCommandKeymapState({
-        createPage: ["CmdOrCtrl+Alt+C"],
-      }, "macOS"),
+      commandKeymapState: createCommandKeymapState(
+        {
+          createPage: ["CmdOrCtrl+Alt+C"],
+        },
+        "macOS",
+      ),
       onRequestCreatePage: () => {
         requests += 1;
         return true;
       },
     });
 
-    expect(handleWorkbenchShortcut({
-      key: "c",
-      ctrlKey: false,
-      metaKey: true,
-      shiftKey: true,
-      altKey: false,
-      target: null,
-    }, actions, true)).toBe(false);
-    expect(handleWorkbenchShortcut({
-      key: "c",
-      ctrlKey: false,
-      metaKey: true,
-      shiftKey: false,
-      altKey: true,
-      target: null,
-    }, actions, true)).toBe(true);
+    expect(
+      handleWorkbenchShortcut(
+        {
+          key: "c",
+          ctrlKey: false,
+          metaKey: true,
+          shiftKey: true,
+          altKey: false,
+          target: null,
+        },
+        actions,
+        true,
+      ),
+    ).toBe(false);
+    expect(
+      handleWorkbenchShortcut(
+        {
+          key: "c",
+          ctrlKey: false,
+          metaKey: true,
+          shiftKey: false,
+          altKey: true,
+          target: null,
+        },
+        actions,
+        true,
+      ),
+    ).toBe(true);
     expect(requests).toBe(1);
   });
 
@@ -462,28 +494,39 @@ describe("handleWorkbenchShortcut", () => {
   test("a custom bottom-panel binding replaces the default binding", () => {
     const commands: string[] = [];
     const actions = makeActions({
-      commandKeymapState: createCommandKeymapState({
-        toggleBottomPanel: ["CmdOrCtrl+Alt+J"],
-      }, "macOS"),
+      commandKeymapState: createCommandKeymapState(
+        {
+          toggleBottomPanel: ["CmdOrCtrl+Alt+J"],
+        },
+        "macOS",
+      ),
       onRequestWorkbenchCommand: (commandId) => commands.push(commandId),
     });
 
-    const defaultHandled = handleWorkbenchShortcut({
-      key: "j",
-      ctrlKey: false,
-      metaKey: true,
-      shiftKey: false,
-      altKey: false,
-      target: null,
-    }, actions, true);
-    const customHandled = handleWorkbenchShortcut({
-      key: "j",
-      ctrlKey: false,
-      metaKey: true,
-      shiftKey: false,
-      altKey: true,
-      target: null,
-    }, actions, true);
+    const defaultHandled = handleWorkbenchShortcut(
+      {
+        key: "j",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: false,
+        target: null,
+      },
+      actions,
+      true,
+    );
+    const customHandled = handleWorkbenchShortcut(
+      {
+        key: "j",
+        ctrlKey: false,
+        metaKey: true,
+        shiftKey: false,
+        altKey: true,
+        target: null,
+      },
+      actions,
+      true,
+    );
 
     expect(defaultHandled).toBe(false);
     expect(customHandled).toBe(true);
@@ -904,7 +947,10 @@ describe("handleWorkbenchShortcut", () => {
       onRequestKeyboardShortcuts: () => {
         opened = true;
       },
-      commandKeymapState: createCommandKeymapState({ showKeyboardShortcuts: ["CmdOrCtrl+Alt+/"] }, "macOS"),
+      commandKeymapState: createCommandKeymapState(
+        { showKeyboardShortcuts: ["CmdOrCtrl+Alt+/"] },
+        "macOS",
+      ),
     });
 
     const handled = handleWorkbenchShortcut(
@@ -985,7 +1031,9 @@ describe("handleWorkbenchShortcut", () => {
 
   test("Cmd+Alt+number switches to project index", () => {
     let selectedProjectIndex = -1;
-    const actions = makeActions({ switchToProjectIndex: (index) => (selectedProjectIndex = index) });
+    const actions = makeActions({
+      switchToProjectIndex: (index) => (selectedProjectIndex = index),
+    });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -1006,7 +1054,9 @@ describe("handleWorkbenchShortcut", () => {
 
   test("Cmd+Shift+P opens root command search", () => {
     let mode = "";
-    const actions = makeActions({ onRequestCommandPalette: (request) => (mode = request?.mode ?? "") });
+    const actions = makeActions({
+      onRequestCommandPalette: (request) => (mode = request?.mode ?? ""),
+    });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -1079,7 +1129,9 @@ describe("handleWorkbenchShortcut", () => {
   test("Cmd+Shift+P opens root command search inside NFM editor target", () => {
     let mode = "";
     const target = makeNfmEditorTarget();
-    const actions = makeActions({ onRequestCommandPalette: (request) => (mode = request?.mode ?? "") });
+    const actions = makeActions({
+      onRequestCommandPalette: (request) => (mode = request?.mode ?? ""),
+    });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -1154,7 +1206,9 @@ describe("handleWorkbenchShortcut", () => {
   test("Cmd+Alt+number remains unhandled inside NFM editor target", () => {
     let selectedProjectIndex = -1;
     const target = makeNfmEditorTarget();
-    const actions = makeActions({ switchToProjectIndex: (index) => (selectedProjectIndex = index) });
+    const actions = makeActions({
+      switchToProjectIndex: (index) => (selectedProjectIndex = index),
+    });
 
     const handled = handleWorkbenchShortcut(
       {
@@ -1270,10 +1324,7 @@ describe("handleWorkbenchMouseNavigationShortcut", () => {
   });
 
   test("unhandled mouse buttons do not claim the event", () => {
-    const handled = handleWorkbenchMouseNavigationShortcut(
-      { button: 0 },
-      makeActions(),
-    );
+    const handled = handleWorkbenchMouseNavigationShortcut({ button: 0 }, makeActions());
 
     expect(handled).toBe(false);
   });

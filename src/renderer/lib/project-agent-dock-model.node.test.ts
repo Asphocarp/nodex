@@ -42,7 +42,8 @@ function pendingWorktree(
     sourceWorkspaceRoot: "/tmp/project",
     localEnvironmentConfigPath: null,
     prompt: "Do the work",
-    startConversationParamsInput: {} as ProjectAgentDockPendingWorktreeEntry["startConversationParamsInput"],
+    startConversationParamsInput:
+      {} as ProjectAgentDockPendingWorktreeEntry["startConversationParamsInput"],
     sourceConversationId: null,
     sourceCollaborationMode: null,
     createdAt: 1,
@@ -130,11 +131,7 @@ describe("buildProjectAgentDockModel", () => {
       query: "",
     });
 
-    expect(model.rows.map((row) => row.label)).toEqual([
-      "New chat",
-      "approval",
-      "running",
-    ]);
+    expect(model.rows.map((row) => row.label)).toEqual(["New chat", "approval", "running"]);
     expect(model.trigger.attention).toBe("request");
     expect(model.trigger.indicator).toBe("needs-attention");
     expect(model.rows[2]?.indicator).toBe("running");
@@ -187,38 +184,33 @@ describe("Project Agent Dock pending worktree projection", () => {
       phase: "setting-up",
     });
 
-    expect(resolveProjectAgentDockPendingWorktree(
-      [
-        pendingWorktree({ projectSessionId: "another-session" }),
-        older,
-        latest,
-      ],
-      "session-1",
-      false,
-    )).toBe(latest);
-    expect(resolveProjectAgentDockPendingWorktree(
-      [latest],
-      "session-1",
-      true,
-    )).toBeNull();
+    expect(
+      resolveProjectAgentDockPendingWorktree(
+        [pendingWorktree({ projectSessionId: "another-session" }), older, latest],
+        "session-1",
+        false,
+      ),
+    ).toBe(latest);
+    expect(resolveProjectAgentDockPendingWorktree([latest], "session-1", true)).toBeNull();
   });
 
   test("maps progress and failure into compact Dock state", () => {
-    expect(buildProjectAgentDockPendingWorktreeModel(
-      pendingWorktree({ phase: "setting-up" }),
-    )).toEqual({
+    expect(
+      buildProjectAgentDockPendingWorktreeModel(pendingWorktree({ phase: "setting-up" })),
+    ).toEqual({
       clientThreadId: "client-1",
       statusLabel: "Running setup…",
       composerBlockedReason: "Worktree setup is already in progress",
       attention: "activity",
     });
-    expect(buildProjectAgentDockPendingWorktreeModel(
-      pendingWorktree({ phase: "failed", needsAttention: true }),
-    )).toEqual({
+    expect(
+      buildProjectAgentDockPendingWorktreeModel(
+        pendingWorktree({ phase: "failed", needsAttention: true }),
+      ),
+    ).toEqual({
       clientThreadId: "client-1",
       statusLabel: "Setup failed",
-      composerBlockedReason:
-        "Resolve the failed worktree setup before starting this chat again",
+      composerBlockedReason: "Resolve the failed worktree setup before starting this chat again",
       attention: "request",
     });
   });

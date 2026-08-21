@@ -34,20 +34,15 @@ export interface WorkbenchEphemeralPanelState {
   readonly panelCollapsedOverrides: Record<string, boolean>;
 }
 
-export type WorkbenchEphemeralPanelStateField =
-  keyof WorkbenchEphemeralPanelState;
+export type WorkbenchEphemeralPanelStateField = keyof WorkbenchEphemeralPanelState;
 
-export type WorkbenchEphemeralPanelStateUpdate<Value> =
-  | Value
-  | ((previous: Value) => Value);
+export type WorkbenchEphemeralPanelStateUpdate<Value> = Value | ((previous: Value) => Value);
 
 type UpdateAction = {
   [Field in WorkbenchEphemeralPanelStateField]: {
     readonly type: "update";
     readonly field: Field;
-    readonly update: WorkbenchEphemeralPanelStateUpdate<
-      WorkbenchEphemeralPanelState[Field]
-    >;
+    readonly update: WorkbenchEphemeralPanelStateUpdate<WorkbenchEphemeralPanelState[Field]>;
   };
 }[WorkbenchEphemeralPanelStateField];
 
@@ -101,8 +96,7 @@ export type WorkbenchEphemeralPanelAction =
       readonly ownerKey: string;
     };
 
-export function createWorkbenchEphemeralPanelState():
-WorkbenchEphemeralPanelState {
+export function createWorkbenchEphemeralPanelState(): WorkbenchEphemeralPanelState {
   return {
     previewTabsByPanel: {},
     previewSurfacesByPanel: {},
@@ -154,14 +148,8 @@ function pruneOwner(
 ): WorkbenchEphemeralPanelState {
   return {
     ...state,
-    previewSurfacesByPanel: removeOwnerSlotKeys(
-      state.previewSurfacesByPanel,
-      ownerKey,
-    ),
-    panelCollapsedOverrides: removeOwnerSlotKeys(
-      state.panelCollapsedOverrides,
-      ownerKey,
-    ),
+    previewSurfacesByPanel: removeOwnerSlotKeys(state.previewSurfacesByPanel, ownerKey),
+    panelCollapsedOverrides: removeOwnerSlotKeys(state.panelCollapsedOverrides, ownerKey),
   };
 }
 
@@ -172,70 +160,28 @@ function pruneSession(
   const ownerKey = makeWorkbenchSessionPanelOwnerKey(sessionId);
   return {
     ...pruneOwner(state, ownerKey),
-    previewTabsByPanel: removeOwnerSlotKeys(
-      state.previewTabsByPanel,
-      ownerKey,
-    ),
-    sideChatTabsBySession: removeRecordKey(
-      state.sideChatTabsBySession,
-      sessionId,
-    ),
-    sideChatActiveTabByPanel: removeOwnerSlotKeys(
-      state.sideChatActiveTabByPanel,
-      ownerKey,
-    ),
-    mcpAppTabsBySession: removeRecordKey(
-      state.mcpAppTabsBySession,
-      sessionId,
-    ),
-    mcpAppActiveTabByPanel: removeOwnerSlotKeys(
-      state.mcpAppActiveTabByPanel,
-      ownerKey,
-    ),
-    planTabsBySession: removeRecordKey(
-      state.planTabsBySession,
-      sessionId,
-    ),
-    planActiveTabByPanel: removeOwnerSlotKeys(
-      state.planActiveTabByPanel,
-      ownerKey,
-    ),
-    automationTabsBySession: removeRecordKey(
-      state.automationTabsBySession,
-      sessionId,
-    ),
-    automationActiveTabByPanel: removeOwnerSlotKeys(
-      state.automationActiveTabByPanel,
-      ownerKey,
-    ),
-    backgroundAgentTabsBySession: removeRecordKey(
-      state.backgroundAgentTabsBySession,
-      sessionId,
-    ),
+    previewTabsByPanel: removeOwnerSlotKeys(state.previewTabsByPanel, ownerKey),
+    sideChatTabsBySession: removeRecordKey(state.sideChatTabsBySession, sessionId),
+    sideChatActiveTabByPanel: removeOwnerSlotKeys(state.sideChatActiveTabByPanel, ownerKey),
+    mcpAppTabsBySession: removeRecordKey(state.mcpAppTabsBySession, sessionId),
+    mcpAppActiveTabByPanel: removeOwnerSlotKeys(state.mcpAppActiveTabByPanel, ownerKey),
+    planTabsBySession: removeRecordKey(state.planTabsBySession, sessionId),
+    planActiveTabByPanel: removeOwnerSlotKeys(state.planActiveTabByPanel, ownerKey),
+    automationTabsBySession: removeRecordKey(state.automationTabsBySession, sessionId),
+    automationActiveTabByPanel: removeOwnerSlotKeys(state.automationActiveTabByPanel, ownerKey),
+    backgroundAgentTabsBySession: removeRecordKey(state.backgroundAgentTabsBySession, sessionId),
     backgroundAgentActiveTabByPanel: removeOwnerSlotKeys(
       state.backgroundAgentActiveTabByPanel,
       ownerKey,
     ),
-    processOutputTabsBySession: removeRecordKey(
-      state.processOutputTabsBySession,
-      sessionId,
-    ),
+    processOutputTabsBySession: removeRecordKey(state.processOutputTabsBySession, sessionId),
     processOutputActiveTabByPanel: removeOwnerSlotKeys(
       state.processOutputActiveTabByPanel,
       ownerKey,
     ),
-    imageEditorTabsBySession: removeRecordKey(
-      state.imageEditorTabsBySession,
-      sessionId,
-    ),
-    imageEditorActiveTabByPanel: removeOwnerSlotKeys(
-      state.imageEditorActiveTabByPanel,
-      ownerKey,
-    ),
-    activePlanKeyBySession: removeRecordKey(
-      state.activePlanKeyBySession,
-      sessionId,
-    ),
+    imageEditorTabsBySession: removeRecordKey(state.imageEditorTabsBySession, sessionId),
+    imageEditorActiveTabByPanel: removeOwnerSlotKeys(state.imageEditorActiveTabByPanel, ownerKey),
+    activePlanKeyBySession: removeRecordKey(state.activePlanKeyBySession, sessionId),
   };
 }
 
@@ -261,24 +207,16 @@ function clearKeys<Value>(
 
 function selectSlot(
   state: WorkbenchEphemeralPanelState,
-  action: Extract<
-    WorkbenchEphemeralPanelAction,
-    { readonly type: "select-slot" }
-  >,
+  action: Extract<WorkbenchEphemeralPanelAction, { readonly type: "select-slot" }>,
 ): WorkbenchEphemeralPanelState {
   const next = {
     ...state,
-    previewTabsByPanel: clearKeys(
-      state.previewTabsByPanel,
-      action.slotKeys,
-    ),
+    previewTabsByPanel: clearKeys(state.previewTabsByPanel, action.slotKeys),
   };
   for (const field of ACTIVE_SELECTION_FIELDS) {
     const cleared = clearKeys(state[field], action.slotKeys);
     next[field] =
-      field === action.activeField
-      && action.tabId
-      && action.slotKeys[0]
+      field === action.activeField && action.tabId && action.slotKeys[0]
         ? {
             ...cleared,
             [action.slotKeys[0]]: action.tabId,
@@ -296,10 +234,7 @@ function selectSlot(
 
 function removeEphemeralTab(
   state: WorkbenchEphemeralPanelState,
-  action: Extract<
-    WorkbenchEphemeralPanelAction,
-    { readonly type: "remove-ephemeral-tab" }
-  >,
+  action: Extract<WorkbenchEphemeralPanelAction, { readonly type: "remove-ephemeral-tab" }>,
 ): WorkbenchEphemeralPanelState {
   const currentTabs = state[action.tabsField][action.sessionId] ?? [];
   const activeSelection = state[action.activeField];
@@ -313,20 +248,15 @@ function removeEphemeralTab(
     ...state,
     [action.tabsField]: {
       ...state[action.tabsField],
-      [action.sessionId]: currentTabs.filter(
-        (tab) => tab.id !== action.tabId,
-      ),
+      [action.sessionId]: currentTabs.filter((tab) => tab.id !== action.tabId),
     },
     [action.activeField]: nextActiveSelection,
   };
   if (
-    action.planKey !== undefined
-    && state.activePlanKeyBySession[action.sessionId] === action.planKey
+    action.planKey !== undefined &&
+    state.activePlanKeyBySession[action.sessionId] === action.planKey
   ) {
-    next.activePlanKeyBySession = removeRecordKey(
-      state.activePlanKeyBySession,
-      action.sessionId,
-    );
+    next.activePlanKeyBySession = removeRecordKey(state.activePlanKeyBySession, action.sessionId);
   }
   return next;
 }
@@ -349,13 +279,10 @@ export function reduceWorkbenchEphemeralPanelState(
   }
 
   const previous = state[action.field];
-  const next = typeof action.update === "function"
-    ? (
-        action.update as (
-          value: typeof previous,
-        ) => typeof previous
-      )(previous)
-    : action.update;
+  const next =
+    typeof action.update === "function"
+      ? (action.update as (value: typeof previous) => typeof previous)(previous)
+      : action.update;
   if (Object.is(previous, next)) return state;
   return {
     ...state,

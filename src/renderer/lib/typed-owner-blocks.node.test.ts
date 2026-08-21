@@ -74,30 +74,37 @@ describe("typed owner block boundary", () => {
   });
 
   test("routes only one exact owner and rejects mixed or nested destructive selections", () => {
-    expect(resolveOwnerSelectionOperation(
-      [{ id: "page", type: "page" }],
-      "delete",
-    )).toEqual({
+    expect(resolveOwnerSelectionOperation([{ id: "page", type: "page" }], "delete")).toEqual({
       kind: "typed",
       block: { id: "page", type: "page" },
       route: "page_lifecycle",
     });
-    expect(resolveOwnerSelectionOperation(
-      [{ id: "reference", type: "pageRef" }],
-      "delete",
-    )).toEqual({ kind: "generic" });
-    expect(resolveOwnerSelectionOperation(
-      [{ id: "database", type: "database" }],
-      "delete",
-    )).toEqual({ kind: "forbidden", reason: "unsupported" });
-    expect(resolveOwnerSelectionOperation([
-      { id: "page", type: "page" },
-      { id: "text", type: "paragraph" },
-    ], "delete")).toEqual({ kind: "forbidden", reason: "mixed_selection" });
-    expect(resolveOwnerSelectionOperation([{
-      id: "parent",
-      type: "paragraph",
-      children: [{ id: "page", type: "page" }],
-    }], "delete")).toEqual({ kind: "forbidden", reason: "nested_owner" });
+    expect(
+      resolveOwnerSelectionOperation([{ id: "reference", type: "pageRef" }], "delete"),
+    ).toEqual({ kind: "generic" });
+    expect(
+      resolveOwnerSelectionOperation([{ id: "database", type: "database" }], "delete"),
+    ).toEqual({ kind: "forbidden", reason: "unsupported" });
+    expect(
+      resolveOwnerSelectionOperation(
+        [
+          { id: "page", type: "page" },
+          { id: "text", type: "paragraph" },
+        ],
+        "delete",
+      ),
+    ).toEqual({ kind: "forbidden", reason: "mixed_selection" });
+    expect(
+      resolveOwnerSelectionOperation(
+        [
+          {
+            id: "parent",
+            type: "paragraph",
+            children: [{ id: "page", type: "page" }],
+          },
+        ],
+        "delete",
+      ),
+    ).toEqual({ kind: "forbidden", reason: "nested_owner" });
   });
 });

@@ -1,7 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  type PageHistoryPage,
-} from "../shared/page-history";
+import { type PageHistoryPage } from "../shared/page-history";
 import type { PageHistoryCommandResult } from "../shared/page-history-transport";
 import {
   PAGE_HISTORY_LIST_IPC_CHANNEL,
@@ -23,10 +21,7 @@ describe("canonical Page history IPC", () => {
       | ((event: unknown, request: unknown) => Promise<PageHistoryCommandResult>)
       | undefined;
     let calls = 0;
-    const registerHandle: PageHistoryIpcDependencies["registerHandle"] = (
-      channel,
-      handler,
-    ) => {
+    const registerHandle: PageHistoryIpcDependencies["registerHandle"] = (channel, handler) => {
       expect(channel).toBe(PAGE_HISTORY_LIST_IPC_CHANNEL);
       listener = handler;
     };

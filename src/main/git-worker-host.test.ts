@@ -112,9 +112,7 @@ function liveSubscriptionRequest(id: string, subscriptionId: string) {
   };
 }
 
-function performanceOperation(
-  outcome: "stale" | "canceled" | "timed-out",
-) {
+function performanceOperation(outcome: "stale" | "canceled" | "timed-out") {
   return {
     type: "git-performance-operation" as const,
     workerId: "git" as const,
@@ -219,10 +217,7 @@ describe("GitWorkerHost", () => {
     });
     const first = new FakeRenderer(1);
     const second = new FakeRenderer(2);
-    host.handleRendererMessage(
-      first,
-      liveSubscriptionRequest("subscribe-1", "subscription-1"),
-    );
+    host.handleRendererMessage(first, liveSubscriptionRequest("subscribe-1", "subscription-1"));
     host.handleRendererMessage(second, request("second"));
     process.events.emit("message", {
       type: "worker-response",
@@ -367,10 +362,10 @@ describe("GitWorkerHost", () => {
 
     expect(performance).not.toHaveBeenCalled();
     expect(infrastructureError).toHaveBeenCalledTimes(1);
-    expect(infrastructureError).toHaveBeenCalledWith(
-      expect.any(Error),
-      { epoch: 1, phase: "protocol" },
-    );
+    expect(infrastructureError).toHaveBeenCalledWith(expect.any(Error), {
+      epoch: 1,
+      phase: "protocol",
+    });
     expect(process.terminated).toBe(true);
   });
 

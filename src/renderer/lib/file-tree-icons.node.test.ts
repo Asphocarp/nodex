@@ -38,9 +38,15 @@ describe("file tree icons", () => {
   });
 
   test("builds file-tree color fallback variable chains", () => {
-    expect(getFileTreeIconColor("typescript")).toBe("var(--trees-file-icon-color-typescript, var(--trees-file-icon-color, light-dark(#1a85d4, #69b1ff)))");
-    expect(getFileTreeIconColor("react")).toBe("var(--trees-file-icon-color-react, var(--trees-file-icon-color, light-dark(#1ca1c7, #68cdf2)))");
-    expect(getFileTreeIconColor("markdown")).toBe("var(--trees-file-icon-color-markdown, var(--trees-file-icon-color, light-dark(#199f43, #5ecc71)))");
+    expect(getFileTreeIconColor("typescript")).toBe(
+      "var(--trees-file-icon-color-typescript, var(--trees-file-icon-color, light-dark(#1a85d4, #69b1ff)))",
+    );
+    expect(getFileTreeIconColor("react")).toBe(
+      "var(--trees-file-icon-color-react, var(--trees-file-icon-color, light-dark(#1ca1c7, #68cdf2)))",
+    );
+    expect(getFileTreeIconColor("markdown")).toBe(
+      "var(--trees-file-icon-color-markdown, var(--trees-file-icon-color, light-dark(#199f43, #5ecc71)))",
+    );
     expect(getFileTreeIconColor("nextjs")).toBe("var(--color-token-text-tertiary)");
     expect(getFileTreeIconColor("stylelint")).toBe("var(--color-token-text-tertiary)");
   });

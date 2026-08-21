@@ -23,8 +23,7 @@ export const CODEX_THREAD_HANDOFF_PHASES = [
   "failed",
 ] as const;
 
-export type CodexThreadHandoffPhase =
-  (typeof CODEX_THREAD_HANDOFF_PHASES)[number];
+export type CodexThreadHandoffPhase = (typeof CODEX_THREAD_HANDOFF_PHASES)[number];
 
 export interface CodexThreadExecutionLocation {
   readonly hostId: string;
@@ -89,15 +88,17 @@ export interface CodexThreadHandoffJournalEntry {
 }
 
 const absolutePath = z.string().min(1).max(8_192).refine(path.isAbsolute);
-const locationSchema = z.object({
-  hostId: z.string().min(1).max(512),
-  cwd: absolutePath,
-  workspaceRoots: z.array(absolutePath).max(128),
-  managedWorktreePath: absolutePath.nullable(),
-  projectId: z.string().min(1).max(1_024).nullable(),
-  projectlessOutputDirectory: absolutePath.nullable(),
-  projectlessWorkspaceBrowserRoot: absolutePath.nullable(),
-}).strict();
+const locationSchema = z
+  .object({
+    hostId: z.string().min(1).max(512),
+    cwd: absolutePath,
+    workspaceRoots: z.array(absolutePath).max(128),
+    managedWorktreePath: absolutePath.nullable(),
+    projectId: z.string().min(1).max(1_024).nullable(),
+    projectlessOutputDirectory: absolutePath.nullable(),
+    projectlessWorkspaceBrowserRoot: absolutePath.nullable(),
+  })
+  .strict();
 const preparedCommon = {
   sourceBranch: z.string().min(1).max(1_024),
   sourceWorkspaceRoot: absolutePath,
@@ -106,82 +107,98 @@ const preparedCommon = {
   managedWorktreePath: absolutePath,
   warnings: z.array(z.string().max(64_000)).max(128),
 };
-const fileDescriptorSchema = z.object({
-  path: absolutePath,
-  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  size: z.number().int().nonnegative().max(2 * 1024 * 1024 * 1024),
-}).strict();
+const fileDescriptorSchema = z
+  .object({
+    path: absolutePath,
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    size: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(2 * 1024 * 1024 * 1024),
+  })
+  .strict();
 const preparedSchema = z.discriminatedUnion("direction", [
-  z.object({
-    direction: z.literal("to-worktree"),
-    ...preparedCommon,
-    localCheckoutBranch: z.string().min(1).max(1_024),
-    destinationBranch: z.string().min(1).max(1_024),
-    createdWorktree: z.literal(true),
-  }).strict(),
-  z.object({
-    direction: z.literal("to-checkout"),
-    ...preparedCommon,
-    localCheckoutPreviousBranch: z.string().min(1).max(1_024).nullable(),
-    createdWorktree: z.literal(false),
-  }).strict(),
-  z.object({
-    direction: z.literal("cross-host"),
-    ...preparedCommon,
-    sourceHostId: z.string().min(1).max(512),
-    destinationHostId: z.string().min(1).max(512),
-    transferId: z.string().regex(/^[a-f0-9]{32}$/u),
-    sourceManagedWorktreePath: absolutePath.nullable(),
-    createdWorktree: z.literal(true),
-    sourceRepositoryPath: absolutePath,
-    destinationRepositoryPath: absolutePath,
-    sourceTemporaryRef: z.string().min(1).max(1_024),
-    destinationTemporaryRef: z.string().min(1).max(1_024),
-    sourceStagingRoot: absolutePath,
-    destinationStagingRoot: absolutePath,
-    relayRoot: absolutePath,
-    sourceBundle: fileDescriptorSchema,
-    destinationBundle: fileDescriptorSchema,
-    sourceRollout: fileDescriptorSchema,
-    destinationRollout: fileDescriptorSchema,
-    destinationRolloutCreated: z.boolean(),
-  }).strict(),
+  z
+    .object({
+      direction: z.literal("to-worktree"),
+      ...preparedCommon,
+      localCheckoutBranch: z.string().min(1).max(1_024),
+      destinationBranch: z.string().min(1).max(1_024),
+      createdWorktree: z.literal(true),
+    })
+    .strict(),
+  z
+    .object({
+      direction: z.literal("to-checkout"),
+      ...preparedCommon,
+      localCheckoutPreviousBranch: z.string().min(1).max(1_024).nullable(),
+      createdWorktree: z.literal(false),
+    })
+    .strict(),
+  z
+    .object({
+      direction: z.literal("cross-host"),
+      ...preparedCommon,
+      sourceHostId: z.string().min(1).max(512),
+      destinationHostId: z.string().min(1).max(512),
+      transferId: z.string().regex(/^[a-f0-9]{32}$/u),
+      sourceManagedWorktreePath: absolutePath.nullable(),
+      createdWorktree: z.literal(true),
+      sourceRepositoryPath: absolutePath,
+      destinationRepositoryPath: absolutePath,
+      sourceTemporaryRef: z.string().min(1).max(1_024),
+      destinationTemporaryRef: z.string().min(1).max(1_024),
+      sourceStagingRoot: absolutePath,
+      destinationStagingRoot: absolutePath,
+      relayRoot: absolutePath,
+      sourceBundle: fileDescriptorSchema,
+      destinationBundle: fileDescriptorSchema,
+      sourceRollout: fileDescriptorSchema,
+      destinationRollout: fileDescriptorSchema,
+      destinationRolloutCreated: z.boolean(),
+    })
+    .strict(),
 ]);
-const entrySchema = z.object({
-  schemaVersion: z.literal(JOURNAL_SCHEMA_VERSION),
-  operationId: z.string().min(1).max(1_024),
-  threadId: z.string().min(1).max(1_024),
-  phase: z.enum(CODEX_THREAD_HANDOFF_PHASES),
-  source: locationSchema,
-  requestedDestinationHostId: z.string().min(1).max(512).nullable().default(null),
-  destination: locationSchema.nullable(),
-  prepared: preparedSchema.nullable(),
-  runtimeSwitched: z.boolean(),
-  coreCommitted: z.boolean(),
-  followUpPrompt: z.string().max(64_000).nullable(),
-  followUpDispatchStarted: z.boolean(),
-  warnings: z.array(z.string().max(64_000)).max(128),
-  lastError: z.string().max(64_000).nullable(),
-  failedPhase: z.enum(CODEX_THREAD_HANDOFF_PHASES).nullable(),
-  createdAt: z.number().int().nonnegative(),
-  updatedAt: z.number().int().nonnegative(),
-  completedAt: z.number().int().nonnegative().nullable(),
-}).strict();
-const journalSchema = z.object({
-  schemaVersion: z.literal(JOURNAL_SCHEMA_VERSION),
-  entries: z.array(entrySchema).max(JOURNAL_MAX_ENTRIES),
-}).strict();
+const entrySchema = z
+  .object({
+    schemaVersion: z.literal(JOURNAL_SCHEMA_VERSION),
+    operationId: z.string().min(1).max(1_024),
+    threadId: z.string().min(1).max(1_024),
+    phase: z.enum(CODEX_THREAD_HANDOFF_PHASES),
+    source: locationSchema,
+    requestedDestinationHostId: z.string().min(1).max(512).nullable().default(null),
+    destination: locationSchema.nullable(),
+    prepared: preparedSchema.nullable(),
+    runtimeSwitched: z.boolean(),
+    coreCommitted: z.boolean(),
+    followUpPrompt: z.string().max(64_000).nullable(),
+    followUpDispatchStarted: z.boolean(),
+    warnings: z.array(z.string().max(64_000)).max(128),
+    lastError: z.string().max(64_000).nullable(),
+    failedPhase: z.enum(CODEX_THREAD_HANDOFF_PHASES).nullable(),
+    createdAt: z.number().int().nonnegative(),
+    updatedAt: z.number().int().nonnegative(),
+    completedAt: z.number().int().nonnegative().nullable(),
+  })
+  .strict();
+const journalSchema = z
+  .object({
+    schemaVersion: z.literal(JOURNAL_SCHEMA_VERSION),
+    entries: z.array(entrySchema).max(JOURNAL_MAX_ENTRIES),
+  })
+  .strict();
 
 function isMissing(error: unknown): boolean {
-  return error instanceof Error
-    && "code" in error
-    && error.code === "ENOENT";
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 function isTerminal(entry: CodexThreadHandoffJournalEntry): boolean {
-  return entry.phase === "completed"
-    || entry.phase === "completed-with-warning"
-    || entry.phase === "failed";
+  return (
+    entry.phase === "completed" ||
+    entry.phase === "completed-with-warning" ||
+    entry.phase === "failed"
+  );
 }
 
 export class CodexThreadHandoffJournalStore {
@@ -196,9 +213,7 @@ export class CodexThreadHandoffJournalStore {
 
   async list(): Promise<readonly CodexThreadHandoffJournalEntry[]> {
     await this.#load();
-    return [...this.#entries.values()].sort((left, right) =>
-      left.createdAt - right.createdAt
-    );
+    return [...this.#entries.values()].sort((left, right) => left.createdAt - right.createdAt);
   }
 
   async get(operationId: string): Promise<CodexThreadHandoffJournalEntry | null> {
@@ -244,20 +259,26 @@ export class CodexThreadHandoffJournalStore {
 
   async #persist(): Promise<void> {
     const operation = async (): Promise<void> => {
-      const entries = [...this.#entries.values()]
-        .sort((left, right) => right.updatedAt - left.updatedAt);
+      const entries = [...this.#entries.values()].sort(
+        (left, right) => right.updatedAt - left.updatedAt,
+      );
       const active = entries.filter((entry) => !isTerminal(entry));
       const terminal = entries
         .filter(isTerminal)
         .slice(0, Math.max(0, JOURNAL_MAX_ENTRIES - active.length));
-      const retained = [...active, ...terminal]
-        .sort((left, right) => left.createdAt - right.createdAt);
+      const retained = [...active, ...terminal].sort(
+        (left, right) => left.createdAt - right.createdAt,
+      );
       this.#entries.clear();
       for (const entry of retained) this.#entries.set(entry.operationId, entry);
-      await writeDurableJson(this.filePath, {
-        schemaVersion: JOURNAL_SCHEMA_VERSION,
-        entries: retained,
-      }, JOURNAL_MAX_BYTES);
+      await writeDurableJson(
+        this.filePath,
+        {
+          schemaVersion: JOURNAL_SCHEMA_VERSION,
+          entries: retained,
+        },
+        JOURNAL_MAX_BYTES,
+      );
     };
     const result = this.#writeTail.then(operation, operation);
     this.#writeTail = result.catch(() => undefined);
@@ -274,8 +295,6 @@ export class CodexThreadHandoffJournalStore {
   }
 }
 
-export function resolveCodexThreadHandoffJournalPath(
-  runtimeStateHome: string,
-): string {
+export function resolveCodexThreadHandoffJournalPath(runtimeStateHome: string): string {
   return path.join(runtimeStateHome, "recovery", "thread-handoffs-v1.json");
 }

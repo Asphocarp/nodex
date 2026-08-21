@@ -1,7 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  ThreadStageDevStoryPage,
-} from "./thread-stage-dev-story";
+import { ThreadStageDevStoryPage } from "./thread-stage-dev-story";
 import { THREAD_STAGE_STORY_DEFAULT_PRESET } from "./thread-stage-story-fixtures";
 
 const meta = {
@@ -111,7 +109,8 @@ export const WorktreeStartupTruncated: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The live worktree setup panel keeps the newest bounded output and reports that earlier output was omitted.",
+        story:
+          "The live worktree setup panel keeps the newest bounded output and reports that earlier output was omitted.",
       },
     },
   },

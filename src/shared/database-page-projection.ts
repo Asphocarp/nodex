@@ -27,10 +27,7 @@ import {
 import type { AuthorizedReadStamp } from "./authorized-read-stamp";
 import { stableStringifyDatabaseJson } from "./database-kernel";
 import { toDatabasePageSummary } from "./page-summary";
-import {
-  WORKFLOW_STATUS_COLUMNS,
-  isWorkflowStatus,
-} from "./workflow-status";
+import { WORKFLOW_STATUS_COLUMNS, isWorkflowStatus } from "./workflow-status";
 import { isPriority } from "./priority";
 import { assertValidPageInput } from "./page-input-validation";
 import { projectCoreDatabaseQueryRow } from "./core-database-row-projection";
@@ -39,8 +36,7 @@ import { parseDataSourceOptionId } from "./database-identities";
 type CoreDatabaseRowDetail = components["schemas"]["DatabaseRowDetail"];
 type CoreDatabaseRowSummary = components["schemas"]["DatabaseRowSummary"];
 type CoreDatabaseViewWindow = components["schemas"]["DatabaseViewWindow"];
-type CoreDataSourceQueryWindow =
-  components["schemas"]["DatabaseDataSourceQueryWindow"];
+type CoreDataSourceQueryWindow = components["schemas"]["DatabaseDataSourceQueryWindow"];
 
 const INTRINSIC_PROPERTY_KEYS = [
   "run.target",
@@ -55,11 +51,7 @@ const INTRINSIC_PROPERTY_KEYS = [
 ] as const;
 
 const ESTIMATES = new Set<Estimate>(["xs", "s", "m", "l", "xl"]);
-const RUN_TARGETS = new Set<PageRunInTarget>([
-  "localProject",
-  "newWorktree",
-  "cloud",
-]);
+const RUN_TARGETS = new Set<PageRunInTarget>(["localProject", "newWorktree", "cloud"]);
 const UNPOSITIONED_PAGE_ORDER = Number.MAX_SAFE_INTEGER;
 
 type DatabasePropertyId =
@@ -84,11 +76,7 @@ export class DatabasePageProjectionError extends Error {
   }
 }
 
-const fail = (
-  pageId: string,
-  message: string,
-  options?: ErrorOptions,
-): never => {
+const fail = (pageId: string, message: string, options?: ErrorOptions): never => {
   throw new DatabasePageProjectionError(pageId, message, options);
 };
 
@@ -110,10 +98,7 @@ const indexIntrinsicProperties = (
   const indexed = new Map<string, PageIntrinsicPropertyValueV2>();
   for (const property of row.intrinsicProperties) {
     if (indexed.has(property.key)) {
-      return fail(
-        row.page.pageId,
-        `repeats intrinsic Property ${property.key}`,
-      );
+      return fail(row.page.pageId, `repeats intrinsic Property ${property.key}`);
     }
     indexed.set(property.key, property);
   }
@@ -164,42 +149,31 @@ const requireStringArray = (
 };
 
 const readTagOptionIds = (row: DataSourcePageRowV2): string[] =>
-  [...requireStringArray(
-    row,
-    "Database Property tags",
-    requireDatabaseValue(row, "tags"),
-  )].map((optionId) => {
-    try {
-      return parseDataSourceOptionId({ propertyId: "tags", value: optionId });
-    } catch (cause) {
-      return fail(row.page.pageId, "has an invalid tag option identity", { cause });
-    }
-  }).sort((left, right) => left.localeCompare(right));
+  [...requireStringArray(row, "Database Property tags", requireDatabaseValue(row, "tags"))]
+    .map((optionId) => {
+      try {
+        return parseDataSourceOptionId({ propertyId: "tags", value: optionId });
+      } catch (cause) {
+        return fail(row.page.pageId, "has an invalid tag option identity", { cause });
+      }
+    })
+    .sort((left, right) => left.localeCompare(right));
 
-const readPriority = (
-  row: DataSourcePageRowV2,
-  value: unknown,
-): Priority | undefined => {
+const readPriority = (row: DataSourcePageRowV2, value: unknown): Priority | undefined => {
   const candidate = nullableString(row, "Database Property priority", value);
   if (candidate === undefined) return undefined;
   if (isPriority(candidate)) return candidate;
   return fail(row.page.pageId, "has an invalid priority");
 };
 
-const readEstimate = (
-  row: DataSourcePageRowV2,
-  value: unknown,
-): Estimate | undefined => {
+const readEstimate = (row: DataSourcePageRowV2, value: unknown): Estimate | undefined => {
   const candidate = nullableString(row, "Database Property estimate", value);
   if (candidate === undefined) return undefined;
   if (ESTIMATES.has(candidate as Estimate)) return candidate as Estimate;
   return fail(row.page.pageId, "has an invalid estimate");
 };
 
-const readRunTarget = (
-  row: DataSourcePageRowV2,
-  value: unknown,
-): PageRunInTarget => {
+const readRunTarget = (row: DataSourcePageRowV2, value: unknown): PageRunInTarget => {
   const candidate = nullableString(row, "intrinsic Property run.target", value);
   if (candidate && RUN_TARGETS.has(candidate as PageRunInTarget)) {
     return candidate as PageRunInTarget;
@@ -207,39 +181,24 @@ const readRunTarget = (
   return fail(row.page.pageId, "has an invalid run target");
 };
 
-const readRecurrence = (
-  row: DataSourcePageRowV2,
-  value: unknown,
-): RecurrenceConfig | undefined => {
+const readRecurrence = (row: DataSourcePageRowV2, value: unknown): RecurrenceConfig | undefined => {
   if (value === null) return undefined;
   if (typeof value === "object" && !Array.isArray(value)) {
     return value as RecurrenceConfig;
   }
-  return fail(
-    row.page.pageId,
-    "intrinsic Property recurrence.config must be an object or null",
-  );
+  return fail(row.page.pageId, "intrinsic Property recurrence.config must be an object or null");
 };
 
-const readReminders = (
-  row: DataSourcePageRowV2,
-  value: unknown,
-): ReminderConfig[] => {
+const readReminders = (row: DataSourcePageRowV2, value: unknown): ReminderConfig[] => {
   if (
-    Array.isArray(value)
-    && value.every(
-      (item) =>
-        typeof item === "object"
-        && item !== null
-        && typeof item.offsetMinutes === "number",
+    Array.isArray(value) &&
+    value.every(
+      (item) => typeof item === "object" && item !== null && typeof item.offsetMinutes === "number",
     )
   ) {
     return value as ReminderConfig[];
   }
-  return fail(
-    row.page.pageId,
-    "intrinsic Property reminders.config must be an array of reminders",
-  );
+  return fail(row.page.pageId, "intrinsic Property reminders.config must be an array of reminders");
 };
 
 const requireCoreDatabaseValue = (
@@ -295,69 +254,38 @@ const coreOptionalDate = (
   return fail(row.page_id, `${label} is not a valid date`);
 };
 
-const coreStringArray = (
-  row: CoreDatabaseRowSummary,
-  label: string,
-  value: unknown,
-): string[] => {
+const coreStringArray = (row: CoreDatabaseRowSummary, label: string, value: unknown): string[] => {
   if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
     return [...value].sort((left, right) => left.localeCompare(right));
   }
   return fail(row.page_id, `${label} must be an array of strings`);
 };
 
-const coreTagOptionIds = (
-  row: CoreDatabaseRowSummary,
-  value: unknown,
-): string[] => coreStringArray(
-  row,
-  "Database Property tags",
-  value,
-).map((optionId) => {
-  try {
-    return parseDataSourceOptionId({ propertyId: "tags", value: optionId });
-  } catch (cause) {
-    return fail(row.page_id, "has an invalid tag option identity", { cause });
-  }
-});
+const coreTagOptionIds = (row: CoreDatabaseRowSummary, value: unknown): string[] =>
+  coreStringArray(row, "Database Property tags", value).map((optionId) => {
+    try {
+      return parseDataSourceOptionId({ propertyId: "tags", value: optionId });
+    } catch (cause) {
+      return fail(row.page_id, "has an invalid tag option identity", { cause });
+    }
+  });
 
-const corePriority = (
-  row: CoreDatabaseRowSummary,
-  value: unknown,
-): Priority | undefined => {
-  const candidate = coreNullableString(
-    row,
-    "Database Property priority",
-    value,
-  );
+const corePriority = (row: CoreDatabaseRowSummary, value: unknown): Priority | undefined => {
+  const candidate = coreNullableString(row, "Database Property priority", value);
   if (candidate === undefined) return undefined;
   if (isPriority(candidate)) return candidate;
   return fail(row.page_id, "has an invalid priority");
 };
 
-const coreEstimate = (
-  row: CoreDatabaseRowSummary,
-  value: unknown,
-): Estimate | undefined => {
-  const candidate = coreNullableString(
-    row,
-    "Database Property estimate",
-    value,
-  );
+const coreEstimate = (row: CoreDatabaseRowSummary, value: unknown): Estimate | undefined => {
+  const candidate = coreNullableString(row, "Database Property estimate", value);
   if (candidate === undefined) return undefined;
   if (ESTIMATES.has(candidate as Estimate)) return candidate as Estimate;
   return fail(row.page_id, "has an invalid estimate");
 };
 
-const coreRunTarget = (
-  row: CoreDatabaseRowSummary,
-  value: unknown,
-): PageRunInTarget => {
-  const candidate = coreNullableString(
-    row,
-    "intrinsic Property run.target",
-    value,
-  );
+const coreRunTarget = (row: CoreDatabaseRowSummary, value: unknown): PageRunInTarget => {
+  const candidate = coreNullableString(row, "intrinsic Property run.target", value);
   if (candidate && RUN_TARGETS.has(candidate as PageRunInTarget)) {
     return candidate as PageRunInTarget;
   }
@@ -372,31 +300,19 @@ const coreRecurrence = (
   if (typeof value === "object" && !Array.isArray(value)) {
     return value as RecurrenceConfig;
   }
-  return fail(
-    row.page_id,
-    "intrinsic Property recurrence.config must be an object or null",
-  );
+  return fail(row.page_id, "intrinsic Property recurrence.config must be an object or null");
 };
 
-const coreReminders = (
-  row: CoreDatabaseRowSummary,
-  value: unknown,
-): ReminderConfig[] => {
+const coreReminders = (row: CoreDatabaseRowSummary, value: unknown): ReminderConfig[] => {
   if (
-    Array.isArray(value)
-    && value.every(
-      (item) =>
-        typeof item === "object"
-        && item !== null
-        && typeof item.offsetMinutes === "number",
+    Array.isArray(value) &&
+    value.every(
+      (item) => typeof item === "object" && item !== null && typeof item.offsetMinutes === "number",
     )
   ) {
     return value as ReminderConfig[];
   }
-  return fail(
-    row.page_id,
-    "intrinsic Property reminders.config must be an array of reminders",
-  );
+  return fail(row.page_id, "intrinsic Property reminders.config must be an array of reminders");
 };
 
 export const projectCoreDatabaseRowSummary = (
@@ -412,10 +328,7 @@ export const projectCoreDatabaseRowSummary = (
   }
   const isAllDay = requireCoreIntrinsicValue(row, "schedule.isAllDay");
   if (typeof isAllDay !== "boolean") {
-    return fail(
-      row.page_id,
-      "intrinsic Property schedule.isAllDay must be a boolean",
-    );
+    return fail(row.page_id, "intrinsic Property schedule.isAllDay must be a boolean");
   }
   const page: DatabasePageSummary = {
     id: row.page_id,
@@ -446,14 +359,8 @@ export const projectCoreDatabaseRowSummary = (
       coreDatabaseValueOr(row, "scheduled_end", null),
     ),
     isAllDay,
-    recurrence: coreRecurrence(
-      row,
-      requireCoreIntrinsicValue(row, "recurrence.config"),
-    ),
-    reminders: coreReminders(
-      row,
-      requireCoreIntrinsicValue(row, "reminders.config"),
-    ),
+    recurrence: coreRecurrence(row, requireCoreIntrinsicValue(row, "recurrence.config")),
+    reminders: coreReminders(row, requireCoreIntrinsicValue(row, "reminders.config")),
     scheduleTimezone: coreNullableString(
       row,
       "intrinsic Property schedule.timezone",
@@ -464,10 +371,7 @@ export const projectCoreDatabaseRowSummary = (
       "Database Property assignee",
       coreDatabaseValueOr(row, "assignee", null),
     ),
-    runInTarget: coreRunTarget(
-      row,
-      requireCoreIntrinsicValue(row, "run.target"),
-    ),
+    runInTarget: coreRunTarget(row, requireCoreIntrinsicValue(row, "run.target")),
     runInLocalPath: coreNullableString(
       row,
       "intrinsic Property run.localPath",
@@ -493,24 +397,27 @@ export const projectCoreDatabaseRowSummary = (
     order,
   };
   try {
-    assertValidPageInput({
-      priority: page.priority,
-      estimate: page.estimate,
-      tags: page.tags,
-      dueDate: page.dueDate,
-      scheduledStart: page.scheduledStart,
-      scheduledEnd: page.scheduledEnd,
-      isAllDay: page.isAllDay,
-      recurrence: page.recurrence,
-      reminders: page.reminders,
-      scheduleTimezone: page.scheduleTimezone,
-      assignee: page.assignee,
-      runInTarget: page.runInTarget,
-      runInLocalPath: page.runInLocalPath,
-      runInBaseBranch: page.runInBaseBranch,
-      runInWorktreePath: page.runInWorktreePath,
-      runInEnvironmentPath: page.runInEnvironmentPath,
-    }, "update");
+    assertValidPageInput(
+      {
+        priority: page.priority,
+        estimate: page.estimate,
+        tags: page.tags,
+        dueDate: page.dueDate,
+        scheduledStart: page.scheduledStart,
+        scheduledEnd: page.scheduledEnd,
+        isAllDay: page.isAllDay,
+        recurrence: page.recurrence,
+        reminders: page.reminders,
+        scheduleTimezone: page.scheduleTimezone,
+        assignee: page.assignee,
+        runInTarget: page.runInTarget,
+        runInLocalPath: page.runInLocalPath,
+        runInBaseBranch: page.runInBaseBranch,
+        runInWorktreePath: page.runInWorktreePath,
+        runInEnvironmentPath: page.runInEnvironmentPath,
+      },
+      "update",
+    );
   } catch (error) {
     return fail(row.page_id, "has invalid relational metadata", {
       cause: error,
@@ -525,9 +432,8 @@ export const projectCoreDatabaseRowSummaries = (
   const nextOrderByStatus = new Map<string, number>();
   return rows.map((row) => {
     const status = row.database_values.status;
-    const order = typeof status === "string"
-      ? nextOrderByStatus.get(status) ?? 0
-      : UNPOSITIONED_PAGE_ORDER;
+    const order =
+      typeof status === "string" ? (nextOrderByStatus.get(status) ?? 0) : UNPOSITIONED_PAGE_ORDER;
     if (typeof status === "string") {
       nextOrderByStatus.set(status, order + 1);
     }
@@ -551,11 +457,13 @@ export const projectCoreDatabaseViewQuery = (
     dataSource: sourceDescriptor.dataSource,
     view,
     properties: sourceDescriptor.properties,
-    rows: window.rows.items.map((row) => projectCoreDatabaseQueryRow(row, {
-      libraryId,
-      dataSourceId: sourceDescriptor.dataSource.dataSourceId,
-      properties: sourceDescriptor.properties,
-    })),
+    rows: window.rows.items.map((row) =>
+      projectCoreDatabaseQueryRow(row, {
+        libraryId,
+        dataSourceId: sourceDescriptor.dataSource.dataSourceId,
+        properties: sourceDescriptor.properties,
+      }),
+    ),
   };
 };
 
@@ -569,11 +477,13 @@ export const projectCoreDataSourceQuery = (
   database: databaseDescriptor.database,
   dataSource: sourceDescriptor.dataSource,
   properties: sourceDescriptor.properties,
-  rows: window.rows.items.map((row) => projectCoreDatabaseQueryRow(row, {
-    libraryId,
-    dataSourceId: sourceDescriptor.dataSource.dataSourceId,
-    properties: sourceDescriptor.properties,
-  })),
+  rows: window.rows.items.map((row) =>
+    projectCoreDatabaseQueryRow(row, {
+      libraryId,
+      dataSourceId: sourceDescriptor.dataSource.dataSourceId,
+      properties: sourceDescriptor.properties,
+    }),
+  ),
 });
 
 export const projectCoreDatabaseViewBoard = (
@@ -588,9 +498,7 @@ export const projectCoreDatabaseViewBoard = (
   };
 };
 
-export const projectCoreDatabaseRowDetail = (
-  detail: CoreDatabaseRowDetail,
-): DatabasePage => ({
+export const projectCoreDatabaseRowDetail = (detail: CoreDatabaseRowDetail): DatabasePage => ({
   ...projectCoreDatabaseRowSummary(detail.summary),
   description: detail.body_nfm,
 });
@@ -610,16 +518,9 @@ export const projectDatabasePage = (
   for (const key of INTRINSIC_PROPERTY_KEYS) {
     requireIntrinsicValue(row, intrinsic, key);
   }
-  const isAllDay = requireIntrinsicValue(
-    row,
-    intrinsic,
-    "schedule.isAllDay",
-  );
+  const isAllDay = requireIntrinsicValue(row, intrinsic, "schedule.isAllDay");
   if (typeof isAllDay !== "boolean") {
-    return fail(
-      row.page.pageId,
-      "intrinsic Property schedule.isAllDay must be a boolean",
-    );
+    return fail(row.page.pageId, "intrinsic Property schedule.isAllDay must be a boolean");
   }
 
   const page: DatabasePage = {
@@ -633,11 +534,7 @@ export const projectDatabasePage = (
     priority: readPriority(row, requireDatabaseValue(row, "priority")),
     estimate: readEstimate(row, requireDatabaseValue(row, "estimate")),
     tags: readTagOptionIds(row),
-    dueDate: optionalDate(
-      row,
-      "Database Property due_date",
-      requireDatabaseValue(row, "due_date"),
-    ),
+    dueDate: optionalDate(row, "Database Property due_date", requireDatabaseValue(row, "due_date")),
     scheduledStart: optionalDate(
       row,
       "Database Property scheduled_start",
@@ -649,14 +546,8 @@ export const projectDatabasePage = (
       requireDatabaseValue(row, "scheduled_end"),
     ),
     isAllDay,
-    recurrence: readRecurrence(
-      row,
-      requireIntrinsicValue(row, intrinsic, "recurrence.config"),
-    ),
-    reminders: readReminders(
-      row,
-      requireIntrinsicValue(row, intrinsic, "reminders.config"),
-    ),
+    recurrence: readRecurrence(row, requireIntrinsicValue(row, intrinsic, "recurrence.config")),
+    reminders: readReminders(row, requireIntrinsicValue(row, intrinsic, "reminders.config")),
     scheduleTimezone: nullableString(
       row,
       "intrinsic Property schedule.timezone",
@@ -667,10 +558,7 @@ export const projectDatabasePage = (
       "Database Property assignee",
       requireDatabaseValue(row, "assignee"),
     ),
-    runInTarget: readRunTarget(
-      row,
-      requireIntrinsicValue(row, intrinsic, "run.target"),
-    ),
+    runInTarget: readRunTarget(row, requireIntrinsicValue(row, intrinsic, "run.target")),
     runInLocalPath: nullableString(
       row,
       "intrinsic Property run.localPath",
@@ -696,24 +584,27 @@ export const projectDatabasePage = (
     order,
   };
   try {
-    assertValidPageInput({
-      priority: page.priority,
-      estimate: page.estimate,
-      tags: page.tags,
-      dueDate: page.dueDate,
-      scheduledStart: page.scheduledStart,
-      scheduledEnd: page.scheduledEnd,
-      isAllDay: page.isAllDay,
-      recurrence: page.recurrence,
-      reminders: page.reminders,
-      scheduleTimezone: page.scheduleTimezone,
-      assignee: page.assignee,
-      runInTarget: page.runInTarget,
-      runInLocalPath: page.runInLocalPath,
-      runInBaseBranch: page.runInBaseBranch,
-      runInWorktreePath: page.runInWorktreePath,
-      runInEnvironmentPath: page.runInEnvironmentPath,
-    }, "update");
+    assertValidPageInput(
+      {
+        priority: page.priority,
+        estimate: page.estimate,
+        tags: page.tags,
+        dueDate: page.dueDate,
+        scheduledStart: page.scheduledStart,
+        scheduledEnd: page.scheduledEnd,
+        isAllDay: page.isAllDay,
+        recurrence: page.recurrence,
+        reminders: page.reminders,
+        scheduleTimezone: page.scheduleTimezone,
+        assignee: page.assignee,
+        runInTarget: page.runInTarget,
+        runInLocalPath: page.runInLocalPath,
+        runInBaseBranch: page.runInBaseBranch,
+        runInWorktreePath: page.runInWorktreePath,
+        runInEnvironmentPath: page.runInEnvironmentPath,
+      },
+      "update",
+    );
   } catch (error) {
     return fail(row.page.pageId, "has invalid relational metadata", {
       cause: error,
@@ -728,9 +619,8 @@ export const projectDatabaseQueryPages = (
   const nextOrderByStatus = new Map<string, number>();
   return query.rows.map((row) => {
     const status = requireDatabaseValue(row, "status");
-    const order = typeof status === "string"
-      ? nextOrderByStatus.get(status) ?? 0
-      : UNPOSITIONED_PAGE_ORDER;
+    const order =
+      typeof status === "string" ? (nextOrderByStatus.get(status) ?? 0) : UNPOSITIONED_PAGE_ORDER;
     if (typeof status === "string") {
       nextOrderByStatus.set(status, order + 1);
     }
@@ -740,8 +630,7 @@ export const projectDatabaseQueryPages = (
 
 export const projectDatabasePageSummaries = (
   query: DatabaseViewQueryResultV2,
-): readonly DatabasePageSummary[] =>
-  projectDatabaseQueryPages(query).map(toDatabasePageSummary);
+): readonly DatabasePageSummary[] => projectDatabaseQueryPages(query).map(toDatabasePageSummary);
 
 export const projectDatabaseViewReference = (
   query: DatabaseViewQueryResultV2,
@@ -760,14 +649,12 @@ export const projectDatabaseViewReference = (
     view: {
       id: query.view.viewId,
       databaseBlockId: query.view.databaseId,
-      projectId: input.accessContext.kind === "project"
-        ? input.accessContext.projectId
-        : null,
+      projectId: input.accessContext.kind === "project" ? input.accessContext.projectId : null,
       name: query.view.name,
       defaultLayout: query.view.defaultLayout,
-      config: JSON.parse(
-        stableStringifyDatabaseJson(query.view.config),
-      ) as Readonly<Record<string, DatabaseViewJsonValue>>,
+      config: JSON.parse(stableStringifyDatabaseJson(query.view.config)) as Readonly<
+        Record<string, DatabaseViewJsonValue>
+      >,
       isPrimary: query.database.defaultViewId === query.view.viewId,
       createdAt: query.view.createdAt,
       updatedAt: query.view.updatedAt,
@@ -775,10 +662,7 @@ export const projectDatabaseViewReference = (
     rows: query.rows.map((row, index) => {
       const page = summaries[index];
       if (!page) {
-        return fail(
-          row.page.pageId,
-          `is unavailable in Database View ${query.view.viewId}`,
-        );
+        return fail(row.page.pageId, `is unavailable in Database View ${query.view.viewId}`);
       }
       return {
         page,

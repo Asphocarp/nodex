@@ -9,13 +9,7 @@ import {
 import { useState } from "react";
 import { useContextualKeyboardActionTarget } from "./use-contextual-keyboard-action-target";
 
-function TargetHarness({
-  version,
-  calls,
-}: {
-  readonly version: string;
-  readonly calls: string[];
-}) {
+function TargetHarness({ version, calls }: { readonly version: string; readonly calls: string[] }) {
   useContextualKeyboardActionTarget({
     surfaceId: "board",
     presentationId: "tab",

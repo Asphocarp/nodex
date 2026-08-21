@@ -78,15 +78,18 @@ function makeHarness() {
 }
 
 function sourceScene() {
-  const empty = materializeInitialWorkbenchScene({
-    kind: "session",
-    sessionId: "session-source",
-  }, {
-    touchedAt: "2026-07-23T00:00:00.000Z",
-    identityFactory: {
-      createId: (kind) => `${kind}:seed`,
+  const empty = materializeInitialWorkbenchScene(
+    {
+      kind: "session",
+      sessionId: "session-source",
     },
-  });
+    {
+      touchedAt: "2026-07-23T00:00:00.000Z",
+      identityFactory: {
+        createId: (kind) => `${kind}:seed`,
+      },
+    },
+  );
   const withTab = createWorkbenchSceneSurface(empty, {
     panelId: "right",
     surface: {
@@ -149,11 +152,13 @@ describe("createCodexForkBrowserSnapshotAdapter", () => {
     expect(applied?.targetBrowserViewScopeId).toBe("window-target");
     expect(applied?.tabs[0]?.tabId).not.toBe("view-browser");
     expect(applied?.tabs[0]?.browserTabId).not.toBe("runtime-browser");
-    expect(runtime.openClonedBrowserTab).toHaveBeenCalledWith(expect.objectContaining({
-      browserConversationId: "session-target",
-      browserViewScopeId: "window-target",
-      initialUrl: "https://example.com",
-    }));
+    expect(runtime.openClonedBrowserTab).toHaveBeenCalledWith(
+      expect.objectContaining({
+        browserConversationId: "session-target",
+        browserViewScopeId: "window-target",
+        initialUrl: "https://example.com",
+      }),
+    );
   });
 
   test("rejects a target whose Session identity does not match the rebased conversation", async () => {
@@ -162,10 +167,12 @@ describe("createCodexForkBrowserSnapshotAdapter", () => {
       browserViewScopeId: "window-source",
       scene: sourceScene(),
     });
-    await expect(adapter.apply(captured, {
-      targetBrowserViewScopeId: "window-target",
-      targetConversationId: "thread-target",
-      targetProjectSessionId: "session-target",
-    })).rejects.toThrow("identity is not stable");
+    await expect(
+      adapter.apply(captured, {
+        targetBrowserViewScopeId: "window-target",
+        targetConversationId: "thread-target",
+        targetProjectSessionId: "session-target",
+      }),
+    ).rejects.toThrow("identity is not stable");
   });
 });

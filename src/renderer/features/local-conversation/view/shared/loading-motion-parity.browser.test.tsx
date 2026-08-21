@@ -7,11 +7,7 @@ import { ActivitySpinnerIcon } from "@/components/shared/icons";
 import { LoadingPlaceholder } from "@/components/ui/loading-placeholder";
 import { LoadingResultsShimmer } from "@/components/ui/loading-results-shimmer";
 import { NodexLogoShimmer } from "@/components/ui/nodex-logo-shimmer";
-import {
-  createMaitaiStore,
-  disposeMaitaiStore,
-  MaitaiProvider,
-} from "@/lib/maitai";
+import { createMaitaiStore, disposeMaitaiStore, MaitaiProvider } from "@/lib/maitai";
 import { REDUCED_MOTION_STORAGE_KEY } from "@/lib/reduced-motion";
 import { ReducedMotionProvider } from "@/lib/use-reduced-motion";
 import { readLoadingAnimations } from "@/test/loading-motion";
@@ -76,9 +72,7 @@ describe("loading motion parity in Chromium", () => {
   });
 
   test("runs the cadenced two-transform burst and tears it down between bursts", async () => {
-    const view = render(
-      <CodexShimmerText data-testid="cadenced">Running checks</CodexShimmerText>,
-    );
+    const view = render(<CodexShimmerText data-testid="cadenced">Running checks</CodexShimmerText>);
     const root = view.getByTestId("cadenced");
     expect(readLoadingAnimations(root)).toEqual([]);
 
@@ -89,9 +83,9 @@ describe("loading motion parity in Chromium", () => {
     expect(burst).toHaveLength(2);
     expect(burst.every((animation) => animation.durationMs === 1_000)).toBe(true);
     expect(burst.every((animation) => animation.iterationCount === 1)).toBe(true);
-    expect(burst.every((animation) => (
-      animation.animatedProperties.join(",") === "transform"
-    ))).toBe(true);
+    expect(burst.every((animation) => animation.animatedProperties.join(",") === "transform")).toBe(
+      true,
+    );
 
     await act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 1_050));
@@ -109,10 +103,7 @@ describe("loading motion parity in Chromium", () => {
 
     await waitFor(() => expect(readLoadingAnimations(root)).toHaveLength(1));
     const animation = readLoadingAnimations(root)[0];
-    expect(animation?.animatedProperties).toEqual([
-      "backgroundPositionX",
-      "backgroundPositionY",
-    ]);
+    expect(animation?.animatedProperties).toEqual(["backgroundPositionX", "backgroundPositionY"]);
     expect(animation?.durationMs).toBe(2_000);
     expect(animation?.iterationCount).toBe(Number.POSITIVE_INFINITY);
   });
@@ -126,12 +117,9 @@ describe("loading motion parity in Chromium", () => {
     );
     try {
       await waitFor(() => {
-        expect(readLoadingAnimations(active.getByTestId("spinner-root")))
-          .toHaveLength(1);
+        expect(readLoadingAnimations(active.getByTestId("spinner-root"))).toHaveLength(1);
       });
-      const animation = readLoadingAnimations(
-        active.getByTestId("spinner-root"),
-      )[0];
+      const animation = readLoadingAnimations(active.getByTestId("spinner-root"))[0];
       expect(animation?.animatedProperties).toEqual(["transform"]);
       expect(animation?.iterationCount).toBe(Number.POSITIVE_INFINITY);
       expect(animation?.hiddenByAncestor).toBe(false);
@@ -146,8 +134,7 @@ describe("loading motion parity in Chromium", () => {
       "on",
     );
     try {
-      expect(readLoadingAnimations(reduced.getByTestId("reduced-spinner-root")))
-        .toEqual([]);
+      expect(readLoadingAnimations(reduced.getByTestId("reduced-spinner-root"))).toEqual([]);
     } finally {
       reduced.dispose();
     }
@@ -165,12 +152,12 @@ describe("loading motion parity in Chromium", () => {
 
     await waitFor(() => expect(readLoadingAnimations(root)).toHaveLength(5));
     const animations = readLoadingAnimations(root);
-    expect(animations.filter((animation) => (
-      animation.animatedProperties.join(",") === "transform"
-    ))).toHaveLength(4);
-    expect(animations.filter((animation) => (
-      animation.animatedProperties.join(",") === "opacity"
-    ))).toHaveLength(1);
+    expect(
+      animations.filter((animation) => animation.animatedProperties.join(",") === "transform"),
+    ).toHaveLength(4);
+    expect(
+      animations.filter((animation) => animation.animatedProperties.join(",") === "opacity"),
+    ).toHaveLength(1);
   });
 
   test("unmounts the Browser throbber after its completion transition", async () => {
@@ -186,8 +173,7 @@ describe("loading motion parity in Chromium", () => {
     const root = view.getByTestId("browser-icon");
     try {
       await waitFor(() => expect(readLoadingAnimations(root)).toHaveLength(3));
-      expect(root.querySelector("[data-browser-tab-throbber='true']"))
-        .not.toBeNull();
+      expect(root.querySelector("[data-browser-tab-throbber='true']")).not.toBeNull();
 
       view.rerenderWithPreference(
         <div data-testid="browser-icon" className="size-4">
@@ -199,11 +185,10 @@ describe("loading motion parity in Chromium", () => {
         </div>,
       );
       await waitFor(() => {
-        expect(view.getByTestId("browser-icon").querySelector(
-          "[data-browser-tab-throbber='true']",
-        )).toBeNull();
-        expect(readLoadingAnimations(view.getByTestId("browser-icon")))
-          .toEqual([]);
+        expect(
+          view.getByTestId("browser-icon").querySelector("[data-browser-tab-throbber='true']"),
+        ).toBeNull();
+        expect(readLoadingAnimations(view.getByTestId("browser-icon"))).toEqual([]);
       });
     } finally {
       view.dispose();
@@ -225,8 +210,7 @@ describe("loading motion parity in Chromium", () => {
           <NodexLogoShimmer />
         </div>,
       );
-      expect(readLoadingAnimations(view.getByTestId("os-reduced-loaders")))
-        .toEqual([]);
+      expect(readLoadingAnimations(view.getByTestId("os-reduced-loaders"))).toEqual([]);
     } finally {
       await session.send("Emulation.setEmulatedMedia", {
         features: [{ name: "prefers-reduced-motion", value: "no-preference" }],

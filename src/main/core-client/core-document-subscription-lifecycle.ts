@@ -15,10 +15,9 @@ export const executeWithDocumentSubscription = async <Value>(
     return await execute();
   } catch (error) {
     const reconnectRequired =
-      error instanceof CoreModuleResponseError
-      && error.coreError.code === "unauthorized"
-      && error.coreError.recovery.kind ===
-        "reconnect_document_subscription";
+      error instanceof CoreModuleResponseError &&
+      error.coreError.code === "unauthorized" &&
+      error.coreError.recovery.kind === "reconnect_document_subscription";
     if (!reconnectRequired || !isCurrent()) throw error;
     await subscription.reconnectAfterSubscriptionLoss();
     if (!isCurrent()) throw error;

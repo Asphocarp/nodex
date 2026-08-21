@@ -215,27 +215,89 @@ describe("v2 activity summary fact accumulator", () => {
 
   test("prioritizes visually identified MCP sources while preserving partition order", () => {
     const sources = [
-      { key: "plain-a", name: "Plain A", logoUrl: null, logoUrlDark: null, nativeAppReference: null, count: 1, runningCount: 0 },
-      { key: "visual-a", name: "Visual A", logoUrl: "a.png", logoUrlDark: null, nativeAppReference: null, count: 1, runningCount: 0 },
-      { key: "server:node_repl", name: "Node REPL", logoUrl: null, logoUrlDark: null, nativeAppReference: null, count: 1, runningCount: 0 },
-      { key: "visual-b", name: "Visual B", logoUrl: null, logoUrlDark: "b.png", nativeAppReference: null, count: 1, runningCount: 0 },
-      { key: "plain-b", name: "Plain B", logoUrl: null, logoUrlDark: null, nativeAppReference: null, count: 1, runningCount: 0 },
+      {
+        key: "plain-a",
+        name: "Plain A",
+        logoUrl: null,
+        logoUrlDark: null,
+        nativeAppReference: null,
+        count: 1,
+        runningCount: 0,
+      },
+      {
+        key: "visual-a",
+        name: "Visual A",
+        logoUrl: "a.png",
+        logoUrlDark: null,
+        nativeAppReference: null,
+        count: 1,
+        runningCount: 0,
+      },
+      {
+        key: "server:node_repl",
+        name: "Node REPL",
+        logoUrl: null,
+        logoUrlDark: null,
+        nativeAppReference: null,
+        count: 1,
+        runningCount: 0,
+      },
+      {
+        key: "visual-b",
+        name: "Visual B",
+        logoUrl: null,
+        logoUrlDark: "b.png",
+        nativeAppReference: null,
+        count: 1,
+        runningCount: 0,
+      },
+      {
+        key: "plain-b",
+        name: "Plain B",
+        logoUrl: null,
+        logoUrlDark: null,
+        nativeAppReference: null,
+        count: 1,
+        runningCount: 0,
+      },
     ];
     const ordered = orderThreadAgentActivityMcpSources(sources, [
       { item: "visual-b-item", sourceKey: "visual-b", server: "b", visuallyIdentified: true },
       { item: "visual-a-item", sourceKey: "visual-a", server: "a", visuallyIdentified: true },
     ]);
 
-    expect(ordered.map((source) => source.key).join(",")).toBe(
-      "visual-a,visual-b,plain-a,plain-b",
-    );
+    expect(ordered.map((source) => source.key).join(",")).toBe("visual-a,visual-b,plain-a,plain-b");
   });
 
   test("builds MCP browser/source wording metadata with unique display names", () => {
     const wording = buildThreadAgentActivityMcpSourcesWording([
-      { key: "browser-use", name: "Chrome", logoUrl: null, logoUrlDark: null, nativeAppReference: null, count: 1, runningCount: 0 },
-      { key: "browser-use", name: "Chrome duplicate", logoUrl: null, logoUrlDark: null, nativeAppReference: null, count: 1, runningCount: 0 },
-      { key: "navigate_to_codex_page", name: "Codex", logoUrl: null, logoUrlDark: null, nativeAppReference: null, count: 1, runningCount: 0 },
+      {
+        key: "browser-use",
+        name: "Chrome",
+        logoUrl: null,
+        logoUrlDark: null,
+        nativeAppReference: null,
+        count: 1,
+        runningCount: 0,
+      },
+      {
+        key: "browser-use",
+        name: "Chrome duplicate",
+        logoUrl: null,
+        logoUrlDark: null,
+        nativeAppReference: null,
+        count: 1,
+        runningCount: 0,
+      },
+      {
+        key: "navigate_to_codex_page",
+        name: "Codex",
+        logoUrl: null,
+        logoUrlDark: null,
+        nativeAppReference: null,
+        count: 1,
+        runningCount: 0,
+      },
     ]);
 
     expect(wording.names.join(",")).toBe("the browser,Codex");
@@ -244,7 +306,15 @@ describe("v2 activity summary fact accumulator", () => {
   });
 
   test("selects the first source icon item with visual identity preference", () => {
-    const source = { key: "calendar", name: "Calendar", logoUrl: null, logoUrlDark: null, nativeAppReference: null, count: 2, runningCount: 0 };
+    const source = {
+      key: "calendar",
+      name: "Calendar",
+      logoUrl: null,
+      logoUrlDark: null,
+      nativeAppReference: null,
+      count: 2,
+      runningCount: 0,
+    };
     const namedPart = { kind: "mcpSources" as const, sources: [source] };
     const items = [
       { item: "plain", sourceKey: "calendar", server: "calendar", visuallyIdentified: false },
@@ -254,25 +324,24 @@ describe("v2 activity summary fact accumulator", () => {
     ];
 
     expect(selectThreadAgentActivityMcpIconItem(namedPart, items) ?? "").toBe("visual");
-    expect(selectThreadAgentActivityMcpIconItem({ kind: "unnamedMcpCalls", count: 1 }, items) ?? "")
-      .toBe("unnamed-other");
+    expect(
+      selectThreadAgentActivityMcpIconItem({ kind: "unnamedMcpCalls", count: 1 }, items) ?? "",
+    ).toBe("unnamed-other");
   });
 
   test("dedupes dynamic completed parts by exact key in first-seen order", () => {
     const parts = buildThreadAgentActivityDynamicCompletedParts([
       { item: "read-a", key: "codex_app:read_thread:threadsReadCompleted" },
       { item: "read-b", key: "codex_app:read_thread:threadsReadCompleted" },
-      { item: "handoff-a", key: "codex_app:handoff_thread:[\"thread-a\",null]" },
-      { item: "handoff-b", key: "codex_app:handoff_thread:[\"thread-b\",null]" },
+      { item: "handoff-a", key: 'codex_app:handoff_thread:["thread-a",null]' },
+      { item: "handoff-b", key: 'codex_app:handoff_thread:["thread-b",null]' },
       { item: "settings-a", key: "codex_app:read_settings:" },
       { item: "settings-b", key: "codex_app:read_settings:" },
     ]);
 
-    expect(parts.map((part) => part.item).join(",")).toBe(
-      "read-a,handoff-a,handoff-b,settings-a",
-    );
+    expect(parts.map((part) => part.item).join(",")).toBe("read-a,handoff-a,handoff-b,settings-a");
     expect(parts.map((part) => part.key).join("|")).toBe(
-      "codex_app:read_thread:threadsReadCompleted|codex_app:handoff_thread:[\"thread-a\",null]|codex_app:handoff_thread:[\"thread-b\",null]|codex_app:read_settings:",
+      'codex_app:read_thread:threadsReadCompleted|codex_app:handoff_thread:["thread-a",null]|codex_app:handoff_thread:["thread-b",null]|codex_app:read_settings:',
     );
   });
 
@@ -280,49 +349,59 @@ describe("v2 activity summary fact accumulator", () => {
     const unit = {
       kind: "group" as const,
       key: "group",
-      items: [{
-        grouping: "groupable" as const,
-        item: {
-          id: "web",
-          turnId: "turn",
-          createdAt: 1,
-          updatedAt: 1,
-          searchableText: "",
-          type: "webSearch" as const,
-          status: "inProgress" as const,
-          entry: {
-            threadId: "thread",
+      items: [
+        {
+          grouping: "groupable" as const,
+          item: {
+            id: "web",
             turnId: "turn",
-            itemId: "web",
-            type: "web_search",
-            kind: "toolCall" as const,
-            semanticKind: "webSearch" as const,
             createdAt: 1,
             updatedAt: 1,
-            webSearch: { query: "parity", action: null, completed: false },
+            searchableText: "",
+            type: "webSearch" as const,
+            status: "inProgress" as const,
+            entry: {
+              threadId: "thread",
+              turnId: "turn",
+              itemId: "web",
+              type: "web_search",
+              kind: "toolCall" as const,
+              semanticKind: "webSearch" as const,
+              createdAt: 1,
+              updatedAt: 1,
+              webSearch: { query: "parity", action: null, completed: false },
+            },
           },
         },
-      }] as const,
+      ] as const,
     };
 
-    expect(resolveThreadAgentActivityGroupState({
-      unit,
-      isLatestVisibleUnit: false,
-      isTurnInProgress: true,
-      isActivitySliceClosed: false,
-      isExploring: false,
-    }).kind).toBe("summary");
-    expect(resolveThreadAgentActivityGroupState({
-      unit,
-      isLatestVisibleUnit: true,
-      isTurnInProgress: true,
-      isActivitySliceClosed: true,
-      isExploring: false,
-    }).kind).toBe("summary");
+    expect(
+      resolveThreadAgentActivityGroupState({
+        unit,
+        isLatestVisibleUnit: false,
+        isTurnInProgress: true,
+        isActivitySliceClosed: false,
+        isExploring: false,
+      }).kind,
+    ).toBe("summary");
+    expect(
+      resolveThreadAgentActivityGroupState({
+        unit,
+        isLatestVisibleUnit: true,
+        isTurnInProgress: true,
+        isActivitySliceClosed: true,
+        isExploring: false,
+      }).kind,
+    ).toBe("summary");
   });
 
   test("selects the latest exploration run and falls back to thinking", () => {
-    const buildExec = (id: string, status: "completed" | "inProgress", actionType: "read" | "unknown") => ({
+    const buildExec = (
+      id: string,
+      status: "completed" | "inProgress",
+      actionType: "read" | "unknown",
+    ) => ({
       grouping: "groupable" as const,
       item: {
         id,
@@ -342,9 +421,10 @@ describe("v2 activity summary fact accumulator", () => {
           status,
           createdAt: 1,
           updatedAt: 1,
-          commandActions: actionType === "read"
-            ? [{ type: "read" as const, command: "cat file", name: "file", path: "file" }]
-            : [{ type: "unknown" as const, command: "echo done" }],
+          commandActions:
+            actionType === "read"
+              ? [{ type: "read" as const, command: "cat file", name: "file", path: "file" }]
+              : [{ type: "unknown" as const, command: "echo done" }],
         },
       },
     });
@@ -425,54 +505,86 @@ describe("v2 activity summary fact accumulator", () => {
       },
     };
     const webUnit = { kind: "group" as const, key: "web-group", items: [completedWeb] as const };
-    const patchUnit = { kind: "group" as const, key: "patch-group", items: [completedPatch] as const };
+    const patchUnit = {
+      kind: "group" as const,
+      key: "patch-group",
+      items: [completedPatch] as const,
+    };
 
-    expect(demoteSettledThreadAgentActivitySingleton(webUnit, { kind: "summary" }).kind).toBe("standalone");
-    expect(demoteSettledThreadAgentActivitySingleton(webUnit, { kind: "thinking" }).kind).toBe("group");
-    expect(demoteSettledThreadAgentActivitySingleton(patchUnit, { kind: "summary" }).kind).toBe("standalone");
-    expect(demoteSettledThreadAgentActivitySingleton({
-      ...patchUnit,
-      items: [completedPatch, { ...completedPatch, item: { ...completedPatch.item, id: "patch-2" } }] as const,
-    }, { kind: "summary" }).kind).toBe("group");
-    expect(demoteSettledThreadAgentActivitySingleton({
-      ...patchUnit,
-      items: [{
-        ...completedPatch,
-        item: {
-          ...completedPatch.item,
-          entry: {
-            ...completedPatch.item.entry,
-            fileChange: {
-              ...completedPatch.item.entry.fileChange,
-              visualizationActivities: [{ path: "visualizations/chart.html", kind: "update" as const }],
-            },
-          },
+    expect(demoteSettledThreadAgentActivitySingleton(webUnit, { kind: "summary" }).kind).toBe(
+      "standalone",
+    );
+    expect(demoteSettledThreadAgentActivitySingleton(webUnit, { kind: "thinking" }).kind).toBe(
+      "group",
+    );
+    expect(demoteSettledThreadAgentActivitySingleton(patchUnit, { kind: "summary" }).kind).toBe(
+      "standalone",
+    );
+    expect(
+      demoteSettledThreadAgentActivitySingleton(
+        {
+          ...patchUnit,
+          items: [
+            completedPatch,
+            { ...completedPatch, item: { ...completedPatch.item, id: "patch-2" } },
+          ] as const,
         },
-      }] as const,
-    }, { kind: "summary" }).kind).toBe("group");
+        { kind: "summary" },
+      ).kind,
+    ).toBe("group");
+    expect(
+      demoteSettledThreadAgentActivitySingleton(
+        {
+          ...patchUnit,
+          items: [
+            {
+              ...completedPatch,
+              item: {
+                ...completedPatch.item,
+                entry: {
+                  ...completedPatch.item.entry,
+                  fileChange: {
+                    ...completedPatch.item.entry.fileChange,
+                    visualizationActivities: [
+                      { path: "visualizations/chart.html", kind: "update" as const },
+                    ],
+                  },
+                },
+              },
+            },
+          ] as const,
+        },
+        { kind: "summary" },
+      ).kind,
+    ).toBe("group");
   });
 
   test("formats settled parts in exact leading/following grammar with Worked fallback", () => {
-    const summary = formatThreadAgentActivityCompletedSummary([
-      {
-        kind: "mcpSources",
-        sources: [{
-          key: "browser-use",
-          name: "Browser",
-          logoUrl: null,
-          logoUrlDark: null,
-          nativeAppReference: null,
-          count: 1,
-          runningCount: 0,
-        }],
-      },
-      { kind: "loadedTools", count: 2 },
-      { kind: "fileChanges", count: 1 },
-      { kind: "exploration" },
-      { kind: "commands", count: 2 },
-      { kind: "webSearch" },
-      { kind: "dynamicToolCall", item: "thread", key: "thread" },
-    ], { formatDynamicToolCall: () => "Read thread" });
+    const summary = formatThreadAgentActivityCompletedSummary(
+      [
+        {
+          kind: "mcpSources",
+          sources: [
+            {
+              key: "browser-use",
+              name: "Browser",
+              logoUrl: null,
+              logoUrlDark: null,
+              nativeAppReference: null,
+              count: 1,
+              runningCount: 0,
+            },
+          ],
+        },
+        { kind: "loadedTools", count: 2 },
+        { kind: "fileChanges", count: 1 },
+        { kind: "exploration" },
+        { kind: "commands", count: 2 },
+        { kind: "webSearch" },
+        { kind: "dynamicToolCall", item: "thread", key: "thread" },
+      ],
+      { formatDynamicToolCall: () => "Read thread" },
+    );
 
     expect(summary).toBe(
       "Used the browser integration, loaded tools, edited a file, read files, ran commands, searched the web, Read thread",
@@ -506,18 +618,24 @@ describe("v2 activity summary fact accumulator", () => {
       },
     };
 
-    expect(formatThreadAgentActivityGroupHeader({
-      state: { kind: "active", item: execItem },
-      completedParts: [],
-    })).toBe("Running bun test");
-    expect(formatThreadAgentActivityGroupHeader({
-      state: { kind: "active", item: execItem },
-      completedParts: [],
-      conversationDetailLevel: "STEPS_PROSE",
-    })).toBe("Running command");
-    expect(formatThreadAgentActivityGroupHeader({
-      state: { kind: "thinking" },
-      completedParts: [],
-    })).toBe("Thinking");
+    expect(
+      formatThreadAgentActivityGroupHeader({
+        state: { kind: "active", item: execItem },
+        completedParts: [],
+      }),
+    ).toBe("Running bun test");
+    expect(
+      formatThreadAgentActivityGroupHeader({
+        state: { kind: "active", item: execItem },
+        completedParts: [],
+        conversationDetailLevel: "STEPS_PROSE",
+      }),
+    ).toBe("Running command");
+    expect(
+      formatThreadAgentActivityGroupHeader({
+        state: { kind: "thinking" },
+        completedParts: [],
+      }),
+    ).toBe("Thinking");
   });
 });

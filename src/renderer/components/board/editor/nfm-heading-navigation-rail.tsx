@@ -102,36 +102,36 @@ export function NfmHeadingNavigationRail({
   });
 
   const scrollElement = scrollContainerRef.current;
-  const contentElement = scrollElement?.querySelector<HTMLElement>(
-    "[data-page-stage-body='true']",
-  ) ?? null;
+  const contentElement =
+    scrollElement?.querySelector<HTMLElement>("[data-page-stage-body='true']") ?? null;
 
-  const findHeadingTarget = useCallback((
-    _scrollElement: HTMLElement,
-    item: NfmHeadingNavigationItem,
-  ): HTMLElement | null => {
-    return findBlockElementById(editor.domElement ?? undefined, item.id);
-  }, [editor.domElement]);
+  const findHeadingTarget = useCallback(
+    (_scrollElement: HTMLElement, item: NfmHeadingNavigationItem): HTMLElement | null => {
+      return findBlockElementById(editor.domElement ?? undefined, item.id);
+    },
+    [editor.domElement],
+  );
 
-  const collectHeadingObservationTargets = useCallback((
-    root: ParentNode,
-    itemIds: ReadonlySet<string>,
-  ) => collectMarkerNavigationObservationTargets({
-    root,
-    itemIds,
-    targetSelector: ".bn-block[data-id]",
-    readItemId: (target) => target.dataset.id,
-  }), []);
+  const collectHeadingObservationTargets = useCallback(
+    (root: ParentNode, itemIds: ReadonlySet<string>) =>
+      collectMarkerNavigationObservationTargets({
+        root,
+        itemIds,
+        targetSelector: ".bn-block[data-id]",
+        readItemId: (target) => target.dataset.id,
+      }),
+    [],
+  );
 
-  const scrollHeadingIntoView = useCallback((
-    targetElement: HTMLElement,
-    behavior: ScrollBehavior,
-  ) => {
-    targetElement.scrollIntoView({
-      behavior,
-      block: "start",
-    });
-  }, []);
+  const scrollHeadingIntoView = useCallback(
+    (targetElement: HTMLElement, behavior: ScrollBehavior) => {
+      targetElement.scrollIntoView({
+        behavior,
+        block: "start",
+      });
+    },
+    [],
+  );
 
   const mutationsIncludeObservationTargets = useCallback(
     (records: readonly MutationRecord[]) =>
@@ -139,22 +139,25 @@ export function NfmHeadingNavigationRail({
     [],
   );
 
-  const highlightHeading = useCallback((targetElement: HTMLElement) => {
-    if (typeof targetElement.animate !== "function") return;
-    for (const animation of targetElement.getAnimations?.() ?? []) {
-      animation.cancel();
-    }
-    targetElement.animate(
-      [
-        { backgroundColor: "color-mix(in srgb, var(--color-token-foreground) 12%, transparent)" },
-        { backgroundColor: "color-mix(in srgb, var(--color-token-foreground) 0%, transparent)" },
-      ],
-      {
-        duration: reducedMotion ? 0 : 900,
-        easing: "ease-out",
-      },
-    );
-  }, [reducedMotion]);
+  const highlightHeading = useCallback(
+    (targetElement: HTMLElement) => {
+      if (typeof targetElement.animate !== "function") return;
+      for (const animation of targetElement.getAnimations?.() ?? []) {
+        animation.cancel();
+      }
+      targetElement.animate(
+        [
+          { backgroundColor: "color-mix(in srgb, var(--color-token-foreground) 12%, transparent)" },
+          { backgroundColor: "color-mix(in srgb, var(--color-token-foreground) 0%, transparent)" },
+        ],
+        {
+          duration: reducedMotion ? 0 : 900,
+          easing: "ease-out",
+        },
+      );
+    },
+    [reducedMotion],
+  );
 
   if (!eligible || !idleReady) return null;
 

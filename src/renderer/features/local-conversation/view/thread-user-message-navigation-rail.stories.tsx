@@ -15,25 +15,28 @@ function buildStoryItems(): ThreadUserMessageNavigationItem[] {
       turnId: `turn_story_${ordinal}`,
       turnKey: `turn_story_${ordinal}`,
       ordinal,
-      label: ordinal === 3
-        ? "Yes, implement this plan"
-        : ordinal === 7
-          ? "(No content)"
-          : `Review turn ${ordinal} and keep the implementation scoped`,
-      responsePreview: "I traced the renderer path, kept the state local to the thread body, and verified the projection contract before touching UI.",
-      outputs: ordinal === 4
-        ? [
-            { id: "app:calendar", type: "app", label: "calendar" },
-            { id: "website:docs", type: "website", label: "docs.example.com" },
-            { id: "file:thread", type: "file", label: "thread.tsx" },
-            { id: "commit:commit", type: "commit", label: "Commit" },
-          ]
-        : ordinal === 9
+      label:
+        ordinal === 3
+          ? "Yes, implement this plan"
+          : ordinal === 7
+            ? "(No content)"
+            : `Review turn ${ordinal} and keep the implementation scoped`,
+      responsePreview:
+        "I traced the renderer path, kept the state local to the thread body, and verified the projection contract before touching UI.",
+      outputs:
+        ordinal === 4
           ? [
-              { id: "review:review", type: "review", label: "Review" },
-              { id: "pr:pr", type: "pull-request", label: "Pull request" },
+              { id: "app:calendar", type: "app", label: "calendar" },
+              { id: "website:docs", type: "website", label: "docs.example.com" },
+              { id: "file:thread", type: "file", label: "thread.tsx" },
+              { id: "commit:commit", type: "commit", label: "Commit" },
             ]
-          : [],
+          : ordinal === 9
+            ? [
+                { id: "review:review", type: "review", label: "Review" },
+                { id: "pr:pr", type: "pull-request", label: "Pull request" },
+              ]
+            : [],
       isHeartbeat: false,
     };
   });
@@ -63,7 +66,8 @@ function RailStoryFrame() {
                       {item.label}
                       {index % 5 === 0 ? (
                         <span className="mt-2 block text-token-description-foreground">
-                          Include the previous investigation notes, the failing scenario, and the validation steps in the next pass.
+                          Include the previous investigation notes, the failing scenario, and the
+                          validation steps in the next pass.
                         </span>
                       ) : null}
                     </div>

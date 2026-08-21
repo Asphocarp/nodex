@@ -22,9 +22,7 @@ function makeTemporaryRoot(): string {
 function makeRuntime() {
   const root = makeTemporaryRoot();
   const runtimeRoot = path.join(root, "runtime");
-  writeBrowserRuntimeFixture(
-    path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY),
-  );
+  writeBrowserRuntimeFixture(path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY));
   const browserRuntime = resolveBrowserRuntimeBundle({
     expectedCodexCompatibilityVersion: "0.144.6",
     runtimeRoot,
@@ -45,12 +43,7 @@ describe("ComputerUseAppMaterializer", () => {
   test("refreshes the canonical helper atomically and reuses a verified build", async () => {
     const root = makeTemporaryRoot();
     const sourceAppPath = path.join(root, "source", "Codex Computer Use.app");
-    const sourceExecutable = path.join(
-      sourceAppPath,
-      "Contents",
-      "MacOS",
-      "SkyComputerUseService",
-    );
+    const sourceExecutable = path.join(sourceAppPath, "Contents", "MacOS", "SkyComputerUseService");
     fs.mkdirSync(path.dirname(sourceExecutable), { recursive: true });
     fs.writeFileSync(sourceExecutable, "signed-helper");
     fs.chmodSync(sourceExecutable, 0o755);
@@ -76,23 +69,13 @@ describe("ComputerUseAppMaterializer", () => {
     expect(second).toEqual(first);
     expect(copyApp).toHaveBeenCalledTimes(1);
     expect(verifyApp).toHaveBeenCalledTimes(3);
-    expect(first.appPath).toBe(path.join(
-      root,
-      "state",
-      "computer-use",
-      "Codex Computer Use.app",
-    ));
+    expect(first.appPath).toBe(path.join(root, "state", "computer-use", "Codex Computer Use.app"));
   });
 
   test("restores the prior canonical helper when post-swap verification fails", async () => {
     const root = makeTemporaryRoot();
     const sourceAppPath = path.join(root, "source", "Codex Computer Use.app");
-    const sourceExecutable = path.join(
-      sourceAppPath,
-      "Contents",
-      "MacOS",
-      "SkyComputerUseService",
-    );
+    const sourceExecutable = path.join(sourceAppPath, "Contents", "MacOS", "SkyComputerUseService");
     fs.mkdirSync(path.dirname(sourceExecutable), { recursive: true });
     fs.writeFileSync(sourceExecutable, "old-helper");
     fs.chmodSync(sourceExecutable, 0o755);
@@ -119,19 +102,16 @@ describe("ComputerUseAppMaterializer", () => {
       desktopBuild: "build-2",
       verifyApp: async ({ appPath, serviceExecutablePath }) => {
         if (
-          !path.basename(appPath).startsWith(".staging-")
-          && fs.readFileSync(serviceExecutablePath, "utf8") === "new-helper"
+          !path.basename(appPath).startsWith(".staging-") &&
+          fs.readFileSync(serviceExecutablePath, "utf8") === "new-helper"
         ) {
           throw new Error("post-swap validation failed");
         }
       },
     });
 
-    await expect(upgrade.materialize()).rejects.toThrow(
-      "post-swap validation failed",
-    );
-    expect(fs.readFileSync(canonical.serviceExecutablePath, "utf8"))
-      .toBe("old-helper");
+    await expect(upgrade.materialize()).rejects.toThrow("post-swap validation failed");
+    expect(fs.readFileSync(canonical.serviceExecutablePath, "utf8")).toBe("old-helper");
   });
 });
 
@@ -148,10 +128,10 @@ describe("ComputerUseServiceManager", () => {
       serviceExecutablePath: "/tmp/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
     });
 
-    await expect(Promise.all([
-      manager.ensureRunning(),
-      manager.ensureRunning(),
-    ])).resolves.toEqual([{ pid: 4217 }, { pid: 4217 }]);
+    await expect(Promise.all([manager.ensureRunning(), manager.ensureRunning()])).resolves.toEqual([
+      { pid: 4217 },
+      { pid: 4217 },
+    ]);
     expect(spawnComputerUseService).toHaveBeenCalledTimes(1);
 
     manager.dispose();
@@ -215,8 +195,7 @@ describe("ComputerUseRuntimeCoordinator", () => {
       appMaterializer: {
         materialize: async () => ({
           appPath: "/tmp/Codex Computer Use.app",
-          serviceExecutablePath:
-            "/tmp/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+          serviceExecutablePath: "/tmp/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
         }),
       },
       browserRuntime: fixture.browserRuntime,
@@ -242,8 +221,7 @@ describe("ComputerUseRuntimeCoordinator", () => {
     await expect(coordinator.ensureReady()).resolves.toEqual({
       appPath: "/tmp/Codex Computer Use.app",
       hostServicesPipePath: "/tmp/host-services.sock",
-      serviceExecutablePath:
-        "/tmp/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+      serviceExecutablePath: "/tmp/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
       status: "available",
     });
     expect(start).toHaveBeenCalledTimes(1);
@@ -251,12 +229,16 @@ describe("ComputerUseRuntimeCoordinator", () => {
       runtimeStateHome: path.join(fixture.root, "state"),
     });
     if (!captured.requestHandler) throw new Error("Missing request handler");
-    await expect(captured.requestHandler("ensureService", {
-      service: "computer-use",
-    })).resolves.toEqual({});
-    await expect(captured.requestHandler("ensureService", {
-      service: "browser",
-    })).rejects.toThrow("Unsupported host service");
+    await expect(
+      captured.requestHandler("ensureService", {
+        service: "computer-use",
+      }),
+    ).resolves.toEqual({});
+    await expect(
+      captured.requestHandler("ensureService", {
+        service: "browser",
+      }),
+    ).rejects.toThrow("Unsupported host service");
 
     await coordinator.dispose();
     expect(close).toHaveBeenCalledTimes(1);

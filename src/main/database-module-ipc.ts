@@ -11,29 +11,17 @@ import {
   type TrustedDatabaseModuleIdentityV2,
 } from "../shared/database-module-v2-transport";
 
-export const DATABASE_MODULE_READ_IPC_CHANNEL =
-  "database-module:read" as const;
-export const DATABASE_MODULE_APPLY_IPC_CHANNEL =
-  "database-module:apply" as const;
+export const DATABASE_MODULE_READ_IPC_CHANNEL = "database-module:read" as const;
+export const DATABASE_MODULE_APPLY_IPC_CHANNEL = "database-module:apply" as const;
 
 export interface DatabaseModuleIpcDependencies {
   readonly registerHandle: (
-    channel:
-      | typeof DATABASE_MODULE_READ_IPC_CHANNEL
-      | typeof DATABASE_MODULE_APPLY_IPC_CHANNEL,
-    listener: (
-      event: unknown,
-      projectId: string,
-      request: unknown,
-    ) => Promise<unknown>,
+    channel: typeof DATABASE_MODULE_READ_IPC_CHANNEL | typeof DATABASE_MODULE_APPLY_IPC_CHANNEL,
+    listener: (event: unknown, projectId: string, request: unknown) => Promise<unknown>,
   ) => void;
-  readonly resolveTrustedIdentity: (
-    event: unknown,
-  ) => TrustedDatabaseModuleIdentityV2 | null;
+  readonly resolveTrustedIdentity: (event: unknown) => TrustedDatabaseModuleIdentityV2 | null;
   readonly apply: (request: DatabaseApplyV2) => Promise<DatabaseApplyResultV2>;
-  readonly read: (
-    request: DatabaseModuleReadRequestV2,
-  ) => Promise<DatabaseModuleReadResultV2>;
+  readonly read: (request: DatabaseModuleReadRequestV2) => Promise<DatabaseModuleReadResultV2>;
 }
 
 const failure = (

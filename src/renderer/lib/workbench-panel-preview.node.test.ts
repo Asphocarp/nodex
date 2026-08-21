@@ -42,50 +42,37 @@ describe("workbench panel preview", () => {
 
   test("guards projectless draft creation by runtime capability", () => {
     const projectless = makeTestWorkbenchSession({ projectId: null });
-    expect(makeWorkbenchTabProjectionDraft(projectless, "browser"))
-      .toMatchObject({ kind: "browser" });
-    expect(makeWorkbenchTabProjectionDraft(projectless, "files"))
-      .toBeNull();
-    expect(makeWorkbenchTabProjectionDraft(projectless, "review"))
-      .toMatchObject({
-        kind: "review",
-        config: {
-          projectId: null,
-          context: { kind: "session", sessionId: "session-1" },
-        },
-      });
-    expect(makeWorkbenchTabProjectionDraft(projectless, "terminal"))
-      .toBeNull();
+    expect(makeWorkbenchTabProjectionDraft(projectless, "browser")).toMatchObject({
+      kind: "browser",
+    });
+    expect(makeWorkbenchTabProjectionDraft(projectless, "files")).toBeNull();
+    expect(makeWorkbenchTabProjectionDraft(projectless, "review")).toMatchObject({
+      kind: "review",
+      config: {
+        projectId: null,
+        context: { kind: "session", sessionId: "session-1" },
+      },
+    });
+    expect(makeWorkbenchTabProjectionDraft(projectless, "terminal")).toBeNull();
 
     const attached = makeTestWorkbenchSession({
       projectId: null,
       thread: thread("/workspace"),
     });
-    expect(makeWorkbenchTabProjectionDraft(attached, "terminal"))
-      .toMatchObject({
-        kind: "terminal",
-        config: {
-          terminalSessionId: expect.stringContaining(
-            "session:session-1:terminal:",
-          ),
-        },
-      });
+    expect(makeWorkbenchTabProjectionDraft(attached, "terminal")).toMatchObject({
+      kind: "terminal",
+      config: {
+        terminalSessionId: expect.stringContaining("session:session-1:terminal:"),
+      },
+    });
   });
 
   test("uses one stable preview identity per panel and kind", () => {
     const session = makeTestWorkbenchSession();
     const draft = makeWorkbenchTabProjectionDraft(session, "browser");
     if (!draft) throw new Error("Browser draft should be available");
-    const first = makePreviewWorkbenchTabProjection(
-      session,
-      "right",
-      draft,
-    );
-    const replacement = makePreviewWorkbenchTabProjection(
-      session,
-      "right",
-      draft,
-    );
+    const first = makePreviewWorkbenchTabProjection(session, "right", draft);
+    const replacement = makePreviewWorkbenchTabProjection(session, "right", draft);
     expect(first.id).toBe("preview:session-1:right:browser");
     expect(replacement.id).toBe(first.id);
     expect(replacement.browserTabId).not.toBe(first.browserTabId);
@@ -100,17 +87,13 @@ describe("workbench panel preview", () => {
       title: "a.ts",
       workspaceRoot: "/workspace",
     });
-    const differentLeaf = makePreviewWorkspaceFileTab(
-      session,
-      "right",
-      {
-        cwd: "/workspace",
-        leafId: "leaf-2",
-        path: "src/a.ts",
-        title: "a.ts",
-        workspaceRoot: "/workspace",
-      },
-    );
+    const differentLeaf = makePreviewWorkspaceFileTab(session, "right", {
+      cwd: "/workspace",
+      leafId: "leaf-2",
+      path: "src/a.ts",
+      title: "a.ts",
+      workspaceRoot: "/workspace",
+    });
     expect(first.id).toContain("leaf-1:files:src/a.ts");
     expect(differentLeaf.id).not.toBe(first.id);
   });
@@ -142,12 +125,7 @@ describe("workbench panel preview", () => {
       pageId: "page-1",
     });
     expect(replacement.id).not.toBe(first.id);
-    expect(makePinnedPreviewTabCreateInput(
-      session,
-      "right",
-      "right-leaf",
-      first,
-    )).toMatchObject({
+    expect(makePinnedPreviewTabCreateInput(session, "right", "right-leaf", first)).toMatchObject({
       clientTabId: first.id,
       kind: "page_stage",
     });
@@ -155,22 +133,10 @@ describe("workbench panel preview", () => {
 
   test("preserves Browser runtime identity and rehomes file project config", () => {
     const session = makeTestWorkbenchSession();
-    const browserDraft = makeWorkbenchTabProjectionDraft(
-      session,
-      "browser",
-    );
+    const browserDraft = makeWorkbenchTabProjectionDraft(session, "browser");
     if (!browserDraft) throw new Error("Browser draft should exist");
-    const browser = makePreviewWorkbenchTabProjection(
-      session,
-      "right",
-      browserDraft,
-    );
-    expect(makePinnedPreviewTabCreateInput(
-      session,
-      "right",
-      "right-leaf",
-      browser,
-    )).toMatchObject({
+    const browser = makePreviewWorkbenchTabProjection(session, "right", browserDraft);
+    expect(makePinnedPreviewTabCreateInput(session, "right", "right-leaf", browser)).toMatchObject({
       browserTabId: browser.browserTabId,
       config: {
         browserStorageId: `browser:${browser.browserTabId}`,
@@ -189,12 +155,9 @@ describe("workbench panel preview", () => {
         workspaceRoot: "/workspace",
       },
     );
-    expect(makePinnedPreviewTabCreateInput(
-      session,
-      "right",
-      "right-leaf",
-      projectlessFile,
-    )).toMatchObject({
+    expect(
+      makePinnedPreviewTabCreateInput(session, "right", "right-leaf", projectlessFile),
+    ).toMatchObject({
       clientTabId: projectlessFile.id,
       config: { projectId: "project-1" },
     });

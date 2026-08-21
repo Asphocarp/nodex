@@ -8,7 +8,7 @@ import type { WorkbenchTabProjection } from "@/lib/types";
 import { render, settleAsyncRender } from "../../test/dom";
 import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-manager";
 
-let BrowserSidebarHiddenWebviewHosts: typeof import("./browser-sidebar-hidden-webview-hosts")["BrowserSidebarHiddenWebviewHosts"];
+let BrowserSidebarHiddenWebviewHosts: (typeof import("./browser-sidebar-hidden-webview-hosts"))["BrowserSidebarHiddenWebviewHosts"];
 let invokeCalls: unknown[][] = [];
 
 const rendererState = vi.hoisted(() => ({
@@ -104,9 +104,10 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     );
     const reactHost = viewContainerHost();
     const webview = host?.querySelector("webview");
-    const registerCommand = invokeCalls.find((call) =>
-      call[0] === "browser-sidebar-command"
-      && (call[1] as { type?: string } | undefined)?.type === "register-tab"
+    const registerCommand = invokeCalls.find(
+      (call) =>
+        call[0] === "browser-sidebar-command" &&
+        (call[1] as { type?: string } | undefined)?.type === "register-tab",
     );
 
     expect(host === null).toBe(false);
@@ -133,18 +134,21 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
 
     expect(document.body.querySelector("webview")).toBeNull();
     expect(
-      invokeCalls.some((call) =>
-        call[0] === "browser-sidebar-command"
-        && (call[1] as { type?: string } | undefined)?.type === "register-host"
+      invokeCalls.some(
+        (call) =>
+          call[0] === "browser-sidebar-command" &&
+          (call[1] as { type?: string } | undefined)?.type === "register-host",
       ),
     ).toBe(false);
   });
 
   test("gives a live Browser Use tab one retained host instead of a durable background host", async () => {
-    rendererState.browserUseState.tabs = [makeBrowserUseTab({
-      browserConversationId: "session-1",
-      browserTabId: "tab-browser",
-    })];
+    rendererState.browserUseState.tabs = [
+      makeBrowserUseTab({
+        browserConversationId: "session-1",
+        browserTabId: "tab-browser",
+      }),
+    ];
 
     render(
       <BrowserSidebarHiddenWebviewHosts
@@ -157,9 +161,10 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
     );
     await settleAsyncRender();
 
-    const registerHostCommands = invokeCalls.filter((call) =>
-      call[0] === "browser-sidebar-command"
-      && (call[1] as { type?: string } | undefined)?.type === "register-host"
+    const registerHostCommands = invokeCalls.filter(
+      (call) =>
+        call[0] === "browser-sidebar-command" &&
+        (call[1] as { type?: string } | undefined)?.type === "register-host",
     );
 
     expect(registerHostCommands).toHaveLength(1);
@@ -170,20 +175,24 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
   });
 
   test("retains live Browser Use tabs by exact conversation identity across scenes", async () => {
-    rendererState.browserUseState.tabs = [makeBrowserUseTab({
-      browserConversationId: "agent-dock-session",
-      browserTabId: "browser-use:agent-dock",
-      codexSessionId: "codex-thread-agent-dock",
-    })];
+    rendererState.browserUseState.tabs = [
+      makeBrowserUseTab({
+        browserConversationId: "agent-dock-session",
+        browserTabId: "browser-use:agent-dock",
+        codexSessionId: "codex-thread-agent-dock",
+      }),
+    ];
 
     render(
       <BrowserSidebarHiddenWebviewHosts
         durableBrowserConversationId="project:alpha"
         browserViewScopeId="window-session-1"
-        tabs={[{
-          ...browserTab,
-          browserTabId: "browser-use:agent-dock",
-        }]}
+        tabs={[
+          {
+            ...browserTab,
+            browserTabId: "browser-use:agent-dock",
+          },
+        ]}
         mountedTabIds={new Set([browserTab.id])}
         visibleTabIds={new Set()}
       />,
@@ -194,17 +203,14 @@ describe("BrowserSidebarHiddenWebviewHosts", () => {
       "[data-browser-sidebar-webview-manager-root][data-browser-sidebar-browser-tab-id='browser-use:agent-dock']",
     );
     const webview = host?.querySelector("webview");
-    const registerCommand = invokeCalls.find((call) =>
-      call[0] === "browser-sidebar-command"
-      && (call[1] as { type?: string } | undefined)?.type === "register-tab"
+    const registerCommand = invokeCalls.find(
+      (call) =>
+        call[0] === "browser-sidebar-command" &&
+        (call[1] as { type?: string } | undefined)?.type === "register-tab",
     );
 
-    expect(host?.dataset.browserSidebarConversationId).toBe(
-      "agent-dock-session",
-    );
-    expect(webview?.getAttribute("data-browser-sidebar-webview-host-kind")).toBe(
-      "retained",
-    );
+    expect(host?.dataset.browserSidebarConversationId).toBe("agent-dock-session");
+    expect(webview?.getAttribute("data-browser-sidebar-webview-host-kind")).toBe("retained");
     expect(registerCommand?.[1]).toMatchObject({
       type: "register-tab",
       browserConversationId: "agent-dock-session",
@@ -238,9 +244,7 @@ const browserTab = {
   updatedAt: "2026-06-09T00:00:00.000Z",
 } satisfies WorkbenchTabProjection;
 
-function makeBrowserUseTab(
-  overrides: Partial<BrowserUseTabState> = {},
-): BrowserUseTabState {
+function makeBrowserUseTab(overrides: Partial<BrowserUseTabState> = {}): BrowserUseTabState {
   return {
     browserConversationId: "session-1",
     browserViewScopeId: "window-session-1",

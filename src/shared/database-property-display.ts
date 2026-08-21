@@ -10,19 +10,21 @@ function optionNames(
   config: Readonly<Record<string, DatabaseJsonValue>>,
 ): ReadonlyMap<string, string> {
   const options = Array.isArray(config.options) ? config.options : [];
-  return new Map(options.flatMap((option) => {
-    if (
-      typeof option !== "object"
-      || option === null
-      || Array.isArray(option)
-      || typeof option.id !== "string"
-      || typeof option.name !== "string"
-    ) {
-      return [];
-    }
-    const typed = option as unknown as DatabasePropertyOption;
-    return [[typed.id, typed.name] as const];
-  }));
+  return new Map(
+    options.flatMap((option) => {
+      if (
+        typeof option !== "object" ||
+        option === null ||
+        Array.isArray(option) ||
+        typeof option.id !== "string" ||
+        typeof option.name !== "string"
+      ) {
+        return [];
+      }
+      const typed = option as unknown as DatabasePropertyOption;
+      return [[typed.id, typed.name] as const];
+    }),
+  );
 }
 
 function truncateDisplay(value: string): string {
@@ -50,9 +52,11 @@ export function formatDatabasePropertyDisplayValue(
   if (definition.valueType === "multi_select") {
     if (!Array.isArray(value)) return "";
     const names = optionNames(definition.config);
-    return truncateDisplay(value.flatMap((entry) =>
-      typeof entry === "string" ? [names.get(entry) ?? entry] : [],
-    ).join(" "));
+    return truncateDisplay(
+      value
+        .flatMap((entry) => (typeof entry === "string" ? [names.get(entry) ?? entry] : []))
+        .join(" "),
+    );
   }
   if (definition.valueType === "checkbox") {
     return typeof value === "boolean" ? String(value) : "";

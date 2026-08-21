@@ -24,18 +24,9 @@ export interface CodexThreadExecutionLocationEffects {
     location: CodexThreadExecutionLocation,
     preparation: CodexThreadHandoffPreparation | null,
   ): Promise<void>;
-  commitLocation(
-    threadId: string,
-    location: CodexThreadExecutionLocation,
-  ): Promise<void>;
-  projectLocation(
-    threadId: string,
-    location: CodexThreadExecutionLocation,
-  ): Promise<void>;
-  transferOwner(
-    threadId: string,
-    preparation: CodexThreadHandoffPreparation,
-  ): Promise<void>;
+  commitLocation(threadId: string, location: CodexThreadExecutionLocation): Promise<void>;
+  projectLocation(threadId: string, location: CodexThreadExecutionLocation): Promise<void>;
+  transferOwner(threadId: string, preparation: CodexThreadHandoffPreparation): Promise<void>;
   cleanup(
     preparation: CodexThreadHandoffPreparation,
     outcome: "committed" | "rolled-back",
@@ -67,14 +58,16 @@ function locationsEqual(
   left: CodexThreadExecutionLocation,
   right: CodexThreadExecutionLocation,
 ): boolean {
-  return left.hostId === right.hostId
-    && left.cwd === right.cwd
-    && left.managedWorktreePath === right.managedWorktreePath
-    && left.projectId === right.projectId
-    && left.projectlessOutputDirectory === right.projectlessOutputDirectory
-    && left.projectlessWorkspaceBrowserRoot === right.projectlessWorkspaceBrowserRoot
-    && left.workspaceRoots.length === right.workspaceRoots.length
-    && left.workspaceRoots.every((root, index) => root === right.workspaceRoots[index]);
+  return (
+    left.hostId === right.hostId &&
+    left.cwd === right.cwd &&
+    left.managedWorktreePath === right.managedWorktreePath &&
+    left.projectId === right.projectId &&
+    left.projectlessOutputDirectory === right.projectlessOutputDirectory &&
+    left.projectlessWorkspaceBrowserRoot === right.projectlessWorkspaceBrowserRoot &&
+    left.workspaceRoots.length === right.workspaceRoots.length &&
+    left.workspaceRoots.every((root, index) => root === right.workspaceRoots[index])
+  );
 }
 
 /**
@@ -84,11 +77,13 @@ function locationsEqual(
 export class CodexThreadExecutionLocationService {
   readonly #inFlightByThreadId = new Map<string, Promise<CodexThreadHandoffJournalEntry>>();
 
-  constructor(private readonly options: {
-    readonly effects: CodexThreadExecutionLocationEffects;
-    readonly journal: CodexThreadHandoffJournalStore;
-    readonly now?: () => number;
-  }) {}
+  constructor(
+    private readonly options: {
+      readonly effects: CodexThreadExecutionLocationEffects;
+      readonly journal: CodexThreadHandoffJournalStore;
+      readonly now?: () => number;
+    },
+  ) {}
 
   async start(input: CodexStartThreadHandoffInput): Promise<CodexThreadHandoffJournalEntry> {
     const existingOperation = await this.options.journal.get(input.operationId);
@@ -97,8 +92,8 @@ export class CodexThreadExecutionLocationService {
     if (existingThread) {
       throw new Error("This task already has a handoff in progress.");
     }
-    const persisted = (await this.options.journal.list()).find((entry) =>
-      entry.threadId === input.threadId && !terminalPhases.has(entry.phase)
+    const persisted = (await this.options.journal.list()).find(
+      (entry) => entry.threadId === input.threadId && !terminalPhases.has(entry.phase),
     );
     if (persisted) {
       throw new Error("This task has an unfinished handoff that must be recovered first.");
@@ -157,35 +152,41 @@ export class CodexThreadExecutionLocationService {
         continue;
       }
       if (!canonical) {
-        onProgress?.({ entry, detail: "Recovery deferred: canonical task location is unavailable." });
+        onProgress?.({
+          entry,
+          detail: "Recovery deferred: canonical task location is unavailable.",
+        });
         recovered.push(entry);
         continue;
       }
-      const coreCommitted = entry.destination !== null
-        && locationsEqual(canonical, entry.destination);
+      const coreCommitted =
+        entry.destination !== null && locationsEqual(canonical, entry.destination);
       const coreAtSource = locationsEqual(canonical, entry.source);
       if (!coreCommitted && !coreAtSource) {
         onProgress?.({ entry, detail: "Recovery deferred: canonical task location is ambiguous." });
         recovered.push(entry);
         continue;
       }
-      const reconciled = entry.coreCommitted === coreCommitted
-        ? entry
-        : await this.#patch(
-          entry,
-          { coreCommitted },
-          onProgress,
-          coreCommitted ? "Recovered durable location." : "Recovered source location.",
-        );
+      const reconciled =
+        entry.coreCommitted === coreCommitted
+          ? entry
+          : await this.#patch(
+              entry,
+              { coreCommitted },
+              onProgress,
+              coreCommitted ? "Recovered durable location." : "Recovered source location.",
+            );
       if (reconciled.coreCommitted && reconciled.destination && reconciled.prepared) {
         recovered.push(await this.#resumeCommitted(reconciled, onProgress));
         continue;
       }
-      recovered.push(await this.#rollback(
-        reconciled,
-        new Error("Recovered an interrupted task handoff."),
-        onProgress,
-      ));
+      recovered.push(
+        await this.#rollback(
+          reconciled,
+          new Error("Recovered an interrupted task handoff."),
+          onProgress,
+        ),
+      );
     }
     return recovered;
   }
@@ -200,18 +201,26 @@ export class CodexThreadExecutionLocationService {
       await this.options.effects.stopActiveTurn(entry.threadId);
 
       entry = await this.#phase(entry, "preparing-destination", onProgress);
-      const preparation = await this.options.effects.prepareDestination(
-        entry,
-        (detail, status) => onProgress?.({ entry, detail: `${detail}:${status}` }),
+      const preparation = await this.options.effects.prepareDestination(entry, (detail, status) =>
+        onProgress?.({ entry, detail: `${detail}:${status}` }),
       );
-      entry = await this.#patch(entry, {
-        destination: preparation.destination,
-        prepared: preparation.prepared,
-        warnings: [...entry.warnings, ...preparation.prepared.warnings],
-      }, onProgress, null);
+      entry = await this.#patch(
+        entry,
+        {
+          destination: preparation.destination,
+          prepared: preparation.prepared,
+          warnings: [...entry.warnings, ...preparation.prepared.warnings],
+        },
+        onProgress,
+        null,
+      );
 
       entry = await this.#phase(entry, "switching-runtime", onProgress);
-      await this.options.effects.switchRuntime(entry.threadId, preparation.destination, preparation);
+      await this.options.effects.switchRuntime(
+        entry.threadId,
+        preparation.destination,
+        preparation,
+      );
       entry = await this.#patch(entry, { runtimeSwitched: true }, onProgress, null);
 
       entry = await this.#phase(entry, "committing-location", onProgress);
@@ -249,14 +258,22 @@ export class CodexThreadExecutionLocationService {
 
     entry = await this.#phase(entry, "cleaning-source", onProgress);
     try {
-      const warnings = await this.options.effects.cleanup({
-        destination,
-        prepared,
-      }, "committed");
+      const warnings = await this.options.effects.cleanup(
+        {
+          destination,
+          prepared,
+        },
+        "committed",
+      );
       if (warnings.length > 0) {
-        entry = await this.#patch(entry, {
-          warnings: [...entry.warnings, ...warnings],
-        }, onProgress, warnings.join("; "));
+        entry = await this.#patch(
+          entry,
+          {
+            warnings: [...entry.warnings, ...warnings],
+          },
+          onProgress,
+          warnings.join("; "),
+        );
       }
     } catch (error) {
       entry = await this.#addWarning(entry, error, onProgress);
@@ -278,11 +295,16 @@ export class CodexThreadExecutionLocationService {
     }
 
     const completedAt = this.#now();
-    return await this.#patch(entry, {
-      phase: entry.warnings.length > 0 ? "completed-with-warning" : "completed",
-      completedAt,
-      lastError: null,
-    }, onProgress, entry.warnings.at(-1) ?? null);
+    return await this.#patch(
+      entry,
+      {
+        phase: entry.warnings.length > 0 ? "completed-with-warning" : "completed",
+        completedAt,
+        lastError: null,
+      },
+      onProgress,
+      entry.warnings.at(-1) ?? null,
+    );
   }
 
   async #resumeCommitted(
@@ -302,7 +324,11 @@ export class CodexThreadExecutionLocationService {
     } satisfies CodexThreadHandoffPreparation;
     let entry = initial;
     try {
-      await this.options.effects.switchRuntime(entry.threadId, preparation.destination, preparation);
+      await this.options.effects.switchRuntime(
+        entry.threadId,
+        preparation.destination,
+        preparation,
+      );
       await this.options.effects.projectLocation(entry.threadId, preparation.destination);
       entry = await this.#phase(entry, "transferring-owner", onProgress);
       try {
@@ -321,30 +347,43 @@ export class CodexThreadExecutionLocationService {
     error: unknown,
     onProgress?: (progress: CodexThreadHandoffProgress) => void,
   ): Promise<CodexThreadHandoffJournalEntry> {
-    let entry = await this.#patch(initial, {
-      phase: "rolling-back",
-      lastError: error instanceof Error ? error.message : String(error),
-      failedPhase: initial.phase,
-    }, onProgress, "Rolling back task handoff.");
+    let entry = await this.#patch(
+      initial,
+      {
+        phase: "rolling-back",
+        lastError: error instanceof Error ? error.message : String(error),
+        failedPhase: initial.phase,
+      },
+      onProgress,
+      "Rolling back task handoff.",
+    );
     const rollbackWarnings: string[] = [];
-    const preparation = entry.destination && entry.prepared
-      ? { destination: entry.destination, prepared: entry.prepared }
-      : null;
+    const preparation =
+      entry.destination && entry.prepared
+        ? { destination: entry.destination, prepared: entry.prepared }
+        : null;
 
     if (preparation) {
-      await this.options.effects.switchRuntime(entry.threadId, entry.source, preparation)
-        .catch((rollbackError) => rollbackWarnings.push(
-          `runtime rollback: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
-        ));
+      await this.options.effects
+        .switchRuntime(entry.threadId, entry.source, preparation)
+        .catch((rollbackError) =>
+          rollbackWarnings.push(
+            `runtime rollback: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          ),
+        );
     }
     if (entry.coreCommitted) {
-      await this.options.effects.commitLocation(entry.threadId, entry.source)
-        .catch((rollbackError) => rollbackWarnings.push(
-          `Core rollback: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
-        ));
+      await this.options.effects
+        .commitLocation(entry.threadId, entry.source)
+        .catch((rollbackError) =>
+          rollbackWarnings.push(
+            `Core rollback: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          ),
+        );
     }
     if (preparation) {
-      const preparedWarnings = await this.options.effects.rollbackPreparation(preparation)
+      const preparedWarnings = await this.options.effects
+        .rollbackPreparation(preparation)
         .catch((rollbackError) => {
           rollbackWarnings.push(
             `Git rollback: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
@@ -352,23 +391,34 @@ export class CodexThreadExecutionLocationService {
           return [];
         });
       rollbackWarnings.push(...preparedWarnings);
-      await this.options.effects.cleanup(preparation, "rolled-back")
-        .catch((rollbackError) => rollbackWarnings.push(
-          `artifact cleanup: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
-        ));
+      await this.options.effects
+        .cleanup(preparation, "rolled-back")
+        .catch((rollbackError) =>
+          rollbackWarnings.push(
+            `artifact cleanup: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+          ),
+        );
     }
-    await this.options.effects.projectLocation(entry.threadId, entry.source)
-      .catch((rollbackError) => rollbackWarnings.push(
-        `projection rollback: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
-      ));
+    await this.options.effects
+      .projectLocation(entry.threadId, entry.source)
+      .catch((rollbackError) =>
+        rollbackWarnings.push(
+          `projection rollback: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+        ),
+      );
 
-    entry = await this.#patch(entry, {
-      phase: "failed",
-      runtimeSwitched: false,
-      coreCommitted: false,
-      warnings: [...entry.warnings, ...rollbackWarnings],
-      completedAt: this.#now(),
-    }, onProgress, rollbackWarnings.at(-1) ?? entry.lastError);
+    entry = await this.#patch(
+      entry,
+      {
+        phase: "failed",
+        runtimeSwitched: false,
+        coreCommitted: false,
+        warnings: [...entry.warnings, ...rollbackWarnings],
+        completedAt: this.#now(),
+      },
+      onProgress,
+      rollbackWarnings.at(-1) ?? entry.lastError,
+    );
     return entry;
   }
 
@@ -386,9 +436,14 @@ export class CodexThreadExecutionLocationService {
     onProgress?: (progress: CodexThreadHandoffProgress) => void,
   ): Promise<CodexThreadHandoffJournalEntry> {
     const warning = error instanceof Error ? error.message : String(error);
-    return await this.#patch(entry, {
-      warnings: [...entry.warnings, warning],
-    }, onProgress, warning);
+    return await this.#patch(
+      entry,
+      {
+        warnings: [...entry.warnings, warning],
+      },
+      onProgress,
+      warning,
+    );
   }
 
   async #patch(

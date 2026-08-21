@@ -92,12 +92,7 @@ export type SemanticThemeCommand =
 
 export interface SemanticThemeCommandResult {
   readonly ok: boolean;
-  readonly mode:
-    | "audit"
-    | "sync"
-    | "verify-source-free"
-    | "verify-source-aware"
-    | "verify-build";
+  readonly mode: "audit" | "sync" | "verify-source-free" | "verify-source-aware" | "verify-build";
   readonly diagnostics: readonly SemanticThemeDiagnostic[];
   readonly changedArtifacts: readonly string[];
   readonly auditReport?: SemanticThemeAuditReport;

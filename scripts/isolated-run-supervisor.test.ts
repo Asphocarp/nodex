@@ -163,7 +163,8 @@ describe("isolated run supervisor", () => {
       runId: RUN_A,
       hostPid: process.pid,
     });
-    const inspectRuntimeEvidence = vi.fn()
+    const inspectRuntimeEvidence = vi
+      .fn()
       .mockReturnValueOnce("complete")
       .mockReturnValueOnce("none");
     const shutdown = vi.fn(async () => ({ status: "draining" as const }));
@@ -259,9 +260,7 @@ describe("isolated run supervisor", () => {
       runId: RUN_A,
       hostPid: process.pid,
     });
-    const now = vi.fn()
-      .mockReturnValueOnce(0)
-      .mockReturnValueOnce(10);
+    const now = vi.fn().mockReturnValueOnce(0).mockReturnValueOnce(10);
 
     await expect(
       cleanupIsolatedCore({
@@ -270,7 +269,8 @@ describe("isolated run supervisor", () => {
         runId: RUN_A,
         shutdownTimeoutMs: 5,
         dependencies: cleanupDependencies({
-          inspectRuntimeEvidence: vi.fn()
+          inspectRuntimeEvidence: vi
+            .fn()
             .mockReturnValueOnce("complete")
             .mockReturnValueOnce("partial"),
           isPidAlive: vi.fn(() => true),
@@ -291,24 +291,21 @@ describe("isolated run supervisor", () => {
     const child = new FakeChild();
     const signalSource = new EventEmitter() as unknown as SupervisorSignalSource;
     let observedOptions: SpawnOptions | undefined;
-    const prepare = vi.fn(async (context: {
-      readonly environment: NodeJS.ProcessEnv;
-      readonly runId: string;
-    }) => {
-      expect(readIsolatedRunLeaseOwner(nodexHome)?.runId).toBe(RUN_A);
-      expect(context.runId).toBe(RUN_A);
-      expect(context.environment.NODEX_INTERNAL_ISOLATED_RUN_ID).toBe(RUN_A);
-    });
-    const spawnChild = vi.fn((
-      _command: string,
-      _args: readonly string[],
-      options: SpawnOptions,
-    ) => {
-      expect(readIsolatedRunLeaseOwner(nodexHome)?.runId).toBe(RUN_A);
-      observedOptions = options;
-      queueMicrotask(() => child.close(0));
-      return child.asChildProcess();
-    });
+    const prepare = vi.fn(
+      async (context: { readonly environment: NodeJS.ProcessEnv; readonly runId: string }) => {
+        expect(readIsolatedRunLeaseOwner(nodexHome)?.runId).toBe(RUN_A);
+        expect(context.runId).toBe(RUN_A);
+        expect(context.environment.NODEX_INTERNAL_ISOLATED_RUN_ID).toBe(RUN_A);
+      },
+    );
+    const spawnChild = vi.fn(
+      (_command: string, _args: readonly string[], options: SpawnOptions) => {
+        expect(readIsolatedRunLeaseOwner(nodexHome)?.runId).toBe(RUN_A);
+        observedOptions = options;
+        queueMicrotask(() => child.close(0));
+        return child.asChildProcess();
+      },
+    );
 
     await expect(
       superviseIsolatedRun({
@@ -452,9 +449,7 @@ describe("isolated run supervisor", () => {
     const child = new FakeChild();
     const signalSource = new EventEmitter() as unknown as SupervisorSignalSource;
     const signalProcessGroup = vi.fn();
-    const isProcessGroupAlive = vi.fn()
-      .mockReturnValueOnce(true)
-      .mockReturnValueOnce(false);
+    const isProcessGroupAlive = vi.fn().mockReturnValueOnce(true).mockReturnValueOnce(false);
 
     await expect(
       superviseIsolatedRun({

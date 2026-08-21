@@ -17,12 +17,8 @@ const PROJECTS_DIRECTORY = resolveNodexProjectsDirectory(DOCUMENTS_DIRECTORY);
 describe("default Project sources", () => {
   test("sanitizes the generated folder name using the desktop filesystem contract", () => {
     expect(sanitizeDefaultProjectDirectoryName("")).toBe("New project");
-    expect(sanitizeDefaultProjectDirectoryName("  Roadmap:*?  ")).toBe(
-      "Roadmap___",
-    );
-    expect(sanitizeDefaultProjectDirectoryName("nested/research. ")).toBe(
-      "research",
-    );
+    expect(sanitizeDefaultProjectDirectoryName("  Roadmap:*?  ")).toBe("Roadmap___");
+    expect(sanitizeDefaultProjectDirectoryName("nested/research. ")).toBe("research");
     expect(sanitizeDefaultProjectDirectoryName("CON")).toBe("_CON");
     expect(sanitizeDefaultProjectDirectoryName("\u0000. ")).toBe("_");
   });
@@ -34,24 +30,18 @@ describe("default Project sources", () => {
     ]);
 
     await expect(
-      findAvailableDefaultProjectSource(
-        PROJECTS_DIRECTORY,
-        "New project",
-        async (candidate) => occupied.has(candidate),
+      findAvailableDefaultProjectSource(PROJECTS_DIRECTORY, "New project", async (candidate) =>
+        occupied.has(candidate),
       ),
     ).resolves.toBe("/Users/test/Documents/Nodex/New project 3");
   });
 
   test("does not let a legacy Documents folder consume the nested name", async () => {
-    const occupied = new Set([
-      "/Users/test/Documents/Launch plan",
-    ]);
+    const occupied = new Set(["/Users/test/Documents/Launch plan"]);
 
     await expect(
-      findAvailableDefaultProjectSource(
-        PROJECTS_DIRECTORY,
-        "Launch plan",
-        async (candidate) => occupied.has(candidate),
+      findAvailableDefaultProjectSource(PROJECTS_DIRECTORY, "Launch plan", async (candidate) =>
+        occupied.has(candidate),
       ),
     ).resolves.toBe("/Users/test/Documents/Nodex/Launch plan");
   });
@@ -106,12 +96,8 @@ describe("default Project sources", () => {
       ),
     ).resolves.toBe(PROJECT);
 
-    expect(createDirectory).toHaveBeenCalledWith(
-      "/Users/test/Documents/Nodex/Launch plan",
-    );
-    expect(initializeRepository).toHaveBeenCalledWith(
-      "/Users/test/Documents/Nodex/Launch plan",
-    );
+    expect(createDirectory).toHaveBeenCalledWith("/Users/test/Documents/Nodex/Launch plan");
+    expect(initializeRepository).toHaveBeenCalledWith("/Users/test/Documents/Nodex/Launch plan");
     expect(createProject).toHaveBeenCalledWith({
       appearance: {
         color: "black",
@@ -123,9 +109,7 @@ describe("default Project sources", () => {
   });
 
   test("creates the default folder before persisting an unnamed Project", async () => {
-    const documentsDirectory = await mkdtemp(
-      join(tmpdir(), "nodex-default-project-source-"),
-    );
+    const documentsDirectory = await mkdtemp(join(tmpdir(), "nodex-default-project-source-"));
     const createProject = vi.fn(async () => PROJECT);
 
     try {

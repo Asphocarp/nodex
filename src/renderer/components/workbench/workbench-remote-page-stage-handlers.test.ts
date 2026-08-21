@@ -37,20 +37,24 @@ describe("remote Page Stage placement commands", () => {
     await handlers.onMove?.("plan", "page-1", "ship");
     await handlers.onDelete?.("ship", "page-1");
 
-    expect(testState.moveBoardPage).toHaveBeenCalledWith(expect.objectContaining({
-      store: testState.store,
-      projectId: "project-1",
-      move: {
+    expect(testState.moveBoardPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        store: testState.store,
+        projectId: "project-1",
+        move: {
+          pageId: "page-1",
+          fromStatus: "plan",
+          toStatus: "ship",
+        },
+      }),
+    );
+    expect(testState.deleteBoardPage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        store: testState.store,
+        projectId: "project-1",
+        columnId: "ship",
         pageId: "page-1",
-        fromStatus: "plan",
-        toStatus: "ship",
-      },
-    }));
-    expect(testState.deleteBoardPage).toHaveBeenCalledWith(expect.objectContaining({
-      store: testState.store,
-      projectId: "project-1",
-      columnId: "ship",
-      pageId: "page-1",
-    }));
+      }),
+    );
   });
 });

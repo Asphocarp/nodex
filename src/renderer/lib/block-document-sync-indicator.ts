@@ -1,7 +1,4 @@
-import type {
-  NodexYProviderPhase,
-  NodexYProviderStatus,
-} from "./nodex-y-provider";
+import type { NodexYProviderPhase, NodexYProviderStatus } from "./nodex-y-provider";
 
 export interface BlockDocumentSyncIndicatorThresholds {
   /** Suppresses the normal durable-ACK round trip. */
@@ -21,10 +18,7 @@ export const DEFAULT_BLOCK_DOCUMENT_SYNC_INDICATOR_THRESHOLDS = {
   reconnectDelayMs: 1_500,
 } as const satisfies BlockDocumentSyncIndicatorThresholds;
 
-export type BlockDocumentSyncIndicatorTone =
-  | "neutral"
-  | "warning"
-  | "danger";
+export type BlockDocumentSyncIndicatorTone = "neutral" | "warning" | "danger";
 
 export type BlockDocumentSyncIndicatorAction =
   | { readonly kind: "retry"; readonly label: "Retry" }
@@ -72,14 +66,8 @@ const readThresholds = (
     ...DEFAULT_BLOCK_DOCUMENT_SYNC_INDICATOR_THRESHOLDS,
     ...input,
   };
-  const savingDelayMs = readDuration(
-    thresholds.savingDelayMs,
-    "savingDelayMs",
-  );
-  const longPendingMs = readDuration(
-    thresholds.longPendingMs,
-    "longPendingMs",
-  );
+  const savingDelayMs = readDuration(thresholds.savingDelayMs, "savingDelayMs");
+  const longPendingMs = readDuration(thresholds.longPendingMs, "longPendingMs");
   if (longPendingMs < savingDelayMs) {
     throw new BlockDocumentSyncIndicatorError(
       "longPendingMs must not be shorter than savingDelayMs",
@@ -88,14 +76,8 @@ const readThresholds = (
   return {
     savingDelayMs,
     longPendingMs,
-    offlineDelayMs: readDuration(
-      thresholds.offlineDelayMs,
-      "offlineDelayMs",
-    ),
-    reconnectDelayMs: readDuration(
-      thresholds.reconnectDelayMs,
-      "reconnectDelayMs",
-    ),
+    offlineDelayMs: readDuration(thresholds.offlineDelayMs, "offlineDelayMs"),
+    reconnectDelayMs: readDuration(thresholds.reconnectDelayMs, "reconnectDelayMs"),
   };
 };
 
@@ -109,13 +91,10 @@ const reloadAction = {
   label: "Reload Page",
 } as const satisfies BlockDocumentSyncIndicatorAction;
 
-const resetIndicator = (
-  status: NodexYProviderStatus,
-): BlockDocumentSyncIndicatorModel => ({
+const resetIndicator = (status: NodexYProviderStatus): BlockDocumentSyncIndicatorModel => ({
   phase: status.phase,
   label: "Reload required",
-  detail:
-    "The local store or this Page document changed. Reload before continuing to edit.",
+  detail: "The local store or this Page document changed. Reload before continuing to edit.",
   tone: "danger",
   action: reloadAction,
   editingBlocked: true,
@@ -123,9 +102,7 @@ const resetIndicator = (
   announce: "assertive",
 });
 
-const fatalIndicator = (
-  status: NodexYProviderStatus,
-): BlockDocumentSyncIndicatorModel => ({
+const fatalIndicator = (status: NodexYProviderStatus): BlockDocumentSyncIndicatorModel => ({
   phase: status.phase,
   label: "Couldn’t save changes",
   detail: status.error?.message ?? "This Page document can no longer be saved.",
@@ -136,14 +113,13 @@ const fatalIndicator = (
   announce: "assertive",
 });
 
-const offlineIndicator = (
-  status: NodexYProviderStatus,
-): BlockDocumentSyncIndicatorModel => ({
+const offlineIndicator = (status: NodexYProviderStatus): BlockDocumentSyncIndicatorModel => ({
   phase: status.phase,
   label: "Offline",
-  detail: status.pendingUpdateCount > 0
-    ? "Changes are kept on this device and will sync after reconnecting."
-    : "Reconnect to continue syncing this Page.",
+  detail:
+    status.pendingUpdateCount > 0
+      ? "Changes are kept on this device and will sync after reconnecting."
+      : "Reconnect to continue syncing this Page.",
   tone: "warning",
   action: retryAction,
   editingBlocked: false,
@@ -194,8 +170,7 @@ export const resolveBlockDocumentSyncIndicator = ({
     return {
       phase: status.phase,
       label: "Still saving…",
-      detail: status.error?.message
-        ?? "The durable save is taking longer than expected.",
+      detail: status.error?.message ?? "The durable save is taking longer than expected.",
       tone: "warning",
       action: retryAction,
       editingBlocked: false,

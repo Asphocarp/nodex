@@ -35,13 +35,13 @@ export const defaultDataSourcePropertyOptionColor = (identity: string): string =
   ]!;
 };
 
-const FALLBACK_OPTION_COLOR_CLASS_NAME =
-  "bg-token-foreground/8 text-token-text-secondary";
+const FALLBACK_OPTION_COLOR_CLASS_NAME = "bg-token-foreground/8 text-token-text-secondary";
 
 export const propertyOptionColorClassName = (color?: string): string => {
   if (!color) return FALLBACK_OPTION_COLOR_CLASS_NAME;
-  return PROPERTY_OPTION_COLOR_CLASS_NAMES[color.toLocaleLowerCase()]
-    ?? FALLBACK_OPTION_COLOR_CLASS_NAME;
+  return (
+    PROPERTY_OPTION_COLOR_CLASS_NAMES[color.toLocaleLowerCase()] ?? FALLBACK_OPTION_COLOR_CLASS_NAME
+  );
 };
 
 const normalizedSearchText = (value: string): string =>
@@ -53,9 +53,7 @@ export const filterDataSourcePropertyOptions = (
 ): readonly DatabasePropertyOption[] => {
   const normalized = normalizedSearchText(query);
   if (!normalized) return options;
-  return options.filter((option) =>
-    normalizedSearchText(option.name).includes(normalized)
-  );
+  return options.filter((option) => normalizedSearchText(option.name).includes(normalized));
 };
 
 export const canCreateDataSourcePropertyOption = (
@@ -81,8 +79,6 @@ export const presentSelectedDataSourcePropertyOptions = (
   const byId = new Map(options.map((option) => [option.id, option]));
   return selectedIds.map((id) => {
     const option = byId.get(id);
-    return option
-      ? { ...option, missing: false }
-      : { id, name: "Unknown option", missing: true };
+    return option ? { ...option, missing: false } : { id, name: "Unknown option", missing: true };
   });
 };

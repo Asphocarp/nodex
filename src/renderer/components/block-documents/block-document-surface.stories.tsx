@@ -27,15 +27,10 @@ const descriptor: PrimaryPageBlockDocumentDescriptor = {
   sync: { kind: "yjs", stateVector: new Uint8Array([0]) },
 };
 
-const makeFailure = (
-  syncError: DocumentSyncCommandError,
-): BlockDocumentSurfaceError =>
+const makeFailure = (syncError: DocumentSyncCommandError): BlockDocumentSurfaceError =>
   new BlockDocumentSurfaceError(syncError.message, { syncError });
 
-function SurfaceFailureStory({
-  accessRevoked = false,
-  resetRequired = false,
-}) {
+function SurfaceFailureStory({ accessRevoked = false, resetRequired = false }) {
   const error = accessRevoked
     ? makeFailure({
         code: "unauthorized",
@@ -44,19 +39,19 @@ function SurfaceFailureStory({
         resetRequired: true,
       })
     : resetRequired
-    ? makeFailure({
-        code: "document_generation_mismatch",
-        message: "The Card changed while this editor was opening.",
-        retryable: false,
-        resetRequired: true,
-      })
-    : makeFailure({
-        code: "document_state_corrupt",
-        message: "The collaborative body is missing its registered root.",
-        retryable: false,
-        resetRequired: false,
-        recoveryArtifactId: "recovery:018f2",
-      });
+      ? makeFailure({
+          code: "document_generation_mismatch",
+          message: "The Card changed while this editor was opening.",
+          retryable: false,
+          resetRequired: true,
+        })
+      : makeFailure({
+          code: "document_state_corrupt",
+          message: "The collaborative body is missing its registered root.",
+          retryable: false,
+          resetRequired: false,
+          recoveryArtifactId: "recovery:018f2",
+        });
 
   return (
     <div className="min-h-screen bg-token-main-surface-primary px-10 py-16">
@@ -64,9 +59,7 @@ function SurfaceFailureStory({
         <BlockDocumentSurfaceFailureState
           descriptor={descriptor}
           error={error}
-          reason={accessRevoked
-            ? "access-revoked"
-            : resetRequired ? "reset-required" : "fatal"}
+          reason={accessRevoked ? "access-revoked" : resetRequired ? "reset-required" : "fatal"}
           reloading={false}
           {...(accessRevoked ? {} : { reload: async () => undefined })}
         />

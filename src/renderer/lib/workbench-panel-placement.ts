@@ -6,10 +6,7 @@ import {
   listWorkbenchPanelLeaves,
   type WorkbenchPanelLayout,
 } from "../../shared/workbench-panel-layout";
-import type {
-  PanelId,
-  WorkbenchTabProjection,
-} from "@/lib/types";
+import type { PanelId, WorkbenchTabProjection } from "@/lib/types";
 import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
 
 export type RightNeighborPanelPlacement =
@@ -29,10 +26,7 @@ export function resolveRightNeighborPanelPlacement(
     return { kind: "fallback" };
   }
 
-  const existingLeafId = findNearestWorkbenchPanelLeafToRight(
-    layout,
-    sourceLeafId,
-  );
+  const existingLeafId = findNearestWorkbenchPanelLeafToRight(layout, sourceLeafId);
   if (existingLeafId) return { kind: "existing", leafId: existingLeafId };
   if (!options.fullWidth) {
     return { kind: "fallback" };
@@ -48,9 +42,11 @@ export function resolveSessionPanelActiveTabId(
   panelId: PanelId,
 ): string | null {
   const panel = session.panels[panelId];
-  return getWorkbenchPanelActiveLeaf(panel.layout).activeTabId
-    ?? session.tabs.find((tab) => tab.panelId === panelId)?.id
-    ?? null;
+  return (
+    getWorkbenchPanelActiveLeaf(panel.layout).activeTabId ??
+    session.tabs.find((tab) => tab.panelId === panelId)?.id ??
+    null
+  );
 }
 
 export function resolveSessionPanelActiveLeafId(
@@ -65,8 +61,10 @@ export function resolveLeafIdForPanelTab(
   panelId: PanelId,
   tabId: string,
 ): string {
-  return findWorkbenchPanelLeafForTab(session.panels[panelId].layout, tabId)?.id
-    ?? resolveSessionPanelActiveLeafId(session, panelId);
+  return (
+    findWorkbenchPanelLeafForTab(session.panels[panelId].layout, tabId)?.id ??
+    resolveSessionPanelActiveLeafId(session, panelId)
+  );
 }
 
 export function resolveDbCardSourceLeafId(
@@ -74,16 +72,11 @@ export function resolveDbCardSourceLeafId(
   sourceTabId: string | undefined,
 ): string | null {
   if (!sourceTabId) return null;
-  const sourceTab = session.tabs.find((tab) =>
-    tab.id === sourceTabId
-    && tab.panelId === "right"
-    && tab.kind === "db_view"
+  const sourceTab = session.tabs.find(
+    (tab) => tab.id === sourceTabId && tab.panelId === "right" && tab.kind === "db_view",
   );
   if (!sourceTab) return null;
-  const sourceLeafId = findWorkbenchPanelLeafForTab(
-    session.panels.right.layout,
-    sourceTab.id,
-  )?.id;
+  const sourceLeafId = findWorkbenchPanelLeafForTab(session.panels.right.layout, sourceTab.id)?.id;
   return sourceLeafId ?? null;
 }
 

@@ -5,8 +5,7 @@ export interface DictationTranscriptionInput {
   readonly base64Payload: string;
 }
 
-const MULTIPART_CONTENT_TYPE =
-  /^multipart\/form-data;\s*boundary=[^;\s]+$/iu;
+const MULTIPART_CONTENT_TYPE = /^multipart\/form-data;\s*boundary=[^;\s]+$/iu;
 const BASE64_PAYLOAD = /^[A-Za-z0-9+/]+={0,2}$/u;
 
 export function validateDictationTranscriptionInput(
@@ -18,20 +17,18 @@ export function validateDictationTranscriptionInput(
   }
 
   const candidate = input as Partial<DictationTranscriptionInput>;
-  const contentType = typeof candidate.contentType === "string"
-    ? candidate.contentType.trim()
-    : "";
+  const contentType = typeof candidate.contentType === "string" ? candidate.contentType.trim() : "";
   if (!MULTIPART_CONTENT_TYPE.test(contentType)) {
     throw new Error("Invalid dictation content type");
   }
 
   const base64Payload = candidate.base64Payload;
   if (
-    typeof base64Payload !== "string"
-    || base64Payload.length === 0
-    || Buffer.byteLength(base64Payload, "utf8") > maxEncodedBytes
-    || base64Payload.length % 4 !== 0
-    || !BASE64_PAYLOAD.test(base64Payload)
+    typeof base64Payload !== "string" ||
+    base64Payload.length === 0 ||
+    Buffer.byteLength(base64Payload, "utf8") > maxEncodedBytes ||
+    base64Payload.length % 4 !== 0 ||
+    !BASE64_PAYLOAD.test(base64Payload)
   ) {
     throw new Error("Invalid or oversized dictation payload");
   }

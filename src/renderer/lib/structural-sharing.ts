@@ -41,8 +41,7 @@ export function replaceEqualDeep<T>(prev: unknown, next: T): T {
       merged[key] = replaceEqualDeep(prev[key], next[key]);
       if (key in prev && merged[key] === prev[key]) sharedCount += 1;
     }
-    return Object.keys(prev).length === nextKeys.length
-      && sharedCount === nextKeys.length
+    return Object.keys(prev).length === nextKeys.length && sharedCount === nextKeys.length
       ? (prev as T)
       : (merged as T);
   }

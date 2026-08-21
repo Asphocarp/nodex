@@ -22,16 +22,19 @@ const plan = (overrides: Partial<CiGatePlan>): CiGatePlan => ({
 
 describe("application CI suite execution", () => {
   test("runs a canonical full suite without path arguments", () => {
-    expect(commandForAppTestSuite("renderer", plan({}))).toEqual([
-      "pnpm", "run", "test:renderer",
-    ]);
+    expect(commandForAppTestSuite("renderer", plan({}))).toEqual(["pnpm", "run", "test:renderer"]);
   });
 
   test("passes changed paths after an argument boundary for related selection", () => {
-    expect(commandForAppTestSuite("browser", plan({
-      relatedPaths: ["src/renderer/lib/example.ts", "src/shared/types.ts"],
-      testMode: "related",
-    }))).toEqual([
+    expect(
+      commandForAppTestSuite(
+        "browser",
+        plan({
+          relatedPaths: ["src/renderer/lib/example.ts", "src/shared/types.ts"],
+          testMode: "related",
+        }),
+      ),
+    ).toEqual([
       "pnpm",
       "run",
       "test:browser:related",
@@ -41,7 +44,8 @@ describe("application CI suite execution", () => {
   });
 
   test("rejects suites outside the classified plan", () => {
-    expect(() => commandForAppTestSuite("main", plan({ appTestSuites: ["renderer"] })))
-      .toThrow("not selected");
+    expect(() => commandForAppTestSuite("main", plan({ appTestSuites: ["renderer"] }))).toThrow(
+      "not selected",
+    );
   });
 });

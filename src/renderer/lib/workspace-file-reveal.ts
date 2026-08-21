@@ -1,7 +1,4 @@
-import type {
-  CodeViewScrollTarget,
-  SelectedLineRange,
-} from "@pierre/diffs";
+import type { CodeViewScrollTarget, SelectedLineRange } from "@pierre/diffs";
 import type { WorkspaceFileRevealLocation } from "@/features/workspace-files/workspace-file-types";
 
 export interface WorkspaceFileEditorSelection {
@@ -72,9 +69,9 @@ export function buildWorkspaceFileEditorSelection(
   if (typeof location.endLine === "number" && location.endLine < line) return null;
 
   const hasCharacterReveal =
-    typeof location.column === "number"
-    || typeof location.endColumn === "number"
-    || typeof location.endLine === "number";
+    typeof location.column === "number" ||
+    typeof location.endColumn === "number" ||
+    typeof location.endLine === "number";
   if (!hasCharacterReveal) return null;
 
   const endLine = location.endLine ?? line;

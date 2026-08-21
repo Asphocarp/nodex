@@ -151,10 +151,7 @@ describe("Data Source option registry", () => {
           propertyId: CUSTOM_PROPERTY,
           valueType: "select",
           config: {
-            options: [
-              ...options,
-              { id: "o_overflow", name: "Overflow" },
-            ],
+            options: [...options, { id: "o_overflow", name: "Overflow" }],
           },
         }),
       "invalid_registry",
@@ -186,11 +183,13 @@ describe("Data Source option registry", () => {
           propertyId: CUSTOM_PROPERTY,
           valueType: "select",
           config: {
-            options: [{
-              id: TAG_ONE,
-              name: "Name",
-              color: "界".repeat(43),
-            }],
+            options: [
+              {
+                id: TAG_ONE,
+                name: "Name",
+                color: "界".repeat(43),
+              },
+            ],
           },
         }),
       "invalid_registry",
@@ -200,11 +199,9 @@ describe("Data Source option registry", () => {
   test("resolves tag names after canonicalization but remains case-sensitive", () => {
     const registry = tagsRegistry();
 
-    expect(resolveTagOptionByCanonicalName(registry, "  Cafe\u0301  ")?.optionId)
-      .toBe(TAG_ONE);
+    expect(resolveTagOptionByCanonicalName(registry, "  Cafe\u0301  ")?.optionId).toBe(TAG_ONE);
     expect(resolveTagOptionByCanonicalName(registry, "café")).toBeNull();
-    expect(resolveTagOptionByCanonicalName(registry, "Ops")?.optionId)
-      .toBe(TAG_TWO);
+    expect(resolveTagOptionByCanonicalName(registry, "Ops")?.optionId).toBe(TAG_TWO);
     expect(resolveTagOptionByCanonicalName(registry, "ops")).toBeNull();
   });
 
@@ -252,9 +249,10 @@ describe("Data Source option registry", () => {
         ],
       },
     });
-    expect(
-      validateDataSourceOptionSelection(multi, [TAG_TWO, TAG_ONE, TAG_TWO]),
-    ).toEqual([TAG_ONE, TAG_TWO]);
+    expect(validateDataSourceOptionSelection(multi, [TAG_TWO, TAG_ONE, TAG_TWO])).toEqual([
+      TAG_ONE,
+      TAG_TWO,
+    ]);
     expect(validateDataSourceOptionSelection(multi, null)).toBeNull();
     expectRegistryError(
       () => validateDataSourceOptionSelection(multi, [TAG_THREE]),
@@ -299,10 +297,7 @@ describe("Data Source option registry", () => {
       selectedValues: [null, [], [TAG_TWO]],
     });
     expect(deleted.options.map((option) => option.optionId)).toEqual([TAG_TWO]);
-    expect(registry.options.map((option) => option.optionId)).toEqual([
-      TAG_ONE,
-      TAG_TWO,
-    ]);
+    expect(registry.options.map((option) => option.optionId)).toEqual([TAG_ONE, TAG_TWO]);
     expectRegistryError(
       () =>
         deleteDataSourceOption(registry, {

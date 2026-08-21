@@ -20,7 +20,9 @@ function normalizeAutomationId(automationId: string | null | undefined): string 
   return normalized.length > 0 ? normalized : null;
 }
 
-function normalizeAutomationMode(automationMode: WorkbenchAutomationMode | null | undefined): WorkbenchAutomationMode | null {
+function normalizeAutomationMode(
+  automationMode: WorkbenchAutomationMode | null | undefined,
+): WorkbenchAutomationMode | null {
   return automationMode === "create" ? "create" : null;
 }
 
@@ -49,7 +51,9 @@ export function resolveAutomationsRouteState(path: string): WorkbenchAutomations
   return {
     tab: normalizeTab(searchParams.get("tab")),
     automationId: normalizeAutomationId(searchParams.get("automationId")),
-    automationMode: normalizeAutomationMode(searchParams.get("automationMode") as WorkbenchAutomationMode | null),
+    automationMode: normalizeAutomationMode(
+      searchParams.get("automationMode") as WorkbenchAutomationMode | null,
+    ),
   };
 }
 
@@ -61,6 +65,7 @@ export function updateAutomationsPath(
   return buildAutomationsPath({
     tab: input.tab ?? current.tab,
     automationId: input.automationId === undefined ? current.automationId : input.automationId,
-    automationMode: input.automationMode === undefined ? current.automationMode : input.automationMode,
+    automationMode:
+      input.automationMode === undefined ? current.automationMode : input.automationMode,
   });
 }

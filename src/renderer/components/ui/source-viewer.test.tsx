@@ -15,27 +15,35 @@ vi.mock("@/lib/use-theme", () => ({
 }));
 
 vi.mock("@pierre/diffs/react", () => ({
-  CodeView: forwardRef(({ items, options }: {
-    items: Array<{
-      file: { contents: string; name: string };
-      version: number;
-    }>;
-    options: { disableLineNumbers?: boolean; overflow?: string };
-  }, ref) => {
-    useImperativeHandle(ref, () => codeViewHandle);
-    const file = items[0]?.file;
-    return (
-      <pre
-        data-testid="pierre-file"
-        data-filename={file?.name}
-        data-line-numbers={!options.disableLineNumbers}
-        data-overflow={options.overflow}
-        data-version={items[0]?.version}
-      >
-        {file?.contents}
-      </pre>
-    );
-  }),
+  CodeView: forwardRef(
+    (
+      {
+        items,
+        options,
+      }: {
+        items: Array<{
+          file: { contents: string; name: string };
+          version: number;
+        }>;
+        options: { disableLineNumbers?: boolean; overflow?: string };
+      },
+      ref,
+    ) => {
+      useImperativeHandle(ref, () => codeViewHandle);
+      const file = items[0]?.file;
+      return (
+        <pre
+          data-testid="pierre-file"
+          data-filename={file?.name}
+          data-line-numbers={!options.disableLineNumbers}
+          data-overflow={options.overflow}
+          data-version={items[0]?.version}
+        >
+          {file?.contents}
+        </pre>
+      );
+    },
+  ),
 }));
 
 beforeEach(() => {
@@ -78,9 +86,7 @@ describe("SourceViewer", () => {
       </div>,
     );
     expect(view.getByTestId("pierre-file").textContent).toBe("third\nvalue");
-    expect(view.getByTestId("pierre-file").getAttribute("data-version")).not.toBe(
-      firstVersion,
-    );
+    expect(view.getByTestId("pierre-file").getAttribute("data-version")).not.toBe(firstVersion);
   });
 
   test("reveals and selects a line range in the read-only surface", async () => {

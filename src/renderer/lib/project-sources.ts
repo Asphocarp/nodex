@@ -36,9 +36,6 @@ export function sourceRootDisplayName(root: string): string {
   return lastSegment || normalized || root;
 }
 
-export function makeSourceRootPrimary(
-  roots: readonly string[],
-  root: string,
-): string[] {
+export function makeSourceRootPrimary(roots: readonly string[], root: string): string[] {
   return [root, ...roots.filter((candidate) => candidate !== root)];
 }

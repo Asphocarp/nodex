@@ -9,7 +9,9 @@ describe("Codex desktop developer instructions", () => {
       workspaceDependenciesEnabled: true,
     });
 
-    expect(instructions.startsWith("Base instructions\n\n<app-context>\n# Codex desktop context")).toBe(true);
+    expect(
+      instructions.startsWith("Base instructions\n\n<app-context>\n# Codex desktop context"),
+    ).toBe(true);
     expect(instructions.includes("### Workspace Dependencies")).toBe(true);
     expect(instructions.includes("### Automations")).toBe(true);
     expect(instructions.includes("### Inline Code Comments")).toBe(true);
@@ -57,8 +59,11 @@ describe("Codex desktop developer instructions", () => {
       "### Git",
     ].map((section) => instructions.indexOf(section));
     expect(sectionOrder.every((index) => index >= 0)).toBe(true);
-    expect(sectionOrder.every((index, position) =>
-      position === 0 || index > (sectionOrder[position - 1] ?? -1))).toBe(true);
+    expect(
+      sectionOrder.every(
+        (index, position) => position === 0 || index > (sectionOrder[position - 1] ?? -1),
+      ),
+    ).toBe(true);
     expect(instructions.includes("### Git\n- Branch prefix: `nodex/`")).toBe(true);
     expect(instructions.includes("- Commit instructions: Keep commits focused.")).toBe(true);
   });

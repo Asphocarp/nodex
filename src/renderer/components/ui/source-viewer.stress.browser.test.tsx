@@ -26,9 +26,12 @@ describe("SourceViewer browser behavior", () => {
     const file = region.querySelector("diffs-container");
     expect(file).not.toBeNull();
 
-    await waitFor(() => {
-      expect(file?.shadowRoot?.querySelector("[data-code]")).not.toBeNull();
-    }, { timeout: 10_000 });
+    await waitFor(
+      () => {
+        expect(file?.shadowRoot?.querySelector("[data-code]")).not.toBeNull();
+      },
+      { timeout: 10_000 },
+    );
     expect(region.getElementsByTagName("*").length).toBeLessThan(2_000);
     expect(file?.shadowRoot?.textContent.length ?? 0).toBeLessThan(20_000);
   });

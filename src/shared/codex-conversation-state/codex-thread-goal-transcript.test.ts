@@ -106,10 +106,12 @@ describe("Codex 30751 thread goal transcript", () => {
     expect(projection.promptText).toBe("/goal Ship parity");
     expect(projection.message).toBe("Ship parity");
     expect(projection.sentAtMs).toBe(2_000);
-    expect(appendCodexCanonicalThreadGoalTranscriptTurn(
-      { ...buildState(), protocol: { ...buildState().protocol, id: "other" } },
-      goal,
-    ).turns.length).toBe(0);
+    expect(
+      appendCodexCanonicalThreadGoalTranscriptTurn(
+        { ...buildState(), protocol: { ...buildState().protocol, id: "other" } },
+        goal,
+      ).turns.length,
+    ).toBe(0);
   });
 
   test("projects the local params turn without fabricating a protocol user item", () => {

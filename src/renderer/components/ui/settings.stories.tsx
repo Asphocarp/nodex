@@ -41,17 +41,18 @@ const NOTIFICATION_OPTIONS = [
 
 function SettingsDropdownDemo() {
   const [value, setValue] = useState("unfocused");
-  const selectedLabel = NOTIFICATION_OPTIONS.find((option) => option.value === value)?.label ?? value;
+  const selectedLabel =
+    NOTIFICATION_OPTIONS.find((option) => option.value === value)?.label ?? value;
 
   return (
     <NodexDropdownMenu
       align="end"
       contentWidth="menuWide"
-      triggerButton={(
+      triggerButton={
         <NodexSettingsDropdownTrigger aria-label="Turn completion notifications">
           <span className="truncate">{selectedLabel}</span>
         </NodexSettingsDropdownTrigger>
-      )}
+      }
     >
       {NOTIFICATION_OPTIONS.map((option) => (
         <NodexDropdownItem
@@ -88,13 +89,21 @@ export const DenseRows: Story = {
             label="Enable permission notifications"
             description="Show alerts when notification permissions are required."
           >
-            <NodexSwitch ariaLabel="Enable permission notifications" checked onCheckedChange={() => {}} />
+            <NodexSwitch
+              ariaLabel="Enable permission notifications"
+              checked
+              onCheckedChange={() => {}}
+            />
           </NodexSettingsRow>
           <NodexSettingsRow
             label="Enable question notifications"
             description="Show alerts when input is needed to continue."
           >
-            <NodexSwitch ariaLabel="Enable question notifications" checked onCheckedChange={() => {}} />
+            <NodexSwitch
+              ariaLabel="Enable question notifications"
+              checked
+              onCheckedChange={() => {}}
+            />
           </NodexSettingsRow>
         </NodexSettingsSection>
         <NodexSettingsSection title="Diagnostics">
@@ -102,7 +111,10 @@ export const DenseRows: Story = {
             label="Send diagnostics"
             description="Optional masked diagnostics remain visually subordinate to the primary setting label."
           >
-            <button type="button" className="rounded-lg px-2 py-1 text-sm hover:bg-token-list-hover-background">
+            <button
+              type="button"
+              className="rounded-lg px-2 py-1 text-sm hover:bg-token-list-hover-background"
+            >
               Off
             </button>
           </NodexSettingsRow>
@@ -110,7 +122,10 @@ export const DenseRows: Story = {
             label="Long explanatory copy"
             description="This row intentionally contains enough explanatory text to demonstrate that settings descriptions wrap within the centered content column instead of being truncated."
           >
-            <button type="button" className="rounded-lg px-2 py-1 text-sm hover:bg-token-list-hover-background">
+            <button
+              type="button"
+              className="rounded-lg px-2 py-1 text-sm hover:bg-token-list-hover-background"
+            >
               Enabled
             </button>
           </NodexSettingsRow>

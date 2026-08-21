@@ -13,9 +13,7 @@ export interface ImageViewAnalytics {
   imageSource: ImageSourceClassification;
 }
 
-export function trackImageView(
-  input: ImageViewAnalytics & { view: ImageAnalyticsView },
-): void {
+export function trackImageView(input: ImageViewAnalytics & { view: ImageAnalyticsView }): void {
   logTelemetryEvent("image_view", undefined, {
     available_image_count: input.availableImageCount,
     entrypoint: input.entrypoint,
@@ -52,10 +50,7 @@ export function trackImageEditSubmit(input: {
   });
 }
 
-export type ImageEditSubmitRoute =
-  | "existing_thread"
-  | "new_thread"
-  | "queued";
+export type ImageEditSubmitRoute = "existing_thread" | "new_thread" | "queued";
 
 export function trackImageEditSubmitOutcome(input: {
   failureReason?:

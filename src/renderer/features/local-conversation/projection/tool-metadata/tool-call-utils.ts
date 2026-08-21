@@ -3,13 +3,19 @@ export function asRecord(value: unknown): Record<string, unknown> | null {
   return value as Record<string, unknown>;
 }
 
-export function getString(candidate: Record<string, unknown> | null, key: string): string | undefined {
+export function getString(
+  candidate: Record<string, unknown> | null,
+  key: string,
+): string | undefined {
   if (!candidate) return undefined;
   const value = candidate[key];
   return typeof value === "string" ? value : undefined;
 }
 
-export function getNumber(candidate: Record<string, unknown> | null, key: string): number | undefined {
+export function getNumber(
+  candidate: Record<string, unknown> | null,
+  key: string,
+): number | undefined {
   if (!candidate) return undefined;
   const value = candidate[key];
   return typeof value === "number" ? value : undefined;

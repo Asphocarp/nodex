@@ -36,7 +36,9 @@ describe("nodex popover", () => {
       await settleAsyncRender();
     });
 
-    const content = view.container.ownerDocument.body.querySelector('[data-slot="popover-content"]');
+    const content = view.container.ownerDocument.body.querySelector(
+      '[data-slot="popover-content"]',
+    );
     expect(content).not.toBeNull();
     expect(view.getByTestId("owner").querySelector('[data-slot="popover-content"]')).toBeNull();
     expect(view.getByText("Popover title").textContent).toBe("Popover title");

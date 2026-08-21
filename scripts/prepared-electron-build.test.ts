@@ -22,10 +22,7 @@ const skillFiles = [
 
 const writeAgentSkillsArtifact = (repositoryRoot: string): void => {
   const files = new Map(
-    skillFiles.map((relativePath) => [
-      relativePath,
-      Buffer.from(`${relativePath}\n`, "utf8"),
-    ]),
+    skillFiles.map((relativePath) => [relativePath, Buffer.from(`${relativePath}\n`, "utf8")]),
   );
   const hash = createHash("sha256");
   for (const relativePath of [...files.keys()].sort()) {
@@ -38,10 +35,7 @@ const writeAgentSkillsArtifact = (repositoryRoot: string): void => {
     hash.update(contents);
     hash.update("\0");
   }
-  const skillRoot = path.join(
-    repositoryRoot,
-    ".generated/official-agent-skills/skills/nodex",
-  );
+  const skillRoot = path.join(repositoryRoot, ".generated/official-agent-skills/skills/nodex");
   for (const [relativePath, contents] of files) {
     const destination = path.join(skillRoot, relativePath);
     fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -52,21 +46,29 @@ const writeAgentSkillsArtifact = (repositoryRoot: string): void => {
   fs.writeFileSync(path.join(artifactRoot, "LICENSE"), "LICENSE\n");
   fs.writeFileSync(
     path.join(artifactRoot, "release-manifest.json"),
-    `${JSON.stringify({
-      schemaVersion: 1,
-      distribution: "NodexApp/skills",
-      product: { name: "Nodex", releaseVersion: "1.2.3" },
-      source: { repository: "NodexApp/nodex", ref: "v1.2.3" },
-      agentInterface: { minimumRevision: 1, maximumRevision: 1 },
-      skills: [{
-        name: "nodex",
-        path: "skills/nodex",
-        treeSha256: hash.digest("hex"),
-        fileCount: files.size,
-        totalBytes: [...files.values()]
-          .reduce((total, contents) => total + contents.byteLength, 0),
-      }],
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        distribution: "NodexApp/skills",
+        product: { name: "Nodex", releaseVersion: "1.2.3" },
+        source: { repository: "NodexApp/nodex", ref: "v1.2.3" },
+        agentInterface: { minimumRevision: 1, maximumRevision: 1 },
+        skills: [
+          {
+            name: "nodex",
+            path: "skills/nodex",
+            treeSha256: hash.digest("hex"),
+            fileCount: files.size,
+            totalBytes: [...files.values()].reduce(
+              (total, contents) => total + contents.byteLength,
+              0,
+            ),
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
   );
 };
 
@@ -137,15 +139,13 @@ const makeFixture = (): {
   };
 };
 
-const initializeGitFixture = (repositoryRoot: string): {
+const initializeGitFixture = (
+  repositoryRoot: string,
+): {
   commit: string;
   tree: string;
 } => {
-  fs.writeFileSync(
-    path.join(repositoryRoot, ".gitignore"),
-    ".generated/prepared.json\n",
-    "utf8",
-  );
+  fs.writeFileSync(path.join(repositoryRoot, ".gitignore"), ".generated/prepared.json\n", "utf8");
   execFileSync("git", ["init"], { cwd: repositoryRoot });
   execFileSync("git", ["config", "user.email", "prepared-build@example.invalid"], {
     cwd: repositoryRoot,
@@ -232,10 +232,7 @@ describe("prepared Electron build", () => {
 
     expect(recorded.agentSkills.treeSha256).toMatch(/^[a-f0-9]{64}$/u);
     fs.appendFileSync(
-      path.join(
-        fixture.repositoryRoot,
-        ".generated/official-agent-skills/skills/nodex/SKILL.md",
-      ),
+      path.join(fixture.repositoryRoot, ".generated/official-agent-skills/skills/nodex/SKILL.md"),
       "tampered\n",
     );
 

@@ -1,7 +1,4 @@
-import {
-  normalizeStoredBoolean,
-  writeStoredBoolean,
-} from "./storage-boolean";
+import { normalizeStoredBoolean, writeStoredBoolean } from "./storage-boolean";
 import { parse as parseDomain } from "tldts";
 
 export const NFM_AUTOLINK_SETTINGS_STORAGE_KEY = "nodex-nfm-autolink-settings-v1";
@@ -112,10 +109,7 @@ export function readNfmAutolinkSettings(): NfmAutolinkSettings {
 export function writeNfmAutolinkSettings(value: unknown): NfmAutolinkSettings {
   const normalized = normalizeNfmAutolinkSettings(value);
   try {
-    localStorage.setItem(
-      NFM_AUTOLINK_SETTINGS_STORAGE_KEY,
-      JSON.stringify(normalized),
-    );
+    localStorage.setItem(NFM_AUTOLINK_SETTINGS_STORAGE_KEY, JSON.stringify(normalized));
   } catch {
     // localStorage may be unavailable.
   }
@@ -284,9 +278,5 @@ export function shouldAutoLinkMatchInText(
     return true;
   }
 
-  return !isProtocolLessMatchEmbeddedInPath(
-    fullText,
-    startIndex,
-    startIndex + value.length,
-  );
+  return !isProtocolLessMatchEmbeddedInPath(fullText, startIndex, startIndex + value.length);
 }

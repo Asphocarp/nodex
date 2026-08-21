@@ -21,13 +21,15 @@ function applyFollowerSnapshot(
   value = checkpoint(),
 ): void {
   expect(state.markSnapshotSent(conversationId, clientId, value)).toBe(true);
-  expect(state.acknowledgeSnapshotApplied({
-    conversationId,
-    clientId,
-    ownerClientId,
-    checkpoint: value,
-    currentCheckpoint: value,
-  }).accepted).toBe(true);
+  expect(
+    state.acknowledgeSnapshotApplied({
+      conversationId,
+      clientId,
+      ownerClientId,
+      checkpoint: value,
+      currentCheckpoint: value,
+    }).accepted,
+  ).toBe(true);
 }
 
 describe("CodexThreadStreamSubscriptionState", () => {

@@ -1,4 +1,3 @@
-
 import { useMemo, useState } from "react";
 import {
   DatabaseIcon,
@@ -7,13 +6,8 @@ import {
   PlusIcon,
   CanvasIcon,
 } from "@/components/shared/icons";
-import type {
-  LibraryResourceTarget,
-  LibraryReadValue,
-} from "../../../shared/library-module";
-import {
-  useInfiniteLibraryStandaloneRoots,
-} from "@/lib/use-library-navigation";
+import type { LibraryResourceTarget, LibraryReadValue } from "../../../shared/library-module";
+import { useInfiniteLibraryStandaloneRoots } from "@/lib/use-library-navigation";
 import {
   CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS,
   CODEX_SIDEBAR_ROW_LABEL_CLASS,
@@ -36,10 +30,7 @@ import { SidebarPaginatedItems } from "./sidebar-paginated-items";
 import { cn } from "@/lib/utils";
 import { usePresentedPageTitle } from "@/lib/page-title-projection-context";
 
-type StandaloneRootsValue = Extract<
-  LibraryReadValue,
-  { readonly kind: "standalone_roots" }
->;
+type StandaloneRootsValue = Extract<LibraryReadValue, { readonly kind: "standalone_roots" }>;
 type StandaloneRoot = StandaloneRootsValue["items"][number];
 
 interface StandaloneRootsQueryState {
@@ -107,16 +98,11 @@ function SidebarPageRootRow({
 }) {
   const target = nodeTarget(node);
   const key = nodeKey(node);
-  const title = usePresentedPageTitle(
-    node.kind === "page" ? node.pageId : null,
-    node.title,
-  );
-  const actionableTarget = node.kind === "canvas"
-    ? null
-    : target as ActionableLibraryResourceTarget;
-  const expectedLocationRevision = node.kind === "page"
-    ? node.parentRevision
-    : node.locationRevision;
+  const title = usePresentedPageTitle(node.kind === "page" ? node.pageId : null, node.title);
+  const actionableTarget =
+    node.kind === "canvas" ? null : (target as ActionableLibraryResourceTarget);
+  const expectedLocationRevision =
+    node.kind === "page" ? node.parentRevision : node.locationRevision;
   const dnd = useSidebarLibraryResourceDnd({
     resource: actionableTarget
       ? {
@@ -136,9 +122,10 @@ function SidebarPageRootRow({
     ...(actionableTarget
       ? {
           before: {
-            blockId: actionableTarget.kind === "page"
-              ? actionableTarget.pageId
-              : actionableTarget.databaseId,
+            blockId:
+              actionableTarget.kind === "page"
+                ? actionableTarget.pageId
+                : actionableTarget.databaseId,
             expectedLocationRevision,
           },
         }
@@ -153,41 +140,40 @@ function SidebarPageRootRow({
       role="listitem"
       aria-current={active ? "page" : undefined}
       active={active}
-      className={cn(
-        dnd.isOver && "ring-1 ring-token-border",
-        dnd.isDragging && "opacity-40",
-      )}
+      className={cn(dnd.isOver && "ring-1 ring-token-border", dnd.isDragging && "opacity-40")}
       onClick={() => onOpen(target)}
     >
       <CodexSidebarRowLayout
         leadingSlotProps={{ className: "text-token-text-secondary" }}
         leadingSlot={nodeIcon(node)}
-        actions={actionableTarget && mutationsEnabled ? (
-          <span
-            className="shrink-0 opacity-0 group-hover/folder-row:opacity-100 group-focus-within/folder-row:opacity-100 has-[[data-state=open]]:opacity-100"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <LibraryResourceActions
-              target={actionableTarget}
-              title={title}
-              expectedLocationRevision={expectedLocationRevision}
-              expectedMetadataRevision={node.metadataRevision}
-              projects={projects}
-              onOpenInProject={onOpenInProject}
-              triggerButton={(
-                <button
-                  type="button"
-                  aria-label={`Actions for ${title}`}
-                  className={CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS}
-                  onClick={(event) => event.stopPropagation()}
-                  onPointerDown={(event) => event.stopPropagation()}
-                >
-                  <ProjectActionsIcon className="icon-xs shrink-0" />
-                </button>
-              )}
-            />
-          </span>
-        ) : null}
+        actions={
+          actionableTarget && mutationsEnabled ? (
+            <span
+              className="shrink-0 opacity-0 group-hover/folder-row:opacity-100 group-focus-within/folder-row:opacity-100 has-[[data-state=open]]:opacity-100"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <LibraryResourceActions
+                target={actionableTarget}
+                title={title}
+                expectedLocationRevision={expectedLocationRevision}
+                expectedMetadataRevision={node.metadataRevision}
+                projects={projects}
+                onOpenInProject={onOpenInProject}
+                triggerButton={
+                  <button
+                    type="button"
+                    aria-label={`Actions for ${title}`}
+                    className={CODEX_SIDEBAR_GROUP_ACTION_BUTTON_CLASS}
+                    onClick={(event) => event.stopPropagation()}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <ProjectActionsIcon className="icon-xs shrink-0" />
+                  </button>
+                }
+              />
+            </span>
+          ) : null
+        }
       >
         <span className={CODEX_SIDEBAR_ROW_LABEL_CLASS}>
           <span className="min-w-0 flex-1 truncate pr-1">{title}</span>
@@ -225,13 +211,16 @@ export function SidebarPagesSection({
     ...(activeRoot ? { forceIncludeTarget: activeRoot } : {}),
   });
   const [expanded, setExpanded] = useState(false);
-  const roots = useMemo(() => [
-    ...new Map(
-      (query.data?.pages ?? [])
-        .flatMap((page) => page.items)
-        .map((node) => [nodeKey(node), node] as const),
-    ).values(),
-  ], [query.data?.pages]);
+  const roots = useMemo(
+    () => [
+      ...new Map(
+        (query.data?.pages ?? [])
+          .flatMap((page) => page.items)
+          .map((node) => [nodeKey(node), node] as const),
+      ).values(),
+    ],
+    [query.data?.pages],
+  );
   const rootDropTarget = useSidebarLibraryRootDropTarget();
 
   return (
@@ -239,29 +228,31 @@ export function SidebarPagesSection({
       heading="Pages"
       collapsed={collapsed}
       onToggle={onToggle}
-      actions={mutationsEnabled ? (
-        <LibraryNewMenu
-          onCreated={(target) => {
-            if (target.kind === "view") return;
-            onOpenRoot(target);
-          }}
-          triggerButton={(
-            <CodexSidebarActionButton label="New Page or Database">
-              <PlusIcon className="icon-sm" />
-            </CodexSidebarActionButton>
-          )}
-        />
-      ) : null}
+      actions={
+        mutationsEnabled ? (
+          <LibraryNewMenu
+            onCreated={(target) => {
+              if (target.kind === "view") return;
+              onOpenRoot(target);
+            }}
+            triggerButton={
+              <CodexSidebarActionButton label="New Page or Database">
+                <PlusIcon className="icon-sm" />
+              </CodexSidebarActionButton>
+            }
+          />
+        ) : null
+      }
     >
       <div
         ref={rootDropTarget.setNodeRef}
-        className={cn(
-          rootDropTarget.isOver && "rounded-lg ring-1 ring-token-border",
-        )}
+        className={cn(rootDropTarget.isOver && "rounded-lg ring-1 ring-token-border")}
       >
         {query.isPending ? (
           <div className="flex h-token-nav-row items-center rounded-lg px-1 text-base text-token-description-foreground">
-            <span className="flex size-6 shrink-0 items-center justify-center" aria-hidden>·</span>
+            <span className="flex size-6 shrink-0 items-center justify-center" aria-hidden>
+              ·
+            </span>
             <span className="min-w-0 truncate px-1">Loading Pages…</span>
           </div>
         ) : query.isError ? (
@@ -270,7 +261,9 @@ export function SidebarPagesSection({
             className="flex h-token-nav-row w-full items-center rounded-lg px-1 text-left text-base text-token-description-foreground hover:bg-token-list-hover-background hover:text-token-text-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px]"
             onClick={() => void query.refetch()}
           >
-            <span className="flex size-6 shrink-0 items-center justify-center" aria-hidden>!</span>
+            <span className="flex size-6 shrink-0 items-center justify-center" aria-hidden>
+              !
+            </span>
             <span className="min-w-0 truncate px-1">Retry Pages</span>
           </button>
         ) : roots.length === 0 ? (
@@ -296,9 +289,7 @@ export function SidebarPagesSection({
                   <SidebarPageRootRow
                     key={nodeKey(node)}
                     node={node}
-                    active={activeRoot
-                      ? nodeKey(node) === rootKey(activeRoot)
-                      : false}
+                    active={activeRoot ? nodeKey(node) === rootKey(activeRoot) : false}
                     projects={projects}
                     mutationsEnabled={mutationsEnabled}
                     onOpen={onOpenRoot}

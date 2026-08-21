@@ -8,10 +8,7 @@ import type {
   CodexScheduledAutomationStatus,
   CodexScheduledAutomationUpdateInput,
 } from "@/lib/types";
-import {
-  getVisibleCodexModels,
-  resolveCodexModelSelection,
-} from "@/lib/codex-thread-settings";
+import { getVisibleCodexModels, resolveCodexModelSelection } from "@/lib/codex-thread-settings";
 import { hasCodexScheduledAutomationRruleFrequency } from "@/lib/codex-scheduled-automation-rrule";
 
 export const DEFAULT_WORKBENCH_AUTOMATION_RRULE = "FREQ=DAILY;BYHOUR=9;BYMINUTE=0";
@@ -20,9 +17,7 @@ export const DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT = "medium";
 function isScheduledAutomationReasoningEffort(
   value: string,
 ): value is CodexScheduledAutomationReasoningEffort {
-  return value.length > 0
-    && value.length <= 64
-    && !/[\u0000-\u001f\u007f-\u009f]/u.test(value);
+  return value.length > 0 && value.length <= 64 && !/[\u0000-\u001f\u007f-\u009f]/u.test(value);
 }
 
 export interface WorkbenchAutomationDraft {
@@ -91,17 +86,21 @@ export function parseWorkbenchAutomationCwds(value: string): string[] {
     .filter((item) => item.length > 0);
 }
 
-export function cloneWorkbenchAutomationDraft(draft: WorkbenchAutomationDraft): WorkbenchAutomationDraft {
+export function cloneWorkbenchAutomationDraft(
+  draft: WorkbenchAutomationDraft,
+): WorkbenchAutomationDraft {
   return {
     ...draft,
     cwds: [...draft.cwds],
   };
 }
 
-export function createWorkbenchAutomationDraft(input: {
-  automation?: CodexScheduledAutomation | null;
-  id?: string;
-} = {}): WorkbenchAutomationDraft {
+export function createWorkbenchAutomationDraft(
+  input: {
+    automation?: CodexScheduledAutomation | null;
+    id?: string;
+  } = {},
+): WorkbenchAutomationDraft {
   const { automation } = input;
   const kind = normalizeKind(automation?.kind ?? "cron");
   return {
@@ -115,13 +114,15 @@ export function createWorkbenchAutomationDraft(input: {
     model: kind === "cron" ? (automation?.model ?? "") : "",
     modelProvider: kind === "cron" ? (automation?.modelProvider ?? "") : "",
     harnessId: kind === "cron" ? (automation?.harnessId ?? "") : "",
-    reasoningEffort: kind === "cron"
-      ? (automation?.reasoningEffort ?? DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
-      : "",
+    reasoningEffort:
+      kind === "cron"
+        ? (automation?.reasoningEffort ?? DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
+        : "",
     serviceTier: kind === "cron" ? (automation?.serviceTier ?? "") : "",
     cwds: kind === "cron" ? [...(automation?.cwds ?? [])] : [],
     executionEnvironment: normalizeExecutionEnvironment(automation?.executionEnvironment),
-    localEnvironmentConfigPath: kind === "cron" ? (automation?.localEnvironmentConfigPath ?? "") : "",
+    localEnvironmentConfigPath:
+      kind === "cron" ? (automation?.localEnvironmentConfigPath ?? "") : "",
   };
 }
 
@@ -140,9 +141,10 @@ export function createWorkbenchAutomationDraftFromCreateInput(
     model: kind === "cron" ? (input.model ?? "") : "",
     modelProvider: kind === "cron" ? (input.modelProvider ?? "") : "",
     harnessId: kind === "cron" ? (input.harnessId ?? "") : "",
-    reasoningEffort: kind === "cron"
-      ? (input.reasoningEffort ?? DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
-      : "",
+    reasoningEffort:
+      kind === "cron"
+        ? (input.reasoningEffort ?? DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
+        : "",
     serviceTier: kind === "cron" ? (input.serviceTier ?? "") : "",
     cwds: kind === "cron" ? [...(input.cwds ?? [])] : [],
     executionEnvironment: normalizeExecutionEnvironment(input.executionEnvironment),
@@ -155,7 +157,9 @@ export function createWorkbenchAutomationDraftFromUpdateInput(input: {
   automation?: CodexScheduledAutomation | null;
 }): WorkbenchAutomationDraft {
   const { update, automation } = input;
-  const base = automation ? createWorkbenchAutomationDraft({ automation }) : createWorkbenchAutomationDraft({ id: update.id });
+  const base = automation
+    ? createWorkbenchAutomationDraft({ automation })
+    : createWorkbenchAutomationDraft({ id: update.id });
   const kind = normalizeKind(update.kind ?? base.kind);
   return {
     ...base,
@@ -169,17 +173,20 @@ export function createWorkbenchAutomationDraftFromUpdateInput(input: {
     model: kind === "cron" ? (update.model ?? base.model) : "",
     modelProvider: kind === "cron" ? (update.modelProvider ?? base.modelProvider) : "",
     harnessId: kind === "cron" ? (update.harnessId ?? base.harnessId) : "",
-    reasoningEffort: kind === "cron"
-      ? (update.reasoningEffort ?? base.reasoningEffort ?? DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
-      : "",
+    reasoningEffort:
+      kind === "cron"
+        ? (update.reasoningEffort ??
+          base.reasoningEffort ??
+          DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
+        : "",
     serviceTier: kind === "cron" ? (update.serviceTier ?? base.serviceTier) : "",
     cwds: kind === "cron" ? [...(update.cwds ?? base.cwds)] : [],
-    executionEnvironment: kind === "cron"
-      ? normalizeExecutionEnvironment(update.executionEnvironment ?? base.executionEnvironment)
-      : "worktree",
-    localEnvironmentConfigPath: kind === "cron"
-      ? (update.localEnvironmentConfigPath ?? base.localEnvironmentConfigPath)
-      : "",
+    executionEnvironment:
+      kind === "cron"
+        ? normalizeExecutionEnvironment(update.executionEnvironment ?? base.executionEnvironment)
+        : "worktree",
+    localEnvironmentConfigPath:
+      kind === "cron" ? (update.localEnvironmentConfigPath ?? base.localEnvironmentConfigPath) : "",
   };
 }
 
@@ -189,11 +196,11 @@ export function resolveWorkbenchAutomationDraftModelSettings(input: {
 }): WorkbenchAutomationDraft {
   if (input.draft.kind !== "cron") {
     if (
-      input.draft.model === ""
-      && input.draft.modelProvider === ""
-      && input.draft.harnessId === ""
-      && input.draft.reasoningEffort === ""
-      && input.draft.serviceTier === ""
+      input.draft.model === "" &&
+      input.draft.modelProvider === "" &&
+      input.draft.harnessId === "" &&
+      input.draft.reasoningEffort === "" &&
+      input.draft.serviceTier === ""
     ) {
       return input.draft;
     }
@@ -226,9 +233,9 @@ export function resolveWorkbenchAutomationDraftModelSettings(input: {
     : DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT;
 
   if (
-    input.draft.model === selection.model
-    && input.draft.modelProvider === "openai"
-    && input.draft.reasoningEffort === reasoningEffort
+    input.draft.model === selection.model &&
+    input.draft.modelProvider === "openai" &&
+    input.draft.reasoningEffort === reasoningEffort
   ) {
     return input.draft;
   }
@@ -291,9 +298,9 @@ export function resolveWorkbenchAutomationDraftMissingRequirements(
   }
 
   if (
-    draft.kind === "cron"
-    && draft.executionEnvironment !== "local"
-    && draft.executionEnvironment !== "worktree"
+    draft.kind === "cron" &&
+    draft.executionEnvironment !== "local" &&
+    draft.executionEnvironment !== "worktree"
   ) {
     missingRequirements.push("executionEnvironment");
   }
@@ -339,7 +346,10 @@ function formatWorkbenchAutomationDraftRequirementLabel(
 
 function formatRequirementList(requirements: WorkbenchAutomationDraftRequirement[]): string {
   const labels = requirements.map((requirement, index) =>
-    formatWorkbenchAutomationDraftRequirementLabel(requirement, index === 0 ? "initial" : "continuation")
+    formatWorkbenchAutomationDraftRequirementLabel(
+      requirement,
+      index === 0 ? "initial" : "continuation",
+    ),
   );
   if (labels.length === 0) return "";
   if (labels.length === 1) return labels[0] ?? "";
@@ -388,11 +398,15 @@ function buildCodexScheduledAutomationDraftPayload(
     model: isHeartbeat ? null : normalizeOptionalText(draft.model),
     modelProvider: isHeartbeat ? null : normalizeOptionalText(draft.modelProvider),
     harnessId: isHeartbeat ? null : normalizeOptionalText(draft.harnessId),
-    reasoningEffort: isHeartbeat ? null : (draft.reasoningEffort || null),
+    reasoningEffort: isHeartbeat ? null : draft.reasoningEffort || null,
     serviceTier: isHeartbeat ? null : normalizeOptionalText(draft.serviceTier),
     cwds: isHeartbeat ? [] : [...draft.cwds],
-    executionEnvironment: isHeartbeat ? null : normalizeExecutionEnvironment(draft.executionEnvironment),
-    localEnvironmentConfigPath: isHeartbeat ? null : normalizeOptionalText(draft.localEnvironmentConfigPath),
+    executionEnvironment: isHeartbeat
+      ? null
+      : normalizeExecutionEnvironment(draft.executionEnvironment),
+    localEnvironmentConfigPath: isHeartbeat
+      ? null
+      : normalizeOptionalText(draft.localEnvironmentConfigPath),
   };
 }
 
@@ -439,21 +453,30 @@ export function isWorkbenchAutomationDraftDirty(input: {
   const { draft, existing } = input;
   if (!existing) return true;
 
-  return normalizeKind(draft.kind) !== existing.kind
-    || normalizeStatus(draft.status) !== existing.status
-    || (draft.kind === "heartbeat" ? normalizeOptionalText(draft.targetThreadId) : null) !== existing.targetThreadId
-    || normalizeOptionalText(draft.name) !== existing.name
-    || normalizeOptionalText(draft.prompt) !== existing.prompt
-    || normalizeOptionalText(draft.rrule) !== existing.rrule
-    || (draft.kind === "cron" ? normalizeOptionalText(draft.model) : null) !== existing.model
-    || (draft.kind === "cron" ? normalizeOptionalText(draft.modelProvider) : null) !== existing.modelProvider
-    || (draft.kind === "cron" ? normalizeOptionalText(draft.harnessId) : null) !== existing.harnessId
-    || (draft.kind === "cron" ? (draft.reasoningEffort || null) : null) !== existing.reasoningEffort
-    || (draft.kind === "cron" ? normalizeOptionalText(draft.serviceTier) : null) !== existing.serviceTier
-    || (draft.kind === "cron" ? normalizeExecutionEnvironment(draft.executionEnvironment) : existing.executionEnvironment) !== existing.executionEnvironment
-    || (draft.kind === "cron" ? normalizeOptionalText(draft.localEnvironmentConfigPath) : null) !== existing.localEnvironmentConfigPath
-    || draft.cwds.length !== existing.cwds.length
-    || draft.cwds.some((cwd, index) => cwd !== existing.cwds[index]);
+  return (
+    normalizeKind(draft.kind) !== existing.kind ||
+    normalizeStatus(draft.status) !== existing.status ||
+    (draft.kind === "heartbeat" ? normalizeOptionalText(draft.targetThreadId) : null) !==
+      existing.targetThreadId ||
+    normalizeOptionalText(draft.name) !== existing.name ||
+    normalizeOptionalText(draft.prompt) !== existing.prompt ||
+    normalizeOptionalText(draft.rrule) !== existing.rrule ||
+    (draft.kind === "cron" ? normalizeOptionalText(draft.model) : null) !== existing.model ||
+    (draft.kind === "cron" ? normalizeOptionalText(draft.modelProvider) : null) !==
+      existing.modelProvider ||
+    (draft.kind === "cron" ? normalizeOptionalText(draft.harnessId) : null) !==
+      existing.harnessId ||
+    (draft.kind === "cron" ? draft.reasoningEffort || null : null) !== existing.reasoningEffort ||
+    (draft.kind === "cron" ? normalizeOptionalText(draft.serviceTier) : null) !==
+      existing.serviceTier ||
+    (draft.kind === "cron"
+      ? normalizeExecutionEnvironment(draft.executionEnvironment)
+      : existing.executionEnvironment) !== existing.executionEnvironment ||
+    (draft.kind === "cron" ? normalizeOptionalText(draft.localEnvironmentConfigPath) : null) !==
+      existing.localEnvironmentConfigPath ||
+    draft.cwds.length !== existing.cwds.length ||
+    draft.cwds.some((cwd, index) => cwd !== existing.cwds[index])
+  );
 }
 
 export function hasWorkbenchAutomationCreateDraftChanges(
@@ -461,35 +484,45 @@ export function hasWorkbenchAutomationCreateDraftChanges(
   initialDraft?: WorkbenchAutomationDraft | null,
 ): boolean {
   if (initialDraft) {
-    return normalizeKind(draft.kind) !== normalizeKind(initialDraft.kind)
-      || normalizeStatus(draft.status) !== normalizeStatus(initialDraft.status)
-      || normalizeOptionalText(draft.targetThreadId) !== normalizeOptionalText(initialDraft.targetThreadId)
-      || normalizeOptionalText(draft.name) !== normalizeOptionalText(initialDraft.name)
-      || normalizeOptionalText(draft.prompt) !== normalizeOptionalText(initialDraft.prompt)
-      || normalizeOptionalText(draft.rrule) !== normalizeOptionalText(initialDraft.rrule)
-      || normalizeOptionalText(draft.model) !== normalizeOptionalText(initialDraft.model)
-      || normalizeOptionalText(draft.modelProvider) !== normalizeOptionalText(initialDraft.modelProvider)
-      || normalizeOptionalText(draft.harnessId) !== normalizeOptionalText(initialDraft.harnessId)
-      || (draft.reasoningEffort || "") !== (initialDraft.reasoningEffort || "")
-      || normalizeOptionalText(draft.serviceTier) !== normalizeOptionalText(initialDraft.serviceTier)
-      || draft.cwds.length !== initialDraft.cwds.length
-      || draft.cwds.some((cwd, index) => cwd !== initialDraft.cwds[index])
-      || normalizeExecutionEnvironment(draft.executionEnvironment) !== normalizeExecutionEnvironment(initialDraft.executionEnvironment)
-      || normalizeOptionalText(draft.localEnvironmentConfigPath) !== normalizeOptionalText(initialDraft.localEnvironmentConfigPath);
+    return (
+      normalizeKind(draft.kind) !== normalizeKind(initialDraft.kind) ||
+      normalizeStatus(draft.status) !== normalizeStatus(initialDraft.status) ||
+      normalizeOptionalText(draft.targetThreadId) !==
+        normalizeOptionalText(initialDraft.targetThreadId) ||
+      normalizeOptionalText(draft.name) !== normalizeOptionalText(initialDraft.name) ||
+      normalizeOptionalText(draft.prompt) !== normalizeOptionalText(initialDraft.prompt) ||
+      normalizeOptionalText(draft.rrule) !== normalizeOptionalText(initialDraft.rrule) ||
+      normalizeOptionalText(draft.model) !== normalizeOptionalText(initialDraft.model) ||
+      normalizeOptionalText(draft.modelProvider) !==
+        normalizeOptionalText(initialDraft.modelProvider) ||
+      normalizeOptionalText(draft.harnessId) !== normalizeOptionalText(initialDraft.harnessId) ||
+      (draft.reasoningEffort || "") !== (initialDraft.reasoningEffort || "") ||
+      normalizeOptionalText(draft.serviceTier) !==
+        normalizeOptionalText(initialDraft.serviceTier) ||
+      draft.cwds.length !== initialDraft.cwds.length ||
+      draft.cwds.some((cwd, index) => cwd !== initialDraft.cwds[index]) ||
+      normalizeExecutionEnvironment(draft.executionEnvironment) !==
+        normalizeExecutionEnvironment(initialDraft.executionEnvironment) ||
+      normalizeOptionalText(draft.localEnvironmentConfigPath) !==
+        normalizeOptionalText(initialDraft.localEnvironmentConfigPath)
+    );
   }
 
-  return normalizeKind(draft.kind) !== "cron"
-    || normalizeStatus(draft.status) !== "ACTIVE"
-    || normalizeOptionalText(draft.targetThreadId) !== null
-    || normalizeOptionalText(draft.name) !== null
-    || normalizeOptionalText(draft.prompt) !== null
-    || normalizeOptionalText(draft.rrule) !== DEFAULT_WORKBENCH_AUTOMATION_RRULE
-    || normalizeOptionalText(draft.model) !== null
-    || normalizeOptionalText(draft.modelProvider) !== null
-    || normalizeOptionalText(draft.harnessId) !== null
-    || (draft.reasoningEffort !== "" && draft.reasoningEffort !== DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT)
-    || normalizeOptionalText(draft.serviceTier) !== null
-    || draft.cwds.length > 0
-    || normalizeExecutionEnvironment(draft.executionEnvironment) !== "worktree"
-    || normalizeOptionalText(draft.localEnvironmentConfigPath) !== null;
+  return (
+    normalizeKind(draft.kind) !== "cron" ||
+    normalizeStatus(draft.status) !== "ACTIVE" ||
+    normalizeOptionalText(draft.targetThreadId) !== null ||
+    normalizeOptionalText(draft.name) !== null ||
+    normalizeOptionalText(draft.prompt) !== null ||
+    normalizeOptionalText(draft.rrule) !== DEFAULT_WORKBENCH_AUTOMATION_RRULE ||
+    normalizeOptionalText(draft.model) !== null ||
+    normalizeOptionalText(draft.modelProvider) !== null ||
+    normalizeOptionalText(draft.harnessId) !== null ||
+    (draft.reasoningEffort !== "" &&
+      draft.reasoningEffort !== DEFAULT_WORKBENCH_AUTOMATION_REASONING_EFFORT) ||
+    normalizeOptionalText(draft.serviceTier) !== null ||
+    draft.cwds.length > 0 ||
+    normalizeExecutionEnvironment(draft.executionEnvironment) !== "worktree" ||
+    normalizeOptionalText(draft.localEnvironmentConfigPath) !== null
+  );
 }

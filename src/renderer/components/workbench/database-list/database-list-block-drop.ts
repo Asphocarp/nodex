@@ -40,18 +40,17 @@ const groupTargetFor = (
   if (row.kind === "group" || row.kind === "subgroup") {
     return { kind: "group", occurrenceKey: row.key };
   }
-  const subgroup = rows.find((candidate) =>
-    candidate.kind === "subgroup"
-    && candidate.groupKey === row.groupKey
-    && candidate.subgroupKey === row.subgroupKey
+  const subgroup = rows.find(
+    (candidate) =>
+      candidate.kind === "subgroup" &&
+      candidate.groupKey === row.groupKey &&
+      candidate.subgroupKey === row.subgroupKey,
   );
   if (subgroup) return { kind: "group", occurrenceKey: subgroup.key };
-  const group = rows.find((candidate) =>
-    candidate.kind === "group" && candidate.groupKey === row.groupKey
+  const group = rows.find(
+    (candidate) => candidate.kind === "group" && candidate.groupKey === row.groupKey,
   );
-  return group
-    ? { kind: "group", occurrenceKey: group.key }
-    : { kind: "root" };
+  return group ? { kind: "group", occurrenceKey: group.key } : { kind: "root" };
 };
 
 /**
@@ -91,9 +90,7 @@ export const resolveDatabaseListBlockDropPreview = (input: {
         kind: "surface",
         occurrenceKey: groupTarget.kind === "group" ? groupTarget.occurrenceKey : null,
       },
-      message: !input.exactSlot
-        ? "Current sort decides the Page position"
-        : "Drop into this group",
+      message: !input.exactSlot ? "Current sort decides the Page position" : "Drop into this group",
     };
   }
   const midpoint = input.rowTop + (input.rowBottom - input.rowTop) / 2;
@@ -107,11 +104,11 @@ export const resolveDatabaseListBlockDropPreview = (input: {
   const nextRootIndex = rowIndex + Math.max(1, row.subtreeOccurrenceCount);
   const nextRoot = input.rows[nextRootIndex];
   if (
-    nextRoot?.kind === "page"
-    && nextRoot.depth === 0
-    && nextRoot.transientKind === "none"
-    && nextRoot.groupKey === row.groupKey
-    && nextRoot.subgroupKey === row.subgroupKey
+    nextRoot?.kind === "page" &&
+    nextRoot.depth === 0 &&
+    nextRoot.transientKind === "none" &&
+    nextRoot.groupKey === row.groupKey &&
+    nextRoot.subgroupKey === row.subgroupKey
   ) {
     return {
       target: { kind: "page", occurrenceKey: nextRoot.key, edge: "before" },

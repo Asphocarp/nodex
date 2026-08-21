@@ -42,9 +42,7 @@ function updateState(state: BrowserSidebarStateSnapshot): void {
   publish({ ...snapshot, state });
 }
 
-function updateBrowserUseState(
-  browserUseState: BrowserSidebarBrowserUseStateSnapshot,
-): void {
+function updateBrowserUseState(browserUseState: BrowserSidebarBrowserUseStateSnapshot): void {
   browserUseRevision += 1;
   publish({ ...snapshot, browserUseState });
 }
@@ -53,17 +51,12 @@ function removeClosedPage(event: BrowserUsePageClosedEvent): void {
   const tabKey = makeBrowserSidebarTabKey(event);
   const scopeKey = makeBrowserSidebarConversationScopeKey(event);
   const nextState = {
-    tabs: snapshot.state.tabs.filter((tab) =>
-      makeBrowserSidebarTabKey(tab) !== tabKey
-    ),
+    tabs: snapshot.state.tabs.filter((tab) => makeBrowserSidebarTabKey(tab) !== tabKey),
   };
   const activeBrowserTabIdsByConversationScope = {
     ...snapshot.browserUseState.activeBrowserTabIdsByConversationScope,
   };
-  if (
-    activeBrowserTabIdsByConversationScope[scopeKey]
-    === event.browserTabId
-  ) {
+  if (activeBrowserTabIdsByConversationScope[scopeKey] === event.browserTabId) {
     delete activeBrowserTabIdsByConversationScope[scopeKey];
   }
   stateRevision += 1;
@@ -71,38 +64,32 @@ function removeClosedPage(event: BrowserUsePageClosedEvent): void {
   publish({
     state: nextState,
     browserUseState: {
-      tabs: snapshot.browserUseState.tabs.filter((tab) =>
-        makeBrowserSidebarTabKey(tab) !== tabKey
-      ),
+      tabs: snapshot.browserUseState.tabs.filter((tab) => makeBrowserSidebarTabKey(tab) !== tabKey),
       activeBrowserTabIdsByConversationScope,
-      cursors: snapshot.browserUseState.cursors.filter((cursor) =>
-        makeBrowserSidebarTabKey(cursor) !== tabKey
+      cursors: snapshot.browserUseState.cursors.filter(
+        (cursor) => makeBrowserSidebarTabKey(cursor) !== tabKey,
       ),
     },
-    presentationRequests: snapshot.presentationRequests.filter((request) =>
-      makeBrowserSidebarTabKey(request) !== tabKey
+    presentationRequests: snapshot.presentationRequests.filter(
+      (request) => makeBrowserSidebarTabKey(request) !== tabKey,
     ),
   });
 }
 
-function updatePresentationRequest(
-  request: BrowserUsePresentationRequest,
-): void {
+function updatePresentationRequest(request: BrowserUsePresentationRequest): void {
   const tabKey = makeBrowserSidebarTabKey(request);
   publish({
     ...snapshot,
     presentationRequests: [
-      ...snapshot.presentationRequests.filter((candidate) =>
-        makeBrowserSidebarTabKey(candidate) !== tabKey
+      ...snapshot.presentationRequests.filter(
+        (candidate) => makeBrowserSidebarTabKey(candidate) !== tabKey,
       ),
       request,
     ],
   });
 }
 
-export function consumeBrowserUsePresentationRequest(
-  requestId: string,
-): void {
+export function consumeBrowserUsePresentationRequest(requestId: string): void {
   const presentationRequests = snapshot.presentationRequests.filter(
     (request) => request.requestId !== requestId,
   );
@@ -136,20 +123,12 @@ export function startBrowserSidebarRendererStateStore(): () => void {
   const initialStateRevision = stateRevision;
   const initialBrowserUseRevision = browserUseRevision;
   let disposed = false;
-  const unsubscribeState = window.api.on(
-    "browser-sidebar-state",
-    (payload) => {
-      updateState(payload as BrowserSidebarStateSnapshot);
-    },
-  );
-  const unsubscribeBrowserUse = window.api.on(
-    "browser-sidebar-browser-use-state",
-    (payload) => {
-      updateBrowserUseState(
-        payload as BrowserSidebarBrowserUseStateSnapshot,
-      );
-    },
-  );
+  const unsubscribeState = window.api.on("browser-sidebar-state", (payload) => {
+    updateState(payload as BrowserSidebarStateSnapshot);
+  });
+  const unsubscribeBrowserUse = window.api.on("browser-sidebar-browser-use-state", (payload) => {
+    updateBrowserUseState(payload as BrowserSidebarBrowserUseStateSnapshot);
+  });
   const unsubscribePageClosed = window.api.on(
     "browser-sidebar-browser-use-page-closed",
     (payload) => {
@@ -167,18 +146,18 @@ export function startBrowserSidebarRendererStateStore(): () => void {
     .then((runtimeSnapshot: BrowserSidebarRuntimeSnapshot) => {
       if (disposed) return;
       const next = {
-        state: stateRevision === initialStateRevision
-          ? runtimeSnapshot.state
-          : snapshot.state,
-        browserUseState: browserUseRevision === initialBrowserUseRevision
-          ? runtimeSnapshot.browserUseState
-          : snapshot.browserUseState,
+        state: stateRevision === initialStateRevision ? runtimeSnapshot.state : snapshot.state,
+        browserUseState:
+          browserUseRevision === initialBrowserUseRevision
+            ? runtimeSnapshot.browserUseState
+            : snapshot.browserUseState,
         presentationRequests: [
           ...snapshot.presentationRequests,
-          ...runtimeSnapshot.presentationRequests.filter((request) =>
-            !snapshot.presentationRequests.some((candidate) =>
-              candidate.requestId === request.requestId
-            )
+          ...runtimeSnapshot.presentationRequests.filter(
+            (request) =>
+              !snapshot.presentationRequests.some(
+                (candidate) => candidate.requestId === request.requestId,
+              ),
           ),
         ],
       };

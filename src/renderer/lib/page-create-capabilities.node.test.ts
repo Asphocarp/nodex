@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  parseDataSourceId,
-  parseDataSourcePropertyId,
-} from "../../shared/database-identities";
+import { parseDataSourceId, parseDataSourcePropertyId } from "../../shared/database-identities";
 import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import {
@@ -37,12 +34,9 @@ describe("Page create property capabilities", () => {
     const tags = property("tags", "multi_select");
     const customSelect = property("p_AAAAAAAA", "select");
 
-    expect(resolvePageCreatePropertyCapabilities([
-      priority,
-      invalidEstimate,
-      tags,
-      customSelect,
-    ])).toEqual({
+    expect(
+      resolvePageCreatePropertyCapabilities([priority, invalidEstimate, tags, customSelect]),
+    ).toEqual({
       priorityProperty: priority,
       estimateProperty: null,
       tagsProperty: tags,
@@ -53,12 +47,17 @@ describe("Page create property capabilities", () => {
     const tags = property("tags", "multi_select");
     const capabilities = resolvePageCreatePropertyCapabilities([tags]);
 
-    expect(gatePageCreateInputByCapabilities({
-      title: "Schema-safe Page",
-      priority: "p1-high",
-      estimate: "m",
-      tagOptions: [{ optionId: "o_AAAAAAAA", name: "Product" }],
-    }, capabilities)).toEqual({
+    expect(
+      gatePageCreateInputByCapabilities(
+        {
+          title: "Schema-safe Page",
+          priority: "p1-high",
+          estimate: "m",
+          tagOptions: [{ optionId: "o_AAAAAAAA", name: "Product" }],
+        },
+        capabilities,
+      ),
+    ).toEqual({
       title: "Schema-safe Page",
       priority: undefined,
       estimate: undefined,

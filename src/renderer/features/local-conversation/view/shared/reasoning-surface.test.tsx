@@ -10,13 +10,17 @@ import {
 
 describe("extractReasoningSections", () => {
   test("extracts a leading bold heading and trims the remaining body", () => {
-    const sections = extractReasoningSections("**Investigating**\n\nChecking the failing story state.");
+    const sections = extractReasoningSections(
+      "**Investigating**\n\nChecking the failing story state.",
+    );
     expect(sections.heading).toBe("Investigating");
     expect(sections.body).toBe("Checking the failing story state.");
   });
 
   test("extracts a markdown heading line when present", () => {
-    const sections = extractReasoningSections("# Investigating\n\nChecking the failing story state.");
+    const sections = extractReasoningSections(
+      "# Investigating\n\nChecking the failing story state.",
+    );
     expect(sections.heading).toBe("Investigating");
     expect(sections.body).toBe("Checking the failing story state.");
   });
@@ -24,9 +28,9 @@ describe("extractReasoningSections", () => {
 
 describe("stripReasoningPreviewHeading", () => {
   test("removes a leading bold heading from the streaming preview body", () => {
-    expect(stripReasoningPreviewHeading("**Investigating**\n\nChecking the failing story state.").trim()).toBe(
-      "Checking the failing story state.",
-    );
+    expect(
+      stripReasoningPreviewHeading("**Investigating**\n\nChecking the failing story state.").trim(),
+    ).toBe("Checking the failing story state.");
   });
 });
 
@@ -65,7 +69,9 @@ describe("ReasoningSurface", () => {
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(Boolean(textContent(container).includes("Checking the failing story state."))).toBe(true);
+    expect(Boolean(textContent(container).includes("Checking the failing story state."))).toBe(
+      true,
+    );
   });
 
   test("renders reasoning body markdown after expansion", async () => {

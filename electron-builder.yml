@@ -5,73 +5,73 @@ directories:
   buildResources: resources
   output: dist
 files:
-- out/**/*
-- package.json
-- "!**/*.map"
-- "!**/*.tsbuildinfo"
-- "!**/webpack-stats.json"
-- "!**/__snapshots__/**"
-- "!**/__tests__/**"
-- "!**/test/**"
-- "!**/tests/**"
-- "!**/*.test.*"
-- "!**/*.spec.*"
-- "!node_modules/@types/**"
-- "!node_modules/node-pty/deps/**"
-- "!node_modules/node-pty/scripts/**"
-- "!node_modules/node-pty/src/**"
-- "!node_modules/node-pty/third_party/**"
-- "!node_modules/node-pty/typings/**"
-- "!node_modules/node-pty/prebuilds/win32-*/**"
+  - out/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/*.tsbuildinfo"
+  - "!**/webpack-stats.json"
+  - "!**/__snapshots__/**"
+  - "!**/__tests__/**"
+  - "!**/test/**"
+  - "!**/tests/**"
+  - "!**/*.test.*"
+  - "!**/*.spec.*"
+  - "!node_modules/@types/**"
+  - "!node_modules/node-pty/deps/**"
+  - "!node_modules/node-pty/scripts/**"
+  - "!node_modules/node-pty/src/**"
+  - "!node_modules/node-pty/third_party/**"
+  - "!node_modules/node-pty/typings/**"
+  - "!node_modules/node-pty/prebuilds/win32-*/**"
 asarUnpack:
-- "**/*.node"
+  - "**/*.node"
 npmRebuild: true
 extraResources:
-- from: .generated/prepared-electron-build.json
-  to: prepared-electron-build.json
-- from: .generated/official-agent-skills
-  to: agent-skills
-  filter:
-  - "**/*"
-- from: resources/icon.png
-  to: icon.png
-- from: resources/nodex-notification.aiff
-  to: nodex-notification.aiff
-- from: .generated/build-resources/THIRD_PARTY_NOTICES.txt
-  to: THIRD_PARTY_NOTICES.txt
-- from: .generated/codex-runtime/bin
-  to: bin
-  filter:
-  - nodex
-  - nodex-appshot-helper
-  - nodex-browser-profile-helper
-  - nodex-core
-  - rust-core-runtime.json
-- from: .generated/codex-runtime/agent-runtime
-  to: .
-  filter:
-  - "**/*"
-- from: .generated/sparkle-runtime/${arch}/nodex-sparkle.node
-  to: native/nodex-sparkle.node
-- from: .generated/sparkle-runtime/${arch}/sparkle-runtime.json
-  to: native/sparkle-runtime.json
+  - from: .generated/prepared-electron-build.json
+    to: prepared-electron-build.json
+  - from: .generated/official-agent-skills
+    to: agent-skills
+    filter:
+      - "**/*"
+  - from: resources/icon.png
+    to: icon.png
+  - from: resources/nodex-notification.aiff
+    to: nodex-notification.aiff
+  - from: .generated/build-resources/THIRD_PARTY_NOTICES.txt
+    to: THIRD_PARTY_NOTICES.txt
+  - from: .generated/codex-runtime/bin
+    to: bin
+    filter:
+      - nodex
+      - nodex-appshot-helper
+      - nodex-browser-profile-helper
+      - nodex-core
+      - rust-core-runtime.json
+  - from: .generated/codex-runtime/agent-runtime
+    to: .
+    filter:
+      - "**/*"
+  - from: .generated/sparkle-runtime/${arch}/nodex-sparkle.node
+    to: native/nodex-sparkle.node
+  - from: .generated/sparkle-runtime/${arch}/sparkle-runtime.json
+    to: native/sparkle-runtime.json
 extraFiles:
-- from: resources/macos/app.jyu.nodex.background-service.core.plist
-  to: Helpers/Nodex Service.app/Contents/Library/LaunchAgents/app.jyu.nodex.background-service.core.plist
-- from: resources/macos/nodex-service-Info.plist
-  to: Helpers/Nodex Service.app/Contents/Info.plist
-- from: .generated/codex-runtime/bin/nodex-service
-  to: Helpers/Nodex Service.app/Contents/MacOS/nodex-service
-- from: .generated/sparkle-runtime/${arch}/Sparkle.framework
-  to: Frameworks/Sparkle.framework
-  filter:
-  - "**/*"
+  - from: resources/macos/app.jyu.nodex.background-service.core.plist
+    to: Helpers/Nodex Service.app/Contents/Library/LaunchAgents/app.jyu.nodex.background-service.core.plist
+  - from: resources/macos/nodex-service-Info.plist
+    to: Helpers/Nodex Service.app/Contents/Info.plist
+  - from: .generated/codex-runtime/bin/nodex-service
+    to: Helpers/Nodex Service.app/Contents/MacOS/nodex-service
+  - from: .generated/sparkle-runtime/${arch}/Sparkle.framework
+    to: Frameworks/Sparkle.framework
+    filter:
+      - "**/*"
 extraMetadata:
   main: out/main/bootstrap.js
 protocols:
-- name: Nodex Deep Link
-  schemes:
-  - nodex
+  - name: Nodex Deep Link
+    schemes:
+      - nodex
 
 # --- macOS ---
 mac:
@@ -79,23 +79,23 @@ mac:
   sign: scripts/sign-macos-runtime.mjs
   minimumSystemVersion: 12.0.0
   target:
-  - dmg
+    - dmg
   artifactName: "${productName}-${version}-${arch}.${ext}"
   category: public.app-category.productivity
   hardenedRuntime: true
   binaries:
-  - Contents/Resources/bin/nodex
-  - Contents/Resources/bin/nodex-appshot-helper
-  - Contents/Resources/bin/nodex-browser-profile-helper
-  - Contents/Resources/bin/nodex-core
-  - Contents/Resources/bin/interpreter
-  - Contents/Resources/bin/codex-code-mode-host
-  - Contents/Resources/codex-path/rg
-  - Contents/Resources/codex-resources/zsh/bin/zsh
-  - Contents/Resources/browser-runtime/bin/codex
-  - Contents/Resources/browser-runtime/bin/node
-  - Contents/Resources/browser-runtime/bin/node_repl
-  - Contents/Helpers/Nodex Service.app/Contents/MacOS/nodex-service
+    - Contents/Resources/bin/nodex
+    - Contents/Resources/bin/nodex-appshot-helper
+    - Contents/Resources/bin/nodex-browser-profile-helper
+    - Contents/Resources/bin/nodex-core
+    - Contents/Resources/bin/interpreter
+    - Contents/Resources/bin/codex-code-mode-host
+    - Contents/Resources/codex-path/rg
+    - Contents/Resources/codex-resources/zsh/bin/zsh
+    - Contents/Resources/browser-runtime/bin/codex
+    - Contents/Resources/browser-runtime/bin/node
+    - Contents/Resources/browser-runtime/bin/node_repl
+    - Contents/Helpers/Nodex Service.app/Contents/MacOS/nodex-service
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   extendInfo:
@@ -116,13 +116,13 @@ dmg:
   iconSize: 128
   iconTextSize: 16
   contents:
-  - x: 176
-    y: 135
-    type: file
-  - x: 464
-    y: 135
-    type: link
-    path: /Applications
+    - x: 176
+      y: 135
+      type: file
+    - x: 464
+      y: 135
+      type: link
+      path: /Applications
 
 # --- Windows (uncomment to enable) ---
 # win:

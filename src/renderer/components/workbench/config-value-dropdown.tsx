@@ -20,7 +20,11 @@ export function ConfigValueDropdown({
   return (
     <NodexDropdownMenu
       disabled={disabled}
-      triggerButton={(<NodexSettingsDropdownTrigger className="min-w-36"><span className="truncate">{selectedLabel}</span></NodexSettingsDropdownTrigger>)}
+      triggerButton={
+        <NodexSettingsDropdownTrigger className="min-w-36">
+          <span className="truncate">{selectedLabel}</span>
+        </NodexSettingsDropdownTrigger>
+      }
       align="end"
       contentWidth="sm"
     >

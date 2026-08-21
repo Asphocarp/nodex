@@ -2,11 +2,11 @@
   "name": "@nodex/codex-app-server-protocol",
   "private": true,
   "type": "module",
+  "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
     "./runtime-schemas/*.schema.json": "./runtime-schemas/*.schema.json",
     "./v2": "./src/v2/index.ts",
     "./v2/*": "./src/v2/*.ts"
-  },
-  "types": "./src/index.ts"
+  }
 }

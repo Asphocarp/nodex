@@ -60,9 +60,21 @@ describe("calendar all-day utils", () => {
 
   test("packs overlapping all-day segments into lanes", () => {
     const packed = packAllDaySegments([
-      { event: { id: "a", scheduledStart: new Date(), scheduledEnd: new Date() }, startDayIndex: 0, endDayIndex: 3 },
-      { event: { id: "b", scheduledStart: new Date(), scheduledEnd: new Date() }, startDayIndex: 1, endDayIndex: 2 },
-      { event: { id: "c", scheduledStart: new Date(), scheduledEnd: new Date() }, startDayIndex: 3, endDayIndex: 4 },
+      {
+        event: { id: "a", scheduledStart: new Date(), scheduledEnd: new Date() },
+        startDayIndex: 0,
+        endDayIndex: 3,
+      },
+      {
+        event: { id: "b", scheduledStart: new Date(), scheduledEnd: new Date() },
+        startDayIndex: 1,
+        endDayIndex: 2,
+      },
+      {
+        event: { id: "c", scheduledStart: new Date(), scheduledEnd: new Date() },
+        startDayIndex: 3,
+        endDayIndex: 4,
+      },
     ]);
 
     const byId = new Map(packed.map((item) => [item.event.id, item]));
@@ -81,4 +93,3 @@ describe("calendar all-day utils", () => {
     expect(range.end.toISOString()).toBe("2026-03-12T00:00:00.000Z");
   });
 });
-

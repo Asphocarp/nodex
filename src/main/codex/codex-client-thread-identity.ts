@@ -1,8 +1,5 @@
 import { isCodexClientThreadId } from "../../shared/codex-client-thread";
-import {
-  readPersistedAtomState,
-  updatePersistedAtom,
-} from "../local-store/persisted-atoms";
+import { readPersistedAtomState, updatePersistedAtom } from "../local-store/persisted-atoms";
 
 const CODEX_CLIENT_THREAD_ID_ATOM_PREFIX = "thread-client-id-v1:";
 
@@ -41,9 +38,7 @@ export function listCodexClientThreadIdentities(
   const state = readPersistedAtomState();
   return threadIds.flatMap((threadId) => {
     const clientThreadId = state[codexClientThreadIdentityAtomKey(hostId, threadId)];
-    return isCodexClientThreadId(clientThreadId)
-      ? [{ hostId, threadId, clientThreadId }]
-      : [];
+    return isCodexClientThreadId(clientThreadId) ? [{ hostId, threadId, clientThreadId }] : [];
   });
 }
 

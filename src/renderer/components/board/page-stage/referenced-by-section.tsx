@@ -52,21 +52,15 @@ export function ReferencedBySection({
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
       >
-        <ChevronRightIcon
-          className={cn("icon-2xs shrink-0", expanded && "rotate-90")}
-        />
+        <ChevronRightIcon className={cn("icon-2xs shrink-0", expanded && "rotate-90")} />
         <span className="font-medium">Referenced by</span>
-        <span className="text-xs tabular-nums text-token-description-foreground">
-          {countLabel}
-        </span>
+        <span className="text-xs tabular-nums text-token-description-foreground">{countLabel}</span>
       </button>
 
       {expanded ? (
         <div className="mt-1 pl-5">
           {error ? (
-            <p className="py-2 text-xs text-token-danger-foreground">
-              Couldn’t load references.
-            </p>
+            <p className="py-2 text-xs text-token-danger-foreground">Couldn’t load references.</p>
           ) : loading ? (
             <p className="py-2 text-xs text-token-description-foreground">Loading…</p>
           ) : items.length === 0 ? (
@@ -88,7 +82,10 @@ export function ReferencedBySection({
                       {item.sourceTitle || "Untitled Page"}
                     </span>
                     <span className="block truncate text-xs text-token-description-foreground">
-                      {[item.locationLabel, item.presentations.map((value) => PRESENTATION_LABELS[value]).join(" · ")]
+                      {[
+                        item.locationLabel,
+                        item.presentations.map((value) => PRESENTATION_LABELS[value]).join(" · "),
+                      ]
                         .filter(Boolean)
                         .join(" — ")}
                     </span>

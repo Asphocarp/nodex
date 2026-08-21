@@ -4,7 +4,10 @@ import {
   getBackgroundSubagentListRows,
 } from "./background-subagent-summary-model";
 
-function row(id: string, input: { showInlineActivity: boolean; status: "active" | "waiting" | "done" }) {
+function row(
+  id: string,
+  input: { showInlineActivity: boolean; status: "active" | "waiting" | "done" },
+) {
   return {
     id,
     showInlineActivity: input.showInlineActivity,
@@ -24,7 +27,9 @@ describe("background subagent summary model", () => {
       row("listed-1", { showInlineActivity: false, status: "active" }),
     ]);
 
-    expect(model.displayRows.map((entry) => entry.id).join(",")).toBe("working-1,working-2,working-3,working-4");
+    expect(model.displayRows.map((entry) => entry.id).join(",")).toBe(
+      "working-1,working-2,working-3,working-4",
+    );
     expect(`${model.workingCount}:${model.doneCount}`).toBe("5:1");
   });
 
@@ -37,7 +42,9 @@ describe("background subagent summary model", () => {
       row("done-5", { showInlineActivity: true, status: "done" }),
     ]);
 
-    expect(model.displayRows.map((entry) => entry.id).join(",")).toBe("done-1,done-2,done-3,done-4");
+    expect(model.displayRows.map((entry) => entry.id).join(",")).toBe(
+      "done-1,done-2,done-3,done-4",
+    );
     expect(`${model.workingCount}:${model.doneCount}`).toBe("0:5");
   });
 
@@ -47,6 +54,10 @@ describe("background subagent summary model", () => {
       row("listed", { showInlineActivity: false, status: "active" }),
     ];
 
-    expect(getBackgroundSubagentListRows(rows).map((entry) => entry.id).join(",")).toBe("listed");
+    expect(
+      getBackgroundSubagentListRows(rows)
+        .map((entry) => entry.id)
+        .join(","),
+    ).toBe("listed");
   });
 });

@@ -2,23 +2,14 @@ import type { ReactNode } from "react";
 import { act, fireEvent, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
-import {
-  parseDataSourceId,
-  parseDataSourcePropertyId,
-} from "../../../shared/database-identities";
+import { parseDataSourceId, parseDataSourcePropertyId } from "../../../shared/database-identities";
 import type { DataSourcePropertyRecordV2 } from "../../../shared/database-module-v2";
 import { testPropertySemantics } from "../../../shared/testing/database-property-record";
 import { appScope, useScopeHandle } from "@/lib/maitai";
 import { NodexModalHost } from "@/lib/modal-registry";
-import {
-  registerPageCreateTarget,
-  type PageCreateTarget,
-} from "@/lib/page-create-target-registry";
+import { registerPageCreateTarget, type PageCreateTarget } from "@/lib/page-create-target-registry";
 import { requestPageCreate } from "@/lib/page-create-workflow";
-import {
-  __resetNodexToastStoreForTests,
-  NodexToastProvider,
-} from "@/components/ui/toast";
+import { __resetNodexToastStoreForTests, NodexToastProvider } from "@/components/ui/toast";
 import { renderWithMaitai } from "@/test/dom";
 
 const commandState = vi.hoisted(() => ({
@@ -32,9 +23,7 @@ const editorState = vi.hoisted(() => ({
 }));
 const optionRuntime = vi.hoisted(() => ({ readWindow: vi.fn() }));
 
-const property = (
-  propertyId: "priority" | "estimate",
-): DataSourcePropertyRecordV2 => ({
+const property = (propertyId: "priority" | "estimate"): DataSourcePropertyRecordV2 => ({
   propertyId: parseDataSourcePropertyId(propertyId),
   dataSourceId: parseDataSourceId("source-test"),
   name: propertyId,
@@ -53,19 +42,20 @@ vi.mock("@/lib/board-page-create-command", () => ({
 }));
 
 vi.mock("@/lib/database-property-options-runtime", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/database-property-options-runtime")>(),
+  ...(await importOriginal<typeof import("@/lib/database-property-options-runtime")>()),
   readPropertyOptionWindow: optionRuntime.readWindow,
 }));
 
 vi.mock("./editor/nfm-editor", async () => {
   const React = await import("react");
-  const {
-    materializePageDocument,
-    populateBlockDocumentBodyFromNfm,
-  } = await import("../../../shared/block-documents/block-document-codec");
+  const { materializePageDocument, populateBlockDocumentBodyFromNfm } =
+    await import("../../../shared/block-documents/block-document-codec");
 
   return {
-    NfmEditor: ({ source, embeddedBoundary }: {
+    NfmEditor: ({
+      source,
+      embeddedBoundary,
+    }: {
       source: {
         documentId: string;
         fragment: import("yjs").XmlFragment;
@@ -79,14 +69,11 @@ vi.mock("./editor/nfm-editor", async () => {
     }) => {
       editorState.latestFragment = source.fragment;
       const inputRef = React.useRef<HTMLTextAreaElement>(null);
-      const readValue = () => source.fragment.doc
-        ? materializePageDocument(source.fragment.doc).nfm
-        : "";
+      const readValue = () =>
+        source.fragment.doc ? materializePageDocument(source.fragment.doc).nfm : "";
       const [value, setValue] = React.useState(readValue);
       React.useEffect(() => {
-        setValue(source.fragment.doc
-          ? materializePageDocument(source.fragment.doc).nfm
-          : "");
+        setValue(source.fragment.doc ? materializePageDocument(source.fragment.doc).nfm : "");
       }, [source.documentId, source.fragment]);
       React.useImperativeHandle(embeddedBoundary.navigationRef, () => ({
         focus: () => {
@@ -187,9 +174,12 @@ function ModalLauncher({
         type="button"
         onClick={() => {
           registerPageCreateTarget(appHandle, "registration-test", target);
-          requestPageCreate(appHandle, seedTitle
-            ? { target, origin, seed: { title: seedTitle }, initialExpanded }
-            : { target, origin, initialExpanded });
+          requestPageCreate(
+            appHandle,
+            seedTitle
+              ? { target, origin, seed: { title: seedTitle }, initialExpanded }
+              : { target, origin, initialExpanded },
+          );
         }}
       >
         Open Page create
@@ -230,16 +220,8 @@ function TestShell({
         seedTitle={seedTitle}
         initialExpanded={initialExpanded}
       />
-      <div
-        data-board-root
-        data-board-surface-id={target.surfaceId}
-        tabIndex={-1}
-      >
-        <button
-          type="button"
-          data-page-create-trigger="header"
-          data-page-create-column-id="plan"
-        >
+      <div data-board-root data-board-surface-id={target.surfaceId} tabIndex={-1}>
+        <button type="button" data-page-create-trigger="header" data-page-create-column-id="plan">
           Source trigger
         </button>
         <div data-board-uuid-v7="created-page" tabIndex={-1} />
@@ -264,9 +246,7 @@ describe("PageCreateDialog", () => {
 
   test("is owned by the app modal host and survives its launcher unmounting", async () => {
     const onAncestorPointerDown = vi.fn();
-    const view = renderWithMaitai(
-      <TestShell onAncestorPointerDown={onAncestorPointerDown} />,
-    );
+    const view = renderWithMaitai(<TestShell onAncestorPointerDown={onAncestorPointerDown} />);
 
     fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
     expect(await view.findByRole("dialog")).toBeTruthy();
@@ -282,10 +262,10 @@ describe("PageCreateDialog", () => {
 
     fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
 
-    expect((await view.findByLabelText("Page title") as HTMLInputElement).value)
-      .toBe("Fix release notes");
-    expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value)
-      .toBe("");
+    expect(((await view.findByLabelText("Page title")) as HTMLInputElement).value).toBe(
+      "Fix release notes",
+    );
+    expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value).toBe("");
   });
 
   test("treats a repeated create request as focus, not a second draft", async () => {
@@ -306,12 +286,16 @@ describe("PageCreateDialog", () => {
     let resolveRetry: (() => void) | null = null;
     commandState.create
       .mockResolvedValueOnce({ status: "error", error: "Core is temporarily unavailable" })
-      .mockImplementationOnce((input: { input: { title: string } }) => new Promise((resolve) => {
-        resolveRetry = () => resolve({
-          status: "created",
-          page: createPage("created-page", input.input.title),
-        });
-      }));
+      .mockImplementationOnce(
+        (input: { input: { title: string } }) =>
+          new Promise((resolve) => {
+            resolveRetry = () =>
+              resolve({
+                status: "created",
+                page: createPage("created-page", input.input.title),
+              });
+          }),
+      );
     const view = renderWithMaitai(<TestShell />);
 
     fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
@@ -326,28 +310,35 @@ describe("PageCreateDialog", () => {
     );
     expect((title as HTMLInputElement).value).toBe("Create Page modal");
     expect((description as HTMLTextAreaElement).value).toBe("Failure-safe body");
-    expect(commandState.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      projectId: target.project.id,
-      databaseViewId: target.databaseViewId,
-      status: "plan",
-      input: expect.objectContaining({
-        title: "Create Page modal",
-        description: "Failure-safe body",
+    expect(commandState.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        projectId: target.project.id,
+        databaseViewId: target.databaseViewId,
+        status: "plan",
+        input: expect.objectContaining({
+          title: "Create Page modal",
+          description: "Failure-safe body",
+        }),
+        placement: "top",
       }),
-      placement: "top",
-    }));
+    );
 
     fireEvent.click(view.getByRole("button", { name: "Create page" }));
     await waitFor(() => expect(view.getByRole("button", { name: "Creating…" })).toBeTruthy());
-    expect(view.getByRole("button", { name: "Close Page creation" }).hasAttribute("disabled")).toBe(true);
+    expect(view.getByRole("button", { name: "Close Page creation" }).hasAttribute("disabled")).toBe(
+      true,
+    );
     await act(async () => {
       resolveRetry?.();
       await Promise.resolve();
     });
     await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
-    await waitFor(() => expect(document.activeElement).toBe(
-      view.container.querySelector("[data-board-uuid-v7='created-page']"),
-    ));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        view.container.querySelector("[data-board-uuid-v7='created-page']"),
+      ),
+    );
   });
 
   test("creates a Page with a canonical blank description", async () => {
@@ -363,11 +354,13 @@ describe("PageCreateDialog", () => {
     });
     fireEvent.click(view.getByRole("button", { name: "Create page" }));
 
-    await waitFor(() => expect(commandState.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        input: expect.objectContaining({ description: "" }),
-      }),
-    ));
+    await waitFor(() =>
+      expect(commandState.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          input: expect.objectContaining({ description: "" }),
+        }),
+      ),
+    );
     await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
   });
 
@@ -386,19 +379,26 @@ describe("PageCreateDialog", () => {
 
     fireEvent.change(description, { target: { value: "Keep editor state" } });
     fireEvent.click(view.getByRole("button", { name: "Expand Page composer" }));
-    expect(view.getByRole("button", { name: "Collapse Page composer" }).getAttribute("aria-expanded")).toBe("true");
-    expect(view.getByLabelText("Page description").getAttribute("data-document-id")).toBe(documentId);
-    expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value).toBe("Keep editor state");
+    expect(
+      view.getByRole("button", { name: "Collapse Page composer" }).getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(view.getByLabelText("Page description").getAttribute("data-document-id")).toBe(
+      documentId,
+    );
+    expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value).toBe(
+      "Keep editor state",
+    );
   });
 
   test("opens directly in expanded mode when the request asks for it", async () => {
     const view = renderWithMaitai(<TestShell initialExpanded />);
     fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
 
-    expect((await view.findByRole(
-      "button",
-      { name: "Collapse Page composer" },
-    )).getAttribute("aria-expanded")).toBe("true");
+    expect(
+      (await view.findByRole("button", { name: "Collapse Page composer" })).getAttribute(
+        "aria-expanded",
+      ),
+    ).toBe("true");
   });
 
   test("expands an existing draft without replacing its editor state", async () => {
@@ -409,20 +409,13 @@ describe("PageCreateDialog", () => {
 
     fireEvent.click(view.getByText("Open Page create expanded"));
 
-    expect(await view.findByRole(
-      "button",
-      { name: "Collapse Page composer" },
-    )).not.toBeNull();
-    expect((view.getByLabelText("Page title") as HTMLInputElement).value)
-      .toBe("Keep this draft");
+    expect(await view.findByRole("button", { name: "Collapse Page composer" })).not.toBeNull();
+    expect((view.getByLabelText("Page title") as HTMLInputElement).value).toBe("Keep this draft");
 
     fireEvent.click(view.getByRole("button", { name: "Collapse Page composer" }));
     fireEvent.click(view.getByText("Open Page create expanded"));
 
-    expect(await view.findByRole(
-      "button",
-      { name: "Collapse Page composer" },
-    )).not.toBeNull();
+    expect(await view.findByRole("button", { name: "Collapse Page composer" })).not.toBeNull();
   });
 
   test("supports create-more keyboard submission and resets only the writing fields", async () => {
@@ -467,8 +460,12 @@ describe("PageCreateDialog", () => {
     fireEvent.click(view.getByRole("button", { name: "Restore" }));
     expect(await view.findByRole("dialog")).toBeTruthy();
     expect((view.getByLabelText("Page title") as HTMLInputElement).value).toBe("Recover me");
-    expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value).toBe("Recovered body");
-    expect(view.getByLabelText("Page description").getAttribute("data-document-id")).not.toBe(firstDocumentId);
+    expect((view.getByLabelText("Page description") as HTMLTextAreaElement).value).toBe(
+      "Recovered body",
+    );
+    expect(view.getByLabelText("Page description").getAttribute("data-document-id")).not.toBe(
+      firstDocumentId,
+    );
   });
 
   test("always closes even when an unexpected draft snapshot cannot be encoded", async () => {
@@ -488,10 +485,7 @@ describe("PageCreateDialog", () => {
 
       await waitFor(() => expect(view.queryByRole("dialog")).toBeNull());
       expect(await view.findByText("Page draft couldn’t be preserved.")).toBeTruthy();
-      expect(consoleError).toHaveBeenCalledWith(
-        "[page-create:draft-capture]",
-        expect.any(Error),
-      );
+      expect(consoleError).toHaveBeenCalledWith("[page-create:draft-capture]", expect.any(Error));
     } finally {
       consoleError.mockRestore();
     }
@@ -501,15 +495,16 @@ describe("PageCreateDialog", () => {
     const view = renderWithMaitai(<TestShell />);
     fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
     await view.findByRole("dialog");
-    await waitFor(() => expect(document.activeElement).toBe(
-      view.getByRole("textbox", { name: "Page title" }),
-    ));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(view.getByRole("textbox", { name: "Page title" })),
+    );
     const statusTrigger = view.getByRole("button", { name: "Status" });
     fireEvent.click(statusTrigger);
     const search = await view.findByRole("combobox", { name: "Search Status options" });
     expect(search.getAttribute("placeholder")).toBe("Change status…");
     expect(view.getByRole("option", { name: "Plan" }).getAttribute("aria-selected")).toBe("true");
-    const dialogForm = view.getByRole("heading", { name: "New page" })
+    const dialogForm = view
+      .getByRole("heading", { name: "New page" })
       .closest('[role="dialog"]')
       ?.querySelector("form");
     expect(dialogForm?.contains(search)).toBe(false);
@@ -523,7 +518,9 @@ describe("PageCreateDialog", () => {
     expect(view.queryByRole("option", { name: "Triage" })).toBeNull();
 
     fireEvent.keyDown(document, { key: "Escape" });
-    await waitFor(() => expect(view.queryByRole("combobox", { name: "Search Status options" })).toBeNull());
+    await waitFor(() =>
+      expect(view.queryByRole("combobox", { name: "Search Status options" })).toBeNull(),
+    );
     expect(view.getByRole("dialog")).toBeTruthy();
 
     fireEvent.keyDown(document, { key: "Escape" });
@@ -552,18 +549,18 @@ describe("PageCreateDialog", () => {
     });
 
     expect(view.getByRole("dialog")).toBeTruthy();
-    await waitFor(() => expect(
-      view.getByRole("button", { name: "Status" }).textContent,
-    ).toContain("Build"));
+    await waitFor(() =>
+      expect(view.getByRole("button", { name: "Status" }).textContent).toContain("Build"),
+    );
   });
 
   test("uses searchable semantic pickers for Priority and Estimate", async () => {
     const view = renderWithMaitai(<TestShell />);
     fireEvent.click(view.getByRole("button", { name: "Open Page create" }));
     await view.findByRole("dialog");
-    await waitFor(() => expect(document.activeElement).toBe(
-      view.getByRole("textbox", { name: "Page title" }),
-    ));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(view.getByRole("textbox", { name: "Page title" })),
+    );
     expect(view.getByRole("button", { name: "Priority" }).textContent).toContain("Priority");
     expect(view.getByRole("button", { name: "Estimate" }).textContent).toContain("Estimate");
 

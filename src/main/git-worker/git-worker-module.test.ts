@@ -82,14 +82,14 @@ describe("GitWorkerModule", () => {
       snapshotGeneration: 1,
     });
 
-    const summary = await module.execute(
+    const summary = (await module.execute(
       request("review-summary", {
         cwd: root,
         source: "unstaged",
         includeUntrackedFiles: false,
       }),
       new AbortController().signal,
-    ) as GitWorkerMethodMap["review-summary"]["result"];
+    )) as GitWorkerMethodMap["review-summary"]["result"];
     expect(summary).toMatchObject({
       type: "success",
       source: "unstaged",
@@ -105,12 +105,16 @@ describe("GitWorkerModule", () => {
       request("review-diff", {
         cwd: root,
         source: "unstaged",
-        files: changedFile ? [{
-          path: changedFile.path,
-          previousPath: changedFile.previousPath,
-          revision: changedFile.revision,
-          status: changedFile.status,
-        }] : [],
+        files: changedFile
+          ? [
+              {
+                path: changedFile.path,
+                previousPath: changedFile.previousPath,
+                revision: changedFile.revision,
+                status: changedFile.status,
+              },
+            ]
+          : [],
         snapshotGeneration: summary.snapshotGeneration,
       }),
       new AbortController().signal,
@@ -128,17 +132,15 @@ describe("GitWorkerModule", () => {
     temporaryDirectories.push(root);
     const module = new GitWorkerModule();
 
-    await expect(module.execute(
-      request("stable-metadata", { cwd: root }),
-      new AbortController().signal,
-    )).resolves.toMatchObject({
+    await expect(
+      module.execute(request("stable-metadata", { cwd: root }), new AbortController().signal),
+    ).resolves.toMatchObject({
       isGitRepository: false,
       errorMessage: null,
     });
-    await expect(module.execute(
-      request("status-summary", { cwd: root }),
-      new AbortController().signal,
-    )).resolves.toEqual({
+    await expect(
+      module.execute(request("status-summary", { cwd: root }), new AbortController().signal),
+    ).resolves.toEqual({
       type: "error",
       failureReason: "not-a-repository",
       errorMessage: null,
@@ -150,17 +152,17 @@ describe("GitWorkerModule", () => {
     const root = await mkdtemp(path.join(tmpdir(), "nodex-git-module-mutate-"));
     temporaryDirectories.push(root);
     const module = new GitWorkerModule();
-    const initialized = await module.execute(
+    const initialized = (await module.execute(
       request("git-init-repo", { cwd: root }),
       new AbortController().signal,
-    ) as GitWorkerMethodMap["git-init-repo"]["result"];
+    )) as GitWorkerMethodMap["git-init-repo"]["result"];
     expect(initialized.isGitRepository).toBe(true);
     const initialGeneration = initialized.snapshotGeneration;
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Nodex Test"]);
     await writeFile(path.join(root, "note.txt"), "initial\n", "utf8");
 
-    const committed = await module.execute(
+    const committed = (await module.execute(
       request("commit", {
         cwd: root,
         message: "initial",
@@ -168,13 +170,13 @@ describe("GitWorkerModule", () => {
         nextStep: "commit",
       }),
       new AbortController().signal,
-    ) as GitWorkerMethodMap["commit"]["result"];
+    )) as GitWorkerMethodMap["commit"]["result"];
     expect(committed).toMatchObject({ status: "success", branch: "main" });
 
-    const created = await module.execute(
+    const created = (await module.execute(
       request("create-branch", { cwd: root, branch: "feature/worker" }),
       new AbortController().signal,
-    ) as GitWorkerMethodMap["create-branch"]["result"];
+    )) as GitWorkerMethodMap["create-branch"]["result"];
     expect(created).toEqual({
       type: "success",
       value: {
@@ -184,10 +186,10 @@ describe("GitWorkerModule", () => {
         remoteBranchRefs: [],
       },
     });
-    const refreshed = await module.execute(
+    const refreshed = (await module.execute(
       request("refresh-repository", { cwd: root }),
       new AbortController().signal,
-    ) as GitWorkerMethodMap["refresh-repository"]["result"];
+    )) as GitWorkerMethodMap["refresh-repository"]["result"];
     expect(refreshed.type).toBe("success");
     if (refreshed.type === "success") {
       expect(refreshed.generation).toBeGreaterThan(initialGeneration);

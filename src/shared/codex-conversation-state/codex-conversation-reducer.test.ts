@@ -1,11 +1,6 @@
 import { describe, expect, test } from "vitest";
-import type {
-  ServerNotification,
-} from "@nodex/codex-app-server-protocol";
-import type {
-  Thread,
-  ThreadItem,
-} from "@nodex/codex-app-server-protocol/v2";
+import type { ServerNotification } from "@nodex/codex-app-server-protocol";
+import type { Thread, ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import {
   createCodexCanonicalConversationState,
   type CodexCanonicalConversationState,
@@ -46,10 +41,7 @@ function buildTurnParams(threadId = THREAD_ID): CodexCanonicalTurnParams {
   };
 }
 
-function buildThread(
-  items: ThreadItem[] = [],
-  turnId = TURN_ID,
-): Thread {
+function buildThread(items: ThreadItem[] = [], turnId = TURN_ID): Thread {
   return {
     id: THREAD_ID,
     extra: null,
@@ -79,16 +71,18 @@ function buildThread(
     agentRole: null,
     gitInfo: null,
     name: "C-03 lifecycle fixture",
-    turns: [{
-      id: turnId,
-      items,
-      itemsView: "full",
-      status: "inProgress",
-      error: null,
-      startedAt: 1,
-      completedAt: null,
-      durationMs: null,
-    }],
+    turns: [
+      {
+        id: turnId,
+        items,
+        itemsView: "full",
+        status: "inProgress",
+        error: null,
+        startedAt: 1,
+        completedAt: null,
+        durationMs: null,
+      },
+    ],
   };
 }
 
@@ -123,10 +117,7 @@ function buildCommand(
 }
 
 function lifecycleEvent(
-  notification: Extract<
-    ServerNotification,
-    { method: "item/started" | "item/completed" }
-  >,
+  notification: Extract<ServerNotification, { method: "item/started" | "item/completed" }>,
 ) {
   return {
     type: "notification" as const,
@@ -156,10 +147,7 @@ function buildClock(...values: number[]): {
 
 function reduceLifecycle(
   state: CodexCanonicalConversationState,
-  notification: Extract<
-    ServerNotification,
-    { method: "item/started" | "item/completed" }
-  >,
+  notification: Extract<ServerNotification, { method: "item/started" | "item/completed" }>,
   context: CodexConversationReducerContext,
 ): CodexCanonicalConversationState {
   return reduceCodexConversationEvent(state, lifecycleEvent(notification), context);
@@ -173,33 +161,45 @@ describe("canonical item lifecycle reducer", () => {
     const clock = buildClock(10_001);
     const initial = buildState();
 
-    const afterA = reduceLifecycle(initial, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: startedA,
-        startedAtMs: 1_000,
+    const afterA = reduceLifecycle(
+      initial,
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: startedA,
+          startedAtMs: 1_000,
+        },
       },
-    }, clock.context);
-    const afterB = reduceLifecycle(afterA, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: startedB,
-        startedAtMs: 1_010,
+      clock.context,
+    );
+    const afterB = reduceLifecycle(
+      afterA,
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: startedB,
+          startedAtMs: 1_010,
+        },
       },
-    }, clock.context);
-    const completed = reduceLifecycle(afterB, {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: completedA,
-        completedAtMs: 1_050,
+      clock.context,
+    );
+    const completed = reduceLifecycle(
+      afterB,
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: completedA,
+          completedAtMs: 1_050,
+        },
       },
-    }, clock.context);
+      clock.context,
+    );
     const turn = completed.turns[0]!;
 
     expect(turn.items[0] === completedA).toBe(true);
@@ -223,66 +223,87 @@ describe("canonical item lifecycle reducer", () => {
       processId: "pty-repeat",
     };
     const clock = buildClock(20_001);
-    const afterFirst = reduceLifecycle(buildState(), {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: first,
-        startedAtMs: 2_000,
+    const afterFirst = reduceLifecycle(
+      buildState(),
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: first,
+          startedAtMs: 2_000,
+        },
       },
-    }, clock.context);
-    const afterSecond = reduceLifecycle(afterFirst, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: second,
-        startedAtMs: 2_500,
+      clock.context,
+    );
+    const afterSecond = reduceLifecycle(
+      afterFirst,
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: second,
+          startedAtMs: 2_500,
+        },
       },
-    }, clock.context);
+      clock.context,
+    );
 
     expect(afterSecond.turns[0]?.items.length).toBe(1);
     expect(afterSecond.turns[0]?.items[0] === second).toBe(true);
-    expect(
-      afterSecond.turns[0]?.sidecar.commandExecutionStartedAtMsById?.["command-repeat"],
-    ).toBe(2_500);
+    expect(afterSecond.turns[0]?.sidecar.commandExecutionStartedAtMsById?.["command-repeat"]).toBe(
+      2_500,
+    );
     expect(clock.calls()).toBe(1);
   });
 
   test("does not reopen a terminal lifecycle entry after a delayed start", () => {
     const command = buildCommand("command-order");
     const completed = buildCommand("command-order", "completed", 10);
-    const afterStart = reduceLifecycle(buildState(), {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: command,
-        startedAtMs: 21_000,
+    const afterStart = reduceLifecycle(
+      buildState(),
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: command,
+          startedAtMs: 21_000,
+        },
       },
-    }, buildClock(21_001).context);
-    const afterComplete = reduceLifecycle(afterStart, {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: completed,
-        completedAtMs: 21_010,
+      buildClock(21_001).context,
+    );
+    const afterComplete = reduceLifecycle(
+      afterStart,
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: completed,
+          completedAtMs: 21_010,
+        },
       },
-    }, buildClock().context);
-    const afterDelayedStart = reduceLifecycle(afterComplete, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: command,
-        startedAtMs: 21_011,
+      buildClock().context,
+    );
+    const afterDelayedStart = reduceLifecycle(
+      afterComplete,
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: command,
+          startedAtMs: 21_011,
+        },
       },
-    }, buildClock().context);
+      buildClock().context,
+    );
 
-    expect(afterDelayedStart.turns[0]?.sidecar.lifecycleStatusByItemId?.["command-order"])
-      .toBe("completed");
+    expect(afterDelayedStart.turns[0]?.sidecar.lifecycleStatusByItemId?.["command-order"]).toBe(
+      "completed",
+    );
     expect(afterDelayedStart.turns[0]?.items[0]).toEqual(completed);
   });
 
@@ -290,60 +311,74 @@ describe("canonical item lifecycle reducer", () => {
     const hydrated = buildCommand("command-hydrated");
     const completed = buildCommand("command-hydrated", "completed", 75);
     const inferredClock = buildClock(30_001);
-    const inferred = reduceLifecycle(buildState([hydrated]), {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: completed,
-        completedAtMs: 3_075,
+    const inferred = reduceLifecycle(
+      buildState([hydrated]),
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: completed,
+          completedAtMs: 3_075,
+        },
       },
-    }, inferredClock.context);
+      inferredClock.context,
+    );
     const observedClock = buildClock(31_001);
-    const started = reduceLifecycle(buildState(), {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: hydrated,
-        startedAtMs: 2_900,
+    const started = reduceLifecycle(
+      buildState(),
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: hydrated,
+          startedAtMs: 2_900,
+        },
       },
-    }, observedClock.context);
-    const observed = reduceLifecycle(started, {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: completed,
-        completedAtMs: 3_075,
+      observedClock.context,
+    );
+    const observed = reduceLifecycle(
+      started,
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: completed,
+          completedAtMs: 3_075,
+        },
       },
-    }, observedClock.context);
+      observedClock.context,
+    );
 
-    expect(
-      inferred.turns[0]?.sidecar.commandExecutionStartedAtMsById?.["command-hydrated"],
-    ).toBe(3_000);
-    expect(
-      observed.turns[0]?.sidecar.commandExecutionStartedAtMsById?.["command-hydrated"],
-    ).toBe(2_900);
+    expect(inferred.turns[0]?.sidecar.commandExecutionStartedAtMsById?.["command-hydrated"]).toBe(
+      3_000,
+    );
+    expect(observed.turns[0]?.sidecar.commandExecutionStartedAtMsById?.["command-hydrated"]).toBe(
+      2_900,
+    );
   });
 
   test("ordinary orphan completion is dropped after its exact timing side effects", () => {
     const completed = buildCommand("command-orphan", "completed", 40);
     const clock = buildClock(40_001);
-    const next = reduceLifecycle(buildState(), {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: completed,
-        completedAtMs: 4_040,
+    const next = reduceLifecycle(
+      buildState(),
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: completed,
+          completedAtMs: 4_040,
+        },
       },
-    }, clock.context);
+      clock.context,
+    );
 
     expect(next.turns[0]?.items.length).toBe(0);
-    expect(
-      next.turns[0]?.sidecar.commandExecutionStartedAtMsById?.["command-orphan"],
-    ).toBe(4_000);
+    expect(next.turns[0]?.sidecar.commandExecutionStartedAtMsById?.["command-orphan"]).toBe(4_000);
     expect(next.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs).toBe(40_001);
   });
 
@@ -357,15 +392,19 @@ describe("canonical item lifecycle reducer", () => {
       memoryCitation: null,
     } satisfies ThreadItem;
     const clock = buildClock(50_001);
-    const next = reduceLifecycle(buildState([command]), {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: agentMessage,
-        completedAtMs: 5_000,
+    const next = reduceLifecycle(
+      buildState([command]),
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: agentMessage,
+          completedAtMs: 5_000,
+        },
       },
-    }, clock.context);
+      clock.context,
+    );
 
     expect(next.turns[0]?.items[0] === command).toBe(true);
     expect(next.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs).toBe(50_001);
@@ -385,41 +424,52 @@ describe("canonical item lifecycle reducer", () => {
       review: "sanitized review",
     } satisfies ThreadItem;
     const clock = buildClock(55_001);
-    const hidden = reduceLifecycle(buildState([command]), {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: enteredReview,
-        startedAtMs: 5_500,
+    const hidden = reduceLifecycle(
+      buildState([command]),
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: enteredReview,
+          startedAtMs: 5_500,
+        },
       },
-    }, clock.context);
-    const mismatchedCompletion = reduceLifecycle(hidden, {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: exitedReview,
-        completedAtMs: 5_510,
+      clock.context,
+    );
+    const mismatchedCompletion = reduceLifecycle(
+      hidden,
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: exitedReview,
+          completedAtMs: 5_510,
+        },
       },
-    }, clock.context);
-    const visibleAgain = reduceLifecycle(mismatchedCompletion, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: command,
-        startedAtMs: 5_520,
+      clock.context,
+    );
+    const visibleAgain = reduceLifecycle(
+      mismatchedCompletion,
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: command,
+          startedAtMs: 5_520,
+        },
       },
-    }, clock.context);
+      clock.context,
+    );
 
     expect(hidden.turns[0]?.items.length).toBe(1);
     expect(hidden.turns[0]?.items[0] === enteredReview).toBe(true);
     expect(mismatchedCompletion.turns[0]?.items[0] === enteredReview).toBe(true);
     expect(visibleAgain.turns[0]?.items.length).toBe(1);
     expect(visibleAgain.turns[0]?.items[0] === command).toBe(true);
-    expect(visibleAgain.turns[0]?.sidecar.lifecycleStatusByItemId?.[command.id])
-      .toBe("inProgress");
+    expect(visibleAgain.turns[0]?.sidecar.lifecycleStatusByItemId?.[command.id]).toBe("inProgress");
     expect(clock.calls()).toBe(1);
   });
 
@@ -428,11 +478,13 @@ describe("canonical item lifecycle reducer", () => {
       type: "userMessage",
       id: "user-orphan",
       clientId: null,
-      content: [{
-        type: "text",
-        text: "fixture user",
-        text_elements: [],
-      }],
+      content: [
+        {
+          type: "text",
+          text: "fixture user",
+          text_elements: [],
+        },
+      ],
     } satisfies ThreadItem;
     const hook = {
       type: "hookPrompt",
@@ -450,15 +502,19 @@ describe("canonical item lifecycle reducer", () => {
     let state = buildState();
 
     for (const item of [user, hook, subagent]) {
-      state = reduceLifecycle(state, {
-        method: "item/completed",
-        params: {
-          threadId: THREAD_ID,
-          turnId: TURN_ID,
-          item,
-          completedAtMs: 6_000,
+      state = reduceLifecycle(
+        state,
+        {
+          method: "item/completed",
+          params: {
+            threadId: THREAD_ID,
+            turnId: TURN_ID,
+            item,
+            completedAtMs: 6_000,
+          },
         },
-      }, clock.context);
+        clock.context,
+      );
     }
 
     expect(JSON.stringify(state.turns[0]?.items.map((item) => item.id))).toBe(
@@ -482,29 +538,41 @@ describe("canonical item lifecycle reducer", () => {
       phase: "final_answer" as const,
     };
     const clock = buildClock(70_001, 70_002);
-    const afterStart = reduceLifecycle(buildState(), {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: started,
-        startedAtMs: 7_000,
+    const afterStart = reduceLifecycle(
+      buildState(),
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: started,
+          startedAtMs: 7_000,
+        },
       },
-    }, clock.context);
-    const afterComplete = reduceLifecycle(afterStart, {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: completed,
-        completedAtMs: 7_050,
+      clock.context,
+    );
+    const afterComplete = reduceLifecycle(
+      afterStart,
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: completed,
+          completedAtMs: 7_050,
+        },
       },
-    }, clock.context);
+      clock.context,
+    );
 
     expect(afterComplete.turns[0]?.sidecar.finalAssistantStartedAtMs).toBe(70_001);
     expect(afterComplete.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs).toBe(70_002);
-    expect(afterStart.turns[0]?.sidecar.lifecycleStatusByItemId?.["agent-message"]).toBe("inProgress");
-    expect(afterComplete.turns[0]?.sidecar.lifecycleStatusByItemId?.["agent-message"]).toBe("completed");
+    expect(afterStart.turns[0]?.sidecar.lifecycleStatusByItemId?.["agent-message"]).toBe(
+      "inProgress",
+    );
+    expect(afterComplete.turns[0]?.sidecar.lifecycleStatusByItemId?.["agent-message"]).toBe(
+      "completed",
+    );
     expect(afterComplete.turns[0]?.items[0] === completed).toBe(true);
     expect(clock.calls()).toBe(2);
   });
@@ -538,15 +606,19 @@ describe("canonical item lifecycle reducer", () => {
     };
     const command = buildCommand("new-turn-command");
     const clock = buildClock(80_001, 80_002);
-    const next = reduceLifecycle(state, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: "turn_missing",
-        item: command,
-        startedAtMs: 8_000,
+    const next = reduceLifecycle(
+      state,
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: "turn_missing",
+          item: command,
+          startedAtMs: 8_000,
+        },
       },
-    }, clock.context);
+      clock.context,
+    );
     const synthesized = next.turns[1]!;
 
     expect(synthesized.protocol.id).toBe("turn_missing");
@@ -559,9 +631,7 @@ describe("canonical item lifecycle reducer", () => {
     expect(synthesized.sidecar.diff).toBe(null);
     expect(synthesized.sidecar.params.input.length).toBe(0);
     expect((synthesized.sidecar.params.attachments ?? []).length).toBe(0);
-    expect(
-      synthesized.sidecar.commandExecutionStartedAtMsById?.surviving,
-    ).toBe(3);
+    expect(synthesized.sidecar.commandExecutionStartedAtMsById?.surviving).toBe(3);
     expect(synthesized.sidecar.interruptedCommandExecutionItemIds?.[0]).toBe("surviving");
     expect(synthesized.items[0] === command).toBe(true);
     expect(state.turns.length).toBe(1);
@@ -591,21 +661,23 @@ describe("canonical item lifecycle reducer", () => {
       phase: null,
       memoryCitation: null,
     } satisfies ThreadItem;
-    const next = reduceLifecycle({ ...initial, turns: [placeholder] }, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: "turn_racing",
-        item: assistant,
-        startedAtMs: 8_000,
+    const next = reduceLifecycle(
+      { ...initial, turns: [placeholder] },
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: "turn_racing",
+          item: assistant,
+          startedAtMs: 8_000,
+        },
       },
-    }, buildClock(80_001, 80_002).context);
+      buildClock(80_001, 80_002).context,
+    );
 
     expect(next.turns).toHaveLength(1);
     expect(next.turns[0]?.protocol.id).toBe("turn_racing");
-    expect(next.turns[0]?.sidecar.params.input).toEqual(
-      placeholder.sidecar.params.input,
-    );
+    expect(next.turns[0]?.sidecar.params.input).toEqual(placeholder.sidecar.params.input);
     expect(next.turns[0]?.items).toEqual([assistant]);
   });
 
@@ -617,12 +689,14 @@ describe("canonical item lifecycle reducer", () => {
         ...initial.turns[0]!.protocol,
         id: null,
       },
-      items: [{
-        type: "contextCompaction",
-        id: "pending-manual-context-compaction",
-        completed: false,
-        source: "manual",
-      }],
+      items: [
+        {
+          type: "contextCompaction",
+          id: "pending-manual-context-compaction",
+          completed: false,
+          source: "manual",
+        },
+      ],
       sidecar: {
         ...initial.turns[0]!.sidecar,
         turnStartedAtMs: null,
@@ -674,27 +748,33 @@ describe("canonical item lifecycle reducer", () => {
     } satisfies ThreadItem;
     const state: CodexCanonicalConversationState = {
       ...initial,
-      turns: [{
-        ...initial.turns[0]!,
-        items: [
-          rawCompaction,
-          {
-            ...rawCompaction,
-            completed: false,
-            source: "manual",
-          },
-        ],
-      }],
+      turns: [
+        {
+          ...initial.turns[0]!,
+          items: [
+            rawCompaction,
+            {
+              ...rawCompaction,
+              completed: false,
+              source: "manual",
+            },
+          ],
+        },
+      ],
     };
-    const next = reduceLifecycle(state, {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: rawCompaction,
-        completedAtMs: 9_400,
+    const next = reduceLifecycle(
+      state,
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: rawCompaction,
+          completedAtMs: 9_400,
+        },
       },
-    }, buildClock(94_001).context);
+      buildClock(94_001).context,
+    );
     const completed = next.turns[0]?.items[0];
 
     expect(completed?.type).toBe("contextCompaction");
@@ -753,22 +833,24 @@ describe("canonical item lifecycle reducer", () => {
       }),
       context,
     );
-    const afterImage = reduceLifecycle(collabResult.state, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: image,
-        startedAtMs: 9_500,
+    const afterImage = reduceLifecycle(
+      collabResult.state,
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: image,
+          startedAtMs: 9_500,
+        },
       },
-    }, context);
+      context,
+    );
     const storedCollab = afterImage.turns[0]?.items[0];
     const storedImage = afterImage.turns[0]?.items[1];
 
     expect(
-      storedImage?.type === "imageGeneration" && "src" in storedImage
-        ? storedImage.src
-        : null,
+      storedImage?.type === "imageGeneration" && "src" in storedImage ? storedImage.src : null,
     ).toBe("/C:/Fixture/generated.png");
     expect(
       storedCollab?.type === "collabAgentToolCall" && "receiverThreads" in storedCollab
@@ -846,36 +928,46 @@ describe("canonical item lifecycle reducer", () => {
       type: "userMessage",
       id: "heartbeat-user",
       clientId: null,
-      content: [{
-        type: "text",
-        text: [
-          "<heartbeat>",
-          "<current_time_iso>2026-07-10T00:00:00Z</current_time_iso>",
-          "<instructions>check fixture</instructions>",
-          "</heartbeat>",
-        ].join("\n"),
-        text_elements: [],
-      }],
+      content: [
+        {
+          type: "text",
+          text: [
+            "<heartbeat>",
+            "<current_time_iso>2026-07-10T00:00:00Z</current_time_iso>",
+            "<instructions>check fixture</instructions>",
+            "</heartbeat>",
+          ].join("\n"),
+          text_elements: [],
+        },
+      ],
     } satisfies ThreadItem;
     const clock = buildClock();
-    const afterOrdinary = reduceLifecycle(buildState(), {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: ordinary,
-        startedAtMs: 10_000,
+    const afterOrdinary = reduceLifecycle(
+      buildState(),
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: ordinary,
+          startedAtMs: 10_000,
+        },
       },
-    }, clock.context);
-    const afterHeartbeat = reduceLifecycle(afterOrdinary, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: heartbeat,
-        startedAtMs: 10_001,
+      clock.context,
+    );
+    const afterHeartbeat = reduceLifecycle(
+      afterOrdinary,
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: heartbeat,
+          startedAtMs: 10_001,
+        },
       },
-    }, clock.context);
+      clock.context,
+    );
 
     expect(afterOrdinary.turns[0]?.items.length).toBe(0);
     expect(afterHeartbeat.turns[0]?.items[0] === heartbeat).toBe(true);
@@ -884,11 +976,13 @@ describe("canonical item lifecycle reducer", () => {
 
   test("completed matching user message accepts the steer and inserts the exact marker ID", () => {
     const initial = buildState();
-    const content = [{
-      type: "text" as const,
-      text: "steer fixture",
-      text_elements: [],
-    }];
+    const content = [
+      {
+        type: "text" as const,
+        text: "steer fixture",
+        text_elements: [],
+      },
+    ];
     const steeringItem = {
       type: "steeringUserMessage",
       id: "pending-steer",
@@ -910,10 +1004,12 @@ describe("canonical item lifecycle reducer", () => {
     } satisfies CodexCanonicalSteeringUserMessageItem;
     const state = {
       ...initial,
-      turns: [{
-        ...initial.turns[0]!,
-        items: [steeringItem],
-      }],
+      turns: [
+        {
+          ...initial.turns[0]!,
+          items: [steeringItem],
+        },
+      ],
     };
     const completed = {
       type: "userMessage",
@@ -921,15 +1017,19 @@ describe("canonical item lifecycle reducer", () => {
       clientId: null,
       content,
     } satisfies ThreadItem;
-    const next = reduceLifecycle(state, {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: completed,
-        completedAtMs: 11_000,
+    const next = reduceLifecycle(
+      state,
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: completed,
+          completedAtMs: 11_000,
+        },
       },
-    }, buildClock().context);
+      buildClock().context,
+    );
 
     expect(next.turns[0]?.items[0]?.type).toBe("steeringUserMessage");
     expect(
@@ -943,11 +1043,13 @@ describe("canonical item lifecycle reducer", () => {
 
   test("matches identical pending steers by app-server client identity", () => {
     const initial = buildState();
-    const content = [{
-      type: "text" as const,
-      text: "same text",
-      text_elements: [],
-    }];
+    const content = [
+      {
+        type: "text" as const,
+        text: "same text",
+        text_elements: [],
+      },
+    ];
     const buildPending = (id: string): CodexCanonicalSteeringUserMessageItem => ({
       type: "steeringUserMessage",
       id,
@@ -962,30 +1064,38 @@ describe("canonical item lifecycle reducer", () => {
     });
     const state = {
       ...initial,
-      turns: [{
-        ...initial.turns[0]!,
-        items: [buildPending("steer-first"), buildPending("steer-second")],
-      }],
+      turns: [
+        {
+          ...initial.turns[0]!,
+          items: [buildPending("steer-first"), buildPending("steer-second")],
+        },
+      ],
     };
-    const next = reduceLifecycle(state, {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        completedAtMs: 11_000,
-        item: {
-          type: "userMessage",
-          id: "server-second",
-          clientId: "steer-second",
-          content,
+    const next = reduceLifecycle(
+      state,
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          completedAtMs: 11_000,
+          item: {
+            type: "userMessage",
+            id: "server-second",
+            clientId: "steer-second",
+            content,
+          },
         },
       },
-    }, buildClock().context);
+      buildClock().context,
+    );
 
-    expect(next.turns[0]?.items.slice(0, 2).map((item) => ({
-      id: item.id,
-      status: item.type === "steeringUserMessage" ? item.status : null,
-    }))).toEqual([
+    expect(
+      next.turns[0]?.items.slice(0, 2).map((item) => ({
+        id: item.id,
+        status: item.type === "steeringUserMessage" ? item.status : null,
+      })),
+    ).toEqual([
       { id: "steer-first", status: "pending" },
       { id: "steer-second", status: "accepted" },
     ]);
@@ -993,7 +1103,8 @@ describe("canonical item lifecycle reducer", () => {
 
   test("steer matching excludes exact comment-attachment labels but keeps image count", () => {
     const initial = buildState();
-    const commentLabel = "The next image was attached by the user as additional visual context for Comment 7.";
+    const commentLabel =
+      "The next image was attached by the user as additional visual context for Comment 7.";
     const content = [
       {
         type: "text" as const,
@@ -1015,10 +1126,12 @@ describe("canonical item lifecycle reducer", () => {
         line: 7,
         path: "browser:fixture",
       },
-      localBrowserAttachedImages: [{
-        dataUrl: "data:image/png;base64,fixture",
-        localPath: "/tmp/comment.png",
-      }],
+      localBrowserAttachedImages: [
+        {
+          dataUrl: "data:image/png;base64,fixture",
+          localPath: "/tmp/comment.png",
+        },
+      ],
     };
     const steeringItem = {
       type: "steeringUserMessage",
@@ -1041,10 +1154,12 @@ describe("canonical item lifecycle reducer", () => {
     } satisfies CodexCanonicalSteeringUserMessageItem;
     const state = {
       ...initial,
-      turns: [{
-        ...initial.turns[0]!,
-        items: [steeringItem],
-      }],
+      turns: [
+        {
+          ...initial.turns[0]!,
+          items: [steeringItem],
+        },
+      ],
     };
     const completed = {
       type: "userMessage",
@@ -1052,15 +1167,19 @@ describe("canonical item lifecycle reducer", () => {
       clientId: null,
       content,
     } satisfies ThreadItem;
-    const next = reduceLifecycle(state, {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: completed,
-        completedAtMs: 11_100,
+    const next = reduceLifecycle(
+      state,
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: completed,
+          completedAtMs: 11_100,
+        },
       },
-    }, buildClock().context);
+      buildClock().context,
+    );
 
     expect(
       next.turns[0]?.items[0]?.type === "steeringUserMessage"
@@ -1078,24 +1197,32 @@ describe("canonical item lifecycle reducer", () => {
       turns: [],
     };
     const command = buildCommand("missing-turn-command");
-    const noFirstTurn = reduceLifecycle(emptyConversation, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: "turn_missing",
-        item: command,
-        startedAtMs: 12_000,
+    const noFirstTurn = reduceLifecycle(
+      emptyConversation,
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: "turn_missing",
+          item: command,
+          startedAtMs: 12_000,
+        },
       },
-    }, buildClock().context);
-    const noCompletionTurn = reduceLifecycle(initial, {
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: "turn_missing",
-        item: { ...command, status: "completed" },
-        completedAtMs: 12_050,
+      buildClock().context,
+    );
+    const noCompletionTurn = reduceLifecycle(
+      initial,
+      {
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: "turn_missing",
+          item: { ...command, status: "completed" },
+          completedAtMs: 12_050,
+        },
       },
-    }, buildClock().context);
+      buildClock().context,
+    );
 
     expect(noFirstTurn === emptyConversation).toBe(true);
     expect(noCompletionTurn === initial).toBe(true);
@@ -1153,13 +1280,15 @@ describe("canonical item lifecycle reducer", () => {
     const initial = buildState();
     const state = {
       ...initial,
-      turns: [{
-        ...initial.turns[0]!,
-        protocol: {
-          ...initial.turns[0]!.protocol,
-          status: "completed" as const,
+      turns: [
+        {
+          ...initial.turns[0]!,
+          protocol: {
+            ...initial.turns[0]!.protocol,
+            status: "completed" as const,
+          },
         },
-      }],
+      ],
     };
     const agent = {
       type: "agentMessage",
@@ -1168,15 +1297,19 @@ describe("canonical item lifecycle reducer", () => {
       phase: null,
       memoryCitation: null,
     } satisfies ThreadItem;
-    const next = reduceLifecycle(state, {
-      method: "item/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: agent,
-        startedAtMs: 13_000,
+    const next = reduceLifecycle(
+      state,
+      {
+        method: "item/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: agent,
+          startedAtMs: 13_000,
+        },
       },
-    }, buildClock(13_001, 13_002).context);
+      buildClock(13_001, 13_002).context,
+    );
 
     expect(next.turns[0]?.protocol.status).toBe("completed");
   });
@@ -1184,22 +1317,30 @@ describe("canonical item lifecycle reducer", () => {
   test("unknown conversations and unrelated events preserve state identity", () => {
     const initial = buildState();
     const command = buildCommand("unknown-command");
-    const unknown = reduceLifecycle(initial, {
-      method: "item/started",
-      params: {
-        threadId: "another-thread",
-        turnId: TURN_ID,
-        item: command,
-        startedAtMs: 12_000,
+    const unknown = reduceLifecycle(
+      initial,
+      {
+        method: "item/started",
+        params: {
+          threadId: "another-thread",
+          turnId: TURN_ID,
+          item: command,
+          startedAtMs: 12_000,
+        },
       },
-    }, buildClock().context);
-    const unrelated = reduceCodexConversationEvent(initial, {
-      type: "notification",
-      notification: {
-        method: "thread/closed",
-        params: { threadId: THREAD_ID },
+      buildClock().context,
+    );
+    const unrelated = reduceCodexConversationEvent(
+      initial,
+      {
+        type: "notification",
+        notification: {
+          method: "thread/closed",
+          params: { threadId: THREAD_ID },
+        },
       },
-    }, buildClock().context);
+      buildClock().context,
+    );
 
     expect(unknown === initial).toBe(true);
     expect(unrelated === initial).toBe(true);

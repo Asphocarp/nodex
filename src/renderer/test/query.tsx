@@ -31,16 +31,15 @@ export function TestQueryProvider({
   projectionRegistry?: ProjectionInvalidationRegistry;
 }) {
   const [projectionRegistry] = useState(
-    () => new ProjectionInvalidationRegistry({
-      subscribeProjection: () => () => {},
-      subscribeRevocations: () => () => {},
-    }),
+    () =>
+      new ProjectionInvalidationRegistry({
+        subscribeProjection: () => () => {},
+        subscribeRevocations: () => () => {},
+      }),
   );
   return (
     <QueryClientProvider client={client}>
-      <ProjectionInvalidationProvider
-        registry={providedProjectionRegistry ?? projectionRegistry}
-      >
+      <ProjectionInvalidationProvider registry={providedProjectionRegistry ?? projectionRegistry}>
         <ResourceAuthorityQueryCacheBridge />
         {children}
       </ProjectionInvalidationProvider>

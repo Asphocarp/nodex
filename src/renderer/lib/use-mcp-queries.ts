@@ -11,18 +11,14 @@ interface QueryEnabledOptions {
   enabled?: boolean;
 }
 
-export function useCodexExperimentalFeatures(
-  options: QueryEnabledOptions = {},
-) {
+export function useCodexExperimentalFeatures(options: QueryEnabledOptions = {}) {
   return useQuery({
     ...codexExperimentalFeaturesListQueryOptions(),
     enabled: options.enabled !== false,
   });
 }
 
-export function useMcpApps(
-  options: QueryEnabledOptions = {},
-) {
+export function useMcpApps(options: QueryEnabledOptions = {}) {
   return useQuery({
     ...mcpAppsQueryOptions(),
     enabled: options.enabled !== false,
@@ -35,9 +31,7 @@ const EMPTY_RESOURCE_PARAMS: ProtocolMcpResourceReadParams = {
   uri: "",
 };
 
-export function useMcpServerStatuses(
-  options: QueryEnabledOptions = {},
-) {
+export function useMcpServerStatuses(options: QueryEnabledOptions = {}) {
   return useQuery({
     ...mcpServerStatusesQueryOptions(),
     enabled: options.enabled !== false,
@@ -50,10 +44,7 @@ export function useMcpResource(
 ) {
   const effectiveParams = params ?? EMPTY_RESOURCE_PARAMS;
   const enabled = Boolean(
-    options.enabled !== false
-    && params
-    && params.server.trim()
-    && params.uri.trim(),
+    options.enabled !== false && params && params.server.trim() && params.uri.trim(),
   );
 
   return useQuery({

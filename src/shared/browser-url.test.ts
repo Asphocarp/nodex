@@ -34,15 +34,11 @@ describe("browser URL helpers", () => {
     expect(isAllowedBrowserNavigationUrl("javascript:alert(1)")).toBe(false);
     expect(isAllowedBrowserNavigationUrl("data:text/html,test")).toBe(false);
     expect(isAllowedBrowserNavigationUrl("file:///tmp/secret")).toBe(false);
-    expect(
-      isAllowedBrowserNavigationUrl("https://user:secret@example.com/private"),
-    ).toBe(false);
+    expect(isAllowedBrowserNavigationUrl("https://user:secret@example.com/private")).toBe(false);
 
     expect(isAllowedBrowserExternalUrl("mailto:hello@example.com")).toBe(true);
     expect(isAllowedBrowserExternalUrl("https://example.com/")).toBe(true);
-    expect(
-      isAllowedBrowserExternalUrl("https://user:secret@example.com/private"),
-    ).toBe(false);
+    expect(isAllowedBrowserExternalUrl("https://user:secret@example.com/private")).toBe(false);
     expect(isAllowedBrowserExternalUrl("file:///tmp/secret")).toBe(false);
   });
 });

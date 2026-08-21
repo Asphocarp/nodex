@@ -1,23 +1,11 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-  type RefObject,
-} from "react";
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 
-import {
-  NodexPopover,
-  NodexPopoverAnchor,
-  NodexPopoverContent,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverAnchor, NodexPopoverContent } from "@/components/ui/popover";
 
 const SELECTED_MENTION_SELECTOR =
   '[data-mention-inline-chip="true"][data-mention-token-selected="true"]';
 
-function useMentionTokenSelected(
-  containerRef: RefObject<HTMLElement | null>,
-): boolean {
+function useMentionTokenSelected(containerRef: RefObject<HTMLElement | null>): boolean {
   const [selected, setSelected] = useState(false);
 
   useEffect(() => {
@@ -25,9 +13,7 @@ function useMentionTokenSelected(
     if (!container || typeof MutationObserver === "undefined") return undefined;
 
     const syncSelection = () => {
-      const nextSelected = Boolean(
-        container.querySelector(SELECTED_MENTION_SELECTOR),
-      );
+      const nextSelected = Boolean(container.querySelector(SELECTED_MENTION_SELECTOR));
       setSelected((currentSelected) =>
         currentSelected === nextSelected ? currentSelected : nextSelected,
       );

@@ -14,9 +14,7 @@ const LazyDateMentionInlineContentView = lazy(async () => ({
 }));
 
 const readDateMentionPayload = (inlineContent: unknown) =>
-  dateMentionPropsToPayload(
-    (inlineContent as { props: Partial<DateMentionProps> }).props,
-  );
+  dateMentionPropsToPayload((inlineContent as { props: Partial<DateMentionProps> }).props);
 
 function DateMentionFallback({ inlineContent }: { readonly inlineContent: unknown }) {
   const payload = readDateMentionPayload(inlineContent);
@@ -34,52 +32,46 @@ function DateMentionFallback({ inlineContent }: { readonly inlineContent: unknow
 }
 
 export function createReadonlyDateMentionInlineContentSpec() {
-  return createReactInlineContentSpec(
-    dateMentionInlineContentConfig,
-    {
-      render: ({ inlineContent }) => {
-        const payload = readDateMentionPayload(inlineContent);
-        return (
-          <DateMentionInlineVisual
-            as="button"
-            payload={payload}
-            withGuards
-            contentEditable={false}
-            title={formatDateMentionPlainText(payload)}
-            tabIndex={-1}
-          />
-        );
-      },
+  return createReactInlineContentSpec(dateMentionInlineContentConfig, {
+    render: ({ inlineContent }) => {
+      const payload = readDateMentionPayload(inlineContent);
+      return (
+        <DateMentionInlineVisual
+          as="button"
+          payload={payload}
+          withGuards
+          contentEditable={false}
+          title={formatDateMentionPlainText(payload)}
+          tabIndex={-1}
+        />
+      );
     },
-  );
+  });
 }
 
 export function createDateMentionInlineContentSpec() {
-  return createReactInlineContentSpec(
-    dateMentionInlineContentConfig,
-    {
-      render: ({ inlineContent, updateInlineContent }) => (
-        <Suspense fallback={<DateMentionFallback inlineContent={inlineContent} />}>
-          <LazyDateMentionInlineContentView
-            inlineContent={inlineContent as { props: Partial<DateMentionProps> }}
-            updateInlineContent={updateInlineContent as (
-              update: DateMentionInlineContentUpdate
-            ) => void}
-          />
-        </Suspense>
-      ),
-      toExternalHTML: ({ inlineContent }) => {
-        const payload = readDateMentionPayload(inlineContent);
-        return (
-          <DateMentionInlineVisual
-            as="button"
-            payload={payload}
-            withGuards
-            contentEditable={false}
-            title={formatDateMentionPlainText(payload)}
-          />
-        );
-      },
+  return createReactInlineContentSpec(dateMentionInlineContentConfig, {
+    render: ({ inlineContent, updateInlineContent }) => (
+      <Suspense fallback={<DateMentionFallback inlineContent={inlineContent} />}>
+        <LazyDateMentionInlineContentView
+          inlineContent={inlineContent as { props: Partial<DateMentionProps> }}
+          updateInlineContent={
+            updateInlineContent as (update: DateMentionInlineContentUpdate) => void
+          }
+        />
+      </Suspense>
+    ),
+    toExternalHTML: ({ inlineContent }) => {
+      const payload = readDateMentionPayload(inlineContent);
+      return (
+        <DateMentionInlineVisual
+          as="button"
+          payload={payload}
+          withGuards
+          contentEditable={false}
+          title={formatDateMentionPlainText(payload)}
+        />
+      );
     },
-  );
+  });
 }

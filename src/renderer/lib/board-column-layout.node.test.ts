@@ -40,10 +40,12 @@ function withMockedLocalStorage(run: () => void): void {
 
 describe("board column layout prefs", () => {
   test("defaults each column to expanded with the standard width", () => {
-    expect(JSON.stringify(getBoardColumnLayout({}, "build"))).toBe(JSON.stringify({
-      collapsed: false,
-      width: DEFAULT_BOARD_COLUMN_WIDTH,
-    }));
+    expect(JSON.stringify(getBoardColumnLayout({}, "build"))).toBe(
+      JSON.stringify({
+        collapsed: false,
+        width: DEFAULT_BOARD_COLUMN_WIDTH,
+      }),
+    );
   });
 
   test("normalizes invalid persisted values and ignores unknown statuses", () => {
@@ -60,22 +62,26 @@ describe("board column layout prefs", () => {
       },
     });
 
-    expect(JSON.stringify(normalized)).toBe(JSON.stringify({
-      plan: {
-        collapsed: true,
-        width: 416,
-      },
-      ship: {
-        width: 224,
-      },
-    }));
+    expect(JSON.stringify(normalized)).toBe(
+      JSON.stringify({
+        plan: {
+          collapsed: true,
+          width: 416,
+        },
+        ship: {
+          width: 224,
+        },
+      }),
+    );
   });
 
   test("prefers a canonical column key over its legacy alias", () => {
-    expect(normalizeBoardColumnLayoutPrefs({
-      backlog: { collapsed: true, width: 320 },
-      plan: { collapsed: false, width: 360 },
-    })).toEqual({
+    expect(
+      normalizeBoardColumnLayoutPrefs({
+        backlog: { collapsed: true, width: 320 },
+        plan: { collapsed: false, width: 360 },
+      }),
+    ).toEqual({
       plan: { collapsed: false, width: 360 },
     });
   });
@@ -86,12 +92,16 @@ describe("board column layout prefs", () => {
         plan: { collapsed: true, width: 360 },
       });
 
-      expect(JSON.stringify(written)).toBe(JSON.stringify({
-        plan: { collapsed: true, width: 360 },
-      }));
-      expect(JSON.stringify(readBoardColumnLayoutPrefs("alpha"))).toBe(JSON.stringify({
-        plan: { collapsed: true, width: 360 },
-      }));
+      expect(JSON.stringify(written)).toBe(
+        JSON.stringify({
+          plan: { collapsed: true, width: 360 },
+        }),
+      );
+      expect(JSON.stringify(readBoardColumnLayoutPrefs("alpha"))).toBe(
+        JSON.stringify({
+          plan: { collapsed: true, width: 360 },
+        }),
+      );
       expect(JSON.stringify(readBoardColumnLayoutPrefs("beta"))).toBe(JSON.stringify({}));
     });
   });
@@ -106,9 +116,11 @@ describe("board column layout prefs", () => {
       { collapsed: true, width: 288 },
     );
 
-    expect(JSON.stringify(next)).toBe(JSON.stringify({
-      plan: { collapsed: true, width: 360 },
-      ship: { collapsed: true, width: 288 },
-    }));
+    expect(JSON.stringify(next)).toBe(
+      JSON.stringify({
+        plan: { collapsed: true, width: 360 },
+        ship: { collapsed: true, width: 288 },
+      }),
+    );
   });
 });

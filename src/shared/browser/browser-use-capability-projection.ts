@@ -14,18 +14,11 @@ const BrowserUseIdentifierSchema = z
   .min(1)
   .max(MAX_IDENTIFIER_LENGTH)
   .regex(/^[A-Za-z][A-Za-z0-9_.:-]*$/u);
-const BrowserUsePolicyDecisionSchema = z.enum([
-  "allow",
-  "deny",
-  "not-configured",
-  "unverified",
-]);
+const BrowserUsePolicyDecisionSchema = z.enum(["allow", "deny", "not-configured", "unverified"]);
 
 const BrowserUseApiMemberSchema = z.strictObject({
   id: BrowserUseIdentifierSchema,
-  unsupportedByDefaultIn: z.array(BrowserUseBackendTypeSchema)
-    .max(3)
-    .default([]),
+  unsupportedByDefaultIn: z.array(BrowserUseBackendTypeSchema).max(3).default([]),
   requiresFullCdpAccess: z.boolean().default(false),
 });
 
@@ -33,10 +26,9 @@ const BrowserUseCapabilityDescriptorSchema = z.strictObject({
   id: BrowserUseIdentifierSchema,
   description: z.string().max(2_048).optional(),
 });
-const BrowserUseBackendMetadataSchema = z.record(
-  z.string().trim().min(1).max(128),
-  z.string().max(2_048),
-).refine((value) => Object.keys(value).length <= 64);
+const BrowserUseBackendMetadataSchema = z
+  .record(z.string().trim().min(1).max(128), z.string().max(2_048))
+  .refine((value) => Object.keys(value).length <= 64);
 
 const CompatibleArtifactSchema = z.strictObject({
   status: z.literal("compatible"),
@@ -59,19 +51,13 @@ const BrowserUseBackendInfoSchema = z.strictObject({
   id: z.string().trim().min(1).max(MAX_IDENTIFIER_LENGTH),
   name: z.string().trim().min(1).max(512),
   type: BrowserUseBackendTypeSchema,
-  apiSupportOverrides: z.record(
-    BrowserUseIdentifierSchema,
-    z.boolean(),
-  )
+  apiSupportOverrides: z
+    .record(BrowserUseIdentifierSchema, z.boolean())
     .refine((value) => Object.keys(value).length <= MAX_CAPABILITY_ENTRIES)
     .default({}),
   capabilities: z.strictObject({
-    browser: z.array(BrowserUseCapabilityDescriptorSchema)
-      .max(MAX_CAPABILITY_ENTRIES)
-      .default([]),
-    tab: z.array(BrowserUseCapabilityDescriptorSchema)
-      .max(MAX_CAPABILITY_ENTRIES)
-      .default([]),
+    browser: z.array(BrowserUseCapabilityDescriptorSchema).max(MAX_CAPABILITY_ENTRIES).default([]),
+    tab: z.array(BrowserUseCapabilityDescriptorSchema).max(MAX_CAPABILITY_ENTRIES).default([]),
   }),
   family: z.string().trim().min(1).max(128).optional(),
   metadata: BrowserUseBackendMetadataSchema.default({}),
@@ -87,16 +73,14 @@ const BrowserUsePluginPolicySchema = z.strictObject({
   local: BrowserUseFullCdpPolicySchema,
   enterprise: BrowserUseFullCdpPolicySchema,
   environment: BrowserUseFullCdpPolicySchema.extend({
-    availableBackends: z.array(BrowserUseBackendAvailabilityKeySchema)
-      .max(3)
-      .optional(),
-    disabledApiMembers: z.array(BrowserUseIdentifierSchema)
+    availableBackends: z.array(BrowserUseBackendAvailabilityKeySchema).max(3).optional(),
+    disabledApiMembers: z.array(BrowserUseIdentifierSchema).max(MAX_CAPABILITY_ENTRIES).default([]),
+    disabledBrowserCapabilities: z
+      .array(BrowserUseIdentifierSchema)
       .max(MAX_CAPABILITY_ENTRIES)
       .default([]),
-    disabledBrowserCapabilities: z.array(BrowserUseIdentifierSchema)
-      .max(MAX_CAPABILITY_ENTRIES)
-      .default([]),
-    disabledTabCapabilities: z.array(BrowserUseIdentifierSchema)
+    disabledTabCapabilities: z
+      .array(BrowserUseIdentifierSchema)
       .max(MAX_CAPABILITY_ENTRIES)
       .default([]),
   }),
@@ -224,15 +208,9 @@ function fullCdpReasonFor(
 
   const isDisabled = decision === "deny";
   const codeByStage = {
-    local: isDisabled
-      ? "full-cdp-local-disabled"
-      : "full-cdp-local-unverified",
-    enterprise: isDisabled
-      ? "full-cdp-enterprise-disabled"
-      : "full-cdp-enterprise-unverified",
-    environment: isDisabled
-      ? "full-cdp-environment-disabled"
-      : "full-cdp-environment-unverified",
+    local: isDisabled ? "full-cdp-local-disabled" : "full-cdp-local-unverified",
+    enterprise: isDisabled ? "full-cdp-enterprise-disabled" : "full-cdp-enterprise-unverified",
+    environment: isDisabled ? "full-cdp-environment-disabled" : "full-cdp-environment-unverified",
   } as const;
 
   return {
@@ -422,9 +400,7 @@ export function projectBrowserUseCapabilities(
   for (const reason of fullCdpReasons) reasons.add(reason);
   const fullCdpAccess = fullCdpReasons.length === 0;
 
-  const artifactApiMemberIds = new Set(
-    artifact.apiMembers.map(({ id }) => id),
-  );
+  const artifactApiMemberIds = new Set(artifact.apiMembers.map(({ id }) => id));
   for (const id of Object.keys(backend.apiSupportOverrides)) {
     if (artifactApiMemberIds.has(id)) continue;
     reasons.add({
@@ -456,8 +432,7 @@ export function projectBrowserUseCapabilities(
   const disabledApiMembers: string[] = [];
   for (const member of artifact.apiMembers) {
     const defaultSupported = !member.unsupportedByDefaultIn.includes(backend.type);
-    const backendSupported = backend.apiSupportOverrides[member.id]
-      ?? defaultSupported;
+    const backendSupported = backend.apiSupportOverrides[member.id] ?? defaultSupported;
     if (!backendSupported) {
       disabledApiMembers.push(member.id);
       reasons.add({

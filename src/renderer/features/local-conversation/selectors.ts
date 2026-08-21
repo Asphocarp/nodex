@@ -12,7 +12,10 @@ import {
 } from "./conversation-request-helpers";
 import { buildCodexTurnOccurrenceKey } from "../../../shared/codex-turn-identity";
 
-export { selectConversationLiveRequests, selectPlanImplementationRequest } from "./conversation-request-helpers";
+export {
+  selectConversationLiveRequests,
+  selectPlanImplementationRequest,
+} from "./conversation-request-helpers";
 
 export interface LocalConversationSearchUnit {
   key: string;
@@ -64,10 +67,8 @@ export interface VisibleConversationTurnRenderRevision {
   readonly startedAt: number | null | undefined;
   readonly completedAt: number | null | undefined;
   readonly durationMs: number | null | undefined;
-  readonly commandExecutionStartedAtMsById:
-    CodexConversationTurn["commandExecutionStartedAtMsById"];
-  readonly interruptedCommandExecutionItemIds:
-    CodexConversationTurn["interruptedCommandExecutionItemIds"];
+  readonly commandExecutionStartedAtMsById: CodexConversationTurn["commandExecutionStartedAtMsById"];
+  readonly interruptedCommandExecutionItemIds: CodexConversationTurn["interruptedCommandExecutionItemIds"];
   readonly hookRuns: CodexConversationTurn["hookRuns"];
   readonly tokenUsage: CodexConversationTurn["tokenUsage"];
   readonly safetyBuffering: CodexConversationTurn["safetyBuffering"];
@@ -96,16 +97,12 @@ const visibleTurnEntrySelectionsByTurns = new WeakMap<
   }>
 >();
 
-function readRequestCompleted(
-  request: CodexTurnScopedConversationRequest,
-): boolean | undefined {
+function readRequestCompleted(request: CodexTurnScopedConversationRequest): boolean | undefined {
   if (!("completed" in request)) return undefined;
   return typeof request.completed === "boolean" ? request.completed : undefined;
 }
 
-function readRequestResponse(
-  request: CodexTurnScopedConversationRequest,
-): unknown {
+function readRequestResponse(request: CodexTurnScopedConversationRequest): unknown {
   return "response" in request ? request.response : undefined;
 }
 
@@ -149,23 +146,23 @@ export function areVisibleConversationTurnRenderRevisionsEqual(
   right: VisibleConversationTurnRenderRevision,
 ): boolean {
   if (
-    left.turnStatus !== right.turnStatus
-    || left.errorMessage !== right.errorMessage
-    || left.diff !== right.diff
-    || left.turnStartedAtMs !== right.turnStartedAtMs
-    || left.firstTurnWorkItemStartedAtMs !== right.firstTurnWorkItemStartedAtMs
-    || left.finalAssistantStartedAtMs !== right.finalAssistantStartedAtMs
-    || left.startedAt !== right.startedAt
-    || left.completedAt !== right.completedAt
-    || left.durationMs !== right.durationMs
-    || left.commandExecutionStartedAtMsById !== right.commandExecutionStartedAtMsById
-    || left.interruptedCommandExecutionItemIds !== right.interruptedCommandExecutionItemIds
-    || left.hookRuns !== right.hookRuns
-    || left.tokenUsage !== right.tokenUsage
-    || left.safetyBuffering !== right.safetyBuffering
-    || left.itemIds.length !== right.itemIds.length
-    || left.items.length !== right.items.length
-    || left.requests.length !== right.requests.length
+    left.turnStatus !== right.turnStatus ||
+    left.errorMessage !== right.errorMessage ||
+    left.diff !== right.diff ||
+    left.turnStartedAtMs !== right.turnStartedAtMs ||
+    left.firstTurnWorkItemStartedAtMs !== right.firstTurnWorkItemStartedAtMs ||
+    left.finalAssistantStartedAtMs !== right.finalAssistantStartedAtMs ||
+    left.startedAt !== right.startedAt ||
+    left.completedAt !== right.completedAt ||
+    left.durationMs !== right.durationMs ||
+    left.commandExecutionStartedAtMsById !== right.commandExecutionStartedAtMsById ||
+    left.interruptedCommandExecutionItemIds !== right.interruptedCommandExecutionItemIds ||
+    left.hookRuns !== right.hookRuns ||
+    left.tokenUsage !== right.tokenUsage ||
+    left.safetyBuffering !== right.safetyBuffering ||
+    left.itemIds.length !== right.itemIds.length ||
+    left.items.length !== right.items.length ||
+    left.requests.length !== right.requests.length
   ) {
     return false;
   }
@@ -178,11 +175,11 @@ export function areVisibleConversationTurnRenderRevisionsEqual(
     const rightItem = right.items[index];
     if (!leftItem || !rightItem) return false;
     if (
-      leftItem.item !== rightItem.item
-      || leftItem.itemId !== rightItem.itemId
-      || leftItem.updatedAt !== rightItem.updatedAt
-      || leftItem.status !== rightItem.status
-      || leftItem.assistantPhase !== rightItem.assistantPhase
+      leftItem.item !== rightItem.item ||
+      leftItem.itemId !== rightItem.itemId ||
+      leftItem.updatedAt !== rightItem.updatedAt ||
+      leftItem.status !== rightItem.status ||
+      leftItem.assistantPhase !== rightItem.assistantPhase
     ) {
       return false;
     }
@@ -192,9 +189,9 @@ export function areVisibleConversationTurnRenderRevisionsEqual(
     const rightRequest = right.requests[index];
     if (!leftRequest || !rightRequest) return false;
     if (
-      leftRequest.request !== rightRequest.request
-      || leftRequest.completed !== rightRequest.completed
-      || leftRequest.response !== rightRequest.response
+      leftRequest.request !== rightRequest.request ||
+      leftRequest.completed !== rightRequest.completed ||
+      leftRequest.response !== rightRequest.response
     ) {
       return false;
     }
@@ -209,8 +206,10 @@ function areTurnRenderRevisionListsEqual(
   if (left.length !== right.length) return false;
   return left.every((revision, index) => {
     const nextRevision = right[index];
-    return nextRevision !== undefined
-      && areVisibleConversationTurnRenderRevisionsEqual(revision, nextRevision);
+    return (
+      nextRevision !== undefined &&
+      areVisibleConversationTurnRenderRevisionsEqual(revision, nextRevision)
+    );
   });
 }
 
@@ -224,12 +223,15 @@ function isRenderableConversationTurn(
       readonly type?: unknown;
       readonly content?: readonly { readonly type?: unknown; readonly text?: unknown }[];
     };
-    return rawItem.type === "userMessage"
-      && rawItem.content?.some((content) =>
-        content.type === "text"
-        && typeof content.text === "string"
-        && content.text.startsWith("<startup_tool_prewarm>")
-      ) === true;
+    return (
+      rawItem.type === "userMessage" &&
+      rawItem.content?.some(
+        (content) =>
+          content.type === "text" &&
+          typeof content.text === "string" &&
+          content.text.startsWith("<startup_tool_prewarm>"),
+      ) === true
+    );
   });
   if (isStartupToolPrewarm) return false;
   return turn.items.length > 0 || requests.length > 0 || (turn.diff?.trim().length ?? 0) > 0;
@@ -244,23 +246,22 @@ function createVisibleConversationTurnEntry(input: {
 }): VisibleConversationTurnEntry {
   const turnKey = buildCodexTurnOccurrenceKey(input.turn.turnId, input.index);
   const cachedTurn = visibleTurnEntriesByTurn.get(input.turn);
-  const candidates = cachedTurn !== undefined
-    && areVisibleConversationTurnRenderRevisionsEqual(
-      cachedTurn.revision,
-      input.renderRevision,
-    )
-    ? cachedTurn.entries
-    : [];
-  const cached = candidates.find((candidate) =>
-    candidate.requests === input.requests
-    && candidate.isMostRecentTurn === input.isMostRecentTurn
-    && candidate.turnKey === turnKey
-    && candidate.turnSearchKey === turnKey
-    && candidate.renderRevision !== undefined
-    && areVisibleConversationTurnRenderRevisionsEqual(
-      candidate.renderRevision,
-      input.renderRevision,
-    )
+  const candidates =
+    cachedTurn !== undefined &&
+    areVisibleConversationTurnRenderRevisionsEqual(cachedTurn.revision, input.renderRevision)
+      ? cachedTurn.entries
+      : [];
+  const cached = candidates.find(
+    (candidate) =>
+      candidate.requests === input.requests &&
+      candidate.isMostRecentTurn === input.isMostRecentTurn &&
+      candidate.turnKey === turnKey &&
+      candidate.turnSearchKey === turnKey &&
+      candidate.renderRevision !== undefined &&
+      areVisibleConversationTurnRenderRevisionsEqual(
+        candidate.renderRevision,
+        input.renderRevision,
+      ),
   );
   if (cached) {
     return cached;
@@ -336,20 +337,19 @@ export function selectVisibleConversationTurnEntries(input: {
 
   const requestsByTurnId = selectConversationTurnRequestsByTurnId(conversation);
   const parentTurns = input.parentTurns ?? EMPTY_PARENT_TURNS;
-  const requestsByTurn = turns.map((turn) => (
-    turn.turnId === null
-      ? []
-      : selectTurnScopedConversationRequests(requestsByTurnId, turn.turnId)
-  ));
-  const revisions = turns.map((turn, index) => (
-    buildVisibleConversationTurnRenderRevision(turn, requestsByTurn[index] ?? [])
-  ));
+  const requestsByTurn = turns.map((turn) =>
+    turn.turnId === null ? [] : selectTurnScopedConversationRequests(requestsByTurnId, turn.turnId),
+  );
+  const revisions = turns.map((turn, index) =>
+    buildVisibleConversationTurnRenderRevision(turn, requestsByTurn[index] ?? []),
+  );
   const cachedSelections = visibleTurnEntrySelectionsByTurns.get(turns);
-  const cached = cachedSelections?.find((selection) =>
-    selection.parentTurns === parentTurns
-    && selection.requestsByTurnId === requestsByTurnId
-    && selection.resumeState === conversation.resumeState
-    && areTurnRenderRevisionListsEqual(selection.revisions, revisions),
+  const cached = cachedSelections?.find(
+    (selection) =>
+      selection.parentTurns === parentTurns &&
+      selection.requestsByTurnId === requestsByTurnId &&
+      selection.resumeState === conversation.resumeState &&
+      areTurnRenderRevisionListsEqual(selection.revisions, revisions),
   );
   if (cached) {
     return cached.entries;
@@ -367,32 +367,35 @@ export function selectVisibleConversationTurnEntries(input: {
       return [];
     }
 
-    if (
-      mergedVisibleTurnIds
-      && turn.turnId !== null
-      && !mergedVisibleTurnIds.has(turn.turnId)
-    ) {
+    if (mergedVisibleTurnIds && turn.turnId !== null && !mergedVisibleTurnIds.has(turn.turnId)) {
       return [];
     }
 
-    return [createVisibleConversationTurnEntry({
-      turn,
-      index,
-      requests,
-      isMostRecentTurn: latestTurnIndex === index,
-      renderRevision: revisions[index] ?? buildVisibleConversationTurnRenderRevision(turn, requests),
-    })];
+    return [
+      createVisibleConversationTurnEntry({
+        turn,
+        index,
+        requests,
+        isMostRecentTurn: latestTurnIndex === index,
+        renderRevision:
+          revisions[index] ?? buildVisibleConversationTurnRenderRevision(turn, requests),
+      }),
+    ];
   });
 
   if (entries.length === 0) {
     return EMPTY_VISIBLE_TURN_ENTRIES;
   }
 
-  const retainedSelections = cachedSelections?.filter((selection) => !(
-    selection.parentTurns === parentTurns
-    && selection.requestsByTurnId === requestsByTurnId
-    && selection.resumeState === conversation.resumeState
-  )) ?? [];
+  const retainedSelections =
+    cachedSelections?.filter(
+      (selection) =>
+        !(
+          selection.parentTurns === parentTurns &&
+          selection.requestsByTurnId === requestsByTurnId &&
+          selection.resumeState === conversation.resumeState
+        ),
+    ) ?? [];
   const nextSelections = [
     ...retainedSelections,
     {
@@ -407,9 +410,7 @@ export function selectVisibleConversationTurnEntries(input: {
   return entries;
 }
 
-export function selectBlockedTurnIds(
-  conversation: CodexConversationSnapshot | null,
-): string[] {
+export function selectBlockedTurnIds(conversation: CodexConversationSnapshot | null): string[] {
   if (!conversation) return [];
 
   return selectConversationLiveRequests(conversation)
@@ -426,9 +427,10 @@ export function selectConversationSearchUnits(
   return conversation.turns.flatMap((turn, turnIndex) => {
     const turnKey = buildCodexTurnOccurrenceKey(turn.turnId, turnIndex);
     return turn.items
-      .filter((item) =>
-        (item.role === "user" || item.role === "assistant")
-        && (item.markdownText ?? "").trim().length > 0,
+      .filter(
+        (item) =>
+          (item.role === "user" || item.role === "assistant") &&
+          (item.markdownText ?? "").trim().length > 0,
       )
       .map((item) => ({
         key: `${turnKey}:${item.itemId}`,

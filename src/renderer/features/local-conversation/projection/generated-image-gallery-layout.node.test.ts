@@ -3,10 +3,12 @@ import { calculateGeneratedImageGalleryLayout } from "./generated-image-gallery-
 
 describe("calculateGeneratedImageGalleryLayout", () => {
   test("uses a natural single-image aspect ratio", () => {
-    expect(calculateGeneratedImageGalleryLayout({
-      containerWidthPx: 400,
-      imageAspectRatios: [2],
-    })).toEqual({
+    expect(
+      calculateGeneratedImageGalleryLayout({
+        containerWidthPx: 400,
+        imageAspectRatios: [2],
+      }),
+    ).toEqual({
       heightPx: 200,
       aspectRatio: "natural",
       maxStartIndex: 0,
@@ -16,10 +18,12 @@ describe("calculateGeneratedImageGalleryLayout", () => {
   });
 
   test("falls back to a four-slot square carousel when natural widths overflow", () => {
-    expect(calculateGeneratedImageGalleryLayout({
-      containerWidthPx: 400,
-      imageAspectRatios: [2, 2, 2, 2, 2],
-    })).toEqual({
+    expect(
+      calculateGeneratedImageGalleryLayout({
+        containerWidthPx: 400,
+        imageAspectRatios: [2, 2, 2, 2, 2],
+      }),
+    ).toEqual({
       heightPx: 94,
       aspectRatio: "square",
       maxStartIndex: 1,

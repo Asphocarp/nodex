@@ -19,18 +19,20 @@ const resizeIntent: ImageEditSubmissionIntent = {
     selectedImageCount: 1,
   },
   attachmentIds: ["image-1"],
-  attachments: [{
-    attachmentId: "image-1",
-    image: {
-      id: "image-1",
-      alt: "User attachment",
-      attachmentSrc: "data:image/png;base64,a",
-      dataUrl: "data:image/png;base64,a",
-      source: "uploaded",
-      src: "data:image/png;base64,a",
+  attachments: [
+    {
+      attachmentId: "image-1",
+      image: {
+        id: "image-1",
+        alt: "User attachment",
+        attachmentSrc: "data:image/png;base64,a",
+        dataUrl: "data:image/png;base64,a",
+        source: "uploaded",
+        src: "data:image/png;base64,a",
+      },
+      role: "original",
     },
-    role: "original",
-  }],
+  ],
   entrypoint: "image_click",
   focusComposerAfterSubmit: true,
   isImageEditFollowUp: true,
@@ -46,20 +48,24 @@ describe("image edit composer channel", () => {
     const submit = vi.fn(async () => ({ status: "submitted" as const }));
     const unregister = registerImageEditComposerChannel(channelId, submit);
 
-    await expect(requestImageEditComposerSubmit(channelId, {
-      intent: resizeIntent,
-      source: "single",
-    })).resolves.toEqual({ status: "submitted" });
+    await expect(
+      requestImageEditComposerSubmit(channelId, {
+        intent: resizeIntent,
+        source: "single",
+      }),
+    ).resolves.toEqual({ status: "submitted" });
     expect(submit).toHaveBeenCalledWith({
       intent: resizeIntent,
       source: "single",
     });
 
     unregister();
-    await expect(requestImageEditComposerSubmit(channelId, {
-      intent: resizeIntent,
-      source: "single",
-    })).resolves.toEqual({
+    await expect(
+      requestImageEditComposerSubmit(channelId, {
+        intent: resizeIntent,
+        source: "single",
+      }),
+    ).resolves.toEqual({
       status: "unavailable",
       reason: "composer-unmounted",
     });
@@ -68,18 +74,20 @@ describe("image edit composer channel", () => {
   test("keeps draft and submit routing on the same stable channel", async () => {
     replaceImageEditComposerDraft(channelId, {
       mode: "comment",
-      attachments: [{
-        asset: {
-          hostId: null,
-          localPath: null,
-          managedSource: null,
-          src: "https://example.com/a.png",
+      attachments: [
+        {
+          asset: {
+            hostId: null,
+            localPath: null,
+            managedSource: null,
+            src: "https://example.com/a.png",
+          },
+          comments: [{ id: "c1", text: "Remove sign", x: 0.125, y: 0.5 }],
+          filename: "Image A",
+          id: "image-playground:a",
+          imageSource: "generated",
         },
-        comments: [{ id: "c1", text: "Remove sign", x: 0.125, y: 0.5 }],
-        filename: "Image A",
-        id: "image-playground:a",
-        imageSource: "generated",
-      }],
+      ],
     });
     const submit = vi.fn(async () => {
       clearImageEditComposerDraft(channelId);
@@ -87,9 +95,11 @@ describe("image edit composer channel", () => {
     });
     const unregister = registerImageEditComposerChannel(channelId, submit);
 
-    await expect(requestImageEditComposerSubmit(channelId, {
-      source: "canvas",
-    })).resolves.toEqual({ status: "queued" });
+    await expect(
+      requestImageEditComposerSubmit(channelId, {
+        source: "canvas",
+      }),
+    ).resolves.toEqual({ status: "queued" });
     expect(getImageEditComposerDraftSnapshot(channelId).mode).toBeNull();
 
     unregister();
@@ -102,9 +112,11 @@ describe("image edit composer channel", () => {
     const unregisterCurrent = registerImageEditComposerChannel(channelId, current);
 
     unregisterStale();
-    await expect(requestImageEditComposerSubmit(channelId, {
-      source: "canvas",
-    })).resolves.toEqual({ status: "queued" });
+    await expect(
+      requestImageEditComposerSubmit(channelId, {
+        source: "canvas",
+      }),
+    ).resolves.toEqual({ status: "queued" });
     expect(stale).not.toHaveBeenCalled();
     expect(current).toHaveBeenCalledOnce();
 
@@ -116,32 +128,38 @@ describe("image edit composer channel", () => {
     const unsubscribe = subscribeImageEditComposerDraft(channelId, listener);
     replaceImageEditComposerDraft(channelId, {
       mode: "comment",
-      attachments: [{
-        asset: {
-          hostId: null,
-          localPath: null,
-          managedSource: null,
-          src: "https://example.com/a.png",
+      attachments: [
+        {
+          asset: {
+            hostId: null,
+            localPath: null,
+            managedSource: null,
+            src: "https://example.com/a.png",
+          },
+          comments: [{ id: "c1", text: "Remove sign", x: 0.125, y: 0.5 }],
+          filename: "Image A",
+          id: "image-playground:a",
+          imageSource: "generated",
         },
-        comments: [{ id: "c1", text: "Remove sign", x: 0.125, y: 0.5 }],
-        filename: "Image A",
-        id: "image-playground:a",
-        imageSource: "generated",
-      }],
+      ],
     });
 
     const snapshot = getImageEditComposerDraftSnapshot(channelId);
-    expect(compileImageEditComposerPrompt({
-      draft: snapshot,
-      generalInstructions: "Keep lighting",
-      locales: "en-US",
-    })).toBe([
-      "Image 1:",
-      "1. (x: 12.5%, y: 50%) Remove sign",
-      "",
-      "Additional instructions:",
-      "Keep lighting",
-    ].join("\n"));
+    expect(
+      compileImageEditComposerPrompt({
+        draft: snapshot,
+        generalInstructions: "Keep lighting",
+        locales: "en-US",
+      }),
+    ).toBe(
+      [
+        "Image 1:",
+        "1. (x: 12.5%, y: 50%) Remove sign",
+        "",
+        "Additional instructions:",
+        "Keep lighting",
+      ].join("\n"),
+    );
 
     removeImageEditComposerAttachment(channelId, "image-playground:a");
     expect(getImageEditComposerDraftSnapshot(channelId).mode).toBeNull();

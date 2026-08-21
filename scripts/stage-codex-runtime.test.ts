@@ -43,22 +43,29 @@ function makeFakeOpenInterpreterRelease(input?: {
   ];
 
   fs.mkdirSync(sourceRoot, { recursive: true });
-  fs.writeFileSync(path.join(sourceRoot, "codex-package.json"), JSON.stringify({
-    layoutVersion: 1,
-    version: "0.0.34",
-    target: "aarch64-apple-darwin",
-    variant: "open-interpreter",
-    entrypoint: "bin/interpreter",
-    resourcesDir: "codex-resources",
-    pathDir: "codex-path",
-  }), "utf8");
+  fs.writeFileSync(
+    path.join(sourceRoot, "codex-package.json"),
+    JSON.stringify({
+      layoutVersion: 1,
+      version: "0.0.34",
+      target: "aarch64-apple-darwin",
+      variant: "open-interpreter",
+      entrypoint: "bin/interpreter",
+      resourcesDir: "codex-resources",
+      pathDir: "codex-path",
+    }),
+    "utf8",
+  );
   writeExecutable(path.join(sourceRoot, "bin", "interpreter"), "#!/bin/sh\necho interpreter\n");
   if (!input?.omitCodeModeHost) {
     writeExecutable(path.join(sourceRoot, "bin", "codex-code-mode-host"), "#!/bin/sh\necho host\n");
   }
   writeExecutable(path.join(sourceRoot, "bin", "i"), "#!/bin/sh\necho duplicate\n");
   writeExecutable(path.join(sourceRoot, "codex-path", "rg"), "#!/bin/sh\necho rg\n");
-  writeExecutable(path.join(sourceRoot, "codex-resources", "zsh", "bin", "zsh"), "#!/bin/sh\necho zsh\n");
+  writeExecutable(
+    path.join(sourceRoot, "codex-resources", "zsh", "bin", "zsh"),
+    "#!/bin/sh\necho zsh\n",
+  );
 
   if (input?.restrictiveSourceModes) {
     for (const artifactPath of requiredArtifacts) {
@@ -69,8 +76,20 @@ function makeFakeOpenInterpreterRelease(input?: {
     }
   }
 
-  const licensePath = path.join(projectRoot, "resources", "third-party", "open-interpreter", "LICENSE");
-  const noticePath = path.join(projectRoot, "resources", "third-party", "open-interpreter", "NOTICE");
+  const licensePath = path.join(
+    projectRoot,
+    "resources",
+    "third-party",
+    "open-interpreter",
+    "LICENSE",
+  );
+  const noticePath = path.join(
+    projectRoot,
+    "resources",
+    "third-party",
+    "open-interpreter",
+    "NOTICE",
+  );
   fs.mkdirSync(path.dirname(licensePath), { recursive: true });
   fs.writeFileSync(licensePath, license, "utf8");
   fs.writeFileSync(noticePath, notice, "utf8");
@@ -135,59 +154,68 @@ function makeFakeOpenInterpreterRelease(input?: {
     targetTriple: "aarch64-apple-darwin",
   };
 
-  const lockPath = path.join(projectRoot, "resources", "agent-runtime", "openinterpreter.lock.json");
+  const lockPath = path.join(
+    projectRoot,
+    "resources",
+    "agent-runtime",
+    "openinterpreter.lock.json",
+  );
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-  fs.writeFileSync(lockPath, JSON.stringify({
-    schemaVersion: 2,
-    runtimeFamily: "open-interpreter",
-    source: {
-      repository: "openinterpreter/openinterpreter",
-      commit: "a".repeat(40),
-      patches: [],
-    },
-    release: {
-      repository: "example/nodex",
-      tag: "agent-runtime-v0.0.34-aaaaaaaa",
-    },
-    runtimeVersion: "0.0.34",
-    codexCompatibilityVersion: "0.144.5",
-    protocolSchemaSha256: "1".repeat(64),
-    packageManifest: {
-      layoutVersion: 1,
-      version: "0.0.34",
-      variant: "open-interpreter",
-      entrypoint: "bin/interpreter",
-      resourcesDir: "codex-resources",
-      pathDir: "codex-path",
-    },
-    requiredArtifacts,
-    assets: {
-      "darwin-arm64": {
-        targetTriple: "aarch64-apple-darwin",
-        assetName: "runtime-arm64.tar.gz",
-        url: "https://github.com/example/nodex/releases/download/agent-runtime-v0.0.34-aaaaaaaa/runtime-arm64.tar.gz",
-        archiveSha256: "2".repeat(64),
-        archiveSize: 1,
-        runtimeMetadataSha256: input?.omitCodeModeHost
-          ? "5".repeat(64)
-          : bundledAgentRuntimeMetadataSha256(expectedMetadata),
+  fs.writeFileSync(
+    lockPath,
+    JSON.stringify({
+      schemaVersion: 2,
+      runtimeFamily: "open-interpreter",
+      source: {
+        repository: "openinterpreter/openinterpreter",
+        commit: "a".repeat(40),
+        patches: [],
       },
-      "darwin-x64": {
-        targetTriple: "x86_64-apple-darwin",
-        assetName: "runtime-x64.tar.gz",
-        url: "https://github.com/example/nodex/releases/download/agent-runtime-v0.0.34-aaaaaaaa/runtime-x64.tar.gz",
-        archiveSha256: "3".repeat(64),
-        archiveSize: 1,
-        runtimeMetadataSha256: "4".repeat(64),
+      release: {
+        repository: "example/nodex",
+        tag: "agent-runtime-v0.0.34-aaaaaaaa",
       },
-    },
-    notices: {
-      licensePath: "resources/third-party/open-interpreter/LICENSE",
-      licenseSha256: sha256(license),
-      noticePath: "resources/third-party/open-interpreter/NOTICE",
-      noticeSha256: sha256(notice),
-    },
-  }), "utf8");
+      runtimeVersion: "0.0.34",
+      codexCompatibilityVersion: "0.144.5",
+      protocolSchemaSha256: "1".repeat(64),
+      packageManifest: {
+        layoutVersion: 1,
+        version: "0.0.34",
+        variant: "open-interpreter",
+        entrypoint: "bin/interpreter",
+        resourcesDir: "codex-resources",
+        pathDir: "codex-path",
+      },
+      requiredArtifacts,
+      assets: {
+        "darwin-arm64": {
+          targetTriple: "aarch64-apple-darwin",
+          assetName: "runtime-arm64.tar.gz",
+          url: "https://github.com/example/nodex/releases/download/agent-runtime-v0.0.34-aaaaaaaa/runtime-arm64.tar.gz",
+          archiveSha256: "2".repeat(64),
+          archiveSize: 1,
+          runtimeMetadataSha256: input?.omitCodeModeHost
+            ? "5".repeat(64)
+            : bundledAgentRuntimeMetadataSha256(expectedMetadata),
+        },
+        "darwin-x64": {
+          targetTriple: "x86_64-apple-darwin",
+          assetName: "runtime-x64.tar.gz",
+          url: "https://github.com/example/nodex/releases/download/agent-runtime-v0.0.34-aaaaaaaa/runtime-x64.tar.gz",
+          archiveSha256: "3".repeat(64),
+          archiveSize: 1,
+          runtimeMetadataSha256: "4".repeat(64),
+        },
+      },
+      notices: {
+        licensePath: "resources/third-party/open-interpreter/LICENSE",
+        licenseSha256: sha256(license),
+        noticePath: "resources/third-party/open-interpreter/NOTICE",
+        noticeSha256: sha256(notice),
+      },
+    }),
+    "utf8",
+  );
 
   return {
     cleanup: () => fs.rmSync(fixtureRoot, { recursive: true, force: true }),
@@ -235,10 +263,14 @@ describe("stage-codex-runtime", () => {
       expect(fs.existsSync(path.join(runtimeRoot, "bin", "interpreter"))).toBe(true);
       expect(fs.existsSync(path.join(runtimeRoot, "bin", "codex-code-mode-host"))).toBe(true);
       expect(fs.existsSync(path.join(runtimeRoot, "codex-path", "rg"))).toBe(true);
-      expect(fs.existsSync(path.join(runtimeRoot, "codex-resources", "zsh", "bin", "zsh"))).toBe(true);
+      expect(fs.existsSync(path.join(runtimeRoot, "codex-resources", "zsh", "bin", "zsh"))).toBe(
+        true,
+      );
       expect(fs.existsSync(path.join(runtimeRoot, "bin", "i"))).toBe(false);
       expect(fs.existsSync(path.join(runtimeRoot, "agent-runtime.json"))).toBe(true);
-      expect(fs.existsSync(path.join(runtimeRoot, "third-party", "open-interpreter", "LICENSE"))).toBe(true);
+      expect(
+        fs.existsSync(path.join(runtimeRoot, "third-party", "open-interpreter", "LICENSE")),
+      ).toBe(true);
       expect(fs.existsSync(path.join(outputPath, "stale.txt"))).toBe(true);
       expect(fs.readFileSync(path.join(outputPath, "bin", "nodex-core"), "utf8")).toBe("core");
 
@@ -340,11 +372,13 @@ describe("stage-codex-runtime", () => {
         lockPath: fixture.lockPath,
         projectRootPath: fixture.projectRoot,
       });
-      expect(resolveCodexRuntime({
-        browserRuntimePlatformArtifactVerifier: () => null,
-        isPackaged: true,
-        resourcesPath: path.join(outputPath, "agent-runtime"),
-      }).browserRuntime.status).toBe("available");
+      expect(
+        resolveCodexRuntime({
+          browserRuntimePlatformArtifactVerifier: () => null,
+          isPackaged: true,
+          resourcesPath: path.join(outputPath, "agent-runtime"),
+        }).browserRuntime.status,
+      ).toBe("available");
     } finally {
       fixture.cleanup();
       fs.rmSync(outputRoot, { recursive: true, force: true });
@@ -405,14 +439,16 @@ describe("stage-codex-runtime", () => {
     const outputPath = path.join(outputRoot, "codex-runtime");
 
     try {
-      await expect(stageCodexRuntime({
-        targetPlatform: "darwin",
-        targetArch: "arm64",
-        outputPath,
-        sourceRoot: fixture.sourceRoot,
-        lockPath: fixture.lockPath,
-        projectRootPath: fixture.projectRoot,
-      })).rejects.toThrow("bin/codex-code-mode-host");
+      await expect(
+        stageCodexRuntime({
+          targetPlatform: "darwin",
+          targetArch: "arm64",
+          outputPath,
+          sourceRoot: fixture.sourceRoot,
+          lockPath: fixture.lockPath,
+          projectRootPath: fixture.projectRoot,
+        }),
+      ).rejects.toThrow("bin/codex-code-mode-host");
       expect(fs.readdirSync(outputRoot)).toEqual(["codex-runtime"]);
       expect(fs.readdirSync(outputPath)).toEqual([]);
     } finally {

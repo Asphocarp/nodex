@@ -12,10 +12,7 @@ import type { ProtocolListMcpServerStatusResponse } from "../../../shared/types"
 import { invoke } from "../api";
 import { McpAppHostDispatcher } from "./mcp-app-host-dispatcher";
 import type { McpAppFollowUpHandler } from "./mcp-app-follow-up-context";
-import {
-  connectMcpAppSandbox,
-  type ConnectedMcpAppSandbox,
-} from "./mcp-app-port-rpc";
+import { connectMcpAppSandbox, type ConnectedMcpAppSandbox } from "./mcp-app-port-rpc";
 
 type McpAppDisplayMode = "inline" | "side-panel" | "fullscreen";
 export type McpAppRuntimeStatus = "error" | "loading" | "ready";
@@ -40,15 +37,11 @@ export interface McpAppRuntimeSnapshot {
 }
 
 function resolveTheme(): "dark" | "light" {
-  return getComputedStyle(document.documentElement).colorScheme === "dark"
-    ? "dark"
-    : "light";
+  return getComputedStyle(document.documentElement).colorScheme === "dark" ? "dark" : "light";
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null
-    ? value as Record<string, unknown>
-    : null;
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 function resolveToolRuntimeData(toolInput: unknown, toolResult: unknown) {
@@ -87,11 +80,7 @@ function widgetUserAgent() {
       touch: window.matchMedia?.("(pointer: coarse)")?.matches ?? false,
     },
     device: {
-      os: platform.includes("mac")
-        ? "macos"
-        : platform.includes("win")
-          ? "windows"
-          : "unknown",
+      os: platform.includes("mac") ? "macos" : platform.includes("win") ? "windows" : "unknown",
       platform: "native",
       type: "desktop",
     },
@@ -99,9 +88,8 @@ function widgetUserAgent() {
 }
 
 function clampHeight(value: unknown): number | null {
-  const record = typeof value === "object" && value !== null
-    ? value as Record<string, unknown>
-    : null;
+  const record =
+    typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
   const rawHeight = record?.height ?? value;
   if (typeof rawHeight !== "number" || !Number.isFinite(rawHeight)) return null;
   return Math.min(Math.max(rawHeight, MCP_APP_MIN_HEIGHT), MCP_APP_MAX_HEIGHT);
@@ -208,15 +196,19 @@ export class McpAppRuntime {
     this.#displayMode = mode;
     const connected = this.#connected;
     if (!connected) return;
-    void connected.api.setWidgetView({
-      displayMode: mode === "side-panel" ? "inline" : mode,
-      isTombstone: false,
-      viewParams: null,
-      widgetId: this.#widgetId,
-    }).catch(() => undefined);
-    void connected.api.notifyMcpAppsHostContext({
-      hostContext: hostContext(this.element, mode),
-    }).catch(() => undefined);
+    void connected.api
+      .setWidgetView({
+        displayMode: mode === "side-panel" ? "inline" : mode,
+        isTombstone: false,
+        viewParams: null,
+        widgetId: this.#widgetId,
+      })
+      .catch(() => undefined);
+    void connected.api
+      .notifyMcpAppsHostContext({
+        hostContext: hostContext(this.element, mode),
+      })
+      .catch(() => undefined);
   }
 
   update(config: McpAppRuntimeConfig): void {
@@ -227,21 +219,24 @@ export class McpAppRuntime {
     const data = resolveToolRuntimeData(config.toolInput, config.toolResult);
 
     if (inputChanged) {
-      void this.#connected.api.notifyMcpAppsToolInput({
-        arguments: data.toolInput,
-      }).catch(() => undefined);
-    }
-    if (resultChanged) {
-      void this.#connected.api.notifyMcpAppsToolResult(data.toolResult)
+      void this.#connected.api
+        .notifyMcpAppsToolInput({
+          arguments: data.toolInput,
+        })
         .catch(() => undefined);
     }
-    void this.#connected.api.setWidgetData({
-      toolInput: data.toolInput,
-      toolOutput: data.toolOutput,
-      toolResponseMetadata: data.toolResponseMetadata,
-      widgetId: this.#widgetId,
-      widgetState: this.#widgetState,
-    }).catch(() => undefined);
+    if (resultChanged) {
+      void this.#connected.api.notifyMcpAppsToolResult(data.toolResult).catch(() => undefined);
+    }
+    void this.#connected.api
+      .setWidgetData({
+        toolInput: data.toolInput,
+        toolOutput: data.toolOutput,
+        toolResponseMetadata: data.toolResponseMetadata,
+        widgetId: this.#widgetId,
+        widgetState: this.#widgetState,
+      })
+      .catch(() => undefined);
   }
 
   dispose(): Promise<void> {
@@ -273,22 +268,22 @@ export class McpAppRuntime {
         threadId: this.#config.threadId,
       });
       const dispatcher = new McpAppHostDispatcher({
-        getScope: async () => createMcpAppScopeSnapshot({
-          currentToolName: this.#config.currentToolName,
-          originResourceUri: this.#config.resource.uri,
-          server: this.#config.server,
-          statuses: await invoke("codex:mcp-server-statuses:list"),
-          threadId: this.#config.threadId,
-        }),
+        getScope: async () =>
+          createMcpAppScopeSnapshot({
+            currentToolName: this.#config.currentToolName,
+            originResourceUri: this.#config.resource.uri,
+            server: this.#config.server,
+            statuses: await invoke("codex:mcp-server-statuses:list"),
+            threadId: this.#config.threadId,
+          }),
         scope,
         onBackgroundColor: (value) => {
           if (typeof value !== "string" || typeof CSS === "undefined") return;
           if (CSS.supports("color", value)) this.webview.style.backgroundColor = value;
         },
         onDisplayMode: (value) => {
-          const record = typeof value === "object" && value !== null
-            ? value as Record<string, unknown>
-            : null;
+          const record =
+            typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
           const mode = record?.mode;
           if (mode !== "fullscreen" && mode !== "inline") return { mode: "inline" };
           this.#setSnapshot({
@@ -344,10 +339,7 @@ export class McpAppRuntime {
       this.#startContextObservers();
 
       const theme = resolveTheme();
-      const toolData = resolveToolRuntimeData(
-        this.#config.toolInput,
-        this.#config.toolResult,
-      );
+      const toolData = resolveToolRuntimeData(this.#config.toolInput, this.#config.toolResult);
       const generator = this.#connected.api.runWidgetCode({
         csp: this.#config.resource.metadata.csp,
         displayMode: "inline",
@@ -429,8 +421,7 @@ export class McpAppRuntime {
     for (const cleanup of this.#cleanupListeners.splice(0)) cleanup();
     const connected = this.#connected;
     if (connected) {
-      await connected.api.requestMcpAppsResourceTeardown({ timeoutMs: 500 })
-        .catch(() => undefined);
+      await connected.api.requestMcpAppsResourceTeardown({ timeoutMs: 500 }).catch(() => undefined);
     }
     this.#abortController.abort();
     connected?.dispose();
@@ -443,9 +434,11 @@ export class McpAppRuntime {
     const notify = () => {
       const connected = this.#connected;
       if (!connected || this.#abortController.signal.aborted) return;
-      void connected.api.notifyMcpAppsHostContext({
-        hostContext: hostContext(this.element, this.#displayMode),
-      }).catch(() => undefined);
+      void connected.api
+        .notifyMcpAppsHostContext({
+          hostContext: hostContext(this.element, this.#displayMode),
+        })
+        .catch(() => undefined);
     };
     if (typeof ResizeObserver === "function") {
       this.#resizeObserver = new ResizeObserver(() => {

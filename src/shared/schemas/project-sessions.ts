@@ -32,51 +32,67 @@ export const MAX_PROJECT_SESSION_TITLE_LENGTH = 2_000;
 
 const titleSchema = z.string().trim().min(1).max(MAX_PROJECT_SESSION_TITLE_LENGTH);
 
-export const WorkbenchProjectionDbViewTabConfigSchema = z.object({
-  projectId: z.string().min(1),
-  databaseViewId: z.string().min(1),
-  view: WorkbenchViewSchema,
-}).strict() satisfies z.ZodType<WorkbenchProjectionDbViewTabConfig>;
+export const WorkbenchProjectionDbViewTabConfigSchema = z
+  .object({
+    projectId: z.string().min(1),
+    databaseViewId: z.string().min(1),
+    view: WorkbenchViewSchema,
+  })
+  .strict() satisfies z.ZodType<WorkbenchProjectionDbViewTabConfig>;
 
-export const WorkbenchProjectionPageStageTabConfigSchema = z.object({
-  projectId: z.string().min(1),
-  pageId: z.string().min(1),
-  titleSnapshot: z.string().optional(),
-}).strict() satisfies z.ZodType<WorkbenchProjectionPageStageTabConfig>;
+export const WorkbenchProjectionPageStageTabConfigSchema = z
+  .object({
+    projectId: z.string().min(1),
+    pageId: z.string().min(1),
+    titleSnapshot: z.string().optional(),
+  })
+  .strict() satisfies z.ZodType<WorkbenchProjectionPageStageTabConfig>;
 
-export const WorkbenchProjectionCanvasStageTabConfigSchema = z.object({
-  projectId: z.string().min(1),
-  canvasBlockId: z.string().min(1),
-  titleSnapshot: z.string().optional(),
-}).strict() satisfies z.ZodType<WorkbenchProjectionCanvasStageTabConfig>;
+export const WorkbenchProjectionCanvasStageTabConfigSchema = z
+  .object({
+    projectId: z.string().min(1),
+    canvasBlockId: z.string().min(1),
+    titleSnapshot: z.string().optional(),
+  })
+  .strict() satisfies z.ZodType<WorkbenchProjectionCanvasStageTabConfig>;
 
-export const WorkbenchProjectionTerminalTabConfigSchema = z.object({
-  terminalSessionId: z.string().min(1),
-}).strict() satisfies z.ZodType<WorkbenchProjectionTerminalTabConfig>;
+export const WorkbenchProjectionTerminalTabConfigSchema = z
+  .object({
+    terminalSessionId: z.string().min(1),
+  })
+  .strict() satisfies z.ZodType<WorkbenchProjectionTerminalTabConfig>;
 
-export const WorkbenchProjectionBrowserTabConfigSchema = z.object({
-  projectId: z.string().min(1).nullable(),
-  url: z.string().optional(),
-  title: z.string().optional(),
-  faviconUrl: z.string().optional(),
-  deviceToolbarVisible: z.boolean().optional(),
-}).strict() satisfies z.ZodType<WorkbenchProjectionBrowserTabConfig>;
+export const WorkbenchProjectionBrowserTabConfigSchema = z
+  .object({
+    projectId: z.string().min(1).nullable(),
+    url: z.string().optional(),
+    title: z.string().optional(),
+    faviconUrl: z.string().optional(),
+    deviceToolbarVisible: z.boolean().optional(),
+  })
+  .strict() satisfies z.ZodType<WorkbenchProjectionBrowserTabConfig>;
 
 export const WorkbenchProjectionReviewTabConfigSchema = WorkbenchReviewConfigSchema;
 
-export const WorkbenchProjectionFilesTabConfigSchema = z.object({
-  projectId: z.string().min(1).nullable(),
-  hostId: z.literal("local").default("local"),
-  workspaceRoot: z.preprocess(
-    (value) => typeof value === "string" && value.trim().length === 0 ? null : value,
-    z.string().trim().min(1).nullable(),
-  ).default(null),
-  cwd: z.preprocess(
-    (value) => typeof value === "string" && value.trim().length === 0 ? null : value,
-    z.string().trim().min(1).nullable(),
-  ).default(null),
-  path: z.string().trim().min(1).optional(),
-}).strict() satisfies z.ZodType<WorkbenchProjectionFilesTabConfig>;
+export const WorkbenchProjectionFilesTabConfigSchema = z
+  .object({
+    projectId: z.string().min(1).nullable(),
+    hostId: z.literal("local").default("local"),
+    workspaceRoot: z
+      .preprocess(
+        (value) => (typeof value === "string" && value.trim().length === 0 ? null : value),
+        z.string().trim().min(1).nullable(),
+      )
+      .default(null),
+    cwd: z
+      .preprocess(
+        (value) => (typeof value === "string" && value.trim().length === 0 ? null : value),
+        z.string().trim().min(1).nullable(),
+      )
+      .default(null),
+    path: z.string().trim().min(1).optional(),
+  })
+  .strict() satisfies z.ZodType<WorkbenchProjectionFilesTabConfig>;
 
 export function parseWorkbenchProjectionTabConfig<Kind extends WorkbenchTabKind>(
   kind: Kind,
@@ -84,18 +100,17 @@ export function parseWorkbenchProjectionTabConfig<Kind extends WorkbenchTabKind>
 ): WorkbenchProjectionTabConfigByKind[Kind] {
   let parsed: WorkbenchProjectionTabConfig;
   if (kind === "db_view") parsed = WorkbenchProjectionDbViewTabConfigSchema.parse(config);
-  else if (kind === "page_stage") parsed = WorkbenchProjectionPageStageTabConfigSchema.parse(config);
+  else if (kind === "page_stage")
+    parsed = WorkbenchProjectionPageStageTabConfigSchema.parse(config);
   else if (kind === "canvas_stage") {
     parsed = WorkbenchProjectionCanvasStageTabConfigSchema.parse(config);
-  }
-  else if (kind === "terminal") parsed = WorkbenchProjectionTerminalTabConfigSchema.parse(config);
+  } else if (kind === "terminal") parsed = WorkbenchProjectionTerminalTabConfigSchema.parse(config);
   else if (kind === "browser") parsed = WorkbenchProjectionBrowserTabConfigSchema.parse(config);
   else if (kind === "review") parsed = WorkbenchProjectionReviewTabConfigSchema.parse(config);
   else if (kind === "files") parsed = WorkbenchProjectionFilesTabConfigSchema.parse(config);
   else if (kind === "image_editor") {
     parsed = WorkbenchImageEditorSurfaceConfigSchema.parse(config);
-  }
-  else {
+  } else {
     throw new Error(`Unknown project session tab kind: ${String(kind)}`);
   }
   return parsed as WorkbenchProjectionTabConfigByKind[Kind];
@@ -106,13 +121,17 @@ export const ProjectSessionCreateInputSchema = z.object({
   noThreadFallbackTitle: titleSchema,
 }) satisfies z.ZodType<ProjectSessionCreateInput>;
 
-export const ProjectSessionListOptionsSchema = z.object({
-  includeArchived: z.boolean().optional(),
-}).optional() satisfies z.ZodType<ProjectSessionListOptions | undefined>;
+export const ProjectSessionListOptionsSchema = z
+  .object({
+    includeArchived: z.boolean().optional(),
+  })
+  .optional() satisfies z.ZodType<ProjectSessionListOptions | undefined>;
 
-export const ProjectSessionUpdateInputSchema = z.object({
-  noThreadFallbackTitle: titleSchema.optional(),
-}).strict() satisfies z.ZodType<ProjectSessionUpdateInput>;
+export const ProjectSessionUpdateInputSchema = z
+  .object({
+    noThreadFallbackTitle: titleSchema.optional(),
+  })
+  .strict() satisfies z.ZodType<ProjectSessionUpdateInput>;
 
 export const ProjectSessionRenameInputSchema = z.object({
   title: z.string(),
@@ -152,13 +171,16 @@ export const ProjectSessionThreadLinkInputSchema = z.object({
   threadName: z.string().nullable().optional(),
   threadPreview: z.string().optional(),
   modelProvider: z.string().optional(),
-  executionProfile: z.object({
-    providerId: z.string().trim().min(1).max(512),
-    modelId: z.string().trim().min(1).max(512),
-    harnessId: z.string().trim().min(1).max(512).nullable(),
-    reasoningEffort: z.string().trim().min(1).max(64).nullable(),
-    serviceTier: z.string().trim().min(1).max(64).nullable(),
-  }).nullable().optional(),
+  executionProfile: z
+    .object({
+      providerId: z.string().trim().min(1).max(512),
+      modelId: z.string().trim().min(1).max(512),
+      harnessId: z.string().trim().min(1).max(512).nullable(),
+      reasoningEffort: z.string().trim().min(1).max(64).nullable(),
+      serviceTier: z.string().trim().min(1).max(64).nullable(),
+    })
+    .nullable()
+    .optional(),
   executionHostId: z.string().trim().min(1).max(512).optional(),
   runtimeWorkspaceRoots: z.array(z.string()).max(128).optional(),
   cwd: z.string().nullable().optional(),

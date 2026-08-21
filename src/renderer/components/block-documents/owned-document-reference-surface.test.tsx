@@ -2,12 +2,8 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 import { FileIcon } from "@/components/shared/icons";
 import { describe, expect, test } from "vitest";
 
-import {
-  BlockDisclosureStateStore,
-} from "@/lib/block-disclosure-state";
-import {
-  ReferenceSurfaceActivationBudget,
-} from "@/lib/reference-surface-state";
+import { BlockDisclosureStateStore } from "@/lib/block-disclosure-state";
+import { ReferenceSurfaceActivationBudget } from "@/lib/reference-surface-state";
 import { render } from "@/test/dom";
 import { OwnedDocumentReferenceSurface } from "./owned-document-reference-surface";
 
@@ -44,9 +40,7 @@ describe("OwnedDocumentReferenceSurface", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(view.getByTestId("owned-document-provider").textContent).toBe(
-        "template-owner",
-      );
+      expect(view.getByTestId("owned-document-provider").textContent).toBe("template-owner");
     });
 
     await act(async () => {
@@ -71,9 +65,7 @@ describe("OwnedDocumentReferenceSurface", () => {
         detail="Incident review"
         disabledReason="Cycle"
         visibilityOverride
-        renderDocument={() => (
-          <div data-testid="must-not-mount">Recursive provider</div>
-        )}
+        renderDocument={() => <div data-testid="must-not-mount">Recursive provider</div>}
       />,
     );
 
@@ -101,9 +93,7 @@ describe("OwnedDocumentReferenceSurface", () => {
         disclosureStore={disclosureStore}
         activationBudget={activationBudget}
         visibilityOverride={visible}
-        renderDocument={() => (
-          <div data-testid="visible-provider">Collaborative template</div>
-        )}
+        renderDocument={() => <div data-testid="visible-provider">Collaborative template</div>}
       />
     );
     const view = render(makeSurface(true));

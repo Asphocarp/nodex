@@ -25,7 +25,7 @@ describe("terminal process metrics", () => {
     expect(
       collectDescendantPids(entries, [{ pid: 100, includeRoot: true }])
         .sort((left, right) => left - right)
-         .join(","),
+        .join(","),
     ).toBe("100,101,102,103");
   });
 
@@ -46,16 +46,18 @@ describe("terminal process metrics", () => {
   });
 
   test("parses windows process metrics JSON", () => {
-    const samples = parseWindowsProcessMetricOutput(JSON.stringify([
-      {
-        ProcessId: 101,
-        ParentProcessId: 100,
-        CommandLine: "powershell.exe",
-        WorkingSetSize: 2048 * 1024,
-        CpuPercent: 7.25,
-        AgeSeconds: 9.8,
-      },
-    ]));
+    const samples = parseWindowsProcessMetricOutput(
+      JSON.stringify([
+        {
+          ProcessId: 101,
+          ParentProcessId: 100,
+          CommandLine: "powershell.exe",
+          WorkingSetSize: 2048 * 1024,
+          CpuPercent: 7.25,
+          AgeSeconds: 9.8,
+        },
+      ]),
+    );
 
     expect(samples.length).toBe(1);
     expect(samples[0]?.pid).toBe(101);

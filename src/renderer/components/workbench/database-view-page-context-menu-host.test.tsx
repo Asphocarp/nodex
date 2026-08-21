@@ -77,9 +77,11 @@ describe("DatabaseViewPageContextMenuHost", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(
-      view.queryByRole("textbox", { name: "Search Page actions and properties" }),
-    ).toBeNull());
+    await waitFor(() =>
+      expect(
+        view.queryByRole("textbox", { name: "Search Page actions and properties" }),
+      ).toBeNull(),
+    );
     expect(resolveSession).not.toHaveBeenCalled();
   });
 
@@ -113,9 +115,13 @@ describe("DatabaseViewPageContextMenuHost", () => {
       fireEvent.keyDown(search, { key: "Escape" });
       await Promise.resolve();
     });
-    await waitFor(() => expect(view.queryByRole("textbox", {
-      name: "Search Page actions and properties",
-    })).toBeNull());
+    await waitFor(() =>
+      expect(
+        view.queryByRole("textbox", {
+          name: "Search Page actions and properties",
+        }),
+      ).toBeNull(),
+    );
 
     await act(async () => {
       fireEvent.contextMenu(view.getByRole("button", { name: "Page" }), {

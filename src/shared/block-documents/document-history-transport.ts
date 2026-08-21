@@ -56,15 +56,10 @@ export class DocumentHistoryContractError extends Error {
   }
 }
 
-const isRecord = (
-  value: unknown,
-): value is Readonly<Record<string, unknown>> =>
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const readRecord = (
-  value: unknown,
-  label: string,
-): Readonly<Record<string, unknown>> => {
+const readRecord = (value: unknown, label: string): Readonly<Record<string, unknown>> => {
   if (isRecord(value)) return value;
   throw new DocumentHistoryContractError(`${label} must be an object`);
 };
@@ -101,9 +96,7 @@ const readString = (
   ) {
     return value;
   }
-  throw new DocumentHistoryContractError(
-    `${label}.${key} must be a non-empty bounded string`,
-  );
+  throw new DocumentHistoryContractError(`${label}.${key} must be a non-empty bounded string`);
 };
 
 const readInteger = (
@@ -122,9 +115,7 @@ const readInteger = (
   ) {
     return value;
   }
-  throw new DocumentHistoryContractError(
-    `${label}.${key} must be a safe integer in range`,
-  );
+  throw new DocumentHistoryContractError(`${label}.${key} must be a safe integer in range`);
 };
 
 const readActor = (value: unknown, label: string): DocumentVersionActor => {
@@ -132,9 +123,9 @@ const readActor = (value: unknown, label: string): DocumentVersionActor => {
     throw new DocumentHistoryContractError(`${label} must be an object`);
   }
   try {
-    return JSON.parse(
-      stableStringifyBlockPropertyJson(value),
-    ) as Readonly<Record<string, BlockTreeValue>>;
+    return JSON.parse(stableStringifyBlockPropertyJson(value)) as Readonly<
+      Record<string, BlockTreeValue>
+    >;
   } catch (error) {
     throw new DocumentHistoryContractError(
       `${label} must be bounded portable JSON: ${error instanceof Error ? error.message : String(error)}`,
@@ -174,23 +165,21 @@ export const parseCreateDocumentVersionCheckpoint = (
     revisionKind !== "restore" &&
     revisionKind !== "safety"
   ) {
-    throw new DocumentHistoryContractError(
-      `${label}.revisionKind is not supported`,
-    );
+    throw new DocumentHistoryContractError(`${label}.revisionKind is not supported`);
   }
-  const sourceMutationId = record.sourceMutationId === undefined
-    ? undefined
-    : readString(record, "sourceMutationId", label);
-  const sourceChangeSeq = record.sourceChangeSeq === undefined
-    ? undefined
-    : readInteger(record, "sourceChangeSeq", label, 1);
+  const sourceMutationId =
+    record.sourceMutationId === undefined
+      ? undefined
+      : readString(record, "sourceMutationId", label);
+  const sourceChangeSeq =
+    record.sourceChangeSeq === undefined
+      ? undefined
+      : readInteger(record, "sourceChangeSeq", label, 1);
   const effectiveRevisionKind = revisionKind ?? "manual";
   const linksMutation =
     effectiveRevisionKind === "operation" || effectiveRevisionKind === "restore";
   if (sourceChangeSeq !== undefined && sourceMutationId === undefined) {
-    throw new DocumentHistoryContractError(
-      `${label}.sourceChangeSeq requires sourceMutationId`,
-    );
+    throw new DocumentHistoryContractError(`${label}.sourceChangeSeq requires sourceMutationId`);
   }
   if (linksMutation && sourceMutationId === undefined) {
     throw new DocumentHistoryContractError(
@@ -206,19 +195,9 @@ export const parseCreateDocumentVersionCheckpoint = (
     projectId: readString(record, "projectId", label),
     storeEpoch: readString(record, "storeEpoch", label),
     documentId: readString(record, "documentId", label),
-    expectedGeneration: readInteger(
-      record,
-      "expectedGeneration",
-      label,
-      1,
-    ),
+    expectedGeneration: readInteger(record, "expectedGeneration", label, 1),
     expectedHeadSeq: readInteger(record, "expectedHeadSeq", label, 0),
-    cause: readString(
-      record,
-      "cause",
-      label,
-      MAX_DOCUMENT_VERSION_CAUSE_LENGTH,
-    ),
+    cause: readString(record, "cause", label, MAX_DOCUMENT_VERSION_CAUSE_LENGTH),
     ...(optionalLabel === undefined ? {} : { label: optionalLabel }),
     actor: readActor(record.actor, `${label}.actor`),
     ...(revisionKind === undefined ? {} : { revisionKind }),
@@ -227,30 +206,18 @@ export const parseCreateDocumentVersionCheckpoint = (
   };
 };
 
-export const parseListDocumentVersions = (
-  value: unknown,
-): ListDocumentVersions => {
+export const parseListDocumentVersions = (value: unknown): ListDocumentVersions => {
   const label = "listDocumentVersions";
   const record = readRecord(value, label);
   assertExactKeys(record, label, ["projectId", "documentId"], ["before", "limit"]);
   const limit =
     record.limit === undefined
       ? undefined
-      : readInteger(
-          record,
-          "limit",
-          label,
-          1,
-          MAX_DOCUMENT_VERSION_HISTORY_LIMIT,
-        );
+      : readInteger(record, "limit", label, 1, MAX_DOCUMENT_VERSION_HISTORY_LIMIT);
   let before: ListDocumentVersions["before"];
   if (record.before !== undefined) {
     const cursor = readRecord(record.before, `${label}.before`);
-    assertExactKeys(cursor, `${label}.before`, [
-      "baseHeadSeq",
-      "createdAt",
-      "versionId",
-    ]);
+    assertExactKeys(cursor, `${label}.before`, ["baseHeadSeq", "createdAt", "versionId"]);
     before = {
       baseHeadSeq: readInteger(cursor, "baseHeadSeq", `${label}.before`, 0),
       createdAt: readString(cursor, "createdAt", `${label}.before`, 256),
@@ -265,9 +232,7 @@ export const parseListDocumentVersions = (
   };
 };
 
-export const parseGetDocumentVersion = (
-  value: unknown,
-): GetDocumentVersion => {
+export const parseGetDocumentVersion = (value: unknown): GetDocumentVersion => {
   const label = "getDocumentVersion";
   const record = readRecord(value, label);
   assertExactKeys(record, label, ["projectId", "documentId", "versionId"]);
@@ -296,9 +261,7 @@ const readPossiblyEmptyString = (
 ): string => {
   const value = record[key];
   if (typeof value === "string" && value.length <= 2_000_000) return value;
-  throw new DocumentHistoryContractError(
-    `${label}.${key} must be a bounded string`,
-  );
+  throw new DocumentHistoryContractError(`${label}.${key} must be a bounded string`);
 };
 
 const readNullableInteger = (
@@ -310,9 +273,7 @@ const readNullableInteger = (
   return readInteger(record, key, label, 1);
 };
 
-export const parseDocumentVersionSummary = (
-  value: unknown,
-): DocumentVersionSummary => {
+export const parseDocumentVersionSummary = (value: unknown): DocumentVersionSummary => {
   const label = "documentVersionSummary";
   const summary = readRecord(value, label);
   assertExactKeys(summary, label, [
@@ -348,9 +309,7 @@ export const parseDocumentVersionSummary = (
     revisionKind !== "restore" &&
     revisionKind !== "safety"
   ) {
-    throw new DocumentHistoryContractError(
-      `${label}.revisionKind is not supported`,
-    );
+    throw new DocumentHistoryContractError(`${label}.revisionKind is not supported`);
   }
   const materializationKind = summary.materializationKind;
   if (
@@ -359,35 +318,23 @@ export const parseDocumentVersionSummary = (
     materializationKind !== "reusable_template" &&
     materializationKind !== "canvas_scene"
   ) {
-    throw new DocumentHistoryContractError(
-      `${label}.materializationKind is not supported`,
-    );
+    throw new DocumentHistoryContractError(`${label}.materializationKind is not supported`);
   }
   const pinned = summary.pinned;
   if (typeof pinned !== "boolean") {
     throw new DocumentHistoryContractError(`${label}.pinned must be a boolean`);
   }
   const checkpointHash = readString(summary, "checkpointHash", label, 64);
-  const materializationHash = readString(
-    summary,
-    "materializationHash",
-    label,
-    64,
-  );
+  const materializationHash = readString(summary, "materializationHash", label, 64);
   for (const [key, hash] of [
     ["checkpointHash", checkpointHash],
     ["materializationHash", materializationHash],
   ] as const) {
     if (!/^[a-f0-9]{64}$/u.test(hash)) {
-      throw new DocumentHistoryContractError(
-        `${label}.${key} must be lowercase SHA-256 hex`,
-      );
+      throw new DocumentHistoryContractError(`${label}.${key} must be lowercase SHA-256 hex`);
     }
   }
-  const checkpointMetadata = readRecord(
-    summary.checkpointMetadata,
-    `${label}.checkpointMetadata`,
-  );
+  const checkpointMetadata = readRecord(summary.checkpointMetadata, `${label}.checkpointMetadata`);
   let parsedCheckpointMetadata: DocumentVersionSummary["checkpointMetadata"];
   if (checkpointMetadata.format === "yjs_update_v1") {
     assertExactKeys(checkpointMetadata, `${label}.checkpointMetadata`, [
@@ -413,25 +360,13 @@ export const parseDocumentVersionSummary = (
     assertExactKeys(checkpointMetadata, `${label}.checkpointMetadata`, ["format"]);
     parsedCheckpointMetadata = { format: "canvas_scene_json_v1" };
   } else {
-    throw new DocumentHistoryContractError(
-      `${label}.checkpointMetadata.format is not supported`,
-    );
+    throw new DocumentHistoryContractError(`${label}.checkpointMetadata.format is not supported`);
   }
-  const sourceMutationId = readNullableString(
-    summary,
-    "sourceMutationId",
-    label,
-  );
-  const sourceChangeSeq = readNullableInteger(
-    summary,
-    "sourceChangeSeq",
-    label,
-  );
+  const sourceMutationId = readNullableString(summary, "sourceMutationId", label);
+  const sourceChangeSeq = readNullableInteger(summary, "sourceChangeSeq", label);
   const linksMutation = revisionKind === "operation" || revisionKind === "restore";
   if (sourceChangeSeq !== null && sourceMutationId === null) {
-    throw new DocumentHistoryContractError(
-      `${label}.sourceChangeSeq requires sourceMutationId`,
-    );
+    throw new DocumentHistoryContractError(`${label}.sourceChangeSeq requires sourceMutationId`);
   }
   if (linksMutation !== (sourceMutationId !== null)) {
     throw new DocumentHistoryContractError(
@@ -460,13 +395,8 @@ export const parseDocumentVersionSummary = (
   }
   const createdAt = readString(summary, "createdAt", label, 256);
   const parsedCreatedAt = new Date(createdAt);
-  if (
-    Number.isNaN(parsedCreatedAt.valueOf()) ||
-    parsedCreatedAt.toISOString() !== createdAt
-  ) {
-    throw new DocumentHistoryContractError(
-      `${label}.createdAt must be a canonical ISO timestamp`,
-    );
+  if (Number.isNaN(parsedCreatedAt.valueOf()) || parsedCreatedAt.toISOString() !== createdAt) {
+    throw new DocumentHistoryContractError(`${label}.createdAt must be a canonical ISO timestamp`);
   }
   return {
     versionId,
@@ -495,17 +425,12 @@ export const parseDocumentVersionSummary = (
   };
 };
 
-export const parseDocumentVersionDetail = (
-  value: unknown,
-): DocumentVersionDetail => {
+export const parseDocumentVersionDetail = (value: unknown): DocumentVersionDetail => {
   const label = "documentVersionDetail";
   const detail = readRecord(value, label);
   assertExactKeys(detail, label, ["summary", "materialization"]);
   const summary = parseDocumentVersionSummary(detail.summary);
-  const materialization = readRecord(
-    detail.materialization,
-    `${label}.materialization`,
-  );
+  const materialization = readRecord(detail.materialization, `${label}.materialization`);
   if (materialization.kind !== summary.materializationKind) {
     throw new DocumentHistoryContractError(
       `${label}.materialization.kind does not match its summary`,
@@ -524,14 +449,10 @@ export const parseDocumentVersionDetail = (
     const portableArray = <Value>(key: string): readonly Value[] => {
       const candidate = materialization[key];
       if (!Array.isArray(candidate)) {
-        throw new DocumentHistoryContractError(
-          `${label}.materialization.${key} must be an array`,
-        );
+        throw new DocumentHistoryContractError(`${label}.materialization.${key} must be an array`);
       }
       try {
-        return JSON.parse(
-          stableStringifyBlockPropertyJson(candidate),
-        ) as readonly Value[];
+        return JSON.parse(stableStringifyBlockPropertyJson(candidate)) as readonly Value[];
       } catch (error) {
         throw new DocumentHistoryContractError(
           `${label}.materialization.${key} must be bounded portable JSON: ${error instanceof Error ? error.message : String(error)}`,
@@ -539,28 +460,11 @@ export const parseDocumentVersionDetail = (
       }
     };
     const common = {
-      schemaVersion: readInteger(
-        materialization,
-        "schemaVersion",
-        `${label}.materialization`,
-        1,
-      ),
+      schemaVersion: readInteger(materialization, "schemaVersion", `${label}.materialization`, 1),
       blockTree: portableArray<BlockTreeNode>("blockTree"),
-      nfm: readPossiblyEmptyString(
-        materialization,
-        "nfm",
-        `${label}.materialization`,
-      ),
-      plainText: readPossiblyEmptyString(
-        materialization,
-        "plainText",
-        `${label}.materialization`,
-      ),
-      preview: readPossiblyEmptyString(
-        materialization,
-        "preview",
-        `${label}.materialization`,
-      ),
+      nfm: readPossiblyEmptyString(materialization, "nfm", `${label}.materialization`),
+      plainText: readPossiblyEmptyString(materialization, "plainText", `${label}.materialization`),
+      preview: readPossiblyEmptyString(materialization, "preview", `${label}.materialization`),
       references: portableArray<BlockDocumentReference>("references"),
       assetRefs: portableArray<BlockDocumentAssetReference>("assetRefs"),
     };
@@ -583,11 +487,7 @@ export const parseDocumentVersionDetail = (
       }
       parsedMaterialization = {
         kind: "page",
-        title: readPossiblyEmptyString(
-          materialization,
-          "title",
-          `${label}.materialization`,
-        ),
+        title: readPossiblyEmptyString(materialization, "title", `${label}.materialization`),
         richTitle,
         ...common,
       };
@@ -600,10 +500,7 @@ export const parseDocumentVersionDetail = (
   }
   const countBlockTree = (nodes: readonly unknown[]): number =>
     nodes.reduce<number>((count, node, index) => {
-      const record = readRecord(
-        node,
-        `${label}.materialization.blockTree[${index}]`,
-      );
+      const record = readRecord(node, `${label}.materialization.blockTree[${index}]`);
       if (
         typeof record.id !== "string" ||
         typeof record.type !== "string" ||
@@ -616,14 +513,14 @@ export const parseDocumentVersionDetail = (
       }
       return count + 1 + countBlockTree(record.children);
     }, 0);
-  const parsedBlockCount = parsedMaterialization.kind === "canvas_scene"
-    ? parsedMaterialization.elements.length
-    : countBlockTree(parsedMaterialization.blockTree);
+  const parsedBlockCount =
+    parsedMaterialization.kind === "canvas_scene"
+      ? parsedMaterialization.elements.length
+      : countBlockTree(parsedMaterialization.blockTree);
   if (
     parsedMaterialization.preview !== summary.preview ||
     parsedBlockCount !== summary.blockCount ||
-    (parsedMaterialization.kind === "page" &&
-      parsedMaterialization.title !== summary.title)
+    (parsedMaterialization.kind === "page" && parsedMaterialization.title !== summary.title)
   ) {
     throw new DocumentHistoryContractError(
       `${label}.materialization does not match its summary projection`,
@@ -658,10 +555,9 @@ export const bindTrustedDocumentVersionCheckpoint = (
 export const documentHistoryFailure = (
   code: DocumentHistoryCommandErrorCode,
   message: string,
-  options: Omit<
-    Partial<DocumentHistoryCommandError>,
-    "code" | "message" | "retryable"
-  > & { readonly retryable?: boolean } = {},
+  options: Omit<Partial<DocumentHistoryCommandError>, "code" | "message" | "retryable"> & {
+    readonly retryable?: boolean;
+  } = {},
 ): DocumentHistoryCommandError => {
   const { retryable = false, ...details } = options;
   return { code, message, retryable, ...details };
@@ -670,10 +566,7 @@ export const documentHistoryFailure = (
 export const documentHistoryHttpStatus = (
   error: DocumentHistoryCommandError,
 ): 400 | 404 | 409 | 500 | 503 => {
-  if (
-    error.code === "document_not_found" ||
-    error.code === "document_version_not_found"
-  ) {
+  if (error.code === "document_not_found" || error.code === "document_version_not_found") {
     return 404;
   }
   if (

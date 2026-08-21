@@ -52,11 +52,9 @@ describe("Page lifecycle v2 transport binding", () => {
   });
 
   test("rejects malformed, cross-Project, and invalid host identity inputs", () => {
-    const wrongProject = bindTrustedPageLifecycleMutationV2(
-      request,
-      "project-2",
-      { actor: { kind: "http_loopback" } },
-    );
+    const wrongProject = bindTrustedPageLifecycleMutationV2(request, "project-2", {
+      actor: { kind: "http_loopback" },
+    });
     expect(wrongProject).toMatchObject({
       ok: false,
       error: {
@@ -83,11 +81,9 @@ describe("Page lifecycle v2 transport binding", () => {
       },
     });
 
-    const invalidHost = bindTrustedPageLifecycleMutationV2(
-      request,
-      "project-1",
-      { actor: { kind: undefined } as never },
-    );
+    const invalidHost = bindTrustedPageLifecycleMutationV2(request, "project-1", {
+      actor: { kind: undefined } as never,
+    });
     expect(invalidHost).toMatchObject({
       ok: false,
       error: {
@@ -134,12 +130,7 @@ describe("Page lifecycle v2 transport binding", () => {
       actor: { kind: "http_loopback" },
     });
     if (!bound.ok) throw new Error(bound.error.message);
-    expect(
-      pageLifecycleTransportFailureV2(
-        bound.value,
-        new Error("writer unavailable"),
-      ),
-    ).toEqual({
+    expect(pageLifecycleTransportFailureV2(bound.value, new Error("writer unavailable"))).toEqual({
       ok: false,
       error: {
         code: "unknown",

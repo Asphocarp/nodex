@@ -11,7 +11,10 @@ export interface ThreadSummaryPanelSideChatRowInput {
 
 export function buildThreadSummaryPanelSideChatRow(
   input: ThreadSummaryPanelSideChatRowInput,
-  conversation: Pick<CodexConversationSnapshot, "statusType" | "statusActiveFlags" | "turns"> | null | undefined,
+  conversation:
+    | Pick<CodexConversationSnapshot, "statusType" | "statusActiveFlags" | "turns">
+    | null
+    | undefined,
 ): ThreadSummaryPanelAuxiliaryRow {
   return {
     id: input.id,
@@ -23,7 +26,10 @@ export function buildThreadSummaryPanelSideChatRow(
 }
 
 export function isThreadSummarySideChatResponseInProgress(
-  conversation: Pick<CodexConversationSnapshot, "statusType" | "statusActiveFlags" | "turns"> | null | undefined,
+  conversation:
+    | Pick<CodexConversationSnapshot, "statusType" | "statusActiveFlags" | "turns">
+    | null
+    | undefined,
 ): boolean {
   if (!conversation) return false;
   if (conversation.statusType === "active") return true;

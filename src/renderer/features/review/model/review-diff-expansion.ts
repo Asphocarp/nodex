@@ -15,14 +15,12 @@ export function isReviewDiffExpanded(
   inheritedExpanded = state.allDiffsExpanded,
 ): boolean {
   return (
-    state.diffExpansionOverrides.find((override) => override.key === key)
-      ?.expanded ?? inheritedExpanded
+    state.diffExpansionOverrides.find((override) => override.key === key)?.expanded ??
+    inheritedExpanded
   );
 }
 
-export function setReviewDiffExpanded<
-  State extends ReviewDiffExpansionState,
->(
+export function setReviewDiffExpanded<State extends ReviewDiffExpansionState>(
   state: State,
   key: string,
   expanded: boolean,
@@ -32,9 +30,7 @@ export function setReviewDiffExpanded<
     return state;
   }
 
-  const nextOverrides = state.diffExpansionOverrides.filter(
-    (override) => override.key !== key,
-  );
+  const nextOverrides = state.diffExpansionOverrides.filter((override) => override.key !== key);
   if (expanded !== inheritedExpanded) {
     nextOverrides.push({ key, expanded });
   }
@@ -45,9 +41,7 @@ export function setReviewDiffExpanded<
   };
 }
 
-export function toggleReviewDiffExpanded<
-  State extends ReviewDiffExpansionState,
->(
+export function toggleReviewDiffExpanded<State extends ReviewDiffExpansionState>(
   state: State,
   key: string,
   inheritedExpanded = state.allDiffsExpanded,
@@ -60,13 +54,11 @@ export function toggleReviewDiffExpanded<
   );
 }
 
-export function setAllReviewDiffsExpanded<
-  State extends ReviewDiffExpansionState,
->(state: State, expanded: boolean): State {
-  if (
-    state.allDiffsExpanded === expanded &&
-    state.diffExpansionOverrides.length === 0
-  ) {
+export function setAllReviewDiffsExpanded<State extends ReviewDiffExpansionState>(
+  state: State,
+  expanded: boolean,
+): State {
+  if (state.allDiffsExpanded === expanded && state.diffExpansionOverrides.length === 0) {
     return state;
   }
 
@@ -77,9 +69,11 @@ export function setAllReviewDiffsExpanded<
   };
 }
 
-export function reconcileReviewDiffExpansionSource<
-  State extends ReviewDiffExpansionState,
->(state: State, sourceKey: string, fileKeys: ReadonlySet<string>): State {
+export function reconcileReviewDiffExpansionSource<State extends ReviewDiffExpansionState>(
+  state: State,
+  sourceKey: string,
+  fileKeys: ReadonlySet<string>,
+): State {
   if (state.diffExpansionSourceKey !== sourceKey) {
     return {
       ...state,

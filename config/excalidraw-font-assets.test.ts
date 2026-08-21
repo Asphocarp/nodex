@@ -45,11 +45,9 @@ const listen = (server: ReturnType<typeof createHttpServer>): Promise<number> =>
     });
   });
 
-const closeHttpServer = (
-  server: ReturnType<typeof createHttpServer>,
-): Promise<void> =>
+const closeHttpServer = (server: ReturnType<typeof createHttpServer>): Promise<void> =>
   new Promise((resolveClose, reject) => {
-    server.close((error) => error ? reject(error) : resolveClose());
+    server.close((error) => (error ? reject(error) : resolveClose()));
   });
 
 describe("createExcalidrawFontAssetPlugins", () => {
@@ -92,13 +90,9 @@ describe("createExcalidrawFontAssetPlugins", () => {
     });
 
     expect(
-      Object.keys(result.metafile.inputs).some((input) =>
-        input.includes("es6-promise-pool"),
-      ),
+      Object.keys(result.metafile.inputs).some((input) => input.includes("es6-promise-pool")),
     ).toBe(true);
-    expect(result.outputFiles[0]?.text).toContain(
-      "urls.length === 0 && urls.push(new URL",
-    );
+    expect(result.outputFiles[0]?.text).toContain("urls.length === 0 && urls.push(new URL");
   });
 
   test("serves fonts without installing build-only hooks in development", async () => {
@@ -123,17 +117,15 @@ describe("createExcalidrawFontAssetPlugins", () => {
     expect(response.headers.get("content-type")).toBe("font/woff2");
     expect(response.headers.get("cache-control")).toBe("no-cache");
     expect((await response.arrayBuffer()).byteLength).toBeGreaterThan(0);
-    const missing = await fetch(
-      `http://127.0.0.1:${port}/excalidraw-assets/fonts/missing.woff2`,
-    );
+    const missing = await fetch(`http://127.0.0.1:${port}/excalidraw-assets/fonts/missing.woff2`);
     const traversal = await fetch(
       `http://127.0.0.1:${port}/excalidraw-assets/fonts/%2e%2e%2fpackage.json`,
     );
     expect(missing.status).toBe(404);
     expect(traversal.status).toBe(404);
-    expect(
-      warnings.filter((warning) => warning.includes("emitFile() is not supported")),
-    ).toEqual([]);
+    expect(warnings.filter((warning) => warning.includes("emitFile() is not supported"))).toEqual(
+      [],
+    );
   });
 
   test("emits the complete font tree in build mode", async () => {
@@ -146,17 +138,14 @@ describe("createExcalidrawFontAssetPlugins", () => {
       logLevel: "silent",
       plugins: [...createExcalidrawFontAssetPlugins(), virtualEntryPlugin],
     });
-    const outputs: Rollup.Output[] = (Array.isArray(result) ? result : [result])
-      .flatMap((entry) => entry.output);
+    const outputs: Rollup.Output[] = (Array.isArray(result) ? result : [result]).flatMap(
+      (entry) => entry.output,
+    );
     const fileNames = outputs.map((output) => output.fileName);
 
-    expect(fileNames).toContain(
-      `excalidraw-assets/fonts/${representativeFontPath}`,
-    );
+    expect(fileNames).toContain(`excalidraw-assets/fonts/${representativeFontPath}`);
     expect(
-      fileNames.filter((fileName) =>
-        fileName.startsWith("excalidraw-assets/fonts/"),
-      ).length,
+      fileNames.filter((fileName) => fileName.startsWith("excalidraw-assets/fonts/")).length,
     ).toBeGreaterThan(200);
   });
 });

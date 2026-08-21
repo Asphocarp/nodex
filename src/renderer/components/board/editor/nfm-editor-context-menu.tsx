@@ -60,12 +60,14 @@ function focusEditor(editor: NfmEditorCommandEditor) {
   editor.prosemirrorView?.focus();
 }
 
-function hasClipboardPayload(payload: ClipboardPastePayload | null | undefined): payload is ClipboardPastePayload {
+function hasClipboardPayload(
+  payload: ClipboardPastePayload | null | undefined,
+): payload is ClipboardPastePayload {
   return (
-    typeof payload?.blocknoteHtml === "string"
-    || typeof payload?.html === "string"
-    || typeof payload?.markdown === "string"
-    || typeof payload?.text === "string"
+    typeof payload?.blocknoteHtml === "string" ||
+    typeof payload?.html === "string" ||
+    typeof payload?.markdown === "string" ||
+    typeof payload?.text === "string"
   );
 }
 
@@ -103,9 +105,7 @@ async function readBrowserClipboardPayload(): Promise<ClipboardPastePayload | nu
         }
       }
 
-      if (
-        hasClipboardPayload(payload)
-      ) {
+      if (hasClipboardPayload(payload)) {
         return payload;
       }
     } catch {
@@ -166,8 +166,7 @@ async function runPasteCommand(
   onBeforePaste?: () => boolean,
 ): Promise<boolean> {
   if (onBeforePaste?.()) return true;
-  const payload = await readNativeClipboardPayload()
-    ?? await readBrowserClipboardPayload();
+  const payload = (await readNativeClipboardPayload()) ?? (await readBrowserClipboardPayload());
 
   if (payload && dispatchSyntheticPaste(editor, payload)) {
     return true;
@@ -343,23 +342,32 @@ export function NfmEditorContextMenu({
   const [selectionEmpty, setSelectionEmpty] = useState(true);
   const [editable, setEditable] = useState(true);
 
-  const handleOpenChange = useCallback((open: boolean) => {
-    if (!open) return;
-    setSelectionEmpty(getSelectionEmpty(editor));
-    setEditable(getIsEditable(editor));
-  }, [editor]);
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) return;
+      setSelectionEmpty(getSelectionEmpty(editor));
+      setEditable(getIsEditable(editor));
+    },
+    [editor],
+  );
 
-  const handleCommand = useCallback((command: NfmEditorCommand) => {
-    void runNfmEditorContextCommand(editor, command, undefined, onBeforePaste);
-  }, [editor, onBeforePaste]);
+  const handleCommand = useCallback(
+    (command: NfmEditorCommand) => {
+      void runNfmEditorContextCommand(editor, command, undefined, onBeforePaste);
+    },
+    [editor, onBeforePaste],
+  );
 
-  const content = useMemo(() => (
-    <NfmEditorContextMenuContent
-      selectionEmpty={selectionEmpty}
-      editable={editable}
-      onCommand={handleCommand}
-    />
-  ), [editable, handleCommand, selectionEmpty]);
+  const content = useMemo(
+    () => (
+      <NfmEditorContextMenuContent
+        selectionEmpty={selectionEmpty}
+        editable={editable}
+        onCommand={handleCommand}
+      />
+    ),
+    [editable, handleCommand, selectionEmpty],
+  );
 
   return (
     <NodexContextMenuRoot onOpenChange={handleOpenChange}>

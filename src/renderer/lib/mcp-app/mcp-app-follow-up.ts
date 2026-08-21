@@ -31,7 +31,10 @@ export function parseMcpAppFollowUpMessage(value: unknown): McpAppFollowUpMessag
 
   const titleValue = record.title;
   const title = typeof titleValue === "string" ? titleValue.trim() : null;
-  if (titleValue !== undefined && (!title || title.length > MAX_MCP_APP_FOLLOW_UP_TITLE_CHARACTERS)) {
+  if (
+    titleValue !== undefined &&
+    (!title || title.length > MAX_MCP_APP_FOLLOW_UP_TITLE_CHARACTERS)
+  ) {
     return null;
   }
 

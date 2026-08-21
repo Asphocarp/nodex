@@ -14,8 +14,12 @@ export function projectCodexReasoningSummary(summary: unknown): string {
   return [`**${first}**`, ...rest].join("\n\n");
 }
 
-export function parseCodexReasoningBuffers(value: unknown): { summary: string[]; content: string[] } {
-  const candidate = typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+export function parseCodexReasoningBuffers(value: unknown): {
+  summary: string[];
+  content: string[];
+} {
+  const candidate =
+    typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
   return {
     summary: asReasoningParts(candidate?.summary),
     content: asReasoningParts(candidate?.content),

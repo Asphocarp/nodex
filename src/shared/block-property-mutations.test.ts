@@ -62,16 +62,12 @@ describe("Block property mutation contract", () => {
     };
 
     const parsed = parseBlockPropertyMutationRequest(left);
-    const setIntent = parsed.fields.find(
-      (field) => field.operation === "add_remove",
-    );
+    const setIntent = parsed.fields.find((field) => field.operation === "add_remove");
     expect(setIntent?.operation).toBe("add_remove");
     if (!setIntent || setIntent.operation !== "add_remove") {
       throw new Error("Expected a set intent");
     }
-    expect(JSON.stringify(setIntent.add)).toBe(
-      JSON.stringify(["alpha", "zeta"]),
-    );
+    expect(JSON.stringify(setIntent.add)).toBe(JSON.stringify(["alpha", "zeta"]));
     expect(JSON.stringify(setIntent.remove)).toBe(JSON.stringify(["old"]));
     expect(canonicalizeBlockPropertyMutationRequest(left)).toBe(
       canonicalizeBlockPropertyMutationRequest(right),
@@ -169,14 +165,10 @@ describe("Block property mutation contract", () => {
     });
     expect(result.fields[0]?.revision).toBe(2);
     expect(result.blockMetadataRevisions["card-1"]).toBe(3);
-    expect(
-      parseBlockPropertyMutationCommandResult({ ok: true, value: result }).ok,
-    ).toBe(true);
-    expect(
-      operationFails(() =>
-        parseBlockPropertyMutationResult({ ...result, extra: true }),
-      ),
-    ).toBe(true);
+    expect(parseBlockPropertyMutationCommandResult({ ok: true, value: result }).ok).toBe(true);
+    expect(operationFails(() => parseBlockPropertyMutationResult({ ...result, extra: true }))).toBe(
+      true,
+    );
   });
 
   test("preserves JSON keys that would otherwise mutate object prototypes", () => {
@@ -196,8 +188,6 @@ describe("Block property mutation contract", () => {
       ],
     });
     expect(Object.hasOwn(parsed.actor, "__proto__")).toBe(true);
-    expect(
-      canonicalizeBlockPropertyMutationRequest(parsed).includes("__proto__"),
-    ).toBe(true);
+    expect(canonicalizeBlockPropertyMutationRequest(parsed).includes("__proto__")).toBe(true);
   });
 });

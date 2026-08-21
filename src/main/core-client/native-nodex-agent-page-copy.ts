@@ -54,45 +54,34 @@ const envelope = <Result>(
 const operationIdFor = (
   request: Pick<PrepareNodexAgentDuplicatePageRequest, "threadId" | "callId">,
 ): string =>
-  `nodex-agent-duplicate:${createHash("sha256").update(JSON.stringify([
-    request.threadId,
-    request.callId,
-    "duplicate_page",
-  ])).digest("hex")}`;
+  `nodex-agent-duplicate:${createHash("sha256")
+    .update(JSON.stringify([request.threadId, request.callId, "duplicate_page"]))
+    .digest("hex")}`;
 
-const coreRequest = (
-  request: PrepareNodexAgentDuplicatePageRequest,
-): CoreCopyRequest => ({
-    source_page_id: request.input.pageId,
-    destination: toCoreAgentPageDestination(request.input.destination),
-    include_block_map: request.input.return?.includes("block_map") ?? false,
-    include_etags: request.input.return?.includes("etags") ?? false,
-  });
-
-const output = (
-  result: CoreCopyResult,
-  includeBlockMap: boolean,
-) => DuplicatePageV6OutputSchema.parse({
-  data: {
-    sourcePageId: result.source_page_id,
-    pageId: result.page_id,
-    pageKey: result.page_key ?? null,
-    location: nativeAgentPageLocation(result.location),
-    bodyBlocksCreated: result.body_blocks_created,
-    ...(includeBlockMap && result.block_map
-      ? { blockMap: result.block_map }
-      : {}),
-    ...(result.etags
-      ? { etags: { title: result.etags.title, body: result.etags.body } }
-      : {}),
-  },
+const coreRequest = (request: PrepareNodexAgentDuplicatePageRequest): CoreCopyRequest => ({
+  source_page_id: request.input.pageId,
+  destination: toCoreAgentPageDestination(request.input.destination),
+  include_block_map: request.input.return?.includes("block_map") ?? false,
+  include_etags: request.input.return?.includes("etags") ?? false,
 });
+
+const output = (result: CoreCopyResult, includeBlockMap: boolean) =>
+  DuplicatePageV6OutputSchema.parse({
+    data: {
+      sourcePageId: result.source_page_id,
+      pageId: result.page_id,
+      pageKey: result.page_key ?? null,
+      location: nativeAgentPageLocation(result.location),
+      bodyBlocksCreated: result.body_blocks_created,
+      ...(includeBlockMap && result.block_map ? { blockMap: result.block_map } : {}),
+      ...(result.etags ? { etags: { title: result.etags.title, body: result.etags.body } } : {}),
+    },
+  });
 
 const preparedDestination = (
   _request: PrepareNodexAgentDuplicatePageRequest,
   preparation: CoreCopyPreparation,
-): NodexAgentDuplicatePageCommand["destination"] =>
-  preparedAgentPageDestination(preparation);
+): NodexAgentDuplicatePageCommand["destination"] => preparedAgentPageDestination(preparation);
 
 const normalizedInput = (
   request: PrepareNodexAgentDuplicatePageRequest,
@@ -118,9 +107,10 @@ const normalizedInput = (
       destination: {
         kind: "document",
         documentId: target.document_id,
-        at: destination.at?.kind === "before" || destination.at?.kind === "after"
-          ? { kind: destination.at.kind, blockId: destination.at.blockId }
-          : { kind: destination.at?.kind ?? "end" },
+        at:
+          destination.at?.kind === "before" || destination.at?.kind === "after"
+            ? { kind: destination.at.kind, blockId: destination.at.blockId }
+            : { kind: destination.at?.kind ?? "end" },
       },
       return: { blockMap: request.input.return?.includes("block_map") ?? false },
     });
@@ -184,21 +174,20 @@ export class NativeNodexAgentPageCopyRuntime {
         const committed = preparation.committed?.outcome.agent_page_copy;
         if (!committed) throw new Error("Core Agent Page copy replay omitted its result");
         this.pending.delete(operationId);
-        return envelope({
-          ok: true,
-          value: {
-            kind: "completed",
-            output: output(
-              committed,
-              request.input.return?.includes("block_map") ?? false,
-            ),
+        return envelope(
+          {
+            ok: true,
+            value: {
+              kind: "completed",
+              output: output(committed, request.input.return?.includes("block_map") ?? false),
+            },
           },
-        }, operationId);
+          operationId,
+        );
       }
       const token = preparation.preparation.token;
       if (!token) throw new Error("Core Agent Page copy preparation omitted its token");
-      if (!this.pending.has(operationId)
-        && this.pending.size >= MAX_PENDING_NATIVE_PAGE_COPIES) {
+      if (!this.pending.has(operationId) && this.pending.size >= MAX_PENDING_NATIVE_PAGE_COPIES) {
         throw new Error("Native Agent Page copy preparation capacity is exhausted");
       }
       const documentHeads = nativeAgentDocumentHeads(preparation.document_heads);
@@ -220,22 +209,25 @@ export class NativeNodexAgentPageCopyRuntime {
         documentHeads,
         canonical: { newPageId: preparation.page_id },
       };
-      return envelope({
-        ok: true,
-        value: {
-          kind: "prepared",
-          command,
-          authorization: {
-            roots: {
-              [request.input.pageId]: {
-                type: "page",
-                transformation: "preserved",
+      return envelope(
+        {
+          ok: true,
+          value: {
+            kind: "prepared",
+            command,
+            authorization: {
+              roots: {
+                [request.input.pageId]: {
+                  type: "page",
+                  transformation: "preserved",
+                },
               },
+              documentIds: documentHeads.map((head) => head.documentId),
             },
-            documentIds: documentHeads.map((head) => head.documentId),
           },
         },
-      }, operationId);
+        operationId,
+      );
     } catch (error) {
       return envelope({ ok: false, error: mapNativeNodexAgentCoreError(error) }, operationId);
     }
@@ -245,15 +237,14 @@ export class NativeNodexAgentPageCopyRuntime {
     command: NodexAgentDuplicatePageCommand,
   ): Promise<ExecuteNodexAgentDuplicatePageResult> {
     const pending = this.pending.get(command.mutationId);
-    if (!pending
-      || pending.request.projectId !== command.projectId
-      || pending.request.callId !== command.callId
-      || pending.request.threadId !== command.threadId
-      || pending.request.authority?.storeEpoch !== command.storeEpoch
-      || !hasExactNativeAgentDocumentHeads(
-        pending.documentHeads,
-        command.documentHeads,
-      )) {
+    if (
+      !pending ||
+      pending.request.projectId !== command.projectId ||
+      pending.request.callId !== command.callId ||
+      pending.request.threadId !== command.threadId ||
+      pending.request.authority?.storeEpoch !== command.storeEpoch ||
+      !hasExactNativeAgentDocumentHeads(pending.documentHeads, command.documentHeads)
+    ) {
       return {
         ok: false,
         error: {
@@ -277,7 +268,8 @@ export class NativeNodexAgentPageCopyRuntime {
       };
     }
     try {
-      const committed = await this.runtime.clientForProject(pending.request.projectId)
+      const committed = await this.runtime
+        .clientForProject(pending.request.projectId)
         .libraryApply({
           operationId: pending.operationId,
           intent: {
@@ -300,10 +292,7 @@ export class NativeNodexAgentPageCopyRuntime {
       return {
         ok: true,
         value: {
-          output: output(
-            result,
-            pending.request.input.return?.includes("block_map") ?? false,
-          ),
+          output: output(result, pending.request.input.return?.includes("block_map") ?? false),
           duplicate: committed.receipt.duplicate,
           documentCommits: nativeAgentDocumentCommits(result.document_commits),
           affectedDatabaseBlockIds: [...result.affected_database_ids],

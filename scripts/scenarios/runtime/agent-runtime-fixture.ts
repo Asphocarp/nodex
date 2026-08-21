@@ -13,13 +13,8 @@ export interface AgentRuntimeFixture {
   readonly metadataPath: string;
 }
 
-export const prepareScenarioAgentRuntimeSync = (
-  repositoryRoot: string,
-): AgentRuntimeFixture => {
-  const runtimeRoot = path.join(
-    repositoryRoot,
-    ".generated/codex-runtime/agent-runtime",
-  );
+export const prepareScenarioAgentRuntimeSync = (repositoryRoot: string): AgentRuntimeFixture => {
+  const runtimeRoot = path.join(repositoryRoot, ".generated/codex-runtime/agent-runtime");
   const executable = path.join(runtimeRoot, "bin/interpreter");
   const packagePath = path.join(runtimeRoot, "codex-package.json");
   fs.mkdirSync(path.dirname(executable), { recursive: true });

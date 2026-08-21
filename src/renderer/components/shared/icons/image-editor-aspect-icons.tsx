@@ -2,10 +2,7 @@ import type { JSX } from "react";
 
 type ImageEditorAspectIconProps = JSX.IntrinsicElements["svg"];
 
-function AspectRatioIcon({
-  path,
-  ...props
-}: ImageEditorAspectIconProps & { path: string }) {
+function AspectRatioIcon({ path, ...props }: ImageEditorAspectIconProps & { path: string }) {
   return (
     <svg
       width="20"

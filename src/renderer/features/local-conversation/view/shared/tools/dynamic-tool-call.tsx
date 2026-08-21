@@ -83,9 +83,10 @@ function openAutomationUpdatePageTarget(
   void onOpenSummaryScheduledAutomation?.({
     automationId: state.automationId,
     createInput: state.createInput,
-    mode: state.displayMode === "suggested-create" || state.displayMode === "suggested-update"
-      ? state.displayMode
-      : "open",
+    mode:
+      state.displayMode === "suggested-create" || state.displayMode === "suggested-update"
+        ? state.displayMode
+        : "open",
     title: state.title,
     updateInput: state.updateInput,
   });
@@ -100,9 +101,9 @@ function AutomationUpdatePage({
 }) {
   const state = initialState;
   const canOpen = Boolean(
-    onOpenSummaryScheduledAutomation
-    && (state.automationId || state.createInput || state.updateInput)
-    && !state.disabledReason,
+    onOpenSummaryScheduledAutomation &&
+    (state.automationId || state.createInput || state.updateInput) &&
+    !state.disabledReason,
   );
   const statusLabel = state.statusLabel;
   const subtitle = [statusLabel, state.subtitle].filter(Boolean).join(" · ");
@@ -131,9 +132,7 @@ function AutomationUpdatePage({
                 </span>
               </span>
               {subtitle ? (
-                <span className="truncate text-xs text-token-text-secondary">
-                  {subtitle}
-                </span>
+                <span className="truncate text-xs text-token-text-secondary">{subtitle}</span>
               ) : null}
             </span>
           </div>
@@ -197,7 +196,12 @@ type HandoffProgressStepStatus = "done" | "failed" | "pending" | "running";
 
 function getThreadNavigationTarget(call: CodexDynamicToolCallView): string | null {
   if (call.tool !== "read_thread" && call.tool !== "send_message_to_thread") return null;
-  if (typeof call.arguments !== "object" || call.arguments === null || Array.isArray(call.arguments)) return null;
+  if (
+    typeof call.arguments !== "object" ||
+    call.arguments === null ||
+    Array.isArray(call.arguments)
+  )
+    return null;
   const threadId = (call.arguments as Record<string, unknown>).threadId;
   return typeof threadId === "string" && threadId.trim().length > 0 ? threadId.trim() : null;
 }
@@ -238,31 +242,25 @@ function DynamicToolRegistryLabelRow({
     variant === "row"
       ? "text-token-conversation-summary-leading"
       : "text-token-conversation-summary-trailing group-hover/activity-header:text-token-foreground",
-    isClickableRow
-      && "group cursor-interaction rounded-md text-left focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none",
+    isClickableRow &&
+      "group cursor-interaction rounded-md text-left focus-visible:ring-1 focus-visible:ring-token-focus-border focus-visible:outline-none",
     className,
   );
 
   if (isClickableRow) {
     return (
-      <button
-        type="button"
-        className={rowClassName}
-        onClick={onClick}
-      >
+      <button type="button" className={rowClassName} onClick={onClick}>
         {content}
       </button>
     );
   }
 
-  return (
-    <span className={rowClassName}>
-      {content}
-    </span>
-  );
+  return <span className={rowClassName}>{content}</span>;
 }
 
-function resolveHandoffProgressStepStatus(status: CodexAppHandoffStatus): HandoffProgressStepStatus {
+function resolveHandoffProgressStepStatus(
+  status: CodexAppHandoffStatus,
+): HandoffProgressStepStatus {
   if (status === "running") return "running";
   if (status === "success" || status === "warning") return "done";
   if (status === "error") return "failed";
@@ -303,7 +301,11 @@ function HandoffProgressStepRow({ step }: { step: CodexAppHandoffStep }) {
         <span className="sr-only">
           {status === "running"
             ? "In progress: "
-            : status === "done" ? "Completed: " : status === "failed" ? "Failed: " : "Pending: "}
+            : status === "done"
+              ? "Completed: "
+              : status === "failed"
+                ? "Failed: "
+                : "Pending: "}
         </span>
         {step.label}
       </div>
@@ -340,10 +342,7 @@ function CodexAppHandoffToolCall({
   const summary = (
     <span className="inline-flex min-w-0 max-w-full items-center gap-1.5 truncate text-token-conversation-summary-leading">
       {icon}
-      <CodexShimmerText
-        active={state.active}
-        className="min-w-0 truncate"
-      >
+      <CodexShimmerText active={state.active} className="min-w-0 truncate">
         {state.label}
       </CodexShimmerText>
     </span>
@@ -379,7 +378,12 @@ function CodexAppThreadToolCall({
     return <CodexAppHandoffToolCall call={call} variant={variant} />;
   }
 
-  if (variant === "row" && call.tool === "create_thread" && call.completed && call.success === true) {
+  if (
+    variant === "row" &&
+    call.tool === "create_thread" &&
+    call.completed &&
+    call.success === true
+  ) {
     const result = parseCodexAppCreateThreadResult(call);
     if (result) {
       return <CodexAppCreatedThreadCard onOpenThread={onOpenThread} result={result} />;
@@ -398,13 +402,19 @@ function CodexAppThreadToolCall({
   return (
     <DynamicToolRegistryLabelRow
       active={!call.completed}
-      icon={variant === "summary-text" ? null : (
-        <AppActivityIcon className={iconClassName} aria-hidden />
-      )}
+      icon={
+        variant === "summary-text" ? null : (
+          <AppActivityIcon className={iconClassName} aria-hidden />
+        )
+      }
       label={label}
-      onClick={navigationThreadId && onOpenThread ? () => {
-        void onOpenThread(navigationThreadId);
-      } : undefined}
+      onClick={
+        navigationThreadId && onOpenThread
+          ? () => {
+              void onOpenThread(navigationThreadId);
+            }
+          : undefined
+      }
       variant={variant}
     />
   );
@@ -423,12 +433,14 @@ function SettingsToolCall({
   return (
     <DynamicToolRegistryLabelRow
       active={!call.completed}
-      icon={variant === "summary-text" ? null : (
-        <ToolActivityIcon
-          descriptor={semanticToolIcon("settings")}
-          className="icon-xs shrink-0 text-token-conversation-body"
-        />
-      )}
+      icon={
+        variant === "summary-text" ? null : (
+          <ToolActivityIcon
+            descriptor={semanticToolIcon("settings")}
+            className="icon-xs shrink-0 text-token-conversation-body"
+          />
+        )
+      }
       label={label}
       variant={variant}
     />
@@ -437,11 +449,15 @@ function SettingsToolCall({
 
 function nodexPresentationIcon(icon: NodexDynamicToolPresentationIcon) {
   switch (icon) {
-    case "database": return semanticToolIcon("settings");
-    case "read": return semanticToolIcon("list-files");
-    case "search": return semanticToolIcon("code-searching");
+    case "database":
+      return semanticToolIcon("settings");
+    case "read":
+      return semanticToolIcon("list-files");
+    case "search":
+      return semanticToolIcon("code-searching");
     case "transfer":
-    case "write": return semanticToolIcon("edit-files");
+    case "write":
+      return semanticToolIcon("edit-files");
   }
 }
 
@@ -458,12 +474,14 @@ function NodexAppToolCall({
   return (
     <DynamicToolRegistryLabelRow
       active={!call.completed}
-      icon={variant === "summary-text" ? null : (
-        <ToolActivityIcon
-          descriptor={nodexPresentationIcon(presentation.icon)}
-          className="icon-xs shrink-0 text-token-conversation-body"
-        />
-      )}
+      icon={
+        variant === "summary-text" ? null : (
+          <ToolActivityIcon
+            descriptor={nodexPresentationIcon(presentation.icon)}
+            className="icon-xs shrink-0 text-token-conversation-body"
+          />
+        )
+      }
       label={presentation.label}
       variant={variant}
     />
@@ -528,16 +546,18 @@ function useChromeTabMetadata(tabId: number | null, enabled: boolean): ChromeTab
     if (!getTab) return;
 
     let cancelled = false;
-    void getTab(tabId).then((tab) => {
-      if (cancelled) return;
-      const title = tab.title?.trim() || null;
-      setMetadata({
-        faviconUrl: resolveChromeFaviconUrl(tab, chromeApi.runtime),
-        title,
+    void getTab(tabId)
+      .then((tab) => {
+        if (cancelled) return;
+        const title = tab.title?.trim() || null;
+        setMetadata({
+          faviconUrl: resolveChromeFaviconUrl(tab, chromeApi.runtime),
+          title,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setMetadata(null);
       });
-    }).catch(() => {
-      if (!cancelled) setMetadata(null);
-    });
 
     return () => {
       cancelled = true;
@@ -561,19 +581,23 @@ function ChromeTabContextToolCall({
   const baseLabel = resolveDynamicToolRegistryLabel(call);
   if (!baseLabel) return null;
   const label = metadata?.title
-    ? call.completed ? `Read "${metadata.title}"` : `Reading "${metadata.title}"`
+    ? call.completed
+      ? `Read "${metadata.title}"`
+      : `Reading "${metadata.title}"`
     : baseLabel;
 
   return (
     <DynamicToolRegistryLabelRow
       active={!call.completed}
-      icon={variant !== "summary-text" && metadata?.faviconUrl ? (
-        <img
-          alt=""
-          className="icon-xs shrink-0 text-token-input-placeholder-foreground"
-          src={metadata.faviconUrl}
-        />
-      ) : null}
+      icon={
+        variant !== "summary-text" && metadata?.faviconUrl ? (
+          <img
+            alt=""
+            className="icon-xs shrink-0 text-token-input-placeholder-foreground"
+            src={metadata.faviconUrl}
+          />
+        ) : null
+      }
       label={label}
       variant={variant}
     />
@@ -651,11 +675,7 @@ function DynamicToolFallbackLabel({
 
   if (variant !== "row") return content;
 
-  return (
-    <div className="group">
-      {content}
-    </div>
-  );
+  return <div className="group">{content}</div>;
 }
 
 export function DynamicToolCallSummary({
@@ -679,7 +699,11 @@ export function DynamicToolCallSummary({
   return <DynamicToolFallbackLabel call={call} variant={variant} />;
 }
 
-export function DynamicToolCall({ item, onOpenSummaryScheduledAutomation, onOpenThread }: ToolComponentProps) {
+export function DynamicToolCall({
+  item,
+  onOpenSummaryScheduledAutomation,
+  onOpenThread,
+}: ToolComponentProps) {
   const call = item.dynamicToolCall ?? null;
 
   if (!call) return null;

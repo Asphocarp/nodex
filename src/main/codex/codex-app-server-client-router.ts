@@ -113,9 +113,7 @@ export class CodexAppServerClientRouter extends EventEmitter implements CodexApp
   }
 
   async stop(): Promise<void> {
-    await Promise.allSettled(
-      [...this.#clients.values()].map(({ client }) => client.stop()),
-    );
+    await Promise.allSettled([...this.#clients.values()].map(({ client }) => client.stop()));
   }
 
   async dispose(): Promise<void> {
@@ -138,11 +136,7 @@ export class CodexAppServerClientRouter extends EventEmitter implements CodexApp
     return await this.requestOnHost<TResult>(hostId ?? this.#localHostId, method, params);
   }
 
-  async requestOnHost<TResult>(
-    hostId: string,
-    method: string,
-    params?: unknown,
-  ): Promise<TResult> {
+  async requestOnHost<TResult>(hostId: string, method: string, params?: unknown): Promise<TResult> {
     return await this.clientForHost(hostId).request<TResult>(method, params);
   }
 

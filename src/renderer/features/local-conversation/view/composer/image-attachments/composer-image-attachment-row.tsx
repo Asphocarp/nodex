@@ -14,10 +14,7 @@ import { ComposerImageAttachmentThumbnail } from "./composer-image-attachment-th
 export interface ComposerImageAttachmentRowProps {
   readonly attachments: readonly ComposerImageAttachment[];
   readonly children?: ReactNode;
-  readonly controller: Pick<
-    ComposerImageAttachmentController,
-    "open" | "remove"
-  >;
+  readonly controller: Pick<ComposerImageAttachmentController, "open" | "remove">;
   readonly hasVisibleNonImageAttachments: boolean;
 }
 
@@ -37,9 +34,7 @@ function buildPreviewOptions(input: {
     attachmentId: input.attachment.id,
     availableImageCount: input.attachmentCount,
     composerTarget: input.composerTarget,
-    ...(input.attachment.src.startsWith("data:image/")
-      ? { dataUrl: input.attachment.src }
-      : {}),
+    ...(input.attachment.src.startsWith("data:image/") ? { dataUrl: input.attachment.src } : {}),
     downloadSrc: input.attachment.src,
     entrypoint: input.entrypoint,
     imageSource: "uploaded" as const,
@@ -72,11 +67,13 @@ export async function openComposerImageAttachment(input: {
   readonly projectId: string | null;
   readonly threadId: string | null;
 }): Promise<boolean> {
-  return openUserAttachmentImagePreview(buildPreviewOptions({
-    ...input,
-    entrypoint: "image_click",
-    openInEditor: true,
-  }));
+  return openUserAttachmentImagePreview(
+    buildPreviewOptions({
+      ...input,
+      entrypoint: "image_click",
+      openInEditor: true,
+    }),
+  );
 }
 
 export function ComposerImageAttachmentRow({
@@ -85,9 +82,7 @@ export function ComposerImageAttachmentRow({
   controller,
   hasVisibleNonImageAttachments,
 }: ComposerImageAttachmentRowProps) {
-  const size = resolveComposerImageAttachmentSize(
-    hasVisibleNonImageAttachments,
-  );
+  const size = resolveComposerImageAttachmentSize(hasVisibleNonImageAttachments);
   const previewEnabled = attachments.length > 0;
 
   return (

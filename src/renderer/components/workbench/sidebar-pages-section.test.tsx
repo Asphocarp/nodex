@@ -1,10 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import type { LibraryPageNavigationNode } from "../../../shared/library-module";
-import {
-  SidebarPagesSection,
-  type SidebarPagesDataSource,
-} from "./sidebar-pages-section";
+import { SidebarPagesSection, type SidebarPagesDataSource } from "./sidebar-pages-section";
 
 const makePage = (index: number): LibraryPageNavigationNode => ({
   kind: "page",
@@ -18,18 +15,18 @@ const makePage = (index: number): LibraryPageNavigationNode => ({
   updatedAt: "2026-08-03T00:00:00.000Z",
 });
 
-const dataSource = (
-  items: readonly LibraryPageNavigationNode[],
-): SidebarPagesDataSource => ({
+const dataSource = (items: readonly LibraryPageNavigationNode[]): SidebarPagesDataSource => ({
   useStandaloneRoots: () => ({
     data: {
-      pages: [{
-        kind: "standalone_roots",
-        items,
-        nextCursor: null,
-        hasMore: false,
-        total: items.length,
-      }],
+      pages: [
+        {
+          kind: "standalone_roots",
+          items,
+          nextCursor: null,
+          hasMore: false,
+          total: items.length,
+        },
+      ],
     },
     isPending: false,
     isError: false,
@@ -55,8 +52,9 @@ describe("SidebarPagesSection", () => {
     const list = screen.getByRole("list", { name: "Pages" });
     expect(within(list).getAllByRole("listitem")).toHaveLength(3);
     expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
-    expect(screen.getByText("Page 2").closest("[data-active]")
-      ?.getAttribute("data-active")).toBe("true");
+    expect(screen.getByText("Page 2").closest("[data-active]")?.getAttribute("data-active")).toBe(
+      "true",
+    );
   });
 
   test("uses the shared Show more and Show less paging behavior", () => {
@@ -66,8 +64,7 @@ describe("SidebarPagesSection", () => {
         activeRoot={null}
         onToggle={vi.fn()}
         onOpenRoot={vi.fn()}
-        dataSource={dataSource(Array.from({ length: 6 }, (_, index) =>
-          makePage(index + 1)))}
+        dataSource={dataSource(Array.from({ length: 6 }, (_, index) => makePage(index + 1)))}
         mutationsEnabled={false}
       />,
     );

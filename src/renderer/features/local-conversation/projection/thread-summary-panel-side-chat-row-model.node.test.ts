@@ -6,7 +6,9 @@ import {
 } from "./thread-summary-panel-side-chat-row-model";
 
 function makeConversation(
-  overrides: Partial<Pick<CodexConversationSnapshot, "statusType" | "statusActiveFlags" | "turns">> = {},
+  overrides: Partial<
+    Pick<CodexConversationSnapshot, "statusType" | "statusActiveFlags" | "turns">
+  > = {},
 ): Pick<CodexConversationSnapshot, "statusType" | "statusActiveFlags" | "turns"> {
   return {
     statusType: "idle",
@@ -18,13 +20,16 @@ function makeConversation(
 
 describe("buildThreadSummaryPanelSideChatRow", () => {
   test("projects the side-chat row identity and conversation response state", () => {
-    const row = buildThreadSummaryPanelSideChatRow({
-      id: "sidechat:thread-side",
-      title: "Investigate layout",
-      threadId: "thread-side",
-      panelId: "right",
-      leafId: "leaf-a",
-    }, makeConversation({ statusType: "active" }));
+    const row = buildThreadSummaryPanelSideChatRow(
+      {
+        id: "sidechat:thread-side",
+        title: "Investigate layout",
+        threadId: "thread-side",
+        panelId: "right",
+        leafId: "leaf-a",
+      },
+      makeConversation({ statusType: "active" }),
+    );
 
     expect(row.id).toBe("sidechat:thread-side");
     expect(row.title).toBe("Investigate layout");
@@ -34,12 +39,15 @@ describe("buildThreadSummaryPanelSideChatRow", () => {
   });
 
   test("does not treat a tab without a loaded conversation as response-in-progress", () => {
-    const row = buildThreadSummaryPanelSideChatRow({
-      id: "sidechat-loading:thread-main:1",
-      title: "Side chat",
-      threadId: null,
-      panelId: "bottom",
-    }, null);
+    const row = buildThreadSummaryPanelSideChatRow(
+      {
+        id: "sidechat-loading:thread-main:1",
+        title: "Side chat",
+        threadId: null,
+        panelId: "bottom",
+      },
+      null,
+    );
 
     expect(row.isResponseInProgress).toBe(false);
     expect(row.leafId).toBe(null);
@@ -48,16 +56,26 @@ describe("buildThreadSummaryPanelSideChatRow", () => {
 
 describe("isThreadSummarySideChatResponseInProgress", () => {
   test("uses conversation activity instead of panel-tab loading state", () => {
-    const inProgressTurn = [{
-      turnId: "turn-live",
-      status: "inProgress",
-      items: [],
-    }] as unknown as CodexConversationTurn[];
+    const inProgressTurn = [
+      {
+        turnId: "turn-live",
+        status: "inProgress",
+        items: [],
+      },
+    ] as unknown as CodexConversationTurn[];
 
     expect(isThreadSummarySideChatResponseInProgress(null)).toBe(false);
     expect(isThreadSummarySideChatResponseInProgress(makeConversation())).toBe(false);
-    expect(isThreadSummarySideChatResponseInProgress(makeConversation({ statusType: "active" }))).toBe(true);
-    expect(isThreadSummarySideChatResponseInProgress(makeConversation({ statusActiveFlags: ["waitingOnUserInput"] }))).toBe(true);
-    expect(isThreadSummarySideChatResponseInProgress(makeConversation({ turns: inProgressTurn }))).toBe(true);
+    expect(
+      isThreadSummarySideChatResponseInProgress(makeConversation({ statusType: "active" })),
+    ).toBe(true);
+    expect(
+      isThreadSummarySideChatResponseInProgress(
+        makeConversation({ statusActiveFlags: ["waitingOnUserInput"] }),
+      ),
+    ).toBe(true);
+    expect(
+      isThreadSummarySideChatResponseInProgress(makeConversation({ turns: inProgressTurn })),
+    ).toBe(true);
   });
 });

@@ -71,26 +71,17 @@ function materializePanelSearchMessages(panel: SettingsSearchCatalogPanel): read
     group.title,
     group.description,
     group.messages,
-    group.entries?.flatMap((setting) => [
-      setting.label,
-      setting.description,
-      setting.terms,
-    ]),
+    group.entries?.flatMap((setting) => [setting.label, setting.description, setting.terms]),
   ]);
 
-  return uniqueText([
-    panel.title,
-    panel.subtitle,
-    panel.messages,
-    groups,
-  ]);
+  return uniqueText([panel.title, panel.subtitle, panel.messages, groups]);
 }
 
-function projectNameTerms({ activeProjectName, projectNames }: SettingsSearchContext): readonly string[] {
-  return uniqueText([
-    projectNames,
-    activeProjectName,
-  ]);
+function projectNameTerms({
+  activeProjectName,
+  projectNames,
+}: SettingsSearchContext): readonly string[] {
+  return uniqueText([projectNames, activeProjectName]);
 }
 
 const SETTINGS_SEARCH_PANELS = {
@@ -101,35 +92,33 @@ const SETTINGS_SEARCH_PANELS = {
       {
         title: "Permissions",
         entries: [
-          entry(
-            "Default permissions mode",
-            "Choose the preset used for new local tasks.",
-            [
-              "Ask for approval",
-              "Approve for me",
-              "Default permissions",
-              "Auto-review",
-              "Full access",
-              "Custom (config.toml)",
-              "guardian-approvals",
-              "full-access",
-              "custom",
-              "sandbox",
-              "Nodex Library",
-              "without approval prompts",
-              "elevated requests",
-            ],
-          ),
+          entry("Default permissions mode", "Choose the preset used for new local tasks.", [
+            "Ask for approval",
+            "Approve for me",
+            "Default permissions",
+            "Auto-review",
+            "Full access",
+            "Custom (config.toml)",
+            "guardian-approvals",
+            "full-access",
+            "custom",
+            "sandbox",
+            "Nodex Library",
+            "without approval prompts",
+            "elevated requests",
+          ]),
         ],
       },
       {
         title: "General",
         entries: [
-          entry(
-            "Restore windows",
-            "Choose which workbench windows reopen after quitting Nodex.",
-            ["All", "Last", "None", "quit", "reopen"],
-          ),
+          entry("Restore windows", "Choose which workbench windows reopen after quitting Nodex.", [
+            "All",
+            "Last",
+            "None",
+            "quit",
+            "reopen",
+          ]),
           entry(
             "Service tier",
             "Choose the default speed for new thread requests. Standard is the default; Fast opts into the faster tier.",
@@ -150,33 +139,26 @@ const SETTINGS_SEARCH_PANELS = {
             "Optionally send anonymous product events and filtered technical web analytics to Statsig. Prompts, transcripts, card text, and file paths are not sent.",
             ["anonymous product events", "technical web analytics", "Statsig"],
           ),
-          entry(
-            "Open source licenses",
-            "Third-party notices for bundled dependencies.",
-            ["open source", "licenses", "dependencies"],
-          ),
+          entry("Open source licenses", "Third-party notices for bundled dependencies.", [
+            "open source",
+            "licenses",
+            "dependencies",
+          ]),
         ],
       },
       {
         title: "Composer",
         entries: [
-          entry(
-            "Thread detail",
-            "Choose how much command output to show in threads.",
-            [
-              "Steps",
-              "Steps with code commands",
-              "Steps with code output",
-              "Hide commands and outputs.",
-              "Show commands, collapse output.",
-              "Show commands and expand output.",
-            ],
-          ),
+          entry("Thread detail", "Choose how much command output to show in threads.", [
+            "Steps",
+            "Steps with code commands",
+            "Steps with code output",
+            "Hide commands and outputs.",
+            "Show commands, collapse output.",
+            "Show commands and expand output.",
+          ]),
           entry("Spellcheck", "Inline text correction for editable writing surfaces."),
-          entry(
-            "Auto-link while typing",
-            "Turn typed URLs into links as you finish the token.",
-          ),
+          entry("Auto-link while typing", "Turn typed URLs into links as you finish the token."),
           entry(
             "Auto-link on paste",
             "Recognize links in pasted text, including inline URL spans inside longer content.",
@@ -222,19 +204,15 @@ const SETTINGS_SEARCH_PANELS = {
       {
         title: "Notifications",
         entries: [
-          entry(
-            "Turn completion notifications",
-            "Set when agent alerts you that it's finished.",
-            [
-              "Enable permission notifications",
-              "Enable question notifications",
-              "Show alerts when notification permissions are required",
-              "Show alerts when input is needed to continue",
-              "Never",
-              "Only when unfocused",
-              "Always",
-            ],
-          ),
+          entry("Turn completion notifications", "Set when agent alerts you that it's finished.", [
+            "Enable permission notifications",
+            "Enable question notifications",
+            "Show alerts when notification permissions are required",
+            "Show alerts when input is needed to continue",
+            "Never",
+            "Only when unfocused",
+            "Always",
+          ]),
         ],
       },
     ],
@@ -246,11 +224,7 @@ const SETTINGS_SEARCH_PANELS = {
       {
         title: "Theme",
         entries: [
-          entry(
-            "Theme",
-            "Match system mode or force a fixed theme.",
-            ["System", "Light", "Dark"],
-          ),
+          entry("Theme", "Match system mode or force a fixed theme.", ["System", "Light", "Dark"]),
           entry(
             "Reduced motion",
             "Follow the system setting, reduce interface motion, or allow full motion.",
@@ -286,26 +260,27 @@ const SETTINGS_SEARCH_PANELS = {
       {
         title: "Custom config.toml settings",
         entries: [
-          entry(
-            "Approval policy",
-            "Raw `approval_policy` value for this config target.",
-            ["granular", "untrusted", "on-request", "never"],
-          ),
-          entry(
-            "Sandbox settings",
-            "Raw `sandbox_mode` value for this config target.",
-            ["unset", "read-only", "workspace-write", "danger-full-access"],
-          ),
-          entry(
-            "Allow network access",
-            "Controls `sandbox_workspace_write.network_access`.",
-            ["network_access", "sandbox workspace write"],
-          ),
-          entry(
-            "config.toml",
-            "No writable config target",
-            ["Reveal", "writable config target", "configuration"],
-          ),
+          entry("Approval policy", "Raw `approval_policy` value for this config target.", [
+            "granular",
+            "untrusted",
+            "on-request",
+            "never",
+          ]),
+          entry("Sandbox settings", "Raw `sandbox_mode` value for this config target.", [
+            "unset",
+            "read-only",
+            "workspace-write",
+            "danger-full-access",
+          ]),
+          entry("Allow network access", "Controls `sandbox_workspace_write.network_access`.", [
+            "network_access",
+            "sandbox workspace write",
+          ]),
+          entry("config.toml", "No writable config target", [
+            "Reveal",
+            "writable config target",
+            "configuration",
+          ]),
         ],
       },
     ],
@@ -318,8 +293,14 @@ const SETTINGS_SEARCH_PANELS = {
         title: "Sources",
         entries: [
           entry("Claude Code", "Import recent conversations and supported setup.", ["CLAUDE.md"]),
-          entry("Codex", "Import rollout history and safe native configuration.", ["CODEX_HOME", ".codex"]),
-          entry("Open Interpreter", "Import rollout history and native agent configuration.", ["INTERPRETER_HOME", ".openinterpreter"]),
+          entry("Codex", "Import rollout history and safe native configuration.", [
+            "CODEX_HOME",
+            ".codex",
+          ]),
+          entry("Open Interpreter", "Import rollout history and native agent configuration.", [
+            "INTERPRETER_HOME",
+            ".openinterpreter",
+          ]),
         ],
       },
       {
@@ -405,11 +386,11 @@ const SETTINGS_SEARCH_PANELS = {
     groups: [
       {
         title: "Branches",
-        entries: [entry(
-          "Branch prefix",
-          "Prefix used when Nodex creates new branches.",
-          [DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX],
-        )],
+        entries: [
+          entry("Branch prefix", "Prefix used when Nodex creates new branches.", [
+            DEFAULT_WORKTREE_AUTO_BRANCH_PREFIX,
+          ]),
+        ],
       },
       {
         title: "Commit instructions",
@@ -440,13 +421,7 @@ const SETTINGS_SEARCH_PANELS = {
       {
         title: "Managed worktrees",
         description: "Worktrees created by card threads. Hover a row to remove.",
-        messages: [
-          "Git",
-          "Branch",
-          "Managed directory",
-          "Cleanup",
-          "Remove worktree record",
-        ],
+        messages: ["Git", "Branch", "Managed directory", "Cleanup", "Remove worktree record"],
       },
     ],
   },
@@ -469,16 +444,12 @@ const SETTINGS_SEARCH_PANELS = {
         description: "This script runs on worktree creation",
         entries: [
           entry("Name"),
-          entry(
-            "Setup script environment variables",
-            "Variables available to the setup script.",
-            [
-              "Source workspace path",
-              "New worktree path",
-              "CODEX_SOURCE_TREE_PATH",
-              "CODEX_WORKTREE_PATH",
-            ],
-          ),
+          entry("Setup script environment variables", "Variables available to the setup script.", [
+            "Source workspace path",
+            "New worktree path",
+            "CODEX_SOURCE_TREE_PATH",
+            "CODEX_WORKTREE_PATH",
+          ]),
         ],
         messages: [
           "Default",
@@ -554,11 +525,7 @@ const SETTINGS_SEARCH_PANELS = {
           entry("Frequency", "Minimum is one hour.", ["hours"]),
           entry("Retention", "Snapshots kept before pruning.", ["max"]),
         ],
-        messages: [
-          "Some values locked by env vars.",
-          "Refresh",
-          "Save schedule",
-        ],
+        messages: ["Some values locked by env vars.", "Refresh", "Save schedule"],
       },
       {
         title: "History retention",
@@ -569,20 +536,11 @@ const SETTINGS_SEARCH_PANELS = {
             ["records"],
           ),
         ],
-        messages: [
-          "Value locked by env var.",
-          "Applied by background maintenance.",
-          "Apply",
-        ],
+        messages: ["Value locked by env var.", "Applied by background maintenance.", "Apply"],
       },
       {
         title: "Snapshots",
-        entries: [
-          entry(
-            "Safety backup",
-            "Create a fresh snapshot before restoring an older one.",
-          ),
-        ],
+        entries: [entry("Safety backup", "Create a fresh snapshot before restoring an older one.")],
         messages: [
           "Optional snapshot label",
           "Create snapshot",

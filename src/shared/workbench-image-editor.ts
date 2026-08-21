@@ -7,10 +7,7 @@ export type WorkbenchImageEditorEntrypoint =
 
 export type WorkbenchImageEditorSource = "uploaded" | "generated";
 export type WorkbenchImageEditorView = "single" | "playground";
-export type WorkbenchImageEditorPlaygroundTool =
-  | "navigate"
-  | "comment"
-  | "select";
+export type WorkbenchImageEditorPlaygroundTool = "navigate" | "comment" | "select";
 
 export type WorkbenchImageEditorReferrerPolicy =
   | ""

@@ -19,10 +19,7 @@ type BoardLocalMutationListener = (mutation: BoardLocalMutation) => void;
 
 const listenersByProjectId = new Map<string, Set<BoardLocalMutationListener>>();
 
-export function publishBoardLocalMutation(
-  projectId: string,
-  mutation: BoardLocalMutation,
-): void {
+export function publishBoardLocalMutation(projectId: string, mutation: BoardLocalMutation): void {
   if (!projectId) return;
 
   const listeners = listenersByProjectId.get(projectId);

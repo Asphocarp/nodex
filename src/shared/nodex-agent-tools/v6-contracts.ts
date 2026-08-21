@@ -10,10 +10,7 @@ import {
   SearchV6OutputSchema,
 } from "./v6-schemas";
 
-const defineV6Contract = <
-  TInputSchema extends z.ZodType,
-  TOutputSchema extends z.ZodType,
->(
+const defineV6Contract = <TInputSchema extends z.ZodType, TOutputSchema extends z.ZodType>(
   contract: NodexAgentToolContract<TInputSchema, TOutputSchema>,
 ): NodexAgentToolContract<TInputSchema, TOutputSchema> => contract;
 

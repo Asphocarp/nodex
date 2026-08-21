@@ -129,16 +129,15 @@ describe("OwnedBlockDocumentBoundary", () => {
     );
 
     await waitFor(() => {
-      expect(view.getByTestId("authority").textContent).toContain(
-        "Core is busy",
-      );
+      expect(view.getByTestId("authority").textContent).toContain("Core is busy");
     });
-    expect(view.getByTestId("authority").textContent).not.toContain(
-      "deadline exceeded",
+    expect(view.getByTestId("authority").textContent).not.toContain("deadline exceeded");
+    await waitFor(
+      () => {
+        expect(view.getByTestId("authority").textContent).toBe("ready");
+      },
+      { timeout: 2_000 },
     );
-    await waitFor(() => {
-      expect(view.getByTestId("authority").textContent).toBe("ready");
-    }, { timeout: 2_000 });
     expect(fetches).toBe(3);
   });
 
@@ -169,9 +168,7 @@ describe("OwnedBlockDocumentBoundary", () => {
     );
 
     await waitFor(() => {
-      expect(view.getByTestId("authority").textContent).toBe(
-        "Document state is corrupt",
-      );
+      expect(view.getByTestId("authority").textContent).toBe("Document state is corrupt");
     });
     expect(fetches).toBe(1);
   });

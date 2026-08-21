@@ -21,9 +21,9 @@ export interface ViewDeepLinkTarget {
 
 function normalizeDeepLinkId(value: string): string | null {
   const normalized = value.trim();
-  return normalized === value
-    && normalized.length > 0
-    && new TextEncoder().encode(normalized).length <= 512
+  return normalized === value &&
+    normalized.length > 0 &&
+    new TextEncoder().encode(normalized).length <= 512
     ? normalized
     : null;
 }
@@ -58,8 +58,8 @@ function encodeDeepLinkId(value: string): string {
 
 function parseDeepLinkId(value: string, kind: string): string | null {
   if (
-    value.trim() !== value
-    || value.slice(0, 8).toLowerCase() !== `${NODEX_DEEPLINK_PROTOCOL}//`
+    value.trim() !== value ||
+    value.slice(0, 8).toLowerCase() !== `${NODEX_DEEPLINK_PROTOCOL}//`
   ) {
     return null;
   }
@@ -77,14 +77,12 @@ function parseDeepLinkId(value: string, kind: string): string | null {
   const host = url.hostname.trim().toLowerCase();
   const pathSegments = url.pathname.split("/");
 
-  const encodedId = host === kind
-    && pathSegments.length === 2
-    ? normalizeDeepLinkId(decodePathSegment(pathSegments[1] ?? "") ?? "")
-    : host.length === 0
-      && pathSegments.length === 3
-      && pathSegments[1]?.toLowerCase() === kind
-      ? normalizeDeepLinkId(decodePathSegment(pathSegments[2] ?? "") ?? "")
-      : null;
+  const encodedId =
+    host === kind && pathSegments.length === 2
+      ? normalizeDeepLinkId(decodePathSegment(pathSegments[1] ?? "") ?? "")
+      : host.length === 0 && pathSegments.length === 3 && pathSegments[1]?.toLowerCase() === kind
+        ? normalizeDeepLinkId(decodePathSegment(pathSegments[2] ?? "") ?? "")
+        : null;
 
   return encodedId;
 }

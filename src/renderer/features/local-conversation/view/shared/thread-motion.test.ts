@@ -10,7 +10,11 @@ import {
 describe("thread motion contract", () => {
   test("matches Codex Electron accordion timing", () => {
     expect(CODEX_THREAD_ACCORDION_TRANSITION.duration).toBe(0.3);
-    expect(Array.isArray(CODEX_THREAD_ACCORDION_TRANSITION.ease) ? CODEX_THREAD_ACCORDION_TRANSITION.ease.join(",") : "").toBe("0.19,1,0.22,1");
+    expect(
+      Array.isArray(CODEX_THREAD_ACCORDION_TRANSITION.ease)
+        ? CODEX_THREAD_ACCORDION_TRANSITION.ease.join(",")
+        : "",
+    ).toBe("0.19,1,0.22,1");
   });
 
   test("uses the Codex Electron divider reveal shape", () => {

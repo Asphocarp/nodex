@@ -26,10 +26,7 @@ export interface EmbeddedSurfaceHostEditor {
       readonly type: string;
     };
   };
-  setTextCursorPosition(
-    targetBlock: string,
-    placement?: "start" | "end",
-  ): void;
+  setTextCursorPosition(targetBlock: string, placement?: "start" | "end"): void;
   focus(): void;
 }
 
@@ -39,17 +36,13 @@ export interface EmbeddedSurfaceBoundaryHandle {
 
 type BlockDisclosurePredicate = (blockId: string) => boolean;
 
-const handlesByEditor = new WeakMap<
-  object,
-  Map<string, EmbeddedSurfaceBoundaryHandle>
->();
+const handlesByEditor = new WeakMap<object, Map<string, EmbeddedSurfaceBoundaryHandle>>();
 
 const escapeSelector = (value: string): string =>
   globalThis.CSS?.escape?.(value) ?? value.replace(/["\\]/g, "\\$&");
 
-const directionPlacement = (
-  direction: VerticalArrowDirection,
-): "start" | "end" => direction === "down" ? "start" : "end";
+const directionPlacement = (direction: VerticalArrowDirection): "start" | "end" =>
+  direction === "down" ? "start" : "end";
 
 function getRegisteredHandle(
   editor: object,
@@ -63,10 +56,7 @@ function isNodeSelection(selection: EmbeddedSurfaceSelection): boolean {
   return !selection.empty && selection.node !== undefined;
 }
 
-function isBlockExpandedInEditor(
-  editor: EmbeddedSurfaceHostEditor,
-  blockId: string,
-): boolean {
+function isBlockExpandedInEditor(editor: EmbeddedSurfaceHostEditor, blockId: string): boolean {
   const blockElement = editor.prosemirrorView?.dom.querySelector<HTMLElement>(
     `.bn-block[data-id="${escapeSelector(blockId)}"]`,
   );
@@ -112,9 +102,8 @@ export function findVisibleNeighborBlock(
 function visibleBlocksForEditor(
   editor: EmbeddedSurfaceHostEditor,
 ): readonly EmbeddedSurfaceBlock[] {
-  return flattenVisibleBlocks(
-    editor.document,
-    (blockId) => isBlockExpandedInEditor(editor, blockId),
+  return flattenVisibleBlocks(editor.document, (blockId) =>
+    isBlockExpandedInEditor(editor, blockId),
   );
 }
 
@@ -167,19 +156,12 @@ export function handleArrowIntoEmbeddedSurface(
   const selection = view.state.selection;
   const currentBlockId = editor.getTextCursorPosition().block.id;
   if (isNodeSelection(selection)) {
-    return focusRegisteredEmbeddedSurfaceBoundary(
-      editor,
-      currentBlockId,
-      direction,
-    );
+    return focusRegisteredEmbeddedSurfaceBoundary(editor, currentBlockId, direction);
   }
 
   if (!selection.empty || !view.endOfTextblock(direction)) return false;
-  const neighbor = findVisibleNeighborBlock(
-    editor.document,
-    currentBlockId,
-    direction,
-    (blockId) => isBlockExpandedInEditor(editor, blockId),
+  const neighbor = findVisibleNeighborBlock(editor.document, currentBlockId, direction, (blockId) =>
+    isBlockExpandedInEditor(editor, blockId),
   );
   if (!neighbor) return false;
   return focusRegisteredNeighbor(editor, neighbor.id, direction);
@@ -190,11 +172,8 @@ export function moveFromEmbeddedSurfaceToHostNeighbor(
   shellBlockId: string,
   direction: VerticalArrowDirection,
 ): boolean {
-  const neighbor = findVisibleNeighborBlock(
-    editor.document,
-    shellBlockId,
-    direction,
-    (blockId) => isBlockExpandedInEditor(editor, blockId),
+  const neighbor = findVisibleNeighborBlock(editor.document, shellBlockId, direction, (blockId) =>
+    isBlockExpandedInEditor(editor, blockId),
   );
   if (!neighbor) return false;
   if (focusRegisteredNeighbor(editor, neighbor.id, direction)) return true;

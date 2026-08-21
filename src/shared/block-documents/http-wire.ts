@@ -63,18 +63,15 @@ export const decodeDocumentHttpEnvelope = <TMetadata extends object>(
   if (bytes.byteLength < DOCUMENT_HTTP_HEADER_BYTES) {
     throw new DocumentHttpWireError("Document HTTP envelope is truncated");
   }
-  const hasMagic = DOCUMENT_HTTP_MAGIC.every(
-    (value, index) => bytes[index] === value,
-  );
+  const hasMagic = DOCUMENT_HTTP_MAGIC.every((value, index) => bytes[index] === value);
   if (!hasMagic) {
     throw new DocumentHttpWireError("Document HTTP envelope has an invalid version");
   }
 
-  const metadataLength = new DataView(
-    bytes.buffer,
-    bytes.byteOffset,
-    bytes.byteLength,
-  ).getUint32(DOCUMENT_HTTP_MAGIC.byteLength, false);
+  const metadataLength = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(
+    DOCUMENT_HTTP_MAGIC.byteLength,
+    false,
+  );
   assertMetadataLength(metadataLength);
   const payloadOffset = DOCUMENT_HTTP_HEADER_BYTES + metadataLength;
   if (payloadOffset > bytes.byteLength) {
@@ -85,9 +82,7 @@ export const decodeDocumentHttpEnvelope = <TMetadata extends object>(
     throw new DocumentHttpWireError("Document HTTP payload limit is invalid");
   }
   if (payloadLength > maxPayloadBytes) {
-    throw new DocumentHttpWireError(
-      `Document HTTP payload exceeds ${maxPayloadBytes} bytes`,
-    );
+    throw new DocumentHttpWireError(`Document HTTP payload exceeds ${maxPayloadBytes} bytes`);
   }
 
   let rawMetadata: unknown;
@@ -133,22 +128,15 @@ export const documentBytesToBase64 = (bytes: Uint8Array): string => {
   return btoa(binary);
 };
 
-export const documentBytesFromBase64 = (
-  encoded: string,
-  maxBytes: number,
-): Uint8Array => {
+export const documentBytesFromBase64 = (encoded: string, maxBytes: number): Uint8Array => {
   const isCanonicalBase64 =
     encoded.length % 4 === 0 &&
-    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
-      encoded,
-    );
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded);
   if (!isCanonicalBase64) {
     throw new DocumentHttpWireError("Document payload is not valid base64");
   }
   if (encoded.length > Math.ceil(maxBytes / 3) * 4 + 4) {
-    throw new DocumentHttpWireError(
-      `Base64 document payload exceeds ${maxBytes} bytes`,
-    );
+    throw new DocumentHttpWireError(`Base64 document payload exceeds ${maxBytes} bytes`);
   }
 
   let bytes: Uint8Array;
@@ -166,9 +154,7 @@ export const documentBytesFromBase64 = (
     });
   }
   if (bytes.byteLength > maxBytes) {
-    throw new DocumentHttpWireError(
-      `Base64 document payload exceeds ${maxBytes} bytes`,
-    );
+    throw new DocumentHttpWireError(`Base64 document payload exceeds ${maxBytes} bytes`);
   }
   return bytes;
 };

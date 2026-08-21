@@ -2,7 +2,14 @@ import { describe, expect, test } from "vitest";
 import type { CodexConversationSnapshot } from "../../../lib/types";
 import { buildComposerShellModel } from "./build-composer-shell-model";
 
-type AgentStatus = "pendingInit" | "running" | "interrupted" | "shutdown" | "completed" | "errored" | "notFound";
+type AgentStatus =
+  | "pendingInit"
+  | "running"
+  | "interrupted"
+  | "shutdown"
+  | "completed"
+  | "errored"
+  | "notFound";
 type AgentTool = "spawnAgent" | "sendInput" | "resumeAgent" | "closeAgent" | "wait";
 
 function buildConversationSnapshot(
@@ -190,7 +197,8 @@ describe("buildComposerShellModel", () => {
           {
             id: "row_1",
             turnId: "turn_1",
-            command: "bun test src/renderer/features/local-conversation/view/composer/local-conversation-composer-shell.test.tsx",
+            command:
+              "bun test src/renderer/features/local-conversation/view/composer/local-conversation-composer-shell.test.tsx",
             cwd: "/tmp/project",
             previewLine: "1418 pass",
             processId: 4001,
@@ -250,64 +258,76 @@ describe("buildComposerShellModel", () => {
   test("stacks child permission before a canonical active option request", () => {
     const model = buildComposerShellModel({
       conversation: buildConversationSnapshot({
-        turns: [{
-          threadId: "thread_1",
-          turnId: "turn_1",
-          status: "inProgress",
-          itemIds: [],
-          items: [],
-        }],
-        canonicalRequests: [{
-          id: "active-option",
-          method: "item/tool/requestOptionPicker",
-          params: {
+        turns: [
+          {
             threadId: "thread_1",
             turnId: "turn_1",
-            question: "Choose a slice",
-            options: [{ label: "UI" }],
+            status: "inProgress",
+            itemIds: [],
+            items: [],
           },
-        }],
-        childMemberships: [{
-          threadId: "thread_child",
-          parentThreadId: "thread_1",
-          role: "childApproval",
-          actorName: "Worker",
-        }],
+        ],
+        canonicalRequests: [
+          {
+            id: "active-option",
+            method: "item/tool/requestOptionPicker",
+            params: {
+              threadId: "thread_1",
+              turnId: "turn_1",
+              question: "Choose a slice",
+              options: [{ label: "UI" }],
+            },
+          },
+        ],
+        childMemberships: [
+          {
+            threadId: "thread_child",
+            parentThreadId: "thread_1",
+            role: "childApproval",
+            actorName: "Worker",
+          },
+        ],
       }),
       knownConversationsById: {
         thread_child: buildConversationSnapshot({
           threadId: "thread_child",
-          turns: [{
-            threadId: "thread_child",
-            turnId: "turn_child",
-            status: "inProgress",
-            itemIds: [],
-            items: [],
-          }],
-          requests: [{
-            type: "permissionRequest",
-            requestId: "child-permission",
-            projectId: "project_1",
-            threadId: "thread_child",
-            turnId: "turn_child",
-            itemId: "child-permission-item",
-            reason: "Allow child access",
-            cwd: "/tmp/project",
-            permissions: { network: null, fileSystem: null },
-            completed: false,
-            response: null,
-            createdAt: 1,
-          }],
-          canonicalRequests: [{
-            id: "child-option",
-            method: "item/tool/requestOptionPicker",
-            params: {
+          turns: [
+            {
               threadId: "thread_child",
               turnId: "turn_child",
-              question: "Private child question",
-              options: [{ label: "Wait" }],
+              status: "inProgress",
+              itemIds: [],
+              items: [],
             },
-          }],
+          ],
+          requests: [
+            {
+              type: "permissionRequest",
+              requestId: "child-permission",
+              projectId: "project_1",
+              threadId: "thread_child",
+              turnId: "turn_child",
+              itemId: "child-permission-item",
+              reason: "Allow child access",
+              cwd: "/tmp/project",
+              permissions: { network: null, fileSystem: null },
+              completed: false,
+              response: null,
+              createdAt: 1,
+            },
+          ],
+          canonicalRequests: [
+            {
+              id: "child-option",
+              method: "item/tool/requestOptionPicker",
+              params: {
+                threadId: "thread_child",
+                turnId: "turn_child",
+                question: "Private child question",
+                options: [{ label: "Wait" }],
+              },
+            },
+          ],
         }),
       },
     });

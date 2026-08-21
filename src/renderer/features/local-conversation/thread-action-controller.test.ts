@@ -4,7 +4,10 @@ import {
   GIT_ACTION_CREATE_PR_PROMPT,
 } from "@/lib/git-action-prompts";
 import type { CodexApprovalResponse, CodexProtocolRequestId } from "@/lib/types";
-import { createThreadStageActions, type ThreadActionControllerInput } from "./thread-action-controller";
+import {
+  createThreadStageActions,
+  type ThreadActionControllerInput,
+} from "./thread-action-controller";
 
 const { invokeMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
@@ -76,7 +79,10 @@ describe("createThreadStageActions settings routing", () => {
         setPersonality: async (personality: string) => {
           calls.push(`host:${personality}`);
         },
-        setConversationThreadSettings: async (threadId: string, patch: { personality?: string }) => {
+        setConversationThreadSettings: async (
+          threadId: string,
+          patch: { personality?: string },
+        ) => {
           calls.push(`thread:${threadId}:${patch.personality ?? ""}`);
           return null;
         },
@@ -117,11 +123,13 @@ describe("createThreadStageActions settings routing", () => {
     void actions.onReasoningEffortChange("medium");
 
     expect(JSON.stringify(draftModes)).toBe("[]");
-    expect(JSON.stringify(settingsUpdates)).toBe(JSON.stringify([
-      { threadId: "thread_1", patch: { collaborationMode: "plan" } },
-      { threadId: "thread_1", patch: { model: "gpt-5.9-codex" } },
-      { threadId: "thread_1", patch: { reasoningEffort: "medium" } },
-    ]));
+    expect(JSON.stringify(settingsUpdates)).toBe(
+      JSON.stringify([
+        { threadId: "thread_1", patch: { collaborationMode: "plan" } },
+        { threadId: "thread_1", patch: { model: "gpt-5.9-codex" } },
+        { threadId: "thread_1", patch: { reasoningEffort: "medium" } },
+      ]),
+    );
   });
 
   test("routes new thread settings to local draft fallbacks", () => {
@@ -168,21 +176,27 @@ describe("createThreadStageActions settings routing", () => {
       reasoningEffort: "Thinking",
       serviceTier: null,
     };
-    const actions = createThreadStageActions(buildInput({
-      activeThreadId: null,
-      codexControl: {
-        setExecutionProfile: (next: unknown) => calls.push({ profile: next }),
-        setDefaultServiceTier: (serviceTier: unknown) => calls.push({ serviceTier }),
-        setProviderCredential: async (input: unknown) => {
-          calls.push({ setCredential: input });
-          return { providerId: "kimi-for-coding", status: "ready", runtimeRestartPending: false };
-        },
-        deleteProviderCredential: async (input: unknown) => {
-          calls.push({ deleteCredential: input });
-          return { providerId: "kimi-for-coding", status: "missing", runtimeRestartPending: false };
-        },
-      } as unknown as ThreadActionControllerInput["codexControl"],
-    }));
+    const actions = createThreadStageActions(
+      buildInput({
+        activeThreadId: null,
+        codexControl: {
+          setExecutionProfile: (next: unknown) => calls.push({ profile: next }),
+          setDefaultServiceTier: (serviceTier: unknown) => calls.push({ serviceTier }),
+          setProviderCredential: async (input: unknown) => {
+            calls.push({ setCredential: input });
+            return { providerId: "kimi-for-coding", status: "ready", runtimeRestartPending: false };
+          },
+          deleteProviderCredential: async (input: unknown) => {
+            calls.push({ deleteCredential: input });
+            return {
+              providerId: "kimi-for-coding",
+              status: "missing",
+              runtimeRestartPending: false,
+            };
+          },
+        } as unknown as ThreadActionControllerInput["codexControl"],
+      }),
+    );
 
     await actions.onExecutionProfileChange?.(profile);
     await actions.onProviderCredentialSet?.("kimi-for-coding", "secret-key");
@@ -198,20 +212,22 @@ describe("createThreadStageActions settings routing", () => {
 
   test("routes active profile intelligence through the thread-owned settings boundary", async () => {
     const settingsUpdates: unknown[] = [];
-    const actions = createThreadStageActions(buildInput({
-      codexControl: {
-        setConversationThreadSettings: async (threadId: string, patch: unknown) => {
-          settingsUpdates.push({ threadId, patch });
-          return null;
-        },
-        setExecutionProfile: () => {
-          throw new Error("active thread changes must not update the draft profile");
-        },
-        setDefaultServiceTier: () => {
-          throw new Error("active thread changes must not update the draft speed");
-        },
-      } as unknown as ThreadActionControllerInput["codexControl"],
-    }));
+    const actions = createThreadStageActions(
+      buildInput({
+        codexControl: {
+          setConversationThreadSettings: async (threadId: string, patch: unknown) => {
+            settingsUpdates.push({ threadId, patch });
+            return null;
+          },
+          setExecutionProfile: () => {
+            throw new Error("active thread changes must not update the draft profile");
+          },
+          setDefaultServiceTier: () => {
+            throw new Error("active thread changes must not update the draft speed");
+          },
+        } as unknown as ThreadActionControllerInput["codexControl"],
+      }),
+    );
     const profile = {
       providerId: "anthropic",
       modelId: "claude-opus-4-1",
@@ -222,53 +238,64 @@ describe("createThreadStageActions settings routing", () => {
 
     await actions.onExecutionProfileChange?.(profile, "model");
 
-    expect(settingsUpdates).toEqual([{
-      threadId: "thread_1",
-      patch: {
-        executionProfile: profile,
-        executionProfileChange: "model",
+    expect(settingsUpdates).toEqual([
+      {
+        threadId: "thread_1",
+        patch: {
+          executionProfile: profile,
+          executionProfileChange: "model",
+        },
       },
-    }]);
+    ]);
   });
 
   test("commits Codex intelligence and Default mode in one awaited settings patch", async () => {
     const settingsUpdates: unknown[] = [];
-    const actions = createThreadStageActions(buildInput({
-      codexControl: {
-        setConversationThreadSettings: async (threadId: string, patch: unknown) => {
-          settingsUpdates.push({ threadId, patch });
-          return null;
-        },
-      } as unknown as ThreadActionControllerInput["codexControl"],
-    }));
+    const actions = createThreadStageActions(
+      buildInput({
+        codexControl: {
+          setConversationThreadSettings: async (threadId: string, patch: unknown) => {
+            settingsUpdates.push({ threadId, patch });
+            return null;
+          },
+        } as unknown as ThreadActionControllerInput["codexControl"],
+      }),
+    );
 
-    await actions.onIntelligenceSelectionChange?.({
-      kind: "codex",
-      model: "gpt-5.6-sol",
-      reasoningEffort: "xhigh",
-      serviceTier: "fast",
-    }, { collaborationMode: "default" });
-
-    expect(settingsUpdates).toEqual([{
-      threadId: "thread_1",
-      patch: {
-        collaborationMode: "default",
+    await actions.onIntelligenceSelectionChange?.(
+      {
+        kind: "codex",
         model: "gpt-5.6-sol",
         reasoningEffort: "xhigh",
         serviceTier: "fast",
       },
-    }]);
+      { collaborationMode: "default" },
+    );
+
+    expect(settingsUpdates).toEqual([
+      {
+        threadId: "thread_1",
+        patch: {
+          collaborationMode: "default",
+          model: "gpt-5.6-sol",
+          reasoningEffort: "xhigh",
+          serviceTier: "fast",
+        },
+      },
+    ]);
   });
 
   test("forwards explicit intelligence overrides to the owner turn start", async () => {
     const calls: unknown[] = [];
-    const actions = createThreadStageActions(buildInput({
-      codexControl: {
-        startTurn: async (threadId: string, prompt: string, options: unknown) => {
-          calls.push({ threadId, prompt, options });
-        },
-      } as unknown as ThreadActionControllerInput["codexControl"],
-    }));
+    const actions = createThreadStageActions(
+      buildInput({
+        codexControl: {
+          startTurn: async (threadId: string, prompt: string, options: unknown) => {
+            calls.push({ threadId, prompt, options });
+          },
+        } as unknown as ThreadActionControllerInput["codexControl"],
+      }),
+    );
 
     await actions.onSendPrompt("Implement", {
       collaborationMode: "default",
@@ -277,18 +304,20 @@ describe("createThreadStageActions settings routing", () => {
       serviceTier: "fast",
     });
 
-    expect(calls).toEqual([{
-      threadId: "thread_1",
-      prompt: "Implement",
-      options: {
-        projectId: "project_1",
-        collaborationMode: "default",
-        promptInput: undefined,
-        model: "gpt-5.6-sol",
-        reasoningEffort: "xhigh",
-        serviceTier: "fast",
+    expect(calls).toEqual([
+      {
+        threadId: "thread_1",
+        prompt: "Implement",
+        options: {
+          projectId: "project_1",
+          collaborationMode: "default",
+          promptInput: undefined,
+          model: "gpt-5.6-sol",
+          reasoningEffort: "xhigh",
+          serviceTier: "fast",
+        },
       },
-    }]);
+    ]);
   });
 
   test("opens a pending worktree route with its actual target Session", async () => {
@@ -321,27 +350,31 @@ describe("createThreadStageActions settings routing", () => {
       runInTarget: "newWorktree",
     });
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      "open:client-new-thread:pending-composer:session_2",
-    ]));
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify(["open:client-new-thread:pending-composer:session_2"]),
+    );
   });
 
   test("rejects a second new-task start while canonical worktree setup is pending", async () => {
     const startThreadForSession = vi.fn();
-    const actions = createThreadStageActions(buildInput({
-      activeThreadId: null,
-      newThreadStartBlockedReason: "Worktree setup is already in progress",
-      codexControl: {
-        startThreadForSession,
-      } as unknown as ThreadActionControllerInput["codexControl"],
-    }));
+    const actions = createThreadStageActions(
+      buildInput({
+        activeThreadId: null,
+        newThreadStartBlockedReason: "Worktree setup is already in progress",
+        codexControl: {
+          startThreadForSession,
+        } as unknown as ThreadActionControllerInput["codexControl"],
+      }),
+    );
 
-    await expect(actions.onStartThreadForSession?.({
-      projectId: "project_1",
-      sessionId: "session_1",
-      prompt: "Start again",
-      runInTarget: "newWorktree",
-    })).rejects.toThrow("Worktree setup is already in progress");
+    await expect(
+      actions.onStartThreadForSession?.({
+        projectId: "project_1",
+        sessionId: "session_1",
+        prompt: "Start again",
+        runInTarget: "newWorktree",
+      }),
+    ).rejects.toThrow("Worktree setup is already in progress");
     expect(startThreadForSession).not.toHaveBeenCalled();
   });
 
@@ -380,20 +413,22 @@ describe("createThreadStageActions settings routing", () => {
       runInTarget: "localProject",
     });
 
-    expect(JSON.stringify(startInputs)).toBe(JSON.stringify([{
-      projectId: "project_1",
-      sessionId: "session_1",
-      prompt: "Start locally",
-      threadGoalMaterializedDraft: {
-        objective: "Keep the local goal active",
-        attachmentDirectory: "/tmp/goal-materialized",
-      },
-      runInTarget: "localProject",
-      collaborationMode: "default",
-    }]));
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      "refresh:project_1",
-    ]));
+    expect(JSON.stringify(startInputs)).toBe(
+      JSON.stringify([
+        {
+          projectId: "project_1",
+          sessionId: "session_1",
+          prompt: "Start locally",
+          threadGoalMaterializedDraft: {
+            objective: "Keep the local goal active",
+            attachmentDirectory: "/tmp/goal-materialized",
+          },
+          runInTarget: "localProject",
+          collaborationMode: "default",
+        },
+      ]),
+    );
+    expect(JSON.stringify(calls)).toBe(JSON.stringify(["refresh:project_1"]));
   });
 
   test("captures the owning Session Browser before an idle task turn starts", async () => {
@@ -403,21 +438,20 @@ describe("createThreadStageActions settings routing", () => {
       events.push(`capture:${command.codexSessionId}`);
       return { ok: true };
     });
-    const actions = createThreadStageActions(buildInput({
-      browserUseViewScopeId: "window-session-1",
-      codexControl: {
-        startTurn: async (threadId: string) => {
-          events.push(`start:${threadId}`);
-        },
-      } as unknown as ThreadActionControllerInput["codexControl"],
-    }));
+    const actions = createThreadStageActions(
+      buildInput({
+        browserUseViewScopeId: "window-session-1",
+        codexControl: {
+          startTurn: async (threadId: string) => {
+            events.push(`start:${threadId}`);
+          },
+        } as unknown as ThreadActionControllerInput["codexControl"],
+      }),
+    );
 
     await actions.onSendPrompt?.("Continue", {});
 
-    expect(events).toEqual([
-      "capture:thread_1",
-      "start:thread_1",
-    ]);
+    expect(events).toEqual(["capture:thread_1", "start:thread_1"]);
     expect(invokeMock).toHaveBeenCalledWith("browser-sidebar-command", {
       type: "capture-browser-use-route",
       browserConversationId: "session_1",
@@ -434,21 +468,20 @@ describe("createThreadStageActions settings routing", () => {
       events.push(`capture:${command.codexSessionId}`);
       return { ok: true };
     });
-    const actions = createThreadStageActions(buildInput({
-      browserUseViewScopeId: "window-session-1",
-      codexControl: {
-        resumeInterruptedTurn: async (threadId: string) => {
-          events.push(`resume:${threadId}`);
-        },
-      } as unknown as ThreadActionControllerInput["codexControl"],
-    }));
+    const actions = createThreadStageActions(
+      buildInput({
+        browserUseViewScopeId: "window-session-1",
+        codexControl: {
+          resumeInterruptedTurn: async (threadId: string) => {
+            events.push(`resume:${threadId}`);
+          },
+        } as unknown as ThreadActionControllerInput["codexControl"],
+      }),
+    );
 
     await actions.onResumeInterruptedTurn?.();
 
-    expect(events).toEqual([
-      "capture:thread_1",
-      "resume:thread_1",
-    ]);
+    expect(events).toEqual(["capture:thread_1", "resume:thread_1"]);
   });
 
   test("materializes and starts a Project draft exactly once across duplicate submits", async () => {
@@ -498,19 +531,12 @@ describe("createThreadStageActions settings routing", () => {
     const first = actions.onStartThreadForSession?.(request);
     const duplicate = actions.onStartThreadForSession?.(request);
     await vi.waitFor(() => {
-      expect(events).toEqual([
-        "materialize:draft-1",
-        "capture:session-real",
-        "start:session-real",
-      ]);
+      expect(events).toEqual(["materialize:draft-1", "capture:session-real", "start:session-real"]);
     });
     expect(first).toBe(duplicate);
     releaseStart();
     await Promise.all([first, duplicate]);
-    expect(events.slice(-2)).toEqual([
-      "commit:session-real",
-      "refresh:project_1",
-    ]);
+    expect(events.slice(-2)).toEqual(["commit:session-real", "refresh:project_1"]);
     expect(invokeMock).toHaveBeenCalledWith("browser-sidebar-command", {
       type: "capture-browser-use-route",
       browserConversationId: "session-real",
@@ -525,8 +551,7 @@ describe("createThreadStageActions settings routing", () => {
     const refreshScopes: Array<string | null> = [];
     const workspace = {
       cwd: "/Users/test/Documents/Nodex/2026-07-18/research-projectless-launch",
-      outputDirectory:
-        "/Users/test/Documents/Nodex/2026-07-18/research-projectless-launch/outputs",
+      outputDirectory: "/Users/test/Documents/Nodex/2026-07-18/research-projectless-launch/outputs",
       workspaceRoot: "/Users/test/Documents/Nodex",
     };
     invokeMock.mockReset();
@@ -617,10 +642,14 @@ describe("createThreadStageActions settings routing", () => {
 
     expect(errorMessage).toBe("blank session failed");
     expect(startCalls).toBe(0);
-    expect(JSON.stringify(cleaned)).toBe(JSON.stringify([{
-      objective: "Materialized goal",
-      attachmentDirectory: "/tmp/materialized-goal",
-    }]));
+    expect(JSON.stringify(cleaned)).toBe(
+      JSON.stringify([
+        {
+          objective: "Materialized goal",
+          attachmentDirectory: "/tmp/materialized-goal",
+        },
+      ]),
+    );
   });
 
   test("retains materialized goal ownership after the start service returns", async () => {
@@ -678,23 +707,29 @@ describe("createThreadStageActions settings routing", () => {
     });
     const actions = createThreadStageActions(input);
 
-    await actions.onRespondPermissionRequest?.("permission-1", {
-      permissions: {},
-      scope: "turn",
-    }, {
-      conversationId: "thread-1",
-    });
-
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+    await actions.onRespondPermissionRequest?.(
+      "permission-1",
       {
-        requestId: "permission-1",
-        response: {
-          permissions: {},
-          scope: "turn",
-        },
+        permissions: {},
+        scope: "turn",
+      },
+      {
         conversationId: "thread-1",
       },
-    ]));
+    );
+
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify([
+        {
+          requestId: "permission-1",
+          response: {
+            permissions: {},
+            scope: "turn",
+          },
+          conversationId: "thread-1",
+        },
+      ]),
+    );
   });
 
   test("routes setup-step responses through the owning conversation", async () => {
@@ -713,23 +748,31 @@ describe("createThreadStageActions settings routing", () => {
     });
     const actions = createThreadStageActions(input);
 
-    await actions.onRespondSetupCodexStep?.("setup-context-1", {
-      step: "context",
-      action: "continue",
-      selectedSources: ["google-drive"],
-    }, {
-      conversationId: "thread-child",
-    });
-
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([{
-      conversationId: "thread-child",
-      requestId: "setup-context-1",
-      response: {
+    await actions.onRespondSetupCodexStep?.(
+      "setup-context-1",
+      {
         step: "context",
         action: "continue",
         selectedSources: ["google-drive"],
       },
-    }]));
+      {
+        conversationId: "thread-child",
+      },
+    );
+
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify([
+        {
+          conversationId: "thread-child",
+          requestId: "setup-context-1",
+          response: {
+            step: "context",
+            action: "continue",
+            selectedSources: ["google-drive"],
+          },
+        },
+      ]),
+    );
   });
 
   test("routes approval kind through Codex control with conversation context", async () => {
@@ -748,15 +791,23 @@ describe("createThreadStageActions settings routing", () => {
     });
     const actions = createThreadStageActions(input);
 
-    await actions.onRespondApproval("approval-1", { kind: "file", decision: "decline" }, {
-      conversationId: "thread-1",
-    });
+    await actions.onRespondApproval(
+      "approval-1",
+      { kind: "file", decision: "decline" },
+      {
+        conversationId: "thread-1",
+      },
+    );
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([{
-      requestId: "approval-1",
-      response: { kind: "file", decision: "decline" },
-      conversationId: "thread-1",
-    }]));
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify([
+        {
+          requestId: "approval-1",
+          response: { kind: "file", decision: "decline" },
+          conversationId: "thread-1",
+        },
+      ]),
+    );
   });
 
   test("routes summary commit-or-push action through the active thread", async () => {
@@ -776,16 +827,18 @@ describe("createThreadStageActions settings routing", () => {
 
     await actions.onStartSummaryGitAction?.({ action: "commit-or-push" });
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      {
-        threadId: "thread-summary",
-        prompt: GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
-        opts: {
-          projectId: "project-summary",
-          collaborationMode: "plan",
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify([
+        {
+          threadId: "thread-summary",
+          prompt: GIT_ACTION_COMMIT_OR_PUSH_PROMPT,
+          opts: {
+            projectId: "project-summary",
+            collaborationMode: "plan",
+          },
         },
-      },
-    ]));
+      ]),
+    );
   });
 
   test("routes summary create-pull-request action through the active thread", async () => {
@@ -805,16 +858,18 @@ describe("createThreadStageActions settings routing", () => {
 
     await actions.onStartSummaryGitAction?.({ action: "create-pull-request" });
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      {
-        threadId: "thread-summary",
-        prompt: GIT_ACTION_CREATE_PR_PROMPT,
-        opts: {
-          projectId: "project-summary",
-          collaborationMode: "plan",
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify([
+        {
+          threadId: "thread-summary",
+          prompt: GIT_ACTION_CREATE_PR_PROMPT,
+          opts: {
+            projectId: "project-summary",
+            collaborationMode: "plan",
+          },
         },
-      },
-    ]));
+      ]),
+    );
   });
 
   test("passes subagent context to the shell opener without hydrating inline", async () => {
@@ -849,9 +904,7 @@ describe("createThreadStageActions settings routing", () => {
       },
     });
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      "open:thread-child:thread-child",
-    ]));
+    expect(JSON.stringify(calls)).toBe(JSON.stringify(["open:thread-child:thread-child"]));
   });
 
   test("does not run subagent hydration for ordinary thread opens", async () => {
@@ -875,9 +928,7 @@ describe("createThreadStageActions settings routing", () => {
 
     await actions.onOpenThread("thread-ordinary");
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      "open:thread-ordinary:none",
-    ]));
+    expect(JSON.stringify(calls)).toBe(JSON.stringify(["open:thread-ordinary:none"]));
   });
 
   test("stops background agents by interrupting unique child threads", async () => {
@@ -892,12 +943,14 @@ describe("createThreadStageActions settings routing", () => {
     });
     const actions = createThreadStageActions(input);
 
-    await actions.onStopBackgroundAgents?.(["thread-child-a", "thread-child-b", "thread-child-a", " "]);
-
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
+    await actions.onStopBackgroundAgents?.([
       "thread-child-a",
       "thread-child-b",
-    ]));
+      "thread-child-a",
+      " ",
+    ]);
+
+    expect(JSON.stringify(calls)).toBe(JSON.stringify(["thread-child-a", "thread-child-b"]));
   });
 
   test("passes summary output side-panel opener through the action controller", async () => {
@@ -916,10 +969,14 @@ describe("createThreadStageActions settings routing", () => {
     });
 
     expect(opened).toBe(true);
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([{
-      path: "/repo/project/report.txt",
-      title: "report.txt",
-    }]));
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify([
+        {
+          path: "/repo/project/report.txt",
+          title: "report.txt",
+        },
+      ]),
+    );
   });
 
   test("passes summary Computer Use PiP toggles through the action controller", async () => {

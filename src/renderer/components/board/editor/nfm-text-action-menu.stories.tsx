@@ -11,7 +11,10 @@ import { writeTextActionRecentColors } from "@/lib/text-action-color-recents";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import { writeNfmSendToThreadMode } from "./nfm-send-to-thread-mode-settings";
 import { NfmSendToThreadMenuSurface } from "./nfm-send-to-thread-menu";
-import { NfmTextActionMenuSurface, type NfmTextActionMenuSurfaceProps } from "./nfm-text-action-menu";
+import {
+  NfmTextActionMenuSurface,
+  type NfmTextActionMenuSurfaceProps,
+} from "./nfm-text-action-menu";
 import { NfmSideMenuSurface } from "./nfm-side-menu";
 import {
   buildNfmSideMenuSections,
@@ -45,7 +48,12 @@ function makeStoryProject(id: string, name: string, icon?: string): Project {
   };
 }
 
-function makeStoryCard(id: string, title: string, status: DatabasePageSummary["status"], order: number): DatabasePageSummary {
+function makeStoryCard(
+  id: string,
+  title: string,
+  status: DatabasePageSummary["status"],
+  order: number,
+): DatabasePageSummary {
   return {
     id,
     pageKey: null,
@@ -63,7 +71,9 @@ function makeStoryCard(id: string, title: string, status: DatabasePageSummary["s
   };
 }
 
-function makeStoryThread(input: Partial<CodexThreadSummary> & { threadId: string }): CodexThreadSummary {
+function makeStoryThread(
+  input: Partial<CodexThreadSummary> & { threadId: string },
+): CodexThreadSummary {
   return {
     threadId: input.threadId,
     projectId: input.projectId ?? "default",
@@ -86,9 +96,13 @@ function makeStoryThread(input: Partial<CodexThreadSummary> & { threadId: string
 }
 
 function storyThreadSummaryToItem(thread: CodexThreadSummary): CommandPaletteThread {
-  const title = thread.threadName?.trim()
-    || thread.threadPreview.split(/\r?\n/).map((line) => line.trim()).find((line) => line.length > 0)
-    || thread.threadId;
+  const title =
+    thread.threadName?.trim() ||
+    thread.threadPreview
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ||
+    thread.threadId;
   return {
     kind: "thread",
     id: `thread:${thread.threadId}`,
@@ -170,9 +184,7 @@ const STORY_SEND_TO_THREAD_SUMMARIES = [
 
 const STORY_SEND_TO_THREAD_THREADS = STORY_SEND_TO_THREAD_SUMMARIES.map(storyThreadSummaryToItem);
 
-function TextActionMenuStorySurface(
-  props: Partial<NfmTextActionMenuSurfaceProps>,
-) {
+function TextActionMenuStorySurface(props: Partial<NfmTextActionMenuSurfaceProps>) {
   return (
     <NodexTooltipProvider>
       <div className="flex min-h-screen items-start justify-center bg-token-editor-background p-12 text-token-foreground">
@@ -213,7 +225,7 @@ function TextActionMenuStorySurface(
             canUseTextColor={true}
             canUseBackgroundColor={true}
             canClearFormat={true}
-            linkControl={(
+            linkControl={
               <button
                 type="button"
                 aria-label="Link"
@@ -221,7 +233,7 @@ function TextActionMenuStorySurface(
               >
                 <TextActionLinkIcon />
               </button>
-            )}
+            }
             nodexRows={[]}
             showReferenceMocks
             sourceProjectId={null}
@@ -248,20 +260,27 @@ function TextActionMoreHandoffStorySurface() {
   const [query, setQuery] = useState("");
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const [activeSubmenu, setActiveSubmenu] = useState<NfmSideMenuSubmenuKey | null>(null);
-  const baseSections = useMemo(() => buildNfmSideMenuSections({
-    currentBlockId: "block-1",
-    currentBlockType: "paragraph",
-    selectionTitle: "2 blocks",
-    selectedTopLevelBlockCount: 2,
-    isEditable: true,
-    canUseColor: true,
-    canSendBlocks: true,
-    hasConvertDividerToThreadSection: false,
-    isTableBlock: false,
-    canUseTableHeaders: false,
-    showMockActions: true,
-  }), []);
-  const sections = useMemo(() => filterNfmSideMenuSections(baseSections, query), [baseSections, query]);
+  const baseSections = useMemo(
+    () =>
+      buildNfmSideMenuSections({
+        currentBlockId: "block-1",
+        currentBlockType: "paragraph",
+        selectionTitle: "2 blocks",
+        selectedTopLevelBlockCount: 2,
+        isEditable: true,
+        canUseColor: true,
+        canSendBlocks: true,
+        hasConvertDividerToThreadSection: false,
+        isTableBlock: false,
+        canUseTableHeaders: false,
+        showMockActions: true,
+      }),
+    [],
+  );
+  const sections = useMemo(
+    () => filterNfmSideMenuSections(baseSections, query),
+    [baseSections, query],
+  );
   const flatRows = useMemo(() => flattenNfmSideMenuRows(sections), [sections]);
 
   return (
@@ -293,10 +312,20 @@ function TextActionMoreHandoffStorySurface() {
             activeSubmenu={activeSubmenu}
             listboxId="text-action-more-handoff-listbox"
             comboboxId="text-action-more-handoff-combobox"
-            activeDescendantId={focusedIndex >= 0 ? `text-action-more-handoff-listbox-option-${focusedIndex}` : undefined}
+            activeDescendantId={
+              focusedIndex >= 0
+                ? `text-action-more-handoff-listbox-option-${focusedIndex}`
+                : undefined
+            }
             turnIntoItems={[
               { key: "paragraph", label: "Text", type: "paragraph", enabled: true },
-              { key: "heading-1", label: "Heading 1", type: "heading", props: { level: 1, isToggleable: false }, enabled: true },
+              {
+                key: "heading-1",
+                label: "Heading 1",
+                type: "heading",
+                props: { level: 1, isToggleable: false },
+                enabled: true,
+              },
               { key: "bullet-list", label: "Bulleted list", type: "bulletListItem", enabled: true },
             ]}
             colorOptions={[
@@ -319,7 +348,9 @@ function TextActionMoreHandoffStorySurface() {
             }}
             onFocusIndexChange={setFocusedIndex}
             onMoveFocus={(direction) => {
-              setFocusedIndex((currentIndex) => moveNfmSideMenuFocus(currentIndex, direction, flatRows));
+              setFocusedIndex((currentIndex) =>
+                moveNfmSideMenuFocus(currentIndex, direction, flatRows),
+              );
             }}
             onActivateFocused={() => undefined}
             onClose={() => {
@@ -373,7 +404,7 @@ function TextActionMoreHandoffStorySurface() {
               canUseTextColor={true}
               canUseBackgroundColor={true}
               canClearFormat={true}
-              linkControl={(
+              linkControl={
                 <button
                   type="button"
                   aria-label="Link"
@@ -381,7 +412,7 @@ function TextActionMoreHandoffStorySurface() {
                 >
                   <TextActionLinkIcon />
                 </button>
-              )}
+              }
               nodexRows={[
                 {
                   key: "move-to",
@@ -437,7 +468,8 @@ const meta = {
     layout: "fullscreen",
     docs: {
       description: {
-        component: "Floating text action menu for expanded NFM rich-text selections. Portalled child menus inherit the editor-owned floating scope and stack above the toolbar, while action tooltips remain above both layers.",
+        component:
+          "Floating text action menu for expanded NFM rich-text selections. Portalled child menus inherit the editor-owned floating scope and stack above the toolbar, while action tooltips remain above both layers.",
       },
     },
   },
@@ -482,7 +514,8 @@ export const TextColorMenu: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Open the Color button to inspect the 190px Notion-style swatch grid with five persisted recent color slots.",
+        story:
+          "Open the Color button to inspect the 190px Notion-style swatch grid with five persisted recent color slots.",
       },
     },
   },
@@ -533,7 +566,8 @@ export const WithNodexActions: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Send to chat and Move to fit without a bottom fade; hovering or focusing either row keeps this action menu stable, and clicking opens its destination picker.",
+        story:
+          "Send to chat and Move to fit without a bottom fade; hovering or focusing either row keeps this action menu stable, and clicking opens its destination picker.",
       },
     },
   },
@@ -551,13 +585,15 @@ export const SendToThreadPicker: Story = {
             threadItems={STORY_SEND_TO_THREAD_THREADS}
             enableThreadSearch={false}
             projectNameById={{ default: "Default" }}
-            preferredTarget={STORY_SEND_TO_THREAD_SUMMARIES[0]
-              ? {
-                  kind: "thread",
-                  thread: STORY_SEND_TO_THREAD_SUMMARIES[0],
-                  meta: "This session",
-                }
-              : null}
+            preferredTarget={
+              STORY_SEND_TO_THREAD_SUMMARIES[0]
+                ? {
+                    kind: "thread",
+                    thread: STORY_SEND_TO_THREAD_SUMMARIES[0],
+                    meta: "This session",
+                  }
+                : null
+            }
             initialQuery="implementation"
             onAccept={() => undefined}
             onClose={() => undefined}
@@ -569,7 +605,8 @@ export const SendToThreadPicker: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Direct send-to-chat picker coverage for thread search, the selected-block current session hint, the bottom New chat action, the persisted Send / Send & wrap selector, and the wrap info tooltip.",
+        story:
+          "Direct send-to-chat picker coverage for thread search, the selected-block current session hint, the bottom New chat action, the persisted Send / Send & wrap selector, and the wrap info tooltip.",
       },
     },
   },
@@ -598,7 +635,8 @@ export const SendToThreadPickerEmptySession: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Selected-block send picker coverage for an empty current session: New chat is the first row with This session meta and the project-level footer action is not duplicated.",
+        story:
+          "Selected-block send picker coverage for an empty current session: New chat is the first row with This session meta and the project-level footer action is not duplicated.",
       },
     },
   },
@@ -613,13 +651,15 @@ export const SendToThreadPickerThreadSection: Story = {
           threadItems={STORY_SEND_TO_THREAD_THREADS}
           enableThreadSearch={false}
           projectNameById={{ default: "Default" }}
-          preferredTarget={STORY_SEND_TO_THREAD_SUMMARIES[1]
-            ? {
-                kind: "thread",
-                thread: STORY_SEND_TO_THREAD_SUMMARIES[1],
-                meta: "Current section",
-              }
-            : null}
+          preferredTarget={
+            STORY_SEND_TO_THREAD_SUMMARIES[1]
+              ? {
+                  kind: "thread",
+                  thread: STORY_SEND_TO_THREAD_SUMMARIES[1],
+                  meta: "Current section",
+                }
+              : null
+          }
           showModeSelector={false}
           onAccept={() => undefined}
           onClose={() => undefined}
@@ -630,7 +670,8 @@ export const SendToThreadPickerThreadSection: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Thread-section send picker coverage where the bound section chat is the preferred first row and New chat remains fixed at the bottom.",
+        story:
+          "Thread-section send picker coverage where the bound section chat is the preferred first row and New chat remains fixed at the bottom.",
       },
     },
   },
@@ -654,7 +695,8 @@ export const SendToThreadPickerEmpty: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Empty search state keeps the bottom New chat action available while explaining that no existing threads matched.",
+        story:
+          "Empty search state keeps the bottom New chat action available while explaining that no existing threads matched.",
       },
     },
   },
@@ -686,7 +728,8 @@ export const MoreHandoffToBlockActions: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Click More to replace the text-selection toolbar with the block side-menu action surface; dismissing it returns focus to the editor with the selected block scope still active.",
+        story:
+          "Click More to replace the text-selection toolbar with the block side-menu action surface; dismissing it returns focus to the editor with the selected block scope still active.",
       },
     },
   },
@@ -697,7 +740,8 @@ export const CollapsedCursorNoToolbar: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Collapsed rich-text cursor state: the NFM floating toolbar remains closed instead of falling back to the legacy formatting toolbar.",
+        story:
+          "Collapsed rich-text cursor state: the NFM floating toolbar remains closed instead of falling back to the legacy formatting toolbar.",
       },
     },
   },

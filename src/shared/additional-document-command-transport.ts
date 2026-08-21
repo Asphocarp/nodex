@@ -12,9 +12,7 @@ import {
 
 const MAX_ID_LENGTH = 512;
 
-const isRecord = (
-  value: unknown,
-): value is Readonly<Record<string, unknown>> =>
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const readCanonicalIdentity = (value: unknown, label: string): string => {
@@ -32,18 +30,13 @@ const readCanonicalIdentity = (value: unknown, label: string): string => {
 const readOperationIdHint = (value: unknown): string => {
   if (!isRecord(value)) return "invalid";
   try {
-    return readCanonicalIdentity(
-      value.operationId,
-      "additionalDocument.operationId",
-    );
+    return readCanonicalIdentity(value.operationId, "additionalDocument.operationId");
   } catch {
     return "invalid";
   }
 };
 
-const readOperationKindHint = (
-  value: unknown,
-): AdditionalDocumentCommandError["operationKind"] => {
+const readOperationKindHint = (value: unknown): AdditionalDocumentCommandError["operationKind"] => {
   if (!isRecord(value) || !isRecord(value.operation)) return null;
   const kind = value.operation.kind;
   if (typeof kind !== "string") return null;
@@ -170,9 +163,7 @@ export const bindAdditionalDocumentCommandToProject = (
     };
   }
 
-  const capability = additionalDocumentCommandCapability(
-    request.operation.kind,
-  );
+  const capability = additionalDocumentCommandCapability(request.operation.kind);
   if (capability.availability !== "kernel_ready") {
     return {
       ok: false,
@@ -256,10 +247,7 @@ export const additionalDocumentCommandHttpStatus = (
   ) {
     return 409;
   }
-  if (
-    error.retryable &&
-    (error.code === "coordination_failed" || error.code === "unknown")
-  ) {
+  if (error.retryable && (error.code === "coordination_failed" || error.code === "unknown")) {
     return 503;
   }
   if (error.code === "document_state_corrupt" || error.code === "unknown") {

@@ -34,12 +34,8 @@ export interface BlockTransferIpcDependencies {
     channel: typeof BLOCK_TRANSFER_IPC_CHANNEL,
     listener: BlockTransferIpcHandler,
   ) => void;
-  readonly resolveTrustedIdentity: (
-    event: unknown,
-  ) => TrustedBlockTransferIdentity | null;
-  readonly transfer: (
-    intent: BlockTransferIntent,
-  ) => Promise<BlockTransferCommandResult>;
+  readonly resolveTrustedIdentity: (event: unknown) => TrustedBlockTransferIdentity | null;
+  readonly transfer: (intent: BlockTransferIntent) => Promise<BlockTransferCommandResult>;
 }
 
 export interface BlockTransferUndoIpcDependencies {
@@ -48,36 +44,31 @@ export interface BlockTransferUndoIpcDependencies {
     listener: BlockTransferUndoIpcHandler,
   ) => void;
   readonly resolveTrustedIdentity: (event: unknown) => unknown | null;
-  readonly undo: (
-    intent: BlockTransferUndoIntent,
-  ) => Promise<BlockTransferUndoCommandResult>;
+  readonly undo: (intent: BlockTransferUndoIntent) => Promise<BlockTransferUndoCommandResult>;
 }
 
 export const registerBlockTransferIpcHandler = (
   dependencies: BlockTransferIpcDependencies,
 ): void => {
-  dependencies.registerHandle(
-    BLOCK_TRANSFER_IPC_CHANNEL,
-    async (event, projectId, rawIntent) => {
-      const identity = dependencies.resolveTrustedIdentity(event);
-      if (!identity) {
-        return {
-          ok: false,
-          error: blockTransferFailure(
-            "invalid_transfer_request",
-            "Block transfer is restricted to a trusted application window",
-          ),
-        };
-      }
-      const bound = bindBlockTransferIntent(rawIntent, projectId, identity);
-      if (!bound.ok) return bound;
-      try {
-        return await dependencies.transfer(bound.value);
-      } catch (error) {
-        return blockTransferTransportFailure(bound.value, error);
-      }
-    },
-  );
+  dependencies.registerHandle(BLOCK_TRANSFER_IPC_CHANNEL, async (event, projectId, rawIntent) => {
+    const identity = dependencies.resolveTrustedIdentity(event);
+    if (!identity) {
+      return {
+        ok: false,
+        error: blockTransferFailure(
+          "invalid_transfer_request",
+          "Block transfer is restricted to a trusted application window",
+        ),
+      };
+    }
+    const bound = bindBlockTransferIntent(rawIntent, projectId, identity);
+    if (!bound.ok) return bound;
+    try {
+      return await dependencies.transfer(bound.value);
+    } catch (error) {
+      return blockTransferTransportFailure(bound.value, error);
+    }
+  });
 };
 
 export const registerBlockTransferUndoIpcHandler = (

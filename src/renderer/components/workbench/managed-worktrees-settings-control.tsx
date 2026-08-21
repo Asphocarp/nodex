@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { RefreshIcon } from "@/components/shared/icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
@@ -18,10 +11,7 @@ import {
   NodexDialogHeader,
   NodexDialogTitle,
 } from "@/components/ui/dialog";
-import {
-  NodexSettingsRow,
-  NodexSettingsSection,
-} from "@/components/ui/settings";
+import { NodexSettingsRow, NodexSettingsSection } from "@/components/ui/settings";
 import { toast } from "@/components/ui/toast";
 import { invoke } from "@/lib/api";
 import type {
@@ -32,9 +22,7 @@ import type {
 
 export interface ManagedWorktreesSettingsService {
   getSettings(): Promise<ManagedWorktreeSettings>;
-  updateSettings(
-    input: UpdateManagedWorktreeSettingsInput,
-  ): Promise<ManagedWorktreeSettings>;
+  updateSettings(input: UpdateManagedWorktreeSettingsInput): Promise<ManagedWorktreeSettings>;
   list(): Promise<ManagedWorktreeRecord[]>;
   delete(hostId: string, worktreePath: string): Promise<boolean>;
 }
@@ -49,8 +37,7 @@ const DEFAULT_SERVICE: ManagedWorktreesSettingsService = {
   getSettings: async () => await invoke("worktrees:settings:get"),
   updateSettings: async (input) => await invoke("worktrees:settings:update", input),
   list: async () => await invoke("worktrees:list"),
-  delete: async (hostId, worktreePath) =>
-    await invoke("worktrees:delete", hostId, worktreePath),
+  delete: async (hostId, worktreePath) => await invoke("worktrees:delete", hostId, worktreePath),
 };
 
 export interface ManagedWorktreesSettingControlProps {
@@ -65,13 +52,14 @@ interface WorktreeGroup {
   readonly records: readonly ManagedWorktreeRecord[];
 }
 
-function groupManagedWorktrees(
-  records: readonly ManagedWorktreeRecord[],
-): WorktreeGroup[] {
-  const groups = new Map<string, {
-    repositoryPath: string;
-    records: ManagedWorktreeRecord[];
-  }>();
+function groupManagedWorktrees(records: readonly ManagedWorktreeRecord[]): WorktreeGroup[] {
+  const groups = new Map<
+    string,
+    {
+      repositoryPath: string;
+      records: ManagedWorktreeRecord[];
+    }
+  >();
 
   for (const record of records) {
     const repositoryPath = record.repositoryPath ?? "Other worktrees";
@@ -84,12 +72,8 @@ function groupManagedWorktrees(
   return [...groups.entries()]
     .map(([key, group]) => ({ key, ...group }))
     .sort((left, right) => {
-      const leftHasConversation = left.records.some(
-        (record) => record.conversations.length > 0,
-      );
-      const rightHasConversation = right.records.some(
-        (record) => record.conversations.length > 0,
-      );
+      const leftHasConversation = left.records.some((record) => record.conversations.length > 0);
+      const rightHasConversation = right.records.some((record) => record.conversations.length > 0);
       if (leftHasConversation !== rightHasConversation) {
         return leftHasConversation ? -1 : 1;
       }
@@ -152,10 +136,7 @@ function WorktreeInventoryRow({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-medium text-token-text-primary">Worktree</div>
-          <div
-            className="mt-1 truncate text-xs text-token-text-secondary"
-            title={record.path}
-          >
+          <div className="mt-1 truncate text-xs text-token-text-secondary" title={record.path}>
             {record.path}
           </div>
         </div>
@@ -188,9 +169,9 @@ function WorktreeInventoryRow({
                 onClick={() => void onOpenThread?.(conversation.threadId)}
               >
                 <span className="truncate">
-                  {conversation.sessionTitle?.trim()
-                    || conversation.threadName?.trim()
-                    || "Untitled conversation"}
+                  {conversation.sessionTitle?.trim() ||
+                    conversation.threadName?.trim() ||
+                    "Untitled conversation"}
                 </span>
               </button>
             ))}
@@ -230,9 +211,9 @@ export function ManagedWorktreesSettingControl({
       setLimitDraft(null);
       setRecords(nextRecords);
     } catch (error) {
-      setLoadError(error instanceof Error
-        ? error.message
-        : "Something went wrong while loading worktrees.");
+      setLoadError(
+        error instanceof Error ? error.message : "Something went wrong while loading worktrees.",
+      );
       setRecords([]);
     } finally {
       setLoading(false);
@@ -244,38 +225,38 @@ export function ManagedWorktreesSettingControl({
     void load();
   }, [load, open]);
 
-  const save = useCallback(async (
-    patch: UpdateManagedWorktreeSettingsInput,
-    successMessage?: string,
-  ): Promise<boolean> => {
-    if (savingSetting) return false;
-    setSavingSetting(true);
-    try {
-      const next = await service.updateSettings(patch);
-      setSettings(next);
-      setRootDraft(next.worktreeRoot ?? "");
-      setLimitDraft(null);
-      if (successMessage) toast.success(successMessage);
-      return true;
-    } catch {
-      toast.danger(
-        patch.autoDeleteLimit !== undefined
-          ? "Failed to save auto-delete limit"
-          : patch.autoDeleteEnabled !== undefined
-            ? "Failed to save automatic deletion setting"
-            : "Failed to save worktree root",
-      );
-      return false;
-    } finally {
-      setSavingSetting(false);
-    }
-  }, [savingSetting, service]);
+  const save = useCallback(
+    async (
+      patch: UpdateManagedWorktreeSettingsInput,
+      successMessage?: string,
+    ): Promise<boolean> => {
+      if (savingSetting) return false;
+      setSavingSetting(true);
+      try {
+        const next = await service.updateSettings(patch);
+        setSettings(next);
+        setRootDraft(next.worktreeRoot ?? "");
+        setLimitDraft(null);
+        if (successMessage) toast.success(successMessage);
+        return true;
+      } catch {
+        toast.danger(
+          patch.autoDeleteLimit !== undefined
+            ? "Failed to save auto-delete limit"
+            : patch.autoDeleteEnabled !== undefined
+              ? "Failed to save automatic deletion setting"
+              : "Failed to save worktree root",
+        );
+        return false;
+      } finally {
+        setSavingSetting(false);
+      }
+    },
+    [savingSetting, service],
+  );
 
   const resolvedSettings = settings ?? DEFAULT_SETTINGS;
-  const groupedRecords = useMemo(
-    () => groupManagedWorktrees(records),
-    [records],
-  );
+  const groupedRecords = useMemo(() => groupManagedWorktrees(records), [records]);
   const controlsDisabled = savingSetting || (loading && settings === null);
 
   const saveRoot = useCallback(() => {
@@ -332,9 +313,8 @@ export function ManagedWorktreesSettingControl({
             disabled={controlsDisabled}
             onCheckedChange={(enabled) => {
               if (!enabled) {
-                disableDialogReturnFocusRef.current = document.activeElement instanceof HTMLElement
-                  ? document.activeElement
-                  : null;
+                disableDialogReturnFocusRef.current =
+                  document.activeElement instanceof HTMLElement ? document.activeElement : null;
                 setConfirmDisable(true);
                 return;
               }
@@ -345,9 +325,11 @@ export function ManagedWorktreesSettingControl({
 
         <NodexSettingsRow
           label="Auto-delete limit"
-          description={resolvedSettings.autoDeleteEnabled
-            ? "Number of managed worktrees to keep before older ones are pruned automatically. Nodex snapshots worktrees before deleting, so pruned worktrees should always be restorable."
-            : "Automatic deletion is disabled. Nodex will not prune old worktrees automatically. Re-enable it to use this saved limit again."}
+          description={
+            resolvedSettings.autoDeleteEnabled
+              ? "Number of managed worktrees to keep before older ones are pruned automatically. Nodex snapshots worktrees before deleting, so pruned worktrees should always be restorable."
+              : "Automatic deletion is disabled. Nodex will not prune old worktrees automatically. Re-enable it to use this saved limit again."
+          }
         >
           <div className="ms-6">
             <input
@@ -363,9 +345,7 @@ export function ManagedWorktreesSettingControl({
               onChange={(event) => {
                 const nextValue = event.target.value;
                 setLimitDraft(
-                  nextValue === String(resolvedSettings.autoDeleteLimit)
-                    ? null
-                    : nextValue,
+                  nextValue === String(resolvedSettings.autoDeleteLimit) ? null : nextValue,
                 );
               }}
               onKeyDown={(event) => {
@@ -386,12 +366,7 @@ export function ManagedWorktreesSettingControl({
         <NodexSettingsSection>
           <WorktreeCardHeader
             title="Unable to load worktrees"
-            action={(
-              <RefreshWorktreesButton
-                loading={loading}
-                onRefresh={() => void load()}
-              />
-            )}
+            action={<RefreshWorktreesButton loading={loading} onRefresh={() => void load()} />}
           />
           <div className="p-3 text-sm text-danger">{loadError}</div>
         </NodexSettingsSection>
@@ -399,64 +374,61 @@ export function ManagedWorktreesSettingControl({
         <NodexSettingsSection>
           <WorktreeCardHeader
             title="No worktrees yet"
-            action={(
-              <RefreshWorktreesButton
-                loading={loading}
-                onRefresh={() => void load()}
-              />
-            )}
+            action={<RefreshWorktreesButton loading={loading} onRefresh={() => void load()} />}
           />
           <div className="semantic-text-secondary p-3 text-sm">
             Worktrees created by Nodex will appear here
           </div>
         </NodexSettingsSection>
-      ) : groupedRecords.map((group, groupIndex) => (
-        <section key={group.key} className="flex min-w-0 flex-col gap-1.5">
-          <div className="flex min-h-toolbar items-center justify-between gap-4 pb-1.5">
-            <div className="font-medium text-token-text-primary text-base">
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <h2
-                  className="min-w-0 truncate text-sm text-token-text-primary"
-                  title={group.repositoryPath}
-                >
-                  {group.repositoryPath}
-                </h2>
+      ) : (
+        groupedRecords.map((group, groupIndex) => (
+          <section key={group.key} className="flex min-w-0 flex-col gap-1.5">
+            <div className="flex min-h-toolbar items-center justify-between gap-4 pb-1.5">
+              <div className="font-medium text-token-text-primary text-base">
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <h2
+                    className="min-w-0 truncate text-sm text-token-text-primary"
+                    title={group.repositoryPath}
+                  >
+                    {group.repositoryPath}
+                  </h2>
+                </div>
               </div>
+              {groupIndex === 0 ? (
+                <RefreshWorktreesButton loading={loading} onRefresh={() => void load()} />
+              ) : null}
             </div>
-            {groupIndex === 0 ? (
-              <RefreshWorktreesButton
-                loading={loading}
-                onRefresh={() => void load()}
-              />
-            ) : null}
-          </div>
-          <NodexSettingsSection>
-            {group.records.map((record) => {
-              const key = `${record.hostId}\0${record.path}`;
-              return (
-                <WorktreeInventoryRow
-                  key={key}
-                  deleting={deletingKey === key}
-                  record={record}
-                  onOpenThread={onOpenThread}
-                  onDelete={() => {
-                    if (deletingKey !== null) return;
-                    setDeletingKey(key);
-                    void service.delete(record.hostId, record.path)
-                      .then(() => {
-                        setRecords((current) => current.filter((item) =>
-                          item.hostId !== record.hostId || item.path !== record.path
-                        ));
-                      })
-                      .catch(() => toast.danger("Failed to delete worktree"))
-                      .finally(() => setDeletingKey(null));
-                  }}
-                />
-              );
-            })}
-          </NodexSettingsSection>
-        </section>
-      ))}
+            <NodexSettingsSection>
+              {group.records.map((record) => {
+                const key = `${record.hostId}\0${record.path}`;
+                return (
+                  <WorktreeInventoryRow
+                    key={key}
+                    deleting={deletingKey === key}
+                    record={record}
+                    onOpenThread={onOpenThread}
+                    onDelete={() => {
+                      if (deletingKey !== null) return;
+                      setDeletingKey(key);
+                      void service
+                        .delete(record.hostId, record.path)
+                        .then(() => {
+                          setRecords((current) =>
+                            current.filter(
+                              (item) => item.hostId !== record.hostId || item.path !== record.path,
+                            ),
+                          );
+                        })
+                        .catch(() => toast.danger("Failed to delete worktree"))
+                        .finally(() => setDeletingKey(null));
+                    }}
+                  />
+                );
+              })}
+            </NodexSettingsSection>
+          </section>
+        ))
+      )}
 
       <NodexDialog open={confirmDisable} onOpenChange={setConfirmDisable}>
         <NodexDialogContent
@@ -472,7 +444,9 @@ export function ManagedWorktreesSettingControl({
               <NodexDialogTitle>Disable automatic worktree deletion?</NodexDialogTitle>
             </NodexDialogHeader>
             <NodexDialogDescription>
-              We highly recommend keeping automatic deletion on so old worktrees do not build up and use unnecessary disk space. If you prefer to manage old worktrees yourself, you can turn this off and Nodex will stop deleting them automatically.
+              We highly recommend keeping automatic deletion on so old worktrees do not build up and
+              use unnecessary disk space. If you prefer to manage old worktrees yourself, you can
+              turn this off and Nodex will stop deleting them automatically.
             </NodexDialogDescription>
             <NodexDialogFooter>
               <NodexDialogAction onClick={() => setConfirmDisable(false)}>
@@ -482,12 +456,11 @@ export function ManagedWorktreesSettingControl({
                 disabled={savingSetting}
                 tone="danger"
                 onClick={() => {
-                  void save(
-                    { autoDeleteEnabled: false },
-                    "Automatic deletion disabled",
-                  ).then((saved) => {
-                    if (saved) setConfirmDisable(false);
-                  });
+                  void save({ autoDeleteEnabled: false }, "Automatic deletion disabled").then(
+                    (saved) => {
+                      if (saved) setConfirmDisable(false);
+                    },
+                  );
                 }}
               >
                 Disable automatic deletion

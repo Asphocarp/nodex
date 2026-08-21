@@ -9,7 +9,9 @@ import { CODEX_THREAD_ACCORDION_TRANSITION } from "./thread-motion";
 import { useMeasuredElementHeight } from "./use-measured-element-height";
 
 export interface TodoListSurfaceProps {
-  item: Pick<CodexTranscriptEntry, "markdownText" | "rawItem"> & { status?: CodexTranscriptEntry["status"] };
+  item: Pick<CodexTranscriptEntry, "markdownText" | "rawItem"> & {
+    status?: CodexTranscriptEntry["status"];
+  };
 }
 
 type TodoStepStatus = "pending" | "in_progress" | "completed";
@@ -46,7 +48,8 @@ function parseMarkdownTodoSteps(markdownText: string): TodoStep[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 
-  return lines.reduce<TodoStep[]>((acc, line) => {
+  return lines
+    .reduce<TodoStep[]>((acc, line) => {
       const checkboxMatch = line.match(/^[-*]\s+\[([ xX])\]\s+(.+)$/);
       if (checkboxMatch) {
         acc.push({
@@ -64,14 +67,18 @@ function parseMarkdownTodoSteps(markdownText: string): TodoStep[] {
         });
       }
       return acc;
-    }, []).filter((entry) => entry.step.length > 0);
+    }, [])
+    .filter((entry) => entry.step.length > 0);
 }
 
 export function parseTodoSteps(
-  item: Pick<CodexTranscriptEntry, "markdownText" | "rawItem"> & { status?: CodexTranscriptEntry["status"] },
+  item: Pick<CodexTranscriptEntry, "markdownText" | "rawItem"> & {
+    status?: CodexTranscriptEntry["status"];
+  },
 ): TodoStep[] {
   const rawSteps = normalizeRawTodoSteps(item.rawItem);
-  const parsedSteps = rawSteps.length > 0 ? rawSteps : parseMarkdownTodoSteps(item.markdownText ?? "");
+  const parsedSteps =
+    rawSteps.length > 0 ? rawSteps : parseMarkdownTodoSteps(item.markdownText ?? "");
   if (parsedSteps.length === 0) return [];
   if (parsedSteps.some((step) => step.status === "in_progress")) return parsedSteps;
   if (item.status !== "inProgress") return parsedSteps;
@@ -87,16 +94,23 @@ export function parseTodoSteps(
   return nextSteps;
 }
 
-function TodoStatusIcon({
-  status,
-}: {
-  status: TodoStepStatus;
-}) {
+function TodoStatusIcon({ status }: { status: TodoStepStatus }) {
   if (status === "completed") {
     return (
       <div className="flex h-3.5 w-4.5 items-center justify-center overflow-hidden">
-        <svg viewBox="0 0 16 16" className="icon-3xs shrink-0 text-token-foreground" fill="none" aria-hidden="true">
-          <path d="M12.14 4.14L6.39 11.5L3.86 8.97" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <svg
+          viewBox="0 0 16 16"
+          className="icon-3xs shrink-0 text-token-foreground"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M12.14 4.14L6.39 11.5L3.86 8.97"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       </div>
     );
@@ -141,7 +155,9 @@ function TodoListCompactTooltip({ steps }: { steps: TodoStep[] }) {
             <span
               className={cn(
                 "text-size-chat max-w-72 min-w-0 break-words leading-4",
-                step.status === "completed" ? "text-token-text-tertiary" : "text-token-text-secondary",
+                step.status === "completed"
+                  ? "text-token-text-tertiary"
+                  : "text-token-text-secondary",
               )}
             >
               {step.step}
@@ -188,21 +204,22 @@ function TodoProgressDonut({ percent }: { percent: number }) {
         strokeDasharray="100"
         initial={reducedMotion ? false : { strokeDashoffset: 100 }}
         animate={{ strokeDashoffset }}
-        transition={reducedMotion
-          ? { duration: 0 }
-          : { delay: 0.15, duration: 0.3, ease: "easeOut" }}
+        transition={
+          reducedMotion ? { duration: 0 } : { delay: 0.15, duration: 0.3, ease: "easeOut" }
+        }
         transform="rotate(-90 6 6)"
       />
     </svg>
   );
 }
 
-export function TodoListCompactPillContent({
-  item,
-}: TodoListSurfaceProps) {
+export function TodoListCompactPillContent({ item }: TodoListSurfaceProps) {
   const steps = useMemo(() => parseTodoSteps(item), [item]);
   const completedCount = useMemo(() => countCompletedSteps(steps), [steps]);
-  const activeStepIndex = useMemo(() => resolveActiveStepIndex(steps, completedCount), [completedCount, steps]);
+  const activeStepIndex = useMemo(
+    () => resolveActiveStepIndex(steps, completedCount),
+    [completedCount, steps],
+  );
   if (steps.length === 0 || activeStepIndex < 0) return null;
 
   const stepNumber = activeStepIndex + 1;
@@ -220,9 +237,7 @@ export function TodoListCompactPillContent({
         maxWidth: "min(24rem, var(--radix-tooltip-content-available-width), calc(100vw - 16px))",
       }}
     >
-      <span
-        className="inline-flex max-w-full min-w-0 cursor-interaction hover:text-token-foreground"
-      >
+      <span className="inline-flex max-w-full min-w-0 cursor-interaction hover:text-token-foreground">
         <span className="text-size-chat flex max-w-full min-w-0 items-center gap-1.5 text-token-text-secondary">
           <TodoProgressDonut percent={progressPercent} />
           <span className="whitespace-nowrap tabular-nums">
@@ -245,13 +260,14 @@ function ExpandIcon() {
   );
 }
 
-export function TodoListSurface({
-  item,
-}: TodoListSurfaceProps) {
+export function TodoListSurface({ item }: TodoListSurfaceProps) {
   const steps = useMemo(() => parseTodoSteps(item), [item]);
   const completedCount = useMemo(() => countCompletedSteps(steps), [steps]);
   const totalCount = steps.length;
-  const activeStepIndex = useMemo(() => resolveActiveStepIndex(steps, completedCount), [completedCount, steps]);
+  const activeStepIndex = useMemo(
+    () => resolveActiveStepIndex(steps, completedCount),
+    [completedCount, steps],
+  );
   const [expanded, setExpanded] = useState(true);
   const activeStepRef = useRef<HTMLDivElement | null>(null);
   const { elementHeightPx, elementRef } = useMeasuredElementHeight();
@@ -276,12 +292,24 @@ export function TodoListSurface({
               <div className="text-size-chat flex min-w-0 items-center gap-1">
                 {item.status !== "completed" ? (
                   <div className="flex items-center justify-center text-token-input-placeholder-foreground opacity-60">
-                    <svg viewBox="0 0 16 16" className="icon-xs text-token-foreground" fill="none" aria-hidden="true">
-                      <path d="M8 2.5v3m0 5v3m5.5-5.5h-3m-5 0h-3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                    <svg
+                      viewBox="0 0 16 16"
+                      className="icon-xs text-token-foreground"
+                      fill="none"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M8 2.5v3m0 5v3m5.5-5.5h-3m-5 0h-3"
+                        stroke="currentColor"
+                        strokeWidth="1.4"
+                        strokeLinecap="round"
+                      />
                     </svg>
                   </div>
                 ) : null}
-                <span className="min-w-0 truncate text-token-input-placeholder-foreground">{summaryLabel}</span>
+                <span className="min-w-0 truncate text-token-input-placeholder-foreground">
+                  {summaryLabel}
+                </span>
               </div>
             </div>
           </div>
@@ -325,7 +353,12 @@ export function TodoListSurface({
                       <TodoStatusIcon status={step.status} />
                       <span className="text-size-chat leading-4">{index + 1}.</span>
                     </div>
-                    <span className={cn("text-size-chat flex-1 leading-4", step.status === "completed" && "line-through")}>
+                    <span
+                      className={cn(
+                        "text-size-chat flex-1 leading-4",
+                        step.status === "completed" && "line-through",
+                      )}
+                    >
                       {step.step}
                     </span>
                   </div>

@@ -7,10 +7,7 @@ import {
   type DeliveryAddress,
 } from "../../shared/recipient-delivery";
 import type { ProjectionScope } from "../../shared/projection-stream";
-import {
-  RecipientDeliveryRouter,
-  type FanoutReport,
-} from "./recipient-delivery-router";
+import { RecipientDeliveryRouter, type FanoutReport } from "./recipient-delivery-router";
 
 interface AudienceSender {
   readonly id: number;
@@ -52,13 +49,11 @@ const validAddress = (address: DeliveryAddress): boolean => {
     return Boolean(address.project_id && address.project_id === address.project_id.trim());
   }
   return Boolean(
-    address.document_id
-    && address.document_id === address.document_id.trim()
-    && (
-      address.project_id === null
-      || address.project_id === undefined
-      || address.project_id === address.project_id.trim()
-    ),
+    address.document_id &&
+    address.document_id === address.document_id.trim() &&
+    (address.project_id === null ||
+      address.project_id === undefined ||
+      address.project_id === address.project_id.trim()),
   );
 };
 
@@ -87,10 +82,10 @@ export class LocalCommitAudienceBroker {
   subscribe(sender: AudienceSender, address: DeliveryAddress): () => void {
     const libraryId = this.#resolveLibraryId();
     if (
-      !libraryId
-      || address.library_id !== libraryId
-      || !validAddress(address)
-      || !deliveryAddressProjectionScope(address)
+      !libraryId ||
+      address.library_id !== libraryId ||
+      !validAddress(address) ||
+      !deliveryAddressProjectionScope(address)
     ) {
       throw new TypeError("Local commit audience address is invalid");
     }
@@ -180,9 +175,7 @@ export class LocalCommitAudienceBroker {
     reason: AddressResetReason,
     addresses?: readonly DeliveryAddress[],
   ): void {
-    const allowed = addresses
-      ? new Set(addresses.map(deliveryAddressKey))
-      : null;
+    const allowed = addresses ? new Set(addresses.map(deliveryAddressKey)) : null;
     for (const state of this.#subscriptions.values()) {
       if (allowed && !allowed.has(deliveryAddressKey(state.address))) continue;
       state.recipient?.reset(floor, reason);
@@ -215,8 +208,9 @@ export class LocalCommitAudienceBroker {
   } {
     return {
       subscriptions: this.#subscriptions.size,
-      leasedSubscriptions: [...this.#subscriptions.values()]
-        .filter((state) => state.recipient !== null).length,
+      leasedSubscriptions: [...this.#subscriptions.values()].filter(
+        (state) => state.recipient !== null,
+      ).length,
       addresses: this.#scopes().length,
     };
   }
@@ -241,9 +235,7 @@ export class LocalCommitAudienceBroker {
 
   #pruneLeaseGrants(): void {
     const activeAddresses = new Set(
-      [...this.#subscriptions.values()].map((state) =>
-        deliveryAddressKey(state.address)
-      ),
+      [...this.#subscriptions.values()].map((state) => deliveryAddressKey(state.address)),
     );
     for (const addressKey of this.#leaseGrants.keys()) {
       if (!activeAddresses.has(addressKey)) this.#leaseGrants.delete(addressKey);

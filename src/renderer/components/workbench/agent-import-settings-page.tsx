@@ -23,7 +23,8 @@ const SOURCE_OPTIONS: readonly {
   readonly supportsPicker: boolean;
 }[] = [
   {
-    description: "Conversations, instructions, skills, MCP servers, hooks, commands, subagents, and plugins.",
+    description:
+      "Conversations, instructions, skills, MCP servers, hooks, commands, subagents, and plugins.",
     kind: "claude-code",
     label: "Claude Code",
     supportsPicker: false,
@@ -44,16 +45,9 @@ const SOURCE_OPTIONS: readonly {
 
 export interface AgentImportSettingsRuntime {
   readonly scan: (sourceKind: AgentImportSourceKind) => Promise<AgentImportScan>;
-  readonly scanPickedHome: (
-    sourceKind: AgentImportSourceKind,
-  ) => Promise<AgentImportScan | null>;
-  readonly apply: (
-    scanId: string,
-    itemIds: readonly string[],
-  ) => Promise<AgentImportResult>;
-  readonly subscribeProgress: (
-    listener: (progress: AgentImportProgress) => void,
-  ) => () => void;
+  readonly scanPickedHome: (sourceKind: AgentImportSourceKind) => Promise<AgentImportScan | null>;
+  readonly apply: (scanId: string, itemIds: readonly string[]) => Promise<AgentImportResult>;
+  readonly subscribeProgress: (listener: (progress: AgentImportProgress) => void) => () => void;
 }
 
 const DEFAULT_RUNTIME: AgentImportSettingsRuntime = {
@@ -137,32 +131,34 @@ export function AgentImportSettingsPage({
     return runtime.subscribeProgress(setProgress);
   }, [open, runtime]);
 
-  const runScan = useCallback(async (
-    sourceKind: AgentImportSourceKind,
-    pickHome: boolean,
-  ) => {
-    if (scanningSource || importing) return;
-    setScanningSource(sourceKind);
-    setError(null);
-    setResult(null);
-    setProgress(null);
-    try {
-      const nextScan = pickHome
-        ? await runtime.scanPickedHome(sourceKind)
-        : await runtime.scan(sourceKind);
-      if (!nextScan) return;
-      setScan(nextScan);
-      setSelectedItemIds(new Set(
-        nextScan.items.filter((item) => item.defaultSelected).map((item) => item.id),
-      ));
-    } catch (scanError) {
-      setScan(null);
-      setSelectedItemIds(new Set());
-      setError(scanError instanceof Error ? scanError.message : "Could not scan this agent home.");
-    } finally {
-      setScanningSource(null);
-    }
-  }, [importing, runtime, scanningSource]);
+  const runScan = useCallback(
+    async (sourceKind: AgentImportSourceKind, pickHome: boolean) => {
+      if (scanningSource || importing) return;
+      setScanningSource(sourceKind);
+      setError(null);
+      setResult(null);
+      setProgress(null);
+      try {
+        const nextScan = pickHome
+          ? await runtime.scanPickedHome(sourceKind)
+          : await runtime.scan(sourceKind);
+        if (!nextScan) return;
+        setScan(nextScan);
+        setSelectedItemIds(
+          new Set(nextScan.items.filter((item) => item.defaultSelected).map((item) => item.id)),
+        );
+      } catch (scanError) {
+        setScan(null);
+        setSelectedItemIds(new Set());
+        setError(
+          scanError instanceof Error ? scanError.message : "Could not scan this agent home.",
+        );
+      } finally {
+        setScanningSource(null);
+      }
+    },
+    [importing, runtime, scanningSource],
+  );
 
   const applyImport = useCallback(async () => {
     if (!scan || selectedItemIds.size === 0 || importing) return;
@@ -188,11 +184,7 @@ export function AgentImportSettingsPage({
     >
       <SectionBlock title="Sources">
         {SOURCE_OPTIONS.map((source) => (
-          <SettingRow
-            description={source.description}
-            key={source.kind}
-            label={source.label}
-          >
+          <SettingRow description={source.description} key={source.kind} label={source.label}>
             {source.supportsPicker ? (
               <NodexButton
                 disabled={Boolean(scanningSource) || importing}
@@ -211,10 +203,7 @@ export function AgentImportSettingsPage({
               variant="secondary"
             >
               {scanningSource === source.kind ? (
-                <ActivitySpinnerIcon
-                  className="icon-2xs shrink-0"
-                  icon={RefreshCw}
-                />
+                <ActivitySpinnerIcon className="icon-2xs shrink-0" icon={RefreshCw} />
               ) : (
                 <RefreshCw className="icon-2xs shrink-0" />
               )}
@@ -229,7 +218,8 @@ export function AgentImportSettingsPage({
           <div className="flex min-w-0 flex-col gap-1 p-3">
             <div className="truncate text-sm text-token-text-primary">{scan.sourceHome}</div>
             <div className="text-sm text-token-text-secondary">
-              Source files stay unchanged. Provider credentials and authentication state are never imported.
+              Source files stay unchanged. Provider credentials and authentication state are never
+              imported.
             </div>
           </div>
           {scan.items.map((item) => (
@@ -259,12 +249,16 @@ export function AgentImportSettingsPage({
             </div>
           ) : (
             <SettingRow
-              description={scan.skippedAlreadyImportedSessions > 0
-                ? `${scan.skippedAlreadyImportedSessions} unchanged conversation${scan.skippedAlreadyImportedSessions === 1 ? " was" : "s were"} already imported.`
-                : "Imported conversations become independent Nodex history with new thread IDs."}
-              label={importing && progress?.activeItemLabel
-                ? progress.activeItemLabel
-                : `${selectedItemIds.size} selected`}
+              description={
+                scan.skippedAlreadyImportedSessions > 0
+                  ? `${scan.skippedAlreadyImportedSessions} unchanged conversation${scan.skippedAlreadyImportedSessions === 1 ? " was" : "s were"} already imported.`
+                  : "Imported conversations become independent Nodex history with new thread IDs."
+              }
+              label={
+                importing && progress?.activeItemLabel
+                  ? progress.activeItemLabel
+                  : `${selectedItemIds.size} selected`
+              }
             >
               <NodexButton
                 disabled={selectedItemIds.size === 0 || importing}
@@ -291,20 +285,22 @@ export function AgentImportSettingsPage({
                 : "Selected setup data is now owned by this Nodex profile."}
             </div>
           </div>
-          {result.outcomes.filter((outcome) => outcome.failureCount > 0).map((outcome) => (
-            <div className="flex flex-col gap-1 p-3" key={outcome.itemId}>
-              <div className="text-sm text-[var(--red-text)]">{outcome.label}</div>
-              {outcome.messages.map((message) => (
-                <div className="text-sm text-token-text-secondary" key={message}>{message}</div>
-              ))}
-            </div>
-          ))}
+          {result.outcomes
+            .filter((outcome) => outcome.failureCount > 0)
+            .map((outcome) => (
+              <div className="flex flex-col gap-1 p-3" key={outcome.itemId}>
+                <div className="text-sm text-[var(--red-text)]">{outcome.label}</div>
+                {outcome.messages.map((message) => (
+                  <div className="text-sm text-token-text-secondary" key={message}>
+                    {message}
+                  </div>
+                ))}
+              </div>
+            ))}
         </SectionBlock>
       ) : null}
 
-      {error ? (
-        <div className="text-sm text-[var(--red-text)]">{error}</div>
-      ) : null}
+      {error ? <div className="text-sm text-[var(--red-text)]">{error}</div> : null}
     </SettingsPageSurface>
   );
 }

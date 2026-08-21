@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
 import type { ReactElement } from "react";
-import type { CodexMcpToolCallView, CodexTranscriptEntry, ProtocolMcpResourceReadResponse } from "../../../../../lib/types";
+import type {
+  CodexMcpToolCallView,
+  CodexTranscriptEntry,
+  ProtocolMcpResourceReadResponse,
+} from "../../../../../lib/types";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import { installWindowApi } from "../../../../../test/browser-globals";
 import {
@@ -24,8 +28,9 @@ function renderMcp(ui: ReactElement, client = createTestQueryClient()) {
 }
 
 function hasExactText(container: HTMLElement, value: string): boolean {
-  return Array.from(container.querySelectorAll<HTMLElement>("*"))
-    .some((element) => textContent(element) === value);
+  return Array.from(container.querySelectorAll<HTMLElement>("*")).some(
+    (element) => textContent(element) === value,
+  );
 }
 
 function buildMcpView(overrides?: Partial<CodexMcpToolCallView>): CodexMcpToolCallView {
@@ -97,7 +102,9 @@ function buildMcpEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscri
   };
 }
 
-function buildAutomaticApprovalReviewEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
+function buildAutomaticApprovalReviewEntry(
+  overrides?: Partial<CodexTranscriptEntry>,
+): CodexTranscriptEntry {
   return {
     threadId: "thread-1",
     turnId: "turn-1",
@@ -238,9 +245,11 @@ describe("McpToolCall", () => {
     await settleAsyncRender();
 
     expect(serializationCalls).toBe(1);
-    expect(Array.from(container.querySelectorAll("pre")).every(
-      (element) => (element.textContent?.length ?? 0) <= 32_000,
-    )).toBe(true);
+    expect(
+      Array.from(container.querySelectorAll("pre")).every(
+        (element) => (element.textContent?.length ?? 0) <= 32_000,
+      ),
+    ).toBe(true);
     expect(getByRole("button", { name: "View full json" })).toBeTruthy();
   });
 
@@ -273,13 +282,14 @@ describe("McpToolCall", () => {
     fireEvent.click(getByRole("button", { name: /Resolve library id/i }));
     await settleAsyncRender();
 
-    const mountedPreviewCharacters = Array.from(container.querySelectorAll("pre"))
-      .reduce((total, element) => total + (element.textContent?.length ?? 0), 0);
+    const mountedPreviewCharacters = Array.from(container.querySelectorAll("pre")).reduce(
+      (total, element) => total + (element.textContent?.length ?? 0),
+      0,
+    );
     expect(mountedPreviewCharacters).toBeLessThanOrEqual(32_000);
     expect(textContent(container).includes("20,000 additional text characters omitted")).toBe(true);
     expect(getByRole("button", { name: "View full plaintext" })).toBeTruthy();
   });
-
 
   test("renders a source icon in the summary row", async () => {
     const { container } = renderMcp(
@@ -313,7 +323,9 @@ describe("McpToolCall", () => {
     expect(textContent(container).includes("Resolve library ID")).toBe(true);
     expect(textContent(container).includes("Calling")).toBe(false);
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(true);
-    expect(Boolean(container.querySelector(".loading-shimmer-pure-text [data-tool-activity-icon]"))).toBe(false);
+    expect(
+      Boolean(container.querySelector(".loading-shimmer-pure-text [data-tool-activity-icon]")),
+    ).toBe(false);
   });
 
   test("allows in-progress MCP rows with a result to expand", async () => {
@@ -424,17 +436,27 @@ describe("McpToolCall", () => {
       }),
     });
     const { container: chromeContainer, getByRole: getChromeRole } = renderMcp(
-      <TooltipProvider><McpToolCall item={chromeItem} /></TooltipProvider>,
+      <TooltipProvider>
+        <McpToolCall item={chromeItem} />
+      </TooltipProvider>,
     );
     const { container: browserContainer, getByRole: getBrowserRole } = renderMcp(
-      <TooltipProvider><McpToolCall item={browserItem} /></TooltipProvider>,
+      <TooltipProvider>
+        <McpToolCall item={browserItem} />
+      </TooltipProvider>,
     );
     await settleAsyncRender();
 
     expect(textContent(getChromeRole("button", { name: /Used Chrome/i }))).toBe("Used Chrome");
-    expect(textContent(getBrowserRole("button", { name: /Used the browser/i }))).toBe("Used the browser");
-    expect(chromeContainer.querySelector("img")?.getAttribute("src")).toBe(CODEX_BROWSER_USE_CHROME_LOGO_DATA_URL);
-    expect(Boolean(browserContainer.querySelector("[data-tool-activity-icon='browser-use']"))).toBe(true);
+    expect(textContent(getBrowserRole("button", { name: /Used the browser/i }))).toBe(
+      "Used the browser",
+    );
+    expect(chromeContainer.querySelector("img")?.getAttribute("src")).toBe(
+      CODEX_BROWSER_USE_CHROME_LOGO_DATA_URL,
+    );
+    expect(Boolean(browserContainer.querySelector("[data-tool-activity-icon='browser-use']"))).toBe(
+      true,
+    );
   });
 
   test("renders plaintext content and opens the raw output dialog", async () => {
@@ -453,24 +475,19 @@ describe("McpToolCall", () => {
 
     fireEvent.click(getByRole("button", { name: /Resolve library id/i }));
     await waitFor(() => {
-      expect(textContent(container).includes("Available Libraries:")).toBe(
-        true,
-      );
+      expect(textContent(container).includes("Available Libraries:")).toBe(true);
     });
     expect(Boolean(getByText("plaintext"))).toBe(true);
 
     fireEvent.click(getByRole("button", { name: "Show raw tool call output" }));
     await waitFor(() => {
-      expect(
-        Boolean(
-          getByText("Raw context7.resolve-library-id tool call output"),
-        ),
-      ).toBe(true);
+      expect(Boolean(getByText("Raw context7.resolve-library-id tool call output"))).toBe(true);
     });
     await waitFor(() => {
       expect(
-        textContentIncludingShadowRoots(getByRole("dialog"))
-          .includes("call_9L9LUlz6nkg1Jp2LA4mrAL8o"),
+        textContentIncludingShadowRoots(getByRole("dialog")).includes(
+          "call_9L9LUlz6nkg1Jp2LA4mrAL8o",
+        ),
       ).toBe(true);
     });
     expect(textContent(container).includes("pluginId")).toBe(false);
@@ -495,30 +512,38 @@ describe("McpToolCall", () => {
       expect(summaryButton.getAttribute("aria-expanded") ?? "").toBe("true");
     });
 
-    const reviewButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((element) => textContent(element).includes("Auto-review approved")) ?? null;
-    const plaintextLabel = Array.from(container.querySelectorAll<HTMLElement>("div"))
-      .find((element) => textContent(element) === "plaintext") ?? null;
+    const reviewButton =
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((element) =>
+        textContent(element).includes("Auto-review approved"),
+      ) ?? null;
+    const plaintextLabel =
+      Array.from(container.querySelectorAll<HTMLElement>("div")).find(
+        (element) => textContent(element) === "plaintext",
+      ) ?? null;
 
     expect(Boolean(reviewButton)).toBe(true);
     expect(Boolean(plaintextLabel)).toBe(true);
-    expect(Boolean(
-      reviewButton && plaintextLabel
-        ? reviewButton.compareDocumentPosition(plaintextLabel) & Node.DOCUMENT_POSITION_FOLLOWING
-        : false,
-    )).toBe(true);
+    expect(
+      Boolean(
+        reviewButton && plaintextLabel
+          ? reviewButton.compareDocumentPosition(plaintextLabel) & Node.DOCUMENT_POSITION_FOLLOWING
+          : false,
+      ),
+    ).toBe(true);
   });
 
   test("renders attached automatic approval reviews as title-only rows in MCP app card mode", async () => {
     const mcpAppResourceResponse: ProtocolMcpResourceReadResponse = {
-      contents: [{
-        uri: "ui://context7/docs",
-        mimeType: "text/html;profile=mcp-app",
-        text: "<!doctype html><html><body>Docs app</body></html>",
-        _meta: {
-          "openai/widgetPrefersBorder": true,
+      contents: [
+        {
+          uri: "ui://context7/docs",
+          mimeType: "text/html;profile=mcp-app",
+          text: "<!doctype html><html><body>Docs app</body></html>",
+          _meta: {
+            "openai/widgetPrefersBorder": true,
+          },
         },
-      }],
+      ],
     };
     installWindowApi({
       invoke: async (channel: string) => {
@@ -530,11 +555,14 @@ describe("McpToolCall", () => {
     });
     const client = createTestQueryClient();
     client.setQueryData(queryKeys.mcp.statuses(), { data: [], nextCursor: null });
-    client.setQueryData(queryKeys.mcp.resource({
-      threadId: "thread-1",
-      server: "context7",
-      uri: "ui://context7/docs",
-    }), mcpAppResourceResponse);
+    client.setQueryData(
+      queryKeys.mcp.resource({
+        threadId: "thread-1",
+        server: "context7",
+        uri: "ui://context7/docs",
+      }),
+      mcpAppResourceResponse,
+    );
 
     const { container, getByRole } = renderMcp(
       <TooltipProvider>
@@ -565,12 +593,16 @@ describe("McpToolCall", () => {
 
     expect(Boolean(container.querySelector("[data-mcp-app-frame-mode='inline']"))).toBe(true);
     expect(textContent(container).includes("Auto-review approved")).toBe(true);
-    const reviewElement = Array.from(container.querySelectorAll<HTMLElement>("div"))
-      .find((element) => textContent(element) === "Auto-review approved") ?? null;
+    const reviewElement =
+      Array.from(container.querySelectorAll<HTMLElement>("div")).find(
+        (element) => textContent(element) === "Auto-review approved",
+      ) ?? null;
     const reviewButton = reviewElement?.closest("button") ?? null;
     expect(Boolean(reviewElement)).toBe(true);
     expect(Boolean(reviewButton)).toBe(false);
-    expect(textContent(reviewElement as HTMLElement).includes("Only documentation lookup is performed.")).toBe(false);
+    expect(
+      textContent(reviewElement as HTMLElement).includes("Only documentation lookup is performed."),
+    ).toBe(false);
   });
 
   test("renders structured-only successes without the no-content fallback", async () => {
@@ -611,7 +643,7 @@ describe("McpToolCall", () => {
     await settleAsyncRender();
 
     expect(Boolean(textContent(container).includes("Tool returned no content"))).toBe(false);
-    expect(Boolean(textContent(container).includes("\"snippetCount\": 3"))).toBe(true);
+    expect(Boolean(textContent(container).includes('"snippetCount": 3'))).toBe(true);
   });
 
   test("deduplicates JSON text content against structuredContent when expanded", async () => {
@@ -625,7 +657,7 @@ describe("McpToolCall", () => {
                 content: [
                   {
                     type: "text",
-                    text: "{\"snippetCount\":3}",
+                    text: '{"snippetCount":3}',
                   },
                 ],
                 structuredContent: {
@@ -635,7 +667,7 @@ describe("McpToolCall", () => {
                   content: [
                     {
                       type: "text",
-                      text: "{\"snippetCount\":3}",
+                      text: '{"snippetCount":3}',
                     },
                   ],
                   structuredContent: {
@@ -654,23 +686,28 @@ describe("McpToolCall", () => {
     await settleAsyncRender();
 
     expect(hasExactText(container, "plaintext")).toBe(false);
-    expect(Boolean(textContent(container).includes("\"snippetCount\": 3"))).toBe(true);
+    expect(Boolean(textContent(container).includes('"snippetCount": 3'))).toBe(true);
   });
 
   test("renders MCP app resources as the body branch instead of appending fallback content", async () => {
     const client = createTestQueryClient();
     const resourceResponse: ProtocolMcpResourceReadResponse = {
-      contents: [{
-        uri: "ui://context7/docs-app",
-        mimeType: "text/html;profile=mcp-app",
-        text: "<main>Docs app</main>",
-      }],
+      contents: [
+        {
+          uri: "ui://context7/docs-app",
+          mimeType: "text/html;profile=mcp-app",
+          text: "<main>Docs app</main>",
+        },
+      ],
     };
-    client.setQueryData(queryKeys.mcp.resource({
-      threadId: "thread-1",
-      server: "context7",
-      uri: "ui://context7/docs-app",
-    }), resourceResponse);
+    client.setQueryData(
+      queryKeys.mcp.resource({
+        threadId: "thread-1",
+        server: "context7",
+        uri: "ui://context7/docs-app",
+      }),
+      resourceResponse,
+    );
 
     const { container, getByRole } = renderMcp(
       <TooltipProvider>
@@ -708,7 +745,7 @@ describe("McpToolCall", () => {
 
     expect(container.querySelectorAll("webview")).toHaveLength(1);
     expect(hasExactText(container, "plaintext")).toBe(false);
-    expect(Boolean(textContent(container).includes("\"hidden\": true"))).toBe(false);
+    expect(Boolean(textContent(container).includes('"hidden": true'))).toBe(false);
   });
 
   test("renders protocol errors without the no-content fallback", async () => {
@@ -778,7 +815,7 @@ describe("McpToolCall", () => {
     fireEvent.click(getByRole("button", { name: /Resolve library id/i }));
     await settleAsyncRender();
 
-    expect(Boolean(textContent(container).includes("\"foo\": \"bar\""))).toBe(true);
+    expect(Boolean(textContent(container).includes('"foo": "bar"'))).toBe(true);
     expect(Boolean(textContent(container).includes("Tool returned no content"))).toBe(false);
   });
 
@@ -864,10 +901,18 @@ describe("McpToolCall", () => {
     fireEvent.click(getByRole("button", { name: /Resolve library id/i }));
     await settleAsyncRender();
 
-    expect(container.querySelector("img")?.getAttribute("src") ?? "").toBe("data:image/png;base64,AA==");
-    expect(container.querySelector("audio")?.getAttribute("src") ?? "").toBe("data:audio/wav;base64,AA==");
-    expect(Boolean(textContent(container).includes("Annotations: audience=user, assistant"))).toBe(true);
-    expect(Boolean(textContent(container).includes("Annotations: lastModified=2026-07-06T00:00:00Z"))).toBe(true);
+    expect(container.querySelector("img")?.getAttribute("src") ?? "").toBe(
+      "data:image/png;base64,AA==",
+    );
+    expect(container.querySelector("audio")?.getAttribute("src") ?? "").toBe(
+      "data:audio/wav;base64,AA==",
+    );
+    expect(Boolean(textContent(container).includes("Annotations: audience=user, assistant"))).toBe(
+      true,
+    );
+    expect(
+      Boolean(textContent(container).includes("Annotations: lastModified=2026-07-06T00:00:00Z")),
+    ).toBe(true);
   });
 
   test("renders embedded resources with URI, MIME type, annotations, and content", async () => {
@@ -884,7 +929,7 @@ describe("McpToolCall", () => {
                     resource: {
                       uri: "file:///workspace/report.json",
                       mimeType: "application/json",
-                      text: "{\"ok\":true}",
+                      text: '{"ok":true}',
                       annotations: {
                         audience: ["user"],
                         lastModified: "2026-07-06",
@@ -914,8 +959,10 @@ describe("McpToolCall", () => {
     expect(hasExactText(container, "Content")).toBe(true);
     expect(Boolean(textContent(container).includes("file:///workspace/report.json"))).toBe(true);
     expect(Boolean(textContent(container).includes("application/json"))).toBe(true);
-    expect(Boolean(textContent(container).includes("audience=user; lastModified=2026-07-06"))).toBe(true);
-    expect(Boolean(textContent(container).includes("{\"ok\":true}"))).toBe(true);
+    expect(Boolean(textContent(container).includes("audience=user; lastModified=2026-07-06"))).toBe(
+      true,
+    );
+    expect(Boolean(textContent(container).includes('{"ok":true}'))).toBe(true);
   });
 
   test("builds Codex-style MCP app side-panel ids from renderable resources", () => {

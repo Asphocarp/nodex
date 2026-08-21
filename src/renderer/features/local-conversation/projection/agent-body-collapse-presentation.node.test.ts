@@ -1,9 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { CodexConversationItem } from "../../../lib/types";
-import type {
-  ThreadAgentRenderUnit,
-  ThreadTranscriptBlockModel,
-} from "../thread-stage-types";
+import type { ThreadAgentRenderUnit, ThreadTranscriptBlockModel } from "../thread-stage-types";
 import {
   countAgentBodyUnits,
   projectAgentBodyCollapsePresentation,

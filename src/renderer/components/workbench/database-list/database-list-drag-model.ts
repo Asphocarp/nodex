@@ -42,38 +42,26 @@ export type DatabaseListDragTarget =
       readonly target: DatabaseListMoveTargetV2;
     };
 
-const isSelected = (
-  selection: DatabaseListSelectionState,
-  occurrenceKey: string,
-): boolean => selection.allMatching
-  ? !selection.excludedOccurrenceKeys.has(occurrenceKey)
-  : selection.selectedOccurrenceKeys.has(occurrenceKey);
+const isSelected = (selection: DatabaseListSelectionState, occurrenceKey: string): boolean =>
+  selection.allMatching
+    ? !selection.excludedOccurrenceKeys.has(occurrenceKey)
+    : selection.selectedOccurrenceKeys.has(occurrenceKey);
 
-const sameOccurrencePath = (
-  left: DatabaseListPageRow,
-  right: DatabaseListPageRow,
-): boolean => left.groupKey === right.groupKey && left.subgroupKey === right.subgroupKey;
+const sameOccurrencePath = (left: DatabaseListPageRow, right: DatabaseListPageRow): boolean =>
+  left.groupKey === right.groupKey && left.subgroupKey === right.subgroupKey;
 
-const sameParentOccurrencePath = (
-  left: DatabaseListPageRow,
-  right: DatabaseListPageRow,
-): boolean => sameOccurrencePath(left, right)
-  && left.depth === right.depth
-  && left.ancestorPageIds.length === right.ancestorPageIds.length
-  && left.ancestorPageIds.every(
-    (pageId, index) => pageId === right.ancestorPageIds[index],
-  );
+const sameParentOccurrencePath = (left: DatabaseListPageRow, right: DatabaseListPageRow): boolean =>
+  sameOccurrencePath(left, right) &&
+  left.depth === right.depth &&
+  left.ancestorPageIds.length === right.ancestorPageIds.length &&
+  left.ancestorPageIds.every((pageId, index) => pageId === right.ancestorPageIds[index]);
 
-const directChildOf = (
-  child: DatabaseListPageRow,
-  parent: DatabaseListPageRow,
-): boolean => sameOccurrencePath(child, parent)
-  && child.depth === parent.depth + 1
-  && child.ancestorPageIds.length === parent.ancestorPageIds.length + 1
-  && child.ancestorPageIds[parent.depth] === parent.pageId
-  && parent.ancestorPageIds.every(
-    (pageId, index) => pageId === child.ancestorPageIds[index],
-  );
+const directChildOf = (child: DatabaseListPageRow, parent: DatabaseListPageRow): boolean =>
+  sameOccurrencePath(child, parent) &&
+  child.depth === parent.depth + 1 &&
+  child.ancestorPageIds.length === parent.ancestorPageIds.length + 1 &&
+  child.ancestorPageIds[parent.depth] === parent.pageId &&
+  parent.ancestorPageIds.every((pageId, index) => pageId === child.ancestorPageIds[index]);
 
 /**
  * Collapses the two row-half hit regions around one physical sibling gap onto
@@ -109,23 +97,29 @@ export const resolveDatabaseListDragSources = (input: {
   readonly selection: DatabaseListSelectionState;
   readonly initiatorOccurrenceKey: string;
 }): DatabaseListDragSources | null => {
-  const initiator = input.rows.find((row): row is DatabaseListPageRow =>
-    row.kind === "page" && row.key === input.initiatorOccurrenceKey
+  const initiator = input.rows.find(
+    (row): row is DatabaseListPageRow =>
+      row.kind === "page" && row.key === input.initiatorOccurrenceKey,
   );
   if (!initiator || initiator.transientKind !== "none") return null;
   const initiatorSelected = isSelected(input.selection, initiator.key);
   const selectedRows = initiatorSelected
-    ? input.rows.filter((row): row is DatabaseListPageRow =>
-        row.kind === "page"
-        && row.transientKind === "none"
-        && isSelected(input.selection, row.key)
+    ? input.rows.filter(
+        (row): row is DatabaseListPageRow =>
+          row.kind === "page" &&
+          row.transientKind === "none" &&
+          isSelected(input.selection, row.key),
       )
     : [initiator];
-  const rootRows = selectedRows.filter((row) => !selectedRows.some((candidate) =>
-    candidate !== row
-    && sameOccurrencePath(candidate, row)
-    && row.ancestorPageIds.includes(candidate.pageId)
-  ));
+  const rootRows = selectedRows.filter(
+    (row) =>
+      !selectedRows.some(
+        (candidate) =>
+          candidate !== row &&
+          sameOccurrencePath(candidate, row) &&
+          row.ancestorPageIds.includes(candidate.pageId),
+      ),
+  );
   const visibleClosurePageIds = new Set<string>();
   let everySubtreeIsFullyVisible = true;
   for (const root of rootRows) {
@@ -153,11 +147,11 @@ export const resolveDatabaseListDragSources = (input: {
         visibleClosurePageIds.size,
         rootRows.reduce((total, row) => total + row.concreteSubtreePageCount, 0),
       );
-  const everySelectedOccurrenceIsVisible = !initiatorSelected
-    || (!input.selection.allMatching
-      && selectedRows.length === input.selection.selectedOccurrenceKeys.size);
-  const previewClosureComplete = everySubtreeIsFullyVisible
-    && everySelectedOccurrenceIsVisible;
+  const everySelectedOccurrenceIsVisible =
+    !initiatorSelected ||
+    (!input.selection.allMatching &&
+      selectedRows.length === input.selection.selectedOccurrenceKeys.size);
+  const previewClosureComplete = everySubtreeIsFullyVisible && everySelectedOccurrenceIsVisible;
   const selection: DatabaseListMoveSelectionV2 = initiatorSelected
     ? input.selection.allMatching
       ? {
@@ -207,9 +201,8 @@ export const normalizeDatabaseListDropTarget = (input: {
   }
   if (sources.visibleClosurePageIds.has(row.pageId)) return null;
   const rawEdge = input.rawEdge ?? "after";
-  const canonicalBeforeRow = rawEdge === "after"
-    ? canonicalBeforeRowForAfter({ rows: input.rows, row, sources })
-    : null;
+  const canonicalBeforeRow =
+    rawEdge === "after" ? canonicalBeforeRowForAfter({ rows: input.rows, row, sources }) : null;
   if (canonicalBeforeRow) {
     return {
       kind: "page",
@@ -232,9 +225,7 @@ export const normalizeDatabaseListDropTarget = (input: {
     occurrenceKey: row.key,
     pointerEdge: rawEdge,
     indicatorEdge: rawEdge === "inside" ? "inside" : rawEdge,
-    prospectiveDepth: rawEdge === "inside" || parentAfter
-      ? row.depth + 1
-      : row.depth,
+    prospectiveDepth: rawEdge === "inside" || parentAfter ? row.depth + 1 : row.depth,
     target: {
       kind: "page",
       occurrenceKey: row.key,
@@ -243,9 +234,7 @@ export const normalizeDatabaseListDropTarget = (input: {
   };
 };
 
-export const databaseListDropTargetIdentity = (
-  target: DatabaseListDragTarget | null,
-): string => {
+export const databaseListDropTargetIdentity = (target: DatabaseListDragTarget | null): string => {
   if (target === null) return "none";
   if (target.kind === "group") {
     return JSON.stringify({
@@ -286,9 +275,7 @@ export const resolveDatabaseListDragPreviewPlacement = (input: {
   if (targetRow.kind !== "page") return null;
   return {
     targetOccurrenceKey: targetRow.key,
-    position: input.target.indicatorEdge === "inside"
-      ? "nest"
-      : input.target.indicatorEdge,
+    position: input.target.indicatorEdge === "inside" ? "nest" : input.target.indicatorEdge,
     groupKey: targetRow.groupKey,
     subgroupKey: targetRow.subgroupKey,
   };
@@ -333,29 +320,29 @@ export const databaseListProjectionReflectsMove = (input: {
   const matchingRootIndexes = new Map<string, number>();
   for (const pageId of input.moveRootPageIds) {
     const visible = input.rows.flatMap((row, index) =>
-      row.kind === "page"
-        && row.transientKind === "none"
-        && row.pageId === pageId
+      row.kind === "page" && row.transientKind === "none" && row.pageId === pageId
         ? [{ row, index }]
-        : []
+        : [],
     );
     if (visible.length === 0) continue;
-    const matching = visible.find(({ row }) =>
-      row.groupKey === normalizedTarget.groupKey
-      && row.subgroupKey === normalizedTarget.subgroupKey
-      && (row.row.parentPageId ?? null) === normalizedTarget.parentPageId
+    const matching = visible.find(
+      ({ row }) =>
+        row.groupKey === normalizedTarget.groupKey &&
+        row.subgroupKey === normalizedTarget.subgroupKey &&
+        (row.row.parentPageId ?? null) === normalizedTarget.parentPageId,
     );
     if (!matching) return false;
     matchingRootIndexes.set(pageId, matching.index);
   }
   if (!normalizedTarget.beforePageId || matchingRootIndexes.size === 0) return true;
-  const beforeIndex = input.rows.findIndex((row) =>
-    row.kind === "page"
-    && row.transientKind === "none"
-    && row.pageId === normalizedTarget.beforePageId
-    && row.groupKey === normalizedTarget.groupKey
-    && row.subgroupKey === normalizedTarget.subgroupKey
-    && (row.row.parentPageId ?? null) === normalizedTarget.parentPageId
+  const beforeIndex = input.rows.findIndex(
+    (row) =>
+      row.kind === "page" &&
+      row.transientKind === "none" &&
+      row.pageId === normalizedTarget.beforePageId &&
+      row.groupKey === normalizedTarget.groupKey &&
+      row.subgroupKey === normalizedTarget.subgroupKey &&
+      (row.row.parentPageId ?? null) === normalizedTarget.parentPageId,
   );
   if (beforeIndex < 0) return true;
   return [...matchingRootIndexes.values()].every((index) => index < beforeIndex);

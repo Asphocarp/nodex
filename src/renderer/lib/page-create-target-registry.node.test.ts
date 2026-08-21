@@ -22,7 +22,10 @@ const target = (
   clientSessionId: "session-test",
   accessContext: { kind: "project", projectId },
   properties: [],
-  columns: [{ id: "triage", name: "Triage" }, { id: "plan", name: "Plan" }],
+  columns: [
+    { id: "triage", name: "Triage" },
+    { id: "plan", name: "Plan" },
+  ],
   readOnlyReason,
 });
 
@@ -38,30 +41,35 @@ const state = (
 ): PageCreateTargetRegistryState => ({
   activeSurfaceId,
   nextActivitySequence: boardTargets.length + 1,
-  boardRegistrations: Object.fromEntries(boardTargets.map((item, index) => [
-    item.surfaceId,
-    {
-      token: `token:${item.surfaceId}`,
-      target: item,
-      activeColumnId: item.surfaceId === activeSurfaceId ? "plan" : null,
-      activitySequence: item.surfaceId === activeSurfaceId ? index + 1 : 0,
-    },
-  ])),
-  projectDefaultRegistrations: Object.fromEntries(Object.entries(projectDefaults).map(
-    ([projectId, capability]) => [projectId, {
-      token: `token:${projectId}`,
+  boardRegistrations: Object.fromEntries(
+    boardTargets.map((item, index) => [
+      item.surfaceId,
+      {
+        token: `token:${item.surfaceId}`,
+        target: item,
+        activeColumnId: item.surfaceId === activeSurfaceId ? "plan" : null,
+        activitySequence: item.surfaceId === activeSurfaceId ? index + 1 : 0,
+      },
+    ]),
+  ),
+  projectDefaultRegistrations: Object.fromEntries(
+    Object.entries(projectDefaults).map(([projectId, capability]) => [
       projectId,
-      capability,
-    }],
-  )),
+      {
+        token: `token:${projectId}`,
+        projectId,
+        capability,
+      },
+    ]),
+  ),
 });
 
 describe("Page create target resolution", () => {
   test("prefers the exact active Board and its active column", () => {
-    const resolution = resolvePageCreateTarget(state(
-      [target("left", "project:alpha"), target("right", "project:beta")],
-      "right",
-    ), "project:alpha");
+    const resolution = resolvePageCreateTarget(
+      state([target("left", "project:alpha"), target("right", "project:beta")], "right"),
+      "project:alpha",
+    );
 
     expect(resolution).toMatchObject({
       status: "resolved",
@@ -71,13 +79,12 @@ describe("Page create target resolution", () => {
   });
 
   test("does not silently fall back when the exact active Board is read-only", () => {
-    const resolution = resolvePageCreateTarget(state(
-      [target("readonly", "project:alpha", "This View is grouped by Tags")],
-      "readonly",
-      {
+    const resolution = resolvePageCreateTarget(
+      state([target("readonly", "project:alpha", "This View is grouped by Tags")], "readonly", {
         "project:alpha": ready(target("ambient", "project:alpha")),
-      },
-    ), "project:alpha");
+      }),
+      "project:alpha",
+    );
 
     expect(resolution).toEqual({
       status: "unavailable",
@@ -93,15 +100,18 @@ describe("Page create target resolution", () => {
         "project:alpha": ready(target("ambient", "project:alpha")),
       },
     );
-    const resolution = resolvePageCreateTarget({
-      ...previous,
-      boardRegistrations: {
-        ...previous.boardRegistrations,
-        alpha: { ...previous.boardRegistrations.alpha!, activitySequence: 4 },
-        beta: { ...previous.boardRegistrations.beta!, activitySequence: 9 },
+    const resolution = resolvePageCreateTarget(
+      {
+        ...previous,
+        boardRegistrations: {
+          ...previous.boardRegistrations,
+          alpha: { ...previous.boardRegistrations.alpha!, activitySequence: 4 },
+          beta: { ...previous.boardRegistrations.beta!, activitySequence: 9 },
+        },
+        nextActivitySequence: 10,
       },
-      nextActivitySequence: 10,
-    }, "project:alpha");
+      "project:alpha",
+    );
 
     expect(resolution).toMatchObject({
       status: "resolved",
@@ -111,13 +121,12 @@ describe("Page create target resolution", () => {
   });
 
   test("falls back to the active Project default target without Board focus", () => {
-    const resolution = resolvePageCreateTarget(state(
-      [target("beta", "project:beta")],
-      null,
-      {
+    const resolution = resolvePageCreateTarget(
+      state([target("beta", "project:beta")], null, {
         "project:alpha": ready(target("ambient", "project:alpha")),
-      },
-    ), "project:alpha");
+      }),
+      "project:alpha",
+    );
 
     expect(resolution).toMatchObject({
       status: "resolved",
@@ -127,32 +136,39 @@ describe("Page create target resolution", () => {
   });
 
   test("surfaces ambient loading and unavailable reasons", () => {
-    expect(resolvePageCreateTarget(state([], null, {
-      "project:alpha": {
-        status: "loading",
-        reason: "Preparing this Project’s default Database View…",
-      },
-    }), "project:alpha")).toEqual({
+    expect(
+      resolvePageCreateTarget(
+        state([], null, {
+          "project:alpha": {
+            status: "loading",
+            reason: "Preparing this Project’s default Database View…",
+          },
+        }),
+        "project:alpha",
+      ),
+    ).toEqual({
       status: "unavailable",
       reason: "Preparing this Project’s default Database View…",
     });
 
-    expect(resolvePageCreateTarget(state([], null, {
-      "project:alpha": {
-        status: "unavailable",
-        reason: "This Project has no active default Database View.",
-      },
-    }), "project:alpha")).toEqual({
+    expect(
+      resolvePageCreateTarget(
+        state([], null, {
+          "project:alpha": {
+            status: "unavailable",
+            reason: "This Project has no active default Database View.",
+          },
+        }),
+        "project:alpha",
+      ),
+    ).toEqual({
       status: "unavailable",
       reason: "This Project has no active default Database View.",
     });
   });
 
   test("never guesses a target without an active Project or exact Board", () => {
-    expect(resolvePageCreateTarget(state(
-      [target("alpha", "project:alpha")],
-      null,
-    ), null)).toEqual({
+    expect(resolvePageCreateTarget(state([target("alpha", "project:alpha")], null), null)).toEqual({
       status: "unavailable",
       reason: "Select a Project before creating a Page.",
     });

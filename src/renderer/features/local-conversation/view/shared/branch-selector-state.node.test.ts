@@ -22,12 +22,14 @@ describe("branch selector state helpers", () => {
       branches: ["main", " feature ", "main", "", 42],
     });
 
-    expect(JSON.stringify(state)).toBe(JSON.stringify({
-      currentBranch: "main",
-      defaultBranch: null,
-      branches: ["main", "feature"],
-      remoteBranchRefs: [],
-    }));
+    expect(JSON.stringify(state)).toBe(
+      JSON.stringify({
+        currentBranch: "main",
+        defaultBranch: null,
+        branches: ["main", "feature"],
+        remoteBranchRefs: [],
+      }),
+    );
   });
 
   test("throws when the backend returns an error payload", () => {
@@ -43,13 +45,15 @@ describe("branch selector state helpers", () => {
   });
 
   test("returns the empty state when the payload is malformed", () => {
-    expect(JSON.stringify(parseBranchSelectorState(null))).toBe(JSON.stringify(EMPTY_BRANCH_SELECTOR_STATE));
+    expect(JSON.stringify(parseBranchSelectorState(null))).toBe(
+      JSON.stringify(EMPTY_BRANCH_SELECTOR_STATE),
+    );
   });
 
   test("filters branches case-insensitively", () => {
-    expect(JSON.stringify(filterBranchSelectorBranches(["main", "feature/login", "release"], "LOG"))).toBe(
-      JSON.stringify(["feature/login"]),
-    );
+    expect(
+      JSON.stringify(filterBranchSelectorBranches(["main", "feature/login", "release"], "LOG")),
+    ).toBe(JSON.stringify(["feature/login"]));
   });
 
   test("only applies branch mutation results for the active request and cwd", () => {

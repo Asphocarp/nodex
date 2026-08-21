@@ -99,8 +99,8 @@ export const NODEX_AGENT_TOOL_CONTRACTS = {
         return "destructive";
       }
       if (
-        input.body?.kind === "blocks"
-        && input.body.edits.some((edit) => edit.kind === "delete")
+        input.body?.kind === "blocks" &&
+        input.body.edits.some((edit) => edit.kind === "delete")
       ) {
         return "destructive";
       }

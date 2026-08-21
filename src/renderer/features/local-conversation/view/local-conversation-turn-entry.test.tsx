@@ -2,14 +2,8 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { createElement, type ReactElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../components/ui/tooltip";
-import {
-  renderWithMaitai as renderDom,
-  settleAsyncRender,
-} from "../../../test/dom";
-import type {
-  CodexConversationItem,
-  CodexConversationTurn,
-} from "../../../lib/types";
+import { renderWithMaitai as renderDom, settleAsyncRender } from "../../../test/dom";
+import type { CodexConversationItem, CodexConversationTurn } from "../../../lib/types";
 import type { VisibleConversationTurnEntry } from "../selectors";
 import { LocalConversationTestQueryProvider } from "./local-conversation-test-query.test-fixtures";
 import { formatThreadMessageTimestamp } from "./shared/thread-message-timestamp";
@@ -148,18 +142,11 @@ describe("LocalConversationTurnEntry", () => {
   test("owns latest streaming fixed content from the same main-row projection", async () => {
     const stableRequests: [] = [];
     const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
-    const { LocalConversationAboveComposerPortalHost } = await import(
-      "./local-conversation-above-composer-portal"
-    );
+    const { LocalConversationAboveComposerPortalHost } =
+      await import("./local-conversation-above-composer-portal");
     const turn = buildTurn("turn_fixed_owner", "Edit the file", "", {
       status: "inProgress",
-      diff: [
-        "--- a/src/app.ts",
-        "+++ b/src/app.ts",
-        "@@ -1 +1 @@",
-        "-old",
-        "+new",
-      ].join("\n"),
+      diff: ["--- a/src/app.ts", "+++ b/src/app.ts", "@@ -1 +1 @@", "-old", "+new"].join("\n"),
       items: [buildUserEntry("turn_fixed_owner", "turn_fixed_owner_user", "Edit the file")],
       itemIds: ["turn_fixed_owner_user"],
     });
@@ -231,9 +218,14 @@ describe("LocalConversationTurnEntry", () => {
     const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
     const turn = buildTurn("turn_goal_user_status", "Keep working toward parity", "Done", {
       items: [
-        buildUserEntry("turn_goal_user_status", "turn_goal_user_status_user", "Keep working toward parity", {
-          goal: true,
-        }),
+        buildUserEntry(
+          "turn_goal_user_status",
+          "turn_goal_user_status_user",
+          "Keep working toward parity",
+          {
+            goal: true,
+          },
+        ),
         buildAssistantEntry("turn_goal_user_status", "turn_goal_user_status_assistant", "Done"),
       ],
     });
@@ -258,7 +250,11 @@ describe("LocalConversationTurnEntry", () => {
         buildUserEntry("turn_empty_goal_user_status", "turn_empty_goal_user_status_user", "", {
           goal: true,
         }),
-        buildAssistantEntry("turn_empty_goal_user_status", "turn_empty_goal_user_status_assistant", "Done"),
+        buildAssistantEntry(
+          "turn_empty_goal_user_status",
+          "turn_empty_goal_user_status_assistant",
+          "Done",
+        ),
       ],
     });
 
@@ -286,10 +282,18 @@ describe("LocalConversationTurnEntry", () => {
     const turn: CodexConversationTurn = {
       ...buildTurn("turn_steer", "Initial request", "Working"),
       status: "inProgress",
-      itemIds: ["turn_steer_user", "turn_steer_assistant", "steer_pending", "steer_accepted", "steered_accepted"],
+      itemIds: [
+        "turn_steer_user",
+        "turn_steer_assistant",
+        "steer_pending",
+        "steer_accepted",
+        "steered_accepted",
+      ],
       items: [
         buildUserEntry("turn_steer", "turn_steer_user", "Initial request"),
-        buildAssistantEntry("turn_steer", "turn_steer_assistant", "Working", { status: "inProgress" }),
+        buildAssistantEntry("turn_steer", "turn_steer_assistant", "Working", {
+          status: "inProgress",
+        }),
         buildSteeringEntry("turn_steer", "steer_pending", "Try the compact path.", "pending"),
         buildSteeringEntry("turn_steer", "steer_accepted", "Tighten the layout.", "accepted"),
         buildSteeredEntry("turn_steer", "steered_accepted"),
@@ -318,7 +322,12 @@ describe("LocalConversationTurnEntry", () => {
 
   test("renders assistant actions in Codex order and forks with an empty composer draft", async () => {
     const stableRequests: [] = [];
-    const forkInputs: Array<{ threadId: string; turnId: string; message: string; isLatestTurn: boolean }> = [];
+    const forkInputs: Array<{
+      threadId: string;
+      turnId: string;
+      message: string;
+      isLatestTurn: boolean;
+    }> = [];
     const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
     const sentAtMs = 180_000;
     const staleCompletedAtMs = 999_000;
@@ -349,8 +358,9 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    const labels = Array.from(view.container.querySelectorAll("button[aria-label]"))
-      .map((button) => button.getAttribute("aria-label") ?? "");
+    const labels = Array.from(view.container.querySelectorAll("button[aria-label]")).map(
+      (button) => button.getAttribute("aria-label") ?? "",
+    );
     const assistantCopyIndex = labels.lastIndexOf("Copy");
     const thumbsUpIndex = labels.indexOf("Good response");
     const thumbsDownIndex = labels.indexOf("Bad response");
@@ -364,7 +374,9 @@ describe("LocalConversationTurnEntry", () => {
     expect(Boolean(view.container.textContent?.includes(expectedTime))).toBe(true);
     expect(Boolean(view.container.textContent?.includes(staleCompletedTime))).toBe(false);
 
-    const turnRoot = view.container.querySelector('[data-content-search-turn-key="turn_assistant_actions"]');
+    const turnRoot = view.container.querySelector(
+      '[data-content-search-turn-key="turn_assistant_actions"]',
+    );
     if (turnRoot === null) {
       throw new Error("expected Codex-style turn root");
     }
@@ -380,13 +392,7 @@ describe("LocalConversationTurnEntry", () => {
     const stableRequests: [] = [];
     const { LocalConversationTurnEntry } = await import("./local-conversation-turn-entry");
     const turn = buildTurn("turn_diff_after", "Request", "Assistant reply", {
-      diff: [
-        "--- a/src/one.ts",
-        "+++ b/src/one.ts",
-        "@@ -1 +1 @@",
-        "-old",
-        "+new",
-      ].join("\n"),
+      diff: ["--- a/src/one.ts", "+++ b/src/one.ts", "@@ -1 +1 @@", "-old", "+new"].join("\n"),
       finalAssistantStartedAtMs: 180_000,
     });
     const view = render(
@@ -403,15 +409,25 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    const finalAssistant = view.container.querySelector('[data-local-conversation-final-assistant="true"]');
-    const diffCard = finalAssistant?.querySelector('[data-assistant-after-blocks="turn_diff_after_assistant"]');
+    const finalAssistant = view.container.querySelector(
+      '[data-local-conversation-final-assistant="true"]',
+    );
+    const diffCard = finalAssistant?.querySelector(
+      '[data-assistant-after-blocks="turn_diff_after_assistant"]',
+    );
     const copyButton = finalAssistant?.querySelector('button[aria-label="Copy"]');
-    if (!(finalAssistant instanceof HTMLElement) || !(diffCard instanceof HTMLElement) || !(copyButton instanceof HTMLElement)) {
+    if (
+      !(finalAssistant instanceof HTMLElement) ||
+      !(diffCard instanceof HTMLElement) ||
+      !(copyButton instanceof HTMLElement)
+    ) {
       throw new Error("expected final assistant wrapper, assistant-after diff, and copy button");
     }
 
     expect(Boolean(diffCard.textContent?.includes("Edited"))).toBe(true);
-    expect(Boolean(diffCard.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(
+      Boolean(diffCard.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING),
+    ).toBe(true);
   });
 
   test("suppresses assistant copy and rating while streaming or empty", async () => {
@@ -574,7 +590,9 @@ describe("LocalConversationTurnEntry", () => {
           createdAt: 5,
           updatedAt: 5,
           status: "completed",
-          commandActions: [{ type: "read", command: "", name: "src/view.tsx", path: "src/view.tsx" }],
+          commandActions: [
+            { type: "read", command: "", name: "src/view.tsx", path: "src/view.tsx" },
+          ],
           toolCall: {
             subtype: "command",
             toolName: "exec_command",
@@ -590,21 +608,22 @@ describe("LocalConversationTurnEntry", () => {
       ],
     };
     let requestedCollapsed: boolean | null = null;
-    const renderTurn = (persistedCollapsed: boolean) => createElement(
-      TooltipProvider,
-      null,
-      createElement(LocalConversationTurnEntry, {
-        conversationId: "thread_1",
-        entry: buildVisibleTurnEntry(turn, stableRequests, false),
-        cwd: "/tmp/project",
-        canEditTurnUserPrefix: false,
-        canForkTurn: true,
-        persistedCollapsed,
-        onSetCollapsed: (collapsed) => {
-          requestedCollapsed = collapsed;
-        },
-      }),
-    );
+    const renderTurn = (persistedCollapsed: boolean) =>
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(LocalConversationTurnEntry, {
+          conversationId: "thread_1",
+          entry: buildVisibleTurnEntry(turn, stableRequests, false),
+          cwd: "/tmp/project",
+          canEditTurnUserPrefix: false,
+          canForkTurn: true,
+          persistedCollapsed,
+          onSetCollapsed: (collapsed) => {
+            requestedCollapsed = collapsed;
+          },
+        }),
+      );
     const view = render(renderTurn(true));
 
     const workedForButton = view.getByRole("button", { name: /Worked for 2m 5s/ });
@@ -622,16 +641,16 @@ describe("LocalConversationTurnEntry", () => {
     expect(view.container.textContent?.includes("src/app.ts") ?? false).toBe(false);
     expect(view.container.textContent?.includes("src/view.tsx") ?? false).toBe(false);
     expect(
-      workedForButton.compareDocumentPosition(firstSteeringMessage)
-      & Node.DOCUMENT_POSITION_FOLLOWING,
+      workedForButton.compareDocumentPosition(firstSteeringMessage) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      firstSteeringMessage.compareDocumentPosition(secondSteeringMessage)
-      & Node.DOCUMENT_POSITION_FOLLOWING,
+      firstSteeringMessage.compareDocumentPosition(secondSteeringMessage) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      secondSteeringMessage.compareDocumentPosition(finalAssistantMessage)
-      & Node.DOCUMENT_POSITION_FOLLOWING,
+      secondSteeringMessage.compareDocumentPosition(finalAssistantMessage) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(firstCompactRow?.querySelector('button[aria-label="Copy message"]')).not.toBeNull();
     expect(firstCompactRow?.lastElementChild).toBe(firstCollapsedBubble);
@@ -650,14 +669,14 @@ describe("LocalConversationTurnEntry", () => {
     expect(view.container.textContent?.includes("src/view.tsx") ?? false).toBe(true);
     expect(view.getAllByText("Keep the existing API.")).toHaveLength(1);
     expect(view.getAllByText("Also preserve the ordering.")).toHaveLength(1);
-    const firstExpandedBubble = view.getByText("Keep the existing API.").closest<HTMLElement>(
-      '[data-user-message-bubble="true"]',
-    );
+    const firstExpandedBubble = view
+      .getByText("Keep the existing API.")
+      .closest<HTMLElement>('[data-user-message-bubble="true"]');
     const firstExpandedGroup = firstExpandedBubble?.parentElement;
     expect(firstExpandedGroup?.children).toHaveLength(2);
-    expect(firstExpandedBubble?.nextElementSibling?.querySelector(
-      'button[aria-label="Copy message"]',
-    )).not.toBeNull();
+    expect(
+      firstExpandedBubble?.nextElementSibling?.querySelector('button[aria-label="Copy message"]'),
+    ).not.toBeNull();
 
     await act(async () => {
       fireEvent.click(workedForButton);
@@ -736,10 +755,12 @@ describe("LocalConversationTurnEntry", () => {
 
     const worktreeButton = view.getByRole("button", { name: "Worktree created" });
     const assistantMessage = view.getByText("Hi! What would you like to work on?");
-    expect(userMessage.compareDocumentPosition(worktreeButton) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBeTruthy();
-    expect(worktreeButton.compareDocumentPosition(assistantMessage) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBeTruthy();
+    expect(
+      userMessage.compareDocumentPosition(worktreeButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      worktreeButton.compareDocumentPosition(assistantMessage) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(worktreeButton.getAttribute("aria-expanded")).toBe("false");
 
     await act(async () => {
@@ -798,7 +819,9 @@ describe("LocalConversationTurnEntry", () => {
     expect(view.queryByRole("button", { name: /Working/ }) === null).toBe(true);
 
     const workingText = view.getByText("Working for 1m 5s");
-    expect(Boolean(workingText.parentElement?.textContent?.includes("previous messages"))).toBe(false);
+    expect(Boolean(workingText.parentElement?.textContent?.includes("previous messages"))).toBe(
+      false,
+    );
   });
 
   test("does not rerender unchanged older turns when a different turn updates", async () => {
@@ -913,14 +936,18 @@ describe("LocalConversationTurnEntry", () => {
     );
 
     const strip = view.container.querySelector("[data-user-attachment-strip]");
-    const bubble = view.container.querySelector('[data-content-search-unit-key="turn_images:user:0"]');
+    const bubble = view.container.querySelector(
+      '[data-content-search-unit-key="turn_images:user:0"]',
+    );
     if (!(strip instanceof HTMLElement) || !(bubble instanceof HTMLElement)) {
       throw new Error("expected attachment strip and user bubble");
     }
 
     expect(Boolean(strip.textContent?.includes("notes.md"))).toBe(true);
     expect(Boolean(bubble.textContent?.includes("Inspect these images"))).toBe(true);
-    expect(Boolean(strip.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(Boolean(strip.compareDocumentPosition(bubble) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
     expect(strip.querySelector("img") !== null).toBe(true);
 
     const previewTrigger = view.getByLabelText("Open image preview");
@@ -998,7 +1025,9 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    const assistantAfter = view.container.querySelector('[data-content-search-unit-key="turn_latest:assistant"]');
+    const assistantAfter = view.container.querySelector(
+      '[data-content-search-unit-key="turn_latest:assistant"]',
+    );
     if (!(assistantAfter instanceof HTMLElement)) {
       throw new Error("expected assistant body after exec");
     }
@@ -1012,7 +1041,9 @@ describe("LocalConversationTurnEntry", () => {
         window.requestAnimationFrame(() => resolve());
       });
     });
-    const execToggle = view.container.querySelector("[data-testid='command-tool-summary-toggle'] > button");
+    const execToggle = view.container.querySelector(
+      "[data-testid='command-tool-summary-toggle'] > button",
+    );
     if (!(execToggle instanceof HTMLElement)) {
       throw new Error("expected exec summary toggle");
     }
@@ -1020,7 +1051,9 @@ describe("LocalConversationTurnEntry", () => {
     expect(Boolean(view.container.textContent?.includes("Done"))).toBe(true);
     expect(Boolean(view.container.textContent?.includes("Final message"))).toBe(false);
     expect(
-      Boolean(assistantAfter.compareDocumentPosition(execToggle) & Node.DOCUMENT_POSITION_FOLLOWING),
+      Boolean(
+        assistantAfter.compareDocumentPosition(execToggle) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
     ).toBe(true);
   });
 
@@ -1104,7 +1137,9 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    const assistantAfter = view.container.querySelector('[data-content-search-unit-key="turn_latest:assistant"]');
+    const assistantAfter = view.container.querySelector(
+      '[data-content-search-unit-key="turn_latest:assistant"]',
+    );
     if (!(assistantAfter instanceof HTMLElement)) {
       throw new Error("expected assistant body after exploration rows");
     }
@@ -1170,23 +1205,39 @@ describe("LocalConversationTurnEntry", () => {
       ),
     );
 
-    const assistantBlock = view.container.querySelector('[data-content-search-unit-key="turn_stopped_order:assistant"]');
+    const assistantBlock = view.container.querySelector(
+      '[data-content-search-unit-key="turn_stopped_order:assistant"]',
+    );
     const explorationLink = view.getByRole("link", { name: "read" });
     const copyButton = view.getByLabelText("Copy");
-    const actionAnchor = view.container.querySelector('[data-assistant-actions-anchor="assistant_1"]');
+    const actionAnchor = view.container.querySelector(
+      '[data-assistant-actions-anchor="assistant_1"]',
+    );
     if (
-      !(assistantBlock instanceof HTMLElement)
-      || !(explorationLink instanceof HTMLElement)
-      || !(copyButton instanceof HTMLElement)
-      || !(actionAnchor instanceof HTMLElement)
+      !(assistantBlock instanceof HTMLElement) ||
+      !(explorationLink instanceof HTMLElement) ||
+      !(copyButton instanceof HTMLElement) ||
+      !(actionAnchor instanceof HTMLElement)
     ) {
       throw new Error("expected stopped assistant, exploration group, and deferred action anchor");
     }
 
     expect(assistantBlock.querySelector('[aria-label="Copy"]') === null).toBe(true);
-    expect(Boolean(assistantBlock.compareDocumentPosition(explorationLink) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    expect(Boolean(explorationLink.compareDocumentPosition(actionAnchor) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
-    expect(Boolean(explorationLink.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    expect(
+      Boolean(
+        assistantBlock.compareDocumentPosition(explorationLink) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+    expect(
+      Boolean(
+        explorationLink.compareDocumentPosition(actionAnchor) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+    expect(
+      Boolean(
+        explorationLink.compareDocumentPosition(copyButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
     expect(Boolean(view.getByLabelText("Fork from this point"))).toBe(true);
   });
 });

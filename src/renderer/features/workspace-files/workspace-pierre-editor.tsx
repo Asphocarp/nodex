@@ -39,9 +39,7 @@ interface WorkspacePierreEditorProps {
   };
 }
 
-function createWorkspaceEditor(
-  options: EditorOptions<undefined>,
-): Editor<undefined> {
+function createWorkspaceEditor(options: EditorOptions<undefined>): Editor<undefined> {
   return new Editor(options);
 }
 
@@ -59,30 +57,33 @@ export function WorkspacePierreEditor({
 }: WorkspacePierreEditorProps) {
   const codeViewRef = useRef<CodeViewHandle<undefined>>(null);
   const { resolved } = useTheme();
-  const items = useMemo<CodeViewItem[]>(() => [{
-    id: sourceIdentity,
-    type: "file",
-    edit: true,
-    version: documentVersion,
-    file: {
-      name: filename,
-      contents: value,
-      cacheKey: `${sourceIdentity}:${documentVersion}`,
-      lang: language ?? undefined,
-    },
-  }], [documentVersion, filename, language, sourceIdentity, value]);
+  const items = useMemo<CodeViewItem[]>(
+    () => [
+      {
+        id: sourceIdentity,
+        type: "file",
+        edit: true,
+        version: documentVersion,
+        file: {
+          name: filename,
+          contents: value,
+          cacheKey: `${sourceIdentity}:${documentVersion}`,
+          lang: language ?? undefined,
+        },
+      },
+    ],
+    [documentVersion, filename, language, sourceIdentity, value],
+  );
   const options = useMemo(
-    () => getNodexSourceOptions(resolved, true, {
-      disableLineNumbers: false,
-      wrap,
-    }),
+    () =>
+      getNodexSourceOptions(resolved, true, {
+        disableLineNumbers: false,
+        wrap,
+      }),
     [resolved, wrap],
   );
   const style = useMemo(() => getNodexDiffHostStyle(resolved), [resolved]);
-  const handleEditChange = (
-    _item: CodeViewItem,
-    file: FileContents,
-  ) => {
+  const handleEditChange = (_item: CodeViewItem, file: FileContents) => {
     onChange(file.contents);
   };
 
@@ -130,10 +131,7 @@ export function WorkspacePierreEditor({
           }}
           disableWorkerPool
           onItemEditChange={handleEditChange}
-          className={cn(
-            NODEX_SOURCE_HOST_CLASS,
-            "h-full min-h-0 overflow-auto",
-          )}
+          className={cn(NODEX_SOURCE_HOST_CLASS, "h-full min-h-0 overflow-auto")}
           style={style}
         />
       </EditProvider>

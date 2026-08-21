@@ -14,7 +14,7 @@ export function preloadSourceViewer(): void {
 export function LazySourceViewer(props: SourceViewerProps) {
   return (
     <Suspense
-      fallback={(
+      fallback={
         <div
           aria-label={`Loading ${props.ariaLabel}`}
           aria-live="polite"
@@ -29,7 +29,7 @@ export function LazySourceViewer(props: SourceViewerProps) {
             size="sm"
           />
         </div>
-      )}
+      }
     >
       <SourceViewerLazy {...props} />
     </Suspense>

@@ -51,14 +51,18 @@ function getPrimarySortField(rules: DbViewRules): DbViewSortField {
   return rules.sort[0]?.field ?? "board-order";
 }
 
-function resolveSortBucketValue(card: Pick<DatabasePageSummary, "priority" | "estimate"> | undefined, field: MoveFieldPatchField) {
+function resolveSortBucketValue(
+  card: Pick<DatabasePageSummary, "priority" | "estimate"> | undefined,
+  field: MoveFieldPatchField,
+) {
   if (!card) return null;
-  return field === "priority"
-    ? (card.priority ?? null)
-    : (card.estimate ?? null);
+  return field === "priority" ? (card.priority ?? null) : (card.estimate ?? null);
 }
 
-function buildPreviewLabel(field: MoveFieldPatchField, value: DatabasePageSummary["priority"] | DatabasePageSummary["estimate"] | null): string {
+function buildPreviewLabel(
+  field: MoveFieldPatchField,
+  value: DatabasePageSummary["priority"] | DatabasePageSummary["estimate"] | null,
+): string {
   if (field === "priority") {
     if (value === null) return "Priority: Empty";
     if (!isPriority(value)) {
@@ -72,9 +76,7 @@ function buildPreviewLabel(field: MoveFieldPatchField, value: DatabasePageSummar
   return `Estimate: ${label}`;
 }
 
-export function resolveBoardCardDragMode(args: {
-  rules: DbViewRules;
-}): BoardCardDragMode {
+export function resolveBoardCardDragMode(args: { rules: DbViewRules }): BoardCardDragMode {
   const primarySortField = getPrimarySortField(args.rules);
   if (primarySortField === "board-order") {
     return { kind: "manual-rank" };
@@ -119,7 +121,9 @@ export function resolveBoardCardDropIntent(args: {
   }
 
   if (dragMode.kind === "derived-move-only") {
-    const hasCrossColumnMove = args.dragItems.some((entry) => entry.columnId !== args.destinationColumnId);
+    const hasCrossColumnMove = args.dragItems.some(
+      (entry) => entry.columnId !== args.destinationColumnId,
+    );
     if (hasCrossColumnMove) {
       return {
         kind: "move-only",
@@ -141,7 +145,9 @@ export function resolveBoardCardDropIntent(args: {
     };
   }
 
-  const targetColumn = args.visibleBoard.columns.find((column) => column.id === args.destinationColumnId);
+  const targetColumn = args.visibleBoard.columns.find(
+    (column) => column.id === args.destinationColumnId,
+  );
   const visibleCards = targetColumn?.cards ?? [];
   const visibleIndex = clamp(args.destinationIndex, 0, visibleCards.length);
   if (visibleCards.length === 0) {
@@ -163,11 +169,12 @@ export function resolveBoardCardDropIntent(args: {
   const beforeValue = resolveSortBucketValue(beforeCard, dragMode.field);
   const afterValue = resolveSortBucketValue(afterCard, dragMode.field);
 
-  const targetValue = beforeCard && afterCard && beforeValue === afterValue
-    ? beforeValue
-    : afterCard
-      ? afterValue
-      : beforeValue;
+  const targetValue =
+    beforeCard && afterCard && beforeValue === afterValue
+      ? beforeValue
+      : afterCard
+        ? afterValue
+        : beforeValue;
 
   const newOrder = resolveFilteredDropOrder({
     board: args.board,

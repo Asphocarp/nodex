@@ -23,9 +23,11 @@ describe("mention suggestion model", () => {
   test("puts Date first for an empty query and keeps each section bounded", () => {
     const candidates = [
       ...Array.from({ length: 12 }, (_, index) =>
-        candidate(`page-${index}`, "page", "recent", index)),
+        candidate(`page-${index}`, "page", "recent", index),
+      ),
       ...Array.from({ length: 8 }, (_, index) =>
-        candidate(`chat-${index}`, "chat", "recent", index, true)),
+        candidate(`chat-${index}`, "chat", "recent", index, true),
+      ),
       candidate("today", "temporal", "temporal_intent", 0),
       candidate("now", "temporal", "temporal_intent", 1),
     ];
@@ -74,7 +76,8 @@ describe("mention suggestion model", () => {
     const sections = selectMentionSuggestionSections({
       query: "projection",
       candidates: Array.from({ length: 20 }, (_, index) =>
-        candidate(`page-${index}`, "page", "title", index)),
+        candidate(`page-${index}`, "page", "title", index),
+      ),
     });
 
     expect(sections).toHaveLength(1);
@@ -85,9 +88,11 @@ describe("mention suggestion model", () => {
   test("expands only the requested section", () => {
     const candidates = [
       ...Array.from({ length: 7 }, (_, index) =>
-        candidate(`page-${index}`, "page", "title", index)),
+        candidate(`page-${index}`, "page", "title", index),
+      ),
       ...Array.from({ length: 6 }, (_, index) =>
-        candidate(`chat-${index}`, "chat", "title", index)),
+        candidate(`chat-${index}`, "chat", "title", index),
+      ),
     ];
 
     const sections = selectMentionSuggestionSections({

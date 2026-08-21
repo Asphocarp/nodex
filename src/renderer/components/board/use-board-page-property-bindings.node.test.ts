@@ -8,38 +8,45 @@ import { resolveBoardPagePropertyChangeAuthority } from "./use-board-page-proper
 const property = (
   propertyId: string,
   valueType: DatabasePropertyValueType,
-): DataSourcePropertyRecordV2 => ({
-  propertyId,
-  dataSourceId: "source-1",
-  name: propertyId,
-  valueType,
-  ...testPropertySemantics(valueType),
-  config: {},
-  rankKey: propertyId,
-  lifecycle: "active",
-  revision: 1,
-  createdAt: "2026-08-16T00:00:00.000Z",
-  updatedAt: "2026-08-16T00:00:00.000Z",
-} as DataSourcePropertyRecordV2);
+): DataSourcePropertyRecordV2 =>
+  ({
+    propertyId,
+    dataSourceId: "source-1",
+    name: propertyId,
+    valueType,
+    ...testPropertySemantics(valueType),
+    config: {},
+    rankKey: propertyId,
+    lifecycle: "active",
+    revision: 1,
+    createdAt: "2026-08-16T00:00:00.000Z",
+    updatedAt: "2026-08-16T00:00:00.000Z",
+  }) as DataSourcePropertyRecordV2;
 
 describe("resolveBoardPagePropertyChangeAuthority", () => {
   test("routes only the exact active select grouping Property through Board move", () => {
-    expect(resolveBoardPagePropertyChangeAuthority({
-      property: property("status", "select"),
-      groupingPropertyId: "status",
-      value: "done",
-    })).toEqual({ kind: "grouping_move", groupValue: "done" });
+    expect(
+      resolveBoardPagePropertyChangeAuthority({
+        property: property("status", "select"),
+        groupingPropertyId: "status",
+        value: "done",
+      }),
+    ).toEqual({ kind: "grouping_move", groupValue: "done" });
 
-    expect(resolveBoardPagePropertyChangeAuthority({
-      property: property("priority", "select"),
-      groupingPropertyId: "status",
-      value: "high",
-    })).toEqual({ kind: "property_value" });
+    expect(
+      resolveBoardPagePropertyChangeAuthority({
+        property: property("priority", "select"),
+        groupingPropertyId: "status",
+        value: "high",
+      }),
+    ).toEqual({ kind: "property_value" });
 
-    expect(resolveBoardPagePropertyChangeAuthority({
-      property: property("p_group", "multi_select"),
-      groupingPropertyId: "p_group",
-      value: ["one", "two"],
-    })).toEqual({ kind: "property_value" });
+    expect(
+      resolveBoardPagePropertyChangeAuthority({
+        property: property("p_group", "multi_select"),
+        groupingPropertyId: "p_group",
+        value: ["one", "two"],
+      }),
+    ).toEqual({ kind: "property_value" });
   });
 });

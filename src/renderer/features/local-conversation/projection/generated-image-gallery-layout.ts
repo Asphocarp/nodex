@@ -13,18 +13,17 @@ export function calculateGeneratedImageGalleryLayout(input: {
 }): GeneratedImageGalleryLayout {
   const slotCount = input.imageAspectRatios.length;
   const minimumSlotCount = input.minimumSlotCount ?? 0;
-  const singleAspectRatio = Math.max(slotCount, minimumSlotCount) === 1
-    ? input.imageAspectRatios[0] ?? null
-    : null;
-  const heightPx = input.containerWidthPx === null
-    ? 0
-    : singleAspectRatio === null
-      ? Math.max((input.containerWidthPx - 24) / 4, 0)
-      : input.containerWidthPx / singleAspectRatio;
-  const naturalWidth = input.imageAspectRatios.reduce(
-    (width, ratio) => width + ratio * heightPx,
-    0,
-  ) + Math.max(slotCount - 1, 0) * 8;
+  const singleAspectRatio =
+    Math.max(slotCount, minimumSlotCount) === 1 ? (input.imageAspectRatios[0] ?? null) : null;
+  const heightPx =
+    input.containerWidthPx === null
+      ? 0
+      : singleAspectRatio === null
+        ? Math.max((input.containerWidthPx - 24) / 4, 0)
+        : input.containerWidthPx / singleAspectRatio;
+  const naturalWidth =
+    input.imageAspectRatios.reduce((width, ratio) => width + ratio * heightPx, 0) +
+    Math.max(slotCount - 1, 0) * 8;
 
   if (input.containerWidthPx === null || naturalWidth <= input.containerWidthPx) {
     return {

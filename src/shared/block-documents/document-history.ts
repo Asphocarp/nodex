@@ -1,10 +1,5 @@
-import type {
-  BlockTreeNode,
-  BlockTreeValue,
-} from "./block-document-codec";
-import type {
-  RegisteredOwnedDocumentMaterialization,
-} from "./document-schema-adapters";
+import type { BlockTreeNode, BlockTreeValue } from "./block-document-codec";
+import type { RegisteredOwnedDocumentMaterialization } from "./document-schema-adapters";
 import type { CanvasSceneForwardRestorePlan } from "./canvas-scene";
 import type { BlockId, DocumentId } from "./contracts";
 import type { DocumentBlockOperation } from "./document-operations";
@@ -16,12 +11,7 @@ export const MAX_DOCUMENT_VERSION_HISTORY_LIMIT = 200;
 
 export type DocumentVersionActor = Readonly<Record<string, BlockTreeValue>>;
 
-export type DocumentRevisionKind =
-  | "automatic"
-  | "manual"
-  | "operation"
-  | "restore"
-  | "safety";
+export type DocumentRevisionKind = "automatic" | "manual" | "operation" | "restore" | "safety";
 
 export interface CreateDocumentVersionCheckpoint {
   readonly projectId: string;
@@ -171,8 +161,7 @@ interface DocumentVersionRestorePlanBase {
   readonly requiresWriteFence: true;
 }
 
-export interface BlockTreeDocumentVersionRestorePlan
-  extends DocumentVersionRestorePlanBase {
+export interface BlockTreeDocumentVersionRestorePlan extends DocumentVersionRestorePlanBase {
   readonly contentModel: "block_tree";
   readonly targetTitle?: string;
   readonly targetRichTitle?: PortableRichText;
@@ -180,8 +169,7 @@ export interface BlockTreeDocumentVersionRestorePlan
   readonly operations: readonly DocumentBlockOperation[];
 }
 
-export interface CanvasDocumentVersionRestorePlan
-  extends DocumentVersionRestorePlanBase {
+export interface CanvasDocumentVersionRestorePlan extends DocumentVersionRestorePlanBase {
   readonly contentModel: "scene_graph";
   readonly forwardRestore: CanvasSceneForwardRestorePlan;
 }

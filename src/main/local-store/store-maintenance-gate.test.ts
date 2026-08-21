@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  StoreMaintenanceGate,
-  StoreMaintenanceInProgressError,
-} from "./store-maintenance-gate";
+import { StoreMaintenanceGate, StoreMaintenanceInProgressError } from "./store-maintenance-gate";
 
 describe("StoreMaintenanceGate", () => {
   test("drains accepted asset writes and rejects mutations until maintenance ends", async () => {

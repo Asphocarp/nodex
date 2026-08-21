@@ -14,7 +14,7 @@ export function getXmlAttr(attrs: string, name: string): string | undefined {
   if (!match) return undefined;
 
   return match[1]
-    .replace(/&quot;/g, "\"")
+    .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
@@ -31,7 +31,7 @@ export function parseXmlAttrs(attrs: string): Record<string, string> {
     const value = match[2];
     if (!name || value === undefined) continue;
     result[name] = value
-      .replace(/&quot;/g, "\"")
+      .replace(/&quot;/g, '"')
       .replace(/&#39;/g, "'")
       .replace(/&lt;/g, "<")
       .replace(/&gt;/g, ">")

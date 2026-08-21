@@ -26,11 +26,15 @@ describe("Database List field registry", () => {
     expect(partition.inlineFields).toEqual(fields.slice(0, 2));
     expect(partition.trailingFields).toEqual([fields[2]]);
 
-    const template = databaseListGridTemplate(partition.trailingFields, {
-      identifier: true,
-      priority: true,
-      status: true,
-    }, 51);
+    const template = databaseListGridTemplate(
+      partition.trailingFields,
+      {
+        identifier: true,
+        priority: true,
+        status: true,
+      },
+      51,
+    );
     expect(template).toContain("[title] minmax(0,1fr)");
     expect(template).toContain("[identifier] minmax(51px,auto)");
     expect(template).toContain("[updated_at] minmax(60px,auto)");
@@ -62,16 +66,20 @@ describe("Database List field registry", () => {
   });
 
   test("aliases the hidden identifier boundary onto a real track in every core layout", () => {
-    expect(databaseListGridTemplate([], {
-      identifier: false,
-      priority: true,
-      status: true,
-    })).toContain("[identifier status] 20px");
-    expect(databaseListGridTemplate([], {
-      identifier: false,
-      priority: true,
-      status: false,
-    })).toContain("[identifier title] minmax(0,1fr)");
+    expect(
+      databaseListGridTemplate([], {
+        identifier: false,
+        priority: true,
+        status: true,
+      }),
+    ).toContain("[identifier status] 20px");
+    expect(
+      databaseListGridTemplate([], {
+        identifier: false,
+        priority: true,
+        status: false,
+      }),
+    ).toContain("[identifier title] minmax(0,1fr)");
   });
 
   test("measures each prefix and number depth instead of imposing a three-letter width", () => {
@@ -88,14 +96,8 @@ describe("Database List field registry", () => {
     expect(threeCharacterSamples).toContain("NOD-88");
 
     const measure = (value: string): number => value.length * 7;
-    const twoCharacterWidth = databaseListIdentifierMinWidth(
-      twoCharacterSamples,
-      measure,
-    );
-    const threeCharacterWidth = databaseListIdentifierMinWidth(
-      threeCharacterSamples,
-      measure,
-    );
+    const twoCharacterWidth = databaseListIdentifierMinWidth(twoCharacterSamples, measure);
+    const threeCharacterWidth = databaseListIdentifierMinWidth(threeCharacterSamples, measure);
     expect(twoCharacterWidth).toBe(35);
     expect(threeCharacterWidth).toBe(42);
     expect(databaseListGridTemplate([], undefined, twoCharacterWidth)).toContain(
@@ -111,9 +113,11 @@ describe("Database List field registry", () => {
     expect(samples).toHaveLength(20);
     expect(samples).toContain("NO-888");
     expect(samples).toContain("LAB-88");
-    expect(databaseListIdentifierMinWidth(samples, (value) =>
-      value.includes("8") ? value.length * 6 : value.length * 5
-    )).toBe(36);
+    expect(
+      databaseListIdentifierMinWidth(samples, (value) =>
+        value.includes("8") ? value.length * 6 : value.length * 5,
+      ),
+    ).toBe(36);
   });
 
   test("adds an ordering field only to the current List session without duplicating it", () => {
@@ -130,10 +134,7 @@ describe("Database List field registry", () => {
     const identityFields = partitionDatabaseListFields([
       { kind: "intrinsic", field: "page_key" },
     ]).identityFields;
-    expect(projectDatabaseListPageIdentity(
-      "LAB-13",
-      identityFields,
-    )).toEqual({
+    expect(projectDatabaseListPageIdentity("LAB-13", identityFields)).toEqual({
       label: "LAB-13",
       title: "LAB-13",
     });
@@ -141,10 +142,8 @@ describe("Database List field registry", () => {
 
   test("projects a high-cardinality row model in one linear pass", () => {
     const identities = Array.from({ length: 10_000 }, (_, index) =>
-      projectDatabaseListPageIdentity(
-        `LAB-${index + 1}`,
-        ["page_key"],
-      ));
+      projectDatabaseListPageIdentity(`LAB-${index + 1}`, ["page_key"]),
+    );
     expect(identities).toHaveLength(10_000);
     expect(identities[0]?.label).toBe("LAB-1");
     expect(identities.at(-1)?.label).toBe("LAB-10000");

@@ -7,7 +7,11 @@ import {
   useSyncExternalStore,
   type ComponentProps,
 } from "react";
-import { ChevronLeftIcon, ChevronRightIcon, ImagesIcon } from "@/components/shared/icons/generic-icons";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ImagesIcon,
+} from "@/components/shared/icons/generic-icons";
 import {
   areGeneratedImageLiveGroupsEqual,
   GeneratedImagePlaceholder,
@@ -20,10 +24,7 @@ import {
   subscribeGeneratedImageLiveCollections,
   type GeneratedImageDescriptor,
 } from "@/features/user-attachment-image-editor";
-import {
-  ImageCanvasViewIcon,
-  ShortcutPencilIcon,
-} from "@/components/shared/icons";
+import { ImageCanvasViewIcon, ShortcutPencilIcon } from "@/components/shared/icons";
 import { cn } from "../../../../lib/utils";
 import type { ThreadGeneratedImageGalleryItemModel } from "../../thread-stage-types";
 import { useCodexConversationValue } from "../../local-conversation-store";
@@ -149,20 +150,18 @@ function GeneratedImageTile({
           src={previewSrc}
           alt={alt}
           draggable
-          className={cn(
-            "block h-full",
-            square ? "w-full object-cover" : "w-auto object-contain",
-          )}
+          className={cn("block h-full", square ? "w-full object-cover" : "w-auto object-contain")}
           referrerPolicy="no-referrer"
           onDragStart={(event) => {
             event.dataTransfer.effectAllowed = "copy";
-            event.dataTransfer.setData("application/x-codex-image", JSON.stringify({
-              filename: `generated-image-${imageNumber}`,
-              src: fullAsset.dataUrl
-                ?? fullAsset.downloadSrc
-                ?? fullAsset.previewSrc
-                ?? previewSrc,
-            }));
+            event.dataTransfer.setData(
+              "application/x-codex-image",
+              JSON.stringify({
+                filename: `generated-image-${imageNumber}`,
+                src:
+                  fullAsset.dataUrl ?? fullAsset.downloadSrc ?? fullAsset.previewSrc ?? previewSrc,
+              }),
+            );
           }}
           onLoad={(event) => {
             setFailure(null);
@@ -259,38 +258,33 @@ export function GeneratedImageGallery({
   const [startIndex, setStartIndex] = useState(0);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const previewTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const localEditorImages = useMemo<GeneratedImageDescriptor[]>(
-    () => {
-      const canonicalImagesById = new Map(
-        canonicalGeneratedGroups.flatMap((group) => group.images).map(
-          (image) => [image.id, image],
-        ),
-      );
-      return images.map((image, index) => {
-        const canonical = canonicalImagesById.get(image.id);
-        const alt = canonical?.alt ?? `Generated image ${index + 1}`;
-        return {
-          id: image.id,
-          alt,
-          attachmentId: image.id.startsWith("image-playground:")
-            ? image.id
-            : `image-playground:${image.id}`,
-          attachmentSrc: image.src ?? image.previewSrc ?? "",
-          downloadSrc: image.src ?? image.previewSrc ?? "",
-          generatedOrdinal: canonical?.generatedOrdinal ?? index + 1,
-          groupId,
-          previewSrc: image.previewSrc ?? image.src,
-          referrerPolicy: "no-referrer",
-          source: "generated",
-          src: image.src ?? image.previewSrc ?? "",
-          status: "ready",
-          tabTitle: canonical?.tabTitle ?? alt,
-          turnStartedAtMs: turnStartedAtMs ?? undefined,
-        };
-      });
-    },
-    [canonicalGeneratedGroups, groupId, images, turnStartedAtMs],
-  );
+  const localEditorImages = useMemo<GeneratedImageDescriptor[]>(() => {
+    const canonicalImagesById = new Map(
+      canonicalGeneratedGroups.flatMap((group) => group.images).map((image) => [image.id, image]),
+    );
+    return images.map((image, index) => {
+      const canonical = canonicalImagesById.get(image.id);
+      const alt = canonical?.alt ?? `Generated image ${index + 1}`;
+      return {
+        id: image.id,
+        alt,
+        attachmentId: image.id.startsWith("image-playground:")
+          ? image.id
+          : `image-playground:${image.id}`,
+        attachmentSrc: image.src ?? image.previewSrc ?? "",
+        downloadSrc: image.src ?? image.previewSrc ?? "",
+        generatedOrdinal: canonical?.generatedOrdinal ?? index + 1,
+        groupId,
+        previewSrc: image.previewSrc ?? image.src,
+        referrerPolicy: "no-referrer",
+        source: "generated",
+        src: image.src ?? image.previewSrc ?? "",
+        status: "ready",
+        tabTitle: canonical?.tabTitle ?? alt,
+        turnStartedAtMs: turnStartedAtMs ?? undefined,
+      };
+    });
+  }, [canonicalGeneratedGroups, groupId, images, turnStartedAtMs]);
   const getLiveCollectionSnapshot = useCallback(
     () => getGeneratedImageLiveCollectionSnapshot(conversationId ?? ""),
     [conversationId],
@@ -309,20 +303,11 @@ export function GeneratedImageGallery({
       pendingImageCount,
       turnStartedAtMs,
     });
-  }, [
-    conversationId,
-    groupId,
-    localEditorImages,
-    pendingImageCount,
-    turnStartedAtMs,
-  ]);
+  }, [conversationId, groupId, localEditorImages, pendingImageCount, turnStartedAtMs]);
 
   useEffect(() => {
     if (!conversationId) return undefined;
-    return replaceGeneratedImageCanonicalGroups(
-      conversationId,
-      canonicalGeneratedGroups,
-    );
+    return replaceGeneratedImageCanonicalGroups(conversationId, canonicalGeneratedGroups);
   }, [canonicalGeneratedGroups, conversationId]);
 
   const resolveEditorImages = () => {
@@ -331,7 +316,10 @@ export function GeneratedImageGallery({
     return liveImages.length > 0 ? liveImages : localEditorImages;
   };
 
-  const openEditor = (index: number, entrypoint: "gallery_edit_button" | "lightbox_edit_button") => {
+  const openEditor = (
+    index: number,
+    entrypoint: "gallery_edit_button" | "lightbox_edit_button",
+  ) => {
     const clickedImage = localEditorImages[index];
     const editorImages = resolveEditorImages();
     const image = editorImages.find((candidate) => candidate.id === clickedImage?.id);
@@ -359,44 +347,43 @@ export function GeneratedImageGallery({
   };
 
   const liveImageCount = conversationId
-    ? liveCollection.images.filter(
-        (image) => image.status === "ready",
-      ).length
+    ? liveCollection.images.filter((image) => image.status === "ready").length
     : localEditorImages.length;
-  const openCanvas = Math.max(localEditorImages.length, liveImageCount) > 1
-    ? () => {
-        const editorImages = resolveEditorImages();
-        const image = editorImages.at(-1);
-        if (!image) return;
-        void openUserAttachmentImagePreview({
-          alt: image.alt,
-          attachmentId: image.attachmentId,
-          attachmentSrc: image.attachmentSrc,
-          availableImageCount: editorImages.length,
-          composerTarget: composerTarget ?? undefined,
-          downloadSrc: image.downloadSrc,
-          entrypoint: "canvas_button",
-          generatedImages: editorImages,
-          imageSource: "generated",
-          initialImageId: image.id,
-          initialView: "playground",
-          openInEditor: true,
-          policy: "edit_button",
-          previewSrc: image.previewSrc,
-          referrerPolicy: "no-referrer",
-          src: image.src,
-          threadId: conversationId,
-          title: image.tabTitle,
-        });
-      }
-    : undefined;
+  const openCanvas =
+    Math.max(localEditorImages.length, liveImageCount) > 1
+      ? () => {
+          const editorImages = resolveEditorImages();
+          const image = editorImages.at(-1);
+          if (!image) return;
+          void openUserAttachmentImagePreview({
+            alt: image.alt,
+            attachmentId: image.attachmentId,
+            attachmentSrc: image.attachmentSrc,
+            availableImageCount: editorImages.length,
+            composerTarget: composerTarget ?? undefined,
+            downloadSrc: image.downloadSrc,
+            entrypoint: "canvas_button",
+            generatedImages: editorImages,
+            imageSource: "generated",
+            initialImageId: image.id,
+            initialView: "playground",
+            openInEditor: true,
+            policy: "edit_button",
+            previewSrc: image.previewSrc,
+            referrerPolicy: "no-referrer",
+            src: image.src,
+            threadId: conversationId,
+            title: image.tabTitle,
+          });
+        }
+      : undefined;
 
   useEffect(() => {
     const element = containerRef.current;
     if (!element) return;
     const updateWidth = (width: number) => {
       const nextWidth = Math.floor(width);
-      setContainerWidthPx((current) => current === nextWidth ? current : nextWidth);
+      setContainerWidthPx((current) => (current === nextWidth ? current : nextWidth));
     };
     updateWidth(element.getBoundingClientRect().width);
     if (typeof ResizeObserver === "undefined") return;
@@ -418,12 +405,9 @@ export function GeneratedImageGallery({
     minimumSlotCount: pendingImageCount > 0 ? 4 : 0,
   });
   const resolvedStartIndex = Math.min(startIndex, layout.maxStartIndex);
-  const translateX = layout.aspectRatio === "square"
-    ? resolvedStartIndex * (layout.heightPx + 8)
-    : 0;
-  const activePreviewImage = previewIndex === null
-    ? null
-    : images[previewIndex] ?? null;
+  const translateX =
+    layout.aspectRatio === "square" ? resolvedStartIndex * (layout.heightPx + 8) : 0;
+  const activePreviewImage = previewIndex === null ? null : (images[previewIndex] ?? null);
   const handlePreviewOpenChange = useCallback((open: boolean) => {
     if (!open) setPreviewIndex(null);
   }, []);
@@ -447,11 +431,13 @@ export function GeneratedImageGallery({
           }}
         >
           {images.map((image, index) => {
-            const hidden = layout.aspectRatio === "square"
-              && (index < resolvedStartIndex || index >= resolvedStartIndex + layout.visibleCount);
-            const width = layout.aspectRatio === "square"
-              ? layout.heightPx
-              : (aspectRatios[image.id] ?? 1) * layout.heightPx;
+            const hidden =
+              layout.aspectRatio === "square" &&
+              (index < resolvedStartIndex || index >= resolvedStartIndex + layout.visibleCount);
+            const width =
+              layout.aspectRatio === "square"
+                ? layout.heightPx
+                : (aspectRatios[image.id] ?? 1) * layout.heightPx;
             return (
               <div key={image.id} className="group/generated-image-preview relative shrink-0">
                 <GeneratedImageTile
@@ -462,15 +448,14 @@ export function GeneratedImageGallery({
                   square={layout.aspectRatio === "square"}
                   widthPx={width}
                   onAspectRatioChange={(ratio) => {
-                    setAspectRatios((current) => current[image.id] === ratio
-                      ? current
-                      : { ...current, [image.id]: ratio });
+                    setAspectRatios((current) =>
+                      current[image.id] === ratio ? current : { ...current, [image.id]: ratio },
+                    );
                   }}
                   onOpen={() => {
                     const trigger = document.activeElement;
-                    previewTriggerRef.current = trigger instanceof HTMLButtonElement
-                      ? trigger
-                      : null;
+                    previewTriggerRef.current =
+                      trigger instanceof HTMLButtonElement ? trigger : null;
                     setPreviewIndex(index);
                   }}
                   onEdit={() => openEditor(index, "gallery_edit_button")}
@@ -493,11 +478,10 @@ export function GeneratedImageGallery({
           })}
           {Array.from({ length: pendingImageCount }, (_, index) => {
             const absoluteIndex = images.length + index;
-            const hidden = layout.aspectRatio === "square"
-              && (
-                absoluteIndex < resolvedStartIndex
-                || absoluteIndex >= resolvedStartIndex + layout.visibleCount
-              );
+            const hidden =
+              layout.aspectRatio === "square" &&
+              (absoluteIndex < resolvedStartIndex ||
+                absoluteIndex >= resolvedStartIndex + layout.visibleCount);
             return (
               <div
                 key={`pending-image-${index}`}
@@ -505,10 +489,7 @@ export function GeneratedImageGallery({
                 aria-hidden={hidden || undefined}
                 style={{ height: layout.heightPx, width: layout.heightPx }}
               >
-                <GeneratedImagePlaceholder
-                  hidden={hidden}
-                  seed={`${groupId}:pending:${index}`}
-                />
+                <GeneratedImagePlaceholder hidden={hidden} seed={`${groupId}:pending:${index}`} />
               </div>
             );
           })}
@@ -534,12 +515,16 @@ export function GeneratedImageGallery({
             previewTriggerRef.current?.focus();
           }}
           onOpenChange={handlePreviewOpenChange}
-          onPreviousImage={previewIndex !== null && previewIndex > 0
-            ? () => setPreviewIndex(previewIndex - 1)
-            : undefined}
-          onNextImage={previewIndex !== null && previewIndex < images.length - 1
-            ? () => setPreviewIndex(previewIndex + 1)
-            : undefined}
+          onPreviousImage={
+            previewIndex !== null && previewIndex > 0
+              ? () => setPreviewIndex(previewIndex - 1)
+              : undefined
+          }
+          onNextImage={
+            previewIndex !== null && previewIndex < images.length - 1
+              ? () => setPreviewIndex(previewIndex + 1)
+              : undefined
+          }
           onEditImage={() => openEditor(previewIndex ?? 0, "lightbox_edit_button")}
         />
       ) : null}

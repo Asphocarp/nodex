@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  resolveSubagentAvatarIndex,
-  SUBAGENT_AVATAR_ASSETS,
-} from "./subagent-avatar";
+import { resolveSubagentAvatarIndex, SUBAGENT_AVATAR_ASSETS } from "./subagent-avatar";
 
 describe("subagent avatar mapping", () => {
   test("matches the frozen zero-based 31 hash for all ten asset indices", () => {
@@ -16,9 +13,7 @@ describe("subagent avatar mapping", () => {
     }
 
     expect(seedsByIndex.every(Boolean)).toBe(true);
-    expect(seedsByIndex.map(resolveSubagentAvatarIndex)).toEqual([
-      0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
-    ]);
+    expect(seedsByIndex.map(resolveSubagentAvatarIndex)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(SUBAGENT_AVATAR_ASSETS).toHaveLength(10);
     expect(SUBAGENT_AVATAR_ASSETS.every(({ dark, light }) => dark !== light)).toBe(true);
   });
@@ -26,9 +21,7 @@ describe("subagent avatar mapping", () => {
   test("is deterministic for empty, Unicode, and surrogate-pair seeds", () => {
     const seeds = ["", "019f3c6a-2ebc-7b82-ab83-cb7edb449ada", "代理", "agent-🤖"];
 
-    expect(seeds.map(resolveSubagentAvatarIndex)).toEqual(
-      seeds.map(resolveSubagentAvatarIndex),
-    );
+    expect(seeds.map(resolveSubagentAvatarIndex)).toEqual(seeds.map(resolveSubagentAvatarIndex));
     expect(resolveSubagentAvatarIndex("")).toBe(0);
     expect(resolveSubagentAvatarIndex("agent-🤖")).toBe(6);
   });

@@ -25,8 +25,7 @@ function hasDraftOverlay(overlay: PageDraftOverlay): boolean {
 }
 
 function areDraftOverlaysEqual(left: PageDraftOverlay, right: PageDraftOverlay): boolean {
-  return left.title === right.title
-    && left.assignee === right.assignee;
+  return left.title === right.title && left.assignee === right.assignee;
 }
 
 class PageDraftStore {
@@ -95,7 +94,11 @@ class PageDraftStore {
 
 const pageDraftStore = new PageDraftStore();
 
-export function setPageDraftOverlay(projectId: string, pageId: string, overlay: PageDraftOverlay): void {
+export function setPageDraftOverlay(
+  projectId: string,
+  pageId: string,
+  overlay: PageDraftOverlay,
+): void {
   if (projectId.length === 0 || pageId.length === 0) return;
   pageDraftStore.set(projectId, pageId, overlay);
 }
@@ -116,10 +119,13 @@ export function usePageDraftOverlay(projectId?: string, pageId?: string): PageDr
   const resolvedPageId = pageId?.trim() ?? "";
   const canSubscribe = resolvedProjectId.length > 0 && resolvedPageId.length > 0;
 
-  const subscribe = useCallback((listener: StoreListener) => {
-    if (!canSubscribe) return () => undefined;
-    return pageDraftStore.subscribe(resolvedProjectId, resolvedPageId, listener);
-  }, [canSubscribe, resolvedPageId, resolvedProjectId]);
+  const subscribe = useCallback(
+    (listener: StoreListener) => {
+      if (!canSubscribe) return () => undefined;
+      return pageDraftStore.subscribe(resolvedProjectId, resolvedPageId, listener);
+    },
+    [canSubscribe, resolvedPageId, resolvedProjectId],
+  );
 
   const getSnapshot = useCallback(() => {
     if (!canSubscribe) return EMPTY_PAGE_DRAFT;

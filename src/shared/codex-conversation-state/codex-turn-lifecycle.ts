@@ -18,10 +18,7 @@ export type CodexTurnLifecycleMethod = "turn/started" | "turn/completed";
 export interface CodexTurnLifecycleUpdate {
   readonly conversationId: string;
   readonly method: CodexTurnLifecycleMethod;
-  readonly turn: Pick<
-    Turn,
-    "id" | "status" | "error" | "startedAt" | "completedAt" | "durationMs"
-  >;
+  readonly turn: Pick<Turn, "id" | "status" | "error" | "startedAt" | "completedAt" | "durationMs">;
   readonly observedAtMs: number;
 }
 
@@ -46,33 +43,31 @@ function buildStartedTurnParams(
     ...fallback,
     cwd: settings?.cwd ?? previousTurn?.sidecar.params.cwd ?? hydration?.cwd ?? null,
     approvalPolicy:
-      settings?.approvalPolicy
-      ?? previousTurn?.sidecar.params.approvalPolicy
-      ?? hydration?.currentPermissions.approvalPolicy
-      ?? fallback.approvalPolicy,
+      settings?.approvalPolicy ??
+      previousTurn?.sidecar.params.approvalPolicy ??
+      hydration?.currentPermissions.approvalPolicy ??
+      fallback.approvalPolicy,
     approvalsReviewer:
-      settings?.approvalsReviewer
-      ?? previousTurn?.sidecar.params.approvalsReviewer
-      ?? hydration?.currentPermissions.approvalsReviewer
-      ?? fallback.approvalsReviewer,
+      settings?.approvalsReviewer ??
+      previousTurn?.sidecar.params.approvalsReviewer ??
+      hydration?.currentPermissions.approvalsReviewer ??
+      fallback.approvalsReviewer,
     sandboxPolicy:
-      settings?.sandboxPolicy
-      ?? previousTurn?.sidecar.params.sandboxPolicy
-      ?? hydration?.currentPermissions.sandboxPolicy
-      ?? fallback.sandboxPolicy,
+      settings?.sandboxPolicy ??
+      previousTurn?.sidecar.params.sandboxPolicy ??
+      hydration?.currentPermissions.sandboxPolicy ??
+      fallback.sandboxPolicy,
     model: settings?.model ?? previousTurn?.sidecar.params.model ?? hydration?.latestModel ?? null,
     serviceTier: settings?.serviceTier ?? previousTurn?.sidecar.params.serviceTier ?? null,
     effort:
-      settings?.effort
-      ?? previousTurn?.sidecar.params.effort
-      ?? hydration?.latestReasoningEffort
-      ?? "minimal",
+      settings?.effort ??
+      previousTurn?.sidecar.params.effort ??
+      hydration?.latestReasoningEffort ??
+      "minimal",
     personality: settings?.personality ?? previousTurn?.sidecar.params.personality ?? null,
     outputSchema: previousTurn?.sidecar.params.outputSchema ?? null,
     collaborationMode:
-      settings?.collaborationMode
-      ?? previousTurn?.sidecar.params.collaborationMode
-      ?? null,
+      settings?.collaborationMode ?? previousTurn?.sidecar.params.collaborationMode ?? null,
   };
 }
 
@@ -123,11 +118,12 @@ function applyTurnStarted(
   update: CodexTurnLifecycleUpdate,
 ): CodexCanonicalConversationState {
   const existingIndex = state.turns.findIndex((turn) => turn.protocol.id === update.turn.id);
-  const placeholderIndex = existingIndex < 0
-    ? state.turns.findLastIndex((turn) =>
-        turn.protocol.id === null && turn.protocol.status === "inProgress"
-      )
-    : -1;
+  const placeholderIndex =
+    existingIndex < 0
+      ? state.turns.findLastIndex(
+          (turn) => turn.protocol.id === null && turn.protocol.status === "inProgress",
+        )
+      : -1;
   const targetIndex = existingIndex >= 0 ? existingIndex : placeholderIndex;
   const turns = [...state.turns];
   if (targetIndex >= 0) {
@@ -181,10 +177,7 @@ function applyCompletedPlanFollowUp(
   const implementation = buildPlanImplementationItem(turn.protocol.id, planContent);
   const nextTurn = {
     ...turn,
-    items: [
-      ...turn.items.filter((item) => item.type !== "planImplementation"),
-      implementation,
-    ],
+    items: [...turn.items.filter((item) => item.type !== "planImplementation"), implementation],
   };
   const turns = [...state.turns];
   turns[turnIndex] = nextTurn;

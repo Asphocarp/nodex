@@ -66,14 +66,14 @@ function timeoutError(): Error {
 }
 
 function serializeError(value: unknown): Record<string, unknown> {
-  const record = typeof value === "object" && value !== null
-    ? value as Record<string, unknown>
-    : null;
-  const message = value instanceof Error
-    ? value.message || "MCP sandbox host call failed."
-    : typeof record?.message === "string" && record.message
-      ? record.message
-      : "MCP sandbox host call failed.";
+  const record =
+    typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
+  const message =
+    value instanceof Error
+      ? value.message || "MCP sandbox host call failed."
+      : typeof record?.message === "string" && record.message
+        ? record.message
+        : "MCP sandbox host call failed.";
   return {
     message,
     ...(typeof record?.code === "number" ? { code: record.code } : {}),
@@ -86,56 +86,53 @@ export function createMcpAppPortCall(
   defaultSignal?: AbortSignal,
 ): McpAppPortCall {
   port.start();
-  return (input, options = {}) => new Promise((resolve, reject) => {
-    const signal = options.signal ?? defaultSignal;
-    const timeoutMs = options.timeoutMs === undefined
-      ? DEFAULT_RPC_TIMEOUT_MS
-      : options.timeoutMs;
-    if (signal?.aborted) {
-      reject(abortError());
-      return;
-    }
-
-    const channel = new MessageChannel();
-    let settled = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const cleanup = () => {
-      if (timeout) clearTimeout(timeout);
-      signal?.removeEventListener("abort", handleAbort);
-      channel.port1.onmessage = null;
-      channel.port1.close();
-    };
-    const settle = (action: () => void) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      action();
-    };
-    const handleAbort = () => settle(() => reject(abortError()));
-
-    channel.port1.onmessage = (event) => {
-      const payload = event.data;
-      if (!Array.isArray(payload)) return;
-      if (payload[0] === RESOLVE) {
-        settle(() => resolve(payload[1]));
+  return (input, options = {}) =>
+    new Promise((resolve, reject) => {
+      const signal = options.signal ?? defaultSignal;
+      const timeoutMs =
+        options.timeoutMs === undefined ? DEFAULT_RPC_TIMEOUT_MS : options.timeoutMs;
+      if (signal?.aborted) {
+        reject(abortError());
         return;
       }
-      settle(() => reject(payload[1]));
-    };
-    channel.port1.start();
-    signal?.addEventListener("abort", handleAbort, { once: true });
-    if (timeoutMs !== null) {
-      timeout = setTimeout(
-        () => settle(() => reject(timeoutError())),
-        timeoutMs,
-      );
-    }
-    try {
-      port.postMessage([CALL, input], [channel.port2]);
-    } catch (error) {
-      settle(() => reject(error));
-    }
-  });
+
+      const channel = new MessageChannel();
+      let settled = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const cleanup = () => {
+        if (timeout) clearTimeout(timeout);
+        signal?.removeEventListener("abort", handleAbort);
+        channel.port1.onmessage = null;
+        channel.port1.close();
+      };
+      const settle = (action: () => void) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        action();
+      };
+      const handleAbort = () => settle(() => reject(abortError()));
+
+      channel.port1.onmessage = (event) => {
+        const payload = event.data;
+        if (!Array.isArray(payload)) return;
+        if (payload[0] === RESOLVE) {
+          settle(() => resolve(payload[1]));
+          return;
+        }
+        settle(() => reject(payload[1]));
+      };
+      channel.port1.start();
+      signal?.addEventListener("abort", handleAbort, { once: true });
+      if (timeoutMs !== null) {
+        timeout = setTimeout(() => settle(() => reject(timeoutError())), timeoutMs);
+      }
+      try {
+        port.postMessage([CALL, input], [channel.port2]);
+      } catch (error) {
+        settle(() => reject(error));
+      }
+    });
 }
 
 export function createMcpAppHostHandlerPort(
@@ -162,10 +159,9 @@ function createHostHandlerPorts(handlers: McpAppHostApiHandlers): {
   ports: Record<keyof McpAppHostApiHandlers, MessagePort>;
   values: MessagePort[];
 } {
-  const entries = Object.entries(handlers).map(([name, handler]) => [
-    name,
-    createMcpAppHostHandlerPort(handler),
-  ] as const);
+  const entries = Object.entries(handlers).map(
+    ([name, handler]) => [name, createMcpAppHostHandlerPort(handler)] as const,
+  );
   return {
     ports: Object.fromEntries(entries) as Record<keyof McpAppHostApiHandlers, MessagePort>,
     values: entries.map(([, port]) => port),
@@ -209,29 +205,27 @@ function createRunWidgetCode(
     const callNext = createMcpAppPortCall(next.port1, signal);
     const callReturn = createMcpAppPortCall(returnChannel.port1, signal);
     const callThrow = createMcpAppPortCall(throwChannel.port1, signal);
-    port.postMessage([
-      GENERATOR_GENERATE,
-      {
-        asyncDispose: asyncDispose.port2,
-        next: next.port2,
-        return: returnChannel.port2,
-        throw: throwChannel.port2,
-      },
-      input,
-    ], [
-      asyncDispose.port2,
-      next.port2,
-      returnChannel.port2,
-      throwChannel.port2,
-    ]);
+    port.postMessage(
+      [
+        GENERATOR_GENERATE,
+        {
+          asyncDispose: asyncDispose.port2,
+          next: next.port2,
+          return: returnChannel.port2,
+          throw: throwChannel.port2,
+        },
+        input,
+      ],
+      [asyncDispose.port2, next.port2, returnChannel.port2, throwChannel.port2],
+    );
 
     try {
       let result = await callNext(undefined, { timeoutMs: null });
       while (
-        typeof result === "object"
-        && result !== null
-        && "done" in result
-        && !(result as IteratorResult<unknown>).done
+        typeof result === "object" &&
+        result !== null &&
+        "done" in result &&
+        !(result as IteratorResult<unknown>).done
       ) {
         yield (result as IteratorResult<unknown>).value;
         result = await callNext(undefined, { timeoutMs: null });
@@ -245,8 +239,9 @@ function createRunWidgetCode(
       if (!signal.aborted) {
         await Promise.allSettled([callDispose(undefined), callReturn(undefined)]);
       }
-      [asyncDispose.port1, next.port1, returnChannel.port1, throwChannel.port1]
-        .forEach((messagePort) => messagePort.close());
+      [asyncDispose.port1, next.port1, returnChannel.port1, throwChannel.port1].forEach(
+        (messagePort) => messagePort.close(),
+      );
     }
   };
 }
@@ -283,11 +278,11 @@ export async function connectMcpAppSandbox(input: {
     function handleMessage(event: MessageEvent) {
       const init = parseMcpAppSandboxHostInitMessage(event.data);
       if (
-        !init
-        || init.origin !== input.expectedOrigin
-        || init.sandboxId !== input.expectedSandboxId
-        || init.initId !== expectedInitId
-        || event.ports.length !== init.portNames.length + 1
+        !init ||
+        init.origin !== input.expectedOrigin ||
+        init.sandboxId !== input.expectedSandboxId ||
+        init.initId !== expectedInitId ||
+        event.ports.length !== init.portNames.length + 1
       ) {
         return;
       }
@@ -306,10 +301,7 @@ export async function connectMcpAppSandbox(input: {
     }, timeoutMs);
     window.addEventListener("message", handleMessage);
     input.signal.addEventListener("abort", handleAbort, { once: true });
-    const sourceUrl = appendMcpAppSandboxInitId(
-      input.sourceUrl,
-      expectedInitId,
-    );
+    const sourceUrl = appendMcpAppSandboxInitId(input.sourceUrl, expectedInitId);
     if (input.webview.getAttribute("src") !== sourceUrl) {
       input.webview.setAttribute("src", sourceUrl);
     }
@@ -334,10 +326,7 @@ export async function connectMcpAppSandbox(input: {
     requestMcpAppsResourceTeardown: createMcpAppPortCall(
       requiredPort(namedPorts, "requestMcpAppsResourceTeardown"),
     ),
-    runWidgetCode: createRunWidgetCode(
-      requiredPort(namedPorts, "runWidgetCode"),
-      input.signal,
-    ),
+    runWidgetCode: createRunWidgetCode(requiredPort(namedPorts, "runWidgetCode"), input.signal),
     setAdditionalGlobals: call("setAdditionalGlobals"),
     setSafeArea: call("setSafeArea"),
     setTheme: call("setTheme"),

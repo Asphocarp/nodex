@@ -1,22 +1,18 @@
 import { useState } from "react";
-import { BellIcon, ClockIcon, GlobeIcon, RepeatIcon, SmallChevronDownIcon } from "@/components/shared/icons";
 import {
-  NodexDropdownButtonTrigger,
-  NodexOptionPicker,
-} from "@/components/ui/dropdown";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+  BellIcon,
+  ClockIcon,
+  GlobeIcon,
+  RepeatIcon,
+  SmallChevronDownIcon,
+} from "@/components/shared/icons";
+import { NodexDropdownButtonTrigger, NodexOptionPicker } from "@/components/ui/dropdown";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { PropertyEmptyValue } from "@/components/database/property-empty-value";
 import { cn } from "@/lib/utils";
 import type { RecurrenceFrequency } from "@/lib/types";
-import type {
-  PageScheduleSource,
-  ScheduleState,
-} from "@/lib/use-schedule-state";
+import type { PageScheduleSource, ScheduleState } from "@/lib/use-schedule-state";
 import {
   REPEAT_FREQUENCIES,
   REMINDER_PRESET_OFFSETS,
@@ -175,15 +171,13 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
               >
                 <div className="flex items-center gap-1.5">
                   <RepeatIcon />
-                  <span className="text-sm font-medium text-(--foreground-secondary)">
-                    Repeat
-                  </span>
+                  <span className="text-sm font-medium text-(--foreground-secondary)">Repeat</span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-(--foreground-tertiary)">
-                    {recurrenceSummary}
-                  </span>
-                  <SmallChevronDownIcon className={cn("transition-transform duration-150", repeatOpen && "rotate-180")} />
+                  <span className="text-xs text-(--foreground-tertiary)">{recurrenceSummary}</span>
+                  <SmallChevronDownIcon
+                    className={cn("transition-transform duration-150", repeatOpen && "rotate-180")}
+                  />
                 </div>
               </button>
 
@@ -216,15 +210,16 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                         label: freq.charAt(0).toUpperCase() + freq.slice(1),
                       })),
                     ]}
-                    triggerButton={(
+                    triggerButton={
                       <NodexDropdownButtonTrigger className="h-7 text-base">
                         <span>
                           {schedule.recurrenceEnabled
-                            ? REPEAT_FREQUENCIES.find((f) => f === schedule.recurrenceFrequency) ?? "No repeat"
+                            ? (REPEAT_FREQUENCIES.find((f) => f === schedule.recurrenceFrequency) ??
+                              "No repeat")
                             : "No repeat"}
                         </span>
                       </NodexDropdownButtonTrigger>
-                    )}
+                    }
                   />
 
                   {schedule.recurrenceEnabled && (
@@ -260,7 +255,9 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                                 onClick={() => {
                                   const nextWeekdays = selected
                                     ? schedule.recurrenceWeekdays.filter((v) => v !== day.value)
-                                    : [...schedule.recurrenceWeekdays, day.value].sort((a, b) => a - b);
+                                    : [...schedule.recurrenceWeekdays, day.value].sort(
+                                        (a, b) => a - b,
+                                      );
                                   schedule.setRecurrenceWeekdays(nextWeekdays);
                                   const nextRecurrence = schedule.buildRecurrenceConfig({
                                     byWeekdays: nextWeekdays,
@@ -287,9 +284,12 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                         <NodexOptionPicker
                           value={schedule.recurrenceEndType}
                           onValueChange={(value) => {
-                            const nextType = value === "untilDate" ? "untilDate" as const : "never" as const;
+                            const nextType =
+                              value === "untilDate" ? ("untilDate" as const) : ("never" as const);
                             schedule.setRecurrenceEndType(nextType);
-                            const nextRecurrence = schedule.buildRecurrenceConfig({ endType: nextType });
+                            const nextRecurrence = schedule.buildRecurrenceConfig({
+                              endType: nextType,
+                            });
                             if (nextRecurrence) {
                               schedule.saveProperty({ recurrence: nextRecurrence });
                             }
@@ -298,11 +298,15 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                             { value: "never", label: "Never ends" },
                             { value: "untilDate", label: "Ends on date" },
                           ]}
-                          triggerButton={(
+                          triggerButton={
                             <NodexDropdownButtonTrigger className="h-7 text-sm">
-                              <span>{schedule.recurrenceEndType === "untilDate" ? "Ends on date" : "Never ends"}</span>
+                              <span>
+                                {schedule.recurrenceEndType === "untilDate"
+                                  ? "Ends on date"
+                                  : "Never ends"}
+                              </span>
                             </NodexDropdownButtonTrigger>
-                          )}
+                          }
                         />
                         {schedule.recurrenceEndType === "untilDate" && (
                           <Input
@@ -311,7 +315,8 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                             onChange={(e) => schedule.setRecurrenceUntilDate(e.target.value)}
                             onBlur={() => {
                               const nextRecurrence = schedule.buildRecurrenceConfig();
-                              if (nextRecurrence) schedule.saveProperty({ recurrence: nextRecurrence });
+                              if (nextRecurrence)
+                                schedule.saveProperty({ recurrence: nextRecurrence });
                             }}
                             className="h-7 w-35 text-sm"
                           />
@@ -338,10 +343,13 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-(--foreground-tertiary)">
-                    {remindersSummary}
-                  </span>
-                  <SmallChevronDownIcon className={cn("transition-transform duration-150", remindersOpen && "rotate-180")} />
+                  <span className="text-xs text-(--foreground-tertiary)">{remindersSummary}</span>
+                  <SmallChevronDownIcon
+                    className={cn(
+                      "transition-transform duration-150",
+                      remindersOpen && "rotate-180",
+                    )}
+                  />
                 </div>
               </button>
 
@@ -349,7 +357,9 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                 <div className="space-y-2 px-3 pb-3">
                   <div className="flex flex-wrap gap-1">
                     {REMINDER_PRESET_OFFSETS.map((offset) => {
-                      const selected = normalizeReminderOffsets(schedule.reminderOffsets).includes(offset);
+                      const selected = normalizeReminderOffsets(schedule.reminderOffsets).includes(
+                        offset,
+                      );
                       return (
                         <button
                           key={offset}
@@ -401,7 +411,12 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                   <span className="max-w-30 truncate text-xs text-(--foreground-tertiary)">
                     {schedule.scheduleTimezone || "Local"}
                   </span>
-                  <SmallChevronDownIcon className={cn("transition-transform duration-150", timezoneOpen && "rotate-180")} />
+                  <SmallChevronDownIcon
+                    className={cn(
+                      "transition-transform duration-150",
+                      timezoneOpen && "rotate-180",
+                    )}
+                  />
                 </div>
               </button>
 
@@ -412,7 +427,9 @@ export function SchedulePopover({ schedule, page }: SchedulePopoverProps) {
                     onChange={(e) => schedule.setScheduleTimezone(e.target.value)}
                     onBlur={() => {
                       const trimmed = schedule.scheduleTimezone.trim();
-                      schedule.saveProperty({ scheduleTimezone: trimmed.length > 0 ? trimmed : null });
+                      schedule.saveProperty({
+                        scheduleTimezone: trimmed.length > 0 ? trimmed : null,
+                      });
                     }}
                     className="h-7 text-sm"
                     placeholder="e.g. America/New_York"

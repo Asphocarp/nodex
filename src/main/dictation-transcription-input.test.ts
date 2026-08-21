@@ -3,10 +3,12 @@ import { validateDictationTranscriptionInput } from "./dictation-transcription-i
 
 describe("validateDictationTranscriptionInput", () => {
   test("accepts a bounded base64 multipart envelope and trims its content type", () => {
-    expect(validateDictationTranscriptionInput({
-      contentType: " multipart/form-data; boundary=nodex-test ",
-      base64Payload: "YXVkaW8=",
-    })).toEqual({
+    expect(
+      validateDictationTranscriptionInput({
+        contentType: " multipart/form-data; boundary=nodex-test ",
+        base64Payload: "YXVkaW8=",
+      }),
+    ).toEqual({
       contentType: "multipart/form-data; boundary=nodex-test",
       base64Payload: "YXVkaW8=",
     });
@@ -25,9 +27,14 @@ describe("validateDictationTranscriptionInput", () => {
   });
 
   test("enforces the encoded payload byte budget", () => {
-    expect(() => validateDictationTranscriptionInput({
-      contentType: "multipart/form-data; boundary=x",
-      base64Payload: "YXVkaW8=",
-    }, 7)).toThrow("oversized");
+    expect(() =>
+      validateDictationTranscriptionInput(
+        {
+          contentType: "multipart/form-data; boundary=x",
+          base64Payload: "YXVkaW8=",
+        },
+        7,
+      ),
+    ).toThrow("oversized");
   });
 });

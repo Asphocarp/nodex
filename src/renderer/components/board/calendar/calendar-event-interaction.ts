@@ -62,7 +62,12 @@ function hasMoveActivated({
   activationDistance,
 }: Pick<
   ResolveCalendarEventInteractionInput,
-  "wasActivated" | "pointerStartX" | "pointerStartY" | "pointerX" | "pointerY" | "activationDistance"
+  | "wasActivated"
+  | "pointerStartX"
+  | "pointerStartY"
+  | "pointerX"
+  | "pointerY"
+  | "activationDistance"
 >): boolean {
   if (wasActivated) return true;
 

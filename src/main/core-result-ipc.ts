@@ -10,9 +10,7 @@ export type CancellableCoreResult<T> =
  * Converts a Core call into the IPC-safe result envelope. Non-Core failures
  * remain exceptional so programming and host errors still reach diagnostics.
  */
-export async function coreResultFrom<T>(
-  operation: () => Promise<T>,
-): Promise<CoreResult<T>> {
+export async function coreResultFrom<T>(operation: () => Promise<T>): Promise<CoreResult<T>> {
   try {
     return { ok: true, value: await operation() };
   } catch (error) {
@@ -57,8 +55,7 @@ function isCoreCancellation(error: unknown): boolean {
     return error.coreError.code === "cancelled";
   }
   if (error instanceof Error && error.name === "AbortError") return true;
-  return typeof error === "object"
-    && error !== null
-    && "code" in error
-    && error.code === "ABORT_ERR";
+  return (
+    typeof error === "object" && error !== null && "code" in error && error.code === "ABORT_ERR"
+  );
 }

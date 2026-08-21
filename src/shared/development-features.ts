@@ -1,5 +1,4 @@
-export const NODEX_DEVELOPMENT_FEATURES_ENV =
-  "NODEX_DEV_ENABLED_FEATURES" as const;
+export const NODEX_DEVELOPMENT_FEATURES_ENV = "NODEX_DEV_ENABLED_FEATURES" as const;
 
 // Keep this catalog limited to gates with a current production owner. When a
 // product surface is retired, its launcher alias should disappear with it.
@@ -11,8 +10,7 @@ export const DEVELOPMENT_FEATURE_CATALOG = [
   },
 ] as const;
 
-export type DevelopmentFeatureSlug =
-  (typeof DEVELOPMENT_FEATURE_CATALOG)[number]["slug"];
+export type DevelopmentFeatureSlug = (typeof DEVELOPMENT_FEATURE_CATALOG)[number]["slug"];
 
 const featureBySlug = new Map<string, (typeof DEVELOPMENT_FEATURE_CATALOG)[number]>(
   DEVELOPMENT_FEATURE_CATALOG.map((feature) => [feature.slug, feature]),
@@ -50,12 +48,10 @@ export const isDevelopmentFeatureEnabled = (
 ): boolean => {
   const feature = featureBySlug.get(slug);
   if (!feature) return false;
-  return feature.defaultEnabled
-    || parseDevelopmentFeatureEnvironment(environment).has(slug);
+  return feature.defaultEnabled || parseDevelopmentFeatureEnvironment(environment).has(slug);
 };
 
 export const developmentFeatureEnvironment = (
   enabled: readonly DevelopmentFeatureSlug[],
-): NodeJS.ProcessEnv => enabled.length === 0
-  ? {}
-  : { [NODEX_DEVELOPMENT_FEATURES_ENV]: enabled.join(",") };
+): NodeJS.ProcessEnv =>
+  enabled.length === 0 ? {} : { [NODEX_DEVELOPMENT_FEATURES_ENV]: enabled.join(",") };

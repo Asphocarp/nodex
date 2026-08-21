@@ -1,7 +1,4 @@
-import {
-  useCallback,
-  type ComponentType,
-} from "react";
+import { useCallback, type ComponentType } from "react";
 import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import {
   SidePanelReviewIcon,
@@ -40,8 +37,7 @@ export type ThreadUserMessageNavigationRevealMode = MarkerNavigationRevealMode;
 export const THREAD_USER_MESSAGE_NAVIGATION_TURN_CONTAINER_SELECTOR =
   "[data-turn-key], [data-content-search-turn-key]";
 
-const THREAD_USER_MESSAGE_NAVIGATION_SEARCH_UNIT_SELECTOR =
-  "[data-content-search-unit-key]";
+const THREAD_USER_MESSAGE_NAVIGATION_SEARCH_UNIT_SELECTOR = "[data-content-search-unit-key]";
 
 export interface ThreadUserMessageNavigationRailProps {
   items: ThreadUserMessageNavigationItem[];
@@ -176,15 +172,11 @@ export function ThreadUserMessageNavigationRail({
   items,
   onRevealItem,
 }: ThreadUserMessageNavigationRailProps) {
-  const {
-    scrollElement,
-    scrollElementIntoView,
-    setScrollMode,
-  } = useLocalConversationThreadScrollController();
+  const { scrollElement, scrollElementIntoView, setScrollMode } =
+    useLocalConversationThreadScrollController();
   const reducedMotion = useResolvedReducedMotion();
-  const contentElement = scrollElement?.querySelector<HTMLElement>(
-    "[data-mcp-app-portal-target='true']",
-  ) ?? null;
+  const contentElement =
+    scrollElement?.querySelector<HTMLElement>("[data-mcp-app-portal-target='true']") ?? null;
 
   const highlightTarget = useCallback(
     (targetElement: HTMLElement) => {
@@ -211,13 +203,13 @@ export function ThreadUserMessageNavigationRail({
     [reducedMotion],
   );
 
-  const handleScrollTargetIntoView = useCallback((
-    targetElement: HTMLElement,
-    behavior: ScrollBehavior,
-  ) => {
-    setScrollMode("programmaticFind");
-    scrollElementIntoView(targetElement, behavior, "start");
-  }, [scrollElementIntoView, setScrollMode]);
+  const handleScrollTargetIntoView = useCallback(
+    (targetElement: HTMLElement, behavior: ScrollBehavior) => {
+      setScrollMode("programmaticFind");
+      scrollElementIntoView(targetElement, behavior, "start");
+    },
+    [scrollElementIntoView, setScrollMode],
+  );
 
   return (
     <MarkerNavigationRail

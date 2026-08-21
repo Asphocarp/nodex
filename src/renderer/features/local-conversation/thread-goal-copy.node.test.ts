@@ -9,9 +9,15 @@ import {
 describe("thread-goal-copy", () => {
   test("keeps the Codex Electron goal message surface complete", () => {
     expect(Object.keys(THREAD_GOAL_DEFAULT_MESSAGES).length).toBe(46);
-    expect(getThreadGoalMessage("composer.goalSlashCommand.setDescription")).toBe("Set a goal that Nodex will keep working towards");
-    expect(getThreadGoalMessage("composer.placeholder.goal")).toBe("Describe your goal, define measurable outcomes for best results");
-    expect(getThreadGoalMessage("composer.threadGoal.replaceConfirmation.title")).toBe("Replace current goal?");
+    expect(getThreadGoalMessage("composer.goalSlashCommand.setDescription")).toBe(
+      "Set a goal that Nodex will keep working towards",
+    );
+    expect(getThreadGoalMessage("composer.placeholder.goal")).toBe(
+      "Describe your goal, define measurable outcomes for best results",
+    );
+    expect(getThreadGoalMessage("composer.threadGoal.replaceConfirmation.title")).toBe(
+      "Replace current goal?",
+    );
   });
 
   test("maps every goal status to the reference summary label", () => {

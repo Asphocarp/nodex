@@ -62,19 +62,23 @@ export function useAgentExecutionProfile(input: {
   setExecutionProfile: (profile: AgentExecutionProfile) => void;
 } {
   const rawProfile = useSyncExternalStore(subscribe, readRawSnapshot, () => "");
-  const executionProfile = useMemo(() => resolveAgentExecutionProfile({
-    catalog: input.catalog,
-    storedProfile: parseRawProfile(rawProfile),
-    legacyModelId: input.legacyModelId,
-    legacyReasoningEffort: input.legacyReasoningEffort,
-    serviceTier: input.serviceTier,
-  }), [
-    input.catalog,
-    input.legacyModelId,
-    input.legacyReasoningEffort,
-    input.serviceTier,
-    rawProfile,
-  ]);
+  const executionProfile = useMemo(
+    () =>
+      resolveAgentExecutionProfile({
+        catalog: input.catalog,
+        storedProfile: parseRawProfile(rawProfile),
+        legacyModelId: input.legacyModelId,
+        legacyReasoningEffort: input.legacyReasoningEffort,
+        serviceTier: input.serviceTier,
+      }),
+    [
+      input.catalog,
+      input.legacyModelId,
+      input.legacyReasoningEffort,
+      input.serviceTier,
+      rawProfile,
+    ],
+  );
   const setExecutionProfile = useCallback((profile: AgentExecutionProfile) => {
     const previous = readRawSnapshot();
     writeStoredAgentExecutionProfile(profile);

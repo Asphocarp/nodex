@@ -104,25 +104,25 @@ They separate deployment policy and audit. Reusable workflows receive only the
 explicit repository-secret contract declared by their caller; protected
 environment secrets are resolved only by direct jobs.
 
-| Environment | Authority |
-| --- | --- |
-| `macos-distribution` | Apple signing/notarization; Sentry upload once from production arm64 |
+| Environment                 | Authority                                                             |
+| --------------------------- | --------------------------------------------------------------------- |
+| `macos-distribution`        | Apple signing/notarization; Sentry upload once from production arm64  |
 | `sparkle-feed-finalization` | Sign appcasts and full/delta enclosures after both native builds pass |
-| `release-publish` | Job-scoped repository `contents: write` only |
-| `official-skills-publish` | Publish the verified artifact to `NodexApp/skills` |
-| `homebrew-tap` | Update and smoke-install `junyudev/homebrew-tap` |
-| `landing-production` | Deploy `NodexApp/NodexApp.github.io` |
+| `release-publish`           | Job-scoped repository `contents: write` only                          |
+| `official-skills-publish`   | Publish the verified artifact to `NodexApp/skills`                    |
+| `homebrew-tap`              | Update and smoke-install `junyudev/homebrew-tap`                      |
+| `landing-production`        | Deploy `NodexApp/NodexApp.github.io`                                  |
 
 Configure these repository Action secrets:
 
-| Secret | Required authority |
-| --- | --- |
-| `CSC_LINK`, `CSC_KEY_PASSWORD` | Base64 Developer ID Application `.p12` certificate and its export password |
-| `APPLE_API_KEY_B64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | App Store Connect notarization key |
-| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT` | Release/source-map upload for the Nodex project |
-| `NODEX_SKILLS_GITHUB_TOKEN` | Fine-grained Contents read/write on `NodexApp/skills` only |
-| `HOMEBREW_TAP_GITHUB_TOKEN` | Fine-grained Contents read/write on `junyudev/homebrew-tap` only |
-| `NODEXAPP_GITHUB_IO_TOKEN` | Fine-grained Contents read/write on `NodexApp/NodexApp.github.io` only |
+| Secret                                                      | Required authority                                                         |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `CSC_LINK`, `CSC_KEY_PASSWORD`                              | Base64 Developer ID Application `.p12` certificate and its export password |
+| `APPLE_API_KEY_B64`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` | App Store Connect notarization key                                         |
+| `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`         | Release/source-map upload for the Nodex project                            |
+| `NODEX_SKILLS_GITHUB_TOKEN`                                 | Fine-grained Contents read/write on `NodexApp/skills` only                 |
+| `HOMEBREW_TAP_GITHUB_TOKEN`                                 | Fine-grained Contents read/write on `junyudev/homebrew-tap` only           |
+| `NODEXAPP_GITHUB_IO_TOKEN`                                  | Fine-grained Contents read/write on `NodexApp/NodexApp.github.io` only     |
 
 Configure `SPARKLE_ED25519_PRIVATE_KEY` as an environment secret on
 `sparkle-feed-finalization`, not as a repository-wide secret and not as a
@@ -416,12 +416,12 @@ A valid version transition runs this sequence:
 9. Create/resume the GitHub draft, upload only the manifest allowlist, publish
    it as Latest, and verify immutability, asset digests, and tag target.
 10. Regenerate the official Agent Skills from the exact source, require their
-   manifest/tree hashes to match the Release Bundle, and atomically publish the
-   same version to `NodexApp/skills` with an annotated tag.
+    manifest/tree hashes to match the Release Bundle, and atomically publish the
+    same version to `NodexApp/skills` with an annotated tag.
 11. Generate the Homebrew cask from the same bundle, audit it, push it, and
-   smoke-install the published app. The generated DSL follows Homebrew's
-   canonical stanza grouping and order and expresses the Monterey minimum as
-   `depends_on macos: :monterey`.
+    smoke-install the published app. The generated DSL follows Homebrew's
+    canonical stanza grouping and order and expresses the Monterey minimum as
+    `depends_on macos: :monterey`.
 12. Deploy the landing site from the same source SHA after release verification,
     preserving existing feeds on ordinary site deploys and atomically projecting
     the two signed snapshots on release deploys. Public feed bytes and every

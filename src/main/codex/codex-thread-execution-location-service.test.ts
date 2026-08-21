@@ -16,9 +16,11 @@ import {
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map(async (root) => {
-    await rm(root, { force: true, recursive: true });
-  }));
+  await Promise.all(
+    temporaryRoots.splice(0).map(async (root) => {
+      await rm(root, { force: true, recursive: true });
+    }),
+  );
 });
 
 async function makeJournal(): Promise<{
@@ -89,9 +91,17 @@ const crossHostPreparation: CodexThreadHandoffPreparation = {
     destinationStagingRoot: "/remote/.codex/nodex-handoffs",
     relayRoot: "/state/handoffs/operation-remote/relay",
     sourceBundle: { path: "/state/handoffs/source.bundle", sha256: "a".repeat(64), size: 10 },
-    destinationBundle: { path: "/remote/.codex/nodex-handoffs/source.bundle", sha256: "a".repeat(64), size: 10 },
+    destinationBundle: {
+      path: "/remote/.codex/nodex-handoffs/source.bundle",
+      sha256: "a".repeat(64),
+      size: 10,
+    },
     sourceRollout: { path: "/state/sessions/thread.jsonl", sha256: "b".repeat(64), size: 20 },
-    destinationRollout: { path: "/remote/.codex/sessions/thread.jsonl", sha256: "b".repeat(64), size: 20 },
+    destinationRollout: {
+      path: "/remote/.codex/sessions/thread.jsonl",
+      sha256: "b".repeat(64),
+      size: 20,
+    },
     destinationRolloutCreated: true,
     warnings: [],
   },
@@ -323,12 +333,14 @@ describe("CodexThreadExecutionLocationService", () => {
       expect((await store.get("operation-1"))?.phase).toBe("stopping-turn");
     });
 
-    await expect(service.start({
-      operationId: "operation-2",
-      threadId: "thread-1",
-      destinationHostId: null,
-      followUpPrompt: null,
-    })).rejects.toThrow("already has a handoff");
+    await expect(
+      service.start({
+        operationId: "operation-2",
+        threadId: "thread-1",
+        destinationHostId: null,
+        followUpPrompt: null,
+      }),
+    ).rejects.toThrow("already has a handoff");
     release();
     await first;
   });
@@ -338,12 +350,14 @@ describe("CodexThreadHandoffJournalStore", () => {
   test("durably reloads entries and quarantines malformed state", async () => {
     const { filePath, store } = await makeJournal();
     await store.put(makeEntry());
-    await expect(new CodexThreadHandoffJournalStore(filePath).get("operation-1"))
-      .resolves.toMatchObject({ threadId: "thread-1", phase: "committing-location" });
+    await expect(
+      new CodexThreadHandoffJournalStore(filePath).get("operation-1"),
+    ).resolves.toMatchObject({ threadId: "thread-1", phase: "committing-location" });
 
     await writeFile(filePath, "{not-json", "utf8");
-    await expect(new CodexThreadHandoffJournalStore(filePath, () => 42).list())
-      .resolves.toEqual([]);
+    await expect(new CodexThreadHandoffJournalStore(filePath, () => 42).list()).resolves.toEqual(
+      [],
+    );
     const recoveryDirectory = path.dirname(filePath);
     const names = (await import("node:fs/promises")).readdir(recoveryDirectory);
     await expect(names).resolves.toContain("handoffs.json.corrupt-42");

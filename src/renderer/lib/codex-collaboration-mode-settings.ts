@@ -29,9 +29,7 @@ export function readGlobalCollaborationMode(): CodexCollaborationModeKind {
 export function writeGlobalCollaborationMode(
   mode: CodexCollaborationModeKind,
 ): CodexCollaborationModeKind {
-  const nextMode = mode === "default" || mode === "plan"
-    ? mode
-    : DEFAULT_CODEX_COLLABORATION_MODE;
+  const nextMode = mode === "default" || mode === "plan" ? mode : DEFAULT_CODEX_COLLABORATION_MODE;
   writeRawStorageValue(nextMode);
   return nextMode;
 }

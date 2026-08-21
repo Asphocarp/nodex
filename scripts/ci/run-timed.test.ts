@@ -3,27 +3,21 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 
-import {
-  parseRunTimedArguments,
-  runTimedCommand,
-} from "./run-timed";
+import { parseRunTimedArguments, runTimedCommand } from "./run-timed";
 
 const temporaryRoots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(
+    temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
 });
 
 describe("CI timed command runner", () => {
   test("parses a command after the separator without consuming command flags", () => {
-    expect(parseRunTimedArguments([
-      "--name",
-      "rust-tests",
-      "--",
-      "cargo",
-      "test",
-      "--workspace",
-    ])).toEqual({
+    expect(
+      parseRunTimedArguments(["--name", "rust-tests", "--", "cargo", "test", "--workspace"]),
+    ).toEqual({
       name: "rust-tests",
       command: "cargo",
       commandArguments: ["test", "--workspace"],
@@ -35,11 +29,9 @@ describe("CI timed command runner", () => {
     temporaryRoots.push(root);
     const summaryPath = path.join(root, "summary.md");
     const environmentWithoutGitHubRunIdentity = Object.fromEntries(
-      Object.entries(process.env).filter(([name]) => ![
-        "GITHUB_RUN_ATTEMPT",
-        "GITHUB_RUN_ID",
-        "GITHUB_SHA",
-      ].includes(name)),
+      Object.entries(process.env).filter(
+        ([name]) => !["GITHUB_RUN_ATTEMPT", "GITHUB_RUN_ID", "GITHUB_SHA"].includes(name),
+      ),
     );
     const success = await runTimedCommand({
       name: "successful step",

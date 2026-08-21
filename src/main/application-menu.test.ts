@@ -35,10 +35,7 @@ function fileMenuItems(
 ): MenuItemConstructorOptions[] {
   const calls = input.calls ?? [];
   const menu = buildWindowFileMenu({
-    commandKeymapState: createCommandKeymapState(
-      input.overrides ?? {},
-      platform,
-    ),
+    commandKeymapState: createCommandKeymapState(input.overrides ?? {}, platform),
     onNewWindow: () => calls.push("new"),
     onCloseWindow: () => calls.push("close"),
   });
@@ -66,11 +63,13 @@ describe("application menu", () => {
   });
 
   test("disables both setup actions outside a stable packaged App", () => {
-    expect(buildNodexSetupMenuItems({
-      enabled: false,
-      onInstallCli: () => undefined,
-      onSetupAgentSkills: () => undefined,
-    }).every((item) => item.enabled === false)).toBe(true);
+    expect(
+      buildNodexSetupMenuItems({
+        enabled: false,
+        onInstallCli: () => undefined,
+        onSetupAgentSkills: () => undefined,
+      }).every((item) => item.enabled === false),
+    ).toBe(true);
   });
 
   test.each(["macOS", "windows", "linux"] as const)(
@@ -81,12 +80,16 @@ describe("application menu", () => {
   );
 
   test("uses the custom primary accelerator and preserves explicit unassignment", () => {
-    expect(bottomPanelMenuItem("macOS", {
-      toggleBottomPanel: ["CmdOrCtrl+Alt+J"],
-    }).accelerator).toBe("CommandOrControl+Alt+J");
-    expect(bottomPanelMenuItem("macOS", {
-      toggleBottomPanel: [],
-    }).accelerator).toBeUndefined();
+    expect(
+      bottomPanelMenuItem("macOS", {
+        toggleBottomPanel: ["CmdOrCtrl+Alt+J"],
+      }).accelerator,
+    ).toBe("CommandOrControl+Alt+J");
+    expect(
+      bottomPanelMenuItem("macOS", {
+        toggleBottomPanel: [],
+      }).accelerator,
+    ).toBeUndefined();
   });
 
   test("dispatches the typed workbench command once", () => {
@@ -98,10 +101,12 @@ describe("application menu", () => {
     if (typeof item.click !== "function") throw new Error("Expected a menu click handler");
     item.click({} as never, {} as never, {} as never);
 
-    expect(invocations).toEqual([{
-      commandId: "toggleBottomPanel",
-      source: "menu",
-    }]);
+    expect(invocations).toEqual([
+      {
+        commandId: "toggleBottomPanel",
+        source: "menu",
+      },
+    ]);
   });
 
   test.each(["macOS", "windows", "linux"] as const)(
@@ -113,10 +118,12 @@ describe("application menu", () => {
         "file.newWindow",
         "file.closeWindow",
       ]);
-      expect(items.find((item) => item.id === "file.newWindow")?.accelerator)
-        .toBe("CommandOrControl+Shift+N");
-      expect(items.find((item) => item.id === "file.closeWindow")?.accelerator)
-        .toBe("CommandOrControl+Shift+W");
+      expect(items.find((item) => item.id === "file.newWindow")?.accelerator).toBe(
+        "CommandOrControl+Shift+N",
+      );
+      expect(items.find((item) => item.id === "file.closeWindow")?.accelerator).toBe(
+        "CommandOrControl+Shift+W",
+      );
     },
   );
 

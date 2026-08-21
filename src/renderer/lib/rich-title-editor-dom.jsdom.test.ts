@@ -64,12 +64,7 @@ describe("rich title editor DOM coordinates", () => {
       throw new TypeError("Missing title text fixture");
     }
     firstText.insertData(5, "!");
-    root.ownerDocument.getSelection()?.setBaseAndExtent(
-      lastText,
-      3,
-      lastText,
-      3,
-    );
+    root.ownerDocument.getSelection()?.setBaseAndExtent(lastText, 3, lastText, 3);
 
     expect(readRichTitleDomDraftSelection(root)).toMatchObject({
       anchor: 11,
@@ -88,18 +83,12 @@ describe("rich title editor DOM coordinates", () => {
       { top: 20, bottom: 40 },
       { top: 40, bottom: 60 },
     ];
-    expect(
-      isCaretAtVerticalRectBoundary({ top: 20, bottom: 40 }, contentRects, "up"),
-    ).toBe(false);
-    expect(
-      isCaretAtVerticalRectBoundary({ top: 20, bottom: 40 }, contentRects, "down"),
-    ).toBe(false);
-    expect(
-      isCaretAtVerticalRectBoundary({ top: 0, bottom: 20 }, contentRects, "up"),
-    ).toBe(true);
-    expect(
-      isCaretAtVerticalRectBoundary({ top: 40, bottom: 60 }, contentRects, "down"),
-    ).toBe(true);
+    expect(isCaretAtVerticalRectBoundary({ top: 20, bottom: 40 }, contentRects, "up")).toBe(false);
+    expect(isCaretAtVerticalRectBoundary({ top: 20, bottom: 40 }, contentRects, "down")).toBe(
+      false,
+    );
+    expect(isCaretAtVerticalRectBoundary({ top: 0, bottom: 20 }, contentRects, "up")).toBe(true);
+    expect(isCaretAtVerticalRectBoundary({ top: 40, bottom: 60 }, contentRects, "down")).toBe(true);
   });
 
   test("falls back to logical edges when the DOM environment has no layout", () => {

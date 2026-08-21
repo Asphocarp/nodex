@@ -14,9 +14,7 @@ export interface BrowserAnnotationDraftState {
   selectionMode: "inspect" | "region";
 }
 
-export function createBrowserAnnotationDraftState(
-  pageUrl: string,
-): BrowserAnnotationDraftState {
+export function createBrowserAnnotationDraftState(pageUrl: string): BrowserAnnotationDraftState {
   return {
     anchors: [],
     designChange: null,
@@ -28,20 +26,21 @@ export function createBrowserAnnotationDraftState(
   };
 }
 
-function sameAnchor(
-  left: BrowserAnnotationAnchor,
-  right: BrowserAnnotationAnchor,
-): boolean {
+function sameAnchor(left: BrowserAnnotationAnchor, right: BrowserAnnotationAnchor): boolean {
   if (left.kind !== right.kind || left.pageUrl !== right.pageUrl) return false;
   if (left.kind === "element") {
-    return left.selector === right.selector
-      && left.elementPath === right.elementPath
-      && JSON.stringify(left.framePath ?? []) === JSON.stringify(right.framePath ?? []);
+    return (
+      left.selector === right.selector &&
+      left.elementPath === right.elementPath &&
+      JSON.stringify(left.framePath ?? []) === JSON.stringify(right.framePath ?? [])
+    );
   }
-  return left.rect.x === right.rect.x
-    && left.rect.y === right.rect.y
-    && left.rect.width === right.rect.width
-    && left.rect.height === right.rect.height;
+  return (
+    left.rect.x === right.rect.x &&
+    left.rect.y === right.rect.y &&
+    left.rect.width === right.rect.width &&
+    left.rect.height === right.rect.height
+  );
 }
 
 export function applyBrowserAnnotationSelection(
@@ -58,18 +57,15 @@ export function applyBrowserAnnotationSelection(
     };
   }
 
-  const existingIndex = state.anchors.findIndex((anchor) =>
-    sameAnchor(anchor, selection.anchor)
-  );
-  const nextAnchors = existingIndex === -1
-    ? [...state.anchors, selection.anchor].slice(-32)
-    : state.anchors.filter((_, index) => index !== existingIndex);
+  const existingIndex = state.anchors.findIndex((anchor) => sameAnchor(anchor, selection.anchor));
+  const nextAnchors =
+    existingIndex === -1
+      ? [...state.anchors, selection.anchor].slice(-32)
+      : state.anchors.filter((_, index) => index !== existingIndex);
   return {
     ...state,
     anchors: nextAnchors,
-    designChange: nextAnchors.some((anchor) =>
-        anchor.id === state.designChange?.anchorId
-      )
+    designChange: nextAnchors.some((anchor) => anchor.id === state.designChange?.anchorId)
       ? state.designChange
       : null,
   };
@@ -97,9 +93,7 @@ export function removeBrowserAnnotationAnchor(
   return {
     ...state,
     anchors,
-    designChange: state.designChange?.anchorId === anchorId
-      ? null
-      : state.designChange,
+    designChange: state.designChange?.anchorId === anchorId ? null : state.designChange,
   };
 }
 

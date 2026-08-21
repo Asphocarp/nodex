@@ -13,21 +13,36 @@ import {
 } from "@/lib/retained-scroll-position";
 
 const clientWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
-const clientHeightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight");
-const elementClientWidthDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth");
-const elementClientHeightDescriptor = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight");
+const clientHeightDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "clientHeight",
+);
+const elementClientWidthDescriptor = Object.getOwnPropertyDescriptor(
+  Element.prototype,
+  "clientWidth",
+);
+const elementClientHeightDescriptor = Object.getOwnPropertyDescriptor(
+  Element.prototype,
+  "clientHeight",
+);
 
 function restoreElementMetrics(): void {
   if (clientWidthDescriptor) {
     Object.defineProperty(HTMLElement.prototype, "clientWidth", clientWidthDescriptor);
   } else {
-    Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { clientWidth?: number }, "clientWidth");
+    Reflect.deleteProperty(
+      HTMLElement.prototype as HTMLElement & { clientWidth?: number },
+      "clientWidth",
+    );
   }
 
   if (clientHeightDescriptor) {
     Object.defineProperty(HTMLElement.prototype, "clientHeight", clientHeightDescriptor);
   } else {
-    Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { clientHeight?: number }, "clientHeight");
+    Reflect.deleteProperty(
+      HTMLElement.prototype as HTMLElement & { clientHeight?: number },
+      "clientHeight",
+    );
   }
 
   if (elementClientWidthDescriptor) {
@@ -39,7 +54,10 @@ function restoreElementMetrics(): void {
   if (elementClientHeightDescriptor) {
     Object.defineProperty(Element.prototype, "clientHeight", elementClientHeightDescriptor);
   } else {
-    Reflect.deleteProperty(Element.prototype as Element & { clientHeight?: number }, "clientHeight");
+    Reflect.deleteProperty(
+      Element.prototype as Element & { clientHeight?: number },
+      "clientHeight",
+    );
   }
 }
 
@@ -83,9 +101,7 @@ function buildVisibleDays(): Date[] {
   });
 }
 
-function renderCalendarGrid(
-  props: Partial<ComponentProps<typeof CalendarGrid>> = {},
-) {
+function renderCalendarGrid(props: Partial<ComponentProps<typeof CalendarGrid>> = {}) {
   const noop = () => undefined;
 
   return render(
@@ -122,10 +138,7 @@ function dispatchShiftWheel(target: Element, deltaY = 1000): boolean {
     deltaMode: { value: 0 },
   });
 
-  return fireEvent(
-    target,
-    event,
-  );
+  return fireEvent(target, event);
 }
 
 afterEach(() => {

@@ -46,9 +46,7 @@ export function normalizeDateMentionProps(
   };
 }
 
-export function dateMentionPayloadToProps(
-  payload: NfmDateMentionInlineContent,
-): DateMentionProps {
+export function dateMentionPayloadToProps(payload: NfmDateMentionInlineContent): DateMentionProps {
   return {
     start: payload.start,
     end: payload.end ?? "",

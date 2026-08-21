@@ -47,9 +47,7 @@ const serveReplayBoundary = async (): Promise<string> => {
       "content-type": "text/event-stream",
       connection: "close",
     });
-    response.end(
-      `event: core-resync-required\ndata: ${JSON.stringify(replayBoundary)}\n\n`,
-    );
+    response.end(`event: core-resync-required\ndata: ${JSON.stringify(replayBoundary)}\n\n`);
   });
   servers.push(server);
   await new Promise<void>((resolve, reject) => {
@@ -254,12 +252,10 @@ describe("UDS Core event replay boundaries", () => {
   test("classifies a missing Core socket as definitive generation loss", async () => {
     const directory = mkdtempSync(path.join(tmpdir(), "nodex-core-uds-missing-"));
     directories.push(directory);
-    const transport = new UdsHttpTransport(
-      path.join(directory, "core.sock"),
-      "test-capability",
-    );
+    const transport = new UdsHttpTransport(path.join(directory, "core.sock"), "test-capability");
 
-    const error = await transport.requestJson("GET", "/core/v1/health")
+    const error = await transport
+      .requestJson("GET", "/core/v1/health")
       .catch((caught: unknown) => caught);
 
     expect(error).toMatchObject({
@@ -272,13 +268,12 @@ describe("UDS Core event replay boundaries", () => {
   });
 
   test("keeps response timeouts distinct from generation loss", async () => {
-    const transport = new UdsHttpTransport(
-      await servePendingResponse(),
-      "test-capability",
-      { requestTimeoutMs: 10 },
-    );
+    const transport = new UdsHttpTransport(await servePendingResponse(), "test-capability", {
+      requestTimeoutMs: 10,
+    });
 
-    const error = await transport.requestJson("GET", "/core/v1/health")
+    const error = await transport
+      .requestJson("GET", "/core/v1/health")
       .catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(CoreTransportError);
@@ -311,18 +306,25 @@ describe("UDS Core event replay boundaries", () => {
   });
 
   test("bounds caller-specific response and timeout budgets", () => {
-    expect(() => new UdsHttpTransport("/tmp/core.sock", "capability", {
-      maximumJsonResponseBytes:
-        CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes + 1,
-    })).toThrow("Core JSON response limit must be a positive integer");
-    expect(() => new UdsHttpTransport("/tmp/core.sock", "capability", {
-      requestTimeoutMs: 120_001,
-    })).toThrow("Core request timeout must be a positive integer");
-    expect(() => new UdsHttpTransport("/tmp/core.sock", "capability", {
-      maximumJsonResponseBytes:
-        CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes,
-      requestTimeoutMs: 60_000,
-    })).not.toThrow();
+    expect(
+      () =>
+        new UdsHttpTransport("/tmp/core.sock", "capability", {
+          maximumJsonResponseBytes: CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes + 1,
+        }),
+    ).toThrow("Core JSON response limit must be a positive integer");
+    expect(
+      () =>
+        new UdsHttpTransport("/tmp/core.sock", "capability", {
+          requestTimeoutMs: 120_001,
+        }),
+    ).toThrow("Core request timeout must be a positive integer");
+    expect(
+      () =>
+        new UdsHttpTransport("/tmp/core.sock", "capability", {
+          maximumJsonResponseBytes: CORE_TRANSPORT_BUDGETS.ordinary_json_response_bytes,
+          requestTimeoutMs: 60_000,
+        }),
+    ).not.toThrow();
   });
 
   test("reads an ordinary JSON response larger than the legacy 512 KiB limit", async () => {
@@ -344,9 +346,9 @@ describe("UDS Core event replay boundaries", () => {
       "test-capability",
     );
 
-    await expect(
-      transport.requestJson("GET", "/core/v1/health"),
-    ).rejects.toEqual(new CoreResponseTooLargeError(maximum, maximum + 1));
+    await expect(transport.requestJson("GET", "/core/v1/health")).rejects.toEqual(
+      new CoreResponseTooLargeError(maximum, maximum + 1),
+    );
   });
 
   test("rejects an oversized chunked ordinary JSON response while streaming it", async () => {
@@ -357,9 +359,7 @@ describe("UDS Core event replay boundaries", () => {
       "test-capability",
     );
 
-    await expect(
-      transport.requestJson("GET", "/core/v1/health"),
-    ).rejects.toMatchObject({
+    await expect(transport.requestJson("GET", "/core/v1/health")).rejects.toMatchObject({
       name: "CoreResponseTooLargeError",
       maximumBytes: maximum,
     });
@@ -391,17 +391,12 @@ describe("UDS Core event replay boundaries", () => {
     );
     const subscription = await transport.openEventStream(4, () => undefined);
 
-    await expect(subscription.done).rejects.toEqual(
-      new CoreEventReplayError(replayBoundary),
-    );
+    await expect(subscription.done).rejects.toEqual(new CoreEventReplayError(replayBoundary));
   });
 
   test("accepts a legal committed event larger than the old 512 KiB budget", async () => {
     const transport = configureEventContract(
-      new UdsHttpTransport(
-        await serveLargeCommittedEvent(),
-        "test-capability",
-      ),
+      new UdsHttpTransport(await serveLargeCommittedEvent(), "test-capability"),
     );
     let sequence: number | undefined;
     const subscription = await transport.openEventStream(0, (envelope) => {
@@ -517,16 +512,18 @@ describe("UDS Core event replay boundaries", () => {
           project_id: "project-1",
         },
         commitSeq: 3,
-        revocations: [{
-          authorization_scope: {
-            kind: "project",
-            library_id: "library-1",
-            project_id: "project-1",
+        revocations: [
+          {
+            authorization_scope: {
+              kind: "project",
+              library_id: "library-1",
+              project_id: "project-1",
+            },
+            resource_kind: "canvas",
+            resource_id: "canvas-1",
+            reason: "ownership_moved",
           },
-          resource_kind: "canvas",
-          resource_id: "canvas-1",
-          reason: "ownership_moved",
-        }],
+        ],
       }),
     };
     const transport = configureEventContract(
@@ -546,26 +543,28 @@ describe("UDS Core event replay boundaries", () => {
       store_epoch: "epoch-1",
       core_generation: "generation-1",
       commit_head: 4,
-      recipient_leases: [{
-        lease_id: "a".repeat(64),
-        delivery_address: {
-          kind: "project",
-          library_id: "library-1",
-          project_id: "project-1",
+      recipient_leases: [
+        {
+          lease_id: "a".repeat(64),
+          delivery_address: {
+            kind: "project",
+            library_id: "library-1",
+            project_id: "project-1",
+          },
+          authorization_scope: {
+            kind: "project",
+            library_id: "library-1",
+            project_id: "project-1",
+          },
         },
-        authorization_scope: {
-          kind: "project",
-          library_id: "library-1",
-          project_id: "project-1",
-        },
-      }],
+      ],
     };
-    const frames = `event: projection-live-opened\ndata: ${JSON.stringify(barrier)}\n\n`
-      + `event: module\ndata: ${JSON.stringify(committedEvent())}\n\n`;
-    const transport = configureEventContract(new UdsHttpTransport(
-      await serveSseFrames(frames),
-      "test-capability",
-    ));
+    const frames =
+      `event: projection-live-opened\ndata: ${JSON.stringify(barrier)}\n\n` +
+      `event: module\ndata: ${JSON.stringify(committedEvent())}\n\n`;
+    const transport = configureEventContract(
+      new UdsHttpTransport(await serveSseFrames(frames), "test-capability"),
+    );
     const delivered: CoreEventEnvelope[] = [];
     const subscription = await transport.openProjectionLiveStream(
       [{ kind: "project", libraryId: "library-1", projectId: "project-1" }],
@@ -584,35 +583,41 @@ describe("UDS Core event replay boundaries", () => {
       store_epoch: "epoch-1",
       core_generation: "generation-1",
       commit_head: 4,
-      recipient_leases: [{
-        lease_id: "a".repeat(64),
-        delivery_address: {
-          kind: "project",
-          library_id: "library-1",
-          project_id: "project-other",
+      recipient_leases: [
+        {
+          lease_id: "a".repeat(64),
+          delivery_address: {
+            kind: "project",
+            library_id: "library-1",
+            project_id: "project-other",
+          },
+          authorization_scope: {
+            kind: "project",
+            library_id: "library-1",
+            project_id: "project-other",
+          },
         },
-        authorization_scope: {
-          kind: "project",
-          library_id: "library-1",
-          project_id: "project-other",
-        },
-      }],
+      ],
     };
-    const transport = configureEventContract(new UdsHttpTransport(
-      await serveSseFrames(
-        `event: projection-live-opened\ndata: ${JSON.stringify(barrier)}\n\n`,
+    const transport = configureEventContract(
+      new UdsHttpTransport(
+        await serveSseFrames(`event: projection-live-opened\ndata: ${JSON.stringify(barrier)}\n\n`),
+        "test-capability",
       ),
-      "test-capability",
-    ));
+    );
 
-    await expect(transport.openProjectionLiveStream(
-      [{ kind: "project", libraryId: "library-1", projectId: "project-1" }],
-      {},
-      () => undefined,
-      () => undefined,
-    )).rejects.toEqual(new CoreEventCompatibilityError(
-      "Core Projection live barrier diverges from its requested scopes",
-    ));
+    await expect(
+      transport.openProjectionLiveStream(
+        [{ kind: "project", libraryId: "library-1", projectId: "project-1" }],
+        {},
+        () => undefined,
+        () => undefined,
+      ),
+    ).rejects.toEqual(
+      new CoreEventCompatibilityError(
+        "Core Projection live barrier diverges from its requested scopes",
+      ),
+    );
   });
 
   test("rejects noncanonical DeliveryAtom requirements", async () => {

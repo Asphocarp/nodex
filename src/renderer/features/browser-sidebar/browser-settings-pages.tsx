@@ -1,11 +1,6 @@
 import { SearchIcon } from "@/components/shared/icons";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import {
-  Download,
-  Puzzle,
-  RotateCcw,
-  Trash2,
-} from "@/components/shared/icons/generic-icons";
+import { Download, Puzzle, RotateCcw, Trash2 } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexSwitch } from "@/components/ui/button";
 import {
   NodexDropdownItem,
@@ -99,10 +94,9 @@ export function BrowserSettingsPage({
     return (
       <BrowserSettingsDetailPage
         detail={browserDetail}
-        onBack={() => onOpenBrowserDetail(
-          "browser",
-          browserAnchor ?? BROWSER_DETAIL_ANCHORS[browserDetail],
-        )}
+        onBack={() =>
+          onOpenBrowserDetail("browser", browserAnchor ?? BROWSER_DETAIL_ANCHORS[browserDetail])
+        }
         open={open}
       />
     );
@@ -129,11 +123,9 @@ function BrowserSettingsOverview({
   ) => void;
   open: boolean;
 }) {
-  const [capabilities, setCapabilities] =
-    useState<BrowserProfileCapabilities>(EMPTY_CAPABILITIES);
+  const [capabilities, setCapabilities] = useState<BrowserProfileCapabilities>(EMPTY_CAPABILITIES);
   const [importOpen, setImportOpen] = useState(false);
-  const [usePolicy, setUsePolicy] =
-    useState<BrowserUsePolicySnapshot>(DEFAULT_BROWSER_USE_POLICY);
+  const [usePolicy, setUsePolicy] = useState<BrowserUsePolicySnapshot>(DEFAULT_BROWSER_USE_POLICY);
   const [status, setStatus] = useState<string | null>(null);
   useEffect(() => {
     if (!open) return;
@@ -151,9 +143,7 @@ function BrowserSettingsOverview({
     document.getElementById(anchor)?.scrollIntoView({ block: "start" });
   }, [anchor, open]);
 
-  const clearData = async (
-    kind: "cache" | "cookies" | "downloads" | "history" | "site-data",
-  ) => {
+  const clearData = async (kind: "cache" | "cookies" | "downloads" | "history" | "site-data") => {
     const result = await invoke("browser-browsing-data-clear", kind);
     setStatus(result.ok ? "Built-in Browser Profile data cleared." : result.message);
   };
@@ -202,9 +192,11 @@ function BrowserSettingsOverview({
         </NodexSettingsRow>
         <NodexSettingsRow
           label="Browsing history"
-          description={capabilities.history.available
-            ? "Review and remove visits from the shared Browser Profile."
-            : capabilities.history.reason ?? "Browsing history is unavailable."}
+          description={
+            capabilities.history.available
+              ? "Review and remove visits from the shared Browser Profile."
+              : (capabilities.history.reason ?? "Browsing history is unavailable.")
+          }
         >
           <NodexButton
             size="sm"
@@ -308,7 +300,11 @@ function BrowserOverviewSection({
   children: ReactNode;
   title: string;
 }) {
-  return <NodexSettingsSection id={anchor} title={title}>{children}</NodexSettingsSection>;
+  return (
+    <NodexSettingsSection id={anchor} title={title}>
+      {children}
+    </NodexSettingsSection>
+  );
 }
 
 const BROWSER_DETAIL_LABELS: Record<BrowserSettingsDetail, string> = {
@@ -337,10 +333,7 @@ function BrowserSettingsDetailPage({
   open: boolean;
 }) {
   const backSlot = (
-    <BrowserSettingsBreadcrumb
-      label={BROWSER_DETAIL_LABELS[detail]}
-      onBack={onBack}
-    />
+    <BrowserSettingsBreadcrumb label={BROWSER_DETAIL_LABELS[detail]} onBack={onBack} />
   );
 
   if (detail === "passwords") {
@@ -358,17 +351,13 @@ function BrowserSettingsDetailPage({
   return <BrowserDownloadsSettingsPage backSlot={backSlot} open={open} />;
 }
 
-function BrowserSettingsBreadcrumb({
-  label,
-  onBack,
-}: {
-  label: string;
-  onBack: () => void;
-}) {
+function BrowserSettingsBreadcrumb({ label, onBack }: { label: string; onBack: () => void }) {
   return (
     <div className="flex min-w-0 items-center gap-1 text-sm">
       <span className="text-token-text-tertiary">Settings</span>
-      <span aria-hidden className="text-token-text-tertiary">›</span>
+      <span aria-hidden className="text-token-text-tertiary">
+        ›
+      </span>
       <button
         type="button"
         className="max-w-40 truncate rounded-md px-1 py-0.5 text-token-text-secondary hover:bg-token-list-hover-background hover:text-token-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-token-focus"
@@ -376,19 +365,15 @@ function BrowserSettingsBreadcrumb({
       >
         Browser
       </button>
-      <span aria-hidden className="text-token-text-tertiary">›</span>
+      <span aria-hidden className="text-token-text-tertiary">
+        ›
+      </span>
       <span className="max-w-48 truncate text-token-text-primary">{label}</span>
     </div>
   );
 }
 
-function BrowserDownloadsSettingsPage({
-  backSlot,
-  open,
-}: {
-  backSlot: ReactNode;
-  open: boolean;
-}) {
+function BrowserDownloadsSettingsPage({ backSlot, open }: { backSlot: ReactNode; open: boolean }) {
   const [snapshot, setSnapshot] = useState<BrowserDownloadsSnapshot>({ downloads: [] });
   const [status, setStatus] = useState<string | null>(null);
 
@@ -417,7 +402,7 @@ function BrowserDownloadsSettingsPage({
       title="Download history"
       subtitle="Active and completed downloads from the built-in Browser."
       backSlot={backSlot}
-      action={(
+      action={
         <NodexButton
           size="sm"
           variant="secondary"
@@ -426,18 +411,20 @@ function BrowserDownloadsSettingsPage({
         >
           Clear history
         </NodexButton>
-      )}
+      }
     >
       <NodexSettingsSection>
         {snapshot.downloads.length === 0 ? (
           <EmptySettingsRow message="Downloaded files will appear here." />
-        ) : snapshot.downloads.map((download) => (
-          <BrowserDownloadSettingsRow
-            key={download.id}
-            download={download}
-            onAction={runAction}
-          />
-        ))}
+        ) : (
+          snapshot.downloads.map((download) => (
+            <BrowserDownloadSettingsRow
+              key={download.id}
+              download={download}
+              onAction={runAction}
+            />
+          ))
+        )}
       </NodexSettingsSection>
       {status ? <SettingsStatus>{status}</SettingsStatus> : null}
     </NodexSettingsPageSurface>
@@ -451,9 +438,10 @@ function BrowserDownloadSettingsRow({
   download: BrowserDownloadRecord;
   onAction: (downloadId: string, action: BrowserDownloadAction) => Promise<void>;
 }) {
-  const active = download.status === "starting"
-    || download.status === "progressing"
-    || download.status === "paused";
+  const active =
+    download.status === "starting" ||
+    download.status === "progressing" ||
+    download.status === "paused";
 
   return (
     <NodexSettingsRow
@@ -465,7 +453,11 @@ function BrowserDownloadSettingsRow({
           <NodexButton size="xs" variant="ghost" onClick={() => void onAction(download.id, "open")}>
             Open
           </NodexButton>
-          <NodexButton size="xs" variant="ghost" onClick={() => void onAction(download.id, "show-in-folder")}>
+          <NodexButton
+            size="xs"
+            variant="ghost"
+            onClick={() => void onAction(download.id, "show-in-folder")}
+          >
             Show in folder
           </NodexButton>
         </>
@@ -474,7 +466,9 @@ function BrowserDownloadSettingsRow({
         <NodexButton
           size="xs"
           variant="ghost"
-          onClick={() => void onAction(download.id, download.status === "paused" ? "resume" : "pause")}
+          onClick={() =>
+            void onAction(download.id, download.status === "paused" ? "resume" : "pause")
+          }
         >
           {download.status === "paused" ? "Resume" : "Pause"}
         </NodexButton>
@@ -516,20 +510,20 @@ function BrowserUsePolicySettings({
   onStatus: (status: string) => void;
 }) {
   const [origin, setOrigin] = useState("");
-  const [resource, setResource] =
-    useState<BrowserUsePolicyResource>("origin");
-  const [kind, setKind] =
-    useState<BrowserUseOriginRuleUpdate["kind"]>("allowed");
+  const [resource, setResource] = useState<BrowserUsePolicyResource>("origin");
+  const [kind, setKind] = useState<BrowserUseOriginRuleUpdate["kind"]>("allowed");
 
   const updateModes = async (
-    input: Partial<Pick<
-      BrowserUsePolicySnapshot,
-      | "approvalMode"
-      | "historyApprovalMode"
-      | "downloadApprovalMode"
-      | "uploadApprovalMode"
-      | "fullCdpAccessEnabled"
-    >>,
+    input: Partial<
+      Pick<
+        BrowserUsePolicySnapshot,
+        | "approvalMode"
+        | "historyApprovalMode"
+        | "downloadApprovalMode"
+        | "uploadApprovalMode"
+        | "fullCdpAccessEnabled"
+      >
+    >,
   ) => {
     try {
       onChange(await invoke("browser-use-policy-update-modes", input));
@@ -562,22 +556,19 @@ function BrowserUsePolicySettings({
           label="Browsing history"
           description="Control whether Browser Use asks before reading user history."
           value={policy.historyApprovalMode}
-          onChange={(historyApprovalMode) =>
-            void updateModes({ historyApprovalMode })}
+          onChange={(historyApprovalMode) => void updateModes({ historyApprovalMode })}
         />
         <ApprovalModeRow
           label="Downloads"
           description="Control approval prompts before an agent downloads a file."
           value={policy.downloadApprovalMode}
-          onChange={(downloadApprovalMode) =>
-            void updateModes({ downloadApprovalMode })}
+          onChange={(downloadApprovalMode) => void updateModes({ downloadApprovalMode })}
         />
         <ApprovalModeRow
           label="Uploads"
           description="Control approval prompts before an agent uploads a file."
           value={policy.uploadApprovalMode}
-          onChange={(uploadApprovalMode) =>
-            void updateModes({ uploadApprovalMode })}
+          onChange={(uploadApprovalMode) => void updateModes({ uploadApprovalMode })}
         />
       </NodexSettingsSection>
       <NodexSettingsSection id="site-permissions" title="Site permissions">
@@ -600,18 +591,19 @@ function BrowserUsePolicySettings({
             className="min-w-20"
             options={BROWSER_USE_DECISION_OPTIONS}
             value={kind}
-            onChange={(value) =>
-              setKind(value as BrowserUseOriginRuleUpdate["kind"])}
+            onChange={(value) => setKind(value as BrowserUseOriginRuleUpdate["kind"])}
           />
           <NodexButton
             size="sm"
             disabled={!origin.trim()}
-            onClick={() => void updateRule({
-              action: "add",
-              kind,
-              origin,
-              resource,
-            })}
+            onClick={() =>
+              void updateRule({
+                action: "add",
+                kind,
+                origin,
+                resource,
+              })
+            }
           >
             Add
           </NodexButton>
@@ -626,8 +618,7 @@ function BrowserUsePolicySettings({
           <NodexSwitch
             ariaLabel="Full CDP access"
             checked={policy.fullCdpAccessEnabled}
-            onCheckedChange={(fullCdpAccessEnabled) =>
-              void updateModes({ fullCdpAccessEnabled })}
+            onCheckedChange={(fullCdpAccessEnabled) => void updateModes({ fullCdpAccessEnabled })}
           />
         </NodexSettingsRow>
       </NodexSettingsSection>
@@ -678,14 +669,11 @@ function PolicySelect({
     <NodexDropdownMenu
       align="end"
       contentWidth="xs"
-      triggerButton={(
-        <NodexSettingsDropdownTrigger
-          aria-label={ariaLabel}
-          className={cn("h-8", className)}
-        >
+      triggerButton={
+        <NodexSettingsDropdownTrigger aria-label={ariaLabel} className={cn("h-8", className)}>
           <span className="truncate">{selectedLabel}</span>
         </NodexSettingsDropdownTrigger>
-      )}
+      }
     >
       {options.map((option) => (
         <NodexDropdownItem
@@ -745,9 +733,7 @@ function OriginRuleRows({
       resource: "fullCdp",
     },
   ];
-  const rules = groups.flatMap((group) =>
-    group.origins.map((origin) => ({ ...group, origin }))
-  );
+  const rules = groups.flatMap((group) => group.origins.map((origin) => ({ ...group, origin })));
   if (rules.length === 0) {
     return <EmptySettingsRow message="No remembered Browser Use decisions." />;
   }
@@ -755,20 +741,20 @@ function OriginRuleRows({
     <NodexSettingsRow
       key={`${resource}:${kind}:${origin}`}
       label={origin}
-      description={`${resourceLabel(resource)} · ${
-        kind === "allowed" ? "Allowed" : "Denied"
-      }`}
+      description={`${resourceLabel(resource)} · ${kind === "allowed" ? "Allowed" : "Denied"}`}
     >
       <NodexButton
         size="icon-xs"
         variant="ghost"
         aria-label={`Remove ${origin} ${resource} policy`}
-        onClick={() => void onRemove({
-          action: "remove",
-          kind,
-          origin,
-          resource,
-        })}
+        onClick={() =>
+          void onRemove({
+            action: "remove",
+            kind,
+            origin,
+            resource,
+          })
+        }
       >
         <Trash2 />
       </NodexButton>
@@ -791,8 +777,7 @@ export function BrowserPasswordsSettingsPage({
   open: boolean;
 }) {
   const [credentials, setCredentials] = useState<BrowserCredentialSummary[]>([]);
-  const [capability, setCapability] =
-    useState<BrowserCapabilityStatus>(EMPTY_CAPABILITY);
+  const [capability, setCapability] = useState<BrowserCapabilityStatus>(EMPTY_CAPABILITY);
   const [importOpen, setImportOpen] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const refresh = useCallback(async () => {
@@ -810,7 +795,7 @@ export function BrowserPasswordsSettingsPage({
 
   const remove = async (credentialId: string) => {
     const result = await invoke("browser-credential-remove", credentialId);
-    setStatus(result.ok ? "Password removed." : result.message ?? "Unable to remove password.");
+    setStatus(result.ok ? "Password removed." : (result.message ?? "Unable to remove password."));
     if (result.ok) await refresh();
   };
 
@@ -819,7 +804,7 @@ export function BrowserPasswordsSettingsPage({
       title="Password manager"
       subtitle="Saved passwords stay encrypted and are revealed only to the selected site’s guest page."
       backSlot={backSlot}
-      action={(
+      action={
         <NodexButton
           size="sm"
           variant="secondary"
@@ -829,7 +814,7 @@ export function BrowserPasswordsSettingsPage({
           <Download />
           Import
         </NodexButton>
-      )}
+      }
     >
       {!capability.available ? (
         <UnavailableCapability capability={capability} />
@@ -837,22 +822,24 @@ export function BrowserPasswordsSettingsPage({
         <NodexSettingsSection title="Saved passwords">
           {credentials.length === 0 ? (
             <EmptySettingsRow message="No saved passwords." />
-          ) : credentials.map((credential) => (
-            <NodexSettingsRow
-              key={credential.id}
-              label={credential.label}
-              description={`${credential.username || "No username"} · ${credential.origin}`}
-            >
-              <NodexButton
-                size="icon-xs"
-                variant="ghost"
-                aria-label={`Remove password for ${credential.origin}`}
-                onClick={() => void remove(credential.id)}
+          ) : (
+            credentials.map((credential) => (
+              <NodexSettingsRow
+                key={credential.id}
+                label={credential.label}
+                description={`${credential.username || "No username"} · ${credential.origin}`}
               >
-                <Trash2 />
-              </NodexButton>
-            </NodexSettingsRow>
-          ))}
+                <NodexButton
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={`Remove password for ${credential.origin}`}
+                  onClick={() => void remove(credential.id)}
+                >
+                  <Trash2 />
+                </NodexButton>
+              </NodexSettingsRow>
+            ))
+          )}
         </NodexSettingsSection>
       )}
       {status ? <SettingsStatus>{status}</SettingsStatus> : null}
@@ -875,10 +862,8 @@ export function BrowserContactInfoSettingsPage({
   open: boolean;
 }) {
   const [contacts, setContacts] = useState<BrowserContactInfo[]>([]);
-  const [capability, setCapability] =
-    useState<BrowserCapabilityStatus>(EMPTY_CAPABILITY);
-  const [draft, setDraft] =
-    useState<BrowserContactInfoUpsertInput | null>(null);
+  const [capability, setCapability] = useState<BrowserCapabilityStatus>(EMPTY_CAPABILITY);
+  const [draft, setDraft] = useState<BrowserContactInfoUpsertInput | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     const [capabilities, nextContacts] = await Promise.all([
@@ -905,9 +890,9 @@ export function BrowserContactInfoSettingsPage({
   };
   const remove = async (contactInfoId: string) => {
     const result = await invoke("browser-contact-info-remove", contactInfoId);
-    setStatus(result.ok
-      ? "Contact info removed."
-      : result.message ?? "Unable to remove contact info.");
+    setStatus(
+      result.ok ? "Contact info removed." : (result.message ?? "Unable to remove contact info."),
+    );
     if (result.ok) await refresh();
   };
 
@@ -916,15 +901,13 @@ export function BrowserContactInfoSettingsPage({
       title="Contact info"
       subtitle="Choose a saved contact from Browser chrome to fill recognized form fields."
       backSlot={backSlot}
-      action={capability.available ? (
-        <NodexButton
-          size="sm"
-          variant="secondary"
-          onClick={() => setDraft(emptyContactDraft())}
-        >
-          Add contact
-        </NodexButton>
-      ) : null}
+      action={
+        capability.available ? (
+          <NodexButton size="sm" variant="secondary" onClick={() => setDraft(emptyContactDraft())}>
+            Add contact
+          </NodexButton>
+        ) : null
+      }
     >
       {!capability.available ? (
         <UnavailableCapability capability={capability} />
@@ -941,35 +924,39 @@ export function BrowserContactInfoSettingsPage({
           <NodexSettingsSection title="Saved contact info">
             {contacts.length === 0 ? (
               <EmptySettingsRow message="No saved contact info." />
-            ) : contacts.map((contact) => (
-              <NodexSettingsRow
-                key={contact.id}
-                label={contact.label}
-                description={[
-                  contact.fullName,
-                  contact.email,
-                  contact.phone,
-                  contact.city,
-                  contact.country,
-                ].filter(Boolean).join(" · ")}
-              >
-                <NodexButton
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setDraft(contactToDraft(contact))}
+            ) : (
+              contacts.map((contact) => (
+                <NodexSettingsRow
+                  key={contact.id}
+                  label={contact.label}
+                  description={[
+                    contact.fullName,
+                    contact.email,
+                    contact.phone,
+                    contact.city,
+                    contact.country,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 >
-                  Edit
-                </NodexButton>
-                <NodexButton
-                  size="icon-xs"
-                  variant="ghost"
-                  aria-label={`Remove ${contact.label}`}
-                  onClick={() => void remove(contact.id)}
-                >
-                  <Trash2 />
-                </NodexButton>
-              </NodexSettingsRow>
-            ))}
+                  <NodexButton
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setDraft(contactToDraft(contact))}
+                  >
+                    Edit
+                  </NodexButton>
+                  <NodexButton
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Remove ${contact.label}`}
+                    onClick={() => void remove(contact.id)}
+                  >
+                    <Trash2 />
+                  </NodexButton>
+                </NodexSettingsRow>
+              ))
+            )}
           </NodexSettingsSection>
         </>
       )}
@@ -1003,12 +990,16 @@ export function BrowserHistorySettingsPage({
 
   const remove = async (historyId: string) => {
     const result = await invoke("browser-history-delete", historyId);
-    setStatus(result.ok ? "History entry removed." : result.message ?? "Unable to remove history entry.");
+    setStatus(
+      result.ok ? "History entry removed." : (result.message ?? "Unable to remove history entry."),
+    );
     if (result.ok) await refresh(query);
   };
   const clear = async () => {
     const result = await invoke("browser-browsing-data-clear", "history");
-    setStatus(result.ok ? "Browser history cleared." : result.message ?? "Unable to clear history.");
+    setStatus(
+      result.ok ? "Browser history cleared." : (result.message ?? "Unable to clear history."),
+    );
     if (result.ok) await refresh(query);
   };
 
@@ -1017,12 +1008,12 @@ export function BrowserHistorySettingsPage({
       title="Browsing history"
       subtitle="Visits from the shared built-in Browser Profile."
       backSlot={backSlot}
-      action={(
+      action={
         <NodexButton size="sm" variant="secondary" onClick={() => void clear()}>
           <Trash2 />
           Clear
         </NodexButton>
-      )}
+      }
     >
       <label className="flex h-9 items-center gap-2 rounded-lg border border-token-border bg-token-main-surface-primary px-3">
         <SearchIcon className="size-4 text-token-text-tertiary" />
@@ -1036,22 +1027,24 @@ export function BrowserHistorySettingsPage({
       <NodexSettingsSection>
         {entries.length === 0 ? (
           <EmptySettingsRow message={query ? "No matching visits." : "No Browser history yet."} />
-        ) : entries.map((entry) => (
-          <NodexSettingsRow
-            key={entry.id}
-            label={entry.title || entry.url}
-            description={`${entry.url} · ${formatVisitTime(entry.lastVisitedAt)}`}
-          >
-            <NodexButton
-              size="icon-xs"
-              variant="ghost"
-              aria-label={`Remove ${entry.title || entry.url} from history`}
-              onClick={() => void remove(entry.id)}
+        ) : (
+          entries.map((entry) => (
+            <NodexSettingsRow
+              key={entry.id}
+              label={entry.title || entry.url}
+              description={`${entry.url} · ${formatVisitTime(entry.lastVisitedAt)}`}
             >
-              <Trash2 />
-            </NodexButton>
-          </NodexSettingsRow>
-        ))}
+              <NodexButton
+                size="icon-xs"
+                variant="ghost"
+                aria-label={`Remove ${entry.title || entry.url} from history`}
+                onClick={() => void remove(entry.id)}
+              >
+                <Trash2 />
+              </NodexButton>
+            </NodexSettingsRow>
+          ))
+        )}
       </NodexSettingsSection>
       {status ? <SettingsStatus>{status}</SettingsStatus> : null}
     </NodexSettingsPageSurface>
@@ -1089,7 +1082,7 @@ export function BrowserExtensionsSettingsPage({
   };
   const remove = async (extensionId: string) => {
     const result = await invoke("browser-extension-remove", extensionId);
-    setStatus(result.ok ? "Extension removed." : result.message ?? "Unable to remove extension.");
+    setStatus(result.ok ? "Extension removed." : (result.message ?? "Unable to remove extension."));
     if (result.ok) await refresh();
   };
 
@@ -1098,12 +1091,14 @@ export function BrowserExtensionsSettingsPage({
       title="Extension manager"
       subtitle="Unpacked extensions loaded into the shared built-in Browser Profile."
       backSlot={backSlot}
-      action={snapshot.capability.available ? (
-        <NodexButton size="sm" variant="secondary" onClick={() => void load()}>
-          <Puzzle />
-          Load unpacked
-        </NodexButton>
-      ) : null}
+      action={
+        snapshot.capability.available ? (
+          <NodexButton size="sm" variant="secondary" onClick={() => void load()}>
+            <Puzzle />
+            Load unpacked
+          </NodexButton>
+        ) : null
+      }
     >
       {!snapshot.capability.available ? (
         <UnavailableCapability capability={snapshot.capability} />
@@ -1111,22 +1106,24 @@ export function BrowserExtensionsSettingsPage({
         <NodexSettingsSection>
           {snapshot.extensions.length === 0 ? (
             <EmptySettingsRow message="No extensions loaded." />
-          ) : snapshot.extensions.map((extension) => (
-            <NodexSettingsRow
-              key={extension.id}
-              label={`${extension.name} ${extension.version}`}
-              description={extension.path}
-            >
-              <NodexButton
-                size="icon-xs"
-                variant="ghost"
-                aria-label={`Remove ${extension.name}`}
-                onClick={() => void remove(extension.id)}
+          ) : (
+            snapshot.extensions.map((extension) => (
+              <NodexSettingsRow
+                key={extension.id}
+                label={`${extension.name} ${extension.version}`}
+                description={extension.path}
               >
-                <Trash2 />
-              </NodexButton>
-            </NodexSettingsRow>
-          ))}
+                <NodexButton
+                  size="icon-xs"
+                  variant="ghost"
+                  aria-label={`Remove ${extension.name}`}
+                  onClick={() => void remove(extension.id)}
+                >
+                  <Trash2 />
+                </NodexButton>
+              </NodexSettingsRow>
+            ))
+          )}
         </NodexSettingsSection>
       )}
       {status ? <SettingsStatus>{status}</SettingsStatus> : null}
@@ -1147,7 +1144,7 @@ function CapabilityRow({
       description={
         capability.available
           ? `Available through ${capability.provider}.`
-          : capability.reason ?? "Unavailable."
+          : (capability.reason ?? "Unavailable.")
       }
     >
       <span
@@ -1174,10 +1171,7 @@ function ContactInfoEditor({
   onChange: (draft: BrowserContactInfoUpsertInput) => void;
   onSave: () => void;
 }) {
-  const setField = (
-    field: keyof BrowserContactInfoUpsertInput,
-    value: string,
-  ) => {
+  const setField = (field: keyof BrowserContactInfoUpsertInput, value: string) => {
     onChange({ ...draft, [field]: value });
   };
   const fields: Array<{
@@ -1231,11 +1225,7 @@ function ContactInfoEditor({
   );
 }
 
-function UnavailableCapability({
-  capability,
-}: {
-  capability: BrowserCapabilityStatus;
-}) {
+function UnavailableCapability({ capability }: { capability: BrowserCapabilityStatus }) {
   return (
     <NodexSettingsSection>
       <NodexSettingsRow
@@ -1268,9 +1258,7 @@ function formatVisitTime(value: number): string {
 }
 
 function readErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim()
-    ? error.message
-    : fallback;
+  return error instanceof Error && error.message.trim() ? error.message : fallback;
 }
 
 function emptyContactDraft(): BrowserContactInfoUpsertInput {
@@ -1288,9 +1276,7 @@ function emptyContactDraft(): BrowserContactInfoUpsertInput {
   };
 }
 
-function contactToDraft(
-  contact: BrowserContactInfo,
-): BrowserContactInfoUpsertInput {
+function contactToDraft(contact: BrowserContactInfo): BrowserContactInfoUpsertInput {
   return {
     id: contact.id,
     label: contact.label,

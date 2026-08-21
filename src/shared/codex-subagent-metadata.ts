@@ -15,7 +15,7 @@ export interface CodexThreadSubagentMetadata extends CodexThreadSpawnMetadata {
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : null;
 }
 
 function hasOwn(record: Record<string, unknown>, key: string): boolean {
@@ -59,7 +59,10 @@ function getOptionalTextFieldPair(
   };
 }
 
-function getSubagentSourceRecord(source: unknown): { record: Record<string, unknown> | null; found: boolean } {
+function getSubagentSourceRecord(source: unknown): {
+  record: Record<string, unknown> | null;
+  found: boolean;
+} {
   const sourceRecord = asRecord(source);
   if (!sourceRecord) return { record: null, found: false };
 
@@ -152,6 +155,7 @@ export function extractCodexThreadSubagentMetadata(thread: unknown): CodexThread
     hasAgentNickname: nickname.present || source.hasAgentNickname,
     hasAgentRole: role.present || source.hasAgentRole,
     hasAgentPath: source.hasAgentPath,
-    hasAnySubagentSource: source.hasParentThreadId || source.hasAgentNickname || source.hasAgentRole,
+    hasAnySubagentSource:
+      source.hasParentThreadId || source.hasAgentNickname || source.hasAgentRole,
   };
 }

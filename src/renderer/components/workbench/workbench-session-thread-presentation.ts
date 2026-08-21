@@ -15,10 +15,7 @@ export function resolvePresentedSessionThread<Thread>(
   launch: SessionThreadLaunchPresentation | null,
 ): Thread | null {
   if (launch?.rendererLaunchPending === true) return null;
-  if (
-    launch?.waitForFirstVisibleTurn === true
-    && launch.hasVisibleFirstTurn !== true
-  ) {
+  if (launch?.waitForFirstVisibleTurn === true && launch.hasVisibleFirstTurn !== true) {
     return null;
   }
   return attachedThread;

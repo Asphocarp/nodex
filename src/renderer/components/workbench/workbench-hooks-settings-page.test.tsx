@@ -5,7 +5,9 @@ import type { HooksListEntry } from "@nodex/codex-app-server-protocol/v2/HooksLi
 import { render } from "../../test/dom";
 import { CodexHooksSettingsView } from "./workbench-hooks-settings-page";
 
-function hook(overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "source">): HookMetadata {
+function hook(
+  overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "source">,
+): HookMetadata {
   return {
     eventName: "stop",
     handlerType: "command",
@@ -54,12 +56,14 @@ describe("Hooks settings", () => {
   test("routes a project source row to the exact selected detail path", () => {
     const onPathChange = vi.fn();
     const { getByText } = renderView({
-      entries: [{
-        cwd: "/workspace/nodex",
-        hooks: [hook({ key: "project-hook", source: "project" })],
-        warnings: [],
-        errors: [],
-      }],
+      entries: [
+        {
+          cwd: "/workspace/nodex",
+          hooks: [hook({ key: "project-hook", source: "project" })],
+          warnings: [],
+          errors: [],
+        },
+      ],
       onPathChange,
     });
 
@@ -73,7 +77,12 @@ describe("Hooks settings", () => {
     const onToggle = vi.fn();
     const onTrust = vi.fn();
     const trusted = hook({ key: "trusted", source: "user", enabled: false, displayOrder: 0n });
-    const untrusted = hook({ key: "untrusted", source: "user", trustStatus: "untrusted", displayOrder: 1n });
+    const untrusted = hook({
+      key: "untrusted",
+      source: "user",
+      trustStatus: "untrusted",
+      displayOrder: 1n,
+    });
     const managed = hook({
       key: "managed",
       source: "user",
@@ -83,12 +92,14 @@ describe("Hooks settings", () => {
       displayOrder: 2n,
     });
     const { getByText, getAllByRole } = renderView({
-      entries: [{
-        cwd: "/workspace/nodex",
-        hooks: [trusted, untrusted, managed],
-        warnings: ["Review config"],
-        errors: [],
-      }],
+      entries: [
+        {
+          cwd: "/workspace/nodex",
+          hooks: [trusted, untrusted, managed],
+          warnings: ["Review config"],
+          errors: [],
+        },
+      ],
       path: "/settings/hooks-settings?hostId=default&source=user",
       onToggle,
       onTrust,
@@ -104,7 +115,10 @@ describe("Hooks settings", () => {
     expect(onToggle).toHaveBeenCalledWith(trusted, true);
     fireEvent.click(getByText("Trust"));
     expect(onTrust).toHaveBeenCalledWith(untrusted);
-    expect(getByText("Hooks can run outside of the sandbox so we ask you to review any recently installed or modified hooks"))
-      .toBeTruthy();
+    expect(
+      getByText(
+        "Hooks can run outside of the sandbox so we ask you to review any recently installed or modified hooks",
+      ),
+    ).toBeTruthy();
   });
 });

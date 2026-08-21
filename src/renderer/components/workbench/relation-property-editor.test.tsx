@@ -2,9 +2,7 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { act } from "react";
 import { render } from "../../test/dom";
-import {
-  RelationPropertyEditor,
-} from "../database/relation-property-editor";
+import { RelationPropertyEditor } from "../database/relation-property-editor";
 import {
   readRelationValuePreview,
   type RelationCandidateWindow,
@@ -48,10 +46,12 @@ describe("RelationPropertyEditor", () => {
       restrictedCount: 1,
       hasMore: true,
     });
-    expect(readRelationValuePreview({
-      kind: "relation",
-      value: { ...relationValue.value, targets: [{ kind: "restricted", page_id: "leak" }] },
-    })).toBeNull();
+    expect(
+      readRelationValuePreview({
+        kind: "relation",
+        value: { ...relationValue.value, targets: [{ kind: "restricted", page_id: "leak" }] },
+      }),
+    ).toBeNull();
   });
 
   test("emits patch-set intent for visible removal and candidate addition", async () => {
@@ -132,10 +132,12 @@ describe("RelationPropertyEditor", () => {
     const onLoadMore = vi.fn(async () => ({
       valueRevision: 4,
       totalCount: 2,
-      targets: [{
-        kind: "restricted" as const,
-        edgeId: hiddenEdgeId,
-      }],
+      targets: [
+        {
+          kind: "restricted" as const,
+          edgeId: hiddenEdgeId,
+        },
+      ],
       nextCursor: null,
       projectionRevision: 8,
     }));
@@ -198,9 +200,9 @@ describe("RelationPropertyEditor", () => {
       await Promise.resolve();
     });
 
-    expect(view.getByText(
-      "Clear all 2 relations, including restricted or unloaded pages?",
-    )).toBeTruthy();
+    expect(
+      view.getByText("Clear all 2 relations, including restricted or unloaded pages?"),
+    ).toBeTruthy();
     expect(onClear).not.toHaveBeenCalled();
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Clear all" }));
@@ -212,36 +214,45 @@ describe("RelationPropertyEditor", () => {
   });
 
   test("drops stale continuation results when the value revision changes", async () => {
-    let resolveLoad: ((value: {
-      readonly targets: readonly [{
-        readonly kind: "visible";
-        readonly edgeId: string;
-        readonly pageId: string;
-        readonly title: string;
-        readonly lifecycle: string;
-        readonly membershipState: string;
-      }];
-      readonly nextCursor: null;
-      readonly valueRevision: 4;
-      readonly totalCount: 2;
-      readonly projectionRevision: 1;
-    }) => void) | undefined;
-    const onLoadMore = vi.fn(() => new Promise<{
-      readonly targets: readonly [{
-        readonly kind: "visible";
-        readonly edgeId: string;
-        readonly pageId: string;
-        readonly title: string;
-        readonly lifecycle: string;
-        readonly membershipState: string;
-      }];
-      readonly nextCursor: null;
-      readonly valueRevision: 4;
-      readonly totalCount: 2;
-      readonly projectionRevision: 1;
-    }>((resolve) => {
-      resolveLoad = resolve;
-    }));
+    let resolveLoad:
+      | ((value: {
+          readonly targets: readonly [
+            {
+              readonly kind: "visible";
+              readonly edgeId: string;
+              readonly pageId: string;
+              readonly title: string;
+              readonly lifecycle: string;
+              readonly membershipState: string;
+            },
+          ];
+          readonly nextCursor: null;
+          readonly valueRevision: 4;
+          readonly totalCount: 2;
+          readonly projectionRevision: 1;
+        }) => void)
+      | undefined;
+    const onLoadMore = vi.fn(
+      () =>
+        new Promise<{
+          readonly targets: readonly [
+            {
+              readonly kind: "visible";
+              readonly edgeId: string;
+              readonly pageId: string;
+              readonly title: string;
+              readonly lifecycle: string;
+              readonly membershipState: string;
+            },
+          ];
+          readonly nextCursor: null;
+          readonly valueRevision: 4;
+          readonly totalCount: 2;
+          readonly projectionRevision: 1;
+        }>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
     const props = {
       label: "Blocked by",
       candidates: [],
@@ -261,32 +272,36 @@ describe("RelationPropertyEditor", () => {
       fireEvent.click(view.getByRole("button", { name: "Load more selected" }));
       await Promise.resolve();
     });
-    view.rerender(<RelationPropertyEditor
-      {...props}
-      value={{
-        kind: "relation",
-        value: {
-          value_revision: 5,
-          total_count: 1,
-          targets: [],
-          restricted_count: 0,
-          has_more: true,
-        },
-      }}
-    />);
+    view.rerender(
+      <RelationPropertyEditor
+        {...props}
+        value={{
+          kind: "relation",
+          value: {
+            value_revision: 5,
+            total_count: 1,
+            targets: [],
+            restricted_count: 0,
+            has_more: true,
+          },
+        }}
+      />,
+    );
     expect(view.getByRole("button", { name: "Load more selected" })).toBeTruthy();
     await act(async () => {
       resolveLoad?.({
         valueRevision: 4,
         totalCount: 2,
-        targets: [{
-          kind: "visible",
-          edgeId: "b".repeat(64),
-          pageId: "page-stale",
-          title: "Stale target",
-          lifecycle: "active",
-          membershipState: "active_in_target_source",
-        }],
+        targets: [
+          {
+            kind: "visible",
+            edgeId: "b".repeat(64),
+            pageId: "page-stale",
+            title: "Stale target",
+            lifecycle: "active",
+            membershipState: "active_in_target_source",
+          },
+        ],
         nextCursor: null,
         projectionRevision: 1,
       });
@@ -297,11 +312,14 @@ describe("RelationPropertyEditor", () => {
   });
 
   test("does not let a slower old search replace the latest query", async () => {
-    const resolvers = new Map<string, (value: {
-      candidates: readonly { readonly pageId: string; readonly title: string }[];
-      nextCursor: null;
-      projectionRevision: number;
-    }) => void>();
+    const resolvers = new Map<
+      string,
+      (value: {
+        candidates: readonly { readonly pageId: string; readonly title: string }[];
+        nextCursor: null;
+        projectionRevision: number;
+      }) => void
+    >();
     const onSearchCandidates = vi.fn((query: string) => {
       if (!query) {
         return Promise.resolve({ candidates: [], nextCursor: null, projectionRevision: 1 });
@@ -411,10 +429,9 @@ describe("RelationPropertyEditor", () => {
   test("keeps candidate failures local, hides transport details, and retries", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     let attempts = 0;
-    const onSearchCandidates = vi.fn<(
-      query: string,
-      after?: string | null,
-    ) => Promise<RelationCandidateWindow>>(async () => {
+    const onSearchCandidates = vi.fn<
+      (query: string, after?: string | null) => Promise<RelationCandidateWindow>
+    >(async () => {
       attempts += 1;
       if (attempts === 1) {
         throw new Error("databaseModuleReadV2.read.query leaked transport detail");
@@ -453,8 +470,10 @@ describe("RelationPropertyEditor", () => {
       await waitFor(() => {
         expect(view.getByRole("option", { name: "Recovered page" })).toBeTruthy();
       });
-      expect(onSearchCandidates.mock.calls.map(([query, after]) => [query, after]))
-        .toEqual([["", null], ["", null]]);
+      expect(onSearchCandidates.mock.calls.map(([query, after]) => [query, after])).toEqual([
+        ["", null],
+        ["", null],
+      ]);
     } finally {
       consoleError.mockRestore();
     }
@@ -497,14 +516,16 @@ describe("RelationPropertyEditor", () => {
         onLoadMore={async () => ({
           valueRevision: 5,
           totalCount: 1,
-          targets: [{
-            kind: "visible",
-            edgeId: "b".repeat(64),
-            pageId: "page-newer",
-            title: "Newer target",
-            lifecycle: "active",
-            membershipState: "active_in_target_source",
-          }],
+          targets: [
+            {
+              kind: "visible",
+              edgeId: "b".repeat(64),
+              pageId: "page-newer",
+              title: "Newer target",
+              lifecycle: "active",
+              membershipState: "active_in_target_source",
+            },
+          ],
           nextCursor: null,
           projectionRevision: 2,
         })}
@@ -530,14 +551,16 @@ describe("RelationPropertyEditor", () => {
       return {
         valueRevision: 4,
         totalCount: 2,
-        targets: [{
-          kind: "visible" as const,
-          edgeId: `${request}`.padStart(64, "0"),
-          pageId: request === 1 ? "page-first" : "page-refreshed",
-          title: request === 1 ? "First page" : "Refreshed page",
-          lifecycle: "active",
-          membershipState: "active_in_target_source",
-        }],
+        targets: [
+          {
+            kind: "visible" as const,
+            edgeId: `${request}`.padStart(64, "0"),
+            pageId: request === 1 ? "page-first" : "page-refreshed",
+            title: request === 1 ? "First page" : "Refreshed page",
+            lifecycle: "active",
+            membershipState: "active_in_target_source",
+          },
+        ],
         nextCursor: request === 1 ? "next" : null,
         projectionRevision: 3,
       };
@@ -578,10 +601,12 @@ describe("RelationPropertyEditor", () => {
       request += 1;
       if (request === 2) throw new Error(`opaque cursor rejected: ${after}`);
       return {
-        candidates: [{
-          pageId: request === 1 ? "page-first" : "page-refreshed",
-          title: request === 1 ? "First candidate" : "Refreshed candidate",
-        }],
+        candidates: [
+          {
+            pageId: request === 1 ? "page-first" : "page-refreshed",
+            title: request === 1 ? "First candidate" : "Refreshed candidate",
+          },
+        ],
         nextCursor: request === 1 ? "next" : null,
         projectionRevision: request === 1 ? 1 : 2,
       };
@@ -607,7 +632,9 @@ describe("RelationPropertyEditor", () => {
       fireEvent.click(view.getByRole("button", { name: "Load more" }));
       await Promise.resolve();
     });
-    await waitFor(() => expect(view.getByRole("option", { name: "Refreshed candidate" })).toBeTruthy());
+    await waitFor(() =>
+      expect(view.getByRole("option", { name: "Refreshed candidate" })).toBeTruthy(),
+    );
     expect(view.queryByRole("option", { name: "First candidate" })).toBeNull();
     expect(view.queryByText(/opaque cursor rejected/)).toBeNull();
     expect(onSearchCandidates.mock.calls.map(([, after]) => after)).toEqual([null, "next", null]);
@@ -617,22 +644,21 @@ describe("RelationPropertyEditor", () => {
     let request = 0;
     const onLoadMore = vi.fn(async () => {
       request += 1;
-      const title = request === 1
-        ? "Old projection"
-        : request === 2
-          ? "Must not leak"
-          : "Refreshed projection";
+      const title =
+        request === 1 ? "Old projection" : request === 2 ? "Must not leak" : "Refreshed projection";
       return {
         valueRevision: 4,
         totalCount: 1,
-        targets: [{
-          kind: "visible" as const,
-          edgeId: `${request}`.padStart(64, "0"),
-          pageId: `page-${request}`,
-          title,
-          lifecycle: "active",
-          membershipState: "active_in_target_source",
-        }],
+        targets: [
+          {
+            kind: "visible" as const,
+            edgeId: `${request}`.padStart(64, "0"),
+            pageId: `page-${request}`,
+            title,
+            lifecycle: "active",
+            membershipState: "active_in_target_source",
+          },
+        ],
         nextCursor: request === 1 ? "next" : null,
         projectionRevision: request === 1 ? 1 : 2,
       };
@@ -662,7 +688,9 @@ describe("RelationPropertyEditor", () => {
       fireEvent.click(view.getByRole("button", { name: "Load more selected" }));
       await Promise.resolve();
     });
-    await waitFor(() => expect(view.getAllByText("Refreshed projection").length).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(view.getAllByText("Refreshed projection").length).toBeGreaterThan(0),
+    );
     expect(view.queryByText("Old projection")).toBeNull();
     expect(view.queryByText("Must not leak")).toBeNull();
   });
@@ -689,8 +717,9 @@ describe("RelationPropertyEditor", () => {
     });
     view.rerender(<RelationPropertyEditor {...props} pending />);
     expect(view.getByRole("combobox", { name: "Search Blocked by target pages" })).toBeTruthy();
-    expect((view.getByRole("option", { name: "Candidate" }) as HTMLButtonElement).disabled)
-      .toBe(true);
+    expect((view.getByRole("option", { name: "Candidate" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
     expect(onPatch).toHaveBeenCalledOnce();
   });
 

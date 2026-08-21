@@ -53,14 +53,24 @@ const PROTOCOL_THREAD_ITEM_RENDERER_TYPES = {
   enteredReviewMode: null,
   exitedReviewMode: null,
   contextCompaction: "contextCompaction",
-} satisfies Record<ProtocolThreadItemType, RendererTranscriptType | typeof SEMANTIC_FALLBACK | null>;
+} satisfies Record<
+  ProtocolThreadItemType,
+  RendererTranscriptType | typeof SEMANTIC_FALLBACK | null
+>;
 
 function stringifyValue(value: unknown): string {
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
-  if (Array.isArray(value)) return value.map((entry) => stringifyValue(entry)).filter(Boolean).join(" ");
+  if (Array.isArray(value))
+    return value
+      .map((entry) => stringifyValue(entry))
+      .filter(Boolean)
+      .join(" ");
   if (typeof value === "object" && value !== null) {
-    return Object.values(value).map((entry) => stringifyValue(entry)).filter(Boolean).join(" ");
+    return Object.values(value)
+      .map((entry) => stringifyValue(entry))
+      .filter(Boolean)
+      .join(" ");
   }
   return "";
 }
@@ -96,11 +106,13 @@ function resolveVisibleMarkdownText(entry: CodexConversationItem): string | unde
 }
 
 function hasRenderableFileChangeEntry(entry: CodexConversationItem): boolean {
-  return resolveCodexFileChangeActivity({
-    status: entry.status,
-    fileChange: entry.fileChange,
-    hasToolError: Boolean(entry.toolCall?.error),
-  }).visibility !== "suppressed";
+  return (
+    resolveCodexFileChangeActivity({
+      status: entry.status,
+      fileChange: entry.fileChange,
+      hasToolError: Boolean(entry.toolCall?.error),
+    }).visibility !== "suppressed"
+  );
 }
 
 function getRecord(value: unknown): Record<string, unknown> | null {
@@ -145,7 +157,9 @@ function formatSubagentActivityStatusSummary(
   return `${displayName} started working`;
 }
 
-function resolveSubagentActivityStatusLabel(rows: readonly ThreadSubagentActivityInlineRowModel[]): string {
+function resolveSubagentActivityStatusLabel(
+  rows: readonly ThreadSubagentActivityInlineRowModel[],
+): string {
   if (rows.some((row) => row.activityStatus === "interrupted")) return "interrupted";
   if (rows.some((row) => row.activityStatus === "updated")) return "updated";
   if (rows.length > 0 && rows.every((row) => row.activityStatus === "done")) return "finished";
@@ -190,18 +204,22 @@ function resolveSubagentActivityRows(input: {
     const hasLaterActivity = input.laterActivityItems.some(
       (laterActivity) => laterActivity.agentThreadId === activity.agentThreadId,
     );
-    const belongsToTurn = backgroundAgent !== undefined
-      && backgroundAgent.parentTurnKey === input.turnKey;
+    const belongsToTurn =
+      backgroundAgent !== undefined && backgroundAgent.parentTurnKey === input.turnKey;
     const isFinalForTurn = belongsToTurn && !hasLaterActivity;
     const rawActivityStatus = normalizeSubagentActivityStatus(activity.displayStatus);
-    const status: ThreadOpenSubagentStatus = backgroundAgent === undefined
-      ? activity.displayStatus === "interrupted" ? "done" : "active"
-      : belongsToTurn ? backgroundAgent.status : "done";
-    const activityStatus = activity.displayStatus !== "interrupted"
-      && status === "done"
-      && isFinalForTurn
-      ? "done"
-      : rawActivityStatus;
+    const status: ThreadOpenSubagentStatus =
+      backgroundAgent === undefined
+        ? activity.displayStatus === "interrupted"
+          ? "done"
+          : "active"
+        : belongsToTurn
+          ? backgroundAgent.status
+          : "done";
+    const activityStatus =
+      activity.displayStatus !== "interrupted" && status === "done" && isFinalForTurn
+        ? "done"
+        : rawActivityStatus;
     const displayName = activity.displayName ?? "Agent";
     const fallbackStatusSummary = formatSubagentActivityStatusSummary(
       displayName,
@@ -216,7 +234,7 @@ function resolveSubagentActivityRows(input: {
       status,
       activityStatus,
       statusSummary: belongsToTurn
-        ? backgroundAgent?.statusSummary ?? fallbackStatusSummary
+        ? (backgroundAgent?.statusSummary ?? fallbackStatusSummary)
         : fallbackStatusSummary,
       diffStats: backgroundAgent?.diffStats ?? null,
     };
@@ -327,7 +345,9 @@ function resolveSemanticRendererType(entry: CodexConversationItem): RendererTran
   }
 }
 
-function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBlockModel["type"] | null {
+function resolveRendererType(
+  entry: CodexConversationItem,
+): ThreadTranscriptBlockModel["type"] | null {
   const protocolType = getProtocolThreadItemType(entry);
 
   if (entry.kind === "fileChange" || protocolType === "fileChange") {
@@ -347,8 +367,8 @@ function resolveRendererType(entry: CodexConversationItem): ThreadTranscriptBloc
   }
 
   if (
-    (entry.semanticKind === "reasoning" || protocolType === "reasoning")
-    && (entry.markdownText?.trim().length ?? 0) === 0
+    (entry.semanticKind === "reasoning" || protocolType === "reasoning") &&
+    (entry.markdownText?.trim().length ?? 0) === 0
   ) {
     return null;
   }
@@ -382,7 +402,9 @@ function buildTranscriptBlock(
         row.displayName,
         row.statusSummary ?? "",
         resolveSubagentActivityStatusLabel([row]),
-      ].filter((segment) => segment.trim().length > 0).join("\n"),
+      ]
+        .filter((segment) => segment.trim().length > 0)
+        .join("\n"),
       type,
       entry,
       status: entry.status,
@@ -431,22 +453,25 @@ function resolveRequestSearchableText(request: CodexTurnScopedConversationReques
   }
 
   if (request.type === "userInput") {
-    return request.questions.map((question) => question.question).join("\n").trim();
+    return request.questions
+      .map((question) => question.question)
+      .join("\n")
+      .trim();
   }
 
   if (request.type === "permissionRequest") {
-    return [
-      request.reason ?? "",
-      request.cwd,
-      JSON.stringify(request.permissions),
-    ].join("\n").trim();
+    return [request.reason ?? "", request.cwd, JSON.stringify(request.permissions)]
+      .join("\n")
+      .trim();
   }
 
   if (request.type === "optionPicker") {
     return [
       request.question,
       ...request.options.flatMap((option) => [option.label, option.description ?? ""]),
-    ].join("\n").trim();
+    ]
+      .join("\n")
+      .trim();
   }
 
   if (request.type === "setupCodexStep") {
@@ -458,13 +483,17 @@ function resolveRequestSearchableText(request: CodexTurnScopedConversationReques
       request.preview.summary,
       ...request.preview.details.map((detail) => `${detail.label} ${detail.value}`),
       request.preview.markdownPreview ?? request.preview.nfmPreview ?? "",
-    ].join("\n").trim();
+    ]
+      .join("\n")
+      .trim();
   }
 
   return request.planContent.trim();
 }
 
-function buildPendingRequestBlock(request: CodexTurnScopedConversationRequest): ThreadPendingTurnRequestModel {
+function buildPendingRequestBlock(
+  request: CodexTurnScopedConversationRequest,
+): ThreadPendingTurnRequestModel {
   return {
     id: buildCodexCanonicalRequestIdentityKey(request.requestId),
     turnId: request.turnId,
@@ -493,9 +522,9 @@ function resolveSubagentActivityGroups(
 
     const previousGroup = groupedBlocks.at(-1);
     if (
-      previousEntryWasSubagentActivity
-      && previousGroup !== undefined
-      && "activityItems" in previousGroup
+      previousEntryWasSubagentActivity &&
+      previousGroup !== undefined &&
+      "activityItems" in previousGroup
     ) {
       previousGroup.activityItems.push(subagentActivity);
       previousGroup.block = {
@@ -532,10 +561,10 @@ function resolveSubagentActivityGroups(
 
     return {
       ...groupedBlock.block,
-      searchableText: rows.flatMap((row) => [
-        row.displayName,
-        row.statusSummary ?? "",
-      ]).filter(Boolean).join("\n"),
+      searchableText: rows
+        .flatMap((row) => [row.displayName, row.statusSummary ?? ""])
+        .filter(Boolean)
+        .join("\n"),
       subagentActivityRows: rows,
       subagentActivityStatusLabel: resolveSubagentActivityStatusLabel(rows),
     };
@@ -546,14 +575,13 @@ function resolveTurnSubagentActivityState(
   blocks: readonly ThreadTranscriptBlockModel[],
   input: Pick<BuildRendererItemStreamInput, "backgroundAgents" | "turnKey">,
 ): ThreadTurnSubagentActivityState {
-  const anchoredGroups = blocks.filter(
-    (block) => block.type === "subagentActivityInlineGroup",
-  );
-  const rows = anchoredGroups.length > 0
-    ? anchoredGroups.flatMap((group) => group.subagentActivityRows ?? [])
-    : (input.backgroundAgents ?? []).filter(
-        (agent) => agent.showInlineActivity && agent.parentTurnKey === input.turnKey,
-      );
+  const anchoredGroups = blocks.filter((block) => block.type === "subagentActivityInlineGroup");
+  const rows =
+    anchoredGroups.length > 0
+      ? anchoredGroups.flatMap((group) => group.subagentActivityRows ?? [])
+      : (input.backgroundAgents ?? []).filter(
+          (agent) => agent.showInlineActivity && agent.parentTurnKey === input.turnKey,
+        );
 
   return {
     hasActivity: rows.length > 0,
@@ -568,15 +596,11 @@ export function buildRendererItemStreamProjection(
     const block = buildTranscriptBlock(entry, input.turnStatus);
     return {
       block,
-      subagentActivity: block?.type === "subagentActivityInlineGroup"
-        ? entry.subagentActivity ?? null
-        : null,
+      subagentActivity:
+        block?.type === "subagentActivityInlineGroup" ? (entry.subagentActivity ?? null) : null,
     };
   });
-  const transcriptBlocks = resolveSubagentActivityGroups(
-    projectedTranscriptEntries,
-    input,
-  );
+  const transcriptBlocks = resolveSubagentActivityGroups(projectedTranscriptEntries, input);
   const requestBlocks = input.requests.map((request) => buildPendingRequestBlock(request));
 
   return {

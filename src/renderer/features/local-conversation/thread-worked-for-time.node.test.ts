@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  formatWorkedForTimeLabel,
-  resolveWorkedForLabelText,
-} from "./thread-worked-for-time";
+import { formatWorkedForTimeLabel, resolveWorkedForLabelText } from "./thread-worked-for-time";
 
 describe("thread worked-for time helpers", () => {
   test("formats Codex-style compact durations", () => {
@@ -18,49 +15,59 @@ describe("thread worked-for time helpers", () => {
   });
 
   test("renders working, worked-for, and duration fallback labels", () => {
-    expect(resolveWorkedForLabelText({
-      timing: {
-        status: "working",
-        startedAtMs: 10_000,
-        completedAtMs: null,
-      },
-      durationMs: null,
-      nowMs: 10_500,
-    })).toBe("Working");
+    expect(
+      resolveWorkedForLabelText({
+        timing: {
+          status: "working",
+          startedAtMs: 10_000,
+          completedAtMs: null,
+        },
+        durationMs: null,
+        nowMs: 10_500,
+      }),
+    ).toBe("Working");
 
-    expect(resolveWorkedForLabelText({
-      timing: {
-        status: "working",
-        startedAtMs: 10_000,
-        completedAtMs: null,
-      },
-      durationMs: null,
-      nowMs: 75_000,
-    })).toBe("Working for 1m 5s");
+    expect(
+      resolveWorkedForLabelText({
+        timing: {
+          status: "working",
+          startedAtMs: 10_000,
+          completedAtMs: null,
+        },
+        durationMs: null,
+        nowMs: 75_000,
+      }),
+    ).toBe("Working for 1m 5s");
 
-    expect(resolveWorkedForLabelText({
-      timing: null,
-      durationMs: 125_000,
-    })).toBe("Worked for 2m 5s");
+    expect(
+      resolveWorkedForLabelText({
+        timing: null,
+        durationMs: 125_000,
+      }),
+    ).toBe("Worked for 2m 5s");
 
-    expect(resolveWorkedForLabelText({
-      timing: {
-        status: "worked",
-        startedAtMs: 10_000,
-        completedAtMs: 15_000,
-      },
-      durationMs: null,
-      nowMs: 20_000,
-    })).toBe("Worked for 5s");
+    expect(
+      resolveWorkedForLabelText({
+        timing: {
+          status: "worked",
+          startedAtMs: 10_000,
+          completedAtMs: 15_000,
+        },
+        durationMs: null,
+        nowMs: 20_000,
+      }),
+    ).toBe("Worked for 5s");
 
-    expect(resolveWorkedForLabelText({
-      timing: {
-        status: "worked",
-        startedAtMs: 10_000,
-        completedAtMs: 10_500,
-      },
-      durationMs: null,
-      nowMs: 20_000,
-    })).toBe("Worked for 0s");
+    expect(
+      resolveWorkedForLabelText({
+        timing: {
+          status: "worked",
+          startedAtMs: 10_000,
+          completedAtMs: 10_500,
+        },
+        durationMs: null,
+        nowMs: 20_000,
+      }),
+    ).toBe("Worked for 0s");
   });
 });

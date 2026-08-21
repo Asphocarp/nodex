@@ -75,9 +75,11 @@ export function findAgentModel(
   catalog: AgentProviderCatalog | null | undefined,
   profile: Pick<AgentExecutionProfile, "providerId" | "modelId">,
 ): AgentModelOption | null {
-  return findAgentProvider(catalog, profile.providerId)?.models.find((model) => (
-    !model.hidden && model.modelId === profile.modelId
-  )) ?? null;
+  return (
+    findAgentProvider(catalog, profile.providerId)?.models.find(
+      (model) => !model.hidden && model.modelId === profile.modelId,
+    ) ?? null
+  );
 }
 
 function resolveReasoningEffort(
@@ -97,9 +99,10 @@ function resolveServiceTier(
   requested: string | null | undefined,
 ): string | null {
   const resolveOption = (value: string | null | undefined) => {
-    const exactOption = value === undefined
-      ? null
-      : model.supportedServiceTiers.find((option) => option.value === value);
+    const exactOption =
+      value === undefined
+        ? null
+        : model.supportedServiceTiers.find((option) => option.value === value);
     if (exactOption) return exactOption;
     if (value?.trim().toLocaleLowerCase() !== "fast") return null;
     return model.supportedServiceTiers.find(isFastAgentServiceTierOption) ?? null;
@@ -128,16 +131,20 @@ export function buildAgentExecutionProfile(input: {
 }
 
 function defaultProvider(catalog: AgentProviderCatalog): AgentProviderOption | null {
-  return catalog.providers.find((provider) => provider.isDefault)
-    ?? catalog.providers.find((provider) => provider.id === "openai")
-    ?? catalog.providers[0]
-    ?? null;
+  return (
+    catalog.providers.find((provider) => provider.isDefault) ??
+    catalog.providers.find((provider) => provider.id === "openai") ??
+    catalog.providers[0] ??
+    null
+  );
 }
 
 function defaultModel(provider: AgentProviderOption): AgentModelOption | null {
-  return provider.models.find((model) => !model.hidden && model.isDefault)
-    ?? provider.models.find((model) => !model.hidden)
-    ?? null;
+  return (
+    provider.models.find((model) => !model.hidden && model.isDefault) ??
+    provider.models.find((model) => !model.hidden) ??
+    null
+  );
 }
 
 export function resolveAgentExecutionProfile(input: {
@@ -156,18 +163,18 @@ export function resolveAgentExecutionProfile(input: {
       return buildAgentExecutionProfile({
         model: storedModel,
         reasoningEffort: input.storedProfile.reasoningEffort,
-        serviceTier: input.serviceTier === undefined
-          ? input.storedProfile.serviceTier
-          : input.serviceTier,
+        serviceTier:
+          input.serviceTier === undefined ? input.storedProfile.serviceTier : input.serviceTier,
       });
     }
   }
 
   const provider = defaultProvider(catalog);
   if (!provider) return null;
-  const legacyModel = provider.id === "openai" && input.legacyModelId
-    ? provider.models.find((model) => !model.hidden && model.modelId === input.legacyModelId)
-    : null;
+  const legacyModel =
+    provider.id === "openai" && input.legacyModelId
+      ? provider.models.find((model) => !model.hidden && model.modelId === input.legacyModelId)
+      : null;
   const model = legacyModel ?? defaultModel(provider);
   if (!model) return null;
 
@@ -224,8 +231,8 @@ export function resolveEffectiveAgentExecutionProfile(input: {
 
   const catalog = input.catalog;
   if (!catalog) return null;
-  const providerId = input.threadProfile?.providerId
-    ?? normalizeProfileValue(input.threadModelProvider);
+  const providerId =
+    input.threadProfile?.providerId ?? normalizeProfileValue(input.threadModelProvider);
   if (!providerId) return null;
   const provider = findAgentProvider(catalog, providerId);
   if (!provider) return null;
@@ -243,12 +250,11 @@ export function resolveEffectiveAgentExecutionProfile(input: {
 
   const base = buildAgentExecutionProfile({
     model,
-    reasoningEffort: input.liveReasoningEffort
-      ?? input.threadProfile?.reasoningEffort
-      ?? null,
-    serviceTier: input.liveServiceTier === undefined
-      ? input.threadProfile?.serviceTier
-      : input.liveServiceTier,
+    reasoningEffort: input.liveReasoningEffort ?? input.threadProfile?.reasoningEffort ?? null,
+    serviceTier:
+      input.liveServiceTier === undefined
+        ? input.threadProfile?.serviceTier
+        : input.liveServiceTier,
   });
   return {
     ...base,
@@ -270,7 +276,9 @@ export function selectAgentReasoningEffort(
 }
 
 export function isAgentProviderCredentialReady(provider: AgentProviderOption): boolean {
-  return provider.credentialStatus === "ready"
-    || provider.credentialStatus === "inherited"
-    || provider.credentialStatus === "runtimeManaged";
+  return (
+    provider.credentialStatus === "ready" ||
+    provider.credentialStatus === "inherited" ||
+    provider.credentialStatus === "runtimeManaged"
+  );
 }

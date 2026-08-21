@@ -52,19 +52,17 @@ describe("Document operation renderer IPC", () => {
     let capturedChannel = "";
     let capturedDocumentId = "";
     const bridge = {
-      invoke: async (
-        channel: string,
-        _projectId: string,
-        documentId: string,
-      ) => {
+      invoke: async (channel: string, _projectId: string, documentId: string) => {
         capturedChannel = channel;
         capturedDocumentId = documentId;
         return result;
       },
     } as unknown as ElectronRendererBridge;
-    const response = await createElectronRendererTransport(
-      bridge,
-    ).mutateDocument("project-1", "document-1", request);
+    const response = await createElectronRendererTransport(bridge).mutateDocument(
+      "project-1",
+      "document-1",
+      request,
+    );
 
     expect(response.ok).toBe(true);
     expect(capturedChannel).toBe("block-documents:mutate");

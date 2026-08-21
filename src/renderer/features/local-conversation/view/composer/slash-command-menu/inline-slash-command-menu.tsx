@@ -37,10 +37,7 @@ export function InlineSlashCommandMenu({
   if (!open) return null;
 
   return (
-    <ComposerSuggestionSurface
-      kind="slash-command"
-      isHomeMenu={isHomeMenu}
-    >
+    <ComposerSuggestionSurface kind="slash-command" isHomeMenu={isHomeMenu}>
       {nestedCommand?.Content ? (
         <div className="flex min-h-0 flex-col">
           <div className="flex h-[30px] shrink-0 items-center gap-2 rounded-lg px-row-x py-row-y text-sm">

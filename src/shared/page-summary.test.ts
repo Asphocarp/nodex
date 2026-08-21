@@ -9,18 +9,20 @@ describe("Card summary rich-title projection", () => {
       { type: "text" as const, text: "title", styles: { bold: true as const } },
     ];
 
-    expect(toDatabasePageSummary({
-      id: "card-1",
-      pageKey: "LAB-13",
-      status: "triage",
-      archived: false,
-      title: "Rich title",
-      richTitle,
-      description: "Body",
-      tags: [],
-      created: new Date("2026-01-01T00:00:00.000Z"),
-      order: 0,
-    })).toMatchObject({
+    expect(
+      toDatabasePageSummary({
+        id: "card-1",
+        pageKey: "LAB-13",
+        status: "triage",
+        archived: false,
+        title: "Rich title",
+        richTitle,
+        description: "Body",
+        tags: [],
+        created: new Date("2026-01-01T00:00:00.000Z"),
+        order: 0,
+      }),
+    ).toMatchObject({
       pageKey: "LAB-13",
       title: "Rich title",
       richTitle,

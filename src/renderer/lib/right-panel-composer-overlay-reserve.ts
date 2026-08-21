@@ -1,12 +1,9 @@
-export const RIGHT_PANEL_COMPOSER_OVERLAY_HEIGHT_VAR =
-  "--right-panel-composer-overlay-height";
-export const RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_VAR =
-  "--right-panel-composer-overlay-reserve";
+export const RIGHT_PANEL_COMPOSER_OVERLAY_HEIGHT_VAR = "--right-panel-composer-overlay-height";
+export const RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_VAR = "--right-panel-composer-overlay-reserve";
 
 export const RIGHT_PANEL_COMPOSER_OVERLAY_HEIGHT_PX = 102;
 export const RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_PX = 118;
-export const RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE =
-  `var(${RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_VAR}, 0px)`;
+export const RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE = `var(${RIGHT_PANEL_COMPOSER_OVERLAY_RESERVE_VAR}, 0px)`;
 
 export const RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE = {
   paddingBottom: RIGHT_PANEL_COMPOSER_OVERLAY_ZERO_RESERVE_VALUE,

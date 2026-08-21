@@ -61,9 +61,7 @@ describe("Page lifecycle renderer IPC", () => {
     const bridge = {
       invoke: async (channel: string, ...args: unknown[]) => {
         calls.push({ channel, args });
-        return channel === "pages:lifecycle:preflight"
-          ? preflightResult
-          : mutationResult;
+        return channel === "pages:lifecycle:preflight" ? preflightResult : mutationResult;
       },
     } as unknown as ElectronRendererBridge;
     const electron = createElectronRendererTransport(bridge);
@@ -71,9 +69,9 @@ describe("Page lifecycle renderer IPC", () => {
     await expect(
       electron.readPageLifecyclePreflight(request.projectId, "card/one"),
     ).resolves.toEqual(preflightResult);
-    await expect(
-      electron.mutatePageLifecycle(request.projectId, request),
-    ).resolves.toEqual(mutationResult);
+    await expect(electron.mutatePageLifecycle(request.projectId, request)).resolves.toEqual(
+      mutationResult,
+    );
     expect(calls[0]).toEqual({
       channel: "pages:lifecycle:preflight",
       args: [request.projectId, "card/one"],

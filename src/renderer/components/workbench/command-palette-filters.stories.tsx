@@ -25,7 +25,12 @@ function CommandPaletteFiltersStory() {
       <div className="mx-auto flex max-w-5xl flex-col gap-4 rounded-[20px] border border-token-border bg-token-main-surface-secondary p-5">
         <CommandPalettePageFiltersSummaryRow
           filters={filters}
-          projectNameById={new Map([["default", "Nodex"], ["bundle", "Codex bundle"]])}
+          projectNameById={
+            new Map([
+              ["default", "Nodex"],
+              ["bundle", "Codex bundle"],
+            ])
+          }
           onOpenFilter={() => setOpen(true)}
         />
         <CommandPalettePageFilterPopover

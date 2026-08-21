@@ -14,9 +14,7 @@ import {
 } from "react";
 import * as Y from "yjs";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import {
-  PAGE_DOCUMENT_SCHEMA_VERSION,
-} from "../../../../shared/block-documents/page-document";
+import { PAGE_DOCUMENT_SCHEMA_VERSION } from "../../../../shared/block-documents/page-document";
 import { WorkbenchLayoutSnapshotSchema } from "../../../../shared/schemas/workbench-layout";
 import type {
   CodexAutomationInboxItem,
@@ -39,10 +37,7 @@ import type {
   WorkbenchTabUpdateInput,
   WorktreeEnvironmentOption,
 } from "@/lib/types";
-import type {
-  PageSearchMetadataSnapshot,
-  PageSearchSnapshot,
-} from "../../../../shared/types";
+import type { PageSearchMetadataSnapshot, PageSearchSnapshot } from "../../../../shared/types";
 import type { LibraryNavigationNode } from "../../../../shared/library-module";
 import type { WorkbenchLayoutSnapshot } from "../../../../shared/workbench-layout";
 import {
@@ -62,9 +57,7 @@ import {
   sortProjectSessionsForTest,
   updateSessionTab,
 } from "./workbench-shell-fixtures";
-import type {
-  ProjectSession,
-} from "./workbench-shell-fixtures";
+import type { ProjectSession } from "./workbench-shell-fixtures";
 import { resetDatabaseRowDetailStoreForTests } from "@/lib/database-row-detail-store";
 import { resetPageDetailStoreForTests } from "@/lib/page-detail-store";
 import { resetDatabaseViewPresentationPreferencesForTests } from "@/lib/database-view-presentation-preferences";
@@ -77,17 +70,12 @@ import type {
   SidebarCollapsibleSectionId,
   SidebarCollapsibleSectionsState,
 } from "@/lib/use-workbench-profile-preferences";
-import {
-  render,
-  settleAsyncRender,
-} from "../../../test/dom";
+import { render, settleAsyncRender } from "../../../test/dom";
 import { TestQueryProvider } from "../../../test/query";
 import { RendererStateProvider } from "../../../app-providers";
 import { NodexModalHost } from "@/lib/modal-registry";
 import { AppShellHeaderContentRegistrar } from "@/lib/workbench-ui-scopes";
-import {
-  __resetNodexToastStoreForTests,
-} from "@/components/ui/toast";
+import { __resetNodexToastStoreForTests } from "@/components/ui/toast";
 import {
   buildCommandPaletteCommands,
   executeCommandPaletteShellCommand,
@@ -121,19 +109,16 @@ import {
   removeWorkbenchPanelTab,
   listWorkbenchPanelLeaves,
 } from "../../../../shared/workbench-panel-layout";
-import {
-  type WorkbenchSessionViewSnapshot,
-} from "../../../../shared/workbench-session-view";
-import {
-  projectWorkbenchSceneToLegacySessionView,
-} from "../../../../shared/workbench-scene";
+import { type WorkbenchSessionViewSnapshot } from "../../../../shared/workbench-session-view";
+import { projectWorkbenchSceneToLegacySessionView } from "../../../../shared/workbench-scene";
 import {
   PageTitleProjectionPublisher,
   type PageTitleResourceIdentity,
 } from "@/lib/page-title-projection-context";
 
 export let invokeCalls: unknown[][] = [];
-export let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null = null;
+export let mockInvokeImpl: ((channel: string, ...args: unknown[]) => Promise<unknown>) | null =
+  null;
 export let startThreadForSessionCalls: unknown[] = [];
 export let startThreadForSessionResult: CodexThreadStartForSessionResult = {
   kind: "started",
@@ -160,7 +145,9 @@ export let sideChatConversationProjectId: string | null = "alpha";
 export let mockThreadStartProgress: unknown = null;
 export let mockConversationHasVisibleTurn = true;
 export let codexHostMessageListener: ((message: CodexHostMessage) => void) | null = null;
-export let pendingWorktreeWarningListener: ((event: CodexPendingWorktreeWarningEvent) => void) | null = null;
+export let pendingWorktreeWarningListener:
+  | ((event: CodexPendingWorktreeWarningEvent) => void)
+  | null = null;
 export const PANEL_VISIBLE_ICON_PREFIX = "M16.835 8.66301";
 export const BOTTOM_PANEL_HIDDEN_ICON_PREFIX = "M13.334 12.2529";
 export const EXPAND_PANEL_ICON_PREFIX = "M16.0299 3.0293";
@@ -194,7 +181,8 @@ export const mockCodexControl = {
       source: {
         parentThreadId: "thread-alpha",
         sideConversation: true,
-        sideConversationParentNavigationPath: "project:alpha/session:session:alpha:database-view/thread:thread-alpha",
+        sideConversationParentNavigationPath:
+          "project:alpha/session:session:alpha:database-view/thread:thread-alpha",
       },
       threadName: null,
       threadPreview: "",
@@ -298,15 +286,17 @@ export const mockCodexControl = {
   listBackgroundTerminals: async (threadId: string) => {
     listBackgroundTerminalsCalls.push(threadId);
     if (threadId !== "thread-alpha") return [];
-    return [{
-      itemId: "item-process",
-      processId: "process-alpha",
-      command: "bun run dev",
-      cwd: "/Users/asc/repo/nodex",
-      osPid: 4312,
-      cpuPercent: 12.5,
-      rssKb: 1536n,
-    }];
+    return [
+      {
+        itemId: "item-process",
+        processId: "process-alpha",
+        command: "bun run dev",
+        cwd: "/Users/asc/repo/nodex",
+        osPid: 4312,
+        cpuPercent: 12.5,
+        rssKb: 1536n,
+      },
+    ];
   },
   listBackgroundProcesses: async (threadId: string) => {
     listBackgroundProcessesCalls.push(threadId);
@@ -320,27 +310,33 @@ export const mockCodexControl = {
       cpuPercent: 12.5,
       rssKb: 1536n,
     };
-    return [{
-      id: "thread-alpha:item-process",
-      threadId,
-      threadTitle: "Thread alpha",
-      itemId: terminal.itemId,
-      turnId: "turn-process",
-      command: terminal.command,
-      cwd: terminal.cwd,
-      processId: terminal.processId,
-      osPid: terminal.osPid,
-      terminalSessionId: null,
-      source: "app-server",
-      startedAtMs: 1,
-      updatedAtMs: 2,
-      status: "running",
-      terminal,
-      terminalSession: null,
-    }];
+    return [
+      {
+        id: "thread-alpha:item-process",
+        threadId,
+        threadTitle: "Thread alpha",
+        itemId: terminal.itemId,
+        turnId: "turn-process",
+        command: terminal.command,
+        cwd: terminal.cwd,
+        processId: terminal.processId,
+        osPid: terminal.osPid,
+        terminalSessionId: null,
+        source: "app-server",
+        startedAtMs: 1,
+        updatedAtMs: 2,
+        status: "running",
+        terminal,
+        terminalSession: null,
+      },
+    ];
   },
   runBackgroundProcess: async () => [],
-  stopBackgroundProcess: async (input: { threadId: string; processId: string | null; terminalSessionId: string | null }) => {
+  stopBackgroundProcess: async (input: {
+    threadId: string;
+    processId: string | null;
+    terminalSessionId: string | null;
+  }) => {
     terminateBackgroundTerminalCalls.push(input);
     return true;
   },
@@ -370,8 +366,7 @@ const pageCreateWorkflowMocks = vi.hoisted(() => ({
   requestFromContext: vi.fn(() => true),
 }));
 
-export const requestPageCreateFromContextMock =
-  pageCreateWorkflowMocks.requestFromContext;
+export const requestPageCreateFromContextMock = pageCreateWorkflowMocks.requestFromContext;
 
 vi.mock("@/lib/page-create-workflow", () => ({
   requestPageCreateFromContext: pageCreateWorkflowMocks.requestFromContext,
@@ -386,13 +381,14 @@ vi.mock("@/features/workspace-files/workspace-pierre-editor", () => ({
     ariaLabel: string;
     value: string;
     onChange: (value: string) => void;
-  }) => createElement("textarea", {
-    "aria-label": ariaLabel,
-    value,
-    onChange: (event: { currentTarget: { value: string } }) => {
-      onChange(event.currentTarget.value);
-    },
-  }),
+  }) =>
+    createElement("textarea", {
+      "aria-label": ariaLabel,
+      value,
+      onChange: (event: { currentTarget: { value: string } }) => {
+        onChange(event.currentTarget.value);
+      },
+    }),
 }));
 
 vi.mock("@/lib/api", () => {
@@ -497,449 +493,445 @@ vi.mock("@/lib/api", () => {
     },
   };
   return {
-  getGitWorkerClient: () => gitWorkerClient,
-  invoke: async (channel: string, ...args: unknown[]) => {
-    invokeCalls.push([channel, ...args]);
-    return mockInvokeImpl?.(channel, ...args) ?? null;
-  },
-  searchPages: async (input: unknown) => {
-    const requestId = "test-page-search-request";
-    invokeCalls.push(["pages:search", requestId, input]);
-    return mockInvokeImpl?.("pages:search", requestId, input) ?? null;
-  },
-  readDatabaseViewWindow: async (projectId: string, input: unknown) => {
-    invokeCalls.push(["database:view-window:get", projectId, input]);
-    return mockInvokeImpl?.("database:view-window:get", projectId, input) ?? null;
-  },
-  readDatabaseListWindow: async (projectId: string, input: unknown) => {
-    invokeCalls.push(["database:list-window:get", projectId, input]);
-    const configured = await mockInvokeImpl?.(
-      "database:list-window:get",
-      projectId,
-      input,
-    );
-    if (configured !== undefined && configured !== null) return configured;
-    const viewWindow = await mockInvokeImpl?.(
-      "database:view-window:get",
-      projectId,
-      input,
-    ) as Readonly<Record<string, unknown>> | null | undefined;
-    if (!viewWindow) return null;
-    return {
-      projectId: viewWindow.projectId,
-      libraryId: viewWindow.libraryId,
-      databaseId: viewWindow.databaseId,
-      dataSourceId: viewWindow.dataSourceId,
-      viewId: viewWindow.viewId,
-      storeEpoch: viewWindow.storeEpoch,
-      commitSeq: viewWindow.commitSeq,
-      authorization: viewWindow.authorization,
-      projection: viewWindow.projection,
-      nextCursor: null,
-      rows: [],
-      groups: [],
-      totalProjectionRowCount: 0,
-      totalOccurrenceCount: 0,
-      totalModelCount: 0,
-      windowStart: 0,
-      windowEnd: 0,
-      isComplete: true,
-    };
-  },
-  readDatabaseViewGroups: async (projectId: string, input: unknown) => {
-    invokeCalls.push(["database:view-groups:get", projectId, input]);
-    // Ungrouped default keeps stores on the single flat-window path unless a
-    // test opts into per-group windows through mockInvokeImpl.
-    const mocked = await mockInvokeImpl?.(
-      "database:view-groups:get",
-      projectId,
-      input,
-    );
-    const viewId = projectId === "beta" ? "view:beta" : "view:alpha";
-    return mocked ?? {
-      projectId,
-      libraryId: "library:test",
-      databaseId: "database:test:primary",
-      dataSourceId: projectId === "beta" ? "data-source:beta" : "data-source:alpha",
-      viewId,
-      storeEpoch: "epoch:test",
-      commitSeq: 1,
-      authorization: authorizedReadStampFixture({
-        deliveryAddress: {
-          kind: "project",
-          library_id: "library:test",
-          project_id: projectId,
-        },
-        subject: { kind: "view", view_id: viewId },
-        storeEpoch: "epoch:test",
-        commitSeq: 1,
-      }),
-      projection: {
-        scopeKey: `scope:${viewId}`,
-        schemaVersion: 1,
-        revision: 1,
-        coveredCommitSeq: 1,
-        effectHash: "f".repeat(64),
-      },
-      grouped: false,
-      subgrouped: false,
-      totalRows: 0,
-      totalGroups: 0,
-      groupLimit: 200,
-      truncated: false,
-      groups: [],
-    };
-  },
-  readLibraryDatabaseViewWindow: async (input: unknown) => {
-    invokeCalls.push(["library-database:view-window:get", input]);
-    return mockInvokeImpl?.("library-database:view-window:get", input) ?? null;
-  },
-  readLibraryDatabaseListWindow: async (input: unknown) => {
-    invokeCalls.push(["library-database:list-window:get", input]);
-    return mockInvokeImpl?.("library-database:list-window:get", input) ?? null;
-  },
-  readLibraryDatabaseViewGroups: async (input: unknown) => {
-    invokeCalls.push(["library-database:view-groups:get", input]);
-    return mockInvokeImpl?.("library-database:view-groups:get", input) ?? null;
-  },
-  readPageDetail: async (projectId: string, pageId: string) => {
-    invokeCalls.push(["pages:detail:get", projectId, pageId]);
-    return mockInvokeImpl?.("pages:detail:get", projectId, pageId) ?? null;
-  },
-  applyDatabaseModule: async (projectId: string, request: unknown) => {
-    invokeCalls.push(["database-module:apply", projectId, request]);
-    const configured = await mockInvokeImpl?.(
-      "database-module:apply",
-      projectId,
-      request,
-    );
-    if (configured !== undefined && configured !== null) return configured;
-    const personalPresentationOperations = (
-      request as {
-        operations?: ReadonlyArray<{
-          kind?: string;
-          viewId?: string;
-          expectedRevision?: number;
-        }>;
+    getGitWorkerClient: () => gitWorkerClient,
+    invoke: async (channel: string, ...args: unknown[]) => {
+      invokeCalls.push([channel, ...args]);
+      return mockInvokeImpl?.(channel, ...args) ?? null;
+    },
+    searchPages: async (input: unknown) => {
+      const requestId = "test-page-search-request";
+      invokeCalls.push(["pages:search", requestId, input]);
+      return mockInvokeImpl?.("pages:search", requestId, input) ?? null;
+    },
+    readDatabaseViewWindow: async (projectId: string, input: unknown) => {
+      invokeCalls.push(["database:view-window:get", projectId, input]);
+      return mockInvokeImpl?.("database:view-window:get", projectId, input) ?? null;
+    },
+    readDatabaseListWindow: async (projectId: string, input: unknown) => {
+      invokeCalls.push(["database:list-window:get", projectId, input]);
+      const configured = await mockInvokeImpl?.("database:list-window:get", projectId, input);
+      if (configured !== undefined && configured !== null) return configured;
+      const viewWindow = (await mockInvokeImpl?.("database:view-window:get", projectId, input)) as
+        | Readonly<Record<string, unknown>>
+        | null
+        | undefined;
+      if (!viewWindow) return null;
+      return {
+        projectId: viewWindow.projectId,
+        libraryId: viewWindow.libraryId,
+        databaseId: viewWindow.databaseId,
+        dataSourceId: viewWindow.dataSourceId,
+        viewId: viewWindow.viewId,
+        storeEpoch: viewWindow.storeEpoch,
+        commitSeq: viewWindow.commitSeq,
+        authorization: viewWindow.authorization,
+        projection: viewWindow.projection,
+        nextCursor: null,
+        rows: [],
+        groups: [],
+        totalProjectionRowCount: 0,
+        totalOccurrenceCount: 0,
+        totalModelCount: 0,
+        windowStart: 0,
+        windowEnd: 0,
+        isComplete: true,
+      };
+    },
+    readDatabaseViewGroups: async (projectId: string, input: unknown) => {
+      invokeCalls.push(["database:view-groups:get", projectId, input]);
+      // Ungrouped default keeps stores on the single flat-window path unless a
+      // test opts into per-group windows through mockInvokeImpl.
+      const mocked = await mockInvokeImpl?.("database:view-groups:get", projectId, input);
+      const viewId = projectId === "beta" ? "view:beta" : "view:alpha";
+      return (
+        mocked ?? {
+          projectId,
+          libraryId: "library:test",
+          databaseId: "database:test:primary",
+          dataSourceId: projectId === "beta" ? "data-source:beta" : "data-source:alpha",
+          viewId,
+          storeEpoch: "epoch:test",
+          commitSeq: 1,
+          authorization: authorizedReadStampFixture({
+            deliveryAddress: {
+              kind: "project",
+              library_id: "library:test",
+              project_id: projectId,
+            },
+            subject: { kind: "view", view_id: viewId },
+            storeEpoch: "epoch:test",
+            commitSeq: 1,
+          }),
+          projection: {
+            scopeKey: `scope:${viewId}`,
+            schemaVersion: 1,
+            revision: 1,
+            coveredCommitSeq: 1,
+            effectHash: "f".repeat(64),
+          },
+          grouped: false,
+          subgrouped: false,
+          totalRows: 0,
+          totalGroups: 0,
+          groupLimit: 200,
+          truncated: false,
+          groups: [],
+        }
+      );
+    },
+    readLibraryDatabaseViewWindow: async (input: unknown) => {
+      invokeCalls.push(["library-database:view-window:get", input]);
+      return mockInvokeImpl?.("library-database:view-window:get", input) ?? null;
+    },
+    readLibraryDatabaseListWindow: async (input: unknown) => {
+      invokeCalls.push(["library-database:list-window:get", input]);
+      return mockInvokeImpl?.("library-database:list-window:get", input) ?? null;
+    },
+    readLibraryDatabaseViewGroups: async (input: unknown) => {
+      invokeCalls.push(["library-database:view-groups:get", input]);
+      return mockInvokeImpl?.("library-database:view-groups:get", input) ?? null;
+    },
+    readPageDetail: async (projectId: string, pageId: string) => {
+      invokeCalls.push(["pages:detail:get", projectId, pageId]);
+      return mockInvokeImpl?.("pages:detail:get", projectId, pageId) ?? null;
+    },
+    applyDatabaseModule: async (projectId: string, request: unknown) => {
+      invokeCalls.push(["database-module:apply", projectId, request]);
+      const configured = await mockInvokeImpl?.("database-module:apply", projectId, request);
+      if (configured !== undefined && configured !== null) return configured;
+      const personalPresentationOperations =
+        (
+          request as {
+            operations?: ReadonlyArray<{
+              kind?: string;
+              viewId?: string;
+              expectedRevision?: number;
+            }>;
+          }
+        ).operations ?? [];
+      if (
+        personalPresentationOperations.length > 0 &&
+        personalPresentationOperations.every(
+          (operation) => operation.kind === "put_view_personal_presentation",
+        )
+      ) {
+        return {
+          ok: true,
+          value: {
+            committedRevisions: Object.fromEntries(
+              personalPresentationOperations.map((operation) => [
+                `view_presentation:profile:test:${String(operation.viewId ?? "")}`,
+                (operation.expectedRevision ?? 0) + 1,
+              ]),
+            ),
+            commitSeq: 2,
+          },
+          localCommit: { status: "applied" },
+        };
       }
-    ).operations ?? [];
-    if (
-      personalPresentationOperations.length > 0
-      && personalPresentationOperations.every((operation) =>
-        operation.kind === "put_view_personal_presentation"
-      )
-    ) {
+      return {
+        ok: false,
+        error: {
+          code: "unknown",
+          message: "Not configured in this test.",
+          retryable: false,
+        },
+      };
+    },
+    applyLibraryDatabaseModule: async (request: unknown) => {
+      invokeCalls.push(["library-database-module:apply", request]);
+      return (
+        mockInvokeImpl?.("library-database-module:apply", request) ?? {
+          ok: false,
+          error: {
+            code: "unknown",
+            message: "Not configured in this test.",
+            retryable: false,
+          },
+        }
+      );
+    },
+    mutateBlockProperties: async (projectId: string, request: unknown) => {
+      invokeCalls.push(["block-properties:mutate", projectId, request]);
+      return (
+        mockInvokeImpl?.("block-properties:mutate", projectId, request) ?? {
+          ok: false,
+          error: {
+            code: "unknown",
+            message: "Not configured in this test.",
+            retryable: false,
+          },
+        }
+      );
+    },
+    resolvePageTarget: async (input: {
+      accessContext: { kind: "library" } | { kind: "project"; projectId: string };
+      targetPageId: string;
+    }) => {
+      invokeCalls.push(["page-target:resolve", input]);
+      return (
+        mockInvokeImpl?.("page-target:resolve", input) ?? {
+          status: "missing",
+          targetPageId: input.targetPageId,
+        }
+      );
+    },
+    resolvePageOwnershipPath: async (input: {
+      accessContext: { kind: "library" } | { kind: "project"; projectId: string };
+      targetPageId: string;
+    }) => {
+      invokeCalls.push(["page-ownership-path:resolve", input]);
+      return (
+        mockInvokeImpl?.("page-ownership-path:resolve", input) ?? {
+          status: "available",
+          targetPageId: input.targetPageId,
+          ancestors: [],
+        }
+      );
+    },
+    subscribeBoardChanges: () => () => undefined,
+    subscribeDatabaseChanges: () => () => undefined,
+    subscribeLibraryChanges: () => () => undefined,
+    readLibraryModule: async (accessContext: unknown, request: unknown) => {
+      invokeCalls.push(["library-module:read", accessContext, request]);
+      const configured = await mockInvokeImpl?.("library-module:read", accessContext, request);
+      if (configured !== undefined && configured !== null) return configured;
+      const mode = (request as { readonly read?: { readonly mode?: string } }).read?.mode;
+      const value =
+        mode === "metadata"
+          ? { kind: "metadata" as const }
+          : mode === "standalone_roots"
+            ? {
+                kind: "standalone_roots" as const,
+                items: [],
+                nextCursor: null,
+                hasMore: false,
+                total: 0,
+              }
+            : {
+                kind: "children" as const,
+                parent: { kind: "library" as const },
+                items: [],
+                nextCursor: null,
+                hasMore: false,
+                total: 0,
+              };
       return {
         ok: true,
         value: {
-          committedRevisions: Object.fromEntries(personalPresentationOperations.map((operation) => [
-            `view_presentation:profile:test:${String(operation.viewId ?? "")}`,
-            (operation.expectedRevision ?? 0) + 1,
-          ])),
-          commitSeq: 2,
-        },
-        localCommit: { status: "applied" },
-      };
-    }
-    return {
-      ok: false,
-      error: {
-        code: "unknown",
-        message: "Not configured in this test.",
-        retryable: false,
-      },
-    };
-  },
-  applyLibraryDatabaseModule: async (request: unknown) => {
-    invokeCalls.push(["library-database-module:apply", request]);
-    return mockInvokeImpl?.("library-database-module:apply", request) ?? {
-      ok: false,
-      error: {
-        code: "unknown",
-        message: "Not configured in this test.",
-        retryable: false,
-      },
-    };
-  },
-  mutateBlockProperties: async (projectId: string, request: unknown) => {
-    invokeCalls.push(["block-properties:mutate", projectId, request]);
-    return mockInvokeImpl?.("block-properties:mutate", projectId, request) ?? {
-      ok: false,
-      error: {
-        code: "unknown",
-        message: "Not configured in this test.",
-        retryable: false,
-      },
-    };
-  },
-  resolvePageTarget: async (input: {
-    accessContext: { kind: "library" } | { kind: "project"; projectId: string };
-    targetPageId: string;
-  }) => {
-    invokeCalls.push(["page-target:resolve", input]);
-    return mockInvokeImpl?.("page-target:resolve", input) ?? {
-      status: "missing",
-      targetPageId: input.targetPageId,
-    };
-  },
-  resolvePageOwnershipPath: async (input: {
-    accessContext: { kind: "library" } | { kind: "project"; projectId: string };
-    targetPageId: string;
-  }) => {
-    invokeCalls.push(["page-ownership-path:resolve", input]);
-    return mockInvokeImpl?.("page-ownership-path:resolve", input) ?? {
-      status: "available",
-      targetPageId: input.targetPageId,
-      ancestors: [],
-    };
-  },
-  subscribeBoardChanges: () => () => undefined,
-  subscribeDatabaseChanges: () => () => undefined,
-  subscribeLibraryChanges: () => () => undefined,
-  readLibraryModule: async (accessContext: unknown, request: unknown) => {
-    invokeCalls.push(["library-module:read", accessContext, request]);
-    const configured = await mockInvokeImpl?.(
-      "library-module:read",
-      accessContext,
-      request,
-    );
-    if (configured !== undefined && configured !== null) return configured;
-    const mode = (
-      request as { readonly read?: { readonly mode?: string } }
-    ).read?.mode;
-    const value = mode === "metadata"
-      ? { kind: "metadata" as const }
-      : mode === "standalone_roots"
-        ? {
-            kind: "standalone_roots" as const,
-            items: [],
-            nextCursor: null,
-            hasMore: false,
-            total: 0,
-          }
-        : {
-            kind: "children" as const,
-            parent: { kind: "library" as const },
-            items: [],
-            nextCursor: null,
-            hasMore: false,
-            total: 0,
-          };
-    return {
-      ok: true,
-      value: {
-        version: 5,
-        profileId: "profile:test",
-        libraryId: "library:test",
-        storeEpoch: "epoch:test",
-        commitSeq: 0,
-        authorization: authorizedReadStampFixture({
-          deliveryAddress: { kind: "library", library_id: "library:test" },
-          subject: { kind: "library", library_id: "library:test" },
+          version: 5,
+          profileId: "profile:test",
+          libraryId: "library:test",
           storeEpoch: "epoch:test",
           commitSeq: 0,
-        }),
-        value,
-      },
-    };
-  },
-  mutateLibraryBlockProperties: async (request: {
-    mutationId: string;
-    storeEpoch: string;
-  }) => ({
-    ok: true,
-    value: {
-      version: 2,
-      mutationId: request.mutationId,
-      projectId: "project-1",
-      storeEpoch: request.storeEpoch,
-      duplicate: false,
-      fields: [],
-      blockMetadataRevisions: {},
-      commitSeq: 1,
-      committedAt: "2026-07-18T00:00:00.000Z",
+          authorization: authorizedReadStampFixture({
+            deliveryAddress: { kind: "library", library_id: "library:test" },
+            subject: { kind: "library", library_id: "library:test" },
+            storeEpoch: "epoch:test",
+            commitSeq: 0,
+          }),
+          value,
+        },
+      };
     },
-  }),
-  subscribeCommandKeymapChanges: () => () => undefined,
-  subscribeProjectChanges: () => () => undefined,
-  subscribeProjectSessionChanges: () => () => undefined,
-  subscribeCodexHostMessages: (listener: (message: CodexHostMessage) => void) => {
-    codexHostMessageListener = listener;
-    return () => {
-      if (codexHostMessageListener === listener) {
-        codexHostMessageListener = null;
-      }
-    };
-  },
-  subscribeDesktopNotificationActions: () => () => undefined,
-  subscribeCodexScheduledAutomationChanges: () => () => undefined,
-  subscribeCodexAutomationRunsUpdates: () => () => undefined,
-  subscribeCodexPendingWorktreesChanged: () => () => undefined,
-  subscribeCodexPendingWorktreeWarnings: (
-    listener: (event: CodexPendingWorktreeWarningEvent) => void,
-  ) => {
-    pendingWorktreeWarningListener = listener;
-    return () => {
-      if (pendingWorktreeWarningListener === listener) {
-        pendingWorktreeWarningListener = null;
-      }
-    };
-  },
-  subscribeAppUpdateStatus: () => () => undefined,
-  getWindowFocusState: async () => true,
-  subscribeWindowFocusChanges: () => () => undefined,
-  readDatabaseModule: async (projectId: string, request: {
-    read?: {
-      mode?: string;
-      target?: { viewId?: string };
-    };
-  }) => {
-    invokeCalls.push(["database-module:read", projectId, request]);
-    const configured = await mockInvokeImpl?.(
-      "database-module:read",
-      projectId,
-      request,
-    );
-    if (configured !== undefined && configured !== null) return configured;
-    const projectName = projectId === "beta" ? "Beta" : "Alpha";
-    const databaseId = `database:${projectId}:primary`;
-    const dataSourceId = `${databaseId}:data-source:initial`;
-    const viewId = `database-view:${projectId}:primary-board`;
-    if (request.read?.mode === "view_personal_presentation") {
-      return {
-        ok: true,
-        value: {
-          version: 1,
-          projectId,
-          libraryId: "library:test",
-          storeEpoch: "store-test",
-          commitSeq: 1,
-          authorization: null,
-          value: {
-            kind: "view_personal_presentation",
-            value: {
-              presentationOverride: {},
-              revision: 0,
-            },
-          },
-        },
-      };
-    }
-    if (request.read?.mode === "view_collapsed_occurrences") {
-      return {
-        ok: true,
-        value: {
-          version: 1,
-          projectId,
-          libraryId: "library:test",
-          storeEpoch: "store-test",
-          commitSeq: 1,
-          authorization: null,
-          value: {
-            kind: "view_collapsed_occurrences",
-            value: { targets: [] },
-          },
-        },
-      };
-    }
-    const descriptor = {
-      database: {
-        databaseId,
-        libraryId: "library:test",
-        name: "Tasks",
-        lifecycle: "active",
-        defaultViewId: viewId,
-        accessRevision: 1,
-        metadataRevision: 1,
-        createdAt: "2026-06-07T00:00:00.000Z",
-        updatedAt: "2026-06-07T00:00:00.000Z",
-      },
-      dataSources: [{
-        dataSourceId,
-        libraryId: "library:test",
-        homeDatabaseId: databaseId,
-        name: "Pages",
-        schemaKey: "nodex.page",
-        schemaRevision: 1,
-        lifecycle: "active",
-        rankKey: "a",
-        createdAt: "2026-06-07T00:00:00.000Z",
-        updatedAt: "2026-06-07T00:00:00.000Z",
-      }],
-      views: [{
-        viewId,
-        databaseId,
-        dataSourceId,
-        name: projectName,
-        defaultLayout: "board",
-        config: {
-          schemaKey: "nodex.database-view",
-          schemaVersion: 1,
-          filter: { kind: "group", operator: "and", children: [] },
-          sort: [],
-          group: null,
-          display: { propertyIds: [], showTitle: true },
-        },
-        isDefault: true,
-        revision: 1,
-        rankKey: "a",
-        lifecycle: "active",
-        createdAt: "2026-06-07T00:00:00.000Z",
-        updatedAt: "2026-06-07T00:00:00.000Z",
-      }],
-    } as const;
-    return {
+    mutateLibraryBlockProperties: async (request: { mutationId: string; storeEpoch: string }) => ({
       ok: true,
       value: {
-        version: 1,
-        projectId,
-        libraryId: "library:test",
-        storeEpoch: "workbench-test-store",
+        version: 2,
+        mutationId: request.mutationId,
+        projectId: "project-1",
+        storeEpoch: request.storeEpoch,
+        duplicate: false,
+        fields: [],
+        blockMetadataRevisions: {},
         commitSeq: 1,
-        authorization: null,
-        value: {
-          kind: request.read?.mode === "catalog"
-            ? "catalog"
-            : request.read?.mode === "query"
-              ? "query"
-              : "database",
-          ...(request.read?.mode === "catalog"
-            ? {
-                databases: [descriptor],
-              }
-            : request.read?.mode === "query"
-              ? {
-                  value: {
-                    database: descriptor.database,
-                    dataSource: descriptor.dataSources[0],
-                    view: descriptor.views[0],
-                    properties: [],
-                    rows: [],
-                  },
-                }
-              : { value: descriptor }),
-        },
+        committedAt: "2026-07-18T00:00:00.000Z",
       },
-    };
-  },
-  transferBlocks: async () => ({
-    ok: false,
-    error: {
-      code: "unknown",
-      message: "Not configured in this test.",
-      retryable: false,
-      reloadRequired: false,
+    }),
+    subscribeCommandKeymapChanges: () => () => undefined,
+    subscribeProjectChanges: () => () => undefined,
+    subscribeProjectSessionChanges: () => () => undefined,
+    subscribeCodexHostMessages: (listener: (message: CodexHostMessage) => void) => {
+      codexHostMessageListener = listener;
+      return () => {
+        if (codexHostMessageListener === listener) {
+          codexHostMessageListener = null;
+        }
+      };
     },
-  }),
-  undoBlockTransfer: async () => ({
-    ok: false,
-    error: {
-      code: "undo_unavailable",
-      message: "Not configured in this test.",
-      retryable: false,
-      reloadRequired: false,
+    subscribeDesktopNotificationActions: () => () => undefined,
+    subscribeCodexScheduledAutomationChanges: () => () => undefined,
+    subscribeCodexAutomationRunsUpdates: () => () => undefined,
+    subscribeCodexPendingWorktreesChanged: () => () => undefined,
+    subscribeCodexPendingWorktreeWarnings: (
+      listener: (event: CodexPendingWorktreeWarningEvent) => void,
+    ) => {
+      pendingWorktreeWarningListener = listener;
+      return () => {
+        if (pendingWorktreeWarningListener === listener) {
+          pendingWorktreeWarningListener = null;
+        }
+      };
     },
-  }),
+    subscribeAppUpdateStatus: () => () => undefined,
+    getWindowFocusState: async () => true,
+    subscribeWindowFocusChanges: () => () => undefined,
+    readDatabaseModule: async (
+      projectId: string,
+      request: {
+        read?: {
+          mode?: string;
+          target?: { viewId?: string };
+        };
+      },
+    ) => {
+      invokeCalls.push(["database-module:read", projectId, request]);
+      const configured = await mockInvokeImpl?.("database-module:read", projectId, request);
+      if (configured !== undefined && configured !== null) return configured;
+      const projectName = projectId === "beta" ? "Beta" : "Alpha";
+      const databaseId = `database:${projectId}:primary`;
+      const dataSourceId = `${databaseId}:data-source:initial`;
+      const viewId = `database-view:${projectId}:primary-board`;
+      if (request.read?.mode === "view_personal_presentation") {
+        return {
+          ok: true,
+          value: {
+            version: 1,
+            projectId,
+            libraryId: "library:test",
+            storeEpoch: "store-test",
+            commitSeq: 1,
+            authorization: null,
+            value: {
+              kind: "view_personal_presentation",
+              value: {
+                presentationOverride: {},
+                revision: 0,
+              },
+            },
+          },
+        };
+      }
+      if (request.read?.mode === "view_collapsed_occurrences") {
+        return {
+          ok: true,
+          value: {
+            version: 1,
+            projectId,
+            libraryId: "library:test",
+            storeEpoch: "store-test",
+            commitSeq: 1,
+            authorization: null,
+            value: {
+              kind: "view_collapsed_occurrences",
+              value: { targets: [] },
+            },
+          },
+        };
+      }
+      const descriptor = {
+        database: {
+          databaseId,
+          libraryId: "library:test",
+          name: "Tasks",
+          lifecycle: "active",
+          defaultViewId: viewId,
+          accessRevision: 1,
+          metadataRevision: 1,
+          createdAt: "2026-06-07T00:00:00.000Z",
+          updatedAt: "2026-06-07T00:00:00.000Z",
+        },
+        dataSources: [
+          {
+            dataSourceId,
+            libraryId: "library:test",
+            homeDatabaseId: databaseId,
+            name: "Pages",
+            schemaKey: "nodex.page",
+            schemaRevision: 1,
+            lifecycle: "active",
+            rankKey: "a",
+            createdAt: "2026-06-07T00:00:00.000Z",
+            updatedAt: "2026-06-07T00:00:00.000Z",
+          },
+        ],
+        views: [
+          {
+            viewId,
+            databaseId,
+            dataSourceId,
+            name: projectName,
+            defaultLayout: "board",
+            config: {
+              schemaKey: "nodex.database-view",
+              schemaVersion: 1,
+              filter: { kind: "group", operator: "and", children: [] },
+              sort: [],
+              group: null,
+              display: { propertyIds: [], showTitle: true },
+            },
+            isDefault: true,
+            revision: 1,
+            rankKey: "a",
+            lifecycle: "active",
+            createdAt: "2026-06-07T00:00:00.000Z",
+            updatedAt: "2026-06-07T00:00:00.000Z",
+          },
+        ],
+      } as const;
+      return {
+        ok: true,
+        value: {
+          version: 1,
+          projectId,
+          libraryId: "library:test",
+          storeEpoch: "workbench-test-store",
+          commitSeq: 1,
+          authorization: null,
+          value: {
+            kind:
+              request.read?.mode === "catalog"
+                ? "catalog"
+                : request.read?.mode === "query"
+                  ? "query"
+                  : "database",
+            ...(request.read?.mode === "catalog"
+              ? {
+                  databases: [descriptor],
+                }
+              : request.read?.mode === "query"
+                ? {
+                    value: {
+                      database: descriptor.database,
+                      dataSource: descriptor.dataSources[0],
+                      view: descriptor.views[0],
+                      properties: [],
+                      rows: [],
+                    },
+                  }
+                : { value: descriptor }),
+          },
+        },
+      };
+    },
+    transferBlocks: async () => ({
+      ok: false,
+      error: {
+        code: "unknown",
+        message: "Not configured in this test.",
+        retryable: false,
+        reloadRequired: false,
+      },
+    }),
+    undoBlockTransfer: async () => ({
+      ok: false,
+      error: {
+        code: "undo_unavailable",
+        message: "Not configured in this test.",
+        retryable: false,
+        reloadRequired: false,
+      },
+    }),
   };
 });
 
@@ -952,41 +944,35 @@ vi.mock("../database-view-surface", () => ({
         rows?: ReadonlyArray<{ pageId?: string; title?: string }>;
       }>;
     };
-    const projectId = model.accessContext?.kind === "project"
-      ? String(model.accessContext.projectId)
-      : "library";
+    const projectId =
+      model.accessContext?.kind === "project" ? String(model.accessContext.projectId) : "library";
     const effectivePresentation = props.effectivePresentation as
       | { readonly layout?: unknown }
       | undefined;
-    const presentationLayout = String(
-      effectivePresentation?.layout ?? props.presentationLayout,
-    );
+    const presentationLayout = String(effectivePresentation?.layout ?? props.presentationLayout);
     const [localSearch, setLocalSearch] = useState("");
     const retainedScroll = useRetainedScrollPosition<HTMLDivElement>(
       `database-view-test:${String(model.databaseViewId ?? "unknown")}`,
     );
-    (globalThis as {
-      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
-    }).__lastDatabaseViewSurfaceProps = {
+    (
+      globalThis as {
+        __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+      }
+    ).__lastDatabaseViewSurfaceProps = {
       ...props,
       // The production surface now consumes one effective presentation.
       // Preserve the harness's compact layout observation for shell tests.
       presentationLayout,
       projectId,
       databaseViewId: model.databaseViewId,
-      openPageStage: (
-        _projectId: string,
-        pageId: string,
-        titleSnapshot?: string,
-      ) => (props.onOpenPage as ((
-        pageId: string,
-        titleSnapshot: string,
-        openMode: "preview" | "durable",
-      ) => void))(
-        pageId,
-        titleSnapshot ?? "Untitled",
-        "preview",
-      ),
+      openPageStage: (_projectId: string, pageId: string, titleSnapshot?: string) =>
+        (
+          props.onOpenPage as (
+            pageId: string,
+            titleSnapshot: string,
+            openMode: "preview" | "durable",
+          ) => void
+        )(pageId, titleSnapshot ?? "Untitled", "preview"),
     };
     const rows = model.columns?.flatMap((column) => column.rows ?? []) ?? [];
     return createElement(
@@ -1013,14 +999,21 @@ vi.mock("../database-view-surface", () => ({
         },
         createElement("div", { style: { height: 400, width: 400 } }),
       ),
-      ...rows.map((row) => createElement("button", {
-        key: row.pageId,
-        type: "button",
-        onClick: () => (props.onOpenPage as ((pageId: string, title: string) => void))(
-          String(row.pageId),
-          String(row.title ?? "Untitled"),
+      ...rows.map((row) =>
+        createElement(
+          "button",
+          {
+            key: row.pageId,
+            type: "button",
+            onClick: () =>
+              (props.onOpenPage as (pageId: string, title: string) => void)(
+                String(row.pageId),
+                String(row.title ?? "Untitled"),
+              ),
+          },
+          row.title,
         ),
-      }, row.title)),
+      ),
     );
   },
   databaseViewMutationErrorMessage: (error: unknown) => String(error),
@@ -1028,9 +1021,11 @@ vi.mock("../database-view-surface", () => ({
 
 vi.mock("../workbench-canvas-stage-panel", () => ({
   WorkbenchCanvasStagePanel: (props: Record<string, unknown>) => {
-    (globalThis as {
-      __lastWorkbenchCanvasStagePanelProps?: Record<string, unknown>;
-    }).__lastWorkbenchCanvasStagePanelProps = props;
+    (
+      globalThis as {
+        __lastWorkbenchCanvasStagePanelProps?: Record<string, unknown>;
+      }
+    ).__lastWorkbenchCanvasStagePanelProps = props;
     return createElement("div", {
       "data-testid": "workbench-canvas-stage-panel",
     });
@@ -1039,14 +1034,15 @@ vi.mock("../workbench-canvas-stage-panel", () => ({
 
 vi.mock("../workbench-database-view-surface", () => ({
   WorkbenchDatabaseViewSurface: (props: Record<string, unknown>) => {
-    (globalThis as {
-      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
-    }).__lastWorkbenchDatabaseViewSurfaceProps = props;
+    (
+      globalThis as {
+        __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+      }
+    ).__lastWorkbenchDatabaseViewSurfaceProps = props;
     useEffect(() => {
-      const publish = props.onPresentationChange as ((value: {
-        databaseName: string;
-        viewName: string;
-      }) => void) | undefined;
+      const publish = props.onPresentationChange as
+        | ((value: { databaseName: string; viewName: string }) => void)
+        | undefined;
       publish?.({ databaseName: "Tasks", viewName: "Board" });
     }, [props.onPresentationChange]);
     return createElement("div", {
@@ -1059,12 +1055,12 @@ vi.mock("../workbench-db-view-panel", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../workbench-db-view-panel")>();
   return {
     ...actual,
-    DbViewSessionTab: (
-      props: ComponentProps<typeof actual.DbViewSessionTab>,
-    ) => {
-      (globalThis as {
-        __lastDbViewSessionTabProps?: Record<string, unknown>;
-      }).__lastDbViewSessionTabProps = props as unknown as Record<string, unknown>;
+    DbViewSessionTab: (props: ComponentProps<typeof actual.DbViewSessionTab>) => {
+      (
+        globalThis as {
+          __lastDbViewSessionTabProps?: Record<string, unknown>;
+        }
+      ).__lastDbViewSessionTabProps = props as unknown as Record<string, unknown>;
       return createElement(actual.DbViewSessionTab, props);
     },
   };
@@ -1139,9 +1135,12 @@ vi.mock("@/components/block-documents/owned-block-document-boundary", () => ({
 
 vi.mock(".././workbench-page-stage", () => ({
   PageStage: (props: Record<string, unknown>) => {
-    const stageModel = props.page as {
-      page?: { id?: string; title?: string };
-    } | null | undefined;
+    const stageModel = props.page as
+      | {
+          page?: { id?: string; title?: string };
+        }
+      | null
+      | undefined;
     const page = stageModel?.page;
     const pageId = page?.id ?? "missing";
     const [titleDocument] = useState(() => {
@@ -1163,12 +1162,16 @@ vi.mock(".././workbench-page-stage", () => ({
       __publishPageTitle: publishTitle,
       __disposePageTitlePublisher: () => setPublishingTitle(false),
     };
-    (globalThis as {
-      __lastPageStageProps?: Record<string, unknown>;
-    }).__lastPageStageProps = exposedProps;
-    const propsByPageId = ((globalThis as {
-      __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
-    }).__mockPageStagePropsByPageId ??= {});
+    (
+      globalThis as {
+        __lastPageStageProps?: Record<string, unknown>;
+      }
+    ).__lastPageStageProps = exposedProps;
+    const propsByPageId = ((
+      globalThis as {
+        __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+      }
+    ).__mockPageStagePropsByPageId ??= {});
     propsByPageId[pageId] = exposedProps;
     useEffect(() => {
       const state = globalThis as {
@@ -1198,15 +1201,12 @@ vi.mock(".././workbench-page-stage", () => ({
       createElement(
         "div",
         { className: "nfm-editor" },
-        createElement(
-          "div",
-          {
-            "aria-label": `Mock editor ${String(pageId)}`,
-            className: "ProseMirror",
-            contentEditable: true,
-            tabIndex: 0,
-          },
-        ),
+        createElement("div", {
+          "aria-label": `Mock editor ${String(pageId)}`,
+          className: "ProseMirror",
+          contentEditable: true,
+          tabIndex: 0,
+        }),
       ),
       createElement(
         "button",
@@ -1225,12 +1225,16 @@ vi.mock(".././workbench-page-stage", () => ({
           "aria-label": "History",
           "aria-pressed": Boolean(props.historyPanelActive),
           onClick: () => {
-            const current = (globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks ?? 0;
-            (globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks = current + 1;
-            (props.onToggleHistoryPanel as ((snapshot: {
-              readonly title: string;
-              readonly nfm: string;
-            }) => void) | undefined)?.({
+            const current =
+              (globalThis as { __mockPageStageHistoryClicks?: number })
+                .__mockPageStageHistoryClicks ?? 0;
+            (globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks =
+              current + 1;
+            (
+              props.onToggleHistoryPanel as
+                | ((snapshot: { readonly title: string; readonly nfm: string }) => void)
+                | undefined
+            )?.({
               title: `Card ${String(pageId)}`,
               nfm: `Body ${String(pageId)}`,
             });
@@ -1256,8 +1260,11 @@ vi.mock(".././workbench-page-stage", () => ({
           "aria-label": "Delete",
           "data-tab-preview-pin-exempt": "true",
           onClick: () => {
-            const current = (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks ?? 0;
-            (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks = current + 1;
+            const current =
+              (globalThis as { __mockPageStageDeleteClicks?: number })
+                .__mockPageStageDeleteClicks ?? 0;
+            (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks =
+              current + 1;
             void (props.onDelete as ((pageId: string) => Promise<void>) | undefined)?.(
               page?.id ?? "card-1",
             );
@@ -1266,9 +1273,7 @@ vi.mock(".././workbench-page-stage", () => ({
         "Delete",
       ),
     );
-    const identity = props.pageTitleIdentity as
-      | PageTitleResourceIdentity
-      | undefined;
+    const identity = props.pageTitleIdentity as PageTitleResourceIdentity | undefined;
     if (!identity || !publishingTitle) return content;
     return (
       <PageTitleProjectionPublisher
@@ -1289,7 +1294,8 @@ vi.mock(".././plan-side-panel-tab", () => ({
 
 vi.mock(".././workbench-history-panel", () => ({
   HistoryPanel: (props: Record<string, unknown>) => {
-    (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps = props;
+    (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps =
+      props;
     if (!props.open) return null;
     return createElement(
       "div",
@@ -1323,8 +1329,14 @@ vi.mock(".././workbench-history-panel", () => ({
 
 vi.mock(".././workbench-terminal-panel", () => ({
   TerminalPanel: (props: Record<string, unknown>) => {
-    (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps = props;
-    return createElement("div", { "data-terminal-panel": "true" }, `Terminal:${String(props.terminalId)}`);
+    (
+      globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }
+    ).__lastTerminalPanelProps = props;
+    return createElement(
+      "div",
+      { "data-terminal-panel": "true" },
+      `Terminal:${String(props.terminalId)}`,
+    );
   },
 }));
 
@@ -1346,16 +1358,18 @@ vi.mock("@/features/local-conversation", () => ({
       {
         type: "button",
         "aria-label": props.mode === "popover" ? "Toggle summary" : "Toggle pinned summary",
-        "aria-pressed": props.mode === "pinned" ? props.pinnedOpen : String(Boolean(props.popoverOpen)),
+        "aria-pressed":
+          props.mode === "pinned" ? props.pinnedOpen : String(Boolean(props.popoverOpen)),
         "data-testid": "mock-summary-action",
-        onClick: props.mode === "pinned"
-          ? props.onPinnedOpenToggle
-          : () => props.onPopoverOpenChange?.(!props.popoverOpen),
+        onClick:
+          props.mode === "pinned"
+            ? props.onPinnedOpenToggle
+            : () => props.onPopoverOpenChange?.(!props.popoverOpen),
       },
       "Summary",
     );
   },
-  ThreadSummaryPanelToggle: (props: { label?: string; pressed: boolean; onClick: () => void }) => (
+  ThreadSummaryPanelToggle: (props: { label?: string; pressed: boolean; onClick: () => void }) =>
     createElement(
       "button",
       {
@@ -1365,65 +1379,93 @@ vi.mock("@/features/local-conversation", () => ({
         onClick: props.onClick,
       },
       "Summary",
-    )
-  ),
+    ),
   ConnectedThreadStage: (props: Record<string, unknown>) => {
-    (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps = props;
-    const propsByThreadId = ((globalThis as {
-      __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
-    }).__mockConnectedThreadStagePropsByThreadId ??= {});
+    (
+      globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }
+    ).__lastConnectedThreadStageProps = props;
+    const propsByThreadId = ((
+      globalThis as {
+        __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
+      }
+    ).__mockConnectedThreadStagePropsByThreadId ??= {});
     const activeThreadId = typeof props.activeThreadId === "string" ? props.activeThreadId : null;
     if (activeThreadId) {
       propsByThreadId[activeThreadId] = props;
     }
-    const summary = props.activeThreadSummary as { threadName?: string | null; threadPreview?: string | null } | null | undefined;
-    const threadTitle = summary?.threadName ?? summary?.threadPreview ?? (props.isNewThreadTab ? "New thread" : "No thread");
+    const summary = props.activeThreadSummary as
+      | { threadName?: string | null; threadPreview?: string | null }
+      | null
+      | undefined;
+    const threadTitle =
+      summary?.threadName ??
+      summary?.threadPreview ??
+      (props.isNewThreadTab ? "New thread" : "No thread");
     const [mockPrompt, setMockPrompt] = useState("");
     const headerContent = createElement(
       "div",
       {
-        className: "draggable grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-center gap-x-4 electron:h-toolbar extension:py-row-y",
+        className:
+          "draggable grid w-full min-w-0 grid-cols-[minmax(0,1fr)] items-center gap-x-4 electron:h-toolbar extension:py-row-y",
       },
       createElement(
         "div",
         { className: "flex min-w-0 items-center gap-2 truncate text-base electron:font-medium" },
         createElement(
           "span",
-          { "data-testid": "thread-stage-title", className: "inline-flex max-w-[320px] min-w-[2ch] items-center overflow-hidden text-token-foreground" },
+          {
+            "data-testid": "thread-stage-title",
+            className:
+              "inline-flex max-w-[320px] min-w-[2ch] items-center overflow-hidden text-token-foreground",
+          },
           createElement("span", { className: "min-w-0 truncate" }, threadTitle),
         ),
       ),
     );
-    const actions = props.actions as {
-      onOpenSummaryGitReview?: (input: { source: GitReviewSource }) => void | Promise<void>;
-      onStartThreadForSession?: (input: {
-        projectId: string;
-        sessionId: string;
-        prompt: string;
-        runInTarget?: string;
-        runInEnvironmentPath?: string | null;
-        worktreeStartingState?: CodexPendingWorktreeStartingState;
-      }) => Promise<void>;
-      onConsumeNewThreadComposerIntent?: (sessionId: string, focusNonce: number) => void;
-    } | undefined;
-    const target = props.newThreadTarget as {
-      projectId?: string;
-      sessionId?: string;
-      runInTarget?: string;
-      runInEnvironmentPath?: string | null;
-      worktreeStartingState?: CodexPendingWorktreeStartingState;
-    } | null | undefined;
-    const composerIntent = props.newThreadComposerIntent as {
-      prompt?: string;
-      focusNonce?: number;
-    } | null | undefined;
+    const actions = props.actions as
+      | {
+          onOpenSummaryGitReview?: (input: { source: GitReviewSource }) => void | Promise<void>;
+          onStartThreadForSession?: (input: {
+            projectId: string;
+            sessionId: string;
+            prompt: string;
+            runInTarget?: string;
+            runInEnvironmentPath?: string | null;
+            worktreeStartingState?: CodexPendingWorktreeStartingState;
+          }) => Promise<void>;
+          onConsumeNewThreadComposerIntent?: (sessionId: string, focusNonce: number) => void;
+        }
+      | undefined;
+    const target = props.newThreadTarget as
+      | {
+          projectId?: string;
+          sessionId?: string;
+          runInTarget?: string;
+          runInEnvironmentPath?: string | null;
+          worktreeStartingState?: CodexPendingWorktreeStartingState;
+        }
+      | null
+      | undefined;
+    const composerIntent = props.newThreadComposerIntent as
+      | {
+          prompt?: string;
+          focusNonce?: number;
+        }
+      | null
+      | undefined;
     useEffect(() => {
       if (!props.isNewThreadTab || !target?.sessionId || !composerIntent?.prompt) return;
       setMockPrompt(composerIntent.prompt);
       if (typeof composerIntent.focusNonce === "number") {
         actions?.onConsumeNewThreadComposerIntent?.(target.sessionId, composerIntent.focusNonce);
       }
-    }, [actions, composerIntent?.focusNonce, composerIntent?.prompt, props.isNewThreadTab, target?.sessionId]);
+    }, [
+      actions,
+      composerIntent?.focusNonce,
+      composerIntent?.prompt,
+      props.isNewThreadTab,
+      target?.sessionId,
+    ]);
     return createElement(
       Fragment,
       null,
@@ -1443,61 +1485,82 @@ vi.mock("@/features/local-conversation", () => ({
             })
           : null,
         props.isNewThreadTab
-          ? createElement("button", {
-              type: "button",
-              onClick: () => {
-                if (!target?.projectId || !target.sessionId) return;
-                void actions?.onStartThreadForSession?.({
-                  projectId: target.projectId,
-                  sessionId: target.sessionId,
-                  prompt: "Start from session",
-                  runInTarget: target.runInTarget,
-                  runInEnvironmentPath: target.runInEnvironmentPath,
-                  worktreeStartingState: target.worktreeStartingState,
-                });
+          ? createElement(
+              "button",
+              {
+                type: "button",
+                onClick: () => {
+                  if (!target?.projectId || !target.sessionId) return;
+                  void actions?.onStartThreadForSession?.({
+                    projectId: target.projectId,
+                    sessionId: target.sessionId,
+                    prompt: "Start from session",
+                    runInTarget: target.runInTarget,
+                    runInEnvironmentPath: target.runInEnvironmentPath,
+                    worktreeStartingState: target.worktreeStartingState,
+                  });
+                },
               },
-            }, "Send")
+              "Send",
+            )
           : null,
         props.isNewThreadTab
           ? null
-          : createElement("button", {
-              type: "button",
-              onClick: () => {
-                void actions?.onOpenSummaryGitReview?.({ source: "staged" });
+          : createElement(
+              "button",
+              {
+                type: "button",
+                onClick: () => {
+                  void actions?.onOpenSummaryGitReview?.({ source: "staged" });
+                },
               },
-            }, "Open staged changes"),
+              "Open staged changes",
+            ),
         createElement("span", null, String(props.selectedModel)),
         createElement("span", null, String(props.selectedReasoningEffort)),
-        createElement("span", {
-          "data-summary-panel-hide-immediately": String(props.summaryPanelHideImmediately),
-          "data-summary-panel-mounted": String(props.summaryPanelMounted),
-          "data-summary-panel-open": String(props.summaryPanelOpen),
-        }, String(props.summaryPanelMounted)),
+        createElement(
+          "span",
+          {
+            "data-summary-panel-hide-immediately": String(props.summaryPanelHideImmediately),
+            "data-summary-panel-mounted": String(props.summaryPanelMounted),
+            "data-summary-panel-open": String(props.summaryPanelOpen),
+          },
+          String(props.summaryPanelMounted),
+        ),
       ),
     );
   },
   ConnectedThreadComposerDock: (props: Record<string, unknown>) => {
-    (globalThis as {
-      __lastConnectedThreadComposerDockProps?: Record<string, unknown>;
-    }).__lastConnectedThreadComposerDockProps = props;
-    const actions = props.actions as {
-      onStartThreadForSession?: (input: {
-        projectId: string;
-        sessionId: string;
-        projectDraftId?: string;
-        prompt: string;
-      }) => Promise<void>;
-    } | undefined;
-    const target = props.newThreadTarget as {
-      projectId?: string;
-      sessionId?: string;
-      projectDraftId?: string;
-    } | null | undefined;
-    const visibility = props.overlayVisibility as {
-      kind?: string;
-      visible?: boolean;
-      onVisibleChange?: (visible: boolean) => void;
-    } | undefined;
+    (
+      globalThis as {
+        __lastConnectedThreadComposerDockProps?: Record<string, unknown>;
+      }
+    ).__lastConnectedThreadComposerDockProps = props;
+    const actions = props.actions as
+      | {
+          onStartThreadForSession?: (input: {
+            projectId: string;
+            sessionId: string;
+            projectDraftId?: string;
+            prompt: string;
+          }) => Promise<void>;
+        }
+      | undefined;
+    const target = props.newThreadTarget as
+      | {
+          projectId?: string;
+          sessionId?: string;
+          projectDraftId?: string;
+        }
+      | null
+      | undefined;
+    const visibility = props.overlayVisibility as
+      | {
+          kind?: string;
+          visible?: boolean;
+          onVisibleChange?: (visible: boolean) => void;
+        }
+      | undefined;
     return createElement(
       "div",
       { "data-project-agent-dock": "true" },
@@ -1507,32 +1570,44 @@ vi.mock("@/features/local-conversation", () => ({
         defaultValue: "",
       }),
       props.isNewThreadTab
-        ? createElement("button", {
-            type: "button",
-            onClick: () => {
-              if (!target?.projectId || !target.sessionId) return;
-              void actions?.onStartThreadForSession?.({
-                projectId: target.projectId,
-                sessionId: target.sessionId,
-                ...(target.projectDraftId
-                  ? { projectDraftId: target.projectDraftId }
-                  : {}),
-                prompt: "Start from Project Agent Dock",
-              });
+        ? createElement(
+            "button",
+            {
+              type: "button",
+              onClick: () => {
+                if (!target?.projectId || !target.sessionId) return;
+                void actions?.onStartThreadForSession?.({
+                  projectId: target.projectId,
+                  sessionId: target.sessionId,
+                  ...(target.projectDraftId ? { projectDraftId: target.projectDraftId } : {}),
+                  prompt: "Start from Project Agent Dock",
+                });
+              },
             },
-          }, "Send from Dock")
+            "Send from Dock",
+          )
         : null,
       visibility?.kind === "controlled" && visibility.visible
-        ? createElement("button", {
-            type: "button",
-            onClick: () => visibility.onVisibleChange?.(false),
-          }, "Hide Dock")
+        ? createElement(
+            "button",
+            {
+              type: "button",
+              onClick: () => visibility.onVisibleChange?.(false),
+            },
+            "Hide Dock",
+          )
         : null,
     );
   },
   ConnectedReviewDiffPanel: (props: Record<string, unknown>) => {
-    (globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }).__lastConnectedReviewDiffPanelProps = props;
-    return createElement("div", { "data-review-diff-panel": "true" }, `Review:${String(props.threadId)}`);
+    (
+      globalThis as { __lastConnectedReviewDiffPanelProps?: Record<string, unknown> }
+    ).__lastConnectedReviewDiffPanelProps = props;
+    return createElement(
+      "div",
+      { "data-review-diff-panel": "true" },
+      `Review:${String(props.threadId)}`,
+    );
   },
   useCodexAppServerControl: () => mockCodexControl,
   useCodexAppServerRegistry: () => ({
@@ -1542,20 +1617,18 @@ vi.mock("@/features/local-conversation", () => ({
       respondApproval: async () => false,
     }),
   }),
-  useConversation: (threadId: string | null) => threadId ? sideChatConversations[threadId] ?? null : null,
-  useConversationSubset: (threadIds: readonly string[]) => Object.fromEntries(
-    threadIds.flatMap((threadId) =>
-      sideChatConversations[threadId] ? [[threadId, sideChatConversations[threadId]]] : []
+  useConversation: (threadId: string | null) =>
+    threadId ? (sideChatConversations[threadId] ?? null) : null,
+  useConversationSubset: (threadIds: readonly string[]) =>
+    Object.fromEntries(
+      threadIds.flatMap((threadId) =>
+        sideChatConversations[threadId] ? [[threadId, sideChatConversations[threadId]]] : [],
+      ),
     ),
-  ),
   useCodexConversationValue: (
     threadId: string | null,
     selector: (conversation: { turns: readonly unknown[] } | null) => unknown,
-  ) => selector(
-    threadId
-      ? { turns: mockConversationHasVisibleTurn ? [{}] : [] }
-      : null,
-  ),
+  ) => selector(threadId ? { turns: mockConversationHasVisibleTurn ? [{}] : [] } : null),
   useCodexThreadStartProgress: () => mockThreadStartProgress,
   useLocalConversationAccount: () => null,
   useLocalConversationConnection: () => ({ status: "connected", retries: 0 }),
@@ -1564,36 +1637,37 @@ vi.mock("@/features/local-conversation", () => ({
 vi.mock("@/lib/use-board", () => ({
   useBoard: (options?: { projectId?: string; databaseViewId?: string }) => {
     const projectId = options?.projectId ?? "alpha";
-    const cards = projectId === "beta"
-      ? {
-          id: "card-beta",
-          projectId: "beta",
-          status: "build",
-          title: "Beta Card",
-          description: "",
-          tags: [],
-          archived: false,
-        }
-      : [
-          {
-            id: "card-1",
-            projectId: "alpha",
+    const cards =
+      projectId === "beta"
+        ? {
+            id: "card-beta",
+            projectId: "beta",
             status: "build",
-            title: "Card One",
+            title: "Beta Card",
             description: "",
             tags: [],
             archived: false,
-          },
-          {
-            id: "card-2",
-            projectId: "alpha",
-            status: "build",
-            title: "Card Two",
-            description: "",
-            tags: [],
-            archived: false,
-          },
-        ];
+          }
+        : [
+            {
+              id: "card-1",
+              projectId: "alpha",
+              status: "build",
+              title: "Card One",
+              description: "",
+              tags: [],
+              archived: false,
+            },
+            {
+              id: "card-2",
+              projectId: "alpha",
+              status: "build",
+              title: "Card Two",
+              description: "",
+              tags: [],
+              archived: false,
+            },
+          ];
     const visibleCards = Array.isArray(cards) ? cards : [cards];
     const databaseViewId = options?.databaseViewId ?? `view-${projectId}-primary`;
     const timestamp = "2026-08-11T00:00:00.000Z";
@@ -1623,13 +1697,15 @@ vi.mock("@/lib/use-board", () => ({
       commitSeq: 1,
       authorization: null,
       readOnlyReason: null,
-      columns: [{
-        id: "build",
-        groupKey: "build",
-        name: "Build",
-        scopeKey: "key:\"build\"",
-        rows,
-      }],
+      columns: [
+        {
+          id: "build",
+          groupKey: "build",
+          name: "Build",
+          scopeKey: 'key:"build"',
+          rows,
+        },
+      ],
       query: {
         database: {
           databaseId: `database-${projectId}`,
@@ -1730,17 +1806,19 @@ vi.mock(".././command-palette", () => ({
     const commandMode = props.initialMode === "root";
     const commandQuery = commandMode ? rawQuery.trim().toLowerCase() : "";
     const commands = commandMode
-      ? buildCommandPaletteCommands({ ...props.commandContext, isMac: true, showMockCommands: false })
-        .filter((command) => {
-          if (commandQuery.length === 0) return true;
-          const haystack = [
-            command.title,
-            command.subtitle,
-            ...command.keywords,
-          ].join(" ").toLowerCase();
-          return haystack.includes(commandQuery);
+      ? buildCommandPaletteCommands({
+          ...props.commandContext,
+          isMac: true,
+          showMockCommands: false,
         })
-        .slice(0, 100)
+          .filter((command) => {
+            if (commandQuery.length === 0) return true;
+            const haystack = [command.title, command.subtitle, ...command.keywords]
+              .join(" ")
+              .toLowerCase();
+            return haystack.includes(commandQuery);
+          })
+          .slice(0, 100)
       : [];
 
     return createElement(
@@ -1751,21 +1829,31 @@ vi.mock(".././command-palette", () => ({
         readOnly: true,
         value: props.initialMode ?? "root",
       }),
-      ...commands.map((command) => createElement("button", {
-        key: command.id,
-        type: "button",
-        disabled: command.disabled,
-        onClick: () => {
-          if (command.disabled) return;
-          if (!isCommandPaletteShellCommandId(command.id)) return;
-          executeCommandPaletteShellCommand(command.id, props.commandHandlers);
-          props.onOpenChange(false);
+      ...commands.map((command) =>
+        createElement(
+          "button",
+          {
+            key: command.id,
+            type: "button",
+            disabled: command.disabled,
+            onClick: () => {
+              if (command.disabled) return;
+              if (!isCommandPaletteShellCommandId(command.id)) return;
+              executeCommandPaletteShellCommand(command.id, props.commandHandlers);
+              props.onOpenChange(false);
+            },
+          },
+          command.title,
+        ),
+      ),
+      createElement(
+        "button",
+        {
+          type: "button",
+          onClick: () => props.onOpenChange(false),
         },
-      }, command.title)),
-      createElement("button", {
-        type: "button",
-        onClick: () => props.onOpenChange(false),
-      }, "Close palette"),
+        "Close palette",
+      ),
     );
   },
 }));
@@ -1778,16 +1866,18 @@ beforeAll(async () => {
 }, 120_000);
 
 export function getPanelTabById(container: HTMLElement, tabId: string): HTMLElement {
-  const tabShell = Array.from(container.querySelectorAll<HTMLElement>("[data-panel-tab-id]"))
-    .find((element) => element.dataset.panelTabId === tabId);
+  const tabShell = Array.from(container.querySelectorAll<HTMLElement>("[data-panel-tab-id]")).find(
+    (element) => element.dataset.panelTabId === tabId,
+  );
   const tab = tabShell?.querySelector<HTMLElement>('[role="tab"]') ?? null;
   if (!tab) throw new Error(`Expected panel tab ${tabId}`);
   return tab;
 }
 
 export function getPanelTabChromeById(container: HTMLElement, tabId: string): HTMLElement {
-  const tabShell = Array.from(container.querySelectorAll<HTMLElement>("[data-panel-tab-id]"))
-    .find((element) => element.dataset.panelTabId === tabId);
+  const tabShell = Array.from(container.querySelectorAll<HTMLElement>("[data-panel-tab-id]")).find(
+    (element) => element.dataset.panelTabId === tabId,
+  );
   const tabChrome = tabShell?.querySelector<HTMLElement>("[data-tab-id]") ?? null;
   if (!tabChrome) throw new Error(`Expected panel tab chrome ${tabId}`);
   return tabChrome;
@@ -1801,12 +1891,14 @@ export function getWorkbenchPanelActivateCalls(): {
 }[] {
   return invokeCalls.flatMap((call) => {
     if (call[0] !== "window-session-view:panel-activate") return [];
-    return [call[1] as {
-      sessionId?: string;
-      panelId?: WorkbenchTabProjection["panelId"];
-      leafId?: string;
-      tabId?: string | null;
-    }];
+    return [
+      call[1] as {
+        sessionId?: string;
+        panelId?: WorkbenchTabProjection["panelId"];
+        leafId?: string;
+        tabId?: string | null;
+      },
+    ];
   });
 }
 
@@ -1819,18 +1911,25 @@ export function getWorkbenchTabProjectionDeleteTabIds(): string[] {
   });
 }
 
-export function getWorkbenchTabDeleteInputs(): Array<string | {
-  tabId?: string;
-  preferredActiveLeafId?: string | null;
-  preferredActiveTabId?: string | null;
-}> {
-  return invokeCalls.flatMap((call) => {
-    if (call[0] !== "window-session-view:tab-remove") return [];
-    return [call[1] as string | {
+export function getWorkbenchTabDeleteInputs(): Array<
+  | string
+  | {
       tabId?: string;
       preferredActiveLeafId?: string | null;
       preferredActiveTabId?: string | null;
-    }];
+    }
+> {
+  return invokeCalls.flatMap((call) => {
+    if (call[0] !== "window-session-view:tab-remove") return [];
+    return [
+      call[1] as
+        | string
+        | {
+            tabId?: string;
+            preferredActiveLeafId?: string | null;
+            preferredActiveTabId?: string | null;
+          },
+    ];
   });
 }
 
@@ -1857,53 +1956,60 @@ export function recordSessionViewMutation(
     const tab = next.tabsById[tabId]!;
     const nextPlacement = placement(next, tabId);
     if (!previousTabIds.has(tabId)) {
-      invokeCalls.push(["window-session-view:tab-create", {
-        sessionId: next.sessionId,
-        panelId: nextPlacement?.panelId ?? "right",
-        targetLeafId: nextPlacement?.leafId,
-        clientTabId: tab.id,
-        kind: tab.kind,
-        title: tab.titleSnapshot,
-        config: tab.kind === "browser"
-          ? {
-              projectId: null,
-              ...tab.config,
-              browserTabId: undefined,
-            }
-          : tab.config,
-        ...(tab.kind === "browser" ? { browserTabId: tab.config.browserTabId } : {}),
-      }]);
+      invokeCalls.push([
+        "window-session-view:tab-create",
+        {
+          sessionId: next.sessionId,
+          panelId: nextPlacement?.panelId ?? "right",
+          targetLeafId: nextPlacement?.leafId,
+          clientTabId: tab.id,
+          kind: tab.kind,
+          title: tab.titleSnapshot,
+          config:
+            tab.kind === "browser"
+              ? {
+                  projectId: null,
+                  ...tab.config,
+                  browserTabId: undefined,
+                }
+              : tab.config,
+          ...(tab.kind === "browser" ? { browserTabId: tab.config.browserTabId } : {}),
+        },
+      ]);
       continue;
     }
     const previousTab = previous.tabsById[tabId]!;
     if (JSON.stringify(previousTab) !== JSON.stringify(tab)) {
-      invokeCalls.push(["window-session-view:tab-update", tabId, {
-        ...(previousTab.titleSnapshot === tab.titleSnapshot
-          ? {}
-          : { title: tab.titleSnapshot }),
-        ...(JSON.stringify(previousTab.config) === JSON.stringify(tab.config)
-          ? {}
-          : { config: tab.config }),
-        ...(previousTab.stateKey === tab.stateKey
-          ? {}
-          : { stateKey: tab.stateKey }),
-        ...(JSON.stringify(previousTab.state) === JSON.stringify(tab.state)
-          ? {}
-          : { state: tab.state }),
-      }]);
+      invokeCalls.push([
+        "window-session-view:tab-update",
+        tabId,
+        {
+          ...(previousTab.titleSnapshot === tab.titleSnapshot ? {} : { title: tab.titleSnapshot }),
+          ...(JSON.stringify(previousTab.config) === JSON.stringify(tab.config)
+            ? {}
+            : { config: tab.config }),
+          ...(previousTab.stateKey === tab.stateKey ? {} : { stateKey: tab.stateKey }),
+          ...(JSON.stringify(previousTab.state) === JSON.stringify(tab.state)
+            ? {}
+            : { state: tab.state }),
+        },
+      ]);
     }
     const previousPlacement = placement(previous, tabId);
     if (
-      previousPlacement
-      && nextPlacement
-      && JSON.stringify(previousPlacement) !== JSON.stringify(nextPlacement)
+      previousPlacement &&
+      nextPlacement &&
+      JSON.stringify(previousPlacement) !== JSON.stringify(nextPlacement)
     ) {
-      invokeCalls.push(["window-session-view:tab-move", {
-        tabId,
-        targetPanelId: nextPlacement.panelId,
-        targetLeafId: nextPlacement.leafId,
-        targetIndex: nextPlacement.index,
-      }]);
+      invokeCalls.push([
+        "window-session-view:tab-move",
+        {
+          tabId,
+          targetPanelId: nextPlacement.panelId,
+          targetLeafId: nextPlacement.leafId,
+          targetIndex: nextPlacement.index,
+        },
+      ]);
     }
   }
 
@@ -1912,13 +2018,17 @@ export function recordSessionViewMutation(
     const previousPlacement = placement(previous, tabId);
     const panelId = previousPlacement?.panelId ?? "right";
     const activeLeafId = next.panels[panelId].layout.activeLeafId;
-    const activeLeaf = listWorkbenchPanelLeaves(next.panels[panelId].layout)
-      .find((leaf) => leaf.id === activeLeafId);
-    invokeCalls.push(["window-session-view:tab-remove", {
-      tabId,
-      preferredActiveLeafId: activeLeafId,
-      preferredActiveTabId: activeLeaf?.activeTabId ?? null,
-    }]);
+    const activeLeaf = listWorkbenchPanelLeaves(next.panels[panelId].layout).find(
+      (leaf) => leaf.id === activeLeafId,
+    );
+    invokeCalls.push([
+      "window-session-view:tab-remove",
+      {
+        tabId,
+        preferredActiveLeafId: activeLeafId,
+        preferredActiveTabId: activeLeaf?.activeTabId ?? null,
+      },
+    ]);
   }
 
   for (const panelId of ["right", "bottom"] as const) {
@@ -1933,12 +2043,7 @@ export function recordSessionViewMutation(
         : { size: nextPanel.size }),
     };
     if (Object.keys(panelPatch).length > 0) {
-      invokeCalls.push([
-        "window-session-view:panel-patch",
-        next.sessionId,
-        panelId,
-        panelPatch,
-      ]);
+      invokeCalls.push(["window-session-view:panel-patch", next.sessionId, panelId, panelPatch]);
     }
 
     const previousLeaves = listWorkbenchPanelLeaves(previousPanel.layout);
@@ -1948,42 +2053,49 @@ export function recordSessionViewMutation(
       if (!previousLeaf) continue;
       if (JSON.stringify(previousLeaf.tabIds) === JSON.stringify(nextLeaf.tabIds)) continue;
       if (
-        previousLeaf.tabIds.length !== nextLeaf.tabIds.length
-        || previousLeaf.tabIds.some((tabId) => !nextLeaf.tabIds.includes(tabId))
+        previousLeaf.tabIds.length !== nextLeaf.tabIds.length ||
+        previousLeaf.tabIds.some((tabId) => !nextLeaf.tabIds.includes(tabId))
       ) {
         continue;
       }
-      invokeCalls.push(["window-session-view:tab-reorder", {
-        sessionId: next.sessionId,
-        panelId,
-        leafId: nextLeaf.id,
-        orderedTabIds: nextLeaf.tabIds,
-      }]);
+      invokeCalls.push([
+        "window-session-view:tab-reorder",
+        {
+          sessionId: next.sessionId,
+          panelId,
+          leafId: nextLeaf.id,
+          orderedTabIds: nextLeaf.tabIds,
+        },
+      ]);
     }
     if (nextLeaves.length > previousLeaves.length) {
-      invokeCalls.push(["window-session-view:ensure-right-leaf", {
-        sessionId: next.sessionId,
-        panelId,
-        sourceLeafId: previousPanel.layout.activeLeafId,
-      }]);
+      invokeCalls.push([
+        "window-session-view:ensure-right-leaf",
+        {
+          sessionId: next.sessionId,
+          panelId,
+          sourceLeafId: previousPanel.layout.activeLeafId,
+        },
+      ]);
     }
-    const nextActiveLeaf = nextLeaves.find(
-      (leaf) => leaf.id === nextPanel.layout.activeLeafId,
-    );
+    const nextActiveLeaf = nextLeaves.find((leaf) => leaf.id === nextPanel.layout.activeLeafId);
     const previousActiveLeaf = previousLeaves.find(
       (leaf) => leaf.id === previousPanel.layout.activeLeafId,
     );
     if (
-      previousPanel.layout.activeLeafId !== nextPanel.layout.activeLeafId
-      || previousActiveLeaf?.activeTabId !== nextActiveLeaf?.activeTabId
-      || previous.lastFocusedPanelId !== next.lastFocusedPanelId
+      previousPanel.layout.activeLeafId !== nextPanel.layout.activeLeafId ||
+      previousActiveLeaf?.activeTabId !== nextActiveLeaf?.activeTabId ||
+      previous.lastFocusedPanelId !== next.lastFocusedPanelId
     ) {
-      invokeCalls.push(["window-session-view:panel-activate", {
-        sessionId: next.sessionId,
-        panelId,
-        leafId: nextPanel.layout.activeLeafId,
-        tabId: nextActiveLeaf?.activeTabId ?? null,
-      }]);
+      invokeCalls.push([
+        "window-session-view:panel-activate",
+        {
+          sessionId: next.sessionId,
+          panelId,
+          leafId: nextPanel.layout.activeLeafId,
+          tabId: nextActiveLeaf?.activeTabId ?? null,
+        },
+      ]);
     }
   }
 }
@@ -2014,18 +2126,23 @@ export function getSidebarProjectGroup(section: HTMLElement, projectId: string):
 }
 
 export function getThreadRowTitles(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll("[data-app-action-sidebar-thread-row]"))
-    .map((row) => row.getAttribute("data-app-action-sidebar-thread-title") ?? "");
+  return Array.from(container.querySelectorAll("[data-app-action-sidebar-thread-row]")).map(
+    (row) => row.getAttribute("data-app-action-sidebar-thread-title") ?? "",
+  );
 }
 
 export function getBottomPanelContentSizer(container: HTMLElement): HTMLElement {
-  const sizer = Array.from(container.querySelectorAll<HTMLElement>('[style*="min-height"]'))
-    .find((element) => element.getAttribute("style")?.includes("height:"));
+  const sizer = Array.from(container.querySelectorAll<HTMLElement>('[style*="min-height"]')).find(
+    (element) => element.getAttribute("style")?.includes("height:"),
+  );
   if (!sizer) throw new Error("Expected bottom panel content sizer");
   return sizer;
 }
 
-export function appendMockNfmEditor(container: HTMLElement): { root: HTMLElement; content: HTMLElement } {
+export function appendMockNfmEditor(container: HTMLElement): {
+  root: HTMLElement;
+  content: HTMLElement;
+} {
   const root = document.createElement("div");
   root.className = "nfm-editor";
   const content = document.createElement("div");
@@ -2101,16 +2218,17 @@ export function renderWorkbench({
   };
   initialSelectedSessionId?: string | null;
   workbenchCommandRequest?: WorkbenchCommandRequest | null;
-  pendingViewDeepLinkOpen?: ComponentProps<
-    typeof WorkbenchShell
-  >["pendingViewDeepLinkOpen"];
+  pendingViewDeepLinkOpen?: ComponentProps<typeof WorkbenchShell>["pendingViewDeepLinkOpen"];
   onNavigationStateChange?: ComponentProps<typeof WorkbenchShell>["onNavigationStateChange"];
   cardGetOverride?: ((projectId: string, pageId: string) => Promise<unknown> | unknown) | null;
-  ownershipPathsByPage?: Record<string, ReadonlyArray<{
-    pageId: string;
-    title: string;
-    lifecycle: "active" | "archived";
-  }>>;
+  ownershipPathsByPage?: Record<
+    string,
+    ReadonlyArray<{
+      pageId: string;
+      title: string;
+      lifecycle: "active" | "archived";
+    }>
+  >;
   scheduledAutomations?: CodexScheduledAutomation[];
   automationInboxItems?: CodexAutomationInboxItem[];
   worktreeEnvironmentOptionsByProject?: Record<string, WorktreeEnvironmentOption[]>;
@@ -2120,26 +2238,15 @@ export function renderWorkbench({
   defaultDraftSessionIdsByScope?: Readonly<Record<string, string>>;
   initialWindowLayoutSnapshot?: WorkbenchLayoutSnapshot;
 } = {}) {
-  const resolvedInitialSelectedSessionId = initialSelectedSessionId === undefined
-    ? Object.values(sessionsByProject).flat()[0]?.id
-      ?? projectlessSessions[0]?.id
-      ?? null
-    : initialSelectedSessionId;
-  const asPageDetailResult = (
-    value: unknown,
-    projectId: string,
-    pageId: string,
-  ): unknown => {
+  const resolvedInitialSelectedSessionId =
+    initialSelectedSessionId === undefined
+      ? (Object.values(sessionsByProject).flat()[0]?.id ?? projectlessSessions[0]?.id ?? null)
+      : initialSelectedSessionId;
+  const asPageDetailResult = (value: unknown, projectId: string, pageId: string): unknown => {
     if (value instanceof Promise) {
-      return value.then((resolved) =>
-        asPageDetailResult(resolved, projectId, pageId),
-      );
+      return value.then((resolved) => asPageDetailResult(resolved, projectId, pageId));
     }
-    if (
-      value &&
-      typeof value === "object" &&
-      "ok" in value
-    ) {
+    if (value && typeof value === "object" && "ok" in value) {
       return value;
     }
     if (!value) {
@@ -2154,41 +2261,41 @@ export function renderWorkbench({
     }
     const row = value as Record<string, unknown>;
     const standalone = row.standalone === true;
-    const result = buildPageDetailStoryResult(projectId, {
-      id: pageId,
-      pageKey: typeof row.pageKey === "string" ? row.pageKey : null,
-      status: (typeof row.status === "string" ? row.status : "triage") as "triage",
-      archived: false,
-      title: typeof row.title === "string" ? row.title : pageId,
-      richTitle: [],
-      description: typeof row.description === "string" ? row.description : "",
-      priority: row.priority as never,
-      estimate: row.estimate as never,
-      tags: Array.isArray(row.tags) ? row.tags as string[] : [],
-      dueDate: row.dueDate instanceof Date ? row.dueDate : undefined,
-      scheduledStart: row.scheduledStart instanceof Date
-        ? row.scheduledStart
-        : undefined,
-      scheduledEnd: row.scheduledEnd instanceof Date ? row.scheduledEnd : undefined,
-      isAllDay: Boolean(row.isAllDay),
-      recurrence: row.recurrence as never,
-      reminders: Array.isArray(row.reminders) ? row.reminders as never : [],
-      scheduleTimezone: row.scheduleTimezone as string | undefined,
-      assignee: row.assignee as string | undefined,
-      runInTarget: row.runInTarget as never,
-      runInLocalPath: row.runInLocalPath as string | undefined,
-      runInBaseBranch: row.runInBaseBranch as string | undefined,
-      runInWorktreePath: row.runInWorktreePath as string | undefined,
-      runInEnvironmentPath: row.runInEnvironmentPath as string | undefined,
-      revision: typeof row.revision === "number" ? row.revision : 1,
-      created: row.created instanceof Date
-        ? row.created
-        : new Date("2026-06-07T00:00:00.000Z"),
-      order: 0,
-    }, {
-      libraryId: "library:test",
-      storeEpoch: "epoch:test",
-    });
+    const result = buildPageDetailStoryResult(
+      projectId,
+      {
+        id: pageId,
+        pageKey: typeof row.pageKey === "string" ? row.pageKey : null,
+        status: (typeof row.status === "string" ? row.status : "triage") as "triage",
+        archived: false,
+        title: typeof row.title === "string" ? row.title : pageId,
+        richTitle: [],
+        description: typeof row.description === "string" ? row.description : "",
+        priority: row.priority as never,
+        estimate: row.estimate as never,
+        tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+        dueDate: row.dueDate instanceof Date ? row.dueDate : undefined,
+        scheduledStart: row.scheduledStart instanceof Date ? row.scheduledStart : undefined,
+        scheduledEnd: row.scheduledEnd instanceof Date ? row.scheduledEnd : undefined,
+        isAllDay: Boolean(row.isAllDay),
+        recurrence: row.recurrence as never,
+        reminders: Array.isArray(row.reminders) ? (row.reminders as never) : [],
+        scheduleTimezone: row.scheduleTimezone as string | undefined,
+        assignee: row.assignee as string | undefined,
+        runInTarget: row.runInTarget as never,
+        runInLocalPath: row.runInLocalPath as string | undefined,
+        runInBaseBranch: row.runInBaseBranch as string | undefined,
+        runInWorktreePath: row.runInWorktreePath as string | undefined,
+        runInEnvironmentPath: row.runInEnvironmentPath as string | undefined,
+        revision: typeof row.revision === "number" ? row.revision : 1,
+        created: row.created instanceof Date ? row.created : new Date("2026-06-07T00:00:00.000Z"),
+        order: 0,
+      },
+      {
+        libraryId: "library:test",
+        storeEpoch: "epoch:test",
+      },
+    );
     if (!standalone || !result.ok) return result;
     return {
       ...result,
@@ -2207,12 +2314,11 @@ export function renderWorkbench({
   };
   const projectlessSessionStateKey = "__projectless__";
   let projectState = projects;
-  let sessionState = projectlessSessions.length > 0
-    ? { ...sessionsByProject, [projectlessSessionStateKey]: projectlessSessions }
-    : sessionsByProject;
-  const defaultDraftSessionIds = new Map(
-    Object.entries(defaultDraftSessionIdsByScope),
-  );
+  let sessionState =
+    projectlessSessions.length > 0
+      ? { ...sessionsByProject, [projectlessSessionStateKey]: projectlessSessions }
+      : sessionsByProject;
+  const defaultDraftSessionIds = new Map(Object.entries(defaultDraftSessionIdsByScope));
   const createdSessionCountsByScope = new Map<string, number>();
   const createMockSession = (input: {
     projectId: string | null;
@@ -2220,16 +2326,15 @@ export function renderWorkbench({
   }): ProjectSession => {
     const sessionStateKey = input.projectId ?? projectlessSessionStateKey;
     const existingSessions = sessionState[sessionStateKey] ?? [];
-    const shiftedSessions = existingSessions.map((session) => (
-      session.order >= 0 ? { ...session, order: session.order + 1 } : session
-    ));
+    const shiftedSessions = existingSessions.map((session) =>
+      session.order >= 0 ? { ...session, order: session.order + 1 } : session,
+    );
     const createdSessionSequence = (createdSessionCountsByScope.get(sessionStateKey) ?? 0) + 1;
     createdSessionCountsByScope.set(sessionStateKey, createdSessionSequence);
     const createdIdBase = `session:${input.projectId ?? "projectless"}:created`;
     const session = makeSession({
-      id: createdSessionSequence === 1
-        ? createdIdBase
-        : `${createdIdBase}:${createdSessionSequence}`,
+      id:
+        createdSessionSequence === 1 ? createdIdBase : `${createdIdBase}:${createdSessionSequence}`,
       projectId: input.projectId,
       noThreadFallbackTitle: input.noThreadFallbackTitle ?? "New chat",
       displayTitle: input.noThreadFallbackTitle ?? "New chat",
@@ -2251,10 +2356,15 @@ export function renderWorkbench({
     pinnedThreadIds: sidebarItemState.filter((item) => item.pinned).map((item) => item.threadId),
     projectAssignments: Object.fromEntries(
       sidebarItemState
-        .filter((item): item is CodexSidebarThreadItem & { projectId: string } => typeof item.projectId === "string")
+        .filter(
+          (item): item is CodexSidebarThreadItem & { projectId: string } =>
+            typeof item.projectId === "string",
+        )
         .map((item) => [item.threadId, item.projectId]),
     ),
-    projectlessThreadIds: sidebarItemState.filter((item) => item.projectless).map((item) => item.threadId),
+    projectlessThreadIds: sidebarItemState
+      .filter((item) => item.projectless)
+      .map((item) => item.threadId),
     generatedAt: 1,
   });
   mockInvokeImpl = async (channel, ...args) => {
@@ -2289,21 +2399,22 @@ export function renderWorkbench({
             return false;
           })
         : undefined;
-      const value = request.read?.mode === "metadata"
-        ? { kind: "metadata" as const }
-        : request.read?.mode === "path"
-          ? {
-              kind: "path" as const,
-              target,
-              nodes: pathNode ? [pathNode] : [],
-            }
-          : {
-              kind: "standalone_roots" as const,
-              items: libraryRoots.filter((node) => node.kind !== "view"),
-              nextCursor: null,
-              hasMore: false,
-              total: libraryRoots.length,
-            };
+      const value =
+        request.read?.mode === "metadata"
+          ? { kind: "metadata" as const }
+          : request.read?.mode === "path"
+            ? {
+                kind: "path" as const,
+                target,
+                nodes: pathNode ? [pathNode] : [],
+              }
+            : {
+                kind: "standalone_roots" as const,
+                items: libraryRoots.filter((node) => node.kind !== "view"),
+                nextCursor: null,
+                hasMore: false,
+                total: libraryRoots.length,
+              };
       return {
         ok: true,
         value: {
@@ -2401,29 +2512,33 @@ export function renderWorkbench({
         query?: string;
         limit?: number;
       };
-      const results = input.projectIds?.includes("beta")
-        && input.query?.toLowerCase().includes("beta")
-        ? [{
-            projectId: "beta",
-            pageId: "card-beta",
-            pageKey: "BETA-1",
-            title: "Beta Card",
-            status: "build" as const,
-            priority: null,
-            tags: [],
-            assignee: null,
-            locationLabel: "Beta / Build",
-            titleParts: [],
-            excerpt: "Beta Card",
-            excerptParts: [],
-            matches: [{
-              source: "title" as const,
-              quality: "exact" as const,
-              parts: [{ text: "Beta Card", highlighted: true }],
-            }],
-            updatedAt: "2026-08-14T00:00:00.000Z",
-          }]
-        : [];
+      const results =
+        input.projectIds?.includes("beta") && input.query?.toLowerCase().includes("beta")
+          ? [
+              {
+                projectId: "beta",
+                pageId: "card-beta",
+                pageKey: "BETA-1",
+                title: "Beta Card",
+                status: "build" as const,
+                priority: null,
+                tags: [],
+                assignee: null,
+                locationLabel: "Beta / Build",
+                titleParts: [],
+                excerpt: "Beta Card",
+                excerptParts: [],
+                matches: [
+                  {
+                    source: "title" as const,
+                    quality: "exact" as const,
+                    parts: [{ text: "Beta Card", highlighted: true }],
+                  },
+                ],
+                updatedAt: "2026-08-14T00:00:00.000Z",
+              },
+            ]
+          : [];
       const snapshot: PageSearchSnapshot = {
         libraryId: "library:test",
         storeEpoch: "epoch:test",
@@ -2472,9 +2587,11 @@ export function renderWorkbench({
     }
     if (channel === "project-sessions:get") {
       const sessionId = String(args[0]);
-      return Object.values(sessionState)
-        .flat()
-        .find((session) => session.id === sessionId) ?? null;
+      return (
+        Object.values(sessionState)
+          .flat()
+          .find((session) => session.id === sessionId) ?? null
+      );
     }
     if (channel === "project-sessions:reorder") {
       const projectId = args[0] === null ? projectlessSessionStateKey : String(args[0]);
@@ -2636,15 +2753,20 @@ export function renderWorkbench({
         updatedAt: 400,
       };
       scheduledAutomations = scheduledAutomations.some((automation) => automation.id === saved.id)
-        ? scheduledAutomations.map((automation) => (automation.id === saved.id ? saved : automation))
+        ? scheduledAutomations.map((automation) =>
+            automation.id === saved.id ? saved : automation,
+          )
         : [...scheduledAutomations, saved];
       return { item: saved };
     }
     if (channel === "codex:scheduled-automations:delete") {
       const automationId = String((args[0] as { id?: string } | undefined)?.id ?? "");
-      const item = scheduledAutomations.find((automation) => automation.id === automationId) ?? null;
+      const item =
+        scheduledAutomations.find((automation) => automation.id === automationId) ?? null;
       const previousLength = scheduledAutomations.length;
-      scheduledAutomations = scheduledAutomations.filter((automation) => automation.id !== automationId);
+      scheduledAutomations = scheduledAutomations.filter(
+        (automation) => automation.id !== automationId,
+      );
       return {
         item,
         success: scheduledAutomations.length !== previousLength || item === null,
@@ -2692,11 +2814,13 @@ export function renderWorkbench({
       sessionState = Object.fromEntries(
         Object.entries(sessionState).map(([projectId, sessions]) => [
           projectId,
-          sortProjectSessionsForTest(sessions.map((session) =>
-            session.thread?.threadId === threadId
-              ? { ...session, pinned: nextPinned, pinnedOrder: nextPinnedOrder }
-              : session
-          )),
+          sortProjectSessionsForTest(
+            sessions.map((session) =>
+              session.thread?.threadId === threadId
+                ? { ...session, pinned: nextPinned, pinnedOrder: nextPinnedOrder }
+                : session,
+            ),
+          ),
         ]),
       );
       return {
@@ -2713,72 +2837,71 @@ export function renderWorkbench({
     if (channel === "database:view-window:get") {
       const projectId = String(args[0] ?? "alpha");
       const viewId = projectId === "beta" ? "view:beta" : "view:alpha";
-      const dataSourceId = projectId === "beta"
-        ? "data-source:beta"
-        : "data-source:alpha";
-      const board = projectId === "beta"
-        ? {
-            columns: [
-              {
-                id: "build",
-                name: "Build",
-                cards: [
-                  {
-                    id: "card-beta",
-                    projectId: "beta",
-                    status: "build",
-                    title: "Beta Card",
-                    tags: [],
-                    archived: false,
-                    created: new Date("2026-06-07T00:00:00.000Z"),
-                    order: 0,
-                    revision: 1,
-                    descriptionPreview: "",
-                    descriptionLength: 0,
-                    hasDescription: false,
-                  },
-                ],
-              },
-            ],
-          }
-        : {
-            columns: [
-              {
-                id: "build",
-                name: "Build",
-                cards: [
-                  {
-                    id: "card-1",
-                    projectId: "alpha",
-                    status: "build",
-                    title: "Card One",
-                    tags: [],
-                    archived: false,
-                    created: new Date("2026-06-07T00:00:00.000Z"),
-                    order: 0,
-                    revision: 1,
-                    descriptionPreview: "",
-                    descriptionLength: 0,
-                    hasDescription: false,
-                  },
-                  {
-                    id: "card-2",
-                    projectId: "alpha",
-                    status: "build",
-                    title: "Card Two",
-                    tags: [],
-                    archived: false,
-                    created: new Date("2026-06-07T00:00:00.000Z"),
-                    order: 1,
-                    revision: 1,
-                    descriptionPreview: "",
-                    descriptionLength: 0,
-                    hasDescription: false,
-                  },
-                ],
-              },
-            ],
-          };
+      const dataSourceId = projectId === "beta" ? "data-source:beta" : "data-source:alpha";
+      const board =
+        projectId === "beta"
+          ? {
+              columns: [
+                {
+                  id: "build",
+                  name: "Build",
+                  cards: [
+                    {
+                      id: "card-beta",
+                      projectId: "beta",
+                      status: "build",
+                      title: "Beta Card",
+                      tags: [],
+                      archived: false,
+                      created: new Date("2026-06-07T00:00:00.000Z"),
+                      order: 0,
+                      revision: 1,
+                      descriptionPreview: "",
+                      descriptionLength: 0,
+                      hasDescription: false,
+                    },
+                  ],
+                },
+              ],
+            }
+          : {
+              columns: [
+                {
+                  id: "build",
+                  name: "Build",
+                  cards: [
+                    {
+                      id: "card-1",
+                      projectId: "alpha",
+                      status: "build",
+                      title: "Card One",
+                      tags: [],
+                      archived: false,
+                      created: new Date("2026-06-07T00:00:00.000Z"),
+                      order: 0,
+                      revision: 1,
+                      descriptionPreview: "",
+                      descriptionLength: 0,
+                      hasDescription: false,
+                    },
+                    {
+                      id: "card-2",
+                      projectId: "alpha",
+                      status: "build",
+                      title: "Card Two",
+                      tags: [],
+                      archived: false,
+                      created: new Date("2026-06-07T00:00:00.000Z"),
+                      order: 1,
+                      revision: 1,
+                      descriptionPreview: "",
+                      descriptionLength: 0,
+                      hasDescription: false,
+                    },
+                  ],
+                },
+              ],
+            };
       const cards = board.columns.flatMap((column) => column.cards);
       const databaseId = "database:test:primary";
       const database = {
@@ -2900,53 +3023,67 @@ export function renderWorkbench({
         }
       }
       if (pageId === "card-beta") {
-        return asPageDetailResult({
-          id: "card-beta",
-          projectId: "beta",
+        return asPageDetailResult(
+          {
+            id: "card-beta",
+            projectId: "beta",
+            status: "build",
+            title: "Beta Card",
+            description: "",
+            tags: [],
+            archived: false,
+            created: new Date("2026-06-07T00:00:00.000Z"),
+            order: 0,
+            revision: 1,
+          },
+          projectId,
+          pageId,
+        );
+      }
+      if (pageId === "card-2") {
+        return asPageDetailResult(
+          {
+            id: "card-2",
+            projectId: "alpha",
+            status: "build",
+            title: "Card Two",
+            description: "",
+            tags: [],
+            archived: false,
+            created: new Date("2026-06-07T00:00:00.000Z"),
+            order: 1,
+            revision: 1,
+          },
+          projectId,
+          pageId,
+        );
+      }
+      if (pageId !== "card-1") {
+        return asPageDetailResult(null, projectId, pageId);
+      }
+      return asPageDetailResult(
+        {
+          id: "card-1",
+          projectId: "alpha",
           status: "build",
-          title: "Beta Card",
+          title: "Card One",
           description: "",
           tags: [],
           archived: false,
           created: new Date("2026-06-07T00:00:00.000Z"),
           order: 0,
           revision: 1,
-        }, projectId, pageId);
-      }
-      if (pageId === "card-2") {
-        return asPageDetailResult({
-          id: "card-2",
-          projectId: "alpha",
-          status: "build",
-          title: "Card Two",
-          description: "",
-          tags: [],
-          archived: false,
-          created: new Date("2026-06-07T00:00:00.000Z"),
-          order: 1,
-          revision: 1,
-        }, projectId, pageId);
-      }
-      if (pageId !== "card-1") {
-        return asPageDetailResult(null, projectId, pageId);
-      }
-      return asPageDetailResult({
-        id: "card-1",
-        projectId: "alpha",
-        status: "build",
-        title: "Card One",
-        description: "",
-        tags: [],
-        archived: false,
-        created: new Date("2026-06-07T00:00:00.000Z"),
-        order: 0,
-        revision: 1,
-      }, projectId, pageId);
+        },
+        projectId,
+        pageId,
+      );
     }
     if (channel === "project-sessions:update") {
       const sessionId = String(args[0]);
       const input = (args[1] ?? {}) as Partial<ProjectSession>;
-      const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.id === sessionId);
       if (!session) return null;
       const updated = { ...session, ...input };
       sessionState = replaceSession(sessionState, updated);
@@ -2955,7 +3092,9 @@ export function renderWorkbench({
     if (channel === "project-sessions:rename") {
       const sessionId = String(args[0]);
       const input = (args[1] ?? {}) as { title?: string };
-      const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.id === sessionId);
       if (!session) return null;
       const nextTitle = normalizeCodexManualThreadTitle(input.title ?? "");
       if (!nextTitle) return session;
@@ -2979,14 +3118,17 @@ export function renderWorkbench({
     if (channel === "project-sessions:set-pinned") {
       const sessionId = String(args[0]);
       const input = (args[1] ?? {}) as { pinned?: boolean };
-      const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.id === sessionId);
       if (!session) return null;
       if (session.projectId === null) return null;
       const projectId = session.projectId;
       const projectSessions = sessionState[projectId] ?? [];
       const nextPinned = input.pinned === true;
       const nextPinnedOrder = nextPinned
-        ? session.pinnedOrder ?? Math.max(-1, ...projectSessions.map((item) => item.pinnedOrder ?? -1)) + 1
+        ? (session.pinnedOrder ??
+          Math.max(-1, ...projectSessions.map((item) => item.pinnedOrder ?? -1)) + 1)
         : null;
       const updated = {
         ...session,
@@ -2996,14 +3138,16 @@ export function renderWorkbench({
       sessionState = {
         ...sessionState,
         [projectId]: sortProjectSessionsForTest(
-          projectSessions.map((item) => item.id === updated.id ? updated : item),
+          projectSessions.map((item) => (item.id === updated.id ? updated : item)),
         ),
       };
       return updated;
     }
     if (channel === "project-sessions:archive") {
       const sessionId = String(args[0]);
-      const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.id === sessionId);
       if (!session) return null;
       const updated = {
         ...session,
@@ -3012,18 +3156,16 @@ export function renderWorkbench({
         pinned: false,
         pinnedOrder: null,
         unread: false,
-        thread: session.thread
-          ? { ...session.thread, archived: true }
-          : session.thread,
+        thread: session.thread ? { ...session.thread, archived: true } : session.thread,
       };
       sessionState = replaceSession(sessionState, updated);
       const scope = session.projectId ?? projectlessSessionStateKey;
       if (defaultDraftSessionIds.get(scope) === sessionId) {
         defaultDraftSessionIds.delete(scope);
       }
-      sidebarItemState = sidebarItemState.filter((item) => (
-        item.sessionId !== sessionId && item.threadId !== session.thread?.threadId
-      ));
+      sidebarItemState = sidebarItemState.filter(
+        (item) => item.sessionId !== sessionId && item.threadId !== session.thread?.threadId,
+      );
       return updated;
     }
     if (channel === "codex:thread:archive") {
@@ -3031,7 +3173,7 @@ export function renderWorkbench({
       sessionState = Object.fromEntries(
         Object.entries(sessionState).map(([projectId, sessions]) => [
           projectId,
-          sessions.map((session) => (
+          sessions.map((session) =>
             session.thread?.threadId === threadId
               ? {
                   ...session,
@@ -3042,8 +3184,8 @@ export function renderWorkbench({
                   unread: false,
                   thread: { ...session.thread, archived: true },
                 }
-              : session
-          )),
+              : session,
+          ),
         ]),
       );
       sidebarItemState = sidebarItemState.filter((item) => item.threadId !== threadId);
@@ -3053,7 +3195,9 @@ export function renderWorkbench({
       const sessionId = String(args[0]);
       const panelId = args[1] === "bottom" ? "bottom" : "right";
       const input = (args[2] ?? {}) as Partial<ProjectSession["panels"]["right"]>;
-      const session = Object.values(sessionState).flat().find((item) => item.id === sessionId);
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.id === sessionId);
       if (!session) return null;
       const updated = {
         ...session,
@@ -3078,7 +3222,9 @@ export function renderWorkbench({
         panelId: WorkbenchTabProjection["panelId"];
         sourceLeafId: string;
       };
-      const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.id === input.sessionId);
       if (!session) return null;
       const panel = session.panels[input.panelId];
       const existingLeafId = findNearestWorkbenchPanelLeafToRight(panel.layout, input.sourceLeafId);
@@ -3114,7 +3260,9 @@ export function renderWorkbench({
         leafId?: string;
         tabId?: string | null;
       };
-      const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.id === input.sessionId);
       if (!session) return null;
       const panel = session.panels[input.panelId];
       const updated = {
@@ -3139,9 +3287,9 @@ export function renderWorkbench({
       const scope = projectId ?? projectlessSessionStateKey;
       const existingId = defaultDraftSessionIds.get(scope);
       const existing = existingId
-        ? (sessionState[scope] ?? []).find((session) => (
-            session.id === existingId && !session.archived && !session.thread
-          ))
+        ? (sessionState[scope] ?? []).find(
+            (session) => session.id === existingId && !session.archived && !session.thread,
+          )
         : null;
       if (existing) return existing;
       defaultDraftSessionIds.delete(scope);
@@ -3154,7 +3302,9 @@ export function renderWorkbench({
     }
     if (channel === "window-session-view:tab-create") {
       const input = (args[0] ?? {}) as WorkbenchTabCreateInput;
-      const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.id === input.sessionId);
       if (!session) return null;
       if (input.kind === "review") {
         const existing = session.tabs.find((tab) => tab.kind === input.kind);
@@ -3168,7 +3318,9 @@ export function renderWorkbench({
                 ...panel,
                 collapsed: false,
                 layout: makePanelLayout(
-                  session.tabs.filter((tab) => tab.panelId === existing.panelId).map((tab) => tab.id),
+                  session.tabs
+                    .filter((tab) => tab.panelId === existing.panelId)
+                    .map((tab) => tab.id),
                   existing.id,
                 ),
               },
@@ -3179,10 +3331,11 @@ export function renderWorkbench({
       }
       if (input.kind === "db_view" && "projectId" in input.config) {
         const inputProjectId = input.config.projectId;
-        const existing = session.tabs.find((tab) =>
-          tab.kind === "db_view"
-          && "projectId" in tab.config
-          && tab.config.projectId === inputProjectId
+        const existing = session.tabs.find(
+          (tab) =>
+            tab.kind === "db_view" &&
+            "projectId" in tab.config &&
+            tab.config.projectId === inputProjectId,
         );
         if (existing) {
           const panel = session.panels[existing.panelId];
@@ -3194,7 +3347,9 @@ export function renderWorkbench({
                 ...panel,
                 collapsed: false,
                 layout: makePanelLayout(
-                  session.tabs.filter((tab) => tab.panelId === existing.panelId).map((tab) => tab.id),
+                  session.tabs
+                    .filter((tab) => tab.panelId === existing.panelId)
+                    .map((tab) => tab.id),
                   existing.id,
                 ),
               },
@@ -3216,7 +3371,10 @@ export function renderWorkbench({
         order: session.tabs.filter((item) => item.panelId === panelId).length,
       });
       const tabs = [...session.tabs, tab];
-      const targetLeafId = input.targetLeafId ?? session.panels[panelId].layout.activeLeafId ?? firstPanelLeafId(session.panels[panelId].layout.root);
+      const targetLeafId =
+        input.targetLeafId ??
+        session.panels[panelId].layout.activeLeafId ??
+        firstPanelLeafId(session.panels[panelId].layout.root);
       sessionState = replaceSession(sessionState, {
         ...session,
         tabs,
@@ -3240,21 +3398,21 @@ export function renderWorkbench({
       if (!session) return null;
 
       const updatedTabs = session.tabs.map((tab) =>
-        tab.id === tabId
-          ? updateSessionTab(tab, input, "2026-06-07T00:00:00.000Z")
-          : tab,
+        tab.id === tabId ? updateSessionTab(tab, input, "2026-06-07T00:00:00.000Z") : tab,
       );
       const updatedSession = { ...session, tabs: updatedTabs };
       sessionState = replaceSession(sessionState, updatedSession);
       return updatedTabs.find((tab) => tab.id === tabId) ?? null;
     }
     if (channel === "window-session-view:tab-remove") {
-      const rawInput = args[0] as string | {
-        tabId?: string;
-        preferredActiveLeafId?: string | null;
-        preferredActiveTabId?: string | null;
-      };
-      const tabId = typeof rawInput === "string" ? rawInput : rawInput.tabId ?? "";
+      const rawInput = args[0] as
+        | string
+        | {
+            tabId?: string;
+            preferredActiveLeafId?: string | null;
+            preferredActiveTabId?: string | null;
+          };
+      const tabId = typeof rawInput === "string" ? rawInput : (rawInput.tabId ?? "");
       const session = Object.values(sessionState)
         .flat()
         .find((item) => item.tabs.some((tab) => tab.id === tabId));
@@ -3262,37 +3420,47 @@ export function renderWorkbench({
 
       const deletedTab = session.tabs.find((tab) => tab.id === tabId);
       const updatedTabs = session.tabs.filter((tab) => tab.id !== tabId);
-      const preferredActiveLeafId = typeof rawInput === "string" ? undefined : rawInput.preferredActiveLeafId;
-      const preferredActiveTabId = typeof rawInput === "string" ? undefined : rawInput.preferredActiveTabId;
+      const preferredActiveLeafId =
+        typeof rawInput === "string" ? undefined : rawInput.preferredActiveLeafId;
+      const preferredActiveTabId =
+        typeof rawInput === "string" ? undefined : rawInput.preferredActiveTabId;
       sessionState = replaceSession(sessionState, {
         ...session,
         tabs: updatedTabs,
         panels: {
           right: {
             ...session.panels.right,
-            layout: deletedTab?.panelId === "right"
-              ? removeWorkbenchPanelTab(session.panels.right.layout, tabId, {
-                preferredActiveLeafId,
-                preferredActiveTabId,
-              })
-              : session.panels.right.layout,
+            layout:
+              deletedTab?.panelId === "right"
+                ? removeWorkbenchPanelTab(session.panels.right.layout, tabId, {
+                    preferredActiveLeafId,
+                    preferredActiveTabId,
+                  })
+                : session.panels.right.layout,
           },
           bottom: {
             ...session.panels.bottom,
-            layout: deletedTab?.panelId === "bottom"
-              ? removeWorkbenchPanelTab(session.panels.bottom.layout, tabId, {
-                preferredActiveLeafId,
-                preferredActiveTabId,
-              })
-              : session.panels.bottom.layout,
+            layout:
+              deletedTab?.panelId === "bottom"
+                ? removeWorkbenchPanelTab(session.panels.bottom.layout, tabId, {
+                    preferredActiveLeafId,
+                    preferredActiveTabId,
+                  })
+                : session.panels.bottom.layout,
           },
         },
       });
       return true;
     }
     if (channel === "window-session-view:tab-reorder") {
-      const input = (args[0] ?? {}) as { sessionId: string; panelId: WorkbenchTabProjection["panelId"]; orderedTabIds: string[] };
-      const session = Object.values(sessionState).flat().find((item) => item.id === input.sessionId);
+      const input = (args[0] ?? {}) as {
+        sessionId: string;
+        panelId: WorkbenchTabProjection["panelId"];
+        orderedTabIds: string[];
+      };
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.id === input.sessionId);
       if (!session) return null;
       const panelTabs = session.tabs.filter((tab) => tab.panelId === input.panelId);
       const knownIds = new Set(panelTabs.map((tab) => tab.id));
@@ -3300,7 +3468,7 @@ export function renderWorkbench({
       const remaining = panelTabs.map((tab) => tab.id).filter((tabId) => !selected.includes(tabId));
       const finalOrder = [...selected, ...remaining];
       const updatedTabs = session.tabs.map((tab) =>
-        tab.panelId === input.panelId ? { ...tab, order: finalOrder.indexOf(tab.id) } : tab
+        tab.panelId === input.panelId ? { ...tab, order: finalOrder.indexOf(tab.id) } : tab,
       );
       const root = session.panels[input.panelId].layout.root;
       const updated = {
@@ -3310,7 +3478,10 @@ export function renderWorkbench({
           ...session.panels,
           [input.panelId]: {
             ...session.panels[input.panelId],
-            layout: makePanelLayout(finalOrder, root.type === "leaf" ? root.activeTabId : finalOrder[0] ?? null),
+            layout: makePanelLayout(
+              finalOrder,
+              root.type === "leaf" ? root.activeTabId : (finalOrder[0] ?? null),
+            ),
           },
         },
       };
@@ -3318,11 +3489,16 @@ export function renderWorkbench({
       return updated;
     }
     if (channel === "window-session-view:tab-move") {
-      const input = (args[0] ?? {}) as { tabId: string; targetPanelId: WorkbenchTabProjection["panelId"] };
-      const session = Object.values(sessionState).flat().find((item) => item.tabs.some((tab) => tab.id === input.tabId));
+      const input = (args[0] ?? {}) as {
+        tabId: string;
+        targetPanelId: WorkbenchTabProjection["panelId"];
+      };
+      const session = Object.values(sessionState)
+        .flat()
+        .find((item) => item.tabs.some((tab) => tab.id === input.tabId));
       if (!session) return null;
       const updatedTabs = session.tabs.map((tab) =>
-        tab.id === input.tabId ? { ...tab, panelId: input.targetPanelId, order: 0 } : tab
+        tab.id === input.tabId ? { ...tab, panelId: input.targetPanelId, order: 0 } : tab,
       );
       const rightIds = updatedTabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
       const bottomIds = updatedTabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
@@ -3330,8 +3506,15 @@ export function renderWorkbench({
         ...session,
         tabs: updatedTabs,
         panels: {
-          right: { ...session.panels.right, layout: makePanelLayout(rightIds, rightIds[0] ?? null) },
-          bottom: { ...session.panels.bottom, collapsed: false, layout: makePanelLayout(bottomIds, bottomIds[0] ?? null) },
+          right: {
+            ...session.panels.right,
+            layout: makePanelLayout(rightIds, rightIds[0] ?? null),
+          },
+          bottom: {
+            ...session.panels.bottom,
+            collapsed: false,
+            layout: makePanelLayout(bottomIds, bottomIds[0] ?? null),
+          },
         },
       };
       sessionState = replaceSession(sessionState, updated);
@@ -3394,22 +3577,25 @@ export function renderWorkbench({
     direction: WorkbenchNavigationDirection,
     source?: WorkbenchNavigationCommandSource,
   ) => void = () => undefined;
-  let requestPanelTabCycle: (
-    direction: WorkbenchPanelTabCycleDirection,
-  ) => void = () => undefined;
+  let requestPanelTabCycle: (direction: WorkbenchPanelTabCycleDirection) => void = () => undefined;
   let requestPanelTabClose: () => void = () => undefined;
   let requestSidebarToggle: (source: WorkbenchSidebarToggleCommandSource) => void = () => undefined;
   let requestWorkbenchCommand: (source: WorkbenchCommandSource) => void = () => undefined;
   let requestPageCreateCommand: (source: WorkbenchCommandSource) => void = () => undefined;
-  let openCommandPalette: (mode?: "root" | "chats" | "pages" | "files", initialQuery?: string) => void = () => undefined;
+  let openCommandPalette: (
+    mode?: "root" | "chats" | "pages" | "files",
+    initialQuery?: string,
+  ) => void = () => undefined;
   let replaceProjects: (projects: Project[]) => void = () => undefined;
   type TestSidebarState = NonNullable<ComponentProps<typeof WorkbenchShell>["sidebar"]>;
 
   function WorkbenchShellTestHarness() {
     const [renderedProjects, setRenderedProjects] = useState(projects);
     const sessionViewsBySessionId = Object.fromEntries(
-      [...Object.values(sessionsByProject).flat(), ...projectlessSessions]
-        .map((session) => [session.id, makeSessionViewFixture(session)]),
+      [...Object.values(sessionsByProject).flat(), ...projectlessSessions].map((session) => [
+        session.id,
+        makeSessionViewFixture(session),
+      ]),
     );
     const [sidebarState, setSidebarState] = useState<TestSidebarState>(() => ({
       collapsed: false,
@@ -3421,11 +3607,12 @@ export function renderWorkbench({
       },
     }));
     const commandPortRef = useRef<WorkbenchCommandPort | null>(null);
-    const [pendingViewOpen, setPendingViewOpen] = useState(
-      pendingViewDeepLinkOpen,
-    );
+    const [pendingViewOpen, setPendingViewOpen] = useState(pendingViewDeepLinkOpen);
     const initialWorkbenchCommandConsumedRef = useRef(false);
-    requestWorkbenchNavigation = (direction, source = direction === "back" ? "sidebar_back" : "sidebar_forward") => {
+    requestWorkbenchNavigation = (
+      direction,
+      source = direction === "back" ? "sidebar_back" : "sidebar_forward",
+    ) => {
       commandPortRef.current?.navigate(direction, source);
     };
     requestPanelTabCycle = (direction) => {
@@ -3454,29 +3641,27 @@ export function renderWorkbench({
       setRenderedProjects(nextProjects);
     };
     const initialWindowLayoutSnapshotRef = useRef(
-      initialWindowLayoutSnapshot
-      ?? WorkbenchLayoutSnapshotSchema.parse({
-        version: 4 as const,
-        location: resolvedInitialSelectedSessionId
-          ? {
-              kind: "session" as const,
-              activeProjectId: projects[0]?.id ?? null,
-              sessionId: resolvedInitialSelectedSessionId,
-            }
-          : {
-              kind: "empty" as const,
-              activeProjectId: projects[0]?.id ?? null,
-            },
-        databaseSearchByProject: searchByProject,
-        sessionViewsBySessionId,
-      }),
+      initialWindowLayoutSnapshot ??
+        WorkbenchLayoutSnapshotSchema.parse({
+          version: 4 as const,
+          location: resolvedInitialSelectedSessionId
+            ? {
+                kind: "session" as const,
+                activeProjectId: projects[0]?.id ?? null,
+                sessionId: resolvedInitialSelectedSessionId,
+              }
+            : {
+                kind: "empty" as const,
+                activeProjectId: projects[0]?.id ?? null,
+              },
+          databaseSearchByProject: searchByProject,
+          sessionViewsBySessionId,
+        }),
     );
     return (
       <WorkbenchShell
         windowSessionId="window-session:test"
-        initialWindowLayoutSnapshot={
-          initialWindowLayoutSnapshotRef.current
-        }
+        initialWindowLayoutSnapshot={initialWindowLayoutSnapshotRef.current}
         projects={renderedProjects}
         onSceneMutation={(owner, previous, next) => {
           if (owner.kind !== "session") return;
@@ -3505,7 +3690,10 @@ export function renderWorkbench({
         setSidebarWidth={(width) => {
           setSidebarState((current) => ({ ...current, width }));
         }}
-        setSidebarCollapsibleSectionCollapsed={(sectionId: SidebarCollapsibleSectionId, collapsed: boolean) => {
+        setSidebarCollapsibleSectionCollapsed={(
+          sectionId: SidebarCollapsibleSectionId,
+          collapsed: boolean,
+        ) => {
           setSidebarState((current) => ({
             ...current,
             collapsibleSections: {
@@ -3517,15 +3705,9 @@ export function renderWorkbench({
         }}
         onRegisterCommandPort={(port) => {
           commandPortRef.current = port;
-          if (
-            workbenchCommandRequest
-            && !initialWorkbenchCommandConsumedRef.current
-          ) {
+          if (workbenchCommandRequest && !initialWorkbenchCommandConsumedRef.current) {
             initialWorkbenchCommandConsumedRef.current = true;
-            port.execute(
-              workbenchCommandRequest.commandId,
-              workbenchCommandRequest.source,
-            );
+            port.execute(workbenchCommandRequest.commandId, workbenchCommandRequest.source);
           }
           return () => {
             if (commandPortRef.current !== port) return;
@@ -3652,32 +3834,48 @@ beforeEach(() => {
   setWindowInnerWidthForTest(1024);
   localStorage.clear();
   sessionStorage.clear();
-  delete (globalThis as {
-    __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
-  }).__lastDatabaseViewSurfaceProps;
-  delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-  delete (globalThis as {
-    __lastConnectedThreadComposerDockProps?: Record<string, unknown>;
-  }).__lastConnectedThreadComposerDockProps;
-  delete (globalThis as {
-    __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
-  }).__mockConnectedThreadStagePropsByThreadId;
-  delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
-  delete (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> }).__lastHistoryPanelProps;
+  delete (
+    globalThis as {
+      __lastDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }
+  ).__lastDatabaseViewSurfaceProps;
+  delete (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+    .__lastConnectedThreadStageProps;
+  delete (
+    globalThis as {
+      __lastConnectedThreadComposerDockProps?: Record<string, unknown>;
+    }
+  ).__lastConnectedThreadComposerDockProps;
+  delete (
+    globalThis as {
+      __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
+    }
+  ).__mockConnectedThreadStagePropsByThreadId;
+  delete (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> })
+    .__lastTerminalPanelProps;
+  delete (globalThis as { __lastHistoryPanelProps?: Record<string, unknown> })
+    .__lastHistoryPanelProps;
   delete (globalThis as { __lastPageStageProps?: Record<string, unknown> }).__lastPageStageProps;
-  delete (globalThis as {
-    __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
-  }).__lastWorkbenchDatabaseViewSurfaceProps;
-  delete (globalThis as {
-    __lastDbViewSessionTabProps?: Record<string, unknown>;
-  }).__lastDbViewSessionTabProps;
-  delete (globalThis as { __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>> }).__mockPageStagePropsByPageId;
+  delete (
+    globalThis as {
+      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+    }
+  ).__lastWorkbenchDatabaseViewSurfaceProps;
+  delete (
+    globalThis as {
+      __lastDbViewSessionTabProps?: Record<string, unknown>;
+    }
+  ).__lastDbViewSessionTabProps;
+  delete (globalThis as { __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>> })
+    .__mockPageStagePropsByPageId;
   delete (globalThis as { __mockPageStageHistoryClicks?: number }).__mockPageStageHistoryClicks;
   delete (globalThis as { __mockPageStageDeleteClicks?: number }).__mockPageStageDeleteClicks;
   delete (globalThis as { __mockPageStageMounts?: number }).__mockPageStageMounts;
   delete (globalThis as { __mockPageStageUnmounts?: number }).__mockPageStageUnmounts;
-  delete (globalThis as { __mockPageStageMountsByPageId?: Record<string, number> }).__mockPageStageMountsByPageId;
-  delete (globalThis as { __mockPageStageUnmountsByPageId?: Record<string, number> }).__mockPageStageUnmountsByPageId;
+  delete (globalThis as { __mockPageStageMountsByPageId?: Record<string, number> })
+    .__mockPageStageMountsByPageId;
+  delete (globalThis as { __mockPageStageUnmountsByPageId?: Record<string, number> })
+    .__mockPageStageUnmountsByPageId;
 });
 
 afterEach(() => {
@@ -3764,21 +3962,27 @@ export async function pointerDownAndSettle(element: HTMLElement): Promise<void> 
   await settleAsyncRender();
 }
 
-export function getFilesPreviewInteractionTarget(screen: ReturnType<typeof renderWorkbench>): HTMLElement {
-  return screen.container.querySelector<HTMLElement>("[data-workspace-files-session-id]")
-    ?? screen.container.querySelector<HTMLElement>("[data-source-viewer='true']")
-    ?? screen.queryByPlaceholderText("Filter files…")
-    ?? screen.getByText("No file or workspace folder is available.");
+export function getFilesPreviewInteractionTarget(
+  screen: ReturnType<typeof renderWorkbench>,
+): HTMLElement {
+  return (
+    screen.container.querySelector<HTMLElement>("[data-workspace-files-session-id]") ??
+    screen.container.querySelector<HTMLElement>("[data-source-viewer='true']") ??
+    screen.queryByPlaceholderText("Filter files…") ??
+    screen.getByText("No file or workspace folder is available.")
+  );
 }
 
 export function getLastTerminalPanelProps(): Record<string, unknown> {
-  const props = (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> }).__lastTerminalPanelProps;
+  const props = (globalThis as { __lastTerminalPanelProps?: Record<string, unknown> })
+    .__lastTerminalPanelProps;
   if (!props) throw new Error("Expected terminal panel props");
   return props;
 }
 
 export function getLastThreadStageActions(): Record<string, unknown> {
-  const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+  const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+    .__lastConnectedThreadStageProps;
   const actions = props?.actions;
   if (!actions || typeof actions !== "object") {
     throw new Error("Expected ConnectedThreadStage actions");
@@ -3822,20 +4026,20 @@ export function installShellBodyMeasurementForTest({
     instance: ResizeObserver;
     targets: Set<Element>;
   }>();
-  const makeRect = (targetWidth: number, targetHeight: number): DOMRect => ({
-    x: 0,
-    y: 0,
-    width: targetWidth,
-    height: targetHeight,
-    top: 0,
-    right: targetWidth,
-    bottom: targetHeight,
-    left: 0,
-    toJSON: () => ({}),
-  }) as DOMRect;
+  const makeRect = (targetWidth: number, targetHeight: number): DOMRect =>
+    ({
+      x: 0,
+      y: 0,
+      width: targetWidth,
+      height: targetHeight,
+      top: 0,
+      right: targetWidth,
+      bottom: targetHeight,
+      left: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
   const isMeasuredShellBody = (element: Element): boolean =>
-    element instanceof HTMLElement
-    && element.hasAttribute("data-app-shell-summary-layout");
+    element instanceof HTMLElement && element.hasAttribute("data-app-shell-summary-layout");
 
   Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", {
     configurable: true,
@@ -3885,10 +4089,13 @@ export function installShellBodyMeasurementForTest({
   return {
     flushResizeObservers: () => {
       for (const observer of observers) {
-        const entries = [...observer.targets].map((target) => ({
-          target,
-          contentRect: target.getBoundingClientRect(),
-        }) as ResizeObserverEntry);
+        const entries = [...observer.targets].map(
+          (target) =>
+            ({
+              target,
+              contentRect: target.getBoundingClientRect(),
+            }) as ResizeObserverEntry,
+        );
         if (entries.length === 0) continue;
         observer.callback(entries, observer.instance);
       }
@@ -3901,7 +4108,10 @@ export function installShellBodyMeasurementForTest({
         value: originalGetBoundingClientRect,
       });
       if (typeof originalResizeObserver === "undefined") {
-        Reflect.deleteProperty(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserver }, "ResizeObserver");
+        Reflect.deleteProperty(
+          globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserver },
+          "ResizeObserver",
+        );
         return;
       }
       Object.defineProperty(globalThis, "ResizeObserver", {
@@ -3915,28 +4125,27 @@ export function installShellBodyMeasurementForTest({
 
 export async function moveSidebarPointer(clientX: number, clientY = 80): Promise<void> {
   await act(async () => {
-    window.dispatchEvent(new MouseEvent("pointermove", {
-      clientX,
-      clientY,
-    }));
+    window.dispatchEvent(
+      new MouseEvent("pointermove", {
+        clientX,
+        clientY,
+      }),
+    );
     await Promise.resolve();
   });
   await settleAsyncRender();
 }
 
 export function getMountedSessionIds(container: HTMLElement): string[] {
-  return Array.from(container.querySelectorAll<HTMLElement>(
-    '[data-workbench-scene-owner^="session:"]',
-  )).map((element) => (
-    element.getAttribute("data-workbench-scene-owner")?.slice("session:".length)
-    ?? ""
-  ));
+  return Array.from(
+    container.querySelectorAll<HTMLElement>('[data-workbench-scene-owner^="session:"]'),
+  ).map(
+    (element) => element.getAttribute("data-workbench-scene-owner")?.slice("session:".length) ?? "",
+  );
 }
 
 export function getMountedSessionRoot(container: HTMLElement): HTMLElement {
-  const root = container.querySelector<HTMLElement>(
-    '[data-workbench-scene-owner^="session:"]',
-  );
+  const root = container.querySelector<HTMLElement>('[data-workbench-scene-owner^="session:"]');
   if (!root) throw new Error("Expected a mounted session root");
   return root;
 }
@@ -3950,10 +4159,14 @@ export async function selectSidebarSession(container: HTMLElement, title: string
   await settleAsyncRender();
 }
 
-export function getConnectedThreadStagePropsByThreadId(threadId: string): Record<string, unknown> | undefined {
-  return (globalThis as {
-    __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
-  }).__mockConnectedThreadStagePropsByThreadId?.[threadId];
+export function getConnectedThreadStagePropsByThreadId(
+  threadId: string,
+): Record<string, unknown> | undefined {
+  return (
+    globalThis as {
+      __mockConnectedThreadStagePropsByThreadId?: Record<string, Record<string, unknown>>;
+    }
+  ).__mockConnectedThreadStagePropsByThreadId?.[threadId];
 }
 
 export type WorkbenchShellTestScope =
@@ -3981,15 +4194,21 @@ export function setStartThreadForSessionResult(value: typeof startThreadForSessi
   startThreadForSessionResult = value;
 }
 
-export function setRequestThreadStreamSnapshotCalls(value: typeof requestThreadStreamSnapshotCalls): void {
+export function setRequestThreadStreamSnapshotCalls(
+  value: typeof requestThreadStreamSnapshotCalls,
+): void {
   requestThreadStreamSnapshotCalls = value;
 }
 
-export function setRequestThreadStreamSnapshotImpl(value: typeof requestThreadStreamSnapshotImpl): void {
+export function setRequestThreadStreamSnapshotImpl(
+  value: typeof requestThreadStreamSnapshotImpl,
+): void {
   requestThreadStreamSnapshotImpl = value;
 }
 
-export function setHydrateBackgroundSubagentThreadsCalls(value: typeof hydrateBackgroundSubagentThreadsCalls): void {
+export function setHydrateBackgroundSubagentThreadsCalls(
+  value: typeof hydrateBackgroundSubagentThreadsCalls,
+): void {
   hydrateBackgroundSubagentThreadsCalls = value;
 }
 
@@ -4017,11 +4236,15 @@ export function setSetComposerIntentCalls(value: typeof setComposerIntentCalls):
   setComposerIntentCalls = value;
 }
 
-export function setRemovePlanImplementationRequestCalls(value: typeof removePlanImplementationRequestCalls): void {
+export function setRemovePlanImplementationRequestCalls(
+  value: typeof removePlanImplementationRequestCalls,
+): void {
   removePlanImplementationRequestCalls = value;
 }
 
-export function setCleanBackgroundTerminalsCalls(value: typeof cleanBackgroundTerminalsCalls): void {
+export function setCleanBackgroundTerminalsCalls(
+  value: typeof cleanBackgroundTerminalsCalls,
+): void {
   cleanBackgroundTerminalsCalls = value;
 }
 
@@ -4033,7 +4256,9 @@ export function setListBackgroundProcessesCalls(value: typeof listBackgroundProc
   listBackgroundProcessesCalls = value;
 }
 
-export function setTerminateBackgroundTerminalCalls(value: typeof terminateBackgroundTerminalCalls): void {
+export function setTerminateBackgroundTerminalCalls(
+  value: typeof terminateBackgroundTerminalCalls,
+): void {
   terminateBackgroundTerminalCalls = value;
 }
 
@@ -4049,7 +4274,9 @@ export function setSideChatConversations(value: typeof sideChatConversations): v
   sideChatConversations = value;
 }
 
-export function setSideChatConversationProjectId(value: typeof sideChatConversationProjectId): void {
+export function setSideChatConversationProjectId(
+  value: typeof sideChatConversationProjectId,
+): void {
   sideChatConversationProjectId = value;
 }
 
@@ -4067,7 +4294,9 @@ export function setCodexHostMessageListener(value: typeof codexHostMessageListen
   codexHostMessageListener = value;
 }
 
-export function setPendingWorktreeWarningListener(value: typeof pendingWorktreeWarningListener): void {
+export function setPendingWorktreeWarningListener(
+  value: typeof pendingWorktreeWarningListener,
+): void {
   pendingWorktreeWarningListener = value;
 }
 

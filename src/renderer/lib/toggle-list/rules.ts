@@ -12,15 +12,14 @@ import type {
   ToggleListSortKey,
   ToggleListTagFilterMode,
 } from "./types";
-import {
-  TOGGLE_LIST_PRIORITY_ORDER,
-  TOGGLE_LIST_STATUS_ORDER,
-} from "./types";
+import { TOGGLE_LIST_PRIORITY_ORDER, TOGGLE_LIST_STATUS_ORDER } from "./types";
 import { priorityClauseIncludesEmpty } from "./priority-clause";
 import { compareNullableRanks } from "../sort-empty-placement";
 import type { DatabasePageSummary } from "../types";
 
-const priorityRank = new Map(TOGGLE_LIST_PRIORITY_ORDER.map((priority, index) => [priority, index]));
+const priorityRank = new Map(
+  TOGGLE_LIST_PRIORITY_ORDER.map((priority, index) => [priority, index]),
+);
 const statusRank = new Map(TOGGLE_LIST_STATUS_ORDER.map((status, index) => [status, index]));
 const estimateRank = new Map(
   ["xs", "s", "m", "l", "xl"].map((estimate, index) => [estimate, index]),
@@ -67,28 +66,19 @@ export function filterCards<T extends ToggleListFilterableCard>(
   });
 }
 
-function matchesFilterSpec(
-  card: ToggleListFilterableCard,
-  filter: ToggleListFilterSpec,
-): boolean {
+function matchesFilterSpec(card: ToggleListFilterableCard, filter: ToggleListFilterSpec): boolean {
   if (filter.any.length === 0) return true;
   return filter.any.some((group) => matchesFilterGroup(card, group));
 }
 
-function matchesFilterGroup(
-  card: ToggleListFilterableCard,
-  group: ToggleListFilterGroup,
-): boolean {
+function matchesFilterGroup(card: ToggleListFilterableCard, group: ToggleListFilterGroup): boolean {
   for (const clause of group.all) {
     if (!matchesClause(card, clause)) return false;
   }
   return true;
 }
 
-function matchesClause(
-  card: ToggleListFilterableCard,
-  clause: ToggleListClause,
-): boolean {
+function matchesClause(card: ToggleListFilterableCard, clause: ToggleListClause): boolean {
   if (clause.field === "status") {
     return clause.values.includes(card.columnId);
   }

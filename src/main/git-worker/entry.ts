@@ -19,11 +19,10 @@ const port = (() => {
 })();
 
 const entryData = workerData as GitWorkerEntryData | undefined;
-const epoch = typeof entryData?.epoch === "number"
-  && Number.isInteger(entryData.epoch)
-  && entryData.epoch >= 1
-  ? entryData.epoch
-  : 1;
+const epoch =
+  typeof entryData?.epoch === "number" && Number.isInteger(entryData.epoch) && entryData.epoch >= 1
+    ? entryData.epoch
+    : 1;
 
 const activeRequests = new Map<string, AbortController>();
 
@@ -56,25 +55,29 @@ port.on("message", (rawMessage: unknown) => {
   }
   const controller = new AbortController();
   activeRequests.set(request.id, controller);
-  void module.execute(request, controller.signal).then((value) => {
-    if (controller.signal.aborted) return;
-    postMessage({
-      type: "worker-response",
-      workerId: "git",
-      id: request.id,
-      method: request.method,
-      result: { type: "ok", value },
-    } as GitWorkerResponse);
-  }).catch((error: unknown) => {
-    if (controller.signal.aborted) return;
-    queueMicrotask(() => {
-      throw error;
+  void module
+    .execute(request, controller.signal)
+    .then((value) => {
+      if (controller.signal.aborted) return;
+      postMessage({
+        type: "worker-response",
+        workerId: "git",
+        id: request.id,
+        method: request.method,
+        result: { type: "ok", value },
+      } as GitWorkerResponse);
+    })
+    .catch((error: unknown) => {
+      if (controller.signal.aborted) return;
+      queueMicrotask(() => {
+        throw error;
+      });
+    })
+    .finally(() => {
+      if (activeRequests.get(request.id) === controller) {
+        activeRequests.delete(request.id);
+      }
     });
-  }).finally(() => {
-    if (activeRequests.get(request.id) === controller) {
-      activeRequests.delete(request.id);
-    }
-  });
 });
 
 postMessage({

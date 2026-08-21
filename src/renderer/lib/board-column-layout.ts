@@ -61,8 +61,8 @@ export function normalizeBoardColumnLayoutPrefs(value: unknown): BoardColumnLayo
     const legacyStatus = LEGACY_WORKFLOW_STATUS_ORDER.find(
       (candidate) => WORKFLOW_STATUS_CUTOVER_MAP[candidate] === status,
     );
-    const candidate = value[status]
-      ?? (legacyStatus === undefined ? undefined : value[legacyStatus]);
+    const candidate =
+      value[status] ?? (legacyStatus === undefined ? undefined : value[legacyStatus]);
     if (!isRecord(candidate)) continue;
 
     const next: Partial<BoardColumnLayout> = {};

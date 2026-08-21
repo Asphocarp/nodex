@@ -28,23 +28,17 @@ export function DatabaseListSelectionActionBar({
       aria-label={`Actions for ${count} selected pages`}
       className="absolute inset-x-0 bottom-3 z-20 mx-auto flex w-max max-w-[calc(100%-24px)] items-center gap-1 rounded-xl border border-token-border bg-token-dropdown-background/95 px-1.5 py-1 shadow-xl-spread backdrop-blur-md"
     >
-      <span className="px-2 text-xs tabular-nums text-token-text-secondary">
-        {count} selected
-      </span>
+      <span className="px-2 text-xs tabular-nums text-token-text-secondary">{count} selected</span>
       <NodexDropdown.Menu
         align="center"
         side="top"
         contentWidth="xs"
-        triggerButton={(
-          <NodexButton
-            size="xs"
-            variant="ghost"
-            aria-label="Open selected page actions"
-          >
+        triggerButton={
+          <NodexButton size="xs" variant="ghost" aria-label="Open selected page actions">
             Actions
             <ChevronDown className="icon-2xs" />
           </NodexButton>
-        )}
+        }
       >
         {commands.map((command) => (
           <NodexDropdown.Item
@@ -59,12 +53,7 @@ export function DatabaseListSelectionActionBar({
           </NodexDropdown.Item>
         ))}
       </NodexDropdown.Menu>
-      <NodexIconButton
-        icon={X}
-        size="xs"
-        ariaLabel="Clear selection"
-        onClick={onClear}
-      />
+      <NodexIconButton icon={X} size="xs" ariaLabel="Clear selection" onClick={onClear} />
     </div>
   );
 }

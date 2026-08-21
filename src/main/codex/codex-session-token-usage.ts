@@ -16,7 +16,9 @@ const LegacyThreadTokenUsageSchema = z.object({
   model_context_window: FiniteNumberSchema.nullable(),
 });
 
-export function parsePersistedCodexThreadTokenUsage(value: unknown): CodexThreadTokenUsage | undefined {
+export function parsePersistedCodexThreadTokenUsage(
+  value: unknown,
+): CodexThreadTokenUsage | undefined {
   const parsed = LegacyThreadTokenUsageSchema.safeParse(value);
   if (!parsed.success) return undefined;
 

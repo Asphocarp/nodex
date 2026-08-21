@@ -74,11 +74,7 @@ export async function cleanupBrowserRuntime(
 }
 
 function makeComputerUseProbeCode(computerUsePluginRoot: string): string {
-  const launcherPath = path.join(
-    computerUsePluginRoot,
-    "bin",
-    "computer-use-client-launcher",
-  );
+  const launcherPath = path.join(computerUsePluginRoot, "bin", "computer-use-client-launcher");
   if (!fs.existsSync(launcherPath)) {
     throw new Error(`Installed Computer Use launcher is missing: ${launcherPath}`);
   }
@@ -89,10 +85,7 @@ nodeRepl.write("__NODEX_CUA_PROBE__" + JSON.stringify({ appCount: computerUseApp
 `;
 }
 
-function resolveInstalledComputerUsePluginRoot(
-  runtimeStateHome: string,
-  version: string,
-): string {
+function resolveInstalledComputerUsePluginRoot(runtimeStateHome: string, version: string): string {
   const pluginRoot = path.join(
     runtimeStateHome,
     "plugins",
@@ -124,38 +117,32 @@ export function classifyComputerUseProbeResponse(
   text: string,
   isError: boolean,
 ): BrowserRuntimeProbeReport["computerUse"] {
-  if (
-    isError
-    && text.includes("The Mac is locked")
-    && text.toLowerCase().includes("unlock")
-  ) {
+  if (isError && text.includes("The Mac is locked") && text.toLowerCase().includes("unlock")) {
     return { reason: "mac-locked", status: "unavailable" };
   }
   const parsed = parseComputerUseProbeResult(text);
-  if (
-    isError
-    || !Number.isSafeInteger(parsed.appCount)
-    || Number(parsed.appCount) <= 0
-  ) {
+  if (isError || !Number.isSafeInteger(parsed.appCount) || Number(parsed.appCount) <= 0) {
     throw new Error(`Computer Use list_apps probe failed: ${text}`);
   }
   return { appCount: Number(parsed.appCount), status: "available" };
 }
 
 function textFromToolResponse(response: McpServerToolCallResponse): string {
-  return response.content.flatMap((entry) => {
-    if (
-      typeof entry === "object"
-      && entry !== null
-      && "type" in entry
-      && entry.type === "text"
-      && "text" in entry
-      && typeof entry.text === "string"
-    ) {
-      return [entry.text];
-    }
-    return [];
-  }).join("\n");
+  return response.content
+    .flatMap((entry) => {
+      if (
+        typeof entry === "object" &&
+        entry !== null &&
+        "type" in entry &&
+        entry.type === "text" &&
+        "text" in entry &&
+        typeof entry.text === "string"
+      ) {
+        return [entry.text];
+      }
+      return [];
+    })
+    .join("\n");
 }
 
 const TRUSTED_BRIDGE_PROBE_SOURCE = `
@@ -225,11 +212,7 @@ export async function probeBrowserRuntime(
   }
 
   const bundle = runtime.browserRuntime.bundle;
-  const stateHome = fs.mkdtempSync(path.join(
-    projectRoot,
-    ".generated",
-    "browser-runtime-probe-",
-  ));
+  const stateHome = fs.mkdtempSync(path.join(projectRoot, ".generated", "browser-runtime-probe-"));
   const trustedBridgeProbePath = path.join(stateHome, "trusted-bridge-probe.mjs");
   fs.writeFileSync(trustedBridgeProbePath, TRUSTED_BRIDGE_PROBE_SOURCE, {
     encoding: "utf8",
@@ -300,10 +283,11 @@ export async function probeBrowserRuntime(
   const requireForProbe = createRequire(import.meta.url);
   const computerUseRuntime = new ComputerUseRuntimeCoordinator({
     browserRuntime: runtime.browserRuntime,
-    loadAddon: () => requireForProbe(bundle.paths.skyNativeAddon) as Pick<
-      SkyNativeAddon,
-      "computerUseServiceProcessMatchesExecutablePath" | "spawnComputerUseService"
-    >,
+    loadAddon: () =>
+      requireForProbe(bundle.paths.skyNativeAddon) as Pick<
+        SkyNativeAddon,
+        "computerUseServiceProcessMatchesExecutablePath" | "spawnComputerUseService"
+      >,
     macOSRelease: execFileSync("/usr/bin/sw_vers", ["-productVersion"], {
       encoding: "utf8",
     }).trim(),
@@ -328,31 +312,28 @@ export async function probeBrowserRuntime(
       availableBackends: () => ["iab"],
       browserRuntime: runtime.browserRuntime,
       computerUsePluginReady: () =>
-        reconciliation.status === "ready"
-        && reconciliation.computerUse.status === "ready",
+        reconciliation.status === "ready" && reconciliation.computerUse.status === "ready",
       computerUseRuntime: () => computerUseRuntimeResult,
       runtimeStateHome: stateHome,
     }).build();
     if (!browserConfig) throw new Error("Verified Browser runtime did not build thread config");
     const nodeReplConfig = browserConfig["mcp_servers.node_repl"];
     if (
-      typeof nodeReplConfig !== "object"
-      || nodeReplConfig === null
-      || !("env" in nodeReplConfig)
-      || typeof nodeReplConfig.env !== "object"
-      || nodeReplConfig.env === null
-      || Array.isArray(nodeReplConfig.env)
+      typeof nodeReplConfig !== "object" ||
+      nodeReplConfig === null ||
+      !("env" in nodeReplConfig) ||
+      typeof nodeReplConfig.env !== "object" ||
+      nodeReplConfig.env === null ||
+      Array.isArray(nodeReplConfig.env)
     ) {
       throw new Error("Browser runtime thread config is missing Node REPL environment");
     }
     const nodeReplEnv = nodeReplConfig.env;
-    const trustedClientHashes =
-      nodeReplEnv.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S;
+    const trustedClientHashes = nodeReplEnv.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S;
     if (typeof trustedClientHashes !== "string" || trustedClientHashes.length === 0) {
       throw new Error("Browser runtime thread config is missing its trusted client hash");
     }
-    nodeReplEnv.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S =
-      `${trustedClientHashes},${trustedBridgeProbeSha256}`;
+    nodeReplEnv.NODE_REPL_TRUSTED_BROWSER_CLIENT_SHA256S = `${trustedClientHashes},${trustedBridgeProbeSha256}`;
 
     const threadResponse = await client.request<ThreadStartResponse>("thread/start", {
       config: browserConfig,
@@ -360,41 +341,33 @@ export async function probeBrowserRuntime(
       ephemeral: true,
     });
     const threadId = threadResponse.thread.id;
-    const toolResponse = await client.request<McpServerToolCallResponse>(
-      "mcpServer/tool/call",
-      {
-        _meta: {
-          "x-codex-turn-metadata": {
-            session_id: sessionId,
-            thread_id: threadId,
-            turn_id: turnId,
-          },
+    const toolResponse = await client.request<McpServerToolCallResponse>("mcpServer/tool/call", {
+      _meta: {
+        "x-codex-turn-metadata": {
+          session_id: sessionId,
+          thread_id: threadId,
+          turn_id: turnId,
         },
-        arguments: {
-          code: makeBrowserClientProbeCode(
-            bundle.paths.browserPluginClient,
-            trustedBridgeProbePath,
-          ),
-        },
-        server: "node_repl",
-        threadId,
-        tool: "js",
       },
-    );
+      arguments: {
+        code: makeBrowserClientProbeCode(bundle.paths.browserPluginClient, trustedBridgeProbePath),
+      },
+      server: "node_repl",
+      threadId,
+      tool: "js",
+    });
     const nodeReplResult = textFromToolResponse(toolResponse);
     if (
-      toolResponse.isError
-      || !nodeReplResult.includes('"backendType":"iab"')
-      || !nodeReplResult.includes('"rootNodeRepl":{"fetchAvailable":false')
-      || !nodeReplResult.includes(
+      toolResponse.isError ||
+      !nodeReplResult.includes('"backendType":"iab"') ||
+      !nodeReplResult.includes('"rootNodeRepl":{"fetchAvailable":false') ||
+      !nodeReplResult.includes(
         '"trustedBridge":{"authenticatedFetchAvailable":true,"nativePipeAvailable":true',
       )
     ) {
       throw new Error(
-        `Browser client conformance failed: ${nodeReplResult || "empty result"}`
-        + (nativePipeDiagnostics.length > 0
-          ? ` (${nativePipeDiagnostics.join("; ")})`
-          : ""),
+        `Browser client conformance failed: ${nodeReplResult || "empty result"}` +
+          (nativePipeDiagnostics.length > 0 ? ` (${nativePipeDiagnostics.join("; ")})` : ""),
       );
     }
     if (!nativePipeMethods.includes("getInfo")) {
@@ -403,14 +376,13 @@ export async function probeBrowserRuntime(
 
     let computerUse: BrowserRuntimeProbeReport["computerUse"];
     if (
-      computerUseRuntimeResult.status === "available"
-      && reconciliation.computerUse.status === "ready"
+      computerUseRuntimeResult.status === "available" &&
+      reconciliation.computerUse.status === "ready"
     ) {
-      const installedComputerUsePluginRoot =
-        resolveInstalledComputerUsePluginRoot(
-          stateHome,
-          reconciliation.computerUse.installedVersion,
-        );
+      const installedComputerUsePluginRoot = resolveInstalledComputerUsePluginRoot(
+        stateHome,
+        reconciliation.computerUse.installedVersion,
+      );
       const computerUseResponse = await client.request<McpServerToolCallResponse>(
         "mcpServer/tool/call",
         {
@@ -423,9 +395,7 @@ export async function probeBrowserRuntime(
             },
           },
           arguments: {
-            code: makeComputerUseProbeCode(
-              installedComputerUsePluginRoot,
-            ),
+            code: makeComputerUseProbeCode(installedComputerUsePluginRoot),
             timeout_ms: 30_000,
           },
           server: "node_repl",
@@ -440,11 +410,12 @@ export async function probeBrowserRuntime(
       );
     } else {
       computerUse = {
-        reason: computerUseRuntimeResult.status === "unavailable"
-          ? computerUseRuntimeResult.reason
-          : reconciliation.computerUse.status === "unavailable"
-            ? reconciliation.computerUse.reason
-            : "Computer Use probe prerequisites were not ready",
+        reason:
+          computerUseRuntimeResult.status === "unavailable"
+            ? computerUseRuntimeResult.reason
+            : reconciliation.computerUse.status === "unavailable"
+              ? reconciliation.computerUse.reason
+              : "Computer Use probe prerequisites were not ready",
         status: "unavailable",
       };
     }
@@ -462,12 +433,13 @@ export async function probeBrowserRuntime(
   } finally {
     await cleanupBrowserRuntime({
       closeNativePipeServer: () => nativePipeServer.close(),
-      removeStateHome: () => fs.rmSync(stateHome, {
-        force: true,
-        maxRetries: 10,
-        recursive: true,
-        retryDelay: 100,
-      }),
+      removeStateHome: () =>
+        fs.rmSync(stateHome, {
+          force: true,
+          maxRetries: 10,
+          recursive: true,
+          retryDelay: 100,
+        }),
       stopComputerUseRuntime: () => computerUseRuntime.dispose(),
       stopClient: () => client.stop(),
     });
@@ -476,17 +448,17 @@ export async function probeBrowserRuntime(
 
 function isDirectExecution(): boolean {
   const scriptPath = process.argv[1];
-  return typeof scriptPath === "string"
-    && path.resolve(scriptPath) === path.resolve(new URL(import.meta.url).pathname);
+  return (
+    typeof scriptPath === "string" &&
+    path.resolve(scriptPath) === path.resolve(new URL(import.meta.url).pathname)
+  );
 }
 
 if (isDirectExecution()) {
   const projectRoot = path.resolve(process.cwd());
   const arguments_ = process.argv.slice(2);
   const resourcesPathIndex = arguments_.indexOf("--resources-path");
-  const resourcesPath = resourcesPathIndex < 0
-    ? undefined
-    : arguments_[resourcesPathIndex + 1];
+  const resourcesPath = resourcesPathIndex < 0 ? undefined : arguments_[resourcesPathIndex + 1];
   if (resourcesPathIndex >= 0 && (!resourcesPath || resourcesPath.startsWith("--"))) {
     throw new Error("--resources-path requires a path to packaged Resources");
   }

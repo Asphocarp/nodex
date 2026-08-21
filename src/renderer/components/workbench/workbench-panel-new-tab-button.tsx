@@ -1,7 +1,5 @@
 import { useState } from "react";
-import {
-  SidePanelPlusIcon,
-} from "@/components/shared/icons";
+import { SidePanelPlusIcon } from "@/components/shared/icons";
 import {
   NodexDropdownFlyoutSubmenuItem,
   NodexDropdownItem,
@@ -15,13 +13,8 @@ import {
   type PanelNewTabAction,
   type PanelNewTabActionKind,
 } from "@/lib/workbench-panel-actions";
-import type {
-  CommandKeymapState,
-} from "../../../shared/command-keybindings";
-import type {
-  PanelId,
-  Project,
-} from "@/lib/types";
+import type { CommandKeymapState } from "../../../shared/command-keybindings";
+import type { PanelId, Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { PanelDestinationPicker } from "./panel-destination-picker";
 import type {
@@ -62,9 +55,7 @@ export function WorkbenchPanelNewTabButton({
 }: WorkbenchPanelNewTabButtonProps) {
   const [open, setOpen] = useState(false);
   if (actions.length === 0) return null;
-  const title = panelId === "right"
-    ? "Open side panel tab"
-    : "Open bottom panel tab";
+  const title = panelId === "right" ? "Open side panel tab" : "Open bottom panel tab";
 
   return (
     <NodexDropdownMenu
@@ -73,37 +64,28 @@ export function WorkbenchPanelNewTabButton({
       align="start"
       sideOffset={6}
       contentWidth="menuWide"
-      triggerButton={(
+      triggerButton={
         <button
           type="button"
-          className={cn(
-            TOOLBAR_BUTTON_BASE_CLASS,
-            TOOLBAR_BUTTON_GHOST_CLASS,
-          )}
+          className={cn(TOOLBAR_BUTTON_BASE_CLASS, TOOLBAR_BUTTON_GHOST_CLASS)}
           title={title}
           aria-label={title}
         >
           <SidePanelPlusIcon className="icon-xs" />
         </button>
-      )}
+      }
     >
       {actions.map((action, index) => {
         const Icon = action.Icon;
         const showNodexSeparator =
-          isNodexPanelOptionAction(action)
-          && !isNodexPanelOptionAction(
-            actions[index - 1] ?? action,
-          );
+          isNodexPanelOptionAction(action) &&
+          !isNodexPanelOptionAction(actions[index - 1] ?? action);
         const shouldCreateCurrentProjectDbView =
-          action.kind === "db_view"
-          && currentProjectId !== null
-          && !currentProjectDbViewExists;
+          action.kind === "db_view" && currentProjectId !== null && !currentProjectDbViewExists;
 
         return (
           <div key={action.kind}>
-            {showNodexSeparator
-              ? <NodexDropdownSeparator />
-              : null}
+            {showNodexSeparator ? <NodexDropdownSeparator /> : null}
             {shouldCreateCurrentProjectDbView ? (
               <NodexDropdownItem
                 leftSlot={<Icon className="icon-sm" />}
@@ -131,16 +113,8 @@ export function WorkbenchPanelNewTabButton({
                       ? "db-only"
                       : "page-only") as PanelDestinationPickerScope
                   }
-                  ariaLabel={
-                    action.kind === "db_view"
-                      ? "Open DB view"
-                      : "Open Page"
-                  }
-                  placeholder={
-                    action.kind === "db_view"
-                      ? "Open DB…"
-                      : "Open Page…"
-                  }
+                  ariaLabel={action.kind === "db_view" ? "Open DB view" : "Open Page"}
+                  placeholder={action.kind === "db_view" ? "Open DB…" : "Open Page…"}
                   currentProjectId={currentProjectId}
                   onClose={() => setOpen(false)}
                   onAccept={async (destination) => {

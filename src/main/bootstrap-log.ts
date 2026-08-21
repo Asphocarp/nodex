@@ -1,10 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
-import {
-  isLogLevelEnabled,
-  type ActiveLogLevelName,
-  type LogLevelName,
-} from "./logging/log-level";
+import { isLogLevelEnabled, type ActiveLogLevelName, type LogLevelName } from "./logging/log-level";
 
 type BootstrapLogLevel = Extract<ActiveLogLevelName, "info" | "warn" | "error">;
 

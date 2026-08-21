@@ -4,10 +4,7 @@ import type {
   CodexItemStatus,
   CodexVisualizationActivity,
 } from "./types";
-import {
-  getCodexFileChangeEntries,
-  resolveCodexPatchSuccess,
-} from "./codex-file-change";
+import { getCodexFileChangeEntries, resolveCodexPatchSuccess } from "./codex-file-change";
 
 export type CodexFileChangeActivityVisibility = "active" | "terminal" | "suppressed";
 export type CodexFileChangeActivityLifecycle = "inProgress" | "completed" | "failed" | "cancelled";
@@ -32,9 +29,8 @@ export function resolveCodexFileChangeActivity(input: {
   const changes = input.fileChange?.changes ?? {};
   const visualizationActivities = input.fileChange?.visualizationActivities ?? [];
   const hasMaterializedChanges = getCodexFileChangeEntries(changes).length > 0;
-  const hasTerminalContent = hasMaterializedChanges
-    || visualizationActivities.length > 0
-    || input.hasToolError === true;
+  const hasTerminalContent =
+    hasMaterializedChanges || visualizationActivities.length > 0 || input.hasToolError === true;
   const success = input.status ? resolveCodexPatchSuccess(input.status) : null;
   const lifecycle = resolveLifecycle(status);
 

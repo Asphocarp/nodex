@@ -16,10 +16,7 @@ const MASK_STYLE = {
 export function NodexLogoShimmer({ className }: { readonly className?: string }) {
   return (
     <div aria-hidden="true" className={cn("relative inline-flex size-14 shrink-0", className)}>
-      <div
-        className="nodex-logo-shimmer-base absolute inset-0"
-        style={MASK_STYLE}
-      />
+      <div className="nodex-logo-shimmer-base absolute inset-0" style={MASK_STYLE} />
       <div
         className="nodex-logo-shimmer-overlay pointer-events-none absolute inset-0"
         style={MASK_STYLE}

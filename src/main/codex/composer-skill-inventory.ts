@@ -10,9 +10,7 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
   return normalized || null;
 }
 
-export function buildComposerSkillInventory(
-  response: SkillsListResponse,
-): CodexComposerSkill[] {
+export function buildComposerSkillInventory(response: SkillsListResponse): CodexComposerSkill[] {
   const skillsByPath = new Map<string, CodexComposerSkill>();
   for (const entry of response.data) {
     for (const skill of entry.skills) {
@@ -24,9 +22,9 @@ export function buildComposerSkillInventory(
         name,
         displayName: skill.interface?.displayName?.trim() || name,
         description:
-          skill.interface?.shortDescription?.trim()
-          || skill.shortDescription?.trim()
-          || skill.description.trim(),
+          skill.interface?.shortDescription?.trim() ||
+          skill.shortDescription?.trim() ||
+          skill.description.trim(),
         iconUrl: null,
         brandColor: normalizeOptionalText(skill.interface?.brandColor),
         path: skillPath,
@@ -45,17 +43,17 @@ export async function hydrateComposerSkillInventoryIcons(
   const iconPathsBySkillPath = new Map(
     response.data.flatMap((entry) =>
       entry.skills.flatMap((skill) =>
-        skill.interface?.iconSmall
-          ? [[skill.path.trim(), skill.interface.iconSmall] as const]
-          : []
-      )
+        skill.interface?.iconSmall ? [[skill.path.trim(), skill.interface.iconSmall] as const] : [],
+      ),
     ),
   );
-  return Promise.all(skills.map(async (skill) => {
-    const iconUrl = await loadComposerInventoryIconDataUrl(
-      iconPathsBySkillPath.get(skill.path),
-      loadIcon,
-    );
-    return iconUrl ? { ...skill, iconUrl } : skill;
-  }));
+  return Promise.all(
+    skills.map(async (skill) => {
+      const iconUrl = await loadComposerInventoryIconDataUrl(
+        iconPathsBySkillPath.get(skill.path),
+        loadIcon,
+      );
+      return iconUrl ? { ...skill, iconUrl } : skill;
+    }),
+  );
 }

@@ -9,12 +9,7 @@ import {
 
 describe("priority", () => {
   test("defines the four assigned levels in stable rank order", () => {
-    expect(PRIORITY_VALUES).toEqual([
-      "p0-critical",
-      "p1-high",
-      "p2-medium",
-      "p3-low",
-    ]);
+    expect(PRIORITY_VALUES).toEqual(["p0-critical", "p1-high", "p2-medium", "p3-low"]);
     expect(PRIORITY_VALUES.map(priorityRank)).toEqual([0, 1, 2, 3]);
     expect(comparePriorities("p0-critical", "p3-low")).toBeLessThan(0);
   });

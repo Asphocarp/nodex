@@ -27,37 +27,22 @@ const TEST_SECTIONS: SettingsSearchSection<TestSectionId>[] = [
   {
     id: "general",
     label: "General",
-    searchMessages: [
-      "Keep awake",
-      "Keyboard shortcuts",
-      "Turn completion notifications",
-    ],
+    searchMessages: ["Keep awake", "Keyboard shortcuts", "Turn completion notifications"],
   },
   {
     id: "keyboard",
     label: "Keyboard shortcuts",
-    searchMessages: [
-      "Search commands",
-      "Command keybindings",
-      "Capture shortcut",
-    ],
+    searchMessages: ["Search commands", "Command keybindings", "Capture shortcut"],
   },
   {
     id: "agent",
     label: "Agent",
-    searchMessages: [
-      "Configuration",
-      "config.toml",
-      "Default permissions mode",
-    ],
+    searchMessages: ["Configuration", "config.toml", "Default permissions mode"],
   },
   {
     id: "worktrees",
     label: "Worktrees",
-    searchMessages: [
-      "Git branch",
-      "Auto branch prefix",
-    ],
+    searchMessages: ["Git branch", "Auto branch prefix"],
   },
   {
     id: "local-environments",
@@ -136,10 +121,13 @@ describe("settings search", () => {
 
     const tiedResults = buildSettingsSearchResults({
       query: "same",
-      targets: buildSettingsSearchTargets([
-        { id: "agent", label: "Agent", searchMessages: ["Same match"] },
-        { id: "general", label: "General", searchMessages: ["Same match"] },
-      ], SEARCH_CONTEXT),
+      targets: buildSettingsSearchTargets(
+        [
+          { id: "agent", label: "Agent", searchMessages: ["Same match"] },
+          { id: "general", label: "General", searchMessages: ["Same match"] },
+        ],
+        SEARCH_CONTEXT,
+      ),
       visibleSectionIds: ["general", "agent"],
     });
 
@@ -164,14 +152,17 @@ describe("settings search", () => {
 
     const mixedTermResults = buildSettingsSearchResults({
       query: "alpha command",
-      targets: buildSettingsSearchTargets([
-        {
-          id: "local-environments",
-          label: "Local environments",
-          searchMessages: ["Command runner"],
-          searchTerms: ({ activeProjectName }) => activeProjectName ? [activeProjectName] : [],
-        },
-      ], SEARCH_CONTEXT),
+      targets: buildSettingsSearchTargets(
+        [
+          {
+            id: "local-environments",
+            label: "Local environments",
+            searchMessages: ["Command runner"],
+            searchTerms: ({ activeProjectName }) => (activeProjectName ? [activeProjectName] : []),
+          },
+        ],
+        SEARCH_CONTEXT,
+      ),
       visibleSectionIds: ["local-environments"],
     });
 

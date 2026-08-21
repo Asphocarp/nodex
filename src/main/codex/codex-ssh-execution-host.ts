@@ -43,7 +43,12 @@ function safeCommand(value: string, label: string): string {
 
 function absoluteRemotePath(value: string, label: string): string {
   const trimmed = value.trim();
-  if (!path.posix.isAbsolute(trimmed) || trimmed.includes("\0") || trimmed.includes("\r") || trimmed.includes("\n")) {
+  if (
+    !path.posix.isAbsolute(trimmed) ||
+    trimmed.includes("\0") ||
+    trimmed.includes("\r") ||
+    trimmed.includes("\n")
+  ) {
     throw new Error(`${label} must be an absolute POSIX path`);
   }
   return path.posix.normalize(trimmed);
@@ -57,21 +62,28 @@ export function normalizeCodexSshExecutionHostConfig(
     throw new Error("SSH execution host id is invalid or reserved");
   }
   const displayName = input.displayName.trim();
-  if (!displayName || displayName.length > 200) throw new Error("SSH execution host display name is required");
+  if (!displayName || displayName.length > 200)
+    throw new Error("SSH execution host display name is required");
   const sshAlias = input.sshAlias.trim();
   if (
-    !sshAlias
-    || sshAlias.startsWith("-")
-    || sshAlias.length > 512
-    || !/^[A-Za-z0-9_.:@\[\]-]+$/u.test(sshAlias)
+    !sshAlias ||
+    sshAlias.startsWith("-") ||
+    sshAlias.length > 512 ||
+    !/^[A-Za-z0-9_.:@\[\]-]+$/u.test(sshAlias)
   ) {
     throw new Error("SSH alias is invalid");
   }
-  if (input.port !== null && (!Number.isInteger(input.port) || input.port < 1 || input.port > 65_535)) {
+  if (
+    input.port !== null &&
+    (!Number.isInteger(input.port) || input.port < 1 || input.port > 65_535)
+  ) {
     throw new Error("SSH port must be between 1 and 65535");
   }
-  const repositoryRoots = input.repositoryRoots.map((root) => absoluteRemotePath(root, "Repository root"));
-  if (repositoryRoots.length === 0) throw new Error("SSH execution host requires at least one repository root");
+  const repositoryRoots = input.repositoryRoots.map((root) =>
+    absoluteRemotePath(root, "Repository root"),
+  );
+  if (repositoryRoots.length === 0)
+    throw new Error("SSH execution host requires at least one repository root");
   if (new Set(repositoryRoots).size !== repositoryRoots.length) {
     throw new Error("SSH execution host repository roots must be unique");
   }
@@ -102,9 +114,12 @@ export function buildCodexSshArguments(
   const command = remoteArguments.map(quotePosixShellArgument).join(" ");
   return [
     "-T",
-    "-o", "BatchMode=yes",
-    "-o", `ConnectTimeout=${String(SSH_CONNECT_TIMEOUT_SECONDS)}`,
-    "-o", "ClearAllForwardings=yes",
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    `ConnectTimeout=${String(SSH_CONNECT_TIMEOUT_SECONDS)}`,
+    "-o",
+    "ClearAllForwardings=yes",
     ...(normalized.port === null ? [] : ["-p", String(normalized.port)]),
     normalized.sshAlias,
     command,
@@ -189,14 +204,14 @@ export class CodexSshExecutionHostTransport implements CodexExecutionHostFileTra
       throw new Error("SSH execution host returned an invalid health response");
     }
     if (
-      !isRecord(parsed)
-      || (parsed.platform !== "darwin" && parsed.platform !== "linux")
-      || typeof parsed.home !== "string"
-      || typeof parsed.codexHome !== "string"
-      || typeof parsed.architecture !== "string"
-      || typeof parsed.nodeVersion !== "string"
-      || typeof parsed.gitVersion !== "string"
-      || typeof parsed.codexVersion !== "string"
+      !isRecord(parsed) ||
+      (parsed.platform !== "darwin" && parsed.platform !== "linux") ||
+      typeof parsed.home !== "string" ||
+      typeof parsed.codexHome !== "string" ||
+      typeof parsed.architecture !== "string" ||
+      typeof parsed.nodeVersion !== "string" ||
+      typeof parsed.gitVersion !== "string" ||
+      typeof parsed.codexVersion !== "string"
     ) {
       throw new Error("SSH execution host health response does not match its contract");
     }
@@ -236,7 +251,12 @@ export class CodexSshExecutionHostTransport implements CodexExecutionHostFileTra
     const codexBinary = this.config.codexBinary ?? "codex";
     return {
       binaryPath: this.#sshBinary,
-      args: buildCodexSshArguments(this.config, [codexBinary, "app-server", "--listen", "stdio://"]),
+      args: buildCodexSshArguments(this.config, [
+        codexBinary,
+        "app-server",
+        "--listen",
+        "stdio://",
+      ]),
       expectedCodexHome: undefined,
       initializeTimeoutMs: 30_000,
       requestTimeoutMs: 180_000,
@@ -249,13 +269,18 @@ export class CodexSshExecutionHostTransport implements CodexExecutionHostFileTra
     sourcePath: string,
     signal?: AbortSignal,
   ): Promise<CodexExecutionHostFileDescriptor> {
-    const health = this.#health ?? await this.probe(signal);
-    const result = await this.#runRemote([
-      "node", "-e", DESCRIBE_SCRIPT,
-      absoluteRemotePath(sourcePath, "Remote transfer source"),
-      JSON.stringify(this.#authorizedTransferRoots(health)),
-      String(MAX_HANDOFF_FILE_BYTES),
-    ], { signal, timeoutMs: 10 * 60_000 });
+    const health = this.#health ?? (await this.probe(signal));
+    const result = await this.#runRemote(
+      [
+        "node",
+        "-e",
+        DESCRIBE_SCRIPT,
+        absoluteRemotePath(sourcePath, "Remote transfer source"),
+        JSON.stringify(this.#authorizedTransferRoots(health)),
+        String(MAX_HANDOFF_FILE_BYTES),
+      ],
+      { signal, timeoutMs: 10 * 60_000 },
+    );
     let parsed: unknown;
     try {
       parsed = JSON.parse(result.stdout.toString("utf8")) as unknown;
@@ -263,14 +288,14 @@ export class CodexSshExecutionHostTransport implements CodexExecutionHostFileTra
       throw new Error("SSH execution host returned an invalid file descriptor");
     }
     if (
-      !isRecord(parsed)
-      || typeof parsed.path !== "string"
-      || typeof parsed.sha256 !== "string"
-      || !/^[a-f0-9]{64}$/u.test(parsed.sha256)
-      || typeof parsed.size !== "number"
-      || !Number.isSafeInteger(parsed.size)
-      || parsed.size < 0
-      || parsed.size > MAX_HANDOFF_FILE_BYTES
+      !isRecord(parsed) ||
+      typeof parsed.path !== "string" ||
+      typeof parsed.sha256 !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(parsed.sha256) ||
+      typeof parsed.size !== "number" ||
+      !Number.isSafeInteger(parsed.size) ||
+      parsed.size < 0 ||
+      parsed.size > MAX_HANDOFF_FILE_BYTES
     ) {
       throw new Error("SSH execution host file descriptor does not match its contract");
     }
@@ -286,13 +311,18 @@ export class CodexSshExecutionHostTransport implements CodexExecutionHostFileTra
     readonly destinationPath: string;
     readonly signal?: AbortSignal;
   }): Promise<CodexExecutionHostFileDescriptor> {
-    if (input.source.size > MAX_HANDOFF_FILE_BYTES) throw new Error("Handoff download exceeds the 2 GiB safety bound");
-    const health = this.#health ?? await this.probe(input.signal);
+    if (input.source.size > MAX_HANDOFF_FILE_BYTES)
+      throw new Error("Handoff download exceeds the 2 GiB safety bound");
+    const health = this.#health ?? (await this.probe(input.signal));
     const authorizedRoots = this.#authorizedTransferRoots(health);
     await mkdir(path.dirname(input.destinationPath), { recursive: true, mode: 0o700 });
     const temporaryPath = `${input.destinationPath}.${randomUUID()}.tmp`;
     const child = this.spawnRemote([
-      "node", "-e", DOWNLOAD_SCRIPT, input.source.path, JSON.stringify(authorizedRoots),
+      "node",
+      "-e",
+      DOWNLOAD_SCRIPT,
+      input.source.path,
+      JSON.stringify(authorizedRoots),
     ]);
     const hash = createHash("sha256");
     let size = 0;
@@ -316,7 +346,8 @@ export class CodexSshExecutionHostTransport implements CodexExecutionHostFileTra
         child.on("close", (code) => {
           output.end();
           if (input.signal?.aborted) reject(new Error("Request canceled"));
-          else if (code !== 0) reject(new Error(stderr.trim() || `SSH download exited with code ${String(code)}`));
+          else if (code !== 0)
+            reject(new Error(stderr.trim() || `SSH download exited with code ${String(code)}`));
           else resolve();
         });
       });
@@ -346,39 +377,45 @@ export class CodexSshExecutionHostTransport implements CodexExecutionHostFileTra
     if (local.sha256 !== input.sha256 || local.size !== input.size) {
       throw new Error("Handoff upload source changed before transfer");
     }
-    const health = this.#health ?? await this.probe(input.signal);
-    const result = await this.#runRemote([
-      "node", "-e", UPLOAD_SCRIPT,
-      health.codexHome,
-      operationId,
-      fileName,
-      input.sha256,
-      String(input.size),
-      String(MAX_HANDOFF_FILE_BYTES),
-    ], {
-      signal: input.signal,
-      timeoutMs: 10 * 60_000,
-      stdinPath: input.localPath,
-    });
+    const health = this.#health ?? (await this.probe(input.signal));
+    const result = await this.#runRemote(
+      [
+        "node",
+        "-e",
+        UPLOAD_SCRIPT,
+        health.codexHome,
+        operationId,
+        fileName,
+        input.sha256,
+        String(input.size),
+        String(MAX_HANDOFF_FILE_BYTES),
+      ],
+      {
+        signal: input.signal,
+        timeoutMs: 10 * 60_000,
+        stdinPath: input.localPath,
+      },
+    );
     const parsed = JSON.parse(result.stdout.toString("utf8")) as { readonly path?: unknown };
-    if (typeof parsed.path !== "string") throw new Error("SSH upload returned an invalid destination");
-    return { path: absoluteRemotePath(parsed.path, "Remote upload path"), sha256: input.sha256, size: input.size };
+    if (typeof parsed.path !== "string")
+      throw new Error("SSH upload returned an invalid destination");
+    return {
+      path: absoluteRemotePath(parsed.path, "Remote upload path"),
+      sha256: input.sha256,
+      size: input.size,
+    };
   }
 
   async cleanup(operationId: string): Promise<void> {
     const token = sanitizeCodexTransferToken(operationId, "handoff operation id");
-    const health = this.#health ?? await this.probe();
+    const health = this.#health ?? (await this.probe());
     await this.#runRemote(["node", "-e", CLEANUP_SCRIPT, health.codexHome, token], {
       timeoutMs: 30_000,
     });
   }
 
   #authorizedTransferRoots(health: CodexSshExecutionHostHealth): readonly string[] {
-    return [
-      this.config.managedRoot,
-      health.codexHome,
-      ...this.config.repositoryRoots,
-    ];
+    return [this.config.managedRoot, health.codexHome, ...this.config.repositoryRoots];
   }
 
   async #ensureWorkerInstalled(signal?: AbortSignal): Promise<string> {
@@ -390,7 +427,8 @@ export class CodexSshExecutionHostTransport implements CodexExecutionHostFileTra
       { signal, timeoutMs: 120_000, stdinPath: this.#workerBundlePath },
     );
     const parsed = JSON.parse(result.stdout.toString("utf8")) as { readonly path?: unknown };
-    if (typeof parsed.path !== "string") throw new Error("SSH worker installer returned an invalid path");
+    if (typeof parsed.path !== "string")
+      throw new Error("SSH worker installer returned an invalid path");
     this.#remoteWorkerPath = absoluteRemotePath(parsed.path, "Remote worker path");
     return this.#remoteWorkerPath;
   }
@@ -407,7 +445,10 @@ export class CodexSshExecutionHostTransport implements CodexExecutionHostFileTra
     const child = this.spawnRemote(remoteArguments);
     let stdout = Buffer.alloc(0);
     let stderr = "";
-    let timeout: ReturnType<typeof setTimeout> | null = setTimeout(() => terminate(child), options.timeoutMs);
+    let timeout: ReturnType<typeof setTimeout> | null = setTimeout(
+      () => terminate(child),
+      options.timeoutMs,
+    );
     timeout.unref();
     const abort = () => terminate(child);
     options.signal?.addEventListener("abort", abort, { once: true });

@@ -1,19 +1,8 @@
-import {
-  useCallback,
-  useRef,
-  type PointerEvent as ReactPointerEvent,
-  type RefObject,
-} from "react";
-import type {
-  MotionValue,
-} from "motion/react";
+import { useCallback, useRef, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import type { MotionValue } from "motion/react";
 import { toast } from "@/components/ui/toast";
-import {
-  makeWorkbenchPanelSlotKey,
-} from "./workbench-panel-slot-key";
-import type {
-  WorkbenchPanelController,
-} from "./use-workbench-panel-controller";
+import { makeWorkbenchPanelSlotKey } from "./workbench-panel-slot-key";
+import type { WorkbenchPanelController } from "./use-workbench-panel-controller";
 import type { WorkbenchPanelState } from "../../shared/workbench-session-view";
 
 export const RIGHT_PANEL_DEFAULT_WIDTH = 600;
@@ -25,68 +14,38 @@ const AUTOMATION_DETAIL_RAIL_MAIN_MIN_WIDTH = 420;
 export const BOTTOM_PANEL_DEFAULT_HEIGHT = 280;
 const BOTTOM_PANEL_MIN_HEIGHT = 160;
 
-export function clampRegularRightPanelWidth(
-  width: number,
-  sessionWidth: number,
-): number {
-  const maxWidth = sessionWidth > 0
-    ? Math.max(
-        RIGHT_PANEL_MIN_WIDTH,
-        sessionWidth - RIGHT_PANEL_MAIN_MIN_WIDTH,
-      )
-    : RIGHT_PANEL_DEFAULT_WIDTH;
-  return Math.min(
-    maxWidth,
-    Math.max(RIGHT_PANEL_MIN_WIDTH, width),
-  );
+export function clampRegularRightPanelWidth(width: number, sessionWidth: number): number {
+  const maxWidth =
+    sessionWidth > 0
+      ? Math.max(RIGHT_PANEL_MIN_WIDTH, sessionWidth - RIGHT_PANEL_MAIN_MIN_WIDTH)
+      : RIGHT_PANEL_DEFAULT_WIDTH;
+  return Math.min(maxWidth, Math.max(RIGHT_PANEL_MIN_WIDTH, width));
 }
 
-export function clampAutomationDetailRailWidth(
-  width: number,
-  shellWidth: number,
-): number {
+export function clampAutomationDetailRailWidth(width: number, shellWidth: number): number {
   const roundedWidth = Math.round(width);
   if (!Number.isFinite(shellWidth) || shellWidth <= 0) {
-    return Math.max(
-      AUTOMATION_DETAIL_RAIL_MIN_WIDTH,
-      roundedWidth,
-    );
+    return Math.max(AUTOMATION_DETAIL_RAIL_MIN_WIDTH, roundedWidth);
   }
   const maxWidth = Math.max(
     AUTOMATION_DETAIL_RAIL_MIN_WIDTH,
     Math.floor(shellWidth - AUTOMATION_DETAIL_RAIL_MAIN_MIN_WIDTH),
   );
-  return Math.min(
-    maxWidth,
-    Math.max(AUTOMATION_DETAIL_RAIL_MIN_WIDTH, roundedWidth),
-  );
+  return Math.min(maxWidth, Math.max(AUTOMATION_DETAIL_RAIL_MIN_WIDTH, roundedWidth));
 }
 
-export function clampBottomPanelHeight(
-  height: number,
-  sessionHeight: number,
-): number {
-  const maxHeight = sessionHeight > 0
-    ? Math.max(
-        BOTTOM_PANEL_MIN_HEIGHT,
-        Math.floor(sessionHeight / 2),
-      )
-    : BOTTOM_PANEL_DEFAULT_HEIGHT;
-  return Math.min(
-    maxHeight,
-    Math.max(BOTTOM_PANEL_MIN_HEIGHT, height),
-  );
+export function clampBottomPanelHeight(height: number, sessionHeight: number): number {
+  const maxHeight =
+    sessionHeight > 0
+      ? Math.max(BOTTOM_PANEL_MIN_HEIGHT, Math.floor(sessionHeight / 2))
+      : BOTTOM_PANEL_DEFAULT_HEIGHT;
+  return Math.min(maxHeight, Math.max(BOTTOM_PANEL_MIN_HEIGHT, height));
 }
 
 function readCodexWindowZoom(root: HTMLElement | null): number {
-  const rawZoom = root
-    ? window.getComputedStyle(root)
-      .getPropertyValue("--codex-window-zoom")
-    : "";
+  const rawZoom = root ? window.getComputedStyle(root).getPropertyValue("--codex-window-zoom") : "";
   const parsedZoom = Number.parseFloat(rawZoom);
-  return Number.isFinite(parsedZoom) && parsedZoom > 0
-    ? parsedZoom
-    : 1;
+  return Number.isFinite(parsedZoom) && parsedZoom > 0 ? parsedZoom : 1;
 }
 
 interface PanelLifecycle {
@@ -117,8 +76,7 @@ interface WorkbenchChromeCommandsInput {
   readonly rightPanelRequestedWidth: MotionValue<number>;
   readonly bottomPanelHeight: MotionValue<number>;
   readonly bottomPanelRequestedHeight: MotionValue<number>;
-  readonly automationsDetailRailRequestedWidth:
-    MotionValue<number>;
+  readonly automationsDetailRailRequestedWidth: MotionValue<number>;
 }
 
 /**
@@ -144,11 +102,8 @@ export function useWorkbenchChromeCommands({
 }: WorkbenchChromeCommandsInput) {
   const panelControllerRef = useRef(controller);
   panelControllerRef.current = controller;
-  const {
-    setActivePanelCollapsed,
-    updateActivePanel,
-  } = lifecycle;
-const showActiveRightPanel = useCallback(async () => {
+  const { setActivePanelCollapsed, updateActivePanel } = lifecycle;
+  const showActiveRightPanel = useCallback(async () => {
     if (!activePanelOwner) return;
     await setActivePanelCollapsed("right", false);
   }, [activePanelOwner, setActivePanelCollapsed]);
@@ -171,7 +126,10 @@ const showActiveRightPanel = useCallback(async () => {
   const toggleActiveRightPanelFullWidth = useCallback(() => {
     if (!activePanelOwner) return;
     const overrideKey = makeWorkbenchPanelSlotKey(activePanelOwner.key, "right");
-    panelControllerRef.current.updatePanelCollapsedOverrides((current) => ({ ...current, [overrideKey]: false }));
+    panelControllerRef.current.updatePanelCollapsedOverrides((current) => ({
+      ...current,
+      [overrideKey]: false,
+    }));
     void (async () => {
       try {
         await updateActivePanel("right", {
@@ -194,249 +152,261 @@ const showActiveRightPanel = useCallback(async () => {
     })();
   }, [activePanelOwner, rightPanelFullWidth, updateActivePanel]);
 
-  const executeShellNavigation = useCallback((direction: "back" | "forward") => {
-    if (direction === "back") {
-      navigateBack();
-      return;
-    }
-    navigateForward();
-  }, [navigateBack, navigateForward]);
-
-  const resizeRightPanel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    const root = workbenchRootRef.current;
-    const windowZoom = readCodexWindowZoom(root);
-    const resizeHandle = event.currentTarget;
-    const pointerId = event.pointerId;
-    const sizingWidth = shellMainContentWidth.get();
-    const startX = event.clientX / windowZoom;
-    const startWidth = regularRightPanelWidth.get();
-    const restoreRequestedWidth = () => {
-      rightPanelRequestedWidth.set(clampRegularRightPanelWidth(
-        activePanelOwner?.panels.right.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH,
-        sizingWidth,
-      ));
-    };
-
-    let latestWidth = startWidth;
-    let closedByResize = false;
-    rightPanelRequestedWidth.set(startWidth);
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      moveEvent.preventDefault();
-      if (closedByResize) return;
-      const pointerX = moveEvent.clientX / windowZoom;
-      const rawWidth = startWidth + startX - pointerX;
-      if (rawWidth < RIGHT_PANEL_MIN_WIDTH) {
-        closedByResize = true;
-        latestWidth = RIGHT_PANEL_MIN_WIDTH;
-        restoreRequestedWidth();
-        void setActivePanelCollapsed("right", true);
+  const executeShellNavigation = useCallback(
+    (direction: "back" | "forward") => {
+      if (direction === "back") {
+        navigateBack();
         return;
       }
+      navigateForward();
+    },
+    [navigateBack, navigateForward],
+  );
 
-      const nextWidth = clampRegularRightPanelWidth(rawWidth, sizingWidth);
-      latestWidth = nextWidth;
-      rightPanelRequestedWidth.set(nextWidth);
-    };
+  const resizeRightPanel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      const root = workbenchRootRef.current;
+      const windowZoom = readCodexWindowZoom(root);
+      const resizeHandle = event.currentTarget;
+      const pointerId = event.pointerId;
+      const sizingWidth = shellMainContentWidth.get();
+      const startX = event.clientX / windowZoom;
+      const startWidth = regularRightPanelWidth.get();
+      const restoreRequestedWidth = () => {
+        rightPanelRequestedWidth.set(
+          clampRegularRightPanelWidth(
+            activePanelOwner?.panels.right.size.widthPx ?? RIGHT_PANEL_DEFAULT_WIDTH,
+            sizingWidth,
+          ),
+        );
+      };
 
-    const cleanupPointerResize = () => {
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerCancel);
-      if (resizeHandle.hasPointerCapture?.(pointerId)) {
-        resizeHandle.releasePointerCapture(pointerId);
-      }
-    };
-
-    const onPointerUp = (upEvent: PointerEvent) => {
-      upEvent.preventDefault();
-      cleanupPointerResize();
-      void (async () => {
-        try {
-          if (!activePanelOwner || closedByResize) {
-            restoreRequestedWidth();
-            return;
-          }
-          await updateActivePanel("right", {
-            size: {
-              ...activePanelOwner.panels.right.size,
-              widthPx: latestWidth,
-            },
-          });
-        } catch (error) {
+      let latestWidth = startWidth;
+      let closedByResize = false;
+      rightPanelRequestedWidth.set(startWidth);
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        moveEvent.preventDefault();
+        if (closedByResize) return;
+        const pointerX = moveEvent.clientX / windowZoom;
+        const rawWidth = startWidth + startX - pointerX;
+        if (rawWidth < RIGHT_PANEL_MIN_WIDTH) {
+          closedByResize = true;
+          latestWidth = RIGHT_PANEL_MIN_WIDTH;
           restoreRequestedWidth();
-          toast.danger(error instanceof Error ? error.message : "Unable to resize panel");
+          void setActivePanelCollapsed("right", true);
+          return;
         }
-      })();
-    };
-    const onPointerCancel = () => {
-      cleanupPointerResize();
-      restoreRequestedWidth();
-    };
 
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerCancel);
-  }, [
-    activePanelOwner,
-    regularRightPanelWidth,
-    rightPanelRequestedWidth,
-    setActivePanelCollapsed,
-    shellMainContentWidth,
-    updateActivePanel,
-    workbenchRootRef,
-  ]);
+        const nextWidth = clampRegularRightPanelWidth(rawWidth, sizingWidth);
+        latestWidth = nextWidth;
+        rightPanelRequestedWidth.set(nextWidth);
+      };
 
-  const resizeAutomationDetailRail = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    const root = workbenchRootRef.current;
-    const windowZoom = readCodexWindowZoom(root);
-    const resizeHandle = event.currentTarget;
-    const pointerId = event.pointerId;
-    const sizingWidth = shellMainContentWidth.get();
-    const startX = event.clientX / windowZoom;
-    const startWidth = clampAutomationDetailRailWidth(
-      automationsDetailRailRequestedWidth.get(),
-      sizingWidth,
-    );
+      const cleanupPointerResize = () => {
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerCancel);
+        if (resizeHandle.hasPointerCapture?.(pointerId)) {
+          resizeHandle.releasePointerCapture(pointerId);
+        }
+      };
 
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      moveEvent.preventDefault();
-      const pointerX = moveEvent.clientX / windowZoom;
-      const rawWidth = startWidth + startX - pointerX;
-      automationsDetailRailRequestedWidth.set(
-        clampAutomationDetailRailWidth(rawWidth, sizingWidth),
-      );
-    };
-
-    const cleanupPointerResize = () => {
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerCancel);
-      if (resizeHandle.hasPointerCapture?.(pointerId)) {
-        resizeHandle.releasePointerCapture(pointerId);
-      }
-    };
-
-    const onPointerUp = (upEvent: PointerEvent) => {
-      upEvent.preventDefault();
-      cleanupPointerResize();
-    };
-    const onPointerCancel = () => {
-      cleanupPointerResize();
-    };
-
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "col-resize";
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerCancel);
-  }, [
-    automationsDetailRailRequestedWidth,
-    shellMainContentWidth,
-    workbenchRootRef,
-  ]);
-
-  const resizeBottomPanel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    const root = workbenchRootRef.current;
-    const windowZoom = readCodexWindowZoom(root);
-    const resizeHandle = event.currentTarget;
-    const pointerId = event.pointerId;
-    const startY = event.clientY / windowZoom;
-    const sizingHeight = shellBodyHeight.get();
-    const startHeight = bottomPanelHeight.get();
-    const restoreRequestedHeight = () => {
-      bottomPanelRequestedHeight.set(clampBottomPanelHeight(
-        activePanelOwner?.panels.bottom.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
-        sizingHeight,
-      ));
-    };
-    let latestHeight = startHeight;
-    let closedByResize = false;
-    bottomPanelRequestedHeight.set(startHeight);
-
-    const onPointerMove = (moveEvent: PointerEvent) => {
-      moveEvent.preventDefault();
-      if (closedByResize) return;
-      const pointerY = moveEvent.clientY / windowZoom;
-      const rawHeight = startHeight + startY - pointerY;
-      if (rawHeight < BOTTOM_PANEL_MIN_HEIGHT) {
-        closedByResize = true;
-        latestHeight = BOTTOM_PANEL_MIN_HEIGHT;
-        restoreRequestedHeight();
-        void setActivePanelCollapsed("bottom", true);
-        return;
-      }
-
-      const nextHeight = clampBottomPanelHeight(rawHeight, sizingHeight);
-      latestHeight = nextHeight;
-      bottomPanelRequestedHeight.set(nextHeight);
-    };
-
-    const cleanupPointerResize = () => {
-      document.body.style.userSelect = "";
-      document.body.style.cursor = "";
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("pointercancel", onPointerCancel);
-      if (resizeHandle.hasPointerCapture?.(pointerId)) {
-        resizeHandle.releasePointerCapture(pointerId);
-      }
-    };
-
-    const onPointerUp = (upEvent: PointerEvent) => {
-      upEvent.preventDefault();
-      cleanupPointerResize();
-      void (async () => {
-        try {
-          if (!activePanelOwner || closedByResize) {
-            restoreRequestedHeight();
-            return;
+      const onPointerUp = (upEvent: PointerEvent) => {
+        upEvent.preventDefault();
+        cleanupPointerResize();
+        void (async () => {
+          try {
+            if (!activePanelOwner || closedByResize) {
+              restoreRequestedWidth();
+              return;
+            }
+            await updateActivePanel("right", {
+              size: {
+                ...activePanelOwner.panels.right.size,
+                widthPx: latestWidth,
+              },
+            });
+          } catch (error) {
+            restoreRequestedWidth();
+            toast.danger(error instanceof Error ? error.message : "Unable to resize panel");
           }
-          await updateActivePanel("bottom", {
-            size: {
-              ...activePanelOwner.panels.bottom.size,
-              heightPx: latestHeight,
-            },
-          });
-        } catch (error) {
-          restoreRequestedHeight();
-          toast.danger(error instanceof Error ? error.message : "Unable to resize panel");
-        }
-      })();
-    };
-    const onPointerCancel = () => {
-      cleanupPointerResize();
-      restoreRequestedHeight();
-    };
+        })();
+      };
+      const onPointerCancel = () => {
+        cleanupPointerResize();
+        restoreRequestedWidth();
+      };
 
-    document.body.style.userSelect = "none";
-    document.body.style.cursor = "row-resize";
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("pointercancel", onPointerCancel);
-  }, [
-    activePanelOwner,
-    bottomPanelHeight,
-    bottomPanelRequestedHeight,
-    setActivePanelCollapsed,
-    shellBodyHeight,
-    updateActivePanel,
-    workbenchRootRef,
-  ]);
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerCancel);
+    },
+    [
+      activePanelOwner,
+      regularRightPanelWidth,
+      rightPanelRequestedWidth,
+      setActivePanelCollapsed,
+      shellMainContentWidth,
+      updateActivePanel,
+      workbenchRootRef,
+    ],
+  );
+
+  const resizeAutomationDetailRail = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      const root = workbenchRootRef.current;
+      const windowZoom = readCodexWindowZoom(root);
+      const resizeHandle = event.currentTarget;
+      const pointerId = event.pointerId;
+      const sizingWidth = shellMainContentWidth.get();
+      const startX = event.clientX / windowZoom;
+      const startWidth = clampAutomationDetailRailWidth(
+        automationsDetailRailRequestedWidth.get(),
+        sizingWidth,
+      );
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        moveEvent.preventDefault();
+        const pointerX = moveEvent.clientX / windowZoom;
+        const rawWidth = startWidth + startX - pointerX;
+        automationsDetailRailRequestedWidth.set(
+          clampAutomationDetailRailWidth(rawWidth, sizingWidth),
+        );
+      };
+
+      const cleanupPointerResize = () => {
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerCancel);
+        if (resizeHandle.hasPointerCapture?.(pointerId)) {
+          resizeHandle.releasePointerCapture(pointerId);
+        }
+      };
+
+      const onPointerUp = (upEvent: PointerEvent) => {
+        upEvent.preventDefault();
+        cleanupPointerResize();
+      };
+      const onPointerCancel = () => {
+        cleanupPointerResize();
+      };
+
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "col-resize";
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerCancel);
+    },
+    [automationsDetailRailRequestedWidth, shellMainContentWidth, workbenchRootRef],
+  );
+
+  const resizeBottomPanel = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      const root = workbenchRootRef.current;
+      const windowZoom = readCodexWindowZoom(root);
+      const resizeHandle = event.currentTarget;
+      const pointerId = event.pointerId;
+      const startY = event.clientY / windowZoom;
+      const sizingHeight = shellBodyHeight.get();
+      const startHeight = bottomPanelHeight.get();
+      const restoreRequestedHeight = () => {
+        bottomPanelRequestedHeight.set(
+          clampBottomPanelHeight(
+            activePanelOwner?.panels.bottom.size.heightPx ?? BOTTOM_PANEL_DEFAULT_HEIGHT,
+            sizingHeight,
+          ),
+        );
+      };
+      let latestHeight = startHeight;
+      let closedByResize = false;
+      bottomPanelRequestedHeight.set(startHeight);
+
+      const onPointerMove = (moveEvent: PointerEvent) => {
+        moveEvent.preventDefault();
+        if (closedByResize) return;
+        const pointerY = moveEvent.clientY / windowZoom;
+        const rawHeight = startHeight + startY - pointerY;
+        if (rawHeight < BOTTOM_PANEL_MIN_HEIGHT) {
+          closedByResize = true;
+          latestHeight = BOTTOM_PANEL_MIN_HEIGHT;
+          restoreRequestedHeight();
+          void setActivePanelCollapsed("bottom", true);
+          return;
+        }
+
+        const nextHeight = clampBottomPanelHeight(rawHeight, sizingHeight);
+        latestHeight = nextHeight;
+        bottomPanelRequestedHeight.set(nextHeight);
+      };
+
+      const cleanupPointerResize = () => {
+        document.body.style.userSelect = "";
+        document.body.style.cursor = "";
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", onPointerUp);
+        window.removeEventListener("pointercancel", onPointerCancel);
+        if (resizeHandle.hasPointerCapture?.(pointerId)) {
+          resizeHandle.releasePointerCapture(pointerId);
+        }
+      };
+
+      const onPointerUp = (upEvent: PointerEvent) => {
+        upEvent.preventDefault();
+        cleanupPointerResize();
+        void (async () => {
+          try {
+            if (!activePanelOwner || closedByResize) {
+              restoreRequestedHeight();
+              return;
+            }
+            await updateActivePanel("bottom", {
+              size: {
+                ...activePanelOwner.panels.bottom.size,
+                heightPx: latestHeight,
+              },
+            });
+          } catch (error) {
+            restoreRequestedHeight();
+            toast.danger(error instanceof Error ? error.message : "Unable to resize panel");
+          }
+        })();
+      };
+      const onPointerCancel = () => {
+        cleanupPointerResize();
+        restoreRequestedHeight();
+      };
+
+      document.body.style.userSelect = "none";
+      document.body.style.cursor = "row-resize";
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", onPointerUp);
+      window.addEventListener("pointercancel", onPointerCancel);
+    },
+    [
+      activePanelOwner,
+      bottomPanelHeight,
+      bottomPanelRequestedHeight,
+      setActivePanelCollapsed,
+      shellBodyHeight,
+      updateActivePanel,
+      workbenchRootRef,
+    ],
+  );
 
   return {
     showActiveRightPanel,

@@ -15,4 +15,3 @@ export interface MaintainDocumentRevisionHistoryResult {
   readonly deferredDocumentCount: number;
   readonly failedDocumentCount: number;
 }
-

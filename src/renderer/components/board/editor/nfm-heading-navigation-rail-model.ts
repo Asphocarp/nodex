@@ -22,17 +22,19 @@ function extractInlineText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
 
-  return content.map((item) => {
-    if (typeof item === "string") return item;
-    if (typeof item !== "object" || item === null) return "";
+  return content
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (typeof item !== "object" || item === null) return "";
 
-    const candidate = item as {
-      text?: unknown;
-      content?: unknown;
-    };
-    if (typeof candidate.text === "string") return candidate.text;
-    return extractInlineText(candidate.content);
-  }).join("");
+      const candidate = item as {
+        text?: unknown;
+        content?: unknown;
+      };
+      if (typeof candidate.text === "string") return candidate.text;
+      return extractInlineText(candidate.content);
+    })
+    .join("");
 }
 
 function normalizeHeadingLevel(value: unknown): 1 | 2 | 3 | 4 {

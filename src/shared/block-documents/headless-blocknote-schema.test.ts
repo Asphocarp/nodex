@@ -13,11 +13,13 @@ describe("headless Block Document schema", () => {
 
     const editor = BlockNoteEditor.create({
       schema: headlessBlockDocumentSchema,
-      initialContent: [{
-        id: "headless-probe",
-        type: "pageRef",
-        props: { sourceProjectId: "project-1", cardId: "card-1" },
-      }],
+      initialContent: [
+        {
+          id: "headless-probe",
+          type: "pageRef",
+          props: { sourceProjectId: "project-1", cardId: "card-1" },
+        },
+      ],
     });
     const document = blocksToYDoc(editor, editor.document, "body");
     const decoded = yDocToBlocks(editor, document, "body");
@@ -27,7 +29,6 @@ describe("headless Block Document schema", () => {
   });
 
   test("round-trips all custom block and inline shapes through Yjs", () => {
-
     const initialContent: HeadlessBlockDocumentPartialBlock[] = [
       {
         id: "callout-block",

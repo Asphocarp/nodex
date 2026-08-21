@@ -184,9 +184,7 @@ export interface PendingLatestTurnSubmitPlacement {
 }
 
 function finitePositiveOrNull(value: number | null | undefined): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? value
-    : null;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
 }
 
 function resolveLayoutEntries(input: VirtualizedTurnLayoutInput): {
@@ -196,17 +194,18 @@ function resolveLayoutEntries(input: VirtualizedTurnLayoutInput): {
   if (input.entries) {
     const measuredHeightsByKey = input.measuredHeightsByKey ?? {};
     return {
-      heightsPx: input.entries.map((entry) =>
-        finitePositiveOrNull(measuredHeightsByKey[entry.turnKey])
-        ?? finitePositiveOrNull(entry.estimatedHeightPx)
-        ?? DEFAULT_VIRTUALIZED_TURN_HEIGHT_PX,
+      heightsPx: input.entries.map(
+        (entry) =>
+          finitePositiveOrNull(measuredHeightsByKey[entry.turnKey]) ??
+          finitePositiveOrNull(entry.estimatedHeightPx) ??
+          DEFAULT_VIRTUALIZED_TURN_HEIGHT_PX,
       ),
       turnKeys: input.entries.map((entry) => entry.turnKey),
     };
   }
 
-  const heightsPx = (input.heightsPx ?? []).map((heightPx) =>
-    finitePositiveOrNull(heightPx) ?? DEFAULT_VIRTUALIZED_TURN_HEIGHT_PX,
+  const heightsPx = (input.heightsPx ?? []).map(
+    (heightPx) => finitePositiveOrNull(heightPx) ?? DEFAULT_VIRTUALIZED_TURN_HEIGHT_PX,
   );
   return {
     heightsPx,
@@ -214,7 +213,9 @@ function resolveLayoutEntries(input: VirtualizedTurnLayoutInput): {
   };
 }
 
-export function buildVirtualizedTurnLayout(input: VirtualizedTurnLayoutInput): VirtualizedTurnLayout {
+export function buildVirtualizedTurnLayout(
+  input: VirtualizedTurnLayoutInput,
+): VirtualizedTurnLayout {
   const { heightsPx, turnKeys } = resolveLayoutEntries(input);
   const turnIndexByKey = new Map<string, number>();
   const topOffsetsPx: number[] = [];
@@ -231,8 +232,8 @@ export function buildVirtualizedTurnLayout(input: VirtualizedTurnLayoutInput): V
   }
 
   return {
-    bottomOffsetsPx: topOffsetsPx.map((topOffsetPx, index) =>
-      totalHeightPx - topOffsetPx - (heightsPx[index] ?? 0),
+    bottomOffsetsPx: topOffsetsPx.map(
+      (topOffsetPx, index) => totalHeightPx - topOffsetPx - (heightsPx[index] ?? 0),
     ),
     heightsPx,
     topOffsetsPx,
@@ -278,8 +279,7 @@ function findEndIndexFromBottomDistance({
 
   while (start < end) {
     const middle = Math.floor((start + end) / 2);
-    const turnTopDistanceFromBottomPx =
-      (bottomOffsetsPx[middle] ?? 0) + (heightsPx[middle] ?? 0);
+    const turnTopDistanceFromBottomPx = (bottomOffsetsPx[middle] ?? 0) + (heightsPx[middle] ?? 0);
     if (turnTopDistanceFromBottomPx <= targetPx) {
       end = middle;
       continue;
@@ -357,8 +357,8 @@ export function visibleTurnRangeContainsRange(
   containedRange: VisibleTurnRange,
 ): boolean {
   return (
-    containingRange.startIndex <= containedRange.startIndex
-    && containingRange.endIndex >= containedRange.endIndex
+    containingRange.startIndex <= containedRange.startIndex &&
+    containingRange.endIndex >= containedRange.endIndex
   );
 }
 
@@ -385,20 +385,19 @@ export function resolveInitialVirtualizedTurnViewportState({
     overscanCount,
     viewportHeightPx,
   });
-  const restoredRange =
-    initialRestoreState?.renderedWindow
-      ? resolveRenderedRangeFromAnchor({
-          anchorKey: initialRestoreState.renderedWindow.anchorKey,
-          layout,
-          previousRange: {
-            startIndex: 0,
-            endIndex: Math.min(
-              initialRestoreState.renderedWindow.count,
-              bottomDistanceRange.endIndex - bottomDistanceRange.startIndex,
-            ),
-          },
-        })
-      : null;
+  const restoredRange = initialRestoreState?.renderedWindow
+    ? resolveRenderedRangeFromAnchor({
+        anchorKey: initialRestoreState.renderedWindow.anchorKey,
+        layout,
+        previousRange: {
+          startIndex: 0,
+          endIndex: Math.min(
+            initialRestoreState.renderedWindow.count,
+            bottomDistanceRange.endIndex - bottomDistanceRange.startIndex,
+          ),
+        },
+      })
+    : null;
 
   return {
     distanceFromBottomPx: nextDistanceFromBottomPx,
@@ -430,10 +429,10 @@ export function resolveVirtualizedTurnViewportState({
     : nextRange;
 
   if (
-    current.distanceFromBottomPx === nextDistanceFromBottomPx
-    && current.viewportHeightPx === viewportHeightPx
-    && rangesAreEqual(current.renderedRange, renderedRange)
-    && stringArraysAreEqual(current.turnKeys, layout.turnKeys)
+    current.distanceFromBottomPx === nextDistanceFromBottomPx &&
+    current.viewportHeightPx === viewportHeightPx &&
+    rangesAreEqual(current.renderedRange, renderedRange) &&
+    stringArraysAreEqual(current.turnKeys, layout.turnKeys)
   ) {
     return current;
   }
@@ -512,17 +511,16 @@ export function resolveAnchorPreservedDistanceFromBottom({
   if (previousIndex == null || nextIndex == null) return null;
 
   const previousAnchorTopDistanceFromBottomPx =
-    (previousLayout.bottomOffsetsPx[previousIndex] ?? 0)
-    + (previousLayout.heightsPx[previousIndex] ?? 0);
+    (previousLayout.bottomOffsetsPx[previousIndex] ?? 0) +
+    (previousLayout.heightsPx[previousIndex] ?? 0);
   const nextAnchorTopDistanceFromBottomPx =
-    (nextLayout.bottomOffsetsPx[nextIndex] ?? 0)
-    + (nextLayout.heightsPx[nextIndex] ?? 0);
+    (nextLayout.bottomOffsetsPx[nextIndex] ?? 0) + (nextLayout.heightsPx[nextIndex] ?? 0);
 
   return Math.max(
     0,
-    distanceFromBottomPx
-      + nextAnchorTopDistanceFromBottomPx
-      - previousAnchorTopDistanceFromBottomPx,
+    distanceFromBottomPx +
+      nextAnchorTopDistanceFromBottomPx -
+      previousAnchorTopDistanceFromBottomPx,
   );
 }
 
@@ -543,9 +541,9 @@ export function resolveMeasuredVisibleAnchorKey({
   for (let index = visibleRange.startIndex; index < visibleRange.endIndex; index += 1) {
     const turnKey = layout.turnKeys[index];
     if (
-      turnKey != null
-      && measuredHeightsByKey[turnKey] != null
-      && nextLayout.turnIndexByKey.has(turnKey)
+      turnKey != null &&
+      measuredHeightsByKey[turnKey] != null &&
+      nextLayout.turnIndexByKey.has(turnKey)
     ) {
       return turnKey;
     }
@@ -582,18 +580,17 @@ export function resolveTargetCenterDistanceFromBottom({
   const heightPx = layout.heightsPx[turnIndex];
   if (bottomOffsetPx == null || heightPx == null) return null;
 
-  const normalizedWindowZoom =
-    Number.isFinite(windowZoom) && windowZoom > 0 ? windowZoom : 1;
+  const normalizedWindowZoom = Number.isFinite(windowZoom) && windowZoom > 0 ? windowZoom : 1;
   const normalizedTargetTopWithinTurnPx = targetTopWithinTurnPx / normalizedWindowZoom;
   const normalizedTargetHeightPx = targetHeightPx / normalizedWindowZoom;
 
   return Math.max(
     0,
-    bottomOffsetPx
-      + heightPx
-      - normalizedTargetTopWithinTurnPx
-      - normalizedTargetHeightPx / 2
-      - viewportHeightPx / 2,
+    bottomOffsetPx +
+      heightPx -
+      normalizedTargetTopWithinTurnPx -
+      normalizedTargetHeightPx / 2 -
+      viewportHeightPx / 2,
   );
 }
 
@@ -646,9 +643,7 @@ export function resolveThreadLatestTurnFollowState(
     if (event.latestTurnPhase !== "prework" || state.followMode !== "prework_watch") {
       return state;
     }
-    return event.followContentOverflowPx > 0
-      ? withFollowMode(state, "prework_follow")
-      : state;
+    return event.followContentOverflowPx > 0 ? withFollowMode(state, "prework_follow") : state;
   }
 
   if (event.type === "latest_turn_phase_changed") {
@@ -667,9 +662,9 @@ export function resolveThreadLatestTurnFollowState(
       );
     }
     if (
-      event.previousLatestTurnPhase !== "idle"
-      && event.latestTurnPhase === "idle"
-      && nextState.followMode !== "user_follow"
+      event.previousLatestTurnPhase !== "idle" &&
+      event.latestTurnPhase === "idle" &&
+      nextState.followMode !== "user_follow"
     ) {
       nextState = withFollowMode(nextState, "static");
     }
@@ -704,17 +699,19 @@ export function resolveThreadLatestTurnFollowState(
 
 function isAssistantLikeItem(item: ThreadLatestTurnPhaseInput["items"][number]): boolean {
   return (
-    item.normalizedKind === "assistantMessage"
-    || item.semanticKind === "assistantMessage"
-    || item.kind === "assistantMessage"
-    || item.type === "assistantMessage"
-    || item.type === "assistant_message"
-    || item.type === "agentMessage"
-    || item.role === "assistant"
+    item.normalizedKind === "assistantMessage" ||
+    item.semanticKind === "assistantMessage" ||
+    item.kind === "assistantMessage" ||
+    item.type === "assistantMessage" ||
+    item.type === "assistant_message" ||
+    item.type === "agentMessage" ||
+    item.role === "assistant"
   );
 }
 
-export function resolveThreadLatestTurnPhase(turn: ThreadLatestTurnPhaseInput | null): ThreadLatestTurnPhase {
+export function resolveThreadLatestTurnPhase(
+  turn: ThreadLatestTurnPhaseInput | null,
+): ThreadLatestTurnPhase {
   if (!turn || turn.status !== "inProgress") return "idle";
 
   let hasCommentaryAssistant = false;
@@ -747,8 +744,7 @@ export function buildPendingLatestTurnSubmitPlacement({
     distanceFromBottomPx,
     scrollHeightPx,
     shouldPlaceLatestTurn:
-      distanceFromBottomPx - responseSpacerHeightPx
-      <= LATEST_TURN_SUBMIT_PLACEMENT_THRESHOLD_PX,
+      distanceFromBottomPx - responseSpacerHeightPx <= LATEST_TURN_SUBMIT_PLACEMENT_THRESHOLD_PX,
   };
 }
 
@@ -774,10 +770,7 @@ export function resolveResponseSpacerHeightPx({
   const availableViewportHeightPx = Math.max(0, viewportHeightPx - scrollPaddingBottomPx);
   return Math.max(
     0,
-    Math.min(
-      availableViewportHeightPx * 2 / 3,
-      availableViewportHeightPx - 240,
-    ),
+    Math.min((availableViewportHeightPx * 2) / 3, availableViewportHeightPx - 240),
   );
 }
 
@@ -855,7 +848,6 @@ export function shouldLoadOlderThreadTurns({
     0,
     scrollDistanceFromBottomPx - turnsBottomInsetPx,
   );
-  const viewportTopDistanceFromBottomPx =
-    listViewportBottomDistanceFromBottomPx + viewportHeightPx;
+  const viewportTopDistanceFromBottomPx = listViewportBottomDistanceFromBottomPx + viewportHeightPx;
   return viewportTopDistanceFromBottomPx >= totalHeightPx - thresholdPx;
 }

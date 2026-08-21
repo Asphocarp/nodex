@@ -14,9 +14,15 @@ import { TestQueryProvider } from "@/test/query";
 import { NfmMoveToMenuSurface } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 import { NFM_SEND_TO_THREAD_MODE_STORAGE_KEY } from "./nfm-send-to-thread-mode-settings";
-import { NfmSendToThreadMenuSurface, type NfmSendToThreadMenuSurfaceProps } from "./nfm-send-to-thread-menu";
+import {
+  NfmSendToThreadMenuSurface,
+  type NfmSendToThreadMenuSurfaceProps,
+} from "./nfm-send-to-thread-menu";
 import type { NfmSendToThreadRequest } from "./nfm-send-to-thread-menu-model";
-import { NfmTextActionMenuSurface, type NfmTextActionMenuSurfaceProps } from "./nfm-text-action-menu";
+import {
+  NfmTextActionMenuSurface,
+  type NfmTextActionMenuSurfaceProps,
+} from "./nfm-text-action-menu";
 
 const TEST_DATE = new Date("2026-01-01T00:00:00.000Z");
 
@@ -153,9 +159,7 @@ const SEND_TO_THREAD_THREADS = [
   makeSendToThreadItem(),
 ] satisfies NfmSendToThreadMenuSurfaceProps["threadItems"];
 
-function renderTextActionMenu(
-  props?: Partial<NfmTextActionMenuSurfaceProps>,
-) {
+function renderTextActionMenu(props?: Partial<NfmTextActionMenuSurfaceProps>) {
   const actions = {
     blockTypes: [] as string[],
     styles: [] as string[],
@@ -173,82 +177,86 @@ function renderTextActionMenu(
     <TestQueryProvider>
       <NodexTooltipProvider>
         <NfmTextActionMenuSurface
-        currentBlockTypeLabel="Normal Text"
-        blockTypeItems={[
-          {
-            key: "paragraph",
-            label: "Normal Text",
-            type: "paragraph",
-            isSelected: true,
-          },
-          {
-            key: "heading-1",
-            label: "Heading 1",
-            type: "heading",
-            props: { level: 1, isToggleable: false },
-            isSelected: false,
-          },
-        ]}
-        activeStyles={{
-          bold: true,
-          italic: false,
-          underline: false,
-          strike: false,
-          code: false,
-        }}
-        textColor="default"
-        backgroundColor="default"
-        canUseTextColor={true}
-        canUseBackgroundColor={true}
-        canClearFormat={true}
-        linkControl={<button type="button" aria-label="Link">Link</button>}
-        nodexRows={[
-          {
-            key: "send-to-thread",
-            label: "Send to chat",
-            enabled: true,
-          },
-          {
-            key: "move-to",
-            label: "Move to",
-            enabled: true,
-          },
-        ]}
-        showReferenceMocks={true}
-        sourceProjectId="default"
-        sourcePageId="source-card"
-        sendToThreadProjectNameById={{ default: "Default" }}
-        onSelectBlockType={(item) => {
-          actions.blockTypes.push(item.key);
-        }}
-        onToggleStyle={(style) => {
-          actions.styles.push(style);
-        }}
-        onSetTextColor={(color) => {
-          actions.textColors.push(color);
-        }}
-        onSetBackgroundColor={(color) => {
-          actions.backgroundColors.push(color);
-        }}
-        onClearFormat={() => {
-          actions.clearFormat += 1;
-        }}
-        onOpenBlockActions={() => {
-          actions.blockActions += 1;
-        }}
-        onNodexRow={(row) => {
-          actions.nodexRows.push(row.key);
-        }}
-        onMoveBlocksToDestination={(destination) => {
-          actions.moveDestinations.push(destination);
-        }}
-        onSendBlocksToThread={(request) => {
-          actions.sendRequests.push(request);
-        }}
-        onSelectionHoldChange={(active) => {
-          actions.selectionHoldStates.push(active);
-        }}
-        {...props}
+          currentBlockTypeLabel="Normal Text"
+          blockTypeItems={[
+            {
+              key: "paragraph",
+              label: "Normal Text",
+              type: "paragraph",
+              isSelected: true,
+            },
+            {
+              key: "heading-1",
+              label: "Heading 1",
+              type: "heading",
+              props: { level: 1, isToggleable: false },
+              isSelected: false,
+            },
+          ]}
+          activeStyles={{
+            bold: true,
+            italic: false,
+            underline: false,
+            strike: false,
+            code: false,
+          }}
+          textColor="default"
+          backgroundColor="default"
+          canUseTextColor={true}
+          canUseBackgroundColor={true}
+          canClearFormat={true}
+          linkControl={
+            <button type="button" aria-label="Link">
+              Link
+            </button>
+          }
+          nodexRows={[
+            {
+              key: "send-to-thread",
+              label: "Send to chat",
+              enabled: true,
+            },
+            {
+              key: "move-to",
+              label: "Move to",
+              enabled: true,
+            },
+          ]}
+          showReferenceMocks={true}
+          sourceProjectId="default"
+          sourcePageId="source-card"
+          sendToThreadProjectNameById={{ default: "Default" }}
+          onSelectBlockType={(item) => {
+            actions.blockTypes.push(item.key);
+          }}
+          onToggleStyle={(style) => {
+            actions.styles.push(style);
+          }}
+          onSetTextColor={(color) => {
+            actions.textColors.push(color);
+          }}
+          onSetBackgroundColor={(color) => {
+            actions.backgroundColors.push(color);
+          }}
+          onClearFormat={() => {
+            actions.clearFormat += 1;
+          }}
+          onOpenBlockActions={() => {
+            actions.blockActions += 1;
+          }}
+          onNodexRow={(row) => {
+            actions.nodexRows.push(row.key);
+          }}
+          onMoveBlocksToDestination={(destination) => {
+            actions.moveDestinations.push(destination);
+          }}
+          onSendBlocksToThread={(request) => {
+            actions.sendRequests.push(request);
+          }}
+          onSelectionHoldChange={(active) => {
+            actions.selectionHoldStates.push(active);
+          }}
+          {...props}
         />
       </NodexTooltipProvider>
     </TestQueryProvider>,
@@ -344,23 +352,35 @@ describe("nfm text action menu surface", () => {
     expect(Boolean(view.getByRole("dialog", { name: "Send to chat" }))).toBe(true);
     expect(Boolean(view.getByRole("combobox", { name: "Search threads" }))).toBe(true);
     expect(view.getByRole("button", { name: "Send" }).getAttribute("aria-pressed")).toBe("true");
-    expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe("false");
+    expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe(
+      "false",
+    );
     const initialOptions = view.getAllByRole("option");
     expect(initialOptions[0]?.textContent?.includes("Existing implementation") ?? false).toBe(true);
     expect(initialOptions[0]?.textContent?.includes("This session") ?? false).toBe(true);
-    expect(initialOptions[initialOptions.length - 1]?.textContent?.includes("New chat") ?? false).toBe(true);
+    expect(
+      initialOptions[initialOptions.length - 1]?.textContent?.includes("New chat") ?? false,
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.pointerMove(view.getByRole("button", { name: "Send & wrap" }));
       await settleAsyncRender();
     });
-    expect(view.queryAllByText("Sends the blocks, then replaces them with a collapsed toggle linking to the thread.").length).toBe(0);
+    expect(
+      view.queryAllByText(
+        "Sends the blocks, then replaces them with a collapsed toggle linking to the thread.",
+      ).length,
+    ).toBe(0);
 
     await act(async () => {
       fireEvent.pointerMove(view.getByTestId("send-to-thread-wrap-mode-info"));
       await settleAsyncRender();
     });
-    expect(view.getAllByText("Sends the blocks, then replaces them with a collapsed toggle linking to the thread.").length > 0).toBe(true);
+    expect(
+      view.getAllByText(
+        "Sends the blocks, then replaces them with a collapsed toggle linking to the thread.",
+      ).length > 0,
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Send & wrap" }));
@@ -388,7 +408,9 @@ describe("nfm text action menu surface", () => {
       await settleAsyncRender();
     });
 
-    expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe("true");
+    expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Send" }));
       await settleAsyncRender();
@@ -503,7 +525,9 @@ describe("nfm text action menu surface", () => {
     const options = view.getAllByRole("option");
     expect(options.length).toBe(2);
     expect(options[0]?.textContent?.includes("Existing implementation") ?? false).toBe(true);
-    expect(options[0]?.textContent?.includes("Review handoff notes before sending.") ?? false).toBe(true);
+    expect(options[0]?.textContent?.includes("Review handoff notes before sending.") ?? false).toBe(
+      true,
+    );
     expect(options[1]?.textContent?.includes("New chat") ?? false).toBe(true);
   });
 
@@ -684,7 +708,9 @@ describe("nfm text action menu surface", () => {
     await settleAsyncRender();
 
     expect(view.getByRole("button", { name: "Send" }).getAttribute("aria-pressed")).toBe("false");
-    expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe("true");
+    expect(view.getByRole("button", { name: "Send & wrap" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
   });
 
   test("hands More off to block actions without opening the legacy dropdown", async () => {
@@ -1062,9 +1088,9 @@ describe("nfm text action menu surface", () => {
       .join("|");
 
     expect(itemLabels).toBe(
-      "Recently used: Yellow background"
-      + "|Text color: Default|Text color: Gray|Text color: Brown|Text color: Orange|Text color: Yellow|Text color: Green|Text color: Blue|Text color: Purple|Text color: Pink|Text color: Red"
-      + "|Background color: Default|Background color: Gray|Background color: Brown|Background color: Orange|Background color: Yellow|Background color: Green|Background color: Blue|Background color: Purple|Background color: Pink|Background color: Red",
+      "Recently used: Yellow background" +
+        "|Text color: Default|Text color: Gray|Text color: Brown|Text color: Orange|Text color: Yellow|Text color: Green|Text color: Blue|Text color: Purple|Text color: Pink|Text color: Red" +
+        "|Background color: Default|Background color: Gray|Background color: Brown|Background color: Orange|Background color: Yellow|Background color: Green|Background color: Blue|Background color: Purple|Background color: Pink|Background color: Red",
     );
   });
 
@@ -1087,12 +1113,12 @@ describe("nfm text action menu surface", () => {
       .join("|");
 
     expect(firstSixItemLabels).toBe(
-      "Recently used: Blue text"
-      + "|Recently used: Pink text"
-      + "|Recently used: Red background"
-      + "|Recently used: Purple background"
-      + "|Recently used: Green background"
-      + "|Text color: Default",
+      "Recently used: Blue text" +
+        "|Recently used: Pink text" +
+        "|Recently used: Red background" +
+        "|Recently used: Purple background" +
+        "|Recently used: Green background" +
+        "|Text color: Default",
     );
   });
 
@@ -1160,7 +1186,11 @@ describe("nfm text action menu surface", () => {
     await openColorMenu(view);
 
     expect(view.queryByText("Text color") === null).toBe(true);
-    expect(view.getByRole("menuitem", { name: "Recently used: Blue text" }).getAttribute("aria-disabled")).toBe("true");
+    expect(
+      view
+        .getByRole("menuitem", { name: "Recently used: Blue text" })
+        .getAttribute("aria-disabled"),
+    ).toBe("true");
 
     await act(async () => {
       fireEvent.click(view.getByRole("menuitem", { name: "Recently used: Blue text" }));

@@ -40,28 +40,23 @@ export interface CanvasSceneDocumentSyncEngine {
   readonly kind: "canvas_scene";
 }
 
-export type OwnedDocumentSyncEngine =
-  | YjsDocumentSyncEngine
-  | CanvasSceneDocumentSyncEngine;
+export type OwnedDocumentSyncEngine = YjsDocumentSyncEngine | CanvasSceneDocumentSyncEngine;
 
 /**
  * Public ownership descriptor. Document identity and durable head semantics do
  * not depend on the content-specific synchronization engine.
  */
-export interface OwnedDocumentDescriptor
-  extends OwnedDocumentIdentity, OwnedDocumentHead {
+export interface OwnedDocumentDescriptor extends OwnedDocumentIdentity, OwnedDocumentHead {
   readonly authorization: AuthorizedReadStamp | null;
   readonly readiness: DocumentReadiness;
   readonly sync: OwnedDocumentSyncEngine;
 }
 
-export interface ProjectAccessedDocumentDescriptor
-  extends OwnedDocumentDescriptor {
+export interface ProjectAccessedDocumentDescriptor extends OwnedDocumentDescriptor {
   readonly accessContext: ProjectContentAccessContext;
 }
 
-export interface LibraryAccessedDocumentDescriptor
-  extends OwnedDocumentDescriptor {
+export interface LibraryAccessedDocumentDescriptor extends OwnedDocumentDescriptor {
   readonly accessContext: LibraryContentAccessContext;
 }
 
@@ -71,9 +66,7 @@ export const requireLibraryAccessedDocumentDescriptor = (
   if (descriptor.accessContext.kind === "library") {
     return { ...descriptor, accessContext: descriptor.accessContext };
   }
-  throw new TypeError(
-    "Owned Document descriptor does not use Library access context",
-  );
+  throw new TypeError("Owned Document descriptor does not use Library access context");
 };
 
 export const requireProjectAccessedDocumentDescriptor = (

@@ -108,13 +108,15 @@ function auxiliaryTabs() {
         entrypoint: "gallery_edit_button",
         generatedImages: null,
         imageSource: "uploaded",
-        images: [{
-          id: "attachment-1",
-          alt: "Attachment",
-          attachmentSrc: "data:image/png;base64,AA==",
-          source: "uploaded",
-          src: "data:image/png;base64,AA==",
-        }],
+        images: [
+          {
+            id: "attachment-1",
+            alt: "Attachment",
+            attachmentSrc: "data:image/png;base64,AA==",
+            source: "uploaded",
+            src: "data:image/png;base64,AA==",
+          },
+        ],
         initialImageId: "attachment-1",
         initialPlaygroundTool: "navigate",
         initialView: "single",
@@ -141,11 +143,7 @@ function input(
     rightActiveTabId: durable.id,
   });
   const tabs = auxiliaryTabs();
-  const key = makeWorkbenchSessionPanelSlotKey(
-    session.id,
-    "right",
-    "right-leaf",
-  );
+  const key = makeWorkbenchSessionPanelSlotKey(session.id, "right", "right-leaf");
   return {
     session,
     previewTabsByPanel: {},
@@ -212,11 +210,7 @@ function durableOnlyInput(
 describe("workbench panel projection", () => {
   test("keeps render order independent from active priority", () => {
     const base = input();
-    const key = makeWorkbenchSessionPanelSlotKey(
-      base.session.id,
-      "right",
-      "right-leaf",
-    );
+    const key = makeWorkbenchSessionPanelSlotKey(base.session.id, "right", "right-leaf");
     const model = buildSessionPanelRenderModel({
       ...base,
       previewTabsByPanel: { [key]: preview() },
@@ -256,11 +250,7 @@ describe("workbench panel projection", () => {
       },
       {
         expected: "side",
-        omit: [
-          "planActiveTabByPanel",
-          "automationActiveTabByPanel",
-          "mcpAppActiveTabByPanel",
-        ],
+        omit: ["planActiveTabByPanel", "automationActiveTabByPanel", "mcpAppActiveTabByPanel"],
       },
       {
         expected: "agents",
@@ -309,8 +299,7 @@ describe("workbench panel projection", () => {
     for (const { expected, omit } of cases) {
       const modelInput = input();
       for (const field of omit) modelInput[field] = {};
-      expect(buildSessionPanelRenderModel(modelInput).rightActiveTabId)
-        .toBe(expected);
+      expect(buildSessionPanelRenderModel(modelInput).rightActiveTabId).toBe(expected);
     }
   });
 
@@ -334,29 +323,29 @@ describe("workbench panel projection", () => {
       ...auxiliaryTabs().side,
       leafId: undefined,
     };
-    const model = buildSessionPanelRenderModel(input({
-      session,
-      sideChatTabsBySession: { [session.id]: [side] },
-      sideChatActiveTabByPanel: {
-        [makeWorkbenchSessionPanelSlotKey(session.id, "right")]: side.id,
-      },
-      mcpAppTabsBySession: {},
-      mcpAppActiveTabByPanel: {},
-      planTabsBySession: {},
-      planActiveTabByPanel: {},
-      automationTabsBySession: {},
-      automationActiveTabByPanel: {},
-      backgroundAgentTabsBySession: {},
-      backgroundAgentActiveTabByPanel: {},
-      processOutputTabsBySession: {},
-      processOutputActiveTabByPanel: {},
-      imageEditorTabsBySession: {},
-      imageEditorActiveTabByPanel: {},
-    }));
-    expect(model.activeTabIdsByPanelLeaf.right["right-leaf"])
-      .toBe("first");
-    expect(model.activeTabIdsByPanelLeaf.right["right-leaf-2"])
-      .toBe("side");
+    const model = buildSessionPanelRenderModel(
+      input({
+        session,
+        sideChatTabsBySession: { [session.id]: [side] },
+        sideChatActiveTabByPanel: {
+          [makeWorkbenchSessionPanelSlotKey(session.id, "right")]: side.id,
+        },
+        mcpAppTabsBySession: {},
+        mcpAppActiveTabByPanel: {},
+        planTabsBySession: {},
+        planActiveTabByPanel: {},
+        automationTabsBySession: {},
+        automationActiveTabByPanel: {},
+        backgroundAgentTabsBySession: {},
+        backgroundAgentActiveTabByPanel: {},
+        processOutputTabsBySession: {},
+        processOutputActiveTabByPanel: {},
+        imageEditorTabsBySession: {},
+        imageEditorActiveTabByPanel: {},
+      }),
+    );
+    expect(model.activeTabIdsByPanelLeaf.right["right-leaf"]).toBe("first");
+    expect(model.activeTabIdsByPanelLeaf.right["right-leaf-2"]).toBe("side");
   });
 
   test("suppresses a preview after the same identity becomes durable", () => {
@@ -365,18 +354,14 @@ describe("workbench panel projection", () => {
       kind: "browser",
     });
     const session = makeTestWorkbenchSession({ tabs: [durable] });
-    expect(getRenderablePanelPreviewTab(
-      session,
-      "right",
-      "right-leaf",
-      {
-        [makeWorkbenchSessionPanelSlotKey(
-          session.id,
-          "right",
-          "right-leaf",
-        )]: { ...durable, preview: true },
-      },
-    )).toBeNull();
+    expect(
+      getRenderablePanelPreviewTab(session, "right", "right-leaf", {
+        [makeWorkbenchSessionPanelSlotKey(session.id, "right", "right-leaf")]: {
+          ...durable,
+          preview: true,
+        },
+      }),
+    ).toBeNull();
   });
 
   test("projects collapsed/full-width and visible Browser lifecycle", () => {
@@ -394,12 +379,12 @@ describe("workbench panel projection", () => {
       rightFullWidth: true,
       bottomCollapsed: true,
     });
-    const model = buildSessionPanelRenderModel(
-      durableOnlyInput(session),
-    );
+    const model = buildSessionPanelRenderModel(durableOnlyInput(session));
     expect(model.rightPanelFullWidth).toBe(true);
-    expect(model.browserRetentionTabs.map((tab) => tab.id))
-      .toEqual(["right-browser", "bottom-browser"]);
+    expect(model.browserRetentionTabs.map((tab) => tab.id)).toEqual([
+      "right-browser",
+      "bottom-browser",
+    ]);
     expect([...model.visibleBrowserTabIds]).toEqual(["right-browser"]);
   });
 
@@ -431,26 +416,34 @@ describe("workbench panel projection", () => {
   });
 
   test("expands only while entering Canvas, not while restoring an existing Canvas", () => {
-    expect(shouldExpandImageEditorPanelForViewChange({
-      panelIsFullWidth: false,
-      previousView: "single",
-      view: "playground",
-    })).toBe(true);
-    expect(shouldExpandImageEditorPanelForViewChange({
-      panelIsFullWidth: false,
-      previousView: "playground",
-      view: "playground",
-    })).toBe(false);
-    expect(shouldExpandImageEditorPanelForViewChange({
-      panelIsFullWidth: true,
-      previousView: "single",
-      view: "playground",
-    })).toBe(false);
-    expect(shouldExpandImageEditorPanelForViewChange({
-      panelIsFullWidth: true,
-      previousView: "playground",
-      view: "single",
-    })).toBe(false);
+    expect(
+      shouldExpandImageEditorPanelForViewChange({
+        panelIsFullWidth: false,
+        previousView: "single",
+        view: "playground",
+      }),
+    ).toBe(true);
+    expect(
+      shouldExpandImageEditorPanelForViewChange({
+        panelIsFullWidth: false,
+        previousView: "playground",
+        view: "playground",
+      }),
+    ).toBe(false);
+    expect(
+      shouldExpandImageEditorPanelForViewChange({
+        panelIsFullWidth: true,
+        previousView: "single",
+        view: "playground",
+      }),
+    ).toBe(false);
+    expect(
+      shouldExpandImageEditorPanelForViewChange({
+        panelIsFullWidth: true,
+        previousView: "playground",
+        view: "single",
+      }),
+    ).toBe(false);
   });
 
   test("retains the active Browser owner until its panel animation unmounts", () => {
@@ -462,9 +455,7 @@ describe("workbench panel projection", () => {
       tabs: [browser],
       rightCollapsed: true,
     });
-    const model = buildSessionPanelRenderModel(
-      durableOnlyInput(session),
-    );
+    const model = buildSessionPanelRenderModel(durableOnlyInput(session));
 
     expect([...model.visibleBrowserTabIds]).toEqual([]);
     expect([
@@ -489,25 +480,14 @@ describe("workbench panel projection", () => {
       pageId: "page-2",
     });
     const session = makeTestWorkbenchSession({ tabs: [page] });
-    const model = buildSessionPanelRenderModel(
-      durableOnlyInput(session),
-    );
-    expect(
-      [...collectPanelPresentedPageIds(session, model)],
-    ).toEqual(["page-2"]);
+    const model = buildSessionPanelRenderModel(durableOnlyInput(session));
+    expect([...collectPanelPresentedPageIds(session, model)]).toEqual(["page-2"]);
 
     const collapsedSession = makeTestWorkbenchSession({
       tabs: [page],
       rightCollapsed: true,
     });
-    const collapsed = buildSessionPanelRenderModel(
-      durableOnlyInput(collapsedSession),
-    );
-    expect(
-      collectPanelPresentedPageIds(
-        collapsedSession,
-        collapsed,
-      ).size,
-    ).toBe(0);
+    const collapsed = buildSessionPanelRenderModel(durableOnlyInput(collapsedSession));
+    expect(collectPanelPresentedPageIds(collapsedSession, collapsed).size).toBe(0);
   });
 });

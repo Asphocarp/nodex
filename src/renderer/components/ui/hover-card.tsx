@@ -119,11 +119,7 @@ export function NodexHoverCard({
   const resolvedOpen = !disabled && requestedOpen;
 
   const handleOpenChange = useCallback(
-    (
-      nextOpen: boolean,
-      _event?: Event,
-      reason?: OpenChangeReason,
-    ): void => {
+    (nextOpen: boolean, _event?: Event, reason?: OpenChangeReason): void => {
       if (disabled && nextOpen) return;
       if (requestedOpenRef.current === nextOpen) return;
       requestedOpenRef.current = nextOpen;
@@ -142,8 +138,8 @@ export function NodexHoverCard({
 
         const activeElement = reference.ownerDocument.activeElement;
         if (
-          activeElement !== reference.ownerDocument.body
-          && activeElement?.isConnected !== false
+          activeElement !== reference.ownerDocument.body &&
+          activeElement?.isConnected !== false
         ) {
           return;
         }
@@ -154,11 +150,14 @@ export function NodexHoverCard({
     [controlled, disabled],
   );
 
-  useEffect(() => () => {
-    if (!requestedOpenRef.current) return;
-    requestedOpenRef.current = false;
-    onOpenChangeRef.current?.(false);
-  }, []);
+  useEffect(
+    () => () => {
+      if (!requestedOpenRef.current) return;
+      requestedOpenRef.current = false;
+      onOpenChangeRef.current?.(false);
+    },
+    [],
+  );
 
   const {
     context,
@@ -233,25 +232,15 @@ export function NodexHoverCard({
       handleOpenChange(false);
     };
 
-    window.addEventListener(
-      NODEX_FLOATING_SURFACE_DISMISS_EVENT,
-      handleGlobalDismiss,
-    );
+    window.addEventListener(NODEX_FLOATING_SURFACE_DISMISS_EVENT, handleGlobalDismiss);
     return () => {
-      window.removeEventListener(
-        NODEX_FLOATING_SURFACE_DISMISS_EVENT,
-        handleGlobalDismiss,
-      );
+      window.removeEventListener(NODEX_FLOATING_SURFACE_DISMISS_EVENT, handleGlobalDismiss);
     };
   }, [handleOpenChange, resolvedOpen]);
 
   const referenceChild = children as ReactElement<HoverCardReferenceProps>;
   const childProps = referenceChild.props;
-  const mergedReferenceRef = useMergeRefs([
-    refs.setReference,
-    referenceElementRef,
-    childProps.ref,
-  ]);
+  const mergedReferenceRef = useMergeRefs([refs.setReference, referenceElementRef, childProps.ref]);
   const referenceProps = getReferenceProps(childProps) as HoverCardReferenceProps;
   const referenceCloneProps = {
     ...referenceProps,

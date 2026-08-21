@@ -78,10 +78,7 @@ export {
   UserAttachmentImageEditorSurface,
   type UserAttachmentImageEditorSurfaceProps,
 } from "./view/user-attachment-image-editor-surface";
-export {
-  ImagePreviewDialog,
-  type ImagePreviewDialogProps,
-} from "./view/image-preview-dialog";
+export { ImagePreviewDialog, type ImagePreviewDialogProps } from "./view/image-preview-dialog";
 export {
   GeneratedImageDotField,
   GeneratedImagePlaceholder,

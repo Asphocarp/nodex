@@ -154,14 +154,18 @@ describe("SettingsSidebar search", () => {
       const resultRows = view.container.querySelectorAll('[data-list-navigation-item="true"]');
       const firstRow = resultRows.item(0);
       expect(firstRow instanceof HTMLElement).toBe(true);
-      expect((firstRow as HTMLElement).className.includes("bg-token-list-hover-background")).toBe(true);
+      expect((firstRow as HTMLElement).className.includes("bg-token-list-hover-background")).toBe(
+        true,
+      );
       expect(JSON.stringify(scrollOptions[0])).toBe(JSON.stringify({ block: "nearest" }));
 
       await pressSearchKey(input, "ArrowUp");
 
       const lastRow = resultRows.item(resultRows.length - 1);
       expect(lastRow instanceof HTMLElement).toBe(true);
-      expect((lastRow as HTMLElement).className.includes("bg-token-list-hover-background")).toBe(true);
+      expect((lastRow as HTMLElement).className.includes("bg-token-list-hover-background")).toBe(
+        true,
+      );
       expect(scrollOptions.length).toBe(2);
     } finally {
       if (originalScrollIntoView) {

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  ProjectCreateInputSchema,
-  ProjectUpdateInputSchema,
-} from "./projects";
+import { ProjectCreateInputSchema, ProjectUpdateInputSchema } from "./projects";
 
 describe("Project mutation schemas", () => {
   it("rejects the removed legacy icon authority on create and update", () => {
@@ -12,24 +9,32 @@ describe("Project mutation schemas", () => {
 
   it("rejects malformed revision fences instead of treating them as omitted", () => {
     for (const expectedBindingRevision of [0, -1, 1.5, "2", null]) {
-      expect(ProjectUpdateInputSchema.safeParse({
-        expectedBindingRevision,
-        name: "Nodex",
-      }).success).toBe(false);
+      expect(
+        ProjectUpdateInputSchema.safeParse({
+          expectedBindingRevision,
+          name: "Nodex",
+        }).success,
+      ).toBe(false);
     }
-    expect(ProjectUpdateInputSchema.safeParse({
-      expectedBindingRevision: 2,
-      name: "Nodex",
-    }).success).toBe(true);
+    expect(
+      ProjectUpdateInputSchema.safeParse({
+        expectedBindingRevision: 2,
+        name: "Nodex",
+      }).success,
+    ).toBe(true);
   });
 
   it("keeps Database-owned Page-key updates out of Project metadata", () => {
-    expect(ProjectUpdateInputSchema.safeParse({
-      expectedPageKeyNamespaceRevision: 2,
-    }).success).toBe(false);
-    expect(ProjectUpdateInputSchema.safeParse({
-      pageKeyPrefix: "LAB",
-      expectedPageKeyNamespaceRevision: 2,
-    }).success).toBe(false);
+    expect(
+      ProjectUpdateInputSchema.safeParse({
+        expectedPageKeyNamespaceRevision: 2,
+      }).success,
+    ).toBe(false);
+    expect(
+      ProjectUpdateInputSchema.safeParse({
+        pageKeyPrefix: "LAB",
+        expectedPageKeyNamespaceRevision: 2,
+      }).success,
+    ).toBe(false);
   });
 });

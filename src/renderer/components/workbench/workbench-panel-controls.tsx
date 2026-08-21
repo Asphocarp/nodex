@@ -1,9 +1,4 @@
-import {
-  forwardRef,
-  useState,
-  type ComponentPropsWithoutRef,
-  type ReactNode,
-} from "react";
+import { forwardRef, useState, type ComponentPropsWithoutRef, type ReactNode } from "react";
 import { PanelDestinationPicker } from "./panel-destination-picker";
 import type {
   PanelDestination,
@@ -28,7 +23,8 @@ import {
 import type { Project } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const PANEL_ACTION_ROW_CLASS = "cursor-interaction flex min-h-10 w-full items-center gap-2 rounded-md bg-token-bg-secondary px-2.5 py-2 text-left hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
+const PANEL_ACTION_ROW_CLASS =
+  "cursor-interaction flex min-h-10 w-full items-center gap-2 rounded-md bg-token-bg-secondary px-2.5 py-2 text-left hover:bg-token-list-hover-background focus-visible:outline focus-visible:outline-2 focus-visible:outline-token-border-xstrong";
 type PanelActionCardProps = ComponentPropsWithoutRef<"button"> & {
   action: PanelNewTabAction;
   isMac: boolean;
@@ -36,13 +32,7 @@ type PanelActionCardProps = ComponentPropsWithoutRef<"button"> & {
 };
 
 const PanelActionCard = forwardRef<HTMLButtonElement, PanelActionCardProps>(
-  function PanelActionCard({
-    action,
-    isMac,
-    commandKeymapState,
-    className,
-    ...buttonProps
-  }, ref) {
+  function PanelActionCard({ action, isMac, commandKeymapState, className, ...buttonProps }, ref) {
     const shortcut = resolvePanelActionShortcutLabel(action, isMac, commandKeymapState);
     const Icon = action.Icon;
     return (
@@ -87,9 +77,7 @@ function PanelDestinationActionMenu({
   onOpenDestination: (destination: PanelDestination) => Promise<void> | void;
 }) {
   const [open, setOpen] = useState(false);
-  const scope: PanelDestinationPickerScope = action.kind === "db_view"
-    ? "db-only"
-    : "page-only";
+  const scope: PanelDestinationPickerScope = action.kind === "db_view" ? "db-only" : "page-only";
   const ariaLabel = action.kind === "db_view" ? "Open DB view" : "Open Page";
   const placeholder = action.kind === "db_view" ? "Open DB…" : "Open Page…";
 
@@ -100,13 +88,9 @@ function PanelDestinationActionMenu({
       align="center"
       sideOffset={8}
       contentClassName="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0"
-      triggerButton={(
-        <PanelActionCard
-          action={action}
-          isMac={isMac}
-          commandKeymapState={commandKeymapState}
-        />
-      )}
+      triggerButton={
+        <PanelActionCard action={action} isMac={isMac} commandKeymapState={commandKeymapState} />
+      }
     >
       <PanelDestinationPicker
         projects={projects}
@@ -254,12 +238,7 @@ export function WindowNavigationToolbarButton({
   children: ReactNode;
 }) {
   return (
-    <NodexTooltip
-      delayOpen
-      tooltipContent={label}
-      shortcutLabel={shortcutLabel}
-      side="bottom"
-    >
+    <NodexTooltip delayOpen tooltipContent={label} shortcutLabel={shortcutLabel} side="bottom">
       <button
         type="button"
         className={`${TOOLBAR_BUTTON_BASE_CLASS} ${TOOLBAR_BUTTON_GHOST_CLASS}`}

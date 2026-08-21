@@ -65,10 +65,18 @@ function parseOptionPickerArguments(value: unknown): OptionPickerArguments | nul
   const options = value.options.map(parseOption);
   if (options.some((option) => option === null)) return null;
   if (value.allowMultiple !== undefined && typeof value.allowMultiple !== "boolean") return null;
-  if (value.submitLabel !== undefined && value.submitLabel !== null && typeof value.submitLabel !== "string") {
+  if (
+    value.submitLabel !== undefined &&
+    value.submitLabel !== null &&
+    typeof value.submitLabel !== "string"
+  ) {
     return null;
   }
-  if (value.skipLabel !== undefined && value.skipLabel !== null && typeof value.skipLabel !== "string") {
+  if (
+    value.skipLabel !== undefined &&
+    value.skipLabel !== null &&
+    typeof value.skipLabel !== "string"
+  ) {
     return null;
   }
   return {
@@ -82,10 +90,15 @@ function parseOptionPickerArguments(value: unknown): OptionPickerArguments | nul
 
 function parseOnboardingQuestion(value: unknown): CodexUserInputQuestion | null {
   if (!isRecord(value) || !hasOnlyKeys(value, ["id", "header", "question", "options"])) return null;
-  if (typeof value.id !== "string" || typeof value.question !== "string" || !Array.isArray(value.options)) {
+  if (
+    typeof value.id !== "string" ||
+    typeof value.question !== "string" ||
+    !Array.isArray(value.options)
+  ) {
     return null;
   }
-  if (value.header !== undefined && value.header !== null && typeof value.header !== "string") return null;
+  if (value.header !== undefined && value.header !== null && typeof value.header !== "string")
+    return null;
   if (value.options.length < 2) return null;
   const options = value.options.map(parseOption);
   if (options.some((option) => option === null)) return null;
@@ -109,18 +122,21 @@ function parseOnboardingInputArguments(value: unknown): OnboardingInputArguments
   const questions = value.questions.map(parseOnboardingQuestion);
   if (questions.some((question) => question === null)) return null;
   return {
-    questions: questions.filter((question): question is CodexUserInputQuestion => question !== null),
+    questions: questions.filter(
+      (question): question is CodexUserInputQuestion => question !== null,
+    ),
   };
 }
 
 function parseSetupStep(value: unknown): CodexSetupCodexStepRequest["step"] | "complete" | null {
   if (!isRecord(value) || !hasOnlyKeys(value, ["step"])) return null;
   if (
-    value.step !== "role"
-    && value.step !== "task"
-    && value.step !== "context"
-    && value.step !== "complete"
-  ) return null;
+    value.step !== "role" &&
+    value.step !== "task" &&
+    value.step !== "context" &&
+    value.step !== "complete"
+  )
+    return null;
   return value.step;
 }
 
@@ -329,8 +345,10 @@ export function selectCanonicalInteractiveRequestForTurn(
   bucket: CodexCanonicalPendingRequestBucket | null | undefined,
 ): CodexCanonicalInteractivePendingRequest | null {
   if (!bucket) return null;
-  return bucket.latestUserInputRequest
-    ?? bucket.latestOnboardingInputRequest
-    ?? bucket.latestOptionPickerRequest
-    ?? bucket.latestSetupCodexStepRequest;
+  return (
+    bucket.latestUserInputRequest ??
+    bucket.latestOnboardingInputRequest ??
+    bucket.latestOptionPickerRequest ??
+    bucket.latestSetupCodexStepRequest
+  );
 }

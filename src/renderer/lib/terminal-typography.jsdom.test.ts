@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  resolveTerminalTypography,
-  sameTerminalTypography,
-} from "./terminal-typography";
+import { resolveTerminalTypography, sameTerminalTypography } from "./terminal-typography";
 
 describe("terminal-typography", () => {
   test("normalizes configured font families for xterm canvas metrics", () => {
@@ -19,10 +16,7 @@ describe("terminal-typography", () => {
 
   test("does not pass unresolved CSS variables to xterm", () => {
     const host = document.createElement("div");
-    host.style.setProperty(
-      "--vscode-editor-font-family",
-      "var(--font-vscode-editor, monospace)",
-    );
+    host.style.setProperty("--vscode-editor-font-family", "var(--font-vscode-editor, monospace)");
     document.body.appendChild(host);
 
     const typography = resolveTerminalTypography(host);
@@ -38,9 +32,7 @@ describe("terminal-typography", () => {
 
     const typography = resolveTerminalTypography(host);
 
-    expect(typography.fontFamily).toBe(
-      'ui-monospace, "Symbols Nerd Font Mono", monospace',
-    );
+    expect(typography.fontFamily).toBe('ui-monospace, "Symbols Nerd Font Mono", monospace');
   });
 
   test("falls back when CSS token resolution is unavailable", () => {
@@ -54,13 +46,17 @@ describe("terminal-typography", () => {
   });
 
   test("compares terminal typography snapshots", () => {
-    expect(sameTerminalTypography(
-      { fontFamily: "Menlo, monospace", fontSize: 14 },
-      { fontFamily: "Menlo, monospace", fontSize: 14 },
-    )).toBe(true);
-    expect(sameTerminalTypography(
-      { fontFamily: "Menlo, monospace", fontSize: 14 },
-      { fontFamily: "Monaco, monospace", fontSize: 14 },
-    )).toBe(false);
+    expect(
+      sameTerminalTypography(
+        { fontFamily: "Menlo, monospace", fontSize: 14 },
+        { fontFamily: "Menlo, monospace", fontSize: 14 },
+      ),
+    ).toBe(true);
+    expect(
+      sameTerminalTypography(
+        { fontFamily: "Menlo, monospace", fontSize: 14 },
+        { fontFamily: "Monaco, monospace", fontSize: 14 },
+      ),
+    ).toBe(false);
   });
 });

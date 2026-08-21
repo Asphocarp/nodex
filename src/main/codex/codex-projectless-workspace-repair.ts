@@ -38,15 +38,10 @@ interface LegacyProjectlessWorkspaceMigrationInput {
 }
 
 function selectPathImplementation(value: string): typeof path.posix | typeof path.win32 {
-  return /^[A-Za-z]:[\\/]/.test(value) || value.includes("\\")
-    ? path.win32
-    : path.posix;
+  return /^[A-Za-z]:[\\/]/.test(value) || value.includes("\\") ? path.win32 : path.posix;
 }
 
-function resolveBrandedWorkspaceRoot(
-  homeDirectory: string,
-  brand: "Codex" | "Nodex",
-): string {
+function resolveBrandedWorkspaceRoot(homeDirectory: string, brand: "Codex" | "Nodex"): string {
   const pathImplementation = selectPathImplementation(homeDirectory);
   return pathImplementation.join(homeDirectory, "Documents", brand);
 }
@@ -57,10 +52,12 @@ function isPathInside(
   pathImplementation: typeof path.posix | typeof path.win32,
 ): boolean {
   const relative = pathImplementation.relative(parent, candidate);
-  return relative.length > 0
-    && !relative.startsWith(`..${pathImplementation.sep}`)
-    && relative !== ".."
-    && !pathImplementation.isAbsolute(relative);
+  return (
+    relative.length > 0 &&
+    !relative.startsWith(`..${pathImplementation.sep}`) &&
+    relative !== ".." &&
+    !pathImplementation.isAbsolute(relative)
+  );
 }
 
 export function resolveGeneratedProjectlessThreadPath(
@@ -153,22 +150,16 @@ export async function migrateLegacyCodexProjectlessWorkspace(
   const homeDirectory = input.homeDirectory ?? homedir();
   const generated = resolveGeneratedProjectlessThreadPath(input.cwd, homeDirectory);
   if (!generated || generated.brand !== "Codex") return null;
-  if (!await isRealDirectory(input.cwd)) return null;
+  if (!(await isRealDirectory(input.cwd))) return null;
 
   const pathImplementation = selectPathImplementation(input.cwd);
   const workspaceRoot = resolveCodexProjectlessWorkspaceRoot(homeDirectory);
-  const dateDirectory = pathImplementation.join(
-    workspaceRoot,
-    generated.dateDirectoryName,
-  );
+  const dateDirectory = pathImplementation.join(workspaceRoot, generated.dateDirectoryName);
   await ensureRealDirectory(workspaceRoot);
   await ensureRealDirectory(dateDirectory);
 
-  const names = Array.from(
-    { length: MIGRATION_NUMERIC_ATTEMPTS },
-    (_, index) => index === 0
-      ? generated.threadDirectoryName
-      : `${generated.threadDirectoryName}-${index + 1}`,
+  const names = Array.from({ length: MIGRATION_NUMERIC_ATTEMPTS }, (_, index) =>
+    index === 0 ? generated.threadDirectoryName : `${generated.threadDirectoryName}-${index + 1}`,
   );
   const uniqueDirectoryNameSuffix = input.uniqueDirectoryNameSuffix ?? randomUUID;
   for (let index = 0; index < MIGRATION_UNIQUE_ATTEMPTS; index += 1) {
@@ -177,7 +168,7 @@ export async function migrateLegacyCodexProjectlessWorkspace(
 
   for (const name of names) {
     const destinationCwd = pathImplementation.join(dateDirectory, name);
-    if (!await tryMoveDirectory(input.cwd, destinationCwd)) continue;
+    if (!(await tryMoveDirectory(input.cwd, destinationCwd))) continue;
     return {
       cwd: destinationCwd,
       outputDirectory: resolveOutputDirectoryAfterMove({
@@ -199,24 +190,22 @@ export async function repairCodexProjectlessWorkspace(
   const generatedCwd = input.cwd
     ? resolveGeneratedProjectlessThreadPath(input.cwd, homeDirectory)
     : null;
-  if (input.cwd && await isRealDirectory(input.cwd)) {
+  if (input.cwd && (await isRealDirectory(input.cwd))) {
     if (!generatedCwd) return null;
     const inferredOutputDirectory = path.join(input.cwd, "outputs");
     return {
       cwd: input.cwd,
-      outputDirectory: input.outputDirectory
-        ?? (await isRealDirectory(inferredOutputDirectory) ? inferredOutputDirectory : input.cwd),
+      outputDirectory:
+        input.outputDirectory ??
+        ((await isRealDirectory(inferredOutputDirectory)) ? inferredOutputDirectory : input.cwd),
       workspaceRoot: generatedCwd.workspaceRoot,
     };
   }
 
   for (const candidate of [...input.writableRoots].reverse()) {
-    const generatedCandidate = resolveGeneratedProjectlessThreadPath(
-      candidate,
-      homeDirectory,
-    );
+    const generatedCandidate = resolveGeneratedProjectlessThreadPath(candidate, homeDirectory);
     if (!generatedCandidate) continue;
-    if (!await isRealDirectory(candidate)) continue;
+    if (!(await isRealDirectory(candidate))) continue;
     return {
       cwd: candidate,
       outputDirectory: input.outputDirectory ?? candidate,
@@ -225,9 +214,9 @@ export async function repairCodexProjectlessWorkspace(
   }
 
   if (
-    input.browserRoot
-    && input.browserRoot !== "~"
-    && await isRealDirectory(input.browserRoot)
+    input.browserRoot &&
+    input.browserRoot !== "~" &&
+    (await isRealDirectory(input.browserRoot))
   ) {
     return {
       cwd: input.browserRoot,

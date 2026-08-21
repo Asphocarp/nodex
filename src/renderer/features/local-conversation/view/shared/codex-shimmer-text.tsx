@@ -103,13 +103,21 @@ export function CodexShimmerText({
   return (
     <span
       ref={useCadenced ? ref : undefined}
-      className={cn("loading-shimmer-pure-text", useCadenced && "codex-cadenced-shimmer", className)}
+      className={cn(
+        "loading-shimmer-pure-text",
+        useCadenced && "codex-cadenced-shimmer",
+        className,
+      )}
       data-codex-shimmer={variant}
       {...props}
     >
       {children}
       {useCadenced ? (
-        <span aria-hidden="true" className="codex-cadenced-shimmer-sweep" data-codex-shimmer-sweep="true">
+        <span
+          aria-hidden="true"
+          className="codex-cadenced-shimmer-sweep"
+          data-codex-shimmer-sweep="true"
+        >
           <span className="codex-cadenced-shimmer-highlight">{children}</span>
         </span>
       ) : null}

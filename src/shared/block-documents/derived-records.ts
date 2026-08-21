@@ -3,11 +3,7 @@ import { parseNfm } from "../nfm/parser";
 import { parsePageDeepLink } from "../nodex-deeplink";
 import type { NfmBlock, NfmInlineContent } from "../nfm/types";
 import type { BlockTreeNode } from "./block-document-codec";
-import {
-  MAX_BLOCK_ID_LENGTH,
-  MAX_REFERENCE_DISPLAY_HINT_LENGTH,
-  type BlockId,
-} from "./contracts";
+import { MAX_BLOCK_ID_LENGTH, MAX_REFERENCE_DISPLAY_HINT_LENGTH, type BlockId } from "./contracts";
 
 export type BlockDocumentReference =
   | {
@@ -62,11 +58,8 @@ export interface BlockDocumentDerivedRecords {
  * BF-04 safety fence. These legacy reference shapes project another Card body
  * into the host editor; canonical reference-only Blocks replace them in BF-05.
  */
-export const isLegacyForeignBodyReference = (
-  reference: BlockDocumentReference,
-): boolean =>
-  reference.kind === "legacy_card_projection"
-  || reference.kind === "legacy_database_query";
+export const isLegacyForeignBodyReference = (reference: BlockDocumentReference): boolean =>
+  reference.kind === "legacy_card_projection" || reference.kind === "legacy_database_query";
 
 export class BlockDocumentDerivedRecordsError extends Error {
   constructor(message: string) {
@@ -76,11 +69,7 @@ export class BlockDocumentDerivedRecordsError extends Error {
 }
 
 const assertCanonicalReferenceId = (value: string, label: string): void => {
-  if (
-    value.length === 0
-    || value !== value.trim()
-    || value.length > MAX_BLOCK_ID_LENGTH
-  ) {
+  if (value.length === 0 || value !== value.trim() || value.length > MAX_BLOCK_ID_LENGTH) {
     throw new BlockDocumentDerivedRecordsError(
       `${label} must be a non-empty stable identity no longer than ${MAX_BLOCK_ID_LENGTH} characters`,
     );
@@ -116,11 +105,13 @@ const appendPageReference = (
   references: BlockDocumentReference[],
   input: Extract<BlockDocumentReference, { readonly kind: "page" }>,
 ): void => {
-  const existingIndex = references.findIndex((reference) =>
-    reference.kind === "page"
-    && reference.sourceBlockId === input.sourceBlockId
-    && reference.targetPageId === input.targetPageId
-    && reference.presentation === input.presentation);
+  const existingIndex = references.findIndex(
+    (reference) =>
+      reference.kind === "page" &&
+      reference.sourceBlockId === input.sourceBlockId &&
+      reference.targetPageId === input.targetPageId &&
+      reference.presentation === input.presentation,
+  );
   if (existingIndex === -1) {
     references.push(input);
     return;
@@ -195,37 +186,20 @@ const collectDerivedRecords = (
   blockTree.forEach((block, index) => {
     const nfmBlock = nfmBlocks[index];
     if (!nfmBlock) {
-      throw new BlockDocumentDerivedRecordsError(
-        "NFM projection is missing a Block",
-      );
+      throw new BlockDocumentDerivedRecordsError("NFM projection is missing a Block");
     }
     if ("content" in nfmBlock && Array.isArray(nfmBlock.content)) {
-      collectInlineReferences(
-        block.id,
-        nfmBlock.content,
-        references,
-        assetRefs,
-      );
+      collectInlineReferences(block.id, nfmBlock.content, references, assetRefs);
     }
     if (nfmBlock.type === "table") {
       for (const row of nfmBlock.rows) {
         for (const cell of row.cells) {
-          collectInlineReferences(
-            block.id,
-            cell.content,
-            references,
-            assetRefs,
-          );
+          collectInlineReferences(block.id, cell.content, references, assetRefs);
         }
       }
     }
     if (nfmBlock.type === "image") {
-      collectInlineReferences(
-        block.id,
-        nfmBlock.caption,
-        references,
-        assetRefs,
-      );
+      collectInlineReferences(block.id, nfmBlock.caption, references, assetRefs);
       appendResolvedAssetReference(assetRefs, {
         sourceBlockId: block.id,
         kind: "image",
@@ -239,17 +213,11 @@ const collectDerivedRecords = (
       throw new BlockDocumentDerivedRecordsError(
         `Owning Page NFM uuid ${nfmBlock.uuid} does not match Block ${block.id}`,
       );
-    } else if (
-      nfmBlock.type === "database" &&
-      nfmBlock.uuid !== block.id
-    ) {
+    } else if (nfmBlock.type === "database" && nfmBlock.uuid !== block.id) {
       throw new BlockDocumentDerivedRecordsError(
         `Owning Database NFM uuid ${nfmBlock.uuid} does not match Block ${block.id}`,
       );
-    } else if (
-      nfmBlock.type === "canvas" &&
-      nfmBlock.uuid !== block.id
-    ) {
+    } else if (nfmBlock.type === "canvas" && nfmBlock.uuid !== block.id) {
       throw new BlockDocumentDerivedRecordsError(
         `Owning Canvas NFM uuid ${nfmBlock.uuid} does not match Block ${block.id}`,
       );
@@ -274,9 +242,7 @@ const collectDerivedRecords = (
         kind: "legacy_card_projection",
         sourceBlockId: block.id,
         targetBlockId: nfmBlock.pageId,
-        ...(nfmBlock.sourceProjectId
-          ? { projectHint: nfmBlock.sourceProjectId }
-          : {}),
+        ...(nfmBlock.sourceProjectId ? { projectHint: nfmBlock.sourceProjectId } : {}),
       });
     } else if (nfmBlock.type === "toggleListInlineView") {
       references.push({
@@ -285,10 +251,7 @@ const collectDerivedRecords = (
         projectHint: nfmBlock.sourceProjectId,
       });
     } else if (nfmBlock.type === "databaseViewRef") {
-      assertCanonicalReferenceId(
-        nfmBlock.databaseViewId,
-        "databaseViewId",
-      );
+      assertCanonicalReferenceId(nfmBlock.databaseViewId, "databaseViewId");
       const displayHint = readDisplayHint(nfmBlock.displayHint);
       references.push({
         kind: "database_view",
@@ -314,12 +277,7 @@ const collectDerivedRecords = (
       });
     }
 
-    collectDerivedRecords(
-      block.children,
-      nfmBlock.children,
-      references,
-      assetRefs,
-    );
+    collectDerivedRecords(block.children, nfmBlock.children, references, assetRefs);
   });
 };
 
@@ -336,5 +294,4 @@ export const deriveBlockDocumentRecords = (
 export const deriveBlockDocumentRecordsFromNfm = (
   blockTree: readonly BlockTreeNode[],
   nfm: string,
-): BlockDocumentDerivedRecords =>
-  deriveBlockDocumentRecords(blockTree, parseNfm(nfm));
+): BlockDocumentDerivedRecords => deriveBlockDocumentRecords(blockTree, parseNfm(nfm));

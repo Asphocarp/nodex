@@ -2,10 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { render, textContent } from "../../../../../test/dom";
 import { describeWebSearchAction } from "../../../web-search-display";
-import {
-  getWebSearchSummaryDetail,
-  WebSearchToolCall,
-} from "./web-search-tool-call";
+import { getWebSearchSummaryDetail, WebSearchToolCall } from "./web-search-tool-call";
 
 function buildWebSearchEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
   return {
@@ -50,46 +47,65 @@ function buildWebSearchEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTr
 
 describe("describeWebSearchAction", () => {
   test("uses the first non-empty query and appends an ellipsis for multi-query searches", () => {
-    expect(describeWebSearchAction({
-      type: "search",
-      queries: ["storybook args", "storybook decorators"],
-    }, "")).toBe("storybook args ...");
+    expect(
+      describeWebSearchAction(
+        {
+          type: "search",
+          queries: ["storybook args", "storybook decorators"],
+        },
+        "",
+      ),
+    ).toBe("storybook args ...");
   });
 
   test("normalizes site filters in search action detail text", () => {
-    expect(describeWebSearchAction({
-      type: "search",
-      query: "site:github.com/openai/codex renderer OR site:www.example.com docs",
-    }, "")).toBe("renderer docs | github.com \u00b7 example.com");
+    expect(
+      describeWebSearchAction(
+        {
+          type: "search",
+          query: "site:github.com/openai/codex renderer OR site:www.example.com docs",
+        },
+        "",
+      ),
+    ).toBe("renderer docs | github.com \u00b7 example.com");
   });
 
   test("formats find-in-page actions the same way as Codex Electron", () => {
-    expect(describeWebSearchAction({
-      type: "findInPage",
-      pattern: "play function",
-      url: "https://storybook.js.org/docs/writing-stories/play-function",
-    }, "")).toBe("'play function' in https://storybook.js.org/docs/writing-stories/play-function");
+    expect(
+      describeWebSearchAction(
+        {
+          type: "findInPage",
+          pattern: "play function",
+          url: "https://storybook.js.org/docs/writing-stories/play-function",
+        },
+        "",
+      ),
+    ).toBe("'play function' in https://storybook.js.org/docs/writing-stories/play-function");
   });
 });
 
 describe("getWebSearchSummaryDetail", () => {
   test("prefers the raw action payload over generic fallback result data", () => {
-    expect(getWebSearchSummaryDetail(buildWebSearchEntry({
-      toolCall: {
-        subtype: "webSearch",
-        toolName: "web_search",
-        args: { query: "ignored fallback query" },
-        result: {
-          sources: ["storybook"],
-        },
-      },
-      rawItem: {
-        action: {
-          type: "openPage",
-          url: "https://storybook.js.org/docs/writing-stories/args",
-        },
-      },
-    }))).toBe("https://storybook.js.org/docs/writing-stories/args");
+    expect(
+      getWebSearchSummaryDetail(
+        buildWebSearchEntry({
+          toolCall: {
+            subtype: "webSearch",
+            toolName: "web_search",
+            args: { query: "ignored fallback query" },
+            result: {
+              sources: ["storybook"],
+            },
+          },
+          rawItem: {
+            action: {
+              type: "openPage",
+              url: "https://storybook.js.org/docs/writing-stories/args",
+            },
+          },
+        }),
+      ),
+    ).toBe("https://storybook.js.org/docs/writing-stories/args");
   });
 });
 
@@ -111,7 +127,13 @@ describe("WebSearchToolCall", () => {
 
     const renderedText = textContent(container);
     expect(Boolean(renderedText.includes("Searched the web"))).toBe(true);
-    expect(Boolean(renderedText.includes("'decorators' in https://storybook.js.org/docs/writing-stories/decorators"))).toBe(true);
+    expect(
+      Boolean(
+        renderedText.includes(
+          "'decorators' in https://storybook.js.org/docs/writing-stories/decorators",
+        ),
+      ),
+    ).toBe(true);
     expect(Boolean(container.querySelector("[data-tool-activity-icon='web-search']"))).toBe(true);
   });
 
@@ -135,7 +157,9 @@ describe("WebSearchToolCall", () => {
     expect(Boolean(textContent(container).includes("Searching the web"))).toBe(true);
     const shimmer = container.querySelector(".loading-shimmer-pure-text");
     expect(Boolean(shimmer)).toBe(true);
-    expect(Boolean(textContent(shimmer ?? container).includes("for storybook react vite args"))).toBe(true);
+    expect(
+      Boolean(textContent(shimmer ?? container).includes("for storybook react vite args")),
+    ).toBe(true);
   });
 
   test("uses the semantic globe summary leaf inside activity groups", () => {

@@ -362,7 +362,10 @@ function isElectronLikeComposerEnvironment(): boolean {
   return document.documentElement.dataset.codexWindowType === "electron";
 }
 
-function formatCompactCodexModelLabel(modelId: string, models: ThreadFooterModel["availableModels"]): string {
+function formatCompactCodexModelLabel(
+  modelId: string,
+  models: ThreadFooterModel["availableModels"],
+): string {
   const label = formatCodexModelLabel(modelId, models).trim();
   if (!label) return modelId;
 
@@ -409,9 +412,11 @@ function isComposerImageFile(file: ComposerPickedFile): boolean {
 }
 
 function hasComposerFileDataTransfer(dataTransfer: DataTransfer): boolean {
-  return Array.from(dataTransfer.items ?? []).some((item) => item.kind === "file")
-    || Array.from(dataTransfer.types ?? []).includes("Files")
-    || (dataTransfer.files?.length ?? 0) > 0;
+  return (
+    Array.from(dataTransfer.items ?? []).some((item) => item.kind === "file") ||
+    Array.from(dataTransfer.types ?? []).includes("Files") ||
+    (dataTransfer.files?.length ?? 0) > 0
+  );
 }
 
 function extractComposerPromptMentions(prompt: string): {
@@ -471,21 +476,19 @@ function buildComposerPromptInput(input: {
 }): CodexPromptInput | undefined {
   const parsedPrompt = extractComposerPromptMentions(input.prompt);
   const text = parsedPrompt.text;
-  const executionHostId = input.executionHostId === undefined
-    ? DEFAULT_CODEX_HOST_ID
-    : input.executionHostId;
-  const images = [...buildComposerImagePromptInputs(
-    input.attachments.imageAttachments,
-    executionHostId,
-  )];
+  const executionHostId =
+    input.executionHostId === undefined ? DEFAULT_CODEX_HOST_ID : input.executionHostId;
+  const images = [
+    ...buildComposerImagePromptInputs(input.attachments.imageAttachments, executionHostId),
+  ];
   const appshots = input.attachments.appshotContexts.map((context) => ({
     ...context,
   }));
-  const textAttachments = input.attachments.pastedTextAttachments.flatMap((attachment) => (
+  const textAttachments = input.attachments.pastedTextAttachments.flatMap((attachment) =>
     attachment.status === "ready"
       ? [{ ...attachment.attachment, file: { ...attachment.attachment.file } }]
-      : []
-  ));
+      : [],
+  );
   const fileAttachments = dedupeCodexLiveFileAttachments(
     input.attachments.fileAttachments.map((item) => item.attachment),
   ).map((attachment) => ({ ...attachment }));
@@ -495,20 +498,18 @@ function buildComposerPromptInput(input: {
   const mentions = parsedPrompt.mentions;
   const skills = parsedPrompt.skills;
   const commentAttachments = [...input.attachments.commentAttachments];
-  const browserAnnotationAttachments = [
-    ...input.attachments.browserAnnotationAttachments,
-  ];
+  const browserAnnotationAttachments = [...input.attachments.browserAnnotationAttachments];
 
   if (
-    images.length === 0
-    && appshots.length === 0
-    && textAttachments.length === 0
-    && fileAttachments.length === 0
-    && addedFiles.length === 0
-    && mentions.length === 0
-    && skills.length === 0
-    && commentAttachments.length === 0
-    && browserAnnotationAttachments.length === 0
+    images.length === 0 &&
+    appshots.length === 0 &&
+    textAttachments.length === 0 &&
+    fileAttachments.length === 0 &&
+    addedFiles.length === 0 &&
+    mentions.length === 0 &&
+    skills.length === 0 &&
+    commentAttachments.length === 0 &&
+    browserAnnotationAttachments.length === 0
   ) {
     return undefined;
   }
@@ -526,9 +527,7 @@ function buildComposerPromptInput(input: {
     ...(mentions.length > 0 ? { mentions } : {}),
     ...(skills.length > 0 ? { skills } : {}),
     ...(commentAttachments.length > 0 ? { commentAttachments } : {}),
-    ...(browserAnnotationAttachments.length > 0
-      ? { browserAnnotationAttachments }
-      : {}),
+    ...(browserAnnotationAttachments.length > 0 ? { browserAnnotationAttachments } : {}),
   };
 }
 
@@ -536,114 +535,103 @@ function getComposerAttachmentNameFromPath(path: string, fallback: string): stri
   return path.split(/[\\/]/u).filter(Boolean).at(-1) ?? fallback;
 }
 
-function serializePersistedPromptMention(
-  mention: { readonly name: string; readonly path: string },
-): string {
-  const parsed = parseComposerPromptMentionLink(
-    `@${mention.name}`,
-    mention.path,
+function serializePersistedPromptMention(mention: {
+  readonly name: string;
+  readonly path: string;
+}): string {
+  const parsed = parseComposerPromptMentionLink(`@${mention.name}`, mention.path);
+  return serializeComposerPromptMentionLink(
+    parsed ?? {
+      kind: "file",
+      name: mention.name,
+      displayName: mention.name,
+      path: mention.path,
+    },
   );
-  return serializeComposerPromptMentionLink(parsed ?? {
-    kind: "file",
-    name: mention.name,
-    displayName: mention.name,
-    path: mention.path,
-  });
 }
 
 function buildPersistedMentionPrompt(promptInput?: CodexPromptInput): string {
   return [
-    ...(promptInput?.mentions ?? [])
-      .map(serializePersistedPromptMention),
-    ...(promptInput?.skills ?? [])
-      .map((skill) => serializeComposerPromptMentionLink({
+    ...(promptInput?.mentions ?? []).map(serializePersistedPromptMention),
+    ...(promptInput?.skills ?? []).map((skill) =>
+      serializeComposerPromptMentionLink({
         kind: "skill",
         name: skill.name,
         displayName: skill.name,
         path: skill.path,
-      })),
+      }),
+    ),
   ].join(" ");
 }
 
-function buildPersistedPromptDocument(
-  promptInput?: CodexPromptInput,
-): string | null {
+function buildPersistedPromptDocument(promptInput?: CodexPromptInput): string | null {
   if (!promptInput?.documentItems) return null;
-  return promptInput.documentItems.map((item) => {
-    switch (item.type) {
-      case "text":
-        return item.text;
-      case "mention":
-        return serializePersistedPromptMention(item);
-      case "skill":
-        return serializeComposerPromptMentionLink({
-          kind: "skill",
-          name: item.name,
-          displayName: item.name,
-          path: item.path,
-        });
-    }
-  }).join("");
+  return promptInput.documentItems
+    .map((item) => {
+      switch (item.type) {
+        case "text":
+          return item.text;
+        case "mention":
+          return serializePersistedPromptMention(item);
+        case "skill":
+          return serializeComposerPromptMentionLink({
+            kind: "skill",
+            name: item.name,
+            displayName: item.name,
+            path: item.path,
+          });
+      }
+    })
+    .join("");
 }
 
-function mergePersistedMentionPrompt(
-  prompt: string,
-  mentionPrompt: string,
-): string {
+function mergePersistedMentionPrompt(prompt: string, mentionPrompt: string): string {
   if (!mentionPrompt) return prompt;
   if (!prompt) return `${mentionPrompt} `;
   const separator = /\s$/u.test(prompt) ? "" : " ";
   return `${prompt}${separator}${mentionPrompt} `;
 }
 
-function appendPersistedPromptDocument(
-  prompt: string,
-  documentPrompt: string,
-): string {
+function appendPersistedPromptDocument(prompt: string, documentPrompt: string): string {
   if (!documentPrompt) return prompt;
   if (!prompt) return documentPrompt;
-  const separator = /\s$/u.test(prompt) || /^\s/u.test(documentPrompt)
-    ? ""
-    : " ";
+  const separator = /\s$/u.test(prompt) || /^\s/u.test(documentPrompt) ? "" : " ";
   return `${prompt}${separator}${documentPrompt}`;
 }
 
 function removePersistedMentionPrompt(prompt: string): string {
   return prompt
-    .replace(
-      /\[([^\]\n]+)\]\(([^)\n]+)\)/gu,
-      (serialized, rawLabel: string, rawPath: string) => {
-        const mention = parseComposerPromptMentionLink(rawLabel, rawPath);
-        return mention ? "" : serialized;
-      },
-    )
+    .replace(/\[([^\]\n]+)\]\(([^)\n]+)\)/gu, (serialized, rawLabel: string, rawPath: string) => {
+      const mention = parseComposerPromptMentionLink(rawLabel, rawPath);
+      return mention ? "" : serialized;
+    })
     .trimEnd();
 }
 
-function buildComposerAttachmentStateFromPromptInput(promptInput?: CodexPromptInput): ComposerAttachmentState {
-  const fileAttachments = dedupeCodexLiveFileAttachments(
-    promptInput?.fileAttachments ?? [],
-  ).map((attachment) => ({
-    uiId: createComposerAttachmentId("file"),
-    attachment: { ...attachment },
-  }));
-  const addedFiles = dedupeCodexLiveFileAttachments(
-    promptInput?.addedFiles ?? [],
-  ).map((attachment) => ({
-    uiId: createComposerAttachmentId("added_file"),
-    attachment: { ...attachment },
-  }));
+function buildComposerAttachmentStateFromPromptInput(
+  promptInput?: CodexPromptInput,
+): ComposerAttachmentState {
+  const fileAttachments = dedupeCodexLiveFileAttachments(promptInput?.fileAttachments ?? []).map(
+    (attachment) => ({
+      uiId: createComposerAttachmentId("file"),
+      attachment: { ...attachment },
+    }),
+  );
+  const addedFiles = dedupeCodexLiveFileAttachments(promptInput?.addedFiles ?? []).map(
+    (attachment) => ({
+      uiId: createComposerAttachmentId("added_file"),
+      attachment: { ...attachment },
+    }),
+  );
   return {
     imageAttachments: (promptInput?.images ?? []).flatMap((image) => {
       const source = image.source.trim();
-      const isAbsoluteLocalPath = source.startsWith("/")
-        || /^[a-zA-Z]:[\\/]/u.test(source);
+      const isAbsoluteLocalPath = source.startsWith("/") || /^[a-zA-Z]:[\\/]/u.test(source);
       const restored = createResolvedComposerImageAttachment({
         id: createComposerAttachmentId("image"),
         generation: 0,
         value: {
-          filename: image.caption?.trim()
-            || getComposerAttachmentNameFromPath(source, "Image"),
+          filename: image.caption?.trim() || getComposerAttachmentNameFromPath(source, "Image"),
           mimeType: source.match(/^data:([^;,]+)/iu)?.[1] ?? "image/png",
           src: source,
           origin: "restored",
@@ -716,23 +704,27 @@ function canStartNewThreadTarget(model: ThreadFooterModel): boolean {
 }
 
 function hasComposerAttachmentStateContent(attachments: ComposerAttachmentState): boolean {
-  return attachments.fileAttachments.length > 0
-    || attachments.addedFiles.length > 0
-    || attachments.imageAttachments.length > 0
-    || attachments.appshotContexts.length > 0
-    || attachments.pastedTextAttachments.length > 0
-    || attachments.commentAttachments.length > 0
-    || attachments.browserAnnotationAttachments.length > 0;
+  return (
+    attachments.fileAttachments.length > 0 ||
+    attachments.addedFiles.length > 0 ||
+    attachments.imageAttachments.length > 0 ||
+    attachments.appshotContexts.length > 0 ||
+    attachments.pastedTextAttachments.length > 0 ||
+    attachments.commentAttachments.length > 0 ||
+    attachments.browserAnnotationAttachments.length > 0
+  );
 }
 
 function hasSubmittableComposerAttachmentState(attachments: ComposerAttachmentState): boolean {
-  return attachments.fileAttachments.length > 0
-    || attachments.addedFiles.length > 0
-    || attachments.imageAttachments.length > 0
-    || attachments.appshotContexts.length > 0
-    || attachments.pastedTextAttachments.some((attachment) => attachment.status === "ready")
-    || attachments.commentAttachments.length > 0
-    || attachments.browserAnnotationAttachments.length > 0;
+  return (
+    attachments.fileAttachments.length > 0 ||
+    attachments.addedFiles.length > 0 ||
+    attachments.imageAttachments.length > 0 ||
+    attachments.appshotContexts.length > 0 ||
+    attachments.pastedTextAttachments.some((attachment) => attachment.status === "ready") ||
+    attachments.commentAttachments.length > 0 ||
+    attachments.browserAnnotationAttachments.length > 0
+  );
 }
 
 function summarizeComposerPastedText(text: string): string {
@@ -750,28 +742,32 @@ function buildThreadGoalSubmissionDraft(
   const imageAttachments = attachments.imageAttachments.flatMap((attachment) => {
     const src = selectComposerImagePromptSource(attachment, executionHostId);
     if (!src) return [];
-    return [{
-      src,
-      localPath: attachment.materialization?.hostId === executionHostId
-        ? attachment.materialization.localPath
-        : null,
-      filename: attachment.filename,
-    }];
+    return [
+      {
+        src,
+        localPath:
+          attachment.materialization?.hostId === executionHostId
+            ? attachment.materialization.localPath
+            : null,
+        filename: attachment.filename,
+      },
+    ];
   });
   return {
     ...draft,
     imageAttachments,
-    pastedTextAttachments: attachments.pastedTextAttachments.flatMap((attachment) => (
+    pastedTextAttachments: attachments.pastedTextAttachments.flatMap((attachment) =>
       attachment.status === "ready"
         ? [{ ...attachment.attachment, file: { ...attachment.attachment.file } }]
-        : []
-    )),
-    hasUnsupportedAttachments: attachments.fileAttachments.length > 0
-      || attachments.addedFiles.length > 0
-      || attachments.appshotContexts.length > 0
-      || attachments.commentAttachments.length > 0
-      || attachments.browserAnnotationAttachments.length > 0
-      || imageAttachments.length !== attachments.imageAttachments.length,
+        : [],
+    ),
+    hasUnsupportedAttachments:
+      attachments.fileAttachments.length > 0 ||
+      attachments.addedFiles.length > 0 ||
+      attachments.appshotContexts.length > 0 ||
+      attachments.commentAttachments.length > 0 ||
+      attachments.browserAnnotationAttachments.length > 0 ||
+      imageAttachments.length !== attachments.imageAttachments.length,
   };
 }
 
@@ -825,20 +821,18 @@ function ActiveComposerModeChip({
   );
 }
 
-function ActiveGoalModeChip({
-  active,
-  onClear,
-}: {
-  active: boolean;
-  onClear: () => void;
-}) {
+function ActiveGoalModeChip({ active, onClear }: { active: boolean; onClear: () => void }) {
   if (!active) {
     return null;
   }
 
   return (
     <NodexTooltip
-      tooltipContent={<span className="text-token-foreground">{getThreadGoalMessage("composer.goalModeIndicator.tooltip")}</span>}
+      tooltipContent={
+        <span className="text-token-foreground">
+          {getThreadGoalMessage("composer.goalModeIndicator.tooltip")}
+        </span>
+      }
       side="top"
       align="center"
       sideOffset={4}
@@ -885,10 +879,7 @@ function ThreadGoalReplacementConfirmationDialog({
         }
       }}
     >
-      <NodexDialogContent
-        size="compact"
-        showCloseButton={false}
-      >
+      <NodexDialogContent size="compact" showCloseButton={false}>
         <NodexDialogForm
           onSubmit={(event) => {
             event.preventDefault();
@@ -909,10 +900,7 @@ function ThreadGoalReplacementConfirmationDialog({
             </div>
           </NodexDialogBody>
           <NodexDialogFooter>
-            <NodexDialogAction
-              disabled={pending}
-              onClick={onCancel}
-            >
+            <NodexDialogAction disabled={pending} onClick={onCancel}>
               {getThreadGoalMessage("composer.threadGoal.replaceConfirmation.cancel")}
             </NodexDialogAction>
             <NodexDialogAction tone="primary" type="submit" disabled={pending}>
@@ -1009,7 +997,9 @@ function resolveReasoningEffortForModelChange(input: {
   nextModelId: string;
   models: ThreadFooterModel["availableModels"];
 }): CodexReasoningEffort | null {
-  const nextModel = input.models.find((candidate) => candidate.id === input.nextModelId && !candidate.hidden);
+  const nextModel = input.models.find(
+    (candidate) => candidate.id === input.nextModelId && !candidate.hidden,
+  );
   const supportedOptions = resolveCodexReasoningEffortOptions(input.nextModelId, input.models);
   const supportedEfforts = new Set(supportedOptions.map((option) => option.reasoningEffort));
 
@@ -1129,12 +1119,11 @@ function ModelPickerViewPanels({
     return () => observer.disconnect();
   }, [view]);
 
-  const panelClassName = (panelView: "simple" | "advanced") => cn(
-    "inset-x-0 top-0 transition-opacity duration-[320ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none",
-    view === panelView
-      ? "relative z-10 opacity-100"
-      : "pointer-events-none absolute opacity-0",
-  );
+  const panelClassName = (panelView: "simple" | "advanced") =>
+    cn(
+      "inset-x-0 top-0 transition-opacity duration-[320ms] ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none",
+      view === panelView ? "relative z-10 opacity-100" : "pointer-events-none absolute opacity-0",
+    );
 
   return (
     <div
@@ -1181,16 +1170,15 @@ function LegacyModelSelectorDropdown({
   const pickerViewLoadable = usePersistedAtomValue(composerModelPickerViewAtom);
   const setPickerView = useSetPersistedAtom(composerModelPickerViewAtom);
   const normalizedQuery = deferredQuery.trim().toLocaleLowerCase();
-  const matchingModels = model.availableModels.filter((candidate) => (
-    !candidate.hidden
-    && (!normalizedQuery || `${candidate.displayName} ${candidate.id}`.toLocaleLowerCase().includes(normalizedQuery))
-  ));
+  const matchingModels = model.availableModels.filter(
+    (candidate) =>
+      !candidate.hidden &&
+      (!normalizedQuery ||
+        `${candidate.displayName} ${candidate.id}`.toLocaleLowerCase().includes(normalizedQuery)),
+  );
   const visibleModels = matchingModels.slice(0, 50);
   const hiddenMatchCount = matchingModels.length - visibleModels.length;
-  const modelLabel = formatCompactCodexModelLabel(
-    selection.model,
-    model.availableModels,
-  );
+  const modelLabel = formatCompactCodexModelLabel(selection.model, model.availableModels);
   const reasoningLabel = formatCodexReasoningEffortLabel(selection.reasoningEffort);
   const labelCandidates = useMemo<readonly IntelligenceSelectorLabelCandidate[]>(() => {
     const candidates = model.availableModels
@@ -1200,9 +1188,10 @@ function LegacyModelSelectorDropdown({
           candidate.id,
           model.availableModels,
         );
-        const efforts = candidate.supportedReasoningEfforts.length > 0
-          ? candidate.supportedReasoningEfforts.map((option) => option.reasoningEffort)
-          : [candidate.defaultReasoningEffort ?? selection.reasoningEffort];
+        const efforts =
+          candidate.supportedReasoningEfforts.length > 0
+            ? candidate.supportedReasoningEfforts.map((option) => option.reasoningEffort)
+            : [candidate.defaultReasoningEffort ?? selection.reasoningEffort];
         return efforts.map((effort) => ({
           id: `${candidate.id}:${effort}`,
           modelLabel: modelCandidateLabel,
@@ -1231,16 +1220,11 @@ function LegacyModelSelectorDropdown({
     [model.availableModels],
   );
   const selectedPowerIndex = powerPolicy
-    ? findComposerPowerChoiceIndex(
-        powerPolicy.choices,
-        selection.model,
-        selection.reasoningEffort,
-      )
+    ? findComposerPowerChoiceIndex(powerPolicy.choices, selection.model, selection.reasoningEffort)
     : -1;
   const preferredPickerView = pickerViewLoadable.value;
-  const effectivePickerView = powerPolicy && selectedPowerIndex >= 0
-    ? preferredPickerView
-    : "advanced";
+  const effectivePickerView =
+    powerPolicy && selectedPowerIndex >= 0 ? preferredPickerView : "advanced";
   const showPickerViewToggle = powerPolicy !== null;
   const setSimpleView = () => {
     if (!powerPolicy) return;
@@ -1261,7 +1245,7 @@ function LegacyModelSelectorDropdown({
     <NodexDropdownMenu
       open={menuOpen}
       onOpenChange={setMenuOpen}
-      triggerButton={(
+      triggerButton={
         <IntelligenceSelectorTrigger
           ref={controller.triggerRef}
           geometry={triggerGeometry}
@@ -1272,7 +1256,7 @@ function LegacyModelSelectorDropdown({
           showFastIndicator={selection.serviceTier === "fast"}
           aria-keyshortcuts={model.modelPickerShortcut?.ariaKeyShortcuts}
         />
-      )}
+      }
       triggerTooltipContent="Select model"
       triggerTooltipShortcutLabel={model.modelPickerShortcut?.label}
       side="top"
@@ -1282,7 +1266,11 @@ function LegacyModelSelectorDropdown({
       contentClassName="w-56"
     >
       {showPickerViewToggle ? (
-        <div className="flex items-center gap-0.5 px-1 pb-1" role="tablist" aria-label="Model picker view">
+        <div
+          className="flex items-center gap-0.5 px-1 pb-1"
+          role="tablist"
+          aria-label="Model picker view"
+        >
           <button
             type="button"
             role="tab"
@@ -1320,182 +1308,190 @@ function LegacyModelSelectorDropdown({
 
       <ModelPickerViewPanels
         view={effectivePickerView}
-        simple={powerPolicy ? (
-          <div className="flex flex-col">
-          <ModelPickerPowerSliderBoundary
-            onError={() => {
-              void setPickerView("advanced");
-            }}
-          >
-            <Suspense
-              fallback={(
-                <LoadingPlaceholder
-                  aria-label="Loading model controls"
-                  className="mx-2 my-2 h-12 rounded-lg"
-                  role="status"
-                />
-              )}
-            >
-              <LazyModelPickerPowerSlider
-                choices={powerPolicy.choices}
-                selectedIndex={selectedPowerIndex}
-                disabled={controller.isPending}
-                onSelect={(index) => {
-                  const choice = powerPolicy.choices[index];
-                  if (!choice) return;
-                  controller.select({
-                    ...selection,
-                    model: choice.model,
-                    reasoningEffort: choice.reasoningEffort,
-                  });
-                  if (choice.isUltra) {
-                    toast.warning("Ultra uses significantly more model capacity", {
-                      duration: 2_000,
-                    });
-                  }
+        simple={
+          powerPolicy ? (
+            <div className="flex flex-col">
+              <ModelPickerPowerSliderBoundary
+                onError={() => {
+                  void setPickerView("advanced");
                 }}
-              />
-            </Suspense>
-          </ModelPickerPowerSliderBoundary>
-          <div className="mx-1 mb-1 flex items-center justify-between rounded-lg bg-token-foreground/5 px-2 py-1.5">
-            <span className="text-xs text-token-text-secondary">Speed</span>
-            <div className="flex items-center gap-0.5" aria-label="Speed">
-              {SERVICE_TIER_OPTIONS.map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  aria-pressed={selection.serviceTier === option.value}
-                  aria-description={option.description}
-                  title={option.description}
-                  className={cn(
-                    "rounded-md px-1.5 py-1 text-xs text-token-description-foreground",
-                    selection.serviceTier === option.value
-                      && "bg-token-dropdown-background text-token-foreground shadow-sm",
-                  )}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    controller.select({ ...selection, serviceTier: option.value });
-                  }}
+              >
+                <Suspense
+                  fallback={
+                    <LoadingPlaceholder
+                      aria-label="Loading model controls"
+                      className="mx-2 my-2 h-12 rounded-lg"
+                      role="status"
+                    />
+                  }
                 >
-                  {option.label}
-                </button>
-              ))}
+                  <LazyModelPickerPowerSlider
+                    choices={powerPolicy.choices}
+                    selectedIndex={selectedPowerIndex}
+                    disabled={controller.isPending}
+                    onSelect={(index) => {
+                      const choice = powerPolicy.choices[index];
+                      if (!choice) return;
+                      controller.select({
+                        ...selection,
+                        model: choice.model,
+                        reasoningEffort: choice.reasoningEffort,
+                      });
+                      if (choice.isUltra) {
+                        toast.warning("Ultra uses significantly more model capacity", {
+                          duration: 2_000,
+                        });
+                      }
+                    }}
+                  />
+                </Suspense>
+              </ModelPickerPowerSliderBoundary>
+              <div className="mx-1 mb-1 flex items-center justify-between rounded-lg bg-token-foreground/5 px-2 py-1.5">
+                <span className="text-xs text-token-text-secondary">Speed</span>
+                <div className="flex items-center gap-0.5" aria-label="Speed">
+                  {SERVICE_TIER_OPTIONS.map((option) => (
+                    <button
+                      key={option.label}
+                      type="button"
+                      aria-pressed={selection.serviceTier === option.value}
+                      aria-description={option.description}
+                      title={option.description}
+                      className={cn(
+                        "rounded-md px-1.5 py-1 text-xs text-token-description-foreground",
+                        selection.serviceTier === option.value &&
+                          "bg-token-dropdown-background text-token-foreground shadow-sm",
+                      )}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        controller.select({ ...selection, serviceTier: option.value });
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-          </div>
-        ) : null}
-        advanced={(
+          ) : null
+        }
+        advanced={
           <div className="flex flex-col">
             <NodexDropdownSummarySubmenuItem
-        ariaLabel={`Model ${formatCodexModelLabel(selection.model, model.availableModels)}`}
-        label="Model"
-        value={formatCodexModelLabel(selection.model, model.availableModels)}
-        contentClassName="w-[280px]"
-      >
-        <NodexDropdownSection className="flex w-full min-w-0 flex-col overflow-hidden">
-          <NodexDropdownTitle>Model</NodexDropdownTitle>
-          {model.availableModels.filter((candidate) => !candidate.hidden).length > 8 ? (
-            <NodexDropdownSearchInput
-              value={query}
-              placeholder="Filter models…"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          ) : null}
-          <div className="vertical-scroll-fade-mask flex max-h-[250px] flex-col overflow-y-auto">
-            {visibleModels.length === 0 ? (
-              <NodexDropdownMessage compact centered>No matching models</NodexDropdownMessage>
-            ) : visibleModels.map((candidate) => (
-              <ModelSelectorMenuItem
-                key={candidate.id}
-                candidate={candidate}
-                model={model}
-                serviceTier={selection.serviceTier}
-                showFastIndicator
-                controller={controller}
-              />
-            ))}
-            {hiddenMatchCount > 0 ? (
-              <NodexDropdownMessage compact centered>
-                Refine the search to see {hiddenMatchCount} more models
-              </NodexDropdownMessage>
-            ) : null}
-          </div>
-        </NodexDropdownSection>
-      </NodexDropdownSummarySubmenuItem>
-
-      <NodexDropdownSummarySubmenuItem
-        ariaLabel={`Effort ${reasoningLabel}`}
-        label="Effort"
-        value={reasoningLabel}
-        contentClassName="min-w-[180px]"
-      >
-        <NodexDropdownSection className="flex min-w-[180px] flex-col overflow-hidden">
-          <NodexDropdownTitle>Effort</NodexDropdownTitle>
-          {resolveCodexReasoningEffortOptions(selection.model, model.availableModels).map((option) => (
-            <NodexDropdownItem
-              key={option.reasoningEffort}
-              onSelect={(event) => {
-                event.preventDefault();
-                controller.select({
-                  ...selection,
-                  reasoningEffort: option.reasoningEffort,
-                });
-              }}
-              rightSlot={
-                option.reasoningEffort === selection.reasoningEffort
-                  ? <NodexDropdownSelectedIcon />
-                  : null
-              }
-              tooltipText={option.description || undefined}
-              subText={
-                option.reasoningEffort === "ultra"
-                  ? "Consumes usage limits faster"
-                  : undefined
-              }
-              allowWrap={option.reasoningEffort === "ultra"}
-              data-intelligence-option={option.reasoningEffort}
-              data-reasoning-selected={
-                option.reasoningEffort === selection.reasoningEffort
-                  ? "true"
-                  : undefined
-              }
+              ariaLabel={`Model ${formatCodexModelLabel(selection.model, model.availableModels)}`}
+              label="Model"
+              value={formatCodexModelLabel(selection.model, model.availableModels)}
+              contentClassName="w-[280px]"
             >
-              {formatCodexReasoningEffortLabel(option.reasoningEffort)}
-            </NodexDropdownItem>
-          ))}
-        </NodexDropdownSection>
-      </NodexDropdownSummarySubmenuItem>
+              <NodexDropdownSection className="flex w-full min-w-0 flex-col overflow-hidden">
+                <NodexDropdownTitle>Model</NodexDropdownTitle>
+                {model.availableModels.filter((candidate) => !candidate.hidden).length > 8 ? (
+                  <NodexDropdownSearchInput
+                    value={query}
+                    placeholder="Filter models…"
+                    onChange={(event) => setQuery(event.target.value)}
+                  />
+                ) : null}
+                <div className="vertical-scroll-fade-mask flex max-h-[250px] flex-col overflow-y-auto">
+                  {visibleModels.length === 0 ? (
+                    <NodexDropdownMessage compact centered>
+                      No matching models
+                    </NodexDropdownMessage>
+                  ) : (
+                    visibleModels.map((candidate) => (
+                      <ModelSelectorMenuItem
+                        key={candidate.id}
+                        candidate={candidate}
+                        model={model}
+                        serviceTier={selection.serviceTier}
+                        showFastIndicator
+                        controller={controller}
+                      />
+                    ))
+                  )}
+                  {hiddenMatchCount > 0 ? (
+                    <NodexDropdownMessage compact centered>
+                      Refine the search to see {hiddenMatchCount} more models
+                    </NodexDropdownMessage>
+                  ) : null}
+                </div>
+              </NodexDropdownSection>
+            </NodexDropdownSummarySubmenuItem>
 
-      <NodexDropdownSummarySubmenuItem
-        ariaLabel={`Speed ${selection.serviceTier === "fast" ? "Fast" : "Standard"}`}
-        label="Speed"
-        value={selection.serviceTier === "fast" ? "Fast" : "Standard"}
-        contentClassName="w-[233px]"
-      >
-        <NodexDropdownSection className="flex w-full min-w-0 flex-col overflow-hidden">
-          <NodexDropdownTitle>Speed</NodexDropdownTitle>
-          {SERVICE_TIER_OPTIONS.map((option) => (
-            <NodexDropdownItem
-              key={option.label}
-              onSelect={(event) => {
-                event.preventDefault();
-                controller.select({
-                  ...selection,
-                  serviceTier: option.value,
-                });
-              }}
-              rightSlot={option.value === selection.serviceTier ? <NodexDropdownSelectedIcon /> : null}
-              subText={option.description}
-              allowWrap
+            <NodexDropdownSummarySubmenuItem
+              ariaLabel={`Effort ${reasoningLabel}`}
+              label="Effort"
+              value={reasoningLabel}
+              contentClassName="min-w-[180px]"
             >
-              {option.label}
-            </NodexDropdownItem>
-          ))}
-        </NodexDropdownSection>
+              <NodexDropdownSection className="flex min-w-[180px] flex-col overflow-hidden">
+                <NodexDropdownTitle>Effort</NodexDropdownTitle>
+                {resolveCodexReasoningEffortOptions(selection.model, model.availableModels).map(
+                  (option) => (
+                    <NodexDropdownItem
+                      key={option.reasoningEffort}
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        controller.select({
+                          ...selection,
+                          reasoningEffort: option.reasoningEffort,
+                        });
+                      }}
+                      rightSlot={
+                        option.reasoningEffort === selection.reasoningEffort ? (
+                          <NodexDropdownSelectedIcon />
+                        ) : null
+                      }
+                      tooltipText={option.description || undefined}
+                      subText={
+                        option.reasoningEffort === "ultra"
+                          ? "Consumes usage limits faster"
+                          : undefined
+                      }
+                      allowWrap={option.reasoningEffort === "ultra"}
+                      data-intelligence-option={option.reasoningEffort}
+                      data-reasoning-selected={
+                        option.reasoningEffort === selection.reasoningEffort ? "true" : undefined
+                      }
+                    >
+                      {formatCodexReasoningEffortLabel(option.reasoningEffort)}
+                    </NodexDropdownItem>
+                  ),
+                )}
+              </NodexDropdownSection>
+            </NodexDropdownSummarySubmenuItem>
+
+            <NodexDropdownSummarySubmenuItem
+              ariaLabel={`Speed ${selection.serviceTier === "fast" ? "Fast" : "Standard"}`}
+              label="Speed"
+              value={selection.serviceTier === "fast" ? "Fast" : "Standard"}
+              contentClassName="w-[233px]"
+            >
+              <NodexDropdownSection className="flex w-full min-w-0 flex-col overflow-hidden">
+                <NodexDropdownTitle>Speed</NodexDropdownTitle>
+                {SERVICE_TIER_OPTIONS.map((option) => (
+                  <NodexDropdownItem
+                    key={option.label}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      controller.select({
+                        ...selection,
+                        serviceTier: option.value,
+                      });
+                    }}
+                    rightSlot={
+                      option.value === selection.serviceTier ? <NodexDropdownSelectedIcon /> : null
+                    }
+                    subText={option.description}
+                    allowWrap
+                  >
+                    {option.label}
+                  </NodexDropdownItem>
+                ))}
+              </NodexDropdownSection>
             </NodexDropdownSummarySubmenuItem>
           </div>
-        )}
+        }
       />
     </NodexDropdownMenu>
   );
@@ -1516,20 +1512,21 @@ function formatProviderCredentialIssue(provider: AgentProviderOption): string | 
   }
 }
 
-function canConfigureProvider(
-  provider: AgentProviderOption,
-  actions: ThreadStageActions,
-): boolean {
-  return provider.credentialEnvKey !== null
-    && actions.onProviderCredentialSet !== undefined
-    && provider.credentialStatus !== "runtimeManaged";
+function canConfigureProvider(provider: AgentProviderOption, actions: ThreadStageActions): boolean {
+  return (
+    provider.credentialEnvKey !== null &&
+    actions.onProviderCredentialSet !== undefined &&
+    provider.credentialStatus !== "runtimeManaged"
+  );
 }
 
 function isProviderSelectable(provider: AgentProviderOption): boolean {
-  return provider.supportedByNodex
-    && provider.models.some((model) => !model.hidden)
-    && provider.credentialStatus !== "unavailable"
-    && provider.credentialStatus !== "unsupported";
+  return (
+    provider.supportedByNodex &&
+    provider.models.some((model) => !model.hidden) &&
+    provider.credentialStatus !== "unavailable" &&
+    provider.credentialStatus !== "unsupported"
+  );
 }
 
 function AgentModelMenuItem({
@@ -1546,11 +1543,10 @@ function AgentModelMenuItem({
     { kind: "agent" }
   >;
   const current = selection.profile;
-  const selected = current?.providerId === candidate.providerId
-    && current.modelId === candidate.modelId;
-  const requiresNewThread = model.executionIdentityLocked === true
-    && !selected
-    && candidate.switchPolicy === "new-thread";
+  const selected =
+    current?.providerId === candidate.providerId && current.modelId === candidate.modelId;
+  const requiresNewThread =
+    model.executionIdentityLocked === true && !selected && candidate.switchPolicy === "new-thread";
 
   return (
     <NodexDropdownItem
@@ -1567,7 +1563,7 @@ function AgentModelMenuItem({
       tooltipText={
         requiresNewThread
           ? "Start a new task to use this model"
-          : candidate.description ?? undefined
+          : (candidate.description ?? undefined)
       }
       data-agent-model-selected={selected ? "true" : undefined}
     >
@@ -1610,10 +1606,9 @@ function AgentModelSelectorDropdown({
       (option) => option.value === profile.reasoningEffort,
     );
     const currentModelLabel = currentModel?.displayName ?? profile.modelId;
-    const currentReasoningLabel = currentReasoning?.displayName
-      ?? (profile.reasoningEffort
-        ? formatCodexReasoningEffortLabel(profile.reasoningEffort)
-        : null);
+    const currentReasoningLabel =
+      currentReasoning?.displayName ??
+      (profile.reasoningEffort ? formatCodexReasoningEffortLabel(profile.reasoningEffort) : null);
     const reasoningLabels = new Set<string>();
     for (const candidateProvider of catalog.providers) {
       for (const candidateModel of candidateProvider.models) {
@@ -1656,10 +1651,14 @@ function AgentModelSelectorDropdown({
   const selectedModel = findAgentModel(catalog, profile);
   if (!provider) return null;
   const normalizedQuery = deferredQuery.trim().toLocaleLowerCase();
-  const matchingModels = provider.models.filter((candidate) => (
-    !candidate.hidden
-    && (!normalizedQuery || `${candidate.displayName} ${candidate.modelId}`.toLocaleLowerCase().includes(normalizedQuery))
-  ));
+  const matchingModels = provider.models.filter(
+    (candidate) =>
+      !candidate.hidden &&
+      (!normalizedQuery ||
+        `${candidate.displayName} ${candidate.modelId}`
+          .toLocaleLowerCase()
+          .includes(normalizedQuery)),
+  );
   const visibleModels = matchingModels.slice(0, 50);
   const hiddenMatchCount = matchingModels.length - visibleModels.length;
   const reasoningOptions = selectedModel?.supportedReasoningEfforts ?? [];
@@ -1675,18 +1674,14 @@ function AgentModelSelectorDropdown({
         displayName: "",
       });
   const modelLabel = selectedModel?.displayName ?? profile.modelId;
-  const reasoningLabel = selectedReasoning?.displayName
-    ?? (profile.reasoningEffort
-      ? formatCodexReasoningEffortLabel(profile.reasoningEffort)
-      : null);
+  const reasoningLabel =
+    selectedReasoning?.displayName ??
+    (profile.reasoningEffort ? formatCodexReasoningEffortLabel(profile.reasoningEffort) : null);
   const identityLocked = model.executionIdentityLocked === true;
-  const showProviderRow = catalog.providers.length > 1
-    || canConfigureProvider(provider, actions);
-  const manageCurrentProvider = provider.credentialStatus !== "missing"
-    && canConfigureProvider(provider, actions);
-  const lockedTooltip = identityLocked
-    ? "Start a new task to change provider"
-    : undefined;
+  const showProviderRow = catalog.providers.length > 1 || canConfigureProvider(provider, actions);
+  const manageCurrentProvider =
+    provider.credentialStatus !== "missing" && canConfigureProvider(provider, actions);
+  const lockedTooltip = identityLocked ? "Start a new task to change provider" : undefined;
 
   const selectProvider = (candidate: AgentProviderOption) => {
     const next = selectAgentProvider(catalog, candidate.id, profile);
@@ -1695,10 +1690,7 @@ function AgentModelSelectorDropdown({
     }
     return undefined;
   };
-  const openCredentialDialog = (
-    candidate: AgentProviderOption,
-    selectAfterConfigure: boolean,
-  ) => {
+  const openCredentialDialog = (candidate: AgentProviderOption, selectAfterConfigure: boolean) => {
     const onCredentialSet = actions.onProviderCredentialSet;
     if (!onCredentialSet) return;
 
@@ -1708,9 +1700,7 @@ function AgentModelSelectorDropdown({
         provider: candidate,
         onCredentialSet,
         onCredentialDelete: actions.onProviderCredentialDelete,
-        onConfigured: selectAfterConfigure
-          ? () => selectProvider(candidate)
-          : undefined,
+        onConfigured: selectAfterConfigure ? () => selectProvider(candidate) : undefined,
       });
     });
   };
@@ -1719,7 +1709,7 @@ function AgentModelSelectorDropdown({
     <NodexDropdownMenu
       open={menuOpen}
       onOpenChange={setMenuOpen}
-      triggerButton={(
+      triggerButton={
         <IntelligenceSelectorTrigger
           ref={controller.triggerRef}
           geometry={triggerGeometry}
@@ -1730,7 +1720,7 @@ function AgentModelSelectorDropdown({
           showFastIndicator={showFastIndicator}
           aria-keyshortcuts={model.modelPickerShortcut?.ariaKeyShortcuts}
         />
-      )}
+      }
       triggerTooltipContent="Select model"
       triggerTooltipShortcutLabel={model.modelPickerShortcut?.label}
       side="top"
@@ -1754,9 +1744,10 @@ function AgentModelSelectorDropdown({
               const credentialIssue = formatProviderCredentialIssue(candidate);
               const needsCredential = candidate.credentialStatus === "missing";
               const canConfigure = canConfigureProvider(candidate, actions);
-              const disabled = identityLocked
-                || !isProviderSelectable(candidate)
-                || (needsCredential && !canConfigure);
+              const disabled =
+                identityLocked ||
+                !isProviderSelectable(candidate) ||
+                (needsCredential && !canConfigure);
 
               return (
                 <NodexDropdownItem
@@ -1771,13 +1762,9 @@ function AgentModelSelectorDropdown({
                     event.preventDefault();
                     void selectProvider(candidate);
                   }}
-                  rightSlot={
-                    candidate.id === provider.id
-                      ? <NodexDropdownSelectedIcon />
-                      : null
-                  }
+                  rightSlot={candidate.id === provider.id ? <NodexDropdownSelectedIcon /> : null}
                   subText={credentialIssue ?? undefined}
-                  tooltipText={disabled ? credentialIssue ?? lockedTooltip : undefined}
+                  tooltipText={disabled ? (credentialIssue ?? lockedTooltip) : undefined}
                 >
                   {candidate.displayName}
                 </NodexDropdownItem>
@@ -1786,9 +1773,7 @@ function AgentModelSelectorDropdown({
             {manageCurrentProvider ? (
               <>
                 <NodexDropdownSeparator />
-                <NodexDropdownItem
-                  onSelect={() => openCredentialDialog(provider, false)}
-                >
+                <NodexDropdownItem onSelect={() => openCredentialDialog(provider, false)}>
                   Manage {provider.displayName} credential…
                 </NodexDropdownItem>
               </>
@@ -1814,15 +1799,19 @@ function AgentModelSelectorDropdown({
           ) : null}
           <div className="vertical-scroll-fade-mask flex max-h-[250px] flex-col overflow-y-auto">
             {visibleModels.length === 0 ? (
-              <NodexDropdownMessage compact centered>No matching models</NodexDropdownMessage>
-            ) : visibleModels.map((candidate) => (
-              <AgentModelMenuItem
-                key={`${candidate.providerId}:${candidate.modelId}`}
-                candidate={candidate}
-                model={model}
-                controller={controller}
-              />
-            ))}
+              <NodexDropdownMessage compact centered>
+                No matching models
+              </NodexDropdownMessage>
+            ) : (
+              visibleModels.map((candidate) => (
+                <AgentModelMenuItem
+                  key={`${candidate.providerId}:${candidate.modelId}`}
+                  candidate={candidate}
+                  model={model}
+                  controller={controller}
+                />
+              ))
+            )}
             {hiddenMatchCount > 0 ? (
               <NodexDropdownMessage compact centered>
                 Refine the search to see {hiddenMatchCount} more models
@@ -1856,19 +1845,17 @@ function AgentModelSelectorDropdown({
                   }
                 }}
                 rightSlot={
-                  option.value === profile.reasoningEffort
-                    ? <NodexDropdownSelectedIcon />
-                    : null
+                  option.value === profile.reasoningEffort ? <NodexDropdownSelectedIcon /> : null
                 }
                 subText={
                   option.value.toLocaleLowerCase() === "ultra"
-                    ? option.description ?? undefined
+                    ? (option.description ?? undefined)
                     : undefined
                 }
                 tooltipText={
                   option.value.toLocaleLowerCase() === "ultra"
                     ? undefined
-                    : option.description ?? undefined
+                    : (option.description ?? undefined)
                 }
                 data-intelligence-option={option.value}
               >
@@ -1900,9 +1887,7 @@ function AgentModelSelectorDropdown({
                   });
                 }}
                 rightSlot={
-                  option.value === profile.serviceTier
-                    ? <NodexDropdownSelectedIcon />
-                    : null
+                  option.value === profile.serviceTier ? <NodexDropdownSelectedIcon /> : null
                 }
                 subText={option.description ?? undefined}
                 allowWrap
@@ -1917,9 +1902,7 @@ function AgentModelSelectorDropdown({
       {identityLocked ? (
         <>
           <NodexDropdownSeparator />
-          <NodexDropdownMessage compact>
-            Start a new task to change provider.
-          </NodexDropdownMessage>
+          <NodexDropdownMessage compact>Start a new task to change provider.</NodexDropdownMessage>
         </>
       ) : null}
     </NodexDropdownMenu>
@@ -1960,9 +1943,7 @@ function applyCompletedDraftSnapshot(input: {
   setFileAttachments: (value: readonly ComposerFileAttachment[]) => void;
   setAddedFiles: (value: readonly ComposerFileAttachment[]) => void;
   setImageAttachments: (value: readonly ComposerImageAttachment[]) => void;
-  setAppshotContexts: (
-    value: readonly CodexComposerAppshotContext[],
-  ) => void;
+  setAppshotContexts: (value: readonly CodexComposerAppshotContext[]) => void;
   setPastedTextAttachments: (value: readonly ComposerPastedTextAttachment[]) => void;
   setGoalModeActive: (value: boolean) => void;
   threadId: string | null;
@@ -1986,10 +1967,7 @@ interface HydratedThreadComposerProps extends ThreadComposerProps {
 export function ThreadComposer(props: ThreadComposerProps) {
   if (props.intelligenceController) {
     return (
-      <ControlledThreadComposer
-        {...props}
-        intelligenceController={props.intelligenceController}
-      />
+      <ControlledThreadComposer {...props} intelligenceController={props.intelligenceController} />
     );
   }
 
@@ -1997,16 +1975,8 @@ export function ThreadComposer(props: ThreadComposerProps) {
 }
 
 function ThreadComposerWithOwnedIntelligence(props: ThreadComposerProps) {
-  const intelligenceController = useComposerIntelligenceController(
-    props.model,
-    props.actions,
-  );
-  return (
-    <ControlledThreadComposer
-      {...props}
-      intelligenceController={intelligenceController}
-    />
-  );
+  const intelligenceController = useComposerIntelligenceController(props.model, props.actions);
+  return <ControlledThreadComposer {...props} intelligenceController={intelligenceController} />;
 }
 
 function ControlledThreadComposer(
@@ -2016,12 +1986,10 @@ function ControlledThreadComposer(
 ) {
   const { model, actions, onErrorMessage } = props;
   const { intelligenceController } = props;
-  const { floating: isFloatingComposer } =
-    useRightPanelComposerPresentation();
+  const { floating: isFloatingComposer } = useRightPanelComposerPresentation();
   const composerThreadId = model.conversation?.threadId ?? model.threadId;
-  const browserAnnotationConversationId = composerThreadId
-    ?? model.newThreadTarget?.sessionId
-    ?? null;
+  const browserAnnotationConversationId =
+    composerThreadId ?? model.newThreadTarget?.sessionId ?? null;
   const promptDraft = useComposerPromptDraft(composerThreadId);
   const [initialized, setInitialized] = useScopedAtom(composerDraftInitializedAtom);
   const [consumedIntentNonce, setConsumedIntentNonce] = useScopedAtom(
@@ -2031,9 +1999,7 @@ function ControlledThreadComposer(
   const [, setAddedFiles] = useScopedAtom(composerAddedFilesAtom);
   const [, setImageAttachments] = useScopedAtom(composerImageAttachmentsAtom);
   const [, setAppshotContexts] = useScopedAtom(composerAppshotContextsAtom);
-  const [, setPastedTextAttachments] = useScopedAtom(
-    composerPastedTextAttachmentsAtom,
-  );
+  const [, setPastedTextAttachments] = useScopedAtom(composerPastedTextAttachmentsAtom);
   const [, setGoalModeActive] = useScopedAtom(composerGoalModeActiveAtom);
   const resetGeneration = useScopedAtomValue(composerResetGenerationAtom);
   const clearCompletedDraft = useSetScopedAtom(clearComposerCompletedDraftAtom);
@@ -2050,10 +2016,10 @@ function ControlledThreadComposer(
     if (promptDraft.loadable.status === "loading") return;
 
     if (
-      transfer
-      && composerThreadId
-      && transfer.targetConversationId === composerThreadId
-      && consumedTransferIdRef.current !== transfer.transferId
+      transfer &&
+      composerThreadId &&
+      transfer.targetConversationId === composerThreadId &&
+      consumedTransferIdRef.current !== transfer.transferId
     ) {
       consumedTransferIdRef.current = transfer.transferId;
       applyCompletedDraftSnapshot({
@@ -2079,31 +2045,31 @@ function ControlledThreadComposer(
       const documentPrompt = buildPersistedPromptDocument(intent.promptInput);
       const append = intent.attachmentMode === "append";
       if (append) {
-        setFileAttachments((current) => appendUniqueBy(
-          current,
-          restored.fileAttachments,
-          (attachment) => attachment.attachment.fsPath ?? attachment.attachment.path ?? attachment.uiId,
-        ));
-        setAddedFiles((current) => appendUniqueBy(
-          current,
-          restored.addedFiles,
-          (attachment) => attachment.attachment.fsPath ?? attachment.attachment.path ?? attachment.uiId,
-        ));
-        setImageAttachments((current) => appendUniqueBy(
-          current,
-          restored.imageAttachments,
-          (attachment) => attachment.id,
-        ));
-        setAppshotContexts((current) => appendUniqueBy(
-          current,
-          restored.appshotContexts,
-          (context) => context.id,
-        ));
-        setPastedTextAttachments((current) => appendUniqueBy(
-          current,
-          restored.pastedTextAttachments,
-          (attachment) => attachment.id,
-        ));
+        setFileAttachments((current) =>
+          appendUniqueBy(
+            current,
+            restored.fileAttachments,
+            (attachment) =>
+              attachment.attachment.fsPath ?? attachment.attachment.path ?? attachment.uiId,
+          ),
+        );
+        setAddedFiles((current) =>
+          appendUniqueBy(
+            current,
+            restored.addedFiles,
+            (attachment) =>
+              attachment.attachment.fsPath ?? attachment.attachment.path ?? attachment.uiId,
+          ),
+        );
+        setImageAttachments((current) =>
+          appendUniqueBy(current, restored.imageAttachments, (attachment) => attachment.id),
+        );
+        setAppshotContexts((current) =>
+          appendUniqueBy(current, restored.appshotContexts, (context) => context.id),
+        );
+        setPastedTextAttachments((current) =>
+          appendUniqueBy(current, restored.pastedTextAttachments, (attachment) => attachment.id),
+        );
         for (const attachment of restored.commentAttachments) {
           addReviewDiffCommentAttachment(composerThreadId, attachment);
         }
@@ -2111,9 +2077,7 @@ function ControlledThreadComposer(
           replaceBrowserAnnotationAttachments(
             browserAnnotationConversationId,
             appendUniqueBy(
-              getBrowserAnnotationAttachmentsSnapshot(
-                browserAnnotationConversationId,
-              ),
+              getBrowserAnnotationAttachmentsSnapshot(browserAnnotationConversationId),
               restored.browserAnnotationAttachments,
               (attachment) => attachment.id,
             ),
@@ -2135,32 +2099,29 @@ function ControlledThreadComposer(
       }
 
       if (
-        intent.prompt.length > 0
-        || intent.clearText === true
-        || mentionPrompt.length > 0
-        || documentPrompt !== null
+        intent.prompt.length > 0 ||
+        intent.clearText === true ||
+        mentionPrompt.length > 0 ||
+        documentPrompt !== null
       ) {
-        const nextPrompt = intent.clearText === true
-          ? ""
-          : documentPrompt !== null
-            ? append
-              ? appendPersistedPromptDocument(
-                  promptDraft.prompt,
-                  documentPrompt,
-                )
-              : documentPrompt
-            : mergePersistedMentionPrompt(
-                append
-                  ? intent.prompt || promptDraft.prompt
-                  : removePersistedMentionPrompt(
-                      intent.prompt || promptDraft.prompt,
-                    ),
-                mentionPrompt,
-              );
-        void promptDraft.setPrompt(nextPrompt)
-          .catch((error: unknown) => {
-            onErrorMessage(error instanceof Error ? error.message : "Could not apply composer intent");
-          });
+        const nextPrompt =
+          intent.clearText === true
+            ? ""
+            : documentPrompt !== null
+              ? append
+                ? appendPersistedPromptDocument(promptDraft.prompt, documentPrompt)
+                : documentPrompt
+              : mergePersistedMentionPrompt(
+                  append
+                    ? intent.prompt || promptDraft.prompt
+                    : removePersistedMentionPrompt(intent.prompt || promptDraft.prompt),
+                  mentionPrompt,
+                );
+        void promptDraft.setPrompt(nextPrompt).catch((error: unknown) => {
+          onErrorMessage(
+            error instanceof Error ? error.message : "Could not apply composer intent",
+          );
+        });
       }
       setConsumedIntentNonce(intent.focusNonce);
       if (composerThreadId) {
@@ -2195,11 +2156,14 @@ function ControlledThreadComposer(
     transfer,
   ]);
 
-  const setPrompt = useCallback((nextPrompt: string) => {
-    void promptDraft.setPrompt(nextPrompt).catch((error: unknown) => {
-      onErrorMessage(error instanceof Error ? error.message : "Could not save composer draft");
-    });
-  }, [onErrorMessage, promptDraft]);
+  const setPrompt = useCallback(
+    (nextPrompt: string) => {
+      void promptDraft.setPrompt(nextPrompt).catch((error: unknown) => {
+        onErrorMessage(error instanceof Error ? error.message : "Could not save composer draft");
+      });
+    },
+    [onErrorMessage, promptDraft],
+  );
   const clearSubmittedDraft = useCallback(() => {
     clearCompletedDraft();
     clearReviewDiffCommentAttachments(composerThreadId);
@@ -2214,9 +2178,7 @@ function ControlledThreadComposer(
         data-composer-draft-hydration="loading"
         className={cn(
           "border border-token-border bg-token-main-surface-primary",
-          isFloatingComposer
-            ? "h-11 rounded-full"
-            : "min-h-24 rounded-[20px]",
+          isFloatingComposer ? "h-11 rounded-full" : "min-h-24 rounded-[20px]",
         )}
       />
     );
@@ -2255,31 +2217,27 @@ function HydratedThreadComposer({
   const [fileAttachments, setFileAttachments] = useScopedAtom(composerFileAttachmentsAtom);
   const [addedFiles, setAddedFiles] = useScopedAtom(composerAddedFilesAtom);
   const [imageAttachments, setImageAttachments] = useScopedAtom(composerImageAttachmentsAtom);
-  const [appshotContexts, setAppshotContexts] = useScopedAtom(
-    composerAppshotContextsAtom,
-  );
+  const [appshotContexts, setAppshotContexts] = useScopedAtom(composerAppshotContextsAtom);
   const [pastedTextAttachments, setPastedTextAttachments] = useScopedAtom(
     composerPastedTextAttachmentsAtom,
   );
-  const [suggestionState, setSuggestionState] = useState<ComposerSuggestionState>(
-    () => inactiveComposerSuggestionState(),
+  const [suggestionState, setSuggestionState] = useState<ComposerSuggestionState>(() =>
+    inactiveComposerSuggestionState(),
   );
-  const [inlineSlashHighlightIntent, setInlineSlashHighlightIntent] = useState<ComposerSlashCommandHighlightIntent>({
-    commandId: null,
-    source: "programmatic",
-  });
+  const [inlineSlashHighlightIntent, setInlineSlashHighlightIntent] =
+    useState<ComposerSlashCommandHighlightIntent>({
+      commandId: null,
+      source: "programmatic",
+    });
   const [nestedSlashCommand, setNestedSlashCommand] = useState<ComposerSlashCommand | null>(null);
   const [slashDialogOpen, setSlashDialogOpen] = useState(false);
   const [desktopPetVisible, setDesktopPetVisible] = useState(false);
   const [planKeywordSuggestionDismissed, setPlanKeywordSuggestionDismissed] = useState(false);
   const [goalModeActive, setGoalModeActive] = useScopedAtom(composerGoalModeActiveAtom);
-  const [goalReplacementConfirmation, setGoalReplacementConfirmation] = useState<ThreadGoalReplacementConfirmationState | null>(null);
-  const [promptIntrinsicWidthPx, setPromptIntrinsicWidthPx] = useState<
-    number | null
-  >(null);
-  const [compactInputWidthPx, setCompactInputWidthPx] = useState<number | null>(
-    null,
-  );
+  const [goalReplacementConfirmation, setGoalReplacementConfirmation] =
+    useState<ThreadGoalReplacementConfirmationState | null>(null);
+  const [promptIntrinsicWidthPx, setPromptIntrinsicWidthPx] = useState<number | null>(null);
+  const [compactInputWidthPx, setCompactInputWidthPx] = useState<number | null>(null);
   const [isFileDragActive, setFileDragActive] = useState(false);
   const promptEditorRef = useRef<ComposerPromptEditorHandle>(null);
   const addContextMenuRef = useRef<ComposerAddContextMenuHandle>(null);
@@ -2307,14 +2265,9 @@ function HydratedThreadComposer({
       plugins: model.composerPlugins ?? [],
       skills: model.composerSkills ?? [],
     });
-  }, [
-    model.composerApps,
-    model.composerPlugins,
-    model.composerSkills,
-  ]);
-  const browserAnnotationConversationId = composerThreadId
-    ?? model.newThreadTarget?.sessionId
-    ?? "";
+  }, [model.composerApps, model.composerPlugins, model.composerSkills]);
+  const browserAnnotationConversationId =
+    composerThreadId ?? model.newThreadTarget?.sessionId ?? "";
   const getBrowserAnnotationsSnapshot = useCallback(
     () => getBrowserAnnotationAttachmentsSnapshot(browserAnnotationConversationId),
     [browserAnnotationConversationId],
@@ -2347,10 +2300,7 @@ function HydratedThreadComposer({
     [imageEditComposerChannelId],
   );
   const subscribeImageEditDraft = useCallback(
-    (listener: () => void) => subscribeImageEditComposerDraft(
-      imageEditComposerChannelId,
-      listener,
-    ),
+    (listener: () => void) => subscribeImageEditComposerDraft(imageEditComposerChannelId, listener),
     [imageEditComposerChannelId],
   );
   const imageEditDraft = useSyncExternalStore(
@@ -2364,20 +2314,23 @@ function HydratedThreadComposer({
   });
   const imageAttachmentsRef = useRef(imageAttachments);
   imageAttachmentsRef.current = imageAttachments;
-  const handleOpenComposerImage = useCallback((attachmentId: string) => {
-    const attachment = imageAttachmentsRef.current.find(
-      (candidate) => candidate.id === attachmentId,
-    );
-    if (!attachment) return;
-    void openComposerImageAttachment({
-      attachment,
-      attachmentCount: imageAttachmentsRef.current.length,
-      composerTarget: imageEditComposerTarget,
-      policy: "edit_button",
-      projectId: model.projectId,
-      threadId: composerThreadId,
-    });
-  }, [composerThreadId, imageEditComposerTarget, model.projectId]);
+  const handleOpenComposerImage = useCallback(
+    (attachmentId: string) => {
+      const attachment = imageAttachmentsRef.current.find(
+        (candidate) => candidate.id === attachmentId,
+      );
+      if (!attachment) return;
+      void openComposerImageAttachment({
+        attachment,
+        attachmentCount: imageAttachmentsRef.current.length,
+        composerTarget: imageEditComposerTarget,
+        policy: "edit_button",
+        projectId: model.projectId,
+        threadId: composerThreadId,
+      });
+    },
+    [composerThreadId, imageEditComposerTarget, model.projectId],
+  );
   const imageAttachmentController = useComposerImageAttachments({
     attachments: imageAttachments,
     setAttachments: setImageAttachments,
@@ -2387,10 +2340,7 @@ function HydratedThreadComposer({
     onOpen: handleOpenComposerImage,
     onRemove: (attachmentId) => {
       if (isImageEditComposerAttachmentId(attachmentId)) {
-        removeImageEditComposerAttachment(
-          imageEditComposerChannelId,
-          attachmentId,
-        );
+        removeImageEditComposerAttachment(imageEditComposerChannelId, attachmentId);
       }
     },
   });
@@ -2408,15 +2358,8 @@ function HydratedThreadComposer({
         managedSource: attachment.source,
       })),
     );
-    consumeBrowserImageAttachments(
-      browserAnnotationConversationId,
-      attachmentIds,
-    );
-  }, [
-    browserAnnotationConversationId,
-    browserImageAttachments,
-    imageAttachmentController,
-  ]);
+    consumeBrowserImageAttachments(browserAnnotationConversationId, attachmentIds);
+  }, [browserAnnotationConversationId, browserImageAttachments, imageAttachmentController]);
   useEffect(() => {
     imageAttachmentController.syncResolvedImages(
       "image-editor",
@@ -2442,39 +2385,41 @@ function HydratedThreadComposer({
   const commentAttachments = useScopedAtomValue(
     composerReviewCommentAttachmentsFamily(composerThreadId),
   );
-  const attachmentState = useMemo<ComposerAttachmentState>(() => ({
-    fileAttachments,
-    addedFiles,
-    imageAttachments,
-    appshotContexts,
-    pastedTextAttachments,
-    commentAttachments,
-    browserAnnotationAttachments,
-  }), [
-    addedFiles,
-    appshotContexts,
-    browserAnnotationAttachments,
-    commentAttachments,
-    fileAttachments,
-    imageAttachments,
-    pastedTextAttachments,
-  ]);
+  const attachmentState = useMemo<ComposerAttachmentState>(
+    () => ({
+      fileAttachments,
+      addedFiles,
+      imageAttachments,
+      appshotContexts,
+      pastedTextAttachments,
+      commentAttachments,
+      browserAnnotationAttachments,
+    }),
+    [
+      addedFiles,
+      appshotContexts,
+      browserAnnotationAttachments,
+      commentAttachments,
+      fileAttachments,
+      imageAttachments,
+      pastedTextAttachments,
+    ],
+  );
   const hasAttachments = hasComposerAttachmentStateContent(attachmentState);
   const hasSubmittableAttachments = hasSubmittableComposerAttachmentState(attachmentState);
-  const hasVisibleNonImageAttachments = fileAttachments.length > 0
-    || addedFiles.length > 0
-    || appshotContexts.length > 0
-    || pastedTextAttachments.length > 0
-    || commentAttachments.length > 0
-    || browserAnnotationAttachments.length > 0;
+  const hasVisibleNonImageAttachments =
+    fileAttachments.length > 0 ||
+    addedFiles.length > 0 ||
+    appshotContexts.length > 0 ||
+    pastedTextAttachments.length > 0 ||
+    commentAttachments.length > 0 ||
+    browserAnnotationAttachments.length > 0;
   const hasPendingPastedTextAttachments = pastedTextAttachments.some(
     (attachment) => attachment.status === "pending",
   );
   const latestTurnStatus = model.conversation?.turns.at(-1)?.status ?? null;
   const hasResumeInterruptedTurnCapability = Boolean(
-    actions.onResumeInterruptedTurn
-    && model.conversation
-    && !hasPendingPastedTextAttachments,
+    actions.onResumeInterruptedTurn && model.conversation && !hasPendingPastedTextAttachments,
   );
   const pastedTextAttachmentsRef = useRef(pastedTextAttachments);
   pastedTextAttachmentsRef.current = pastedTextAttachments;
@@ -2482,176 +2427,201 @@ function HydratedThreadComposer({
     attachmentGenerationRef.current += 1;
   }, []);
 
-  const runPastedTextMaterialization = useCallback((input: {
-    readonly id: string;
-    readonly text: string;
-    readonly preview: string;
-    readonly characterCount: number;
-    readonly generation: number;
-  }) => {
-    void createPastedTextAttachment({ text: input.text })
-      .then((attachment) => {
-        const isCurrent = composerMountedRef.current
-          && pastedTextOperationGenerationRef.current.get(input.id) === input.generation;
-        if (!isCurrent) {
-          return removePastedTextAttachment({ file: attachment.file }).catch(() => undefined);
-        }
+  const runPastedTextMaterialization = useCallback(
+    (input: {
+      readonly id: string;
+      readonly text: string;
+      readonly preview: string;
+      readonly characterCount: number;
+      readonly generation: number;
+    }) => {
+      void createPastedTextAttachment({ text: input.text })
+        .then((attachment) => {
+          const isCurrent =
+            composerMountedRef.current &&
+            pastedTextOperationGenerationRef.current.get(input.id) === input.generation;
+          if (!isCurrent) {
+            return removePastedTextAttachment({ file: attachment.file }).catch(() => undefined);
+          }
 
-        pastedTextSourcesRef.current.delete(input.id);
-        pastedTextOperationGenerationRef.current.delete(input.id);
-        setPastedTextAttachments((current) => current.map((item) => (
-          item.id === input.id && item.status === "pending" && item.generation === input.generation
-            ? {
-                id: input.id,
-                status: "ready",
-                preview: attachment.preview,
-                characterCount: attachment.characterCount ?? input.characterCount,
-                attachment,
-              }
-            : item
-        )));
-      })
-      .catch((error: unknown) => {
-        if (
-          !composerMountedRef.current
-          || pastedTextOperationGenerationRef.current.get(input.id) !== input.generation
-        ) {
-          return;
-        }
+          pastedTextSourcesRef.current.delete(input.id);
+          pastedTextOperationGenerationRef.current.delete(input.id);
+          setPastedTextAttachments((current) =>
+            current.map((item) =>
+              item.id === input.id &&
+              item.status === "pending" &&
+              item.generation === input.generation
+                ? {
+                    id: input.id,
+                    status: "ready",
+                    preview: attachment.preview,
+                    characterCount: attachment.characterCount ?? input.characterCount,
+                    attachment,
+                  }
+                : item,
+            ),
+          );
+        })
+        .catch((error: unknown) => {
+          if (
+            !composerMountedRef.current ||
+            pastedTextOperationGenerationRef.current.get(input.id) !== input.generation
+          ) {
+            return;
+          }
 
-        setPastedTextAttachments((current) => current.map((item) => (
-          item.id === input.id && item.status === "pending" && item.generation === input.generation
-            ? {
-                id: input.id,
-                status: "failed",
-                generation: input.generation,
-                preview: input.preview,
-                characterCount: input.characterCount,
-                error: error instanceof Error ? error.message : "Could not add pasted text.",
-              }
-            : item
-        )));
-      });
-  }, [setPastedTextAttachments]);
+          setPastedTextAttachments((current) =>
+            current.map((item) =>
+              item.id === input.id &&
+              item.status === "pending" &&
+              item.generation === input.generation
+                ? {
+                    id: input.id,
+                    status: "failed",
+                    generation: input.generation,
+                    preview: input.preview,
+                    characterCount: input.characterCount,
+                    error: error instanceof Error ? error.message : "Could not add pasted text.",
+                  }
+                : item,
+            ),
+          );
+        });
+    },
+    [setPastedTextAttachments],
+  );
 
-  const handleLargeTextPaste = useCallback((text: string): boolean => {
-    const id = createComposerAttachmentId("pasted_text");
-    pastedTextOperationCounterRef.current += 1;
-    const generation = pastedTextOperationCounterRef.current;
-    const preview = summarizeComposerPastedText(text);
-    pastedTextSourcesRef.current.set(id, text);
-    pastedTextOperationGenerationRef.current.set(id, generation);
-    setPastedTextAttachments((current) => [
-      ...current,
-      {
+  const handleLargeTextPaste = useCallback(
+    (text: string): boolean => {
+      const id = createComposerAttachmentId("pasted_text");
+      pastedTextOperationCounterRef.current += 1;
+      const generation = pastedTextOperationCounterRef.current;
+      const preview = summarizeComposerPastedText(text);
+      pastedTextSourcesRef.current.set(id, text);
+      pastedTextOperationGenerationRef.current.set(id, generation);
+      setPastedTextAttachments((current) => [
+        ...current,
+        {
+          id,
+          status: "pending",
+          generation,
+          preview,
+          characterCount: text.length,
+        },
+      ]);
+      runPastedTextMaterialization({
         id,
-        status: "pending",
-        generation,
+        text,
         preview,
         characterCount: text.length,
-      },
-    ]);
-    runPastedTextMaterialization({
-      id,
-      text,
-      preview,
-      characterCount: text.length,
-      generation,
-    });
-    return true;
-  }, [runPastedTextMaterialization, setPastedTextAttachments]);
-
-  const addOrdinaryComposerFiles = useCallback(async (
-    files: readonly File[],
-    source: "paste" | "drop",
-  ): Promise<void> => {
-    if (files.length === 0) return;
-    if (model.isCloudNewThreadTarget) {
-      onErrorMessage("Only images can be added to this composer");
-      return;
-    }
-
-    const results = await Promise.allSettled(files.map(async (file) => {
-      let localPath = source === "drop"
-        ? window.api?.getPathForFile?.(file).trim() ?? ""
-        : "";
-      if (!localPath) {
-        const saved = await uploadResourceAsset(file);
-        localPath = window.api?.resolveManagedAssetPath?.(saved.source)?.trim() ?? "";
-      }
-      if (!localPath) throw new Error(`Could not materialize ${file.name || "file"}`);
-      return {
-        uiId: createComposerAttachmentId("file"),
-        attachment: {
-          label: file.name.trim() || getComposerAttachmentNameFromPath(localPath, "Attachment"),
-          path: localPath,
-          fsPath: localPath,
-        },
-      } satisfies ComposerFileAttachment;
-    }));
-    if (!composerMountedRef.current) return;
-
-    const completed = results.flatMap((result): ComposerFileAttachment[] =>
-      result.status === "fulfilled" ? [result.value] : []);
-    if (completed.length > 0) {
-      setFileAttachments((current) => {
-        const combined = [...current, ...completed];
-        const retained = new Set(dedupeCodexLiveFileAttachments(
-          combined.map((item) => item.attachment),
-        ));
-        return combined.filter((item) => retained.has(item.attachment));
+        generation,
       });
-    }
+      return true;
+    },
+    [runPastedTextMaterialization, setPastedTextAttachments],
+  );
 
-    const failure = results.find(
-      (result): result is PromiseRejectedResult => result.status === "rejected",
-    );
-    if (failure) {
-      onErrorMessage(
-        failure.reason instanceof Error
-          ? failure.reason.message
-          : "Could not add one or more files",
-      );
-    }
-  }, [model.isCloudNewThreadTarget, onErrorMessage, setFileAttachments]);
+  const addOrdinaryComposerFiles = useCallback(
+    async (files: readonly File[], source: "paste" | "drop"): Promise<void> => {
+      if (files.length === 0) return;
+      if (model.isCloudNewThreadTarget) {
+        onErrorMessage("Only images can be added to this composer");
+        return;
+      }
 
-  const handlePasteFiles = useCallback((payload: ComposerPastedFiles): boolean => {
-    if (payload.imageFiles.length > 0) {
-      void imageAttachmentController.addFiles(payload.imageFiles, "paste");
-    }
-    if (payload.otherFiles.length > 0) {
-      void addOrdinaryComposerFiles(payload.otherFiles, "paste");
-    }
-    return payload.imageFiles.length > 0 || payload.otherFiles.length > 0;
-  }, [addOrdinaryComposerFiles, imageAttachmentController]);
-
-  const handleRetryPastedTextAttachment = useCallback((attachmentId: string) => {
-    const text = pastedTextSourcesRef.current.get(attachmentId);
-    const attachment = pastedTextAttachmentsRef.current.find((item) => item.id === attachmentId);
-    if (!text || !attachment || attachment.status !== "failed") return;
-
-    pastedTextOperationCounterRef.current += 1;
-    const generation = pastedTextOperationCounterRef.current;
-    pastedTextOperationGenerationRef.current.set(attachmentId, generation);
-    setPastedTextAttachments((current) => current.map((item) => (
-      item.id === attachmentId
-        ? {
-            id: item.id,
-            status: "pending",
-            generation,
-            preview: item.preview,
-            characterCount: item.characterCount,
+      const results = await Promise.allSettled(
+        files.map(async (file) => {
+          let localPath =
+            source === "drop" ? (window.api?.getPathForFile?.(file).trim() ?? "") : "";
+          if (!localPath) {
+            const saved = await uploadResourceAsset(file);
+            localPath = window.api?.resolveManagedAssetPath?.(saved.source)?.trim() ?? "";
           }
-        : item
-    )));
-    runPastedTextMaterialization({
-      id: attachmentId,
-      text,
-      preview: attachment.preview,
-      characterCount: attachment.characterCount,
-      generation,
-    });
-  }, [runPastedTextMaterialization, setPastedTextAttachments]);
+          if (!localPath) throw new Error(`Could not materialize ${file.name || "file"}`);
+          return {
+            uiId: createComposerAttachmentId("file"),
+            attachment: {
+              label: file.name.trim() || getComposerAttachmentNameFromPath(localPath, "Attachment"),
+              path: localPath,
+              fsPath: localPath,
+            },
+          } satisfies ComposerFileAttachment;
+        }),
+      );
+      if (!composerMountedRef.current) return;
+
+      const completed = results.flatMap((result): ComposerFileAttachment[] =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      if (completed.length > 0) {
+        setFileAttachments((current) => {
+          const combined = [...current, ...completed];
+          const retained = new Set(
+            dedupeCodexLiveFileAttachments(combined.map((item) => item.attachment)),
+          );
+          return combined.filter((item) => retained.has(item.attachment));
+        });
+      }
+
+      const failure = results.find(
+        (result): result is PromiseRejectedResult => result.status === "rejected",
+      );
+      if (failure) {
+        onErrorMessage(
+          failure.reason instanceof Error
+            ? failure.reason.message
+            : "Could not add one or more files",
+        );
+      }
+    },
+    [model.isCloudNewThreadTarget, onErrorMessage, setFileAttachments],
+  );
+
+  const handlePasteFiles = useCallback(
+    (payload: ComposerPastedFiles): boolean => {
+      if (payload.imageFiles.length > 0) {
+        void imageAttachmentController.addFiles(payload.imageFiles, "paste");
+      }
+      if (payload.otherFiles.length > 0) {
+        void addOrdinaryComposerFiles(payload.otherFiles, "paste");
+      }
+      return payload.imageFiles.length > 0 || payload.otherFiles.length > 0;
+    },
+    [addOrdinaryComposerFiles, imageAttachmentController],
+  );
+
+  const handleRetryPastedTextAttachment = useCallback(
+    (attachmentId: string) => {
+      const text = pastedTextSourcesRef.current.get(attachmentId);
+      const attachment = pastedTextAttachmentsRef.current.find((item) => item.id === attachmentId);
+      if (!text || !attachment || attachment.status !== "failed") return;
+
+      pastedTextOperationCounterRef.current += 1;
+      const generation = pastedTextOperationCounterRef.current;
+      pastedTextOperationGenerationRef.current.set(attachmentId, generation);
+      setPastedTextAttachments((current) =>
+        current.map((item) =>
+          item.id === attachmentId
+            ? {
+                id: item.id,
+                status: "pending",
+                generation,
+                preview: item.preview,
+                characterCount: item.characterCount,
+              }
+            : item,
+        ),
+      );
+      runPastedTextMaterialization({
+        id: attachmentId,
+        text,
+        preview: attachment.preview,
+        characterCount: attachment.characterCount,
+        generation,
+      });
+    },
+    [runPastedTextMaterialization, setPastedTextAttachments],
+  );
 
   useEffect(() => {
     const pastedTextSources = pastedTextSourcesRef.current;
@@ -2667,438 +2637,438 @@ function HydratedThreadComposer({
     appendPromptToHistoryRef.current(text);
     resetPromptHistorySelectionRef.current();
   }, []);
-  const completeSuccessfulSubmission = useCallback((text: string) => {
-    recordSuccessfulPromptSubmit(text);
-    incrementAttachmentGeneration();
-    clearBrowserAnnotationAttachments(browserAnnotationConversationId);
-    clearImageEditComposerDraft(imageEditComposerChannelId);
-    clearSubmittedDraft();
-  }, [
-    browserAnnotationConversationId,
-    clearSubmittedDraft,
-    imageEditComposerChannelId,
-    incrementAttachmentGeneration,
-    recordSuccessfulPromptSubmit,
-  ]);
+  const completeSuccessfulSubmission = useCallback(
+    (text: string) => {
+      recordSuccessfulPromptSubmit(text);
+      incrementAttachmentGeneration();
+      clearBrowserAnnotationAttachments(browserAnnotationConversationId);
+      clearImageEditComposerDraft(imageEditComposerChannelId);
+      clearSubmittedDraft();
+    },
+    [
+      browserAnnotationConversationId,
+      clearSubmittedDraft,
+      imageEditComposerChannelId,
+      incrementAttachmentGeneration,
+      recordSuccessfulPromptSubmit,
+    ],
+  );
   const cleanupSubmittedPastedTextAttachments = useCallback(async () => {
-    const readyAttachments = pastedTextAttachmentsRef.current.flatMap((attachment) => (
-      attachment.status === "ready" ? [attachment.attachment.file] : []
-    ));
-    await Promise.allSettled(
-      readyAttachments.map((file) => removePastedTextAttachment({ file })),
+    const readyAttachments = pastedTextAttachmentsRef.current.flatMap((attachment) =>
+      attachment.status === "ready" ? [attachment.attachment.file] : [],
     );
+    await Promise.allSettled(readyAttachments.map((file) => removePastedTextAttachment({ file })));
   }, []);
 
-  const submitThreadGoalDraft = useCallback(async (
-    draft: ThreadGoalSubmissionDraft,
-  ): Promise<boolean> => {
-    if (draft.hasUnsupportedAttachments) {
-      toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
-        id: "thread-goal-materialize-failed",
-      });
-      return false;
-    }
-
-    if (!model.conversation) {
-      const target = model.newThreadTarget;
-      if (!target?.sessionId || !actions.onStartThreadForSession) {
-        onErrorMessage("Session thread creation is not available.");
+  const submitThreadGoalDraft = useCallback(
+    async (draft: ThreadGoalSubmissionDraft): Promise<boolean> => {
+      if (draft.hasUnsupportedAttachments) {
+        toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
+          id: "thread-goal-materialize-failed",
+        });
         return false;
       }
 
-      setBusyAction("send");
-      onErrorMessage(null);
-      let prompt = draft.objective;
-      const threadGoalDraft: CodexThreadGoalDraftInput = {
-        objective: draft.objective,
-        imageAttachments: draft.imageAttachments.map((attachment) => ({ ...attachment })),
-        pastedTextAttachments: draft.pastedTextAttachments.map((attachment) => ({ ...attachment })),
-      };
-      let threadGoalMaterializedDraft: CodexThreadGoalMaterializedDraft | undefined;
-      if (target.runInTarget !== "newWorktree") {
-        let materialized: CodexThreadGoalMaterializedDraft;
-        try {
-          materialized = await materializeThreadGoalDraft(threadGoalDraft);
-        } catch {
-          toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
-            id: "thread-goal-materialize-failed",
-          });
-          setBusyAction(null);
+      if (!model.conversation) {
+        const target = model.newThreadTarget;
+        if (!target?.sessionId || !actions.onStartThreadForSession) {
+          onErrorMessage("Session thread creation is not available.");
           return false;
         }
-        prompt = materialized.objective;
-        threadGoalMaterializedDraft = materialized;
-      }
 
-      try {
-        await actions.onStartThreadForSession({
-          projectId: target.projectId,
-          sessionId: target.sessionId,
-          projectDraftId: target.projectDraftId,
-          prompt,
-          threadGoalDraft,
-          ...(threadGoalMaterializedDraft === undefined
-            ? {}
-            : { threadGoalMaterializedDraft }),
-          runInTarget: target.runInTarget,
-          runInEnvironmentPath: target.runInEnvironmentPath,
-          worktreeStartingState: target.worktreeStartingState,
-        });
-        completeSuccessfulSubmission(draft.objective);
-        return true;
-      } catch (error) {
-        onErrorMessage(error instanceof Error ? error.message : "Could not start thread goal");
-        return false;
-      } finally {
-        setBusyAction(null);
-      }
-    }
-
-    if (!actions.onSetThreadGoal) {
-      onErrorMessage(getThreadGoalMessage("composer.threadGoal.setError"));
-      return false;
-    }
-
-    setBusyAction("send");
-    onErrorMessage(null);
-    let materialized: CodexThreadGoalMaterializedDraft | null = null;
-    try {
-      materialized = await materializeThreadGoalDraft({
-        objective: draft.objective,
-        imageAttachments: draft.imageAttachments,
-        pastedTextAttachments: draft.pastedTextAttachments,
-      });
-    } catch {
-      toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
-        id: "thread-goal-materialize-failed",
-      });
-      setBusyAction(null);
-      return false;
-    }
-
-    try {
-      await actions.onSetThreadGoal({
-        threadId: model.conversation.threadId,
-        objective: materialized.objective,
-        status: "active",
-      });
-      materialized = null;
-      completeSuccessfulSubmission(draft.objective);
-      return true;
-    } catch {
-      await cleanupMaterializedThreadGoalDraft(materialized);
-      toast.danger(getThreadGoalMessage("composer.threadGoal.setError"), {
-        id: "thread-goal-set-failed",
-      });
-      return false;
-    } finally {
-      setBusyAction(null);
-    }
-  }, [
-    actions,
-    completeSuccessfulSubmission,
-    model.conversation,
-    onErrorMessage,
-    model.newThreadTarget,
-  ]);
-
-  const submitPrompt = useCallback(async (
-    input: {
-      prompt: string;
-      submitAction: StageThreadsComposerSubmitAction | null;
-      imageEditIntent?: ImageEditSubmissionIntent;
-    },
-  ): Promise<boolean> => {
-    if (hasPendingPastedTextAttachments) return false;
-    if (!imageInputSupported && (imageAttachments.length > 0 || input.imageEditIntent)) {
-      onErrorMessage("Remove images or switch models to send this message");
-      return false;
-    }
-    const executionHostId = model.isCloudNewThreadTarget
-      ? null
-      : model.hostId;
-    const intentImageAttachments = input.imageEditIntent
-      ? buildComposerImageEditAttachments({
-          currentAttachments: imageAttachments,
-          intent: input.imageEditIntent,
-          executionHostId,
-          generation: attachmentGenerationRef.current,
-        })
-      : null;
-    if (input.imageEditIntent && !intentImageAttachments) {
-      onErrorMessage("One or more images could not be read. Add them again and retry.");
-      return false;
-    }
-    const effectiveImageAttachments = intentImageAttachments ?? imageAttachments;
-    const effectiveAttachmentState: ComposerAttachmentState = input.imageEditIntent
-      ? { ...attachmentState, imageAttachments: effectiveImageAttachments }
-      : attachmentState;
-    const nextPrompt = input.imageEditIntent?.promptRaw
-      ?? compileImageEditComposerPrompt({
-        draft: imageEditDraft,
-        generalInstructions: input.prompt,
-      });
-    const isImageEditFollowUp = Boolean(input.imageEditIntent)
-      || imageEditDraft.mode !== null;
-    const trimmedPrompt = nextPrompt.trim();
-    if (
-      buildComposerImagePromptInputs(effectiveImageAttachments, executionHostId).length
-      !== effectiveImageAttachments.length
-    ) {
-      onErrorMessage(
-        "One or more images are unavailable on the selected execution host. Remove them or add them again.",
-      );
-      return false;
-    }
-    const promptInput = buildComposerPromptInput({
-      prompt: nextPrompt,
-      attachments: effectiveAttachmentState,
-      executionHostId,
-    });
-    const hasPromptAttachments = promptInput !== undefined;
-    const target = model.newThreadTarget;
-    const goalActionAvailable = model.conversation !== null
-      ? Boolean(actions.onSetThreadGoal)
-      : Boolean(actions.onStartThreadForSession) && canStartNewThread;
-    const goalDraftResult = buildComposerThreadGoalDraft({
-      promptRaw: nextPrompt,
-      goalActionAvailable,
-      goalModeActive: isImageEditFollowUp ? false : goalModeActive,
-      hasAttachments: hasSubmittableComposerAttachmentState(
-        effectiveAttachmentState,
-      ),
-    });
-
-    if (goalDraftResult.status === "empty") {
-      setGoalModeActive(false);
-      return false;
-    }
-
-    if (goalDraftResult.status === "ready") {
-      const currentGoal = model.conversation?.threadGoal ?? null;
-      const submissionDraft = buildThreadGoalSubmissionDraft(
-        goalDraftResult.draft,
-        effectiveAttachmentState,
-        model.hostId,
-      );
-      if (
-        currentGoal
-        && (
-          currentGoal.objective !== submissionDraft.objective
-          || submissionDraft.hasAttachments
-        )
-      ) {
-        setGoalReplacementConfirmation({
-          draft: submissionDraft,
-        });
-        return false;
-      }
-
-      return submitThreadGoalDraft(submissionDraft);
-    }
-
-    if (!trimmedPrompt && !hasPromptAttachments) {
-      return false;
-    }
-
-    const sideChatPrompt = parseSideChatCommand(trimmedPrompt);
-    if (sideChatPrompt !== null) {
-      if (model.conversation?.source?.sideConversation === true) {
-        toast.danger("'/side' is unavailable in side chats. Return to the main thread first", {
-          id: "side-chat-unavailable-in-side-chat",
-        });
-        return false;
-      }
-      if (!model.conversation || !actions.onOpenSideChat) {
-        toast.danger("Failed to open side chat", {
-          id: "side-chat-open-failed",
-        });
-        return false;
-      }
-
-      setBusyAction("send");
-      onErrorMessage(null);
-      try {
-        const sideChatPromptInput = buildComposerPromptInput({
-          prompt: sideChatPrompt,
-          attachments: effectiveAttachmentState,
-          executionHostId: model.hostId,
-        });
-        await actions.onOpenSideChat({
-          prompt: sideChatPrompt,
-          promptInput: sideChatPromptInput,
-        });
-        await cleanupSubmittedPastedTextAttachments();
-        completeSuccessfulSubmission(sideChatPrompt);
-        return true;
-      } catch {
-        toast.danger("Failed to open side chat", {
-          id: "side-chat-open-failed",
-        });
-        return false;
-      } finally {
-        setBusyAction(null);
-      }
-    }
-
-    setBusyAction("send");
-    onErrorMessage(null);
-    const optimisticImageEdit = isImageEditFollowUp
-      && model.conversation
-      && (input.imageEditIntent
-        ? input.imageEditIntent.attachments.some(
-            (attachment) => attachment.image.source === "generated",
-          )
-        : imageEditDraft.attachments.some(
-            (attachment) => attachment.imageSource === "generated",
-          ))
-      ? beginOptimisticGeneratedImageEdit(model.conversation.threadId)
-      : null;
-
-    try {
-      if (!model.conversation) {
-        if (!target) return false;
-        if (target.sessionId) {
-          if (!actions.onStartThreadForSession) {
-            onErrorMessage("Session thread creation is not available.");
+        setBusyAction("send");
+        onErrorMessage(null);
+        let prompt = draft.objective;
+        const threadGoalDraft: CodexThreadGoalDraftInput = {
+          objective: draft.objective,
+          imageAttachments: draft.imageAttachments.map((attachment) => ({ ...attachment })),
+          pastedTextAttachments: draft.pastedTextAttachments.map((attachment) => ({
+            ...attachment,
+          })),
+        };
+        let threadGoalMaterializedDraft: CodexThreadGoalMaterializedDraft | undefined;
+        if (target.runInTarget !== "newWorktree") {
+          let materialized: CodexThreadGoalMaterializedDraft;
+          try {
+            materialized = await materializeThreadGoalDraft(threadGoalDraft);
+          } catch {
+            toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
+              id: "thread-goal-materialize-failed",
+            });
+            setBusyAction(null);
             return false;
           }
+          prompt = materialized.objective;
+          threadGoalMaterializedDraft = materialized;
+        }
+
+        try {
           await actions.onStartThreadForSession({
             projectId: target.projectId,
             sessionId: target.sessionId,
             projectDraftId: target.projectDraftId,
-            prompt: nextPrompt,
-            promptInput,
+            prompt,
+            threadGoalDraft,
+            ...(threadGoalMaterializedDraft === undefined ? {} : { threadGoalMaterializedDraft }),
             runInTarget: target.runInTarget,
             runInEnvironmentPath: target.runInEnvironmentPath,
             worktreeStartingState: target.worktreeStartingState,
           });
-        } else {
-          onErrorMessage("Select a session before starting a new thread.");
+          completeSuccessfulSubmission(draft.objective);
+          return true;
+        } catch (error) {
+          onErrorMessage(error instanceof Error ? error.message : "Could not start thread goal");
+          return false;
+        } finally {
+          setBusyAction(null);
+        }
+      }
+
+      if (!actions.onSetThreadGoal) {
+        onErrorMessage(getThreadGoalMessage("composer.threadGoal.setError"));
+        return false;
+      }
+
+      setBusyAction("send");
+      onErrorMessage(null);
+      let materialized: CodexThreadGoalMaterializedDraft | null = null;
+      try {
+        materialized = await materializeThreadGoalDraft({
+          objective: draft.objective,
+          imageAttachments: draft.imageAttachments,
+          pastedTextAttachments: draft.pastedTextAttachments,
+        });
+      } catch {
+        toast.danger(getThreadGoalMessage("composer.threadGoal.materializeError"), {
+          id: "thread-goal-materialize-failed",
+        });
+        setBusyAction(null);
+        return false;
+      }
+
+      try {
+        await actions.onSetThreadGoal({
+          threadId: model.conversation.threadId,
+          objective: materialized.objective,
+          status: "active",
+        });
+        materialized = null;
+        completeSuccessfulSubmission(draft.objective);
+        return true;
+      } catch {
+        await cleanupMaterializedThreadGoalDraft(materialized);
+        toast.danger(getThreadGoalMessage("composer.threadGoal.setError"), {
+          id: "thread-goal-set-failed",
+        });
+        return false;
+      } finally {
+        setBusyAction(null);
+      }
+    },
+    [
+      actions,
+      completeSuccessfulSubmission,
+      model.conversation,
+      onErrorMessage,
+      model.newThreadTarget,
+    ],
+  );
+
+  const submitPrompt = useCallback(
+    async (input: {
+      prompt: string;
+      submitAction: StageThreadsComposerSubmitAction | null;
+      imageEditIntent?: ImageEditSubmissionIntent;
+    }): Promise<boolean> => {
+      if (hasPendingPastedTextAttachments) return false;
+      if (!imageInputSupported && (imageAttachments.length > 0 || input.imageEditIntent)) {
+        onErrorMessage("Remove images or switch models to send this message");
+        return false;
+      }
+      const executionHostId = model.isCloudNewThreadTarget ? null : model.hostId;
+      const intentImageAttachments = input.imageEditIntent
+        ? buildComposerImageEditAttachments({
+            currentAttachments: imageAttachments,
+            intent: input.imageEditIntent,
+            executionHostId,
+            generation: attachmentGenerationRef.current,
+          })
+        : null;
+      if (input.imageEditIntent && !intentImageAttachments) {
+        onErrorMessage("One or more images could not be read. Add them again and retry.");
+        return false;
+      }
+      const effectiveImageAttachments = intentImageAttachments ?? imageAttachments;
+      const effectiveAttachmentState: ComposerAttachmentState = input.imageEditIntent
+        ? { ...attachmentState, imageAttachments: effectiveImageAttachments }
+        : attachmentState;
+      const nextPrompt =
+        input.imageEditIntent?.promptRaw ??
+        compileImageEditComposerPrompt({
+          draft: imageEditDraft,
+          generalInstructions: input.prompt,
+        });
+      const isImageEditFollowUp = Boolean(input.imageEditIntent) || imageEditDraft.mode !== null;
+      const trimmedPrompt = nextPrompt.trim();
+      if (
+        buildComposerImagePromptInputs(effectiveImageAttachments, executionHostId).length !==
+        effectiveImageAttachments.length
+      ) {
+        onErrorMessage(
+          "One or more images are unavailable on the selected execution host. Remove them or add them again.",
+        );
+        return false;
+      }
+      const promptInput = buildComposerPromptInput({
+        prompt: nextPrompt,
+        attachments: effectiveAttachmentState,
+        executionHostId,
+      });
+      const hasPromptAttachments = promptInput !== undefined;
+      const target = model.newThreadTarget;
+      const goalActionAvailable =
+        model.conversation !== null
+          ? Boolean(actions.onSetThreadGoal)
+          : Boolean(actions.onStartThreadForSession) && canStartNewThread;
+      const goalDraftResult = buildComposerThreadGoalDraft({
+        promptRaw: nextPrompt,
+        goalActionAvailable,
+        goalModeActive: isImageEditFollowUp ? false : goalModeActive,
+        hasAttachments: hasSubmittableComposerAttachmentState(effectiveAttachmentState),
+      });
+
+      if (goalDraftResult.status === "empty") {
+        setGoalModeActive(false);
+        return false;
+      }
+
+      if (goalDraftResult.status === "ready") {
+        const currentGoal = model.conversation?.threadGoal ?? null;
+        const submissionDraft = buildThreadGoalSubmissionDraft(
+          goalDraftResult.draft,
+          effectiveAttachmentState,
+          model.hostId,
+        );
+        if (
+          currentGoal &&
+          (currentGoal.objective !== submissionDraft.objective || submissionDraft.hasAttachments)
+        ) {
+          setGoalReplacementConfirmation({
+            draft: submissionDraft,
+          });
           return false;
         }
-      } else if (model.isThreadRunning) {
-        if (isImageEditFollowUp || input.submitAction === "queue") {
-          await actions.onEnqueueQueuedFollowUp(model.conversation.threadId, nextPrompt, {
-            collaborationMode: model.selectedCollaborationMode,
-            promptInput,
+
+        return submitThreadGoalDraft(submissionDraft);
+      }
+
+      if (!trimmedPrompt && !hasPromptAttachments) {
+        return false;
+      }
+
+      const sideChatPrompt = parseSideChatCommand(trimmedPrompt);
+      if (sideChatPrompt !== null) {
+        if (model.conversation?.source?.sideConversation === true) {
+          toast.danger("'/side' is unavailable in side chats. Return to the main thread first", {
+            id: "side-chat-unavailable-in-side-chat",
           });
-        } else if (input.submitAction === "steer") {
-          if (!model.activeTurn || model.activeTurn.turnId === null) {
-            onErrorMessage("Nodex is already running. Wait for the active turn to load or queue the follow-up instead.");
+          return false;
+        }
+        if (!model.conversation || !actions.onOpenSideChat) {
+          toast.danger("Failed to open side chat", {
+            id: "side-chat-open-failed",
+          });
+          return false;
+        }
+
+        setBusyAction("send");
+        onErrorMessage(null);
+        try {
+          const sideChatPromptInput = buildComposerPromptInput({
+            prompt: sideChatPrompt,
+            attachments: effectiveAttachmentState,
+            executionHostId: model.hostId,
+          });
+          await actions.onOpenSideChat({
+            prompt: sideChatPrompt,
+            promptInput: sideChatPromptInput,
+          });
+          await cleanupSubmittedPastedTextAttachments();
+          completeSuccessfulSubmission(sideChatPrompt);
+          return true;
+        } catch {
+          toast.danger("Failed to open side chat", {
+            id: "side-chat-open-failed",
+          });
+          return false;
+        } finally {
+          setBusyAction(null);
+        }
+      }
+
+      setBusyAction("send");
+      onErrorMessage(null);
+      const optimisticImageEdit =
+        isImageEditFollowUp &&
+        model.conversation &&
+        (input.imageEditIntent
+          ? input.imageEditIntent.attachments.some(
+              (attachment) => attachment.image.source === "generated",
+            )
+          : imageEditDraft.attachments.some((attachment) => attachment.imageSource === "generated"))
+          ? beginOptimisticGeneratedImageEdit(model.conversation.threadId)
+          : null;
+
+      try {
+        if (!model.conversation) {
+          if (!target) return false;
+          if (target.sessionId) {
+            if (!actions.onStartThreadForSession) {
+              onErrorMessage("Session thread creation is not available.");
+              return false;
+            }
+            await actions.onStartThreadForSession({
+              projectId: target.projectId,
+              sessionId: target.sessionId,
+              projectDraftId: target.projectDraftId,
+              prompt: nextPrompt,
+              promptInput,
+              runInTarget: target.runInTarget,
+              runInEnvironmentPath: target.runInEnvironmentPath,
+              worktreeStartingState: target.worktreeStartingState,
+            });
+          } else {
+            onErrorMessage("Select a session before starting a new thread.");
             return false;
           }
-          await actions.onSteerPrompt({
-            expectedTurnId: model.activeTurn.turnId,
-            prompt: nextPrompt,
-            promptInput,
-            collaborationMode: model.selectedCollaborationMode,
-          });
-        } else {
-          onErrorMessage("Nodex is already running. Choose Queue or Steer before submitting a follow-up.");
-          return false;
-        }
-      } else {
-        await intelligenceController.flush();
-        await actions.onSendPrompt(nextPrompt, {
-          collaborationMode: model.selectedCollaborationMode,
-          promptInput,
-          ...intelligenceController.turnOverrides,
-        });
-      }
-      if (target?.runInTarget !== "newWorktree") {
-        await cleanupSubmittedPastedTextAttachments();
-      }
-      if (isImageEditFollowUp) {
-        if (input.imageEditIntent) {
-          trackImageEditSubmit({
-            ...input.imageEditIntent.analytics,
-            imageSource: input.imageEditIntent.attachments[0]?.image.source
-              ?? "uploaded",
-            mode: input.imageEditIntent.mode,
-          });
-        } else {
-          for (const imageSource of ["generated", "uploaded"] as const) {
-            const attachments = imageEditDraft.attachments.filter(
-              (attachment) => attachment.imageSource === imageSource,
-            );
-            if (attachments.length === 0) continue;
-            const commentCount = attachments.reduce(
-              (count, attachment) => count + attachment.comments.length,
-              0,
-            );
-            if (imageSource === "uploaded" && commentCount === 0) continue;
-            trackImageEditSubmit({
-              commentCount: commentCount > 0 ? commentCount : undefined,
-              hasGeneralInstruction: input.prompt.trim().length > 0,
-              imageSource,
-              mode: commentCount > 0 ? "comment" : "select",
-              selectedImageCount: attachments.length,
+        } else if (model.isThreadRunning) {
+          if (isImageEditFollowUp || input.submitAction === "queue") {
+            await actions.onEnqueueQueuedFollowUp(model.conversation.threadId, nextPrompt, {
+              collaborationMode: model.selectedCollaborationMode,
+              promptInput,
             });
+          } else if (input.submitAction === "steer") {
+            if (!model.activeTurn || model.activeTurn.turnId === null) {
+              onErrorMessage(
+                "Nodex is already running. Wait for the active turn to load or queue the follow-up instead.",
+              );
+              return false;
+            }
+            await actions.onSteerPrompt({
+              expectedTurnId: model.activeTurn.turnId,
+              prompt: nextPrompt,
+              promptInput,
+              collaborationMode: model.selectedCollaborationMode,
+            });
+          } else {
+            onErrorMessage(
+              "Nodex is already running. Choose Queue or Steer before submitting a follow-up.",
+            );
+            return false;
+          }
+        } else {
+          await intelligenceController.flush();
+          await actions.onSendPrompt(nextPrompt, {
+            collaborationMode: model.selectedCollaborationMode,
+            promptInput,
+            ...intelligenceController.turnOverrides,
+          });
+        }
+        if (target?.runInTarget !== "newWorktree") {
+          await cleanupSubmittedPastedTextAttachments();
+        }
+        if (isImageEditFollowUp) {
+          if (input.imageEditIntent) {
+            trackImageEditSubmit({
+              ...input.imageEditIntent.analytics,
+              imageSource: input.imageEditIntent.attachments[0]?.image.source ?? "uploaded",
+              mode: input.imageEditIntent.mode,
+            });
+          } else {
+            for (const imageSource of ["generated", "uploaded"] as const) {
+              const attachments = imageEditDraft.attachments.filter(
+                (attachment) => attachment.imageSource === imageSource,
+              );
+              if (attachments.length === 0) continue;
+              const commentCount = attachments.reduce(
+                (count, attachment) => count + attachment.comments.length,
+                0,
+              );
+              if (imageSource === "uploaded" && commentCount === 0) continue;
+              trackImageEditSubmit({
+                commentCount: commentCount > 0 ? commentCount : undefined,
+                hasGeneralInstruction: input.prompt.trim().length > 0,
+                imageSource,
+                mode: commentCount > 0 ? "comment" : "select",
+                selectedImageCount: attachments.length,
+              });
+            }
           }
         }
+        completeSuccessfulSubmission(nextPrompt);
+        return true;
+      } catch (error) {
+        optimisticImageEdit?.rollback();
+        onErrorMessage(error instanceof Error ? error.message : "Could not send prompt");
+        return false;
+      } finally {
+        setBusyAction(null);
       }
-      completeSuccessfulSubmission(nextPrompt);
-      return true;
-    } catch (error) {
-      optimisticImageEdit?.rollback();
-      onErrorMessage(error instanceof Error ? error.message : "Could not send prompt");
-      return false;
-    } finally {
-      setBusyAction(null);
-    }
-  }, [
-    actions,
-    attachmentState,
-    canStartNewThread,
-    completeSuccessfulSubmission,
-    goalModeActive,
-    hasPendingPastedTextAttachments,
-    imageAttachments,
-    imageEditDraft,
-    imageInputSupported,
-    intelligenceController,
-    model.activeTurn,
-    model.conversation,
-    model.hostId,
-    model.isCloudNewThreadTarget,
-    model.isThreadRunning,
-    model.newThreadTarget,
-    model.selectedCollaborationMode,
-    onErrorMessage,
-    cleanupSubmittedPastedTextAttachments,
-    setGoalModeActive,
-    submitThreadGoalDraft,
-  ]);
+    },
+    [
+      actions,
+      attachmentState,
+      canStartNewThread,
+      completeSuccessfulSubmission,
+      goalModeActive,
+      hasPendingPastedTextAttachments,
+      imageAttachments,
+      imageEditDraft,
+      imageInputSupported,
+      intelligenceController,
+      model.activeTurn,
+      model.conversation,
+      model.hostId,
+      model.isCloudNewThreadTarget,
+      model.isThreadRunning,
+      model.newThreadTarget,
+      model.selectedCollaborationMode,
+      onErrorMessage,
+      cleanupSubmittedPastedTextAttachments,
+      setGoalModeActive,
+      submitThreadGoalDraft,
+    ],
+  );
   const isDictationSupported = useMemo(
     () =>
-      model.dictation.isEnabled
-      && isElectronLikeComposerEnvironment()
-      && typeof navigator !== "undefined"
-      && typeof navigator.mediaDevices?.getUserMedia === "function"
-      && typeof MediaRecorder !== "undefined",
+      model.dictation.isEnabled &&
+      isElectronLikeComposerEnvironment() &&
+      typeof navigator !== "undefined" &&
+      typeof navigator.mediaDevices?.getUserMedia === "function" &&
+      typeof MediaRecorder !== "undefined",
     [model.dictation.isEnabled],
   );
 
-  const insertDictationTranscript = useCallback((transcript: string): string => {
-    const normalizedTranscript = transcript.trim();
-    if (normalizedTranscript.length === 0) {
-      return prompt;
-    }
+  const insertDictationTranscript = useCallback(
+    (transcript: string): string => {
+      const normalizedTranscript = transcript.trim();
+      if (normalizedTranscript.length === 0) {
+        return prompt;
+      }
 
-    const editor = promptEditorRef.current;
-    if (editor) {
-      return editor.insertText(normalizedTranscript);
-    }
+      const editor = promptEditorRef.current;
+      if (editor) {
+        return editor.insertText(normalizedTranscript);
+      }
 
-    const nextPrompt = `${prompt}${normalizedTranscript}`;
-    setPrompt(nextPrompt);
-    return nextPrompt;
-  }, [prompt, setPrompt]);
+      const nextPrompt = `${prompt}${normalizedTranscript}`;
+      setPrompt(nextPrompt);
+      return nextPrompt;
+    },
+    [prompt, setPrompt],
+  );
 
-  const handleInsertPromptMention = useCallback((
-    mention: ComposerPromptMentionInput,
-  ) => {
+  const handleInsertPromptMention = useCallback((mention: ComposerPromptMentionInput) => {
     promptEditorRef.current?.insertMention(mention);
   }, []);
 
@@ -3147,10 +3117,10 @@ function HydratedThreadComposer({
     const generation = attachmentGenerationRef.current;
 
     try {
-      const pickedFiles = await invoke("composer:pick-files", {
+      const pickedFiles = (await invoke("composer:pick-files", {
         imagesOnly,
         title: imagesOnly ? "Select photos" : "Select files",
-      }) as ComposerPickedFile[];
+      })) as ComposerPickedFile[];
       if (attachmentGenerationRef.current !== generation || pickedFiles.length === 0) {
         return;
       }
@@ -3182,9 +3152,9 @@ function HydratedThreadComposer({
       if (nextFileAttachments.length > 0) {
         setFileAttachments((current) => {
           const combined = [...current, ...nextFileAttachments];
-          const retained = new Set(dedupeCodexLiveFileAttachments(
-            combined.map((item) => item.attachment),
-          ));
+          const retained = new Set(
+            dedupeCodexLiveFileAttachments(combined.map((item) => item.attachment)),
+          );
           return combined.filter((item) => retained.has(item.attachment));
         });
       }
@@ -3194,44 +3164,39 @@ function HydratedThreadComposer({
     }
   }, [imageAttachmentController, model.isCloudNewThreadTarget, onErrorMessage, setFileAttachments]);
 
-  const handleCaptureAppshot = useCallback(async (
-    target: CodexComposerAppshotTarget,
-  ): Promise<void> => {
-    attachmentGenerationRef.current += 1;
-    const generation = attachmentGenerationRef.current;
-    try {
-      const context = await invoke("codex:composer-appshot:capture", {
-        targetId: target.id,
-      });
-      if (attachmentGenerationRef.current !== generation) return;
-      setAppshotContexts((current) => appendUniqueBy(
-        current,
-        [context],
-        (item) => item.id,
-      ));
-    } catch (error) {
-      toast.danger("Unable to attach Appshot", {
-        description: error instanceof Error
-          ? error.message
-          : `Could not capture ${target.appName}`,
-      });
-    }
-  }, [setAppshotContexts]);
+  const handleCaptureAppshot = useCallback(
+    async (target: CodexComposerAppshotTarget): Promise<void> => {
+      attachmentGenerationRef.current += 1;
+      const generation = attachmentGenerationRef.current;
+      try {
+        const context = await invoke("codex:composer-appshot:capture", {
+          targetId: target.id,
+        });
+        if (attachmentGenerationRef.current !== generation) return;
+        setAppshotContexts((current) => appendUniqueBy(current, [context], (item) => item.id));
+      } catch (error) {
+        toast.danger("Unable to attach Appshot", {
+          description:
+            error instanceof Error ? error.message : `Could not capture ${target.appName}`,
+        });
+      }
+    },
+    [setAppshotContexts],
+  );
 
-  const handleComposerDragEnter = useCallback((
-    event: DragEvent<HTMLDivElement>,
-  ) => {
-    if (!browserImageDrag && !hasComposerFileDataTransfer(event.dataTransfer)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "copy";
-    fileDragDepthRef.current += 1;
-    setFileDragActive(true);
-  }, [browserImageDrag]);
+  const handleComposerDragEnter = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!browserImageDrag && !hasComposerFileDataTransfer(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+      fileDragDepthRef.current += 1;
+      setFileDragActive(true);
+    },
+    [browserImageDrag],
+  );
 
-  const handleComposerDragLeave = useCallback((
-    event: DragEvent<HTMLDivElement>,
-  ) => {
+  const handleComposerDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (fileDragDepthRef.current === 0) return;
     event.preventDefault();
     event.stopPropagation();
@@ -3239,71 +3204,62 @@ function HydratedThreadComposer({
     if (fileDragDepthRef.current === 0) setFileDragActive(false);
   }, []);
 
-  const handleComposerDragOver = useCallback((
-    event: DragEvent<HTMLDivElement>,
-  ) => {
-    if (!browserImageDrag && !hasComposerFileDataTransfer(event.dataTransfer)) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "copy";
-  }, [browserImageDrag]);
+  const handleComposerDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (!browserImageDrag && !hasComposerFileDataTransfer(event.dataTransfer)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+    },
+    [browserImageDrag],
+  );
 
-  const handleBrowserImageDrop = useCallback(async (
-    event: DragEvent<HTMLDivElement>,
-  ) => {
-    if (!browserImageDrag) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "copy";
-    try {
-      const result = await invoke("browser-sidebar-command", {
-        type: "attach-dragged-image",
-        browserConversationId: browserImageDrag.browserConversationId,
-        browserViewScopeId: browserImageDrag.browserViewScopeId,
-        browserTabId: browserImageDrag.browserTabId,
-      });
-      if (!result.ok) onErrorMessage(result.message);
-    } catch (error) {
-      onErrorMessage(
-        error instanceof Error ? error.message : "Could not add Browser image",
-      );
-    } finally {
-      clearBrowserImageDragState(browserAnnotationConversationId);
-    }
-  }, [
-    browserAnnotationConversationId,
-    browserImageDrag,
-    onErrorMessage,
-  ]);
+  const handleBrowserImageDrop = useCallback(
+    async (event: DragEvent<HTMLDivElement>) => {
+      if (!browserImageDrag) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+      try {
+        const result = await invoke("browser-sidebar-command", {
+          type: "attach-dragged-image",
+          browserConversationId: browserImageDrag.browserConversationId,
+          browserViewScopeId: browserImageDrag.browserViewScopeId,
+          browserTabId: browserImageDrag.browserTabId,
+        });
+        if (!result.ok) onErrorMessage(result.message);
+      } catch (error) {
+        onErrorMessage(error instanceof Error ? error.message : "Could not add Browser image");
+      } finally {
+        clearBrowserImageDragState(browserAnnotationConversationId);
+      }
+    },
+    [browserAnnotationConversationId, browserImageDrag, onErrorMessage],
+  );
 
-  const handleComposerDrop = useCallback((event: DragEvent<HTMLDivElement>) => {
-    fileDragDepthRef.current = 0;
-    setFileDragActive(false);
-    if (browserImageDrag) {
-      void handleBrowserImageDrop(event);
-      return;
-    }
+  const handleComposerDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      fileDragDepthRef.current = 0;
+      setFileDragActive(false);
+      if (browserImageDrag) {
+        void handleBrowserImageDrop(event);
+        return;
+      }
 
-    const classification = classifyComposerDataTransfer(event.dataTransfer);
-    if (
-      classification.imageFiles.length === 0
-      && classification.otherFiles.length === 0
-    ) return;
-    event.preventDefault();
-    event.stopPropagation();
-    event.dataTransfer.dropEffect = "copy";
-    if (classification.imageFiles.length > 0) {
-      void imageAttachmentController.addFiles(classification.imageFiles, "drop");
-    }
-    if (classification.otherFiles.length > 0) {
-      void addOrdinaryComposerFiles(classification.otherFiles, "drop");
-    }
-  }, [
-    addOrdinaryComposerFiles,
-    browserImageDrag,
-    handleBrowserImageDrop,
-    imageAttachmentController,
-  ]);
+      const classification = classifyComposerDataTransfer(event.dataTransfer);
+      if (classification.imageFiles.length === 0 && classification.otherFiles.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.dataTransfer.dropEffect = "copy";
+      if (classification.imageFiles.length > 0) {
+        void imageAttachmentController.addFiles(classification.imageFiles, "drop");
+      }
+      if (classification.otherFiles.length > 0) {
+        void addOrdinaryComposerFiles(classification.otherFiles, "drop");
+      }
+    },
+    [addOrdinaryComposerFiles, browserImageDrag, handleBrowserImageDrop, imageAttachmentController],
+  );
 
   const showDictationToast = useCallback((message: string) => {
     setDictationToastMessage(message);
@@ -3328,7 +3284,8 @@ function HydratedThreadComposer({
           canSendPrompt: model.conversation !== null || canStartNewThread,
           isThreadRunning: model.isThreadRunning,
           busyAction,
-          hasDraftContent: nextPrompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive,
+          hasDraftContent:
+            nextPrompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive,
           hasThreadGoal: goalModeActive || Boolean(model.conversation?.threadGoal),
           isQueueingEnabled: model.isQueueingEnabled,
           latestTurnStatus,
@@ -3352,9 +3309,8 @@ function HydratedThreadComposer({
       showDictationToast("Dictation is not available on this device");
     },
   });
-  const canResumeInterruptedTurn = hasResumeInterruptedTurnCapability
-    && !isDictating
-    && !isTranscribing;
+  const canResumeInterruptedTurn =
+    hasResumeInterruptedTurnCapability && !isDictating && !isTranscribing;
   const startDictationRef = useRef(startDictation);
   const stopDictationRef = useRef(stopDictation);
 
@@ -3425,10 +3381,7 @@ function HydratedThreadComposer({
       document.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("keyup", handleKeyUp, true);
     };
-  }, [
-    isDictationSupported,
-    model.dictation.isRealtimeVoiceActive,
-  ]);
+  }, [isDictationSupported, model.dictation.isRealtimeVoiceActive]);
 
   useEffect(() => {
     let cancelled = false;
@@ -3459,15 +3412,23 @@ function HydratedThreadComposer({
     } finally {
       setBusyAction(null);
     }
-  }, [actions, model.activeTurn?.turnId, model.conversation, model.isThreadRunning, onErrorMessage]);
+  }, [
+    actions,
+    model.activeTurn?.turnId,
+    model.conversation,
+    model.isThreadRunning,
+    onErrorMessage,
+  ]);
 
   const handleResumeInterruptedTurn = useCallback(async () => {
     const resumeInterruptedTurn = actions.onResumeInterruptedTurn;
     if (!resumeInterruptedTurn) return;
-    const releaseAttempt = resumeAttemptGate.tryAcquire(isInterruptedTurnResumeEligible({
-      model,
-      hasResumeAction: true,
-    }));
+    const releaseAttempt = resumeAttemptGate.tryAcquire(
+      isInterruptedTurnResumeEligible({
+        model,
+        hasResumeAction: true,
+      }),
+    );
     if (!releaseAttempt) return;
     setBusyAction("resume");
     onErrorMessage(null);
@@ -3481,107 +3442,130 @@ function HydratedThreadComposer({
     }
   }, [actions, model, onErrorMessage, resumeAttemptGate]);
 
-  const handleRemoveFileAttachment = useCallback((attachmentId: string) => {
-    incrementAttachmentGeneration();
-    setFileAttachments((current) => current.filter((attachment) =>
-      attachment.uiId !== attachmentId
-    ));
-  }, [incrementAttachmentGeneration, setFileAttachments]);
+  const handleRemoveFileAttachment = useCallback(
+    (attachmentId: string) => {
+      incrementAttachmentGeneration();
+      setFileAttachments((current) =>
+        current.filter((attachment) => attachment.uiId !== attachmentId),
+      );
+    },
+    [incrementAttachmentGeneration, setFileAttachments],
+  );
 
-  const handleRemoveAddedFile = useCallback((attachmentId: string) => {
-    incrementAttachmentGeneration();
-    setAddedFiles((current) => current.filter((attachment) =>
-      attachment.uiId !== attachmentId
-    ));
-  }, [incrementAttachmentGeneration, setAddedFiles]);
+  const handleRemoveAddedFile = useCallback(
+    (attachmentId: string) => {
+      incrementAttachmentGeneration();
+      setAddedFiles((current) => current.filter((attachment) => attachment.uiId !== attachmentId));
+    },
+    [incrementAttachmentGeneration, setAddedFiles],
+  );
 
-  const handleRemoveAppshotContext = useCallback((contextId: string) => {
-    incrementAttachmentGeneration();
-    setAppshotContexts((current) => current.filter(
-      (context) => context.id !== contextId,
-    ));
-  }, [incrementAttachmentGeneration, setAppshotContexts]);
+  const handleRemoveAppshotContext = useCallback(
+    (contextId: string) => {
+      incrementAttachmentGeneration();
+      setAppshotContexts((current) => current.filter((context) => context.id !== contextId));
+    },
+    [incrementAttachmentGeneration, setAppshotContexts],
+  );
 
-  const handleRemovePastedTextAttachment = useCallback((attachmentId: string) => {
-    const attachment = pastedTextAttachmentsRef.current.find((item) => item.id === attachmentId);
-    if (!attachment) return;
+  const handleRemovePastedTextAttachment = useCallback(
+    (attachmentId: string) => {
+      const attachment = pastedTextAttachmentsRef.current.find((item) => item.id === attachmentId);
+      if (!attachment) return;
 
-    pastedTextOperationGenerationRef.current.delete(attachmentId);
-    pastedTextSourcesRef.current.delete(attachmentId);
-    incrementAttachmentGeneration();
-    setPastedTextAttachments((current) => current.filter((attachment) => attachment.id !== attachmentId));
-    if (attachment.status === "ready") {
-      void removePastedTextAttachment({ file: attachment.attachment.file }).catch((error: unknown) => {
-        onErrorMessage(error instanceof Error ? error.message : "Could not remove pasted text");
-      });
-    }
-  }, [incrementAttachmentGeneration, onErrorMessage, setPastedTextAttachments]);
+      pastedTextOperationGenerationRef.current.delete(attachmentId);
+      pastedTextSourcesRef.current.delete(attachmentId);
+      incrementAttachmentGeneration();
+      setPastedTextAttachments((current) =>
+        current.filter((attachment) => attachment.id !== attachmentId),
+      );
+      if (attachment.status === "ready") {
+        void removePastedTextAttachment({ file: attachment.attachment.file }).catch(
+          (error: unknown) => {
+            onErrorMessage(error instanceof Error ? error.message : "Could not remove pasted text");
+          },
+        );
+      }
+    },
+    [incrementAttachmentGeneration, onErrorMessage, setPastedTextAttachments],
+  );
 
-  const handleShowPastedTextInField = useCallback((attachmentId: string) => {
-    const item = pastedTextAttachmentsRef.current.find((attachment) => attachment.id === attachmentId);
-    if (!item || item.status !== "ready") return;
+  const handleShowPastedTextInField = useCallback(
+    (attachmentId: string) => {
+      const item = pastedTextAttachmentsRef.current.find(
+        (attachment) => attachment.id === attachmentId,
+      );
+      if (!item || item.status !== "ready") return;
 
-    void readPastedTextAttachment({ file: item.attachment.file })
-      .then(async (text) => {
-        if (
-          text.length >= COMPOSER_LARGE_PASTE_CHAR_THRESHOLD
-          && !window.confirm("This pasted text is large and may make the editor slower. Show it anyway?")
-        ) {
-          return;
-        }
+      void readPastedTextAttachment({ file: item.attachment.file })
+        .then(async (text) => {
+          if (
+            text.length >= COMPOSER_LARGE_PASTE_CHAR_THRESHOLD &&
+            !window.confirm(
+              "This pasted text is large and may make the editor slower. Show it anyway?",
+            )
+          ) {
+            return;
+          }
 
-        const editor = promptEditorRef.current;
-        if (editor) {
-          editor.setText(text);
-        } else {
-          setPrompt(text);
-        }
-        setPastedTextAttachments((current) => current.filter(
-          (attachment) => attachment.id !== attachmentId,
-        ));
-        await removePastedTextAttachment({ file: item.attachment.file });
-      })
-      .catch((error: unknown) => {
-        onErrorMessage(error instanceof Error ? error.message : "Could not restore pasted text");
-      });
-  }, [onErrorMessage, setPastedTextAttachments, setPrompt]);
+          const editor = promptEditorRef.current;
+          if (editor) {
+            editor.setText(text);
+          } else {
+            setPrompt(text);
+          }
+          setPastedTextAttachments((current) =>
+            current.filter((attachment) => attachment.id !== attachmentId),
+          );
+          await removePastedTextAttachment({ file: item.attachment.file });
+        })
+        .catch((error: unknown) => {
+          onErrorMessage(error instanceof Error ? error.message : "Could not restore pasted text");
+        });
+    },
+    [onErrorMessage, setPastedTextAttachments, setPrompt],
+  );
 
-  const handleRemoveCommentAttachment = useCallback((attachmentId: string) => {
-    removeReviewDiffCommentAttachment(composerThreadId, attachmentId);
-  }, [composerThreadId]);
+  const handleRemoveCommentAttachment = useCallback(
+    (attachmentId: string) => {
+      removeReviewDiffCommentAttachment(composerThreadId, attachmentId);
+    },
+    [composerThreadId],
+  );
 
   const handleRemoveBrowserAnnotationAttachment = useCallback(
     (attachmentId: string) => {
-      removeBrowserAnnotationAttachment(
-        browserAnnotationConversationId,
-        attachmentId,
-      );
+      removeBrowserAnnotationAttachment(browserAnnotationConversationId, attachmentId);
     },
     [browserAnnotationConversationId],
   );
 
-  const slashCommands = useMemo(() => buildComposerSlashCommands({
-    model,
-    actions,
-    serviceTier: serviceTierSettings.serviceTier,
-    setServiceTier,
-    openExpandedDialog: () => setSlashDialogOpen(true),
-    onPetToggle: handleToggleDesktopPet,
-    activateGoalMode,
-  }), [
-    activateGoalMode,
-    actions,
-    handleToggleDesktopPet,
-    model,
-    serviceTierSettings.serviceTier,
-    setServiceTier,
-  ]);
+  const slashCommands = useMemo(
+    () =>
+      buildComposerSlashCommands({
+        model,
+        actions,
+        serviceTier: serviceTierSettings.serviceTier,
+        setServiceTier,
+        openExpandedDialog: () => setSlashDialogOpen(true),
+        onPetToggle: handleToggleDesktopPet,
+        activateGoalMode,
+      }),
+    [
+      activateGoalMode,
+      actions,
+      handleToggleDesktopPet,
+      model,
+      serviceTierSettings.serviceTier,
+      setServiceTier,
+    ],
+  );
   const slashTrigger = useMemo<ComposerSlashTriggerState>(() => {
     if (
-      suggestionState.active
-      && suggestionState.kind === "slash-command"
-      && suggestionState.trigger === "/"
-      && suggestionState.range
+      suggestionState.active &&
+      suggestionState.kind === "slash-command" &&
+      suggestionState.trigger === "/" &&
+      suggestionState.range
     ) {
       return {
         active: true,
@@ -3600,12 +3584,16 @@ function HydratedThreadComposer({
       to: cursor,
     };
   }, [suggestionState]);
-  const slashMatches = useMemo(() => filterComposerSlashCommands({
-    commands: slashCommands,
-    query: slashTrigger.active ? slashTrigger.query : "",
-    composerText: prompt,
-    trigger: slashTrigger.trigger,
-  }), [prompt, slashCommands, slashTrigger.active, slashTrigger.query, slashTrigger.trigger]);
+  const slashMatches = useMemo(
+    () =>
+      filterComposerSlashCommands({
+        commands: slashCommands,
+        query: slashTrigger.active ? slashTrigger.query : "",
+        composerText: prompt,
+        trigger: slashTrigger.trigger,
+      }),
+    [prompt, slashCommands, slashTrigger.active, slashTrigger.query, slashTrigger.trigger],
+  );
   const slashGroups = useMemo(() => groupComposerSlashCommandMatches(slashMatches), [slashMatches]);
   const slashMenuOpen = slashTrigger.active || nestedSlashCommand !== null;
   const planModeAvailable = hasPlanMode(model.collaborationModes);
@@ -3638,11 +3626,12 @@ function HydratedThreadComposer({
   const highlightedInlineSlashCommandSource = slashMenuOpen
     ? resolvedInlineSlashHighlight.source
     : "programmatic";
-  const promptHistoryScopeKey = model.conversation?.threadId
-    ?? model.threadId
-    ?? model.newThreadTarget?.sessionId
-    ?? model.projectId
-    ?? null;
+  const promptHistoryScopeKey =
+    model.conversation?.threadId ??
+    model.threadId ??
+    model.newThreadTarget?.sessionId ??
+    model.projectId ??
+    null;
   const selectLatestQueuedFollowUpForArrowUp = useCallback((): boolean => {
     if (prompt.trim().length !== 0 || hasAttachments || slashMenuOpen || busyAction !== null) {
       return false;
@@ -3671,16 +3660,13 @@ function HydratedThreadComposer({
     prompt,
     slashMenuOpen,
   ]);
-  const {
-    appendPromptToHistory,
-    handlePromptHistoryKeyDown,
-    resetHistorySelection,
-  } = useThreadComposerPromptHistoryRecall({
-    editorRef: promptEditorRef,
-    scopeKey: promptHistoryScopeKey,
-    composerText: prompt,
-    selectLatestQueuedFollowUp: selectLatestQueuedFollowUpForArrowUp,
-  });
+  const { appendPromptToHistory, handlePromptHistoryKeyDown, resetHistorySelection } =
+    useThreadComposerPromptHistoryRecall({
+      editorRef: promptEditorRef,
+      scopeKey: promptHistoryScopeKey,
+      composerText: prompt,
+      selectLatestQueuedFollowUp: selectLatestQueuedFollowUpForArrowUp,
+    });
   appendPromptToHistoryRef.current = appendPromptToHistory;
   resetPromptHistorySelectionRef.current = resetHistorySelection;
 
@@ -3709,15 +3695,10 @@ function HydratedThreadComposer({
     promptEditorRef.current?.dismissSuggestions();
   }, []);
 
-  const handleSuggestionStateChange = useCallback((
-    nextSuggestion: ComposerSuggestionState,
-  ) => {
+  const handleSuggestionStateChange = useCallback((nextSuggestion: ComposerSuggestionState) => {
     setSuggestionState(nextSuggestion);
     if (nextSuggestion.active) {
-      if (
-        nextSuggestion.kind !== "slash-command"
-        || nextSuggestion.source === null
-      ) {
+      if (nextSuggestion.kind !== "slash-command" || nextSuggestion.source === null) {
         setNestedSlashCommand(null);
       }
       return;
@@ -3731,253 +3712,248 @@ function HydratedThreadComposer({
     promptEditorRef.current?.closeSuggestions();
   }, []);
 
-  const selectSlashCommand = useCallback((command: ComposerSlashCommand, source: "inline" | "dialog") => {
-    if (command.isEnabled === false) return;
+  const selectSlashCommand = useCallback(
+    (command: ComposerSlashCommand, source: "inline" | "dialog") => {
+      if (command.isEnabled === false) return;
 
-    if (source === "inline") {
-      const trigger = slashTrigger;
-      if (command.onSelectFromInlineSlash) {
-        void command.onSelectFromInlineSlash({
-          source: "inline",
-          trigger,
-          clearTrigger: () => clearInlineSlashTrigger(trigger),
-          replaceTrigger: (text) => {
-            promptEditorRef.current?.replaceTextRange({ from: trigger.from, to: trigger.to, text });
-            promptEditorRef.current?.closeSuggestions();
-          },
-        });
+      if (source === "inline") {
+        const trigger = slashTrigger;
+        if (command.onSelectFromInlineSlash) {
+          void command.onSelectFromInlineSlash({
+            source: "inline",
+            trigger,
+            clearTrigger: () => clearInlineSlashTrigger(trigger),
+            replaceTrigger: (text) => {
+              promptEditorRef.current?.replaceTextRange({
+                from: trigger.from,
+                to: trigger.to,
+                text,
+              });
+              promptEditorRef.current?.closeSuggestions();
+            },
+          });
+          closeSlashMenu();
+          return;
+        }
+
+        if (command.Content) {
+          promptEditorRef.current?.openSlashSubmenu({
+            kind: "slash-command",
+            commandId: command.id,
+            ...(command.dismissOnInput === true ? { dismissOnInput: true } : {}),
+          });
+          setNestedSlashCommand(command);
+          return;
+        }
+
+        clearInlineSlashTrigger(trigger);
+        void command.onSelect?.({ source: "inline" });
         closeSlashMenu();
         return;
       }
 
       if (command.Content) {
-        promptEditorRef.current?.openSlashSubmenu({
-          kind: "slash-command",
-          commandId: command.id,
-          ...(command.dismissOnInput === true ? { dismissOnInput: true } : {}),
-        });
         setNestedSlashCommand(command);
+        setSlashDialogOpen(false);
         return;
       }
-
-      clearInlineSlashTrigger(trigger);
-      void command.onSelect?.({ source: "inline" });
-      closeSlashMenu();
-      return;
-    }
-
-    if (command.Content) {
-      setNestedSlashCommand(command);
+      void command.onSelect?.({ source: "dialog" });
       setSlashDialogOpen(false);
-      return;
-    }
-    void command.onSelect?.({ source: "dialog" });
-    setSlashDialogOpen(false);
-  }, [clearInlineSlashTrigger, closeSlashMenu, slashTrigger]);
+    },
+    [clearInlineSlashTrigger, closeSlashMenu, slashTrigger],
+  );
 
   const backFromNestedSlashMenu = useCallback(() => {
     promptEditorRef.current?.openSlashSubmenu(null);
     setNestedSlashCommand(null);
   }, []);
 
-  const handleSuggestionAction = useCallback((
-    action: ComposerSuggestionAction,
-  ): boolean => {
-    if (
-      suggestionState.active
-      && (
-        suggestionState.kind === "at-mention"
-        || suggestionState.kind === "skill-mention"
-      )
-    ) {
-      if (action === "next" || action === "previous") {
-        return addContextMenuRef.current?.moveHighlight(action) ?? false;
-      }
-      if (action === "complete-query" || action === "insert-mention") {
-        const didSubmit = addContextMenuRef.current
-          ?.submitHighlighted(action) ?? false;
-        if (!didSubmit && action === "insert-mention") {
-          promptEditorRef.current?.closeSuggestions();
+  const handleSuggestionAction = useCallback(
+    (action: ComposerSuggestionAction): boolean => {
+      if (
+        suggestionState.active &&
+        (suggestionState.kind === "at-mention" || suggestionState.kind === "skill-mention")
+      ) {
+        if (action === "next" || action === "previous") {
+          return addContextMenuRef.current?.moveHighlight(action) ?? false;
+        }
+        if (action === "complete-query" || action === "insert-mention") {
+          const didSubmit = addContextMenuRef.current?.submitHighlighted(action) ?? false;
+          if (!didSubmit && action === "insert-mention") {
+            promptEditorRef.current?.closeSuggestions();
+          }
+          return true;
         }
         return true;
       }
-      return true;
-    }
 
-    if (
-      !suggestionState.active
-      || suggestionState.kind !== "slash-command"
-    ) {
-      return false;
-    }
-    if (nestedSlashCommand) {
-      if (action === "insert-mention") {
-        closeSlashMenu();
-        return true;
+      if (!suggestionState.active || suggestionState.kind !== "slash-command") {
+        return false;
       }
-      if (
-        action === "complete-query"
-        || action === "next"
-        || action === "previous"
-      ) {
+      if (nestedSlashCommand) {
+        if (action === "insert-mention") {
+          closeSlashMenu();
+          return true;
+        }
+        if (action === "complete-query" || action === "next" || action === "previous") {
+          return true;
+        }
+        if (action === "dismiss") {
+          setNestedSlashCommand(null);
+          return true;
+        }
+        return action === "backspace";
+      }
+      if (action === "next" || action === "previous") {
+        setInlineSlashHighlightIntent({
+          commandId: resolveNextSlashHighlight({
+            matches: slashMatches,
+            currentCommandId: highlightedInlineSlashCommandId,
+            direction: action,
+          }),
+          source: "keyboard",
+        });
+        return slashMatches.length > 0;
+      }
+      if ((action === "complete-query" || action === "insert-mention") && !nestedSlashCommand) {
+        const highlighted =
+          slashMatches.find((match) => match.command.id === highlightedInlineSlashCommandId)
+            ?.command ??
+          slashMatches[0]?.command ??
+          null;
+        if (!highlighted) {
+          if (action === "insert-mention") {
+            promptEditorRef.current?.closeSuggestions();
+          }
+          return true;
+        }
+        selectSlashCommand(highlighted, "inline");
         return true;
       }
       if (action === "dismiss") {
         setNestedSlashCommand(null);
+        setInlineSlashHighlightIntent({
+          commandId: null,
+          source: "programmatic",
+        });
         return true;
       }
       return action === "backspace";
-    }
-    if (action === "next" || action === "previous") {
-      setInlineSlashHighlightIntent({
-        commandId: resolveNextSlashHighlight({
-          matches: slashMatches,
-          currentCommandId: highlightedInlineSlashCommandId,
-          direction: action,
-        }),
-        source: "keyboard",
-      });
-      return slashMatches.length > 0;
-    }
-    if (
-      (action === "complete-query" || action === "insert-mention")
-      && !nestedSlashCommand
-    ) {
-      const highlighted = slashMatches.find((match) =>
-        match.command.id === highlightedInlineSlashCommandId
-      )?.command ?? slashMatches[0]?.command ?? null;
-      if (!highlighted) {
-        if (action === "insert-mention") {
-          promptEditorRef.current?.closeSuggestions();
-        }
+    },
+    [
+      highlightedInlineSlashCommandId,
+      closeSlashMenu,
+      nestedSlashCommand,
+      selectSlashCommand,
+      slashMatches,
+      suggestionState.active,
+      suggestionState.kind,
+    ],
+  );
+
+  const handleKeyDown = useCallback(
+    (event: ComposerPromptEditorKeyboardEvent): boolean => {
+      if (nestedSlashCommand && event.key === "Escape") {
+        event.preventDefault();
+        closeSlashMenu();
         return true;
       }
-      selectSlashCommand(highlighted, "inline");
-      return true;
-    }
-    if (action === "dismiss") {
-      setNestedSlashCommand(null);
-      setInlineSlashHighlightIntent({
-        commandId: null,
-        source: "programmatic",
+
+      if (
+        event.key === "Tab" &&
+        event.shiftKey &&
+        !event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !slashMenuOpen &&
+        planModeAvailable
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        togglePlanMode();
+        return true;
+      }
+
+      if (handlePromptHistoryKeyDown(event)) {
+        return true;
+      }
+
+      const hasMultilinePrompt = prompt.includes("\n");
+      const isComposing =
+        "nativeEvent" in event ? event.nativeEvent.isComposing : event.isComposing;
+      const actionState = resolveStageThreadsComposerActionState({
+        canSendPrompt: model.conversation !== null || canStartNewThread,
+        isThreadRunning: model.isThreadRunning,
+        busyAction,
+        hasDraftContent: prompt.trim().length > 0 || hasAttachments || goalModeActive,
+        hasThreadGoal: goalModeActive || Boolean(model.conversation?.threadGoal),
+        isQueueingEnabled: model.isQueueingEnabled,
+        latestTurnStatus,
+        canResumeInterruptedTurn,
       });
-      return true;
-    }
-    return action === "backspace";
-  }, [
-    highlightedInlineSlashCommandId,
-    closeSlashMenu,
-    nestedSlashCommand,
-    selectSlashCommand,
-    slashMatches,
-    suggestionState.active,
-    suggestionState.kind,
-  ]);
 
-  const handleKeyDown = useCallback((event: ComposerPromptEditorKeyboardEvent): boolean => {
-    if (nestedSlashCommand && event.key === "Escape") {
-      event.preventDefault();
-      closeSlashMenu();
-      return true;
-    }
+      const submitIntent = resolveComposerSubmitIntentFromKeyDown({
+        enterBehavior: model.composerEnterBehavior,
+        hasMultilinePrompt,
+        isThreadRunning: model.isThreadRunning,
+        primarySubmitAction: actionState.primarySubmitAction,
+        alternateSubmitAction: actionState.alternateSubmitAction,
+        key: event.key,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+        altKey: event.altKey,
+        isComposing,
+      });
+      if (!submitIntent) {
+        return false;
+      }
 
-    if (
-      event.key === "Tab" &&
-      event.shiftKey &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      !event.altKey &&
-      !slashMenuOpen &&
-      planModeAvailable
-    ) {
       event.preventDefault();
       event.stopPropagation();
-      togglePlanMode();
+      void submitPrompt({
+        prompt,
+        submitAction: submitIntent.submitAction,
+      });
       return true;
-    }
-
-    if (handlePromptHistoryKeyDown(event)) {
-      return true;
-    }
-
-    const hasMultilinePrompt = prompt.includes("\n");
-    const isComposing = "nativeEvent" in event
-      ? event.nativeEvent.isComposing
-      : event.isComposing;
-    const actionState = resolveStageThreadsComposerActionState({
-      canSendPrompt: model.conversation !== null || canStartNewThread,
-      isThreadRunning: model.isThreadRunning,
+    },
+    [
       busyAction,
-      hasDraftContent: prompt.trim().length > 0 || hasAttachments || goalModeActive,
-      hasThreadGoal: goalModeActive || Boolean(model.conversation?.threadGoal),
-      isQueueingEnabled: model.isQueueingEnabled,
+      canStartNewThread,
+      closeSlashMenu,
+      goalModeActive,
+      hasAttachments,
+      model.composerEnterBehavior,
+      model.conversation,
+      model.isQueueingEnabled,
+      model.isThreadRunning,
       latestTurnStatus,
       canResumeInterruptedTurn,
-    });
-
-    const submitIntent = resolveComposerSubmitIntentFromKeyDown({
-      enterBehavior: model.composerEnterBehavior,
-      hasMultilinePrompt,
-      isThreadRunning: model.isThreadRunning,
-      primarySubmitAction: actionState.primarySubmitAction,
-      alternateSubmitAction: actionState.alternateSubmitAction,
-      key: event.key,
-      ctrlKey: event.ctrlKey,
-      metaKey: event.metaKey,
-      shiftKey: event.shiftKey,
-      altKey: event.altKey,
-      isComposing,
-    });
-    if (!submitIntent) {
-      return false;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-    void submitPrompt({
+      nestedSlashCommand,
+      handlePromptHistoryKeyDown,
+      planModeAvailable,
       prompt,
-      submitAction: submitIntent.submitAction,
-    });
-    return true;
-  }, [
-    busyAction,
-    canStartNewThread,
-    closeSlashMenu,
-    goalModeActive,
-    hasAttachments,
-    model.composerEnterBehavior,
-    model.conversation,
-    model.isQueueingEnabled,
-    model.isThreadRunning,
-    latestTurnStatus,
-    canResumeInterruptedTurn,
-    nestedSlashCommand,
-    handlePromptHistoryKeyDown,
-    planModeAvailable,
-    prompt,
-    slashMenuOpen,
-    submitPrompt,
-    togglePlanMode,
-  ]);
+      slashMenuOpen,
+      submitPrompt,
+      togglePlanMode,
+    ],
+  );
 
   const hasDraftContent = prompt.trim().length > 0 || hasSubmittableAttachments || goalModeActive;
   const hasComposerContent = prompt.trim().length > 0 || hasAttachments || goalModeActive;
-  const hasFooterGoalChip = goalModeActive || Boolean(model.conversation?.threadGoal && actions.onClearThreadGoal);
+  const hasFooterGoalChip =
+    goalModeActive || Boolean(model.conversation?.threadGoal && actions.onClearThreadGoal);
   const hasMultilinePrompt = prompt.includes("\n");
   const handlePromptIntrinsicWidthChange = useCallback((widthPx: number) => {
     setPromptIntrinsicWidthPx((current) =>
-      current !== null && Math.abs(current - widthPx) <= 0.5
-        ? current
-        : widthPx
+      current !== null && Math.abs(current - widthPx) <= 0.5 ? current : widthPx,
     );
   }, []);
   const handleCompactInputWidthChange = useCallback((widthPx: number | null) => {
     setCompactInputWidthPx((current) =>
-      current !== null
-        && widthPx !== null
-        && Math.abs(current - widthPx) <= 0.5
+      current !== null && widthPx !== null && Math.abs(current - widthPx) <= 0.5
         ? current
-        : widthPx
+        : widthPx,
     );
   }, []);
   const composerLayout = resolveComposerAdaptiveLayout({
@@ -3990,7 +3966,8 @@ function HydratedThreadComposer({
     isDictating,
   });
   const floatingComposerSingleLine = composerLayout === "single-line";
-  const isMacPlatform = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
+  const isMacPlatform =
+    typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC");
 
   const composerActionState = resolveStageThreadsComposerActionState({
     canSendPrompt: model.conversation !== null || canStartNewThread,
@@ -4003,69 +3980,67 @@ function HydratedThreadComposer({
     canResumeInterruptedTurn,
   });
   useEffect(() => {
-    return registerImageEditComposerChannel(imageEditComposerChannelId, async (
-      request: ImageEditComposerSubmitRequest,
-    ): Promise<ImageEditComposerSubmitResult> => {
-      const imageSource = request.intent?.attachments[0]?.image.source
-        ?? imageEditDraft.attachments[0]?.imageSource
-        ?? "uploaded";
-      const mode = request.intent?.mode
-        ?? (imageEditDraft.mode === "comment" ? "comment" : "select");
-      const route = !model.conversation
-        ? "new_thread"
-        : model.isThreadRunning
-          ? "queued"
-          : "existing_thread";
-      if (!imageInputSupported) {
-        trackImageEditSubmitOutcome({
-          failureReason: "image-input-unsupported",
-          imageSource,
-          mode,
-          outcome: "unavailable",
-          route,
-        });
-        return { status: "unavailable", reason: "image-input-unsupported" };
-      }
-      if (
-        request.intent
-        && !buildComposerImageEditAttachments({
-          currentAttachments: imageAttachments,
-          intent: request.intent,
-          executionHostId: model.isCloudNewThreadTarget ? null : model.hostId,
-          generation: attachmentGenerationRef.current,
-        })
-      ) {
-        trackImageEditSubmitOutcome({
-          failureReason: "asset-unresolvable",
-          imageSource,
-          mode,
-          outcome: "unavailable",
-          route,
-        });
-        return { status: "unavailable", reason: "asset-unresolvable" };
-      }
+    return registerImageEditComposerChannel(
+      imageEditComposerChannelId,
+      async (request: ImageEditComposerSubmitRequest): Promise<ImageEditComposerSubmitResult> => {
+        const imageSource =
+          request.intent?.attachments[0]?.image.source ??
+          imageEditDraft.attachments[0]?.imageSource ??
+          "uploaded";
+        const mode =
+          request.intent?.mode ?? (imageEditDraft.mode === "comment" ? "comment" : "select");
+        const route = !model.conversation
+          ? "new_thread"
+          : model.isThreadRunning
+            ? "queued"
+            : "existing_thread";
+        if (!imageInputSupported) {
+          trackImageEditSubmitOutcome({
+            failureReason: "image-input-unsupported",
+            imageSource,
+            mode,
+            outcome: "unavailable",
+            route,
+          });
+          return { status: "unavailable", reason: "image-input-unsupported" };
+        }
+        if (
+          request.intent &&
+          !buildComposerImageEditAttachments({
+            currentAttachments: imageAttachments,
+            intent: request.intent,
+            executionHostId: model.isCloudNewThreadTarget ? null : model.hostId,
+            generation: attachmentGenerationRef.current,
+          })
+        ) {
+          trackImageEditSubmitOutcome({
+            failureReason: "asset-unresolvable",
+            imageSource,
+            mode,
+            outcome: "unavailable",
+            route,
+          });
+          return { status: "unavailable", reason: "asset-unresolvable" };
+        }
 
-      const queued = model.isThreadRunning;
-      const submitted = await submitPrompt({
-        prompt,
-        submitAction: queued
-          ? "queue"
-          : composerActionState.primarySubmitAction,
-        ...(request.intent ? { imageEditIntent: request.intent } : {}),
-      });
-      trackImageEditSubmitOutcome({
-        ...(!submitted ? { failureReason: "transport" as const } : {}),
-        imageSource,
-        mode,
-        outcome: submitted
-          ? queued ? "queued" : "submitted"
-          : "failed",
-        route,
-      });
-      return submitted
-        ? { status: queued ? "queued" : "submitted" }
-        : { status: "failed", reason: "transport" };
-    });
+        const queued = model.isThreadRunning;
+        const submitted = await submitPrompt({
+          prompt,
+          submitAction: queued ? "queue" : composerActionState.primarySubmitAction,
+          ...(request.intent ? { imageEditIntent: request.intent } : {}),
+        });
+        trackImageEditSubmitOutcome({
+          ...(!submitted ? { failureReason: "transport" as const } : {}),
+          imageSource,
+          mode,
+          outcome: submitted ? (queued ? "queued" : "submitted") : "failed",
+          route,
+        });
+        return submitted
+          ? { status: queued ? "queued" : "submitted" }
+          : { status: "failed", reason: "transport" };
+      },
+    );
   }, [
     composerActionState.primarySubmitAction,
     imageEditComposerChannelId,
@@ -4111,17 +4086,18 @@ function HydratedThreadComposer({
   const promptPlaceholder = model.newThreadStartBlockedReason
     ? model.newThreadStartBlockedReason
     : goalModeActive
-    ? getThreadGoalMessage("composer.placeholder.goal")
-    : isFloatingComposer
-    ? "Do anything"
-    : model.selectedCollaborationMode === "plan"
-    ? "Describe your task to generate a plan..."
-    : model.conversation
-    ? "Ask for follow-up changes"
-    : model.isNewThreadTab
-      ? newThreadPromptPlaceholder
-      : "Select a thread";
-  const isPromptEditorDisabled = (model.conversation === null && !canStartNewThread) || busyAction !== null;
+      ? getThreadGoalMessage("composer.placeholder.goal")
+      : isFloatingComposer
+        ? "Do anything"
+        : model.selectedCollaborationMode === "plan"
+          ? "Describe your task to generate a plan..."
+          : model.conversation
+            ? "Ask for follow-up changes"
+            : model.isNewThreadTab
+              ? newThreadPromptPlaceholder
+              : "Select a thread";
+  const isPromptEditorDisabled =
+    (model.conversation === null && !canStartNewThread) || busyAction !== null;
   const primaryShortcutKeys = resolveShortcutKeycapTokens({
     accelerator: resolveThreadComposerPrimaryShortcutAccelerator({
       enterBehavior: model.composerEnterBehavior,
@@ -4143,15 +4119,16 @@ function HydratedThreadComposer({
     primaryShortcutKeys,
     alternateShortcutKeys,
   });
-  const contextSuggestionOpen = suggestionState.active
-    && suggestionState.kind === "at-mention";
+  const contextSuggestionOpen = suggestionState.active && suggestionState.kind === "at-mention";
   const composerPluginCwds = useMemo(
-    () => Array.from(new Set(
-      [model.cwd, model.projectWorkspacePath]
-        .flatMap((candidate) =>
-          candidate?.trim() ? [candidate.trim()] : []
+    () =>
+      Array.from(
+        new Set(
+          [model.cwd, model.projectWorkspacePath].flatMap((candidate) =>
+            candidate?.trim() ? [candidate.trim()] : [],
+          ),
         ),
-    )),
+      ),
     [model.cwd, model.projectWorkspacePath],
   );
   const addContextControl = (
@@ -4171,11 +4148,7 @@ function HydratedThreadComposer({
         account={model.account}
         showFallbackLabel={false}
       />
-      <ModelSelectorDropdown
-        model={model}
-        controller={intelligenceController}
-        actions={actions}
-      />
+      <ModelSelectorDropdown model={model} controller={intelligenceController} actions={actions} />
     </>
   );
   const dictationControl = isDictationSupported ? (
@@ -4208,23 +4181,28 @@ function HydratedThreadComposer({
         type="button"
         className={cn(
           "focus-visible:outline-token-button-background cursor-interaction flex h-token-button-composer aspect-square items-center justify-center rounded-full bg-token-foreground p-0.5 text-token-dropdown-background transition-opacity focus-visible:outline-2",
-          (composerActionState.disabled
-            || (composerActionState.action === "send" && !canRunPrimaryAction))
-            && !isPrimaryActionPending
-            && "opacity-50",
+          (composerActionState.disabled ||
+            (composerActionState.action === "send" && !canRunPrimaryAction)) &&
+            !isPrimaryActionPending &&
+            "opacity-50",
           isPrimaryActionPending && "cursor-wait",
         )}
-        onClick={composerActionState.action === "stop"
-          ? () => void handleInterrupt()
-          : composerActionState.action === "resume"
-            ? () => void handleResumeInterruptedTurn()
-            : () => void submitPrompt({
-                prompt,
-                submitAction: composerActionState.primarySubmitAction,
-              })}
-        disabled={composerActionState.action === "send"
-          ? composerActionState.disabled || !canRunPrimaryAction
-          : composerActionState.disabled}
+        onClick={
+          composerActionState.action === "stop"
+            ? () => void handleInterrupt()
+            : composerActionState.action === "resume"
+              ? () => void handleResumeInterruptedTurn()
+              : () =>
+                  void submitPrompt({
+                    prompt,
+                    submitAction: composerActionState.primarySubmitAction,
+                  })
+        }
+        disabled={
+          composerActionState.action === "send"
+            ? composerActionState.disabled || !canRunPrimaryAction
+            : composerActionState.disabled
+        }
         aria-label={composerActionState.label}
       >
         {isPrimaryActionPending ? (
@@ -4239,21 +4217,22 @@ function HydratedThreadComposer({
       </button>
     </span>
   );
-  const primaryActionControl = composerActionState.action === "resume"
-    ? primaryActionButton
-    : (
-        <NodexTooltip
-          tooltipContent={composerActionTooltip}
-          side="top"
-          tooltipBodyClassName={cn(
-            composerActionState.action === "stop" || !model.isThreadRunning
-              ? "text-center text-pretty"
-              : "max-w-none",
-          )}
-        >
-          {primaryActionButton}
-        </NodexTooltip>
-      );
+  const primaryActionControl =
+    composerActionState.action === "resume" ? (
+      primaryActionButton
+    ) : (
+      <NodexTooltip
+        tooltipContent={composerActionTooltip}
+        side="top"
+        tooltipBodyClassName={cn(
+          composerActionState.action === "stop" || !model.isThreadRunning
+            ? "text-center text-pretty"
+            : "max-w-none",
+        )}
+      >
+        {primaryActionButton}
+      </NodexTooltip>
+    );
   const renderPromptEditor = (singleLine = false) => (
     <ComposerPromptEditor
       ref={promptEditorRef}
@@ -4270,9 +4249,9 @@ function HydratedThreadComposer({
       onPasteFiles={handlePasteFiles}
       onSuggestionStateChange={handleSuggestionStateChange}
       onSuggestionAction={handleSuggestionAction}
-      onIntrinsicContentWidthChange={isFloatingComposer
-        ? handlePromptIntrinsicWidthChange
-        : undefined}
+      onIntrinsicContentWidthChange={
+        isFloatingComposer ? handlePromptIntrinsicWidthChange : undefined
+      }
     />
   );
   const floatingLeadingControls = addContextControl;
@@ -4281,17 +4260,9 @@ function HydratedThreadComposer({
       {model.selectedCollaborationMode === "plan" || goalModeActive ? (
         <ComposerFooterAccessoryDivider />
       ) : null}
-      <ActiveComposerModeChip
-        model={model}
-        onToggle={togglePlanMode}
-      />
-      <ActiveGoalModeChip
-        active={hasFooterGoalChip}
-        onClear={clearFooterGoal}
-      />
-      <div className="flex min-w-0 items-center gap-1">
-        {intelligenceControls}
-      </div>
+      <ActiveComposerModeChip model={model} onToggle={togglePlanMode} />
+      <ActiveGoalModeChip active={hasFooterGoalChip} onClear={clearFooterGoal} />
+      <div className="flex min-w-0 items-center gap-1">{intelligenceControls}</div>
       <PermissionModeDropdown
         selectedMode={model.permissionMode}
         availableModes={permissionState?.availableModes}
@@ -4317,22 +4288,14 @@ function HydratedThreadComposer({
       {model.selectedCollaborationMode === "plan" || goalModeActive ? (
         <ComposerFooterAccessoryDivider />
       ) : null}
-      <ActiveComposerModeChip
-        model={model}
-        onToggle={togglePlanMode}
-      />
-      <ActiveGoalModeChip
-        active={hasFooterGoalChip}
-        onClear={clearFooterGoal}
-      />
+      <ActiveComposerModeChip model={model} onToggle={togglePlanMode} />
+      <ActiveGoalModeChip active={hasFooterGoalChip} onClear={clearFooterGoal} />
     </div>
   );
   const standardTrailingControls = (
     <div className="flex min-w-0 items-center justify-end w-full">
       <div className="flex min-w-0 flex-1 justify-end">
-        <div className="flex min-w-0 items-center gap-1">
-          {intelligenceControls}
-        </div>
+        <div className="flex min-w-0 items-center gap-1">{intelligenceControls}</div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {dictationControl}
@@ -4360,7 +4323,11 @@ function HydratedThreadComposer({
       <span className="text-sm text-token-foreground/70 tabular-nums">
         {formatComposerDictationDuration(recordingDurationMs)}
       </span>
-      <NodexTooltip tooltipContent={<span className="text-token-foreground">Stop dictation</span>} side="top" sideOffset={4}>
+      <NodexTooltip
+        tooltipContent={<span className="text-token-foreground">Stop dictation</span>}
+        side="top"
+        sideOffset={4}
+      >
         <button
           type="button"
           className="inline-flex size-7 items-center justify-center rounded-full border border-transparent px-0 text-(--foreground-secondary) transition-colors duration-100 hover:bg-(--background-tertiary) hover:text-(--foreground)"
@@ -4371,7 +4338,11 @@ function HydratedThreadComposer({
           <StopIcon className="size-4" />
         </button>
       </NodexTooltip>
-      <NodexTooltip tooltipContent={<span className="text-token-foreground">Transcribe and send</span>} side="top" sideOffset={4}>
+      <NodexTooltip
+        tooltipContent={<span className="text-token-foreground">Transcribe and send</span>}
+        side="top"
+        sideOffset={4}
+      >
         <button
           type="button"
           className={cn(
@@ -4401,8 +4372,8 @@ function HydratedThreadComposer({
       <div
         className={cn(
           "relative",
-          (browserImageDrag || isFileDragActive)
-            && "rounded-[20px] ring-2 ring-token-focus-border ring-offset-2 ring-offset-transparent",
+          (browserImageDrag || isFileDragActive) &&
+            "rounded-[20px] ring-2 ring-token-focus-border ring-offset-2 ring-offset-transparent",
         )}
         data-browser-image-drop-active={browserImageDrag ? "true" : "false"}
         data-file-drop-active={isFileDragActive ? "true" : "false"}
@@ -4426,18 +4397,14 @@ function HydratedThreadComposer({
           sitesAvailable={model.composerSitesAvailable === true}
           sitesLoading={model.composerSitesLoading}
           chatGptConversations={model.composerChatGptConversations ?? []}
-          chatGptConversationsAvailable={
-            model.composerChatGptConversationsAvailable === true
-          }
-          chatGptConversationsLoading={
-            model.composerChatGptConversationsLoading
-          }
+          chatGptConversationsAvailable={model.composerChatGptConversationsAvailable === true}
+          chatGptConversationsLoading={model.composerChatGptConversationsLoading}
           workspaceRoot={model.cwd ?? model.projectWorkspacePath ?? null}
           pluginCwds={composerPluginCwds}
           projectId={model.projectId}
           projectSelector={
             model.isNewThreadTab && !model.newThreadProjectSelector?.disabled
-              ? model.newThreadProjectSelector ?? null
+              ? (model.newThreadProjectSelector ?? null)
               : null
           }
           goalAvailable={canUseComposerGoal(model, actions)}
@@ -4520,165 +4487,174 @@ function HydratedThreadComposer({
                     controller={imageAttachmentController}
                     hasVisibleNonImageAttachments={hasVisibleNonImageAttachments}
                   >
-                  {appshotContexts.map((context) => (
-                    <div
-                      key={context.id}
-                      className="group relative h-24 w-36 shrink-0 overflow-hidden rounded-xl border border-token-border bg-token-main-surface-secondary"
-                      data-composer-appshot="true"
-                      title={context.windowTitle
-                        ? `${context.appName} — ${context.windowTitle}`
-                        : context.appName}
-                    >
-                      <img
-                        src={context.imageDataUrl}
-                        alt={`${context.appName} Appshot`}
-                        draggable={false}
-                        className="size-full object-cover"
-                      />
-                      <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-linear-to-t from-black/75 to-transparent px-2 pt-5 pb-1.5 text-[11px] text-white">
-                        {context.appIconDataUrl ? (
-                          <img
-                            src={context.appIconDataUrl}
-                            alt=""
-                            aria-hidden="true"
-                            draggable={false}
-                            className="size-3.5 shrink-0 object-contain"
-                          />
-                        ) : null}
-                        <span className="min-w-0 truncate">
-                          {context.appName}
-                        </span>
+                    {appshotContexts.map((context) => (
+                      <div
+                        key={context.id}
+                        className="group relative h-24 w-36 shrink-0 overflow-hidden rounded-xl border border-token-border bg-token-main-surface-secondary"
+                        data-composer-appshot="true"
+                        title={
+                          context.windowTitle
+                            ? `${context.appName} — ${context.windowTitle}`
+                            : context.appName
+                        }
+                      >
+                        <img
+                          src={context.imageDataUrl}
+                          alt={`${context.appName} Appshot`}
+                          draggable={false}
+                          className="size-full object-cover"
+                        />
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-linear-to-t from-black/75 to-transparent px-2 pt-5 pb-1.5 text-[11px] text-white">
+                          {context.appIconDataUrl ? (
+                            <img
+                              src={context.appIconDataUrl}
+                              alt=""
+                              aria-hidden="true"
+                              draggable={false}
+                              className="size-3.5 shrink-0 object-contain"
+                            />
+                          ) : null}
+                          <span className="min-w-0 truncate">{context.appName}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-80 backdrop-blur-sm transition-opacity hover:opacity-100 focus-visible:outline-2 focus-visible:outline-token-focus-border"
+                          onClick={() => handleRemoveAppshotContext(context.id)}
+                          aria-label={`Remove ${context.appName} Appshot`}
+                        >
+                          <CloseIcon className="size-3" />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        className="absolute top-1 right-1 inline-flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-80 backdrop-blur-sm transition-opacity hover:opacity-100 focus-visible:outline-2 focus-visible:outline-token-focus-border"
-                        onClick={() => handleRemoveAppshotContext(context.id)}
-                        aria-label={`Remove ${context.appName} Appshot`}
+                    ))}
+                    {pastedTextAttachments.map((attachment, index) => (
+                      <div
+                        key={attachment.id}
+                        className="inline-flex max-w-72 items-center gap-1 rounded-full bg-token-foreground/5 py-1 pr-1 pl-2 text-xs text-token-foreground"
+                        title={
+                          attachment.status === "failed" ? attachment.error : attachment.preview
+                        }
                       >
-                        <CloseIcon className="size-3" />
-                      </button>
-                    </div>
-                  ))}
-                  {pastedTextAttachments.map((attachment, index) => (
-                    <div
-                      key={attachment.id}
-                      className="inline-flex max-w-72 items-center gap-1 rounded-full bg-token-foreground/5 py-1 pr-1 pl-2 text-xs text-token-foreground"
-                      title={attachment.status === "failed" ? attachment.error : attachment.preview}
-                    >
-                      {attachment.status === "pending" ? (
-                        <ActivitySpinnerIcon className="size-3 text-token-description-foreground" />
-                      ) : (
+                        {attachment.status === "pending" ? (
+                          <ActivitySpinnerIcon className="size-3 text-token-description-foreground" />
+                        ) : (
+                          <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
+                        )}
+                        <span className="min-w-0 truncate">
+                          {attachment.status === "pending"
+                            ? "Adding pasted text…"
+                            : attachment.status === "failed"
+                              ? "Pasted text failed"
+                              : "Pasted text.txt"}
+                        </span>
+                        <span className="shrink-0 text-token-description-foreground">
+                          {attachment.characterCount.toLocaleString()} chars
+                        </span>
+                        {attachment.status === "failed" ? (
+                          <button
+                            type="button"
+                            className="rounded px-1 hover:bg-token-foreground/10"
+                            onClick={() => handleRetryPastedTextAttachment(attachment.id)}
+                          >
+                            Retry
+                          </button>
+                        ) : null}
+                        {attachment.status === "ready" ? (
+                          <button
+                            type="button"
+                            className="rounded px-1 hover:bg-token-foreground/10"
+                            onClick={() => handleShowPastedTextInField(attachment.id)}
+                          >
+                            Show in text field
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="rounded px-1 text-token-description-foreground hover:bg-token-foreground/10"
+                          onClick={() => handleRemovePastedTextAttachment(attachment.id)}
+                          aria-label={`Remove pasted text ${index + 1}`}
+                        >
+                          x
+                        </button>
+                      </div>
+                    ))}
+                    {fileAttachments.map((attachment) => (
+                      <button
+                        key={attachment.uiId}
+                        type="button"
+                        className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                        onClick={() => handleRemoveFileAttachment(attachment.uiId)}
+                        title={`Remove ${attachment.attachment.label}`}
+                      >
                         <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
-                      )}
-                      <span className="min-w-0 truncate">
-                        {attachment.status === "pending"
-                          ? "Adding pasted text…"
-                          : attachment.status === "failed"
-                            ? "Pasted text failed"
-                            : "Pasted text.txt"}
-                      </span>
-                      <span className="shrink-0 text-token-description-foreground">
-                        {attachment.characterCount.toLocaleString()} chars
-                      </span>
-                      {attachment.status === "failed" ? (
-                        <button
-                          type="button"
-                          className="rounded px-1 hover:bg-token-foreground/10"
-                          onClick={() => handleRetryPastedTextAttachment(attachment.id)}
-                        >
-                          Retry
-                        </button>
-                      ) : null}
-                      {attachment.status === "ready" ? (
-                        <button
-                          type="button"
-                          className="rounded px-1 hover:bg-token-foreground/10"
-                          onClick={() => handleShowPastedTextInField(attachment.id)}
-                        >
-                          Show in text field
-                        </button>
-                      ) : null}
-                      <button
-                        type="button"
-                        className="rounded px-1 text-token-description-foreground hover:bg-token-foreground/10"
-                        onClick={() => handleRemovePastedTextAttachment(attachment.id)}
-                        aria-label={`Remove pasted text ${index + 1}`}
-                      >
-                        x
+                        <span className="min-w-0 truncate">{attachment.attachment.label}</span>
+                        <span className="text-token-description-foreground">x</span>
                       </button>
-                    </div>
-                  ))}
-                  {fileAttachments.map((attachment) => (
-                    <button
-                      key={attachment.uiId}
-                      type="button"
-                      className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                      onClick={() => handleRemoveFileAttachment(attachment.uiId)}
-                      title={`Remove ${attachment.attachment.label}`}
-                    >
-                      <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
-                      <span className="min-w-0 truncate">{attachment.attachment.label}</span>
-                      <span className="text-token-description-foreground">x</span>
-                    </button>
-                  ))}
-                  {addedFiles.map((attachment) => (
-                    <button
-                      key={attachment.uiId}
-                      type="button"
-                      className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                      onClick={() => handleRemoveAddedFile(attachment.uiId)}
-                      title={`Remove ${attachment.attachment.label}`}
-                    >
-                      <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
-                      <span className="min-w-0 truncate">{attachment.attachment.label}</span>
-                      <span className="text-token-description-foreground">x</span>
-                    </button>
-                  ))}
-                  {browserAnnotationAttachments.map((attachment) => (
-                    <button
-                      key={attachment.id}
-                      type="button"
-                      className="inline-flex max-w-72 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                      onClick={() =>
-                        handleRemoveBrowserAnnotationAttachment(attachment.id)
-                      }
-                      title={`Remove browser annotation on ${attachment.pageTitle || attachment.pageUrl}`}
-                    >
-                      <FileIcon className="size-3 text-token-description-foreground" />
-                      <span className="min-w-0 truncate">
-                        {attachment.pageTitle || "Browser annotation"}
-                      </span>
-                      <span className="shrink-0 text-token-description-foreground">
-                        {attachment.anchors.length}{" "}
-                        {attachment.anchors.length === 1 ? "anchor" : "anchors"}
-                      </span>
-                      <span className="text-token-description-foreground">x</span>
-                    </button>
-                  ))}
-                  {commentAttachments.map((attachment) => {
-                    const lineLabel = formatReviewDiffCommentLineLabel({
-                      side: attachment.position.side,
-                      line: attachment.position.line,
-                      ...(attachment.position.start_line ? { startLine: attachment.position.start_line } : {}),
-                      ...(attachment.position.start_side ? { startSide: attachment.position.start_side } : {}),
-                    });
-                    const fileLabel = getComposerAttachmentNameFromPath(attachment.position.path, attachment.position.path);
-                    const commentText = getReviewDiffCommentText(attachment);
-                    return (
+                    ))}
+                    {addedFiles.map((attachment) => (
+                      <button
+                        key={attachment.uiId}
+                        type="button"
+                        className="inline-flex max-w-48 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                        onClick={() => handleRemoveAddedFile(attachment.uiId)}
+                        title={`Remove ${attachment.attachment.label}`}
+                      >
+                        <ComposerAddFilesIcon className="size-3 text-token-description-foreground" />
+                        <span className="min-w-0 truncate">{attachment.attachment.label}</span>
+                        <span className="text-token-description-foreground">x</span>
+                      </button>
+                    ))}
+                    {browserAnnotationAttachments.map((attachment) => (
                       <button
                         key={attachment.id}
                         type="button"
-                        className="inline-flex max-w-64 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
-                        onClick={() => handleRemoveCommentAttachment(attachment.id)}
-                        title={`Remove ${lineLabel}: ${commentText}`}
+                        className="inline-flex max-w-72 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                        onClick={() => handleRemoveBrowserAnnotationAttachment(attachment.id)}
+                        title={`Remove browser annotation on ${attachment.pageTitle || attachment.pageUrl}`}
                       >
                         <FileIcon className="size-3 text-token-description-foreground" />
-                        <span className="min-w-0 truncate">{fileLabel}</span>
-                        <span className="shrink-0 text-token-description-foreground">{lineLabel.replace("Comment on ", "")}</span>
+                        <span className="min-w-0 truncate">
+                          {attachment.pageTitle || "Browser annotation"}
+                        </span>
+                        <span className="shrink-0 text-token-description-foreground">
+                          {attachment.anchors.length}{" "}
+                          {attachment.anchors.length === 1 ? "anchor" : "anchors"}
+                        </span>
                         <span className="text-token-description-foreground">x</span>
                       </button>
-                    );
-                  })}
+                    ))}
+                    {commentAttachments.map((attachment) => {
+                      const lineLabel = formatReviewDiffCommentLineLabel({
+                        side: attachment.position.side,
+                        line: attachment.position.line,
+                        ...(attachment.position.start_line
+                          ? { startLine: attachment.position.start_line }
+                          : {}),
+                        ...(attachment.position.start_side
+                          ? { startSide: attachment.position.start_side }
+                          : {}),
+                      });
+                      const fileLabel = getComposerAttachmentNameFromPath(
+                        attachment.position.path,
+                        attachment.position.path,
+                      );
+                      const commentText = getReviewDiffCommentText(attachment);
+                      return (
+                        <button
+                          key={attachment.id}
+                          type="button"
+                          className="inline-flex max-w-64 items-center gap-1 rounded-full bg-token-foreground/5 px-2 py-1 text-xs text-token-foreground hover:bg-token-foreground/10"
+                          onClick={() => handleRemoveCommentAttachment(attachment.id)}
+                          title={`Remove ${lineLabel}: ${commentText}`}
+                        >
+                          <FileIcon className="size-3 text-token-description-foreground" />
+                          <span className="min-w-0 truncate">{fileLabel}</span>
+                          <span className="shrink-0 text-token-description-foreground">
+                            {lineLabel.replace("Comment on ", "")}
+                          </span>
+                          <span className="text-token-description-foreground">x</span>
+                        </button>
+                      );
+                    })}
                   </ComposerImageAttachmentRow>
                 ) : null}
               </div>
@@ -4691,40 +4667,30 @@ function HydratedThreadComposer({
                 </div>
               ) : (
                 <>
-                  <ComposerInput layout="multiline">
-                    {renderPromptEditor()}
-                  </ComposerInput>
+                  <ComposerInput layout="multiline">{renderPromptEditor()}</ComposerInput>
                   {errorMessage ? (
-                    <div className="px-3 pb-2 text-xs text-(--destructive)">
-                      {errorMessage}
-                    </div>
+                    <div className="px-3 pb-2 text-xs text-(--destructive)">{errorMessage}</div>
                   ) : null}
-                  <div className="mb-2 flex items-center gap-2 px-2">
-                    {dictationRowContent}
-                  </div>
+                  <div className="mb-2 flex items-center gap-2 px-2">{dictationRowContent}</div>
                 </>
               )
             ) : (
               <>
                 {errorMessage && isFloatingComposer ? (
-                  <div className="px-3 pt-2 text-xs text-(--destructive)">
-                    {errorMessage}
-                  </div>
+                  <div className="px-3 pt-2 text-xs text-(--destructive)">{errorMessage}</div>
                 ) : null}
                 <ComposerAdaptiveFooter
                   layout={composerLayout}
-                  input={(
+                  input={
                     <>
                       <ComposerInput layout={composerLayout}>
                         {renderPromptEditor(floatingComposerSingleLine)}
                       </ComposerInput>
                       {errorMessage && !isFloatingComposer ? (
-                        <div className="px-3 pb-2 text-xs text-(--destructive)">
-                          {errorMessage}
-                        </div>
+                        <div className="px-3 pb-2 text-xs text-(--destructive)">{errorMessage}</div>
                       ) : null}
                     </>
-                  )}
+                  }
                   leadingControls={
                     isFloatingComposer && floatingComposerSingleLine
                       ? floatingLeadingControls
@@ -4735,9 +4701,9 @@ function HydratedThreadComposer({
                       ? floatingTrailingControls
                       : standardTrailingControls
                   }
-                  onCompactInputWidthChange={isFloatingComposer
-                    ? handleCompactInputWidthChange
-                    : undefined}
+                  onCompactInputWidthChange={
+                    isFloatingComposer ? handleCompactInputWidthChange : undefined
+                  }
                 />
               </>
             )}
@@ -4767,7 +4733,9 @@ function HydratedThreadComposer({
           title="Hide desktop pet"
           onClick={() => setDesktopPetVisible(false)}
         >
-          <span className="text-lg" aria-hidden="true">Nodex</span>
+          <span className="text-lg" aria-hidden="true">
+            Nodex
+          </span>
         </button>
       ) : null}
     </>

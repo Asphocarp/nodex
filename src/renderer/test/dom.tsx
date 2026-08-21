@@ -28,10 +28,7 @@ function TestMaitaiRoot({
   );
 }
 
-export function renderWithMaitai(
-  ui: ReactElement,
-  options?: RenderOptions,
-) {
+export function renderWithMaitai(ui: ReactElement, options?: RenderOptions) {
   const store = createMaitaiStore();
   const { wrapper: NestedWrapper, ...renderOptions } = options ?? {};
   return rtlRender(ui, {

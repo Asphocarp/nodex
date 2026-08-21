@@ -22,13 +22,9 @@ import {
   type DevelopmentHomeManifest,
   type DevelopmentSeedProvenance,
 } from "./development-environment-home";
-import {
-  superviseIsolatedRun,
-  type SupervisedCommandPlan,
-} from "./isolated-run-supervisor";
+import { superviseIsolatedRun, type SupervisedCommandPlan } from "./isolated-run-supervisor";
 import { getScenario } from "./scenarios/registry";
-import { materializeDevelopmentSeed } from
-  "./scenarios/harness/development-seed";
+import { materializeDevelopmentSeed } from "./scenarios/harness/development-seed";
 
 export interface DevLauncherArguments {
   readonly home?: string;
@@ -62,11 +58,7 @@ Options:
   --help                     Show this help
 `;
 
-const readOptionValue = (
-  args: readonly string[],
-  index: number,
-  option: string,
-): string => {
+const readOptionValue = (args: readonly string[], index: number, option: string): string => {
   const value = args[index + 1];
   if (!value || value.startsWith("--")) {
     throw new Error(`${option} requires a value`);
@@ -74,9 +66,7 @@ const readOptionValue = (
   return value;
 };
 
-export const parseDevLauncherArguments = (
-  args: readonly string[],
-): DevLauncherArguments => {
+export const parseDevLauncherArguments = (args: readonly string[]): DevLauncherArguments => {
   let home: string | undefined;
   let seed: string | undefined;
   let authJson: string | undefined;
@@ -170,9 +160,7 @@ export const createDevLaunchPlan = (input: {
   readonly environment: NodeJS.ProcessEnv;
   readonly home: DevelopmentEnvironmentHome;
 }): DevLaunchPlan => {
-  const enabledFeatures = resolveDevelopmentFeatureOverrides(
-    input.arguments.enabledFeatures,
-  );
+  const enabledFeatures = resolveDevelopmentFeatureOverrides(input.arguments.enabledFeatures);
   const remoteDebuggingPort = parseRemoteDebuggingPort(input.environment);
   const environment: NodeJS.ProcessEnv = {
     ...input.environment,
@@ -209,12 +197,7 @@ export const createDevLaunchPlan = (input: {
       ],
       application: {
         command: "pnpm",
-        args: [
-          "exec",
-          "electron",
-          ".",
-          `--remote-debugging-port=${remoteDebuggingPort}`,
-        ],
+        args: ["exec", "electron", ".", `--remote-debugging-port=${remoteDebuggingPort}`],
       },
       environment,
       enabledFeatures,
@@ -285,8 +268,8 @@ export const resolveDevelopmentSeedInitialization = (input: {
   const existing = input.manifest.seed;
   if (existing) {
     if (
-      existing.id !== input.requestedSeed.id
-      || existing.revision !== input.requestedSeed.revision
+      existing.id !== input.requestedSeed.id ||
+      existing.revision !== input.requestedSeed.revision
     ) {
       throw new Error(
         `Development home was initialized with ${existing.id}@${existing.revision}; refusing ${input.requestedSeed.id}@${input.requestedSeed.revision}`,
@@ -370,9 +353,7 @@ export const runDevLauncher = async (input: {
     if (home.wasCreated) await cleanupDevelopmentEnvironmentHome(home);
     throw error;
   }
-  process.stdout.write(
-    `Nodex ${plan.mode} environment: ${home.root}\n`,
-  );
+  process.stdout.write(`Nodex ${plan.mode} environment: ${home.root}\n`);
   if (plan.enabledFeatures.length > 0) {
     process.stdout.write(`Enabled features: ${plan.enabledFeatures.join(", ")}\n`);
   }
@@ -413,8 +394,7 @@ export const runDevLauncher = async (input: {
     },
   });
 
-  const shouldDelete = arguments_.deleteHome
-    || (home.wasCreated && environmentPreparationFailed);
+  const shouldDelete = arguments_.deleteHome || (home.wasCreated && environmentPreparationFailed);
   if (shouldDelete) {
     if (!result.safeToDeleteRunRoot) {
       process.stderr.write(
@@ -424,9 +404,7 @@ export const runDevLauncher = async (input: {
     }
     const cleanup = await cleanupDevelopmentEnvironmentHome(home);
     if (cleanup.status === "unsafe") {
-      process.stderr.write(
-        `Preserved unsafe development home ${home.root}: ${cleanup.reason}\n`,
-      );
+      process.stderr.write(`Preserved unsafe development home ${home.root}: ${cleanup.reason}\n`);
       return result.childExitCode === 0 ? 1 : result.childExitCode;
     }
     process.stdout.write(`Deleted development home ${home.root}\n`);
@@ -441,12 +419,12 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   void runDevLauncher({
     args: process.argv.slice(2),
     repositoryRoot,
-  }).then((exitCode) => {
-    process.exitCode = exitCode;
-  }).catch((error: unknown) => {
-    process.stderr.write(
-      `Error: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
-    process.exitCode = 1;
-  });
+  })
+    .then((exitCode) => {
+      process.exitCode = exitCode;
+    })
+    .catch((error: unknown) => {
+      process.stderr.write(`Error: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.exitCode = 1;
+    });
 }

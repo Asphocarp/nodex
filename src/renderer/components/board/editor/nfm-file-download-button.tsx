@@ -22,11 +22,7 @@ import { readManagedImageDataUrl } from "@/lib/assets";
 export function NfmFileDownloadButton() {
   const dict = useDictionary();
   const Components = useComponentsContext()!;
-  const editor = useBlockNoteEditor<
-    BlockSchema,
-    InlineContentSchema,
-    StyleSchema
-  >();
+  const editor = useBlockNoteEditor<BlockSchema, InlineContentSchema, StyleSchema>();
 
   const block = useEditorState({
     editor,
@@ -38,9 +34,11 @@ export function NfmFileDownloadButton() {
       if (selectedBlocks.length !== 1) return undefined;
 
       const selectedBlock = selectedBlocks[0];
-      if (!blockHasType(selectedBlock, currentEditor, selectedBlock.type, {
-        url: "string",
-      })) {
+      if (
+        !blockHasType(selectedBlock, currentEditor, selectedBlock.type, {
+          url: "string",
+        })
+      ) {
         return undefined;
       }
 
@@ -75,8 +73,8 @@ export function NfmFileDownloadButton() {
   };
 
   const label =
-    dict.formatting_toolbar.file_download.tooltip[block.type]
-    || dict.formatting_toolbar.file_download.tooltip.file;
+    dict.formatting_toolbar.file_download.tooltip[block.type] ||
+    dict.formatting_toolbar.file_download.tooltip.file;
 
   return (
     <Components.FormattingToolbar.Button

@@ -55,8 +55,9 @@ describe("useRemoteHostedPipSummaryControl", () => {
         on: (channel: string, callback: IpcListener) => {
           listenersByChannel[channel] = [...(listenersByChannel[channel] ?? []), callback];
           return () => {
-            listenersByChannel[channel] = (listenersByChannel[channel] ?? [])
-              .filter((listener) => listener !== callback);
+            listenersByChannel[channel] = (listenersByChannel[channel] ?? []).filter(
+              (listener) => listener !== callback,
+            );
           };
         },
       },

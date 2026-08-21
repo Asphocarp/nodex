@@ -64,8 +64,7 @@ export function BrowserProfileImportDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const [profiles, setProfiles] = useState<ImportableBrowserProfile[]>([]);
-  const [capabilities, setCapabilities] =
-    useState<BrowserProfileCapabilities>(EMPTY_CAPABILITIES);
+  const [capabilities, setCapabilities] = useState<BrowserProfileCapabilities>(EMPTY_CAPABILITIES);
   const [selectedProfilePath, setSelectedProfilePath] = useState("");
   const [importPasswords, setImportPasswords] = useState(true);
   const [importCookies, setImportCookies] = useState(true);
@@ -87,22 +86,25 @@ export function BrowserProfileImportDialog({
     void Promise.all([
       invoke("browser-profile-capabilities"),
       invoke("browser-profile-import-profiles"),
-    ]).then(([nextCapabilities, nextProfiles]) => {
-      if (cancelled) return;
-      setCapabilities(nextCapabilities);
-      setProfiles(nextProfiles);
-      setSelectedProfilePath((current) => {
-        if (nextProfiles.some((profile) => profile.profilePath === current)) {
-          return current;
-        }
-        return nextProfiles[0]?.profilePath ?? "";
+    ])
+      .then(([nextCapabilities, nextProfiles]) => {
+        if (cancelled) return;
+        setCapabilities(nextCapabilities);
+        setProfiles(nextProfiles);
+        setSelectedProfilePath((current) => {
+          if (nextProfiles.some((profile) => profile.profilePath === current)) {
+            return current;
+          }
+          return nextProfiles[0]?.profilePath ?? "";
+        });
+      })
+      .catch((reason: unknown) => {
+        if (cancelled) return;
+        setError(readErrorMessage(reason, "Unable to inspect browser profiles"));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
       });
-    }).catch((reason: unknown) => {
-      if (cancelled) return;
-      setError(readErrorMessage(reason, "Unable to inspect browser profiles"));
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
     return () => {
       cancelled = true;
     };
@@ -111,9 +113,7 @@ export function BrowserProfileImportDialog({
   useEffect(() => {
     if (!selectedProfile) return;
     setImportCookies(selectedProfile.hasCookies);
-    setImportPasswords(
-      selectedProfile.hasPasswords && capabilities.credentialVault.available,
-    );
+    setImportPasswords(selectedProfile.hasPasswords && capabilities.credentialVault.available);
   }, [capabilities.credentialVault.available, selectedProfile]);
 
   const submit = async (event: FormEvent) => {
@@ -128,9 +128,7 @@ export function BrowserProfileImportDialog({
         profilePath: selectedProfile.profilePath,
         importCookies,
         importPasswords,
-        ...(importCookies
-          ? { cookieDomainAllowlist: parseDomainAllowlist(domainAllowlist) }
-          : {}),
+        ...(importCookies ? { cookieDomainAllowlist: parseDomainAllowlist(domainAllowlist) } : {}),
       });
       setResult(imported);
     } catch (reason) {
@@ -140,11 +138,12 @@ export function BrowserProfileImportDialog({
     }
   };
 
-  const importDisabled = loading
-    || !capabilities.profileImport.available
-    || !selectedProfile
-    || (!importCookies && !importPasswords)
-    || selectedProfile.sourceBrowserOpen;
+  const importDisabled =
+    loading ||
+    !capabilities.profileImport.available ||
+    !selectedProfile ||
+    (!importCookies && !importPasswords) ||
+    selectedProfile.sourceBrowserOpen;
   const selectedProfileLabel = selectedProfile
     ? `${selectedProfile.appName} — ${selectedProfile.profileName}${selectedProfile.userName ? ` (${selectedProfile.userName})` : ""}`
     : "No importable profiles found";
@@ -162,8 +161,8 @@ export function BrowserProfileImportDialog({
           <NodexDialogBody className="gap-4">
             {!capabilities.profileImport.available ? (
               <BrowserImportNotice tone="warning">
-                {capabilities.profileImport.reason
-                  ?? "Browser Profile import is unavailable on this device."}
+                {capabilities.profileImport.reason ??
+                  "Browser Profile import is unavailable on this device."}
               </BrowserImportNotice>
             ) : null}
             <label className="flex flex-col gap-1.5 text-sm text-token-text-primary">
@@ -171,14 +170,11 @@ export function BrowserProfileImportDialog({
               <NodexDropdownMenu
                 disabled={loading || profiles.length === 0}
                 contentWidth="menu"
-                triggerButton={(
-                  <NodexSettingsDropdownTrigger
-                    aria-label="Profile"
-                    className="h-9 w-full"
-                  >
+                triggerButton={
+                  <NodexSettingsDropdownTrigger aria-label="Profile" className="h-9 w-full">
                     <span className="truncate">{selectedProfileLabel}</span>
                   </NodexSettingsDropdownTrigger>
-                )}
+                }
               >
                 {profiles.map((profile) => {
                   const profileLabel = `${profile.appName} — ${profile.profileName}${profile.userName ? ` (${profile.userName})` : ""}`;
@@ -187,9 +183,11 @@ export function BrowserProfileImportDialog({
                     <NodexDropdownItem
                       key={`${profile.source}:${profile.profilePath}`}
                       onSelect={() => setSelectedProfilePath(profile.profilePath)}
-                      rightSlot={profile.profilePath === selectedProfilePath
-                        ? <NodexDropdownSelectedIcon />
-                        : null}
+                      rightSlot={
+                        profile.profilePath === selectedProfilePath ? (
+                          <NodexDropdownSelectedIcon />
+                        ) : null
+                      }
                     >
                       {profileLabel}
                     </NodexDropdownItem>
@@ -206,16 +204,16 @@ export function BrowserProfileImportDialog({
               <BrowserImportChoice
                 checked={importPasswords}
                 disabled={
-                  loading
-                  || !selectedProfile?.hasPasswords
-                  || !capabilities.credentialVault.available
+                  loading ||
+                  !selectedProfile?.hasPasswords ||
+                  !capabilities.credentialVault.available
                 }
                 label="Passwords"
                 description={
                   capabilities.credentialVault.available
                     ? "Decrypt with the source browser’s macOS key, then store immediately in Nodex encrypted storage."
-                    : capabilities.credentialVault.reason
-                      ?? "Secure credential storage is unavailable."
+                    : (capabilities.credentialVault.reason ??
+                      "Secure credential storage is unavailable.")
                 }
                 onChange={setImportPasswords}
               />
@@ -249,11 +247,7 @@ export function BrowserProfileImportDialog({
               {result ? "Done" : "Cancel"}
             </NodexDialogAction>
             {!result ? (
-              <NodexDialogAction
-                type="submit"
-                tone="primary"
-                disabled={importDisabled}
-              >
+              <NodexDialogAction type="submit" tone="primary" disabled={importDisabled}>
                 {loading ? "Importing…" : "Import"}
               </NodexDialogAction>
             ) : null}
@@ -314,19 +308,18 @@ function BrowserImportNotice({
   );
 }
 
-function BrowserImportResultView({
-  result,
-}: {
-  result: BrowserProfileImportResult;
-}) {
+function BrowserImportResultView({ result }: { result: BrowserProfileImportResult }) {
   const rows = [
-    result.passwords ? ["Passwords", result.passwords] as const : null,
-    result.cookies ? ["Cookies", result.cookies] as const : null,
+    result.passwords ? (["Passwords", result.passwords] as const) : null,
+    result.cookies ? (["Cookies", result.cookies] as const) : null,
   ].filter((row): row is NonNullable<typeof row> => row !== null);
   return (
     <div className="overflow-hidden rounded-xl border border-token-border">
       {rows.map(([label, data]) => (
-        <div key={label} className="flex items-start justify-between gap-3 border-b border-token-border p-3 last:border-b-0">
+        <div
+          key={label}
+          className="flex items-start justify-between gap-3 border-b border-token-border p-3 last:border-b-0"
+        >
           <div>
             <div className="text-sm text-token-text-primary">{label}</div>
             <div className="mt-1 text-xs text-token-text-secondary">
@@ -345,17 +338,17 @@ function BrowserImportResultView({
 }
 
 function parseDomainAllowlist(value: string): string[] | undefined {
-  const domains = Array.from(new Set(
-    value
-      .split(/[\n,]/)
-      .map((domain) => domain.trim().toLowerCase())
-      .filter(Boolean),
-  ));
+  const domains = Array.from(
+    new Set(
+      value
+        .split(/[\n,]/)
+        .map((domain) => domain.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
   return domains.length > 0 ? domains : undefined;
 }
 
 function readErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.trim()
-    ? error.message
-    : fallback;
+  return error instanceof Error && error.message.trim() ? error.message : fallback;
 }

@@ -40,7 +40,7 @@ import { DEFAULT_PROJECT_APPEARANCE } from "../../../../shared/project-appearanc
 describe("Page reference insertion bookmark", () => {
   test("accepts only the still-current source Block", () => {
     const editor = {
-      getBlock: (blockId: string) => blockId === "source" ? { id: blockId } : undefined,
+      getBlock: (blockId: string) => (blockId === "source" ? { id: blockId } : undefined),
       getTextCursorPosition: () => ({ block: { id: "source" } }),
     };
 
@@ -82,9 +82,7 @@ function makeItems(): NfmSuggestionItem[] {
   ];
 }
 
-function renderSuggestionMenu(
-  props: Parameters<typeof NfmSuggestionMenuSurface>[0],
-) {
+function renderSuggestionMenu(props: Parameters<typeof NfmSuggestionMenuSurface>[0]) {
   return render(
     <NodexTooltipProvider>
       <NfmSuggestionMenuSurface {...props} />
@@ -199,9 +197,7 @@ describe("NfmSlashMenu", () => {
 
   test("slash commands never create unresolved Page or legacy Database references", () => {
     const items = getNfmSlashMenuCustomItems({});
-    const keys = items
-      .map((item) => (item as { key?: string }).key ?? "")
-      .join(",");
+    const keys = items.map((item) => (item as { key?: string }).key ?? "").join(",");
 
     expect(keys.includes("card_reference")).toBe(false);
     expect(keys.includes("toggle_list_inline_view")).toBe(false);
@@ -209,23 +205,29 @@ describe("NfmSlashMenu", () => {
     expect(keys.includes("agent_config")).toBe(true);
     expect(keys.includes("canvas")).toBe(false);
     expect(
-      getNfmSlashMenuCustomItems({}, {
-        createCanvasAtEmptyParagraph: async () => ({
-          canvasBlockId: "canvas-1",
-        }),
-      }).some((item) => (item as { key?: string }).key === "canvas"),
+      getNfmSlashMenuCustomItems(
+        {},
+        {
+          createCanvasAtEmptyParagraph: async () => ({
+            canvasBlockId: "canvas-1",
+          }),
+        },
+      ).some((item) => (item as { key?: string }).key === "canvas"),
     ).toBe(true);
 
     let mentionOpened = false;
     let embedOpened = false;
-    const pageItems = getNfmSlashMenuCustomItems({}, {
-      startMentionFlow: () => {
-        mentionOpened = true;
+    const pageItems = getNfmSlashMenuCustomItems(
+      {},
+      {
+        startMentionFlow: () => {
+          mentionOpened = true;
+        },
+        openEmbedPagePicker: () => {
+          embedOpened = true;
+        },
       },
-      openEmbedPagePicker: () => {
-        embedOpened = true;
-      },
-    });
+    );
     const mentionPageItem = pageItems.find(
       (item) => (item as { key?: string }).key === "mention_page",
     );
@@ -233,23 +235,24 @@ describe("NfmSlashMenu", () => {
     mentionPageItem?.onItemClick();
     expect(mentionOpened).toBe(true);
 
-    const embedPageItem = pageItems.find(
-      (item) => (item as { key?: string }).key === "embed_page",
-    );
+    const embedPageItem = pageItems.find((item) => (item as { key?: string }).key === "embed_page");
     expect(embedPageItem?.title).toBe("Embed page");
     embedPageItem?.onItemClick();
     expect(embedOpened).toBe(true);
   });
 
   test("keeps action aliases searchable without presenting them as syntax hints", () => {
-    const items = getNfmSlashMenuCustomItems({}, {
-      createCanvasAtEmptyParagraph: async () => ({
-        canvasBlockId: "canvas-1",
-      }),
-      startMentionFlow: () => undefined,
-      openEmbedPagePicker: () => undefined,
-      openSubpageCreator: () => undefined,
-    }) as NfmSuggestionItem[];
+    const items = getNfmSlashMenuCustomItems(
+      {},
+      {
+        createCanvasAtEmptyParagraph: async () => ({
+          canvasBlockId: "canvas-1",
+        }),
+        startMentionFlow: () => undefined,
+        openEmbedPagePicker: () => undefined,
+        openSubpageCreator: () => undefined,
+      },
+    ) as NfmSuggestionItem[];
     const actionKeys = [
       "table",
       "canvas",
@@ -259,9 +262,7 @@ describe("NfmSlashMenu", () => {
       "thread_section",
       "agent_config",
     ];
-    const actionItems = items.filter((item) =>
-      item.key ? actionKeys.includes(item.key) : false
-    );
+    const actionItems = items.filter((item) => (item.key ? actionKeys.includes(item.key) : false));
 
     expect(actionItems.map((item) => item.key)).toEqual(actionKeys);
     for (const item of actionItems) {
@@ -274,10 +275,15 @@ describe("NfmSlashMenu", () => {
     const project = createMentionProject();
 
     expect(resolveThreadMentionSubtext(createMentionThread(), project)).toBe("Alpha / 019-thread");
-    expect(resolveThreadMentionSubtext(createMentionThread({
-      statusType: "active",
-      statusActiveFlags: ["waitingOnUserInput"],
-    }), project)).toBe("Alpha / Waiting / 019-thread");
+    expect(
+      resolveThreadMentionSubtext(
+        createMentionThread({
+          statusType: "active",
+          statusActiveFlags: ["waitingOnUserInput"],
+        }),
+        project,
+      ),
+    ).toBe("Alpha / Waiting / 019-thread");
   });
 
   test("Page candidates expose only disambiguation or content-match detail", () => {
@@ -294,13 +300,21 @@ describe("NfmSlashMenu", () => {
           lifecycle: "active",
           matchExcerpt: "Projection notes",
           matchSource: "title",
-          titleParts: [{ text: "Projection", highlighted: true }, { text: " notes", highlighted: false }],
+          titleParts: [
+            { text: "Projection", highlighted: true },
+            { text: " notes", highlighted: false },
+          ],
           matchExcerptParts: [],
-          matches: [{
-            source: "title",
-            quality: "exact",
-            parts: [{ text: "Projection", highlighted: true }, { text: " notes", highlighted: false }],
-          }],
+          matches: [
+            {
+              source: "title",
+              quality: "exact",
+              parts: [
+                { text: "Projection", highlighted: true },
+                { text: " notes", highlighted: false },
+              ],
+            },
+          ],
           disabledReason: null,
         },
         {
@@ -318,17 +332,19 @@ describe("NfmSlashMenu", () => {
             { text: "projection", highlighted: true },
             { text: " window stays bounded.", highlighted: false },
           ],
-          matches: [{
-            source: "body",
-            quality: "exact",
-            blockId: "block:projection",
-            blockType: "paragraph",
-            parts: [
-              { text: "The affected ", highlighted: false },
-              { text: "projection", highlighted: true },
-              { text: " window stays bounded.", highlighted: false },
-            ],
-          }],
+          matches: [
+            {
+              source: "body",
+              quality: "exact",
+              blockId: "block:projection",
+              blockType: "paragraph",
+              parts: [
+                { text: "The affected ", highlighted: false },
+                { text: "projection", highlighted: true },
+                { text: " window stays bounded.", highlighted: false },
+              ],
+            },
+          ],
           disabledReason: null,
         },
       ],
@@ -355,15 +371,13 @@ describe("NfmSlashMenu", () => {
     });
     const [statusRow, genericPageRow] = view.getAllByRole("option");
     expect(statusRow?.querySelector("svg")?.classList.contains("size-4")).toBe(true);
-    expect(statusRow?.querySelector("svg")?.getAttribute("style"))
-      .toContain("--status-build-dot");
-    expect(genericPageRow?.querySelector("svg")?.classList.contains("icon-xs"))
-      .toBe(true);
+    expect(statusRow?.querySelector("svg")?.getAttribute("style")).toContain("--status-build-dot");
+    expect(genericPageRow?.querySelector("svg")?.classList.contains("icon-xs")).toBe(true);
     items[1]?.onItemClick();
-    expect(insertInlineContent).toHaveBeenCalledWith([
-      { type: "pageMention", props: { targetPageId: "page-content" } },
-      " ",
-    ], { updateSelection: true });
+    expect(insertInlineContent).toHaveBeenCalledWith(
+      [{ type: "pageMention", props: { targetPageId: "page-content" } }, " "],
+      { updateSelection: true },
+    );
   });
 
   test("renders Core Page-search failure as an explicit disabled provider row", () => {
@@ -386,9 +400,11 @@ describe("NfmSlashMenu", () => {
   });
 
   test("mention payload helpers preserve thread and date inline storage shapes", () => {
-    const threadContent = buildNfmThreadMentionInlineContent(makePaletteThread({
-      threadId: "thr-payload",
-    })) as Array<{ type?: string; props?: { uuid?: string } } | string>;
+    const threadContent = buildNfmThreadMentionInlineContent(
+      makePaletteThread({
+        threadId: "thr-payload",
+      }),
+    ) as Array<{ type?: string; props?: { uuid?: string } } | string>;
     const firstThreadContent = threadContent[0];
     expect(typeof firstThreadContent === "string").toBe(false);
     if (typeof firstThreadContent === "string") return;
@@ -431,26 +447,26 @@ describe("NfmSlashMenu", () => {
 
     expect(items[0]?.detail).toBe("Beta");
     expect(items[1]?.detail).toBe("Alpha");
-    expect(items[2]?.detail).toBe(
-      "…content matched vector clocks.",
-    );
+    expect(items[2]?.detail).toBe("…content matched vector clocks.");
     expect(items.every((item) => item.tooltipContent !== null)).toBe(true);
   });
 
   test("maps an app-server-only chat into a thread mention suggestion", () => {
     const items = buildNfmThreadMentionSuggestionItems(
       {},
-      [makePaletteThread({
-        id: "thread:server-only-mention",
-        threadId: "server-only-mention",
-        sessionId: null,
-        title: "Historical mention target",
-        searchPreview: {
-          source: "content",
-          excerpt: "Mention evidence from app-server history.",
-          segments: [{ text: "Mention evidence", highlight: true }],
-        },
-      })],
+      [
+        makePaletteThread({
+          id: "thread:server-only-mention",
+          threadId: "server-only-mention",
+          sessionId: null,
+          title: "Historical mention target",
+          searchPreview: {
+            source: "content",
+            excerpt: "Mention evidence from app-server history.",
+            segments: [{ text: "Mention evidence", highlight: true }],
+          },
+        }),
+      ],
       "evidence",
     );
 
@@ -462,8 +478,10 @@ describe("NfmSlashMenu", () => {
   });
 
   test("date mention suggestions are first for date-like queries and insert inline content", () => {
-    expect(buildNfmDateMentionSuggestionItems({}, "").map(({ title }) => title))
-      .toEqual(["Today", "Now"]);
+    expect(buildNfmDateMentionSuggestionItems({}, "").map(({ title }) => title)).toEqual([
+      "Today",
+      "Now",
+    ]);
     const items = selectNfmMentionSuggestionItems("today", [
       ...buildNfmThreadMentionSuggestionItems(
         {},
@@ -505,14 +523,18 @@ describe("NfmSlashMenu", () => {
       },
     };
 
-    const item = getNfmSlashMenuCustomItems(editor).find((candidate) => candidate.title === "Agent Config");
+    const item = getNfmSlashMenuCustomItems(editor).find(
+      (candidate) => candidate.title === "Agent Config",
+    );
     expect(item !== undefined).toBe(true);
     if (!item) return;
 
     item.onItemClick();
 
     expect(Array.isArray(insertedContent)).toBe(true);
-    const chip = insertedContent?.[0] as { type?: string; props?: Record<string, string> } | undefined;
+    const chip = insertedContent?.[0] as
+      | { type?: string; props?: Record<string, string> }
+      | undefined;
     expect(chip?.type).toBe("agentConfig");
     expect(chip?.props?.mode).toBe("plan");
     expect(chip?.props?.model).toBe("");
@@ -522,14 +544,12 @@ describe("NfmSlashMenu", () => {
   });
 
   test("renders grouped compact suggestion items with stable option ids", () => {
-    const view = renderSuggestionMenu(
-      {
-        items: makeItems(),
-        loadingState: "loaded",
-        selectedIndex: 1,
-        onItemClick: () => undefined,
-      },
-    );
+    const view = renderSuggestionMenu({
+      items: makeItems(),
+      loadingState: "loaded",
+      selectedIndex: 1,
+      onItemClick: () => undefined,
+    });
 
     const list = view.getByRole("listbox");
     expect(list.id).toBe("bn-suggestion-menu");
@@ -547,8 +567,12 @@ describe("NfmSlashMenu", () => {
 
   test("pins suggestion menu controllers to the body-level portal target", () => {
     expect(NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS.portalElement).toBe(null);
-    expect(NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS.floatingUIOptions.useFloatingOptions?.strategy).toBe("fixed");
-    expect(NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS.floatingUIOptions.elementProps?.style?.zIndex).toBe(NFM_SUGGESTION_MENU_Z_INDEX);
+    expect(
+      NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS.floatingUIOptions.useFloatingOptions?.strategy,
+    ).toBe("fixed");
+    expect(
+      NFM_SUGGESTION_MENU_CONTROLLER_PORTAL_PROPS.floatingUIOptions.elementProps?.style?.zIndex,
+    ).toBe(NFM_SUGGESTION_MENU_Z_INDEX);
   });
 
   test("scrolls selected suggestion rows within the menu list only", () => {
@@ -591,16 +615,16 @@ describe("NfmSlashMenu", () => {
     };
 
     try {
-      const view = renderSuggestionMenu(
-        {
-          items: makeItems(),
-          loadingState: "loaded",
-          selectedIndex: undefined,
-          onItemClick: () => undefined,
-        },
-      );
+      const view = renderSuggestionMenu({
+        items: makeItems(),
+        loadingState: "loaded",
+        selectedIndex: undefined,
+        onItemClick: () => undefined,
+      });
 
-      const list = view.container.querySelector('[data-nfm-suggestion-menu-scroll-list="true"]') as HTMLElement | null;
+      const list = view.container.querySelector(
+        '[data-nfm-suggestion-menu-scroll-list="true"]',
+      ) as HTMLElement | null;
       const row = view.container.querySelector("#bn-suggestion-menu-item-1") as HTMLElement | null;
       expect(list).not.toBeNull();
       expect(row).not.toBeNull();
@@ -633,31 +657,38 @@ describe("NfmSlashMenu", () => {
   });
 
   test("resolves syntax hints from known keys, badges, and slash aliases", () => {
-    expect(resolveNfmSuggestionHint({ title: "Heading 2", key: "heading_2" } as DefaultReactSuggestionItem & { key: string })).toBe("##");
-    expect(resolveNfmSuggestionHint({
-      title: "Custom",
-      aliases: ["custom-command"],
-      onItemClick: () => undefined,
-    })).toBe("/custom-command");
-    expect(resolveNfmSuggestionHint({
-      title: "Mention page",
-      badge: "@",
-      onItemClick: () => undefined,
-    })).toBe("@");
+    expect(
+      resolveNfmSuggestionHint({
+        title: "Heading 2",
+        key: "heading_2",
+      } as DefaultReactSuggestionItem & { key: string }),
+    ).toBe("##");
+    expect(
+      resolveNfmSuggestionHint({
+        title: "Custom",
+        aliases: ["custom-command"],
+        onItemClick: () => undefined,
+      }),
+    ).toBe("/custom-command");
+    expect(
+      resolveNfmSuggestionHint({
+        title: "Mention page",
+        badge: "@",
+        onItemClick: () => undefined,
+      }),
+    ).toBe("@");
   });
 
   test("clicking a suggestion item dispatches the selected item", () => {
     let clickedTitle = "";
-    const view = renderSuggestionMenu(
-      {
-        items: makeItems(),
-        loadingState: "loaded",
-        selectedIndex: 0,
-        onItemClick: (item) => {
-          clickedTitle = item.title;
-        },
+    const view = renderSuggestionMenu({
+      items: makeItems(),
+      loadingState: "loaded",
+      selectedIndex: 0,
+      onItemClick: (item) => {
+        clickedTitle = item.title;
       },
-    );
+    });
 
     fireEvent.click(view.getByText("Agent Config"));
 
@@ -665,71 +696,67 @@ describe("NfmSlashMenu", () => {
   });
 
   test("renders compact empty and loading states", () => {
-    const emptyView = renderSuggestionMenu(
-      {
-        items: [],
-        loadingState: "loaded",
-        selectedIndex: undefined,
-        onItemClick: () => undefined,
-      },
-    );
+    const emptyView = renderSuggestionMenu({
+      items: [],
+      loadingState: "loaded",
+      selectedIndex: undefined,
+      onItemClick: () => undefined,
+    });
 
     expect(emptyView.getByText("No matching commands").textContent).toBe("No matching commands");
     emptyView.unmount();
 
-    const loadingView = renderSuggestionMenu(
-      {
-        items: [],
-        loadingState: "loading",
-        selectedIndex: undefined,
-        onItemClick: () => undefined,
-      },
-    );
+    const loadingView = renderSuggestionMenu({
+      items: [],
+      loadingState: "loading",
+      selectedIndex: undefined,
+      onItemClick: () => undefined,
+    });
 
     expect(loadingView.getByText("Loading...").textContent).toBe("Loading...");
   });
 
   test("marks populated stale suggestion results as updating", () => {
-    const view = renderSuggestionMenu(
-      {
-        items: makeItems(),
-        loadingState: "loaded",
-        itemsStale: true,
-        selectedIndex: 0,
-        onItemClick: () => undefined,
-      },
-    );
+    const view = renderSuggestionMenu({
+      items: makeItems(),
+      loadingState: "loaded",
+      itemsStale: true,
+      selectedIndex: 0,
+      onItemClick: () => undefined,
+    });
 
     expect(view.getByRole("listbox").getAttribute("aria-busy")).toBe("true");
     expect(view.getByText("Updating...").textContent).toBe("Updating...");
   });
 
   test("long labels render without exposing subtext in the menu row", () => {
-    const longTitle = "Very long command label that should stay inside the compact suggestion menu row";
-    const longSubtext = "Very long description that should not force the menu to become chunky or overflow the viewport";
-    const view = renderSuggestionMenu(
-      {
-        items: [{
+    const longTitle =
+      "Very long command label that should stay inside the compact suggestion menu row";
+    const longSubtext =
+      "Very long description that should not force the menu to become chunky or overflow the viewport";
+    const view = renderSuggestionMenu({
+      items: [
+        {
           title: longTitle,
           subtext: longSubtext,
           aliases: [],
           group: "Long",
           onItemClick: () => undefined,
-        }],
-        loadingState: "loaded",
-        selectedIndex: 0,
-        onItemClick: () => undefined,
-      },
-    );
+        },
+      ],
+      loadingState: "loaded",
+      selectedIndex: 0,
+      onItemClick: () => undefined,
+    });
 
     expect(view.getByText(longTitle).textContent).toBe(longTitle);
     expect(view.queryByText(longSubtext)).toBe(null);
   });
 
   test("mention rows render only explicit inline detail", () => {
-    const view = renderSuggestionMenu(
-      {
-        items: [{
+    const view = renderSuggestionMenu({
+      items: [
+        {
           key: "page:target",
           title: "Projection notes",
           subtext: "This legacy field is not row detail",
@@ -738,28 +765,25 @@ describe("NfmSlashMenu", () => {
           aliases: [],
           group: "Pages",
           onItemClick: () => undefined,
-        } as NfmSuggestionItem],
-        loadingState: "loaded",
-        selectedIndex: 0,
-        onItemClick: () => undefined,
-      },
-    );
+        } as NfmSuggestionItem,
+      ],
+      loadingState: "loaded",
+      selectedIndex: 0,
+      onItemClick: () => undefined,
+    });
 
     expect(view.getByText("Projection notes").textContent).toBe("Projection notes");
-    expect(view.getByText("Product / Editor").textContent)
-      .toBe("Product / Editor");
+    expect(view.getByText("Product / Editor").textContent).toBe("Product / Editor");
     expect(view.queryByText("This legacy field is not row detail")).toBe(null);
   });
 
   test("description details are disclosed through the item tooltip", async () => {
-    const view = renderSuggestionMenu(
-      {
-        items: makeItems(),
-        loadingState: "loaded",
-        selectedIndex: 0,
-        onItemClick: () => undefined,
-      },
-    );
+    const view = renderSuggestionMenu({
+      items: makeItems(),
+      loadingState: "loaded",
+      selectedIndex: 0,
+      onItemClick: () => undefined,
+    });
 
     const row = view.container.querySelector("#bn-suggestion-menu-item-0") as HTMLElement | null;
     expect(row).not.toBeNull();
@@ -774,30 +798,34 @@ describe("NfmSlashMenu", () => {
     expect(tooltip).not.toBeNull();
     expect(tooltip?.textContent).toBe("Plain text block");
     expect(tooltip?.textContent?.includes("Paragraph")).toBe(false);
-    const tooltipLayer = tooltip?.closest('[data-radix-popper-content-wrapper]') as HTMLElement | null;
+    const tooltipLayer = tooltip?.closest(
+      "[data-radix-popper-content-wrapper]",
+    ) as HTMLElement | null;
     expect(tooltipLayer?.style.zIndex).toBe(String(NFM_SUGGESTION_MENU_TOOLTIP_Z_INDEX));
   });
 
   test("mention details highlight the match and retain useful full tooltips", async () => {
     const fullExcerpt = `${"Earlier context ".repeat(10)}Compact transcript snippet. ${"Later context ".repeat(10)}`;
-    const items = buildNfmThreadMentionSuggestionItems({}, [
-      makePaletteThread({
-        title: "Searchable thread",
-        searchPreview: {
-          source: "content",
-          excerpt: fullExcerpt,
-          segments: [{ text: fullExcerpt, highlight: true }],
-        },
-      }),
-    ], "compact");
-    const view = renderSuggestionMenu(
-      {
-        items,
-        loadingState: "loaded",
-        selectedIndex: 0,
-        onItemClick: () => undefined,
-      },
+    const items = buildNfmThreadMentionSuggestionItems(
+      {},
+      [
+        makePaletteThread({
+          title: "Searchable thread",
+          searchPreview: {
+            source: "content",
+            excerpt: fullExcerpt,
+            segments: [{ text: fullExcerpt, highlight: true }],
+          },
+        }),
+      ],
+      "compact",
     );
+    const view = renderSuggestionMenu({
+      items,
+      loadingState: "loaded",
+      selectedIndex: 0,
+      onItemClick: () => undefined,
+    });
 
     const row = view.container.querySelector("#bn-suggestion-menu-item-0") as HTMLElement | null;
     expect(row).not.toBeNull();
@@ -821,33 +849,37 @@ describe("NfmSlashMenu", () => {
   test("lets pointer and keyboard selection expand a section without selecting a mention", () => {
     const query = "weekly";
     const sourceItems = Array.from({ length: 9 }, (_, index) => ({
-        ...buildNfmThreadMentionSuggestionItems(
-          {},
-          [makePaletteThread({
+      ...buildNfmThreadMentionSuggestionItems(
+        {},
+        [
+          makePaletteThread({
             id: `thread:${index}`,
             threadId: `thread-${index}`,
             title: `Weekly ${index}`,
-          })],
-          "weekly",
-        )[0]!,
-        mentionRank: {
-          family: "chat" as const,
-          match: "title" as const,
-          activeContext: true,
-          sourceOrder: index,
-        },
-      }));
+          }),
+        ],
+        "weekly",
+      )[0]!,
+      mentionRank: {
+        family: "chat" as const,
+        match: "title" as const,
+        activeContext: true,
+        sourceOrder: index,
+      },
+    }));
     let expandedFamily: "chat" | null = null;
-    const items = selectNfmMentionSuggestionItems(
-      query,
-      sourceItems,
-      { onExpandSection: (family) => { expandedFamily = family as "chat"; } },
-    );
+    const items = selectNfmMentionSuggestionItems(query, sourceItems, {
+      onExpandSection: (family) => {
+        expandedFamily = family as "chat";
+      },
+    });
     const view = renderSuggestionMenu({
       items,
       loadingState: "loaded",
       selectedIndex: 4,
-      onItemClick: (item) => { item.onItemClick(); },
+      onItemClick: (item) => {
+        item.onItemClick();
+      },
     });
 
     expect(view.getAllByRole("option")).toHaveLength(5);
@@ -858,11 +890,9 @@ describe("NfmSlashMenu", () => {
     expect(expandedFamily).toBe("chat");
 
     view.unmount();
-    const expandedItems = selectNfmMentionSuggestionItems(
-      query,
-      sourceItems,
-      { expandedFamilies: new Set(["chat"]) },
-    );
+    const expandedItems = selectNfmMentionSuggestionItems(query, sourceItems, {
+      expandedFamilies: new Set(["chat"]),
+    });
     const expandedView = renderSuggestionMenu({
       items: expandedItems,
       loadingState: "loaded",
@@ -896,16 +926,20 @@ describe("NfmSlashMenu", () => {
       </button>
     );
     const view = render(
-      <BlockNoteContext.Provider
-        value={{ editor, setContentEditableProps: () => undefined }}
-      >
+      <BlockNoteContext.Provider value={{ editor, setContentEditableProps: () => undefined }}>
         <SuggestionMenuWrapper
           triggerCharacter="@"
           query="weekly"
-          closeMenu={() => { closeMenuCalls += 1; }}
-          clearQuery={() => { clearQueryCalls += 1; }}
+          closeMenu={() => {
+            closeMenuCalls += 1;
+          }}
+          clearQuery={() => {
+            clearQueryCalls += 1;
+          }}
           getItems={async () => ["expand"]}
-          onItemClick={() => { activationCalls += 1; }}
+          onItemClick={() => {
+            activationCalls += 1;
+          }}
           shouldCloseOnItemClick={() => false}
           suggestionMenuComponent={UtilityMenu}
         />
@@ -917,11 +951,13 @@ describe("NfmSlashMenu", () => {
     });
     fireEvent.click(view.getByText("5 more results"));
     await act(async () => {
-      editorElement.dispatchEvent(new KeyboardEvent("keydown", {
-        key: "Enter",
-        bubbles: true,
-        cancelable: true,
-      }));
+      editorElement.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
       await Promise.resolve();
     });
 
@@ -946,13 +982,13 @@ describe("NfmSlashMenu", () => {
     } as unknown as BlockNoteEditor;
     const EmptyMentionMenu = () => <div>No matching mentions</div>;
     const view = render(
-      <BlockNoteContext.Provider
-        value={{ editor, setContentEditableProps: () => undefined }}
-      >
+      <BlockNoteContext.Provider value={{ editor, setContentEditableProps: () => undefined }}>
         <SuggestionMenuWrapper
           triggerCharacter="@"
           query="zzzz"
-          closeMenu={() => { closeMenuCalls += 1; }}
+          closeMenu={() => {
+            closeMenuCalls += 1;
+          }}
           clearQuery={() => undefined}
           getItems={async () => []}
           autoCloseWhenNoItems={false}
@@ -970,17 +1006,14 @@ describe("NfmSlashMenu", () => {
   });
 
   test("supports a mention-specific empty state", () => {
-    const view = renderSuggestionMenu(
-      {
-        items: [],
-        loadingState: "loaded",
-        selectedIndex: undefined,
-        onItemClick: () => undefined,
-        emptyMessage: "No matching mentions",
-      },
-    );
+    const view = renderSuggestionMenu({
+      items: [],
+      loadingState: "loaded",
+      selectedIndex: undefined,
+      onItemClick: () => undefined,
+      emptyMessage: "No matching mentions",
+    });
 
-    expect(view.getByText("No matching mentions").textContent)
-      .toBe("No matching mentions");
+    expect(view.getByText("No matching mentions").textContent).toBe("No matching mentions");
   });
 });

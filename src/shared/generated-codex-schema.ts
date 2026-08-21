@@ -23,7 +23,11 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function collectStringDiscriminatorValues(value: unknown, discriminator: string, result: Set<string>): void {
+function collectStringDiscriminatorValues(
+  value: unknown,
+  discriminator: string,
+  result: Set<string>,
+): void {
   if (Array.isArray(value)) {
     for (const entry of value) collectStringDiscriminatorValues(entry, discriminator, result);
     return;

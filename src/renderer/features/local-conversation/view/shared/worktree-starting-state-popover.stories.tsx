@@ -8,16 +8,12 @@ type StartingStateStoryState = "clean" | "dirty" | "loading" | "error" | "remote
 
 function StartingStateStory({ state }: { state: StartingStateStoryState }) {
   const [startingState, setStartingState] = useState<CodexPendingWorktreeStartingState>(
-    state === "dirty"
-      ? { type: "working-tree" }
-      : { type: "branch", branchName: "main" },
+    state === "dirty" ? { type: "working-tree" } : { type: "branch", branchName: "main" },
   );
-  const remoteBranchRefs = state === "remote"
-    ? [
-        "refs/remotes/origin/feature/remote-worktree",
-        "refs/remotes/upstream/release/candidate",
-      ]
-    : [];
+  const remoteBranchRefs =
+    state === "remote"
+      ? ["refs/remotes/origin/feature/remote-worktree", "refs/remotes/upstream/release/candidate"]
+      : [];
 
   return (
     <NodexTooltipProvider>

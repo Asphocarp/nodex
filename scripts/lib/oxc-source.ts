@@ -15,10 +15,11 @@ export function parseTypeScriptSource(path: string, sourceText: string): Program
   const errors = result.errors.filter((error) => error.severity === "Error");
   if (errors.length === 0) return result.program;
 
-  throw new Error([
-    `Unable to parse ${path}:`,
-    ...errors.map((error) => error.codeframe ?? error.message),
-  ].join("\n"));
+  throw new Error(
+    [`Unable to parse ${path}:`, ...errors.map((error) => error.codeframe ?? error.message)].join(
+      "\n",
+    ),
+  );
 }
 
 /** Convert a zero-based source offset into the one-based location used by diagnostics. */

@@ -1,21 +1,16 @@
 import { DOMParser } from "@xmldom/xmldom";
 
-import type {
-  SparkleArchitectureUpdateManifest,
-  SparkleFileIdentity,
-} from "./sparkle-manifest";
+import type { SparkleArchitectureUpdateManifest, SparkleFileIdentity } from "./sparkle-manifest";
 
 const SPARKLE_NAMESPACE = "http://www.andymatuschak.org/xml-namespaces/sparkle";
 
 const sparkleText = (item: Element, localName: string): string | null =>
   item.getElementsByTagNameNS(SPARKLE_NAMESPACE, localName).item(0)?.textContent?.trim() || null;
 
-const enclosureMatches = (
-  enclosure: Element,
-  identity: SparkleFileIdentity,
-): boolean => enclosure.getAttribute("url") === identity.url
-  && enclosure.getAttribute("length") === String(identity.bytes)
-  && enclosure.getAttributeNS(SPARKLE_NAMESPACE, "edSignature") === identity.edSignature;
+const enclosureMatches = (enclosure: Element, identity: SparkleFileIdentity): boolean =>
+  enclosure.getAttribute("url") === identity.url &&
+  enclosure.getAttribute("length") === String(identity.bytes) &&
+  enclosure.getAttributeNS(SPARKLE_NAMESPACE, "edSignature") === identity.edSignature;
 
 export function verifySparkleAppcastContract(
   xml: string,
@@ -30,9 +25,9 @@ export function verifySparkleAppcastContract(
   for (let index = 0; index < items.length; index += 1) {
     const item = items.item(index);
     if (
-      item
-      && sparkleText(item, "shortVersionString") === manifest.target.version
-      && sparkleText(item, "version") === manifest.target.buildVersion
+      item &&
+      sparkleText(item, "shortVersionString") === manifest.target.version &&
+      sparkleText(item, "version") === manifest.target.buildVersion
     ) {
       matchingItems.push(item);
     }
@@ -66,7 +61,9 @@ export function verifySparkleAppcastContract(
   for (const delta of manifest.deltas) {
     const enclosure = deltaEnclosures.get(delta.fromBuildVersion);
     if (!enclosure || !enclosureMatches(enclosure, delta)) {
-      throw new Error(`Sparkle appcast delta from ${delta.fromVersion} does not match its update manifest.`);
+      throw new Error(
+        `Sparkle appcast delta from ${delta.fromVersion} does not match its update manifest.`,
+      );
     }
   }
 }

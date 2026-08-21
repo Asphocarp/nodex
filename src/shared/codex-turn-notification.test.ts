@@ -6,7 +6,9 @@ import {
 } from "./codex-turn-notification";
 import type { CodexConversationSnapshot } from "./types";
 
-function baseConversation(overrides: Partial<CodexConversationSnapshot> = {}): CodexConversationSnapshot {
+function baseConversation(
+  overrides: Partial<CodexConversationSnapshot> = {},
+): CodexConversationSnapshot {
   return {
     threadId: "thread-1",
     projectId: "project-1",
@@ -56,35 +58,50 @@ function baseConversation(overrides: Partial<CodexConversationSnapshot> = {}): C
 
 describe("codex-turn-notification helpers", () => {
   test("parses heartbeat notification decisions and removes heartbeat from visible text", () => {
-    const heartbeat = parseCodexHeartbeatAssistantMessage([
-      "Visible summary.",
-      "<heartbeat>",
-      "<decision>NOTIFY</decision>",
-      "<message>Review this now</message>",
-      "</heartbeat>",
-    ].join("\n"));
+    const heartbeat = parseCodexHeartbeatAssistantMessage(
+      [
+        "Visible summary.",
+        "<heartbeat>",
+        "<decision>NOTIFY</decision>",
+        "<message>Review this now</message>",
+        "</heartbeat>",
+      ].join("\n"),
+    );
 
     expect(heartbeat?.decision).toBe("NOTIFY");
     expect(heartbeat?.notificationMessage).toBe("Review this now");
     expect(heartbeat?.visibleText).toBe("Visible summary.");
 
-    const suppressed = parseCodexHeartbeatAssistantMessage([
-      "No user-visible alert.",
-      "<heartbeat><decision>DONT_NOTIFY</decision></heartbeat>",
-    ].join("\n"));
+    const suppressed = parseCodexHeartbeatAssistantMessage(
+      ["No user-visible alert.", "<heartbeat><decision>DONT_NOTIFY</decision></heartbeat>"].join(
+        "\n",
+      ),
+    );
     expect(suppressed?.decision).toBe("DONT_NOTIFY");
   });
 
   test("only excludes conversations with real parent provenance", () => {
     expect(isCodexConversationDesktopNotificationEligible(baseConversation())).toBe(true);
-    expect(isCodexConversationDesktopNotificationEligible(baseConversation({ ephemeral: true }))).toBe(true);
-    expect(isCodexConversationDesktopNotificationEligible(baseConversation({ threadSource: "system" }))).toBe(true);
-    expect(isCodexConversationDesktopNotificationEligible(baseConversation({
-      source: { parentThreadId: "parent", sideConversation: true },
-    }))).toBe(false);
-    expect(isCodexConversationDesktopNotificationEligible(baseConversation({
-      source: { parentThreadId: null, sideConversation: true },
-    }))).toBe(true);
+    expect(
+      isCodexConversationDesktopNotificationEligible(baseConversation({ ephemeral: true })),
+    ).toBe(true);
+    expect(
+      isCodexConversationDesktopNotificationEligible(baseConversation({ threadSource: "system" })),
+    ).toBe(true);
+    expect(
+      isCodexConversationDesktopNotificationEligible(
+        baseConversation({
+          source: { parentThreadId: "parent", sideConversation: true },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isCodexConversationDesktopNotificationEligible(
+        baseConversation({
+          source: { parentThreadId: null, sideConversation: true },
+        }),
+      ),
+    ).toBe(true);
   });
 
   test("matches exact terminal continuation semantics", () => {
@@ -98,36 +115,50 @@ describe("codex-turn-notification helpers", () => {
       hasActiveDescendant: false,
     };
     expect(hasCodexPendingContinuation(facts)).toBe(false);
-    expect(hasCodexPendingContinuation({
-      ...facts,
-      queuedHeadPausedReason: null,
-    })).toBe(true);
-    expect(hasCodexPendingContinuation({
-      ...facts,
-      terminalStatus: "interrupted",
-      queuedHeadPausedReason: null,
-    })).toBe(false);
-    expect(hasCodexPendingContinuation({
-      ...facts,
-      threadGoalStatus: "active",
-    })).toBe(true);
-    expect(hasCodexPendingContinuation({
-      ...facts,
-      terminalStatus: "failed",
-      threadGoalStatus: "active",
-    })).toBe(false);
-    expect(hasCodexPendingContinuation({
-      ...facts,
-      terminalStatus: "interrupted",
-      latestMergedTurnStatus: "inProgress",
-    })).toBe(true);
-    expect(hasCodexPendingContinuation({
-      ...facts,
-      hasRunningCollabAgent: true,
-    })).toBe(true);
-    expect(hasCodexPendingContinuation({
-      ...facts,
-      hasActiveDescendant: true,
-    })).toBe(true);
+    expect(
+      hasCodexPendingContinuation({
+        ...facts,
+        queuedHeadPausedReason: null,
+      }),
+    ).toBe(true);
+    expect(
+      hasCodexPendingContinuation({
+        ...facts,
+        terminalStatus: "interrupted",
+        queuedHeadPausedReason: null,
+      }),
+    ).toBe(false);
+    expect(
+      hasCodexPendingContinuation({
+        ...facts,
+        threadGoalStatus: "active",
+      }),
+    ).toBe(true);
+    expect(
+      hasCodexPendingContinuation({
+        ...facts,
+        terminalStatus: "failed",
+        threadGoalStatus: "active",
+      }),
+    ).toBe(false);
+    expect(
+      hasCodexPendingContinuation({
+        ...facts,
+        terminalStatus: "interrupted",
+        latestMergedTurnStatus: "inProgress",
+      }),
+    ).toBe(true);
+    expect(
+      hasCodexPendingContinuation({
+        ...facts,
+        hasRunningCollabAgent: true,
+      }),
+    ).toBe(true);
+    expect(
+      hasCodexPendingContinuation({
+        ...facts,
+        hasActiveDescendant: true,
+      }),
+    ).toBe(true);
   });
 });

@@ -33,8 +33,7 @@ details are historical; ADR 0046 owns the current Store acceptance policy.
 - At the original authority cutover, startup admitted a physically validated
   final TypeScript Store and published the first Rust-owned Store only after a
   durable backup. This established the exact-inventory, fail-closed migration
-  rule; the accepted revisions and retained artifacts are now governed by ADR
-  0046.
+  rule; the accepted revisions and retained artifacts are now governed by ADR 0046.
 - Task-history search delegates only to Codex app-server `thread/search`.
   Nodex stores Workspace metadata used to enrich results but owns no Thread
   transcript units, FTS tables, backfill queue, or search index.

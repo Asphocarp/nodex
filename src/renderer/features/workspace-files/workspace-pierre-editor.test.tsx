@@ -25,31 +25,35 @@ vi.mock("@/lib/use-theme", () => ({
 
 vi.mock("@pierre/diffs/react", () => ({
   EditProvider: ({ children }: { children: React.ReactNode }) => children,
-  CodeView: forwardRef(({
-    items,
-    onItemEditChange,
-  }: {
-    items: Array<{ file: { contents: string; name: string }; edit: boolean }>;
-    onItemEditChange: (
-      item: unknown,
-      file: { contents: string; name: string },
-    ) => void;
-  }, ref) => {
-    useImperativeHandle(ref, () => codeViewHandle);
-    return (
-      <button
-        type="button"
-        data-testid="editable-pierre-file"
-        data-editable={items[0]?.edit}
-        onClick={() => onItemEditChange(items[0], {
-          name: items[0]?.file.name ?? "file",
-          contents: "edited",
-        })}
-      >
-        {items[0]?.file.contents}
-      </button>
-    );
-  }),
+  CodeView: forwardRef(
+    (
+      {
+        items,
+        onItemEditChange,
+      }: {
+        items: Array<{ file: { contents: string; name: string }; edit: boolean }>;
+        onItemEditChange: (item: unknown, file: { contents: string; name: string }) => void;
+      },
+      ref,
+    ) => {
+      useImperativeHandle(ref, () => codeViewHandle);
+      return (
+        <button
+          type="button"
+          data-testid="editable-pierre-file"
+          data-editable={items[0]?.edit}
+          onClick={() =>
+            onItemEditChange(items[0], {
+              name: items[0]?.file.name ?? "file",
+              contents: "edited",
+            })
+          }
+        >
+          {items[0]?.file.contents}
+        </button>
+      );
+    },
+  ),
 }));
 
 beforeEach(() => {
@@ -97,11 +101,13 @@ describe("WorkspacePierreEditor", () => {
 
     await settleAsyncRender();
 
-    expect(editor.setSelections).toHaveBeenCalledWith([{
-      start: { line: 1, character: 2 },
-      end: { line: 3, character: 7 },
-      direction: "forward",
-    }]);
+    expect(editor.setSelections).toHaveBeenCalledWith([
+      {
+        start: { line: 1, character: 2 },
+        end: { line: 3, character: 7 },
+        direction: "forward",
+      },
+    ]);
     expect(codeViewHandle.setSelectedLines).toHaveBeenCalledWith(null);
     expect(codeViewHandle.scrollTo).toHaveBeenCalledWith({
       type: "range",

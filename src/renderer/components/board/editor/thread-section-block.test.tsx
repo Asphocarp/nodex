@@ -33,7 +33,7 @@ describe("thread section runtime provider", () => {
     const firstRender = render(
       <ThreadSectionRuntimeProvider value={buildRuntime("Old title")}>
         <RuntimeThreadNameConsumer />
-      </ThreadSectionRuntimeProvider>
+      </ThreadSectionRuntimeProvider>,
     );
     expect(firstRender.getByText("Old title").textContent).toBe("Old title");
 
@@ -42,7 +42,7 @@ describe("thread section runtime provider", () => {
     const secondRender = render(
       <ThreadSectionRuntimeProvider value={buildRuntime("New title")}>
         <RuntimeThreadNameConsumer />
-      </ThreadSectionRuntimeProvider>
+      </ThreadSectionRuntimeProvider>,
     );
 
     expect(secondRender.getByText("New title").textContent).toBe("New title");

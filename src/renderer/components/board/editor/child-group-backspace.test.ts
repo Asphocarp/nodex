@@ -108,8 +108,7 @@ function makeEditor(
       if (id === nextSiblingId) return nextSibling;
       return undefined;
     },
-    getParentBlock: (id: string) =>
-      hasParent && id === blockId ? parentBlock : undefined,
+    getParentBlock: (id: string) => (hasParent && id === blockId ? parentBlock : undefined),
     getPrevBlock: (id: string) =>
       hasPreviousSibling && id === blockId ? previousSibling : undefined,
     updateBlock: (block, update) => {

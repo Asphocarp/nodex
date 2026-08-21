@@ -1,9 +1,5 @@
 import type { CodexTurnDiffPatchBatch, GitReviewSource } from "@/lib/types";
-import {
-  appScope,
-  scopedAtom,
-  scopedWritableAtom,
-} from "@/lib/maitai";
+import { appScope, scopedAtom, scopedWritableAtom } from "@/lib/maitai";
 import { RouteScope } from "@/lib/workbench-ui-scopes";
 import type { ReviewDiffExpansionState } from "./review-diff-expansion";
 
@@ -132,7 +128,7 @@ export const initializeReviewRouteStateAtom = scopedWritableAtom<
       source:
         initializer.source === "commit" && !commitSha
           ? "branch"
-          : initializer.source ?? current.source,
+          : (initializer.source ?? current.source),
       commitSha,
       fileTreeOpen: initializer.fileTreeOpen ?? current.fileTreeOpen,
     });
@@ -157,20 +153,14 @@ export const prepareReviewOpenAtom = scopedWritableAtom<
       initialized: true,
       nextRevealRequestId: requestId,
       selectedPath: intent.targetPath ?? current.selectedPath,
-      pendingReveal: intent.targetPath
-        ? { requestId, targetPath: intent.targetPath }
-        : null,
+      pendingReveal: intent.targetPath ? { requestId, targetPath: intent.targetPath } : null,
     });
     return requestId;
   },
   { debugLabel: "prepare-review-open" },
 );
 
-export const acknowledgeReviewRevealAtom = scopedWritableAtom<
-  ReviewRouteState,
-  [number],
-  void
->(
+export const acknowledgeReviewRevealAtom = scopedWritableAtom<ReviewRouteState, [number], void>(
   RouteScope,
   (get) => get(reviewRouteStateAtom),
   (get, set, requestId) => {

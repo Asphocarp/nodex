@@ -61,11 +61,7 @@ function buildAdapter() {
         plugin.bind?.(client);
       }
     },
-    logEvent: (
-      eventName: string,
-      value?: string | number,
-      metadata?: Record<string, string>,
-    ) => {
+    logEvent: (eventName: string, value?: string | number, metadata?: Record<string, string>) => {
       state.loggedEvents.push({ eventName, value, metadata });
     },
     shutdown: async () => {
@@ -164,9 +160,10 @@ describe("Statsig renderer telemetry", () => {
     };
     boundClient._possibleFirstTouchMetadata = { referrer: "https://example.test/private" };
     boundClient._user = { analyticsOnlyMetadata: { searchQuery: "private" } };
-    const eventFilter = autoCaptureOptions.eventFilterFunc as (
-      event: { eventName: string; metadata?: Record<string, unknown> },
-    ) => boolean;
+    const eventFilter = autoCaptureOptions.eventFilterFunc as (event: {
+      eventName: string;
+      metadata?: Record<string, unknown>;
+    }) => boolean;
     expect(eventFilter({ eventName: "auto_capture::session_start", metadata: {} })).toBe(true);
     expect(Object.keys(boundClient._possibleFirstTouchMetadata ?? {}).length).toBe(0);
     expect("analyticsOnlyMetadata" in (boundClient._user ?? {})).toBe(false);
@@ -237,12 +234,13 @@ describe("Statsig renderer telemetry", () => {
   });
 
   test("exposes metadata normalization as a pure helper", () => {
-    const normalized = normalizeTelemetryMetadata({
-      action: "create",
-      attachmentPath: "/Users/alice/secret.png",
-      url: "https://example.test/secret",
-      message: "x".repeat(250),
-    }) ?? {};
+    const normalized =
+      normalizeTelemetryMetadata({
+        action: "create",
+        attachmentPath: "/Users/alice/secret.png",
+        url: "https://example.test/secret",
+        message: "x".repeat(250),
+      }) ?? {};
 
     expect(normalized.action).toBe("create");
     expect("attachmentPath" in normalized).toBe(false);

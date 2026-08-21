@@ -13,10 +13,9 @@ function makeRuntime(targetArch: "arm64" | "x64" = "arm64") {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-desktop-tools-"));
   temporaryRoots.push(root);
   const runtimeRoot = path.join(root, "runtime");
-  writeBrowserRuntimeFixture(
-    path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY),
-    { targetArch },
-  );
+  writeBrowserRuntimeFixture(path.join(runtimeRoot, BROWSER_RUNTIME_BUNDLE_DIRECTORY), {
+    targetArch,
+  });
   const runtime = resolveBrowserRuntimeBundle({
     expectedCodexCompatibilityVersion: "0.144.6",
     runtimeRoot,
@@ -56,27 +55,31 @@ describe("materializeBundledDesktopToolMarketplace", () => {
       runtimeStateHome: fixture.runtimeStateHome,
     });
 
-    expect(result.rootPath).toBe(path.join(
-      fixture.runtimeStateHome,
-      ".tmp",
-      "bundled-marketplaces",
-      "openai-bundled",
-    ));
-    expect(fs.readFileSync(
-      path.join(result.computerUsePluginRoot!, "skills", "computer-use", "SKILL.md"),
-      "utf8",
-    )).toContain("Node REPL variant");
-    expect(JSON.parse(fs.readFileSync(
-      path.join(result.computerUsePluginRoot!, ".codex-plugin", "plugin.json"),
-      "utf8",
-    ))).toMatchObject({ bundledContentVariant: "node-repl" });
-    expect(JSON.parse(fs.readFileSync(
-      path.join(result.rootPath, ".agents", "plugins", "marketplace.json"),
-      "utf8",
-    )).plugins.map((plugin: { name: string }) => plugin.name)).toEqual([
-      "browser",
-      "computer-use",
-    ]);
+    expect(result.rootPath).toBe(
+      path.join(fixture.runtimeStateHome, ".tmp", "bundled-marketplaces", "openai-bundled"),
+    );
+    expect(
+      fs.readFileSync(
+        path.join(result.computerUsePluginRoot!, "skills", "computer-use", "SKILL.md"),
+        "utf8",
+      ),
+    ).toContain("Node REPL variant");
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(result.computerUsePluginRoot!, ".codex-plugin", "plugin.json"),
+          "utf8",
+        ),
+      ),
+    ).toMatchObject({ bundledContentVariant: "node-repl" });
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(result.rootPath, ".agents", "plugins", "marketplace.json"),
+          "utf8",
+        ),
+      ).plugins.map((plugin: { name: string }) => plugin.name),
+    ).toEqual(["browser", "computer-use"]);
     expect(fs.readFileSync(sourceSkill, "utf8")).toBe(originalSkill);
     expect(fs.readFileSync(sourceManifest, "utf8")).toBe(originalManifest);
   });
@@ -111,9 +114,13 @@ describe("materializeBundledDesktopToolMarketplace", () => {
 
     expect(result.computerUsePluginRoot).toBeNull();
     expect(fs.existsSync(path.join(result.rootPath, "plugins", "computer-use"))).toBe(false);
-    expect(JSON.parse(fs.readFileSync(
-      path.join(result.rootPath, ".agents", "plugins", "marketplace.json"),
-      "utf8",
-    )).plugins.map((plugin: { name: string }) => plugin.name)).toEqual(["browser"]);
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(result.rootPath, ".agents", "plugins", "marketplace.json"),
+          "utf8",
+        ),
+      ).plugins.map((plugin: { name: string }) => plugin.name),
+    ).toEqual(["browser"]);
   });
 });

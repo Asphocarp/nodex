@@ -19,65 +19,67 @@ import {
 const THREAD_ID = "thread-turn-metadata";
 
 function buildState(): CodexCanonicalConversationState {
-  return createCodexCanonicalHydratedConversationState({
-    id: THREAD_ID,
-    extra: null,
-    sessionId: "session-turn-metadata",
-    forkedFromId: null,
-    parentThreadId: null,
-    preview: "",
-    ephemeral: false,
-    section: null,
-    sectionEnteredAt: null,
-    historyMode: "paginated",
-    modelProvider: "openai",
-    createdAt: 1,
-    updatedAt: 1,
-    recencyAt: 1,
-    status: { type: "idle" },
-    path: null,
-    cwd: "/workspace",
-    cliVersion: "test",
-    source: "appServer",
-    canAcceptDirectInput: true,
-    threadSource: null,
-    agentNickname: null,
-    agentRole: null,
-    gitInfo: null,
-    name: null,
-    turns: [{
-      id: "turn-1",
-      itemsView: "full",
-      status: "inProgress",
-      error: null,
-      startedAt: 1,
-      completedAt: null,
-      durationMs: null,
-      items: [],
-    }],
-  }, {
-    model: "gpt-test",
-    reasoningEffort: "high",
-    cwd: "/workspace",
-    approvalPolicy: "on-request",
-    approvalsReviewer: "user",
-    sandboxPolicy: {
-      type: "workspaceWrite",
-      writableRoots: ["/workspace"],
-      networkAccess: false,
-      excludeTmpdirEnvVar: false,
-      excludeSlashTmp: false,
+  return createCodexCanonicalHydratedConversationState(
+    {
+      id: THREAD_ID,
+      extra: null,
+      sessionId: "session-turn-metadata",
+      forkedFromId: null,
+      parentThreadId: null,
+      preview: "",
+      ephemeral: false,
+      section: null,
+      sectionEnteredAt: null,
+      historyMode: "paginated",
+      modelProvider: "openai",
+      createdAt: 1,
+      updatedAt: 1,
+      recencyAt: 1,
+      status: { type: "idle" },
+      path: null,
+      cwd: "/workspace",
+      cliVersion: "test",
+      source: "appServer",
+      canAcceptDirectInput: true,
+      threadSource: null,
+      agentNickname: null,
+      agentRole: null,
+      gitInfo: null,
+      name: null,
+      turns: [
+        {
+          id: "turn-1",
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: 1,
+          completedAt: null,
+          durationMs: null,
+          items: [],
+        },
+      ],
     },
-    activePermissionProfile: null,
-    runtimeWorkspaceRoots: ["/workspace"],
-    hasUnreadTurn: false,
-  });
+    {
+      model: "gpt-test",
+      reasoningEffort: "high",
+      cwd: "/workspace",
+      approvalPolicy: "on-request",
+      approvalsReviewer: "user",
+      sandboxPolicy: {
+        type: "workspaceWrite",
+        writableRoots: ["/workspace"],
+        networkAccess: false,
+        excludeTmpdirEnvVar: false,
+        excludeSlashTmp: false,
+      },
+      activePermissionProfile: null,
+      runtimeWorkspaceRoots: ["/workspace"],
+      hasUnreadTurn: false,
+    },
+  );
 }
 
-function hookRun(
-  status: HookRunSummary["status"],
-  completedAt: bigint | null,
-): HookRunSummary {
+function hookRun(status: HookRunSummary["status"], completedAt: bigint | null): HookRunSummary {
   return {
     id: "hook-1",
     eventName: "preToolUse",
@@ -191,92 +193,108 @@ describe("Codex 30751 turn metadata", () => {
     } satisfies ServerNotification;
     const firstPlan = reduceCodexConversationTurnPlan(buildState(), plan, "todo-1", 10);
     const secondPlan = reduceCodexConversationTurnPlan(firstPlan.state, plan, "todo-2", 11);
-    const rerouted = reduceCodexConversationModelRerouted(secondPlan.state, {
-      method: "model/rerouted",
-      params: {
-        threadId: THREAD_ID,
-        turnId: "turn-1",
-        fromModel: "gpt-a",
-        toModel: "gpt-b",
-        reason: "highRiskCyberActivity",
-      },
-    }, "reroute-1", 12);
-    const errored = reduceCodexConversationError(rerouted.state, {
-      method: "error",
-      params: {
-        threadId: THREAD_ID,
-        turnId: "turn-1",
-        error: {
-          message: "Tool failed",
-          codexErrorInfo: null,
-          additionalDetails: "exit 1",
+    const rerouted = reduceCodexConversationModelRerouted(
+      secondPlan.state,
+      {
+        method: "model/rerouted",
+        params: {
+          threadId: THREAD_ID,
+          turnId: "turn-1",
+          fromModel: "gpt-a",
+          toModel: "gpt-b",
+          reason: "highRiskCyberActivity",
         },
-        willRetry: false,
       },
-    }, "error-1", 13);
+      "reroute-1",
+      12,
+    );
+    const errored = reduceCodexConversationError(
+      rerouted.state,
+      {
+        method: "error",
+        params: {
+          threadId: THREAD_ID,
+          turnId: "turn-1",
+          error: {
+            message: "Tool failed",
+            codexErrorInfo: null,
+            additionalDetails: "exit 1",
+          },
+          willRetry: false,
+        },
+      },
+      "error-1",
+      13,
+    );
 
-    expect(errored.state.turns[0]?.items.map((item) => item.id).join(","))
-      .toBe("todo-1,todo-2,reroute-1,error-1");
+    expect(errored.state.turns[0]?.items.map((item) => item.id).join(",")).toBe(
+      "todo-1,todo-2,reroute-1,error-1",
+    );
     expect(errored.state.turns[0]?.items[2]?.type).toBe("modelRerouted");
     expect(errored.state.turns[0]?.items[3]?.type).toBe("error");
   });
 
   test("upserts one review occurrence, preserves its start, and appends guardian warning", () => {
-    const started = reduceCodexConversationAutomaticApprovalReview(buildState(), {
-      method: "item/autoApprovalReview/started",
-      params: {
-        threadId: THREAD_ID,
-        turnId: "turn-1",
-        startedAtMs: 1,
-        reviewId: "review-1",
-        targetItemId: "command-1",
-        review: {
-          status: "inProgress",
-          riskLevel: "medium",
-          userAuthorization: "unknown",
-          rationale: null,
-        },
-        action: {
-          type: "command",
-          source: "unifiedExec",
-          command: "pnpm test",
-          cwd: "/workspace",
-        },
-      },
-    }, 100);
-    const completed = reduceCodexConversationAutomaticApprovalReview(started.state, {
-      method: "item/autoApprovalReview/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: "turn-1",
-        startedAtMs: 1,
-        completedAtMs: 2,
-        reviewId: "review-1",
-        targetItemId: "command-1",
-        decisionSource: "agent",
-        review: {
-          status: "denied",
-          riskLevel: "high",
-          userAuthorization: "low",
-          rationale: "Too risky",
-        },
-        action: {
-          type: "command",
-          source: "unifiedExec",
-          command: "pnpm test",
-          cwd: "/workspace",
+    const started = reduceCodexConversationAutomaticApprovalReview(
+      buildState(),
+      {
+        method: "item/autoApprovalReview/started",
+        params: {
+          threadId: THREAD_ID,
+          turnId: "turn-1",
+          startedAtMs: 1,
+          reviewId: "review-1",
+          targetItemId: "command-1",
+          review: {
+            status: "inProgress",
+            riskLevel: "medium",
+            userAuthorization: "unknown",
+            rationale: null,
+          },
+          action: {
+            type: "command",
+            source: "unifiedExec",
+            command: "pnpm test",
+            cwd: "/workspace",
+          },
         },
       },
-    }, 200);
-    const warned = reduceCodexConversationGuardianWarning(
-      completed.state,
-      THREAD_ID,
-      "warning-1",
+      100,
     );
+    const completed = reduceCodexConversationAutomaticApprovalReview(
+      started.state,
+      {
+        method: "item/autoApprovalReview/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: "turn-1",
+          startedAtMs: 1,
+          completedAtMs: 2,
+          reviewId: "review-1",
+          targetItemId: "command-1",
+          decisionSource: "agent",
+          review: {
+            status: "denied",
+            riskLevel: "high",
+            userAuthorization: "low",
+            rationale: "Too risky",
+          },
+          action: {
+            type: "command",
+            source: "unifiedExec",
+            command: "pnpm test",
+            cwd: "/workspace",
+          },
+        },
+      },
+      200,
+    );
+    const warned = reduceCodexConversationGuardianWarning(completed.state, THREAD_ID, "warning-1");
     const review = warned.state.turns[0]?.items[0];
-    const event = review?.type === "automaticApprovalReview"
-      ? review.event as { status?: string; action?: { source?: string } }
-      : null;
+    const event =
+      review?.type === "automaticApprovalReview"
+        ? (review.event as { status?: string; action?: { source?: string } })
+        : null;
 
     expect(warned.state.turns[0]?.items.length).toBe(2);
     expect(review?.type).toBe("automaticApprovalReview");

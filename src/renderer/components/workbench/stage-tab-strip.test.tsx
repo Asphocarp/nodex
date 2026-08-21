@@ -32,7 +32,9 @@ describe("StageTabStrip", () => {
     );
 
     expect(
-      container.querySelector(".bottom-0.h-\\[calc\\(var\\(--spacing\\)\\*0\\.5\\)\\].rounded-full.bg-\\[var\\(--accent-blue\\)\\]"),
+      container.querySelector(
+        ".bottom-0.h-\\[calc\\(var\\(--spacing\\)\\*0\\.5\\)\\].rounded-full.bg-\\[var\\(--accent-blue\\)\\]",
+      ),
     ).toBe(null);
   });
 });

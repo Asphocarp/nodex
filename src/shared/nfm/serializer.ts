@@ -36,26 +36,43 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         break;
       }
       case "bulletListItem": {
-        lines.push(prefix + "- " + serializeInlineContent(block.content) + colorSuffix(block.color));
+        lines.push(
+          prefix + "- " + serializeInlineContent(block.content) + colorSuffix(block.color),
+        );
         break;
       }
       case "numberedListItem": {
         const start = orderedListStarts[index] ?? 1;
-        lines.push(prefix + `${start}. ` + serializeInlineContent(block.content) + colorSuffix(block.color));
+        lines.push(
+          prefix + `${start}. ` + serializeInlineContent(block.content) + colorSuffix(block.color),
+        );
         break;
       }
       case "checkListItem": {
         const check = block.checked ? "x" : " ";
-        lines.push(prefix + `- [${check}] ` + serializeInlineContent(block.content) + colorSuffix(block.color));
+        lines.push(
+          prefix +
+            `- [${check}] ` +
+            serializeInlineContent(block.content) +
+            colorSuffix(block.color),
+        );
         break;
       }
       case "toggle": {
         const toggleMarker = block.isOpen ? "▼" : "▶";
-        lines.push(prefix + toggleMarker + " " + serializeInlineContent(block.content) + colorSuffix(block.color));
+        lines.push(
+          prefix +
+            toggleMarker +
+            " " +
+            serializeInlineContent(block.content) +
+            colorSuffix(block.color),
+        );
         break;
       }
       case "blockquote": {
-        lines.push(prefix + "> " + serializeInlineContent(block.content) + colorSuffix(block.color));
+        lines.push(
+          prefix + "> " + serializeInlineContent(block.content) + colorSuffix(block.color),
+        );
         break;
       }
       case "codeBlock": {
@@ -87,7 +104,9 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         const attrs = [`source="${escapeXmlAttr(block.source)}"`];
         if (block.color) attrs.push(`color="${block.color}"`);
         if (block.previewWidth !== undefined) attrs.push(`preview-width="${block.previewWidth}"`);
-        lines.push(prefix + `<image ${attrs.join(" ")}>${serializeInlineContent(block.caption)}</image>`);
+        lines.push(
+          prefix + `<image ${attrs.join(" ")}>${serializeInlineContent(block.caption)}</image>`,
+        );
         break;
       }
       case "toggleListInlineView": {
@@ -111,9 +130,7 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         break;
       }
       case "databaseViewRef": {
-        const attrs = [
-          `database-view="${escapeXmlAttr(block.databaseViewId)}"`,
-        ];
+        const attrs = [`database-view="${escapeXmlAttr(block.databaseViewId)}"`];
         if (block.displayHint !== undefined) {
           attrs.push(`display-hint="${escapeXmlAttr(block.displayHint)}"`);
         }
@@ -124,46 +141,35 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         if (!block.uuid || block.uuid !== block.uuid.trim()) {
           throw new TypeError("Canonical Database NFM requires an exact non-empty uuid");
         }
-        lines.push(
-          prefix + `<database uuid="${escapeXmlAttr(block.uuid)}" />`,
-        );
+        lines.push(prefix + `<database uuid="${escapeXmlAttr(block.uuid)}" />`);
         break;
       }
       case "canvas": {
         if (!block.uuid || block.uuid !== block.uuid.trim()) {
           throw new TypeError("Canonical Canvas NFM requires an exact non-empty uuid");
         }
-        lines.push(
-          prefix + `<canvas uuid="${escapeXmlAttr(block.uuid)}" />`,
-        );
+        lines.push(prefix + `<canvas uuid="${escapeXmlAttr(block.uuid)}" />`);
         break;
       }
       case "syncedBlockRef": {
         lines.push(
-          prefix +
-            `<synced-block-ref source-block="${escapeXmlAttr(block.sourceBlockId)}" />`,
+          prefix + `<synced-block-ref source-block="${escapeXmlAttr(block.sourceBlockId)}" />`,
         );
         break;
       }
       case "templateRef": {
-        const attrs = [
-          `source-block="${escapeXmlAttr(block.sourceBlockId)}"`,
-        ];
+        const attrs = [`source-block="${escapeXmlAttr(block.sourceBlockId)}"`];
         if (block.displayHint !== undefined) {
           attrs.push(`display-hint="${escapeXmlAttr(block.displayHint)}"`);
         }
-        lines.push(
-          prefix + `<template-ref ${attrs.join(" ")} />`,
-        );
+        lines.push(prefix + `<template-ref ${attrs.join(" ")} />`);
         break;
       }
       case "page": {
         if (!block.uuid || block.uuid !== block.uuid.trim()) {
           throw new TypeError("Canonical Page NFM requires an exact non-empty uuid");
         }
-        lines.push(
-          prefix + `<page uuid="${escapeXmlAttr(block.uuid)}" />`,
-        );
+        lines.push(prefix + `<page uuid="${escapeXmlAttr(block.uuid)}" />`);
         break;
       }
       case "threadSection": {
@@ -203,7 +209,8 @@ function serializeBlocks(blocks: NfmBlock[], indent: number): string[] {
         if (block.snapshot) attrs.push(`snapshot="${escapeXmlAttr(block.snapshot)}"`);
         if (block.sourceProjectId) attrs.push(`project="${escapeXmlAttr(block.sourceProjectId)}"`);
         if (block.sourceStatus) attrs.push(`status="${escapeXmlAttr(block.sourceStatus)}"`);
-        if (block.sourceStatusName) attrs.push(`status-name="${escapeXmlAttr(block.sourceStatusName)}"`);
+        if (block.sourceStatusName)
+          attrs.push(`status-name="${escapeXmlAttr(block.sourceStatusName)}"`);
         lines.push(prefix + `<card-toggle ${attrs.join(" ")}>`);
         lines.push(prefix + "\t" + serializeInlineContent(block.content));
         lines.push(...serializeBlocks(block.children, indent + 1));

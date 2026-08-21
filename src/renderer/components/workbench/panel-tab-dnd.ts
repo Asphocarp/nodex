@@ -28,40 +28,40 @@ export type PanelTabDropTargetData = PanelTabRowDropData | PanelGroupBodyDropDat
 
 export type PanelTabDropIntent =
   | {
-    kind: "tab-row";
-    panelId: PanelId;
-    leafId: string;
-    targetIndex: number;
-    markerLeft: number;
-  }
+      kind: "tab-row";
+      panelId: PanelId;
+      leafId: string;
+      targetIndex: number;
+      markerLeft: number;
+    }
   | {
-    kind: "body";
-    panelId: PanelId;
-    leafId: string;
-    zone: PanelGroupBodyDropZone;
-  };
+      kind: "body";
+      panelId: PanelId;
+      leafId: string;
+      zone: PanelGroupBodyDropZone;
+    };
 
 export type PanelTabDropCommit =
   | {
-    kind: "reorder";
-    leafId: string;
-    tabId: string;
-    targetIndex: number;
-  }
+      kind: "reorder";
+      leafId: string;
+      tabId: string;
+      targetIndex: number;
+    }
   | {
-    kind: "move";
-    tabId: string;
-    targetPanelId: PanelId;
-    targetLeafId: string;
-    targetIndex?: number;
-  }
+      kind: "move";
+      tabId: string;
+      targetPanelId: PanelId;
+      targetLeafId: string;
+      targetIndex?: number;
+    }
   | {
-    kind: "split";
-    tabId: string;
-    targetPanelId: PanelId;
-    targetLeafId: string;
-    side: WorkbenchPanelSplitSide;
-  };
+      kind: "split";
+      tabId: string;
+      targetPanelId: PanelId;
+      targetLeafId: string;
+      side: WorkbenchPanelSplitSide;
+    };
 
 export interface PanelTabRect {
   id: string;
@@ -107,26 +107,38 @@ export function buildPanelGroupBodyDropData(input: {
   return { type: PANEL_BODY_DROP_TYPE, ...input };
 }
 
-export function isPanelTabDragData(value: Record<string | symbol, unknown>): value is PanelTabDragData {
-  return value.type === PANEL_TAB_DRAG_TYPE
-    && typeof value.sessionId === "string"
-    && isPanelId(value.panelId)
-    && typeof value.leafId === "string"
-    && typeof value.tabId === "string";
+export function isPanelTabDragData(
+  value: Record<string | symbol, unknown>,
+): value is PanelTabDragData {
+  return (
+    value.type === PANEL_TAB_DRAG_TYPE &&
+    typeof value.sessionId === "string" &&
+    isPanelId(value.panelId) &&
+    typeof value.leafId === "string" &&
+    typeof value.tabId === "string"
+  );
 }
 
-export function isPanelTabRowDropData(value: Record<string | symbol, unknown>): value is PanelTabRowDropData {
-  return value.type === PANEL_TAB_ROW_DROP_TYPE
-    && typeof value.sessionId === "string"
-    && isPanelId(value.panelId)
-    && typeof value.leafId === "string";
+export function isPanelTabRowDropData(
+  value: Record<string | symbol, unknown>,
+): value is PanelTabRowDropData {
+  return (
+    value.type === PANEL_TAB_ROW_DROP_TYPE &&
+    typeof value.sessionId === "string" &&
+    isPanelId(value.panelId) &&
+    typeof value.leafId === "string"
+  );
 }
 
-export function isPanelGroupBodyDropData(value: Record<string | symbol, unknown>): value is PanelGroupBodyDropData {
-  return value.type === PANEL_BODY_DROP_TYPE
-    && typeof value.sessionId === "string"
-    && isPanelId(value.panelId)
-    && typeof value.leafId === "string";
+export function isPanelGroupBodyDropData(
+  value: Record<string | symbol, unknown>,
+): value is PanelGroupBodyDropData {
+  return (
+    value.type === PANEL_BODY_DROP_TYPE &&
+    typeof value.sessionId === "string" &&
+    isPanelId(value.panelId) &&
+    typeof value.leafId === "string"
+  );
 }
 
 export function resolvePanelTabRowInsertion(input: {

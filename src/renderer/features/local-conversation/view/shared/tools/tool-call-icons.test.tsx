@@ -66,37 +66,47 @@ describe("tool-call icon helpers", () => {
   });
 
   test("maps typed exploration actions to semantic activity icons", () => {
-    expect(toolCallIconTestHelpers.resolveExplorationActionIcon({
-      type: "read",
-      command: "sed -n '1,80p' src/app.ts",
-      path: "src/app.ts",
-      name: "app.ts",
-    })).toBe("read-files");
-    expect(toolCallIconTestHelpers.resolveExplorationActionIcon({
-      type: "search",
-      command: "rg activity src",
-      query: "activity",
-      path: "src",
-    })).toBe("code-searching");
-    expect(toolCallIconTestHelpers.resolveExplorationActionIcon({
-      type: "listFiles",
-      command: "ls src",
-      path: "src",
-    })).toBe("list-files");
-    expect(toolCallIconTestHelpers.resolveExplorationActionIcon({
-      type: "read",
-      command: "sed -n '1,80p' .agents/skills/ui/SKILL.md",
-      path: ".agents/skills/ui/SKILL.md",
-      name: "SKILL.md",
-    })).toBe("skill");
+    expect(
+      toolCallIconTestHelpers.resolveExplorationActionIcon({
+        type: "read",
+        command: "sed -n '1,80p' src/app.ts",
+        path: "src/app.ts",
+        name: "app.ts",
+      }),
+    ).toBe("read-files");
+    expect(
+      toolCallIconTestHelpers.resolveExplorationActionIcon({
+        type: "search",
+        command: "rg activity src",
+        query: "activity",
+        path: "src",
+      }),
+    ).toBe("code-searching");
+    expect(
+      toolCallIconTestHelpers.resolveExplorationActionIcon({
+        type: "listFiles",
+        command: "ls src",
+        path: "src",
+      }),
+    ).toBe("list-files");
+    expect(
+      toolCallIconTestHelpers.resolveExplorationActionIcon({
+        type: "read",
+        command: "sed -n '1,80p' .agents/skills/ui/SKILL.md",
+        path: ".agents/skills/ui/SKILL.md",
+        name: "SKILL.md",
+      }),
+    ).toBe("skill");
   });
 
   test("uses theme-specific connector logo URLs and falls back on image failure", () => {
-    expect(toolCallIconTestHelpers.selectConnectorLogoUrl({
-      isDarkTheme: true,
-      logoUrl: "https://example.com/light.svg",
-      logoDarkUrl: "https://example.com/dark.svg",
-    })).toBe("https://example.com/dark.svg");
+    expect(
+      toolCallIconTestHelpers.selectConnectorLogoUrl({
+        isDarkTheme: true,
+        logoUrl: "https://example.com/light.svg",
+        logoDarkUrl: "https://example.com/dark.svg",
+      }),
+    ).toBe("https://example.com/dark.svg");
 
     const { container } = render(
       <ConnectorLogo
@@ -245,27 +255,35 @@ describe("tool-call icon helpers", () => {
       },
     }) as CodexConversationItem;
 
-    const commandDescriptor = resolveToolActivityEntryIcon({
-      id: "command",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 1,
-      searchableText: "Explored",
-      type: "exec",
-      entry: commandEntry,
-      status: "completed",
-    }, []);
-    const webDescriptor = resolveToolActivityEntryIcon({
-      id: "web",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 1,
-      searchableText: "Web",
-      type: "webSearch",
-      entry: webEntry,
-    }, []);
+    const commandDescriptor = resolveToolActivityEntryIcon(
+      {
+        id: "command",
+        turnId: "turn-1",
+        createdAt: 1,
+        updatedAt: 1,
+        searchableText: "Explored",
+        type: "exec",
+        entry: commandEntry,
+        status: "completed",
+      },
+      [],
+    );
+    const webDescriptor = resolveToolActivityEntryIcon(
+      {
+        id: "web",
+        turnId: "turn-1",
+        createdAt: 1,
+        updatedAt: 1,
+        searchableText: "Web",
+        type: "webSearch",
+        entry: webEntry,
+      },
+      [],
+    );
 
-    expect(commandDescriptor?.kind === "semantic" ? commandDescriptor.icon : "").toBe("code-searching");
+    expect(commandDescriptor?.kind === "semantic" ? commandDescriptor.icon : "").toBe(
+      "code-searching",
+    );
     expect(webDescriptor?.kind === "semantic" ? webDescriptor.icon : "").toBe("web-search");
   });
 
@@ -280,23 +298,38 @@ describe("tool-call icon helpers", () => {
       entry,
       status: entry.status,
     });
-    const stopped = resolveToolActivityEntryIcon(makeCommandBlock(buildEntry({
-      itemId: "stopped",
-      semanticKind: "exec",
-      status: "interrupted",
-      executionStatus: "interrupted",
-      command: "pnpm test",
-    }) as CodexConversationItem), []);
-    const web = resolveToolActivityEntryIcon(makeCommandBlock(buildEntry({
-      itemId: "curl",
-      semanticKind: "exec",
-      command: "curl https://example.com",
-    }) as CodexConversationItem), []);
-    const visualization = resolveToolActivityEntryIcon(makeCommandBlock(buildEntry({
-      itemId: "visualization",
-      semanticKind: "exec",
-      command: "mkdir -p /tmp/visualizations/chart",
-    }) as CodexConversationItem), []);
+    const stopped = resolveToolActivityEntryIcon(
+      makeCommandBlock(
+        buildEntry({
+          itemId: "stopped",
+          semanticKind: "exec",
+          status: "interrupted",
+          executionStatus: "interrupted",
+          command: "pnpm test",
+        }) as CodexConversationItem,
+      ),
+      [],
+    );
+    const web = resolveToolActivityEntryIcon(
+      makeCommandBlock(
+        buildEntry({
+          itemId: "curl",
+          semanticKind: "exec",
+          command: "curl https://example.com",
+        }) as CodexConversationItem,
+      ),
+      [],
+    );
+    const visualization = resolveToolActivityEntryIcon(
+      makeCommandBlock(
+        buildEntry({
+          itemId: "visualization",
+          semanticKind: "exec",
+          command: "mkdir -p /tmp/visualizations/chart",
+        }) as CodexConversationItem,
+      ),
+      [],
+    );
 
     expect(stopped?.kind === "semantic" ? stopped.icon : "").toBe("stopped");
     expect(web?.kind === "semantic" ? web.icon : "").toBe("web-search");
@@ -309,16 +342,19 @@ describe("tool-call icon helpers", () => {
       status: "inProgress",
       rawItem: { review: { status: "inProgress" } },
     }) as CodexConversationItem;
-    const descriptor = resolveToolActivityEntryIcon({
-      id: "review",
-      turnId: "turn-1",
-      createdAt: 1,
-      updatedAt: 1,
-      searchableText: "Auto-reviewing",
-      type: "automaticApprovalReview",
-      entry,
-      status: "inProgress",
-    }, []);
+    const descriptor = resolveToolActivityEntryIcon(
+      {
+        id: "review",
+        turnId: "turn-1",
+        createdAt: 1,
+        updatedAt: 1,
+        searchableText: "Auto-reviewing",
+        type: "automaticApprovalReview",
+        entry,
+        status: "inProgress",
+      },
+      [],
+    );
 
     expect(descriptor?.kind).toBe("semantic");
     expect(descriptor?.kind === "semantic" ? descriptor.icon : "").toBe("automatic-review");

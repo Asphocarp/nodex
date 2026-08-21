@@ -19,9 +19,7 @@ export interface CanvasDocumentSessionAcquireInput extends ContentAccessIdentity
   readonly documentId: string;
   readonly storeEpoch: string;
   readonly generation: number;
-  readonly createProvider: (
-    callbacks: CanvasDocumentSessionCallbacks,
-  ) => CanvasSceneProvider;
+  readonly createProvider: (callbacks: CanvasDocumentSessionCallbacks) => CanvasSceneProvider;
 }
 
 export interface CanvasDocumentSessionLease {
@@ -29,37 +27,24 @@ export interface CanvasDocumentSessionLease {
   readonly stagedFileCatalog: CanvasSceneStagedFileCatalog;
   connect(): Promise<void>;
   subscribeScene(listener: (scene: PortableCanvasScene) => void): () => void;
-  subscribePresence(
-    listener: (event: CanvasPresenceRealtimeEvent) => void,
-  ): () => void;
+  subscribePresence(listener: (event: CanvasPresenceRealtimeEvent) => void): () => void;
   release(): Promise<void>;
 }
 
 export interface CanvasDocumentSessionRegistry {
-  acquire(
-    input: CanvasDocumentSessionAcquireInput,
-  ): CanvasDocumentSessionLease;
-  retireOwner(
-    identity: ContentAccessIdentity,
-    ownerBlockId: string,
-  ): Promise<void>;
+  acquire(input: CanvasDocumentSessionAcquireInput): CanvasDocumentSessionLease;
+  retireOwner(identity: ContentAccessIdentity, ownerBlockId: string): Promise<void>;
 }
 
-const sessionKey = (
-  identity: ContentAccessIdentity,
-  documentId: string,
-): string => JSON.stringify([contentAccessIdentityKey(identity), documentId]);
+const sessionKey = (identity: ContentAccessIdentity, documentId: string): string =>
+  JSON.stringify([contentAccessIdentityKey(identity), documentId]);
 
 class DefaultCanvasDocumentSession {
   readonly provider: CanvasSceneProvider;
   readonly stagedFileCatalog = new CanvasSceneStagedFileCatalog();
 
-  private readonly sceneListeners = new Set<
-    (scene: PortableCanvasScene) => void
-  >();
-  private readonly presenceListeners = new Set<
-    (event: CanvasPresenceRealtimeEvent) => void
-  >();
+  private readonly sceneListeners = new Set<(scene: PortableCanvasScene) => void>();
+  private readonly presenceListeners = new Set<(event: CanvasPresenceRealtimeEvent) => void>();
   private readonly presenceReplay: CanvasPresenceRealtimeEvent[] = [];
   private referenceCount = 0;
   private closing = false;
@@ -75,9 +60,7 @@ class DefaultCanvasDocumentSession {
     readonly generation: number,
     private readonly connectBarrier: Promise<void>,
     createProvider: CanvasDocumentSessionAcquireInput["createProvider"],
-    private readonly onLastRelease: (
-      session: DefaultCanvasDocumentSession,
-    ) => Promise<void>,
+    private readonly onLastRelease: (session: DefaultCanvasDocumentSession) => Promise<void>,
   ) {
     this.provider = createProvider({
       onScene: (scene) => {
@@ -95,10 +78,12 @@ class DefaultCanvasDocumentSession {
   }
 
   isCompatible(input: CanvasDocumentSessionAcquireInput): boolean {
-    return !this.closing
-      && this.ownerBlockId === input.ownerBlockId
-      && this.storeEpoch === input.storeEpoch
-      && this.generation === input.generation;
+    return (
+      !this.closing &&
+      this.ownerBlockId === input.ownerBlockId &&
+      this.storeEpoch === input.storeEpoch &&
+      this.generation === input.generation
+    );
   }
 
   acquire(): CanvasDocumentSessionLease {
@@ -180,85 +165,74 @@ class DefaultCanvasDocumentSession {
   }
 }
 
-export const createCanvasDocumentSessionRegistry =
-  (): CanvasDocumentSessionRegistry => {
-    const currentByKey = new Map<string, DefaultCanvasDocumentSession>();
-    const closingByKey = new Map<string, Promise<void>>();
-    const closingSessionsByKey =
-      new Map<string, DefaultCanvasDocumentSession>();
+export const createCanvasDocumentSessionRegistry = (): CanvasDocumentSessionRegistry => {
+  const currentByKey = new Map<string, DefaultCanvasDocumentSession>();
+  const closingByKey = new Map<string, Promise<void>>();
+  const closingSessionsByKey = new Map<string, DefaultCanvasDocumentSession>();
 
-    const closeLastSession = async (
-      session: DefaultCanvasDocumentSession,
-    ): Promise<void> => {
-      if (currentByKey.get(session.key) === session) {
-        currentByKey.delete(session.key);
+  const closeLastSession = async (session: DefaultCanvasDocumentSession): Promise<void> => {
+    if (currentByKey.get(session.key) === session) {
+      currentByKey.delete(session.key);
+    }
+    closingSessionsByKey.set(session.key, session);
+    const closing = session.beginClose().finally(() => {
+      if (closingByKey.get(session.key) === closing) {
+        closingByKey.delete(session.key);
+        closingSessionsByKey.delete(session.key);
       }
-      closingSessionsByKey.set(session.key, session);
-      const closing = session.beginClose().finally(() => {
-        if (closingByKey.get(session.key) === closing) {
-          closingByKey.delete(session.key);
-          closingSessionsByKey.delete(session.key);
-        }
-      });
-      closingByKey.set(session.key, closing);
-      await closing;
-    };
-
-    const retireSession = async (
-      session: DefaultCanvasDocumentSession,
-    ): Promise<void> => {
-      if (currentByKey.get(session.key) === session) {
-        currentByKey.delete(session.key);
-      }
-      closingSessionsByKey.set(session.key, session);
-      const closing = session.beginOwnerRetired().finally(() => {
-        if (closingByKey.get(session.key) === closing) {
-          closingByKey.delete(session.key);
-          closingSessionsByKey.delete(session.key);
-        }
-      });
-      closingByKey.set(session.key, closing);
-      await closing;
-    };
-
-    return {
-      acquire(input) {
-        const key = sessionKey(input, input.documentId);
-        const current = currentByKey.get(key);
-        if (current?.isCompatible(input)) return current.acquire();
-
-        const predecessor = current
-          ? closeLastSession(current).catch(() => undefined)
-          : closingByKey.get(key)?.catch(() => undefined) ?? Promise.resolve();
-        const session = new DefaultCanvasDocumentSession(
-          key,
-          contentAccessIdentityKey(input),
-          input.ownerBlockId,
-          input.storeEpoch,
-          input.generation,
-          predecessor,
-          input.createProvider,
-          closeLastSession,
-        );
-        currentByKey.set(key, session);
-        return session.acquire();
-      },
-      async retireOwner(identity, ownerBlockId) {
-        const accessKey = contentAccessIdentityKey(identity);
-        const sessions = [
-          ...new Set([
-            ...currentByKey.values(),
-            ...closingSessionsByKey.values(),
-          ]),
-        ].filter(
-          (session) =>
-            session.accessIdentityKey === accessKey
-            && session.ownerBlockId === ownerBlockId,
-        );
-        await Promise.all(sessions.map(retireSession));
-      },
-    };
+    });
+    closingByKey.set(session.key, closing);
+    await closing;
   };
 
-export const canvasDocumentSessionRegistry =
-  createCanvasDocumentSessionRegistry();
+  const retireSession = async (session: DefaultCanvasDocumentSession): Promise<void> => {
+    if (currentByKey.get(session.key) === session) {
+      currentByKey.delete(session.key);
+    }
+    closingSessionsByKey.set(session.key, session);
+    const closing = session.beginOwnerRetired().finally(() => {
+      if (closingByKey.get(session.key) === closing) {
+        closingByKey.delete(session.key);
+        closingSessionsByKey.delete(session.key);
+      }
+    });
+    closingByKey.set(session.key, closing);
+    await closing;
+  };
+
+  return {
+    acquire(input) {
+      const key = sessionKey(input, input.documentId);
+      const current = currentByKey.get(key);
+      if (current?.isCompatible(input)) return current.acquire();
+
+      const predecessor = current
+        ? closeLastSession(current).catch(() => undefined)
+        : (closingByKey.get(key)?.catch(() => undefined) ?? Promise.resolve());
+      const session = new DefaultCanvasDocumentSession(
+        key,
+        contentAccessIdentityKey(input),
+        input.ownerBlockId,
+        input.storeEpoch,
+        input.generation,
+        predecessor,
+        input.createProvider,
+        closeLastSession,
+      );
+      currentByKey.set(key, session);
+      return session.acquire();
+    },
+    async retireOwner(identity, ownerBlockId) {
+      const accessKey = contentAccessIdentityKey(identity);
+      const sessions = [
+        ...new Set([...currentByKey.values(), ...closingSessionsByKey.values()]),
+      ].filter(
+        (session) =>
+          session.accessIdentityKey === accessKey && session.ownerBlockId === ownerBlockId,
+      );
+      await Promise.all(sessions.map(retireSession));
+    },
+  };
+};
+
+export const canvasDocumentSessionRegistry = createCanvasDocumentSessionRegistry();

@@ -1,6 +1,4 @@
-import {
-  BlockNoteEditor,
-} from "@blocknote/core";
+import { BlockNoteEditor } from "@blocknote/core";
 import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { BlockNoteViewRaw, useCreateBlockNote } from "@blocknote/react";
 import { act, render } from "@testing-library/react";
@@ -20,11 +18,7 @@ const settleEditor = async () => {
   await Promise.resolve();
 };
 
-function ExternalEditorHookOwner({
-  editor,
-}: {
-  readonly editor: BlockNoteEditor;
-}) {
+function ExternalEditorHookOwner({ editor }: { readonly editor: BlockNoteEditor }) {
   useCreateBlockNote({}, [], editor);
   return null;
 }
@@ -42,19 +36,18 @@ describe("collaborative NFM undo in Chromium", () => {
     const remoteDocument = new Y.Doc({ guid: localDocument.guid });
     Y.applyUpdate(remoteDocument, Y.encodeStateAsUpdate(localDocument));
     const remoteBaseVector = Y.encodeStateVector(remoteDocument);
-    const createEditor = (
-      document: Y.Doc,
-      clientSessionId: string,
-      name: string,
-    ) => BlockNoteEditor.create(createNfmEditorModeOptions({
-      kind: "collaborative-document",
-      documentId: document.guid,
-      storeEpoch: "epoch:remote-selected-block-deletion",
-      generation: 1,
-      clientSessionId,
-      fragment: document.getXmlFragment("body"),
-      user: { name, color: name === "Local" ? "#2563eb" : "#16a34a" },
-    }));
+    const createEditor = (document: Y.Doc, clientSessionId: string, name: string) =>
+      BlockNoteEditor.create(
+        createNfmEditorModeOptions({
+          kind: "collaborative-document",
+          documentId: document.guid,
+          storeEpoch: "epoch:remote-selected-block-deletion",
+          generation: 1,
+          clientSessionId,
+          fragment: document.getXmlFragment("body"),
+          user: { name, color: name === "Local" ? "#2563eb" : "#16a34a" },
+        }),
+      );
     const localEditor = createEditor(localDocument, "surface:local", "Local");
     const remoteEditor = createEditor(remoteDocument, "surface:remote", "Remote");
     const localHost = globalThis.document.createElement("div");
@@ -83,10 +76,7 @@ describe("collaborative NFM undo in Chromium", () => {
       await act(async () => {
         localEditor.prosemirrorView.dispatch(
           localEditor.prosemirrorState.tr.setSelection(
-            NodeSelection.create(
-              localEditor.prosemirrorState.doc,
-              selectedBlockPosition,
-            ),
+            NodeSelection.create(localEditor.prosemirrorState.doc, selectedBlockPosition),
           ),
         );
         await settleEditor();
@@ -95,10 +85,7 @@ describe("collaborative NFM undo in Chromium", () => {
       let remoteUpdate: Uint8Array | undefined;
       await act(async () => {
         remoteEditor.removeBlocks([draggedBlockId]);
-        remoteUpdate = Y.encodeStateAsUpdate(
-          remoteDocument,
-          remoteBaseVector,
-        );
+        remoteUpdate = Y.encodeStateAsUpdate(remoteDocument, remoteBaseVector);
         await settleEditor();
       });
       if (!remoteUpdate) {
@@ -111,9 +98,7 @@ describe("collaborative NFM undo in Chromium", () => {
         await settleEditor();
       });
       expect(localEditor.getBlock(draggedBlockId)).toBeUndefined();
-      expect(localEditor.prosemirrorState.selection).not.toBeInstanceOf(
-        NodeSelection,
-      );
+      expect(localEditor.prosemirrorState.selection).not.toBeInstanceOf(NodeSelection);
       expect(localEditor.prosemirrorState.selection.$head.parent).toBeDefined();
       const survivingBlock = localEditor.document.at(-1);
       if (!survivingBlock) {
@@ -123,9 +108,7 @@ describe("collaborative NFM undo in Chromium", () => {
         localEditor.updateBlock(survivingBlock, { content: "Still editable" });
         await settleEditor();
       });
-      expect(localEditor.getBlock(survivingBlock.id)?.content).not.toEqual(
-        survivingBlock.content,
-      );
+      expect(localEditor.getBlock(survivingBlock.id)?.content).not.toEqual(survivingBlock.content);
     } finally {
       localEditor.unmount();
       remoteEditor.unmount();
@@ -169,15 +152,17 @@ describe("collaborative NFM undo in Chromium", () => {
     });
     const document = genesis.document;
     const createSurfaceEditor = (clientSessionId: string, name: string) =>
-      BlockNoteEditor.create(createNfmEditorModeOptions({
-        kind: "collaborative-document",
-        documentId: document.guid,
-        storeEpoch: "epoch:two-surface-undo",
-        generation: 1,
-        clientSessionId,
-        fragment: document.getXmlFragment("body"),
-        user: { name, color: name === "Left" ? "#2563eb" : "#16a34a" },
-      }));
+      BlockNoteEditor.create(
+        createNfmEditorModeOptions({
+          kind: "collaborative-document",
+          documentId: document.guid,
+          storeEpoch: "epoch:two-surface-undo",
+          generation: 1,
+          clientSessionId,
+          fragment: document.getXmlFragment("body"),
+          user: { name, color: name === "Left" ? "#2563eb" : "#16a34a" },
+        }),
+      );
     const left = createSurfaceEditor("surface:left", "Left");
     const right = createSurfaceEditor("surface:right", "Right");
     const leftHost = globalThis.document.createElement("div");
@@ -196,11 +181,17 @@ describe("collaborative NFM undo in Chromium", () => {
 
       await act(async () => {
         left.updateBlock(leftBase, { content: "Left edit" });
-        right.insertBlocks([{
-          id: "block-right",
-          type: "paragraph",
-          content: "Right edit",
-        }], rightBase, "after");
+        right.insertBlocks(
+          [
+            {
+              id: "block-right",
+              type: "paragraph",
+              content: "Right edit",
+            },
+          ],
+          rightBase,
+          "after",
+        );
         await settleEditor();
       });
       expect(left.getBlock("block-base")?.content).not.toEqual(leftBase.content);
@@ -316,9 +307,7 @@ describe("collaborative NFM undo in Chromium", () => {
         editorSession.setShouldRestoreEditorFocus(true);
         localEditor.focus();
       });
-      expect(globalThis.document.activeElement).toBe(
-        localEditor.prosemirrorView.dom,
-      );
+      expect(globalThis.document.activeElement).toBe(localEditor.prosemirrorView.dom);
       firstView.unmount();
 
       let alphaPosition: number | null = null;
@@ -331,10 +320,7 @@ describe("collaborative NFM undo in Chromium", () => {
       const remoteInsertPosition = alphaPosition;
       await act(async () => {
         remoteEditor.prosemirrorView.dispatch(
-          remoteEditor.prosemirrorState.tr.insertText(
-            "REMOTE ",
-            remoteInsertPosition,
-          ),
+          remoteEditor.prosemirrorState.tr.insertText("REMOTE ", remoteInsertPosition),
         );
         await settleEditor();
       });
@@ -342,12 +328,8 @@ describe("collaborative NFM undo in Chromium", () => {
       const secondView = render(<BlockNoteViewRaw {...viewProps} />);
       try {
         await act(settleEditor);
-        expect(localEditor.prosemirrorState.selection.head).toBe(
-          initialCursor + "REMOTE ".length,
-        );
-        expect(globalThis.document.activeElement).toBe(
-          localEditor.prosemirrorView.dom,
-        );
+        expect(localEditor.prosemirrorState.selection.head).toBe(initialCursor + "REMOTE ".length);
+        expect(globalThis.document.activeElement).toBe(localEditor.prosemirrorView.dom);
       } finally {
         secondView.unmount();
       }
@@ -359,9 +341,7 @@ describe("collaborative NFM undo in Chromium", () => {
       const thirdView = render(<BlockNoteViewRaw {...viewProps} />);
       try {
         await act(settleEditor);
-        expect(localEditor.prosemirrorState.selection.head).toBe(
-          initialCursor + "REMOTE ".length,
-        );
+        expect(localEditor.prosemirrorState.selection.head).toBe(initialCursor + "REMOTE ".length);
         expect(globalThis.document.activeElement).toBe(otherPageControl);
       } finally {
         thirdView.unmount();
@@ -456,9 +436,7 @@ describe("collaborative NFM undo in Chromium", () => {
         await settleEditor();
       });
 
-      expect(localEditor.getBlock("block-base")?.content).not.toEqual(
-        remoteBase.content,
-      );
+      expect(localEditor.getBlock("block-base")?.content).not.toEqual(remoteBase.content);
       expect(localEditor.getBlock("block-remote")).toBeDefined();
 
       let handled = false;
@@ -468,15 +446,11 @@ describe("collaborative NFM undo in Chromium", () => {
       });
 
       expect(handled).toBe(true);
-      expect(localEditor.getBlock("block-base")?.content).toEqual(
-        remoteBase.content,
-      );
+      expect(localEditor.getBlock("block-base")?.content).toEqual(remoteBase.content);
       expect(localEditor.getBlock("block-remote")).toBeDefined();
 
       const undoPlugin = localEditor.prosemirrorState.plugins.find((plugin) =>
-        (plugin as unknown as { readonly key: string }).key.startsWith(
-          "y-undo$",
-        ),
+        (plugin as unknown as { readonly key: string }).key.startsWith("y-undo$"),
       );
       const undoState = undoPlugin?.getState(localEditor.prosemirrorState) as
         | { readonly undoManager: Y.UndoManager }
@@ -493,9 +467,7 @@ describe("collaborative NFM undo in Chromium", () => {
         });
         await settleEditor();
       });
-      expect(undoState.undoManager.undoStack).toHaveLength(
-        stackLengthBeforeUnregister,
-      );
+      expect(undoState.undoManager.undoStack).toHaveLength(stackLengthBeforeUnregister);
     } finally {
       view.unmount();
       remoteEditor.unmount();

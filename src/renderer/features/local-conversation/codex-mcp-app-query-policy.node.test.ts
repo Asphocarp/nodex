@@ -5,54 +5,66 @@ import { shouldEnableCodexMcpAppsQuery } from "./codex-mcp-app-query-policy";
 
 describe("Codex MCP app query policy", () => {
   test("waits for a signed-in ChatGPT identity and honors the caller gate", () => {
-    expect(shouldEnableCodexMcpAppsQuery({
-      account: null,
-      appsFeatureEnabled: true,
-      callerEnabled: true,
-      productSupportsApps: true,
-    })).toBe(false);
-    expect(shouldEnableCodexMcpAppsQuery({
-      account: { account: { type: "apiKey" }, requiresOpenAiAuth: false },
-      appsFeatureEnabled: true,
-      callerEnabled: true,
-      productSupportsApps: true,
-    })).toBe(false);
-    expect(shouldEnableCodexMcpAppsQuery({
-      account: {
-        account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
-        requiresOpenAiAuth: true,
-      },
-      appsFeatureEnabled: true,
-      callerEnabled: true,
-      productSupportsApps: true,
-    })).toBe(true);
-    expect(shouldEnableCodexMcpAppsQuery({
-      account: {
-        account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
-        requiresOpenAiAuth: true,
-      },
-      appsFeatureEnabled: true,
-      callerEnabled: false,
-      productSupportsApps: true,
-    })).toBe(false);
-    expect(shouldEnableCodexMcpAppsQuery({
-      account: {
-        account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
-        requiresOpenAiAuth: true,
-      },
-      appsFeatureEnabled: false,
-      callerEnabled: true,
-      productSupportsApps: true,
-    })).toBe(false);
-    expect(shouldEnableCodexMcpAppsQuery({
-      account: {
-        account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
-        requiresOpenAiAuth: true,
-      },
-      appsFeatureEnabled: true,
-      callerEnabled: true,
-      productSupportsApps: false,
-    })).toBe(false);
+    expect(
+      shouldEnableCodexMcpAppsQuery({
+        account: null,
+        appsFeatureEnabled: true,
+        callerEnabled: true,
+        productSupportsApps: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnableCodexMcpAppsQuery({
+        account: { account: { type: "apiKey" }, requiresOpenAiAuth: false },
+        appsFeatureEnabled: true,
+        callerEnabled: true,
+        productSupportsApps: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnableCodexMcpAppsQuery({
+        account: {
+          account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
+          requiresOpenAiAuth: true,
+        },
+        appsFeatureEnabled: true,
+        callerEnabled: true,
+        productSupportsApps: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldEnableCodexMcpAppsQuery({
+        account: {
+          account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
+          requiresOpenAiAuth: true,
+        },
+        appsFeatureEnabled: true,
+        callerEnabled: false,
+        productSupportsApps: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnableCodexMcpAppsQuery({
+        account: {
+          account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
+          requiresOpenAiAuth: true,
+        },
+        appsFeatureEnabled: false,
+        callerEnabled: true,
+        productSupportsApps: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldEnableCodexMcpAppsQuery({
+        account: {
+          account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
+          requiresOpenAiAuth: true,
+        },
+        appsFeatureEnabled: true,
+        callerEnabled: true,
+        productSupportsApps: false,
+      }),
+    ).toBe(false);
   });
 
   test("uses the exact five-minute stale window without query-library retries", () => {

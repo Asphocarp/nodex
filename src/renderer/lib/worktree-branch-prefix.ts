@@ -10,8 +10,7 @@ export {
   normalizeWorktreeAutoBranchPrefix,
 };
 
-export const WORKTREE_AUTO_BRANCH_PREFIX_STORAGE_KEY =
-  "nodex-worktree-auto-branch-prefix-v1";
+export const WORKTREE_AUTO_BRANCH_PREFIX_STORAGE_KEY = "nodex-worktree-auto-branch-prefix-v1";
 
 export function readWorktreeAutoBranchPrefix(): string {
   try {

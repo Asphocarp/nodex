@@ -15,7 +15,11 @@ import {
   defaultStyleSpecs,
 } from "@blocknote/core";
 import type { PartialBlock } from "@blocknote/core";
-import { createReactBlockSpec, createReactInlineContentSpec, useCreateBlockNote } from "@blocknote/react";
+import {
+  createReactBlockSpec,
+  createReactInlineContentSpec,
+  useCreateBlockNote,
+} from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/shadcn";
 import {
   Bot,
@@ -40,10 +44,7 @@ import { createCalloutBlock } from "./callout-block";
 import { createPageToggleBlockSpec } from "./card-toggle-block";
 import { editorCodeBlockOptions } from "./code-block-options";
 import { imageBlockSpec } from "./image-block";
-import {
-  openNfmResolvedLinkAction,
-  resolveNfmLinkAction,
-} from "@/lib/nfm-link-actions";
+import { openNfmResolvedLinkAction, resolveNfmLinkAction } from "@/lib/nfm-link-actions";
 import { useFileReferenceRouter } from "@/lib/file-reference-router";
 import { openFileReferenceContextMenu } from "@/components/shared/file-link-anchor";
 import { useTheme } from "@/lib/use-theme";
@@ -99,11 +100,7 @@ interface InertEmbedPlaceholderProps {
   detail?: string;
 }
 
-function InertEmbedPlaceholder({
-  icon: Icon,
-  label,
-  detail,
-}: InertEmbedPlaceholderProps) {
+function InertEmbedPlaceholder({ icon: Icon, label, detail }: InertEmbedPlaceholderProps) {
   return (
     <div
       contentEditable={false}
@@ -118,116 +115,75 @@ function InertEmbedPlaceholder({
   );
 }
 
-const createReadonlyPageRefBlockSpec = createReactBlockSpec(
-  pageRefBlockConfig,
-  {
-    render: ({ block }) => {
-      const targetBlockId = String(block.props.targetBlockId || "").trim();
-      return (
-        <InertEmbedPlaceholder
-          icon={Link2}
-          label="Page reference"
-          detail={targetBlockId}
-        />
-      );
-    },
+const createReadonlyPageRefBlockSpec = createReactBlockSpec(pageRefBlockConfig, {
+  render: ({ block }) => {
+    const targetBlockId = String(block.props.targetBlockId || "").trim();
+    return <InertEmbedPlaceholder icon={Link2} label="Page reference" detail={targetBlockId} />;
   },
-);
+});
 
 const createReadonlyPageBlockSpec = createReactBlockSpec(pageBlockConfig, {
-  render: () => (
+  render: () => <InertEmbedPlaceholder icon={PageIcon} label="Page" detail="Untitled" />,
+});
+
+const createReadonlyDatabaseViewRefBlockSpec = createReactBlockSpec(databaseViewRefBlockConfig, {
+  render: ({ block }) => (
     <InertEmbedPlaceholder
-      icon={PageIcon}
-      label="Page"
-      detail="Untitled"
+      icon={Rows3}
+      label="Database view"
+      detail={String(block.props.displayHint || block.props.databaseViewId || "").trim()}
     />
   ),
 });
 
-const createReadonlyDatabaseViewRefBlockSpec = createReactBlockSpec(
-  databaseViewRefBlockConfig,
-  {
-    render: ({ block }) => (
-      <InertEmbedPlaceholder
-        icon={Rows3}
-        label="Database view"
-        detail={String(block.props.displayHint || block.props.databaseViewId || "").trim()}
-      />
-    ),
-  },
-);
+const createReadonlyDatabaseBlockSpec = createReactBlockSpec(databaseBlockConfig, {
+  render: ({ block }) => (
+    <InertEmbedPlaceholder icon={DatabaseIcon} label="Database" detail={block.id} />
+  ),
+});
 
-const createReadonlyDatabaseBlockSpec = createReactBlockSpec(
-  databaseBlockConfig,
-  {
-    render: ({ block }) => (
-      <InertEmbedPlaceholder
-        icon={DatabaseIcon}
-        label="Database"
-        detail={block.id}
-      />
-    ),
+const createReadonlyCanvasBlockSpec = createReactBlockSpec(canvasBlockConfig, {
+  render: ({ block }) => (
+    <InertEmbedPlaceholder icon={BoxSelect} label="Canvas" detail={block.id} />
+  ),
+  meta: {
+    isolating: true,
   },
-);
+});
 
-const createReadonlyCanvasBlockSpec = createReactBlockSpec(
-  canvasBlockConfig,
-  {
-    render: ({ block }) => (
-      <InertEmbedPlaceholder
-        icon={BoxSelect}
-        label="Canvas"
-        detail={block.id}
-      />
-    ),
-    meta: {
-      isolating: true,
-    },
-  },
-);
+const createReadonlySyncedBlockRefBlockSpec = createReactBlockSpec(syncedBlockRefBlockConfig, {
+  render: ({ block }) => (
+    <InertEmbedPlaceholder
+      icon={RefreshCw}
+      label="Synced block"
+      detail={String(block.props.sourceBlockId || "").trim()}
+    />
+  ),
+});
 
-const createReadonlySyncedBlockRefBlockSpec = createReactBlockSpec(
-  syncedBlockRefBlockConfig,
-  {
-    render: ({ block }) => (
-      <InertEmbedPlaceholder
-        icon={RefreshCw}
-        label="Synced block"
-        detail={String(block.props.sourceBlockId || "").trim()}
-      />
-    ),
-  },
-);
+const createReadonlyTemplateRefBlockSpec = createReactBlockSpec(reusableTemplateRefBlockConfig, {
+  render: ({ block }) => (
+    <InertEmbedPlaceholder
+      icon={PageIcon}
+      label="Template"
+      detail={String(block.props.displayHint || "Reusable content").trim()}
+    />
+  ),
+});
 
-const createReadonlyTemplateRefBlockSpec = createReactBlockSpec(
-  reusableTemplateRefBlockConfig,
-  {
-    render: ({ block }) => (
+const createReadonlyThreadSectionBlockSpec = createReactBlockSpec(threadSectionBlockConfig, {
+  render: ({ block }) => {
+    const label = String(block.props.label || "").trim();
+    const threadId = String(block.props.threadId || "").trim();
+    return (
       <InertEmbedPlaceholder
         icon={PageIcon}
-        label="Template"
-        detail={String(block.props.displayHint || "Reusable content").trim()}
+        label="Thread section"
+        detail={label || threadId || "Snapshot only"}
       />
-    ),
+    );
   },
-);
-
-const createReadonlyThreadSectionBlockSpec = createReactBlockSpec(
-  threadSectionBlockConfig,
-  {
-    render: ({ block }) => {
-      const label = String(block.props.label || "").trim();
-      const threadId = String(block.props.threadId || "").trim();
-      return (
-        <InertEmbedPlaceholder
-          icon={PageIcon}
-          label="Thread section"
-          detail={label || threadId || "Snapshot only"}
-        />
-      );
-    },
-  },
-);
+});
 
 const createReadonlyToggleListInlineViewBlockSpec = createReactBlockSpec(
   toggleListInlineViewBlockConfig,
@@ -244,79 +200,71 @@ const createReadonlyToggleListInlineViewBlockSpec = createReactBlockSpec(
 
 function formatPreviewAttachmentLabel(props: PreviewAttachmentProps): string {
   const name = props.name.trim() || (props.kind === "text" ? "Pasted text" : "Attachment");
-  const size = typeof props.bytes === "number" && props.kind !== "folder"
-    ? formatAttachmentBytes(props.bytes)
-    : "";
+  const size =
+    typeof props.bytes === "number" && props.kind !== "folder"
+      ? formatAttachmentBytes(props.bytes)
+      : "";
   const mode = props.mode === "link" ? "linked" : "saved";
   return [name, size, mode].filter(Boolean).join(" - ");
 }
 
 const createReadonlyAttachmentInlineContentSpec = () =>
-  createReactInlineContentSpec(
-    attachmentInlineContentConfig,
-    {
-      render: ({ inlineContent }) => {
-        const props = inlineContent.props as PreviewAttachmentProps;
-        return (
-          <span
-            contentEditable={false}
-            title={props.source}
-            className="inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! bg-token-charts-purple/10 px-1.5 font-normal text-token-charts-purple"
-          >
-            <Paperclip className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
-            <span className="truncate leading-[inherit]">{formatPreviewAttachmentLabel(props)}</span>
-          </span>
-        );
-      },
+  createReactInlineContentSpec(attachmentInlineContentConfig, {
+    render: ({ inlineContent }) => {
+      const props = inlineContent.props as PreviewAttachmentProps;
+      return (
+        <span
+          contentEditable={false}
+          title={props.source}
+          className="inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! bg-token-charts-purple/10 px-1.5 font-normal text-token-charts-purple"
+        >
+          <Paperclip className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
+          <span className="truncate leading-[inherit]">{formatPreviewAttachmentLabel(props)}</span>
+        </span>
+      );
     },
-  );
+  });
 
 const createReadonlyAgentConfigInlineContentSpec = () =>
-  createReactInlineContentSpec(
-    agentConfigInlineContentConfig,
-    {
-      render: ({ inlineContent }) => {
-        const chip = resolveAgentConfigChip(inlineContent.props as Partial<AgentConfigProps>);
-        const Icon = chip.invalid ? Settings2 : chip.detail ? Bot : Settings2;
-        return (
-          <span
-            contentEditable={false}
-            title={[chip.label, chip.detail].filter(Boolean).join(" - ")}
-            className={cn(
-              "inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! px-1.5 font-normal",
-              chip.invalid
-                ? "bg-token-foreground/8 text-token-description-foreground"
-                : "bg-token-charts-blue/10 text-token-charts-blue",
-            )}
-          >
-            <Icon className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
-            <span className="truncate leading-[inherit]">{chip.label}</span>
-            {chip.detail ? (
-              <span className="ml-1 truncate leading-[inherit] opacity-70">{chip.detail}</span>
-            ) : null}
-          </span>
-        );
-      },
+  createReactInlineContentSpec(agentConfigInlineContentConfig, {
+    render: ({ inlineContent }) => {
+      const chip = resolveAgentConfigChip(inlineContent.props as Partial<AgentConfigProps>);
+      const Icon = chip.invalid ? Settings2 : chip.detail ? Bot : Settings2;
+      return (
+        <span
+          contentEditable={false}
+          title={[chip.label, chip.detail].filter(Boolean).join(" - ")}
+          className={cn(
+            "inline-flex max-w-full items-baseline whitespace-nowrap rounded-sm! px-1.5 font-normal",
+            chip.invalid
+              ? "bg-token-foreground/8 text-token-description-foreground"
+              : "bg-token-charts-blue/10 text-token-charts-blue",
+          )}
+        >
+          <Icon className="mr-0.5 -ml-0.5 inline-block size-3.5 shrink-0 self-center" />
+          <span className="truncate leading-[inherit]">{chip.label}</span>
+          {chip.detail ? (
+            <span className="ml-1 truncate leading-[inherit] opacity-70">{chip.detail}</span>
+          ) : null}
+        </span>
+      );
     },
-  );
+  });
 
 const createReadonlyThreadMentionInlineContentSpec = () =>
-  createReactInlineContentSpec(
-    threadMentionInlineContentConfig,
-    {
-      render: ({ inlineContent }) => {
-        const props = inlineContent.props as PreviewThreadMentionProps;
-        const mention = resolveThreadMentionDisplay({ uuid: props.uuid });
-        return (
-          <ThreadMentionInlineVisual
-            contentEditable={false}
-            title={props.uuid}
-            label={mention.label || "Thread"}
-          />
-        );
-      },
+  createReactInlineContentSpec(threadMentionInlineContentConfig, {
+    render: ({ inlineContent }) => {
+      const props = inlineContent.props as PreviewThreadMentionProps;
+      const mention = resolveThreadMentionDisplay({ uuid: props.uuid });
+      return (
+        <ThreadMentionInlineVisual
+          contentEditable={false}
+          title={props.uuid}
+          label={mention.label || "Thread"}
+        />
+      );
     },
-  );
+  });
 
 export const readonlyNfmBlockNotePreviewSchema = BlockNoteSchema.create({
   blockSpecs: {
@@ -410,10 +358,13 @@ export function ReadonlyNfmBlockNotePreview({
     return nextDocument;
   }, [content, projectId, pageId, historyId]);
 
-  useEffect(() => () => {
-    cleanupToggleStates(toggleBlockIdsRef.current);
-    toggleBlockIdsRef.current = [];
-  }, []);
+  useEffect(
+    () => () => {
+      cleanupToggleStates(toggleBlockIdsRef.current);
+      toggleBlockIdsRef.current = [];
+    },
+    [],
+  );
 
   const editor = useCreateBlockNote(
     {
@@ -430,111 +381,134 @@ export function ReadonlyNfmBlockNotePreview({
     [projectId, pageId, historyId, content],
   );
 
-  const openLocalReference = useCallback((
-    action: Extract<ReturnType<typeof resolveNfmLinkAction>, {
-      kind: "local-file" | "workspace-file";
-    }>,
-    options?: Parameters<typeof fileReferenceRouter.open>[1],
-  ) => {
-    void fileReferenceRouter.open(action.target, {
-      cwd: projectWorkspacePath,
-      workspaceRoot: projectWorkspacePath,
-      ...options,
-    });
-  }, [fileReferenceRouter, projectWorkspacePath]);
-
-  const findAnchorAction = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    const target = event.target;
-    if (!(target instanceof Element)) return null;
-
-    const anchor = target.closest("a");
-    if (!(anchor instanceof HTMLAnchorElement)) return null;
-    if (!event.currentTarget.contains(anchor)) return null;
-
-    return {
-      action: resolveNfmLinkAction(
-        readNfmLinkHrefAtElement(editor, anchor),
-        projectWorkspacePath,
-      ),
-      anchor,
-    };
-  }, [editor, projectWorkspacePath]);
-
-  const handleClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    const resolved = findAnchorAction(event);
-    if (!resolved?.action) return;
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    if (resolved.action.kind === "local-file" || resolved.action.kind === "workspace-file") {
-      openLocalReference(resolved.action, {
-        external: event.metaKey
-          || event.ctrlKey
-          || event.altKey
-          || event.shiftKey,
-        mode: "preview",
-      });
-      return;
-    }
-    void openNfmResolvedLinkAction(
-      resolved.action,
-      undefined,
-      undefined,
-      undefined,
-      hostRuntime?.openPage
-        ? {
-            openPage: (targetPageId) => hostRuntime.openPage?.({
-              accessContext: hostRuntime.contentAccessContext,
-              pageId: targetPageId,
-            }),
-          }
-        : undefined,
-    );
-  }, [findAnchorAction, hostRuntime, openLocalReference]);
-
-  const handleDoubleClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    const resolved = findAnchorAction(event);
-    if (!resolved?.action) return;
-    if (resolved.action.kind !== "local-file" && resolved.action.kind !== "workspace-file") return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    openLocalReference(resolved.action, { mode: "durable" });
-  }, [findAnchorAction, openLocalReference]);
-
-  const handleAuxClickCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    if (event.button !== 1) return;
-    const resolved = findAnchorAction(event);
-    if (!resolved?.action) return;
-    if (resolved.action.kind !== "local-file" && resolved.action.kind !== "workspace-file") return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    openLocalReference(resolved.action, { external: true });
-  }, [findAnchorAction, openLocalReference]);
-
-  const handleContextMenuCapture = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    const resolved = findAnchorAction(event);
-    if (!resolved?.action) return;
-    if (resolved.action.kind !== "local-file" && resolved.action.kind !== "workspace-file") return;
-
-    event.preventDefault();
-    event.stopPropagation();
-    const label = resolved.anchor.textContent?.trim() || resolved.action.target.path;
-    void openFileReferenceContextMenu({
-      target: resolved.action.target,
-      label,
-      open: (target, options) => fileReferenceRouter.open(target, {
+  const openLocalReference = useCallback(
+    (
+      action: Extract<
+        ReturnType<typeof resolveNfmLinkAction>,
+        {
+          kind: "local-file" | "workspace-file";
+        }
+      >,
+      options?: Parameters<typeof fileReferenceRouter.open>[1],
+    ) => {
+      void fileReferenceRouter.open(action.target, {
         cwd: projectWorkspacePath,
         workspaceRoot: projectWorkspacePath,
-        title: label,
         ...options,
-      }),
-      x: event.clientX,
-      y: event.clientY,
-    }).catch(() => undefined);
-  }, [fileReferenceRouter, findAnchorAction, projectWorkspacePath]);
+      });
+    },
+    [fileReferenceRouter, projectWorkspacePath],
+  );
+
+  const findAnchorAction = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return null;
+
+      const anchor = target.closest("a");
+      if (!(anchor instanceof HTMLAnchorElement)) return null;
+      if (!event.currentTarget.contains(anchor)) return null;
+
+      return {
+        action: resolveNfmLinkAction(
+          readNfmLinkHrefAtElement(editor, anchor),
+          projectWorkspacePath,
+        ),
+        anchor,
+      };
+    },
+    [editor, projectWorkspacePath],
+  );
+
+  const handleClickCapture = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      const resolved = findAnchorAction(event);
+      if (!resolved?.action) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (resolved.action.kind === "local-file" || resolved.action.kind === "workspace-file") {
+        openLocalReference(resolved.action, {
+          external: event.metaKey || event.ctrlKey || event.altKey || event.shiftKey,
+          mode: "preview",
+        });
+        return;
+      }
+      void openNfmResolvedLinkAction(
+        resolved.action,
+        undefined,
+        undefined,
+        undefined,
+        hostRuntime?.openPage
+          ? {
+              openPage: (targetPageId) =>
+                hostRuntime.openPage?.({
+                  accessContext: hostRuntime.contentAccessContext,
+                  pageId: targetPageId,
+                }),
+            }
+          : undefined,
+      );
+    },
+    [findAnchorAction, hostRuntime, openLocalReference],
+  );
+
+  const handleDoubleClickCapture = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      const resolved = findAnchorAction(event);
+      if (!resolved?.action) return;
+      if (resolved.action.kind !== "local-file" && resolved.action.kind !== "workspace-file")
+        return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      openLocalReference(resolved.action, { mode: "durable" });
+    },
+    [findAnchorAction, openLocalReference],
+  );
+
+  const handleAuxClickCapture = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (event.button !== 1) return;
+      const resolved = findAnchorAction(event);
+      if (!resolved?.action) return;
+      if (resolved.action.kind !== "local-file" && resolved.action.kind !== "workspace-file")
+        return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      openLocalReference(resolved.action, { external: true });
+    },
+    [findAnchorAction, openLocalReference],
+  );
+
+  const handleContextMenuCapture = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      const resolved = findAnchorAction(event);
+      if (!resolved?.action) return;
+      if (resolved.action.kind !== "local-file" && resolved.action.kind !== "workspace-file")
+        return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      const label = resolved.anchor.textContent?.trim() || resolved.action.target.path;
+      void openFileReferenceContextMenu({
+        target: resolved.action.target,
+        label,
+        open: (target, options) =>
+          fileReferenceRouter.open(target, {
+            cwd: projectWorkspacePath,
+            workspaceRoot: projectWorkspacePath,
+            title: label,
+            ...options,
+          }),
+        x: event.clientX,
+        y: event.clientY,
+      }).catch(() => undefined);
+    },
+    [fileReferenceRouter, findAnchorAction, projectWorkspacePath],
+  );
 
   return (
     <div

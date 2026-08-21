@@ -40,38 +40,28 @@ describe("NfmEditor source boundary", () => {
     const options = createNfmEditorModeOptions(source);
     const collaboration = options.collaboration;
 
-    expect(
-      Object.prototype.hasOwnProperty.call(options, "initialContent"),
-    ).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(options, "initialContent")).toBe(false);
     expect(collaboration !== undefined).toBe(true);
     expect(collaboration?.fragment ?? null).toBe(fragment);
     expect(collaboration?.user.name ?? "").toBe("Local editor");
-    expect(createNfmEditorModeOptions(source).collaboration.transactionOrigin)
-      .toBe(collaboration.transactionOrigin);
-    expect(createNfmEditorModeOptions({
-      ...source,
-      clientSessionId: "surface-2",
-    }).collaboration.transactionOrigin).not.toBe(
+    expect(createNfmEditorModeOptions(source).collaboration.transactionOrigin).toBe(
       collaboration.transactionOrigin,
     );
+    expect(
+      createNfmEditorModeOptions({
+        ...source,
+        clientSessionId: "surface-2",
+      }).collaboration.transactionOrigin,
+    ).not.toBe(collaboration.transactionOrigin);
 
     document.destroy();
   });
 
   test("enables stable-ID Move To for collaborative Page documents", () => {
     const document = new Y.Doc();
-    const collaborative = resolveNfmEditorBlockActionCapabilities(
-      true,
-      "project-1",
-    );
-    const withoutCardContext = resolveNfmEditorBlockActionCapabilities(
-      false,
-      "project-1",
-    );
-    const withoutProjectAuthority = resolveNfmEditorBlockActionCapabilities(
-      true,
-      null,
-    );
+    const collaborative = resolveNfmEditorBlockActionCapabilities(true, "project-1");
+    const withoutCardContext = resolveNfmEditorBlockActionCapabilities(false, "project-1");
+    const withoutProjectAuthority = resolveNfmEditorBlockActionCapabilities(true, null);
 
     expect(collaborative.canMoveBlocks).toBe(true);
     expect(collaborative.canSendBlocksToThread).toBe(true);
@@ -85,9 +75,7 @@ describe("NfmEditor source boundary", () => {
   test("uses source identity keys so document switches recreate instead of rehydrating", () => {
     const firstDocument = new Y.Doc({ guid: "document-1" });
     const secondDocument = new Y.Doc({ guid: "document-2" });
-    const firstSource = createCollaborativeSource(
-      firstDocument.getXmlFragment("body"),
-    );
+    const firstSource = createCollaborativeSource(firstDocument.getXmlFragment("body"));
     const sameSourceKey = getNfmEditorInstanceKey({
       accessContext: projectContentAccess("project-1"),
       source: firstSource,
@@ -125,12 +113,10 @@ describe("NfmEditor source boundary", () => {
       hintCount += 1;
     });
     const localOptions = createNfmEditorModeOptions(source);
-    const remoteOptions = createNfmEditorModeOptions(
-      {
-        ...source,
-        user: { name: "Remote editor", color: "#dc2626" },
-      },
-    );
+    const remoteOptions = createNfmEditorModeOptions({
+      ...source,
+      user: { name: "Remote editor", color: "#dc2626" },
+    });
     const localEditor = BlockNoteEditor.create(localOptions);
     const remoteEditor = BlockNoteEditor.create(remoteOptions);
     const localElement = globalThis.document.createElement("div");
@@ -140,9 +126,7 @@ describe("NfmEditor source boundary", () => {
     remoteEditor.mount(remoteElement);
 
     const replaceBlocks = localEditor.replaceBlocks.bind(localEditor);
-    localEditor.replaceBlocks = ((
-      ...args: Parameters<typeof localEditor.replaceBlocks>
-    ) => {
+    localEditor.replaceBlocks = ((...args: Parameters<typeof localEditor.replaceBlocks>) => {
       replaceBlocksCount += 1;
       return replaceBlocks(...args);
     }) as typeof localEditor.replaceBlocks;
@@ -151,8 +135,7 @@ describe("NfmEditor source boundary", () => {
     });
 
     const remoteBlock = remoteEditor.document[0];
-    if (!remoteBlock)
-      throw new Error("Expected the collaborative genesis block");
+    if (!remoteBlock) throw new Error("Expected the collaborative genesis block");
     remoteEditor.updateBlock(remoteBlock, { content: "Remote update" });
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -173,17 +156,13 @@ describe("NfmEditor source boundary", () => {
       nfm: "",
       allocateBlockId: () => "block-title-only-root",
     });
-    const source = createCollaborativeSource(
-      genesis.document.getXmlFragment("body"),
-    );
+    const source = createCollaborativeSource(genesis.document.getXmlFragment("body"));
     const editor = BlockNoteEditor.create(createNfmEditorModeOptions(source));
     const element = globalThis.document.createElement("div");
 
     editor.mount(element);
 
-    expect(editor.document).toMatchObject([
-      { id: "block-title-only-root", type: "paragraph" },
-    ]);
+    expect(editor.document).toMatchObject([{ id: "block-title-only-root", type: "paragraph" }]);
     expect(materializePageDocument(genesis.document).blockTree).toMatchObject([
       { id: "block-title-only-root", type: "paragraph" },
     ]);
@@ -199,9 +178,9 @@ describe("NfmEditor source boundary", () => {
 
   test("mounts a blank Page-create draft without inventing a placeholder identity", () => {
     const draft = createPageCreateDescriptionDraft("request-editor-empty");
-    const editor = BlockNoteEditor.create(createNfmEditorModeOptions(
-      createCollaborativeSource(draft.body),
-    ));
+    const editor = BlockNoteEditor.create(
+      createNfmEditorModeOptions(createCollaborativeSource(draft.body)),
+    );
     const element = globalThis.document.createElement("div");
 
     editor.mount(element);
@@ -223,13 +202,12 @@ describe("NfmEditor source boundary", () => {
       title: "Long collaborative Card",
       nfm: Array.from(
         { length: 96 },
-        (_, index) => `Paragraph ${index + 1} has enough content to exercise a full collaborative render.`,
+        (_, index) =>
+          `Paragraph ${index + 1} has enough content to exercise a full collaborative render.`,
       ).join("\n\n"),
       allocateBlockId: () => `block-long-${++nextBlockId}`,
     });
-    const before = materializePageDocument(genesis.document).blockTree.map(
-      (block) => block.id,
-    );
+    const before = materializePageDocument(genesis.document).blockTree.map((block) => block.id);
     const localEditor = BlockNoteEditor.create(
       createNfmEditorModeOptions(
         createCollaborativeSource(genesis.document.getXmlFragment("body")),
@@ -259,9 +237,7 @@ describe("NfmEditor source boundary", () => {
       throw new Error("Expected a middle ProseMirror block");
     }
     const stableMiddleBlockPosition = middleBlockPosition;
-    const middleBlock = localEditor.prosemirrorState.doc.nodeAt(
-      stableMiddleBlockPosition,
-    );
+    const middleBlock = localEditor.prosemirrorState.doc.nodeAt(stableMiddleBlockPosition);
     if (!middleBlock) throw new Error("Expected a middle ProseMirror node");
     const syncState = ySyncPlugin.getState(localEditor.prosemirrorState) as {
       readonly binding: {
@@ -279,15 +255,11 @@ describe("NfmEditor source boundary", () => {
           .setMeta(ySyncPluginKey, { isChangeOrigin: true }),
       );
     });
-    expect(
-      localEditor.prosemirrorState.doc.nodeAt(stableMiddleBlockPosition)?.attrs.id,
-    ).toBeNull();
+    expect(localEditor.prosemirrorState.doc.nodeAt(stableMiddleBlockPosition)?.attrs.id).toBeNull();
     syncState.binding._forceRerender();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
-    const after = materializePageDocument(genesis.document).blockTree.map(
-      (block) => block.id,
-    );
+    const after = materializePageDocument(genesis.document).blockTree.map((block) => block.id);
     expect(after).toEqual(before);
     expect(updates).toHaveLength(0);
 

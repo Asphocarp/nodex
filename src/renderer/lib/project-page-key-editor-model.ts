@@ -1,7 +1,4 @@
-import {
-  isPlausiblePageKeyPrefixDraft,
-  normalizePageKeyPrefixInput,
-} from "../../shared/page-key";
+import { isPlausiblePageKeyPrefixDraft, normalizePageKeyPrefixInput } from "../../shared/page-key";
 import type { DatabasePageKeyNamespaceV2 } from "../../shared/database-module-v2";
 import type { PageKeyPrefixPreviewState } from "./use-page-key-prefix-preview";
 
@@ -47,8 +44,7 @@ export function projectPageKeyEditorModel({
 }: ProjectPageKeyEditorModelInput): ProjectPageKeyEditorModel {
   const prefix = normalizePageKeyPrefixInput(draftPrefix);
   const valid = isPlausiblePageKeyPrefixDraft(prefix);
-  const renamed = currentPrefix !== undefined
-    && prefix !== currentPrefix;
+  const renamed = currentPrefix !== undefined && prefix !== currentPrefix;
   const confirmed = preview.kind === "available" || preview.kind === "current";
   let statusText = "";
   if (!valid) {
@@ -73,15 +69,17 @@ export function projectPageKeyEditorModel({
   } else if (expanded && renamed && settingsStatus === "error") {
     impactText = "Rename impact is unavailable. Try again before saving.";
   } else if (expanded && renamed && settings) {
-    impactText = settings.assignedPageCount === 0
-      ? `No Pages use ${settings.currentPrefix} yet. The old prefix will be released.`
-      : `${settings.assignedPageCount} ${settings.assignedPageCount === 1 ? "Page" : "Pages"} will use prefix ${prefix}; existing IDs with ${settings.currentPrefix} will keep working and remain reserved.`;
+    impactText =
+      settings.assignedPageCount === 0
+        ? `No Pages use ${settings.currentPrefix} yet. The old prefix will be released.`
+        : `${settings.assignedPageCount} ${settings.assignedPageCount === 1 ? "Page" : "Pages"} will use prefix ${prefix}; existing IDs with ${settings.currentPrefix} will keep working and remain reserved.`;
   }
 
   let prefixError: string | null = null;
   let formError: string | null = null;
   if (saveFailure?.code === "identity_conflict") {
-    prefixError = "This prefix was claimed in another window. Check again or use the suggested prefix.";
+    prefixError =
+      "This prefix was claimed in another window. Check again or use the suggested prefix.";
   } else if (saveFailure?.code === "revision_conflict") {
     formError = saveFailure.detailsSaved
       ? "Project details were saved, but the prefix changed in another window. Review the latest prefix and try again."
@@ -96,9 +94,7 @@ export function projectPageKeyEditorModel({
 
   const renameImpactReady = !renamed || settingsStatus === "ready";
   const namespaceReady = !expanded || settingsStatus === "ready";
-  const canSubmit = !renamed
-    ? namespaceReady
-    : valid && confirmed && renameImpactReady;
+  const canSubmit = !renamed ? namespaceReady : valid && confirmed && renameImpactReady;
   return {
     prefix: confirmed ? preview.prefix : prefix,
     canSubmit,
@@ -106,14 +102,13 @@ export function projectPageKeyEditorModel({
     prefixError,
     formError,
     impactText,
-    history: expanded && settings
-      ? settings.retiredPrefixes.map((retired) => ({
-          prefix: retired.prefix,
-          detail: `Numbers through ${retired.lastNumber} still resolve`,
-        }))
-      : [],
-    suggestedPrefix: preview.kind === "reserved"
-      ? preview.alternativePrefix
-      : null,
+    history:
+      expanded && settings
+        ? settings.retiredPrefixes.map((retired) => ({
+            prefix: retired.prefix,
+            detail: `Numbers through ${retired.lastNumber} still resolve`,
+          }))
+        : [],
+    suggestedPrefix: preview.kind === "reserved" ? preview.alternativePrefix : null,
   };
 }

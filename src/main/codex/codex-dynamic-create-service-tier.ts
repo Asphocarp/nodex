@@ -18,12 +18,8 @@ export interface CodexCreateThreadServiceTierModel {
 }
 
 export interface CodexCreateThreadServiceTierDependencies {
-  readonly readAuth: (input: {
-    readonly hostId: string;
-  }) => Promise<string | null>;
-  readonly readRequirements: (input: {
-    readonly hostId: string;
-  }) => Promise<{
+  readonly readAuth: (input: { readonly hostId: string }) => Promise<string | null>;
+  readonly readRequirements: (input: { readonly hostId: string }) => Promise<{
     readonly requirements?: {
       readonly featureRequirements?: {
         readonly fast_mode?: boolean | null;
@@ -69,10 +65,7 @@ function resolveSelectorServiceTier(
   return selector.serviceTier;
 }
 
-function normalizeServiceTierKind(
-  id: string | null,
-  name?: string,
-): "fast" | "ultrafast" | null {
+function normalizeServiceTierKind(id: string | null, name?: string): "fast" | "ultrafast" | null {
   const normalizedName = name?.trim().toLowerCase();
   if (id === "priority" || id === "fast" || normalizedName === "fast") return "fast";
   if (id === "ultrafast" || normalizedName === "ultrafast") return "ultrafast";
@@ -82,10 +75,13 @@ function normalizeServiceTierKind(
 function resolveFastServiceTier(
   model: CodexCreateThreadServiceTierModel,
 ): CodexCreateThreadServiceTierModel["serviceTiers"][number] | null {
-  return model.serviceTiers.find((tier) => (
-    normalizeServiceTierKind(tier.id, tier.name) === "fast"
-    || tier.name.trim().toLowerCase() === "priority"
-  )) ?? null;
+  return (
+    model.serviceTiers.find(
+      (tier) =>
+        normalizeServiceTierKind(tier.id, tier.name) === "fast" ||
+        tier.name.trim().toLowerCase() === "priority",
+    ) ?? null
+  );
 }
 
 function resolveModelServiceTier(
@@ -138,9 +134,9 @@ async function readSelectedModel(
     if (input.model === null) {
       return response.data.find((model) => model.isDefault) ?? null;
     }
-    return response.data.find((model) => (
-      model.model === input.model || model.id === input.model
-    )) ?? null;
+    return (
+      response.data.find((model) => model.model === input.model || model.id === input.model) ?? null
+    );
   } catch (error) {
     dependencies.onError?.({ phase: "models", error });
     return null;
@@ -152,17 +148,10 @@ export async function resolveCodexCreateThreadServiceTier(
   dependencies: CodexCreateThreadServiceTierDependencies,
 ): Promise<string | null> {
   try {
-    const fastModeEnabled = await readFastModeEnabled(
-      input.destinationHostId,
-      dependencies,
-    );
+    const fastModeEnabled = await readFastModeEnabled(input.destinationHostId, dependencies);
     const selector = input.selector ?? FROM_CONFIG_SERVICE_TIER_SELECTOR;
     if (selector.type !== "fromConfig") {
-      return projectServiceTier(
-        null,
-        resolveSelectorServiceTier(selector),
-        fastModeEnabled,
-      );
+      return projectServiceTier(null, resolveSelectorServiceTier(selector), fastModeEnabled);
     }
 
     const config = expandCodexDynamicCreateConfigProfile(
@@ -177,10 +166,13 @@ export async function resolveCodexCreateThreadServiceTier(
       return projectServiceTier(null, configuredServiceTier, fastModeEnabled);
     }
 
-    const model = await readSelectedModel({
-      hostId: input.destinationHostId,
-      model: input.model ?? config.model ?? null,
-    }, dependencies);
+    const model = await readSelectedModel(
+      {
+        hostId: input.destinationHostId,
+        model: input.model ?? config.model ?? null,
+      },
+      dependencies,
+    );
     return projectServiceTier(model, null, fastModeEnabled);
   } catch (error) {
     dependencies.onError?.({ phase: "request", error });

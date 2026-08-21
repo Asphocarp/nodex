@@ -28,8 +28,9 @@ describe("UserMessageText browser collapse", () => {
 
     fireEvent.click(showMore);
     await waitFor(() => {
-      expect(view.getByRole("button", { name: "Show less" }).getAttribute("aria-expanded"))
-        .toBe("true");
+      expect(view.getByRole("button", { name: "Show less" }).getAttribute("aria-expanded")).toBe(
+        "true",
+      );
       expect(clippedLink.getAttribute("aria-hidden")).toBeNull();
       expect(clippedLink.hasAttribute("inert")).toBe(false);
     });

@@ -26,7 +26,9 @@ function project(
   items: readonly CodexCanonicalItem[],
   options: {
     turnStatus?: "inProgress" | "completed" | "interrupted" | "failed";
-    lifecycleStatusByItemId?: Readonly<Record<string, "inProgress" | "completed" | "failed" | "declined" | "interrupted">>;
+    lifecycleStatusByItemId?: Readonly<
+      Record<string, "inProgress" | "completed" | "failed" | "declined" | "interrupted">
+    >;
     isBackgroundSubagentsEnabled?: boolean;
   } = {},
 ) {
@@ -70,11 +72,13 @@ function generatedItems(): readonly CodexCanonicalItem[] {
       type: "fileChange",
       id: "visualization-only",
       status: "completed",
-      changes: [{
-        path: ".codex/visualizations/2026/07/13/projector/chart.html",
-        kind: { type: "add" },
-        diff: "<html></html>",
-      }],
+      changes: [
+        {
+          path: ".codex/visualizations/2026/07/13/projector/chart.html",
+          kind: { type: "add" },
+          diff: "<html></html>",
+        },
+      ],
     },
     agentActivityV2McpAppContextPrecedenceItem,
     agentActivityV2DynamicGenericActiveItem,
@@ -143,11 +147,13 @@ function buildTurnParams(
   } as CodexCanonicalTurnParams;
 }
 
-function buildCanonicalTurn(input: {
-  items?: readonly CodexCanonicalItem[];
-  params?: CodexCanonicalTurnParams;
-  blocked?: boolean;
-} = {}): CodexCanonicalTurnState {
+function buildCanonicalTurn(
+  input: {
+    items?: readonly CodexCanonicalItem[];
+    params?: CodexCanonicalTurnParams;
+    blocked?: boolean;
+  } = {},
+): CodexCanonicalTurnState {
   return {
     protocol: {
       id: TURN_ID,
@@ -165,25 +171,27 @@ function buildCanonicalTurn(input: {
       finalAssistantStartedAtMs: null,
       ...(input.blocked
         ? {
-            hookRuns: [{
-              id: "blocked-hook",
-              run: {
+            hookRuns: [
+              {
                 id: "blocked-hook",
-                eventName: "userPromptSubmit",
-                handlerType: "command",
-                executionMode: "sync",
-                scope: "turn",
-                sourcePath: "/workspace/project/.codex/hooks.json",
-                source: "project",
-                displayOrder: 0n,
-                status: "blocked",
-                statusMessage: "Prompt rejected",
-                startedAt: 1n,
-                completedAt: 2n,
-                durationMs: 1n,
-                entries: [],
+                run: {
+                  id: "blocked-hook",
+                  eventName: "userPromptSubmit",
+                  handlerType: "command",
+                  executionMode: "sync",
+                  scope: "turn",
+                  sourcePath: "/workspace/project/.codex/hooks.json",
+                  source: "project",
+                  displayOrder: 0n,
+                  status: "blocked",
+                  statusMessage: "Prompt rejected",
+                  startedAt: 1n,
+                  completedAt: 2n,
+                  durationMs: 1n,
+                  entries: [],
+                },
               },
-            }],
+            ],
           }
         : {}),
     },
@@ -239,10 +247,11 @@ describe("projectCodexCanonicalTurnItemViews", () => {
   test("exhaustively projects every generated discriminant with typed 0/1/N policy", () => {
     const items = generatedItems();
     const views = project(items);
-    const viewCount = (id: string) => views.filter((view) => {
-      const rawItem = view.rawItem as { id?: string } | undefined;
-      return rawItem?.id === id;
-    }).length;
+    const viewCount = (id: string) =>
+      views.filter((view) => {
+        const rawItem = view.rawItem as { id?: string } | undefined;
+        return rawItem?.id === id;
+      }).length;
 
     expect(viewCount("user")).toBe(1);
     expect(viewCount("hook-prompt")).toBe(1);
@@ -282,13 +291,17 @@ describe("projectCodexCanonicalTurnItemViews", () => {
   });
 
   test("preserves ordinary dynamic-tool output, outcome, duration, and exact raw item", () => {
-    const canonical = materializeCodexCanonicalProtocolItem(agentActivityV2DynamicGenericFailedItem);
+    const canonical = materializeCodexCanonicalProtocolItem(
+      agentActivityV2DynamicGenericFailedItem,
+    );
     const view = project([canonical])[0];
 
-    expect(view?.dynamicToolCall?.contentItems).toEqual([{
-      type: "inputText",
-      text: "sanitized dynamic output",
-    }]);
+    expect(view?.dynamicToolCall?.contentItems).toEqual([
+      {
+        type: "inputText",
+        text: "sanitized dynamic output",
+      },
+    ]);
     expect(view?.dynamicToolCall?.success).toBe(false);
     expect(view?.dynamicToolCall?.durationMs).toBe(12);
     expect(view?.rawItem).toBe(canonical);
@@ -422,9 +435,13 @@ describe("projectCodexCanonicalTurnItemViews", () => {
 
     const views = project(items, { turnStatus: "interrupted" });
     expect(views.length).toBe(items.length);
-    expect(views.find((view) => view.itemId === "forked")?.semanticKind).toBe("forkedFromConversation");
+    expect(views.find((view) => view.itemId === "forked")?.semanticKind).toBe(
+      "forkedFromConversation",
+    );
     expect(views.find((view) => view.itemId === "remote")?.semanticKind).toBe("remoteTaskCreated");
-    expect(views.find((view) => view.itemId === "personality")?.semanticKind).toBe("personalityChanged");
+    expect(views.find((view) => view.itemId === "personality")?.semanticKind).toBe(
+      "personalityChanged",
+    );
     expect(views.find((view) => view.itemId === "model")?.semanticKind).toBe("modelChanged");
     expect(views.find((view) => view.itemId === "review")?.status).toBe("completed");
   });
@@ -457,58 +474,72 @@ describe("projectCodexCanonicalTurnItemViews", () => {
   });
 
   test("protocol guard fails closed before malformed lifecycle items reach typed projection", () => {
-    expect(isCodexCanonicalProtocolItem({
-      type: "userMessage",
-      id: "missing-required-content",
-    })).toBe(false);
-    expect(isCodexCanonicalProtocolItem({
-      type: "agentMessage",
-      id: "missing-required-text",
-    })).toBe(false);
-    expect(isCodexCanonicalProtocolItem({
-      type: "commandExecution",
-      id: "missing-command-actions",
-      command: "pwd",
-      cwd: "/workspace",
-      processId: null,
-      source: "agent",
-      status: "inProgress",
-      aggregatedOutput: null,
-      exitCode: null,
-      durationMs: null,
-    })).toBe(false);
-    expect(isCodexCanonicalProtocolItem({
-      type: "fileChange",
-      id: "invalid-file-change",
-      status: "completed",
-      changes: [{ path: "src/app.ts", kind: { type: "rename" }, diff: "" }],
-    })).toBe(false);
-    expect(isCodexCanonicalProtocolItem({
-      type: "mcpToolCall",
-      id: "incomplete-mcp",
-      server: "docs",
-      tool: "search",
-      status: "completed",
-      result: null,
-      error: null,
-      durationMs: null,
-    })).toBe(false);
-    expect(isCodexCanonicalProtocolItem({
-      type: "futureItem",
-      id: "unknown-discriminant",
-    })).toBe(false);
+    expect(
+      isCodexCanonicalProtocolItem({
+        type: "userMessage",
+        id: "missing-required-content",
+      }),
+    ).toBe(false);
+    expect(
+      isCodexCanonicalProtocolItem({
+        type: "agentMessage",
+        id: "missing-required-text",
+      }),
+    ).toBe(false);
+    expect(
+      isCodexCanonicalProtocolItem({
+        type: "commandExecution",
+        id: "missing-command-actions",
+        command: "pwd",
+        cwd: "/workspace",
+        processId: null,
+        source: "agent",
+        status: "inProgress",
+        aggregatedOutput: null,
+        exitCode: null,
+        durationMs: null,
+      }),
+    ).toBe(false);
+    expect(
+      isCodexCanonicalProtocolItem({
+        type: "fileChange",
+        id: "invalid-file-change",
+        status: "completed",
+        changes: [{ path: "src/app.ts", kind: { type: "rename" }, diff: "" }],
+      }),
+    ).toBe(false);
+    expect(
+      isCodexCanonicalProtocolItem({
+        type: "mcpToolCall",
+        id: "incomplete-mcp",
+        server: "docs",
+        tool: "search",
+        status: "completed",
+        result: null,
+        error: null,
+        durationMs: null,
+      }),
+    ).toBe(false);
+    expect(
+      isCodexCanonicalProtocolItem({
+        type: "futureItem",
+        id: "unknown-discriminant",
+      }),
+    ).toBe(false);
   });
 });
 
 describe("projectCodexCanonicalTurnViews", () => {
   test("projects params input first with sidecar attachments, comments, and blocked delivery", () => {
-    const commentAttachments = [{
-      id: "comment-1",
-      type: "comment" as const,
-      content: [{ content_type: "text" as const, text: "Review this line" }],
-      position: { side: "right" as const, path: "src/index.ts", line: 1 },
-      createdAt: 900,
-    }];
+    const commentAttachments = [
+      {
+        id: "comment-1",
+        type: "comment" as const,
+        content: [{ content_type: "text" as const, text: "Review this line" }],
+        position: { side: "right" as const, path: "src/index.ts", line: 1 },
+        createdAt: 900,
+      },
+    ];
     const params = buildTurnParams({
       input: [
         { type: "text", text: "Prompt", text_elements: [] },

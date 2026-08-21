@@ -8,17 +8,19 @@ describe("getDisplayCommand", () => {
   });
 
   test("strips bash wrapper", () => {
-    const result = getDisplayCommand("bash -lc \"rg normalize src\"");
+    const result = getDisplayCommand('bash -lc "rg normalize src"');
     expect(result).toBe("rg normalize src");
   });
 
   test("strips powershell wrapper", () => {
-    const result = getDisplayCommand("pwsh -NoProfile -Command \"Get-ChildItem src\"");
+    const result = getDisplayCommand('pwsh -NoProfile -Command "Get-ChildItem src"');
     expect(result).toBe("Get-ChildItem src");
   });
 
   test("strips powershell exe wrapper", () => {
-    const result = getDisplayCommand("C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe -c \"Write-Host hi\"");
+    const result = getDisplayCommand(
+      'C:\\\\Windows\\\\System32\\\\WindowsPowerShell\\\\v1.0\\\\powershell.exe -c "Write-Host hi"',
+    );
     expect(result).toBe("Write-Host hi");
   });
 
@@ -28,8 +30,8 @@ describe("getDisplayCommand", () => {
   });
 
   test("does not strip malformed powershell flags", () => {
-    const result = getDisplayCommand("pwsh -ExecutionPolicy Bypass -Command \"Write-Host hi\"");
-    expect(result).toBe("pwsh -ExecutionPolicy Bypass -Command \"Write-Host hi\"");
+    const result = getDisplayCommand('pwsh -ExecutionPolicy Bypass -Command "Write-Host hi"');
+    expect(result).toBe('pwsh -ExecutionPolicy Bypass -Command "Write-Host hi"');
   });
 
   test("keeps non-wrapper commands unchanged", () => {

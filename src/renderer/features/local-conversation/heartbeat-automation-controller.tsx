@@ -19,14 +19,16 @@ const HEARTBEAT_RESUME_RETRY_MS = 750;
 export function listHeartbeatAutomationTargetThreadIds(
   automations: readonly CodexScheduledAutomation[],
 ): string[] {
-  return Array.from(new Set(
-    automations.flatMap((automation) => {
-      if (automation.kind !== "heartbeat") return [];
-      if (automation.status !== "ACTIVE") return [];
-      const targetThreadId = automation.targetThreadId?.trim() ?? "";
-      return targetThreadId ? [targetThreadId] : [];
-    }),
-  ));
+  return Array.from(
+    new Set(
+      automations.flatMap((automation) => {
+        if (automation.kind !== "heartbeat") return [];
+        if (automation.status !== "ACTIVE") return [];
+        const targetThreadId = automation.targetThreadId?.trim() ?? "";
+        return targetThreadId ? [targetThreadId] : [];
+      }),
+    ),
+  );
 }
 
 export function shouldResumeHeartbeatAutomationTarget(
@@ -54,9 +56,10 @@ export function buildHeartbeatAutomationThreadState(input: {
   permissionState: CodexPermissionState | null;
   streamRole: "owner" | "follower" | null;
 }): CodexHeartbeatAutomationThreadStateChangedInput {
-  const eligibility = input.streamRole === "owner"
-    ? resolveHeartbeatAutomationEligibility(input.conversation)
-    : { isEligible: false, reason: "not_conversation_owner" };
+  const eligibility =
+    input.streamRole === "owner"
+      ? resolveHeartbeatAutomationEligibility(input.conversation)
+      : { isEligible: false, reason: "not_conversation_owner" };
   return {
     threadId: input.threadId,
     streamRole: input.streamRole,
@@ -89,11 +92,14 @@ export function HeartbeatAutomationController() {
     void invoke("codex:scheduled-automations:heartbeat-enabled-changed", { enabled: true });
   }, [electronAvailable]);
 
-  useEffect(() => () => {
-    if (retryTimerRef.current === null) return;
-    clearTimeout(retryTimerRef.current);
-    retryTimerRef.current = null;
-  }, []);
+  useEffect(
+    () => () => {
+      if (retryTimerRef.current === null) return;
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!electronAvailable || connection.status !== "connected") return;
@@ -113,7 +119,8 @@ export function HeartbeatAutomationController() {
       if (failedResumeThreadIds.current.has(threadId)) continue;
 
       inFlightResumeThreadIds.current.add(threadId);
-      void manager.requestThreadStreamResume(threadId)
+      void manager
+        .requestThreadStreamResume(threadId)
         .then((resumedConversation) => {
           if (resumedConversation) failedResumeThreadIds.current.delete(threadId);
         })
@@ -128,7 +135,15 @@ export function HeartbeatAutomationController() {
           inFlightResumeThreadIds.current.delete(threadId);
         });
     }
-  }, [connection.status, conversations, electronAvailable, manager, resumeRetryTick, targetThreadIds, targetThreadIdsKey]);
+  }, [
+    connection.status,
+    conversations,
+    electronAvailable,
+    manager,
+    resumeRetryTick,
+    targetThreadIds,
+    targetThreadIdsKey,
+  ]);
 
   useEffect(() => {
     if (!electronAvailable) return;
@@ -155,9 +170,10 @@ export function HeartbeatAutomationController() {
   return null;
 }
 
-function resolveHeartbeatAutomationEligibility(
-  conversation: CodexConversationSnapshot | null,
-): { isEligible: boolean; reason: string | null } {
+function resolveHeartbeatAutomationEligibility(conversation: CodexConversationSnapshot | null): {
+  isEligible: boolean;
+  reason: string | null;
+} {
   if (!conversation) {
     return { isEligible: false, reason: "conversation_missing" };
   }

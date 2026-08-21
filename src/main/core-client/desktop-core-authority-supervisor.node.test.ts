@@ -15,10 +15,7 @@ import type {
   LibraryReadSnapshot,
 } from "./types";
 import { CoreTransportError } from "./uds-http";
-import {
-  createFakeCoreHandshake,
-  FakeCoreClient,
-} from "./testing/fake-core-client";
+import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
 
 interface GenerationBehavior {
   readonly apply?: (input: LibraryApplyInput) => Promise<LibraryApplyResult>;
@@ -28,11 +25,12 @@ interface GenerationBehavior {
 const readyHealth = (
   pid: number,
   startNonce: string,
-): Awaited<ReturnType<CoreGenerationClient["health"]>> => ({
-  pid,
-  start_nonce: startNonce,
-  status: "ready",
-} as Awaited<ReturnType<CoreGenerationClient["health"]>>);
+): Awaited<ReturnType<CoreGenerationClient["health"]>> =>
+  ({
+    pid,
+    start_nonce: startNonce,
+    status: "ready",
+  }) as Awaited<ReturnType<CoreGenerationClient["health"]>>;
 
 const generationClient = (input: {
   readonly behavior: GenerationBehavior;
@@ -62,8 +60,9 @@ const generationClient = (input: {
     handshake: resolvedHandshake,
     forProject: () => generationClient(input),
     health: async () => readyHealth(input.generation, startNonce),
-    libraryApply: input.behavior.apply
-      ?? (async () => {
+    libraryApply:
+      input.behavior.apply ??
+      (async () => {
         throw new Error("No apply behavior configured");
       }),
     libraryRead: input.behavior.read,
@@ -88,17 +87,18 @@ const launch = (client: CoreGenerationClient): CoreGenerationLaunch => ({
 const createSupervisor = (
   initialClient: CoreGenerationClient,
   launchNext: () => Promise<CoreGenerationLaunch>,
-): DesktopCoreAuthoritySupervisor => new DesktopCoreAuthoritySupervisor({
-  initialLaunch: launch(initialClient),
-  launchInput: {
-    buildId: "supervisor-test",
-    isPackaged: false,
-    nodexHome: "/tmp/nodex-supervisor-test",
-  },
-  dependencies: {
-    launch: launchNext,
-  },
-});
+): DesktopCoreAuthoritySupervisor =>
+  new DesktopCoreAuthoritySupervisor({
+    initialLaunch: launch(initialClient),
+    launchInput: {
+      buildId: "supervisor-test",
+      isPackaged: false,
+      nodexHome: "/tmp/nodex-supervisor-test",
+    },
+    dependencies: {
+      launch: launchNext,
+    },
+  });
 
 const metadataRead: LibraryRead = { kind: "metadata" };
 const snapshot = (generation: number): LibraryReadSnapshot => ({
@@ -120,7 +120,11 @@ describe("DesktopCoreAuthoritySupervisor", () => {
   test("coalesces concurrent generation-loss recovery and preserves stable facades", async () => {
     const initial = generationClient({
       generation: 1,
-      behavior: { read: async () => { throw lostGeneration(); } },
+      behavior: {
+        read: async () => {
+          throw lostGeneration();
+        },
+      },
     });
     const replacement = generationClient({
       generation: 2,
@@ -144,7 +148,11 @@ describe("DesktopCoreAuthoritySupervisor", () => {
   test("accepts a fresh connection to the same Core generation", async () => {
     const initial = generationClient({
       generation: 1,
-      behavior: { read: async () => { throw lostGeneration(); } },
+      behavior: {
+        read: async () => {
+          throw lostGeneration();
+        },
+      },
     });
     const rebound = generationClient({
       generation: 1,
@@ -152,8 +160,9 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     });
     const supervisor = createSupervisor(initial, async () => launch(rebound));
 
-    await expect(supervisor.rootClient.libraryRead(metadataRead))
-      .resolves.toMatchObject({ commit_head: 1 });
+    await expect(supervisor.rootClient.libraryRead(metadataRead)).resolves.toMatchObject({
+      commit_head: 1,
+    });
     expect(supervisor.rootClient.handshake.connection_binding).toBe("binding-1");
   });
 
@@ -188,17 +197,22 @@ describe("DesktopCoreAuthoritySupervisor", () => {
       behavior: { read: async () => snapshot(3) },
     });
     let resolveStable: (value: CoreGenerationLaunch) => void = () => undefined;
-    const launchNext = vi.fn()
+    const launchNext = vi
+      .fn()
       .mockResolvedValueOnce(launch(rebound))
-      .mockImplementationOnce(async () => await new Promise<CoreGenerationLaunch>((resolve) => {
-        resolveStable = resolve;
-      }));
+      .mockImplementationOnce(
+        async () =>
+          await new Promise<CoreGenerationLaunch>((resolve) => {
+            resolveStable = resolve;
+          }),
+      );
     const supervisor = createSupervisor(initial, launchNext);
 
     const lateRead = supervisor.rootClient.libraryRead(metadataRead);
     await vi.waitFor(() => expect(initialReads).toBe(1));
-    await expect(supervisor.rootClient.libraryRead(metadataRead))
-      .resolves.toMatchObject({ commit_head: 2 });
+    await expect(supervisor.rootClient.libraryRead(metadataRead)).resolves.toMatchObject({
+      commit_head: 2,
+    });
 
     const reboundRead = supervisor.rootClient.libraryRead(metadataRead);
     await vi.waitFor(() => expect(launchNext).toHaveBeenCalledTimes(2));
@@ -214,13 +228,18 @@ describe("DesktopCoreAuthoritySupervisor", () => {
       generation: 1,
       behavior: {
         read: async () => snapshot(1),
-        apply: async () => { throw lostGeneration(); },
+        apply: async () => {
+          throw lostGeneration();
+        },
       },
     });
-    const replacementApply = vi.fn(async () => ({
-      event_sequence: 2,
-      value: { kind: "project_deleted" },
-    } as unknown as LibraryApplyResult));
+    const replacementApply = vi.fn(
+      async () =>
+        ({
+          event_sequence: 2,
+          value: { kind: "project_deleted" },
+        }) as unknown as LibraryApplyResult,
+    );
     const replacement = generationClient({
       generation: 2,
       behavior: {
@@ -229,9 +248,12 @@ describe("DesktopCoreAuthoritySupervisor", () => {
       },
     });
     let resolveLaunch: (value: CoreGenerationLaunch) => void = () => undefined;
-    const launchNext = vi.fn(async () => await new Promise<CoreGenerationLaunch>((resolve) => {
-      resolveLaunch = resolve;
-    }));
+    const launchNext = vi.fn(
+      async () =>
+        await new Promise<CoreGenerationLaunch>((resolve) => {
+          resolveLaunch = resolve;
+        }),
+    );
     const supervisor = createSupervisor(initial, launchNext);
     const pending = supervisor.rootClient.libraryApply({
       operationId: "close-fenced-operation",
@@ -254,7 +276,11 @@ describe("DesktopCoreAuthoritySupervisor", () => {
   test("close aborts and awaits an in-flight candidate launch", async () => {
     const initial = generationClient({
       generation: 1,
-      behavior: { read: async () => { throw lostGeneration(); } },
+      behavior: {
+        read: async () => {
+          throw lostGeneration();
+        },
+      },
     });
     let launchSignal: AbortSignal | undefined;
     const launchNext = vi.fn(async (input) => {
@@ -289,7 +315,11 @@ describe("DesktopCoreAuthoritySupervisor", () => {
   test("fails closed when recovery crosses the Store epoch boundary", async () => {
     const initial = generationClient({
       generation: 1,
-      behavior: { read: async () => { throw lostGeneration(); } },
+      behavior: {
+        read: async () => {
+          throw lostGeneration();
+        },
+      },
     });
     const incompatible = generationClient({
       generation: 2,
@@ -298,8 +328,9 @@ describe("DesktopCoreAuthoritySupervisor", () => {
     });
     const supervisor = createSupervisor(initial, async () => launch(incompatible));
 
-    await expect(supervisor.rootClient.libraryRead(metadataRead))
-      .rejects.toThrow(CoreAuthorityUnavailableError);
+    await expect(supervisor.rootClient.libraryRead(metadataRead)).rejects.toThrow(
+      CoreAuthorityUnavailableError,
+    );
     expect(supervisor.state).toMatchObject({
       circuitOpen: false,
       kind: "unavailable",
@@ -308,15 +339,14 @@ describe("DesktopCoreAuthoritySupervisor", () => {
   });
 
   test("does not treat an ambiguous timeout as generation loss", async () => {
-    const timeout = new CoreTransportError(
-      "timeout",
-      "response",
-      "ETIMEDOUT",
-      null,
-    );
+    const timeout = new CoreTransportError("timeout", "response", "ETIMEDOUT", null);
     const initial = generationClient({
       generation: 1,
-      behavior: { read: async () => { throw timeout; } },
+      behavior: {
+        read: async () => {
+          throw timeout;
+        },
+      },
     });
     const launchNext = vi.fn(async () => launch(initial));
     const supervisor = createSupervisor(initial, launchNext);
@@ -338,10 +368,10 @@ describe("DesktopCoreAuthoritySupervisor", () => {
         },
       },
     });
-    const committed = ({
+    const committed = {
       event_sequence: 5,
       value: { kind: "project_deleted" },
-    } as unknown as LibraryApplyResult);
+    } as unknown as LibraryApplyResult;
     const replacement = generationClient({
       generation: 2,
       behavior: {
@@ -363,14 +393,18 @@ describe("DesktopCoreAuthoritySupervisor", () => {
   });
 
   test("opens its circuit across independent rebound sessions to one generation", async () => {
-    const clients = [1, 2, 3].map(() => generationClient({
-      generation: 1,
-      behavior: { read: async () => { throw lostGeneration(); } },
-    }));
+    const clients = [1, 2, 3].map(() =>
+      generationClient({
+        generation: 1,
+        behavior: {
+          read: async () => {
+            throw lostGeneration();
+          },
+        },
+      }),
+    );
     const replacements = clients.slice(1);
-    const launchNext = vi.fn(async () => launch(
-      replacements.shift() ?? clients[2]!,
-    ));
+    const launchNext = vi.fn(async () => launch(replacements.shift() ?? clients[2]!));
     const supervisor = createSupervisor(clients[0]!, launchNext);
 
     await expect(supervisor.rootClient.libraryRead(metadataRead)).rejects.toThrow(

@@ -18,9 +18,7 @@ describe("finalizeSideMenuBlockDrag", () => {
       }),
     };
 
-    finalizeSideMenuBlockDrag(
-      editor as unknown as Parameters<typeof finalizeSideMenuBlockDrag>[0],
-    );
+    finalizeSideMenuBlockDrag(editor as unknown as Parameters<typeof finalizeSideMenuBlockDrag>[0]);
 
     expect(editor.prosemirrorView.dragging).toBe(null);
     expect(blockDragEnded).toBe(true);
@@ -33,17 +31,23 @@ describe("finalizeSideMenuBlockDrag", () => {
         dragging: { id: "dragging" },
         root: {
           querySelectorAll: () => [
-            { remove: () => { removed += 1; } },
-            { remove: () => { removed += 1; } },
+            {
+              remove: () => {
+                removed += 1;
+              },
+            },
+            {
+              remove: () => {
+                removed += 1;
+              },
+            },
           ],
         },
       },
       getExtension: () => null,
     };
 
-    finalizeSideMenuBlockDrag(
-      editor as unknown as Parameters<typeof finalizeSideMenuBlockDrag>[0],
-    );
+    finalizeSideMenuBlockDrag(editor as unknown as Parameters<typeof finalizeSideMenuBlockDrag>[0]);
 
     expect(editor.prosemirrorView.dragging).toBe(null);
     expect(removed).toBe(2);
@@ -65,9 +69,7 @@ describe("finalizeSideMenuBlockDrag", () => {
       }),
     };
 
-    finalizeSideMenuBlockDrag(
-      editor as unknown as Parameters<typeof finalizeSideMenuBlockDrag>[0],
-    );
+    finalizeSideMenuBlockDrag(editor as unknown as Parameters<typeof finalizeSideMenuBlockDrag>[0]);
 
     expect(editor.prosemirrorView.dragging).toBe(null);
     expect(blockDragEnded).toBe(false);

@@ -100,9 +100,11 @@ function parentInput(
 
 describe("resolveThreadParentActivityPresentation", () => {
   it("assigns a reasoning-only turn to the standalone fallback", () => {
-    const result = resolveThreadParentActivityPresentation(parentInput({
-      agentItems: [reasoning("**Reading the bundle.**")],
-    }));
+    const result = resolveThreadParentActivityPresentation(
+      parentInput({
+        agentItems: [reasoning("**Reading the bundle.**")],
+      }),
+    );
 
     expect(result).toMatchObject({
       global: {
@@ -125,32 +127,44 @@ describe("resolveThreadParentActivityPresentation", () => {
 
   it("gives a completed latest group exclusive ownership of the reasoning heading", () => {
     const unit = groupUnit(exec("completed"));
-    const result = resolveThreadParentActivityPresentation(parentInput({
-      agentItems: [exec("completed") as ThreadAgentItemModel, reasoning("**Preparing a patch.**")],
-      activityUnits: [unit],
-    }));
+    const result = resolveThreadParentActivityPresentation(
+      parentInput({
+        agentItems: [
+          exec("completed") as ThreadAgentItemModel,
+          reasoning("**Preparing a patch.**"),
+        ],
+        activityUnits: [unit],
+      }),
+    );
 
     expect(result.fallback).toMatchObject({
       owner: "group",
       reason: "latest-open-group",
       message: "Preparing a patch.",
     });
-    expect(resolveThreadActivityGroupState({
-      unit,
-      unitIndex: 0,
-      unitCount: 1,
-      parent: result,
-      isTurnInProgress: true,
-      isExploring: false,
-    }).kind).toBe("thinking");
+    expect(
+      resolveThreadActivityGroupState({
+        unit,
+        unitIndex: 0,
+        unitCount: 1,
+        parent: result,
+        isTurnInProgress: true,
+        isExploring: false,
+      }).kind,
+    ).toBe("thinking");
   });
 
   it("lets a strict-active tool own its concrete header without a thinking owner", () => {
     const unit = groupUnit(exec("inProgress"));
-    const result = resolveThreadParentActivityPresentation(parentInput({
-      agentItems: [exec("inProgress") as ThreadAgentItemModel, reasoning("**Must not replace the tool.**")],
-      activityUnits: [unit],
-    }));
+    const result = resolveThreadParentActivityPresentation(
+      parentInput({
+        agentItems: [
+          exec("inProgress") as ThreadAgentItemModel,
+          reasoning("**Must not replace the tool.**"),
+        ],
+        activityUnits: [unit],
+      }),
+    );
 
     expect(result).toMatchObject({
       global: {
@@ -163,14 +177,16 @@ describe("resolveThreadParentActivityPresentation", () => {
         message: null,
       },
     });
-    expect(resolveThreadActivityGroupState({
-      unit,
-      unitIndex: 0,
-      unitCount: 1,
-      parent: result,
-      isTurnInProgress: true,
-      isExploring: false,
-    }).kind).toBe("active");
+    expect(
+      resolveThreadActivityGroupState({
+        unit,
+        unitIndex: 0,
+        unitCount: 1,
+        parent: result,
+        isTurnInProgress: true,
+        isExploring: false,
+      }).kind,
+    ).toBe("active");
   });
 
   it("suppresses fallback ownership for blocking, safety, pending output, and planning", () => {
@@ -190,7 +206,9 @@ describe("resolveThreadParentActivityPresentation", () => {
 
     const results = cases.map(resolveThreadParentActivityPresentation);
     expect(results.map((result) => result.fallback.owner).join(",")).toBe("none,none,none,none");
-    expect(results.map((result) => result.mainSlice.state.kind).join(",")).toBe("closed,closed,closed,closed");
+    expect(results.map((result) => result.mainSlice.state.kind).join(",")).toBe(
+      "closed,closed,closed,closed",
+    );
     expect(results.map((result) => result.mainSlice.state.reason)).toEqual([
       "blocking-request",
       "safety-buffering",
@@ -222,7 +240,9 @@ describe("resolveThreadParentActivityPresentation", () => {
       },
     };
 
-    expect(resolveThreadParentActivityPresentation(parentInput({ assistantItem: commentary }))).toMatchObject({
+    expect(
+      resolveThreadParentActivityPresentation(parentInput({ assistantItem: commentary })),
+    ).toMatchObject({
       global: {
         state: { type: "none" },
         reason: "assistant-visible-output",
@@ -236,7 +256,9 @@ describe("resolveThreadParentActivityPresentation", () => {
         isVisible: true,
       },
     });
-    expect(resolveThreadParentActivityPresentation(parentInput({ assistantItem: finalAnswer }))).toMatchObject({
+    expect(
+      resolveThreadParentActivityPresentation(parentInput({ assistantItem: finalAnswer })),
+    ).toMatchObject({
       global: {
         state: { type: "none" },
         reason: "assistant-visible-output",
@@ -263,10 +285,14 @@ describe("resolveThreadParentActivityPresentation", () => {
       },
     };
 
-    expect(resolveThreadParentActivityPresentation(parentInput({
-      assistantItem: commentary,
-      hasPostAssistantUnits: true,
-    })).fallback).toMatchObject({
+    expect(
+      resolveThreadParentActivityPresentation(
+        parentInput({
+          assistantItem: commentary,
+          hasPostAssistantUnits: true,
+        }),
+      ).fallback,
+    ).toMatchObject({
       owner: "none",
       reason: "global-state-suppressed",
     });
@@ -274,7 +300,9 @@ describe("resolveThreadParentActivityPresentation", () => {
 
   it("closes stale and settled slices with explicit diagnostic reasons", () => {
     const stale = resolveThreadParentActivityPresentation(parentInput({ isLatestTurn: false }));
-    const settled = resolveThreadParentActivityPresentation(parentInput({ isTurnInProgress: false }));
+    const settled = resolveThreadParentActivityPresentation(
+      parentInput({ isTurnInProgress: false }),
+    );
 
     expect(stale).toMatchObject({
       global: { state: { type: "none" }, reason: "not-latest-turn" },

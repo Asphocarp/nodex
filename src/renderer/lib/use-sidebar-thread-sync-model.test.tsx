@@ -49,12 +49,14 @@ function makeProject(id: string): Project {
   };
 }
 
-function makeSyncResult(input: {
-  snapshot?: CodexSidebarSnapshot;
-  changedProjectIds?: string[];
-  projectlessChanged?: boolean;
-  materializedSessionIds?: string[];
-} = {}): CodexSidebarSyncResult {
+function makeSyncResult(
+  input: {
+    snapshot?: CodexSidebarSnapshot;
+    changedProjectIds?: string[];
+    projectlessChanged?: boolean;
+    materializedSessionIds?: string[];
+  } = {},
+): CodexSidebarSyncResult {
   return {
     snapshot: input.snapshot ?? emptySnapshot,
     source: "core",
@@ -80,12 +82,7 @@ function Harness(props: {
     reorder: (orderedThreadIds: readonly string[]) => Promise<CodexSidebarSnapshot>,
   ) => void;
 }) {
-  const {
-    onActions,
-    onReorderPinned,
-    onSnapshot,
-    projects,
-  } = props;
+  const { onActions, onReorderPinned, onSnapshot, projects } = props;
   const state = useSidebarThreadSyncModel({
     projects,
   });
@@ -131,8 +128,9 @@ describe("useSidebarThreadSyncModel", () => {
             listener: sessionListener,
           });
           return () => {
-            projectSessionListeners = projectSessionListeners
-              .filter((entry) => entry.listener !== sessionListener);
+            projectSessionListeners = projectSessionListeners.filter(
+              (entry) => entry.listener !== sessionListener,
+            );
           };
         }
         return () => undefined;
@@ -162,11 +160,14 @@ describe("useSidebarThreadSyncModel", () => {
     await waitFor(() => {
       if (hostMessageListener === null) throw new Error("missing host listener");
     });
-    expect(invokeCalls.some((call) =>
-      call[0] === "codex:sidebar:sync" &&
-      (call[1] as { policy?: string } | undefined)?.policy === "force" &&
-      (call[1] as { reason?: string } | undefined)?.reason === "mount"
-    )).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "codex:sidebar:sync" &&
+          (call[1] as { policy?: string } | undefined)?.policy === "force" &&
+          (call[1] as { reason?: string } | undefined)?.reason === "mount",
+      ),
+    ).toBe(false);
     snapshots.length = 0;
     const callsBeforeMessage = invokeCalls.length;
     const broadcastResult = makeSyncResult({
@@ -198,9 +199,9 @@ describe("useSidebarThreadSyncModel", () => {
   });
 
   test("persists the exact realized pinned-thread order through the sidebar boundary", async () => {
-    let reorderPinned: ((
-      orderedThreadIds: readonly string[],
-    ) => Promise<CodexSidebarSnapshot>) | null = null;
+    let reorderPinned:
+      | ((orderedThreadIds: readonly string[]) => Promise<CodexSidebarSnapshot>)
+      | null = null;
     render(
       createElement(TestQueryProvider, {
         client: createTestQueryClient(),
@@ -221,10 +222,13 @@ describe("useSidebarThreadSyncModel", () => {
       await reorderPinned?.(["thread-b", "thread-a"]);
     });
 
-    expect(invokeCalls.some((call) => JSON.stringify(call) === JSON.stringify([
-      "codex:threads:pinned:reorder",
-      ["thread-b", "thread-a"],
-    ]))).toBe(true);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          JSON.stringify(call) ===
+          JSON.stringify(["codex:threads:pinned:reorder", ["thread-b", "thread-a"]]),
+      ),
+    ).toBe(true);
   });
 
   test("keeps sidebar mutation actions stable across snapshot updates", async () => {
@@ -296,10 +300,7 @@ describe("useSidebarThreadSyncModel", () => {
 
     await act(async () => {
       projectSessionListeners[0]?.listener({
-        summaryScopes: [
-          { kind: "project", projectId: "beta" },
-          { kind: "projectless" },
-        ],
+        summaryScopes: [{ kind: "project", projectId: "beta" }, { kind: "projectless" }],
         detailInvalidation: {
           kind: "sessions",
           sessionIds: ["session-beta"],
@@ -309,15 +310,15 @@ describe("useSidebarThreadSyncModel", () => {
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(queryClient.getQueryState(
-        queryKeys.projectSessions.summaries("beta"),
-      )?.isInvalidated).toBe(true);
-      expect(queryClient.getQueryState(
-        queryKeys.projectSessions.summaries(null),
-      )?.isInvalidated).toBe(true);
-      expect(queryClient.getQueryState(
-        queryKeys.projectSessions.detail("session-beta"),
-      )?.isInvalidated).toBe(true);
+      expect(
+        queryClient.getQueryState(queryKeys.projectSessions.summaries("beta"))?.isInvalidated,
+      ).toBe(true);
+      expect(
+        queryClient.getQueryState(queryKeys.projectSessions.summaries(null))?.isInvalidated,
+      ).toBe(true);
+      expect(
+        queryClient.getQueryState(queryKeys.projectSessions.detail("session-beta"))?.isInvalidated,
+      ).toBe(true);
     });
     expect(invokeCalls.length).toBe(callsBeforeEvent);
   });

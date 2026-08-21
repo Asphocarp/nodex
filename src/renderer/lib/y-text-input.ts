@@ -72,10 +72,7 @@ const computeCodePointEdit = (
 ): CodePointEdit | null => {
   let prefixLength = 0;
   const sharedLength = Math.min(current.length, next.length);
-  while (
-    prefixLength < sharedLength &&
-    current[prefixLength] === next[prefixLength]
-  ) {
+  while (prefixLength < sharedLength && current[prefixLength] === next[prefixLength]) {
     prefixLength += 1;
   }
 
@@ -83,8 +80,7 @@ const computeCodePointEdit = (
   while (
     suffixLength < current.length - prefixLength &&
     suffixLength < next.length - prefixLength &&
-    current[current.length - suffixLength - 1] ===
-      next[next.length - suffixLength - 1]
+    current[current.length - suffixLength - 1] === next[next.length - suffixLength - 1]
   ) {
     suffixLength += 1;
   }
@@ -99,10 +95,7 @@ const computeCodePointEdit = (
   };
 };
 
-const toYTextEdit = (
-  current: readonly string[],
-  edit: CodePointEdit,
-): YTextContiguousEdit => ({
+const toYTextEdit = (current: readonly string[], edit: CodePointEdit): YTextContiguousEdit => ({
   index: utf16Length(current.slice(0, edit.start)),
   deleteLength: utf16Length(current.slice(edit.start, edit.end)),
   insertText: edit.insert.join(""),
@@ -137,11 +130,7 @@ const alignCurrentToBase = (
 
   for (let baseIndex = 1; baseIndex <= base.length; baseIndex += 1) {
     const row = new Uint16Array(width);
-    for (
-      let currentIndex = 1;
-      currentIndex <= current.length;
-      currentIndex += 1
-    ) {
+    for (let currentIndex = 1; currentIndex <= current.length; currentIndex += 1) {
       if (base[baseIndex - 1] === current[currentIndex - 1]) {
         row[currentIndex] = (previous[currentIndex - 1] ?? 0) + 1;
         directions[baseIndex * width + currentIndex] = MATCH;
@@ -158,10 +147,7 @@ const alignCurrentToBase = (
     previous = row;
   }
 
-  const currentToBase: (number | null)[] = Array.from(
-    { length: current.length },
-    () => null,
-  );
+  const currentToBase: (number | null)[] = Array.from({ length: current.length }, () => null);
   let baseIndex = base.length;
   let currentIndex = current.length;
   while (baseIndex > 0 && currentIndex > 0) {
@@ -192,19 +178,11 @@ const mergeLocalIntentIntoCurrent = (
 
   current.forEach((codePoint, currentIndex) => {
     const baseIndex = currentToBase[currentIndex];
-    if (
-      !insertedLocalText &&
-      baseIndex !== null &&
-      baseIndex >= localEdit.start
-    ) {
+    if (!insertedLocalText && baseIndex !== null && baseIndex >= localEdit.start) {
       merged.push(...localEdit.insert);
       insertedLocalText = true;
     }
-    if (
-      baseIndex === null ||
-      baseIndex < localEdit.start ||
-      baseIndex >= localEdit.end
-    ) {
+    if (baseIndex === null || baseIndex < localEdit.start || baseIndex >= localEdit.end) {
       merged.push(codePoint);
     }
   });
@@ -242,10 +220,7 @@ export const reconcileYTextInputValues = ({
   const mergedCodePoints = remoteChanged
     ? mergeLocalIntentIntoCurrent(baseCodePoints, currentCodePoints, localEdit)
     : toCodePoints(draft);
-  const value = assertCanonicalTitle(
-    mergedCodePoints.join(""),
-    "reconciledValue",
-  );
+  const value = assertCanonicalTitle(mergedCodePoints.join(""), "reconciledValue");
   const mergedEdit = computeCodePointEdit(currentCodePoints, mergedCodePoints);
   return {
     value,
@@ -264,9 +239,7 @@ export const applyYTextInputReconciliation = ({
 }: ApplyYTextInputReconciliation): YTextInputReconciliation => {
   const document = text.doc;
   if (!document) {
-    throw new YTextInputReconciliationError(
-      "Y.Text input must be integrated into a Y.Doc",
-    );
+    throw new YTextInputReconciliationError("Y.Text input must be integrated into a Y.Doc");
   }
 
   const reconciliation = reconcileYTextInputValues({

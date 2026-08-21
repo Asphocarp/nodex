@@ -1,8 +1,4 @@
-import {
-  lstatSync,
-  readFileSync,
-  type Stats,
-} from "node:fs";
+import { lstatSync, readFileSync, type Stats } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -25,10 +21,7 @@ export interface CoreRuntimeConnection {
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const requireString = (
-  value: Readonly<Record<string, unknown>>,
-  key: string,
-): string => {
+const requireString = (value: Readonly<Record<string, unknown>>, key: string): string => {
   const field = value[key];
   if (typeof field === "string" && field.length > 0) return field;
   throw new Error(`Core runtime descriptor has invalid ${key}`);
@@ -70,10 +63,7 @@ const sameStoreFormat = (left: StoreFormat, right: StoreFormat): boolean =>
   left.version === right.version &&
   left.schema_fingerprint === right.schema_fingerprint;
 
-const assertCanonicalStoreFormats = (
-  formats: readonly StoreFormat[],
-  label: string,
-): void => {
+const assertCanonicalStoreFormats = (formats: readonly StoreFormat[], label: string): void => {
   let previous: string | undefined;
   for (const format of formats) {
     const key = storeFormatKey(format);
@@ -149,8 +139,11 @@ const parseManifest = (value: unknown): Manifest => {
   }
   assertCanonicalStoreFormats(manifest.store.readable, "Core readable Store formats");
   assertCanonicalStoreFormats(manifest.store.migratable, "Core migratable Store formats");
-  if (manifest.store.readable.some((format) =>
-    manifest.store.migratable.some((candidate) => sameStoreFormat(format, candidate)))) {
+  if (
+    manifest.store.readable.some((format) =>
+      manifest.store.migratable.some((candidate) => sameStoreFormat(format, candidate)),
+    )
+  ) {
     throw new Error("Core readable and migratable Store formats overlap");
   }
   return manifest;
@@ -159,9 +152,7 @@ const parseManifest = (value: unknown): Manifest => {
 const canonicalManifestDigest = (manifest: Manifest): string =>
   createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
 
-const assertRuntimeCompatibility = (
-  descriptor: CoreRuntimeDescriptor,
-): void => {
+const assertRuntimeCompatibility = (descriptor: CoreRuntimeDescriptor): void => {
   const { manifest } = descriptor;
   const transportCompatible =
     manifest.transport.min <= CORE_CLIENT_REQUIREMENTS.transport.max &&
@@ -171,9 +162,11 @@ const assertRuntimeCompatibility = (
     CORE_CLIENT_REQUIREMENTS.event_version <= manifest.event_versions.max;
   const modulesCompatible = CORE_CLIENT_REQUIREMENTS.modules.every((required) => {
     const offered = manifest.modules.find((entry) => entry.module === required.module);
-    return offered !== undefined &&
+    return (
+      offered !== undefined &&
       offered.versions.min <= required.contract_version &&
-      required.contract_version <= offered.versions.max;
+      required.contract_version <= offered.versions.max
+    );
   });
   const storeCompatible = CORE_CLIENT_REQUIREMENTS.accepted_store_formats.some(
     (format) =>
@@ -208,16 +201,10 @@ const assertOwned = (stats: Stats, label: string): void => {
 const assertMode = (stats: Stats, expected: number, label: string): void => {
   const actual = stats.mode & 0o777;
   if (actual === expected) return;
-  throw new Error(
-    `${label} has mode ${actual.toString(8)}; expected ${expected.toString(8)}`,
-  );
+  throw new Error(`${label} has mode ${actual.toString(8)}; expected ${expected.toString(8)}`);
 };
 
-const inspectEntry = (
-  entryPath: string,
-  expectedMode: number,
-  label: string,
-): Stats => {
+const inspectEntry = (entryPath: string, expectedMode: number, label: string): Stats => {
   const stats = lstatSync(entryPath);
   if (stats.isSymbolicLink()) throw new Error(`${label} must not be a symlink`);
   assertOwned(stats, label);
@@ -257,10 +244,7 @@ export const parseCoreRuntimeDescriptor = (
       sha256: requireString(value.artifact, "sha256"),
       build_id: requireString(value.artifact, "build_id"),
     },
-    actual_store_format: parseStoreFormat(
-      value.actual_store_format,
-      "Core actual Store format",
-    ),
+    actual_store_format: parseStoreFormat(value.actual_store_format, "Core actual Store format"),
     pid: requireInteger(value, "pid", 1),
     start_nonce: requireString(value, "start_nonce"),
     socket_path: requireString(value, "socket_path"),
@@ -283,10 +267,7 @@ export const parseCoreRuntimeDescriptor = (
   if (canonicalManifestDigest(descriptor.manifest) !== descriptor.manifest_digest) {
     throw new Error("Core runtime manifest digest does not match its canonical manifest");
   }
-  if (!sameStoreFormat(
-    descriptor.actual_store_format,
-    descriptor.manifest.store.current,
-  )) {
+  if (!sameStoreFormat(descriptor.actual_store_format, descriptor.manifest.store.current)) {
     throw new Error("Core actual Store format does not match the manifest current format");
   }
   if (!path.isAbsolute(descriptor.socket_path)) {
@@ -299,21 +280,13 @@ export const parseCoreRuntimeDescriptor = (
   return descriptor;
 };
 
-const parseDescriptor = (
-  bytes: Uint8Array,
-  expectedSocketPath: string,
-): CoreRuntimeDescriptor => parseCoreRuntimeDescriptor(
-  decodeBoundedJson<unknown>(
-    bytes,
-    MAX_DESCRIPTOR_BYTES,
-    "Core runtime descriptor",
-  ),
-  expectedSocketPath,
-);
+const parseDescriptor = (bytes: Uint8Array, expectedSocketPath: string): CoreRuntimeDescriptor =>
+  parseCoreRuntimeDescriptor(
+    decodeBoundedJson<unknown>(bytes, MAX_DESCRIPTOR_BYTES, "Core runtime descriptor"),
+    expectedSocketPath,
+  );
 
-export const readCoreRuntimeConnection = (
-  nodexHome: string,
-): CoreRuntimeConnection => {
+export const readCoreRuntimeConnection = (nodexHome: string): CoreRuntimeConnection => {
   if (!path.isAbsolute(nodexHome)) throw new Error("Nodex home must be absolute");
 
   const runtimeDirectory = path.join(nodexHome, "run/core");

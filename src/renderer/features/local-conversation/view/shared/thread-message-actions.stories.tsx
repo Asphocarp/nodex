@@ -27,11 +27,7 @@ function MessageActionRowStoryFrame() {
                 feedbackMs={1500}
                 disabledWhenCopied
               />
-              <ThreadActionIconButton
-                label="Edit message"
-                tooltip="Edit"
-                autoFocus
-              >
+              <ThreadActionIconButton label="Edit message" tooltip="Edit" autoFocus>
                 <EditMessageIcon />
               </ThreadActionIconButton>
             </div>

@@ -1,7 +1,4 @@
-import type {
-  CodexProtocolRequestId,
-  CodexUserInputRequest,
-} from "../../../../../lib/types";
+import type { CodexProtocolRequestId, CodexUserInputRequest } from "../../../../../lib/types";
 
 type CodexUserInputQuestion = CodexUserInputRequest["questions"][number];
 
@@ -65,9 +62,7 @@ export const EXPLICIT_REQUEST_FORM_POLICY: RequestQuestionnairePolicy = {
   requireAllAnswers: true,
 };
 
-function createInitialAnswer(
-  question: RequestComposerQuestion,
-): RequestQuestionnaireAnswer {
+function createInitialAnswer(question: RequestComposerQuestion): RequestQuestionnaireAnswer {
   return {
     selectedOptionId: question.options?.[0]?.label ?? null,
     freeformText: null,
@@ -83,9 +78,7 @@ export function createInitialRequestQuestionnaireDraft(
   };
 }
 
-export function buildRequestQuestionSignature(
-  request: RequestComposerRequest,
-): string {
+export function buildRequestQuestionSignature(request: RequestComposerRequest): string {
   return JSON.stringify(
     request.questions.map((question) => ({
       id: question.id,
@@ -113,9 +106,7 @@ export function reconcileRequestQuestionnaireDraft(
     )
       ? saved.selectedOptionId
       : null;
-    const freeformText = typeof saved.freeformText === "string"
-      ? saved.freeformText
-      : null;
+    const freeformText = typeof saved.freeformText === "string" ? saved.freeformText : null;
 
     if (!question.options?.length) {
       return {
@@ -150,19 +141,14 @@ export function reconcileRequestQuestionnaireDraft(
 
   return {
     answers,
-    questionIndex: Math.max(
-      0,
-      Math.min(request.questions.length - 1, draft.questionIndex),
-    ),
+    questionIndex: Math.max(0, Math.min(request.questions.length - 1, draft.questionIndex)),
   };
 }
 
 function updateAnswer(
   draft: RequestQuestionnaireDraft,
   questionIndex: number,
-  update: (
-    answer: RequestQuestionnaireAnswer,
-  ) => RequestQuestionnaireAnswer,
+  update: (answer: RequestQuestionnaireAnswer) => RequestQuestionnaireAnswer,
 ): RequestQuestionnaireDraft {
   const answer = draft.answers[questionIndex];
   if (!answer) return draft;
@@ -170,7 +156,7 @@ function updateAnswer(
   return {
     ...draft,
     answers: draft.answers.map((candidate, index) =>
-      index === questionIndex ? update(candidate) : candidate
+      index === questionIndex ? update(candidate) : candidate,
     ),
   };
 }
@@ -224,10 +210,7 @@ export function navigateRequestQuestionnaire(
 ): RequestQuestionnaireDraft {
   return {
     ...draft,
-    questionIndex: Math.max(
-      0,
-      Math.min(request.questions.length - 1, questionIndex),
-    ),
+    questionIndex: Math.max(0, Math.min(request.questions.length - 1, questionIndex)),
   };
 }
 
@@ -236,9 +219,7 @@ export function getRequestQuestionnaireAnswer(
   draft: RequestQuestionnaireDraft,
   questionId: string,
 ): RequestQuestionnaireAnswer | null {
-  const questionIndex = request.questions.findIndex(
-    (question) => question.id === questionId,
-  );
+  const questionIndex = request.questions.findIndex((question) => question.id === questionId);
   if (questionIndex < 0) return null;
   return draft.answers[questionIndex] ?? null;
 }
@@ -261,19 +242,13 @@ export function buildUserInputAnswers(
   request: RequestComposerRequest,
   draft: RequestQuestionnaireDraft,
 ): Record<string, string[]> {
-  return request.questions.reduce<Record<string, string[]>>(
-    (answers, question, index) => {
-      const value = resolveRequestQuestionnaireAnswerValue(
-        question,
-        draft.answers[index],
-      );
-      if (!value) return answers;
+  return request.questions.reduce<Record<string, string[]>>((answers, question, index) => {
+    const value = resolveRequestQuestionnaireAnswerValue(question, draft.answers[index]);
+    if (!value) return answers;
 
-      answers[question.id] = [value];
-      return answers;
-    },
-    {},
-  );
+    answers[question.id] = [value];
+    return answers;
+  }, {});
 }
 
 export function isRequestQuestionnaireSubmittable(
@@ -283,9 +258,9 @@ export function isRequestQuestionnaireSubmittable(
 ): boolean {
   if (!policy.requireAllAnswers) return true;
 
-  return request.questions.every((question, index) =>
-    resolveRequestQuestionnaireAnswerValue(question, draft.answers[index])
-      !== null
+  return request.questions.every(
+    (question, index) =>
+      resolveRequestQuestionnaireAnswerValue(question, draft.answers[index]) !== null,
   );
 }
 

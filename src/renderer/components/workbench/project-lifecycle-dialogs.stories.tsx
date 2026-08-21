@@ -42,7 +42,8 @@ const REMOVED_PROJECTS: Project[] = [
     bindingRevision: 7,
     name: "A removed project with a deliberately long name for truncation review",
     appearance: { color: "orange", marker: { kind: "icon", icon: "book" } },
-    primaryWorkspaceRoot: "/Users/asc/repo/archive/a/very/long/workspace/path/that/should/not/widen/the/dialog",
+    primaryWorkspaceRoot:
+      "/Users/asc/repo/archive/a/very/long/workspace/path/that/should/not/widen/the/dialog",
   },
 ];
 
@@ -85,8 +86,8 @@ const storyQueryClient = new QueryClient({
 
 const STORY_PAGE_KEY_AUTHORITY: DatabasePageKeyAuthority = {
   previewPrefix: async (input) => {
-    const prefix = input.requestedPrefix
-      ?? (input.nameHint.trim().toUpperCase().slice(0, 5) || "NX");
+    const prefix =
+      input.requestedPrefix ?? (input.nameHint.trim().toUpperCase().slice(0, 5) || "NX");
     const nextNumber = input.projectId ? 25 : 1;
     return {
       prefix,
@@ -147,7 +148,9 @@ export const ProjectMenu: Story = {
     </Surface>
   ),
   play: async ({ canvasElement }) => {
-    fireEvent.click(getByRole(canvasElement, "button", { name: "Project actions for Nodex desktop" }));
+    fireEvent.click(
+      getByRole(canvasElement, "button", { name: "Project actions for Nodex desktop" }),
+    );
     await waitFor(() => getByRole(document.body, "menuitem", { name: "Remove" }));
   },
 };
@@ -155,16 +158,14 @@ export const ProjectMenu: Story = {
 export const CreateProject: Story = {
   render: () => (
     <Surface>
-      <ProjectCreateDialog
-        onClose={() => undefined}
-        onCreate={async () => undefined}
-      />
+      <ProjectCreateDialog onClose={() => undefined} onCreate={async () => undefined} />
     </Surface>
   ),
   parameters: {
     docs: {
       description: {
-        story: "The direct add-project destination stays focused on Project identity and source folders. Submitting the empty source-folder picker provisions a new Documents/Nodex workspace automatically.",
+        story:
+          "The direct add-project destination stays focused on Project identity and source folders. Submitting the empty source-folder picker provisions a new Documents/Nodex workspace automatically.",
       },
     },
   },

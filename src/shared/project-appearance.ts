@@ -11,8 +11,7 @@ export const PROJECT_MARKER_COLORS = [
   "pink",
 ] as const;
 
-export type ProjectMarkerColor =
-  components["schemas"]["ProjectMarkerColor"];
+export type ProjectMarkerColor = components["schemas"]["ProjectMarkerColor"];
 
 export const PROJECT_MARKER_ICONS = [
   "folder",
@@ -47,8 +46,7 @@ export const PROJECT_MARKER_ICONS = [
   "plant",
 ] as const;
 
-export type ProjectMarkerIcon =
-  components["schemas"]["ProjectMarkerIcon"];
+export type ProjectMarkerIcon = components["schemas"]["ProjectMarkerIcon"];
 
 export type ProjectMarker = components["schemas"]["ProjectMarker"];
 export type ProjectAppearance = components["schemas"]["ProjectAppearance"];
@@ -114,10 +112,7 @@ export const PROJECT_MARKER_COLOR_VALUES = {
   blue: { light: "#0285ff", dark: "#339cff" },
   purple: { light: "#924ff7", dark: "#ad7bf9" },
   pink: { light: "#ff66ad", dark: "#ff8cc1" },
-} as const satisfies Record<
-  ProjectMarkerColor,
-  { light: string; dark: string } | null
->;
+} as const satisfies Record<ProjectMarkerColor, { light: string; dark: string } | null>;
 
 export function isProjectAppearanceEqual(
   left: ProjectAppearance,

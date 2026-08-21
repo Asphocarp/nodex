@@ -26,19 +26,58 @@ describe("agent provider catalog", () => {
     const client: AgentProviderCatalogClient = {
       async request(method, params) {
         if (method === "interpreter/provider/list") {
-          return { data: [
-            { id: "anthropic", name: "Anthropic", description: "", isCurrent: false, wireApi: "messages", envKey: "ANTHROPIC_API_KEY", configured: true, isDefault: false },
-            { id: "kimi-for-coding", name: "Kimi For Coding", description: "", isCurrent: false, wireApi: "chat", envKey: "KIMI_API_KEY", configured: true, isDefault: false },
-            { id: "unsupported", name: "Unsupported", description: "", isCurrent: false, wireApi: "chat", configured: true, isDefault: false },
-          ] };
+          return {
+            data: [
+              {
+                id: "anthropic",
+                name: "Anthropic",
+                description: "",
+                isCurrent: false,
+                wireApi: "messages",
+                envKey: "ANTHROPIC_API_KEY",
+                configured: true,
+                isDefault: false,
+              },
+              {
+                id: "kimi-for-coding",
+                name: "Kimi For Coding",
+                description: "",
+                isCurrent: false,
+                wireApi: "chat",
+                envKey: "KIMI_API_KEY",
+                configured: true,
+                isDefault: false,
+              },
+              {
+                id: "unsupported",
+                name: "Unsupported",
+                description: "",
+                isCurrent: false,
+                wireApi: "chat",
+                configured: true,
+                isDefault: false,
+              },
+            ],
+          };
         }
         if (method === "interpreter/model/list") {
           const providerId = (params as { modelProvider: string }).modelProvider;
-          return { data: [model("shared/model", providerId === "kimi-for-coding" ? "Thinking" : "high")] };
+          return {
+            data: [model("shared/model", providerId === "kimi-for-coding" ? "Thinking" : "high")],
+          };
         }
         if (method === "interpreter/harness/list") {
           const providerId = (params as { providerId: string }).providerId;
-          return { data: [{ id: providerId === "anthropic" ? "claude-code" : "kimi-code", label: "Harness", description: "", isRecommended: true }] };
+          return {
+            data: [
+              {
+                id: providerId === "anthropic" ? "claude-code" : "kimi-code",
+                label: "Harness",
+                description: "",
+                isRecommended: true,
+              },
+            ],
+          };
         }
         throw new Error(`Unexpected method ${method}`);
       },
@@ -57,33 +96,45 @@ describe("agent provider catalog", () => {
     expect(catalog.providers[1]?.models[0]?.providerId).toBe("kimi-for-coding");
     expect(catalog.providers[1]?.models[0]?.defaultReasoningEffort).toBe("Thinking");
     expect(catalog.providers[1]?.models[0]?.supportedReasoningEfforts[0]?.value).toBe("Thinking");
-    expect(catalog.providers[1]?.models[0]?.supportedReasoningEfforts[0]?.displayName).toBe("Thinking");
+    expect(catalog.providers[1]?.models[0]?.supportedReasoningEfforts[0]?.displayName).toBe(
+      "Thinking",
+    );
   });
 
   test("projects model-advertised service tiers into provider-neutral selector options", async () => {
     const client: AgentProviderCatalogClient = {
       async request(method) {
         if (method === "interpreter/provider/list") {
-          return { data: [{
-            id: "openai",
-            name: "OpenAI",
-            description: "",
-            isCurrent: true,
-            wireApi: "responses",
-            configured: true,
-            isDefault: true,
-          }] };
+          return {
+            data: [
+              {
+                id: "openai",
+                name: "OpenAI",
+                description: "",
+                isCurrent: true,
+                wireApi: "responses",
+                configured: true,
+                isDefault: true,
+              },
+            ],
+          };
         }
         if (method === "interpreter/model/list") {
-          return { data: [{
-            ...model("gpt-5.5", "xhigh"),
-            serviceTiers: [{
-              id: "fast",
-              name: "Fast",
-              description: "Faster responses, higher usage",
-            }],
-            defaultServiceTier: null,
-          }] };
+          return {
+            data: [
+              {
+                ...model("gpt-5.5", "xhigh"),
+                serviceTiers: [
+                  {
+                    id: "fast",
+                    name: "Fast",
+                    description: "Faster responses, higher usage",
+                  },
+                ],
+                defaultServiceTier: null,
+              },
+            ],
+          };
         }
         if (method === "interpreter/harness/list") {
           return { data: [{ label: "Native", description: "", isRecommended: true }] };
@@ -113,10 +164,12 @@ describe("agent provider catalog", () => {
       client: {
         async request(method, params) {
           calls.push({ method, params });
-          return { data: [
-            { label: "Native", description: "", isRecommended: false },
-            { id: "claude-code", label: "Claude Code", description: "", isRecommended: true },
-          ] };
+          return {
+            data: [
+              { label: "Native", description: "", isRecommended: false },
+              { id: "claude-code", label: "Claude Code", description: "", isRecommended: true },
+            ],
+          };
         },
       },
       providerId: "openrouter",
@@ -126,22 +179,28 @@ describe("agent provider catalog", () => {
     });
 
     expect(harnessId).toBe("claude-code");
-    expect(calls).toEqual([{
-      method: "interpreter/harness/list",
-      params: { providerId: "openrouter", model: "~anthropic/claude-fable-latest" },
-    }]);
+    expect(calls).toEqual([
+      {
+        method: "interpreter/harness/list",
+        params: { providerId: "openrouter", model: "~anthropic/claude-fable-latest" },
+      },
+    ]);
   });
 
   test("uses the exact model recommendation and falls back when the runtime has none", async () => {
     const responses = [
-      { data: [
-        { id: null, label: "Native", description: "", isRecommended: false },
-        { id: "kimi-code", label: "Kimi Code", description: "", isRecommended: true },
-      ] },
-      { data: [
-        { id: null, label: "Native", description: "", isRecommended: false },
-        { id: "kimi-code", label: "Kimi Code", description: "", isRecommended: false },
-      ] },
+      {
+        data: [
+          { id: null, label: "Native", description: "", isRecommended: false },
+          { id: "kimi-code", label: "Kimi Code", description: "", isRecommended: true },
+        ],
+      },
+      {
+        data: [
+          { id: null, label: "Native", description: "", isRecommended: false },
+          { id: "kimi-code", label: "Kimi Code", description: "", isRecommended: false },
+        ],
+      },
     ];
     const client: AgentProviderCatalogClient = {
       async request() {
@@ -151,91 +210,105 @@ describe("agent provider catalog", () => {
       },
     };
 
-    await expect(resolveAgentHarnessId({
-      client,
-      providerId: "openrouter",
-      modelId: "moonshotai/kimi-k3",
-      requestedHarnessId: null,
-      fallbackHarnessId: null,
-    })).resolves.toBe("kimi-code");
-    await expect(resolveAgentHarnessId({
-      client,
-      providerId: "openrouter",
-      modelId: "~anthropic/claude-fable-latest",
-      requestedHarnessId: null,
-      fallbackHarnessId: null,
-    })).resolves.toBeNull();
+    await expect(
+      resolveAgentHarnessId({
+        client,
+        providerId: "openrouter",
+        modelId: "moonshotai/kimi-k3",
+        requestedHarnessId: null,
+        fallbackHarnessId: null,
+      }),
+    ).resolves.toBe("kimi-code");
+    await expect(
+      resolveAgentHarnessId({
+        client,
+        providerId: "openrouter",
+        modelId: "~anthropic/claude-fable-latest",
+        requestedHarnessId: null,
+        fallbackHarnessId: null,
+      }),
+    ).resolves.toBeNull();
   });
 
   test("rejects a harness that the exact provider/model pair does not expose", async () => {
-    await expect(resolveAgentHarnessId({
-      client: {
-        async request() {
-          return { data: [
-            { id: null, label: "Native", description: "", isRecommended: true },
-          ] };
+    await expect(
+      resolveAgentHarnessId({
+        client: {
+          async request() {
+            return { data: [{ id: null, label: "Native", description: "", isRecommended: true }] };
+          },
         },
-      },
-      providerId: "openrouter",
-      modelId: "~anthropic/claude-fable-latest",
-      requestedHarnessId: "kimi-code",
-      fallbackHarnessId: null,
-    })).rejects.toThrow("Agent harness 'kimi-code' is unavailable");
+        providerId: "openrouter",
+        modelId: "~anthropic/claude-fable-latest",
+        requestedHarnessId: "kimi-code",
+        fallbackHarnessId: null,
+      }),
+    ).rejects.toThrow("Agent harness 'kimi-code' is unavailable");
   });
 
   test("validates the full profile and resolves a model-specific harness", async () => {
     const catalog: AgentProviderCatalog = {
-      providers: [{
-        id: "openrouter",
-        displayName: "OpenRouter",
-        description: null,
-        wireApi: "chat",
-        credentialStatus: "ready",
-        supportedByNodex: true,
-        isDefault: false,
-        credentialEnvKey: "OPENROUTER_API_KEY",
-        recommendedHarnessId: null,
-        models: [{
-          providerId: "openrouter",
-          modelId: "moonshotai/kimi-k3",
-          displayName: "Kimi K3",
+      providers: [
+        {
+          id: "openrouter",
+          displayName: "OpenRouter",
           description: null,
-          hidden: false,
-          isDefault: true,
+          wireApi: "chat",
+          credentialStatus: "ready",
+          supportedByNodex: true,
+          isDefault: false,
+          credentialEnvKey: "OPENROUTER_API_KEY",
           recommendedHarnessId: null,
-          supportedReasoningEfforts: [{
-            value: "Thinking",
-            displayName: "Thinking",
-            description: null,
-          }],
-          defaultReasoningEffort: "Thinking",
-          supportedServiceTiers: [],
-          defaultServiceTier: null,
-          inputCapabilities: ["text"],
-          switchPolicy: "new-thread",
-        }],
-      }],
+          models: [
+            {
+              providerId: "openrouter",
+              modelId: "moonshotai/kimi-k3",
+              displayName: "Kimi K3",
+              description: null,
+              hidden: false,
+              isDefault: true,
+              recommendedHarnessId: null,
+              supportedReasoningEfforts: [
+                {
+                  value: "Thinking",
+                  displayName: "Thinking",
+                  description: null,
+                },
+              ],
+              defaultReasoningEffort: "Thinking",
+              supportedServiceTiers: [],
+              defaultServiceTier: null,
+              inputCapabilities: ["text"],
+              switchPolicy: "new-thread",
+            },
+          ],
+        },
+      ],
     };
     const client: AgentProviderCatalogClient = {
       async request() {
-        return { data: [
-          { id: null, label: "Native", description: "", isRecommended: false },
-          { id: "kimi-code", label: "Kimi Code", description: "", isRecommended: true },
-        ] };
+        return {
+          data: [
+            { id: null, label: "Native", description: "", isRecommended: false },
+            { id: "kimi-code", label: "Kimi Code", description: "", isRecommended: true },
+          ],
+        };
       },
     };
 
-    await expect(resolveAgentExecutionProfileFromCatalog({
-      client,
-      catalog,
-      requested: {
-        providerId: "openrouter",
-        modelId: "moonshotai/kimi-k3",
-        harnessId: null,
-        reasoningEffort: null,
-        serviceTier: null,
-      },
-    })).resolves.toEqual({
+    await expect(
+      resolveAgentExecutionProfileFromCatalog({
+        client,
+        catalog,
+        requested: {
+          providerId: "openrouter",
+          modelId: "moonshotai/kimi-k3",
+          harnessId: null,
+          reasoningEffort: null,
+          serviceTier: null,
+        },
+      }),
+    ).resolves.toEqual({
       providerId: "openrouter",
       modelId: "moonshotai/kimi-k3",
       harnessId: "kimi-code",
@@ -255,62 +328,74 @@ describe("agent provider catalog", () => {
         })),
       })),
     };
-    await expect(resolveAgentExecutionProfileFromCatalog({
-      client,
-      catalog: catalogWithPriorityTier,
-      requested: {
-        providerId: "openrouter",
-        modelId: "moonshotai/kimi-k3",
-        harnessId: null,
-        reasoningEffort: "Thinking",
-        serviceTier: "priority",
-      },
-    })).resolves.toMatchObject({ serviceTier: "priority" });
+    await expect(
+      resolveAgentExecutionProfileFromCatalog({
+        client,
+        catalog: catalogWithPriorityTier,
+        requested: {
+          providerId: "openrouter",
+          modelId: "moonshotai/kimi-k3",
+          harnessId: null,
+          reasoningEffort: "Thinking",
+          serviceTier: "priority",
+        },
+      }),
+    ).resolves.toMatchObject({ serviceTier: "priority" });
 
-    await expect(resolveAgentExecutionProfileFromCatalog({
-      client,
-      catalog,
-      requested: {
-        providerId: "openrouter",
-        modelId: "moonshotai/kimi-k3",
-        harnessId: null,
-        reasoningEffort: "unsupported",
-        serviceTier: null,
-      },
-    })).rejects.toThrow("Reasoning effort 'unsupported' is unavailable");
-    await expect(resolveAgentExecutionProfileFromCatalog({
-      client,
-      catalog,
-      requested: {
-        providerId: "openrouter",
-        modelId: "moonshotai/kimi-k3",
-        harnessId: null,
-        reasoningEffort: "Thinking",
-        serviceTier: "fast",
-      },
-    })).rejects.toThrow("Service tier 'fast' is unavailable");
+    await expect(
+      resolveAgentExecutionProfileFromCatalog({
+        client,
+        catalog,
+        requested: {
+          providerId: "openrouter",
+          modelId: "moonshotai/kimi-k3",
+          harnessId: null,
+          reasoningEffort: "unsupported",
+          serviceTier: null,
+        },
+      }),
+    ).rejects.toThrow("Reasoning effort 'unsupported' is unavailable");
+    await expect(
+      resolveAgentExecutionProfileFromCatalog({
+        client,
+        catalog,
+        requested: {
+          providerId: "openrouter",
+          modelId: "moonshotai/kimi-k3",
+          harnessId: null,
+          reasoningEffort: "Thinking",
+          serviceTier: "fast",
+        },
+      }),
+    ).rejects.toThrow("Service tier 'fast' is unavailable");
 
     const provider = catalog.providers[0];
     const catalogWithUnlistedRuntimeDefault: AgentProviderCatalog = {
-      providers: provider ? [{
-        ...provider,
-        models: provider.models.map((candidate) => ({
-          ...candidate,
-          supportedReasoningEfforts: [],
-          defaultReasoningEffort: "medium",
-        })),
-      }] : [],
+      providers: provider
+        ? [
+            {
+              ...provider,
+              models: provider.models.map((candidate) => ({
+                ...candidate,
+                supportedReasoningEfforts: [],
+                defaultReasoningEffort: "medium",
+              })),
+            },
+          ]
+        : [],
     };
-    await expect(resolveAgentExecutionProfileFromCatalog({
-      client,
-      catalog: catalogWithUnlistedRuntimeDefault,
-      requested: {
-        providerId: "openrouter",
-        modelId: "moonshotai/kimi-k3",
-        harnessId: null,
-        reasoningEffort: null,
-        serviceTier: null,
-      },
-    })).resolves.toMatchObject({ reasoningEffort: null });
+    await expect(
+      resolveAgentExecutionProfileFromCatalog({
+        client,
+        catalog: catalogWithUnlistedRuntimeDefault,
+        requested: {
+          providerId: "openrouter",
+          modelId: "moonshotai/kimi-k3",
+          harnessId: null,
+          reasoningEffort: null,
+          serviceTier: null,
+        },
+      }),
+    ).resolves.toMatchObject({ reasoningEffort: null });
   });
 });

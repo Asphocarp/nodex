@@ -26,16 +26,18 @@ const ordinaryRequest: CodexUserInputRequest = {
   threadId: "thread-1",
   turnId: "turn-1",
   itemId: "ordinary-input-item",
-  questions: [{
-    id: "scope",
-    header: "Scope",
-    question: "Which scope should Codex use?",
-    isOther: false,
-    options: [
-      { label: "Focused", description: "Change only the selected surface." },
-      { label: "Broad", description: "Refactor the full request lane." },
-    ],
-  }],
+  questions: [
+    {
+      id: "scope",
+      header: "Scope",
+      question: "Which scope should Codex use?",
+      isOther: false,
+      options: [
+        { label: "Focused", description: "Change only the selected surface." },
+        { label: "Broad", description: "Refactor the full request lane." },
+      ],
+    },
+  ],
   isBlocking: true,
   createdAt: 1,
 };
@@ -134,9 +136,9 @@ describe("CodexUserInputRequestCard", () => {
       view.unmount();
       const remounted = renderWithMaitai(card);
 
-      expect(
-        (remounted.getByPlaceholderText("Type your answer") as HTMLInputElement).value,
-      ).toBe("Keep the migration scoped.");
+      expect((remounted.getByPlaceholderText("Type your answer") as HTMLInputElement).value).toBe(
+        "Keep the migration scoped.",
+      );
       expect(remounted.getByText("What else should Codex know?")).not.toBeNull();
     } finally {
       vi.useRealTimers();
@@ -229,10 +231,12 @@ describe("CodexUserInputRequestCard", () => {
         await Promise.resolve();
       });
 
-      expect(responses).toEqual([{
-        scope: ["Broad"],
-        context: ["Keep the migration scoped."],
-      }]);
+      expect(responses).toEqual([
+        {
+          scope: ["Broad"],
+          context: ["Keep the migration scoped."],
+        },
+      ]);
     } finally {
       vi.useRealTimers();
     }
@@ -358,9 +362,7 @@ describe("CodexUserInputRequestCard", () => {
       await settleAsyncRender();
     });
 
-    expect(JSON.stringify(log)).toBe(JSON.stringify([
-      "respond:onboarding-input:{}",
-    ]));
+    expect(JSON.stringify(log)).toBe(JSON.stringify(["respond:onboarding-input:{}"]));
   });
 
   test("uses interrupt fallback when no matching auto-resolution entry exists", async () => {
@@ -408,10 +410,7 @@ describe("CodexUserInputRequestCard", () => {
       await settleAsyncRender();
     });
 
-    expect(JSON.stringify(log)).toBe(JSON.stringify([
-      "interrupt",
-      "auto-field-interrupt",
-    ]));
+    expect(JSON.stringify(log)).toBe(JSON.stringify(["interrupt", "auto-field-interrupt"]));
   });
 
   test("claims a main-tracked request before dismissing with an empty response", async () => {
@@ -423,11 +422,13 @@ describe("CodexUserInputRequestCard", () => {
           if (snapshotCalls === 1) {
             return await new Promise<never>(() => {});
           }
-          return [{
-            conversationId: "thread-tracked",
-            requestId: ordinaryRequest.requestId,
-            phase: { type: "waitingForInactivity" },
-          }];
+          return [
+            {
+              conversationId: "thread-tracked",
+              requestId: ordinaryRequest.requestId,
+              phase: { type: "waitingForInactivity" },
+            },
+          ];
         }
         return true;
       },

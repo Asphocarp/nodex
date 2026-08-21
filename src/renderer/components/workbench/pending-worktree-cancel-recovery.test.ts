@@ -23,13 +23,15 @@ function makeEntry(): StartConversationEntry {
     clientThreadId: "client-new-thread:cancel",
     startConversationParamsInput: {
       input: [],
-      commentAttachments: [{
-        id: "comment-1",
-        type: "comment",
-        content: [{ content_type: "text", text: "Handle this edge case" }],
-        position: { side: "right", path: "src/index.ts", line: 12 },
-        createdAt: 1,
-      }],
+      commentAttachments: [
+        {
+          id: "comment-1",
+          type: "comment",
+          content: [{ content_type: "text", text: "Handle this edge case" }],
+          position: { side: "right", path: "src/index.ts", line: 12 },
+          createdAt: 1,
+        },
+      ],
       workspaceRoots: ["/repo/nodex"],
       cwd: "/repo/nodex",
       fileAttachments: [],
@@ -85,17 +87,12 @@ describe("pending worktree cancel recovery", () => {
       },
     };
 
-    expect(resolveCancelledPendingWorktreeProjectId(
-      assignedEntry,
-      new Set(["project-1"]),
-    )).toBe("project-1");
-    expect(resolveCancelledPendingWorktreeProjectId(
-      assignedEntry,
-      new Set(),
-    )).toBe(null);
-    expect(resolveCancelledPendingWorktreeProjectId(
-      projectEntry,
-      new Set(["project-1"]),
-    )).toBe(null);
+    expect(resolveCancelledPendingWorktreeProjectId(assignedEntry, new Set(["project-1"]))).toBe(
+      "project-1",
+    );
+    expect(resolveCancelledPendingWorktreeProjectId(assignedEntry, new Set())).toBe(null);
+    expect(resolveCancelledPendingWorktreeProjectId(projectEntry, new Set(["project-1"]))).toBe(
+      null,
+    );
   });
 });

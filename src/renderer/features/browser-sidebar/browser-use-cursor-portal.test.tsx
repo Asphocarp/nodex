@@ -1,10 +1,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup } from "@testing-library/react";
 import { render, settleAsyncRender } from "../../test/dom";
-import {
-  BrowserUseCursorPortal,
-  readCursorPresentationSize,
-} from "./browser-use-cursor-portal";
+import { BrowserUseCursorPortal, readCursorPresentationSize } from "./browser-use-cursor-portal";
 import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-manager";
 
 const identity = {
@@ -27,8 +24,7 @@ describe("BrowserUseCursorPortal", () => {
       hostKind: "panel",
       initialUrl: "https://example.com",
       bounds: { x: 800, y: 88, width: 600, height: 800 },
-      mountGeneration:
-        browserSidebarRendererWebviewManager.claimMountGeneration(identity),
+      mountGeneration: browserSidebarRendererWebviewManager.claimMountGeneration(identity),
       onHostCreated: () => undefined,
     });
 
@@ -42,12 +38,8 @@ describe("BrowserUseCursorPortal", () => {
     );
     await settleAsyncRender();
 
-    const cursor = document.body.querySelector<HTMLElement>(
-      "[data-testid='browser-agent-cursor']",
-    );
-    expect(cursor?.style.transform).toContain(
-      "translate3d(336px, 428px, 0)",
-    );
+    const cursor = document.body.querySelector<HTMLElement>("[data-testid='browser-agent-cursor']");
+    expect(cursor?.style.transform).toContain("translate3d(336px, 428px, 0)");
   });
 
   test("ignores the one-pixel parked host as a presentation surface", () => {

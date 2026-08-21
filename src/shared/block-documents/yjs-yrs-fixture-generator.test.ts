@@ -2,17 +2,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { BlockNoteEditor } from "@blocknote/core";
 import { blocksToYXmlFragment } from "@blocknote/core/yjs";
-import {
-  Awareness,
-  encodeAwarenessUpdate,
-  removeAwarenessStates,
-} from "y-protocols/awareness";
+import { Awareness, encodeAwarenessUpdate, removeAwarenessStates } from "y-protocols/awareness";
 import { test } from "vitest";
 import * as Y from "yjs";
-import {
-  materializePageDocument,
-  populateBlockDocumentBodyFromNfm,
-} from "./block-document-codec";
+import { materializePageDocument, populateBlockDocumentBodyFromNfm } from "./block-document-codec";
 import { assertValidBlockDocument } from "./block-structure";
 import { createBodyOnlyBlockDocument } from "./body-only-block-document";
 import {
@@ -27,9 +20,7 @@ import {
   type HeadlessBlockDocumentPartialBlock,
 } from "./headless-blocknote-schema";
 
-const outputRoot = path.resolve(
-  "crates/nodex-core/tests/fixtures/yjs-yrs",
-);
+const outputRoot = path.resolve("crates/nodex-core/tests/fixtures/yjs-yrs");
 
 const firstXmlText = (node: Y.XmlFragment | Y.XmlElement): Y.XmlText => {
   for (const child of node.toArray()) {
@@ -154,28 +145,30 @@ const schemaMatrixContent = [
     content: {
       type: "tableContent",
       columnWidths: [160, undefined],
-      rows: [{
-        cells: [
-          {
-            type: "tableCell",
-            props: {
-              backgroundColor: "default",
-              textColor: "default",
-              textAlignment: "left",
+      rows: [
+        {
+          cells: [
+            {
+              type: "tableCell",
+              props: {
+                backgroundColor: "default",
+                textColor: "default",
+                textAlignment: "left",
+              },
+              content: [{ type: "text", text: "Key", styles: { bold: true } }],
             },
-            content: [{ type: "text", text: "Key", styles: { bold: true } }],
-          },
-          {
-            type: "tableCell",
-            props: {
-              backgroundColor: "default",
-              textColor: "default",
-              textAlignment: "left",
+            {
+              type: "tableCell",
+              props: {
+                backgroundColor: "default",
+                textColor: "default",
+                textAlignment: "left",
+              },
+              content: [{ type: "text", text: "Value", styles: {} }],
             },
-            content: [{ type: "text", text: "Value", styles: {} }],
-          },
-        ],
-      }],
+          ],
+        },
+      ],
     },
   },
   {
@@ -264,26 +257,22 @@ const createSchemaMatrix = (): {
   if (!(root instanceof Y.XmlElement)) {
     throw new TypeError("schema matrix requires a canonical blockGroup root");
   }
-  root.setAttribute(
-    "portableProbe",
-    {
-      undefinedValue: undefined,
-      nullValue: null,
-      booleanValue: true,
-      numberValue: 42.5,
-      stringValue: "portable 😀",
-      binaryValue: new Uint8Array([0, 1, 127, 255]),
-      arrayValue: [undefined, null, { nested: ["值", 7] }],
-    } as unknown as string,
-  );
+  root.setAttribute("portableProbe", {
+    undefinedValue: undefined,
+    nullValue: null,
+    booleanValue: true,
+    numberValue: 42.5,
+    stringValue: "portable 😀",
+    binaryValue: new Uint8Array([0, 1, 127, 255]),
+    arrayValue: [undefined, null, { nested: ["值", 7] }],
+  } as unknown as string);
   return {
     document,
     blockTypes: editor.document.map((block) => block.type),
   };
 };
 
-const generate =
-  process.env.NODEX_GENERATE_YJS_YRS_FIXTURES === "1" ? test : test.skip;
+const generate = process.env.NODEX_GENERATE_YJS_YRS_FIXTURES === "1" ? test : test.skip;
 
 generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", async () => {
   const page = createPageDocument({
@@ -341,23 +330,20 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
   dependencySource.getText("title").insert(0, "base");
   const dependencyVector = Y.encodeStateVector(dependencySource);
   dependencySource.getText("title").insert(4, "-missing-base");
-  const missingDependency = Y.encodeStateAsUpdate(
-    dependencySource,
-    dependencyVector,
-  );
+  const missingDependency = Y.encodeStateAsUpdate(dependencySource, dependencyVector);
 
   const matrix = createSchemaMatrix();
   const matrixMaterialization = {
     ...materializePageDocument(matrix.document),
-    searchUnits: assertValidBlockDocument(
-      matrix.document.getXmlFragment("body"),
-    ).map((block, ordinal) => ({
-      blockId: block.id,
-      parentBlockId: block.parentBlockId,
-      ordinal,
-      blockType: block.blockType,
-      text: block.text,
-    })),
+    searchUnits: assertValidBlockDocument(matrix.document.getXmlFragment("body")).map(
+      (block, ordinal) => ({
+        blockId: block.id,
+        parentBlockId: block.parentBlockId,
+        ordinal,
+        blockType: block.blockType,
+        text: block.text,
+      }),
+    ),
   };
   const matrixBase = Y.encodeStateAsUpdate(matrix.document);
   const matrixStateVector = Y.encodeStateVector(matrix.document);
@@ -367,10 +353,7 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     matrixText.delete(0, Math.min(2, matrixText.length));
     matrixText.insert(0, "JS checkpoint edit ");
   }, "matrix-after-checkpoint");
-  const matrixAfterUpdate = Y.encodeStateAsUpdate(
-    matrixAfter,
-    matrixStateVector,
-  );
+  const matrixAfterUpdate = Y.encodeStateAsUpdate(matrixAfter, matrixStateVector);
   const nfmParserOracle = createPageDocument({
     documentId: "nodex-yjs-yrs-nfm-parser-oracle",
     initializeBody: false,
@@ -381,23 +364,15 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     matrixMaterialization.nfm,
     () => `oracle-nfm-${++nfmParserBlockIndex}`,
   );
-  const nfmParserMaterialization = materializePageDocument(
-    nfmParserOracle.document,
-  );
+  const nfmParserMaterialization = materializePageDocument(nfmParserOracle.document);
 
   const emptyPage = createPageDocument({
     documentId: "nodex-yjs-yrs-empty-page",
     initializeBody: false,
   });
   emptyPage.document.clientID = 1_301;
-  populateBlockDocumentBodyFromNfm(
-    emptyPage.body,
-    "",
-    () => "empty-page-paragraph",
-  );
-  const emptyPageMaterialization = materializePageDocument(
-    emptyPage.document,
-  );
+  populateBlockDocumentBodyFromNfm(emptyPage.body, "", () => "empty-page-paragraph");
+  const emptyPageMaterialization = materializePageDocument(emptyPage.document);
 
   const syncedBlock = createSyncedBlockDocument({
     documentId: "nodex-yjs-yrs-empty-synced-block",
@@ -425,14 +400,13 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     "Template **body** 😀",
     () => `template-block-${++templateIndex}`,
   );
-  const reusableTemplateMaterialization =
-    toPersistedBlockDocumentMaterialization(
-      inspectRegisteredOwnedBlockDocument(reusableTemplate.document, {
-        ownerType: "reusable_template_source",
-        schemaKey: "nodex.reusable-template",
-        schemaVersion: 1,
-      }).materialization,
-    );
+  const reusableTemplateMaterialization = toPersistedBlockDocumentMaterialization(
+    inspectRegisteredOwnedBlockDocument(reusableTemplate.document, {
+      ownerType: "reusable_template_source",
+      schemaKey: "nodex.reusable-template",
+      schemaVersion: 1,
+    }).materialization,
+  );
 
   const awarenessDocument = new Y.Doc({ guid: "nodex-awareness-fixture" });
   awarenessDocument.clientID = 1_201;
@@ -441,17 +415,9 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     user: { id: "fixture-user", name: "迁移 😀" },
     cursor: { anchor: 3, head: 5 },
   });
-  const awarenessAdded = encodeAwarenessUpdate(awareness, [
-    awarenessDocument.clientID,
-  ]);
-  removeAwarenessStates(
-    awareness,
-    [awarenessDocument.clientID],
-    "fixture-disconnect",
-  );
-  const awarenessRemoved = encodeAwarenessUpdate(awareness, [
-    awarenessDocument.clientID,
-  ]);
+  const awarenessAdded = encodeAwarenessUpdate(awareness, [awarenessDocument.clientID]);
+  removeAwarenessStates(awareness, [awarenessDocument.clientID], "fixture-disconnect");
+  const awarenessRemoved = encodeAwarenessUpdate(awareness, [awarenessDocument.clientID]);
   awareness.destroy();
 
   await mkdir(outputRoot, { recursive: true });
@@ -463,10 +429,7 @@ generate("generates stable Yjs 13 fixtures for the Yrs compatibility corpus", as
     writeFile(path.join(outputRoot, "matrix-base.bin"), matrixBase),
     writeFile(path.join(outputRoot, "matrix-state-vector.bin"), matrixStateVector),
     writeFile(path.join(outputRoot, "matrix-after.bin"), matrixAfterUpdate),
-    writeFile(
-      path.join(outputRoot, "empty-page.bin"),
-      Y.encodeStateAsUpdate(emptyPage.document),
-    ),
+    writeFile(path.join(outputRoot, "empty-page.bin"), Y.encodeStateAsUpdate(emptyPage.document)),
     writeFile(
       path.join(outputRoot, "empty-synced-block.bin"),
       Y.encodeStateAsUpdate(syncedBlock.document),

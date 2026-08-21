@@ -33,9 +33,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function makeEntry(
-  overrides: Partial<StableWorktreeEntry> = {},
-): StableWorktreeEntry {
+function makeEntry(overrides: Partial<StableWorktreeEntry> = {}): StableWorktreeEntry {
   return {
     id: "local:stable-1",
     hostId: "local",
@@ -75,9 +73,7 @@ class TestStableWorktreeTransport implements StableWorktreeStatusDialogTransport
     pendingWorktreeId: "local:repair-1",
     clientThreadId: "client-new-thread:repair-1",
   });
-  private readonly listeners = new Set<(
-    entries: readonly CodexPendingWorktreeEntry[],
-  ) => void>();
+  private readonly listeners = new Set<(entries: readonly CodexPendingWorktreeEntry[]) => void>();
 
   constructor(entries: readonly CodexPendingWorktreeEntry[]) {
     this.entries = entries;
@@ -85,9 +81,7 @@ class TestStableWorktreeTransport implements StableWorktreeStatusDialogTransport
 
   list = () => this.listPromise ?? Promise.resolve(this.entries);
 
-  subscribe = (listener: (
-    entries: readonly CodexPendingWorktreeEntry[],
-  ) => void) => {
+  subscribe = (listener: (entries: readonly CodexPendingWorktreeEntry[]) => void) => {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
@@ -100,11 +94,7 @@ class TestStableWorktreeTransport implements StableWorktreeStatusDialogTransport
     this.calls.push(`cancel:${hostId}:${pendingWorktreeId}`);
   };
 
-  autoFix = async (
-    hostId: string,
-    pendingWorktreeId: string,
-    agentMode: CodexAgentMode,
-  ) => {
+  autoFix = async (hostId: string, pendingWorktreeId: string, agentMode: CodexAgentMode) => {
     this.calls.push(`auto-fix:${hostId}:${pendingWorktreeId}`);
     this.autoFixAgentModes.push(agentMode);
     return this.autoFixPromise;
@@ -138,9 +128,13 @@ describe("StableWorktreeCreateDialog", () => {
     );
 
     expect(Boolean(view.getByText("Create worktree and save as a project"))).toBe(true);
-    expect(Boolean(view.getByText(
-      "Create a new git worktree from HEAD, add it as a project, and keep it until you remove it",
-    ))).toBe(true);
+    expect(
+      Boolean(
+        view.getByText(
+          "Create a new git worktree from HEAD, add it as a project, and keep it until you remove it",
+        ),
+      ),
+    ).toBe(true);
 
     const input = view.getByRole("textbox", { name: "Project name" });
     fireEvent.input(input, { target: { value: "  Durable project  " } });
@@ -249,9 +243,13 @@ describe("StableWorktreeStatusDialog", () => {
       />,
     );
 
-    expect(Boolean(await view.findByRole("button", {
-      name: "Failed to set up the environment",
-    }))).toBe(true);
+    expect(
+      Boolean(
+        await view.findByRole("button", {
+          name: "Failed to set up the environment",
+        }),
+      ),
+    ).toBe(true);
     expect(Boolean(view.getByRole("button", { name: "Edit environment" }))).toBe(true);
     expect(Boolean(view.getByRole("button", { name: "Auto-fix" }))).toBe(true);
     expect(Boolean(view.getByRole("button", { name: "Retry" }))).toBe(true);
@@ -359,8 +357,6 @@ describe("StableWorktreeStatusDialog", () => {
     await waitFor(() => {
       expect(closeCount).toBe(1);
     });
-    expect(transport.calls.join(",")).toBe(
-      "clear-attention:local:local:stable-1",
-    );
+    expect(transport.calls.join(",")).toBe("clear-attention:local:local:stable-1");
   });
 });

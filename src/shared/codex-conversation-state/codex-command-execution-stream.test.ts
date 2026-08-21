@@ -17,10 +17,7 @@ import { CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX } from "./codex-command-output-q
 const THREAD_ID = "thread_c05";
 const TURN_ID = "turn_c05";
 
-type CommandExecutionItem = Extract<
-  ThreadItem,
-  { type: "commandExecution" }
->;
+type CommandExecutionItem = Extract<ThreadItem, { type: "commandExecution" }>;
 
 function buildCommand(
   id: string,
@@ -68,9 +65,7 @@ function buildTurnParams(): CodexCanonicalTurnParams {
   };
 }
 
-function buildState(
-  items: ThreadItem[] = [],
-): CodexCanonicalConversationState {
+function buildState(items: ThreadItem[] = []): CodexCanonicalConversationState {
   const thread: Thread = {
     id: THREAD_ID,
     extra: null,
@@ -97,16 +92,18 @@ function buildState(
     agentRole: null,
     gitInfo: null,
     name: "C-05 command stream fixture",
-    turns: [{
-      id: TURN_ID,
-      items,
-      itemsView: "full",
-      status: "inProgress",
-      error: null,
-      startedAt: 1,
-      completedAt: null,
-      durationMs: null,
-    }],
+    turns: [
+      {
+        id: TURN_ID,
+        items,
+        itemsView: "full",
+        status: "inProgress",
+        error: null,
+        startedAt: 1,
+        completedAt: null,
+        durationMs: null,
+      },
+    ],
   };
 
   return createCodexCanonicalConversationState(thread, {
@@ -130,10 +127,7 @@ describe("canonical command-execution stream reduction", () => {
       phase: null,
       memoryCitation: null,
     };
-    const turns = [
-      { items: [old] },
-      { items: [newestFirst, newestLast, wrongTypeAfterTarget] },
-    ];
+    const turns = [{ items: [old] }, { items: [newestFirst, newestLast, wrongTypeAfterTarget] }];
 
     const result = reduceCodexCommandOutputRawTurns(turns, {
       conversationId: THREAD_ID,
@@ -191,46 +185,42 @@ describe("canonical command-execution stream reduction", () => {
   test("retains the exact sticky prefix and a 20,000 UTF-16-unit tail", () => {
     const command = buildCommand("exec", { aggregatedOutput: "seed" });
     const emojiDelta = "🙂".repeat(10_001);
-    const truncated = reduceCodexCommandOutputRawTurns(
-      [{ items: [command] }],
-      {
-        conversationId: THREAD_ID,
-        turnId: null,
-        itemId: "exec",
-        delta: emojiDelta,
-      },
-    );
+    const truncated = reduceCodexCommandOutputRawTurns([{ items: [command] }], {
+      conversationId: THREAD_ID,
+      turnId: null,
+      itemId: "exec",
+      delta: emojiDelta,
+    });
     const expectedPayload = "🙂".repeat(10_000);
-    const expectedOutput =
-      `${CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX}${expectedPayload}`;
+    const expectedOutput = `${CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX}${expectedPayload}`;
 
     expect(truncated.rawItem?.aggregatedOutput).toBe(expectedOutput);
     expect(
-      truncated.rawItem?.aggregatedOutput?.slice(
-        CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX.length,
-      ).length,
+      truncated.rawItem?.aggregatedOutput?.slice(CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX.length)
+        .length,
     ).toBe(20_000);
 
-    const empty = reduceCodexCommandOutputRawTurns(
-      [{ items: [truncated.rawItem] }],
-      {
-        conversationId: THREAD_ID,
-        turnId: "ignored",
-        itemId: "exec",
-        delta: "",
-      },
-    );
+    const empty = reduceCodexCommandOutputRawTurns([{ items: [truncated.rawItem] }], {
+      conversationId: THREAD_ID,
+      turnId: "ignored",
+      itemId: "exec",
+      delta: "",
+    });
 
     expect(empty.rawItem).toBe(truncated.rawItem);
     expect(empty.rawItem?.aggregatedOutput).toBe(expectedOutput);
     expect(empty.stateChanged).toBe(false);
 
     const prefixedAppend = reduceCodexCommandOutputRawTurns(
-      [{
-        items: [buildCommand("prefixed", {
-          aggregatedOutput: `${CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX}tail`,
-        })],
-      }],
+      [
+        {
+          items: [
+            buildCommand("prefixed", {
+              aggregatedOutput: `${CODEX_COMMAND_OUTPUT_TRUNCATION_PREFIX}tail`,
+            }),
+          ],
+        },
+      ],
       {
         conversationId: THREAD_ID,
         turnId: null,
@@ -259,15 +249,12 @@ describe("canonical command-execution stream reduction", () => {
     const command = buildCommand("exec", {
       commandActions: [{ type: "unknown", command: "existing" }],
     });
-    const appended = reduceCodexTerminalCommandsRawTurns(
-      [{ items: [command] }],
-      {
-        conversationId: THREAD_ID,
-        turnId: "unrelated-turn",
-        itemId: "exec",
-        commands: ["pwd", "ls -la"],
-      },
-    );
+    const appended = reduceCodexTerminalCommandsRawTurns([{ items: [command] }], {
+      conversationId: THREAD_ID,
+      turnId: "unrelated-turn",
+      itemId: "exec",
+      commands: ["pwd", "ls -la"],
+    });
 
     expect(JSON.stringify(appended.rawItem?.commandActions)).toBe(
       JSON.stringify([
@@ -281,15 +268,12 @@ describe("canonical command-execution stream reduction", () => {
       JSON.stringify([{ type: "unknown", command: "existing" }]),
     );
 
-    const empty = reduceCodexTerminalCommandsRawTurns(
-      [{ items: [appended.rawItem] }],
-      {
-        conversationId: THREAD_ID,
-        turnId: null,
-        itemId: "exec",
-        commands: [],
-      },
-    );
+    const empty = reduceCodexTerminalCommandsRawTurns([{ items: [appended.rawItem] }], {
+      conversationId: THREAD_ID,
+      turnId: null,
+      itemId: "exec",
+      commands: [],
+    });
     expect(empty.rawItem).toBe(appended.rawItem);
     expect(empty.stateChanged).toBe(false);
   });
@@ -330,9 +314,7 @@ describe("canonical command-execution stream reduction", () => {
     expect(nextTarget.status).toBe("completed");
     expect(nextTarget.exitCode).toBe(7);
     expect(nextTarget.durationMs).toBe(345);
-    expect((originalTarget as CommandExecutionItem).aggregatedOutput).toBe(
-      "before",
-    );
+    expect((originalTarget as CommandExecutionItem).aggregatedOutput).toBe("before");
   });
 
   test("canonical terminal reduction preserves lifecycle state while appending actions", () => {
@@ -357,15 +339,14 @@ describe("canonical command-execution stream reduction", () => {
     const second = { conversationId: "b", turnId: "turn-b", itemId: "two", delta: "2" };
     const third = { conversationId: "a", turnId: null, itemId: "three", delta: "3" };
 
-    const grouped = groupCodexCommandOutputUpdatesByConversation([
-      first,
-      second,
-      third,
-    ]);
+    const grouped = groupCodexCommandOutputUpdatesByConversation([first, second, third]);
     expect([...grouped.keys()].join(",")).toBe("a,b");
-    expect(grouped.get("a")?.map((entry) => entry.itemId).join(",")).toBe(
-      "one,three",
-    );
+    expect(
+      grouped
+        .get("a")
+        ?.map((entry) => entry.itemId)
+        .join(","),
+    ).toBe("one,three");
     expect(grouped.get("b")?.[0]).toBe(second);
   });
 });

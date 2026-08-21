@@ -98,9 +98,7 @@ export function GeneratedImageDotField({
   if (configRef.current?.key !== configKey) {
     configRef.current = {
       key: configKey,
-      value: createGeneratedImageDotFieldConfig(
-        createStableGeneratedImageRandom(configKey),
-      ),
+      value: createGeneratedImageDotFieldConfig(createStableGeneratedImageRandom(configKey)),
     };
   }
   const config = configRef.current.value;
@@ -111,10 +109,7 @@ export function GeneratedImageDotField({
   const mountedAt = mountedAtRef.current;
   const documentVisible = useDocumentVisible();
   const intersecting = useElementIntersection(containerRef);
-  const animationActive = active
-    && intersecting
-    && documentVisible
-    && !reducedMotion;
+  const animationActive = active && intersecting && documentVisible && !reducedMotion;
   const elapsedMs = Math.max(0, clock.now() - mountedAt);
 
   useEffect(() => {
@@ -123,8 +118,7 @@ export function GeneratedImageDotField({
     const context = canvas?.getContext("2d");
     if (!container || !canvas || !context) return;
     const fullCircle = Math.PI * 2;
-    const color = getComputedStyle(container).color
-      || (theme === "dark" ? "white" : "black");
+    const color = getComputedStyle(container).color || (theme === "dark" ? "white" : "black");
     let lastFrameAt = 0;
     let grid: DotFieldGrid | null = null;
     let gridInvalidated = true;
@@ -145,10 +139,7 @@ export function GeneratedImageDotField({
         canvas.width = canvasWidth;
         canvas.height = canvasHeight;
       }
-      const spacing = resolveGeneratedImageDotFieldGridSpacing(
-        presentation,
-        dpr,
-      );
+      const spacing = resolveGeneratedImageDotFieldGridSpacing(presentation, dpr);
       const columnCount = Math.max(1, Math.floor(width / spacing));
       const rowCount = Math.max(1, Math.floor(height / spacing));
       const startX = (width - (columnCount - 1) * spacing) * 0.5;
@@ -193,32 +184,26 @@ export function GeneratedImageDotField({
       context.setTransform(grid.dpr, 0, 0, grid.dpr, 0, 0);
       context.clearRect(0, 0, grid.width, grid.height);
       context.fillStyle = color;
-      const radius = dotPresentation.radius
-        ?? Math.max(0.55, grid.spacing * 0.5 * dotPresentation.radiusFactor);
+      const radius =
+        dotPresentation.radius ?? Math.max(0.55, grid.spacing * 0.5 * dotPresentation.radiusFactor);
       for (let rowIndex = 0; rowIndex < grid.yPositions.length; rowIndex += 1) {
         const y = grid.yPositions[rowIndex] ?? 0;
         const normalizedY = grid.yNormals[rowIndex] ?? 0;
         for (let columnIndex = 0; columnIndex < grid.xPositions.length; columnIndex += 1) {
           const x = grid.xPositions[columnIndex] ?? 0;
           const normalizedX = grid.xNormals[columnIndex] ?? 0;
-          const firstDistance = Math.hypot(
-            normalizedX - frame.firstX,
-            normalizedY - frame.firstY,
-          );
+          const firstDistance = Math.hypot(normalizedX - frame.firstX, normalizedY - frame.firstY);
           const secondDistance = Math.hypot(
             normalizedX - frame.secondX,
             normalizedY - frame.secondY,
           );
-          const firstField = 1 - generatedImageDotFieldSmoothStep(
-            firstDistance / frame.firstSize,
-          );
-          const secondField = 1 - generatedImageDotFieldSmoothStep(
-            secondDistance / frame.secondSize,
-          );
-          const opacity = clampUnit(
-            firstField * DOT_FIELD_FIRST_WEIGHT
-              + secondField * DOT_FIELD_SECOND_WEIGHT,
-          ) ** DOT_FIELD_OPACITY_POWER;
+          const firstField = 1 - generatedImageDotFieldSmoothStep(firstDistance / frame.firstSize);
+          const secondField =
+            1 - generatedImageDotFieldSmoothStep(secondDistance / frame.secondSize);
+          const opacity =
+            clampUnit(
+              firstField * DOT_FIELD_FIRST_WEIGHT + secondField * DOT_FIELD_SECOND_WEIGHT,
+            ) ** DOT_FIELD_OPACITY_POWER;
           if (opacity <= DOT_FIELD_OPACITY_CUTOFF) continue;
           context.globalAlpha = opacity;
           context.beginPath();
@@ -230,12 +215,13 @@ export function GeneratedImageDotField({
       context.restore();
     };
 
-    const resizeObserver = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(() => {
-          gridInvalidated = true;
-          if (!animationActive) draw(clock.now(), true);
-        });
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            gridInvalidated = true;
+            if (!animationActive) draw(clock.now(), true);
+          });
     resizeObserver?.observe(container);
     draw(clock.now(), true);
     const unsubscribe = animationActive ? clock.subscribe(draw) : undefined;
@@ -261,27 +247,22 @@ export function GeneratedImageDotField({
       data-animate={animationActive ? "true" : undefined}
       data-generated-image-dot-field="true"
       data-presentation={presentation}
-      style={{
-        "--generated-image-dot-field-delay":
-          `${-(elapsedMs % DOT_FIELD_OPACITY_DURATION_MS)}ms`,
-        maskImage:
-          "linear-gradient(to top left, transparent 0%, black 30% 70%, transparent 100%)",
-        WebkitMaskImage:
-          "linear-gradient(to top left, transparent 0%, black 30% 70%, transparent 100%)",
-      } as GeneratedImageDotFieldStyle}
+      style={
+        {
+          "--generated-image-dot-field-delay": `${-(elapsedMs % DOT_FIELD_OPACITY_DURATION_MS)}ms`,
+          maskImage:
+            "linear-gradient(to top left, transparent 0%, black 30% 70%, transparent 100%)",
+          WebkitMaskImage:
+            "linear-gradient(to top left, transparent 0%, black 30% 70%, transparent 100%)",
+        } as GeneratedImageDotFieldStyle
+      }
     >
       <canvas ref={canvasRef} aria-hidden="true" className="block h-full w-full" />
     </div>
   );
 }
 
-export function GeneratedImagePlaceholder({
-  hidden,
-  seed,
-}: {
-  hidden: boolean;
-  seed: string;
-}) {
+export function GeneratedImagePlaceholder({ hidden, seed }: { hidden: boolean; seed: string }) {
   return (
     <div
       aria-busy="true"

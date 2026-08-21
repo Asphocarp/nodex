@@ -26,11 +26,12 @@ export function parseCommandActions(value: unknown): CodexCommandAction[] {
     if (!actionTypeRaw) return acc;
     const actionType = normalizeActionType(actionTypeRaw);
 
-    const command = typeof candidate.command === "string"
-      ? candidate.command
-      : typeof candidate.cmd === "string"
-        ? candidate.cmd
-        : "";
+    const command =
+      typeof candidate.command === "string"
+        ? candidate.command
+        : typeof candidate.cmd === "string"
+          ? candidate.cmd
+          : "";
 
     if (actionType === "read") {
       const name = typeof candidate.name === "string" ? candidate.name : "";
@@ -67,7 +68,9 @@ export function parseCommandActions(value: unknown): CodexCommandAction[] {
   }, []);
 }
 
-export function extractCommandActions(item: Pick<CodexTranscriptEntry, "commandActions">): CodexCommandAction[] {
+export function extractCommandActions(
+  item: Pick<CodexTranscriptEntry, "commandActions">,
+): CodexCommandAction[] {
   return item.commandActions ?? [];
 }
 
@@ -85,7 +88,10 @@ export function normalizeExplorationPath(path: string | null | undefined): strin
   for (const segment of trimmed.replaceAll("\\", "/").split("/")) {
     if (segment.length === 0 || segment === ".") continue;
     if (segment === "..") {
-      if (normalizedSegments.length > 0 && normalizedSegments[normalizedSegments.length - 1] !== "..") {
+      if (
+        normalizedSegments.length > 0 &&
+        normalizedSegments[normalizedSegments.length - 1] !== ".."
+      ) {
         normalizedSegments.pop();
         continue;
       }
@@ -100,7 +106,10 @@ export function normalizeExplorationPath(path: string | null | undefined): strin
   return normalizedPath.length > 0 ? normalizedPath : null;
 }
 
-export function resolveExplorationPath(path: string | null | undefined, cwd: string | null | undefined): string | null {
+export function resolveExplorationPath(
+  path: string | null | undefined,
+  cwd: string | null | undefined,
+): string | null {
   const normalizedPath = normalizeExplorationPath(path);
   if (!normalizedPath) return null;
   if (normalizedPath.startsWith("/")) return normalizedPath;
@@ -118,7 +127,9 @@ function formatSkillName(value: string): string {
     .join(" ");
 }
 
-export function resolveExplorationSkillPathInfo(path: string | null | undefined): ExplorationSkillPathInfo | null {
+export function resolveExplorationSkillPathInfo(
+  path: string | null | undefined,
+): ExplorationSkillPathInfo | null {
   const normalizedPath = normalizeExplorationPath(path);
   if (!normalizedPath) return null;
 
@@ -134,7 +145,8 @@ export function resolveExplorationSkillPathInfo(path: string | null | undefined)
 
     const candidate = segments[index + 2] ?? null;
     const candidateLower = candidate?.toLowerCase();
-    const skillNameIndex = candidateLower === "_import" || candidateLower === ".system" ? index + 3 : index + 2;
+    const skillNameIndex =
+      candidateLower === "_import" || candidateLower === ".system" ? index + 3 : index + 2;
     const skillSegment = segments[skillNameIndex] ?? null;
     if (!skillSegment) continue;
 
@@ -142,7 +154,8 @@ export function resolveExplorationSkillPathInfo(path: string | null | undefined)
     return {
       skillId: skillSegment,
       skillName: formatSkillName(skillSegment),
-      isSkillDefinitionFile: remainingSegments.length === 1 && remainingSegments[0]?.toLowerCase() === "skill.md",
+      isSkillDefinitionFile:
+        remainingSegments.length === 1 && remainingSegments[0]?.toLowerCase() === "skill.md",
     };
   }
 

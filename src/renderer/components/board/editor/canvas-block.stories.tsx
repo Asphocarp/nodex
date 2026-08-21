@@ -28,17 +28,12 @@ function CanvasBlockFrameStory({
   readonly initialTitle?: string;
 }) {
   const [title, setTitle] = useState(initialTitle);
-  const active =
-    status === "empty"
-    || status === "populated"
-    || status === "restored-tall";
+  const active = status === "empty" || status === "populated" || status === "restored-tall";
 
   return (
     <div
       className={
-        narrow
-          ? "mx-auto w-full max-w-sm px-3 py-8"
-          : "mx-auto w-full max-w-4xl px-8 py-12"
+        narrow ? "mx-auto w-full max-w-sm px-3 py-8" : "mx-auto w-full max-w-4xl px-8 py-12"
       }
     >
       <CanvasBlockFrame
@@ -46,9 +41,7 @@ function CanvasBlockFrameStory({
         title={title}
         active={active}
         loading={status === "opening"}
-        heightPreferenceStoreEpoch={
-          status === "restored-tall" ? "storybook" : null
-        }
+        heightPreferenceStoreEpoch={status === "restored-tall" ? "storybook" : null}
         onRename={readOnly ? undefined : setTitle}
         onOpen={() => undefined}
       >
@@ -78,9 +71,7 @@ function CanvasBlockFrameStory({
             This Canvas has been deleted.
           </div>
         ) : (
-          <div
-            className="flex h-full w-full items-center justify-center bg-token-foreground/2 text-sm text-token-text-secondary"
-          >
+          <div className="flex h-full w-full items-center justify-center bg-token-foreground/2 text-sm text-token-text-secondary">
             Canvas is outside the active viewport.
           </div>
         )}
@@ -131,10 +122,13 @@ export const ProjectDefaultName: Story = {
 export const RestoredTall: Story = {
   args: { status: "restored-tall" },
   beforeEach: () => {
-    writeCanvasInlineFramePreference({
-      storeEpoch: "storybook",
-      canvasBlockId: "canvas-story",
-    }, { heightPx: 640 });
+    writeCanvasInlineFramePreference(
+      {
+        storeEpoch: "storybook",
+        canvasBlockId: "canvas-story",
+      },
+      { heightPx: 640 },
+    );
   },
 };
 

@@ -10,8 +10,6 @@ export function upgradeLegacyPriority(value: unknown): Priority | null {
   return null;
 }
 
-export function legacyPrioritySelectionIncludesEveryAssigned(
-  values: readonly unknown[],
-): boolean {
+export function legacyPrioritySelectionIncludesEveryAssigned(values: readonly unknown[]): boolean {
   return LEGACY_PRIORITY_VALUES.every((priority) => values.includes(priority));
 }

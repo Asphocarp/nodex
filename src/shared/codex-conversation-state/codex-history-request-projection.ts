@@ -1,8 +1,4 @@
-import type {
-  CodexCommandAction,
-  CodexItemView,
-  CodexUserInputQuestion,
-} from "../types";
+import type { CodexCommandAction, CodexItemView, CodexUserInputQuestion } from "../types";
 import { projectCodexParsedCommand } from "../codex-command-action-projection";
 import type { CodexCanonicalServerRequest } from "./codex-conversation-state";
 
@@ -50,12 +46,12 @@ export function projectCodexHistoryRequestViews(
     if (request.method === "item/commandExecution/requestApproval") {
       const actions = request.params.commandActions ?? [];
       const proposedExecpolicyAmendment = request.params.proposedExecpolicyAmendment ?? [];
-      const fallbackCommand = request.params.command
-        ?? (proposedExecpolicyAmendment.length > 0 ? proposedExecpolicyAmendment.join(" ") : "");
+      const fallbackCommand =
+        request.params.command ??
+        (proposedExecpolicyAmendment.length > 0 ? proposedExecpolicyAmendment.join(" ") : "");
       const commandStrings = actions.map((action) => action.command);
       const command = commandStrings.length > 0 ? commandStrings.join(" && ") : fallbackCommand;
-      const parsedAction: CodexCommandAction = actions[0]
-        ?? { type: "unknown", command };
+      const parsedAction: CodexCommandAction = actions[0] ?? { type: "unknown", command };
       items.push({
         threadId: input.threadId,
         turnId: input.turnId,
@@ -90,7 +86,10 @@ export function projectCodexHistoryRequestViews(
       let targetIndex = -1;
       for (let index = items.length - 1; index >= 0; index -= 1) {
         const item = items[index]!;
-        if (item.semanticKind !== "patch" || (item.callId ?? item.itemId) !== request.params.itemId) {
+        if (
+          item.semanticKind !== "patch" ||
+          (item.callId ?? item.itemId) !== request.params.itemId
+        ) {
           continue;
         }
         targetIndex = index;
@@ -122,7 +121,8 @@ export function projectCodexHistoryRequestViews(
         requestId: request.id,
         callId: request.params.itemId,
         userInputQuestions: questions,
-        markdownText: questions.length === 1 ? "Asked 1 question" : `Asked ${questions.length} questions`,
+        markdownText:
+          questions.length === 1 ? "Asked 1 question" : `Asked ${questions.length} questions`,
         rawItem: request,
         createdAt: observedAtMs,
         updatedAt: observedAtMs,
@@ -131,8 +131,8 @@ export function projectCodexHistoryRequestViews(
     }
 
     if (request.method === "item/permissions/requestApproval") {
-      const alreadyProjected = items.some((item) =>
-        item.semanticKind === "permissionRequest" && item.requestId === request.id
+      const alreadyProjected = items.some(
+        (item) => item.semanticKind === "permissionRequest" && item.requestId === request.id,
       );
       if (alreadyProjected) continue;
       items.push({

@@ -37,11 +37,11 @@ function MotionWidthSlot() {
   const slotWidth = useMotionValue(188);
   return (
     <HeaderActionProvider
-      actions={(
+      actions={
         <HeaderAction actionId="motion-width-action" slotPosition="right" align="end" order={10}>
           <button type="button">Motion</button>
         </HeaderAction>
-      )}
+      }
     >
       <HeaderShellSlot
         side="right"
@@ -84,13 +84,13 @@ describe("workbench header actions", () => {
     const measuredRailWidths: number[] = [];
     const view = render(
       <HeaderActionProvider
-        actions={(
+        actions={
           <>
             <LaterActionDeclaration />
             <EarlierActionDeclaration />
             <MiddleActionDeclaration />
           </>
-        )}
+        }
       >
         <HeaderShellSlot
           side="right"
@@ -142,7 +142,7 @@ describe("workbench header actions", () => {
   test("renders center actions through an inline rail", async () => {
     const view = render(
       <HeaderActionProvider
-        actions={(
+        actions={
           <>
             <HeaderAction actionId="right-action" slotPosition="right" align="end" order={10}>
               <button type="button">Right</button>
@@ -151,7 +151,7 @@ describe("workbench header actions", () => {
               <button type="button">Center</button>
             </HeaderAction>
           </>
-        )}
+        }
       >
         <HeaderInlineActionRail
           slotPosition="center"

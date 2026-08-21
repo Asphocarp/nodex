@@ -17,9 +17,7 @@ export type TrustedDocumentMutationBinding =
   | { readonly ok: true; readonly value: DocumentMutationRequest }
   | { readonly ok: false; readonly error: DocumentOperationCommandError };
 
-const isRecord = (
-  value: unknown,
-): value is Readonly<Record<string, unknown>> =>
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const readMutationIdHint = (value: unknown): string | undefined => {
@@ -39,22 +37,17 @@ const readMutationIdHint = (value: unknown): string | undefined => {
 export const documentMutationFailure = (
   code: DocumentOperationCommandError["code"],
   message: string,
-  options: Omit<
-    Partial<DocumentOperationCommandError>,
-    "code" | "message" | "retryable"
-  > & { readonly retryable?: boolean } = {},
+  options: Omit<Partial<DocumentOperationCommandError>, "code" | "message" | "retryable"> & {
+    readonly retryable?: boolean;
+  } = {},
 ): DocumentOperationCommandError => {
   const { retryable = false, ...details } = options;
   return { code, message, retryable, ...details };
 };
 
-export const parseDocumentMutationRequest = (
-  value: unknown,
-): DocumentMutationRequest => {
+export const parseDocumentMutationRequest = (value: unknown): DocumentMutationRequest => {
   if (!isRecord(value)) {
-    throw new DocumentOperationContractError(
-      "Document mutation request must be an object",
-    );
+    throw new DocumentOperationContractError("Document mutation request must be an object");
   }
   if (Object.hasOwn(value, "operations")) {
     return parseDocumentOperationBatch(value);
@@ -119,11 +112,12 @@ export const bindTrustedDocumentMutation = (
   try {
     return {
       ok: true,
-      value: "operations" in request
-        ? parseDocumentOperationBatch(bound)
-        : "nfm" in request
-          ? parseReplaceDocumentFromNfm(bound)
-          : parseDocumentVersionRestore(bound),
+      value:
+        "operations" in request
+          ? parseDocumentOperationBatch(bound)
+          : "nfm" in request
+            ? parseReplaceDocumentFromNfm(bound)
+            : parseDocumentVersionRestore(bound),
     };
   } catch (error) {
     return {

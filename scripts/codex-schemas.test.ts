@@ -14,10 +14,7 @@ describe("Codex runtime schema extraction", () => {
         },
         v2: {
           Value: {
-            anyOf: [
-              { type: "string" },
-              { $ref: "#/definitions/v2/Wrapper" },
-            ],
+            anyOf: [{ type: "string" }, { $ref: "#/definitions/v2/Wrapper" }],
           },
           Wrapper: {
             properties: {
@@ -33,10 +30,7 @@ describe("Codex runtime schema extraction", () => {
       $schema: "http://json-schema.org/draft-07/schema#",
       definitions: {
         definitions__v2__Value: {
-          anyOf: [
-            { type: "string" },
-            { $ref: "#/definitions/definitions__v2__Wrapper" },
-          ],
+          anyOf: [{ type: "string" }, { $ref: "#/definitions/definitions__v2__Wrapper" }],
         },
         definitions__v2__Wrapper: {
           properties: {
@@ -77,14 +71,24 @@ describe("Codex runtime schema extraction", () => {
     };
 
     expect(() => extractJsonSchemaRoot(base, "Missing")).toThrow("does not define Missing");
-    expect(() => extractJsonSchemaRoot({
-      ...base,
-      definitions: { Root: { $ref: "#/definitions/Missing" } },
-    }, "Root")).toThrow("unresolved reference");
-    expect(() => extractJsonSchemaRoot({
-      ...base,
-      definitions: { Root: { $ref: "https://example.com/schema.json" } },
-    }, "Root")).toThrow("unsupported non-local reference");
+    expect(() =>
+      extractJsonSchemaRoot(
+        {
+          ...base,
+          definitions: { Root: { $ref: "#/definitions/Missing" } },
+        },
+        "Root",
+      ),
+    ).toThrow("unresolved reference");
+    expect(() =>
+      extractJsonSchemaRoot(
+        {
+          ...base,
+          definitions: { Root: { $ref: "https://example.com/schema.json" } },
+        },
+        "Root",
+      ),
+    ).toThrow("unsupported non-local reference");
   });
 
   it("serializes object keys deterministically without reordering arrays", () => {

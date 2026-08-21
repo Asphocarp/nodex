@@ -37,14 +37,16 @@ export function parseReviewCodeComments(text: string): ReviewCodeComment[] {
     const file = attributes.file?.trim() ?? "";
     if (!title || !body || !file) return [];
 
-    return [{
-      title,
-      body,
-      file,
-      start: parseNumberAttribute(attributes.start),
-      end: parseNumberAttribute(attributes.end),
-      priority: parseNumberAttribute(attributes.priority),
-    }];
+    return [
+      {
+        title,
+        body,
+        file,
+        start: parseNumberAttribute(attributes.start),
+        end: parseNumberAttribute(attributes.end),
+        priority: parseNumberAttribute(attributes.priority),
+      },
+    ];
   });
 }
 
@@ -76,12 +78,14 @@ function collectConversationItemStrings(item: CodexConversationItem): string[] {
 }
 
 function isSameComment(left: ReviewCodeComment, right: ReviewCodeComment): boolean {
-  return left.title === right.title
-    && left.body === right.body
-    && left.file === right.file
-    && left.start === right.start
-    && left.end === right.end
-    && left.priority === right.priority;
+  return (
+    left.title === right.title &&
+    left.body === right.body &&
+    left.file === right.file &&
+    left.start === right.start &&
+    left.end === right.end &&
+    left.priority === right.priority
+  );
 }
 
 export function extractReviewCodeCommentsFromConversation(
@@ -92,8 +96,9 @@ export function extractReviewCodeCommentsFromConversation(
   const comments: ReviewCodeComment[] = [];
   for (const turn of conversation.turns) {
     for (const item of turn.items) {
-      const itemComments = collectConversationItemStrings(item)
-        .flatMap((text) => parseReviewCodeComments(text));
+      const itemComments = collectConversationItemStrings(item).flatMap((text) =>
+        parseReviewCodeComments(text),
+      );
       for (const comment of itemComments) {
         if (comments.some((existing) => isSameComment(existing, comment))) continue;
         comments.push(comment);
@@ -114,8 +119,10 @@ export function filterReviewCodeCommentsForPath(
   const normalizedDisplayPath = normalizeCommentPath(displayPath);
   return comments.filter((comment) => {
     const normalizedCommentPath = normalizeCommentPath(comment.file);
-    return normalizedCommentPath === normalizedDisplayPath
-      || normalizedCommentPath.endsWith(`/${normalizedDisplayPath}`)
-      || normalizedDisplayPath.endsWith(`/${normalizedCommentPath}`);
+    return (
+      normalizedCommentPath === normalizedDisplayPath ||
+      normalizedCommentPath.endsWith(`/${normalizedDisplayPath}`) ||
+      normalizedDisplayPath.endsWith(`/${normalizedCommentPath}`)
+    );
   });
 }

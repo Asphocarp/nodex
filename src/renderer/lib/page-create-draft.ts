@@ -83,16 +83,13 @@ export const createPageCreateDescriptionDraft = (
   }
 };
 
-export const materializePageCreateDescription = (
-  draft: PageCreateDescriptionDraft,
-): string => materializePageDocument(draft.document).nfm;
+export const materializePageCreateDescription = (draft: PageCreateDescriptionDraft): string =>
+  materializePageDocument(draft.document).nfm;
 
 export const resolvePageCreateTagNames = (
   selectedIds: readonly string[],
   options: readonly DatabasePropertyOption[],
-): string[] => resolvePageCreateTagOptions(selectedIds, options).map(
-  (option) => option.name,
-);
+): string[] => resolvePageCreateTagOptions(selectedIds, options).map((option) => option.name);
 
 export const resolvePageCreateTagOptions = (
   selectedIds: readonly string[],
@@ -123,10 +120,14 @@ const resolveRecoverablePageCreateTagNames = (
   options: readonly DatabasePropertyOption[],
 ): string[] => {
   const optionById = new Map(options.map((option) => [option.id, option]));
-  return [...new Set(selectedIds.flatMap((selectedId) => {
-    const name = optionById.get(selectedId)?.name.trim() ?? "";
-    return name ? [name] : [];
-  }))];
+  return [
+    ...new Set(
+      selectedIds.flatMap((selectedId) => {
+        const name = optionById.get(selectedId)?.name.trim() ?? "";
+        return name ? [name] : [];
+      }),
+    ),
+  ];
 };
 
 export const buildPageCreateInput = ({
@@ -150,9 +151,7 @@ export const buildPageCreateInput = ({
     estimate: estimate ?? undefined,
     tagOptions: resolvePageCreateTagOptions(selectedTagIds, tagOptions),
   };
-  return capabilities
-    ? gatePageCreateInputByCapabilities(input, capabilities)
-    : input;
+  return capabilities ? gatePageCreateInputByCapabilities(input, capabilities) : input;
 };
 
 export const capturePageCreateDraftSnapshot = ({
@@ -178,10 +177,9 @@ export const capturePageCreateDraftSnapshot = ({
 
 export const createEmptyPageCreateDraftSnapshot = (
   status: WorkflowStatus,
-  options: Partial<Pick<
-    PageCreateDraftSnapshot,
-    "priority" | "estimate" | "tagNames" | "createMore" | "expanded"
-  >> = {},
+  options: Partial<
+    Pick<PageCreateDraftSnapshot, "priority" | "estimate" | "tagNames" | "createMore" | "expanded">
+  > = {},
 ): PageCreateDraftSnapshot => ({
   title: "",
   descriptionNfm: "",
@@ -196,14 +194,13 @@ export const createEmptyPageCreateDraftSnapshot = (
 export const pageCreateDraftSnapshotsEqual = (
   left: PageCreateDraftSnapshot,
   right: PageCreateDraftSnapshot,
-): boolean => (
-  left.title === right.title
-  && left.descriptionNfm === right.descriptionNfm
-  && left.status === right.status
-  && left.priority === right.priority
-  && left.estimate === right.estimate
-  && left.createMore === right.createMore
-  && left.expanded === right.expanded
-  && left.tagNames.length === right.tagNames.length
-  && left.tagNames.every((name, index) => name === right.tagNames[index])
-);
+): boolean =>
+  left.title === right.title &&
+  left.descriptionNfm === right.descriptionNfm &&
+  left.status === right.status &&
+  left.priority === right.priority &&
+  left.estimate === right.estimate &&
+  left.createMore === right.createMore &&
+  left.expanded === right.expanded &&
+  left.tagNames.length === right.tagNames.length &&
+  left.tagNames.every((name, index) => name === right.tagNames[index]);

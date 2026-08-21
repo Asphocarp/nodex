@@ -6,15 +6,8 @@ import type { VerifiedBrowserRuntimeBundle } from "./browser-runtime-bundle";
 const MARKETPLACE_NAME = "openai-bundled";
 const MATERIALIZATION_SCHEMA_VERSION = 1;
 const MATERIALIZATION_KEY_FILENAME = ".materialization-key";
-const COMPUTER_USE_VARIANT_SOURCE = path.join(
-  ".codex-plugin",
-  "computer-use-node-repl.md",
-);
-const COMPUTER_USE_SKILL_TARGET = path.join(
-  "skills",
-  "computer-use",
-  "SKILL.md",
-);
+const COMPUTER_USE_VARIANT_SOURCE = path.join(".codex-plugin", "computer-use-node-repl.md");
+const COMPUTER_USE_SKILL_TARGET = path.join("skills", "computer-use", "SKILL.md");
 
 type MarketplaceManifest = {
   name: string;
@@ -38,10 +31,7 @@ type MaterializeDesktopToolMarketplaceOptions = {
   runtimeStateHome: string;
 };
 
-const inFlightByTarget = new Map<
-  string,
-  Promise<MaterializedDesktopToolMarketplace>
->();
+const inFlightByTarget = new Map<string, Promise<MaterializedDesktopToolMarketplace>>();
 
 function parseRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -81,9 +71,7 @@ function materializationKey(
   return JSON.stringify({
     browserPluginVersion: bundle.manifest.browserPlugin.version,
     computerUsePluginVersion:
-      includeComputerUse && computerUse.status === "available"
-        ? computerUse.plugin.version
-        : null,
+      includeComputerUse && computerUse.status === "available" ? computerUse.plugin.version : null,
     desktopBuild: bundle.manifest.desktopBuild,
     desktopBuildNumber: bundle.manifest.desktopBuildNumber,
     schemaVersion: MATERIALIZATION_SCHEMA_VERSION,
@@ -97,36 +85,25 @@ async function isCurrentMaterialization(
   includeComputerUse: boolean,
 ): Promise<boolean> {
   try {
-    const storedKey = await fs.readFile(
-      path.join(rootPath, MATERIALIZATION_KEY_FILENAME),
-      "utf8",
-    );
+    const storedKey = await fs.readFile(path.join(rootPath, MATERIALIZATION_KEY_FILENAME), "utf8");
     if (storedKey.trim() !== key) return false;
     await fs.access(path.join(rootPath, ".agents", "plugins", "marketplace.json"));
     await fs.access(path.join(rootPath, "plugins", "browser", ".codex-plugin", "plugin.json"));
     if (!includeComputerUse) return true;
-    await fs.access(
-      path.join(rootPath, "plugins", "computer-use", COMPUTER_USE_SKILL_TARGET),
-    );
+    await fs.access(path.join(rootPath, "plugins", "computer-use", COMPUTER_USE_SKILL_TARGET));
     return true;
   } catch {
     return false;
   }
 }
 
-async function applyComputerUseNodeReplVariant(
-  pluginRoot: string,
-): Promise<void> {
+async function applyComputerUseNodeReplVariant(pluginRoot: string): Promise<void> {
   const variantSource = path.join(pluginRoot, COMPUTER_USE_VARIANT_SOURCE);
   const skillTarget = path.join(pluginRoot, COMPUTER_USE_SKILL_TARGET);
   await fs.mkdir(path.dirname(skillTarget), { recursive: true });
   await fs.copyFile(variantSource, skillTarget);
 
-  const pluginManifestPath = path.join(
-    pluginRoot,
-    ".codex-plugin",
-    "plugin.json",
-  );
+  const pluginManifestPath = path.join(pluginRoot, ".codex-plugin", "plugin.json");
   const pluginManifest = parseRecord(
     await readJson(pluginManifestPath),
     "Computer Use plugin manifest",
@@ -137,10 +114,7 @@ async function applyComputerUseNodeReplVariant(
   });
 }
 
-async function replaceDirectoryAtomically(
-  stagingPath: string,
-  targetPath: string,
-): Promise<void> {
+async function replaceDirectoryAtomically(stagingPath: string, targetPath: string): Promise<void> {
   const previousPath = `${targetPath}.previous-${randomUUID()}`;
   let movedPrevious = false;
   try {
@@ -168,8 +142,7 @@ async function materializeFresh(
 ): Promise<MaterializedDesktopToolMarketplace> {
   const { bundle } = options;
   const computerUse = bundle.manifest.capabilities.computerUse;
-  const includeComputerUse =
-    options.includeComputerUse && computerUse.status === "available";
+  const includeComputerUse = options.includeComputerUse && computerUse.status === "available";
   const stagingPath = `${targetPath}.staging-${randomUUID()}`;
   const browserPluginTarget = path.join(stagingPath, "plugins", "browser");
   const computerUsePluginTarget = includeComputerUse
@@ -198,14 +171,12 @@ async function materializeFresh(
       "plugins",
       "marketplace.json",
     );
-    const marketplaceManifest = parseMarketplaceManifest(
-      await readJson(sourceManifestPath),
-    );
+    const marketplaceManifest = parseMarketplaceManifest(await readJson(sourceManifestPath));
     const selectedPluginNames = new Set(
       includeComputerUse ? ["browser", "computer-use"] : ["browser"],
     );
     const plugins = marketplaceManifest.plugins.filter((plugin) =>
-      selectedPluginNames.has(plugin.name)
+      selectedPluginNames.has(plugin.name),
     );
     if (plugins.length !== selectedPluginNames.size) {
       throw new Error("Bundled marketplace is missing a required desktop tool plugin");
@@ -213,15 +184,11 @@ async function materializeFresh(
     await fs.mkdir(path.join(stagingPath, ".agents", "plugins"), {
       recursive: true,
     });
-    await writeJson(
-      path.join(stagingPath, ".agents", "plugins", "marketplace.json"),
-      { ...marketplaceManifest, plugins },
-    );
-    await fs.writeFile(
-      path.join(stagingPath, MATERIALIZATION_KEY_FILENAME),
-      `${key}\n`,
-      "utf8",
-    );
+    await writeJson(path.join(stagingPath, ".agents", "plugins", "marketplace.json"), {
+      ...marketplaceManifest,
+      plugins,
+    });
+    await fs.writeFile(path.join(stagingPath, MATERIALIZATION_KEY_FILENAME), `${key}\n`, "utf8");
     await replaceDirectoryAtomically(stagingPath, targetPath);
   } catch (error) {
     await fs.rm(stagingPath, { force: true, recursive: true });
@@ -248,8 +215,8 @@ export async function materializeBundledDesktopToolMarketplace(
     MARKETPLACE_NAME,
   );
   const includeComputerUse =
-    options.includeComputerUse
-    && options.bundle.manifest.capabilities.computerUse.status === "available";
+    options.includeComputerUse &&
+    options.bundle.manifest.capabilities.computerUse.status === "available";
   const key = materializationKey(options.bundle, includeComputerUse);
   const activeOperation = inFlightByTarget.get(targetPath);
   if (activeOperation) return await activeOperation;

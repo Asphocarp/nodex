@@ -74,10 +74,7 @@ const readPublicKey = (projectRoot: string): string => {
 const sha256File = (filePath: string): string =>
   createHash("sha256").update(readFileSync(filePath)).digest("hex");
 
-const artifactIdentity = (
-  filePath: string,
-  bundlePath: string,
-): SparkleArtifactIdentity => {
+const artifactIdentity = (filePath: string, bundlePath: string): SparkleArtifactIdentity => {
   const metadata = lstatSync(filePath);
   if (metadata.isSymbolicLink() || !metadata.isFile()) {
     throw new Error(`Sparkle runtime artifact must be a regular file: ${filePath}`);
@@ -108,7 +105,11 @@ export function verifyStagedSparkleRuntime(
   }
   const bridgePath = path.join(root, "nodex-sparkle.node");
   const bridgeMetadata = lstatSync(bridgePath);
-  if (!bridgeMetadata.isFile() || bridgeMetadata.isSymbolicLink() || (bridgeMetadata.mode & 0o111) === 0) {
+  if (
+    !bridgeMetadata.isFile() ||
+    bridgeMetadata.isSymbolicLink() ||
+    (bridgeMetadata.mode & 0o111) === 0
+  ) {
     throw new Error("Staged Sparkle bridge must be an executable regular file.");
   }
   const expectedMachArchitecture = expected.architecture === "arm64" ? "arm64" : "x86_64";
@@ -121,8 +122,8 @@ export function verifyStagedSparkleRuntime(
     throw new Error("Staged Sparkle framework is missing.");
   }
   if (
-    existsSync(path.join(frameworkPath, "Versions", "B", "XPCServices"))
-    || existsSync(path.join(frameworkPath, "XPCServices"))
+    existsSync(path.join(frameworkPath, "Versions", "B", "XPCServices")) ||
+    existsSync(path.join(frameworkPath, "XPCServices"))
   ) {
     throw new Error("Non-sandboxed Nodex builds must not embed Sparkle XPC services.");
   }
@@ -164,35 +165,36 @@ export async function buildSparkleBridge(
     path.join(nativeBuildRoot, "src", "nodex_sparkle.mm"),
   );
   const frameworkParent = toolchainPath;
-  const electronVersion = (JSON.parse(
-    readFileSync(path.join(projectRoot, "package.json"), "utf8"),
-  ) as { devDependencies?: Record<string, string> }).devDependencies?.electron;
+  const electronVersion = (
+    JSON.parse(readFileSync(path.join(projectRoot, "package.json"), "utf8")) as {
+      devDependencies?: Record<string, string>;
+    }
+  ).devDependencies?.electron;
   if (!electronVersion || !/^\d+\.\d+\.\d+$/u.test(electronVersion)) {
     throw new Error("Electron must be pinned to one exact version before building Sparkle.");
   }
 
-  execFileSync("pnpm", [
-    "exec",
-    "node-gyp",
-    "rebuild",
-    "--directory",
-    nativeBuildRoot,
-    `--target=${electronVersion}`,
-    `--arch=${options.architecture}`,
-    "--dist-url=https://electronjs.org/headers",
-    `--sparkle_framework_parent_dir=${frameworkParent}`,
-  ], {
-    cwd: projectRoot,
-    env: { ...process.env, MACOSX_DEPLOYMENT_TARGET: "12.0" },
-    stdio: "inherit",
-  });
-
-  const builtBridgePath = path.join(
-    nativeBuildRoot,
-    "build",
-    "Release",
-    "nodex_sparkle.node",
+  execFileSync(
+    "pnpm",
+    [
+      "exec",
+      "node-gyp",
+      "rebuild",
+      "--directory",
+      nativeBuildRoot,
+      `--target=${electronVersion}`,
+      `--arch=${options.architecture}`,
+      "--dist-url=https://electronjs.org/headers",
+      `--sparkle_framework_parent_dir=${frameworkParent}`,
+    ],
+    {
+      cwd: projectRoot,
+      env: { ...process.env, MACOSX_DEPLOYMENT_TARGET: "12.0" },
+      stdio: "inherit",
+    },
   );
+
+  const builtBridgePath = path.join(nativeBuildRoot, "build", "Release", "nodex_sparkle.node");
   const outputPath = path.resolve(options.outputPath);
   mkdirSync(path.dirname(outputPath), { recursive: true });
   const stagingParent = mkdtempSync(path.join(path.dirname(outputPath), ".sparkle-runtime-stage-"));
@@ -200,7 +202,10 @@ export async function buildSparkleBridge(
   mkdirSync(stagingRoot);
   try {
     const stagedFramework = path.join(stagingRoot, "Sparkle.framework");
-    execFileSync("/usr/bin/ditto", [path.join(toolchainPath, "Sparkle.framework"), stagedFramework]);
+    execFileSync("/usr/bin/ditto", [
+      path.join(toolchainPath, "Sparkle.framework"),
+      stagedFramework,
+    ]);
     rmSync(path.join(stagedFramework, "Versions", "B", "XPCServices"), {
       force: true,
       recursive: true,
@@ -217,10 +222,7 @@ export async function buildSparkleBridge(
           path.join(stagedFramework, "Versions", "B", "Autoupdate"),
           "Frameworks/Sparkle.framework/Versions/B/Autoupdate",
         ),
-        bridge: artifactIdentity(
-          stagedBridge,
-          "Resources/native/nodex-sparkle.node",
-        ),
+        bridge: artifactIdentity(stagedBridge, "Resources/native/nodex-sparkle.node"),
         frameworkExecutable: artifactIdentity(
           path.join(stagedFramework, "Versions", "B", "Sparkle"),
           "Frameworks/Sparkle.framework/Versions/B/Sparkle",
@@ -230,7 +232,15 @@ export async function buildSparkleBridge(
           "Frameworks/Sparkle.framework/Versions/B/Resources/Info.plist",
         ),
         updater: artifactIdentity(
-          path.join(stagedFramework, "Versions", "B", "Updater.app", "Contents", "MacOS", "Updater"),
+          path.join(
+            stagedFramework,
+            "Versions",
+            "B",
+            "Updater.app",
+            "Contents",
+            "MacOS",
+            "Updater",
+          ),
           "Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater",
         ),
       },
@@ -270,16 +280,17 @@ function parseCliOptions(argv: readonly string[]): BuildSparkleBridgeOptions {
   const architecture = values.get("--arch");
   const channel = values.get("--channel") ?? "disabled";
   const outputPath = values.get("--out");
-  const toolchainPath = values.get("--toolchain")
-    ?? path.join(repositoryRoot, ".generated", "sparkle-toolchain", "2.9.4");
+  const toolchainPath =
+    values.get("--toolchain") ??
+    path.join(repositoryRoot, ".generated", "sparkle-toolchain", "2.9.4");
   if (
-    (architecture !== "arm64" && architecture !== "x64")
-    || (channel !== "disabled" && channel !== "stable" && channel !== "nightly")
-    || !outputPath
+    (architecture !== "arm64" && architecture !== "x64") ||
+    (channel !== "disabled" && channel !== "stable" && channel !== "nightly") ||
+    !outputPath
   ) {
     throw new Error(
-      "Usage: build-sparkle-bridge.ts --arch <arm64|x64> "
-      + "--channel <disabled|stable|nightly> --out <runtime-directory>.",
+      "Usage: build-sparkle-bridge.ts --arch <arm64|x64> " +
+        "--channel <disabled|stable|nightly> --out <runtime-directory>.",
     );
   }
   return { architecture, channel, outputPath, toolchainPath };
@@ -287,7 +298,9 @@ function parseCliOptions(argv: readonly string[]): BuildSparkleBridgeOptions {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void buildSparkleBridge(parseCliOptions(process.argv.slice(2))).catch((error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+    );
     process.exitCode = 1;
   });
 }

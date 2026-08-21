@@ -71,13 +71,14 @@ function moveFocus(
   direction: 1 | -1,
 ) {
   if (rows.length === 0) return null;
-  const currentIndex = currentId
-    ? rows.findIndex((row) => row.id === currentId)
-    : -1;
+  const currentIndex = currentId ? rows.findIndex((row) => row.id === currentId) : -1;
   for (let offset = 1; offset <= rows.length; offset += 1) {
-    const index = currentIndex < 0
-      ? direction > 0 ? offset - 1 : rows.length - offset
-      : (currentIndex + direction * offset + rows.length) % rows.length;
+    const index =
+      currentIndex < 0
+        ? direction > 0
+          ? offset - 1
+          : rows.length - offset
+        : (currentIndex + direction * offset + rows.length) % rows.length;
     const row = rows[index];
     if (row && !rowDisabled(row)) return row.id;
   }
@@ -226,9 +227,10 @@ export function LibraryMoveDestinationPickerSurface({
   const rows = useMemo(() => sections.flatMap((section) => section.rows), [sections]);
   const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
   const [showLoading, setShowLoading] = useState(false);
-  const resolvedFocusedRowId = focusedRowId && rows.some((row) => row.id === focusedRowId)
-    ? focusedRowId
-    : moveFocus(rows, null, 1);
+  const resolvedFocusedRowId =
+    focusedRowId && rows.some((row) => row.id === focusedRowId)
+      ? focusedRowId
+      : moveFocus(rows, null, 1);
   const focusedRow = rows.find((row) => row.id === resolvedFocusedRowId);
   const activeDescendantId = resolvedFocusedRowId
     ? destinationRowDomId(listboxId, resolvedFocusedRowId)
@@ -253,11 +255,7 @@ export function LibraryMoveDestinationPickerSurface({
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (stale || pickerDisabled) return;
-      setFocusedRowId(moveFocus(
-        rows,
-        resolvedFocusedRowId,
-        event.key === "ArrowDown" ? 1 : -1,
-      ));
+      setFocusedRowId(moveFocus(rows, resolvedFocusedRowId, event.key === "ArrowDown" ? 1 : -1));
       return;
     }
     if (event.key === "ArrowRight" && focusedRow?.kind === "page") {
@@ -295,7 +293,7 @@ export function LibraryMoveDestinationPickerSurface({
       }}
       onKeyDown={handleKeyDown}
     >
-      {sections.map((section) => (
+      {sections.map((section) =>
         section.rows.length > 0 ? (
           <NodexDestinationPickerSection key={section.key} label={section.label}>
             {section.rows.map((row) => (
@@ -316,8 +314,8 @@ export function LibraryMoveDestinationPickerSurface({
               />
             ))}
           </NodexDestinationPickerSection>
-        ) : null
-      ))}
+        ) : null,
+      )}
       {showLoading ? (
         <NodexDestinationPickerStatus>
           <ActivitySpinnerIcon className="mr-2 size-3.5 text-token-description-foreground" />
@@ -382,18 +380,30 @@ export function LibraryMoveDestinationPicker({
   const [acceptingRowId, setAcceptingRowId] = useState<string | null>(null);
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const { mutation } = useApplyLibraryOperation();
-  const root = useLibraryMoveDestinations(target, {
-    scope: { kind: "children", parent: { kind: "library" } },
-    limit: 100,
-  }, !normalizedQuery);
-  const recent = useLibraryMoveDestinations(target, {
-    scope: { kind: "suggested" },
-    limit: 8,
-  }, !normalizedQuery);
-  const search = useLibraryMoveDestinations(target, {
-    scope: { kind: "search", query: normalizedQuery || "disabled" },
-    limit: 100,
-  }, Boolean(normalizedQuery));
+  const root = useLibraryMoveDestinations(
+    target,
+    {
+      scope: { kind: "children", parent: { kind: "library" } },
+      limit: 100,
+    },
+    !normalizedQuery,
+  );
+  const recent = useLibraryMoveDestinations(
+    target,
+    {
+      scope: { kind: "suggested" },
+      limit: 8,
+    },
+    !normalizedQuery,
+  );
+  const search = useLibraryMoveDestinations(
+    target,
+    {
+      scope: { kind: "search", query: normalizedQuery || "disabled" },
+      limit: 100,
+    },
+    Boolean(normalizedQuery),
+  );
   const metadataSearch = useInteractivePageSearch({
     projectIds: configuredPageSearchProjectIds(),
     query: normalizedQuery,
@@ -402,22 +412,13 @@ export function LibraryMoveDestinationPicker({
     complete: false,
   });
   const expandedPageIds = useMemo(() => [...expandedIds].sort(), [expandedIds]);
-  const childQueries = useLibraryMoveDestinationChildren(
-    target,
-    expandedPageIds,
-    !normalizedQuery,
-  );
+  const childQueries = useLibraryMoveDestinationChildren(target, expandedPageIds, !normalizedQuery);
   const childItems = new Map(
-    expandedPageIds.map((pageId, index) => [
-      pageId,
-      childQueries[index]?.data?.items ?? [],
-    ] as const),
+    expandedPageIds.map(
+      (pageId, index) => [pageId, childQueries[index]?.data?.items ?? []] as const,
+    ),
   );
-  const treeRows = flattenTreeRows(
-    root.data?.items ?? [],
-    childItems,
-    expandedIds,
-  );
+  const treeRows = flattenTreeRows(root.data?.items ?? [], childItems, expandedIds);
   const rootIsCurrent = root.data?.rootIsCurrent ?? recent.data?.rootIsCurrent ?? false;
   const rootRow: LibraryMoveDestinationPickerRow = {
     kind: "root",
@@ -426,42 +427,43 @@ export function LibraryMoveDestinationPicker({
     metadata: rootIsCurrent ? "Current" : "Top level",
     disabled: rootIsCurrent,
   };
-  const currentDestination = recent.data?.currentDestination
-    ?? root.data?.currentDestination
-    ?? null;
+  const currentDestination =
+    recent.data?.currentDestination ?? root.data?.currentDestination ?? null;
   const recentDestinations = currentDestination
     ? [
         currentDestination,
-        ...(recent.data?.items ?? []).filter(
-          (entry) => entry.pageId !== currentDestination.pageId,
-        ),
+        ...(recent.data?.items ?? []).filter((entry) => entry.pageId !== currentDestination.pageId),
       ]
-    : recent.data?.items ?? [];
-  const searchEntries = search.data?.items ?? (search.isPending
-    ? metadataSearch.rows.map((row): LibraryMoveDestinationEntry => ({
-        pageId: row.pageId,
-        title: row.title,
-        path: row.locationLabel.split(" / ").filter(Boolean),
-        hasChildren: false,
-        documentGeneration: 0,
-        documentHeadSeq: 0,
-        updatedAt: row.updatedAt,
-        isCurrent: false,
-      }))
-    : []);
+    : (recent.data?.items ?? []);
+  const searchEntries =
+    search.data?.items ??
+    (search.isPending
+      ? metadataSearch.rows.map((row): LibraryMoveDestinationEntry => ({
+          pageId: row.pageId,
+          title: row.title,
+          path: row.locationLabel.split(" / ").filter(Boolean),
+          hasChildren: false,
+          documentGeneration: 0,
+          documentHeadSeq: 0,
+          updatedAt: row.updatedAt,
+          isCurrent: false,
+        }))
+      : []);
   const sections = normalizedQuery
-    ? [{
-        key: "search" as const,
-        label: "Search results",
-        rows: searchEntries.map((entry) => ({
-          kind: "page" as const,
-          id: `search:${entry.pageId}`,
-          entry,
-          depth: 0,
-          expanded: false,
-          context: "search" as const,
-        })),
-      }]
+    ? [
+        {
+          key: "search" as const,
+          label: "Search results",
+          rows: searchEntries.map((entry) => ({
+            kind: "page" as const,
+            id: `search:${entry.pageId}`,
+            entry,
+            depth: 0,
+            expanded: false,
+            context: "search" as const,
+          })),
+        },
+      ]
     : [
         {
           key: "recent" as const,
@@ -483,32 +485,36 @@ export function LibraryMoveDestinationPicker({
       ];
   const rowsStale = Boolean(normalizedQuery && search.isPending);
   const activeQuery = normalizedQuery ? search : root;
-  const loading = activeQuery.isPending
-    || (!normalizedQuery && recent.isPending)
-    || childQueries.some((child) => child.isPending);
-  const loadError = activeQuery.error
-    ?? recent.error
-    ?? childQueries.find((child) => child.error)?.error;
-  const hasMore = Boolean(activeQuery.data?.hasMore)
-    || (!normalizedQuery && childQueries.some((child) => child.data?.hasMore));
+  const loading =
+    activeQuery.isPending ||
+    (!normalizedQuery && recent.isPending) ||
+    childQueries.some((child) => child.isPending);
+  const loadError =
+    activeQuery.error ?? recent.error ?? childQueries.find((child) => child.error)?.error;
+  const hasMore =
+    Boolean(activeQuery.data?.hasMore) ||
+    (!normalizedQuery && childQueries.some((child) => child.data?.hasMore));
 
   const accept = async (row: LibraryMoveDestinationPickerRow) => {
-    const parent: LibraryWriteParent = row.kind === "root"
-      ? { kind: "library" }
-      : {
-          kind: "page",
-          pageId: row.entry.pageId,
-          expectedDocumentGeneration: row.entry.documentGeneration,
-          expectedDocumentHeadSeq: row.entry.documentHeadSeq,
-        };
+    const parent: LibraryWriteParent =
+      row.kind === "root"
+        ? { kind: "library" }
+        : {
+            kind: "page",
+            pageId: row.entry.pageId,
+            expectedDocumentGeneration: row.entry.documentGeneration,
+            expectedDocumentHeadSeq: row.entry.documentHeadSeq,
+          };
     setAcceptError(null);
     setAcceptingRowId(row.id);
     try {
-      await mutation.mutateAsync(buildLibraryMoveOperation({
-        target,
-        expectedLocationRevision,
-        parent,
-      }));
+      await mutation.mutateAsync(
+        buildLibraryMoveOperation({
+          target,
+          expectedLocationRevision,
+          parent,
+        }),
+      );
       onMoved();
     } catch (error) {
       setAcceptError(error instanceof Error ? error.message : "Could not move Library item");

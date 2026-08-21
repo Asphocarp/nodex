@@ -258,9 +258,9 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.apple_api_issuer }}
           APPLE_API_KEY_ID: ${{ secrets.apple_api_key_id }}
           NODE_OPTIONS: --max-old-space-size=6144
-          SENTRY_AUTH_TOKEN: ''
-          SENTRY_ORG: ''
-          SENTRY_PROJECT: ''
+          SENTRY_AUTH_TOKEN: ""
+          SENTRY_ORG: ""
+          SENTRY_PROJECT: ""
           SENTRY_RELEASE: nodex@${{ inputs.version }}
         run: |
           pnpm release:build:mac -- \

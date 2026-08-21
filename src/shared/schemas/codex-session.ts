@@ -41,9 +41,9 @@ export function parseCodexSessionIndexEntryLine(rawLine: string): CodexSessionIn
   if (!id.success) return null;
 
   const threadName = z.string().safeParse(candidate.thread_name).success
-    ? candidate.thread_name as string
+    ? (candidate.thread_name as string)
     : z.string().safeParse(candidate.threadName).success
-      ? candidate.threadName as string
+      ? (candidate.threadName as string)
       : null;
 
   return {
@@ -53,7 +53,10 @@ export function parseCodexSessionIndexEntryLine(rawLine: string): CodexSessionIn
   };
 }
 
-export function parseCodexSessionJsonlLine(rawLine: string, fallbackTimestamp: number): ParsedCodexSessionLine | null {
+export function parseCodexSessionJsonlLine(
+  rawLine: string,
+  fallbackTimestamp: number,
+): ParsedCodexSessionLine | null {
   const candidate = parseJsonLine(rawLine);
   if (!candidate) return null;
 
@@ -67,4 +70,3 @@ export function parseCodexSessionJsonlLine(rawLine: string, fallbackTimestamp: n
     payload: payload.success ? payload.data : null,
   };
 }
-

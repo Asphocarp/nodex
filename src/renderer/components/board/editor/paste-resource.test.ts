@@ -16,11 +16,13 @@ describe("paste resource helpers", () => {
   test("captures typed descendants when a resource paste would replace a parent", () => {
     const target = capturePasteResourceTarget({
       getSelection: () => ({
-        blocks: [{
-          id: "parent",
-          type: "toggleListItem",
-          children: [{ id: "page", type: "page", children: [] }],
-        }],
+        blocks: [
+          {
+            id: "parent",
+            type: "toggleListItem",
+            children: [{ id: "page", type: "page", children: [] }],
+          },
+        ],
       }),
       getTextCursorPosition: () => ({
         block: { id: "parent", type: "toggleListItem", children: [] },
@@ -33,16 +35,22 @@ describe("paste resource helpers", () => {
   test("canMaterializePasteResourceItems rejects folders", () => {
     expect(canMaterializePasteResourceItems([{ kind: "file", name: "report.txt" }])).toBe(true);
     expect(canMaterializePasteResourceItems([{ kind: "folder", name: "Designs" }])).toBe(false);
-    expect(canMaterializePasteResourceItems([
-      { kind: "file", name: "report.txt" },
-      { kind: "folder", name: "Designs" },
-    ])).toBe(false);
+    expect(
+      canMaterializePasteResourceItems([
+        { kind: "file", name: "report.txt" },
+        { kind: "folder", name: "Designs" },
+      ]),
+    ).toBe(false);
   });
 
   test("shouldPromptForOversizedText gates on payload size and projected document size", () => {
     expect(shouldPromptForOversizedText("short", 0, DEFAULT_PASTE_RESOURCE_SETTINGS)).toBe(false);
-    expect(shouldPromptForOversizedText("x".repeat(100_000), 0, DEFAULT_PASTE_RESOURCE_SETTINGS)).toBe(true);
-    expect(shouldPromptForOversizedText("x".repeat(10), 749_995, DEFAULT_PASTE_RESOURCE_SETTINGS)).toBe(true);
+    expect(
+      shouldPromptForOversizedText("x".repeat(100_000), 0, DEFAULT_PASTE_RESOURCE_SETTINGS),
+    ).toBe(true);
+    expect(
+      shouldPromptForOversizedText("x".repeat(10), 749_995, DEFAULT_PASTE_RESOURCE_SETTINGS),
+    ).toBe(true);
     expect(shouldPromptForOversizedText("   ", 900_000)).toBe(false);
   });
 
@@ -71,9 +79,10 @@ describe("paste resource helpers", () => {
           api: {
             invoke: async () => null,
             on: () => () => {},
-            getPathInfoForFile: (file: File) => file.name === "alpha.txt"
-              ? { path: "/tmp/alpha.txt", kind: "file", name: "alpha.txt", bytes: 5 }
-              : null,
+            getPathInfoForFile: (file: File) =>
+              file.name === "alpha.txt"
+                ? { path: "/tmp/alpha.txt", kind: "file", name: "alpha.txt", bytes: 5 }
+                : null,
           },
         },
       });
@@ -114,9 +123,7 @@ describe("paste resource helpers", () => {
         },
       });
 
-      const items = normalizeClipboardFileDraftItems([
-        new File([""], "Designs", { type: "" }),
-      ]);
+      const items = normalizeClipboardFileDraftItems([new File([""], "Designs", { type: "" })]);
 
       expect(items[0]?.kind).toBe("folder");
       expect(items[0]?.path).toBe("/tmp/Designs");
@@ -132,7 +139,9 @@ describe("paste resource helpers", () => {
   });
 
   test("derivePastedTextAttachmentName uses the first non-empty line", () => {
-    expect(derivePastedTextAttachmentName("\n\n# Incident summary\nSecond line")).toBe("# Incident summary");
+    expect(derivePastedTextAttachmentName("\n\n# Incident summary\nSecond line")).toBe(
+      "# Incident summary",
+    );
     expect(derivePastedTextAttachmentName("   \n   ")).toBe("Pasted text");
   });
 
@@ -156,25 +165,29 @@ describe("paste resource helpers", () => {
       },
     };
 
-    const inserted = insertAttachmentsAtPasteTarget(editor, {
-      selectedBlockIds: [],
-      currentBlockId: "block-1",
-      canInsertInline: true,
-      replaceCurrentEmptyParagraph: false,
-    }, [
+    const inserted = insertAttachmentsAtPasteTarget(
+      editor,
       {
-        type: "attachment",
-        props: {
-          kind: "file",
-          mode: "link",
-          source: "/tmp/report.txt",
-          name: "report.txt",
-        },
+        selectedBlockIds: [],
+        currentBlockId: "block-1",
+        canInsertInline: true,
+        replaceCurrentEmptyParagraph: false,
       },
-    ]);
+      [
+        {
+          type: "attachment",
+          props: {
+            kind: "file",
+            mode: "link",
+            source: "/tmp/report.txt",
+            name: "report.txt",
+          },
+        },
+      ],
+    );
 
     expect(inserted).toBe(true);
-    expect(calls[0]?.includes("\"attachment\"")).toBe(true);
+    expect(calls[0]?.includes('"attachment"')).toBe(true);
   });
 
   test("insertAttachmentsAtPasteTarget falls back to a paragraph block when inline insertion is unavailable", () => {
@@ -188,22 +201,26 @@ describe("paste resource helpers", () => {
       insertBlocks: () => {},
     };
 
-    const inserted = insertAttachmentsAtPasteTarget(editor, {
-      selectedBlockIds: ["block-1"],
-      currentBlockId: "block-1",
-      canInsertInline: false,
-      replaceCurrentEmptyParagraph: true,
-    }, [
+    const inserted = insertAttachmentsAtPasteTarget(
+      editor,
       {
-        type: "attachment",
-        props: {
-          kind: "folder",
-          mode: "materialized",
-          source: "nodex://assets/demo.json",
-          name: "demo",
-        },
+        selectedBlockIds: ["block-1"],
+        currentBlockId: "block-1",
+        canInsertInline: false,
+        replaceCurrentEmptyParagraph: true,
       },
-    ]);
+      [
+        {
+          type: "attachment",
+          props: {
+            kind: "folder",
+            mode: "materialized",
+            source: "nodex://assets/demo.json",
+            name: "demo",
+          },
+        },
+      ],
+    );
 
     expect(inserted).toBe(true);
     expect(calls.length).toBe(1);
@@ -227,22 +244,28 @@ describe("paste resource helpers", () => {
       },
     };
 
-    expect(continueInlinePaste(editor, {
-      textPayload: "**bold**",
-      htmlPayload: "<p><strong>bold</strong></p>",
-    })).toBe(true);
+    expect(
+      continueInlinePaste(editor, {
+        textPayload: "**bold**",
+        htmlPayload: "<p><strong>bold</strong></p>",
+      }),
+    ).toBe(true);
     expect(calls[0]).toBe("md:**bold**");
 
-    expect(continueInlinePaste(editor, {
-      textPayload: "plain",
-      htmlPayload: "<p>plain</p>",
-    })).toBe(true);
+    expect(
+      continueInlinePaste(editor, {
+        textPayload: "plain",
+        htmlPayload: "<p>plain</p>",
+      }),
+    ).toBe(true);
     expect(calls[1]).toBe("html:<p>plain</p>");
 
-    expect(continueInlinePaste(editor, {
-      textPayload: "plain",
-      blocknoteHtmlPayload: "<div data-blocknote>plain</div>",
-    })).toBe(true);
+    expect(
+      continueInlinePaste(editor, {
+        textPayload: "plain",
+        blocknoteHtmlPayload: "<div data-blocknote>plain</div>",
+      }),
+    ).toBe(true);
     expect(calls[2]).toBe("blocknote:<div data-blocknote>plain</div>");
   });
 });

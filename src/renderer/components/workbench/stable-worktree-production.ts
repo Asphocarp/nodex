@@ -76,7 +76,7 @@ export function buildStableWorktreeCreateInput({
 export function listStableWorktrees(
   entries: readonly CodexPendingWorktreeEntry[],
 ): StableWorktreeEntry[] {
-  return entries.filter((entry): entry is StableWorktreeEntry =>
-    entry.launchMode === "create-stable-worktree"
+  return entries.filter(
+    (entry): entry is StableWorktreeEntry => entry.launchMode === "create-stable-worktree",
   );
 }

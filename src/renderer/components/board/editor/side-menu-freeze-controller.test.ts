@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  createSideMenuFreezeController,
-  deleteSideMenuBlock,
-} from "./side-menu-freeze-controller";
+import { createSideMenuFreezeController, deleteSideMenuBlock } from "./side-menu-freeze-controller";
 
 describe("createSideMenuFreezeController", () => {
   test("freezes once and releases once across repeated open state changes", () => {

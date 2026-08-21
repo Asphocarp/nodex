@@ -20,9 +20,8 @@ function normalizeTokenCount(value: number): number {
 export function resolveContextWindowIndicatorState(
   conversation: CodexConversationSnapshot | null,
 ): ContextWindowIndicatorState {
-  const tokenUsage = conversation?.resumeState === "resumed"
-    ? conversation.latestTokenUsageInfo
-    : null;
+  const tokenUsage =
+    conversation?.resumeState === "resumed" ? conversation.latestTokenUsageInfo : null;
   if (!tokenUsage) {
     return {
       status: "unavailable",
@@ -34,7 +33,11 @@ export function resolveContextWindowIndicatorState(
 
   const usedTokens = normalizeTokenCount(tokenUsage.last.totalTokens);
   const windowTokensRaw = tokenUsage.modelContextWindow;
-  if (typeof windowTokensRaw === "number" && Number.isFinite(windowTokensRaw) && windowTokensRaw > 0) {
+  if (
+    typeof windowTokensRaw === "number" &&
+    Number.isFinite(windowTokensRaw) &&
+    windowTokensRaw > 0
+  ) {
     const windowTokens = normalizeTokenCount(windowTokensRaw);
     if (windowTokens <= 0) {
       return {

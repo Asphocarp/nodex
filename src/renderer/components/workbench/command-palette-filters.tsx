@@ -18,26 +18,19 @@ import {
   TOGGLE_LIST_TAG_FILTER_MODES,
 } from "../../lib/toggle-list/types";
 import { cn } from "../../lib/utils";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "../ui/popover";
-import {
-  NodexDropdownButtonTrigger,
-  NodexOptionPicker,
-} from "../ui/dropdown";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "../ui/popover";
+import { NodexDropdownButtonTrigger, NodexOptionPicker } from "../ui/dropdown";
 
 const PANEL_CLASS_NAME = "min-w-96 max-w-[min(36rem,calc(100vw-2rem))]";
 const SECTION_LABEL =
   "text-xs font-medium uppercase tracking-label text-token-description-foreground select-none";
-const ROW_LABEL =
-  "w-18 shrink-0 pt-0.75 text-xs text-token-description-foreground select-none";
+const ROW_LABEL = "w-18 shrink-0 pt-0.75 text-xs text-token-description-foreground select-none";
 const CHIP_BASE =
   "inline-flex h-6 items-center rounded-md px-2 text-xs font-medium text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground";
 const CHIP_ACTIVE =
   "bg-[color-mix(in_srgb,var(--accent-blue)_18%,transparent)] text-(--accent-blue) hover:bg-[color-mix(in_srgb,var(--accent-blue)_22%,transparent)] hover:text-(--accent-blue)";
-const TEXT_BTN = "inline-flex items-center gap-1 text-xs font-medium text-token-description-foreground hover:text-token-foreground";
+const TEXT_BTN =
+  "inline-flex items-center gap-1 text-xs font-medium text-token-description-foreground hover:text-token-foreground";
 const SUMMARY_CHIP =
   "inline-flex h-6 items-center gap-0.5 rounded-full bg-[color-mix(in_srgb,var(--accent-blue)_14%,transparent)] px-2 text-xs font-medium text-(--accent-blue) hover:bg-[color-mix(in_srgb,var(--accent-blue)_18%,transparent)]";
 export interface CommandPaletteProjectFilterOption {
@@ -50,17 +43,9 @@ export interface CommandPaletteTagFilterOption {
   label: string;
 }
 
-function ToolbarPopoverContent({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+function ToolbarPopoverContent({ children }: { children: React.ReactNode }) {
   return (
-    <NodexPopoverContent
-      side="bottom"
-      align="end"
-      className={PANEL_CLASS_NAME}
-    >
+    <NodexPopoverContent side="bottom" align="end" className={PANEL_CLASS_NAME}>
       <div className="flex flex-col gap-3 p-2">{children}</div>
     </NodexPopoverContent>
   );
@@ -97,29 +82,17 @@ function FilterChip({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      className={cn(CHIP_BASE, active && CHIP_ACTIVE)}
-      onClick={onClick}
-    >
+    <button type="button" className={cn(CHIP_BASE, active && CHIP_ACTIVE)} onClick={onClick}>
       {label}
     </button>
   );
 }
 
-function FilterValueRow({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function FilterValueRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-2">
       <span className={ROW_LABEL}>{label}</span>
-      <div className="flex flex-wrap items-start gap-1.5">
-        {children}
-      </div>
+      <div className="flex flex-wrap items-start gap-1.5">{children}</div>
     </div>
   );
 }
@@ -173,7 +146,8 @@ export function CommandPalettePageFilterPopover({
                 onChange((prev) => ({
                   ...cloneCommandPalettePageFilters(prev),
                   statuses: toggleStatus(prev.statuses, status),
-                }))}
+                }))
+              }
             />
           ))}
         </FilterValueRow>
@@ -188,7 +162,8 @@ export function CommandPalettePageFilterPopover({
                 onChange((prev) => ({
                   ...cloneCommandPalettePageFilters(prev),
                   priorities: togglePriority(prev.priorities, priority),
-                }))}
+                }))
+              }
             />
           ))}
           <FilterChip
@@ -198,7 +173,8 @@ export function CommandPalettePageFilterPopover({
               onChange((prev) => ({
                 ...cloneCommandPalettePageFilters(prev),
                 includeEmptyPriority: !prev.includeEmptyPriority,
-              }))}
+              }))
+            }
           />
         </FilterValueRow>
 
@@ -209,19 +185,22 @@ export function CommandPalettePageFilterPopover({
               onChange((prev) => ({
                 ...cloneCommandPalettePageFilters(prev),
                 tagMode: value as CommandPalettePageFilters["tagMode"],
-              }))}
+              }))
+            }
             options={TOGGLE_LIST_TAG_FILTER_MODES.map((mode) => ({
               value: mode,
               label: TOGGLE_LIST_TAG_FILTER_MODE_LABELS[mode],
             }))}
-            triggerButton={(
+            triggerButton={
               <NodexDropdownButtonTrigger size="xs" className="w-18">
                 {TOGGLE_LIST_TAG_FILTER_MODE_LABELS[filters.tagMode]}
               </NodexDropdownButtonTrigger>
-            )}
+            }
           />
           {availableTags.length === 0 ? (
-            <span className="pt-1 text-xs text-token-description-foreground italic">No tags in results</span>
+            <span className="pt-1 text-xs text-token-description-foreground italic">
+              No tags in results
+            </span>
           ) : (
             availableTags.map((tag) => (
               <FilterChip
@@ -232,7 +211,8 @@ export function CommandPalettePageFilterPopover({
                   onChange((prev) => ({
                     ...cloneCommandPalettePageFilters(prev),
                     tags: toggleString(prev.tags, tag.id),
-                  }))}
+                  }))
+                }
               />
             ))
           )}
@@ -240,7 +220,9 @@ export function CommandPalettePageFilterPopover({
 
         <FilterValueRow label="Assignee">
           {availableAssignees.length === 0 ? (
-            <span className="pt-1 text-xs text-token-description-foreground italic">No assignees in results</span>
+            <span className="pt-1 text-xs text-token-description-foreground italic">
+              No assignees in results
+            </span>
           ) : (
             availableAssignees.map((assignee) => (
               <FilterChip
@@ -251,7 +233,8 @@ export function CommandPalettePageFilterPopover({
                   onChange((prev) => ({
                     ...cloneCommandPalettePageFilters(prev),
                     assignees: toggleString(prev.assignees, assignee),
-                  }))}
+                  }))
+                }
               />
             ))
           )}
@@ -259,7 +242,9 @@ export function CommandPalettePageFilterPopover({
 
         <FilterValueRow label="Project">
           {availableProjects.length === 0 ? (
-            <span className="pt-1 text-xs text-token-description-foreground italic">No projects loaded</span>
+            <span className="pt-1 text-xs text-token-description-foreground italic">
+              No projects loaded
+            </span>
           ) : (
             availableProjects.map((project) => (
               <FilterChip
@@ -270,7 +255,8 @@ export function CommandPalettePageFilterPopover({
                   onChange((prev) => ({
                     ...cloneCommandPalettePageFilters(prev),
                     projectIds: toggleString(prev.projectIds, project.id),
-                  }))}
+                  }))
+                }
               />
             ))
           )}
@@ -291,11 +277,7 @@ export function CommandPalettePageFiltersSummaryRow({
   tagNameById?: ReadonlyMap<string, string>;
   onOpenFilter: () => void;
 }) {
-  const summaries = summarizeCommandPalettePageFilters(
-    filters,
-    projectNameById,
-    tagNameById,
-  );
+  const summaries = summarizeCommandPalettePageFilters(filters, projectNameById, tagNameById);
   if (summaries.length === 0) {
     return null;
   }
@@ -303,12 +285,7 @@ export function CommandPalettePageFiltersSummaryRow({
   return (
     <div className="flex items-center gap-1.5 overflow-x-auto">
       {summaries.map((summary) => (
-        <button
-          key={summary.key}
-          type="button"
-          className={SUMMARY_CHIP}
-          onClick={onOpenFilter}
-        >
+        <button key={summary.key} type="button" className={SUMMARY_CHIP} onClick={onOpenFilter}>
           <span className="font-medium">{summary.label}:</span>
           <span className="max-w-56 truncate">{summary.value}</span>
         </button>

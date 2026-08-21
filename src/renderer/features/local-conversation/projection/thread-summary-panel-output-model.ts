@@ -223,11 +223,13 @@ function isLocalHttpUrl(value: string): boolean {
     const url = new URL(value);
     if (url.protocol !== "http:" && url.protocol !== "https:") return false;
     const hostname = url.hostname.toLowerCase();
-    return hostname === "localhost"
-      || hostname === "127.0.0.1"
-      || hostname === "0.0.0.0"
-      || hostname === "[::1]"
-      || hostname === "::1";
+    return (
+      hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "0.0.0.0" ||
+      hostname === "[::1]" ||
+      hostname === "::1"
+    );
   } catch {
     return false;
   }
@@ -261,7 +263,10 @@ function hasMarkdownOutputExtension(path: string): boolean {
   return extension !== null && MARKDOWN_OUTPUT_EXTENSIONS.has(extension);
 }
 
-function normalizeMarkdownOutputPath(rawDestination: string, cwd: string | null | undefined): string | null {
+function normalizeMarkdownOutputPath(
+  rawDestination: string,
+  cwd: string | null | undefined,
+): string | null {
   const destination = decodePath(rawDestination.trim());
   if (!destination || destination.startsWith("#")) return null;
 
@@ -285,25 +290,27 @@ function normalizeMarkdownOutputPath(rawDestination: string, cwd: string | null 
 }
 
 function getGoogleDriveResource(url: URL): GoogleDriveResource | null {
-  const kind = url.hostname === "docs.google.com"
-    ? url.pathname.startsWith("/document/")
-      ? "document"
-      : url.pathname.startsWith("/spreadsheets/")
+  const kind =
+    url.hostname === "docs.google.com"
+      ? url.pathname.startsWith("/document/")
+        ? "document"
+        : url.pathname.startsWith("/spreadsheets/")
+          ? "spreadsheet"
+          : url.pathname.startsWith("/presentation/")
+            ? "presentation"
+            : null
+      : url.hostname === "sheets.google.com"
         ? "spreadsheet"
-        : url.pathname.startsWith("/presentation/")
+        : url.hostname === "slides.google.com"
           ? "presentation"
-          : null
-    : url.hostname === "sheets.google.com"
-      ? "spreadsheet"
-      : url.hostname === "slides.google.com"
-        ? "presentation"
-        : url.hostname === "drive.google.com"
-          ? "drive"
-          : null;
+          : url.hostname === "drive.google.com"
+            ? "drive"
+            : null;
 
   if (!kind) return null;
 
-  const id = url.pathname.match(/\/(?:d|folders)\/([^/]+)/u)?.[1] ?? url.searchParams.get("id") ?? url.href;
+  const id =
+    url.pathname.match(/\/(?:d|folders)\/([^/]+)/u)?.[1] ?? url.searchParams.get("id") ?? url.href;
   return {
     kind,
     key: `${kind}:${id}`,
@@ -409,7 +416,11 @@ function skipMarkdownSpaces(value: string, index: number): number {
   return cursor;
 }
 
-function parseMarkdownLinkEnd(value: string, index: number, destination: string): MarkdownParseResult | null {
+function parseMarkdownLinkEnd(
+  value: string,
+  index: number,
+  destination: string,
+): MarkdownParseResult | null {
   let cursor = skipMarkdownSpaces(value, index);
   if (value[cursor] === ")") {
     return {
@@ -419,7 +430,8 @@ function parseMarkdownLinkEnd(value: string, index: number, destination: string)
   }
 
   const titleStart = value[cursor];
-  const titleEnd = titleStart === "(" ? ")" : titleStart === "\"" || titleStart === "'" ? titleStart : null;
+  const titleEnd =
+    titleStart === "(" ? ")" : titleStart === '"' || titleStart === "'" ? titleStart : null;
   if (!titleEnd) return null;
 
   cursor += 1;
@@ -458,7 +470,8 @@ function parseMarkdownLinkDestination(value: string, index: number): MarkdownPar
         cursor += 2;
         continue;
       }
-      if (character === ">") return parseMarkdownLinkEnd(value, cursor + 1, destination.join("").trim());
+      if (character === ">")
+        return parseMarkdownLinkEnd(value, cursor + 1, destination.join("").trim());
       destination.push(character ?? "");
       cursor += 1;
     }
@@ -576,18 +589,27 @@ function collectMarkdownLinkedOutputs(
     if (googleDrive) {
       const title = googleDriveTitles.get(googleDrive.key) ?? link.label;
       return title.trim().length > 0
-        ? [{
-            kind: "google-drive",
-            url: normalizedUrl,
-            title,
-            resourceKind: googleDrive.kind,
-          }]
+        ? [
+            {
+              kind: "google-drive",
+              url: normalizedUrl,
+              title,
+              resourceKind: googleDrive.kind,
+            },
+          ]
         : [];
     }
 
     const path = normalizeMarkdownOutputPath(link.destination, cwd);
     if (!path || !hasMarkdownOutputExtension(path)) return [];
-    if (!isResourceInsideProjectlessOutputDirectory({ cwd, projectlessOutputDirectory, resourcePath: path })) return [];
+    if (
+      !isResourceInsideProjectlessOutputDirectory({
+        cwd,
+        projectlessOutputDirectory,
+        resourcePath: path,
+      })
+    )
+      return [];
     return [{ kind: "file", path }];
   });
 }
@@ -602,7 +624,10 @@ function resolveSingleLocalWebsiteUrl(text: string | null): string | null {
 
     try {
       const url = new URL(value);
-      if (url.port.length === 0 || LOCAL_URL_UNSAFE_PATH_PATTERN.test(`${url.pathname}${url.search}${url.hash}`)) {
+      if (
+        url.port.length === 0 ||
+        LOCAL_URL_UNSAFE_PATH_PATTERN.test(`${url.pathname}${url.search}${url.hash}`)
+      ) {
         continue;
       }
       matches.set(url.href, url.href);
@@ -627,10 +652,15 @@ function resolvePublicHttpUrl(value: string | null): string | null {
   }
 }
 
-function resolveAppgenProjectId(item: CodexConversationItem, structuredContent: Record<string, unknown>): string | null {
+function resolveAppgenProjectId(
+  item: CodexConversationItem,
+  structuredContent: Record<string, unknown>,
+): string | null {
   const argumentsRecord = asRecord(item.mcpToolCall?.invocation.arguments);
-  return readTrimmedString(structuredContent, "project_id")
-    ?? readTrimmedString(argumentsRecord, "project_id");
+  return (
+    readTrimmedString(structuredContent, "project_id") ??
+    readTrimmedString(argumentsRecord, "project_id")
+  );
 }
 
 function resolveAppgenArtifact(item: CodexConversationItem): AppgenArtifactCandidate | null {
@@ -644,9 +674,9 @@ function resolveAppgenArtifact(item: CodexConversationItem): AppgenArtifactCandi
   if (!structuredContent) return null;
 
   const url = resolvePublicHttpUrl(
-    readTrimmedString(structuredContent, "current_live_url")
-    ?? readTrimmedString(structuredContent, "deployment_url")
-    ?? readTrimmedString(structuredContent, "url"),
+    readTrimmedString(structuredContent, "current_live_url") ??
+      readTrimmedString(structuredContent, "deployment_url") ??
+      readTrimmedString(structuredContent, "url"),
   );
   if (!url) return null;
 
@@ -660,7 +690,9 @@ function resolveAppgenArtifact(item: CodexConversationItem): AppgenArtifactCandi
   };
 }
 
-function collectAppgenArtifacts(turn: CodexConversationTurn): ThreadSummaryPanelAppgenOutputDraft[] {
+function collectAppgenArtifacts(
+  turn: CodexConversationTurn,
+): ThreadSummaryPanelAppgenOutputDraft[] {
   const artifacts: ThreadSummaryPanelAppgenOutputDraft[] = [];
   const seenProjectIds = new Set<string>();
 
@@ -687,26 +719,26 @@ function resolveImageGenerationPath(item: CodexConversationItem): string | null 
   const rawItem = asRecord(item.rawItem);
   const protocolItem = item.rawItem as Partial<ProtocolImageGenerationItem> | null | undefined;
   return normalizePath(
-    readString(rawItem, "savedPath")
-    ?? readString(rawItem, "src")
-    ?? readString(rawItem, "path")
-    ?? protocolItem?.savedPath
-    ?? null,
+    readString(rawItem, "savedPath") ??
+      readString(rawItem, "src") ??
+      readString(rawItem, "path") ??
+      protocolItem?.savedPath ??
+      null,
   );
 }
 
 function resolveImageViewPath(item: CodexConversationItem): string | null {
   const rawItem = asRecord(item.rawItem);
   const protocolItem = item.rawItem as Partial<ProtocolImageViewItem> | null | undefined;
-  return normalizePath(
-    readString(rawItem, "path")
-    ?? protocolItem?.path
-    ?? null,
-  );
+  return normalizePath(readString(rawItem, "path") ?? protocolItem?.path ?? null);
 }
 
 function resolveAssistantText(item: CodexConversationItem): string | null {
-  if (item.type !== "agentMessage" && item.kind !== "assistantMessage" && item.semanticKind !== "assistantMessage") {
+  if (
+    item.type !== "agentMessage" &&
+    item.kind !== "assistantMessage" &&
+    item.semanticKind !== "assistantMessage"
+  ) {
     return null;
   }
 
@@ -714,11 +746,7 @@ function resolveAssistantText(item: CodexConversationItem): string | null {
   return item.markdownText ?? readString(rawItem, "text");
 }
 
-function addArtifactPath(
-  seen: Set<string>,
-  paths: string[],
-  rawPath: string,
-) {
+function addArtifactPath(seen: Set<string>, paths: string[], rawPath: string) {
   const path = normalizeArtifactPath(rawPath);
   if (!path) return;
 
@@ -782,7 +810,14 @@ function collectTurnArtifactFileOutputs(
 
   const pushPath = (path: string) => {
     if (!hasMarkdownOutputExtension(path)) return;
-    if (!isResourceInsideProjectlessOutputDirectory({ cwd, projectlessOutputDirectory, resourcePath: path })) return;
+    if (
+      !isResourceInsideProjectlessOutputDirectory({
+        cwd,
+        projectlessOutputDirectory,
+        resourcePath: path,
+      })
+    )
+      return;
 
     const outputPath = resolveOutputPath(path, cwd);
     const key = normalizePathSegments(outputPath).toLowerCase();
@@ -809,7 +844,14 @@ function resolveSingleEditedWebsiteTarget(
 
   for (const path of artifacts.editedFilePaths) {
     if (!LOCAL_WEBSITE_FILE_EXTENSION_PATTERN.test(path)) continue;
-    if (!isResourceInsideProjectlessOutputDirectory({ cwd, projectlessOutputDirectory, resourcePath: path })) continue;
+    if (
+      !isResourceInsideProjectlessOutputDirectory({
+        cwd,
+        projectlessOutputDirectory,
+        resourcePath: path,
+      })
+    )
+      continue;
 
     const target = resolveOutputPath(path, cwd);
     const key = normalizePathSegments(target).toLowerCase();
@@ -819,7 +861,9 @@ function resolveSingleEditedWebsiteTarget(
   return targets.size === 1 ? (targets.values().next().value ?? null) : null;
 }
 
-function isPathOutputDraft(output: ThreadSummaryPanelOutputDraft): output is ThreadSummaryPanelPathOutputDraft {
+function isPathOutputDraft(
+  output: ThreadSummaryPanelOutputDraft,
+): output is ThreadSummaryPanelPathOutputDraft {
   return output.kind === "file" || output.kind === "generated-image" || output.kind === "image";
 }
 
@@ -848,7 +892,8 @@ function getOutputKey(output: ThreadSummaryPanelOutputDraft): string {
 }
 
 function getOutputPriority(output: ThreadSummaryPanelOutputDraft): number {
-  if (isPathOutputDraft(output) || output.kind === "website") return OUTPUT_KIND_PRIORITY[output.kind];
+  if (isPathOutputDraft(output) || output.kind === "website")
+    return OUTPUT_KIND_PRIORITY[output.kind];
   return 0;
 }
 
@@ -873,10 +918,12 @@ function isCompletedTurn(turn: CodexConversationTurn): boolean {
 }
 
 function collectAssistantTextByTurn(turn: CodexConversationTurn): string | null {
-  const text = turn.items.flatMap((item) => {
-    const assistantText = resolveAssistantText(item);
-    return assistantText ? [assistantText] : [];
-  }).join("\n");
+  const text = turn.items
+    .flatMap((item) => {
+      const assistantText = resolveAssistantText(item);
+      return assistantText ? [assistantText] : [];
+    })
+    .join("\n");
 
   return text.length > 0 ? text : null;
 }
@@ -893,14 +940,28 @@ function collectOutputDrafts(
     const turnArtifacts = collectTurnArtifacts(turn);
 
     for (const path of turnArtifacts.referencedFilePaths) {
-      if (!isResourceInsideProjectlessOutputDirectory({ cwd, projectlessOutputDirectory, resourcePath: path })) continue;
+      if (
+        !isResourceInsideProjectlessOutputDirectory({
+          cwd,
+          projectlessOutputDirectory,
+          resourcePath: path,
+        })
+      )
+        continue;
       addOutput(outputs, { kind: "file", path: resolveOutputPath(path, cwd) });
     }
 
     for (const item of turn.items) {
       if (item.type === "imageGeneration") {
         const path = resolveImageGenerationPath(item);
-        if (path && isResourceInsideProjectlessOutputDirectory({ cwd, projectlessOutputDirectory, resourcePath: path })) {
+        if (
+          path &&
+          isResourceInsideProjectlessOutputDirectory({
+            cwd,
+            projectlessOutputDirectory,
+            resourcePath: path,
+          })
+        ) {
           addOutput(outputs, { kind: "generated-image", path: resolveOutputPath(path, cwd) });
         }
         continue;
@@ -908,7 +969,14 @@ function collectOutputDrafts(
 
       if (item.type === "imageView") {
         const path = resolveImageViewPath(item);
-        if (path && isResourceInsideProjectlessOutputDirectory({ cwd, projectlessOutputDirectory, resourcePath: path })) {
+        if (
+          path &&
+          isResourceInsideProjectlessOutputDirectory({
+            cwd,
+            projectlessOutputDirectory,
+            resourcePath: path,
+          })
+        ) {
           addOutput(outputs, { kind: "image", path: resolveOutputPath(path, cwd) });
         }
       }
@@ -923,13 +991,18 @@ function collectOutputDrafts(
       googleDriveTitles,
       projectlessOutputDirectory,
     );
-    const artifactFileOutputs = collectTurnArtifactFileOutputs(turnArtifacts, cwd, projectlessOutputDirectory);
+    const artifactFileOutputs = collectTurnArtifactFileOutputs(
+      turnArtifacts,
+      cwd,
+      projectlessOutputDirectory,
+    );
     const appgenOutputs = collectAppgenArtifacts(turn);
     for (const output of linkedOutputs) addOutput(outputs, output);
     for (const output of artifactFileOutputs) addOutput(outputs, output);
     for (const output of appgenOutputs) addOutput(outputs, output);
 
-    const hasFileResource = linkedOutputs.some((output) => output.kind === "file") || artifactFileOutputs.length > 0;
+    const hasFileResource =
+      linkedOutputs.some((output) => output.kind === "file") || artifactFileOutputs.length > 0;
     if (hasFileResource || appgenOutputs.length > 0) continue;
 
     const websiteTarget = resolveSingleLocalWebsiteUrl(assistantText);
@@ -938,7 +1011,11 @@ function collectOutputDrafts(
       continue;
     }
 
-    const editedWebsiteTarget = resolveSingleEditedWebsiteTarget(turnArtifacts, cwd, projectlessOutputDirectory);
+    const editedWebsiteTarget = resolveSingleEditedWebsiteTarget(
+      turnArtifacts,
+      cwd,
+      projectlessOutputDirectory,
+    );
     if (editedWebsiteTarget) addOutput(outputs, { kind: "website", target: editedWebsiteTarget });
   }
 
@@ -975,7 +1052,9 @@ export function collectTurnEndResourcePaths(
   return [...paths.values()];
 }
 
-function buildGeneratedImageNumbers(outputs: readonly ThreadSummaryPanelOutputDraft[]): Map<string, number> {
+function buildGeneratedImageNumbers(
+  outputs: readonly ThreadSummaryPanelOutputDraft[],
+): Map<string, number> {
   if (!outputs.some((output) => output.kind === "generated-image")) return new Map();
 
   const imagePaths = outputs.flatMap((output) => {
@@ -1017,9 +1096,7 @@ function buildOutputRow(
     case "generated-image":
     case "image": {
       const imageNumber = generatedImageNumbers.get(output.path);
-      const label = imageNumber == null
-        ? basename(output.path)
-        : `Generated image ${imageNumber}`;
+      const label = imageNumber == null ? basename(output.path) : `Generated image ${imageNumber}`;
       return {
         id: `${output.kind}:${output.path}`,
         kind: output.kind,
@@ -1079,11 +1156,14 @@ export function buildThreadSummaryPanelOutputRows(
     .map((output) => buildOutputRow(output, generatedImageNumbers));
 }
 
-export function isThreadSummaryPanelImagePreviewableOutput(row: ThreadSummaryPanelOutputRow): boolean {
-  return isPathOutputRow(row) && (
-    row.kind === "generated-image"
-    || row.kind === "image"
-    || IMAGE_EXTENSION_PATTERN.test(row.path)
+export function isThreadSummaryPanelImagePreviewableOutput(
+  row: ThreadSummaryPanelOutputRow,
+): boolean {
+  return (
+    isPathOutputRow(row) &&
+    (row.kind === "generated-image" ||
+      row.kind === "image" ||
+      IMAGE_EXTENSION_PATTERN.test(row.path))
   );
 }
 

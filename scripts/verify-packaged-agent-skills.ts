@@ -1,10 +1,5 @@
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  lstatSync,
-  mkdtempSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,29 +37,17 @@ const assertExpectedDigest = (
   }
 };
 
-export function verifyPackagedAgentSkills(
-  options: VerifyPackagedAgentSkillsOptions,
-): void {
+export function verifyPackagedAgentSkills(options: VerifyPackagedAgentSkillsOptions): void {
   const appPath = path.resolve(options.appPath);
   const resourcesPath = path.join(appPath, "Contents/Resources");
-  const artifact = inspectOfficialAgentSkillsArtifact(
-    path.join(resourcesPath, "agent-skills"),
-  );
-  assertExpectedDigest(
-    artifact.manifestSha256,
-    options.expectedManifestSha256,
-    "manifest",
-  );
-  assertExpectedDigest(
-    artifact.treeSha256,
-    options.expectedTreeSha256,
-    "tree",
-  );
+  const artifact = inspectOfficialAgentSkillsArtifact(path.join(resourcesPath, "agent-skills"));
+  assertExpectedDigest(artifact.manifestSha256, options.expectedManifestSha256, "manifest");
+  assertExpectedDigest(artifact.treeSha256, options.expectedTreeSha256, "tree");
 
   const provenance = verifyPackagedBuildProvenance(appPath);
   if (
-    provenance.agentSkills.manifestSha256 !== artifact.manifestSha256
-    || provenance.agentSkills.treeSha256 !== artifact.treeSha256
+    provenance.agentSkills.manifestSha256 !== artifact.manifestSha256 ||
+    provenance.agentSkills.treeSha256 !== artifact.treeSha256
   ) {
     throw new Error("Packaged official Agent Skills do not match build provenance");
   }
@@ -99,13 +82,13 @@ export function verifyPackagedAgentSkills(
     const envelope = JSON.parse(result.stdout) as CapabilityEnvelope;
     const bundle = envelope.result?.bundle;
     if (
-      envelope.version !== 1
-      || envelope.ok !== true
-      || envelope.result?.schemaVersion !== 1
-      || envelope.result.commands?.skills !== 1
-      || bundle?.status !== "available"
-      || bundle.releaseVersion !== artifact.releaseVersion
-      || bundle.treeSha256 !== artifact.treeSha256
+      envelope.version !== 1 ||
+      envelope.ok !== true ||
+      envelope.result?.schemaVersion !== 1 ||
+      envelope.result.commands?.skills !== 1 ||
+      bundle?.status !== "available" ||
+      bundle.releaseVersion !== artifact.releaseVersion ||
+      bundle.treeSha256 !== artifact.treeSha256
     ) {
       throw new Error("Packaged nodex capabilities do not advertise the bundled Skill contract");
     }
@@ -136,16 +119,14 @@ const main = (): void => {
   const appPath = readOption(arguments_, "--app-path");
   if (!appPath) {
     throw new Error(
-      "usage: verify-packaged-agent-skills --app-path <Nodex.app> "
-      + "[--expected-manifest-sha256 <sha256>] [--expected-tree-sha256 <sha256>]",
+      "usage: verify-packaged-agent-skills --app-path <Nodex.app> " +
+        "[--expected-manifest-sha256 <sha256>] [--expected-tree-sha256 <sha256>]",
     );
   }
   verifyPackagedAgentSkills({
     appPath,
-    expectedManifestSha256:
-      readOption(arguments_, "--expected-manifest-sha256") ?? undefined,
-    expectedTreeSha256:
-      readOption(arguments_, "--expected-tree-sha256") ?? undefined,
+    expectedManifestSha256: readOption(arguments_, "--expected-manifest-sha256") ?? undefined,
+    expectedTreeSha256: readOption(arguments_, "--expected-tree-sha256") ?? undefined,
   });
 };
 
@@ -153,7 +134,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     main();
   } catch (error) {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   }

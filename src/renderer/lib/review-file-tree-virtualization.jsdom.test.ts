@@ -35,20 +35,25 @@ describe("review file tree virtualization", () => {
       itemHeight: REVIEW_FILE_TREE_DEFAULT_ITEM_HEIGHT_PX,
     });
 
-    const expectedVisibleRows = Math.ceil(REVIEW_FILE_TREE_VIEWPORT_FALLBACK_PX / REVIEW_FILE_TREE_DEFAULT_ITEM_HEIGHT_PX);
+    const expectedVisibleRows = Math.ceil(
+      REVIEW_FILE_TREE_VIEWPORT_FALLBACK_PX / REVIEW_FILE_TREE_DEFAULT_ITEM_HEIGHT_PX,
+    );
     expect(range.start).toBe(0);
     expect(range.end).toBe(expectedVisibleRows - 1 + 10);
   });
 
   test("reuses the previous range when the visible window stays inside it", () => {
     const previousRange = { start: 0, end: 27 };
-    const nextRange = getReviewFileTreeVirtualRange({
-      scrollTop: 30,
-      viewportHeight: 240,
-      offset: 0,
-      itemCount: 120,
-      itemHeight: REVIEW_FILE_TREE_DEFAULT_ITEM_HEIGHT_PX,
-    }, previousRange);
+    const nextRange = getReviewFileTreeVirtualRange(
+      {
+        scrollTop: 30,
+        viewportHeight: 240,
+        offset: 0,
+        itemCount: 120,
+        itemHeight: REVIEW_FILE_TREE_DEFAULT_ITEM_HEIGHT_PX,
+      },
+      previousRange,
+    );
 
     expect(areReviewFileTreeRangesEqual(previousRange, nextRange)).toBe(true);
   });

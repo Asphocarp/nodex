@@ -26,10 +26,13 @@ export const BoardScrollContainer = forwardRef<HTMLDivElement, ViewScrollContain
       retryFrames: 2,
     });
     const retainedScrollRef = retainedScroll.ref;
-    const setContainerRef = useCallback((node: HTMLDivElement | null) => {
-      retainedScrollRef(node);
-      setForwardedRef(ref, node);
-    }, [ref, retainedScrollRef]);
+    const setContainerRef = useCallback(
+      (node: HTMLDivElement | null) => {
+        retainedScrollRef(node);
+        setForwardedRef(ref, node);
+      },
+      [ref, retainedScrollRef],
+    );
 
     return (
       <div

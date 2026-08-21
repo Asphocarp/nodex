@@ -10,7 +10,9 @@ describe("normalizeNfmEditorLinkUrl", () => {
   test("preserves explicit urls and relative references", () => {
     expect(normalizeNfmEditorLinkUrl("https://example.com")).toBe("https://example.com");
     expect(normalizeNfmEditorLinkUrl("mailto:test@example.com")).toBe("mailto:test@example.com");
-    expect(normalizeNfmEditorLinkUrl("file:///Users/asc/repo/abc")).toBe("file:///Users/asc/repo/abc");
+    expect(normalizeNfmEditorLinkUrl("file:///Users/asc/repo/abc")).toBe(
+      "file:///Users/asc/repo/abc",
+    );
     expect(normalizeNfmEditorLinkUrl("./notes.md")).toBe("./notes.md");
     expect(normalizeNfmEditorLinkUrl("../notes.md")).toBe("../notes.md");
     expect(normalizeNfmEditorLinkUrl("#section")).toBe("#section");

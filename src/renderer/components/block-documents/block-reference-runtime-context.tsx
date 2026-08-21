@@ -28,9 +28,7 @@ export interface BlockReferenceHostRuntime {
   readonly documentSurfaceId?: string;
   readonly openPage?: (input: ContentPageNavigationTarget) => void | Promise<void>;
   readonly openDatabase?: (databaseId: DatabaseId) => void | Promise<void>;
-  readonly openCanvas?: (
-    input: ContentCanvasNavigationTarget,
-  ) => void | Promise<void>;
+  readonly openCanvas?: (input: ContentCanvasNavigationTarget) => void | Promise<void>;
   readonly createCanvasAtEmptyParagraph?: (input: {
     readonly blockId: string;
     readonly displayName?: string;
@@ -63,18 +61,15 @@ export const appendInlineDocumentOwnerAncestor = (
   return [...ancestors, ownerBlockId];
 };
 
-export const isInlineCardCycle = (
-  ancestors: readonly string[],
-  targetPageId: string,
-): boolean => ancestors.includes(targetPageId);
+export const isInlineCardCycle = (ancestors: readonly string[], targetPageId: string): boolean =>
+  ancestors.includes(targetPageId);
 
 export const isInlineDocumentOwnerCycle = (
   ancestors: readonly string[],
   targetOwnerBlockId: string,
 ): boolean => ancestors.includes(targetOwnerBlockId);
 
-const BlockReferenceRuntimeContext =
-  createContext<BlockReferenceHostRuntime | null>(null);
+const BlockReferenceRuntimeContext = createContext<BlockReferenceHostRuntime | null>(null);
 
 export function BlockReferenceRuntimeProvider({
   value,
@@ -90,6 +85,5 @@ export function BlockReferenceRuntimeProvider({
   );
 }
 
-export const useBlockReferenceHostRuntime =
-  (): BlockReferenceHostRuntime | null =>
-    useContext(BlockReferenceRuntimeContext);
+export const useBlockReferenceHostRuntime = (): BlockReferenceHostRuntime | null =>
+  useContext(BlockReferenceRuntimeContext);

@@ -1,20 +1,19 @@
-import {
-  formatKeyboardShortcut,
-  isTableCellSelection,
-} from "@blocknote/core";
+import { formatKeyboardShortcut, isTableCellSelection } from "@blocknote/core";
 import {
   FormattingToolbarExtension,
   LinkToolbarExtension,
   ShowSelectionExtension,
 } from "@blocknote/core/extensions";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import { FormattingToolbarLinkIcon } from "@/components/shared/icons";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
@@ -34,9 +33,7 @@ import {
   type NfmResolvedLinkAction,
 } from "./nfm-link-toolbar-deps";
 import { useFileReferenceRouter } from "@/lib/file-reference-router";
-import {
-  useNfmLinkEditorState,
-} from "./nfm-edit-link-menu-items";
+import { useNfmLinkEditorState } from "./nfm-edit-link-menu-items";
 import { applyNfmLinkEditAtRange } from "./nfm-link-editing";
 import { normalizeNfmEditorLinkUrl } from "./nfm-link-url";
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
@@ -49,10 +46,12 @@ import {
 import { buildPageDeepLink } from "../../../../shared/nodex-deeplink";
 import { PageIcon } from "@/components/shared/icons";
 
-function hasLinkInSchema(editor: { schema: { inlineContentSchema: Record<string, unknown> } }): boolean {
+function hasLinkInSchema(editor: {
+  schema: { inlineContentSchema: Record<string, unknown> };
+}): boolean {
   return (
-    "link" in editor.schema.inlineContentSchema
-    && editor.schema.inlineContentSchema["link"] === "link"
+    "link" in editor.schema.inlineContentSchema &&
+    editor.schema.inlineContentSchema["link"] === "link"
   );
 }
 
@@ -75,23 +74,26 @@ function NfmPageLinkPicker({
   const hostRuntime = useBlockReferenceHostRuntime();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const projectIds = hostRuntime?.contentAccessContext.kind === "project"
-    ? [hostRuntime.contentAccessContext.projectId]
-    : configuredPageSearchProjectIds();
+  const projectIds =
+    hostRuntime?.contentAccessContext.kind === "project"
+      ? [hostRuntime.contentAccessContext.projectId]
+      : configuredPageSearchProjectIds();
   const search = useInteractivePageSearch({
     projectIds,
     query,
     limit: 24,
     complete: Boolean(hostRuntime),
   });
-  const request = hostRuntime ? {
-    accessContext: hostRuntime.contentAccessContext,
-    hostPageId: hostRuntime.hostPageId,
-    ancestorPageIds: hostRuntime.ancestorPageIds,
-    intent: "link" as const,
-    query,
-    limit: 24,
-  } : null;
+  const request = hostRuntime
+    ? {
+        accessContext: hostRuntime.contentAccessContext,
+        hostPageId: hostRuntime.hostPageId,
+        ancestorPageIds: hostRuntime.ancestorPageIds,
+        intent: "link" as const,
+        query,
+        limit: 24,
+      }
+    : null;
   const rows = hostRuntime?.hostPageId
     ? search.rows.flatMap((row) => {
         if (row.pageId !== hostRuntime.hostPageId || row.matches.length === 0) {
@@ -99,23 +101,26 @@ function NfmPageLinkPicker({
         }
         const matches = row.matches.filter((match) => match.source !== "body");
         if (matches.length === 0) return [];
-        return [{
-          ...row,
-          matches,
-          excerpt: null,
-          excerptParts: [],
-        }];
+        return [
+          {
+            ...row,
+            matches,
+            excerpt: null,
+            excerptParts: [],
+          },
+        ];
       })
     : search.rows;
-  const items = request
-    ? pageSearchResultsToReferenceCandidates(request, rows)
-    : [];
+  const items = request ? pageSearchResultsToReferenceCandidates(request, rows) : [];
   useEffect(() => {
     setSelectedIndex((current) => Math.min(current, Math.max(items.length - 1, 0)));
   }, [items.length]);
-  const status = !hostRuntime || search.enrichment === "unavailable"
-    ? "error" as const
-    : search.enrichment === "loading" ? "loading" as const : "ready" as const;
+  const status =
+    !hostRuntime || search.enrichment === "unavailable"
+      ? ("error" as const)
+      : search.enrichment === "loading"
+        ? ("loading" as const)
+        : ("ready" as const);
 
   return (
     <div
@@ -148,9 +153,7 @@ function NfmPageLinkPicker({
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
               const delta = event.key === "ArrowDown" ? 1 : -1;
-              setSelectedIndex((current) =>
-                (current + delta + items.length) % items.length
-              );
+              setSelectedIndex((current) => (current + delta + items.length) % items.length);
               return;
             }
             if (event.key === "Enter") {
@@ -181,7 +184,9 @@ function NfmPageLinkPicker({
           >
             <PageIcon className="icon-xs shrink-0 text-token-description-foreground" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm text-token-foreground">{item.title || "Untitled"}</span>
+              <span className="block truncate text-sm text-token-foreground">
+                {item.title || "Untitled"}
+              </span>
               <span className="block truncate text-xs text-token-description-foreground">
                 {[item.pageKey, item.locationLabel].filter(Boolean).join(" · ")}
               </span>
@@ -190,7 +195,11 @@ function NfmPageLinkPicker({
         ))}
         {status !== "ready" || items.length === 0 ? (
           <div className="px-2 py-3 text-center text-xs text-token-description-foreground">
-            {status === "loading" ? "Loading more Pages…" : status === "error" ? "Full Page search is unavailable" : "No matching Pages"}
+            {status === "loading"
+              ? "Loading more Pages…"
+              : status === "error"
+                ? "Full Page search is unavailable"
+                : "No matching Pages"}
           </div>
         ) : null}
       </div>
@@ -226,11 +235,7 @@ function NfmCreateLinkPopover({
   renderTrigger?: (props: NfmCreateLinkTriggerProps) => ReactNode;
 }) {
   const [showPagePicker, setShowPagePicker] = useState(false);
-  const {
-    currentUrl,
-    setCurrentUrl,
-    submit,
-  } = useNfmLinkEditorState({
+  const { currentUrl, setCurrentUrl, submit } = useNfmLinkEditorState({
     ...state,
     url: state.url || "",
     setToolbarOpen: (open: boolean) => {
@@ -270,10 +275,7 @@ function NfmCreateLinkPopover({
   };
 
   return (
-    <NodexPopover
-      open={showPopover}
-      onOpenChange={setShowPopover}
-    >
+    <NodexPopover open={showPopover} onOpenChange={setShowPopover}>
       <NodexTooltip
         tooltipContent={dict.formatting_toolbar.link.tooltip}
         shortcutLabel={formatKeyboardShortcut(
@@ -315,21 +317,26 @@ function NfmCreateLinkPopover({
           <NfmPageLinkPicker
             onBack={() => setShowPagePicker(false)}
             onSelect={(candidate) => {
-              submit(buildPageDeepLink({ pageId: candidate.pageId }), state.text || candidate.title);
+              submit(
+                buildPageDeepLink({ pageId: candidate.pageId }),
+                state.text || candidate.title,
+              );
               setShowPopover(false);
             }}
           />
-        ) : <NfmCreateLinkDialogSurface
-          urlLabel={"Page or URL"}
-          urlPlaceholder={dict.link_toolbar.form.url_placeholder}
-          urlValue={currentUrl}
-          submitLabel={dict.formatting_toolbar.link.tooltip}
-          onUrlChange={setCurrentUrl}
-          onUrlKeyDown={handleUrlKeyDown}
-          onSubmit={handleSubmit}
-          secondaryActionLabel="Page…"
-          onSecondaryAction={() => setShowPagePicker(true)}
-        />}
+        ) : (
+          <NfmCreateLinkDialogSurface
+            urlLabel={"Page or URL"}
+            urlPlaceholder={dict.link_toolbar.form.url_placeholder}
+            urlValue={currentUrl}
+            submitLabel={dict.formatting_toolbar.link.tooltip}
+            onUrlChange={setCurrentUrl}
+            onUrlKeyDown={handleUrlKeyDown}
+            onSubmit={handleSubmit}
+            secondaryActionLabel="Page…"
+            onSecondaryAction={() => setShowPagePicker(true)}
+          />
+        )}
       </NodexPopoverContent>
     </NodexPopover>
   );
@@ -351,12 +358,11 @@ function NfmCreateLinkButton({ renderTrigger }: NfmCreateLinkButtonProps) {
     editor,
     selector: ({ editor: currentEditor }) => {
       if (
-        !currentEditor.isEditable
-        || !hasLinkInSchema(currentEditor)
-        || isTableCellSelection(currentEditor.prosemirrorState.selection)
-        || !(
-          currentEditor.getSelection()?.blocks
-          || [currentEditor.getTextCursorPosition().block]
+        !currentEditor.isEditable ||
+        !hasLinkInSchema(currentEditor) ||
+        isTableCellSelection(currentEditor.prosemirrorState.selection) ||
+        !(
+          currentEditor.getSelection()?.blocks || [currentEditor.getTextCursorPosition().block]
         ).find((block) => block.content !== undefined)
       ) {
         return undefined;
@@ -419,9 +425,7 @@ const NFM_LINK_EDIT_URL_PLACEHOLDER = "Type or paste a link";
 function isOpenableLinkAction(
   action: NfmResolvedLinkAction | null,
 ): action is Exclude<NfmResolvedLinkAction, { kind: "blocked" | "unresolved-file-like" }> {
-  return action !== null
-    && action.kind !== "blocked"
-    && action.kind !== "unresolved-file-like";
+  return action !== null && action.kind !== "blocked" && action.kind !== "unresolved-file-like";
 }
 
 export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
@@ -437,14 +441,10 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
   const copyResetTimerRef = useRef<number | null>(null);
   const liveRangeRef = useRef(props.range);
   const action = resolveNfmLinkAction(props.url, props.projectWorkspacePath);
-  const tooltip = resolveNfmLinkTooltipLabel(action, false)
-    ?? dict.link_toolbar.open.tooltip;
-  const canOpen = isOpenableLinkAction(action)
-    && (action.kind !== "page" || Boolean(hostRuntime?.openPage));
-  const {
-    currentUrl,
-    setCurrentUrl,
-  } = useNfmLinkEditorState(props);
+  const tooltip = resolveNfmLinkTooltipLabel(action, false) ?? dict.link_toolbar.open.tooltip;
+  const canOpen =
+    isOpenableLinkAction(action) && (action.kind !== "page" || Boolean(hostRuntime?.openPage));
+  const { currentUrl, setCurrentUrl } = useNfmLinkEditorState(props);
 
   useEffect(() => {
     if (isEditing) return;
@@ -459,24 +459,30 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
     };
   }, []);
 
-  const applyLiveLinkEdit = useCallback((nextUrl: string) => {
-    const normalizedUrl = normalizeNfmEditorLinkUrl(nextUrl);
-    if (!normalizedUrl) return false;
+  const applyLiveLinkEdit = useCallback(
+    (nextUrl: string) => {
+      const normalizedUrl = normalizeNfmEditorLinkUrl(nextUrl);
+      if (!normalizedUrl) return false;
 
-    liveRangeRef.current = applyNfmLinkEditAtRange(
-      editor,
-      liveRangeRef.current,
-      normalizedUrl,
-      props.text,
-    );
-    return true;
-  }, [editor, props.text]);
+      liveRangeRef.current = applyNfmLinkEditAtRange(
+        editor,
+        liveRangeRef.current,
+        normalizedUrl,
+        props.text,
+      );
+      return true;
+    },
+    [editor, props.text],
+  );
 
-  const closeEditDialog = useCallback((closeToolbar: boolean) => {
-    setIsEditing(false);
-    props.setToolbarPositionFrozen?.(false);
-    if (closeToolbar) props.setToolbarOpen?.(false);
-  }, [props]);
+  const closeEditDialog = useCallback(
+    (closeToolbar: boolean) => {
+      setIsEditing(false);
+      props.setToolbarPositionFrozen?.(false);
+      if (closeToolbar) props.setToolbarOpen?.(false);
+    },
+    [props],
+  );
 
   useEffect(() => {
     if (!isEditing) return undefined;
@@ -503,18 +509,21 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
     };
   }, [closeEditDialog, isEditing]);
 
-  const handleFieldKeyDown = useCallback((event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      closeEditDialog(true);
-      return;
-    }
+  const handleFieldKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeEditDialog(true);
+        return;
+      }
 
-    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
-    event.preventDefault();
-    if (!applyLiveLinkEdit(currentUrl)) return;
-    closeEditDialog(true);
-  }, [applyLiveLinkEdit, closeEditDialog, currentUrl]);
+      if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+      event.preventDefault();
+      if (!applyLiveLinkEdit(currentUrl)) return;
+      closeEditDialog(true);
+    },
+    [applyLiveLinkEdit, closeEditDialog, currentUrl],
+  );
 
   const handleCopyLink = useCallback(async () => {
     const didCopy = await writeTextToClipboard(props.url);
@@ -582,10 +591,11 @@ export function NfmLinkToolbar(props: NfmLinkToolbarProps) {
           undefined,
           hostRuntime?.openPage
             ? {
-                openPage: (pageId) => hostRuntime.openPage?.({
-                  accessContext: hostRuntime.contentAccessContext,
-                  pageId,
-                }),
+                openPage: (pageId) =>
+                  hostRuntime.openPage?.({
+                    accessContext: hostRuntime.contentAccessContext,
+                    pageId,
+                  }),
               }
             : undefined,
         );

@@ -2,10 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { BoardSummary, WorkflowStatus, DatabasePageSummary } from "@/lib/types";
 import type { DbViewRules } from "../../lib/db-view-prefs";
 import { plainTextToPortableRichText } from "../../../shared/block-documents/portable-rich-text";
-import {
-  resolveBoardCardDragMode,
-  resolveBoardCardDropIntent,
-} from "./board-card-drop-strategy";
+import { resolveBoardCardDragMode, resolveBoardCardDropIntent } from "./board-card-drop-strategy";
 
 function makeCard(
   id: string,
@@ -49,7 +46,12 @@ function makeRules(sort: DbViewRules["sort"]): DbViewRules {
         {
           all: [
             { field: "status", op: "in", values: ["triage", "plan", "build", "review", "ship"] },
-            { field: "priority", op: "in", values: ["p0-critical", "p1-high", "p2-medium", "p3-low"], includeEmpty: true },
+            {
+              field: "priority",
+              op: "in",
+              values: ["p0-critical", "p1-high", "p2-medium", "p3-low"],
+              includeEmpty: true,
+            },
           ],
         },
       ],
@@ -72,11 +74,7 @@ describe("board card drop strategy", () => {
 
   test("keeps visible-slot reordering enabled when board-order stays primary", () => {
     const board = makeBoard({
-      build: [
-        makeCard("a", "build", 0),
-        makeCard("b", "build", 1),
-        makeCard("c", "build", 2),
-      ],
+      build: [makeCard("a", "build", 0), makeCard("b", "build", 1), makeCard("c", "build", 2)],
     });
 
     const intent = resolveBoardCardDropIntent({
@@ -110,9 +108,7 @@ describe("board card drop strategy", () => {
         makeCard("p1-b", "build", 1, { priority: "p1-high" }),
         makeCard("p2-a", "build", 2, { priority: "p2-medium" }),
       ],
-      review: [
-        makeCard("review", "review", 0, { priority: "p3-low" }),
-      ],
+      review: [makeCard("review", "review", 0, { priority: "p3-low" })],
     });
 
     const intent = resolveBoardCardDropIntent({
@@ -220,12 +216,8 @@ describe("board card drop strategy", () => {
 
   test("keeps cross-column moves enabled when title owns the sort", () => {
     const board = makeBoard({
-      build: [
-        makeCard("a", "build", 0, { title: "Alpha" }),
-      ],
-      review: [
-        makeCard("b", "review", 0, { title: "Beta" }),
-      ],
+      build: [makeCard("a", "build", 0, { title: "Alpha" })],
+      review: [makeCard("b", "review", 0, { title: "Beta" })],
     });
 
     const intent = resolveBoardCardDropIntent({

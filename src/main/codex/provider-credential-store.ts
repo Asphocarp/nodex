@@ -47,7 +47,11 @@ function isStoredProviderId(value: string): value is StoredCredentialProviderId 
 }
 
 function parseCredentialFile(value: unknown): StoredCredentialFile {
-  if (!isRecord(value) || value.version !== CREDENTIAL_FILE_VERSION || !isRecord(value.credentials)) {
+  if (
+    !isRecord(value) ||
+    value.version !== CREDENTIAL_FILE_VERSION ||
+    !isRecord(value.credentials)
+  ) {
     throw new Error("Provider credential file has an unsupported schema");
   }
   const credentials: StoredCredentialFile["credentials"] = {};
@@ -56,10 +60,10 @@ function parseCredentialFile(value: unknown): StoredCredentialFile {
       throw new Error("Provider credential file contains an unsupported provider entry");
     }
     if (
-      typeof rawEntry.ciphertext !== "string"
-      || !rawEntry.ciphertext
-      || typeof rawEntry.updatedAt !== "string"
-      || !rawEntry.updatedAt
+      typeof rawEntry.ciphertext !== "string" ||
+      !rawEntry.ciphertext ||
+      typeof rawEntry.updatedAt !== "string" ||
+      !rawEntry.updatedAt
     ) {
       throw new Error(`Provider credential entry for ${providerId} is invalid`);
     }
@@ -126,9 +130,11 @@ export class ProviderCredentialStore {
 
   async statuses(): Promise<Record<string, AgentProviderCredentialStatus>> {
     const providerIds = ["openai", ...Object.keys(PROVIDER_API_KEY_ENV)];
-    return Object.fromEntries(await Promise.all(providerIds.map(async (providerId) => (
-      [providerId, await this.status(providerId)] as const
-    ))));
+    return Object.fromEntries(
+      await Promise.all(
+        providerIds.map(async (providerId) => [providerId, await this.status(providerId)] as const),
+      ),
+    );
   }
 
   async setApiKey(providerId: string, plaintext: string): Promise<void> {

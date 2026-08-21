@@ -34,7 +34,11 @@ function replaceLandingBuildTokens() {
     transformIndexHtml: {
       order: "pre" as const,
       handler(html: string) {
-        const htmlWithVersion = replaceAllText(html, "__NODEX_LANDING_VERSION__", landingVersionLabel);
+        const htmlWithVersion = replaceAllText(
+          html,
+          "__NODEX_LANDING_VERSION__",
+          landingVersionLabel,
+        );
         return replaceAllText(htmlWithVersion, "__NODEX_CHANGELOG_HTML__", changelogHtml);
       },
     },

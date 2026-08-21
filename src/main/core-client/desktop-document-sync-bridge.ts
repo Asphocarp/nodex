@@ -1,8 +1,6 @@
 import { createHash } from "node:crypto";
 
-import {
-  revocationsFromVisibilityDelta,
-} from "../../shared/local-commit-delivery";
+import { revocationsFromVisibilityDelta } from "../../shared/local-commit-delivery";
 import type { ResourceRevocation } from "../../shared/resource-revocation-stream";
 
 import type {
@@ -18,9 +16,7 @@ import type {
   ListDocumentVersions,
   PrepareDocumentVersionRestore,
 } from "../../shared/block-documents/document-history";
-import type {
-  DocumentHistoryCommandResult,
-} from "../../shared/block-documents/document-history-transport";
+import type { DocumentHistoryCommandResult } from "../../shared/block-documents/document-history-transport";
 import type {
   DocumentMutationRequest,
   DocumentOperationCommandResult,
@@ -76,10 +72,7 @@ import {
   documentSyncUnauthorized,
   type DocumentSyncClientTarget,
 } from "../document-sync-transport";
-import {
-  createCanvasPresenceHub,
-  type CanvasPresenceHub,
-} from "../canvas-presence-hub";
+import { createCanvasPresenceHub, type CanvasPresenceHub } from "../canvas-presence-hub";
 import { safeSendToWebContents } from "../ipc-safe-send";
 import {
   canonicalizeCanvasPresencePublishRequest,
@@ -118,26 +111,18 @@ type NativeNodexAgentMutationResult =
   | ExecuteNodexAgentDuplicatePageResult
   | ExecuteNodexAgentMovePagesResult;
 
-export interface NativeNodexAgentMutationExecution<
-  Result extends NativeNodexAgentMutationResult,
-> {
+export interface NativeNodexAgentMutationExecution<Result extends NativeNodexAgentMutationResult> {
   readonly projectId: string;
   readonly storeEpoch: string;
   readonly execute: () => Promise<Result>;
-  readonly failure: (
-    message: string,
-    recovery?: "get_block_again" | "none",
-  ) => Result;
+  readonly failure: (message: string, recovery?: "get_block_again" | "none") => Result;
   readonly operationLabel: string;
   readonly conflictMessage: string;
 }
 
 export interface DesktopDocumentSyncPort {
   /** Publishes exact Document effects to already-authorized active sessions. */
-  publishDocumentEffects(
-    packet: CoreAuthorizedDeliveryPacket,
-    documentId?: string,
-  ): void;
+  publishDocumentEffects(packet: CoreAuthorizedDeliveryPacket, documentId?: string): void;
   /** Closes only sessions addressed by one Core-authored revocation. */
   publishResourceRevocation(
     packet: CoreAuthorizedDeliveryPacket,
@@ -219,21 +204,13 @@ export interface DesktopDocumentSyncPort {
   getVersion(
     request: GetDocumentVersion,
   ): Promise<DocumentHistoryCommandResult<DocumentVersionDetail>>;
-  restoreVersion(
-    request: PrepareDocumentVersionRestore,
-  ): Promise<DocumentOperationCommandResult>;
-  applyDocumentMutation(
-    request: DocumentMutationRequest,
-  ): Promise<DocumentOperationCommandResult>;
-  transferBlocks(
-    intent: BlockTransferIntent,
-  ): Promise<BlockTransferCommandResult>;
-  undoBlockTransfer(
-    intent: BlockTransferUndoIntent,
-  ): Promise<BlockTransferUndoCommandResult>;
-  executeNodexAgentMutation<
-    Result extends NativeNodexAgentMutationResult,
-  >(options: NativeNodexAgentMutationExecution<Result>): Promise<Result>;
+  restoreVersion(request: PrepareDocumentVersionRestore): Promise<DocumentOperationCommandResult>;
+  applyDocumentMutation(request: DocumentMutationRequest): Promise<DocumentOperationCommandResult>;
+  transferBlocks(intent: BlockTransferIntent): Promise<BlockTransferCommandResult>;
+  undoBlockTransfer(intent: BlockTransferUndoIntent): Promise<BlockTransferUndoCommandResult>;
+  executeNodexAgentMutation<Result extends NativeNodexAgentMutationResult>(
+    options: NativeNodexAgentMutationExecution<Result>,
+  ): Promise<Result>;
 }
 
 export interface DesktopDocumentSyncBridgeInput {
@@ -291,8 +268,7 @@ type NativeSubscriptionReservation =
       readonly pending: PendingNativeSubscription;
     };
 
-const scopeKey = (scope: DesktopDocumentSyncScope): string =>
-  contentAccessContextKey(scope);
+const scopeKey = (scope: DesktopDocumentSyncScope): string => contentAccessContextKey(scope);
 
 const authorizationScopeMatchesDocumentScope = (
   authorization: CoreAuthorizedDeliveryPacket["authorization_scope"],
@@ -308,43 +284,37 @@ const packetRevokesDocumentScope = (
   packet: CoreAuthorizedDeliveryPacket,
   documentId: string,
   scope: DesktopDocumentSyncScope,
-): boolean => packet.visibility_deltas
-  .flatMap(revocationsFromVisibilityDelta)
-  .some((revocation) =>
-  revocation.resource_kind === "document"
-  && revocation.resource_id === documentId
-  && authorizationScopeMatchesDocumentScope(
-    revocation.authorization_scope,
-    scope,
-  )
-);
+): boolean =>
+  packet.visibility_deltas
+    .flatMap(revocationsFromVisibilityDelta)
+    .some(
+      (revocation) =>
+        revocation.resource_kind === "document" &&
+        revocation.resource_id === documentId &&
+        authorizationScopeMatchesDocumentScope(revocation.authorization_scope, scope),
+    );
 
 const subscriptionKey = (
   target: DocumentSyncClientTarget,
   scope: DesktopDocumentSyncScope,
   request: DocumentSyncSubscribeRequest,
-): string => JSON.stringify([
-  "yjs",
-  target.id,
-  scopeKey(scope),
-  request.clientSessionId,
-  request.documentId,
-]);
+): string =>
+  JSON.stringify(["yjs", target.id, scopeKey(scope), request.clientSessionId, request.documentId]);
 
 const canvasSceneSubscriptionKey = (
   target: DocumentSyncClientTarget,
   request: CanvasSceneSubscribeRequest,
-): string => JSON.stringify([
-  "canvas_scene",
-  target.id,
-  contentAccessContextKey(request.accessContext),
-  request.clientSessionId,
-  request.documentId,
-]);
+): string =>
+  JSON.stringify([
+    "canvas_scene",
+    target.id,
+    contentAccessContextKey(request.accessContext),
+    request.clientSessionId,
+    request.documentId,
+  ]);
 
-const bindingKey = (
-  request: Pick<DocumentSyncSubscribeRequest, "clientSessionId">,
-): string => request.clientSessionId;
+const bindingKey = (request: Pick<DocumentSyncSubscribeRequest, "clientSessionId">): string =>
+  request.clientSessionId;
 
 const ownerCommandIdentity = (
   scope: DesktopDocumentSyncScope,
@@ -353,12 +323,7 @@ const ownerCommandIdentity = (
   connectionBinding: string,
 ): { readonly clientSessionId: string; readonly operationId: string } => {
   const fingerprint = createHash("sha256")
-    .update(JSON.stringify([
-      scopeKey(scope),
-      ownerBlockId,
-      storeEpoch,
-      connectionBinding,
-    ]))
+    .update(JSON.stringify([scopeKey(scope), ownerBlockId, storeEpoch, connectionBinding]))
     .digest("hex");
   return {
     clientSessionId: "electron:owned-document:prepare",
@@ -366,9 +331,7 @@ const ownerCommandIdentity = (
   };
 };
 
-const transportUnavailable = <Value>(
-  error: unknown,
-): DocumentSyncCommandResult<Value> => ({
+const transportUnavailable = <Value>(error: unknown): DocumentSyncCommandResult<Value> => ({
   ok: false,
   error: {
     code: "transport_unavailable",
@@ -402,22 +365,19 @@ const canvasSceneFailure = (
   },
 });
 
-const canvasSceneUnauthorized = (
-  mutationId?: string,
-): CanvasCommandFailure => canvasSceneFailure(
-  "access_scope_mismatch",
-  "An exact Canvas scene subscription is required",
-  { mutationId },
-);
+const canvasSceneUnauthorized = (mutationId?: string): CanvasCommandFailure =>
+  canvasSceneFailure("access_scope_mismatch", "An exact Canvas scene subscription is required", {
+    mutationId,
+  });
 
 const canvasSceneTransportUnavailable = (
   error: unknown,
   mutationId?: string,
-): CanvasCommandFailure => canvasSceneFailure(
-  "unknown",
-  error instanceof Error ? error.message : String(error),
-  { retryable: true, mutationId },
-);
+): CanvasCommandFailure =>
+  canvasSceneFailure("unknown", error instanceof Error ? error.message : String(error), {
+    retryable: true,
+    mutationId,
+  });
 
 const canvasPresenceFailure = (
   code: CanvasPresenceCommandErrorCode,
@@ -436,18 +396,16 @@ const canvasPresenceFailure = (
   },
 });
 
-const hasCanvasSceneIdentity = (
-  request: CanvasSceneSubscribeRequest,
-): boolean => {
+const hasCanvasSceneIdentity = (request: CanvasSceneSubscribeRequest): boolean => {
   if (
-    typeof request.documentId !== "string"
-    || request.documentId.length === 0
-    || request.documentId.length > 512
-    || request.documentId.trim() !== request.documentId
-    || typeof request.clientSessionId !== "string"
-    || request.clientSessionId.length === 0
-    || request.clientSessionId.length > 512
-    || request.clientSessionId.trim() !== request.clientSessionId
+    typeof request.documentId !== "string" ||
+    request.documentId.length === 0 ||
+    request.documentId.length > 512 ||
+    request.documentId.trim() !== request.documentId ||
+    typeof request.clientSessionId !== "string" ||
+    request.clientSessionId.length === 0 ||
+    request.clientSessionId.length > 512 ||
+    request.clientSessionId.trim() !== request.clientSessionId
   ) {
     return false;
   }
@@ -470,8 +428,7 @@ export function createDesktopDocumentSyncBridge(
   const bindings = new Map<string, string>();
   const pendingSubscriptions = new Map<string, PendingNativeSubscription>();
   const boundTargets = new Set<number>();
-  const canvasPresenceHub =
-    input.canvasPresenceHub ?? createCanvasPresenceHub();
+  const canvasPresenceHub = input.canvasPresenceHub ?? createCanvasPresenceHub();
 
   const adapterFor = (
     runtime: Extract<DesktopDataAuthorityRuntime, { backend: "rust" }>,
@@ -481,9 +438,7 @@ export function createDesktopDocumentSyncBridge(
     let adapter = adapters.get(key);
     if (adapter) return adapter;
     adapter = createCoreDocumentSyncAdapter(
-      scope.kind === "project"
-        ? runtime.clientForProject(scope.projectId)
-        : runtime.rootClient,
+      scope.kind === "project" ? runtime.clientForProject(scope.projectId) : runtime.rootClient,
     );
     adapters.set(key, adapter);
     return adapter;
@@ -556,9 +511,10 @@ export function createDesktopDocumentSyncBridge(
     target: DocumentSyncClientTarget,
     event: OrderedDocumentRealtimeEvent,
   ): boolean => {
-    const identity = event.commitSeq === undefined
-      ? null
-      : `${event.storeEpoch}:${event.commitSeq}:${event.effectSequence ?? 0}`;
+    const identity =
+      event.commitSeq === undefined
+        ? null
+        : `${event.storeEpoch}:${event.commitSeq}:${event.effectSequence ?? 0}`;
     if (identity && deliveredCommitKeys.get(key)?.has(identity)) return true;
     const sent = safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event]);
     if (!sent) {
@@ -574,9 +530,10 @@ export function createDesktopDocumentSyncBridge(
     target: DocumentSyncClientTarget,
     event: CanvasSceneRealtimeEvent,
   ): boolean => {
-    const identity = event.type === "canvas_scene_committed"
-      ? `${event.storeEpoch}:${event.documentId}:${event.mutationId}`
-      : `${event.storeEpoch}:${event.documentId}:${event.type}:${event.headSeq}`;
+    const identity =
+      event.type === "canvas_scene_committed"
+        ? `${event.storeEpoch}:${event.documentId}:${event.mutationId}`
+        : `${event.storeEpoch}:${event.documentId}:${event.type}:${event.headSeq}`;
     if (deliveredCommitKeys.get(key)?.has(identity)) return true;
     const sent = safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event]);
     if (!sent) closeSubscription(key);
@@ -584,25 +541,24 @@ export function createDesktopDocumentSyncBridge(
     return sent;
   };
 
-  const documentRealtimeIdentity = (
-    event: OrderedDocumentRealtimeEvent,
-  ): string => event.commitSeq === undefined
-    ? `${event.storeEpoch}:${event.generation}:${event.headSeq}:${event.kind}`
-    : `${event.storeEpoch}:${event.commitSeq}:${event.effectSequence ?? 0}`;
+  const documentRealtimeIdentity = (event: OrderedDocumentRealtimeEvent): string =>
+    event.commitSeq === undefined
+      ? `${event.storeEpoch}:${event.generation}:${event.headSeq}:${event.kind}`
+      : `${event.storeEpoch}:${event.commitSeq}:${event.effectSequence ?? 0}`;
 
-  const canvasRealtimeIdentity = (
-    event: CanvasSceneRealtimeEvent,
-  ): string => event.type === "canvas_scene_committed"
-    ? `${event.storeEpoch}:${event.documentId}:${event.mutationId}`
-    : `${event.storeEpoch}:${event.documentId}:${event.type}:${event.generation}:${event.headSeq}`;
+  const canvasRealtimeIdentity = (event: CanvasSceneRealtimeEvent): string =>
+    event.type === "canvas_scene_committed"
+      ? `${event.storeEpoch}:${event.documentId}:${event.mutationId}`
+      : `${event.storeEpoch}:${event.documentId}:${event.type}:${event.generation}:${event.headSeq}`;
 
   const queuePendingRealtimeEvent = (
     subscription: NativeSubscription,
     pending: PendingNativeRealtimeEvent,
   ): boolean => {
-    const identity = pending.engine === "yjs"
-      ? documentRealtimeIdentity(pending.event)
-      : canvasRealtimeIdentity(pending.event);
+    const identity =
+      pending.engine === "yjs"
+        ? documentRealtimeIdentity(pending.event)
+        : canvasRealtimeIdentity(pending.event);
     if (subscription.pendingRealtimeEvents.has(identity)) return true;
     if (subscription.pendingRealtimeEvents.size >= MAX_PENDING_REALTIME_EVENTS) {
       subscription.pendingRealtimeEvents.clear();
@@ -677,22 +633,20 @@ export function createDesktopDocumentSyncBridge(
     const subscription = subscriptions.get(key);
     if (!subscription) return;
     const previousGeneration = subscription.generation;
-    const generationChanged = previousGeneration !== undefined
-      && previousGeneration !== boundary.generation;
-    const epochChanged = subscription.storeEpoch !== undefined
-      && subscription.storeEpoch !== boundary.storeEpoch;
+    const generationChanged =
+      previousGeneration !== undefined && previousGeneration !== boundary.generation;
+    const epochChanged =
+      subscription.storeEpoch !== undefined && subscription.storeEpoch !== boundary.storeEpoch;
     if (generationChanged || epochChanged) {
       subscription.pendingRealtimeEvents.clear();
     }
     subscription.storeEpoch = boundary.storeEpoch;
     subscription.generation = boundary.generation;
-    subscription.headSeq = previousGeneration === boundary.generation
-      ? Math.max(subscription.headSeq ?? 0, boundary.headSeq)
-      : boundary.headSeq;
-    if (
-      subscription.engine === "canvas_scene"
-      && previousGeneration !== boundary.generation
-    ) {
+    subscription.headSeq =
+      previousGeneration === boundary.generation
+        ? Math.max(subscription.headSeq ?? 0, boundary.headSeq)
+        : boundary.headSeq;
+    if (subscription.engine === "canvas_scene" && previousGeneration !== boundary.generation) {
       canvasPresenceHub.adoptBoundary(key, boundary.generation);
     }
   };
@@ -711,102 +665,92 @@ export function createDesktopDocumentSyncBridge(
     readonly revokeAfter?: boolean;
   };
 
-  const drainDocumentRealtimeEvents = (
-    key: string,
-    target: DocumentSyncClientTarget,
-  ): void => {
+  const drainDocumentRealtimeEvents = (key: string, target: DocumentSyncClientTarget): void => {
     while (true) {
       const subscription = subscriptions.get(key);
       if (
-        !subscription
-        || subscription.target !== target
-        || subscription.engine !== "yjs"
-        || subscription.generation === undefined
-        || subscription.headSeq === undefined
+        !subscription ||
+        subscription.target !== target ||
+        subscription.engine !== "yjs" ||
+        subscription.generation === undefined ||
+        subscription.headSeq === undefined
       ) {
         return;
       }
       for (const [identity, pending] of subscription.pendingRealtimeEvents) {
         if (
-          pending.engine === "yjs"
-          && pending.event.kind === "document-update"
-          && pending.event.storeEpoch === subscription.storeEpoch
-          && (
-            pending.event.generation < subscription.generation
-            || (
-              pending.event.generation === subscription.generation
-              && pending.event.headSeq <= subscription.headSeq
-            )
-          )
+          pending.engine === "yjs" &&
+          pending.event.kind === "document-update" &&
+          pending.event.storeEpoch === subscription.storeEpoch &&
+          (pending.event.generation < subscription.generation ||
+            (pending.event.generation === subscription.generation &&
+              pending.event.headSeq <= subscription.headSeq))
         ) {
           subscription.pendingRealtimeEvents.delete(identity);
         }
       }
       const nextHeadSeq = subscription.headSeq + 1;
-      const next = [...subscription.pendingRealtimeEvents.entries()]
-        .find(([, pending]) =>
-          pending.engine === "yjs"
-          && pending.event.kind === "document-update"
-          && pending.event.generation === subscription.generation
-          && pending.event.headSeq === nextHeadSeq,
-        );
+      const next = [...subscription.pendingRealtimeEvents.entries()].find(
+        ([, pending]) =>
+          pending.engine === "yjs" &&
+          pending.event.kind === "document-update" &&
+          pending.event.generation === subscription.generation &&
+          pending.event.headSeq === nextHeadSeq,
+      );
       if (!next) return;
       subscription.pendingRealtimeEvents.delete(next[0]);
       const pending = next[1];
       if (pending.engine !== "yjs") return;
-      if (!deliverDocumentRealtimeEvent(key, target, pending.event, {
-        drain: false,
-      })) {
+      if (
+        !deliverDocumentRealtimeEvent(key, target, pending.event, {
+          drain: false,
+        })
+      ) {
         return;
       }
     }
   };
 
-  const drainCanvasRealtimeEvents = (
-    key: string,
-    target: DocumentSyncClientTarget,
-  ): void => {
+  const drainCanvasRealtimeEvents = (key: string, target: DocumentSyncClientTarget): void => {
     while (true) {
       const subscription = subscriptions.get(key);
       if (
-        !subscription
-        || subscription.target !== target
-        || subscription.engine !== "canvas_scene"
-        || subscription.generation === undefined
-        || subscription.headSeq === undefined
+        !subscription ||
+        subscription.target !== target ||
+        subscription.engine !== "canvas_scene" ||
+        subscription.generation === undefined ||
+        subscription.headSeq === undefined
       ) {
         return;
       }
       for (const [identity, pending] of subscription.pendingRealtimeEvents) {
         if (
-          pending.engine === "canvas_scene"
-          && pending.event.storeEpoch === subscription.storeEpoch
-          && (
-            pending.event.generation < subscription.generation
-            || (
-              pending.event.generation === subscription.generation
-              && pending.event.headSeq <= subscription.headSeq
-            )
-          )
+          pending.engine === "canvas_scene" &&
+          pending.event.storeEpoch === subscription.storeEpoch &&
+          (pending.event.generation < subscription.generation ||
+            (pending.event.generation === subscription.generation &&
+              pending.event.headSeq <= subscription.headSeq))
         ) {
           subscription.pendingRealtimeEvents.delete(identity);
         }
       }
       const nextHeadSeq = subscription.headSeq + 1;
-      const next = [...subscription.pendingRealtimeEvents.entries()]
-        .find(([, pending]) =>
-          pending.engine === "canvas_scene"
-          && pending.event.type === "canvas_scene_committed"
-          && pending.event.generation === subscription.generation
-          && pending.event.headSeq === nextHeadSeq,
-        );
+      const next = [...subscription.pendingRealtimeEvents.entries()].find(
+        ([, pending]) =>
+          pending.engine === "canvas_scene" &&
+          pending.event.type === "canvas_scene_committed" &&
+          pending.event.generation === subscription.generation &&
+          pending.event.headSeq === nextHeadSeq,
+      );
       if (!next) return;
       subscription.pendingRealtimeEvents.delete(next[0]);
       const pending = next[1];
       if (pending.engine !== "canvas_scene") return;
-      if (!deliverCanvasRealtimeEvent(key, target, pending.event, {
-        drain: false,
-      })) {
+      if (
+        !deliverCanvasRealtimeEvent(key, target, pending.event, {
+          drain: false,
+        })
+      ) {
         return;
       }
     }
@@ -819,23 +763,19 @@ export function createDesktopDocumentSyncBridge(
     options: RealtimeDeliveryOptions = {},
   ): boolean {
     const subscription = subscriptions.get(key);
-    if (
-      !subscription
-      || subscription.target !== target
-      || subscription.engine !== "yjs"
-    ) {
+    if (!subscription || subscription.target !== target || subscription.engine !== "yjs") {
       return sendDocumentRealtimeEvent(key, target, event);
     }
-    const storeEpochChanged = subscription.storeEpoch !== undefined
-      && subscription.storeEpoch !== event.storeEpoch;
+    const storeEpochChanged =
+      subscription.storeEpoch !== undefined && subscription.storeEpoch !== event.storeEpoch;
     const identity = documentRealtimeIdentity(event);
     if (deliveredCommitKeys.get(key)?.has(identity)) return true;
 
     if (event.kind === "resync-required") {
       if (
-        !storeEpochChanged
-        && subscription.generation !== undefined
-        && event.generation < subscription.generation
+        !storeEpochChanged &&
+        subscription.generation !== undefined &&
+        event.generation < subscription.generation
       ) {
         return true;
       }
@@ -869,9 +809,7 @@ export function createDesktopDocumentSyncBridge(
         generation: event.generation,
         headSeq: event.headSeq,
         ...(event.commitSeq === undefined ? {} : { commitSeq: event.commitSeq }),
-        ...(event.effectSequence === undefined
-          ? {}
-          : { effectSequence: event.effectSequence }),
+        ...(event.effectSequence === undefined ? {} : { effectSequence: event.effectSequence }),
         reason: "event-gap",
       });
       if (!delivered) return false;
@@ -890,9 +828,7 @@ export function createDesktopDocumentSyncBridge(
         generation: subscription.generation,
         headSeq: subscription.headSeq ?? 0,
         ...(event.commitSeq === undefined ? {} : { commitSeq: event.commitSeq }),
-        ...(event.effectSequence === undefined
-          ? {}
-          : { effectSequence: event.effectSequence }),
+        ...(event.effectSequence === undefined ? {} : { effectSequence: event.effectSequence }),
         reason: "event-gap",
       });
       if (!delivered) return false;
@@ -913,22 +849,18 @@ export function createDesktopDocumentSyncBridge(
     options: RealtimeDeliveryOptions = {},
   ): boolean {
     const subscription = subscriptions.get(key);
-    if (
-      !subscription
-      || subscription.target !== target
-      || subscription.engine !== "canvas_scene"
-    ) {
+    if (!subscription || subscription.target !== target || subscription.engine !== "canvas_scene") {
       return sendCanvasRealtimeEvent(key, target, event);
     }
-    const storeEpochChanged = subscription.storeEpoch !== undefined
-      && subscription.storeEpoch !== event.storeEpoch;
+    const storeEpochChanged =
+      subscription.storeEpoch !== undefined && subscription.storeEpoch !== event.storeEpoch;
     const identity = canvasRealtimeIdentity(event);
     if (deliveredCommitKeys.get(key)?.has(identity)) return true;
     if (event.type === "canvas_scene_resync_required") {
       if (
-        !storeEpochChanged
-        && subscription.generation !== undefined
-        && event.generation < subscription.generation
+        !storeEpochChanged &&
+        subscription.generation !== undefined &&
+        event.generation < subscription.generation
       ) {
         return true;
       }
@@ -943,10 +875,12 @@ export function createDesktopDocumentSyncBridge(
       return false;
     }
     if (subscription.generation === undefined) {
-      if (queuePendingRealtimeEvent(subscription, {
-        engine: "canvas_scene",
-        event,
-      })) {
+      if (
+        queuePendingRealtimeEvent(subscription, {
+          engine: "canvas_scene",
+          event,
+        })
+      ) {
         return true;
       }
       closeSubscription(key);
@@ -1029,10 +963,7 @@ export function createDesktopDocumentSyncBridge(
     request: CanvasSceneSubscribeRequest,
   ): boolean => {
     if (!hasCanvasSceneIdentity(request)) return false;
-    const subscription = subscriptions.get(canvasSceneSubscriptionKey(
-      target,
-      request,
-    ));
+    const subscription = subscriptions.get(canvasSceneSubscriptionKey(target, request));
     return subscription?.target === target;
   };
 
@@ -1094,9 +1025,9 @@ export function createDesktopDocumentSyncBridge(
   ): Promise<CanvasSceneCompactionCommandResult> =>
     await withCanvasSceneRuntime(async (runtime) => {
       if (
-        !hasCanvasSceneIdentity(request)
-        || !hasNativeCanvasSceneSubscription(target, request)
-        || request.trigger !== "automatic_idle"
+        !hasCanvasSceneIdentity(request) ||
+        !hasNativeCanvasSceneSubscription(target, request) ||
+        request.trigger !== "automatic_idle"
       ) {
         return canvasSceneUnauthorized(request.mutationId);
       }
@@ -1125,27 +1056,25 @@ export function createDesktopDocumentSyncBridge(
     const effects = packet.atoms;
     const invalidatedDocuments = new Set(
       effects
-        .filter((effect) =>
-          effect.payload.module === "owned_document"
-          && effect.payload.event.kind === "document_invalidated"
+        .filter(
+          (effect) =>
+            effect.payload.module === "owned_document" &&
+            effect.payload.event.kind === "document_invalidated",
         )
         .map((effect) =>
-          effect.payload.module === "owned_document"
-            ? effect.payload.event.document_id
-            : null
+          effect.payload.module === "owned_document" ? effect.payload.event.document_id : null,
         )
         .filter((documentId): documentId is string => documentId !== null),
     );
     const resyncRequiredDocuments = new Set(
       effects
-        .filter((effect) =>
-          effect.payload.module === "owned_document"
-          && effect.payload.event.kind === "document_resync_required"
+        .filter(
+          (effect) =>
+            effect.payload.module === "owned_document" &&
+            effect.payload.event.kind === "document_resync_required",
         )
         .map((effect) =>
-          effect.payload.module === "owned_document"
-            ? effect.payload.event.document_id
-            : null
+          effect.payload.module === "owned_document" ? effect.payload.event.document_id : null,
         )
         .filter((documentId): documentId is string => documentId !== null),
     );
@@ -1153,26 +1082,26 @@ export function createDesktopDocumentSyncBridge(
       const reference = effect.reference;
       if (onlyDocumentId && reference.document_id !== onlyDocumentId) return;
       if (
-        invalidatedDocuments.has(reference.document_id)
-        || resyncRequiredDocuments.has(reference.document_id)
-      ) return;
-      const scopes = new Map<string, {
-        readonly scope: DesktopDocumentSyncScope;
-        readonly recipients: Map<string, NativeSubscription>;
-      }>();
+        invalidatedDocuments.has(reference.document_id) ||
+        resyncRequiredDocuments.has(reference.document_id)
+      )
+        return;
+      const scopes = new Map<
+        string,
+        {
+          readonly scope: DesktopDocumentSyncScope;
+          readonly recipients: Map<string, NativeSubscription>;
+        }
+      >();
       // Each active subscription was authorized by Core for this exact
       // Document. A root-stream packet may cover several subscription scopes,
       // so its packet scope is not the audience for each Document ref. Access
       // loss is carried separately by the scoped revocation lane below.
       for (const [key, subscription] of subscriptions) {
         if (
-          subscription.engine === "yjs"
-          && subscription.documentId === reference.document_id
-          && !packetRevokesDocumentScope(
-            packet,
-            reference.document_id,
-            subscription.scope,
-          )
+          subscription.engine === "yjs" &&
+          subscription.documentId === reference.document_id &&
+          !packetRevokesDocumentScope(packet, reference.document_id, subscription.scope)
         ) {
           const keyForScope = scopeKey(subscription.scope);
           const group = scopes.get(keyForScope) ?? {
@@ -1187,16 +1116,12 @@ export function createDesktopDocumentSyncBridge(
         const deliverResolvedEvent = (event: OrderedDocumentRealtimeEvent): void => {
           for (const [key, subscription] of recipients) {
             if (subscriptions.get(key) !== subscription) continue;
-            if (
-              subscription.storeEpoch
-              && subscription.storeEpoch !== identity.store_epoch
-            ) {
+            if (subscription.storeEpoch && subscription.storeEpoch !== identity.store_epoch) {
               closeSubscription(key);
               continue;
             }
             deliverDocumentRealtimeEvent(key, subscription.target, event, {
-              revokeAfter: event.kind === "resync-required"
-                && event.reason === "access-revoked",
+              revokeAfter: event.kind === "resync-required" && event.reason === "access-revoked",
             });
           }
         };
@@ -1205,27 +1130,25 @@ export function createDesktopDocumentSyncBridge(
           deliverResolvedEvent(inline);
           continue;
         }
-        void resolveAuthorizedDocumentEffect(
-          effect,
-          identity,
-          async (request) => {
-            try {
-              const runtime = await input.authority;
-              return await adapterFor(runtime, scope).fetchUpdateResource(request);
-            } catch (error) {
-              return transportUnavailable(error);
-            }
-          },
-        ).catch(() => ({
-          kind: "resync-required" as const,
-          documentId: reference.document_id,
-          storeEpoch: identity.store_epoch,
-          generation: reference.generation,
-          headSeq: reference.base_head_seq,
-          commitSeq: identity.commit_seq,
-          effectSequence: reference.effect_order,
-          reason: "resource-integrity-failure" as const,
-        })).then(deliverResolvedEvent);
+        void resolveAuthorizedDocumentEffect(effect, identity, async (request) => {
+          try {
+            const runtime = await input.authority;
+            return await adapterFor(runtime, scope).fetchUpdateResource(request);
+          } catch (error) {
+            return transportUnavailable(error);
+          }
+        })
+          .catch(() => ({
+            kind: "resync-required" as const,
+            documentId: reference.document_id,
+            storeEpoch: identity.store_epoch,
+            generation: reference.generation,
+            headSeq: reference.base_head_seq,
+            commitSeq: identity.commit_seq,
+            effectSequence: reference.effect_order,
+            reason: "resource-integrity-failure" as const,
+          }))
+          .then(deliverResolvedEvent);
       }
     });
     effects.forEach((effect) => {
@@ -1242,25 +1165,27 @@ export function createDesktopDocumentSyncBridge(
           continue;
         }
         if (subscription.engine === "yjs") {
-          if (
-            event.kind === "document_invalidated"
-            || event.kind === "document_resync_required"
-          ) {
+          if (event.kind === "document_invalidated" || event.kind === "document_resync_required") {
             const compacted = event.kind === "document_resync_required";
-            const delivered = deliverDocumentRealtimeEvent(key, subscription.target, {
-              kind: "resync-required",
-              documentId: event.document_id,
-              storeEpoch: identity.store_epoch,
-              generation: compacted ? event.generation : subscription.generation ?? 1,
-              headSeq: compacted ? event.head_seq : subscription.headSeq ?? 0,
-              commitSeq: identity.commit_seq,
-              effectSequence: effect.descriptor.atom_order,
-              reason: compacted
-                ? "history-compacted"
-                : event.reason === "access_changed"
-                  ? "access-revoked"
-                  : "identity-boundary-changed",
-            }, compacted ? {} : { revokeAfter: true });
+            const delivered = deliverDocumentRealtimeEvent(
+              key,
+              subscription.target,
+              {
+                kind: "resync-required",
+                documentId: event.document_id,
+                storeEpoch: identity.store_epoch,
+                generation: compacted ? event.generation : (subscription.generation ?? 1),
+                headSeq: compacted ? event.head_seq : (subscription.headSeq ?? 0),
+                commitSeq: identity.commit_seq,
+                effectSequence: effect.descriptor.atom_order,
+                reason: compacted
+                  ? "history-compacted"
+                  : event.reason === "access_changed"
+                    ? "access-revoked"
+                    : "identity-boundary-changed",
+              },
+              compacted ? {} : { revokeAfter: true },
+            );
             void delivered;
           }
           continue;
@@ -1283,36 +1208,34 @@ export function createDesktopDocumentSyncBridge(
           continue;
         }
         if (
-          event.kind !== "canvas_updated"
-          || typeof event.mutation !== "object"
-          || event.mutation === null
-          || !packet.manifest.operation_id
+          event.kind !== "canvas_updated" ||
+          typeof event.mutation !== "object" ||
+          event.mutation === null ||
+          !packet.manifest.operation_id
         ) {
           continue;
         }
         let realtimeEvent: CanvasSceneRealtimeEvent;
         try {
-          realtimeEvent = decodeCanvasSceneSseEvent(JSON.stringify({
-            type: "canvas_scene_committed",
-            libraryId: subscription.libraryId,
-            accessContext: subscription.scope,
-            documentId: event.document_id,
-            storeEpoch: identity.store_epoch,
-            generation: event.generation,
-            mutationId: packet.manifest.operation_id,
-            baseHeadSeq: event.base_head_seq,
-            headSeq: event.head_seq,
-            sceneHash: event.scene_hash,
-            ...(event.mutation as Readonly<Record<string, unknown>>),
-          }));
+          realtimeEvent = decodeCanvasSceneSseEvent(
+            JSON.stringify({
+              type: "canvas_scene_committed",
+              libraryId: subscription.libraryId,
+              accessContext: subscription.scope,
+              documentId: event.document_id,
+              storeEpoch: identity.store_epoch,
+              generation: event.generation,
+              mutationId: packet.manifest.operation_id,
+              baseHeadSeq: event.base_head_seq,
+              headSeq: event.head_seq,
+              sceneHash: event.scene_hash,
+              ...(event.mutation as Readonly<Record<string, unknown>>),
+            }),
+          );
         } catch {
           continue;
         }
-        const delivered = deliverCanvasRealtimeEvent(
-          key,
-          subscription.target,
-          realtimeEvent,
-        );
+        const delivered = deliverCanvasRealtimeEvent(key, subscription.target, realtimeEvent);
         void delivered;
       }
     });
@@ -1320,31 +1243,36 @@ export function createDesktopDocumentSyncBridge(
 
   const publishResourceRevocation = (
     packet: CoreAuthorizedDeliveryPacket,
-  revocation: ResourceRevocation,
+    revocation: ResourceRevocation,
   ): void => {
     if (revocation.resource_kind !== "document") return;
     if (revocation.authorization_scope.kind !== "document") return;
     const identity = packet.manifest.identity;
     for (const [key, subscription] of [...subscriptions]) {
       if (subscription.documentId !== revocation.resource_id) continue;
-      if (!authorizationScopeMatchesDocumentScope(
-        revocation.authorization_scope,
-        subscription.scope,
-      )) continue;
+      if (
+        !authorizationScopeMatchesDocumentScope(revocation.authorization_scope, subscription.scope)
+      )
+        continue;
       if (subscription.engine !== "yjs") {
         closeSubscription(key);
         continue;
       }
-      const delivered = deliverDocumentRealtimeEvent(key, subscription.target, {
-        kind: "resync-required",
-        documentId: revocation.resource_id,
-        storeEpoch: identity.store_epoch,
-        generation: subscription.generation ?? 1,
-        headSeq: subscription.headSeq ?? 0,
-        commitSeq: identity.commit_seq,
-        effectSequence: packet.atoms.length,
-        reason: "access-revoked",
-      }, { revokeAfter: true });
+      const delivered = deliverDocumentRealtimeEvent(
+        key,
+        subscription.target,
+        {
+          kind: "resync-required",
+          documentId: revocation.resource_id,
+          storeEpoch: identity.store_epoch,
+          generation: subscription.generation ?? 1,
+          headSeq: subscription.headSeq ?? 0,
+          commitSeq: identity.commit_seq,
+          effectSequence: packet.atoms.length,
+          reason: "access-revoked",
+        },
+        { revokeAfter: true },
+      );
       void delivered;
     }
   };
@@ -1393,9 +1321,7 @@ export function createDesktopDocumentSyncBridge(
     return blockTransferAdapterFor(runtime, intent.projectId).undo(intent);
   };
 
-  const executeNodexAgentMutation = async <
-    Result extends NativeNodexAgentMutationResult,
-  >(
+  const executeNodexAgentMutation = async <Result extends NativeNodexAgentMutationResult>(
     options: NativeNodexAgentMutationExecution<Result>,
   ): Promise<Result> => {
     let result: Result;
@@ -1414,11 +1340,10 @@ export function createDesktopDocumentSyncBridge(
     publishResourceRevocation,
     getOwnedDocumentDescriptor: async (projectId, ownerBlockId) => {
       const runtime = await input.authority;
-      const descriptor = await adapterFor(runtime, { kind: "project", projectId })
-        .readDescriptor({
-          ownerBlockId,
-          clientSessionId: "electron:owned-document:descriptor",
-        });
+      const descriptor = await adapterFor(runtime, { kind: "project", projectId }).readDescriptor({
+        ownerBlockId,
+        clientSessionId: "electron:owned-document:descriptor",
+      });
       return requireProjectAccessedDocumentDescriptor(descriptor, projectId);
     },
     prepareOwnedBlockDocument: async (projectId, ownerBlockId) =>
@@ -1436,10 +1361,7 @@ export function createDesktopDocumentSyncBridge(
         if (!prepared.ok) return prepared;
         return {
           ok: true,
-          value: requireProjectAccessedDocumentDescriptor(
-            prepared.value,
-            projectId,
-          ),
+          value: requireProjectAccessedDocumentDescriptor(prepared.value, projectId),
         };
       }),
     prepareLibraryOwnedBlockDocument: async (ownerBlockId) =>
@@ -1460,142 +1382,143 @@ export function createDesktopDocumentSyncBridge(
           value: requireLibraryAccessedDocumentDescriptor(prepared.value),
         };
       }),
-    subscribe: async (scope, target, request) => await withRuntime(async (runtime) => {
-      if (target.isDestroyed()) return documentSyncUnauthorized();
-      const adapter = adapterFor(runtime, scope);
-      const key = subscriptionKey(target, scope, request);
-      const ownerKey = bindingKey(request);
-      bindTargetLifecycle(target);
-      const reservation = await reserveNativeSubscription(
-        ownerKey,
-        key,
-        target,
-      );
-      if (reservation.kind === "existing") {
-        return { ok: true, value: { subscribed: true } };
-      }
-      if (reservation.kind === "target_destroyed") {
-        return documentSyncUnauthorized();
-      }
-      if (reservation.kind === "conflict") return documentSyncUnauthorized();
-      const { pending } = reservation;
-      try {
-        let lifecycle: ReturnType<
-          CoreDocumentSyncAdapter["subscribeWithLifecycle"]
-        > | null = null;
+    subscribe: async (scope, target, request) =>
+      await withRuntime(async (runtime) => {
+        if (target.isDestroyed()) return documentSyncUnauthorized();
+        const adapter = adapterFor(runtime, scope);
+        const key = subscriptionKey(target, scope, request);
+        const ownerKey = bindingKey(request);
+        bindTargetLifecycle(target);
+        const reservation = await reserveNativeSubscription(ownerKey, key, target);
+        if (reservation.kind === "existing") {
+          return { ok: true, value: { subscribed: true } };
+        }
+        if (reservation.kind === "target_destroyed") {
+          return documentSyncUnauthorized();
+        }
+        if (reservation.kind === "conflict") return documentSyncUnauthorized();
+        const { pending } = reservation;
         try {
-          let admitted = false;
-          let openingOverflowed = false;
-          const openingEvents: DocumentSyncRealtimeEvent[] = [];
-          const deliver = (event: DocumentSyncRealtimeEvent): void => {
-            if (event.kind === "connection") {
-              if (event.state === "disconnected") suspendSubscriptionBoundary(key);
-              if (!safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event])) {
-                closeSubscription(key);
-              }
-              return;
-            }
-            if (event.kind !== "document-update" && event.kind !== "resync-required") {
-              if (!safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event])) {
-                closeSubscription(key);
-              }
-              return;
-            }
-            deliverDocumentRealtimeEvent(key, target, event, {
-              revokeAfter: event.kind === "resync-required"
-                && event.reason === "access-revoked",
-            });
-          };
-          lifecycle = adapter.subscribeWithLifecycle(request, (event) => {
-            if (!admitted) {
-              if (openingEvents.length >= MAX_PENDING_REALTIME_EVENTS) {
-                openingOverflowed = true;
-                lifecycle?.close();
+          let lifecycle: ReturnType<CoreDocumentSyncAdapter["subscribeWithLifecycle"]> | null =
+            null;
+          try {
+            let admitted = false;
+            let openingOverflowed = false;
+            const openingEvents: DocumentSyncRealtimeEvent[] = [];
+            const deliver = (event: DocumentSyncRealtimeEvent): void => {
+              if (event.kind === "connection") {
+                if (event.state === "disconnected") suspendSubscriptionBoundary(key);
+                if (!safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event])) {
+                  closeSubscription(key);
+                }
                 return;
               }
-              openingEvents.push(event);
-              return;
+              if (event.kind !== "document-update" && event.kind !== "resync-required") {
+                if (!safeSendToWebContents(target, DOCUMENT_SYNC_EVENT_CHANNEL, [event])) {
+                  closeSubscription(key);
+                }
+                return;
+              }
+              deliverDocumentRealtimeEvent(key, target, event, {
+                revokeAfter: event.kind === "resync-required" && event.reason === "access-revoked",
+              });
+            };
+            lifecycle = adapter.subscribeWithLifecycle(request, (event) => {
+              if (!admitted) {
+                if (openingEvents.length >= MAX_PENDING_REALTIME_EVENTS) {
+                  openingOverflowed = true;
+                  lifecycle?.close();
+                  return;
+                }
+                openingEvents.push(event);
+                return;
+              }
+              deliver(event);
+            });
+            pending.attachClose(lifecycle.close);
+            const barrier = await lifecycle.ready;
+            if (
+              openingOverflowed ||
+              barrier.engine !== "yjs" ||
+              barrier.document_id !== request.documentId ||
+              barrier.store_epoch !== runtime.identity.storeEpoch
+            ) {
+              throw new Error("Core Document live barrier does not match the Yjs session");
             }
-            deliver(event);
-          });
-          pending.attachClose(lifecycle.close);
-          const barrier = await lifecycle.ready;
-          if (
-            openingOverflowed
-            || barrier.engine !== "yjs"
-            || barrier.document_id !== request.documentId
-            || barrier.store_epoch !== runtime.identity.storeEpoch
-          ) {
-            throw new Error("Core Document live barrier does not match the Yjs session");
-          }
-          if (target.isDestroyed()) {
-            lifecycle.close();
+            if (target.isDestroyed()) {
+              lifecycle.close();
+              if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
+              return documentSyncUnauthorized();
+            }
+            const subscribed = addNativeSubscription(key, {
+              engine: "yjs",
+              bindingKey: ownerKey,
+              scope,
+              documentId: request.documentId,
+              clientSessionId: request.clientSessionId,
+              target,
+              targetId: target.id,
+              close: lifecycle.close,
+              pendingRealtimeEvents: new Map(),
+            });
+            admitted = true;
+            openingEvents.forEach(deliver);
+            void lifecycle.done
+              .catch(() => undefined)
+              .finally(() => {
+                if (subscriptions.get(key)?.close === lifecycle?.close) {
+                  closeSubscription(key);
+                }
+              });
+            return subscribed;
+          } catch (error) {
+            lifecycle?.close();
+            closeSubscription(key);
             if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
-            return documentSyncUnauthorized();
+            return transportUnavailable(error);
           }
-          const subscribed = addNativeSubscription(key, {
-            engine: "yjs",
-            bindingKey: ownerKey,
-            scope,
-            documentId: request.documentId,
-            clientSessionId: request.clientSessionId,
-            target,
-            targetId: target.id,
-            close: lifecycle.close,
-            pendingRealtimeEvents: new Map(),
-          });
-          admitted = true;
-          openingEvents.forEach(deliver);
-          void lifecycle.done.catch(() => undefined).finally(() => {
-            if (subscriptions.get(key)?.close === lifecycle?.close) {
-              closeSubscription(key);
-            }
-          });
-          return subscribed;
-        } catch (error) {
-          lifecycle?.close();
-          closeSubscription(key);
-          if (bindings.get(ownerKey) === key) bindings.delete(ownerKey);
-          return transportUnavailable(error);
+        } finally {
+          pending.settle();
         }
-      } finally {
-        pending.settle();
-      }
-    }),
-    unsubscribe: async (scope, target, request) => await withRuntime(() => {
-      const key = subscriptionKey(target, scope, request);
-      if (subscriptions.get(key)?.target === target) closeSubscription(key);
-      return { ok: true, value: { unsubscribed: true } };
-    }),
-    sync: async (scope, target, request) => await withRuntime(async (runtime) => {
-      const adapter = adapterFor(runtime, scope);
-      if (!hasNativeSubscription(target, scope, request)) {
-        return documentSyncUnauthorized();
-      }
-      const key = subscriptionKey(target, scope, request);
-      suspendSubscriptionBoundary(key);
-      const result = await adapter.sync(request);
-      if (result.ok) {
-        adoptSubscriptionBoundary(key, result.value);
-        drainDocumentRealtimeEvents(key, target);
-      }
-      return result;
-    }),
-    applyUpdate: async (scope, target, request) => await withRuntime(async (runtime) => {
-      const adapter = adapterFor(runtime, scope);
-      if (!hasNativeSubscription(target, scope, request)) {
-        return documentSyncUnauthorized();
-      }
-      const result = await adapter.applyUpdate(request);
-      return result;
-    }),
-    publishAwareness: async (scope, target, request) => await withRuntime(async (runtime) => {
-      const adapter = adapterFor(runtime, scope);
-      if (!hasNativeSubscription(target, scope, request)) {
-        return documentSyncUnauthorized();
-      }
-      return await adapter.publishAwareness(request);
-    }),
+      }),
+    unsubscribe: async (scope, target, request) =>
+      await withRuntime(() => {
+        const key = subscriptionKey(target, scope, request);
+        if (subscriptions.get(key)?.target === target) closeSubscription(key);
+        return { ok: true, value: { unsubscribed: true } };
+      }),
+    sync: async (scope, target, request) =>
+      await withRuntime(async (runtime) => {
+        const adapter = adapterFor(runtime, scope);
+        if (!hasNativeSubscription(target, scope, request)) {
+          return documentSyncUnauthorized();
+        }
+        const key = subscriptionKey(target, scope, request);
+        suspendSubscriptionBoundary(key);
+        const result = await adapter.sync(request);
+        if (result.ok) {
+          adoptSubscriptionBoundary(key, result.value);
+          drainDocumentRealtimeEvents(key, target);
+        }
+        return result;
+      }),
+    applyUpdate: async (scope, target, request) =>
+      await withRuntime(async (runtime) => {
+        const adapter = adapterFor(runtime, scope);
+        if (!hasNativeSubscription(target, scope, request)) {
+          return documentSyncUnauthorized();
+        }
+        const result = await adapter.applyUpdate(request);
+        return result;
+      }),
+    publishAwareness: async (scope, target, request) =>
+      await withRuntime(async (runtime) => {
+        const adapter = adapterFor(runtime, scope);
+        if (!hasNativeSubscription(target, scope, request)) {
+          return documentSyncUnauthorized();
+        }
+        return await adapter.publishAwareness(request);
+      }),
     subscribeCanvasScene: async (target, request) =>
       await withCanvasSceneRuntime(async (runtime) => {
         if (target.isDestroyed() || !hasCanvasSceneIdentity(request)) {
@@ -1605,11 +1528,7 @@ export function createDesktopDocumentSyncBridge(
         const key = canvasSceneSubscriptionKey(target, request);
         const ownerKey = bindingKey(request);
         bindTargetLifecycle(target);
-        const reservation = await reserveNativeSubscription(
-          ownerKey,
-          key,
-          target,
-        );
+        const reservation = await reserveNativeSubscription(ownerKey, key, target);
         if (reservation.kind === "existing") {
           return { ok: true, value: { subscribed: true } };
         }
@@ -1619,9 +1538,7 @@ export function createDesktopDocumentSyncBridge(
         if (reservation.kind === "conflict") return canvasSceneUnauthorized();
         const { pending } = reservation;
         try {
-          let lifecycle: ReturnType<
-            CoreCanvasSceneAdapter["subscribeWithLifecycle"]
-          > | null = null;
+          let lifecycle: ReturnType<CoreCanvasSceneAdapter["subscribeWithLifecycle"]> | null = null;
           try {
             let admitted = false;
             let openingOverflowed = false;
@@ -1644,10 +1561,10 @@ export function createDesktopDocumentSyncBridge(
             pending.attachClose(lifecycle.close);
             const barrier = await lifecycle.ready;
             if (
-              openingOverflowed
-              || barrier.engine !== "canvas_scene"
-              || barrier.document_id !== request.documentId
-              || barrier.store_epoch !== runtime.identity.storeEpoch
+              openingOverflowed ||
+              barrier.engine !== "canvas_scene" ||
+              barrier.document_id !== request.documentId ||
+              barrier.store_epoch !== runtime.identity.storeEpoch
             ) {
               throw new Error("Core Document live barrier does not match the Canvas session");
             }
@@ -1683,11 +1600,13 @@ export function createDesktopDocumentSyncBridge(
                 }
               },
             });
-            void lifecycle.done.catch(() => undefined).finally(() => {
-              if (subscriptions.get(key)?.close === lifecycle?.close) {
-                closeSubscription(key);
-              }
-            });
+            void lifecycle.done
+              .catch(() => undefined)
+              .finally(() => {
+                if (subscriptions.get(key)?.close === lifecycle?.close) {
+                  closeSubscription(key);
+                }
+              });
             return subscribed;
           } catch (error) {
             lifecycle?.close();
@@ -1713,8 +1632,7 @@ export function createDesktopDocumentSyncBridge(
         }
         const key = canvasSceneSubscriptionKey(target, request);
         suspendSubscriptionBoundary(key);
-        const result = await canvasSceneAdapterFor(runtime, request.accessContext)
-          .sync(request);
+        const result = await canvasSceneAdapterFor(runtime, request.accessContext).sync(request);
         if (result.ok) {
           adoptSubscriptionBoundary(key, result.value);
           drainCanvasRealtimeEvents(key, target);
@@ -1726,8 +1644,9 @@ export function createDesktopDocumentSyncBridge(
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized(request.mutationId);
         }
-        const result = await canvasSceneAdapterFor(runtime, request.accessContext)
-          .applyMutation(request);
+        const result = await canvasSceneAdapterFor(runtime, request.accessContext).applyMutation(
+          request,
+        );
         return result;
       }, request.mutationId),
     publishCanvasPresence: async (target, request) => {
@@ -1747,8 +1666,8 @@ export function createDesktopDocumentSyncBridge(
       };
       const key = canvasSceneSubscriptionKey(target, subscriptionRequest);
       if (
-        !hasNativeCanvasSceneSubscription(target, subscriptionRequest)
-        || subscriptions.get(key)?.generation === undefined
+        !hasNativeCanvasSceneSubscription(target, subscriptionRequest) ||
+        subscriptions.get(key)?.generation === undefined
       ) {
         return canvasPresenceFailure(
           "unauthorized",
@@ -1778,8 +1697,7 @@ export function createDesktopDocumentSyncBridge(
         if (!hasNativeCanvasSceneSubscription(target, request)) {
           return canvasSceneUnauthorized();
         }
-        return await canvasSceneAdapterFor(runtime, request.accessContext)
-          .readCompaction(request);
+        return await canvasSceneAdapterFor(runtime, request.accessContext).readCompaction(request);
       }),
     compactCanvasScene,
     applyAdditionalDocumentCommand: async (request) => {

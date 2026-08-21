@@ -44,9 +44,10 @@ function ProgressStatusIcon({ status }: { status: PendingWorktreeProgressStatus 
 }
 
 function ProgressStep({ step }: { step: PendingWorktreeProgressStep }) {
-  const label = step.kind === "setup" && step.status === "skipped"
-    ? "Environment setup skipped"
-    : STEP_LABELS[step.kind];
+  const label =
+    step.kind === "setup" && step.status === "skipped"
+      ? "Environment setup skipped"
+      : STEP_LABELS[step.kind];
   return (
     <div className="flex min-w-0 items-center justify-between gap-3">
       <div
@@ -134,8 +135,12 @@ export function PendingWorktreeProgress({
                   </span>
                   {detailsExpanded ? "Less details" : "More details"}
                 </button>
-              ) : <span />}
-              {actions ? <div className="flex items-center justify-end gap-2">{actions}</div> : null}
+              ) : (
+                <span />
+              )}
+              {actions ? (
+                <div className="flex items-center justify-end gap-2">{actions}</div>
+              ) : null}
             </footer>
           ) : null}
           {detailsVisible ? (

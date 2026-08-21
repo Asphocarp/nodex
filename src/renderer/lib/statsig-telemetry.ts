@@ -8,11 +8,7 @@ export type TelemetryMetadata = Record<string, TelemetryMetadataValue>;
 
 interface StatsigClientLike {
   initializeAsync: () => Promise<unknown>;
-  logEvent: (
-    eventName: string,
-    value?: string | number,
-    metadata?: Record<string, string>,
-  ) => void;
+  logEvent: (eventName: string, value?: string | number, metadata?: Record<string, string>) => void;
   shutdown: () => Promise<void>;
 }
 
@@ -82,9 +78,7 @@ function toProcessEnv(value: unknown): Record<string, string | undefined> | unde
   if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
 
   return Object.fromEntries(
-    Object.entries(value).filter(([, entry]) =>
-      typeof entry === "string" || entry === undefined
-    ),
+    Object.entries(value).filter(([, entry]) => typeof entry === "string" || entry === undefined),
   ) as Record<string, string | undefined>;
 }
 
@@ -104,10 +98,12 @@ function isTestRuntime(): boolean {
   const rendererProcess = getRendererProcess();
   const env = rendererProcess?.env ?? {};
   const argv = rendererProcess?.argv ?? [];
-  return import.meta.env.MODE === "test"
-    || env.NODE_ENV === "test"
-    || env.BUN_ENV === "test"
-    || argv.some((value) => value.toLowerCase().includes("test"));
+  return (
+    import.meta.env.MODE === "test" ||
+    env.NODE_ENV === "test" ||
+    env.BUN_ENV === "test" ||
+    argv.some((value) => value.toLowerCase().includes("test"))
+  );
 }
 
 function shouldForceTestInitialization(): boolean {
@@ -154,9 +150,9 @@ function clearStatsigAutoCaptureUserMetadata(client: unknown): void {
   typedClient._possibleFirstTouchMetadata = {};
 
   if (
-    typeof typedClient._user !== "object"
-    || typedClient._user === null
-    || Array.isArray(typedClient._user)
+    typeof typedClient._user !== "object" ||
+    typedClient._user === null ||
+    Array.isArray(typedClient._user)
   ) {
     return;
   }
@@ -193,9 +189,7 @@ function createFilteredAutoCapturePlugin(adapter: StatsigTelemetryAdapter): Stat
 }
 
 function createStatsigOptions(settings: TelemetrySettings, adapter: StatsigTelemetryAdapter) {
-  const plugins = settings.autoCaptureEnabled
-    ? [createFilteredAutoCapturePlugin(adapter)]
-    : [];
+  const plugins = settings.autoCaptureEnabled ? [createFilteredAutoCapturePlugin(adapter)] : [];
 
   return {
     environment: { tier: settings.environment },
@@ -261,7 +255,7 @@ export async function initializeRendererTelemetry(
     if (!settings?.enabled || !settings.clientKey.trim()) return false;
 
     try {
-      const adapter = input.adapter ?? await loadDefaultAdapter();
+      const adapter = input.adapter ?? (await loadDefaultAdapter());
       const client = adapter.createClient(
         settings.clientKey,
         createStatsigUser(),

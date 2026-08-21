@@ -148,19 +148,19 @@ function makeBackgroundProcess(): CodexBackgroundProcessRow {
 
 type Mutable<T> = { -readonly [Key in keyof T]: T[Key] };
 
-function makeDependencies(
-  project = makeProject(),
-): Mutable<ProjectLifecycleServiceDependencies> & {
+function makeDependencies(project = makeProject()): Mutable<ProjectLifecycleServiceDependencies> & {
   setProjectLifecycle: ReturnType<typeof vi.fn>;
   closeBrowserConversation: ReturnType<typeof vi.fn>;
   closeBrowserProject: ReturnType<typeof vi.fn>;
   discardExitedTerminalSessions: ReturnType<typeof vi.fn>;
 } {
-  const setProjectLifecycle = vi.fn(async (_projectId: string, lifecycle: Project["lifecycle"]) => ({
-    ...project,
-    lifecycle,
-    bindingRevision: project.bindingRevision + 1,
-  }));
+  const setProjectLifecycle = vi.fn(
+    async (_projectId: string, lifecycle: Project["lifecycle"]) => ({
+      ...project,
+      lifecycle,
+      bindingRevision: project.bindingRevision + 1,
+    }),
+  );
   const closeBrowserConversation = vi.fn(async () => undefined);
   const closeBrowserProject = vi.fn(async () => undefined);
   const discardExitedTerminalSessions = vi.fn(() => []);
@@ -220,9 +220,7 @@ describe("project lifecycle service", () => {
     let check = 0;
     dependencies.listCodexBlockers = () => {
       check += 1;
-      return check === 1
-        ? []
-        : [{ kind: "pending-request", threadId: "thread-1", label: null }];
+      return check === 1 ? [] : [{ kind: "pending-request", threadId: "thread-1", label: null }];
     };
 
     const result = await createProjectLifecycleService(dependencies).setLifecycle(
@@ -247,10 +245,7 @@ describe("project lifecycle service", () => {
       changed: true,
       project: { id: "project-1", lifecycle: "archived" },
     });
-    expect(dependencies.setProjectLifecycle).toHaveBeenCalledWith(
-      "project-1",
-      "archived",
-    );
+    expect(dependencies.setProjectLifecycle).toHaveBeenCalledWith("project-1", "archived");
     expect(dependencies.closeBrowserConversation).toHaveBeenCalledWith("session-1");
     expect(dependencies.closeBrowserProject).toHaveBeenCalledWith("project-1");
     expect(dependencies.discardExitedTerminalSessions).toHaveBeenCalledOnce();
@@ -312,11 +307,13 @@ describe("project lifecycle service", () => {
         const session = makeSession();
         if (!session.thread) throw new Error("fixture thread is required");
         return {
-          items: [{
-            ...session,
-            id: "session-page-2",
-            thread: { ...session.thread, threadId: "thread-page-2" },
-          }],
+          items: [
+            {
+              ...session,
+              id: "session-page-2",
+              thread: { ...session.thread, threadId: "thread-page-2" },
+            },
+          ],
           nextCursor: null,
           hasMore: false,
           projectionRevision: 1,
@@ -355,9 +352,9 @@ describe("project lifecycle service", () => {
       service.setLifecycle(project.id, "archived"),
     ]);
 
-    expect([first, second].map((result) =>
-      result.kind === "updated" ? result.changed : null
-    )).toEqual([true, false]);
+    expect(
+      [first, second].map((result) => (result.kind === "updated" ? result.changed : null)),
+    ).toEqual([true, false]);
   });
 
   test("orders concurrent archive and restore requests deterministically", async () => {
@@ -415,18 +412,21 @@ describe("terminal Project lifecycle guard", () => {
 
   test("allows terminals owned by an active Project", async () => {
     const workspace = makeWorkspace(makeProject());
-    await expect(assertTerminalProjectIsActive(
-      workspace,
-      { projectSessionId: "session-1", conversationId: null },
-    )).resolves.toBe("project-1");
+    await expect(
+      assertTerminalProjectIsActive(workspace, {
+        projectSessionId: "session-1",
+        conversationId: null,
+      }),
+    ).resolves.toBe("project-1");
     expect(workspace.getThread).not.toHaveBeenCalled();
   });
 
   test("rejects new terminal work owned by an archived Project", async () => {
-    await expect(assertTerminalProjectIsActive(
-      makeWorkspace(makeProject({ lifecycle: "archived" })),
-      { projectSessionId: "session-1" },
-    )).rejects.toThrow("inactive or removed project");
+    await expect(
+      assertTerminalProjectIsActive(makeWorkspace(makeProject({ lifecycle: "archived" })), {
+        projectSessionId: "session-1",
+      }),
+    ).rejects.toThrow("inactive or removed project");
   });
 
   test("allows projectless terminal work without a Project lookup", async () => {
@@ -439,19 +439,23 @@ describe("terminal Project lifecycle guard", () => {
     const workspace = makeWorkspace(makeProject());
     workspace.getThread.mockResolvedValueOnce(makeThread({ projectId: "project-other" }));
 
-    await expect(assertTerminalProjectIsActive(workspace, {
-      projectSessionId: "session-1",
-      conversationId: "thread-other",
-    })).rejects.toThrow("same Project owner");
+    await expect(
+      assertTerminalProjectIsActive(workspace, {
+        projectSessionId: "session-1",
+        conversationId: "thread-other",
+      }),
+    ).rejects.toThrow("same Project owner");
   });
 
   test("rejects an unknown supplied ownership identity", async () => {
     const workspace = makeWorkspace(makeProject());
     workspace.getProjectSession.mockResolvedValueOnce(null);
 
-    await expect(assertTerminalProjectIsActive(workspace, {
-      projectSessionId: "session-missing",
-    })).rejects.toThrow("Unknown Project Session");
+    await expect(
+      assertTerminalProjectIsActive(workspace, {
+        projectSessionId: "session-missing",
+      }),
+    ).rejects.toThrow("Unknown Project Session");
   });
 
   test("revalidates terminal admission after a concurrent archive", async () => {
@@ -472,12 +476,14 @@ describe("terminal Project lifecycle guard", () => {
     });
     const operation = vi.fn();
 
-    await expect(runWithTerminalProjectAdmission(
-      workspace,
-      { projectSessionId: "session-1" },
-      operation,
-      coordinator,
-    )).rejects.toThrow("inactive or removed project");
+    await expect(
+      runWithTerminalProjectAdmission(
+        workspace,
+        { projectSessionId: "session-1" },
+        operation,
+        coordinator,
+      ),
+    ).rejects.toThrow("inactive or removed project");
     await archive;
     expect(operation).not.toHaveBeenCalled();
   });

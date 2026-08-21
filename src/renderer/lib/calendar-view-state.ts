@@ -37,7 +37,9 @@ export function loadCalendarViewState(): CalendarViewState {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (!stored) return { range: migrateCalendarRangePrefs(null), anchorDate: today };
 
-    const parsed = JSON.parse(stored) as Partial<PersistedCalendarRangePrefs> & { dayCount?: unknown };
+    const parsed = JSON.parse(stored) as Partial<PersistedCalendarRangePrefs> & {
+      dayCount?: unknown;
+    };
     const range = migrateCalendarRangePrefs(parsed);
     if (parsed.anchorDate && parsed.savedOn === todayCalendarStorageKey()) {
       const restored = new Date(parsed.anchorDate);

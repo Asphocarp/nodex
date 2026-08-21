@@ -39,12 +39,11 @@ describe("generated image live collection store", () => {
 
     const snapshot = getGeneratedImageLiveCollectionSnapshot("thread");
     expect(snapshot.groups.map((group) => group.id)).toEqual(["earlier", "later"]);
-    expect(snapshot.images.map((item) => [item.id, item.generatedOrdinal, item.status]))
-      .toEqual([
-        ["first", 1, "ready"],
-        ["second", 2, "ready"],
-        ["later:pending:0", 3, "loading"],
-      ]);
+    expect(snapshot.images.map((item) => [item.id, item.generatedOrdinal, item.status])).toEqual([
+      ["first", 1, "ready"],
+      ["second", 2, "ready"],
+      ["later:pending:0", 3, "loading"],
+    ]);
 
     removeEarlier();
     removeLater();
@@ -66,18 +65,19 @@ describe("generated image live collection store", () => {
     });
 
     removeStale();
-    expect(getGeneratedImageLiveCollectionSnapshot("thread-update").images[0]?.id)
-      .toBe("new");
+    expect(getGeneratedImageLiveCollectionSnapshot("thread-update").images[0]?.id).toBe("new");
     removeCurrent();
   });
 
   test("keeps canonical virtualized groups alongside a mounted live group", () => {
-    const removeCanonical = replaceGeneratedImageCanonicalGroups("thread-canonical", [{
-      id: "historic",
-      images: [image("historic-image")],
-      pendingImageCount: 0,
-      turnStartedAtMs: 1,
-    }]);
+    const removeCanonical = replaceGeneratedImageCanonicalGroups("thread-canonical", [
+      {
+        id: "historic",
+        images: [image("historic-image")],
+        pendingImageCount: 0,
+        turnStartedAtMs: 1,
+      },
+    ]);
     const removeMounted = replaceGeneratedImageLiveGroup("thread-canonical", {
       id: "live",
       images: [image("live-image")],
@@ -85,40 +85,38 @@ describe("generated image live collection store", () => {
       turnStartedAtMs: 2,
     });
 
-    expect(getGeneratedImageLiveCollectionSnapshot("thread-canonical").groups.map(
-      (group) => group.id,
-    )).toEqual(["historic", "live"]);
+    expect(
+      getGeneratedImageLiveCollectionSnapshot("thread-canonical").groups.map((group) => group.id),
+    ).toEqual(["historic", "live"]);
     removeMounted();
     removeCanonical();
-    expect(getGeneratedImageLiveCollectionSnapshot("thread-canonical"))
-      .toMatchObject({ groups: [], images: [] });
+    expect(getGeneratedImageLiveCollectionSnapshot("thread-canonical")).toMatchObject({
+      groups: [],
+      images: [],
+    });
   });
 
   test("preserves canonical conversation order when timestamps collide or regress", () => {
-    const removeCanonical = replaceGeneratedImageCanonicalGroups(
-      "thread-canonical-order",
-      [
-        {
-          id: "first-in-thread",
-          images: [image("first")],
-          pendingImageCount: 0,
-          turnStartedAtMs: 200,
-        },
-        {
-          id: "second-in-thread",
-          images: [image("second")],
-          pendingImageCount: 0,
-          turnStartedAtMs: 100,
-        },
-      ],
-    );
-
-    expect(getGeneratedImageLiveCollectionSnapshot(
-      "thread-canonical-order",
-    ).groups.map((group) => group.id)).toEqual([
-      "first-in-thread",
-      "second-in-thread",
+    const removeCanonical = replaceGeneratedImageCanonicalGroups("thread-canonical-order", [
+      {
+        id: "first-in-thread",
+        images: [image("first")],
+        pendingImageCount: 0,
+        turnStartedAtMs: 200,
+      },
+      {
+        id: "second-in-thread",
+        images: [image("second")],
+        pendingImageCount: 0,
+        turnStartedAtMs: 100,
+      },
     ]);
+
+    expect(
+      getGeneratedImageLiveCollectionSnapshot("thread-canonical-order").groups.map(
+        (group) => group.id,
+      ),
+    ).toEqual(["first-in-thread", "second-in-thread"]);
     removeCanonical();
   });
 
@@ -137,8 +135,7 @@ describe("generated image live collection store", () => {
     });
 
     removeNew();
-    expect(getGeneratedImageLiveCollectionSnapshot("thread-overlap").images[0]?.id)
-      .toBe("old");
+    expect(getGeneratedImageLiveCollectionSnapshot("thread-overlap").images[0]?.id).toBe("old");
     removeOld();
   });
 
@@ -165,31 +162,34 @@ describe("generated image live collection store", () => {
       backgroundTerminalRows: [],
       childMemberships: [],
       capabilityFlags: {},
-      turns: [{
-        threadId: "thread-projection",
-        turnId: "turn-1",
-        status: "completed",
-        itemIds: ["image-1"],
-        items: [{
+      turns: [
+        {
           threadId: "thread-projection",
           turnId: "turn-1",
-          itemId: "image-1",
-          type: "generatedImage",
-          kind: "toolCall",
-          generatedImage: {
-            src: "data:image/png;base64,projection",
-            status: "completed",
-          },
-          createdAt: 10,
-          updatedAt: 10,
-        }],
-      }],
+          status: "completed",
+          itemIds: ["image-1"],
+          items: [
+            {
+              threadId: "thread-projection",
+              turnId: "turn-1",
+              itemId: "image-1",
+              type: "generatedImage",
+              kind: "toolCall",
+              generatedImage: {
+                src: "data:image/png;base64,projection",
+                status: "completed",
+              },
+              createdAt: 10,
+              updatedAt: 10,
+            },
+          ],
+        },
+      ],
     } as unknown as Parameters<typeof projectGeneratedImageCanonicalGroups>[0]);
 
     expect(groups[0]?.id).toBe("turn-1:generated-image-gallery");
     expect(groups[0]?.images[0]?.attachmentId).toBe("image-playground:image-1");
-    expect(groups[0]?.images[0]?.tabTitle)
-      .toBe("Launch concepts - Generated image 1");
+    expect(groups[0]?.images[0]?.tabTitle).toBe("Launch concepts - Generated image 1");
     expect(areGeneratedImageLiveGroupsEqual(groups, groups)).toBe(true);
   });
 
@@ -202,27 +202,30 @@ describe("generated image live collection store", () => {
     });
     const rolledBack = beginOptimisticGeneratedImageEdit("thread-optimistic");
     expect(rolledBack).not.toBeNull();
-    expect(getGeneratedImageLiveCollectionSnapshot("thread-optimistic").images.at(-1))
-      .toMatchObject({ id: rolledBack?.id, loading: true, status: "loading" });
+    expect(
+      getGeneratedImageLiveCollectionSnapshot("thread-optimistic").images.at(-1),
+    ).toMatchObject({ id: rolledBack?.id, loading: true, status: "loading" });
     rolledBack?.rollback();
-    expect(getGeneratedImageLiveCollectionSnapshot("thread-optimistic").images.map(
-      (item) => item.id,
-    )).toEqual(["before"]);
+    expect(
+      getGeneratedImageLiveCollectionSnapshot("thread-optimistic").images.map((item) => item.id),
+    ).toEqual(["before"]);
 
     const replaced = beginOptimisticGeneratedImageEdit("thread-optimistic");
     expect(replaced).not.toBeNull();
     const removeReplacement = replaceGeneratedImageLiveGroup("thread-optimistic", {
       id: "replacement",
-      images: [{
-        ...image("after"),
-        turnStartedAtMs: (replaced?.createdAtMs ?? 0) + 1,
-      }],
+      images: [
+        {
+          ...image("after"),
+          turnStartedAtMs: (replaced?.createdAtMs ?? 0) + 1,
+        },
+      ],
       pendingImageCount: 0,
       turnStartedAtMs: (replaced?.createdAtMs ?? 0) + 1,
     });
-    expect(getGeneratedImageLiveCollectionSnapshot("thread-optimistic").images.map(
-      (item) => item.id,
-    )).toEqual(["before", "after"]);
+    expect(
+      getGeneratedImageLiveCollectionSnapshot("thread-optimistic").images.map((item) => item.id),
+    ).toEqual(["before", "after"]);
 
     removeReplacement();
     removeInitial();
@@ -236,10 +239,7 @@ describe("generated image live collection store", () => {
       pendingImageCount: 0,
       turnStartedAtMs: 2,
     };
-    const removeInitial = replaceGeneratedImageCanonicalGroups(
-      threadId,
-      [liveBefore],
-    );
+    const removeInitial = replaceGeneratedImageCanonicalGroups(threadId, [liveBefore]);
     const optimistic = beginOptimisticGeneratedImageEdit(threadId);
     expect(optimistic).not.toBeNull();
 
@@ -249,20 +249,18 @@ describe("generated image live collection store", () => {
       pendingImageCount: 0,
       turnStartedAtMs: 1,
     };
-    const removeHistory = replaceGeneratedImageCanonicalGroups(
-      threadId,
-      [historic, liveBefore],
+    const removeHistory = replaceGeneratedImageCanonicalGroups(threadId, [historic, liveBefore]);
+    expect(getGeneratedImageLiveCollectionSnapshot(threadId).images.at(-1)?.id).toBe(
+      optimistic?.id,
     );
-    expect(getGeneratedImageLiveCollectionSnapshot(threadId).images.at(-1)?.id)
-      .toBe(optimistic?.id);
 
     const removeReady = replaceGeneratedImageCanonicalGroups(threadId, [
       historic,
       { ...liveBefore, images: [...liveBefore.images, image("after")] },
     ]);
-    expect(getGeneratedImageLiveCollectionSnapshot(threadId).images.map(
-      (item) => item.id,
-    )).toEqual(["history-loaded-late", "before", "after"]);
+    expect(getGeneratedImageLiveCollectionSnapshot(threadId).images.map((item) => item.id)).toEqual(
+      ["history-loaded-late", "before", "after"],
+    );
 
     removeReady();
     removeHistory();

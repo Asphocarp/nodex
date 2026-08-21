@@ -28,9 +28,7 @@ describe("project marker", () => {
     );
 
     expect(
-      view
-        .getByTestId("icon-marker")
-        .querySelector('[data-project-marker-icon="terminal"]'),
+      view.getByTestId("icon-marker").querySelector('[data-project-marker-icon="terminal"]'),
     ).not.toBeNull();
     expect(view.getByTestId("emoji-marker").textContent).toBe("🪴");
   });
@@ -75,12 +73,10 @@ describe("project marker picker", () => {
       color: "blue",
       marker: { kind: "emoji", emoji: "🪴" },
     });
-    expect(
-      view.getByRole("button", { name: "Use Blue" }).getAttribute("aria-pressed"),
-    ).toBe("true");
-    expect(
-      view.getByRole("button", { name: "Change marker for Nodex" }).textContent,
-    ).toBe("🪴");
+    expect(view.getByRole("button", { name: "Use Blue" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(view.getByRole("button", { name: "Change marker for Nodex" }).textContent).toBe("🪴");
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Use Terminal" }));
@@ -122,9 +118,7 @@ describe("project marker picker", () => {
       await settleAsyncRender();
     });
 
-    expect(
-      view.queryByRole("group", { name: "Project color" }),
-    ).toBeNull();
+    expect(view.queryByRole("group", { name: "Project color" })).toBeNull();
   });
 
   test("pending state disables the appearance trigger", () => {

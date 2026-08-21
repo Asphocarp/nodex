@@ -17,9 +17,7 @@ export interface LeftSidebarFooterProps {
   account?: CodexAccountSnapshot | null;
   connection?: CodexConnectionState;
   onRefreshAccount?: () => Promise<CodexAccountSnapshot>;
-  onConsumeRateLimitReset?: (
-    input: CodexRateLimitResetInput,
-  ) => Promise<CodexRateLimitResetResult>;
+  onConsumeRateLimitReset?: (input: CodexRateLimitResetInput) => Promise<CodexRateLimitResetResult>;
   onStartChatGptLogin?: () => Promise<CodexLoginStartResult>;
   onStartApiKeyLogin?: (apiKey: string) => Promise<CodexLoginStartResult>;
   onCancelLogin?: (loginId: string) => Promise<unknown>;
@@ -42,11 +40,7 @@ export function LeftSidebarFooter({
   const [loginBusy, setLoginBusy] = useState(false);
   const showQuotaRing = Boolean(account?.account && connection && onRefreshAccount && onLogout);
   const showSignIn = Boolean(
-    account
-    && !account.account
-    && onStartChatGptLogin
-    && onStartApiKeyLogin
-    && onCancelLogin,
+    account && !account.account && onStartChatGptLogin && onStartApiKeyLogin && onCancelLogin,
   );
 
   const handleChatGptLogin = async () => {

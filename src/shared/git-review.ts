@@ -13,17 +13,17 @@ export interface GitStatusSummaryRequest {
 
 export type GitStatusSummaryResult =
   | {
-    type: "success";
-    stagedCount: number;
-    unstagedCount: number;
-    untrackedCount: number | null;
-    snapshotGeneration: number;
-  }
+      type: "success";
+      stagedCount: number;
+      unstagedCount: number;
+      untrackedCount: number | null;
+      snapshotGeneration: number;
+    }
   | {
-    type: "error";
-    failureReason: GitStatusSummaryFailureReason;
-    errorMessage: string | null;
-  };
+      type: "error";
+      failureReason: GitStatusSummaryFailureReason;
+      errorMessage: string | null;
+    };
 
 export type {
   BranchDiffStatsRequest,
@@ -56,29 +56,28 @@ export interface GitReviewStaleSnapshotResult {
   source?: import("./types").GitReviewSource;
 }
 
-export type GitWorkerSnapshotResult<Result> =
-  | Result
-  | GitReviewStaleSnapshotResult;
+export type GitWorkerSnapshotResult<Result> = Result | GitReviewStaleSnapshotResult;
 
-export type GitWorkerReviewSummaryResult =
-  GitWorkerSnapshotResult<import("./types").GitReviewSummaryResult>;
+export type GitWorkerReviewSummaryResult = GitWorkerSnapshotResult<
+  import("./types").GitReviewSummaryResult
+>;
 
 export type GitWorkerCatFileResult =
   | {
-    type: "success";
-    value: import("./types").GitReviewCatFileOutput;
-  }
+      type: "success";
+      value: import("./types").GitReviewCatFileOutput;
+    }
   | GitReviewStaleSnapshotResult;
 
 export type GitWorkerBranchMutationResult =
   | {
-    type: "success";
-    value: import("./types").GitBranchMetadataResult;
-  }
+      type: "success";
+      value: import("./types").GitBranchMetadataResult;
+    }
   | {
-    type: "error";
-    errorMessage: string;
-  };
+      type: "error";
+      errorMessage: string;
+    };
 
 export interface GitRefreshRepositoryRequest {
   cwd: string;
@@ -86,10 +85,10 @@ export interface GitRefreshRepositoryRequest {
 
 export type GitRefreshRepositoryResult =
   | {
-    type: "success";
-    generation: number;
-  }
+      type: "success";
+      generation: number;
+    }
   | {
-    type: "error";
-    failureReason: "not-a-repository";
-  };
+      type: "error";
+      failureReason: "not-a-repository";
+    };

@@ -10,10 +10,7 @@ import {
   type CanvasPresenceRealtimeEvent,
   type PortableCanvasScene,
 } from "../../shared/block-documents";
-import {
-  MemoryCanvasSceneOutbox,
-  type CanvasSceneOutbox,
-} from "./canvas-scene-outbox";
+import { MemoryCanvasSceneOutbox, type CanvasSceneOutbox } from "./canvas-scene-outbox";
 import {
   CanvasSceneProvider,
   type CanvasSceneProviderScheduler,
@@ -50,13 +47,12 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
   applyError: Error | null = null;
   applyCommandError: CanvasSceneMutationError | null = null;
   syncImplementation: CanvasSceneSyncAdapter["sync"] | null = null;
-  private readonly committed = new Map<string, Extract<Awaited<CanvasSceneMutationCommandResult>, { readonly ok: true }>["value"]>();
+  private readonly committed = new Map<
+    string,
+    Extract<Awaited<CanvasSceneMutationCommandResult>, { readonly ok: true }>["value"]
+  >();
 
-  subscribe: CanvasSceneSyncAdapter["subscribe"] = (
-    _request,
-    listener,
-    presenceListener,
-  ) => {
+  subscribe: CanvasSceneSyncAdapter["subscribe"] = (_request, listener, presenceListener) => {
     this.calls.push("subscribe");
     this.listener = listener;
     this.presenceListener = presenceListener ?? null;
@@ -66,9 +62,7 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
     };
   };
 
-  publishPresence: NonNullable<
-    CanvasSceneSyncAdapter["publishPresence"]
-  > = async (request) => {
+  publishPresence: NonNullable<CanvasSceneSyncAdapter["publishPresence"]> = async (request) => {
     this.presencePublications.push(request);
     return { ok: true, value: { accepted: true, applied: true } };
   };
@@ -109,10 +103,7 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
       };
     }
     const elements = new Map(
-      this.currentScene.elements.map((candidate) => [
-        candidate.id as string,
-        candidate,
-      ]),
+      this.currentScene.elements.map((candidate) => [candidate.id as string, candidate]),
     );
     for (const candidate of request.elementCandidates) {
       elements.set(candidate.id as string, candidate);
@@ -156,7 +147,6 @@ class MemoryAdapter implements CanvasSceneSyncAdapter {
     this.committed.set(request.mutationId, result.value);
     return result;
   };
-
 }
 
 const manualScheduler = () => {
@@ -220,10 +210,12 @@ const waitForCondition = async (condition: () => boolean): Promise<void> => {
 
 describe("CanvasSceneProvider", () => {
   test("rejects an outbox bound to another Library", () => {
-    expect(() => makeProvider({
-      adapter: new MemoryAdapter(),
-      outbox: new MemoryCanvasSceneOutbox("library-foreign"),
-    })).toThrow("outbox crossed its Library boundary");
+    expect(() =>
+      makeProvider({
+        adapter: new MemoryAdapter(),
+        outbox: new MemoryCanvasSceneOutbox("library-foreign"),
+      }),
+    ).toThrow("outbox crossed its Library boundary");
   });
 
   test("buffers the initial presence snapshot until generation is synchronized", async () => {
@@ -261,10 +253,12 @@ describe("CanvasSceneProvider", () => {
 
     await provider.connect();
     expect(received).toHaveLength(1);
-    await expect(provider.publishPresence(1, {
-      selectedElementIds: [],
-      idle: "active",
-    })).resolves.toMatchObject({ ok: true });
+    await expect(
+      provider.publishPresence(1, {
+        selectedElementIds: [],
+        idle: "active",
+      }),
+    ).resolves.toMatchObject({ ok: true });
     expect(adapter.presencePublications[0]).toMatchObject({
       publication: {
         documentId: "document-1",
@@ -328,9 +322,7 @@ describe("CanvasSceneProvider", () => {
       generation: 1,
       headSeq: 0,
     });
-    await waitForCondition(() =>
-      adapter.calls.filter((call) => call === "sync").length === 2
-    );
+    await waitForCondition(() => adapter.calls.filter((call) => call === "sync").length === 2);
 
     expect(presented).toHaveLength(1);
     expect(provider.getStatus().phase).toBe("ready");
@@ -359,9 +351,9 @@ describe("CanvasSceneProvider", () => {
       phase: "error",
       error: { message: expect.stringContaining("without a local scene") },
     });
-    await expect(
-      noSceneProvider.close({ requireCommitted: false }),
-    ).rejects.toThrow("without a local scene");
+    await expect(noSceneProvider.close({ requireCommitted: false })).rejects.toThrow(
+      "without a local scene",
+    );
 
     const wrongIdAdapter = new MemoryAdapter();
     wrongIdAdapter.syncImplementation = async (request) => ({
@@ -385,9 +377,9 @@ describe("CanvasSceneProvider", () => {
       phase: "error",
       error: { message: expect.stringContaining("active request") },
     });
-    await expect(
-      wrongIdProvider.close({ requireCommitted: false }),
-    ).rejects.toThrow("active request");
+    await expect(wrongIdProvider.close({ requireCommitted: false })).rejects.toThrow(
+      "active request",
+    );
   });
 
   test("subscribes before sync and coalesces observations into one durable mutation", async () => {
@@ -535,8 +527,7 @@ describe("CanvasSceneProvider", () => {
     await waitForCondition(() => secondAdapter.applied.length === 1);
 
     expect(secondAdapter.applied[0]?.clientSessionId).toBe("window-2");
-    expect(secondAdapter.applied[0]?.mutationId)
-      .toBe(firstAdapter.applied[0]?.mutationId);
+    expect(secondAdapter.applied[0]?.mutationId).toBe(firstAdapter.applied[0]?.mutationId);
     expect(await outbox.list(accessContext, "document-1")).toHaveLength(0);
     await second.close();
   });
@@ -585,21 +576,21 @@ describe("CanvasSceneProvider", () => {
     await waitForCondition(() => retry.callbacks.length === 1);
 
     const second = provider.enqueue({
-      elementCandidates: [{
-        ...element(1),
-        id: "element-2",
-        index: "a1",
-      }],
+      elementCandidates: [
+        {
+          ...element(1),
+          id: "element-2",
+          index: "a1",
+        },
+      ],
     });
     void second.committed.catch(() => undefined);
     await provider.persistDurable();
     await second.durable;
 
-    expect((await outbox.list(
-      accessContext,
-      "document-1",
-    )).map((entry) => entry.mutationId))
-      .toEqual(["mutation-1", "mutation-2"]);
+    expect(
+      (await outbox.list(accessContext, "document-1")).map((entry) => entry.mutationId),
+    ).toEqual(["mutation-1", "mutation-2"]);
     await provider.close({ requireCommitted: false });
   });
 
@@ -634,10 +625,11 @@ describe("CanvasSceneProvider", () => {
     await provider.connect();
     let resolveSync!: (result: CanvasSceneSyncCommandResult) => void;
     let pendingSyncRequestId = "";
-    adapter.syncImplementation = (request) => new Promise((resolve) => {
-      pendingSyncRequestId = request.syncRequestId;
-      resolveSync = resolve;
-    });
+    adapter.syncImplementation = (request) =>
+      new Promise((resolve) => {
+        pendingSyncRequestId = request.syncRequestId;
+        resolveSync = resolve;
+      });
     adapter.listener?.({
       type: "canvas_scene_resync_required",
       libraryId,
@@ -648,7 +640,10 @@ describe("CanvasSceneProvider", () => {
       headSeq: 1,
     });
     await Promise.resolve();
-    for (const [headSeq, version] of [[1, 2], [2, 3]] as const) {
+    for (const [headSeq, version] of [
+      [1, 2],
+      [2, 3],
+    ] as const) {
       adapter.listener?.({
         type: "canvas_scene_committed",
         libraryId,
@@ -666,18 +661,21 @@ describe("CanvasSceneProvider", () => {
         removedFileIds: [],
       });
     }
-    resolveSync({ ok: true, value: {
-      kind: "snapshot",
-      syncRequestId: pendingSyncRequestId,
-      libraryId,
-      accessContext,
-      documentId: "document-1",
-      storeEpoch: "epoch-1",
-      generation: 1,
-      headSeq: 0,
-      sceneHash: "a".repeat(64),
-      scene: scene(1),
-    } });
+    resolveSync({
+      ok: true,
+      value: {
+        kind: "snapshot",
+        syncRequestId: pendingSyncRequestId,
+        libraryId,
+        accessContext,
+        documentId: "document-1",
+        storeEpoch: "epoch-1",
+        generation: 1,
+        headSeq: 0,
+        sceneHash: "a".repeat(64),
+        scene: scene(1),
+      },
+    });
     await waitForCondition(() => provider.getStatus().phase === "ready");
     expect(provider.getStatus().headSeq).toBe(2);
     expect(provider.getScene()?.elements[0]?.version).toBe(3);
@@ -702,11 +700,7 @@ describe("CanvasSceneProvider", () => {
       ): Promise<void> => {
         this.removeAttempts += 1;
         if (this.removeAttempts === 1) throw new Error("IndexedDB delete failed");
-        await this.delegate.remove(
-          outboxAccessContext,
-          documentId,
-          mutationId,
-        );
+        await this.delegate.remove(outboxAccessContext, documentId, mutationId);
       };
     }
     const adapter = new MemoryAdapter();
@@ -717,7 +711,7 @@ describe("CanvasSceneProvider", () => {
     const submitted = provider.submit({ elementCandidates: [element(2)] });
     provider.flush().catch(() => undefined);
     await waitForCondition(() => retry.callbacks.length === 1);
-    expect((await outbox.list(accessContext, "document-1"))).toHaveLength(1);
+    expect(await outbox.list(accessContext, "document-1")).toHaveLength(1);
     retry.callbacks.shift()?.();
     await submitted;
     expect(outbox.removeAttempts).toBe(2);
@@ -824,5 +818,4 @@ describe("CanvasSceneProvider", () => {
     expect(adapter.listener).toBeNull();
     expect(provider.getStatus().phase).toBe("closed");
   });
-
 });

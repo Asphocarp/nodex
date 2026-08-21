@@ -5,10 +5,7 @@ import {
   McpAppRuntimeManager,
   type McpAppRuntimePort,
 } from "@/lib/mcp-app/mcp-app-runtime-manager";
-import type {
-  McpAppRuntimeConfig,
-  McpAppRuntimeStatus,
-} from "@/lib/mcp-app/mcp-app-runtime";
+import type { McpAppRuntimeConfig, McpAppRuntimeStatus } from "@/lib/mcp-app/mcp-app-runtime";
 import { McpCapabilityViewFrame } from "./mcp-capability-view-frame";
 import {
   resolveMcpWidgetMetadata,
@@ -49,7 +46,8 @@ function createStoryRuntime(status: McpAppRuntimeStatus): McpAppRuntimePort {
     detail.className = "mt-1 text-sm text-token-description-foreground";
     detail.textContent = "Three focused blocks, with a clear afternoon for implementation.";
     const button = document.createElement("button");
-    button.className = "mt-5 w-fit rounded-md border border-token-border px-3 py-1.5 text-sm text-token-foreground hover:bg-token-bg-subtle";
+    button.className =
+      "mt-5 w-fit rounded-md border border-token-border px-3 py-1.5 text-sm text-token-foreground hover:bg-token-bg-subtle";
     button.textContent = "Count: 0";
     let count = 0;
     button.addEventListener("click", () => {
@@ -82,9 +80,7 @@ function StorySurface({
   mode?: "inline" | "side-panel";
   status: McpAppRuntimeStatus;
 }) {
-  const [manager] = useState(
-    () => new McpAppRuntimeManager(() => createStoryRuntime(status)),
-  );
+  const [manager] = useState(() => new McpAppRuntimeManager(() => createStoryRuntime(status)));
   return (
     <McpAppRuntimeManagerProvider manager={manager}>
       <div className={mode === "side-panel" ? "h-[560px] w-[380px]" : "w-[680px] p-8"}>

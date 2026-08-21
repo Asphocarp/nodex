@@ -116,10 +116,12 @@ describe("Codex 30751 thread metadata", () => {
 
   test("ignores token usage for another thread", () => {
     const before = buildState();
-    expect(reduceCodexConversationThreadTokenUsage(before, {
-      conversationId: "other-thread",
-      tokenUsage: usage,
-    }) === before).toBe(true);
+    expect(
+      reduceCodexConversationThreadTokenUsage(before, {
+        conversationId: "other-thread",
+        tokenUsage: usage,
+      }) === before,
+    ).toBe(true);
   });
 
   test("merges thread metadata without replacing turns or an existing title", () => {
@@ -137,7 +139,9 @@ describe("Codex 30751 thread metadata", () => {
     expect(after.protocol.preview).toBe("Fresh preview");
     expect(after.protocol.updatedAt).toBe(9);
     expect(after.turns === before.turns).toBe(true);
-    expect(reduceCodexConversationThreadName(after, "thread-token", "  Renamed  ").protocol.name).toBe("Renamed");
+    expect(
+      reduceCodexConversationThreadName(after, "thread-token", "  Renamed  ").protocol.name,
+    ).toBe("Renamed");
     expect(reduceCodexConversationThreadName(after, "thread-token", "   ") === after).toBe(true);
   });
 
@@ -151,11 +155,7 @@ describe("Codex 30751 thread metadata", () => {
     expect(configured.protocol.cwd).toBe("/new");
     expect(configured.protocol.modelProvider).toBe("openai-new");
 
-    const idle = reduceCodexConversationThreadStatus(
-      configured,
-      "thread-token",
-      { type: "idle" },
-    );
+    const idle = reduceCodexConversationThreadStatus(configured, "thread-token", { type: "idle" });
     expect(idle.state.protocol.status.type).toBe("idle");
     expect(idle.effects[0]?.type).toBe("continueGoalIfIdle");
 
@@ -169,17 +169,10 @@ describe("Codex 30751 thread metadata", () => {
       createdAt: 1,
       updatedAt: 4,
     };
-    const completed = reduceCodexConversationThreadGoalUpdated(
-      idle.state,
-      "thread-token",
-      goal,
-    );
+    const completed = reduceCodexConversationThreadGoalUpdated(idle.state, "thread-token", goal);
     expect(completed.state.sidecar.completedThreadGoal === goal).toBe(true);
     expect(completed.effects[0]?.type).toBe("clearCompletedGoal");
-    const cleared = reduceCodexConversationThreadGoalCleared(
-      completed.state,
-      "thread-token",
-    );
+    const cleared = reduceCodexConversationThreadGoalCleared(completed.state, "thread-token");
     expect(cleared.sidecar.threadGoal).toBe(null);
     expect(cleared.sidecar.completedThreadGoal === goal).toBe(true);
   });
@@ -211,9 +204,9 @@ describe("Codex 30751 thread metadata", () => {
 
     expect(dismissed.sidecar.threadGoal === goal).toBe(true);
     expect(dismissed.sidecar.threadGoalResumeConfirmation).toBe(null);
-    expect(reduceCodexConversationThreadGoalResumeConfirmationDismissed(
-      dismissed,
-      "other-thread",
-    ) === dismissed).toBe(true);
+    expect(
+      reduceCodexConversationThreadGoalResumeConfirmationDismissed(dismissed, "other-thread") ===
+        dismissed,
+    ).toBe(true);
   });
 });

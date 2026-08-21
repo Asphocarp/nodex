@@ -13,18 +13,22 @@ describe("priority cutover", () => {
   });
 
   test("derives legacy include-empty semantics before collapsing P4 into P3", () => {
-    expect(legacyPrioritySelectionIncludesEveryAssigned([
-      "p0-critical",
-      "p1-high",
-      "p2-medium",
-      "p3-low",
-    ])).toBe(false);
-    expect(legacyPrioritySelectionIncludesEveryAssigned([
-      "p0-critical",
-      "p1-high",
-      "p2-medium",
-      "p3-low",
-      "p4-later",
-    ])).toBe(true);
+    expect(
+      legacyPrioritySelectionIncludesEveryAssigned([
+        "p0-critical",
+        "p1-high",
+        "p2-medium",
+        "p3-low",
+      ]),
+    ).toBe(false);
+    expect(
+      legacyPrioritySelectionIncludesEveryAssigned([
+        "p0-critical",
+        "p1-high",
+        "p2-medium",
+        "p3-low",
+        "p4-later",
+      ]),
+    ).toBe(true);
   });
 });

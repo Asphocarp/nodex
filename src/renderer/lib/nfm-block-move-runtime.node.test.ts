@@ -33,11 +33,13 @@ const viewConfig = (groupPropertyId: string | null) =>
     schemaKey: "nodex.database-view",
     schemaVersion: 2,
     filter: { kind: "group", operator: "and", children: [] },
-    sort: [{
-      field: { kind: "manual" },
-      direction: "asc",
-      nulls: "last",
-    }],
+    sort: [
+      {
+        field: { kind: "manual" },
+        direction: "asc",
+        nulls: "last",
+      },
+    ],
     group: groupPropertyId ? { propertyId: groupPropertyId } : null,
     display: { propertyIds: [], showTitle: true },
   });
@@ -54,18 +56,20 @@ const descriptor = (): DatabaseContainerDescriptorV2 => ({
     createdAt: timestamp,
     updatedAt: timestamp,
   },
-  dataSources: [{
-    dataSourceId,
-    libraryId,
-    homeDatabaseId: databaseId,
-    name: "Pages",
-    schemaKey: "nodex.pages",
-    schemaRevision: 1,
-    lifecycle: "active",
-    rankKey: "a",
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }],
+  dataSources: [
+    {
+      dataSourceId,
+      libraryId,
+      homeDatabaseId: databaseId,
+      name: "Pages",
+      schemaKey: "nodex.pages",
+      schemaRevision: 1,
+      lifecycle: "active",
+      rankKey: "a",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    },
+  ],
   views: [
     {
       viewId: defaultViewId,
@@ -127,9 +131,7 @@ const targetPage = (): ProjectAccessedDocumentDescriptor => ({
   sync: { kind: "yjs", stateVector: new Uint8Array() },
 });
 
-const request = (
-  destination: NfmBlockMoveRequest["destination"],
-): NfmBlockMoveRequest => ({
+const request = (destination: NfmBlockMoveRequest["destination"]): NfmBlockMoveRequest => ({
   projectId,
   storeEpoch,
   sourcePageId: "page-source",
@@ -145,9 +147,7 @@ const request = (
   destination,
 });
 
-const committed = (
-  intent: PublicBlockTransferIntent,
-): BlockTransferCommandResult => ({
+const committed = (intent: PublicBlockTransferIntent): BlockTransferCommandResult => ({
   ok: true,
   localCommit: noOpLocalCommit(intent.storeEpoch),
   value: {
@@ -183,53 +183,61 @@ describe("NFM Block move runtime", () => {
   test("moves selected Blocks into a Page with exact source and target heads", async () => {
     const intents: PublicBlockTransferIntent[] = [];
 
-    await moveNfmBlocks(request({
-      kind: "page",
-      projectId,
-      pageId: "page-target",
-    }), dependencies(async (_projectId, intent) => {
-      intents.push(intent);
-      return committed(intent);
-    }));
-
-    expect(intents).toEqual([expect.objectContaining({
-      operationId: "operation-move",
-      projectId,
-      source: { kind: "page", pageId: "page-source" },
-      target: { kind: "page", pageId: "page-target" },
-      rootBlockIds: ["block-a", "block-b"],
-      causalDependencies: [
-        {
-          documentId: "document-source",
-          generation: 3,
-          expectedHeadSeq: 11,
-        },
-        {
-          documentId: "document-target",
-          generation: 2,
-          expectedHeadSeq: 9,
-        },
-      ],
-    })]);
-  });
-
-  test("resolves a real Status-grouped View before moving Blocks to a DB status", async () => {
-    const readDatabase = vi.fn<NfmBlockMoveRuntimeDependencies["readDatabase"]>(
-      async () => databaseRead(),
-    );
-    const intents: PublicBlockTransferIntent[] = [];
-
-    await moveNfmBlocks(request({
-      kind: "db-column",
-      projectId,
-      columnId: "ship",
-    }), {
-      ...dependencies(async (_projectId, intent) => {
+    await moveNfmBlocks(
+      request({
+        kind: "page",
+        projectId,
+        pageId: "page-target",
+      }),
+      dependencies(async (_projectId, intent) => {
         intents.push(intent);
         return committed(intent);
       }),
-      readDatabase,
-    });
+    );
+
+    expect(intents).toEqual([
+      expect.objectContaining({
+        operationId: "operation-move",
+        projectId,
+        source: { kind: "page", pageId: "page-source" },
+        target: { kind: "page", pageId: "page-target" },
+        rootBlockIds: ["block-a", "block-b"],
+        causalDependencies: [
+          {
+            documentId: "document-source",
+            generation: 3,
+            expectedHeadSeq: 11,
+          },
+          {
+            documentId: "document-target",
+            generation: 2,
+            expectedHeadSeq: 9,
+          },
+        ],
+      }),
+    ]);
+  });
+
+  test("resolves a real Status-grouped View before moving Blocks to a DB status", async () => {
+    const readDatabase = vi.fn<NfmBlockMoveRuntimeDependencies["readDatabase"]>(async () =>
+      databaseRead(),
+    );
+    const intents: PublicBlockTransferIntent[] = [];
+
+    await moveNfmBlocks(
+      request({
+        kind: "db-column",
+        projectId,
+        columnId: "ship",
+      }),
+      {
+        ...dependencies(async (_projectId, intent) => {
+          intents.push(intent);
+          return committed(intent);
+        }),
+        readDatabase,
+      },
+    );
 
     expect(readDatabase).toHaveBeenCalledWith(projectId, {
       projectId,
@@ -246,29 +254,36 @@ describe("NFM Block move runtime", () => {
           groupKey: "ship",
         },
       },
-      causalDependencies: [{
-        documentId: "document-source",
-        generation: 3,
-        expectedHeadSeq: 11,
-      }],
+      causalDependencies: [
+        {
+          documentId: "document-source",
+          generation: 3,
+          expectedHeadSeq: 11,
+        },
+      ],
     });
   });
 
   test("preserves structured transfer diagnostics for the picker and logs", async () => {
-    await expect(moveNfmBlocks(request({
-      kind: "page",
-      projectId,
-      pageId: "page-target",
-    }), dependencies(async () => ({
-      ok: false,
-      error: {
-        code: "target_head_mismatch",
-        message: "The destination Page changed. Try again.",
-        retryable: true,
-        reloadRequired: false,
-        operationId: "operation-move",
-      },
-    })))).rejects.toMatchObject({
+    await expect(
+      moveNfmBlocks(
+        request({
+          kind: "page",
+          projectId,
+          pageId: "page-target",
+        }),
+        dependencies(async () => ({
+          ok: false,
+          error: {
+            code: "target_head_mismatch",
+            message: "The destination Page changed. Try again.",
+            retryable: true,
+            reloadRequired: false,
+            operationId: "operation-move",
+          },
+        })),
+      ),
+    ).rejects.toMatchObject({
       name: "NfmBlockMoveError",
       code: "block_transfer.target_head_mismatch",
       message: "The destination Page changed. Try again.",
@@ -283,16 +298,21 @@ describe("NFM Block move runtime", () => {
     const readDatabase = vi.fn<NfmBlockMoveRuntimeDependencies["readDatabase"]>();
     const transfer = vi.fn<NfmBlockMoveRuntimeDependencies["transfer"]>();
 
-    await expect(moveNfmBlocks(request({
-      kind: "page",
-      projectId: "project-other",
-      pageId: "page-target",
-    }), {
-      preparePage,
-      readDatabase,
-      transfer,
-      createOperationId: () => "operation-move",
-    })).rejects.toMatchObject({
+    await expect(
+      moveNfmBlocks(
+        request({
+          kind: "page",
+          projectId: "project-other",
+          pageId: "page-target",
+        }),
+        {
+          preparePage,
+          readDatabase,
+          transfer,
+          createOperationId: () => "operation-move",
+        },
+      ),
+    ).rejects.toMatchObject({
       code: "destination.cross_project",
       message: "Choose a destination in the current Project.",
     });

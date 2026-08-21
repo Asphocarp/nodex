@@ -4,9 +4,7 @@ import type { DataSourcePagePropertyMenuDescriptor } from "@/components/database
 import { testPropertySemantics } from "../../shared/testing/database-property-record";
 import type { DatabasePropertyValueType } from "../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../shared/database-module-v2";
-import {
-  buildPagePropertyContextMenuModel,
-} from "./page-property-context-menu-model";
+import { buildPagePropertyContextMenuModel } from "./page-property-context-menu-model";
 
 const binding = (
   propertyId: string,
@@ -38,10 +36,9 @@ describe("buildPagePropertyContextMenuModel", () => {
     const status = binding("status", "Workflow", "select");
     const tags = binding("tags", "Labels", "multi_select");
 
-    const model = buildPagePropertyContextMenuModel(
-      [custom, priority, status, tags],
-      { groupingPropertyId: "tags" },
-    );
+    const model = buildPagePropertyContextMenuModel([custom, priority, status, tags], {
+      groupingPropertyId: "tags",
+    });
 
     expect(model.visible.map((entry) => entry.property.propertyId)).toEqual([
       "tags",
@@ -65,15 +62,18 @@ describe("buildPagePropertyContextMenuModel", () => {
   });
 
   it("excludes deleted Properties and respects the root limit", () => {
-    const model = buildPagePropertyContextMenuModel([
-      binding("status", "Status", "select"),
-      binding("priority", "Priority", "select"),
-      binding("assignee", "Assignee", "text"),
-      binding("due_date", "Due date", "date"),
-      binding("tags", "Tags", "multi_select"),
-      binding("estimate", "Estimate", "select"),
-      binding("p_deleted", "Deleted", "text", "deleted"),
-    ], { featuredLimit: 3 });
+    const model = buildPagePropertyContextMenuModel(
+      [
+        binding("status", "Status", "select"),
+        binding("priority", "Priority", "select"),
+        binding("assignee", "Assignee", "text"),
+        binding("due_date", "Due date", "date"),
+        binding("tags", "Tags", "multi_select"),
+        binding("estimate", "Estimate", "select"),
+        binding("p_deleted", "Deleted", "text", "deleted"),
+      ],
+      { featuredLimit: 3 },
+    );
 
     expect(model.visible.map((entry) => entry.property.propertyId)).toEqual([
       "status",

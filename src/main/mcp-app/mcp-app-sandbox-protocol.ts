@@ -8,12 +8,9 @@ import {
 const SKYBRIDGE_CACHE_TTL_MS = 5 * 60_000;
 const SKYBRIDGE_CACHE_MAX_ENTRIES = 64;
 const SKYBRIDGE_PREWARM_ASSET_LIMIT = 8;
-const HASHED_ASSET_PATH =
-  /^\/assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}\.(?:css|js)$/u;
-const ENTRY_ASSET_PATH =
-  /\/assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}\.(?:css|js)/gu;
-const RUNTIME_ASSET_PATH =
-  /assets\/(?:run-widget-code|apply-csp|adapter)-[A-Za-z0-9_-]{8,}\.js/gu;
+const HASHED_ASSET_PATH = /^\/assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}\.(?:css|js)$/u;
+const ENTRY_ASSET_PATH = /\/assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}\.(?:css|js)/gu;
+const RUNTIME_ASSET_PATH = /assets\/(?:run-widget-code|apply-csp|adapter)-[A-Za-z0-9_-]{8,}\.js/gu;
 
 export type McpAppSandboxCacheState = "cold" | "warming" | "warm";
 
@@ -34,25 +31,23 @@ interface SkybridgeCacheEntry {
 const skybridgeResponseCache = new Map<string, SkybridgeCacheEntry>();
 
 function isSkybridgeHost(hostname: string): boolean {
-  return hostname === MCP_APP_SANDBOX_REMOTE_HOST
-    || hostname.endsWith(`.${MCP_APP_SANDBOX_REMOTE_HOST}`);
+  return (
+    hostname === MCP_APP_SANDBOX_REMOTE_HOST || hostname.endsWith(`.${MCP_APP_SANDBOX_REMOTE_HOST}`)
+  );
 }
 
 function hasExactSkybridgeQuery(url: URL): boolean {
-  const expectedKeys = [
-    "app",
-    "locale",
-    "deviceType",
-    "unsafeSkipTargetOriginCheck",
-  ];
+  const expectedKeys = ["app", "locale", "deviceType", "unsafeSkipTargetOriginCheck"];
   const keys = [...url.searchParams.keys()];
-  return url.pathname === "/"
-    && keys.length === expectedKeys.length
-    && expectedKeys.every((key) => keys.includes(key))
-    && url.searchParams.get("app") === "skybridge"
-    && Boolean(url.searchParams.get("locale"))
-    && url.searchParams.get("deviceType") === "desktop"
-    && url.searchParams.get("unsafeSkipTargetOriginCheck") === "true";
+  return (
+    url.pathname === "/" &&
+    keys.length === expectedKeys.length &&
+    expectedKeys.every((key) => keys.includes(key)) &&
+    url.searchParams.get("app") === "skybridge" &&
+    Boolean(url.searchParams.get("locale")) &&
+    url.searchParams.get("deviceType") === "desktop" &&
+    url.searchParams.get("unsafeSkipTargetOriginCheck") === "true"
+  );
 }
 
 function resolveUpstreamUrl(request: Request): string | null {
@@ -64,11 +59,11 @@ function resolveUpstreamUrl(request: Request): string | null {
     return null;
   }
   if (
-    (url.protocol !== "https:" && url.protocol !== `${MCP_APP_SANDBOX_SCHEME}:`)
-    || url.port
-    || url.username
-    || url.password
-    || !isSkybridgeHost(url.hostname)
+    (url.protocol !== "https:" && url.protocol !== `${MCP_APP_SANDBOX_SCHEME}:`) ||
+    url.port ||
+    url.username ||
+    url.password ||
+    !isSkybridgeHost(url.hostname)
   ) {
     return null;
   }
@@ -90,10 +85,7 @@ function cloneCachedResponse(response: CachedSkybridgeResponse): Response {
   });
 }
 
-async function fetchUpstream(
-  url: string,
-  fetch: Net["fetch"],
-): Promise<CachedSkybridgeResponse> {
+async function fetchUpstream(url: string, fetch: Net["fetch"]): Promise<CachedSkybridgeResponse> {
   const response = await fetch(url, {
     credentials: "omit",
     redirect: "error",
@@ -109,10 +101,7 @@ async function fetchUpstream(
   };
 }
 
-async function loadCachedResponse(
-  request: Request,
-  fetch: Net["fetch"],
-): Promise<Response | null> {
+async function loadCachedResponse(request: Request, fetch: Net["fetch"]): Promise<Response | null> {
   const upstreamUrl = resolveUpstreamUrl(request);
   if (!upstreamUrl) return null;
 
@@ -163,9 +152,7 @@ function rootUpstreamUrl(locale: string): string {
   return upstream.toString();
 }
 
-export function getMcpAppSandboxCacheState(
-  sourceUrl: string,
-): McpAppSandboxCacheState {
+export function getMcpAppSandboxCacheState(sourceUrl: string): McpAppSandboxCacheState {
   const upstreamUrl = resolveUpstreamUrl(new Request(sourceUrl));
   if (!upstreamUrl) return "cold";
   const entry = skybridgeResponseCache.get(upstreamUrl);
@@ -190,15 +177,18 @@ export function prewarmMcpAppSandbox(input: {
   const prewarm = (async () => {
     const response = await rootResponse;
     if (!response?.ok) return;
-    const entryAssets = [...new Set(
-      (await response.text()).match(ENTRY_ASSET_PATH) ?? [],
-    )].slice(0, SKYBRIDGE_PREWARM_ASSET_LIMIT);
-    const assetResponses = await Promise.all(entryAssets.map((asset) =>
-      loadCachedResponse(
-        new Request(`https://${MCP_APP_SANDBOX_REMOTE_HOST}${asset}`),
-        input.fetch,
-      )
-    ));
+    const entryAssets = [...new Set((await response.text()).match(ENTRY_ASSET_PATH) ?? [])].slice(
+      0,
+      SKYBRIDGE_PREWARM_ASSET_LIMIT,
+    );
+    const assetResponses = await Promise.all(
+      entryAssets.map((asset) =>
+        loadCachedResponse(
+          new Request(`https://${MCP_APP_SANDBOX_REMOTE_HOST}${asset}`),
+          input.fetch,
+        ),
+      ),
+    );
     if (assetResponses.some((asset) => !asset?.ok)) {
       throw new Error("MCP App sandbox startup asset failed to prewarm");
     }
@@ -211,15 +201,17 @@ export function prewarmMcpAppSandbox(input: {
       if (!script?.ok) {
         throw new Error("MCP App sandbox main script failed to prewarm");
       }
-      const runtimeAssets = [...new Set(
-        (await script.text()).match(RUNTIME_ASSET_PATH) ?? [],
-      )].slice(0, SKYBRIDGE_PREWARM_ASSET_LIMIT);
-      const runtimeResponses = await Promise.all(runtimeAssets.map((asset) =>
-        loadCachedResponse(
-          new Request(`https://${MCP_APP_SANDBOX_REMOTE_HOST}/${asset}`),
-          input.fetch,
-        )
-      ));
+      const runtimeAssets = [
+        ...new Set((await script.text()).match(RUNTIME_ASSET_PATH) ?? []),
+      ].slice(0, SKYBRIDGE_PREWARM_ASSET_LIMIT);
+      const runtimeResponses = await Promise.all(
+        runtimeAssets.map((asset) =>
+          loadCachedResponse(
+            new Request(`https://${MCP_APP_SANDBOX_REMOTE_HOST}/${asset}`),
+            input.fetch,
+          ),
+        ),
+      );
       if (runtimeResponses.some((asset) => !asset?.ok)) {
         throw new Error("MCP App sandbox runtime asset failed to prewarm");
       }

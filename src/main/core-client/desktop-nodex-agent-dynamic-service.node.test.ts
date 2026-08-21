@@ -34,9 +34,8 @@ const committedCoordinate = (commitSeq: number) => ({
 });
 
 const documentSync = {
-  executeNodexAgentMutation: async (options: {
-    readonly execute: () => Promise<unknown>;
-  }) => await options.execute(),
+  executeNodexAgentMutation: async (options: { readonly execute: () => Promise<unknown> }) =>
+    await options.execute(),
 } as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">;
 
 const context = {
@@ -93,20 +92,24 @@ describe("native desktop Nodex Agent dynamic service", () => {
               databaseId: "database-native-agent",
               name: "Tasks",
             },
-            dataSources: [{
-              dataSourceId: "data-source-native-agent",
-              name: "Tasks",
-              schemaRevision: 4,
-              lifecycle: "active",
-            }],
-            views: [{
-              viewId: "view-native-agent",
-              dataSourceId: "data-source-native-agent",
-              name: "Board",
-              defaultLayout: "board",
-              isDefault: true,
-              lifecycle: "active",
-            }],
+            dataSources: [
+              {
+                dataSourceId: "data-source-native-agent",
+                name: "Tasks",
+                schemaRevision: 4,
+                lifecycle: "active",
+              },
+            ],
+            views: [
+              {
+                viewId: "view-native-agent",
+                dataSourceId: "data-source-native-agent",
+                name: "Board",
+                defaultLayout: "board",
+                isDefault: true,
+                lifecycle: "active",
+              },
+            ],
           },
         },
       },
@@ -120,13 +123,17 @@ describe("native desktop Nodex Agent dynamic service", () => {
       documentSync,
     });
 
-    const result = await service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "get_context",
-    }, {
-      include: { databases: true, markdownGuide: true },
-    }, context);
+    const result = await service.registry.execute(
+      {
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+        tool: "get_context",
+      },
+      {
+        include: { databases: true, markdownGuide: true },
+      },
+      context,
+    );
 
     expect(result.output).toMatchObject({
       data: {
@@ -135,12 +142,14 @@ describe("native desktop Nodex Agent dynamic service", () => {
           libraryId: "library-native-agent",
           boundDatabaseId: "database-native-agent",
         },
-        databases: [{
-          databaseId: "database-native-agent",
-          isBound: true,
-          dataSources: [{ dataSourceId: "data-source-native-agent" }],
-          views: [{ viewId: "view-native-agent" }],
-        }],
+        databases: [
+          {
+            databaseId: "database-native-agent",
+            isBound: true,
+            dataSources: [{ dataSourceId: "data-source-native-agent" }],
+            views: [{ viewId: "view-native-agent" }],
+          },
+        ],
         markdownGuide: { format: "markdown" },
       },
     });
@@ -160,15 +169,18 @@ describe("native desktop Nodex Agent dynamic service", () => {
             page_id: "page-create-target",
             at: { kind: "end" },
           },
-          pages: [{
-            title_markdown: "**First**",
-            nfm: "Body one",
-            values: [],
-          }, {
-            title_markdown: "Second",
-            nfm: "Body two",
-            values: [],
-          }],
+          pages: [
+            {
+              title_markdown: "**First**",
+              nfm: "Body one",
+              values: [],
+            },
+            {
+              title_markdown: "Second",
+              nfm: "Body two",
+              values: [],
+            },
+          ],
           include_block_ids: true,
           include_etags: true,
         },
@@ -195,22 +207,27 @@ describe("native desktop Nodex Agent dynamic service", () => {
                 ownership_transformations: [],
               },
             },
-            pages: [{
-              page_id: "page-created-1",
-              body_block_ids: ["body-created-1"],
-              primary_membership_id: "membership-primary-1",
-              target_membership_id: "membership-target-1",
-            }, {
-              page_id: "page-created-2",
-              body_block_ids: ["body-created-2"],
-              primary_membership_id: "membership-primary-2",
-              target_membership_id: "membership-target-2",
-            }],
-            document_heads: [{
-              document_id: "document-create-target",
-              generation: 2,
-              expected_head_seq: 4,
-            }],
+            pages: [
+              {
+                page_id: "page-created-1",
+                body_block_ids: ["body-created-1"],
+                primary_membership_id: "membership-primary-1",
+                target_membership_id: "membership-target-1",
+              },
+              {
+                page_id: "page-created-2",
+                body_block_ids: ["body-created-2"],
+                primary_membership_id: "membership-primary-2",
+                target_membership_id: "membership-target-2",
+              },
+            ],
+            document_heads: [
+              {
+                document_id: "document-create-target",
+                generation: 2,
+                expected_head_seq: 4,
+              },
+            ],
             destination: {
               kind: "page" as const,
               page_id: "page-create-target",
@@ -229,67 +246,75 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       };
     });
-    const libraryApply = vi.fn(async (request: {
-      readonly operationId: string;
-      readonly intent: {
-        readonly authorization: { readonly token?: string | null };
-      };
-    }) => {
-      expect(request.operationId).toMatch(/^nodex-agent-create-pages:/u);
-      expect(request.intent.authorization.token).toBe("create-token-2");
-      return {
-        ...committedCoordinate(33),
-        event_sequence: 33,
-        receipt: {
-          operation_id: request.operationId,
-          duplicate: false,
-        },
-        outcome: {
-          agent_create_pages: {
-            pages: [{
-              page_id: "page-created-1",
-              location: { kind: "page" as const, page_id: "page-create-target" },
-              body_blocks_created: 1,
-              block_ids: ["body-created-1"],
-              etags: {
-                title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-                body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-              },
-            }, {
-              page_id: "page-created-2",
-              location: { kind: "page" as const, page_id: "page-create-target" },
-              body_blocks_created: 1,
-              block_ids: ["body-created-2"],
-              etags: {
-                title: "nxe1.CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
-                body: "nxe1.DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
-              },
-            }],
-            document_commits: [{
-              document_id: "document-create-target",
-              generation: 2,
-              base_head_seq: 4,
-              head_seq: 5,
-              update_id: "create-target-1",
-              update: [1],
-              state_vector: [2],
-            }, {
-              document_id: "document-create-target",
-              generation: 2,
-              base_head_seq: 5,
-              head_seq: 6,
-              update_id: "create-target-2",
-              update: [3],
-              state_vector: [4],
-            }],
-            affected_database_ids: [],
+    const libraryApply = vi.fn(
+      async (request: {
+        readonly operationId: string;
+        readonly intent: {
+          readonly authorization: { readonly token?: string | null };
+        };
+      }) => {
+        expect(request.operationId).toMatch(/^nodex-agent-create-pages:/u);
+        expect(request.intent.authorization.token).toBe("create-token-2");
+        return {
+          ...committedCoordinate(33),
+          event_sequence: 33,
+          receipt: {
+            operation_id: request.operationId,
+            duplicate: false,
           },
-        },
-      };
-    });
-    const coordinate = vi.fn(async (options: {
-      readonly execute: () => Promise<unknown>;
-    }) => await options.execute());
+          outcome: {
+            agent_create_pages: {
+              pages: [
+                {
+                  page_id: "page-created-1",
+                  location: { kind: "page" as const, page_id: "page-create-target" },
+                  body_blocks_created: 1,
+                  block_ids: ["body-created-1"],
+                  etags: {
+                    title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                    body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+                  },
+                },
+                {
+                  page_id: "page-created-2",
+                  location: { kind: "page" as const, page_id: "page-create-target" },
+                  body_blocks_created: 1,
+                  block_ids: ["body-created-2"],
+                  etags: {
+                    title: "nxe1.CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
+                    body: "nxe1.DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD",
+                  },
+                },
+              ],
+              document_commits: [
+                {
+                  document_id: "document-create-target",
+                  generation: 2,
+                  base_head_seq: 4,
+                  head_seq: 5,
+                  update_id: "create-target-1",
+                  update: [1],
+                  state_vector: [2],
+                },
+                {
+                  document_id: "document-create-target",
+                  generation: 2,
+                  base_head_seq: 5,
+                  head_seq: 6,
+                  update_id: "create-target-2",
+                  update: [3],
+                  state_vector: [4],
+                },
+              ],
+              affected_database_ids: [],
+            },
+          },
+        };
+      },
+    );
+    const coordinate = vi.fn(
+      async (options: { readonly execute: () => Promise<unknown> }) => await options.execute(),
+    );
     const runtime = {
       backend: "rust" as const,
       identity: nativeAgentIdentity,
@@ -307,35 +332,45 @@ describe("native desktop Nodex Agent dynamic service", () => {
       } as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">,
     });
 
-    const result = await service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "create_pages",
-    }, {
-      destination: {
-        kind: "page",
-        pageId: "page-create-target",
-        at: { kind: "end" },
+    const result = await service.registry.execute(
+      {
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+        tool: "create_pages",
       },
-      pages: [{ title: "**First**", markdown: "Body one" }, {
-        title: "Second",
-        markdown: "Body two",
-      }],
-      return: ["block_ids", "etags"],
-    }, context);
+      {
+        destination: {
+          kind: "page",
+          pageId: "page-create-target",
+          at: { kind: "end" },
+        },
+        pages: [
+          { title: "**First**", markdown: "Body one" },
+          {
+            title: "Second",
+            markdown: "Body two",
+          },
+        ],
+        return: ["block_ids", "etags"],
+      },
+      context,
+    );
 
     expect(result.output).toMatchObject({
       data: {
         created: 2,
-        pages: [{
-          pageId: "page-created-1",
-          location: { kind: "page", pageId: "page-create-target" },
-          blockIds: ["body-created-1"],
-        }, {
-          pageId: "page-created-2",
-          location: { kind: "page", pageId: "page-create-target" },
-          blockIds: ["body-created-2"],
-        }],
+        pages: [
+          {
+            pageId: "page-created-1",
+            location: { kind: "page", pageId: "page-create-target" },
+            blockIds: ["body-created-1"],
+          },
+          {
+            pageId: "page-created-2",
+            location: { kind: "page", pageId: "page-create-target" },
+            blockIds: ["body-created-2"],
+          },
+        ],
       },
     });
     expect(libraryRead).toHaveBeenCalledTimes(2);
@@ -384,28 +419,33 @@ describe("native desktop Nodex Agent dynamic service", () => {
                 ownership_transformations: [],
               },
             },
-            pages: [{
-              page_id: "page-move-database",
-              source: {
-                kind: "data_source" as const,
-                data_source_id: "data-source-move",
+            pages: [
+              {
+                page_id: "page-move-database",
+                source: {
+                  kind: "data_source" as const,
+                  data_source_id: "data-source-move",
+                },
+                source_document_id: null,
+                source_database_id: "database-move",
               },
-              source_document_id: null,
-              source_database_id: "database-move",
-            }, {
-              page_id: "page-move-library",
-              source: {
-                kind: "library" as const,
-                library_id: "library-native-agent",
+              {
+                page_id: "page-move-library",
+                source: {
+                  kind: "library" as const,
+                  library_id: "library-native-agent",
+                },
+                source_document_id: null,
+                source_database_id: null,
               },
-              source_document_id: null,
-              source_database_id: null,
-            }],
-            document_heads: [{
-              document_id: "document-move-target",
-              generation: 3,
-              expected_head_seq: 8,
-            }],
+            ],
+            document_heads: [
+              {
+                document_id: "document-move-target",
+                generation: 3,
+                expected_head_seq: 8,
+              },
+            ],
             destination: {
               kind: "page" as const,
               page_id: "page-move-target",
@@ -424,52 +464,60 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       };
     });
-    const libraryApply = vi.fn(async (request: {
-      readonly operationId: string;
-      readonly intent: {
-        readonly authorization: { readonly token?: string | null };
-      };
-    }) => {
-      expect(request.operationId).toMatch(/^nodex-agent-move-pages:/u);
-      expect(request.intent.authorization.token).toBe("move-token-2");
-      return {
-        ...committedCoordinate(43),
-        event_sequence: 43,
-        receipt: { operation_id: request.operationId, duplicate: false },
-        outcome: {
-          agent_move_pages: {
-            pages: [{
-              page_id: "page-move-database",
-              location: { kind: "page" as const, page_id: "page-move-target" },
-            }, {
-              page_id: "page-move-library",
-              location: { kind: "page" as const, page_id: "page-move-target" },
-            }],
-            document_commits: [{
-              document_id: "document-move-target",
-              generation: 3,
-              base_head_seq: 8,
-              head_seq: 9,
-              update_id: "move-target-1",
-              update: [1],
-              state_vector: [2],
-            }, {
-              document_id: "document-move-target",
-              generation: 3,
-              base_head_seq: 9,
-              head_seq: 10,
-              update_id: "move-target-2",
-              update: [3],
-              state_vector: [4],
-            }],
-            affected_database_ids: ["database-move"],
+    const libraryApply = vi.fn(
+      async (request: {
+        readonly operationId: string;
+        readonly intent: {
+          readonly authorization: { readonly token?: string | null };
+        };
+      }) => {
+        expect(request.operationId).toMatch(/^nodex-agent-move-pages:/u);
+        expect(request.intent.authorization.token).toBe("move-token-2");
+        return {
+          ...committedCoordinate(43),
+          event_sequence: 43,
+          receipt: { operation_id: request.operationId, duplicate: false },
+          outcome: {
+            agent_move_pages: {
+              pages: [
+                {
+                  page_id: "page-move-database",
+                  location: { kind: "page" as const, page_id: "page-move-target" },
+                },
+                {
+                  page_id: "page-move-library",
+                  location: { kind: "page" as const, page_id: "page-move-target" },
+                },
+              ],
+              document_commits: [
+                {
+                  document_id: "document-move-target",
+                  generation: 3,
+                  base_head_seq: 8,
+                  head_seq: 9,
+                  update_id: "move-target-1",
+                  update: [1],
+                  state_vector: [2],
+                },
+                {
+                  document_id: "document-move-target",
+                  generation: 3,
+                  base_head_seq: 9,
+                  head_seq: 10,
+                  update_id: "move-target-2",
+                  update: [3],
+                  state_vector: [4],
+                },
+              ],
+              affected_database_ids: ["database-move"],
+            },
           },
-        },
-      };
-    });
-    const coordinate = vi.fn(async (options: {
-      readonly execute: () => Promise<unknown>;
-    }) => await options.execute());
+        };
+      },
+    );
+    const coordinate = vi.fn(
+      async (options: { readonly execute: () => Promise<unknown> }) => await options.execute(),
+    );
     const runtime = {
       backend: "rust" as const,
       identity: nativeAgentIdentity,
@@ -487,30 +535,37 @@ describe("native desktop Nodex Agent dynamic service", () => {
       } as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">,
     });
 
-    const result = await service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "move_pages",
-    }, {
-      pageIds: ["page-move-database", "page-move-library"],
-      destination: {
-        kind: "page",
-        pageId: "page-move-target",
-        at: { kind: "end" },
+    const result = await service.registry.execute(
+      {
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+        tool: "move_pages",
       },
-    }, context);
+      {
+        pageIds: ["page-move-database", "page-move-library"],
+        destination: {
+          kind: "page",
+          pageId: "page-move-target",
+          at: { kind: "end" },
+        },
+      },
+      context,
+    );
 
     expect(result.output).toEqual({
       data: {
-        pages: [{
-          pageId: "page-move-database",
-          pageKey: null,
-          location: { kind: "page", pageId: "page-move-target" },
-        }, {
-          pageId: "page-move-library",
-          pageKey: null,
-          location: { kind: "page", pageId: "page-move-target" },
-        }],
+        pages: [
+          {
+            pageId: "page-move-database",
+            pageKey: null,
+            location: { kind: "page", pageId: "page-move-target" },
+          },
+          {
+            pageId: "page-move-library",
+            pageKey: null,
+            location: { kind: "page", pageId: "page-move-target" },
+          },
+        ],
         moved: 2,
       },
     });
@@ -566,19 +621,23 @@ describe("native desktop Nodex Agent dynamic service", () => {
             },
             page_id: "page-copy-result",
             body_block_count: 2,
-            document_heads: [{
-              document_id: "document-copy-source",
-              generation: 1,
-              expected_head_seq: 5,
-            }, {
-              document_id: "document-copy-child",
-              generation: 1,
-              expected_head_seq: 2,
-            }, {
-              document_id: "document-copy-target",
-              generation: 3,
-              expected_head_seq: 8,
-            }],
+            document_heads: [
+              {
+                document_id: "document-copy-source",
+                generation: 1,
+                expected_head_seq: 5,
+              },
+              {
+                document_id: "document-copy-child",
+                generation: 1,
+                expected_head_seq: 2,
+              },
+              {
+                document_id: "document-copy-target",
+                generation: 3,
+                expected_head_seq: 8,
+              },
+            ],
             destination: {
               kind: "page" as const,
               page_id: "page-copy-target",
@@ -600,59 +659,65 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       };
     });
-    const libraryApply = vi.fn(async (request: {
-      readonly operationId: string;
-      readonly intent: {
-        readonly authorization: { readonly token?: string | null };
-      };
-    }) => {
-      expect(request.operationId).toMatch(/^nodex-agent-duplicate:/u);
-      expect(request.intent.authorization.token).toBe("copy-token-2");
-      return {
-        ...committedCoordinate(21),
-        store_epoch: "store-native-agent",
-        event_sequence: 21,
-        receipt: {
-          operation_id: request.operationId,
-          duplicate: false,
-        },
-        outcome: {
-          agent_page_copy: {
-            source_page_id: "page-copy-source",
-            page_id: "page-copy-result",
-            location: { kind: "page" as const, page_id: "page-copy-target" },
-            body_blocks_created: 2,
-            block_map: {
-              "page-copy-source": "page-copy-result",
-              "block-copy-source": "block-copy-result",
-            },
-            etags: {
-              title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-              body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-            },
-            document_commits: [{
-              document_id: "document-copy-target",
-              generation: 3,
-              base_head_seq: 8,
-              head_seq: 9,
-              update_id: "update-copy-target",
-              update: [1, 2, 3],
-              state_vector: [4, 5],
-            }],
-            affected_database_ids: [],
+    const libraryApply = vi.fn(
+      async (request: {
+        readonly operationId: string;
+        readonly intent: {
+          readonly authorization: { readonly token?: string | null };
+        };
+      }) => {
+        expect(request.operationId).toMatch(/^nodex-agent-duplicate:/u);
+        expect(request.intent.authorization.token).toBe("copy-token-2");
+        return {
+          ...committedCoordinate(21),
+          store_epoch: "store-native-agent",
+          event_sequence: 21,
+          receipt: {
+            operation_id: request.operationId,
+            duplicate: false,
           },
-        },
-      };
-    });
-    const coordinate = vi.fn(async (options: {
-      readonly projectId: string;
-      readonly storeEpoch: string;
-      readonly execute: () => Promise<unknown>;
-    }) => {
-      expect(options.projectId).toBe("project-native-agent");
-      expect(options.storeEpoch).toBe("store-native-agent");
-      return await options.execute();
-    });
+          outcome: {
+            agent_page_copy: {
+              source_page_id: "page-copy-source",
+              page_id: "page-copy-result",
+              location: { kind: "page" as const, page_id: "page-copy-target" },
+              body_blocks_created: 2,
+              block_map: {
+                "page-copy-source": "page-copy-result",
+                "block-copy-source": "block-copy-result",
+              },
+              etags: {
+                title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+              },
+              document_commits: [
+                {
+                  document_id: "document-copy-target",
+                  generation: 3,
+                  base_head_seq: 8,
+                  head_seq: 9,
+                  update_id: "update-copy-target",
+                  update: [1, 2, 3],
+                  state_vector: [4, 5],
+                },
+              ],
+              affected_database_ids: [],
+            },
+          },
+        };
+      },
+    );
+    const coordinate = vi.fn(
+      async (options: {
+        readonly projectId: string;
+        readonly storeEpoch: string;
+        readonly execute: () => Promise<unknown>;
+      }) => {
+        expect(options.projectId).toBe("project-native-agent");
+        expect(options.storeEpoch).toBe("store-native-agent");
+        return await options.execute();
+      },
+    );
     const runtime = {
       backend: "rust" as const,
       identity: nativeAgentIdentity,
@@ -670,19 +735,23 @@ describe("native desktop Nodex Agent dynamic service", () => {
       } as unknown as Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">,
     });
 
-    const result = await service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "duplicate_page",
-    }, {
-      pageId: "page-copy-source",
-      destination: {
-        kind: "page",
-        pageId: "page-copy-target",
-        at: { kind: "before", blockId: "block-copy-anchor" },
+    const result = await service.registry.execute(
+      {
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+        tool: "duplicate_page",
       },
-      return: ["block_map", "etags"],
-    }, context);
+      {
+        pageId: "page-copy-source",
+        destination: {
+          kind: "page",
+          pageId: "page-copy-target",
+          at: { kind: "before", blockId: "block-copy-anchor" },
+        },
+        return: ["block_map", "etags"],
+      },
+      context,
+    );
 
     expect(result).toMatchObject({
       effect: "write",
@@ -712,22 +781,26 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const libraryRead = vi.fn(async () => ({
       value: {
         kind: "agent_search" as const,
-        items: [{
-          kind: "page" as const,
-          id: "page-native-search",
-          title: "Native Search",
-          location: {
-            kind: "data_source" as const,
-            data_source_id: "data-source-native-agent",
+        items: [
+          {
+            kind: "page" as const,
+            id: "page-native-search",
+            title: "Native Search",
+            location: {
+              kind: "data_source" as const,
+              data_source_id: "data-source-native-agent",
+            },
+            matches: [
+              {
+                source: "property" as const,
+                quality: "fuzzy" as const,
+                property_id: "p_Abcd1234",
+                property_name: "Status",
+                excerpt: "In progress",
+              },
+            ],
           },
-          matches: [{
-            source: "property" as const,
-            quality: "fuzzy" as const,
-            property_id: "p_Abcd1234",
-            property_name: "Status",
-            excerpt: "In progress",
-          }],
-        }],
+        ],
         has_more: true,
         next_cursor: "nxl1.search.signature",
       },
@@ -747,50 +820,60 @@ describe("native desktop Nodex Agent dynamic service", () => {
       documentSync,
     });
 
-    const result = await service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "search",
-    }, {
-      query: "nativ serch",
-      scope: { kind: "data_source", dataSourceId: "data-source-native-agent" },
-      page: { cursor: "nxl1.previous.signature", limit: 1 },
-    }, context);
+    const result = await service.registry.execute(
+      {
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+        tool: "search",
+      },
+      {
+        query: "nativ serch",
+        scope: { kind: "data_source", dataSourceId: "data-source-native-agent" },
+        page: { cursor: "nxl1.previous.signature", limit: 1 },
+      },
+      context,
+    );
 
     expect(result.output).toEqual({
       data: {
-        results: [{
-          kind: "page",
-          id: "page-native-search",
-          pageKey: null,
-          title: "Native Search",
-          location: {
-            kind: "data_source",
-            dataSourceId: "data-source-native-agent",
+        results: [
+          {
+            kind: "page",
+            id: "page-native-search",
+            pageKey: null,
+            title: "Native Search",
+            location: {
+              kind: "data_source",
+              dataSourceId: "data-source-native-agent",
+            },
+            matches: [
+              {
+                source: "property",
+                quality: "fuzzy",
+                propertyId: "p_Abcd1234",
+                propertyName: "Status",
+                excerpt: "In progress",
+              },
+            ],
           },
-          matches: [{
-            source: "property",
-            quality: "fuzzy",
-            propertyId: "p_Abcd1234",
-            propertyName: "Status",
-            excerpt: "In progress",
-          }],
-        }],
+        ],
       },
       page: { hasMore: true, nextCursor: "nxl1.search.signature" },
     });
-    expect(libraryRead).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "agent_search",
-      query: "nativ serch",
-      target: "pages",
-      scope: {
-        kind: "data_source",
-        data_source_id: "data-source-native-agent",
-      },
-      cursor: "nxl1.previous.signature",
-      limit: 1,
-      authorization: expect.objectContaining({ call_id: "call-native-agent" }),
-    }));
+    expect(libraryRead).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "agent_search",
+        query: "nativ serch",
+        target: "pages",
+        scope: {
+          kind: "data_source",
+          data_source_id: "data-source-native-agent",
+        },
+        cursor: "nxl1.previous.signature",
+        limit: 1,
+        authorization: expect.objectContaining({ call_id: "call-native-agent" }),
+      }),
+    );
   });
 
   test("fetches native stable Blocks with Core-minted guards and pagination", async () => {
@@ -808,12 +891,14 @@ describe("native desktop Nodex Agent dynamic service", () => {
         schema_key: "nodex.page",
         schema_version: 2,
       },
-      intrinsic_properties: [{
-        key: "status",
-        value_type: "string",
-        value: "todo",
-        revision: 3,
-      }],
+      intrinsic_properties: [
+        {
+          key: "status",
+          value_type: "string",
+          value: "todo",
+          revision: 3,
+        },
+      ],
       data_source_context: {
         kind: "member" as const,
         membership: {
@@ -826,7 +911,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
         data_source: { dataSourceId: "source-fetch" },
         properties: [],
         values: {
-          "p_Abcd1234": { value: "high" },
+          p_Abcd1234: { value: "high" },
         },
       },
       access_context: { kind: "library" as const },
@@ -851,10 +936,7 @@ describe("native desktop Nodex Agent dynamic service", () => {
       }
       throw new Error(`Unexpected Library read ${read.kind}`);
     });
-    const documentRead = vi.fn(async (
-      clientSessionId: string,
-      read: Record<string, unknown>,
-    ) => {
+    const documentRead = vi.fn(async (clientSessionId: string, read: Record<string, unknown>) => {
       expect(clientSessionId).toBe("nodex-agent:thread-native-agent");
       expect(read).toMatchObject({
         kind: "agent_semantic_snapshot",
@@ -879,16 +961,18 @@ describe("native desktop Nodex Agent dynamic service", () => {
             rich_title: [{ type: "text", text: "Fetch", styles: {} }],
             nested_markdown: "Fetched body",
             plain_text: "Fetched body",
-            blocks: [{
-              block_id: "block-fetch",
-              parent_block_id: null,
-              sibling_index: 0,
-              depth: 0,
-              block_type: "paragraph",
-              props: {},
-              content: [{ type: "text", text: "Fetched body", styles: {} }],
-              etag: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            }],
+            blocks: [
+              {
+                block_id: "block-fetch",
+                parent_block_id: null,
+                sibling_index: 0,
+                depth: 0,
+                block_type: "paragraph",
+                props: {},
+                content: [{ type: "text", text: "Fetched body", styles: {} }],
+                etag: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              },
+            ],
             title_etag: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
             has_more: true,
             next_cursor: "nxd1.cursor.signature",
@@ -911,21 +995,22 @@ describe("native desktop Nodex Agent dynamic service", () => {
       documentSync,
     });
 
-    const result = await service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "fetch",
-    }, {
-      id: "page-fetch",
-      format: "blocks",
-      maxDepth: 3,
-      page: { limit: 1 },
-      propertyIds: ["status", "p_Abcd1234"],
-      prepareFor: [
-        { kind: "title" },
-        { kind: "block_update", blockIds: ["block-fetch"] },
-      ],
-    }, context);
+    const result = await service.registry.execute(
+      {
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+        tool: "fetch",
+      },
+      {
+        id: "page-fetch",
+        format: "blocks",
+        maxDepth: 3,
+        page: { limit: 1 },
+        propertyIds: ["status", "p_Abcd1234"],
+        prepareFor: [{ kind: "title" }, { kind: "block_update", blockIds: ["block-fetch"] }],
+      },
+      context,
+    );
 
     expect(result.output).toMatchObject({
       data: {
@@ -938,15 +1023,17 @@ describe("native desktop Nodex Agent dynamic service", () => {
           location: { kind: "data_source", dataSourceId: "source-fetch" },
           properties: {
             status: { value: "todo" },
-            "p_Abcd1234": { value: "high" },
+            p_Abcd1234: { value: "high" },
           },
         },
         content: {
           format: "blocks",
-          blocks: [{
-            id: "block-fetch",
-            etag: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-          }],
+          blocks: [
+            {
+              id: "block-fetch",
+              etag: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            },
+          ],
         },
         dataSource: {
           dataSourceId: "source-fetch",
@@ -1063,24 +1150,30 @@ describe("native desktop Nodex Agent dynamic service", () => {
       documentSync,
     });
 
-    const result = await service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "query_data_source",
-    }, {
-      dataSourceId: "data-source-native-agent",
-      filter: {
-        kind: "clause",
-        propertyId: "status",
-        operator: "is_empty",
+    const result = await service.registry.execute(
+      {
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+        tool: "query_data_source",
       },
-      sort: [{
-        field: { kind: "title" },
-        direction: "desc",
-        nulls: "last",
-      }],
-      page: { limit: 25 },
-    }, context);
+      {
+        dataSourceId: "data-source-native-agent",
+        filter: {
+          kind: "clause",
+          propertyId: "status",
+          operator: "is_empty",
+        },
+        sort: [
+          {
+            field: { kind: "title" },
+            direction: "desc",
+            nulls: "last",
+          },
+        ],
+        page: { limit: 25 },
+      },
+      context,
+    );
 
     expect(result.output).toMatchObject({
       data: {
@@ -1109,11 +1202,13 @@ describe("native desktop Nodex Agent dynamic service", () => {
           propertyId: "status",
           operator: "is_empty",
         },
-        sort: [{
-          field: { kind: "title" },
-          direction: "desc",
-          nulls: "last",
-        }],
+        sort: [
+          {
+            field: { kind: "title" },
+            direction: "desc",
+            nulls: "last",
+          },
+        ],
       },
     });
   });
@@ -1136,99 +1231,104 @@ describe("native desktop Nodex Agent dynamic service", () => {
         },
       },
     });
-    const libraryRead = vi.fn(async (
-      read: unknown,
-      options?: { readonly class: string },
-    ) => {
+    const libraryRead = vi.fn(async (read: unknown, options?: { readonly class: string }) => {
       void read;
       void options;
       return pageContent();
     });
-    const documentRead = vi.fn(async (
-      _clientSessionId: string,
-      read: {
-        mutation: { commands: readonly unknown[] };
-      },
-    ) => {
-      preparation += 1;
-      expect(read.mutation.commands).toEqual([{
-        kind: "patch_body",
-        old_fragment: "Old",
-        new_fragment: "New",
-        expected_matches: 2,
-      }]);
-      return {
-        store_epoch: "store-native-agent",
-        event_sequence: 9,
-        value: {
-          kind: "agent_semantic_mutation_preparation" as const,
-          preparation: {
-            state: "prepared" as const,
-            consent: "none" as const,
-            expires_at_unix_ms: Date.now() + 30_000,
-            token: `token-${preparation}`,
-            footprint: {
-              effect_class: "destructive" as const,
-              targets: [{ kind: "page" as const, page_id: "page-update" }],
-              created_roots: ["block-created"],
-              updated_roots: ["page-update"],
-              deleted_roots: ["block-deleted"],
-              deleted_owner_roots: [],
-              ownership_transformations: [],
+    const documentRead = vi.fn(
+      async (
+        _clientSessionId: string,
+        read: {
+          mutation: { commands: readonly unknown[] };
+        },
+      ) => {
+        preparation += 1;
+        expect(read.mutation.commands).toEqual([
+          {
+            kind: "patch_body",
+            old_fragment: "Old",
+            new_fragment: "New",
+            expected_matches: 2,
+          },
+        ]);
+        return {
+          store_epoch: "store-native-agent",
+          event_sequence: 9,
+          value: {
+            kind: "agent_semantic_mutation_preparation" as const,
+            preparation: {
+              state: "prepared" as const,
+              consent: "none" as const,
+              expires_at_unix_ms: Date.now() + 30_000,
+              token: `token-${preparation}`,
+              footprint: {
+                effect_class: "destructive" as const,
+                targets: [{ kind: "page" as const, page_id: "page-update" }],
+                created_roots: ["block-created"],
+                updated_roots: ["page-update"],
+                deleted_roots: ["block-deleted"],
+                deleted_owner_roots: [],
+                ownership_transformations: [],
+              },
             },
           },
-        },
-      };
-    });
-    const documentApply = vi.fn(async (request: {
-      intent: {
-        authorization: { token?: string | null };
-        mutation: { commands: readonly unknown[] };
-      };
-    }) => {
-      expect(request.intent.authorization.token).toBe("token-2");
-      expect(request.intent.mutation.commands).toEqual([{
-        kind: "patch_body",
-        old_fragment: "Old",
-        new_fragment: "New",
-        expected_matches: 2,
-      }]);
-      committed = true;
-      return {
-        ...committedCoordinate(10),
-        store_epoch: "store-native-agent",
-        event_sequence: 10,
-        receipt: {
-          operation_id: "agent-update",
-          duplicate: false,
-          document_id: "document-update",
-          generation: 1,
-          head_seq: 8,
-        },
-        outcome: {
-          document_id: "document-update",
-          generation: 1,
-          head_seq: 8,
-          outcome: "committed" as const,
-          committed_at: "2026-07-20T00:00:00.000Z",
-          mutation_effect: {
-            base_head_seq: 7,
-            touched_block_ids: ["block-created", "block-deleted"],
-            created_block_ids: ["block-created"],
-            deleted_block_ids: ["block-deleted"],
-            updated_block_ids: [],
-            moved_block_ids: [],
-            write_fence_block_ids: [],
-            title_changed: false,
-            coordination: "merge_friendly" as const,
+        };
+      },
+    );
+    const documentApply = vi.fn(
+      async (request: {
+        intent: {
+          authorization: { token?: string | null };
+          mutation: { commands: readonly unknown[] };
+        };
+      }) => {
+        expect(request.intent.authorization.token).toBe("token-2");
+        expect(request.intent.mutation.commands).toEqual([
+          {
+            kind: "patch_body",
+            old_fragment: "Old",
+            new_fragment: "New",
+            expected_matches: 2,
           },
-          semantic_etags: {
-            title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        ]);
+        committed = true;
+        return {
+          ...committedCoordinate(10),
+          store_epoch: "store-native-agent",
+          event_sequence: 10,
+          receipt: {
+            operation_id: "agent-update",
+            duplicate: false,
+            document_id: "document-update",
+            generation: 1,
+            head_seq: 8,
           },
-        },
-      };
-    });
+          outcome: {
+            document_id: "document-update",
+            generation: 1,
+            head_seq: 8,
+            outcome: "committed" as const,
+            committed_at: "2026-07-20T00:00:00.000Z",
+            mutation_effect: {
+              base_head_seq: 7,
+              touched_block_ids: ["block-created", "block-deleted"],
+              created_block_ids: ["block-created"],
+              deleted_block_ids: ["block-deleted"],
+              updated_block_ids: [],
+              moved_block_ids: [],
+              write_fence_block_ids: [],
+              title_changed: false,
+              coordination: "merge_friendly" as const,
+            },
+            semantic_etags: {
+              title: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              body: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            },
+          },
+        };
+      },
+    );
     const runtime = {
       backend: "rust" as const,
       identity: nativeAgentIdentity,
@@ -1245,22 +1345,28 @@ describe("native desktop Nodex Agent dynamic service", () => {
       documentSync,
     });
 
-    const result = await service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "update_page",
-    }, {
-      pageId: "page-update",
-      body: {
-        kind: "patch",
-        patches: [{
-          oldMarkdown: "Old",
-          newMarkdown: "New",
-          expectedMatches: 2,
-        }],
+    const result = await service.registry.execute(
+      {
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+        tool: "update_page",
       },
-      return: ["markdown", "block_ids", "etags"],
-    }, context);
+      {
+        pageId: "page-update",
+        body: {
+          kind: "patch",
+          patches: [
+            {
+              oldMarkdown: "Old",
+              newMarkdown: "New",
+              expectedMatches: 2,
+            },
+          ],
+        },
+        return: ["markdown", "block_ids", "etags"],
+      },
+      context,
+    );
 
     expect(result).toMatchObject({
       effect: "write",
@@ -1362,11 +1468,13 @@ describe("native desktop Nodex Agent dynamic service", () => {
       "nodex-agent:thread-native-agent",
       expect.objectContaining({
         mutation: expect.objectContaining({
-          commands: [{
-            kind: "insert_body",
-            anchor: { kind: "after", block_id: "block-anchor" },
-            nested_markdown: "Inserted",
-          }],
+          commands: [
+            {
+              kind: "insert_body",
+              anchor: { kind: "after", block_id: "block-anchor" },
+              nested_markdown: "Inserted",
+            },
+          ],
         }),
       }),
       { class: "background" },
@@ -1399,11 +1507,13 @@ describe("native desktop Nodex Agent dynamic service", () => {
             updated_roots: ["block-update", "block-move"],
             deleted_roots: ["block-delete"],
             deleted_owner_roots: ["block-delete"],
-            ownership_transformations: [{
-              resource_id: "block-move",
-              parent_id: "block-parent",
-              before_id: null,
-            }],
+            ownership_transformations: [
+              {
+                resource_id: "block-move",
+                parent_id: "block-parent",
+                before_id: null,
+              },
+            ],
           },
         },
       },
@@ -1470,30 +1580,35 @@ describe("native desktop Nodex Agent dynamic service", () => {
     const updates = new NativeNodexAgentPageUpdateRuntime(runtime);
     const input = AdvancedUpdatePageV3InputSchema.parse({
       pageId: "page-stable",
-      edits: [{
-        kind: "insert",
-        at: { kind: "before", blockId: "block-anchor" },
-        block: {
-          localId: "draft-root",
-          type: "paragraph",
-          props: { textAlignment: "left" },
-          content: [{ type: "text", text: "Draft", styles: {} }],
-          children: [{ localId: "draft-child", type: "divider" }],
+      edits: [
+        {
+          kind: "insert",
+          at: { kind: "before", blockId: "block-anchor" },
+          block: {
+            localId: "draft-root",
+            type: "paragraph",
+            props: { textAlignment: "left" },
+            content: [{ type: "text", text: "Draft", styles: {} }],
+            children: [{ localId: "draft-child", type: "divider" }],
+          },
         },
-      }, {
-        kind: "update",
-        blockId: "block-update",
-        ifMatch: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        patch: { type: "heading", content: null },
-      }, {
-        kind: "move",
-        blockId: "block-move",
-        at: { kind: "end", parentBlockId: "block-parent" },
-      }, {
-        kind: "delete",
-        blockId: "block-delete",
-        ifMatch: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-      }],
+        {
+          kind: "update",
+          blockId: "block-update",
+          ifMatch: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          patch: { type: "heading", content: null },
+        },
+        {
+          kind: "move",
+          blockId: "block-move",
+          at: { kind: "end", parentBlockId: "block-parent" },
+        },
+        {
+          kind: "delete",
+          blockId: "block-delete",
+          ifMatch: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+        },
+      ],
       safety: { allowDeletingOwnedBlocks: true },
       return: ["block_ids"],
     });
@@ -1512,43 +1627,50 @@ describe("native desktop Nodex Agent dynamic service", () => {
       expect.objectContaining({
         mutation: expect.objectContaining({
           allow_deleting_owned_blocks: true,
-          commands: [{
-            kind: "insert_block",
-            anchor: { kind: "before", block_id: "block-anchor" },
-            block: {
-              local_id: "draft-root",
-              block_type: "paragraph",
-              props: { textAlignment: "left" },
-              content: {
-                kind: "value",
-                value: [{ type: "text", text: "Draft", styles: {} }],
+          commands: [
+            {
+              kind: "insert_block",
+              anchor: { kind: "before", block_id: "block-anchor" },
+              block: {
+                local_id: "draft-root",
+                block_type: "paragraph",
+                props: { textAlignment: "left" },
+                content: {
+                  kind: "value",
+                  value: [{ type: "text", text: "Draft", styles: {} }],
+                },
+                children: [
+                  {
+                    local_id: "draft-child",
+                    block_type: "divider",
+                    props: {},
+                    content: { kind: "absent" },
+                    children: [],
+                  },
+                ],
               },
-              children: [{
-                local_id: "draft-child",
-                block_type: "divider",
-                props: {},
-                content: { kind: "absent" },
-                children: [],
-              }],
             },
-          }, {
-            kind: "update_block",
-            block_id: "block-update",
-            expected_etag: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-            patch: {
-              block_type: "heading",
-              content: { kind: "value", value: null },
-              unset_content: false,
+            {
+              kind: "update_block",
+              block_id: "block-update",
+              expected_etag: "nxe1.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+              patch: {
+                block_type: "heading",
+                content: { kind: "value", value: null },
+                unset_content: false,
+              },
             },
-          }, {
-            kind: "move_block",
-            block_id: "block-move",
-            anchor: { kind: "end", parent_block_id: "block-parent" },
-          }, {
-            kind: "delete_block",
-            block_id: "block-delete",
-            expected_etag: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-          }],
+            {
+              kind: "move_block",
+              block_id: "block-move",
+              anchor: { kind: "end", parent_block_id: "block-parent" },
+            },
+            {
+              kind: "delete_block",
+              block_id: "block-delete",
+              expected_etag: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
+            },
+          ],
         }),
       }),
       { class: "background" },

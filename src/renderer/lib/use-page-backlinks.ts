@@ -2,9 +2,7 @@ import { hashKey, useInfiniteQuery, useQueryClient } from "@tanstack/react-query
 
 import type { AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import type { ContentAccessContext } from "../../shared/content-access-context";
-import {
-  type LibraryPageBacklink,
-} from "../../shared/library-module";
+import { type LibraryPageBacklink } from "../../shared/library-module";
 import type { ProjectionScope } from "../../shared/projection-stream";
 import { readLibraryModule } from "./api";
 import { invalidateExactQuery } from "./query-invalidation";
@@ -28,19 +26,16 @@ interface PageBacklinksPage {
   readonly authorization: AuthorizedReadStamp | null;
 }
 
-const resolvePageBacklinksAuthority = (
-  _queryKey: readonly unknown[],
-  data: unknown,
-) => {
+const resolvePageBacklinksAuthority = (_queryKey: readonly unknown[], data: unknown) => {
   const candidate = data as {
     readonly authorization?: AuthorizedReadStamp | null;
     readonly pages?: readonly PageBacklinksPage[];
   } | null;
-  const authorizations = [
-    ...(candidate?.authorization ? [candidate.authorization] : []),
-    ...(candidate?.pages ?? []).map((page) => page.authorization),
-  ]
-    .filter((authorization): authorization is AuthorizedReadStamp => authorization !== null) ?? [];
+  const authorizations =
+    [
+      ...(candidate?.authorization ? [candidate.authorization] : []),
+      ...(candidate?.pages ?? []).map((page) => page.authorization),
+    ].filter((authorization): authorization is AuthorizedReadStamp => authorization !== null) ?? [];
   return authorizations.length > 0 ? { authorizations } : null;
 };
 
@@ -77,15 +72,20 @@ export const usePageBacklinks = (
       });
       if (!result.ok) throw new Error(result.error.message);
       if (result.value.value.kind !== "page_backlinks") {
-        throw new Error(`Library read returned ${result.value.value.kind}, expected page_backlinks`);
+        throw new Error(
+          `Library read returned ${result.value.value.kind}, expected page_backlinks`,
+        );
       }
-      return await admitResourceAuthorityQuery({
-        ...result.value.value,
-        libraryId: result.value.libraryId,
-        storeEpoch: result.value.storeEpoch,
-        commitSeq: result.value.commitSeq,
-        authorization: result.value.authorization,
-      }, resolvePageBacklinksAuthority);
+      return await admitResourceAuthorityQuery(
+        {
+          ...result.value.value,
+          libraryId: result.value.libraryId,
+          storeEpoch: result.value.storeEpoch,
+          commitSeq: result.value.commitSeq,
+          authorization: result.value.authorization,
+        },
+        resolvePageBacklinksAuthority,
+      );
     },
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled: targetPageId.length > 0,
@@ -95,22 +95,26 @@ export const usePageBacklinks = (
   });
   const latestPage = query.data?.pages.at(-1);
   const libraryId = library.data?.libraryId ?? latestPage?.libraryId ?? null;
-  const scope: ProjectionScope | null = libraryId === null
-    ? null
-    : accessContext.kind === "library"
-      ? { kind: "library", libraryId }
-      : { kind: "project", libraryId, projectId: accessContext.projectId };
-  useProjectionRegistration(scope
-    ? {
-        scope,
-        consumerKey: hashKey(queryKey),
-        getDependencies: () => ({ pageIds: [targetPageId] }),
-        getCursor: () => latestPage
-          ? { storeEpoch: latestPage.storeEpoch, commitSeq: latestPage.commitSeq }
-          : null,
-        invalidate: () => invalidateExactQuery(queryClient, queryKey),
-      }
-    : null);
+  const scope: ProjectionScope | null =
+    libraryId === null
+      ? null
+      : accessContext.kind === "library"
+        ? { kind: "library", libraryId }
+        : { kind: "project", libraryId, projectId: accessContext.projectId };
+  useProjectionRegistration(
+    scope
+      ? {
+          scope,
+          consumerKey: hashKey(queryKey),
+          getDependencies: () => ({ pageIds: [targetPageId] }),
+          getCursor: () =>
+            latestPage
+              ? { storeEpoch: latestPage.storeEpoch, commitSeq: latestPage.commitSeq }
+              : null,
+          invalidate: () => invalidateExactQuery(queryClient, queryKey),
+        }
+      : null,
+  );
 
   return {
     items: query.data?.pages.flatMap((page) => page.items) ?? [],

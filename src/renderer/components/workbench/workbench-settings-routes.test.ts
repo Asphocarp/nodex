@@ -15,8 +15,9 @@ describe("workbench settings routes", () => {
     expect(buildSettingsPath("computer-use")).toBe("/settings/computer-use");
     expect(buildBrowserSettingsPath()).toBe("/settings/browser");
     expect(buildBrowserSettingsPath("passwords")).toBe("/settings/browser/passwords");
-    expect(buildBrowserSettingsPath(undefined, "autofill-and-passwords"))
-      .toBe("/settings/browser#autofill-and-passwords");
+    expect(buildBrowserSettingsPath(undefined, "autofill-and-passwords")).toBe(
+      "/settings/browser#autofill-and-passwords",
+    );
   });
 
   test("parses canonical settings paths without validating unknown slugs as sections", () => {
@@ -32,9 +33,12 @@ describe("workbench settings routes", () => {
 
   test("preserves canonical query/hash parsing for owner state", () => {
     expect(parseSettingsPath("/settings/general-settings?panel=updates")).toBe("general-settings");
-    expect(parseSettingsPath("/settings/local-environments#project-alpha")).toBe("local-environments");
-    expect(resolveSettingsShellState("/settings/backups?restore=latest#snapshots").activeSectionId)
-      .toBe("backups");
+    expect(parseSettingsPath("/settings/local-environments#project-alpha")).toBe(
+      "local-environments",
+    );
+    expect(
+      resolveSettingsShellState("/settings/backups?restore=latest#snapshots").activeSectionId,
+    ).toBe("backups");
 
     const browser = resolveSettingsShellState("/settings/browser#permissions");
     expect(browser.activeSectionId).toBe("browser");

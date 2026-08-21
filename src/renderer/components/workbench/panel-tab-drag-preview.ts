@@ -16,9 +16,7 @@ function removeClonedTabIdentity(element: HTMLElement): void {
   }
 }
 
-export function createPanelTabDragPreviewElement(
-  source: HTMLElement,
-): HTMLElement | null {
+export function createPanelTabDragPreviewElement(source: HTMLElement): HTMLElement | null {
   const surface = source.querySelector<HTMLElement>(PANEL_TAB_SURFACE_SELECTOR);
   if (!surface) return null;
 
@@ -30,7 +28,8 @@ export function createPanelTabDragPreviewElement(
   preview.dataset.panelTabDragPreview = "true";
   preview.setAttribute("aria-hidden", "true");
   preview.inert = true;
-  preview.className = "pointer-events-none overflow-hidden rounded-lg border border-token-border bg-token-bg-primary opacity-70 shadow-lg";
+  preview.className =
+    "pointer-events-none overflow-hidden rounded-lg border border-token-border bg-token-bg-primary opacity-70 shadow-lg";
   preview.style.boxSizing = "content-box";
   preview.style.width = `${rect.width}px`;
   preview.style.height = `${rect.height}px`;

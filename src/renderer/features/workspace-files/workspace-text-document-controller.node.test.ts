@@ -12,17 +12,20 @@ describe("WorkspaceTextDocumentController", () => {
     const persistDraft = vi.fn();
     const clearDraft = vi.fn();
     const write = vi.fn(async () => ({ outcome: "saved" as const, mtimeMs: 2 }));
-    const controller = new WorkspaceTextDocumentController({
-      path: "/repo/index.ts",
-      content: "one",
-      mtimeMs: 1,
-    }, {
-      write,
-      readDisk: async () => ({ content: "disk", mtimeMs: 2 }),
-      persistDraft,
-      clearDraft,
-      now: () => new Date("2026-07-27T00:00:00.000Z"),
-    });
+    const controller = new WorkspaceTextDocumentController(
+      {
+        path: "/repo/index.ts",
+        content: "one",
+        mtimeMs: 1,
+      },
+      {
+        write,
+        readDisk: async () => ({ content: "disk", mtimeMs: 2 }),
+        persistDraft,
+        clearDraft,
+        now: () => new Date("2026-07-27T00:00:00.000Z"),
+      },
+    );
 
     controller.edit("two");
     await vi.advanceTimersByTimeAsync(WORKSPACE_EDIT_STABILIZATION_MS);
@@ -44,16 +47,19 @@ describe("WorkspaceTextDocumentController", () => {
 
   test("keeps both versions when compare-and-swap detects a conflict", async () => {
     const persistDraft = vi.fn();
-    const controller = new WorkspaceTextDocumentController({
-      path: "/repo/index.ts",
-      content: "base",
-      mtimeMs: 1,
-    }, {
-      write: async () => ({ outcome: "conflict", mtimeMs: 2 }),
-      readDisk: async () => ({ content: "disk", mtimeMs: 2 }),
-      persistDraft,
-      clearDraft: vi.fn(),
-    });
+    const controller = new WorkspaceTextDocumentController(
+      {
+        path: "/repo/index.ts",
+        content: "base",
+        mtimeMs: 1,
+      },
+      {
+        write: async () => ({ outcome: "conflict", mtimeMs: 2 }),
+        readDisk: async () => ({ content: "disk", mtimeMs: 2 }),
+        persistDraft,
+        clearDraft: vi.fn(),
+      },
+    );
 
     controller.edit("local");
     expect(await controller.flush()).toBe(false);
@@ -68,22 +74,25 @@ describe("WorkspaceTextDocumentController", () => {
   });
 
   test("restores a draft and exposes a conflict when its base changed on disk", () => {
-    const controller = new WorkspaceTextDocumentController({
-      path: "/repo/index.ts",
-      content: "disk",
-      mtimeMs: 2,
-      draft: {
+    const controller = new WorkspaceTextDocumentController(
+      {
         path: "/repo/index.ts",
-        content: "local",
-        baseMtimeMs: 1,
-        updatedAt: "2026-07-27T00:00:00.000Z",
+        content: "disk",
+        mtimeMs: 2,
+        draft: {
+          path: "/repo/index.ts",
+          content: "local",
+          baseMtimeMs: 1,
+          updatedAt: "2026-07-27T00:00:00.000Z",
+        },
       },
-    }, {
-      write: async () => ({ outcome: "saved", mtimeMs: 3 }),
-      readDisk: async () => ({ content: "disk", mtimeMs: 2 }),
-      persistDraft: vi.fn(),
-      clearDraft: vi.fn(),
-    });
+      {
+        write: async () => ({ outcome: "saved", mtimeMs: 3 }),
+        readDisk: async () => ({ content: "disk", mtimeMs: 2 }),
+        persistDraft: vi.fn(),
+        clearDraft: vi.fn(),
+      },
+    );
 
     expect(controller.getSnapshot()).toMatchObject({
       status: "conflict",
@@ -108,16 +117,19 @@ describe("WorkspaceTextDocumentController", () => {
       if (writeCount === 1) return firstWrite;
       return Promise.resolve({ outcome: "saved" as const, mtimeMs: 3 });
     });
-    const controller = new WorkspaceTextDocumentController({
-      path: "/repo/index.ts",
-      content: "one",
-      mtimeMs: 1,
-    }, {
-      write,
-      readDisk: async () => ({ content: "disk", mtimeMs: 2 }),
-      persistDraft: vi.fn(),
-      clearDraft: vi.fn(),
-    });
+    const controller = new WorkspaceTextDocumentController(
+      {
+        path: "/repo/index.ts",
+        content: "one",
+        mtimeMs: 1,
+      },
+      {
+        write,
+        readDisk: async () => ({ content: "disk", mtimeMs: 2 }),
+        persistDraft: vi.fn(),
+        clearDraft: vi.fn(),
+      },
+    );
 
     controller.edit("two");
     const firstFlush = controller.flush();
@@ -137,16 +149,19 @@ describe("WorkspaceTextDocumentController", () => {
     vi.useFakeTimers();
     const persistDraft = vi.fn();
     const clearDraft = vi.fn();
-    const controller = new WorkspaceTextDocumentController({
-      path: "/repo/index.ts",
-      content: "base",
-      mtimeMs: 1,
-    }, {
-      write: async () => ({ outcome: "saved", mtimeMs: 2 }),
-      readDisk: async () => ({ content: "base", mtimeMs: 1 }),
-      persistDraft,
-      clearDraft,
-    });
+    const controller = new WorkspaceTextDocumentController(
+      {
+        path: "/repo/index.ts",
+        content: "base",
+        mtimeMs: 1,
+      },
+      {
+        write: async () => ({ outcome: "saved", mtimeMs: 2 }),
+        readDisk: async () => ({ content: "base", mtimeMs: 1 }),
+        persistDraft,
+        clearDraft,
+      },
+    );
 
     controller.edit("saved immediately");
     await expect(controller.flush()).resolves.toBe(true);
@@ -162,16 +177,19 @@ describe("WorkspaceTextDocumentController", () => {
     let disk = { content: "external", mtimeMs: 2 };
     const persistDraft = vi.fn();
     const clearDraft = vi.fn();
-    const controller = new WorkspaceTextDocumentController({
-      path: "/repo/index.ts",
-      content: "base",
-      mtimeMs: 1,
-    }, {
-      write: async () => ({ outcome: "saved", mtimeMs: 3 }),
-      readDisk: async () => disk,
-      persistDraft,
-      clearDraft,
-    });
+    const controller = new WorkspaceTextDocumentController(
+      {
+        path: "/repo/index.ts",
+        content: "base",
+        mtimeMs: 1,
+      },
+      {
+        write: async () => ({ outcome: "saved", mtimeMs: 3 }),
+        readDisk: async () => disk,
+        persistDraft,
+        clearDraft,
+      },
+    );
 
     await controller.notifyExternalChange();
     expect(controller.getSnapshot()).toMatchObject({
@@ -201,19 +219,23 @@ describe("WorkspaceTextDocumentController", () => {
 
   test("keeps a failed save recoverable and lets the app-close registry await retries", async () => {
     const persistDraft = vi.fn();
-    const write = vi.fn()
+    const write = vi
+      .fn()
       .mockRejectedValueOnce(new Error("disk unavailable"))
       .mockResolvedValueOnce({ outcome: "saved", mtimeMs: 2 });
-    const controller = new WorkspaceTextDocumentController({
-      path: "/repo/index.ts",
-      content: "base",
-      mtimeMs: 1,
-    }, {
-      write,
-      readDisk: async () => ({ content: "base", mtimeMs: 1 }),
-      persistDraft,
-      clearDraft: vi.fn(),
-    });
+    const controller = new WorkspaceTextDocumentController(
+      {
+        path: "/repo/index.ts",
+        content: "base",
+        mtimeMs: 1,
+      },
+      {
+        write,
+        readDisk: async () => ({ content: "base", mtimeMs: 1 }),
+        persistDraft,
+        clearDraft: vi.fn(),
+      },
+    );
     const unregister = workspaceTextDocumentRegistry.register("test:close", controller);
     controller.edit("local");
 

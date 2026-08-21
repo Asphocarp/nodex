@@ -1,6 +1,4 @@
-import type {
-  BrowserSiteInfo,
-} from "../../shared/browser-profile";
+import type { BrowserSiteInfo } from "../../shared/browser-profile";
 import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
 
 interface BrowserSiteInfoTabReader {
@@ -34,9 +32,7 @@ export class BrowserSiteInfoProvider {
     const tab = this.tabs.getTabSnapshot(identity);
     if (!tab) throw new Error("Browser tab is not registered");
     const site = parseSiteUrl(tab.url);
-    const cookieCount = site
-      ? (await this.cookies.get({ url: site.url.href })).length
-      : 0;
+    const cookieCount = site ? (await this.cookies.get({ url: site.url.href })).length : 0;
     return {
       ...identity,
       url: tab.url,
@@ -61,17 +57,14 @@ function parseSiteUrl(value: string): {
     return null;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-  const local = url.hostname === "localhost"
-    || url.hostname.endsWith(".localhost")
-    || url.hostname === "127.0.0.1"
-    || url.hostname === "[::1]"
-    || url.hostname === "::1";
+  const local =
+    url.hostname === "localhost" ||
+    url.hostname.endsWith(".localhost") ||
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "[::1]" ||
+    url.hostname === "::1";
   return {
     url,
-    connection: local
-      ? "local"
-      : url.protocol === "https:"
-        ? "secure"
-        : "insecure",
+    connection: local ? "local" : url.protocol === "https:" ? "secure" : "insecure",
   };
 }

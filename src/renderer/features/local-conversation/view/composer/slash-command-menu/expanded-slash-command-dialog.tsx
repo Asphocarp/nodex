@@ -29,11 +29,10 @@ export function ExpandedSlashCommandDialog({
     commandId: null,
     source: "programmatic",
   });
-  const matches = useMemo(() => filterComposerSlashCommands({ commands, query, composerText }), [
-    commands,
-    composerText,
-    query,
-  ]);
+  const matches = useMemo(
+    () => filterComposerSlashCommands({ commands, query, composerText }),
+    [commands, composerText, query],
+  );
   const groups = useMemo(() => groupComposerSlashCommandMatches(matches), [matches]);
   const resolvedHighlight = resolveComposerSlashHighlight({
     matches,

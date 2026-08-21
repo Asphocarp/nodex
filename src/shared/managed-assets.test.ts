@@ -26,9 +26,7 @@ describe("managed assets", () => {
 
   test("does not reinterpret encoded unsafe asset names", () => {
     const source = "nodex://assets/image%20one.png";
-    expect(getManagedAssetDisplayUrl(source)).toBe(
-      source,
-    );
+    expect(getManagedAssetDisplayUrl(source)).toBe(source);
   });
 
   test("bounds text previews by line count", () => {
@@ -43,9 +41,7 @@ describe("managed assets", () => {
   });
 
   test("bounds text previews by UTF-8 byte length without splitting a surrogate pair", () => {
-    const preview = createManagedTextPreview(
-      `${"a".repeat(MAX_MANAGED_PREVIEW_BYTES - 1)}😀`,
-    );
+    const preview = createManagedTextPreview(`${"a".repeat(MAX_MANAGED_PREVIEW_BYTES - 1)}😀`);
 
     expect(preview.truncated).toBe(true);
     expect(new TextEncoder().encode(preview.content).byteLength).toBeLessThanOrEqual(

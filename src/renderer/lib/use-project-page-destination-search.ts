@@ -32,30 +32,31 @@ export function mergeDestinationSearchResults(
   const pageHits = new Map(local.pageHits.map((hit) => [hit.id, hit] as const));
   for (const hit of remote.pageHits) {
     const localHit = pageHits.get(hit.id);
-    pageHits.set(hit.id, localHit
-      ? {
-          ...hit,
-          boardOrder: localHit.boardOrder,
-          pageKey: hit.pageKey ?? localHit.pageKey,
-          score: Math.max(localHit.score, hit.score),
-          matchedPageKey: hit.matchedPageKey ?? localHit.matchedPageKey,
-          matchedPageKeyIsCurrent:
-            hit.matchedPageKeyIsCurrent ?? localHit.matchedPageKeyIsCurrent,
-        }
-      : hit);
+    pageHits.set(
+      hit.id,
+      localHit
+        ? {
+            ...hit,
+            boardOrder: localHit.boardOrder,
+            pageKey: hit.pageKey ?? localHit.pageKey,
+            score: Math.max(localHit.score, hit.score),
+            matchedPageKey: hit.matchedPageKey ?? localHit.matchedPageKey,
+            matchedPageKeyIsCurrent:
+              hit.matchedPageKeyIsCurrent ?? localHit.matchedPageKeyIsCurrent,
+          }
+        : hit,
+    );
   }
   return {
     normalizedQuery: local.normalizedQuery,
-    matchedProjectIds: new Set([
-      ...local.matchedProjectIds,
-      ...remote.matchedProjectIds,
-    ]),
+    matchedProjectIds: new Set([...local.matchedProjectIds, ...remote.matchedProjectIds]),
     matchedColumnIdsByProjectId: new Map([
       ...local.matchedColumnIdsByProjectId,
       ...remote.matchedColumnIdsByProjectId,
     ]),
-    pageHits: [...pageHits.values()].sort((left, right) =>
-      right.score - left.score || left.boardOrder - right.boardOrder),
+    pageHits: [...pageHits.values()].sort(
+      (left, right) => right.score - left.score || left.boardOrder - right.boardOrder,
+    ),
   };
 }
 
@@ -88,21 +89,23 @@ export function buildRemoteDestinationSearchResult({
         return [];
       }
       const pageKeyMatch = result.matches.find((match) => match.source === "page_key");
-      return [{
-        id: `page:${result.projectId}:${result.pageId}`,
-        projectId: result.projectId,
-        projectName: project.name || "Untitled",
-        projectAppearance: project.appearance,
-        columnId: result.status,
-        columnName: WORKFLOW_STATUS_LABELS[result.status],
-        pageId: result.pageId,
-        pageKey: result.pageKey ?? null,
-        matchedPageKey: pageKeyMatch?.pageKey ?? null,
-        matchedPageKeyIsCurrent: pageKeyMatch?.isCurrent ?? null,
-        pageTitle: result.title || "Untitled",
-        boardOrder: index,
-        score: results.length - index,
-      }];
+      return [
+        {
+          id: `page:${result.projectId}:${result.pageId}`,
+          projectId: result.projectId,
+          projectName: project.name || "Untitled",
+          projectAppearance: project.appearance,
+          columnId: result.status,
+          columnName: WORKFLOW_STATUS_LABELS[result.status],
+          pageId: result.pageId,
+          pageKey: result.pageKey ?? null,
+          matchedPageKey: pageKeyMatch?.pageKey ?? null,
+          matchedPageKeyIsCurrent: pageKeyMatch?.isCurrent ?? null,
+          pageTitle: result.title || "Untitled",
+          boardOrder: index,
+          score: results.length - index,
+        },
+      ];
     }),
   };
 }
@@ -121,10 +124,7 @@ export function useProjectPageDestinationSearch({
   sourcePageId?: string | null;
 }): ProjectPageDestinationSearchResult {
   const normalizedQuery = normalizeSearchText(query);
-  const projectIds = useMemo(
-    () => projects.map((project) => project.id),
-    [projects],
-  );
+  const projectIds = useMemo(() => projects.map((project) => project.id), [projects]);
   const search = useInteractivePageSearch({
     projectIds: enabled ? projectIds : [],
     query: normalizedQuery,

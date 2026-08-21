@@ -13,18 +13,18 @@ import {
   buildDatabaseViewColumns,
   type DatabaseViewRenderModel,
 } from "./database-view-render-model";
-import {
-  buildDatabaseViewPropertyValueOperations,
-} from "./database-view-row-mutations";
+import { buildDatabaseViewPropertyValueOperations } from "./database-view-row-mutations";
 
 const activeProperty = (
   model: DatabaseViewRenderModel,
   propertyId: string | undefined,
 ): DataSourcePropertyRecordV2 | null => {
   if (!propertyId) return null;
-  return model.query.properties.find((property) =>
-    property.lifecycle === "active" && property.propertyId === propertyId
-  ) ?? null;
+  return (
+    model.query.properties.find(
+      (property) => property.lifecycle === "active" && property.propertyId === propertyId,
+    ) ?? null
+  );
 };
 
 const compactValueEdits = (
@@ -39,9 +39,7 @@ const compactValueEdits = (
     }
     other.push(operation);
   }
-  return edits.length === 0
-    ? other
-    : [{ kind: "edit_property_values", edits }, ...other];
+  return edits.length === 0 ? other : [{ kind: "edit_property_values", edits }, ...other];
 };
 
 export interface DatabaseViewDropPropertyValue {
@@ -77,9 +75,7 @@ export const applyOptimisticDatabaseViewBoardDrop = (
   const pageIds = [...new Set(projection.pageIds)];
   if (pageIds.length === 0) return model;
   const selected = new Set(pageIds);
-  const rowsById = new Map(
-    model.query.rows.map((row) => [row.page.pageId, row] as const),
-  );
+  const rowsById = new Map(model.query.rows.map((row) => [row.page.pageId, row] as const));
   const fallbackRowsById = new Map(
     projection.fallbackRows.map((row) => [row.page.pageId, row] as const),
   );
@@ -88,10 +84,7 @@ export const applyOptimisticDatabaseViewBoardDrop = (
     return row ? [row] : [];
   });
   if (moving.length !== pageIds.length) return model;
-  if (
-    projection.target.beforePageId
-    && selected.has(projection.target.beforePageId)
-  ) return model;
+  if (projection.target.beforePageId && selected.has(projection.target.beforePageId)) return model;
 
   const propertiesById = new Map<string, DataSourcePropertyRecordV2>(
     model.query.properties.map((property) => [property.propertyId, property] as const),
@@ -105,10 +98,10 @@ export const applyOptimisticDatabaseViewBoardDrop = (
       if (!property) continue;
       const current = values[propertyId];
       if (
-        current
-        && stableStringifyDatabaseJson(current.value)
-          === stableStringifyDatabaseJson(value)
-      ) continue;
+        current &&
+        stableStringifyDatabaseJson(current.value) === stableStringifyDatabaseJson(value)
+      )
+        continue;
       valuesChanged = true;
       rowValuesChanged = true;
       values = {
@@ -122,8 +115,7 @@ export const applyOptimisticDatabaseViewBoardDrop = (
       };
     }
     const groupChanged = row.effectiveGroupKey !== projection.target.groupKey;
-    const subgroupChanged =
-      row.effectiveSubgroupKey !== projection.target.subgroupKey;
+    const subgroupChanged = row.effectiveSubgroupKey !== projection.target.subgroupKey;
     if (!rowValuesChanged && !groupChanged && !subgroupChanged) return row;
     return {
       ...row,
@@ -132,23 +124,17 @@ export const applyOptimisticDatabaseViewBoardDrop = (
       effectiveSubgroupKey: projection.target.subgroupKey,
     };
   });
-  const remaining = model.query.rows.filter((row) =>
-    !selected.has(row.page.pageId)
-  );
+  const remaining = model.query.rows.filter((row) => !selected.has(row.page.pageId));
   const anchorIndex = projection.target.beforePageId
-    ? remaining.findIndex((row) =>
-        row.page.pageId === projection.target.beforePageId
-      )
+    ? remaining.findIndex((row) => row.page.pageId === projection.target.beforePageId)
     : -1;
-  const targetTailIndex = remaining.findLastIndex((row) =>
-    row.effectiveGroupKey === projection.target.groupKey
-    && row.effectiveSubgroupKey === projection.target.subgroupKey
+  const targetTailIndex = remaining.findLastIndex(
+    (row) =>
+      row.effectiveGroupKey === projection.target.groupKey &&
+      row.effectiveSubgroupKey === projection.target.subgroupKey,
   );
-  const insertionIndex = anchorIndex >= 0
-    ? anchorIndex
-    : targetTailIndex >= 0
-      ? targetTailIndex + 1
-      : remaining.length;
+  const insertionIndex =
+    anchorIndex >= 0 ? anchorIndex : targetTailIndex >= 0 ? targetTailIndex + 1 : remaining.length;
   const rows = [...remaining];
   rows.splice(insertionIndex, 0, ...projectedMoving);
   const orderChanged = rows.some((row, index) => row !== model.query.rows[index]);
@@ -176,9 +162,7 @@ const resolveStructuralDropValues = (input: {
   };
 }): readonly DatabaseViewDropPropertyValue[] => {
   const presentation = input.model.query.view.config.presentation;
-  const rowsById = new Map(
-    input.model.query.rows.map((row) => [row.page.pageId, row] as const),
-  );
+  const rowsById = new Map(input.model.query.rows.map((row) => [row.page.pageId, row] as const));
   return [
     {
       property: activeProperty(input.model, presentation.group?.propertyId),
@@ -192,13 +176,15 @@ const resolveStructuralDropValues = (input: {
     },
   ].flatMap(({ property, key, readCurrentKey }) => {
     if (!property) return [];
-    const changesValue = input.pageIds.length === 0
-      || input.pageIds.some((pageId) => readCurrentKey(pageId) !== key);
+    const changesValue =
+      input.pageIds.length === 0 || input.pageIds.some((pageId) => readCurrentKey(pageId) !== key);
     if (!changesValue) return [];
-    return [{
-      propertyId: property.propertyId,
-      value: databaseGroupValueFromKey(property.valueType, key),
-    }];
+    return [
+      {
+        propertyId: property.propertyId,
+        value: databaseGroupValueFromKey(property.valueType, key),
+      },
+    ];
   });
 };
 
@@ -237,10 +223,11 @@ export const resolveDatabaseViewSortedDropValues = (input: {
   };
 }): readonly DatabaseViewDropPropertyValue[] => {
   const ignoredPageIds = new Set(input.pageIds ?? []);
-  const rows = input.model.query.rows.filter((row) =>
-    !ignoredPageIds.has(row.page.pageId)
-    && row.effectiveGroupKey === input.target.groupKey
-    && row.effectiveSubgroupKey === input.target.subgroupKey
+  const rows = input.model.query.rows.filter(
+    (row) =>
+      !ignoredPageIds.has(row.page.pageId) &&
+      row.effectiveGroupKey === input.target.groupKey &&
+      row.effectiveSubgroupKey === input.target.subgroupKey,
   );
   const afterIndex = input.target.beforePageId
     ? rows.findIndex((row) => row.page.pageId === input.target.beforePageId)
@@ -251,10 +238,11 @@ export const resolveDatabaseViewSortedDropValues = (input: {
   if (!before && !after) return [];
 
   const presentation = input.model.query.view.config.presentation;
-  const structuralPropertyIds = new Set([
-    presentation.group?.propertyId,
-    presentation.subgroup?.propertyId,
-  ].filter((propertyId): propertyId is string => propertyId !== undefined));
+  const structuralPropertyIds = new Set(
+    [presentation.group?.propertyId, presentation.subgroup?.propertyId].filter(
+      (propertyId): propertyId is string => propertyId !== undefined,
+    ),
+  );
   const values: DatabaseViewDropPropertyValue[] = [];
   for (const sort of presentation.sort) {
     if (sort.field.kind === "manual") break;
@@ -265,10 +253,10 @@ export const resolveDatabaseViewSortedDropValues = (input: {
     if (!property || property.valueType === "relation") break;
     const beforeValue = rowPropertyValue(before, propertyId);
     const afterValue = rowPropertyValue(after, propertyId);
-    const neighborsMatch = before !== undefined
-      && after !== undefined
-      && stableStringifyDatabaseJson(beforeValue)
-        === stableStringifyDatabaseJson(afterValue);
+    const neighborsMatch =
+      before !== undefined &&
+      after !== undefined &&
+      stableStringifyDatabaseJson(beforeValue) === stableStringifyDatabaseJson(afterValue);
     const value = after !== undefined ? afterValue : beforeValue;
     values.push({ propertyId, value });
     if (!neighborsMatch) break;
@@ -291,16 +279,17 @@ export const resolveDatabaseViewDropPropertyValues = (input: {
   };
 }): readonly DatabaseViewDropPropertyValue[] => [
   ...resolveStructuralDropValues(input),
-  ...resolveDatabaseViewSortedDropValues(input).filter(({ propertyId, value }) =>
-    input.pageIds.length === 0
-    || input.pageIds.some((pageId) => {
-      const row = input.model.query.rows.find((candidate) =>
-        candidate.page.pageId === pageId
-      );
-      if (!row) return false;
-      return stableStringifyDatabaseJson(rowPropertyValue(row, propertyId))
-        !== stableStringifyDatabaseJson(value);
-    })
+  ...resolveDatabaseViewSortedDropValues(input).filter(
+    ({ propertyId, value }) =>
+      input.pageIds.length === 0 ||
+      input.pageIds.some((pageId) => {
+        const row = input.model.query.rows.find((candidate) => candidate.page.pageId === pageId);
+        if (!row) return false;
+        return (
+          stableStringifyDatabaseJson(rowPropertyValue(row, propertyId)) !==
+          stableStringifyDatabaseJson(value)
+        );
+      }),
   ),
 ];
 
@@ -323,18 +312,17 @@ export const buildDatabaseViewBoardDropOperations = (input: {
   if (input.model.readOnlyReason) return [];
   const pageIds = [...new Set(input.pageIds)];
   if (pageIds.length === 0) return [];
-  const rowsById = new Map(
-    input.model.query.rows.map((row) => [row.page.pageId, row] as const),
-  );
+  const rowsById = new Map(input.model.query.rows.map((row) => [row.page.pageId, row] as const));
   if (pageIds.some((pageId) => !rowsById.has(pageId))) return [];
   if (
-    input.target.beforePageId
-    && (pageIds.includes(input.target.beforePageId)
-      || !rowsById.has(input.target.beforePageId))
-  ) return [];
+    input.target.beforePageId &&
+    (pageIds.includes(input.target.beforePageId) || !rowsById.has(input.target.beforePageId))
+  )
+    return [];
 
-  const propertyValues = input.propertyValues
-    ?? resolveDatabaseViewDropPropertyValues({
+  const propertyValues =
+    input.propertyValues ??
+    resolveDatabaseViewDropPropertyValues({
       model: input.model,
       pageIds,
       target: input.target,
@@ -347,23 +335,24 @@ export const buildDatabaseViewBoardDropOperations = (input: {
           pageId,
           propertyId,
           value,
-        })
-      )
+        }),
+      ),
     ),
   );
-  const positionOperation: DatabaseApplyOperationV2[] =
-    databaseViewSupportsSortedSlotInference(input.model)
-      ? [{
+  const positionOperation: DatabaseApplyOperationV2[] = databaseViewSupportsSortedSlotInference(
+    input.model,
+  )
+    ? [
+        {
           kind: "position_pages",
           viewId: input.model.databaseViewId,
           pages: pageIds.map((pageId) => ({
             pageId,
             expectedPositionRevision: rowsById.get(pageId)?.position?.revision ?? 0,
           })),
-          ...(input.target.beforePageId
-            ? { beforePageId: input.target.beforePageId }
-            : {}),
-        }]
-      : [];
+          ...(input.target.beforePageId ? { beforePageId: input.target.beforePageId } : {}),
+        },
+      ]
+    : [];
   return [...valueOperations, ...positionOperation];
 };

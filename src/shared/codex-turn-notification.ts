@@ -38,9 +38,7 @@ function findLastHeartbeatRange(text: string): { start: number; end: number; bod
 
   if (!lastMatch || typeof lastMatch.index !== "number") return null;
   const raw = lastMatch[0] ?? "";
-  const body = raw
-    .replace(/^<heartbeat\b[^>]*>/i, "")
-    .replace(/<\/heartbeat>$/i, "");
+  const body = raw.replace(/^<heartbeat\b[^>]*>/i, "").replace(/<\/heartbeat>$/i, "");
   return {
     start: lastMatch.index,
     end: lastMatch.index + raw.length,
@@ -78,7 +76,9 @@ export function parseCodexHeartbeatAssistantMessage(
   return {
     decision: rawDecision,
     visibleText: normalizeDesktopNotificationText(withoutHeartbeat),
-    notificationMessage: normalizeDesktopNotificationText(readXmlishTagValue(range.body, "message")),
+    notificationMessage: normalizeDesktopNotificationText(
+      readXmlishTagValue(range.body, "message"),
+    ),
   };
 }
 
@@ -102,19 +102,12 @@ export interface CodexPendingContinuationFacts {
   hasActiveDescendant: boolean;
 }
 
-export function hasCodexPendingContinuation(
-  facts: CodexPendingContinuationFacts,
-): boolean {
-  const queuedHeadWillContinue = facts.terminalStatus !== "interrupted"
-    && (
-      facts.queuedResourceLoading
-      || facts.queuedHeadPausedReason === null
-    );
+export function hasCodexPendingContinuation(facts: CodexPendingContinuationFacts): boolean {
+  const queuedHeadWillContinue =
+    facts.terminalStatus !== "interrupted" &&
+    (facts.queuedResourceLoading || facts.queuedHeadPausedReason === null);
   if (queuedHeadWillContinue) return true;
-  if (
-    facts.terminalStatus === "completed"
-    && facts.threadGoalStatus === "active"
-  ) return true;
+  if (facts.terminalStatus === "completed" && facts.threadGoalStatus === "active") return true;
   if (facts.latestMergedTurnStatus === "inProgress") return true;
   if (facts.hasRunningCollabAgent) return true;
   return facts.hasActiveDescendant;

@@ -1,11 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import {
-  useEffect,
-  useMemo,
-  useReducer,
-  useRef,
-  type ComponentProps,
-} from "react";
+import { useEffect, useMemo, useReducer, useRef, type ComponentProps } from "react";
 import type {
   CodexConversationSnapshot,
   CodexReviewDiffCommentAttachment,
@@ -51,7 +45,7 @@ function buildStoryConversation(): CodexConversationSnapshot {
           "--- a/src/renderer/components/workbench/workbench-shell.tsx",
           "+++ b/src/renderer/components/workbench/workbench-shell.tsx",
           "@@ -1768,6 +1768,10 @@",
-          "       title: \"Diffs\",",
+          '       title: "Diffs",',
           "       icon: STAGE_ICONS.files,",
           "       hideHeader: true,",
           "-      content: <StageFilesPlaceholder />,",
@@ -99,7 +93,8 @@ function buildCommentStoryConversation(): CodexConversationSnapshot {
       type: "message",
       kind: "assistantMessage",
       role: "assistant",
-      markdownText: '::code-comment{title="Tighten guard" body="This branch should return early before the expensive path." file="src/renderer/components/workbench/workbench-shell.tsx" start=1768 end=1768 priority=1}',
+      markdownText:
+        '::code-comment{title="Tighten guard" body="This branch should return early before the expensive path." file="src/renderer/components/workbench/workbench-shell.tsx" start=1768 end=1768 priority=1}',
       createdAt: 1,
       updatedAt: 1,
     },
@@ -120,15 +115,15 @@ function buildReviewParityConversation(): CodexConversationSnapshot {
       "--- a/src/renderer/components/workbench/review-pane.tsx",
       "+++ b/src/renderer/components/workbench/review-pane.tsx",
       "@@ -1,4 +1,5 @@",
-      " import { useMemo } from \"react\";",
+      ' import { useMemo } from "react";',
       " type Props = { open: boolean };",
       " export function ReviewPane(props: Props) {",
       "+  const active = props.open;",
       "   return null;",
       "@@ -120,4 +121,5 @@",
       " function renderFooter() {",
-      "   const label = \"Review\";",
-      "+  const action = \"Inspect\";",
+      '   const label = "Review";',
+      '+  const action = "Inspect";',
       "   return label;",
       " }",
       "",
@@ -144,8 +139,8 @@ function buildReviewParityConversation(): CodexConversationSnapshot {
       "@@ -80,5 +81,6 @@",
       " export function buildModel() {",
       "   return {",
-      "+    iconToken: \"typescript\",",
-      "     path: \"src/renderer/lib/review-model.ts\",",
+      '+    iconToken: "typescript",',
+      '     path: "src/renderer/lib/review-model.ts",',
       "   };",
       " }",
       "",
@@ -183,34 +178,40 @@ function buildMetadataOnlyReviewConversation(input: {
     threadId: input.threadId,
     turnId: "turn_metadata_only",
     diff: "",
-    items: [{
-      threadId: input.threadId,
-      turnId: "turn_metadata_only",
-      entryId: "turn-diff:turn_metadata_only",
-      itemId: "turn-diff:turn_metadata_only",
-      type: "turn_diff",
-      kind: "systemEvent",
-      semanticKind: "diff",
-      status: "completed",
-      source: "live",
-      sequence: 0,
-      rawItem: {
-        type: "turn-diff",
-        unifiedDiff: "",
-        patchBatches: [{
-          cwd: conversation.cwd,
-          changes: [{
-            path: input.path,
-            type: "nonRenderable",
-            originalType: "add",
-            movePath: null,
-            safety: input.safety,
-          }],
-        }],
+    items: [
+      {
+        threadId: input.threadId,
+        turnId: "turn_metadata_only",
+        entryId: "turn-diff:turn_metadata_only",
+        itemId: "turn-diff:turn_metadata_only",
+        type: "turn_diff",
+        kind: "systemEvent",
+        semanticKind: "diff",
+        status: "completed",
+        source: "live",
+        sequence: 0,
+        rawItem: {
+          type: "turn-diff",
+          unifiedDiff: "",
+          patchBatches: [
+            {
+              cwd: conversation.cwd,
+              changes: [
+                {
+                  path: input.path,
+                  type: "nonRenderable",
+                  originalType: "add",
+                  movePath: null,
+                  safety: input.safety,
+                },
+              ],
+            },
+          ],
+        },
+        createdAt: 1,
+        updatedAt: 1,
       },
-      createdAt: 1,
-      updatedAt: 1,
-    }],
+    ],
   };
   return conversation;
 }
@@ -232,8 +233,7 @@ function ReviewStorySurface({
   pendingCommentAttachments?: CodexReviewDiffCommentAttachment[];
 }) {
   const conversationProjection = buildReviewConversationProjection(conversation);
-  const storyThreadId =
-    conversationProjection.threadId ?? args.threadId ?? null;
+  const storyThreadId = conversationProjection.threadId ?? args.threadId ?? null;
 
   useEffect(() => {
     if (!storyThreadId || !pendingCommentAttachments?.length) return;
@@ -247,7 +247,9 @@ function ReviewStorySurface({
   useEffect(() => {
     if (!openControlLabel) return;
     const timerId = window.setTimeout(() => {
-      const button = document.querySelector<HTMLButtonElement>(`button[aria-label="${openControlLabel}"]`);
+      const button = document.querySelector<HTMLButtonElement>(
+        `button[aria-label="${openControlLabel}"]`,
+      );
       button?.click();
     }, 100);
     return () => window.clearTimeout(timerId);
@@ -266,10 +268,7 @@ function ReviewStorySurface({
       selected
     >
       <div className="h-screen overflow-hidden bg-token-main-surface-primary">
-        <ReviewDiffPanel
-          {...args}
-          conversationProjection={conversationProjection}
-        />
+        <ReviewDiffPanel {...args} conversationProjection={conversationProjection} />
       </div>
     </WorkbenchSessionScopePath>
   );
@@ -287,10 +286,12 @@ function buildStoryPendingComment(input: {
   return {
     id: input.id,
     type: "comment",
-    content: [{
-      content_type: "text",
-      text: input.text,
-    }],
+    content: [
+      {
+        content_type: "text",
+        text: input.text,
+      },
+    ],
     position: {
       side: input.side,
       path: input.path,
@@ -298,7 +299,8 @@ function buildStoryPendingComment(input: {
       ...(input.startLine ? { start_line: input.startLine } : {}),
       ...(input.startSide ? { start_side: input.startSide } : {}),
     },
-    localDiffHunk: "@@ -1768,6 +1768,10 @@\n       title: \"Diffs\",\n+        <ReviewDiffPanel conversation={activeThreadConversation} />",
+    localDiffHunk:
+      '@@ -1768,6 +1768,10 @@\n       title: "Diffs",\n+        <ReviewDiffPanel conversation={activeThreadConversation} />',
     source: {
       kind: "review-diff",
       label: "Comment on line R1771",
@@ -308,9 +310,7 @@ function buildStoryPendingComment(input: {
   };
 }
 
-type ReviewPanelDeps = NonNullable<
-  ComponentProps<typeof ReviewDiffPanel>["deps"]
->;
+type ReviewPanelDeps = NonNullable<ComponentProps<typeof ReviewDiffPanel>["deps"]>;
 type ControlledReviewFixtureMode =
   | "live-publication"
   | "viewport-gating"
@@ -368,9 +368,7 @@ function buildControlledReviewPatch(file: GitReviewFileSummary): string {
   ].join("\n");
 }
 
-function buildControlledReviewDiffEntry(
-  file: GitReviewFileSummary,
-): ReviewDiffEntry {
+function buildControlledReviewDiffEntry(file: GitReviewFileSummary): ReviewDiffEntry {
   const diff = buildControlledReviewPatch(file);
   return {
     ...file,
@@ -397,9 +395,7 @@ function buildControlledFixtureFiles(mode: ControlledReviewFixtureMode) {
   }
   if (mode === "viewport-gating") {
     return Array.from({ length: 14 }, (_, index) =>
-      buildControlledReviewSummary(
-        `src/viewport/file-${String(index + 1).padStart(2, "0")}.ts`,
-      ),
+      buildControlledReviewSummary(`src/viewport/file-${String(index + 1).padStart(2, "0")}.ts`),
     );
   }
   if (mode === "full-content-fallbacks") {
@@ -415,10 +411,7 @@ function buildControlledFixtureFiles(mode: ControlledReviewFixtureMode) {
 }
 
 interface ControlledReviewTransport {
-  deps: Pick<
-    ReviewPanelDeps,
-    "gitWorkerClient" | "initialSummaryQuery" | "invoke"
-  >;
+  deps: Pick<ReviewPanelDeps, "gitWorkerClient" | "initialSummaryQuery" | "invoke">;
   files: readonly GitReviewFileSummary[];
   publishComplete: () => void;
   publishTracked: () => void;
@@ -433,8 +426,7 @@ function createControlledReviewTransport(
   const cwd = `/tmp/storybook/review-${mode}`;
   const source: GitReviewSource = "unstaged";
   const fixtureFiles = buildControlledFixtureFiles(mode);
-  let publishedFiles =
-    mode === "live-publication" ? fixtureFiles.slice(0, 1) : fixtureFiles;
+  let publishedFiles = mode === "live-publication" ? fixtureFiles.slice(0, 1) : fixtureFiles;
   let generation = 1;
   let summarySubscriptionId = "";
   let listener: ((event: GitReviewLiveEvent) => void) | null = null;
@@ -464,12 +456,8 @@ function createControlledReviewTransport(
         snapshotGeneration: generation,
         stageCounts: {
           stagedFileCount: 0,
-          unstagedFileCount: publishedFiles.filter(
-            (file) => file.status !== "untracked",
-          ).length,
-          untrackedFileCount: publishedFiles.filter(
-            (file) => file.status === "untracked",
-          ).length,
+          unstagedFileCount: publishedFiles.filter((file) => file.status !== "untracked").length,
+          untrackedFileCount: publishedFiles.filter((file) => file.status === "untracked").length,
         },
         untrackedFilesOmitted: 0,
       },
@@ -500,12 +488,8 @@ function createControlledReviewTransport(
         snapshotGeneration: generation,
         stageCounts: {
           stagedFileCount: 0,
-          unstagedFileCount: publishedFiles.filter(
-            (file) => file.status !== "untracked",
-          ).length,
-          untrackedFileCount: publishedFiles.filter(
-            (file) => file.status === "untracked",
-          ).length,
+          unstagedFileCount: publishedFiles.filter((file) => file.status !== "untracked").length,
+          untrackedFileCount: publishedFiles.filter((file) => file.status === "untracked").length,
         },
       };
     }
@@ -555,10 +539,7 @@ function createControlledReviewTransport(
       });
       return undefined;
     }
-    if (
-      channel === "unsubscribe-live-query" ||
-      channel === "worker-request-cancel"
-    ) {
+    if (channel === "unsubscribe-live-query" || channel === "worker-request-cancel") {
       return channel === "worker-request-cancel" ? { cancelled: true } : undefined;
     }
     if (channel === "refresh-live-query") {
@@ -680,11 +661,12 @@ function createControlledReviewTransport(
         event: GitReviewLiveEvent;
       }) => void,
     ) => {
-      const nextEventListener = (event: GitReviewLiveEvent) => nextListener({
-        type: "git-live-query-event",
-        workerId: "git",
-        event,
-      });
+      const nextEventListener = (event: GitReviewLiveEvent) =>
+        nextListener({
+          type: "git-live-query-event",
+          workerId: "git",
+          event,
+        });
       listener = nextEventListener;
       return () => {
         if (listener === nextEventListener) listener = null;
@@ -745,10 +727,7 @@ function createControlledStoryIntersectionObserver(): ControlledStoryIntersectio
     readonly scrollMargin = "0px";
     readonly thresholds: readonly number[];
 
-    constructor(
-      callback: IntersectionObserverCallback,
-      options: IntersectionObserverInit = {},
-    ) {
+    constructor(callback: IntersectionObserverCallback, options: IntersectionObserverInit = {}) {
       this.root = options.root ?? null;
       this.rootMargin = options.rootMargin ?? "0px";
       this.thresholds = Array.isArray(options.threshold)
@@ -843,10 +822,7 @@ function ControlledReviewStorySurface({
   const [, rerenderControls] = useReducer((value: number) => value + 1, 0);
   const transportRef = useRef<ControlledReviewTransport | null>(null);
   const viewportRef = useRef<ControlledStoryIntersectionObserver | null>(null);
-  transportRef.current ??= createControlledReviewTransport(
-    mode,
-    rerenderControls,
-  );
+  transportRef.current ??= createControlledReviewTransport(mode, rerenderControls);
   viewportRef.current ??= createControlledStoryIntersectionObserver();
   const transport = transportRef.current;
   const viewport = viewportRef.current;
@@ -857,10 +833,7 @@ function ControlledReviewStorySurface({
     return () => viewport.restore();
   }, [viewport]);
 
-  const deps = useMemo(
-    () => ({ ...args.deps, ...transport.deps }),
-    [args.deps, transport.deps],
-  );
+  const deps = useMemo(() => ({ ...args.deps, ...transport.deps }), [args.deps, transport.deps]);
   const revealPath = (path: string) => {
     viewport.emitPath(path);
     rerenderControls();
@@ -872,8 +845,7 @@ function ControlledReviewStorySurface({
       <div className="absolute top-12 right-3 z-50 flex max-w-sm flex-col gap-2 rounded-lg border border-token-border bg-token-main-surface-primary/95 p-3 text-xs text-token-foreground shadow-lg backdrop-blur">
         <div className="font-medium">Controlled review fixture</div>
         <div className="text-token-description-foreground">
-          {transport.status()} · {viewport.observedPathCount()} viewport-gated
-          rows
+          {transport.status()} · {viewport.observedPathCount()} viewport-gated rows
         </div>
         <div className="flex flex-wrap gap-1.5">
           {mode === "live-publication" ? (
@@ -888,27 +860,17 @@ function ControlledReviewStorySurface({
           ) : null}
           {mode === "viewport-gating" ? (
             <>
-              <button
-                type="button"
-                onClick={() => revealPath(transport.files[0]?.path ?? "")}
-              >
+              <button type="button" onClick={() => revealPath(transport.files[0]?.path ?? "")}>
                 Reveal first row
               </button>
-              <button
-                type="button"
-                onClick={() => revealPath(transport.files.at(-1)?.path ?? "")}
-              >
+              <button type="button" onClick={() => revealPath(transport.files.at(-1)?.path ?? "")}>
                 Reveal last row
               </button>
             </>
           ) : null}
           {mode === "full-content-fallbacks"
             ? transport.files.map((file) => (
-                <button
-                  key={file.path}
-                  type="button"
-                  onClick={() => revealPath(file.path)}
-                >
+                <button key={file.path} type="button" onClick={() => revealPath(file.path)}>
                   Load {file.path.split("/").at(-1)?.replace(".ts", "")}
                 </button>
               ))
@@ -956,13 +918,12 @@ export const AllDiffsCollapsed: Story = {
     conversation: buildReviewParityConversation(),
     projectWorkspacePath: "/Users/asc/repo/nodex",
   },
-  render: (args) => (
-    <ReviewStorySurface {...args} openControlLabel="Collapse all diffs" />
-  ),
+  render: (args) => <ReviewStorySurface {...args} openControlLabel="Collapse all diffs" />,
   parameters: {
     docs: {
       description: {
-        story: "Collapse-all keeps every virtualized diff connected while reducing the list to stable file headers; the matching expand-all action remains in the toolbar.",
+        story:
+          "Collapse-all keeps every virtualized diff connected while reducing the list to stable file headers; the matching expand-all action remains in the toolbar.",
       },
     },
   },
@@ -983,7 +944,8 @@ export const LineInfoAndIcons: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Review diff parity fixture: line-info unchanged-range separators, compact file rows, and file-type icons should be visible together.",
+        story:
+          "Review diff parity fixture: line-info unchanged-range separators, compact file rows, and file-type icons should be visible together.",
       },
     },
   },
@@ -1113,7 +1075,8 @@ export const OptionsMenuOpen: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The default full-file loading state is on, so the open menu should offer `Don't load full files`.",
+        story:
+          "The default full-file loading state is on, so the open menu should offer `Don't load full files`.",
       },
     },
   },
@@ -1185,13 +1148,12 @@ export const LiveTrackedThenComplete: Story = {
     initialFileTreeOpen: true,
     projectWorkspacePath: "/Users/asc/repo/nodex",
   },
-  render: (args) => (
-    <ControlledReviewStorySurface {...args} mode="live-publication" />
-  ),
+  render: (args) => <ControlledReviewStorySurface {...args} mode="live-publication" />,
   parameters: {
     docs: {
       description: {
-        story: "The live summary may publish tracked files first and then atomically add untracked files without resetting already loaded rows.",
+        story:
+          "The live summary may publish tracked files first and then atomically add untracked files without resetting already loaded rows.",
       },
     },
   },
@@ -1205,7 +1167,8 @@ export const AgentStreamingIsolation: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A static conversation fixture for manually comparing Review projection and file-row identity. It does not simulate a live assistant stream.",
+        story:
+          "A static conversation fixture for manually comparing Review projection and file-row identity. It does not simulate a live assistant stream.",
       },
     },
   },
@@ -1217,13 +1180,12 @@ export const ViewportGatedFullContent: Story = {
     initialFileTreeOpen: true,
     projectWorkspacePath: "/tmp/storybook/virtualized-tree",
   },
-  render: (args) => (
-    <ControlledReviewStorySurface {...args} mode="viewport-gating" />
-  ),
+  render: (args) => <ControlledReviewStorySurface {...args} mode="viewport-gating" />,
   parameters: {
     docs: {
       description: {
-        story: "A many-file partial review for checking that only expanded rows inside the virtualizer margin request full content.",
+        story:
+          "A many-file partial review for checking that only expanded rows inside the virtualizer margin request full content.",
       },
     },
   },
@@ -1235,13 +1197,12 @@ export const FullContentFallbackStates: Story = {
     initialSource: "unstaged",
     projectWorkspacePath: "/tmp/storybook/full-content-fallback",
   },
-  render: (args) => (
-    <ControlledReviewStorySurface {...args} mode="full-content-fallbacks" />
-  ),
+  render: (args) => <ControlledReviewStorySurface {...args} mode="full-content-fallbacks" />,
   parameters: {
     docs: {
       description: {
-        story: "Inspect `data-review-full-content-state` while exercising loading, success, unavailable, and failed reads; every terminal fallback keeps the partial diff visible.",
+        story:
+          "Inspect `data-review-full-content-state` while exercising loading, success, unavailable, and failed reads; every terminal fallback keeps the partial diff visible.",
       },
     },
   },
@@ -1252,13 +1213,12 @@ export const StaleSnapshotRecovery: Story = {
     initialSource: "unstaged",
     projectWorkspacePath: "/tmp/storybook/stale-snapshot",
   },
-  render: (args) => (
-    <ControlledReviewStorySurface {...args} mode="stale-recovery" />
-  ),
+  render: (args) => <ControlledReviewStorySurface {...args} mode="stale-recovery" />,
   parameters: {
     docs: {
       description: {
-        story: "This controlled fixture injects one stale per-path diff response, then accepts repository refresh and publishes a new generation. It does not inject stale full-content or search responses.",
+        story:
+          "This controlled fixture injects one stale per-path diff response, then accepts repository refresh and publishes a new generation. It does not inject stale full-content or search responses.",
       },
     },
   },
@@ -1273,7 +1233,8 @@ export const GeneratedAttributesServerSearch: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Generated classification is intentionally unresolved in this fixture, forcing content search through the generation-bound server path.",
+        story:
+          "Generated classification is intentionally unresolved in this fixture, forcing content search through the generation-bound server path.",
       },
     },
   },

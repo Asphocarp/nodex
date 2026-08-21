@@ -24,12 +24,9 @@ import {
 
 export const DOCUMENT_HISTORY_CHECKPOINT_IPC_CHANNEL =
   "block-documents:history:checkpoint" as const;
-export const DOCUMENT_HISTORY_LIST_IPC_CHANNEL =
-  "block-documents:history:list" as const;
-export const DOCUMENT_HISTORY_GET_IPC_CHANNEL =
-  "block-documents:history:get" as const;
-export const DOCUMENT_HISTORY_RESTORE_IPC_CHANNEL =
-  "block-documents:history:restore" as const;
+export const DOCUMENT_HISTORY_LIST_IPC_CHANNEL = "block-documents:history:list" as const;
+export const DOCUMENT_HISTORY_GET_IPC_CHANNEL = "block-documents:history:get" as const;
+export const DOCUMENT_HISTORY_RESTORE_IPC_CHANNEL = "block-documents:history:restore" as const;
 
 type RegisterHandle = (
   channel:
@@ -42,9 +39,7 @@ type RegisterHandle = (
 
 export interface DocumentHistoryIpcDependencies {
   readonly registerHandle: RegisterHandle;
-  readonly resolveTrustedIdentity: (
-    event: unknown,
-  ) => TrustedDocumentMutationIdentity | null;
+  readonly resolveTrustedIdentity: (event: unknown) => TrustedDocumentMutationIdentity | null;
   readonly createCheckpoint: (
     request: CreateDocumentVersionCheckpoint,
   ) => Promise<DocumentHistoryCommandResult<CreatedDocumentVersionSummary>>;
@@ -63,9 +58,7 @@ const unavailable = <T>(error: unknown): DocumentHistoryCommandResult<T> => ({
   ok: false,
   error: documentHistoryFailure(
     "unknown",
-    error instanceof Error
-      ? error.message
-      : "The durable Document history writer is unavailable",
+    error instanceof Error ? error.message : "The durable Document history writer is unavailable",
     { retryable: true },
   ),
 });
@@ -100,53 +93,35 @@ export const registerDocumentHistoryIpcHandlers = (
         );
         return await dependencies.createCheckpoint(request);
       } catch (error) {
-        return error instanceof DocumentHistoryContractError
-          ? invalid(error)
-          : unavailable(error);
+        return error instanceof DocumentHistoryContractError ? invalid(error) : unavailable(error);
       }
     },
   );
-  dependencies.registerHandle(
-    DOCUMENT_HISTORY_LIST_IPC_CHANNEL,
-    async (event, rawRequest) => {
-      if (!dependencies.resolveTrustedIdentity(event)) {
-        return invalid("Document history requires a trusted window");
-      }
-      try {
-        return await dependencies.listVersions(
-          parseListDocumentVersions(rawRequest),
-        );
-      } catch (error) {
-        return error instanceof DocumentHistoryContractError
-          ? invalid(error)
-          : unavailable(error);
-      }
-    },
-  );
-  dependencies.registerHandle(
-    DOCUMENT_HISTORY_GET_IPC_CHANNEL,
-    async (event, rawRequest) => {
-      if (!dependencies.resolveTrustedIdentity(event)) {
-        return invalid("Document history requires a trusted window");
-      }
-      try {
-        return await dependencies.getVersion(parseGetDocumentVersion(rawRequest));
-      } catch (error) {
-        return error instanceof DocumentHistoryContractError
-          ? invalid(error)
-          : unavailable(error);
-      }
-    },
-  );
+  dependencies.registerHandle(DOCUMENT_HISTORY_LIST_IPC_CHANNEL, async (event, rawRequest) => {
+    if (!dependencies.resolveTrustedIdentity(event)) {
+      return invalid("Document history requires a trusted window");
+    }
+    try {
+      return await dependencies.listVersions(parseListDocumentVersions(rawRequest));
+    } catch (error) {
+      return error instanceof DocumentHistoryContractError ? invalid(error) : unavailable(error);
+    }
+  });
+  dependencies.registerHandle(DOCUMENT_HISTORY_GET_IPC_CHANNEL, async (event, rawRequest) => {
+    if (!dependencies.resolveTrustedIdentity(event)) {
+      return invalid("Document history requires a trusted window");
+    }
+    try {
+      return await dependencies.getVersion(parseGetDocumentVersion(rawRequest));
+    } catch (error) {
+      return error instanceof DocumentHistoryContractError ? invalid(error) : unavailable(error);
+    }
+  });
   dependencies.registerHandle(
     DOCUMENT_HISTORY_RESTORE_IPC_CHANNEL,
     async (event, projectIdValue, documentIdValue, rawRequest) => {
       const identity = dependencies.resolveTrustedIdentity(event);
-      if (
-        !identity ||
-        typeof projectIdValue !== "string" ||
-        typeof documentIdValue !== "string"
-      ) {
+      if (!identity || typeof projectIdValue !== "string" || typeof documentIdValue !== "string") {
         return {
           ok: false,
           error: documentMutationFailure(

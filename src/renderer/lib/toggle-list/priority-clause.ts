@@ -6,9 +6,7 @@ interface PriorityClauseLike {
   includeEmpty?: boolean;
 }
 
-export function priorityClauseIncludesEmpty(
-  clause: PriorityClauseLike,
-): boolean {
+export function priorityClauseIncludesEmpty(clause: PriorityClauseLike): boolean {
   return clause.includeEmpty ?? clause.values.length === TOGGLE_LIST_PRIORITY_ORDER.length;
 }
 

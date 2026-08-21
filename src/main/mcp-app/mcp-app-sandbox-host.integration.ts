@@ -3,10 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { build } from "esbuild";
-import {
-  _electron as electron,
-  type ElectronApplication,
-} from "playwright";
+import { _electron as electron, type ElectronApplication } from "playwright";
 import { MCP_APP_REQUIRED_GUEST_PORT_NAMES } from "../../shared/mcp-app/mcp-app-sandbox-contract";
 
 const temporaryDirectories: string[] = [];
@@ -34,9 +31,7 @@ afterEach(() => {
 
 describe("MCP App sandbox host Electron boundary", () => {
   test("binds a validated session/init pair and forwards the Skybridge port bridge", async () => {
-    const outputDirectory = mkdtempSync(
-      path.join(tmpdir(), "nodex-mcp-sandbox-integration-"),
-    );
+    const outputDirectory = mkdtempSync(path.join(tmpdir(), "nodex-mcp-sandbox-integration-"));
     temporaryDirectories.push(outputDirectory);
     await build({
       bundle: true,
@@ -64,26 +59,34 @@ describe("MCP App sandbox host Electron boundary", () => {
         env: childEnvironment,
       });
       const page = await application.firstWindow();
-      await expect.poll(async () => page.evaluate(() => (
-        window as unknown as { fixtureState: SandboxFixtureState }
-      ).fixtureState)).toMatchObject({
-        didAttachAccepted: true,
-        didAttachSessionMatched: true,
-        guestId: expect.any(Number),
-        webviewCount: 1,
-      });
-      const state = await page.evaluate(() => (
-        window as unknown as { fixtureState: SandboxFixtureState }
-      ).fixtureState);
+      await expect
+        .poll(async () =>
+          page.evaluate(
+            () => (window as unknown as { fixtureState: SandboxFixtureState }).fixtureState,
+          ),
+        )
+        .toMatchObject({
+          didAttachAccepted: true,
+          didAttachSessionMatched: true,
+          guestId: expect.any(Number),
+          webviewCount: 1,
+        });
+      const state = await page.evaluate(
+        () => (window as unknown as { fixtureState: SandboxFixtureState }).fixtureState,
+      );
       expect(state.guestId).not.toBe(null);
 
-      await expect.poll(async () => page.evaluate(() => (
-        window as unknown as { fixtureState: SandboxFixtureState }
-      ).fixtureState)).toMatchObject({
-        error: null,
-        handshake: true,
-        portCount: MCP_APP_REQUIRED_GUEST_PORT_NAMES.length + 1,
-      });
+      await expect
+        .poll(async () =>
+          page.evaluate(
+            () => (window as unknown as { fixtureState: SandboxFixtureState }).fixtureState,
+          ),
+        )
+        .toMatchObject({
+          error: null,
+          handshake: true,
+          portCount: MCP_APP_REQUIRED_GUEST_PORT_NAMES.length + 1,
+        });
 
       const guestFacts = await application.evaluate(
         async ({ BrowserWindow, webContents }, guestId) => {
@@ -92,11 +95,14 @@ describe("MCP App sandbox host Electron boundary", () => {
           const preferences = (
             guest as unknown as { getLastWebPreferences(): Record<string, unknown> }
           ).getLastWebPreferences();
-          const globals = await guest.executeJavaScript(`({
+          const globals = await guest.executeJavaScript(
+            `({
             process: typeof globalThis.process,
             require: typeof globalThis.require,
             electron: typeof globalThis.ipcRenderer,
-          })`, false);
+          })`,
+            false,
+          );
           const permission = await guest.executeJavaScript(
             "Notification.requestPermission()",
             false,
@@ -138,13 +144,16 @@ describe("MCP App sandbox host Electron boundary", () => {
       expect(guestFacts.windowCountAfterPopup).toBe(guestFacts.windowCount);
       expect(guestFacts.url).toBe(guestFacts.urlBeforeNavigation);
 
-      await page.evaluate(() => (
-        window as unknown as { attachAgain(): void }
-      ).attachAgain());
-      await expect.poll(async () => application?.evaluate(
-        ({ webContents }) => webContents.getAllWebContents()
-          .filter((contents) => contents.getType() === "webview").length,
-      )).toBe(2);
+      await page.evaluate(() => (window as unknown as { attachAgain(): void }).attachAgain());
+      await expect
+        .poll(async () =>
+          application?.evaluate(
+            ({ webContents }) =>
+              webContents.getAllWebContents().filter((contents) => contents.getType() === "webview")
+                .length,
+          ),
+        )
+        .toBe(2);
     } finally {
       if (application) await stopApplication(application);
     }

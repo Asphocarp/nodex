@@ -35,8 +35,6 @@ export async function copyImageToClipboardWithInvoke(
   };
 }
 
-export function copyImageToClipboard(
-  source: string,
-): Promise<ClipboardWriteImageResult> {
+export function copyImageToClipboard(source: string): Promise<ClipboardWriteImageResult> {
   return copyImageToClipboardWithInvoke(source, invoke);
 }

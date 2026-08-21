@@ -19,9 +19,13 @@ function readOption(argv: string[], option: string): string | null {
 }
 
 function readMacosTeamIdentifier(artifactPath: string): string {
-  const verification = spawnSync("codesign", ["--verify", "--strict", "--verbose=2", artifactPath], {
-    encoding: "utf8",
-  });
+  const verification = spawnSync(
+    "codesign",
+    ["--verify", "--strict", "--verbose=2", artifactPath],
+    {
+      encoding: "utf8",
+    },
+  );
   if (verification.error) {
     throw new Error(`Could not run codesign for ${artifactPath}: ${verification.error.message}`);
   }
@@ -35,7 +39,9 @@ function readMacosTeamIdentifier(artifactPath: string): string {
     encoding: "utf8",
   });
   if (result.error) {
-    throw new Error(`Could not inspect code signature for ${artifactPath}: ${result.error.message}`);
+    throw new Error(
+      `Could not inspect code signature for ${artifactPath}: ${result.error.message}`,
+    );
   }
   const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   if (result.status !== 0) {
@@ -55,11 +61,14 @@ function readMacosArchitectures(artifactPath: string): string[] {
   }
   if (result.status !== 0) {
     throw new Error(
-      `Could not inspect architectures for ${artifactPath}: `
-      + `${(result.stderr || result.stdout).trim()}`,
+      `Could not inspect architectures for ${artifactPath}: ` +
+        `${(result.stderr || result.stdout).trim()}`,
     );
   }
-  return result.stdout.trim().split(/\s+/u).filter((entry) => entry.length > 0);
+  return result.stdout
+    .trim()
+    .split(/\s+/u)
+    .filter((entry) => entry.length > 0);
 }
 
 function readRuntimeMetadata(metadataPath: string): BundledAgentRuntimeMetadata {
@@ -90,7 +99,9 @@ export function verifyCodexRuntime(input: {
     throw new Error(`Could not execute bundled agent runtime: ${versionResult.error.message}`);
   }
   if (versionResult.status !== 0) {
-    throw new Error(`Bundled agent runtime failed to report its version: ${versionResult.stderr.trim()}`);
+    throw new Error(
+      `Bundled agent runtime failed to report its version: ${versionResult.stderr.trim()}`,
+    );
   }
   if (!runtime.version || !versionResult.stdout.includes(runtime.version)) {
     throw new Error(
@@ -121,18 +132,17 @@ export function verifyCodexRuntime(input: {
     }
     if (runtime.browserRuntime.status === "available") {
       const { bundle } = runtime.browserRuntime;
-      const browserRuntimeTeamIdentifier =
-        bundle.manifest.peerAuthorization.signingTeamId;
+      const browserRuntimeTeamIdentifier = bundle.manifest.peerAuthorization.signingTeamId;
       const computerUseCapability = bundle.manifest.capabilities.computerUse;
       for (const artifact of bundle.manifest.artifacts) {
         if (artifact.kind === "data" || artifact.architecture === "any") continue;
         const artifactPath = join(bundle.rootPath, ...artifact.path.split("/"));
-        const expectedArchitecture =
-          bundle.manifest.targetArch === "x64" ? "x86_64" : "arm64";
+        const expectedArchitecture = bundle.manifest.targetArch === "x64" ? "x86_64" : "arm64";
         const architectures = readMacosArchitectures(artifactPath);
-        const architectureMatches = artifact.architecture === "universal"
-          ? architectures.includes("arm64") && architectures.includes("x86_64")
-          : architectures.length === 1 && architectures[0] === expectedArchitecture;
+        const architectureMatches =
+          artifact.architecture === "universal"
+            ? architectures.includes("arm64") && architectures.includes("x86_64")
+            : architectures.length === 1 && architectures[0] === expectedArchitecture;
         if (!architectureMatches) {
           throw new Error(
             `Browser runtime artifact architecture does not match its manifest: ${artifactPath}`,
@@ -140,14 +150,14 @@ export function verifyCodexRuntime(input: {
         }
         const artifactTeamIdentifier = readMacosTeamIdentifier(artifactPath);
         const expectedTeamIdentifier =
-          computerUseCapability.status === "available"
-          && artifact.path.startsWith(`${computerUseCapability.appBundle}/`)
+          computerUseCapability.status === "available" &&
+          artifact.path.startsWith(`${computerUseCapability.appBundle}/`)
             ? computerUseCapability.signingTeamId
             : browserRuntimeTeamIdentifier;
         if (artifactTeamIdentifier !== expectedTeamIdentifier) {
           throw new Error(
-            `Expected ${artifactPath} to retain desktop tool team ${expectedTeamIdentifier}; `
-            + `found ${artifactTeamIdentifier}`,
+            `Expected ${artifactPath} to retain desktop tool team ${expectedTeamIdentifier}; ` +
+              `found ${artifactTeamIdentifier}`,
           );
         }
       }
@@ -162,8 +172,8 @@ function main(): void {
   const resourcesPath = readOption(argv, "--resources-path");
   if (!resourcesPath) {
     throw new Error(
-      "Usage: verify-codex-runtime.ts --resources-path <Electron Resources> "
-      + "[--verify-macos-signatures] [--require-browser-runtime]",
+      "Usage: verify-codex-runtime.ts --resources-path <Electron Resources> " +
+        "[--verify-macos-signatures] [--require-browser-runtime]",
     );
   }
   verifyCodexRuntime({

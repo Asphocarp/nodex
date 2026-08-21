@@ -5,11 +5,7 @@ import { THREAD_SETTINGS_STORAGE_KEY } from "../../../../../lib/codex-thread-set
 import { render, settleAsyncRender, textContent } from "../../../../../test/dom";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
 import { CodexThreadSettingsProvider } from "../../../../../lib/use-codex-thread-settings";
-import {
-  CommandToolCall,
-  isDateCommand,
-  resolveCommandSummaryLabel,
-} from "./command-tool-call";
+import { CommandToolCall, isDateCommand, resolveCommandSummaryLabel } from "./command-tool-call";
 
 const LONG_COMMAND = [
   "bun x tsx scripts/collect-long-command-metrics.ts",
@@ -49,7 +45,9 @@ function buildCommandEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTran
   };
 }
 
-function buildAutomaticApprovalReviewEntry(overrides?: Partial<CodexTranscriptEntry>): CodexTranscriptEntry {
+function buildAutomaticApprovalReviewEntry(
+  overrides?: Partial<CodexTranscriptEntry>,
+): CodexTranscriptEntry {
   return {
     threadId: "thread-1",
     turnId: "turn-1",
@@ -79,7 +77,9 @@ function buildAutomaticApprovalReviewEntry(overrides?: Partial<CodexTranscriptEn
 }
 
 async function expandCommandShell(container: HTMLElement) {
-  const summaryToggle = container.querySelector<HTMLElement>("[data-testid='command-tool-summary-toggle'] > button");
+  const summaryToggle = container.querySelector<HTMLElement>(
+    "[data-testid='command-tool-summary-toggle'] > button",
+  );
   if (!summaryToggle) throw new Error("Expected command summary toggle");
   fireEvent.click(summaryToggle);
   await settleAsyncRender();
@@ -169,62 +169,78 @@ describe("CommandToolCall render state", () => {
     expect(isDateCommand("date tomorrow")).toBe(false);
     expect(isDateCommand("date ''")).toBe(false);
 
-    expect(resolveCommandSummaryLabel({
-      command: "bun test",
-      effectiveStatus: "inProgress",
-      isExpanded: false,
-      isTurnInProgress: true,
-      processId: null,
-    })).toBe("Running command");
-    expect(resolveCommandSummaryLabel({
-      command: "bun test",
-      effectiveStatus: "completed",
-      isExpanded: false,
-      isTurnInProgress: false,
-      processId: null,
-    })).toBe("Ran bun test");
-    expect(resolveCommandSummaryLabel({
-      command: "bun test",
-      effectiveStatus: "completed",
-      isExpanded: true,
-      isTurnInProgress: false,
-      processId: null,
-    })).toBe("Ran command");
-    expect(resolveCommandSummaryLabel({
-      command: "date -u",
-      effectiveStatus: "interrupted",
-      isExpanded: false,
-      isTurnInProgress: false,
-      processId: null,
-    })).toBe("Stopped checking the current date and time");
-    expect(resolveCommandSummaryLabel({
-      command: "bun run dev",
-      effectiveStatus: "inProgress",
-      isExpanded: false,
-      isTurnInProgress: false,
-      processId: "4172",
-    })).toBe("Started background terminal with bun run dev");
-    expect(resolveCommandSummaryLabel({
-      command: "python .codex/skills/review-helper/scripts/check.py",
-      effectiveStatus: "completed",
-      isExpanded: false,
-      isTurnInProgress: false,
-      processId: null,
-    })).toBe("Ran script check.py from Review Helper skill");
-    expect(resolveCommandSummaryLabel({
-      command: "python .codex/skills/review-helper/check.py",
-      effectiveStatus: "completed",
-      isExpanded: false,
-      isTurnInProgress: false,
-      processId: null,
-    })).toBe("Ran python .codex/skills/review-helper/check.py");
-    expect(resolveCommandSummaryLabel({
-      command: "python .codex/skills/review-helper/scripts/check.py",
-      effectiveStatus: "inProgress",
-      isExpanded: false,
-      isTurnInProgress: false,
-      processId: "4172",
-    })).toBe("Started background terminal running check.py from Review Helper skill");
+    expect(
+      resolveCommandSummaryLabel({
+        command: "bun test",
+        effectiveStatus: "inProgress",
+        isExpanded: false,
+        isTurnInProgress: true,
+        processId: null,
+      }),
+    ).toBe("Running command");
+    expect(
+      resolveCommandSummaryLabel({
+        command: "bun test",
+        effectiveStatus: "completed",
+        isExpanded: false,
+        isTurnInProgress: false,
+        processId: null,
+      }),
+    ).toBe("Ran bun test");
+    expect(
+      resolveCommandSummaryLabel({
+        command: "bun test",
+        effectiveStatus: "completed",
+        isExpanded: true,
+        isTurnInProgress: false,
+        processId: null,
+      }),
+    ).toBe("Ran command");
+    expect(
+      resolveCommandSummaryLabel({
+        command: "date -u",
+        effectiveStatus: "interrupted",
+        isExpanded: false,
+        isTurnInProgress: false,
+        processId: null,
+      }),
+    ).toBe("Stopped checking the current date and time");
+    expect(
+      resolveCommandSummaryLabel({
+        command: "bun run dev",
+        effectiveStatus: "inProgress",
+        isExpanded: false,
+        isTurnInProgress: false,
+        processId: "4172",
+      }),
+    ).toBe("Started background terminal with bun run dev");
+    expect(
+      resolveCommandSummaryLabel({
+        command: "python .codex/skills/review-helper/scripts/check.py",
+        effectiveStatus: "completed",
+        isExpanded: false,
+        isTurnInProgress: false,
+        processId: null,
+      }),
+    ).toBe("Ran script check.py from Review Helper skill");
+    expect(
+      resolveCommandSummaryLabel({
+        command: "python .codex/skills/review-helper/check.py",
+        effectiveStatus: "completed",
+        isExpanded: false,
+        isTurnInProgress: false,
+        processId: null,
+      }),
+    ).toBe("Ran python .codex/skills/review-helper/check.py");
+    expect(
+      resolveCommandSummaryLabel({
+        command: "python .codex/skills/review-helper/scripts/check.py",
+        effectiveStatus: "inProgress",
+        isExpanded: false,
+        isTurnInProgress: false,
+        processId: "4172",
+      }),
+    ).toBe("Started background terminal running check.py from Review Helper skill");
   });
 
   test("switches settled generic command summary from specific collapsed text to generic expanded text", async () => {
@@ -261,10 +277,13 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Checking the current date and time"))).toBe(true);
-    expect(container.querySelector<HTMLElement>(".loading-shimmer-pure-text")?.firstChild?.textContent ?? "").toBe(
-      "Checking the current date and time",
+    expect(Boolean(textContent(container).includes("Checking the current date and time"))).toBe(
+      true,
     );
+    expect(
+      container.querySelector<HTMLElement>(".loading-shimmer-pure-text")?.firstChild?.textContent ??
+        "",
+    ).toBe("Checking the current date and time");
 
     rerender(
       <TooltipProvider>
@@ -281,7 +300,9 @@ describe("CommandToolCall render state", () => {
         </CodexThreadSettingsProvider>
       </TooltipProvider>,
     );
-    expect(Boolean(textContent(container).includes("Checked the current date and time"))).toBe(true);
+    expect(Boolean(textContent(container).includes("Checked the current date and time"))).toBe(
+      true,
+    );
 
     rerender(
       <TooltipProvider>
@@ -301,7 +322,9 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    expect(Boolean(textContent(container).includes("Started background terminal with bun run dev"))).toBe(true);
+    expect(
+      Boolean(textContent(container).includes("Started background terminal with bun run dev")),
+    ).toBe(true);
     expect(Boolean(container.querySelector(".loading-shimmer-pure-text"))).toBe(false);
   });
 
@@ -319,7 +342,10 @@ describe("CommandToolCall render state", () => {
   });
 
   test("keeps settled commands collapsed on first mount in steps-with-output mode", () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_EXECUTION" }),
+    );
 
     const { container } = render(
       <TooltipProvider>
@@ -337,7 +363,10 @@ describe("CommandToolCall render state", () => {
   });
 
   test("suppresses command cards entirely in steps mode", () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_PROSE" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_PROSE" }),
+    );
 
     const { container } = render(
       <TooltipProvider>
@@ -351,7 +380,10 @@ describe("CommandToolCall render state", () => {
   });
 
   test("shows in-progress skill definition reads in steps mode", () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_PROSE" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_PROSE" }),
+    );
 
     const { container } = render(
       <TooltipProvider>
@@ -406,7 +438,9 @@ describe("CommandToolCall render state", () => {
     expect(Boolean(textContent(container).includes("Read src/index.ts"))).toBe(true);
     expect(Boolean(textContent(container).includes("Explored"))).toBe(false);
     expect(Boolean(textContent(container).includes("Shell"))).toBe(false);
-    expect(Boolean(container.querySelector("[data-testid='command-tool-summary-toggle']"))).toBe(false);
+    expect(Boolean(container.querySelector("[data-testid='command-tool-summary-toggle']"))).toBe(
+      false,
+    );
     expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(false);
     expect(Boolean(container.querySelector("[data-agent-activity-file-link]"))).toBe(true);
   });
@@ -640,7 +674,9 @@ describe("CommandToolCall render state", () => {
     );
 
     expect(Boolean(textContent(container).includes("Read Review Helper skill"))).toBe(true);
-    expect(Boolean(textContent(container).includes("Read .codex/skills/review-helper/SKILL.md"))).toBe(false);
+    expect(
+      Boolean(textContent(container).includes("Read .codex/skills/review-helper/SKILL.md")),
+    ).toBe(false);
   });
 
   test("lets in-progress commands expand and collapse manually", async () => {
@@ -665,13 +701,15 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    const summaryToggle = container.querySelector<HTMLElement>("[data-testid='command-tool-summary-toggle'] > button");
+    const summaryToggle = container.querySelector<HTMLElement>(
+      "[data-testid='command-tool-summary-toggle'] > button",
+    );
     expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
     await settleAsyncRender();
 
-    const expandedBody = container.querySelector('[data-thread-find-skip]');
+    const expandedBody = container.querySelector("[data-thread-find-skip]");
     expect(Boolean(expandedBody)).toBe(false);
     expect(Boolean(container.querySelector('[data-testid="exec-shell-body"]'))).toBe(true);
 
@@ -685,7 +723,10 @@ describe("CommandToolCall render state", () => {
   });
 
   test("keeps an expanded command shell open when a running command settles", async () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_EXECUTION" }),
+    );
 
     const inProgressEntry = buildCommandEntry({
       status: "inProgress",
@@ -709,7 +750,9 @@ describe("CommandToolCall render state", () => {
       </TooltipProvider>,
     );
 
-    const summaryToggle = container.querySelector<HTMLElement>("[data-testid='command-tool-summary-toggle'] > button");
+    const summaryToggle = container.querySelector<HTMLElement>(
+      "[data-testid='command-tool-summary-toggle'] > button",
+    );
     expect(Boolean(summaryToggle)).toBe(true);
 
     fireEvent.click(summaryToggle as HTMLElement);
@@ -746,18 +789,24 @@ describe("CommandToolCall render state", () => {
 
     await expandCommandShell(container);
 
-    const reviewButton = Array.from(container.querySelectorAll<HTMLButtonElement>("button"))
-      .find((element) => textContent(element).includes("Auto-review approved")) ?? null;
-    const shellLabel = Array.from(container.querySelectorAll<HTMLElement>("span"))
-      .find((element) => textContent(element) === "Shell") ?? null;
+    const reviewButton =
+      Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find((element) =>
+        textContent(element).includes("Auto-review approved"),
+      ) ?? null;
+    const shellLabel =
+      Array.from(container.querySelectorAll<HTMLElement>("span")).find(
+        (element) => textContent(element) === "Shell",
+      ) ?? null;
 
     expect(Boolean(reviewButton)).toBe(true);
     expect(Boolean(shellLabel)).toBe(true);
-    expect(Boolean(
-      reviewButton && shellLabel
-        ? reviewButton.compareDocumentPosition(shellLabel) & Node.DOCUMENT_POSITION_FOLLOWING
-        : false,
-    )).toBe(true);
+    expect(
+      Boolean(
+        reviewButton && shellLabel
+          ? reviewButton.compareDocumentPosition(shellLabel) & Node.DOCUMENT_POSITION_FOLLOWING
+          : false,
+      ),
+    ).toBe(true);
     expect(Boolean(textContent(container).includes("Auto-review approved"))).toBe(true);
   });
 
@@ -768,12 +817,14 @@ describe("CommandToolCall render state", () => {
           <CommandToolCall
             item={buildCommandEntry({
               command: "rg needle src",
-              commandActions: [{
-                type: "search",
-                query: "needle",
-                path: "src",
-                command: "rg needle src",
-              }],
+              commandActions: [
+                {
+                  type: "search",
+                  query: "needle",
+                  path: "src",
+                  command: "rg needle src",
+                },
+              ],
             })}
             automaticApprovalReviews={[buildAutomaticApprovalReviewEntry()]}
           />
@@ -799,7 +850,10 @@ describe("CommandToolCall render state", () => {
   });
 
   test("expands a long command line when clicked", async () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_EXECUTION" }),
+    );
 
     const { container } = render(
       <TooltipProvider>
@@ -825,7 +879,10 @@ describe("CommandToolCall render state", () => {
   });
 
   test("expands a long command line from keyboard", async () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_EXECUTION" }),
+    );
 
     const { container } = render(
       <TooltipProvider>
@@ -850,7 +907,10 @@ describe("CommandToolCall render state", () => {
   });
 
   test("does not show a no-output placeholder while a command is still running", () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_EXECUTION" }),
+    );
 
     const { container } = render(
       <TooltipProvider>
@@ -877,7 +937,10 @@ describe("CommandToolCall render state", () => {
   });
 
   test("shows a no-output placeholder once a blank command output has settled", async () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_EXECUTION" }),
+    );
 
     const { container } = render(
       <TooltipProvider>
@@ -905,7 +968,10 @@ describe("CommandToolCall render state", () => {
   });
 
   test("renders explicit canonical exit codes without parsing output text", async () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_EXECUTION" }),
+    );
 
     const { container } = render(
       <TooltipProvider>
@@ -927,7 +993,10 @@ describe("CommandToolCall render state", () => {
   });
 
   test("renders stopped, success, and unknown command footer labels", async () => {
-    localStorage.setItem(THREAD_SETTINGS_STORAGE_KEY, JSON.stringify({ detailLevel: "STEPS_EXECUTION" }));
+    localStorage.setItem(
+      THREAD_SETTINGS_STORAGE_KEY,
+      JSON.stringify({ detailLevel: "STEPS_EXECUTION" }),
+    );
 
     const { container, rerender } = render(
       <TooltipProvider>

@@ -1,25 +1,8 @@
 export const BROWSER_SIDEBAR_PARTITION = "persist:codex-browser-app";
-export const BROWSER_SIDEBAR_ROUTE_PARTITION_PREFIX =
-  "persist:codex-browser-app-route:";
+export const BROWSER_SIDEBAR_ROUTE_PARTITION_PREFIX = "persist:codex-browser-app-route:";
 
 export const BROWSER_SIDEBAR_ZOOM_OPTIONS = [
-  25,
-  33,
-  50,
-  67,
-  75,
-  80,
-  90,
-  100,
-  110,
-  125,
-  150,
-  175,
-  200,
-  250,
-  300,
-  400,
-  500,
+  25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 500,
 ] as const;
 
 export interface BrowserSidebarViewport {
@@ -40,73 +23,63 @@ export interface BrowserSidebarTabIdentity {
   browserTabId: string;
 }
 
-export interface BrowserSidebarOpenNewTabRequest
-extends BrowserSidebarTabIdentity {
+export interface BrowserSidebarOpenNewTabRequest extends BrowserSidebarTabIdentity {
   url: string;
   background: boolean;
 }
 
-export interface BrowserSidebarImageDragStateEvent
-extends BrowserSidebarTabIdentity {
+export interface BrowserSidebarImageDragStateEvent extends BrowserSidebarTabIdentity {
   isActive: boolean;
 }
 
 export type BrowserSidebarContextMenuActionEvent =
-  | BrowserSidebarTabIdentity & {
-    action: "annotate" | "quick-annotate";
-    point: {
-      x: number;
-      y: number;
-    };
-  }
-  | BrowserSidebarTabIdentity & {
-    action: "image-attached";
-    attachment: {
-      id: string;
-      fileName: string;
-      source: string;
-    };
-  }
-  | BrowserSidebarTabIdentity & {
-    action: "error";
-    message: string;
-  };
+  | (BrowserSidebarTabIdentity & {
+      action: "annotate" | "quick-annotate";
+      point: {
+        x: number;
+        y: number;
+      };
+    })
+  | (BrowserSidebarTabIdentity & {
+      action: "image-attached";
+      attachment: {
+        id: string;
+        fileName: string;
+        source: string;
+      };
+    })
+  | (BrowserSidebarTabIdentity & {
+      action: "error";
+      message: string;
+    });
 
-export function matchesBrowserSidebarTabIdentity<
-  Identity extends BrowserSidebarTabIdentity,
->(
+export function matchesBrowserSidebarTabIdentity<Identity extends BrowserSidebarTabIdentity>(
   candidate: Identity | null | undefined,
   expected: BrowserSidebarTabIdentity,
 ): candidate is Identity {
   if (!candidate) return false;
-  return candidate.browserConversationId === expected.browserConversationId
-    && candidate.browserViewScopeId === expected.browserViewScopeId
-    && candidate.browserTabId === expected.browserTabId;
+  return (
+    candidate.browserConversationId === expected.browserConversationId &&
+    candidate.browserViewScopeId === expected.browserViewScopeId &&
+    candidate.browserTabId === expected.browserTabId
+  );
 }
 
 export function makeBrowserSidebarConversationScopeKey(
-  identity: Pick<
-    BrowserSidebarTabIdentity,
-    "browserConversationId" | "browserViewScopeId"
-  >,
+  identity: Pick<BrowserSidebarTabIdentity, "browserConversationId" | "browserViewScopeId">,
 ): string {
   return `${identity.browserConversationId}\0${identity.browserViewScopeId}`;
 }
 
-export function makeBrowserSidebarTabKey(
-  identity: BrowserSidebarTabIdentity,
-): string {
+export function makeBrowserSidebarTabKey(identity: BrowserSidebarTabIdentity): string {
   return `${makeBrowserSidebarConversationScopeKey(identity)}\0${identity.browserTabId}`;
 }
 
-export function makeDefaultBrowserSidebarTabId(
-  browserConversationId: string,
-): string {
+export function makeDefaultBrowserSidebarTabId(browserConversationId: string): string {
   return `${browserConversationId}:legacy`;
 }
 
-export interface BrowserSidebarHostRouteIdentity
-extends BrowserSidebarTabIdentity {
+export interface BrowserSidebarHostRouteIdentity extends BrowserSidebarTabIdentity {
   rendererInstanceId: string;
   hostGeneration: number;
   mountGeneration: number;
@@ -134,8 +107,10 @@ export function makeBrowserSidebarRoutePartition(
     makeBrowserSidebarTabKey(identity),
   )}`;
   if (!host) return route;
-  return `${route}:host:${encodeURIComponent(host.rendererInstanceId)}`
-    + `:${host.hostGeneration}:${host.mountGeneration}`;
+  return (
+    `${route}:host:${encodeURIComponent(host.rendererInstanceId)}` +
+    `:${host.hostGeneration}:${host.mountGeneration}`
+  );
 }
 
 export function parseBrowserSidebarRoutePartition(
@@ -146,15 +121,13 @@ export function parseBrowserSidebarRoutePartition(
     const encodedRoute = partition
       .slice(BROWSER_SIDEBAR_ROUTE_PARTITION_PREFIX.length)
       .split(":host:", 1)[0];
-    const decoded = decodeURIComponent(
-      encodedRoute,
-    );
+    const decoded = decodeURIComponent(encodedRoute);
     const firstSeparatorIndex = decoded.indexOf("\0");
     const secondSeparatorIndex = decoded.indexOf("\0", firstSeparatorIndex + 1);
     if (
-      firstSeparatorIndex <= 0
-      || secondSeparatorIndex <= firstSeparatorIndex + 1
-      || secondSeparatorIndex === decoded.length - 1
+      firstSeparatorIndex <= 0 ||
+      secondSeparatorIndex <= firstSeparatorIndex + 1 ||
+      secondSeparatorIndex === decoded.length - 1
     ) {
       return null;
     }
@@ -176,19 +149,17 @@ export function parseBrowserSidebarHostRoutePartition(
   try {
     const hostMarkerIndex = partition.indexOf(":host:");
     if (hostMarkerIndex < 0) return null;
-    const hostParts = partition
-      .slice(hostMarkerIndex + ":host:".length)
-      .split(":");
+    const hostParts = partition.slice(hostMarkerIndex + ":host:".length).split(":");
     if (hostParts.length !== 3) return null;
     const rendererInstanceId = decodeURIComponent(hostParts[0] ?? "").trim();
     const hostGeneration = Number.parseInt(hostParts[1] ?? "", 10);
     const mountGeneration = Number.parseInt(hostParts[2] ?? "", 10);
     if (
-      rendererInstanceId.length === 0
-      || !Number.isSafeInteger(hostGeneration)
-      || hostGeneration <= 0
-      || !Number.isSafeInteger(mountGeneration)
-      || mountGeneration <= 0
+      rendererInstanceId.length === 0 ||
+      !Number.isSafeInteger(hostGeneration) ||
+      hostGeneration <= 0 ||
+      !Number.isSafeInteger(mountGeneration) ||
+      mountGeneration <= 0
     ) {
       return null;
     }
@@ -381,22 +352,21 @@ export const DEFAULT_BROWSER_LOCAL_SERVER_PREFERENCES: BrowserLocalServerPrefere
   expandedProjectIds: [],
 };
 
-export interface BrowserSidebarLocalServerThumbnailRequest
-extends BrowserSidebarTabIdentity {
+export interface BrowserSidebarLocalServerThumbnailRequest extends BrowserSidebarTabIdentity {
   projectId: string;
   url: string;
 }
 
 export type BrowserSidebarLocalServerThumbnailResult =
   | {
-    status: "ready";
-    dataUrl: string;
-    capturedAt: number;
-  }
+      status: "ready";
+      dataUrl: string;
+      capturedAt: number;
+    }
   | {
-    status: "unavailable";
-    message: string;
-  };
+      status: "unavailable";
+      message: string;
+    };
 
 export interface BrowserUseCursorState extends BrowserSidebarTabIdentity {
   animateMovement?: boolean;
@@ -434,8 +404,7 @@ export interface BrowserSidebarBrowserUseStateSnapshot {
 
 export type BrowserUsePresentationTransition = "default" | "none";
 
-export interface BrowserUsePresentationRequest
-extends BrowserSidebarTabIdentity {
+export interface BrowserUsePresentationRequest extends BrowserSidebarTabIdentity {
   requestId: string;
   codexSessionId: string;
   projectId: string | null;
@@ -444,15 +413,13 @@ extends BrowserSidebarTabIdentity {
   source: "browser-use";
 }
 
-export interface BrowserUsePresentationResult
-extends BrowserSidebarTabIdentity {
+export interface BrowserUsePresentationResult extends BrowserSidebarTabIdentity {
   requestId: string;
   outcome: "accepted" | "unavailable" | "stale";
   message?: string;
 }
 
-export interface BrowserUsePageClosedEvent
-extends BrowserSidebarTabIdentity {
+export interface BrowserUsePageClosedEvent extends BrowserSidebarTabIdentity {
   reason: "agent" | "user" | "web-contents-destroyed";
 }
 
@@ -470,12 +437,7 @@ export interface BrowserSidebarBrowserUseCaptureSurfaceEvent extends BrowserSide
   surfaceSize: BrowserSidebarSize | null;
 }
 
-export type BrowserBrowsingDataKind =
-  | "cookies"
-  | "cache"
-  | "site-data"
-  | "history"
-  | "downloads";
+export type BrowserBrowsingDataKind = "cookies" | "cache" | "site-data" | "history" | "downloads";
 
 export type BrowserSidebarWebviewHostKind = "panel" | "background" | "retained";
 export type BrowserSidebarThemeVariant = "light" | "dark";
@@ -522,52 +484,59 @@ type BrowserSidebarTargetedCommand<Command> = Command & BrowserSidebarTabIdentit
 
 export type BrowserSidebarCommand =
   | {
-    type: "register-renderer-session";
-    browserViewScopeId: string;
-    rendererInstanceId: string;
-  }
+      type: "register-renderer-session";
+      browserViewScopeId: string;
+      rendererInstanceId: string;
+    }
   | {
-    type: "sync-theme";
-    themeVariant: BrowserSidebarThemeVariant;
-  }
+      type: "sync-theme";
+      themeVariant: BrowserSidebarThemeVariant;
+    }
   | {
-    type: "capture-browser-use-route";
-    browserConversationId: string;
-    browserViewScopeId: string;
-    codexSessionId: string;
-    projectId: string | null;
-  }
+      type: "capture-browser-use-route";
+      browserConversationId: string;
+      browserViewScopeId: string;
+      codexSessionId: string;
+      projectId: string | null;
+    }
   | BrowserSidebarTargetedCommand<{
-    type: "register-host";
-    browserStorageId: string;
-    rendererInstanceId: string;
-    hostGeneration: number;
-    mountGeneration: number;
-    hostKind: BrowserSidebarWebviewHostKind;
-    pagePersistence: "durable" | "browser-use";
-    themeVariant: BrowserSidebarThemeVariant;
-  }>
+      type: "register-host";
+      browserStorageId: string;
+      rendererInstanceId: string;
+      hostGeneration: number;
+      mountGeneration: number;
+      hostKind: BrowserSidebarWebviewHostKind;
+      pagePersistence: "durable" | "browser-use";
+      themeVariant: BrowserSidebarThemeVariant;
+    }>
   | BrowserSidebarTargetedCommand<{
-    type: "sync-host";
-    rendererInstanceId: string;
-    hostGeneration: number;
-    mountGeneration: number;
-    hostKind: BrowserSidebarWebviewHostKind;
-    presented: boolean;
-    themeVariant: BrowserSidebarThemeVariant;
-    visible: boolean;
-  }>
+      type: "sync-host";
+      rendererInstanceId: string;
+      hostGeneration: number;
+      mountGeneration: number;
+      hostKind: BrowserSidebarWebviewHostKind;
+      presented: boolean;
+      themeVariant: BrowserSidebarThemeVariant;
+      visible: boolean;
+    }>
   | BrowserSidebarTargetedCommand<{
-    type: "register-tab";
-    projectId: string | null;
-    initialUrl?: string;
-    title?: string;
-    faviconUrl?: string;
-    deviceToolbarVisible?: boolean;
-    deviceToolbarState?: BrowserSidebarDeviceToolbarState;
-    browserStorageId?: string;
-  }>
-  | BrowserSidebarTargetedCommand<{ type: "navigate"; url: string; hostId?: string; source?: "manual" | "local-server" | "browser-use"; initiator?: string; originalUrl?: string }>
+      type: "register-tab";
+      projectId: string | null;
+      initialUrl?: string;
+      title?: string;
+      faviconUrl?: string;
+      deviceToolbarVisible?: boolean;
+      deviceToolbarState?: BrowserSidebarDeviceToolbarState;
+      browserStorageId?: string;
+    }>
+  | BrowserSidebarTargetedCommand<{
+      type: "navigate";
+      url: string;
+      hostId?: string;
+      source?: "manual" | "local-server" | "browser-use";
+      initiator?: string;
+      originalUrl?: string;
+    }>
   | BrowserSidebarTargetedCommand<{ type: "go-back" }>
   | BrowserSidebarTargetedCommand<{ type: "go-forward" }>
   | BrowserSidebarTargetedCommand<{ type: "reload"; ignoreCache?: boolean }>
@@ -578,31 +547,42 @@ export type BrowserSidebarCommand =
   | BrowserSidebarTargetedCommand<{ type: "set-title"; title: string }>
   | BrowserSidebarTargetedCommand<{ type: "set-favicon"; faviconUrl?: string }>
   | BrowserSidebarTargetedCommand<{ type: "step-zoom"; delta: number; showBanner?: boolean }>
-  | BrowserSidebarTargetedCommand<{ type: "set-zoom-percent"; zoomPercent: number; showBanner?: boolean }>
+  | BrowserSidebarTargetedCommand<{
+      type: "set-zoom-percent";
+      zoomPercent: number;
+      showBanner?: boolean;
+    }>
   | BrowserSidebarTargetedCommand<{ type: "reset-zoom"; showBanner?: boolean }>
   | BrowserSidebarTargetedCommand<{ type: "set-device-toolbar-visible"; visible: boolean }>
   | BrowserSidebarTargetedCommand<{ type: "set-viewport"; viewport: BrowserSidebarViewport }>
-  | BrowserSidebarTargetedCommand<{ type: "set-interaction-mode"; mode: BrowserSidebarInteractionMode }>
   | BrowserSidebarTargetedCommand<{
-    type: "quick-annotate";
-    sessionId: string;
-    point: {
-      x: number;
-      y: number;
-    };
-  }>
+      type: "set-interaction-mode";
+      mode: BrowserSidebarInteractionMode;
+    }>
+  | BrowserSidebarTargetedCommand<{
+      type: "quick-annotate";
+      sessionId: string;
+      point: {
+        x: number;
+        y: number;
+      };
+    }>
   | BrowserSidebarTargetedCommand<{ type: "open-find" }>
   | BrowserSidebarTargetedCommand<{ type: "close-find" }>
-  | BrowserSidebarTargetedCommand<{ type: "set-find-query"; query: string; caseSensitive?: boolean }>
+  | BrowserSidebarTargetedCommand<{
+      type: "set-find-query";
+      query: string;
+      caseSensitive?: boolean;
+    }>
   | BrowserSidebarTargetedCommand<{ type: "find-next" }>
   | BrowserSidebarTargetedCommand<{ type: "find-previous" }>
   | BrowserSidebarTargetedCommand<{ type: "capture-screenshot" }>
   | BrowserSidebarTargetedCommand<{ type: "print" }>
   | BrowserSidebarTargetedCommand<{ type: "attach-dragged-image" }>
   | BrowserSidebarTargetedCommand<{
-    type: "browser-use-cursor-arrived";
-    moveSequence: number;
-  }>
+      type: "browser-use-cursor-arrived";
+      moveSequence: number;
+    }>
   | { type: "local-servers-refresh"; projectId: string }
   | { type: "hide-local-server"; projectId: string; server: BrowserSidebarLocalServer }
   | { type: "unhide-local-server"; projectId: string; url: string }
@@ -610,15 +590,15 @@ export type BrowserSidebarCommand =
   | { type: "browser-use-upsert-tab"; tab: BrowserUseTabState }
   | BrowserSidebarTargetedCommand<{ type: "browser-use-release-tab" }>
   | {
-    type: "browser-use-set-active-tab";
-    browserConversationId: string;
-    browserViewScopeId: string;
-    browserTabId: string | null;
-  }
+      type: "browser-use-set-active-tab";
+      browserConversationId: string;
+      browserViewScopeId: string;
+      browserTabId: string | null;
+    }
   | {
-    type: "browser-use-resolve-presentation";
-    result: BrowserUsePresentationResult;
-  }
+      type: "browser-use-resolve-presentation";
+      result: BrowserUsePresentationResult;
+    }
   | { type: "browser-use-set-cursor"; cursor: BrowserUseCursorState }
   | { type: "browser-use-set-viewport"; event: BrowserSidebarBrowserUseViewportEvent }
   | { type: "browser-use-set-capture-surface"; event: BrowserSidebarBrowserUseCaptureSurfaceEvent };
@@ -627,6 +607,4 @@ export type BrowserSidebarCommandResult =
   | { ok: true; dataUrl?: string; snapshot?: BrowserSidebarTabSnapshot }
   | { ok: false; message: string };
 
-export type BrowserBrowsingDataClearResult =
-  | { ok: true }
-  | { ok: false; message: string };
+export type BrowserBrowsingDataClearResult = { ok: true } | { ok: false; message: string };

@@ -83,9 +83,7 @@ describe("WorkbenchWindowState", () => {
   });
 
   test("back and forward apply history without recording themselves", () => {
-    const initial = createWorkbenchWindowState(
-      createDefaultWorkbenchLayoutSnapshot(),
-    );
+    const initial = createWorkbenchWindowState(createDefaultWorkbenchLayoutSnapshot());
     const settings = openWorkbenchRoute(initial, {
       kind: "settings",
       path: "/settings/general",
@@ -107,9 +105,7 @@ describe("WorkbenchWindowState", () => {
   });
 
   test("the Pages Scene participates in shared window history", () => {
-    const initial = createWorkbenchWindowState(
-      createDefaultWorkbenchLayoutSnapshot(),
-    );
+    const initial = createWorkbenchWindowState(createDefaultWorkbenchLayoutSnapshot());
     const pages = selectWorkbenchPages(initial);
     const settings = openWorkbenchRoute(pages, {
       kind: "settings",
@@ -138,9 +134,7 @@ describe("WorkbenchWindowState", () => {
     const pages = selectWorkbenchPages(settings);
 
     expect(pages.location).toEqual({ kind: "pages" });
-    expect(navigateBackInWorkbenchWindow(pages).location).toEqual(
-      settings.location,
-    );
+    expect(navigateBackInWorkbenchWindow(pages).location).toEqual(settings.location);
   });
 
   test("records Pages surface creation and selection as one history entry", () => {
@@ -152,9 +146,8 @@ describe("WorkbenchWindowState", () => {
     const presented = updateWorkbenchSceneAndNavigate(
       initial,
       owner,
-      (previous) => createWorkbenchSceneSurface(
-        previous ?? materializeInitialWorkbenchScene(owner),
-        {
+      (previous) =>
+        createWorkbenchSceneSurface(previous ?? materializeInitialWorkbenchScene(owner), {
           panelId: "right",
           surface: {
             id: "page:one",
@@ -167,8 +160,7 @@ describe("WorkbenchWindowState", () => {
             stateKey: 0,
             state: null,
           },
-        },
-      ),
+        }),
       { kind: "pages" },
     );
 
@@ -180,33 +172,23 @@ describe("WorkbenchWindowState", () => {
   });
 
   test("Pages replacement does not add history and divergent navigation clears forward", () => {
-    const initial = createWorkbenchWindowState(
-      createDefaultWorkbenchLayoutSnapshot(),
-    );
+    const initial = createWorkbenchWindowState(createDefaultWorkbenchLayoutSnapshot());
     const pages = selectWorkbenchPages(initial);
     const emptyAgain = navigateBackInWorkbenchWindow(pages);
     const project = selectWorkbenchProject(emptyAgain, "alpha");
-    const replacement = navigateWorkbenchWindow(
-      project,
-      { kind: "pages" },
-      { record: false },
-    );
+    const replacement = navigateWorkbenchWindow(project, { kind: "pages" }, { record: false });
 
     expect(project.history.forwardStack).toHaveLength(0);
     expect(replacement.history).toEqual(project.history);
     expect(replacement.location).toEqual(pages.location);
-    expect(navigateWorkbenchWindow(replacement, replacement.location)).toBe(
-      replacement,
-    );
+    expect(navigateWorkbenchWindow(replacement, replacement.location)).toBe(replacement);
   });
 
   test("back and forward restore the Scene snapshot atomically", () => {
     const owner = { kind: "session", sessionId: "session:alpha" } as const;
-    const scene = patchWorkbenchScenePanel(
-      materializeInitialWorkbenchScene(owner),
-      "right",
-      { collapsed: false },
-    );
+    const scene = patchWorkbenchScenePanel(materializeInitialWorkbenchScene(owner), "right", {
+      collapsed: false,
+    });
     const sceneKey = makeWorkbenchSceneKey(owner);
     const initial = createWorkbenchWindowState({
       ...createDefaultWorkbenchLayoutSnapshot(),
@@ -218,11 +200,10 @@ describe("WorkbenchWindowState", () => {
       scenesByOwnerKey: { [sceneKey]: scene },
     });
     const collapsed = updateWorkbenchScene(initial, owner, (current) =>
-      patchWorkbenchScenePanel(current!, "right", { collapsed: true }));
+      patchWorkbenchScenePanel(current!, "right", { collapsed: true }),
+    );
 
-    expect(
-      collapsed.scenesByOwnerKey[sceneKey]?.panels.right.collapsed,
-    ).toBe(true);
+    expect(collapsed.scenesByOwnerKey[sceneKey]?.panels.right.collapsed).toBe(true);
     const back = navigateBackInWorkbenchWindow(collapsed);
     expect(back.scenesByOwnerKey[sceneKey]?.panels.right.collapsed).toBe(false);
     const forward = navigateForwardInWorkbenchWindow(back);
@@ -243,15 +224,21 @@ describe("WorkbenchWindowState", () => {
       scenesByOwnerKey: { [sceneKey]: scene },
     });
 
-    const hidden = updateWorkbenchScene(initial, owner, (current) => ({
-      ...current!,
-      composerOverlay: { visible: false },
-    }), { recordHistory: false });
+    const hidden = updateWorkbenchScene(
+      initial,
+      owner,
+      (current) => ({
+        ...current!,
+        composerOverlay: { visible: false },
+      }),
+      { recordHistory: false },
+    );
 
     expect(hidden.scenesByOwnerKey[sceneKey]?.composerOverlay.visible).toBe(false);
     expect(hidden.history).toEqual(initial.history);
-    expect(snapshotWorkbenchWindowState(hidden).scenesByOwnerKey[sceneKey])
-      .toEqual(hidden.scenesByOwnerKey[sceneKey]);
+    expect(snapshotWorkbenchWindowState(hidden).scenesByOwnerKey[sceneKey]).toEqual(
+      hidden.scenesByOwnerKey[sceneKey],
+    );
   });
 
   test("only an authoritative missing Session reconciles to Project", () => {
@@ -269,10 +256,7 @@ describe("WorkbenchWindowState", () => {
       location,
     });
 
-    const reconciled = reconcileMissingWorkbenchSession(
-      state,
-      "session:deleted",
-    );
+    const reconciled = reconcileMissingWorkbenchSession(state, "session:deleted");
 
     expect(reconciled.location).toEqual({
       ...location,
@@ -281,16 +265,11 @@ describe("WorkbenchWindowState", () => {
         projectId: "alpha",
       },
     });
-    expect(reconcileMissingWorkbenchSession(
-      state,
-      "session:another",
-    )).toBe(state);
+    expect(reconcileMissingWorkbenchSession(state, "session:another")).toBe(state);
   });
 
   test("persistence folds pending worktree to the return route", () => {
-    const state = createWorkbenchWindowState(
-      createDefaultWorkbenchLayoutSnapshot(),
-    );
+    const state = createWorkbenchWindowState(createDefaultWorkbenchLayoutSnapshot());
     const pending = openWorkbenchRoute(state, {
       kind: "pending-worktree",
       clientThreadId: "client:one",

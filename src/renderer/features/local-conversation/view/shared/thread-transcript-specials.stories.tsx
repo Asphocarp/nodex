@@ -65,7 +65,9 @@ function AutoOpenSurface({ children }: { children: ReactNode }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const toggle = containerRef.current?.querySelector<HTMLElement>('button[aria-expanded="false"]');
+    const toggle = containerRef.current?.querySelector<HTMLElement>(
+      'button[aria-expanded="false"]',
+    );
     toggle?.click();
   }, []);
 
@@ -77,10 +79,9 @@ function openStoryAgentThread(threadId: string) {
 }
 
 const STREAMING_ASSISTANT_SEGMENTS =
-  (
-    "Investigating the Storybook regression while comparing the streaming transcript against the Codex Electron bundle, verifying tooltip sizing, dropdown chrome, shell command expansion, and per-word prose animation as new text arrives."
-      .match(/\S+\s*/g) ?? []
-  );
+  "Investigating the Storybook regression while comparing the streaming transcript against the Codex Electron bundle, verifying tooltip sizing, dropdown chrome, shell command expansion, and per-word prose animation as new text arrives.".match(
+    /\S+\s*/g,
+  ) ?? [];
 
 function StreamingAssistantMarkdownPreview() {
   const [visibleSegmentCount, setVisibleSegmentCount] = useState(1);
@@ -88,14 +89,19 @@ function StreamingAssistantMarkdownPreview() {
   const content = STREAMING_ASSISTANT_SEGMENTS.slice(0, visibleSegmentCount).join("");
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      if (isComplete) {
-        setVisibleSegmentCount(1);
-        return;
-      }
+    const timer = window.setTimeout(
+      () => {
+        if (isComplete) {
+          setVisibleSegmentCount(1);
+          return;
+        }
 
-      setVisibleSegmentCount((current) => Math.min(current + 1, STREAMING_ASSISTANT_SEGMENTS.length));
-    }, isComplete ? 1200 : 110);
+        setVisibleSegmentCount((current) =>
+          Math.min(current + 1, STREAMING_ASSISTANT_SEGMENTS.length),
+        );
+      },
+      isComplete ? 1200 : 110,
+    );
 
     return () => {
       window.clearTimeout(timer);
@@ -150,11 +156,12 @@ function buildSubagentActivityStoryBlock(): ThreadTranscriptBlockModel {
     rawItem: {
       id: `subagent_activity_${id}`,
       type: "subAgentActivity",
-      kind: displayStatus === "interrupted"
-        ? "interrupted"
-        : displayStatus === "updated"
-          ? "interacted"
-          : "started",
+      kind:
+        displayStatus === "interrupted"
+          ? "interrupted"
+          : displayStatus === "updated"
+            ? "interacted"
+            : "started",
       agentThreadId: `thread_${id}`,
       agentPath: `agents/${displayName}`,
     },
@@ -199,7 +206,8 @@ export const ReasoningStreaming: Story = {
       <ConversationStorySurface>
         <ReasoningSurface
           item={{
-            markdownText: "**Investigating**\n\nChecking the failing story state.\n\n- comparing bundle behavior\n- checking transcript buckets",
+            markdownText:
+              "**Investigating**\n\nChecking the failing story state.\n\n- comparing bundle behavior\n- checking transcript buckets",
             status: "inProgress",
           }}
           parseIncompleteMarkdown
@@ -253,7 +261,8 @@ export const CompletedLatestAssistantStatic: Story = {
             status: "completed",
             role: "assistant",
             assistantPhase: "final_answer",
-            markdownText: "Completed assistant prose remains static even while the latest turn is waiting on trailing lifecycle rows.",
+            markdownText:
+              "Completed assistant prose remains static even while the latest turn is waiting on trailing lifecycle rows.",
             createdAt: 1,
             updatedAt: 1,
           })}
@@ -444,7 +453,8 @@ export const ReasoningCompleted: Story = {
       <ConversationStorySurface>
         <ReasoningSurface
           item={{
-            markdownText: "**Investigating**\n\nChecking the failing story state.\n\n- comparing bundle behavior\n- checking transcript buckets",
+            markdownText:
+              "**Investigating**\n\nChecking the failing story state.\n\n- comparing bundle behavior\n- checking transcript buckets",
             status: "completed",
           }}
         />
@@ -463,7 +473,8 @@ export const ReasoningCompletedExpanded: Story = {
         <AutoOpenSurface>
           <ReasoningSurface
             item={{
-              markdownText: "**Investigating**\n\nChecking the failing story state.\n\n- comparing bundle behavior\n- checking transcript buckets",
+              markdownText:
+                "**Investigating**\n\nChecking the failing story state.\n\n- comparing bundle behavior\n- checking transcript buckets",
               status: "completed",
             }}
           />
@@ -571,7 +582,9 @@ export const ContextCompactionCompleted: Story = {
     >
       <ConversationStorySurface>
         <ThreadContextCompactionBlock
-          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.contextCompactionCompleted)}
+          block={buildSpecialTranscriptBlock(
+            THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.contextCompactionCompleted,
+          )}
           isLatestTurn
           isStreamingTurn={false}
         />
@@ -588,7 +601,9 @@ export const StreamErrorReconnecting: Story = {
     >
       <ConversationStorySurface>
         <ThreadStreamErrorBlock
-          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.streamErrorReconnecting)}
+          block={buildSpecialTranscriptBlock(
+            THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.streamErrorReconnecting,
+          )}
           isLatestTurn
           isStreamingTurn
         />
@@ -605,7 +620,9 @@ export const SystemErrorFailed: Story = {
     >
       <ConversationStorySurface>
         <ThreadSystemErrorBlock
-          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.systemErrorFailed)}
+          block={buildSpecialTranscriptBlock(
+            THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.systemErrorFailed,
+          )}
           isLatestTurn={false}
           isStreamingTurn={false}
         />
@@ -622,7 +639,9 @@ export const ContextCompactionInProgress: Story = {
     >
       <ConversationStorySurface>
         <ThreadContextCompactionBlock
-          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.contextCompactionInProgress)}
+          block={buildSpecialTranscriptBlock(
+            THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.contextCompactionInProgress,
+          )}
           isLatestTurn
           isStreamingTurn
         />
@@ -639,7 +658,9 @@ export const ContextCompactionInProgressElectronDark: Story = {
     >
       <ElectronDarkThreadStorySurface>
         <ThreadContextCompactionBlock
-          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.contextCompactionInProgress)}
+          block={buildSpecialTranscriptBlock(
+            THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.contextCompactionInProgress,
+          )}
           isLatestTurn
           isStreamingTurn
         />
@@ -671,7 +692,9 @@ export const AutoReviewInterruptionWarning: Story = {
     >
       <ConversationStorySurface>
         <ThreadSystemBannerBlock
-          block={buildSpecialTranscriptBlock(THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.autoReviewInterruptionWarning)}
+          block={buildSpecialTranscriptBlock(
+            THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.autoReviewInterruptionWarning,
+          )}
           isLatestTurn
           isStreamingTurn={false}
         />
@@ -687,7 +710,10 @@ export const MultiAgentActionCompleted: Story = {
       description="Settled multi-agent activity stays in its dedicated transcript surface and can be expanded to inspect the grouped rows."
     >
       <ConversationStorySurface>
-        <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled} onOpenThread={openStoryAgentThread} />
+        <MultiAgentActionSurface
+          items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled}
+          onOpenThread={openStoryAgentThread}
+        />
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -701,7 +727,10 @@ export const MultiAgentActionCompletedExpanded: Story = {
     >
       <ConversationStorySurface>
         <AutoOpenSurface>
-          <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled} onOpenThread={openStoryAgentThread} />
+          <MultiAgentActionSurface
+            items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentSettled}
+            onOpenThread={openStoryAgentThread}
+          />
         </AutoOpenSurface>
       </ConversationStorySurface>
     </StorySurface>
@@ -715,7 +744,10 @@ export const MultiAgentActionInProgress: Story = {
       description="Live background agent activity keeps a shimmering collapsed header and remains user-expandable while work is still running."
     >
       <ConversationStorySurface>
-        <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentInProgress} onOpenThread={openStoryAgentThread} />
+        <MultiAgentActionSurface
+          items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentInProgress}
+          onOpenThread={openStoryAgentThread}
+        />
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -728,7 +760,10 @@ export const MultiAgentActionFailed: Story = {
       description="Failed multi-agent activity uses the same Codex header grammar as completed and in-progress grouped actions."
     >
       <ConversationStorySurface>
-        <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentFailed} onOpenThread={openStoryAgentThread} />
+        <MultiAgentActionSurface
+          items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentFailed}
+          onOpenThread={openStoryAgentThread}
+        />
       </ConversationStorySurface>
     </StorySurface>
   ),
@@ -742,7 +777,10 @@ export const MultiAgentActionPromptMetadata: Story = {
     >
       <ConversationStorySurface>
         <AutoOpenSurface>
-          <MultiAgentActionSurface items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentPromptMetadata} onOpenThread={openStoryAgentThread} />
+          <MultiAgentActionSurface
+            items={THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS.multiAgentPromptMetadata}
+            onOpenThread={openStoryAgentThread}
+          />
         </AutoOpenSurface>
       </ConversationStorySurface>
     </StorySurface>
@@ -798,8 +836,10 @@ export const HookFeedbackMessage: Story = {
 
 export const InspectedImages: Story = {
   render: () => {
-    const firstImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='160'%3E%3Crect width='240' height='160' fill='%232b6cb0'/%3E%3C/svg%3E";
-    const secondImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='160'%3E%3Crect width='240' height='160' fill='%23c05621'/%3E%3C/svg%3E";
+    const firstImage =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='160'%3E%3Crect width='240' height='160' fill='%232b6cb0'/%3E%3C/svg%3E";
+    const secondImage =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='160'%3E%3Crect width='240' height='160' fill='%23c05621'/%3E%3C/svg%3E";
     const entry: CodexConversationItem = {
       threadId: "thread-story",
       turnId: "turn-image-view",
@@ -831,8 +871,10 @@ export const InspectedImages: Story = {
 
 export const GeneratedImageOutputs: Story = {
   render: () => {
-    const firstImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='420'%3E%3Cdefs%3E%3ClinearGradient id='g' x2='1' y2='1'%3E%3Cstop stop-color='%23132238'/%3E%3Cstop offset='1' stop-color='%2350a0a8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='640' height='420' fill='url(%23g)'/%3E%3C/svg%3E";
-    const secondImage = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Crect width='420' height='420' fill='%23b96238'/%3E%3C/svg%3E";
+    const firstImage =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='640' height='420'%3E%3Cdefs%3E%3ClinearGradient id='g' x2='1' y2='1'%3E%3Cstop stop-color='%23132238'/%3E%3Cstop offset='1' stop-color='%2350a0a8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='640' height='420' fill='url(%23g)'/%3E%3C/svg%3E";
+    const secondImage =
+      "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='420'%3E%3Crect width='420' height='420' fill='%23b96238'/%3E%3C/svg%3E";
     return (
       <StorySurface
         title="Generated Image Outputs"

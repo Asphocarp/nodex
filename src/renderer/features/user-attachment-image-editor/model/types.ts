@@ -1,7 +1,4 @@
-export type ImageEditorFeaturePolicy =
-  | "disabled"
-  | "image_click"
-  | "edit_button";
+export type ImageEditorFeaturePolicy = "disabled" | "image_click" | "edit_button";
 
 export type ImagePreviewEntrypoint =
   | "canvas_button"

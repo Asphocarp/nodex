@@ -13,7 +13,7 @@ import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-p
 import { render, settleAsyncRender } from "../../test/dom";
 import { browserSidebarRendererWebviewManager } from "./browser-sidebar-webview-manager";
 
-let BrowserSidebarPanel: typeof import("./browser-sidebar-panel")["BrowserSidebarPanel"];
+let BrowserSidebarPanel: (typeof import("./browser-sidebar-panel"))["BrowserSidebarPanel"];
 let invokeCalls: unknown[][] = [];
 let apiListeners = new Map<string, Set<(payload: unknown) => void>>();
 
@@ -83,7 +83,9 @@ describe("BrowserSidebarPanel chrome", () => {
       />,
     );
 
-    const input = view.container.querySelector<HTMLInputElement>("[data-browser-sidebar-address-input='true']");
+    const input = view.container.querySelector<HTMLInputElement>(
+      "[data-browser-sidebar-address-input='true']",
+    );
     expect(input === null).toBe(false);
 
     const toolbarRow = input?.closest(".draggable");
@@ -127,29 +129,33 @@ describe("BrowserSidebarPanel chrome", () => {
         activeSession={{ ...activeSession, tabs: [loadedBrowserTab] }}
         browserViewScopeId="window-session-1"
         isVisible
-        onRefreshSessions={async () => [{
-          ...activeSession,
-          tabs: [loadedBrowserTab],
-        }]}
+        onRefreshSessions={async () => [
+          {
+            ...activeSession,
+            tabs: [loadedBrowserTab],
+          },
+        ]}
       />,
     );
     await settleAsyncRender();
 
     await emitApiEvent("browser-downloads-state", {
-      downloads: [{
-        id: "download-1",
-        browserConversationId: "session-1",
-        browserViewScopeId: "window-session-1",
-        browserTabId: "tab-browser",
-        fileName: "artifact.zip",
-        savePath: "/tmp/artifact.zip",
-        sourceOrigin: "https://example.com",
-        status: "progressing",
-        receivedBytes: 512,
-        totalBytes: 1_024,
-        startedAt: 1,
-        updatedAt: 2,
-      }],
+      downloads: [
+        {
+          id: "download-1",
+          browserConversationId: "session-1",
+          browserViewScopeId: "window-session-1",
+          browserTabId: "tab-browser",
+          fileName: "artifact.zip",
+          savePath: "/tmp/artifact.zip",
+          sourceOrigin: "https://example.com",
+          status: "progressing",
+          receivedBytes: 512,
+          totalBytes: 1_024,
+          startedAt: 1,
+          updatedAt: 2,
+        },
+      ],
     });
 
     const indicator = view.getByLabelText("1 active download");
@@ -314,8 +320,7 @@ describe("BrowserSidebarPanel chrome", () => {
         ...loadedBrowserTab.config,
         browserStorageId: "browser:use:runtime-page",
         deviceToolbarVisible: false,
-        deviceToolbarState:
-          makeBrowserSnapshot("window-session-1").deviceToolbarState,
+        deviceToolbarState: makeBrowserSnapshot("window-session-1").deviceToolbarState,
       },
     } satisfies WorkbenchTabProjection;
     const loadedSession = {
@@ -377,16 +382,16 @@ describe("BrowserSidebarPanel chrome", () => {
       />,
     );
     await settleAsyncRender();
-    expect(
-      document.body.querySelector("[data-browser-sidebar-webview-manager-root]"),
-    ).toBe(null);
+    expect(document.body.querySelector("[data-browser-sidebar-webview-manager-root]")).toBe(null);
 
     await emitApiEvent("browser-sidebar-browser-use-state", {
-      tabs: [makeBrowserUseTab("window-session-1", {
-        title: "New tab",
-        url: "about:blank",
-        webContentsId: null,
-      })],
+      tabs: [
+        makeBrowserUseTab("window-session-1", {
+          title: "New tab",
+          url: "about:blank",
+          webContentsId: null,
+        }),
+      ],
       activeBrowserTabIdsByConversationScope: {
         "session-1\0window-session-1": "tab-browser",
       },
@@ -394,15 +399,9 @@ describe("BrowserSidebarPanel chrome", () => {
     } satisfies BrowserSidebarBrowserUseStateSnapshot);
     await settleAsyncRender();
 
-    const root = document.body.querySelector(
-      "[data-browser-sidebar-webview-manager-root]",
-    );
-    expect(root?.getAttribute("data-browser-sidebar-webview-host-kind")).toBe(
-      "panel",
-    );
-    expect(root?.querySelector("webview")?.getAttribute("src")).toBe(
-      "about:blank",
-    );
+    const root = document.body.querySelector("[data-browser-sidebar-webview-manager-root]");
+    expect(root?.getAttribute("data-browser-sidebar-webview-host-kind")).toBe("panel");
+    expect(root?.querySelector("webview")?.getAttribute("src")).toBe("about:blank");
     expect(readBrowserCommandCalls("register-host")).toHaveLength(1);
     view.unmount();
   });
@@ -421,12 +420,16 @@ describe("BrowserSidebarPanel chrome", () => {
     );
     await settleAsyncRender();
 
-    const host = view.container.querySelector<HTMLElement>("[data-browser-sidebar-webview-host-root]");
+    const host = view.container.querySelector<HTMLElement>(
+      "[data-browser-sidebar-webview-host-root]",
+    );
     expect(host === null).toBe(false);
     setElementRect(host as HTMLElement, { left: 24, top: 48, width: 320, height: 240 });
     await emitBoundsSync(boundsSyncTrigger);
 
-    const managerRoot = document.body.querySelector<HTMLElement>("[data-browser-sidebar-webview-manager-root]");
+    const managerRoot = document.body.querySelector<HTMLElement>(
+      "[data-browser-sidebar-webview-manager-root]",
+    );
     expect(managerRoot === null).toBe(false);
     expect(managerRoot?.style.left).toBe("24px");
     expect(managerRoot?.style.top).toBe("48px");
@@ -478,22 +481,16 @@ describe("BrowserSidebarPanel chrome", () => {
     const managerRoot = document.body.querySelector<HTMLElement>(
       "[data-browser-sidebar-webview-manager-root]",
     );
-    expect(
-      managerRoot?.getAttribute("data-browser-sidebar-webview-visible"),
-    ).toBe("true");
+    expect(managerRoot?.getAttribute("data-browser-sidebar-webview-visible")).toBe("true");
     const registerHostCount = readBrowserCommandCalls("register-host").length;
 
     view.rerender(renderPanel(false));
     await settleAsyncRender();
 
-    expect(
-      managerRoot?.getAttribute("data-browser-sidebar-webview-visible"),
-    ).toBe("false");
+    expect(managerRoot?.getAttribute("data-browser-sidebar-webview-visible")).toBe("false");
     expect(managerRoot?.style.left).toBe("-10000px");
     expect(managerRoot?.style.visibility).toBe("hidden");
-    expect(readBrowserCommandCalls("register-host")).toHaveLength(
-      registerHostCount,
-    );
+    expect(readBrowserCommandCalls("register-host")).toHaveLength(registerHostCount);
     expect(readBrowserCommandCalls("sync-host").at(-1)).toMatchObject({
       presented: false,
       visible: false,
@@ -735,9 +732,7 @@ function makeBrowserUseStateSnapshot({
     activeBrowserTabIdsByConversationScope: {
       [`session-1\0${activeScopeId}`]: "tab-browser",
     },
-    cursors: [
-      makeBrowserUseCursor(scopeId, { visible: cursorVisible }),
-    ],
+    cursors: [makeBrowserUseCursor(scopeId, { visible: cursorVisible })],
   };
 }
 

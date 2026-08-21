@@ -7,7 +7,9 @@ import {
   resolveSelectedCodexHooksEntry,
 } from "./codex-hooks-model";
 
-function hook(overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "source">): HookMetadata {
+function hook(
+  overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "source">,
+): HookMetadata {
   return {
     eventName: "stop",
     handlerType: "command",
@@ -28,10 +30,14 @@ function hook(overrides: Partial<HookMetadata> & Pick<HookMetadata, "key" | "sou
 }
 
 test("managed hooks are active while review-needed hooks are not", () => {
-  expect(isCodexHookActive(hook({ key: "managed", source: "mdm", trustStatus: "managed", enabled: false })))
-    .toBe(true);
-  expect(isCodexHookActive(hook({ key: "new", source: "user", trustStatus: "untrusted" })))
-    .toBe(false);
+  expect(
+    isCodexHookActive(
+      hook({ key: "managed", source: "mdm", trustStatus: "managed", enabled: false }),
+    ),
+  ).toBe(true);
+  expect(isCodexHookActive(hook({ key: "new", source: "user", trustStatus: "untrusted" }))).toBe(
+    false,
+  );
 });
 
 describe("Codex Hooks source grouping", () => {
@@ -68,27 +74,33 @@ describe("Codex Hooks source grouping", () => {
       "admin",
       "project",
     ]);
-    expect(sections[0]?.pluginEntries?.map((entry) => (
-      entry.selection.source === "plugin" ? entry.selection.pluginId : undefined
-    ))).toEqual(["alpha", "zeta", null]);
+    expect(
+      sections[0]?.pluginEntries?.map((entry) =>
+        entry.selection.source === "plugin" ? entry.selection.pluginId : undefined,
+      ),
+    ).toEqual(["alpha", "zeta", null]);
     expect(sections[1]?.entry?.hooks.map((entry) => entry.key)).toEqual(["user"]);
     expect(sections[3]?.projectEntries?.map((entry) => entry.cwd)).toEqual([
       "/workspace/a",
       "/workspace/b",
     ]);
-    expect(resolveSelectedCodexHooksEntry(sections, {
-      source: "project",
-      projectRoot: "/workspace/b",
-    })?.hooks.map((entry) => entry.key)).toEqual(["project-b"]);
+    expect(
+      resolveSelectedCodexHooksEntry(sections, {
+        source: "project",
+        projectRoot: "/workspace/b",
+      })?.hooks.map((entry) => entry.key),
+    ).toEqual(["project-b"]);
   });
 
   test("surfaces warning-only roots under Unknown source", () => {
-    const sections = groupCodexHooksListEntries([{
-      cwd: "/workspace/a",
-      hooks: [],
-      warnings: ["Could not parse hooks"],
-      errors: [],
-    }]);
+    const sections = groupCodexHooksListEntries([
+      {
+        cwd: "/workspace/a",
+        hooks: [],
+        warnings: ["Could not parse hooks"],
+        errors: [],
+      },
+    ]);
 
     expect(sections).toHaveLength(1);
     expect(sections[0]?.source).toBe("unknown");

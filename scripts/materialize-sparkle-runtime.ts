@@ -64,7 +64,9 @@ const normalizeLicenseWhitespace = (filePath: string): void => {
 function assertFileSha256(filePath: string, expectedSha256: string, label: string): void {
   const actualSha256 = sha256File(filePath);
   if (actualSha256 !== expectedSha256) {
-    throw new Error(`${label} checksum mismatch: expected ${expectedSha256}, found ${actualSha256}.`);
+    throw new Error(
+      `${label} checksum mismatch: expected ${expectedSha256}, found ${actualSha256}.`,
+    );
   }
 }
 
@@ -75,7 +77,10 @@ function assertArchivePathsAreSafe(archivePath: string): void {
   const entries = execFileSync("tar", ["-tJf", archivePath], {
     encoding: "utf8",
     env: { ...process.env, LANG: "C" },
-  }).split("\n").map((entry) => entry.trim()).filter(Boolean);
+  })
+    .split("\n")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
   if (entries.length === 0) throw new Error("Sparkle archive is empty.");
 
   for (const entry of entries) {
@@ -96,7 +101,9 @@ function assertArchiveMatches(archivePath: string, lock: SparkleReleaseLock): vo
     throw new Error(`Sparkle archive must be a regular file: ${archivePath}`);
   }
   if (stats.size !== lock.archive.size) {
-    throw new Error(`Sparkle archive size mismatch: expected ${lock.archive.size}, found ${stats.size}.`);
+    throw new Error(
+      `Sparkle archive size mismatch: expected ${lock.archive.size}, found ${stats.size}.`,
+    );
   }
   assertFileSha256(archivePath, lock.archive.sha256, "Sparkle archive");
   assertArchivePathsAreSafe(archivePath);
@@ -113,7 +120,9 @@ async function downloadArchive(
   }
   const reportedLength = response.headers.get("content-length");
   if (reportedLength && Number(reportedLength) !== expectedSize) {
-    throw new Error(`Sparkle download size mismatch: expected ${expectedSize}, server reported ${reportedLength}.`);
+    throw new Error(
+      `Sparkle download size mismatch: expected ${expectedSize}, server reported ${reportedLength}.`,
+    );
   }
 
   mkdirSync(path.dirname(destinationPath), { recursive: true });
@@ -138,7 +147,9 @@ async function downloadArchive(
       createWriteStream(temporaryPath, { flags: "wx", mode: 0o600 }),
     );
     if (downloadedSize !== expectedSize) {
-      throw new Error(`Sparkle download size mismatch: expected ${expectedSize}, received ${downloadedSize}.`);
+      throw new Error(
+        `Sparkle download size mismatch: expected ${expectedSize}, received ${downloadedSize}.`,
+      );
     }
     if (existsSync(destinationPath)) return;
     renameSync(temporaryPath, destinationPath);
@@ -202,10 +213,14 @@ export function verifySparkleToolchain(
   for (const relativePath of REQUIRED_UNIVERSAL_BINARIES) {
     const architectures = execFileSync("/usr/bin/lipo", ["-archs", path.join(root, relativePath)], {
       encoding: "utf8",
-    }).trim().split(/\s+/u);
+    })
+      .trim()
+      .split(/\s+/u);
     if (
-      architectures.length !== expectedArchitectures.size
-      || architectures.some((architecture) => !expectedArchitectures.has(architecture as "arm64" | "x86_64"))
+      architectures.length !== expectedArchitectures.size ||
+      architectures.some(
+        (architecture) => !expectedArchitectures.has(architecture as "arm64" | "x86_64"),
+      )
     ) {
       throw new Error(`${relativePath} does not contain exactly the locked Sparkle architectures.`);
     }
@@ -281,7 +296,9 @@ export async function materializeSparkleRuntime(
   assertArchiveMatches(archivePath, lock);
 
   mkdirSync(path.dirname(outputPath), { recursive: true });
-  const extractionParent = mkdtempSync(path.join(path.dirname(outputPath), ".sparkle-materialize-"));
+  const extractionParent = mkdtempSync(
+    path.join(path.dirname(outputPath), ".sparkle-materialize-"),
+  );
   const extractedRoot = path.join(extractionParent, "toolchain");
   mkdirSync(extractedRoot);
   try {
@@ -348,7 +365,9 @@ function parseCliOptions(argv: readonly string[]): MaterializeSparkleOptions {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void materializeSparkleRuntime(parseCliOptions(process.argv.slice(2))).catch((error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+    );
     process.exitCode = 1;
   });
 }

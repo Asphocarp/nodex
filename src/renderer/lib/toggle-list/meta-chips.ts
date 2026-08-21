@@ -5,10 +5,7 @@ import {
   getPriorityShortLabel,
   priorityFromShortLabel,
 } from "../priority-presentation";
-import {
-  getStatusAccentColorByLabel,
-  getStatusIdByLabel,
-} from "../status-presentation";
+import { getStatusAccentColorByLabel, getStatusIdByLabel } from "../status-presentation";
 import type { ToggleListStatusId } from "./types";
 
 export type MetaChipPropertyType = "priority" | "estimate" | "status" | "tag";
@@ -16,8 +13,10 @@ export const EMPTY_DISPLAY_VALUE_TOKEN = "-";
 
 const META_TOKEN_REGEX = /\[([^\]]+)\]/g;
 
-const CHIP_BASE = "inline-flex items-center h-5 px-1.5 rounded-sm text-sm leading-5 font-normal whitespace-nowrap";
-const STATUS_LABEL_BASE = "inline-flex h-5 items-center gap-1.5 text-sm leading-5 font-normal whitespace-nowrap text-[var(--foreground-secondary)]";
+const CHIP_BASE =
+  "inline-flex items-center h-5 px-1.5 rounded-sm text-sm leading-5 font-normal whitespace-nowrap";
+const STATUS_LABEL_BASE =
+  "inline-flex h-5 items-center gap-1.5 text-sm leading-5 font-normal whitespace-nowrap text-[var(--foreground-secondary)]";
 
 const PRIORITY_CHIP_CLASS_BY_TOKEN: Record<string, string> = Object.fromEntries(
   PRIORITY_VALUES.map((priority) => [

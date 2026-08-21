@@ -30,7 +30,9 @@ describe("nfm side menu model", () => {
     const sections = buildDefaultSections();
     const rows = flattenNfmSideMenuRows(sections);
 
-    expect(rows.map(({ row }) => row.label).join(",")).toBe("Turn into,Color,Duplicate,Move to,Delete");
+    expect(rows.map(({ row }) => row.label).join(",")).toBe(
+      "Turn into,Color,Duplicate,Move to,Delete",
+    );
     expect(rows.some(({ row }) => row.mockReason !== undefined)).toBe(false);
     expect(rows[3]?.sectionKey).toBe("selection");
     expect(rows[3]?.row.kind).toBe("submenu");
@@ -58,7 +60,9 @@ describe("nfm side menu model", () => {
       canUseTableHeaders: false,
       showMockActions: true,
     });
-    const copyLink = flattenNfmSideMenuRows(sections).find(({ row }) => row.key === "copy-link-to-block")?.row;
+    const copyLink = flattenNfmSideMenuRows(sections).find(
+      ({ row }) => row.key === "copy-link-to-block",
+    )?.row;
 
     expect(copyLink?.label).toBe("Copy links to all");
     expect(copyLink?.enabled).toBe(false);
@@ -175,23 +179,33 @@ describe("nfm side menu model", () => {
     expect(resolveNfmSideMenuScopeTitle([])).toBe("Block");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "paragraph" }])).toBe("Text");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "codeBlock" }])).toBe("Code");
-    expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "heading", props: { level: 2 } }])).toBe("Heading 2");
-    expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "heading", props: { level: 3, isToggleable: true } }])).toBe("Toggle heading 3");
+    expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "heading", props: { level: 2 } }])).toBe(
+      "Heading 2",
+    );
+    expect(
+      resolveNfmSideMenuScopeTitle([
+        { id: "a", type: "heading", props: { level: 3, isToggleable: true } },
+      ]),
+    ).toBe("Toggle heading 3");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "callout" }])).toBe("Callout");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "pageRef" }])).toBe("Page reference");
     expect(resolveNfmSideMenuScopeTitle([{ id: "a", type: "unknownType" }])).toBe("Block");
-    expect(resolveNfmSideMenuScopeTitle([
-      { id: "a", type: "paragraph" },
-      { id: "b", type: "paragraph" },
-      { id: "c", type: "codeBlock" },
-    ])).toBe("3 blocks");
+    expect(
+      resolveNfmSideMenuScopeTitle([
+        { id: "a", type: "paragraph" },
+        { id: "b", type: "paragraph" },
+        { id: "c", type: "codeBlock" },
+      ]),
+    ).toBe("3 blocks");
   });
 
   test("filters by label, shortcut, and keywords", () => {
     const sections = buildDefaultSections();
     const devSections = buildDefaultSections(true);
     const duplicateRows = flattenNfmSideMenuRows(filterNfmSideMenuSections(sections, "⌘D"));
-    const productionAiRows = flattenNfmSideMenuRows(filterNfmSideMenuSections(sections, "assistant"));
+    const productionAiRows = flattenNfmSideMenuRows(
+      filterNfmSideMenuSections(sections, "assistant"),
+    );
     const devAiRows = flattenNfmSideMenuRows(filterNfmSideMenuSections(devSections, "assistant"));
     const noneRows = flattenNfmSideMenuRows(filterNfmSideMenuSections(sections, "zzzz"));
 

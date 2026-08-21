@@ -13,9 +13,9 @@ import { buildTopLevelRendererCsp } from "./src/shared/app-renderer-policy";
 
 function hasSentrySourceMapUploadConfig(): boolean {
   return Boolean(
-    process.env.SENTRY_AUTH_TOKEN?.trim()
-      && process.env.SENTRY_ORG?.trim()
-      && process.env.SENTRY_PROJECT?.trim(),
+    process.env.SENTRY_AUTH_TOKEN?.trim() &&
+    process.env.SENTRY_ORG?.trim() &&
+    process.env.SENTRY_PROJECT?.trim(),
   );
 }
 
@@ -47,12 +47,11 @@ function enforceSelfContainedSandboxedPreloads(): Plugin {
         (output): output is Rollup.OutputChunk => output.type === "chunk",
       );
       const emittedChunkNames = new Set(chunks.map((chunk) => chunk.fileName));
-      const internalImports = chunks.flatMap((chunk) => [
-        ...chunk.imports,
-        ...chunk.dynamicImports,
-      ]
-        .filter((dependency) => emittedChunkNames.has(dependency))
-        .map((dependency) => `${chunk.fileName} -> ${dependency}`));
+      const internalImports = chunks.flatMap((chunk) =>
+        [...chunk.imports, ...chunk.dynamicImports]
+          .filter((dependency) => emittedChunkNames.has(dependency))
+          .map((dependency) => `${chunk.fileName} -> ${dependency}`),
+      );
       const auxiliaryChunks = chunks
         .filter((chunk) => !chunk.isEntry)
         .map((chunk) => chunk.fileName);
@@ -60,8 +59,8 @@ function enforceSelfContainedSandboxedPreloads(): Plugin {
       if (splitOutputs.length === 0) return;
 
       this.error(
-        "Sandboxed Electron preload entries must be self-contained; "
-        + `the sandbox preload loader cannot load emitted chunks: ${splitOutputs.join(", ")}`,
+        "Sandboxed Electron preload entries must be self-contained; " +
+          `the sandbox preload loader cannot load emitted chunks: ${splitOutputs.join(", ")}`,
       );
     },
   };
@@ -72,11 +71,8 @@ function createRendererDevelopmentCspPlugin(): Plugin {
     name: "nodex:renderer-development-csp",
     configureServer(server) {
       server.httpServer?.once("listening", () => {
-        const developmentOrigin = (
-          server.resolvedUrls?.local[0]
-          ?? server.resolvedUrls?.network[0]
-          ?? null
-        );
+        const developmentOrigin =
+          server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0] ?? null;
         if (!developmentOrigin) return;
 
         server.config.server.headers = {
@@ -91,19 +87,17 @@ function createRendererDevelopmentCspPlugin(): Plugin {
   };
 }
 
-function isKnownYProsemirrorAwarenessTypeImportWarning(
-  warning: Rollup.RollupLog,
-): boolean {
+function isKnownYProsemirrorAwarenessTypeImportWarning(warning: Rollup.RollupLog): boolean {
   const importer = warning.ids?.[0]?.replaceAll("\\", "/");
 
-  return warning.code === "UNUSED_EXTERNAL_IMPORT"
-    && warning.exporter === "y-protocols/awareness"
-    && warning.names?.length === 1
-    && warning.names[0] === "Awareness"
-    && warning.ids?.length === 1
-    && importer?.endsWith(
-      "/node_modules/y-prosemirror/src/plugins/cursor-plugin.js",
-    ) === true;
+  return (
+    warning.code === "UNUSED_EXTERNAL_IMPORT" &&
+    warning.exporter === "y-protocols/awareness" &&
+    warning.names?.length === 1 &&
+    warning.names[0] === "Awareness" &&
+    warning.ids?.length === 1 &&
+    importer?.endsWith("/node_modules/y-prosemirror/src/plugins/cursor-plugin.js") === true
+  );
 }
 
 export default defineConfig({
@@ -115,10 +109,7 @@ export default defineConfig({
         input: {
           bootstrap: resolve(__dirname, "src/main/bootstrap.ts"),
           "git-worker": resolve(__dirname, "src/main/git-worker/entry.ts"),
-          "worktree-worker": resolve(
-            __dirname,
-            "src/main/worktree-worker/entry.ts",
-          ),
+          "worktree-worker": resolve(__dirname, "src/main/worktree-worker/entry.ts"),
         },
         onwarn(warning, defaultHandler) {
           if (isKnownYProsemirrorAwarenessTypeImportWarning(warning)) return;
@@ -132,20 +123,14 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [
-      enforceSelfContainedSandboxedPreloads(),
-      ...createSentryPlugins(),
-    ],
+    plugins: [enforceSelfContainedSandboxedPreloads(), ...createSentryPlugins()],
     build: {
       sourcemap: sentrySourcemapSetting,
       rollupOptions: {
         input: {
           "browser-guest": resolve(__dirname, "src/preload/browser-guest.ts"),
           index: resolve(__dirname, "src/preload/index.ts"),
-          "mcp-app-sandbox-guest": resolve(
-            __dirname,
-            "src/preload/mcp-app-sandbox-guest.ts",
-          ),
+          "mcp-app-sandbox-guest": resolve(__dirname, "src/preload/mcp-app-sandbox-guest.ts"),
         },
       },
     },

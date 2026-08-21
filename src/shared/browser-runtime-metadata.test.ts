@@ -159,7 +159,8 @@ function makeManifest(): BrowserRuntimeManifest {
           root: "marketplace/plugins/computer-use",
           version: "1.0.1000550",
         },
-        serviceExecutable: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+        serviceExecutable:
+          "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
         signingTeamId: "TESTTEAM",
         status: "available",
       },
@@ -209,9 +210,7 @@ describe("parseBrowserRuntimeManifest", () => {
       throw new Error("Computer Use fixture is unavailable");
     }
     const computerUse = manifest.capabilities.computerUse;
-    const client = manifest.artifacts.find(
-      (artifact) => artifact.path === computerUse.client,
-    );
+    const client = manifest.artifacts.find((artifact) => artifact.path === computerUse.client);
     if (!client) throw new Error("Computer Use fixture client is missing");
     client.kind = "executable";
     client.executable = true;

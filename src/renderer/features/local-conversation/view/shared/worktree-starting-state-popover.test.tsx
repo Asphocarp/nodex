@@ -44,18 +44,21 @@ describe("worktree starting-state popover", () => {
     expect(document.body.textContent).toContain("with local code changes");
     expect(document.body.textContent).toContain("Local branches");
     expect(document.body.textContent).toContain("Remote branches");
-    expect(view.getByLabelText("Search repository branches").getAttribute("placeholder"))
-      .toBe("Search nodex branches");
+    expect(view.getByLabelText("Search repository branches").getAttribute("placeholder")).toBe(
+      "Search nodex branches",
+    );
 
     await act(async () => {
       fireEvent.click(view.getByText("origin/feature/remote"));
       await settleAsyncRender();
     });
-    expect(selected).toEqual([{
-      type: "branch",
-      branchName: "origin/feature/remote",
-      remoteRef: "refs/remotes/origin/feature/remote",
-    }]);
+    expect(selected).toEqual([
+      {
+        type: "branch",
+        branchName: "origin/feature/remote",
+        remoteRef: "refs/remotes/origin/feature/remote",
+      },
+    ]);
   });
 
   test("shows branch loading failure and retries both status and branch queries", async () => {

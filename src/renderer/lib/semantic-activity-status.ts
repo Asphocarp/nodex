@@ -1,9 +1,4 @@
-export type SemanticActivityStatus =
-  | "pending"
-  | "running"
-  | "completed"
-  | "skipped"
-  | "failed";
+export type SemanticActivityStatus = "pending" | "running" | "completed" | "skipped" | "failed";
 
 const SEMANTIC_ACTIVITY_TEXT_CLASS_NAMES: Readonly<Record<SemanticActivityStatus, string>> = {
   pending: "text-tertiary",
@@ -34,18 +29,10 @@ export const semanticActivityStatusFromLifecycle = (
 ): SemanticActivityStatus => {
   if (status === "inProgress" || status === "running" || status === "streaming") return "running";
   if (status === "pending") return "pending";
-  if (
-    status === "failed"
-    || status === "declined"
-    || status === "error"
-    || status === "rejected"
-  ) return "failed";
+  if (status === "failed" || status === "declined" || status === "error" || status === "rejected")
+    return "failed";
   if (status === "interrupted" || status === "stopped" || status === "skipped") return "skipped";
-  if (
-    status === "completed"
-    || status === "done"
-    || status === "updated"
-    || status === "applied"
-  ) return "completed";
+  if (status === "completed" || status === "done" || status === "updated" || status === "applied")
+    return "completed";
   return fallback;
 };

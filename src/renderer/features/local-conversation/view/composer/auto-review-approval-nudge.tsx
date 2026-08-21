@@ -2,9 +2,7 @@ import { useState } from "react";
 import { SettingsAgentIcon } from "@/components/shared/icons";
 import { toast } from "@/components/ui/toast";
 import type { ThreadStageActions } from "../../thread-stage-types";
-import {
-  useAutoReviewApprovalNudgeActions,
-} from "../../auto-review-approval-nudge-state";
+import { useAutoReviewApprovalNudgeActions } from "../../auto-review-approval-nudge-state";
 
 const AUTO_REVIEW_LEARN_MORE_URL =
   "https://developers.openai.com/codex/concepts/sandboxing/auto-review";
@@ -17,10 +15,7 @@ export function AutoReviewApprovalNudge({
   actions: Pick<ThreadStageActions, "onPermissionModeChange">;
 }) {
   const [isEnabling, setIsEnabling] = useState(false);
-  const {
-    dismissNudges,
-    resolveNudge,
-  } = useAutoReviewApprovalNudgeActions();
+  const { dismissNudges, resolveNudge } = useAutoReviewApprovalNudgeActions();
 
   const enableAutoReview = async () => {
     if (isEnabling) return;
@@ -53,7 +48,8 @@ export function AutoReviewApprovalNudge({
             <span>Want fewer approval prompts?</span>
           </div>
           <div className="text-base leading-6">
-            Nodex can automatically approve eligible actions while it works. This may use more credits.{" "}
+            Nodex can automatically approve eligible actions while it works. This may use more
+            credits.{" "}
             <a
               className="cursor-interaction rounded-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-token-focus-border"
               href={AUTO_REVIEW_LEARN_MORE_URL}

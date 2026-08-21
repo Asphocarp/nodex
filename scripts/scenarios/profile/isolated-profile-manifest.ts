@@ -14,17 +14,15 @@ export interface IsolatedProfileManifest {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-export const parseIsolatedProfileManifest = (
-  value: unknown,
-): IsolatedProfileManifest => {
+export const parseIsolatedProfileManifest = (value: unknown): IsolatedProfileManifest => {
   if (
-    !isRecord(value)
-    || value.version !== ISOLATED_PROFILE_MANIFEST_VERSION
-    || typeof value.runId !== "string"
-    || value.runId.length === 0
-    || typeof value.label !== "string"
-    || typeof value.repositoryRealpath !== "string"
-    || typeof value.createdAt !== "string"
+    !isRecord(value) ||
+    value.version !== ISOLATED_PROFILE_MANIFEST_VERSION ||
+    typeof value.runId !== "string" ||
+    value.runId.length === 0 ||
+    typeof value.label !== "string" ||
+    typeof value.repositoryRealpath !== "string" ||
+    typeof value.createdAt !== "string"
   ) {
     throw new Error("Isolated scenario Profile manifest is invalid or unsupported");
   }

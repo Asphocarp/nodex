@@ -1,15 +1,7 @@
-import {
-  lazy,
-  useState,
-  type ComponentType,
-} from "react";
+import { lazy, useState, type ComponentType } from "react";
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
-import {
-  appScope,
-  type ScopeHandle,
-  useScopeHandle,
-} from "@/lib/maitai";
+import { appScope, type ScopeHandle, useScopeHandle } from "@/lib/maitai";
 import { renderWithMaitai } from "../test/dom";
 import {
   closeModal,
@@ -19,9 +11,7 @@ import {
   type ModalCloseProps,
 } from "./modal-registry";
 
-function captureAppHandle(
-  capture: (handle: ScopeHandle) => void,
-) {
+function captureAppHandle(capture: (handle: ScopeHandle) => void) {
   function HandleProbe() {
     capture(useScopeHandle(appScope));
     return null;
@@ -90,8 +80,10 @@ describe("modal registry", () => {
     });
 
     const regions = view.getAllByRole("region");
-    expect(regions.map((region) => region.getAttribute("aria-label")))
-      .toEqual(["Second", "First updated"]);
+    expect(regions.map((region) => region.getAttribute("aria-label"))).toEqual([
+      "Second",
+      "First updated",
+    ]);
     expect(view.getByRole("region", { name: "First updated" }).textContent).toContain("1");
   });
 
@@ -132,11 +124,14 @@ describe("modal registry", () => {
       appHandle = handle;
     });
     let resolveLazy: ((module: { default: ComponentType<TestModalProps> }) => void) | null = null;
-    const LazyModal = lazy(() => new Promise<{
-      default: ComponentType<TestModalProps>;
-    }>((resolve) => {
-      resolveLazy = resolve;
-    }));
+    const LazyModal = lazy(
+      () =>
+        new Promise<{
+          default: ComponentType<TestModalProps>;
+        }>((resolve) => {
+          resolveLazy = resolve;
+        }),
+    );
     const view = renderWithMaitai(
       <>
         <HandleProbe />

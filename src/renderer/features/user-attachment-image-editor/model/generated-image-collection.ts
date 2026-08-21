@@ -1,7 +1,4 @@
-import type {
-  GeneratedImageCollectionState,
-  GeneratedImageDescriptor,
-} from "./types";
+import type { GeneratedImageCollectionState, GeneratedImageDescriptor } from "./types";
 
 export const IMAGE_PLAYGROUND_ATTACHMENT_PREFIX = "image-playground:";
 export const OPTIMISTIC_IMAGE_EDIT_PREFIX = "optimistic-image-edit:";
@@ -44,11 +41,7 @@ function dedupeGeneratedImages(
 }
 
 function isAvailableGeneratedImage(image: GeneratedImageDescriptor): boolean {
-  return (
-    image.status === "ready" &&
-    image.loading !== true &&
-    image.error === undefined
-  );
+  return image.status === "ready" && image.loading !== true && image.error === undefined;
 }
 
 export function captureGeneratedImageOptimisticFocus(args: {
@@ -56,9 +49,9 @@ export function captureGeneratedImageOptimisticFocus(args: {
   optimisticImageId: string;
   previousImageId: string | null;
 }): GeneratedImageOptimisticFocus {
-  const liveTail = args.groups.findLast((group) => (
-    !group.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX)
-  ));
+  const liveTail = args.groups.findLast(
+    (group) => !group.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX),
+  );
   return {
     liveTailGroupId: liveTail?.id ?? null,
     liveTailImageCount: liveTail?.images.length ?? 0,
@@ -75,31 +68,33 @@ export function resolveGeneratedImageOptimisticFocus(args: {
   focus: GeneratedImageOptimisticFocus;
   groups: readonly GeneratedImageFocusGroup[];
 }): string | null {
-  if (args.groups.some((group) => (
-    group.images.some((image) => image.id === args.focus.optimisticImageId)
-  ))) {
+  if (
+    args.groups.some((group) =>
+      group.images.some((image) => image.id === args.focus.optimisticImageId),
+    )
+  ) {
     return args.focus.optimisticImageId;
   }
 
-  const liveTail = args.groups.findLast((group) => (
-    !group.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX)
-  ));
-  const liveTailReplacement = liveTail?.id === args.focus.liveTailGroupId
-    ? liveTail.images[args.focus.liveTailImageCount]
-    : liveTail?.images.at(-1);
-  if (
-    liveTailReplacement
-    && isAvailableGeneratedImage(liveTailReplacement)
-  ) {
+  const liveTail = args.groups.findLast(
+    (group) => !group.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX),
+  );
+  const liveTailReplacement =
+    liveTail?.id === args.focus.liveTailGroupId
+      ? liveTail.images[args.focus.liveTailImageCount]
+      : liveTail?.images.at(-1);
+  if (liveTailReplacement && isAvailableGeneratedImage(liveTailReplacement)) {
     return liveTailReplacement.id;
   }
 
   const availableImages = args.groups
     .flatMap((group) => group.images)
     .filter(isAvailableGeneratedImage);
-  return availableImages.find(
-    (image) => image.id === args.focus.previousImageId,
-  )?.id ?? availableImages.at(-1)?.id ?? null;
+  return (
+    availableImages.find((image) => image.id === args.focus.previousImageId)?.id ??
+    availableImages.at(-1)?.id ??
+    null
+  );
 }
 
 export function resolveGeneratedActiveImageId(args: {
@@ -123,18 +118,11 @@ export function resolveGeneratedActiveImageId(args: {
     return args.replacement.replacementImageId;
   }
 
-  if (
-    args.currentActiveImageId !== null &&
-    imageIds.has(args.currentActiveImageId)
-  ) {
+  if (args.currentActiveImageId !== null && imageIds.has(args.currentActiveImageId)) {
     return args.currentActiveImageId;
   }
 
-  return (
-    args.images.findLast(isAvailableGeneratedImage)?.id ??
-    args.images.at(-1)?.id ??
-    null
-  );
+  return args.images.findLast(isAvailableGeneratedImage)?.id ?? args.images.at(-1)?.id ?? null;
 }
 
 export function reconcileGeneratedSelection(args: {
@@ -148,8 +136,7 @@ export function reconcileGeneratedSelection(args: {
 
   for (const selectedImageId of args.selectedImageIds) {
     const nextId =
-      args.replacement !== undefined &&
-      selectedImageId === args.replacement.optimisticImageId
+      args.replacement !== undefined && selectedImageId === args.replacement.optimisticImageId
         ? args.replacement.replacementImageId
         : selectedImageId;
     if (!imageIds.has(nextId) || seen.has(nextId)) continue;

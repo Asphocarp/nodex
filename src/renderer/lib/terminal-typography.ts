@@ -30,18 +30,17 @@ function normalizeTerminalFontFamily(value: string): string {
   return `${trimmed}, ${TERMINAL_SYMBOL_FONT_FAMILY}, monospace`;
 }
 
-export function sameTerminalTypography(left: TerminalTypography, right: TerminalTypography): boolean {
+export function sameTerminalTypography(
+  left: TerminalTypography,
+  right: TerminalTypography,
+): boolean {
   return left.fontFamily === right.fontFamily && left.fontSize === right.fontSize;
 }
 
 export function resolveTerminalTypography(element: HTMLElement): TerminalTypography {
   const elementStyles = getComputedStyle(element);
-  const tokenFontFamily = elementStyles
-    .getPropertyValue("--vscode-editor-font-family")
-    .trim();
-  const tokenFontSize = elementStyles
-    .getPropertyValue("--vscode-editor-font-size")
-    .trim();
+  const tokenFontFamily = elementStyles.getPropertyValue("--vscode-editor-font-family").trim();
+  const tokenFontSize = elementStyles.getPropertyValue("--vscode-editor-font-size").trim();
   const probe = document.createElement("span");
   probe.textContent = "W";
   probe.setAttribute("aria-hidden", "true");
@@ -55,9 +54,7 @@ export function resolveTerminalTypography(element: HTMLElement): TerminalTypogra
   try {
     const styles = getComputedStyle(probe);
     const rawFontFamily =
-      tokenFontFamily && !tokenFontFamily.includes("var(")
-        ? tokenFontFamily
-        : styles.fontFamily;
+      tokenFontFamily && !tokenFontFamily.includes("var(") ? tokenFontFamily : styles.fontFamily;
     return {
       fontFamily: normalizeTerminalFontFamily(rawFontFamily),
       fontSize:

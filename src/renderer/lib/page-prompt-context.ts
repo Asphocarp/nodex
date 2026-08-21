@@ -13,12 +13,8 @@ import {
   type BlockDocumentSurfaceRuntimeOptions,
 } from "./block-document-surface-runtime";
 import type { DocumentSyncAdapter } from "./nodex-y-provider";
-import {
-  unwrapOwnedBlockDocumentPreparationResult,
-} from "./owned-block-document";
-import {
-  buildCodexPromptInputFromNfmBlocks,
-} from "./codex-prompt-input";
+import { unwrapOwnedBlockDocumentPreparationResult } from "./owned-block-document";
+import { buildCodexPromptInputFromNfmBlocks } from "./codex-prompt-input";
 import type { PagePromptContext } from "./page-chat-actions";
 
 export interface BuildPagePromptContextInput {
@@ -30,9 +26,7 @@ export interface BuildPagePromptContextInput {
   readonly source?: string;
 }
 
-export type PageDocumentMaterialization = ReturnType<
-  typeof materializePageDocument
->;
+export type PageDocumentMaterialization = ReturnType<typeof materializePageDocument>;
 
 interface PageDocumentRuntimeFactoryInput {
   readonly accessContext: ContentAccessContext;
@@ -40,9 +34,7 @@ interface PageDocumentRuntimeFactoryInput {
   readonly createRuntime?: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime;
-  readonly createAdapter?: (
-    accessContext: ContentAccessContext,
-  ) => DocumentSyncAdapter;
+  readonly createAdapter?: (accessContext: ContentAccessContext) => DocumentSyncAdapter;
 }
 
 /** Connects one prepared Page Document, reads its canonical content, and always closes it. */
@@ -52,8 +44,7 @@ export async function materializePreparedPageDocument({
   createRuntime,
   createAdapter = createDocumentSyncAdapterForContentAccess,
 }: PageDocumentRuntimeFactoryInput): Promise<PageDocumentMaterialization> {
-  const runtimeFactory = createRuntime ?? ((options) =>
-    new BlockDocumentSurfaceRuntime(options));
+  const runtimeFactory = createRuntime ?? ((options) => new BlockDocumentSurfaceRuntime(options));
   const runtime = createPageDocumentRuntime(
     descriptor,
     accessContext,
@@ -76,9 +67,7 @@ export async function loadPageDocumentMaterialization(input: {
   readonly createRuntime?: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime;
-  readonly createAdapter?: (
-    accessContext: ContentAccessContext,
-  ) => DocumentSyncAdapter;
+  readonly createAdapter?: (accessContext: ContentAccessContext) => DocumentSyncAdapter;
 }): Promise<PageDocumentMaterialization> {
   const descriptor = unwrapOwnedBlockDocumentPreparationResult(
     await prepareOwnedBlockDocumentForContentAccess(input.accessContext, input.pageId),
@@ -108,7 +97,9 @@ export function buildPagePromptContext({
     `Source: ${source}`,
     "",
     basePrompt.text,
-  ].join("\n").trim();
+  ]
+    .join("\n")
+    .trim();
   const promptInput: CodexPromptInput = {
     ...basePrompt,
     text: promptText,
@@ -132,9 +123,7 @@ export async function loadPagePromptContext(input: {
   readonly createRuntime?: (
     options: BlockDocumentSurfaceRuntimeOptions,
   ) => BlockDocumentSurfaceRuntime;
-  readonly createAdapter?: (
-    accessContext: ContentAccessContext,
-  ) => DocumentSyncAdapter;
+  readonly createAdapter?: (accessContext: ContentAccessContext) => DocumentSyncAdapter;
 }): Promise<PagePromptContext> {
   const materialized = await loadPageDocumentMaterialization({
     ...input,
@@ -152,9 +141,7 @@ export async function loadPagePromptContext(input: {
 function createPageDocumentRuntime(
   descriptor: OwnedDocumentDescriptor,
   accessContext: ContentAccessContext,
-  runtimeFactory: (
-    options: BlockDocumentSurfaceRuntimeOptions,
-  ) => BlockDocumentSurfaceRuntime,
+  runtimeFactory: (options: BlockDocumentSurfaceRuntimeOptions) => BlockDocumentSurfaceRuntime,
   createAdapter: (accessContext: ContentAccessContext) => DocumentSyncAdapter,
 ): BlockDocumentSurfaceRuntime {
   return runtimeFactory({

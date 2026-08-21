@@ -11,15 +11,8 @@ import type {
   DatabaseViewSort,
   DatabaseViewConfig,
 } from "./database-kernel";
-import type {
-  DatabaseViewQueryResultV2,
-  DataSourcePageRowV2,
-} from "./database-module-v2";
-import type {
-  BoardSummary,
-  DatabasePageSummary,
-  Estimate,
-} from "./types";
+import type { DatabaseViewQueryResultV2, DataSourcePageRowV2 } from "./database-module-v2";
+import type { BoardSummary, DatabasePageSummary, Estimate } from "./types";
 import type { ContentAccessContext } from "./content-access-context";
 import type { ProjectionCoordinate, ProjectionCursor } from "./projection-stream";
 
@@ -39,9 +32,7 @@ export type DatabaseViewJsonValue =
   | readonly DatabaseViewJsonValue[]
   | { readonly [key: string]: DatabaseViewJsonValue };
 
-export interface DatabaseViewDefinition<
-  ProjectScope extends string | null = string,
-> {
+export interface DatabaseViewDefinition<ProjectScope extends string | null = string> {
   readonly id: string;
   readonly databaseBlockId: string;
   /**
@@ -101,10 +92,7 @@ export interface DatabaseViewWindowInput {
   readonly minimumCommitCursor?: ProjectionCursor;
 }
 
-export type DatabaseListWindowInput = Omit<
-  DatabaseViewWindowInput,
-  "groupScope"
->;
+export type DatabaseListWindowInput = Omit<DatabaseViewWindowInput, "groupScope">;
 
 export type DatabaseListProjectionRowSnapshot =
   | {
@@ -141,9 +129,7 @@ export interface DatabaseListGroupSummarySnapshot {
   readonly totalOccurrenceCount: number;
 }
 
-export interface DatabaseListWindowSnapshot<
-  ProjectScope extends string | null = string,
-> {
+export interface DatabaseListWindowSnapshot<ProjectScope extends string | null = string> {
   readonly projectId: ProjectScope;
   readonly libraryId: string;
   readonly databaseId: string;
@@ -188,9 +174,7 @@ export interface DatabaseViewGroupSummarySnapshot {
  * View has no grouping Property and only `totalRows` is meaningful;
  * `truncated` reports that grouping cardinality exceeded the fixed bound.
  */
-export interface DatabaseViewGroupsSnapshot<
-  ProjectScope extends string | null = string,
-> {
+export interface DatabaseViewGroupsSnapshot<ProjectScope extends string | null = string> {
   readonly projectId: ProjectScope;
   readonly libraryId: string;
   readonly databaseId: string;
@@ -209,17 +193,14 @@ export interface DatabaseViewGroupsSnapshot<
   readonly groups: readonly DatabaseViewGroupSummarySnapshot[];
 }
 
-export type LibraryDatabaseViewGroupsSnapshot =
-  DatabaseViewGroupsSnapshot<null>;
+export type LibraryDatabaseViewGroupsSnapshot = DatabaseViewGroupsSnapshot<null>;
 
 /**
  * A bounded Database View projection. `nextCursor` is the only indication that
  * another window is available; callers must not infer completion from row
  * count.
  */
-export interface DatabaseViewWindowSnapshot<
-  ProjectScope extends string | null = string,
-> {
+export interface DatabaseViewWindowSnapshot<ProjectScope extends string | null = string> {
   readonly projectId: ProjectScope;
   readonly libraryId: string;
   readonly databaseId: string;
@@ -240,8 +221,7 @@ export interface DatabaseViewWindowSnapshot<
   readonly query: DatabaseViewQueryResultV2;
 }
 
-export type LibraryDatabaseViewWindowSnapshot =
-  DatabaseViewWindowSnapshot<null>;
+export type LibraryDatabaseViewWindowSnapshot = DatabaseViewWindowSnapshot<null>;
 
 type LegacyFilterClause =
   | {
@@ -261,8 +241,7 @@ type LegacyFilterClause =
       readonly values: readonly string[];
     };
 
-type LegacySortField =
-  "board-order" | "status" | "priority" | "estimate" | "created" | "title";
+type LegacySortField = "board-order" | "status" | "priority" | "estimate" | "created" | "title";
 
 interface LegacySortKey {
   readonly field: LegacySortField;
@@ -355,8 +334,7 @@ const parseLegacyFilterGroups = (
   if (!isRecord(value) || !Array.isArray(value.any)) return null;
   const groups: LegacyFilterClause[][] = [];
   for (const candidateGroup of value.any) {
-    if (!isRecord(candidateGroup) || !Array.isArray(candidateGroup.all))
-      return null;
+    if (!isRecord(candidateGroup) || !Array.isArray(candidateGroup.all)) return null;
     const clauses: LegacyFilterClause[] = [];
     for (const candidateClause of candidateGroup.all) {
       const clause = parseLegacyFilterClause(candidateClause);
@@ -373,10 +351,8 @@ const parseLegacySort = (value: unknown): readonly LegacySortKey[] | null => {
   const result: LegacySortKey[] = [];
   for (const candidate of value) {
     if (!isRecord(candidate)) return null;
-    if (!LEGACY_SORT_FIELDS.includes(candidate.field as LegacySortField))
-      return null;
-    if (candidate.direction !== "asc" && candidate.direction !== "desc")
-      return null;
+    if (!LEGACY_SORT_FIELDS.includes(candidate.field as LegacySortField)) return null;
+    if (candidate.direction !== "asc" && candidate.direction !== "desc") return null;
     if (
       candidate.emptyPlacement !== undefined &&
       candidate.emptyPlacement !== "first" &&
@@ -395,22 +371,15 @@ const parseLegacySort = (value: unknown): readonly LegacySortKey[] | null => {
 const parseLegacyViewQuery = (
   config: Readonly<Record<string, DatabaseViewJsonValue>>,
 ): ValidLegacyViewQuery | null => {
-  if (
-    config.schemaKey !== "nodex.database-view/legacy-inline" ||
-    config.schemaVersion !== 1
-  )
+  if (config.schemaKey !== "nodex.database-view/legacy-inline" || config.schemaVersion !== 1)
     return null;
   const parsedGroups = parseLegacyFilterGroups(config.filter);
   const parsedSort = parseLegacySort(config.sort);
   const groups =
-    parsedGroups && parsedGroups.length > 0
-      ? parsedGroups
-      : DEFAULT_LEGACY_FILTER_GROUPS;
-  const sort =
-    parsedSort && parsedSort.length > 0 ? parsedSort : DEFAULT_LEGACY_SORT;
+    parsedGroups && parsedGroups.length > 0 ? parsedGroups : DEFAULT_LEGACY_FILTER_GROUPS;
+  const sort = parsedSort && parsedSort.length > 0 ? parsedSort : DEFAULT_LEGACY_SORT;
   const includeHostPage =
-    isRecord(config.options) &&
-    typeof config.options.includeHostCard === "boolean"
+    isRecord(config.options) && typeof config.options.includeHostCard === "boolean"
       ? config.options.includeHostCard
       : false;
   return {
@@ -420,10 +389,7 @@ const parseLegacyViewQuery = (
   };
 };
 
-const matchesLegacyClause = (
-  page: DatabasePageSummary,
-  clause: LegacyFilterClause,
-): boolean => {
+const matchesLegacyClause = (page: DatabasePageSummary, clause: LegacyFilterClause): boolean => {
   if (clause.field === "status") return clause.values.includes(page.status);
   if (clause.field === "priority") {
     if (!page.priority) return clause.includeEmpty;
@@ -444,29 +410,17 @@ const matchesLegacyFilter = (
   groups: ValidLegacyViewQuery["groups"],
 ): boolean =>
   groups.length === 0 ||
-  groups.some((clauses) =>
-    clauses.every((clause) => matchesLegacyClause(page, clause)),
-  );
+  groups.some((clauses) => clauses.every((clause) => matchesLegacyClause(page, clause)));
 
-const compareRankKeys = (
-  left: DatabaseViewPageRow,
-  right: DatabaseViewPageRow,
-): number =>
-  left.rankKey.localeCompare(right.rankKey) ||
-  left.page.id.localeCompare(right.page.id);
+const compareRankKeys = (left: DatabaseViewPageRow, right: DatabaseViewPageRow): number =>
+  left.rankKey.localeCompare(right.rankKey) || left.page.id.localeCompare(right.page.id);
 
-const compareRankOnly = (
-  left: DatabaseViewPageRow,
-  right: DatabaseViewPageRow,
-): number => left.rankKey.localeCompare(right.rankKey);
+const compareRankOnly = (left: DatabaseViewPageRow, right: DatabaseViewPageRow): number =>
+  left.rankKey.localeCompare(right.rankKey);
 
-const compareBoardOrder = (
-  left: DatabaseViewPageRow,
-  right: DatabaseViewPageRow,
-): number =>
+const compareBoardOrder = (left: DatabaseViewPageRow, right: DatabaseViewPageRow): number =>
   WORKFLOW_STATUS_ORDER.indexOf(left.page.status) -
-    WORKFLOW_STATUS_ORDER.indexOf(right.page.status) ||
-  compareRankOnly(left, right);
+    WORKFLOW_STATUS_ORDER.indexOf(right.page.status) || compareRankOnly(left, right);
 
 const compareNullableRank = (
   left: number | null,
@@ -508,11 +462,7 @@ const compareByLegacySortKey = (
     );
   }
   if (key.field === "created") {
-    return (
-      (new Date(left.page.created).getTime() -
-        new Date(right.page.created).getTime()) *
-      sign
-    );
+    return (new Date(left.page.created).getTime() - new Date(right.page.created).getTime()) * sign;
   }
   return left.page.title.localeCompare(right.page.title) * sign;
 };
@@ -530,15 +480,13 @@ export const evaluateDatabaseViewRows = (
   const query = parseLegacyViewQuery(model.view.config);
   if (!query) {
     const includeHostPage =
-      isRecord(model.view.config.options) &&
-      model.view.config.options.includeHostPage === true;
+      isRecord(model.view.config.options) && model.view.config.options.includeHostPage === true;
     return context.hostBlockId && !includeHostPage
       ? model.rows.filter((row) => row.page.id !== context.hostBlockId)
       : model.rows;
   }
   const filtered = model.rows.filter((row) => {
-    if (!query.includeHostPage && row.page.id === context.hostBlockId)
-      return false;
+    if (!query.includeHostPage && row.page.id === context.hostBlockId) return false;
     return matchesLegacyFilter(row.page, query.groups);
   });
   return [...filtered].sort((left, right) => {
@@ -596,14 +544,11 @@ const decodeBase64Url = (value: string): string | null => {
   if (!value) return null;
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const remainder = normalized.length % 4;
-  const padded =
-    remainder === 0 ? normalized : `${normalized}${"=".repeat(4 - remainder)}`;
+  const padded = remainder === 0 ? normalized : `${normalized}${"=".repeat(4 - remainder)}`;
 
   try {
     const binary = globalThis.atob(padded);
-    const bytes = Uint8Array.from(binary, (character) =>
-      character.charCodeAt(0),
-    );
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
     return new TextDecoder().decode(bytes);
   } catch {
     return null;
@@ -635,9 +580,7 @@ const parseCsv = (value: string): string[] => {
   return result;
 };
 
-const serializeLegacyFilterClause = (
-  clause: LegacyFilterClause,
-): DatabaseViewJsonValue => {
+const serializeLegacyFilterClause = (clause: LegacyFilterClause): DatabaseViewJsonValue => {
   if (clause.field !== "priority") {
     return { field: clause.field, op: clause.op, values: clause.values };
   }
@@ -673,13 +616,9 @@ const normalizeLegacyFilterValue = (value: unknown): DatabaseViewJsonValue => {
   );
 };
 
-const normalizeLegacySortValue = (
-  value: unknown,
-): readonly DatabaseViewJsonValue[] => {
+const normalizeLegacySortValue = (value: unknown): readonly DatabaseViewJsonValue[] => {
   const parsed = parseLegacySort(value);
-  return serializeLegacySort(
-    parsed && parsed.length > 0 ? parsed : DEFAULT_LEGACY_SORT,
-  );
+  return serializeLegacySort(parsed && parsed.length > 0 ? parsed : DEFAULT_LEGACY_SORT);
 };
 
 export const inlineDatabaseViewId = (sourceBlockId: string): string =>
@@ -695,10 +634,8 @@ export const createLegacyInlineDatabaseViewConfig = (input: {
   const rulesRecord = isJsonRecord(rulesV2) ? rulesV2 : null;
   const propertyOrderCsv = input.props.propertyOrderCsv ?? "";
   const hiddenPropertiesCsv = input.props.hiddenPropertiesCsv ?? "";
-  const showEmptyEstimate =
-    input.props.showEmptyEstimate === "true" ? "true" : "false";
-  const showEmptyPriority =
-    input.props.showEmptyPriority === "true" ? "true" : "false";
+  const showEmptyEstimate = input.props.showEmptyEstimate === "true" ? "true" : "false";
+  const showEmptyPriority = input.props.showEmptyPriority === "true" ? "true" : "false";
 
   return {
     schemaKey: "nodex.database-view/legacy-inline",
@@ -764,10 +701,7 @@ const compileLegacyClause = (
   };
 };
 
-const compileLegacySort = (
-  databaseBlockId: string,
-  sort: LegacySortKey,
-): DatabaseViewSort => ({
+const compileLegacySort = (databaseBlockId: string, sort: LegacySortKey): DatabaseViewSort => ({
   field:
     sort.field === "board-order"
       ? { kind: "manual" }
@@ -794,15 +728,11 @@ export const createGeneralInlineDatabaseViewConfig = (input: {
   if (!query) {
     throw new TypeError("Canonical legacy inline View config could not be parsed");
   }
-  const groups = query.groups.map(
-    (clauses): DatabaseViewFilterNode => ({
-      kind: "group",
-      operator: "and",
-      children: clauses.map((clause) =>
-        compileLegacyClause(input.databaseBlockId, clause),
-      ),
-    }),
-  );
+  const groups = query.groups.map((clauses): DatabaseViewFilterNode => ({
+    kind: "group",
+    operator: "and",
+    children: clauses.map((clause) => compileLegacyClause(input.databaseBlockId, clause)),
+  }));
   const propertyOrder =
     legacy.display.propertyOrder.length > 0
       ? legacy.display.propertyOrder
@@ -822,9 +752,7 @@ export const createGeneralInlineDatabaseViewConfig = (input: {
     schemaKey: "nodex.database-view",
     schemaVersion: 1,
     filter: { kind: "group", operator: "or", children: groups },
-    sort: query.sort.map((sort) =>
-      compileLegacySort(input.databaseBlockId, sort),
-    ),
+    sort: query.sort.map((sort) => compileLegacySort(input.databaseBlockId, sort)),
     group: null,
     display: {
       propertyIds: propertyOrder

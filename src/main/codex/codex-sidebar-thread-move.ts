@@ -20,19 +20,17 @@ function normalizeRoot(root: string): string {
 }
 
 function listProjectRoots(project: Project | null): string[] {
-  return project?.sources
-    .map((source) => source.root.trim())
-    .filter(Boolean) ?? [];
+  return project?.sources.map((source) => source.root.trim()).filter(Boolean) ?? [];
 }
 
 function isProjectRootCovered(sourceRoot: string, targetRoot: string): boolean {
   const source = normalizeRoot(sourceRoot);
   const target = normalizeRoot(targetRoot);
   const relative = path.relative(target, source);
-  return relative === ""
-    || relative !== ".."
-      && !relative.startsWith(`..${path.sep}`)
-      && !path.isAbsolute(relative);
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
 }
 
 /** A destination root grants access to itself and every nested source root. */
@@ -44,9 +42,9 @@ export function listMissingCodexProjectMoveSources(
   if (sourceProject.id === targetProject?.id) return [];
 
   const targetRoots = listProjectRoots(targetProject);
-  return listProjectRoots(sourceProject).filter((sourceRoot) => (
-    !targetRoots.some((targetRoot) => isProjectRootCovered(sourceRoot, targetRoot))
-  ));
+  return listProjectRoots(sourceProject).filter(
+    (sourceRoot) => !targetRoots.some((targetRoot) => isProjectRootCovered(sourceRoot, targetRoot)),
+  );
 }
 
 export function appendMissingCodexProjectMoveSources(
@@ -78,7 +76,7 @@ export async function resolveCodexProjectThreadWorkspaceMove(input: {
   }) => Promise<CodexProjectlessWorkspace>;
 }): Promise<CodexSidebarThreadWorkspaceMove> {
   const projectRoots = listProjectRoots(input.targetProject);
-  const singleProjectRoot = projectRoots.length === 1 ? projectRoots[0] ?? null : null;
+  const singleProjectRoot = projectRoots.length === 1 ? (projectRoots[0] ?? null) : null;
   const generatedWorkspace = singleProjectRoot
     ? null
     : await input.createProjectlessWorkspace({
@@ -86,9 +84,8 @@ export async function resolveCodexProjectThreadWorkspaceMove(input: {
         prompt: input.threadTitle,
       });
   const projectCwd = singleProjectRoot ?? generatedWorkspace?.cwd ?? null;
-  const worktreeCwd = input.current.managedWorktreePath && input.current.cwd
-    ? input.current.cwd
-    : null;
+  const worktreeCwd =
+    input.current.managedWorktreePath && input.current.cwd ? input.current.cwd : null;
   const cwd = worktreeCwd ?? projectCwd;
   const runtimeWorkspaceRoots = worktreeCwd
     ? [...new Set([worktreeCwd, ...projectRoots])]

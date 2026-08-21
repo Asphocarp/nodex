@@ -13,7 +13,9 @@ describe("board local optimistic mutation sync", () => {
 
     const unsubscribe = subscribeBoardLocalMutation("default", (mutation) => {
       if (mutation.type !== "patch") return;
-      received.push(`${mutation.columnId}:${mutation.pageId}:${String(mutation.updates.title ?? "")}`);
+      received.push(
+        `${mutation.columnId}:${mutation.pageId}:${String(mutation.updates.title ?? "")}`,
+      );
     });
 
     publishBoardLocalMutation("default", {

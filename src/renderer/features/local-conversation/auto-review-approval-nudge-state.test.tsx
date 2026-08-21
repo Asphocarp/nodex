@@ -44,9 +44,7 @@ describe("auto-review approval nudge state", () => {
     const controllerRef: {
       current: AutoReviewApprovalNudgeController | null;
     } = { current: null };
-    renderWithMaitai(
-      <AutoReviewApprovalNudgeHarness controllerRef={controllerRef} />,
-    );
+    renderWithMaitai(<AutoReviewApprovalNudgeHarness controllerRef={controllerRef} />);
     await settleAsyncRender();
 
     await act(async () => {
@@ -73,18 +71,14 @@ describe("auto-review approval nudge state", () => {
       controllerRef.current?.resolveNudge("thread_1");
     });
     expect(controllerRef.current?.state.activeThreadIds.thread_1).toBeUndefined();
-    expect(
-      controllerRef.current?.state.manualApprovalCountByThreadId.thread_1,
-    ).toBeUndefined();
+    expect(controllerRef.current?.state.manualApprovalCountByThreadId.thread_1).toBeUndefined();
   });
 
   test("permanent dismissal hides every thread and prevents later activation", async () => {
     const controllerRef: {
       current: AutoReviewApprovalNudgeController | null;
     } = { current: null };
-    renderWithMaitai(
-      <AutoReviewApprovalNudgeHarness controllerRef={controllerRef} />,
-    );
+    renderWithMaitai(<AutoReviewApprovalNudgeHarness controllerRef={controllerRef} />);
     await settleAsyncRender();
 
     await act(async () => {
@@ -104,9 +98,7 @@ describe("auto-review approval nudge state", () => {
     expect(controllerRef.current?.state.dismissed).toBe(true);
     expect(Object.keys(controllerRef.current?.state.activeThreadIds ?? {})).toHaveLength(0);
     expect(
-      Object.keys(
-        controllerRef.current?.state.manualApprovalCountByThreadId ?? {},
-      ),
+      Object.keys(controllerRef.current?.state.manualApprovalCountByThreadId ?? {}),
     ).toHaveLength(0);
   });
 });

@@ -9,10 +9,13 @@ import {
 const hostId = process.argv[2]?.trim();
 if (!hostId) throw new Error("Remote worktree worker requires an execution host id");
 
-const active = new Map<string, {
-  readonly operation: string;
-  readonly controller: AbortController;
-}>();
+const active = new Map<
+  string,
+  {
+    readonly operation: string;
+    readonly controller: AbortController;
+  }
+>();
 let shuttingDown = false;
 
 function post(message: CodexWorktreeWorkerThreadMessage): void {
@@ -69,38 +72,44 @@ lines.on("line", (line) => {
   active.set(raw.id, { operation: raw.request.operation, controller });
   void executeCodexWorktreeWorkerOperation(raw.request, {
     signal: controller.signal,
-    onEvent: (event) => post({
-      type: "event",
-      id: raw.id,
-      operation: raw.request.operation,
-      event,
-    }),
-  }).then((success) => {
-    if (controller.signal.aborted) return;
-    post({
-      type: "result",
-      id: raw.id,
-      operation: raw.request.operation,
-      result: { type: "ok", success },
+    onEvent: (event) =>
+      post({
+        type: "event",
+        id: raw.id,
+        operation: raw.request.operation,
+        event,
+      }),
+  })
+    .then((success) => {
+      if (controller.signal.aborted) return;
+      post({
+        type: "result",
+        id: raw.id,
+        operation: raw.request.operation,
+        result: { type: "ok", success },
+      });
+    })
+    .catch((error: unknown) => {
+      post({
+        type: "result",
+        id: raw.id,
+        operation: raw.request.operation,
+        result: {
+          type: "error",
+          code: controller.signal.aborted ? "canceled" : "operation-failed",
+          message: controller.signal.aborted
+            ? "Request canceled"
+            : error instanceof Error
+              ? error.message
+              : String(error),
+          retryable: true,
+        },
+      });
+    })
+    .finally(() => {
+      active.delete(raw.id);
+      maybeExit();
     });
-  }).catch((error: unknown) => {
-    post({
-      type: "result",
-      id: raw.id,
-      operation: raw.request.operation,
-      result: {
-        type: "error",
-        code: controller.signal.aborted ? "canceled" : "operation-failed",
-        message: controller.signal.aborted
-          ? "Request canceled"
-          : error instanceof Error ? error.message : String(error),
-        retryable: true,
-      },
-    });
-  }).finally(() => {
-    active.delete(raw.id);
-    maybeExit();
-  });
 });
 
 lines.on("close", () => {

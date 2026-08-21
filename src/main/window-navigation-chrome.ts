@@ -19,16 +19,16 @@ export interface CodexTitleBarOverlayOptions {
 
 export type CodexTitleBarOptions =
   | {
-    titleBarStyle: "hiddenInset";
-    trafficLightPosition: CodexTrafficLightPosition;
-  }
+      titleBarStyle: "hiddenInset";
+      trafficLightPosition: CodexTrafficLightPosition;
+    }
   | {
-    titleBarStyle: "hidden";
-    titleBarOverlay: CodexTitleBarOverlayOptions;
-  }
+      titleBarStyle: "hidden";
+      titleBarOverlay: CodexTitleBarOverlayOptions;
+    }
   | {
-    titleBarStyle: "default";
-  };
+      titleBarStyle: "default";
+    };
 
 export function resolveCodexTrafficLightPosition(windowZoom = 1): CodexTrafficLightPosition {
   return {

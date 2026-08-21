@@ -1,8 +1,4 @@
-import {
-  createContext,
-  useContext,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import type { NfmMoveToDestination } from "./nfm-move-to-menu-model";
 
 export interface NfmSideMenuRuntimeSnapshot {
@@ -45,9 +41,7 @@ const DEFAULT_SIDE_MENU_RUNTIME: NfmSideMenuRuntimeValue = {
   }),
 };
 
-const NfmSideMenuRuntimeContext = createContext<NfmSideMenuRuntimeValue>(
-  DEFAULT_SIDE_MENU_RUNTIME,
-);
+const NfmSideMenuRuntimeContext = createContext<NfmSideMenuRuntimeValue>(DEFAULT_SIDE_MENU_RUNTIME);
 
 export function NfmSideMenuRuntimeProvider({
   children,

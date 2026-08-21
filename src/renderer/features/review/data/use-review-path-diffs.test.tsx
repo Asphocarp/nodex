@@ -176,7 +176,10 @@ describe("useReviewPathDiffs", () => {
       view.rerender(
         <QueryClientProvider client={client}>
           <ReviewPathDiffProbe
-            snapshot={buildSnapshot(2, firstFiles.map((file) => ({ ...file })))}
+            snapshot={buildSnapshot(
+              2,
+              firstFiles.map((file) => ({ ...file })),
+            )}
             workerRequest={workerRequest}
             onStaleSnapshot={onStaleSnapshot}
           />
@@ -210,13 +213,14 @@ describe("useReviewPathDiffs", () => {
     );
 
     await waitFor(() => {
-      expect(view.container.firstElementChild?.getAttribute("data-loaded-count"))
-        .toBe("2");
+      expect(view.container.firstElementChild?.getAttribute("data-loaded-count")).toBe("2");
     });
     const requests = workerRequest.mock.calls.map(([input]) => input);
     expect(requests).toHaveLength(2);
-    expect(requests.map((request) => request.files?.map((file) => file.path)))
-      .toEqual([["src/tracked.ts"], ["src/untracked.ts"]]);
+    expect(requests.map((request) => request.files?.map((file) => file.path))).toEqual([
+      ["src/tracked.ts"],
+      ["src/untracked.ts"],
+    ]);
   });
 
   test("falls back only for an entry missing from the initial group", async () => {
@@ -234,10 +238,7 @@ describe("useReviewPathDiffs", () => {
     const view = render(
       <QueryClientProvider client={client}>
         <ReviewPathDiffProbe
-          snapshot={buildSnapshot(1, [
-            buildSummary("src/a.ts"),
-            buildSummary("src/b.ts"),
-          ])}
+          snapshot={buildSnapshot(1, [buildSummary("src/a.ts"), buildSummary("src/b.ts")])}
           workerRequest={workerRequest}
           onStaleSnapshot={() => {}}
         />
@@ -245,11 +246,12 @@ describe("useReviewPathDiffs", () => {
     );
 
     await waitFor(() => {
-      expect(view.container.firstElementChild?.getAttribute("data-loaded-count"))
-        .toBe("2");
+      expect(view.container.firstElementChild?.getAttribute("data-loaded-count")).toBe("2");
     });
     const requests = workerRequest.mock.calls.map(([input]) => input);
-    expect(requests.map((request) => request.files?.map((file) => file.path)))
-      .toEqual([["src/a.ts", "src/b.ts"], ["src/b.ts"]]);
+    expect(requests.map((request) => request.files?.map((file) => file.path))).toEqual([
+      ["src/a.ts", "src/b.ts"],
+      ["src/b.ts"],
+    ]);
   });
 });

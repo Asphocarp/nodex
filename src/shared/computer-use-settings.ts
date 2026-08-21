@@ -28,6 +28,7 @@ export interface ComputerUseSettingsSnapshot {
 }
 
 export function isComputerUseSoundMode(value: unknown): value is ComputerUseSoundMode {
-  return typeof value === "string"
-    && (COMPUTER_USE_SOUND_MODES as readonly string[]).includes(value);
+  return (
+    typeof value === "string" && (COMPUTER_USE_SOUND_MODES as readonly string[]).includes(value)
+  );
 }

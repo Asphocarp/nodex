@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type MouseEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ButtonHTMLAttributes,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import { NodexTooltip } from "./thread-message-actions-deps";
 import { CheckmarkIcon } from "../../../../components/shared/icons";
 import { cn } from "../../../../lib/utils";
@@ -23,7 +30,10 @@ const threadMessageActionButtonActiveClassName = `
   data-[state=open]:bg-token-list-hover-background border-transparent
 `;
 
-interface ThreadActionIconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> {
+interface ThreadActionIconButtonProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  "type"
+> {
   label: string;
   children: ReactNode;
   active?: boolean;
@@ -43,7 +53,11 @@ export function ThreadActionIconButton({
   const button = (
     <button
       type="button"
-      className={cn(threadMessageActionButtonClassName, active && threadMessageActionButtonActiveClassName, className)}
+      className={cn(
+        threadMessageActionButtonClassName,
+        active && threadMessageActionButtonActiveClassName,
+        className,
+      )}
       aria-label={label}
       data-state={state}
       {...props}
@@ -55,11 +69,7 @@ export function ThreadActionIconButton({
   if (!tooltip) return button;
 
   return (
-    <NodexTooltip
-      tooltipContent={tooltip}
-      side="top"
-      delayDuration={0}
-    >
+    <NodexTooltip tooltipContent={tooltip} side="top" delayDuration={0}>
       {button}
     </NodexTooltip>
   );
@@ -88,7 +98,13 @@ export function ThreadMessageActionRow({
   );
 }
 
-export function MessageTimestamp({ sentAtMs, nowMs }: { sentAtMs: number | null | undefined; nowMs?: number }) {
+export function MessageTimestamp({
+  sentAtMs,
+  nowMs,
+}: {
+  sentAtMs: number | null | undefined;
+  nowMs?: number;
+}) {
   const timestampText = formatThreadMessageTimestamp(sentAtMs, nowMs);
   if (timestampText === null) return null;
 
@@ -173,10 +189,7 @@ export function CopyMessageActionButton({
     <ThreadActionIconButton
       label={copied ? copiedLabel : label}
       tooltip={copied ? copiedTooltipLabel : tooltipLabel}
-      className={cn(
-        copied && "bg-token-foreground/10 text-token-foreground",
-        className,
-      )}
+      className={cn(copied && "bg-token-foreground/10 text-token-foreground", className)}
       disabled={disabledWhenCopied && copied}
       state={copied ? "open" : "closed"}
       onClick={(event) => {

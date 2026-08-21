@@ -20,10 +20,7 @@ import {
   type ScopeHandle,
 } from "./index";
 
-class ErrorBoundary extends Component<
-  { children: ReactNode },
-  { failed: boolean }
-> {
+class ErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -80,8 +77,12 @@ describe("Maitai kernel conformance vectors", () => {
       return (
         <>
           <output>{value}</output>
-          <button type="button" onClick={() => addValue(2)}>add</button>
-          <button type="button" onClick={() => replaceValue(9)}>replace</button>
+          <button type="button" onClick={() => addValue(2)}>
+            add
+          </button>
+          <button type="button" onClick={() => replaceValue(9)}>
+            replace
+          </button>
         </>
       );
     }
@@ -126,8 +127,16 @@ describe("Maitai kernel conformance vectors", () => {
     }
     const first = createMaitaiStore();
     const second = createMaitaiStore();
-    render(<MaitaiProvider store={first}><Probe /></MaitaiProvider>);
-    render(<MaitaiProvider store={second}><Probe /></MaitaiProvider>);
+    render(
+      <MaitaiProvider store={first}>
+        <Probe />
+      </MaitaiProvider>,
+    );
+    render(
+      <MaitaiProvider store={second}>
+        <Probe />
+      </MaitaiProvider>,
+    );
     handles[0]?.set(valueAtom, 7);
     expect(handles[0]?.get(valueAtom)).toBe(7);
     expect(handles[1]?.get(valueAtom)).toBe(0);
@@ -142,18 +151,22 @@ describe("Maitai kernel conformance vectors", () => {
       getKey: (value: string) => value,
     });
     const queryClient = new QueryClient();
-    const inheritedQueryClient = scopedDerivedAtom(
-      scope,
-      (get) => get.queryClient,
-      { debugLabel: "query-client" },
-    );
+    const inheritedQueryClient = scopedDerivedAtom(scope, (get) => get.queryClient, {
+      debugLabel: "query-client",
+    });
     function Probe() {
-      return <output>{useScopedAtomValue(inheritedQueryClient) === queryClient ? "same" : "different"}</output>;
+      return (
+        <output>
+          {useScopedAtomValue(inheritedQueryClient) === queryClient ? "same" : "different"}
+        </output>
+      );
     }
     const store = createMaitaiStore({ queryClient });
     const view = render(
       <MaitaiProvider store={store}>
-        <ScopeProvider scope={scope} descriptor="query"><Probe /></ScopeProvider>
+        <ScopeProvider scope={scope} descriptor="query">
+          <Probe />
+        </ScopeProvider>
       </MaitaiProvider>,
     );
     expect(view.getByText("same")).toBeTruthy();
@@ -178,7 +191,9 @@ describe("Maitai kernel conformance vectors", () => {
       </MaitaiProvider>,
     );
     consoleError.mockRestore();
-    expect(getMaitaiDebugSnapshot(store).map((entry) => entry.definitionLabel)).toEqual(["AppScope"]);
+    expect(getMaitaiDebugSnapshot(store).map((entry) => entry.definitionLabel)).toEqual([
+      "AppScope",
+    ]);
   });
 
   test("parent-descriptor-change-invalidates-child-merged-scope-read", () => {
@@ -219,8 +234,10 @@ describe("Maitai kernel conformance vectors", () => {
     expect(view.getByText("Before:/thread")).toBeTruthy();
     view.rerender(tree("After"));
     expect(view.getByText("After:/thread")).toBeTruthy();
-    expect(getMaitaiDebugSnapshot(store).find((entry) => entry.definitionLabel === "DescriptorParent")?.contextVersion)
-      .toBe(1);
+    expect(
+      getMaitaiDebugSnapshot(store).find((entry) => entry.definitionLabel === "DescriptorParent")
+        ?.contextVersion,
+    ).toBe(1);
   });
 
   test("abandoned-same-key-descriptor-change-leaves-committed-state-untouched", () => {
@@ -230,11 +247,9 @@ describe("Maitai kernel conformance vectors", () => {
       retain: { max: 2 },
       getKey: (value: { id: string; label: string }) => value.id,
     });
-    const label = scopedDerivedAtom(
-      scope,
-      (get) => (get.scope(scope) as { label: string }).label,
-      { debugLabel: "label" },
-    );
+    const label = scopedDerivedAtom(scope, (get) => (get.scope(scope) as { label: string }).label, {
+      debugLabel: "label",
+    });
     const handleRef: { current: ScopeHandle | null } = { current: null };
     function Probe() {
       const handle = useScopeHandle(scope);
@@ -268,8 +283,11 @@ describe("Maitai kernel conformance vectors", () => {
     );
     consoleError.mockRestore();
     expect(handle.get(label)).toBe("Before");
-    expect(getMaitaiDebugSnapshot(store).find((entry) => entry.definitionLabel === "AbandonedDescriptorScope")?.contextVersion)
-      .toBe(0);
+    expect(
+      getMaitaiDebugSnapshot(store).find(
+        (entry) => entry.definitionLabel === "AbandonedDescriptorScope",
+      )?.contextVersion,
+    ).toBe(0);
   });
 
   test("over-limit-all-mounted-defers-trim-and-lease-release-retries-trim", () => {
@@ -290,13 +308,18 @@ describe("Maitai kernel conformance vectors", () => {
       </MaitaiProvider>
     );
     const view = render(tree(["a", "b", "c"]));
-    expect(getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "MountedScope"))
-      .toHaveLength(3);
-    expect(getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "MountedScope"))
-      .toSatisfy((entries: Array<{ mountedCount: number }>) => entries.every((entry) => entry.mountedCount === 1));
+    expect(
+      getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "MountedScope"),
+    ).toHaveLength(3);
+    expect(
+      getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "MountedScope"),
+    ).toSatisfy((entries: Array<{ mountedCount: number }>) =>
+      entries.every((entry) => entry.mountedCount === 1),
+    );
     view.rerender(tree(["c"]));
-    expect(getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "MountedScope"))
-      .toHaveLength(2);
+    expect(
+      getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "MountedScope"),
+    ).toHaveLength(2);
   });
 
   test("parent-eviction-recursively-disposes-children-once", () => {
@@ -335,8 +358,9 @@ describe("Maitai kernel conformance vectors", () => {
     const firstHandle = childHandleRef.current;
     view.rerender(tree("b"));
     expect(() => firstHandle?.get(valueAtom)).toThrow(/disposed/i);
-    expect(getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "EvictedChild"))
-      .toHaveLength(1);
+    expect(
+      getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "EvictedChild"),
+    ).toHaveLength(1);
   });
 
   test("same-key-double-provider-is-rejected", () => {
@@ -351,15 +375,20 @@ describe("Maitai kernel conformance vectors", () => {
     const view = render(
       <MaitaiProvider store={store}>
         <ErrorBoundary>
-          <ScopeProvider scope={scope} descriptor="same"><Fragment /></ScopeProvider>
-          <ScopeProvider scope={scope} descriptor="same"><Fragment /></ScopeProvider>
+          <ScopeProvider scope={scope} descriptor="same">
+            <Fragment />
+          </ScopeProvider>
+          <ScopeProvider scope={scope} descriptor="same">
+            <Fragment />
+          </ScopeProvider>
         </ErrorBoundary>
       </MaitaiProvider>,
     );
     consoleError.mockRestore();
     expect(view.getByText("failed")).toBeTruthy();
-    expect(getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "ExclusiveScope"))
-      .toHaveLength(1);
+    expect(
+      getMaitaiDebugSnapshot(store).filter((entry) => entry.definitionLabel === "ExclusiveScope"),
+    ).toHaveLength(1);
   });
 
   test("nested-maitai-provider-is-rejected", () => {
@@ -369,7 +398,9 @@ describe("Maitai kernel conformance vectors", () => {
     const view = render(
       <MaitaiProvider store={outer}>
         <ErrorBoundary>
-          <MaitaiProvider store={inner}><Fragment /></MaitaiProvider>
+          <MaitaiProvider store={inner}>
+            <Fragment />
+          </MaitaiProvider>
         </ErrorBoundary>
       </MaitaiProvider>,
     );
@@ -413,7 +444,9 @@ describe("Maitai kernel conformance vectors", () => {
 
     expect(cleanupLog).toEqual(["first", "second"]);
     expect(store.cleanupErrors).toHaveLength(1);
-    expect(() => firstHandle.get(scopedAtom(scope, 0, { debugLabel: "late" }))).toThrow(/disposed/i);
+    expect(() => firstHandle.get(scopedAtom(scope, 0, { debugLabel: "late" }))).toThrow(
+      /disposed/i,
+    );
   });
 
   test("renderer-shutdown-disposes-mounted-scope-resources-once", () => {
@@ -437,7 +470,9 @@ describe("Maitai kernel conformance vectors", () => {
     const store = createMaitaiStore();
     const view = render(
       <MaitaiProvider store={store}>
-        <ScopeProvider scope={scope} descriptor="mounted"><Probe /></ScopeProvider>
+        <ScopeProvider scope={scope} descriptor="mounted">
+          <Probe />
+        </ScopeProvider>
       </MaitaiProvider>,
     );
     disposeMaitaiStore(store);

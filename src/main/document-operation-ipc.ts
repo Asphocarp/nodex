@@ -8,8 +8,7 @@ import {
   type TrustedDocumentMutationIdentity,
 } from "../shared/block-documents/document-operation-transport";
 
-export const DOCUMENT_MUTATION_IPC_CHANNEL =
-  "block-documents:mutate" as const;
+export const DOCUMENT_MUTATION_IPC_CHANNEL = "block-documents:mutate" as const;
 
 export type DocumentMutationIpcHandler = (
   event: unknown,
@@ -23,9 +22,7 @@ export interface DocumentMutationIpcDependencies {
     channel: typeof DOCUMENT_MUTATION_IPC_CHANNEL,
     listener: DocumentMutationIpcHandler,
   ) => void;
-  readonly resolveTrustedIdentity: (
-    event: unknown,
-  ) => TrustedDocumentMutationIdentity | null;
+  readonly resolveTrustedIdentity: (event: unknown) => TrustedDocumentMutationIdentity | null;
   readonly applyMutation: (
     request: DocumentMutationRequest,
   ) => Promise<DocumentOperationCommandResult>;
@@ -47,12 +44,7 @@ export const registerDocumentMutationIpcHandler = (
           ),
         };
       }
-      const bound = bindTrustedDocumentMutation(
-        rawRequest,
-        projectId,
-        documentId,
-        identity,
-      );
+      const bound = bindTrustedDocumentMutation(rawRequest, projectId, documentId, identity);
       if (!bound.ok) return bound;
 
       try {

@@ -22,32 +22,27 @@ export async function closeDurablePanelTabWithRuntime(
   tab: WorkbenchTabProjection | null,
   runtime: DurablePanelTabCloseRuntime,
 ): Promise<WorkbenchPanelCloseResult> {
-  if (tab?.kind === "files" && !await runtime.flushFile(tab.id)) {
+  if (tab?.kind === "files" && !(await runtime.flushFile(tab.id))) {
     return {
       status: "vetoed",
       reason: "file-conflict",
     };
   }
 
-  if (tab?.kind === "canvas_stage" && !await runtime.disposeCanvas(tab)) {
+  if (tab?.kind === "canvas_stage" && !(await runtime.disposeCanvas(tab))) {
     return {
       status: "vetoed",
       reason: "canvas-durability",
     };
   }
 
-  if (
-    tab?.kind === "terminal"
-    && "terminalSessionId" in tab.config
-  ) {
+  if (tab?.kind === "terminal" && "terminalSessionId" in tab.config) {
     runtime.releaseTerminal(tab.config.terminalSessionId);
   }
 
   runtime.removeDescriptor();
   if (tab?.kind === "browser") {
-    await runtime.closeBrowserRuntime(
-      requireWorkbenchBrowserTabProjectionId(tab),
-    );
+    await runtime.closeBrowserRuntime(requireWorkbenchBrowserTabProjectionId(tab));
   }
   if (tab?.kind === "page_stage") {
     await runtime.disposePageEditor();
@@ -66,7 +61,7 @@ export async function closePreviewPanelTabWithRuntime(
   tab: ProjectSessionPreviewTab | null,
   runtime: PreviewPanelTabCloseRuntime,
 ): Promise<WorkbenchPanelCloseResult> {
-  if (tab?.kind === "files" && !await runtime.flushFile(tab.id)) {
+  if (tab?.kind === "files" && !(await runtime.flushFile(tab.id))) {
     return {
       status: "vetoed",
       reason: "file-conflict",

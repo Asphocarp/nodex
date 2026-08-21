@@ -10,7 +10,8 @@ const LARGE_MARKDOWN_FILE = `${WORKSPACE_ROOT}/large-notes.md`;
 const CREATED_AT = "2026-06-13T00:00:00.000Z";
 const LARGE_MARKDOWN_SOURCE = Array.from(
   { length: 6_000 },
-  (_, index) => `- [Reference ${index + 1}](https://example.com/reference/${index + 1}) keeps exact source available.`,
+  (_, index) =>
+    `- [Reference ${index + 1}](https://example.com/reference/${index + 1}) keeps exact source available.`,
 ).join("\n");
 
 const project: Project = {
@@ -54,16 +55,14 @@ const directoryEntries: Record<string, WorkspaceFileDirectoryEntry[]> = {
     entry("large-notes.md", "large-notes.md", "file"),
     entry("CLAUDE.md", "CLAUDE.md", "file"),
   ],
-  src: [
-    entry("renderer", "src/renderer", "directory"),
-    entry("main", "src/main", "directory"),
-  ],
+  src: [entry("renderer", "src/renderer", "directory"), entry("main", "src/main", "directory")],
 };
 
 const fileContents: Record<string, string> = {
   [`${WORKSPACE_ROOT}/README.md`]: "# Nodex\n\nLocal-first, block-based agent orchestration.",
   [LARGE_MARKDOWN_FILE]: LARGE_MARKDOWN_SOURCE,
-  [`${WORKSPACE_ROOT}/CLAUDE.md`]: "# Agent Notes\n\nUse the Files tab to inspect workspace documents.",
+  [`${WORKSPACE_ROOT}/CLAUDE.md`]:
+    "# Agent Notes\n\nUse the Files tab to inspect workspace documents.",
   [WORKTREE_FILE]: "# Worktree\n\nThis file is outside the Project source and still previews.",
 };
 
@@ -79,15 +78,11 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const EmptySelection: Story = {
-  render: () => (
-    <WorkspaceFilesStoryFrame selectedPath={undefined} />
-  ),
+  render: () => <WorkspaceFilesStoryFrame selectedPath={undefined} />,
 };
 
 export const MarkdownSelected: Story = {
-  render: () => (
-    <WorkspaceFilesStoryFrame selectedPath={`${WORKSPACE_ROOT}/README.md`} />
-  ),
+  render: () => <WorkspaceFilesStoryFrame selectedPath={`${WORKSPACE_ROOT}/README.md`} />,
 };
 
 export const MarkdownRendered: Story = {
@@ -109,21 +104,15 @@ export const LargeMarkdownSourceFallback: Story = {
 };
 
 export const UnsupportedBinary: Story = {
-  render: () => (
-    <WorkspaceFilesStoryFrame selectedPath={`${WORKSPACE_ROOT}/archive.zip`} />
-  ),
+  render: () => <WorkspaceFilesStoryFrame selectedPath={`${WORKSPACE_ROOT}/archive.zip`} />,
 };
 
 export const OutsideWorkspaceSelected: Story = {
-  render: () => (
-    <WorkspaceFilesStoryFrame selectedPath={WORKTREE_FILE} />
-  ),
+  render: () => <WorkspaceFilesStoryFrame selectedPath={WORKTREE_FILE} />,
 };
 
 export const ProjectlessFile: Story = {
-  render: () => (
-    <WorkspaceFilesStoryFrame selectedPath={WORKTREE_FILE} workspaceRoot={null} />
-  ),
+  render: () => <WorkspaceFilesStoryFrame selectedPath={WORKTREE_FILE} workspaceRoot={null} />,
 };
 
 function WorkspaceFilesStoryFrame({
@@ -138,9 +127,7 @@ function WorkspaceFilesStoryFrame({
   const bridgeReady = useMockWorkspaceFilesBridge();
   if (!bridgeReady) return null;
   const projectless = workspaceRoot === null;
-  const activeSession = projectless
-    ? { ...session, projectId: null }
-    : session;
+  const activeSession = projectless ? { ...session, projectId: null } : session;
   return (
     <div className="h-screen bg-token-main-surface-primary">
       <WorkspaceFilesPanel
@@ -151,7 +138,7 @@ function WorkspaceFilesStoryFrame({
           browserTabId: null,
           panelId: "right",
           kind: "files",
-          title: selectedPath ? selectedPath.split("/").at(-1) ?? "Files" : "Files",
+          title: selectedPath ? (selectedPath.split("/").at(-1) ?? "Files") : "Files",
           order: 0,
           config: {
             projectId: projectless ? null : project.id,
@@ -173,7 +160,11 @@ function WorkspaceFilesStoryFrame({
   );
 }
 
-function entry(name: string, path: string, kind: "directory" | "file"): WorkspaceFileDirectoryEntry {
+function entry(
+  name: string,
+  path: string,
+  kind: "directory" | "file",
+): WorkspaceFileDirectoryEntry {
   return {
     name,
     path,
@@ -204,7 +195,7 @@ function useMockWorkspaceFilesBridge(): boolean {
             const unsupported = input.path.endsWith(".zip");
             return {
               isFile: true,
-              sizeBytes: unsupported ? 12_000 : fileContents[input.path]?.length ?? 0,
+              sizeBytes: unsupported ? 12_000 : (fileContents[input.path]?.length ?? 0),
               createdAtMs: Date.parse(CREATED_AT),
               mtimeMs: Date.parse(CREATED_AT),
               contentKind: unsupported ? "binary" : "text",
@@ -220,9 +211,11 @@ function useMockWorkspaceFilesBridge(): boolean {
             const input = args[0] as { query: string };
             const matches = Object.values(directoryEntries)
               .flat()
-              .filter((candidate) =>
-                candidate.type === "file"
-                && candidate.path.toLowerCase().includes(input.query.toLowerCase()))
+              .filter(
+                (candidate) =>
+                  candidate.type === "file" &&
+                  candidate.path.toLowerCase().includes(input.query.toLowerCase()),
+              )
               .map((candidate) => ({
                 path: candidate.path,
                 kind: "file" as const,

@@ -64,9 +64,7 @@ export const blockPropertyMutationFailureV2 = (
   code,
   message,
   retryable: options.retryable ?? false,
-  ...(options.mutationId === undefined
-    ? {}
-    : { mutationId: options.mutationId }),
+  ...(options.mutationId === undefined ? {} : { mutationId: options.mutationId }),
 });
 
 /**
@@ -140,11 +138,7 @@ export const bindTrustedLibraryBlockPropertyMutationV2 = (
   identity: TrustedBlockPropertyMutationIdentityV2,
 ): TrustedLibraryBlockPropertyMutationBindingV2 => {
   const mutationId = readMutationIdHint(rawRequest);
-  if (
-    typeof rawRequest !== "object" ||
-    rawRequest === null ||
-    Array.isArray(rawRequest)
-  ) {
+  if (typeof rawRequest !== "object" || rawRequest === null || Array.isArray(rawRequest)) {
     return {
       ok: false,
       error: blockPropertyMutationFailureV2(

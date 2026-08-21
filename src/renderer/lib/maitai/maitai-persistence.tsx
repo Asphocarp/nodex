@@ -1,8 +1,5 @@
 import { atom, useAtomValue, useSetAtom, type WritableAtom } from "jotai";
-import {
-  getPersistedAtomTransport,
-  type PersistedAtomTransport,
-} from "../persisted-atom-store";
+import { getPersistedAtomTransport, type PersistedAtomTransport } from "../persisted-atom-store";
 import type {
   PersistedAtomEvent,
   PersistedAtomMutation,
@@ -82,11 +79,16 @@ interface PersistedController<Value> {
 }
 
 const definitionsByKey = new Map<string, PersistedAtomDefinition<unknown>>();
-const controllersByStore = new WeakMap<MaitaiStore, Map<PersistedAtomDefinition<unknown>, PersistedController<unknown>>>();
+const controllersByStore = new WeakMap<
+  MaitaiStore,
+  Map<PersistedAtomDefinition<unknown>, PersistedController<unknown>>
+>();
 const transportByStore = new WeakMap<MaitaiStore, PersistedAtomTransport>();
 const controllersForTests = new Set<PersistedController<unknown>>();
 
-export function persistedAtom<Value>(options: PersistedAtomOptions<Value>): PersistedAtomDefinition<Value> {
+export function persistedAtom<Value>(
+  options: PersistedAtomOptions<Value>,
+): PersistedAtomDefinition<Value> {
   const debugLabel = options.debugLabel.trim();
   const storageKey = options.storageKey.trim();
   if (!debugLabel) throw new Error("Persisted atom requires a debugLabel");
@@ -254,7 +256,8 @@ function ensureHydrated<Value>(controller: PersistedController<Value>): Promise<
   controller.nextHydrationRequestId += 1;
   const requestId = controller.nextHydrationRequestId;
   controller.hydrationRequestId = requestId;
-  controller.hydrationPromise = controller.transport.readSnapshot()
+  controller.hydrationPromise = controller.transport
+    .readSnapshot()
     .then((snapshot) => applyHydration(controller, requestId, snapshot))
     .catch((error: unknown) => {
       if (controller.hydrationRequestId !== requestId) return;
@@ -277,7 +280,10 @@ function applyHydration<Value>(
 ): void {
   if (controller.hydrationRequestId !== requestId) return;
   if (snapshot.revision < controller.confirmedRevision) return;
-  const rawValue = Object.prototype.hasOwnProperty.call(snapshot.values, controller.definition.storageKey)
+  const rawValue = Object.prototype.hasOwnProperty.call(
+    snapshot.values,
+    controller.definition.storageKey,
+  )
     ? snapshot.values[controller.definition.storageKey]
     : controller.definition.defaultValue;
   try {
@@ -298,9 +304,8 @@ function writeLocal<Value>(
   update: PersistedUpdate<Value>,
 ): Promise<void> {
   const previous = visibleValue(controller);
-  const value = typeof update === "function"
-    ? (update as (previous: Value) => Value)(previous)
-    : update;
+  const value =
+    typeof update === "function" ? (update as (previous: Value) => Value)(previous) : update;
   controller.localRevision += 1;
   const localRevision = controller.localRevision;
   const mutation: PersistedAtomMutation = {
@@ -328,7 +333,8 @@ function pump<Value>(controller: PersistedController<Value>): void {
   const queued = controller.pending.filter((pending) => pending.state === "queued");
   for (const next of queued) {
     next.state = "sending";
-    void controller.transport.mutate(next.mutation)
+    void controller.transport
+      .mutate(next.mutation)
       .then((event) => {
         applyEvent(controller, event);
         next.resolve();
@@ -350,8 +356,13 @@ function pump<Value>(controller: PersistedController<Value>): void {
   }
 }
 
-function applyEvent<Value>(controller: PersistedController<Value>, event: PersistedAtomEvent): void {
-  const matching = controller.pending.find((pending) => pending.mutation.mutationId === event.mutationId);
+function applyEvent<Value>(
+  controller: PersistedController<Value>,
+  event: PersistedAtomEvent,
+): void {
+  const matching = controller.pending.find(
+    (pending) => pending.mutation.mutationId === event.mutationId,
+  );
   if (!matching && controller.definition.synchronization !== "cross-window") return;
   if (event.revision > controller.confirmedRevision) {
     try {
@@ -365,8 +376,8 @@ function applyEvent<Value>(controller: PersistedController<Value>, event: Persis
     }
   }
   if (matching) {
-    controller.pending = controller.pending.filter((pending) =>
-      pending.localRevision > matching.localRevision,
+    controller.pending = controller.pending.filter(
+      (pending) => pending.localRevision > matching.localRevision,
     );
   }
   controller.status = "ready";

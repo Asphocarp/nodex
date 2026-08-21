@@ -58,10 +58,7 @@ export const planDocumentRevisionRetention = (
       selectedUnpinned.push(candidate);
     }
   }
-  const retainedUnpinned = selectedUnpinned.slice(
-    0,
-    MAX_UNPINNED_DOCUMENT_REVISIONS,
-  );
+  const retainedUnpinned = selectedUnpinned.slice(0, MAX_UNPINNED_DOCUMENT_REVISIONS);
   const retained = new Set([
     ...pinned.map((candidate) => candidate.versionId),
     ...retainedUnpinned.map((candidate) => candidate.versionId),
@@ -75,4 +72,3 @@ export const planDocumentRevisionRetention = (
       .map((candidate) => candidate.versionId),
   };
 };
-

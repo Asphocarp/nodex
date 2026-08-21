@@ -17,10 +17,9 @@ async function createRepository(): Promise<GitRepositoryExecutionIdentity> {
   const root = await mkdtemp(path.join(tmpdir(), "nodex-git-runner-"));
   temporaryDirectories.push(root);
   await execFileAsync("git", ["init", "-q", root]);
-  const commonDir = (await execFileAsync(
-    "git",
-    ["-C", root, "rev-parse", "--git-common-dir"],
-  )).stdout.trim();
+  const commonDir = (
+    await execFileAsync("git", ["-C", root, "rev-parse", "--git-common-dir"])
+  ).stdout.trim();
   return {
     hostId: "local",
     root,
@@ -41,10 +40,12 @@ describe("LocalGitCommandRunner", () => {
     const repository = await createRepository();
     const runner = new LocalGitCommandRunner();
     const result = await runner.run(repository, ["nodex-env"], {
-      configOverrides: ["alias.nodex-env=!test \"$GIT_OPTIONAL_LOCKS\" = 0"
-        + " && test \"$GIT_TERMINAL_PROMPT\" = 0"
-        + " && test \"$LC_MESSAGES\" = C"
-        + " && test \"$LANGUAGE\" = C"],
+      configOverrides: [
+        'alias.nodex-env=!test "$GIT_OPTIONAL_LOCKS" = 0' +
+          ' && test "$GIT_TERMINAL_PROMPT" = 0' +
+          ' && test "$LC_MESSAGES" = C' +
+          ' && test "$LANGUAGE" = C',
+      ],
     });
 
     expect(result).toMatchObject({
@@ -58,14 +59,10 @@ describe("LocalGitCommandRunner", () => {
   it("returns timeout as structured data without fabricating exit code zero", async () => {
     const repository = await createRepository();
     const runner = new LocalGitCommandRunner();
-    const result = await runner.run(
-      repository,
-      ["nodex-sleep"],
-      {
-        configOverrides: ["alias.nodex-sleep=!sleep 1"],
-        timeoutMs: 20,
-      },
-    );
+    const result = await runner.run(repository, ["nodex-sleep"], {
+      configOverrides: ["alias.nodex-sleep=!sleep 1"],
+      timeoutMs: 20,
+    });
 
     expect(result).toMatchObject({
       success: false,
@@ -80,14 +77,10 @@ describe("LocalGitCommandRunner", () => {
     const repository = await createRepository();
     const runner = new LocalGitCommandRunner();
     const controller = new AbortController();
-    const canceled = runner.run(
-      repository,
-      ["nodex-sleep"],
-      {
-        configOverrides: ["alias.nodex-sleep=!sleep 1"],
-        signal: controller.signal,
-      },
-    );
+    const canceled = runner.run(repository, ["nodex-sleep"], {
+      configOverrides: ["alias.nodex-sleep=!sleep 1"],
+      signal: controller.signal,
+    });
     controller.abort();
 
     await expect(canceled).resolves.toMatchObject({
@@ -97,14 +90,10 @@ describe("LocalGitCommandRunner", () => {
       timedOut: false,
     });
 
-    const capped = await runner.run(
-      repository,
-      ["nodex-output"],
-      {
-        configOverrides: ["alias.nodex-output=!yes x | head -c 4096"],
-        outputBytesCap: 256,
-      },
-    );
+    const capped = await runner.run(repository, ["nodex-output"], {
+      configOverrides: ["alias.nodex-output=!yes x | head -c 4096"],
+      outputBytesCap: 256,
+    });
     expect(capped).toMatchObject({
       success: false,
       failureReason: "output_limit",
@@ -126,7 +115,8 @@ describe("LocalGitCommandRunner", () => {
     const repository = await createRepository();
     const runner = new LocalGitCommandRunner();
 
-    await expect(runner.run(repository, ["-c", "core.fsmonitor=false", "status"]))
-      .rejects.toThrow("must begin with a subcommand");
+    await expect(runner.run(repository, ["-c", "core.fsmonitor=false", "status"])).rejects.toThrow(
+      "must begin with a subcommand",
+    );
   });
 });

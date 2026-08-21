@@ -19,9 +19,7 @@ import {
   resolveCodexMcpVisualSource,
 } from "./codex-mcp-tool-call";
 
-function buildMcpItem(
-  overrides: Partial<ProtocolMcpToolCallItem> = {},
-): ProtocolMcpToolCallItem {
+function buildMcpItem(overrides: Partial<ProtocolMcpToolCallItem> = {}): ProtocolMcpToolCallItem {
   return {
     type: "mcpToolCall",
     id: "call-1",
@@ -43,14 +41,16 @@ function buildStatuses(
   tools: ProtocolListMcpServerStatusResponse["data"][number]["tools"],
 ): ProtocolListMcpServerStatusResponse {
   return {
-    data: [{
-      name: "docs",
-      serverInfo: null,
-      tools,
-      resources: [],
-      resourceTemplates: [],
-      authStatus: "unsupported",
-    }],
+    data: [
+      {
+        name: "docs",
+        serverInfo: null,
+        tools,
+        resources: [],
+        resourceTemplates: [],
+        authStatus: "unsupported",
+      },
+    ],
     nextCursor: null,
   };
 }
@@ -107,7 +107,9 @@ describe("Codex MCP tool-call projection", () => {
     expect(item.appContext).toBe(appContext);
     expect(normalized?.mcpToolCall?.mcpAppResourceUri).toBe("ui://context.html");
     expect(normalized?.mcpToolCall?.readOnlyHint).toBe(true);
-    expect(Object.prototype.hasOwnProperty.call(normalized?.mcpToolCall, "mcpAppResourceUri")).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(normalized?.mcpToolCall, "mcpAppResourceUri")).toBe(
+      true,
+    );
     expect(Object.prototype.hasOwnProperty.call(normalized?.mcpToolCall, "appContext")).toBe(false);
 
     const live = projectCodexCanonicalTurnItemViews({
@@ -121,9 +123,12 @@ describe("Codex MCP tool-call projection", () => {
     expect(live?.mcpToolCall?.invocation.arguments).toBe(item.arguments);
     expect(live?.mcpToolCall?.completed).toBe(true);
 
-    const deprecated = projectCodexMcpToolCall(buildMcpItem({
-      mcpAppResourceUri: "ui://deprecated.html",
-    }), "inProgress");
+    const deprecated = projectCodexMcpToolCall(
+      buildMcpItem({
+        mcpAppResourceUri: "ui://deprecated.html",
+      }),
+      "inProgress",
+    );
     expect(deprecated.mcpAppResourceUri).toBe("ui://deprecated.html");
 
     const absent = projectCodexMcpToolCall(buildMcpItem(), "inProgress");
@@ -143,11 +148,14 @@ describe("Codex MCP tool-call projection", () => {
       },
     };
     const error = { message: "tool failed" };
-    const view = projectCodexMcpToolCall(buildMcpItem({
-      server: "node_repl",
-      result,
-      error,
-    }), "inProgress");
+    const view = projectCodexMcpToolCall(
+      buildMcpItem({
+        server: "node_repl",
+        result,
+        error,
+      }),
+      "inProgress",
+    );
 
     expect(view.result?.type).toBe("error");
     expect(view.result?.type === "error" ? view.result.rawError : null).toBe(error);
@@ -157,7 +165,9 @@ describe("Codex MCP tool-call projection", () => {
     const success = projectCodexMcpToolCallResult(result, null);
     expect(success?.type).toBe("success");
     expect(success?.type === "success" ? success.raw : null).toBe(result);
-    expect(success?.type === "success" ? success.structuredContent : null).toBe(result.structuredContent);
+    expect(success?.type === "success" ? success.structuredContent : null).toBe(
+      result.structuredContent,
+    );
   });
 
   test("normalizes only schema-valid content and keeps unknown raw block identity", () => {
@@ -184,11 +194,29 @@ describe("Codex MCP tool-call projection", () => {
     };
     const resource = normalizeCodexMcpToolCallContentBlock(rawResource);
     expect(resource.type).toBe("embedded_resource");
-    expect(resource.type === "embedded_resource" ? resource.resource.uri : null).toBe("ui://embedded.html");
-    expect(resource.type === "embedded_resource" ? resource.resource.annotations?.audience?.join(",") : null).toBe("assistant");
-    expect(resource.type === "embedded_resource" ? Object.prototype.hasOwnProperty.call(resource.resource, "meta") : true).toBe(false);
-    expect(resource.type === "embedded_resource" ? Object.prototype.hasOwnProperty.call(resource.resource, "name") : false).toBe(true);
-    expect(resource.type === "embedded_resource" ? Object.prototype.hasOwnProperty.call(resource.resource.annotations, "ignored") : true).toBe(false);
+    expect(resource.type === "embedded_resource" ? resource.resource.uri : null).toBe(
+      "ui://embedded.html",
+    );
+    expect(
+      resource.type === "embedded_resource"
+        ? resource.resource.annotations?.audience?.join(",")
+        : null,
+    ).toBe("assistant");
+    expect(
+      resource.type === "embedded_resource"
+        ? Object.prototype.hasOwnProperty.call(resource.resource, "meta")
+        : true,
+    ).toBe(false);
+    expect(
+      resource.type === "embedded_resource"
+        ? Object.prototype.hasOwnProperty.call(resource.resource, "name")
+        : false,
+    ).toBe(true);
+    expect(
+      resource.type === "embedded_resource"
+        ? Object.prototype.hasOwnProperty.call(resource.resource.annotations, "ignored")
+        : true,
+    ).toBe(false);
 
     const partiallyValidAnnotations = normalizeCodexMcpToolCallContentBlock({
       type: "text",
@@ -227,12 +255,16 @@ describe("Codex MCP tool-call projection", () => {
   });
 
   test("accepts node_repl tool-surface variants and rejects invalid or unrelated metadata", () => {
-    expect(resolveCodexMcpToolCallSource("node_repl", {
-      "codex/toolSurface": { kind: "browserUse", backend: "iab" },
-    })?.kind).toBe("browserUse");
-    expect(resolveCodexMcpToolCallSource("node_repl", {
-      "codex/toolSurface": { kind: "browserUse", backend: "chrome" },
-    })?.kind).toBe("browserUse");
+    expect(
+      resolveCodexMcpToolCallSource("node_repl", {
+        "codex/toolSurface": { kind: "browserUse", backend: "iab" },
+      })?.kind,
+    ).toBe("browserUse");
+    expect(
+      resolveCodexMcpToolCallSource("node_repl", {
+        "codex/toolSurface": { kind: "browserUse", backend: "chrome" },
+      })?.kind,
+    ).toBe("browserUse");
     const nullApp = resolveCodexMcpToolCallSource("node_repl", {
       "codex/toolSurface": { kind: "computerUse", app: null },
     });
@@ -244,7 +276,9 @@ describe("Codex MCP tool-call projection", () => {
         app: { kind: "appId", appId: "com.apple.Safari" },
       },
     });
-    expect(app?.kind === "computerUse" && app.app?.kind === "appId" ? app.app.appId : null).toBe("com.apple.Safari");
+    expect(app?.kind === "computerUse" && app.app?.kind === "appId" ? app.app.appId : null).toBe(
+      "com.apple.Safari",
+    );
     const displayName = resolveCodexMcpToolCallSource("node_repl", {
       "codex/toolSurface": {
         kind: "computerUse",
@@ -256,32 +290,44 @@ describe("Codex MCP tool-call projection", () => {
         ? displayName.app.displayName
         : null,
     ).toBe("Safari");
-    expect(resolveCodexMcpToolCallSource("node_repl", {
-      "codex/toolSurface": { kind: "computerUse", app: { kind: "appId", appId: "" } },
-    })).toBe(null);
-    expect(resolveCodexMcpToolCallSource("docs", {
-      "codex/toolSurface": { kind: "browserUse", backend: "chrome" },
-    })).toBe(null);
+    expect(
+      resolveCodexMcpToolCallSource("node_repl", {
+        "codex/toolSurface": { kind: "computerUse", app: { kind: "appId", appId: "" } },
+      }),
+    ).toBe(null);
+    expect(
+      resolveCodexMcpToolCallSource("docs", {
+        "codex/toolSurface": { kind: "browserUse", backend: "chrome" },
+      }),
+    ).toBe(null);
   });
 });
 
 describe("Codex MCP app resource metadata", () => {
   test("uses exact URI key order without trimming or invented aliases", () => {
-    expect(resolveCodexMcpResourceUriFromMetadata({
-      ui: { resourceUri: "" },
-      "ui/resourceUri": "ui://flat.html",
-      "openai/outputTemplate": "ui://template.html",
-    })).toBe("");
-    expect(resolveCodexMcpResourceUriFromMetadata({
-      "ui/resourceUri": "ui://flat.html",
-      "openai/outputTemplate": "ui://template.html",
-    })).toBe("ui://flat.html");
-    expect(resolveCodexMcpResourceUriFromMetadata({
-      "openai/outputTemplate": " ui://untrimmed.html ",
-    })).toBe(" ui://untrimmed.html ");
-    expect(resolveCodexMcpResourceUriFromMetadata({
-      resourceUri: "ui://invented-alias.html",
-    })).toBe(null);
+    expect(
+      resolveCodexMcpResourceUriFromMetadata({
+        ui: { resourceUri: "" },
+        "ui/resourceUri": "ui://flat.html",
+        "openai/outputTemplate": "ui://template.html",
+      }),
+    ).toBe("");
+    expect(
+      resolveCodexMcpResourceUriFromMetadata({
+        "ui/resourceUri": "ui://flat.html",
+        "openai/outputTemplate": "ui://template.html",
+      }),
+    ).toBe("ui://flat.html");
+    expect(
+      resolveCodexMcpResourceUriFromMetadata({
+        "openai/outputTemplate": " ui://untrimmed.html ",
+      }),
+    ).toBe(" ui://untrimmed.html ");
+    expect(
+      resolveCodexMcpResourceUriFromMetadata({
+        resourceUri: "ui://invented-alias.html",
+      }),
+    ).toBe(null);
   });
 
   test("prefers direct tool metadata, then named tool metadata, then raw result metadata", () => {
@@ -303,10 +349,12 @@ describe("Codex MCP app resource metadata", () => {
         _meta: { "ui/resourceUri": "ui://named.html" },
       },
     });
-    expect(resolveCodexMcpAppResourceMetadata({
-      payload,
-      mcpServerStatuses: direct,
-    })?.resourceUri).toBe("ui://direct.html");
+    expect(
+      resolveCodexMcpAppResourceMetadata({
+        payload,
+        mcpServerStatuses: direct,
+      })?.resourceUri,
+    ).toBe("ui://direct.html");
 
     const named = buildStatuses({
       search: {
@@ -319,14 +367,18 @@ describe("Codex MCP app resource metadata", () => {
         _meta: { "ui/resourceUri": "ui://named.html" },
       },
     });
-    expect(resolveCodexMcpAppResourceMetadata({
-      payload,
-      mcpServerStatuses: named,
-    })?.resourceUri).toBe("ui://named.html");
-    expect(resolveCodexMcpAppResourceMetadata({
-      payload,
-      mcpServerStatuses: null,
-    })?.resourceUri).toBe("ui://result.html");
+    expect(
+      resolveCodexMcpAppResourceMetadata({
+        payload,
+        mcpServerStatuses: named,
+      })?.resourceUri,
+    ).toBe("ui://named.html");
+    expect(
+      resolveCodexMcpAppResourceMetadata({
+        payload,
+        mcpServerStatuses: null,
+      })?.resourceUri,
+    ).toBe("ui://result.html");
   });
 });
 
@@ -367,11 +419,13 @@ describe("Codex MCP visual source projection", () => {
     });
     expect(server?.key).toBe("server:openai_docs");
     expect(server?.name).toBe("OpenAI Docs");
-    expect(resolveCodexMcpVisualSource({
-      ...baseInput,
-      invocation: { ...baseInput.invocation, server: "   " },
-      resolvedApps: [],
-    })).toBe(null);
+    expect(
+      resolveCodexMcpVisualSource({
+        ...baseInput,
+        invocation: { ...baseInput.invocation, server: "   " },
+        resolvedApps: [],
+      }),
+    ).toBe(null);
   });
 
   test("matches the first AppInfo by exact alias and prefix token rules", () => {

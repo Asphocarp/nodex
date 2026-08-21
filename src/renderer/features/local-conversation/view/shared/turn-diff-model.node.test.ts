@@ -50,11 +50,7 @@ describe("buildTurnDiffModel", () => {
       ...additions,
     ].join("\n");
 
-    const model = buildTurnDiffModel(
-      buildTurnDiffItem(unifiedDiff),
-      "/tmp/project",
-      undefined,
-    );
+    const model = buildTurnDiffModel(buildTurnDiffItem(unifiedDiff), "/tmp/project", undefined);
 
     expect(parsePatchFiles).not.toHaveBeenCalled();
     expect(model.kind).toBe("tooLarge");
@@ -72,11 +68,7 @@ describe("buildTurnDiffModel", () => {
       "+after",
     ].join("\n");
 
-    const model = buildTurnDiffModel(
-      buildTurnDiffItem(unifiedDiff),
-      "/tmp/project",
-      undefined,
-    );
+    const model = buildTurnDiffModel(buildTurnDiffItem(unifiedDiff), "/tmp/project", undefined);
 
     expect(parsePatchFiles).toHaveBeenCalledTimes(1);
     expect(parsePatchFiles).toHaveBeenCalledWith(unifiedDiff);
@@ -92,11 +84,7 @@ describe("buildTurnDiffModel", () => {
       `+${"x".repeat(TURN_DIFF_MAX_INLINE_BYTES)}`,
     ].join("\n");
 
-    const model = buildTurnDiffModel(
-      buildTurnDiffItem(unifiedDiff),
-      "/tmp/project",
-      undefined,
-    );
+    const model = buildTurnDiffModel(buildTurnDiffItem(unifiedDiff), "/tmp/project", undefined);
 
     expect(model.kind).toBe("tooLarge");
     expect(model.kind === "tooLarge" ? model.budget.reason : null).toBe("bytes");
@@ -104,7 +92,9 @@ describe("buildTurnDiffModel", () => {
   });
 
   test("keeps byte and line limits inclusive", () => {
-    expect(classifyInlineTurnDiff("x".repeat(TURN_DIFF_MAX_INLINE_BYTES)).kind).toBe("withinBudget");
+    expect(classifyInlineTurnDiff("x".repeat(TURN_DIFF_MAX_INLINE_BYTES)).kind).toBe(
+      "withinBudget",
+    );
     const byteOverflow = classifyInlineTurnDiff("x".repeat(TURN_DIFF_MAX_INLINE_BYTES + 1));
     expect(byteOverflow.kind).toBe("tooLarge");
     expect(byteOverflow.kind === "tooLarge" ? byteOverflow.reason : null).toBe("bytes");
@@ -119,17 +109,23 @@ describe("buildTurnDiffModel", () => {
   test("hides the Review affordance when the route or intent is unavailable", () => {
     const intent = { source: { kind: "last-turn", threadId: "thread-1" } } as const;
 
-    expect(resolveTurnDiffReviewAffordance({
-      intent,
-      reviewRouteAvailable: false,
-    })).toEqual({ kind: "hidden", reason: "no_review_route" });
-    expect(resolveTurnDiffReviewAffordance({
-      intent: null,
-      reviewRouteAvailable: true,
-    })).toEqual({ kind: "hidden", reason: "no_review_intent" });
-    expect(resolveTurnDiffReviewAffordance({
-      intent,
-      reviewRouteAvailable: true,
-    })).toEqual({ kind: "available", intent });
+    expect(
+      resolveTurnDiffReviewAffordance({
+        intent,
+        reviewRouteAvailable: false,
+      }),
+    ).toEqual({ kind: "hidden", reason: "no_review_route" });
+    expect(
+      resolveTurnDiffReviewAffordance({
+        intent: null,
+        reviewRouteAvailable: true,
+      }),
+    ).toEqual({ kind: "hidden", reason: "no_review_intent" });
+    expect(
+      resolveTurnDiffReviewAffordance({
+        intent,
+        reviewRouteAvailable: true,
+      }),
+    ).toEqual({ kind: "available", intent });
   });
 });

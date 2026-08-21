@@ -1,8 +1,5 @@
 import type { BlockId } from "./contracts";
-import {
-  createCanonicalEmptyParagraphBlock,
-  type BlockTreeNode,
-} from "./block-document-codec";
+import { createCanonicalEmptyParagraphBlock, type BlockTreeNode } from "./block-document-codec";
 import {
   assessBlockSemanticContentForPage,
   type BlockSemanticContentAssessment,
@@ -30,9 +27,7 @@ export type BlockToPageTransformation =
       readonly pageId: BlockId;
       readonly wrappedRoot: BlockTreeNode;
       readonly richTitle: PortableRichText;
-      readonly reason: Extract<BlockSemanticContentAssessment, { kind: "wrap" }>[
-        "reason"
-      ];
+      readonly reason: Extract<BlockSemanticContentAssessment, { kind: "wrap" }>["reason"];
       readonly detail: string;
     }
   | {
@@ -51,13 +46,9 @@ export const planBlockToPageTransformation = (input: {
     return { kind: "already_page", pageId: input.resultRootId };
   }
   if (assessment.kind === "wrap") {
-    let richTitle: PortableRichText = plainTextToPortableRichText(
-      input.root.type,
-    );
+    let richTitle: PortableRichText = plainTextToPortableRichText(input.root.type);
     try {
-      const candidate = canonicalizePortableRichText(
-        blockNoteInlineToNfm(input.root.content),
-      );
+      const candidate = canonicalizePortableRichText(blockNoteInlineToNfm(input.root.content));
       if (portableRichTextPlainText(candidate).trim().length > 0) {
         richTitle = candidate;
       }

@@ -68,11 +68,9 @@ function useScrollFadeState(
         top: scrollable && reverseScrollTop < maxReverseScrollTop - 1,
         bottom: scrollable && reverseScrollTop > 1,
       };
-      setState((current) => (
-        current.top === nextState.top && current.bottom === nextState.bottom
-          ? current
-          : nextState
-      ));
+      setState((current) =>
+        current.top === nextState.top && current.bottom === nextState.bottom ? current : nextState,
+      );
     };
 
     const frameId = window.requestAnimationFrame(() => {
@@ -277,16 +275,16 @@ export function ThreadCommandShellBlock({
           className={cn(
             "vertical-scroll-fade-mask max-h-36 [--edge-fade-distance:2rem] box-border flex flex-col-reverse overflow-x-auto overflow-y-auto whitespace-pre font-vscode-editor font-medium [animation-direction:reverse]",
             isPlainEmbedded ? "text-token-foreground" : "text-token-description-foreground",
-            variant === "embedded"
-              ? "text-size-chat-sm"
-              : "text-size-code-sm",
+            variant === "embedded" ? "text-size-chat-sm" : "text-size-code-sm",
           )}
         >
           <div className={cn("w-max min-w-full", isPlainEmbedded ? "p-3" : "p-2")}>
             <TerminalAnsiText
               className={cn(
                 variant === "embedded"
-                  ? isPlainEmbedded ? "text-token-foreground" : "text-token-description-foreground"
+                  ? isPlainEmbedded
+                    ? "text-token-foreground"
+                    : "text-token-description-foreground"
                   : "text-token-input-placeholder-foreground opacity-80",
               )}
               value={renderedOutput}
@@ -304,13 +302,19 @@ export function ThreadCommandShellBlock({
         {variant === "default" && scrollFadeState.top ? (
           <div
             className="pointer-events-none absolute inset-x-0 top-0 h-6"
-            style={{ backgroundImage: "linear-gradient(to bottom, var(--color-token-editor-background), transparent)" }}
+            style={{
+              backgroundImage:
+                "linear-gradient(to bottom, var(--color-token-editor-background), transparent)",
+            }}
           />
         ) : null}
         {variant === "default" && scrollFadeState.bottom ? (
           <div
             className="pointer-events-none absolute inset-x-0 bottom-0 h-6"
-            style={{ backgroundImage: "linear-gradient(to top, var(--color-token-editor-background), transparent)" }}
+            style={{
+              backgroundImage:
+                "linear-gradient(to top, var(--color-token-editor-background), transparent)",
+            }}
           />
         ) : null}
       </div>
@@ -332,9 +336,7 @@ export function ThreadCommandShellBlock({
             <span>{shellLabel}</span>
           </div>
         )}
-        <div className="flex flex-col overflow-clip rounded-none border-none">
-          {shellBody}
-        </div>
+        <div className="flex flex-col overflow-clip rounded-none border-none">{shellBody}</div>
         {footer}
       </div>
     );
@@ -366,7 +368,9 @@ export function ThreadCommandShellBlock({
             tooltip={shellExpanded ? "Collapse shell" : "Expand shell"}
             onClick={() => setShellExpanded((current) => !current)}
           >
-            <ChevronDownIcon className={cn("icon-2xs transition-transform", !shellExpanded && "-rotate-90")} />
+            <ChevronDownIcon
+              className={cn("icon-2xs transition-transform", !shellExpanded && "-rotate-90")}
+            />
           </ShellHeaderActionButton>
         </div>
       </div>
@@ -381,7 +385,9 @@ export function ThreadCommandShellBlock({
             className="relative overflow-hidden"
           >
             {shellBody}
-            {footer ?? <ShellOutputFooter command={command} isInProgress={isInProgress} output={output} />}
+            {footer ?? (
+              <ShellOutputFooter command={command} isInProgress={isInProgress} output={output} />
+            )}
           </motion.div>
         ) : null}
       </AnimatePresence>

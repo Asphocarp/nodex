@@ -156,16 +156,14 @@ async function waitForThreadCwd(input: {
   const startedAt = Date.now();
   let observedCwd = "<missing>";
   while (true) {
-    const response = await input.client.request<"thread/read", ThreadReadResponse>(
-      "thread/read",
-      { threadId: input.threadId, includeTurns: false },
-    );
+    const response = await input.client.request<"thread/read", ThreadReadResponse>("thread/read", {
+      threadId: input.threadId,
+      includeTurns: false,
+    });
     observedCwd = response.thread.cwd;
     if (pathsMatch(observedCwd, input.expectedCwd)) return response;
     if (Date.now() - startedAt >= waitTimeoutMs) {
-      throw new Error(
-        `${input.label} remained at ${observedCwd}; expected ${input.expectedCwd}`,
-      );
+      throw new Error(`${input.label} remained at ${observedCwd}; expected ${input.expectedCwd}`);
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 25));
   }
@@ -200,10 +198,11 @@ async function startBlockingResponsesServer(): Promise<{
   }
   return {
     baseUrl: `http://127.0.0.1:${address.port}/v1`,
-    close: async () => await new Promise<void>((resolve, reject) => {
-      server.closeAllConnections();
-      server.close((error) => error ? reject(error) : resolve());
-    }),
+    close: async () =>
+      await new Promise<void>((resolve, reject) => {
+        server.closeAllConnections();
+        server.close((error) => (error ? reject(error) : resolve()));
+      }),
   };
 }
 
@@ -236,7 +235,9 @@ function assertRoots(actual: readonly string[], expected: readonly string[], lab
   const normalizedActual = actual.map((root) => realpathSync(root));
   const normalizedExpected = expected.map((root) => realpathSync(root));
   if (JSON.stringify(normalizedActual) === JSON.stringify(normalizedExpected)) return;
-  throw new Error(`${label} roots ${JSON.stringify(actual)} did not match ${JSON.stringify(expected)}`);
+  throw new Error(
+    `${label} roots ${JSON.stringify(actual)} did not match ${JSON.stringify(expected)}`,
+  );
 }
 
 async function assertShellCwd(input: {
@@ -296,19 +297,16 @@ export async function probeWorktreeHandoffRuntime(input: {
     firstClient.on("notification", (notification: ServerNotification) => {
       notifications.push(notification.method);
     });
-    const started = await firstClient.request<"thread/start", ThreadStartResponse>(
-      "thread/start",
-      {
-        cwd: sourceRoot,
-        model: "mock-handoff-model",
-        modelProvider: "nodex-handoff-probe",
-        runtimeWorkspaceRoots: [sourceRoot, additionalRoot],
-        approvalPolicy: "never",
-        sandbox: "workspace-write",
-        threadSource: "system",
-        config: probeConfig,
-      },
-    );
+    const started = await firstClient.request<"thread/start", ThreadStartResponse>("thread/start", {
+      cwd: sourceRoot,
+      model: "mock-handoff-model",
+      modelProvider: "nodex-handoff-probe",
+      runtimeWorkspaceRoots: [sourceRoot, additionalRoot],
+      approvalPolicy: "never",
+      sandbox: "workspace-write",
+      threadSource: "system",
+      config: probeConfig,
+    });
     const threadId = started.thread.id;
     const rolloutPath = started.thread.path;
     if (!rolloutPath) throw new Error("thread/start did not return a rollout path");
@@ -325,9 +323,10 @@ export async function probeWorktreeHandoffRuntime(input: {
 
     const settingsNotification = waitForNotification(
       firstClient,
-      (notification) => notification.method === "thread/settings/updated"
-        && readNotificationThreadId(notification) === threadId
-        && notificationHasThreadSettingsCwd(notification, destinationOne),
+      (notification) =>
+        notification.method === "thread/settings/updated" &&
+        readNotificationThreadId(notification) === threadId &&
+        notificationHasThreadSettingsCwd(notification, destinationOne),
       "thread/settings/updated",
     );
     await firstClient.request("thread/settings/update", {
@@ -439,19 +438,22 @@ export async function probeWorktreeHandoffRuntime(input: {
 
     const turnStarted = waitForNotification(
       secondClient,
-      (notification) => notification.method === "turn/started"
-        && readNotificationThreadId(notification) === threadId,
+      (notification) =>
+        notification.method === "turn/started" &&
+        readNotificationThreadId(notification) === threadId,
       "turn/started for interrupt probe",
     );
     const activeTurnStart = await secondClient.request<"turn/start", TurnStartResponse>(
       "turn/start",
       {
-      threadId,
-        input: [{
-          type: "text",
-          text: "Keep this probe turn active until interrupted.",
-          text_elements: [],
-        }],
+        threadId,
+        input: [
+          {
+            type: "text",
+            text: "Keep this probe turn active until interrupted.",
+            text_elements: [],
+          },
+        ],
         cwd: destinationTwo,
         runtimeWorkspaceRoots: [destinationTwo, additionalRoot],
         approvalPolicy: "never",
@@ -469,18 +471,20 @@ export async function probeWorktreeHandoffRuntime(input: {
     if (!activeTurnId) throw new Error("turn/started did not include a turn id");
     const turnCompleted = waitForNotification(
       secondClient,
-      (notification) => notification.method === "turn/completed"
-        && readNotificationThreadId(notification) === threadId
-        && readNotificationTurnId(notification) === activeTurnId,
+      (notification) =>
+        notification.method === "turn/completed" &&
+        readNotificationThreadId(notification) === threadId &&
+        readNotificationTurnId(notification) === activeTurnId,
       "turn/completed after interrupt",
     );
     await secondClient.request("turn/interrupt", { threadId, turnId: activeTurnId });
     await turnCompleted;
     const postInterruptSettings = waitForNotification(
       secondClient,
-      (notification) => notification.method === "thread/settings/updated"
-        && readNotificationThreadId(notification) === threadId
-        && notificationHasThreadSettingsCwd(notification, destinationThree),
+      (notification) =>
+        notification.method === "thread/settings/updated" &&
+        readNotificationThreadId(notification) === threadId &&
+        notificationHasThreadSettingsCwd(notification, destinationThree),
       "thread/settings/updated after interrupt",
     );
     await secondClient.request("thread/settings/update", {
@@ -498,14 +502,14 @@ export async function probeWorktreeHandoffRuntime(input: {
     const postInterruptResume = await secondClient.request<"thread/resume", ThreadResumeResponse>(
       "thread/resume",
       {
-      threadId,
-      path: rolloutPath,
-      cwd: destinationThree,
-      runtimeWorkspaceRoots: [destinationThree, additionalRoot],
-      approvalPolicy: "never",
-      sandbox: "workspace-write",
-      config: probeConfig,
-      excludeTurns: true,
+        threadId,
+        path: rolloutPath,
+        cwd: destinationThree,
+        runtimeWorkspaceRoots: [destinationThree, additionalRoot],
+        approvalPolicy: "never",
+        sandbox: "workspace-write",
+        config: probeConfig,
+        excludeTurns: true,
       },
     );
     assertSamePath(postInterruptResume.cwd, destinationThree, "post-interrupt resume cwd");
@@ -524,10 +528,10 @@ export async function probeWorktreeHandoffRuntime(input: {
     await secondClient.stop();
     secondClient = null;
     thirdClient = await createClient(input.binaryPath, stateHome);
-    const coldRead = await thirdClient.request<"thread/read", ThreadReadResponse>(
-      "thread/read",
-      { threadId, includeTurns: false },
-    );
+    const coldRead = await thirdClient.request<"thread/read", ThreadReadResponse>("thread/read", {
+      threadId,
+      includeTurns: false,
+    });
     const coldReadRetainedRelocatedCwd =
       realpathSync(coldRead.thread.cwd) === realpathSync(destinationThree);
     const coldResume = await thirdClient.request<"thread/resume", ThreadResumeResponse>(
@@ -608,8 +612,8 @@ async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   const binaryPath = path.resolve(readOption(argv, "--binary") ?? runtime.binaryPath);
   const outputPath = path.resolve(
-    readOption(argv, "--out")
-      ?? path.join(projectRoot, ".generated", "agent-runtime-conformance", "handoff.json"),
+    readOption(argv, "--out") ??
+      path.join(projectRoot, ".generated", "agent-runtime-conformance", "handoff.json"),
   );
   const report = await probeWorktreeHandoffRuntime({ binaryPath, outputPath });
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -617,7 +621,9 @@ async function main(): Promise<void> {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch((error: unknown) => {
-    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+    process.stderr.write(
+      `${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`,
+    );
     process.exitCode = 1;
   });
 }

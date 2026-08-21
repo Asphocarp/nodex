@@ -16,10 +16,7 @@ function buildEntry(path: string, key = path): ReviewFileTreeEntry {
 describe("review file tree model", () => {
   test("builds folder and file rows instead of a flat file list", () => {
     const state = buildReviewFileTreeVisibleState(
-      [
-        buildEntry("src/example.ts"),
-        buildEntry("src/nested/feature.ts"),
-      ],
+      [buildEntry("src/example.ts"), buildEntry("src/nested/feature.ts")],
       {
         fileFilterQuery: "",
         expandedPaths: new Set(["src", "src/nested"]),
@@ -37,13 +34,10 @@ describe("review file tree model", () => {
   });
 
   test("flattens empty directory chains into one folder row", () => {
-    const state = buildReviewFileTreeVisibleState(
-      [buildEntry("src/features/review/panel.tsx")],
-      {
-        fileFilterQuery: "",
-        expandedPaths: new Set(["src/features/review"]),
-      },
-    );
+    const state = buildReviewFileTreeVisibleState([buildEntry("src/features/review/panel.tsx")], {
+      fileFilterQuery: "",
+      expandedPaths: new Set(["src/features/review"]),
+    });
 
     expect(state.rows.length).toBe(2);
     expect(state.rows[0]?.type).toBe("folder");
@@ -85,10 +79,11 @@ describe("review file tree model", () => {
   });
 
   test("derives folder ancestors that must expand for the selected file", () => {
-    const model = buildReviewFileTreeModel([
-      buildEntry("src/nested/feature.ts"),
-    ]);
-    const ancestorPaths = buildReviewFileTreeExpandedPathsForSelection(model, "src/nested/feature.ts");
+    const model = buildReviewFileTreeModel([buildEntry("src/nested/feature.ts")]);
+    const ancestorPaths = buildReviewFileTreeExpandedPathsForSelection(
+      model,
+      "src/nested/feature.ts",
+    );
 
     expect(ancestorPaths.length).toBe(2);
     expect(ancestorPaths[0]).toBe("src");
@@ -97,17 +92,17 @@ describe("review file tree model", () => {
 
   test("maps the selected file path to the visible tree row index", () => {
     const state = buildReviewFileTreeVisibleState(
-      [
-        buildEntry("src/example.ts"),
-        buildEntry("src/feature.ts"),
-      ],
+      [buildEntry("src/example.ts"), buildEntry("src/feature.ts")],
       {
         fileFilterQuery: "",
         expandedPaths: new Set(["src"]),
       },
     );
 
-    const selectedIndex = resolveReviewFileTreeSelectedVisibleIndex(state.rows, state.model.pathToId.get("src/feature.ts") ?? null);
+    const selectedIndex = resolveReviewFileTreeSelectedVisibleIndex(
+      state.rows,
+      state.model.pathToId.get("src/feature.ts") ?? null,
+    );
     expect(selectedIndex).toBe(2);
   });
 
@@ -118,10 +113,7 @@ describe("review file tree model", () => {
     ]);
     const selectedTreeItemId = resolveReviewFileTreeItemIdForPath(model, "src/feature.ts");
     const state = buildReviewFileTreeVisibleState(
-      [
-        buildEntry("src/example.ts"),
-        buildEntry("src/feature.ts"),
-      ],
+      [buildEntry("src/example.ts"), buildEntry("src/feature.ts")],
       {
         fileFilterQuery: "",
         expandedPaths: new Set(["src"]),
@@ -136,16 +128,11 @@ describe("review file tree model", () => {
 
   test("derives folder git change indicators and file git status slots", () => {
     const state = buildReviewFileTreeVisibleState(
-      [
-        buildEntry("src/example.ts"),
-        buildEntry("src/feature.ts"),
-      ],
+      [buildEntry("src/example.ts"), buildEntry("src/feature.ts")],
       {
         fileFilterQuery: "",
         expandedPaths: new Set(["src"]),
-        gitStatusByPath: new Map([
-          ["src/feature.ts", "modified"],
-        ]),
+        gitStatusByPath: new Map([["src/feature.ts", "modified"]]),
       },
     );
 
@@ -155,14 +142,11 @@ describe("review file tree model", () => {
   });
 
   test("marks locked rows from locked path state", () => {
-    const state = buildReviewFileTreeVisibleState(
-      [buildEntry("src/example.ts")],
-      {
-        fileFilterQuery: "",
-        expandedPaths: new Set(["src"]),
-        lockedPaths: new Set(["src/example.ts"]),
-      },
-    );
+    const state = buildReviewFileTreeVisibleState([buildEntry("src/example.ts")], {
+      fileFilterQuery: "",
+      expandedPaths: new Set(["src"]),
+      lockedPaths: new Set(["src/example.ts"]),
+    });
 
     expect(state.rows[1]?.isLocked).toBe(true);
   });

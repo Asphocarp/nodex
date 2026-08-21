@@ -5,13 +5,8 @@ import type {
   BrowserSidebarTabSnapshot,
   BrowserUseTabState,
 } from "../../shared/browser-sidebar";
-import type {
-  BrowserWebContentsLike,
-} from "../browser-sidebar-service";
-import {
-  BrowserUseIabApi,
-  type BrowserUseCdpEvent,
-} from "./browser-use-iab-api";
+import type { BrowserWebContentsLike } from "../browser-sidebar-service";
+import { BrowserUseIabApi, type BrowserUseCdpEvent } from "./browser-use-iab-api";
 import type { BrowserUsePolicyReader } from "./browser-use-policy-store";
 
 class FakeDebugger extends EventEmitter {
@@ -48,13 +43,15 @@ class FakeDebugger extends EventEmitter {
     if (method === "Target.attachToTarget") return { sessionId: "frame-session-1" };
     if (method === "Target.getTargets") {
       return {
-        targetInfos: [{
-          attached: false,
-          targetId: "frame-target-1",
-          title: "Frame",
-          type: "iframe",
-          url: "https://example.com/frame",
-        }],
+        targetInfos: [
+          {
+            attached: false,
+            targetId: "frame-target-1",
+            title: "Frame",
+            type: "iframe",
+            url: "https://example.com/frame",
+          },
+        ],
       };
     }
     if (method === "Page.getLayoutMetrics") {
@@ -82,15 +79,29 @@ class FakeWebContents extends EventEmitter {
   readonly debugger = new FakeDebugger();
   readonly executeJavaScript = vi.fn(async () => ({ ok: true }));
 
-  canGoBack() { return false; }
-  canGoForward() { return false; }
-  async capturePage() { return {} as never; }
-  getTitle() { return "Example"; }
-  getURL() { return "https://example.com"; }
+  canGoBack() {
+    return false;
+  }
+  canGoForward() {
+    return false;
+  }
+  async capturePage() {
+    return {} as never;
+  }
+  getTitle() {
+    return "Example";
+  }
+  getURL() {
+    return "https://example.com";
+  }
   goBack() {}
   goForward() {}
-  isDestroyed() { return false; }
-  isLoading() { return false; }
+  isDestroyed() {
+    return false;
+  }
+  isLoading() {
+    return false;
+  }
   async loadURL() {}
   reload() {}
   reloadIgnoringCache() {}
@@ -125,9 +136,10 @@ class FakeBrowserService extends EventEmitter {
     browserConversationId: string,
     browserViewScopeId: string,
   ): BrowserSidebarTabSnapshot[] {
-    return [...this.snapshots.values()].filter((snapshot) =>
-      snapshot.browserConversationId === browserConversationId
-      && snapshot.browserViewScopeId === browserViewScopeId
+    return [...this.snapshots.values()].filter(
+      (snapshot) =>
+        snapshot.browserConversationId === browserConversationId &&
+        snapshot.browserViewScopeId === browserViewScopeId,
     );
   }
 
@@ -189,7 +201,9 @@ class FakeBrowserService extends EventEmitter {
     return this.visible;
   }
 
-  setBrowserUseCaptureSurface(event: { surfaceSize: { height: number; width: number } | null }): void {
+  setBrowserUseCaptureSurface(event: {
+    surfaceSize: { height: number; width: number } | null;
+  }): void {
     this.captures.push(event);
   }
 
@@ -249,10 +263,12 @@ describe("BrowserUseIabApi", () => {
       metadata: { codexSessionId: "thread-1" },
     });
     expect(() => api.getInfo({ session_id: "other" })).toThrow("does not own");
-    await expect(api.dispatch("getUserHistory", {
-      session_id: "thread-1",
-      limit: 10,
-    })).rejects.toThrow("unavailable");
+    await expect(
+      api.dispatch("getUserHistory", {
+        session_id: "thread-1",
+        limit: 10,
+      }),
+    ).rejects.toThrow("unavailable");
   });
 
   test("publishes the exact Codex owner on every runtime tab", async () => {
@@ -269,19 +285,23 @@ describe("BrowserUseIabApi", () => {
 
   test("checks session ownership before reporting cached-expression state", async () => {
     const { api } = makeApi();
-    await expect(api.dispatch("executeCdpWithCachedExpression", {
-      expressionCacheKey: "missing-expression",
-      method: "Runtime.evaluate",
-      session_id: "other",
-      target: { tabId: 1 },
-    })).rejects.toThrow("does not own");
+    await expect(
+      api.dispatch("executeCdpWithCachedExpression", {
+        expressionCacheKey: "missing-expression",
+        method: "Runtime.evaluate",
+        session_id: "other",
+        target: { tabId: 1 },
+      }),
+    ).rejects.toThrow("does not own");
 
-    await expect(api.dispatch("executeCdpWithCachedExpression", {
-      expressionCacheKey: "missing-expression",
-      method: "Runtime.evaluate",
-      session_id: "thread-1",
-      target: { tabId: 1 },
-    })).resolves.toEqual({ kind: "cache-miss" });
+    await expect(
+      api.dispatch("executeCdpWithCachedExpression", {
+        expressionCacheKey: "missing-expression",
+        method: "Runtime.evaluate",
+        session_id: "thread-1",
+        target: { tabId: 1 },
+      }),
+    ).resolves.toEqual({ kind: "cache-miss" });
   });
 
   test("projects full CDP capability and enforces explicit origin denials", async () => {
@@ -302,56 +322,59 @@ describe("BrowserUseIabApi", () => {
         allowedFullCdpOrigins: [],
         deniedFullCdpOrigins: [],
       }),
-      isExplicitlyDenied: (_resource, urlOrOrigin) =>
-        denied.has(new URL(urlOrOrigin).origin),
+      isExplicitlyDenied: (_resource, urlOrOrigin) => denied.has(new URL(urlOrOrigin).origin),
     };
     const { api, service } = makeApi(policyStore);
     expect(api.getInfo({ session_id: "thread-1" })).toMatchObject({
       apiSupportOverrides: { "Tab.cdpCall": true },
       capabilities: {
-        tab: expect.arrayContaining([
-          expect.objectContaining({ id: "cdp" }),
-        ]),
+        tab: expect.arrayContaining([expect.objectContaining({ id: "cdp" })]),
       },
     });
 
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
-    await expect(api.dispatch("executeCdp", {
-      session_id: "thread-1",
-      turn_id: "turn-1",
-      target: { tabId: tab.id },
-      method: "Page.navigate",
-      commandParams: { url: "https://denied.example/path" },
-    })).rejects.toThrow("denied by Browser policy");
+    })) as { id: number };
+    await expect(
+      api.dispatch("executeCdp", {
+        session_id: "thread-1",
+        turn_id: "turn-1",
+        target: { tabId: tab.id },
+        method: "Page.navigate",
+        commandParams: { url: "https://denied.example/path" },
+      }),
+    ).rejects.toThrow("denied by Browser policy");
     expect(service.contents.debugger.commands).not.toContainEqual(
       expect.objectContaining({ method: "Page.navigate" }),
     );
 
     service.contents.getURL = () => "https://denied.example/current";
-    await expect(api.dispatch("executeCdp", {
-      session_id: "thread-1",
-      turn_id: "turn-1",
-      target: { tabId: tab.id },
-      method: "DOM.setFileInputFiles",
-      commandParams: { files: ["/tmp/file.txt"] },
-    })).rejects.toThrow("denied by Browser policy");
-    await expect(api.dispatch("allowDownload", {
-      session_id: "thread-1",
-      turn_id: "turn-1",
-      tabId: tab.id,
-      url: "https://denied.example/file.zip",
-    })).rejects.toThrow("denied by Browser policy");
+    await expect(
+      api.dispatch("executeCdp", {
+        session_id: "thread-1",
+        turn_id: "turn-1",
+        target: { tabId: tab.id },
+        method: "DOM.setFileInputFiles",
+        commandParams: { files: ["/tmp/file.txt"] },
+      }),
+    ).rejects.toThrow("denied by Browser policy");
+    await expect(
+      api.dispatch("allowDownload", {
+        session_id: "thread-1",
+        turn_id: "turn-1",
+        tabId: tab.id,
+        url: "https://denied.example/file.zip",
+      }),
+    ).rejects.toThrow("denied by Browser policy");
   });
 
   test("maps top-level and frame CDP targets and restores capture surface", async () => {
     const { api, service } = makeApi();
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
     await api.dispatch("attachTarget", {
       session_id: "thread-1",
       turn_id: "turn-1",
@@ -370,11 +393,11 @@ describe("BrowserUseIabApi", () => {
       sessionId: "frame-session-1",
     });
 
-    const targets = await api.dispatch("executeCdp", {
+    const targets = (await api.dispatch("executeCdp", {
       session_id: "thread-1",
       target: { tabId: tab.id },
       method: "Target.getTargets",
-    }) as { targetInfos: Array<{ targetId: string }> };
+    })) as { targetInfos: Array<{ targetId: string }> };
     expect(targets.targetInfos.map((target) => target.targetId)).toEqual([
       "browser-use-iab-tab:1",
       "frame-target-1",
@@ -399,9 +422,7 @@ describe("BrowserUseIabApi", () => {
       expect.objectContaining({ surfaceSize: { height: 1_200, width: 900 } }),
       expect.objectContaining({ surfaceSize: null }),
     ]);
-    expect(
-      service.contents.debugger.commands.slice(-2).map(({ method }) => method),
-    ).toEqual([
+    expect(service.contents.debugger.commands.slice(-2).map(({ method }) => method)).toEqual([
       "Page.getLayoutMetrics",
       "Page.captureScreenshot",
     ]);
@@ -414,10 +435,12 @@ describe("BrowserUseIabApi", () => {
       turn_id: "turn-1",
     });
 
-    expect(await api.dispatch("executeUnhandledCommand", {
-      session_id: "thread-1",
-      type: "browser_visibility_get",
-    })).toEqual({ visible: false });
+    expect(
+      await api.dispatch("executeUnhandledCommand", {
+        session_id: "thread-1",
+        type: "browser_visibility_get",
+      }),
+    ).toEqual({ visible: false });
 
     await api.dispatch("executeUnhandledCommand", {
       session_id: "thread-1",
@@ -430,10 +453,12 @@ describe("BrowserUseIabApi", () => {
       browserTabId,
       visible: true,
     });
-    expect(await api.dispatch("executeUnhandledCommand", {
-      session_id: "thread-1",
-      type: "browser_visibility_get",
-    })).toEqual({ visible: true });
+    expect(
+      await api.dispatch("executeUnhandledCommand", {
+        session_id: "thread-1",
+        type: "browser_visibility_get",
+      }),
+    ).toEqual({ visible: true });
 
     await api.dispatch("executeUnhandledCommand", {
       session_id: "thread-1",
@@ -471,30 +496,36 @@ describe("BrowserUseIabApi", () => {
 
     const browserTabId = service.visibilityChanges.at(-1)?.browserTabId;
     expect(browserTabId).toMatch(/^browser-use:/u);
-    expect(service.visibilityChanges).toEqual([{
-      browserTabId,
-      visible: true,
-    }]);
-    expect(service.viewports).toEqual([expect.objectContaining({
-      browserTabId,
-      viewportSize: { height: 4_096, width: 240 },
-    })]);
-    expect(service.commands).toEqual([expect.objectContaining({
-      browserTabId,
-      type: "set-viewport",
-      viewport: expect.objectContaining({
-        height: 4_096,
-        width: 240,
+    expect(service.visibilityChanges).toEqual([
+      {
+        browserTabId,
+        visible: true,
+      },
+    ]);
+    expect(service.viewports).toEqual([
+      expect.objectContaining({
+        browserTabId,
+        viewportSize: { height: 4_096, width: 240 },
       }),
-    })]);
+    ]);
+    expect(service.commands).toEqual([
+      expect.objectContaining({
+        browserTabId,
+        type: "set-viewport",
+        viewport: expect.objectContaining({
+          height: 4_096,
+          width: 240,
+        }),
+      }),
+    ]);
   });
 
   test("returns a deliverable page to the user-tab inventory after releasing control", async () => {
     const { api } = makeApi();
-    const controlled = await api.dispatch("createTab", {
+    const controlled = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
 
     await api.dispatch("finalizeTabs", {
       session_id: "thread-1",
@@ -502,12 +533,16 @@ describe("BrowserUseIabApi", () => {
       keep: [{ status: "deliverable", tabId: controlled.id }],
     });
 
-    expect(await api.dispatch("getTabs", {
-      session_id: "thread-1",
-    })).toEqual([]);
-    expect(await api.dispatch("getUserTabs", {
-      session_id: "thread-1",
-    })).toEqual([
+    expect(
+      await api.dispatch("getTabs", {
+        session_id: "thread-1",
+      }),
+    ).toEqual([]);
+    expect(
+      await api.dispatch("getUserTabs", {
+        session_id: "thread-1",
+      }),
+    ).toEqual([
       expect.objectContaining({
         providerTabId: expect.stringMatching(/^browser-use:/u),
       }),
@@ -516,29 +551,31 @@ describe("BrowserUseIabApi", () => {
 
   test("uses the host CDP deadline instead of caller timing hints", async () => {
     const { api, service } = makeApi();
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
     service.contents.debugger.delays.set("Runtime.evaluate", 10);
 
-    await expect(api.dispatch("executeCdp", {
-      session_id: "thread-1",
-      turn_id: "turn-1",
-      target: { tabId: tab.id },
-      method: "Runtime.evaluate",
-      commandParams: { expression: "document.title" },
-      preserveDebuggerOnTimeout: true,
-      timeoutMs: 1,
-    })).resolves.toEqual({ ok: true });
+    await expect(
+      api.dispatch("executeCdp", {
+        session_id: "thread-1",
+        turn_id: "turn-1",
+        target: { tabId: tab.id },
+        method: "Runtime.evaluate",
+        commandParams: { expression: "document.title" },
+        preserveDebuggerOnTimeout: true,
+        timeoutMs: 1,
+      }),
+    ).resolves.toEqual({ ok: true });
   });
 
   test("releases Browser Use control without detaching the page emulation baseline", async () => {
     const { api, service } = makeApi();
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
     await api.dispatch("attach", {
       session_id: "thread-1",
       turn_id: "turn-1",
@@ -557,10 +594,10 @@ describe("BrowserUseIabApi", () => {
 
   test("translates top-level input in the guest world while frame input uses CDP", async () => {
     const { api, service } = makeApi();
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
     await api.dispatch("executeCdp", {
       session_id: "thread-1",
       turn_id: "turn-1",
@@ -599,10 +636,10 @@ describe("BrowserUseIabApi", () => {
 
   test("fails closed for unsafe direct and history CDP navigation", async () => {
     const { api, service } = makeApi();
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
 
     for (const url of [
       "file:///tmp/private",
@@ -610,13 +647,15 @@ describe("BrowserUseIabApi", () => {
       "https://user:password@example.com/private",
       "chrome://settings",
     ]) {
-      await expect(api.dispatch("executeCdp", {
-        session_id: "thread-1",
-        turn_id: "turn-1",
-        target: { tabId: tab.id },
-        method: "Page.navigate",
-        commandParams: { url },
-      })).rejects.toThrow("not allowed");
+      await expect(
+        api.dispatch("executeCdp", {
+          session_id: "thread-1",
+          turn_id: "turn-1",
+          target: { tabId: tab.id },
+          method: "Page.navigate",
+          commandParams: { url },
+        }),
+      ).rejects.toThrow("not allowed");
     }
     expect(service.contents.debugger.commands).not.toContainEqual(
       expect.objectContaining({ method: "Page.navigate" }),
@@ -646,21 +685,23 @@ describe("BrowserUseIabApi", () => {
       params: { entryId: 1 },
     });
 
-    await expect(api.dispatch("executeCdp", {
-      session_id: "thread-1",
-      turn_id: "turn-1",
-      target: { tabId: tab.id },
-      method: "Page.navigateToHistoryEntry",
-      commandParams: { entryId: 2 },
-    })).rejects.toThrow("not allowed");
+    await expect(
+      api.dispatch("executeCdp", {
+        session_id: "thread-1",
+        turn_id: "turn-1",
+        target: { tabId: tab.id },
+        method: "Page.navigateToHistoryEntry",
+        commandParams: { entryId: 2 },
+      }),
+    ).rejects.toThrow("not allowed");
   });
 
   test("forwards one-route download grants and deterministic turn finalization", async () => {
     const { api, grantDownload, service } = makeApi();
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
     await api.dispatch("allowDownload", {
       session_id: "thread-1",
       turn_id: "turn-1",
@@ -689,22 +730,24 @@ describe("BrowserUseIabApi", () => {
 
   test("waits for the renderer cursor arrival acknowledgement", async () => {
     const { api, service } = makeApi();
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
     service.visible = true;
     let settled = false;
-    const moving = api.dispatch("moveMouse", {
-      session_id: "thread-1",
-      turn_id: "turn-1",
-      tabId: tab.id,
-      waitForArrival: true,
-      x: 10,
-      y: 20,
-    }).then(() => {
-      settled = true;
-    });
+    const moving = api
+      .dispatch("moveMouse", {
+        session_id: "thread-1",
+        turn_id: "turn-1",
+        tabId: tab.id,
+        waitForArrival: true,
+        x: 10,
+        y: 20,
+      })
+      .then(() => {
+        settled = true;
+      });
     await Promise.resolve();
     expect(settled).toBe(false);
     const cursor = service.cursors[0] as { moveSequence: number };
@@ -715,19 +758,21 @@ describe("BrowserUseIabApi", () => {
 
   test("does not wait for cursor animation while the Browser page is not presented", async () => {
     const { api, service } = makeApi();
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
 
-    await expect(api.dispatch("moveMouse", {
-      session_id: "thread-1",
-      turn_id: "turn-1",
-      tabId: tab.id,
-      waitForArrival: true,
-      x: 10,
-      y: 20,
-    })).resolves.toBeUndefined();
+    await expect(
+      api.dispatch("moveMouse", {
+        session_id: "thread-1",
+        turn_id: "turn-1",
+        tabId: tab.id,
+        waitForArrival: true,
+        x: 10,
+        y: 20,
+      }),
+    ).resolves.toBeUndefined();
     expect(service.cursors).toHaveLength(1);
   });
 
@@ -735,10 +780,10 @@ describe("BrowserUseIabApi", () => {
     const { api, service } = makeApi();
     const events: BrowserUseCdpEvent[] = [];
     api.addCdpEventListener((event) => events.push(event));
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
     await api.dispatch("attachTarget", {
       session_id: "thread-1",
       turn_id: "turn-1",
@@ -765,28 +810,24 @@ describe("BrowserUseIabApi", () => {
     const { api, service } = makeApi();
     const events: BrowserUseCdpEvent[] = [];
     api.addCdpEventListener((event) => events.push(event));
-    const tab = await api.dispatch("createTab", {
+    const tab = (await api.dispatch("createTab", {
       session_id: "thread-1",
       turn_id: "turn-1",
-    }) as { id: number };
+    })) as { id: number };
     await api.dispatch("attach", {
       session_id: "thread-1",
       turn_id: "turn-1",
       tabId: tab.id,
     });
 
-    service.contents.debugger.emit(
-      "message",
-      {},
-      "Page.loadEventFired",
-      { timestamp: 1 },
-      "",
-    );
+    service.contents.debugger.emit("message", {}, "Page.loadEventFired", { timestamp: 1 }, "");
 
-    expect(events).toEqual([{
-      method: "Page.loadEventFired",
-      params: { timestamp: 1 },
-      source: { tabId: 1 },
-    }]);
+    expect(events).toEqual([
+      {
+        method: "Page.loadEventFired",
+        params: { timestamp: 1 },
+        source: { tabId: 1 },
+      },
+    ]);
   });
 });

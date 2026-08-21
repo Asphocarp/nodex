@@ -104,10 +104,7 @@ import type {
   BrowserSidebarBrowserUseStateSnapshot,
   BrowserSidebarStateSnapshot,
 } from "../../shared/browser-sidebar";
-import {
-  CODEX_SERVER_REQUEST_NO_RESPONSE,
-  CodexRpcError,
-} from "./codex-app-server-client";
+import { CODEX_SERVER_REQUEST_NO_RESPONSE, CodexRpcError } from "./codex-app-server-client";
 import { CodexService } from "./codex-service";
 import { USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS } from "./codex-user-input-auto-resolution";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
@@ -127,9 +124,7 @@ import {
   CODEX_THREAD_TITLE_MODEL,
   CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
 } from "./thread-title-generator";
-import type {
-  DesktopAutomationModulePort,
-} from "../core-client/desktop-automation-module-bridge";
+import type { DesktopAutomationModulePort } from "../core-client/desktop-automation-module-bridge";
 import type {
   DesktopProjectWorkspacePort,
   DesktopProjectWorkspaceSidebar,
@@ -141,7 +136,10 @@ import { dbNotifier } from "../local-store/notifier";
 interface TestableCodexService {
   on: {
     (event: "event", listener: (event: CodexEvent) => void): unknown;
-    (event: "hostMessage", listener: (message: import("../../shared/types").CodexHostMessage) => void): unknown;
+    (
+      event: "hostMessage",
+      listener: (message: import("../../shared/types").CodexHostMessage) => void,
+    ): unknown;
     (
       event: "rendererOwnerHostMessage",
       listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
@@ -159,7 +157,9 @@ interface TestableCodexService {
   ) => Promise<import("../../shared/types").CodexRateLimitResetResult>;
   logoutAccount: () => Promise<boolean>;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
-  resolveThreadSummary: (threadId: string) => Promise<import("../../shared/types").CodexThreadSummary | null>;
+  resolveThreadSummary: (
+    threadId: string,
+  ) => Promise<import("../../shared/types").CodexThreadSummary | null>;
   listProjectThreads: (
     projectId: string,
     opts?: {
@@ -168,7 +168,10 @@ interface TestableCodexService {
       first?: number;
     },
   ) => Promise<import("../../shared/types").CodexThreadSummaryWindow>;
-  syncSidebarThreads: (input?: { includeArchived?: boolean; refresh?: boolean }) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
+  syncSidebarThreads: (input?: {
+    includeArchived?: boolean;
+    refresh?: boolean;
+  }) => Promise<import("../../shared/types").CodexSidebarSnapshot>;
   syncSidebarThreadsDetailed: (input?: {
     includeArchived?: boolean;
     policy?: import("../../shared/types").CodexSidebarRefreshPolicy;
@@ -185,9 +188,9 @@ interface TestableCodexService {
   moveSidebarThread: (
     input: import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveInput,
   ) => Promise<import("../../shared/codex-sidebar-thread-move").CodexSidebarThreadMoveResult>;
-  listCommandPaletteThreads: (
-    input: { scope: "sidebar" },
-  ) => Promise<CommandPaletteThreadSummary[]>;
+  listCommandPaletteThreads: (input: {
+    scope: "sidebar";
+  }) => Promise<CommandPaletteThreadSummary[]>;
   searchCommandPaletteThreads: (input: {
     query: string;
     limit?: number;
@@ -205,10 +208,9 @@ interface TestableCodexService {
     threadId: string,
     launchId: string,
     ownerClientId: string,
-  ) => Promise<Extract<
-    import("../../shared/types").CodexRendererConversationResumeResult,
-    { role: "owner" }
-  >>;
+  ) => Promise<
+    Extract<import("../../shared/types").CodexRendererConversationResumeResult, { role: "owner" }>
+  >;
   releaseConversationResumeBuffer: (threadId: string) => Promise<boolean>;
   replayRendererOwnerPendingRequests: (threadId: string, ownerClientId: string) => number;
   ackRendererThreadOwnerNotification: (
@@ -219,19 +221,27 @@ interface TestableCodexService {
   serializeThreadDetail: (threadId: string) => CodexThreadDetail | null;
   serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
   listPendingWorktrees: () => readonly import("../../shared/codex-pending-worktree").CodexPendingWorktreeEntry[];
-  createPendingWorktree: (
-    input: CodexPendingWorktreeCreateInput,
-  ) => { readonly pendingWorktreeId: string; readonly clientThreadId: string | null };
+  createPendingWorktree: (input: CodexPendingWorktreeCreateInput) => {
+    readonly pendingWorktreeId: string;
+    readonly clientThreadId: string | null;
+  };
   cancelPendingWorktree: (hostId: string, pendingWorktreeId: string) => void;
   resumeThread: (threadId: string) => Promise<CodexThreadDetail | null>;
-  forkConversationFromTurn: (threadId: string, turnId: string, message: string) => Promise<CodexThreadActionResult>;
-  forkProjectSessionThread: (sessionId: string, input: {
-    target: "local" | "newWorktree";
-    turnId?: string;
-    message?: string;
-    collaborationMode?: "default" | "plan";
-    localEnvironmentConfigPath?: string | null;
-  }) => Promise<ProjectSessionForkResult>;
+  forkConversationFromTurn: (
+    threadId: string,
+    turnId: string,
+    message: string,
+  ) => Promise<CodexThreadActionResult>;
+  forkProjectSessionThread: (
+    sessionId: string,
+    input: {
+      target: "local" | "newWorktree";
+      turnId?: string;
+      message?: string;
+      collaborationMode?: "default" | "plan";
+      localEnvironmentConfigPath?: string | null;
+    },
+  ) => Promise<ProjectSessionForkResult>;
   startSideChat: (input: {
     parentThreadId: string;
     parentNavigationPath?: string | null;
@@ -282,7 +292,9 @@ interface TestableCodexService {
   ) => Promise<boolean>;
   listMcpServerStatuses: () => Promise<ListMcpServerStatusResponse>;
   listMcpApps: () => Promise<AppInfo[]>;
-  listExperimentalFeatures: () => Promise<import("@nodex/codex-app-server-protocol/v2").ExperimentalFeature[]>;
+  listExperimentalFeatures: () => Promise<
+    import("@nodex/codex-app-server-protocol/v2").ExperimentalFeature[]
+  >;
   startThreadForSession: (
     input: CodexThreadStartForSessionInput,
   ) => Promise<CodexThreadStartForSessionResult>;
@@ -310,19 +322,21 @@ interface TestableCodexService {
   hydrateBackgroundSubagentThreads: (
     input: CodexBackgroundSubagentThreadsHydrateInput,
   ) => Promise<CodexThreadSummary[]>;
-  hydrateSubagentPanel: (
-    input: CodexSubagentPanelHydrateInput,
-  ) => Promise<CodexThreadSummary[]>;
-  respondToUserInput: (requestId: string | number, answers: Record<string, string[]>) => Promise<boolean>;
-  setProjectPermissionMode: (projectId: string | null, mode: CodexPermissionMode) => Promise<CodexPermissionState>;
+  hydrateSubagentPanel: (input: CodexSubagentPanelHydrateInput) => Promise<CodexThreadSummary[]>;
+  respondToUserInput: (
+    requestId: string | number,
+    answers: Record<string, string[]>,
+  ) => Promise<boolean>;
+  setProjectPermissionMode: (
+    projectId: string | null,
+    mode: CodexPermissionMode,
+  ) => Promise<CodexPermissionState>;
   getCustomPermissionModeDescription: (projectId: string | null) => Promise<string>;
   runScheduledAutomationNow: (
     input: import("../../shared/types").CodexScheduledAutomationRunNowInput,
     rendererClientId?: string | null,
   ) => Promise<void>;
-  resolveAutomationArchiveMessages: (
-    threadId: string,
-  ) => Promise<{
+  resolveAutomationArchiveMessages: (threadId: string) => Promise<{
     archivedUserMessage: string | null;
     archivedAssistantMessage: string | null;
   }>;
@@ -339,7 +353,9 @@ interface TestableCodexService {
           reason: string | null;
           updatedAtMs?: number;
         } | null;
-        collaborationMode: import("../../shared/types").CodexHeartbeatAutomationCollaborationMode | null;
+        collaborationMode:
+          | import("../../shared/types").CodexHeartbeatAutomationCollaborationMode
+          | null;
         permissions: import("../../shared/types").CodexHeartbeatAutomationPermissions | null;
       };
     },
@@ -406,11 +422,7 @@ function makeThreadDetail(threadId: string): CodexThreadDetail {
   };
 }
 
-function makeProtocolThread(
-  threadId: string,
-  cwd: string,
-  turns: Turn[] = [],
-): Thread {
+function makeProtocolThread(threadId: string, cwd: string, turns: Turn[] = []): Thread {
   return {
     id: threadId,
     extra: null,
@@ -445,8 +457,8 @@ type ProtocolCommandExecution = Extract<ThreadItem, { type: "commandExecution" }
 type ProtocolAgentMessage = Extract<ThreadItem, { type: "agentMessage" }>;
 
 function makeProtocolAgentMessage(
-  input: Pick<ProtocolAgentMessage, "id" | "text">
-    & Partial<Omit<ProtocolAgentMessage, "type" | "id" | "text">>,
+  input: Pick<ProtocolAgentMessage, "id" | "text"> &
+    Partial<Omit<ProtocolAgentMessage, "type" | "id" | "text">>,
 ): ProtocolAgentMessage {
   return {
     type: "agentMessage",
@@ -458,8 +470,8 @@ function makeProtocolAgentMessage(
 }
 
 function makeProtocolCommandExecution(
-  input: Pick<ProtocolCommandExecution, "id" | "command">
-    & Partial<Omit<ProtocolCommandExecution, "type" | "id" | "command">>,
+  input: Pick<ProtocolCommandExecution, "id" | "command"> &
+    Partial<Omit<ProtocolCommandExecution, "type" | "id" | "command">>,
 ): ProtocolCommandExecution {
   return {
     type: "commandExecution",
@@ -485,18 +497,20 @@ function makeCanonicalHydrationTurn(turnId: string): Turn {
       type: "userMessage",
       id: "canonical-user-message",
       clientId: null,
-      content: [{
-        type: "text",
-        text: [
-          "# Files mentioned by the user:",
-          "",
-          "## fixture: /workspace/project/file.ts (line 7)",
-          "",
-          "## My request for Codex:",
-          "Preserve the raw item slots.",
-        ].join("\n"),
-        text_elements: [],
-      }],
+      content: [
+        {
+          type: "text",
+          text: [
+            "# Files mentioned by the user:",
+            "",
+            "## fixture: /workspace/project/file.ts (line 7)",
+            "",
+            "## My request for Codex:",
+            "Preserve the raw item slots.",
+          ].join("\n"),
+          text_elements: [],
+        },
+      ],
     },
     {
       type: "enteredReviewMode",
@@ -579,9 +593,7 @@ function buildCanonicalHistoryTimeline(
     threadId: string;
     turns: readonly Turn[];
     requests?: CodexCanonicalConversationState["requests"];
-    transformState?: (
-      state: CodexCanonicalConversationState,
-    ) => CodexCanonicalConversationState;
+    transformState?: (state: CodexCanonicalConversationState) => CodexCanonicalConversationState;
   },
 ): Pick<CodexThreadDetail, "turns" | "transcript"> {
   const cwd = "/workspace/project";
@@ -624,12 +636,14 @@ function makeCanonicalStateDetailFixture(
     cwd: state.sidecar.hydrationContext?.cwd ?? state.protocol.cwd,
     turns: state.turns.flatMap((turn): CodexTurnSummary[] => {
       if (turn.protocol.id === null) return [];
-      return [{
-        threadId: state.protocol.id,
-        turnId: turn.protocol.id,
-        status: turn.protocol.status,
-        itemIds: turn.items.map((item) => item.id),
-      }];
+      return [
+        {
+          threadId: state.protocol.id,
+          turnId: turn.protocol.id,
+          status: turn.protocol.status,
+          itemIds: turn.items.map((item) => item.id),
+        },
+      ];
     }),
     transcript: [],
     ...overrides,
@@ -646,12 +660,13 @@ function completeLegacyProtocolTurnFixture(value: unknown): Turn {
     id: turn.id,
     items: Array.isArray(turn.items) ? turn.items : [],
     itemsView: "full",
-    status: turn.status === "completed"
-      || turn.status === "interrupted"
-      || turn.status === "failed"
-      || turn.status === "inProgress"
-      ? turn.status
-      : "completed",
+    status:
+      turn.status === "completed" ||
+      turn.status === "interrupted" ||
+      turn.status === "failed" ||
+      turn.status === "inProgress"
+        ? turn.status
+        : "completed",
     error: turn.error ?? null,
     startedAt: typeof turn.startedAt === "number" ? turn.startedAt : null,
     completedAt: typeof turn.completedAt === "number" ? turn.completedAt : null,
@@ -688,9 +703,7 @@ function makeCanonicalForkResponse(input: {
   };
 }
 
-function makeCanonicalForkResumeResponse(
-  response: ThreadForkResponse,
-): ThreadResumeResponse {
+function makeCanonicalForkResumeResponse(response: ThreadForkResponse): ThreadResumeResponse {
   return {
     ...response,
     thread: {
@@ -711,11 +724,13 @@ function getCanonicalConversationState(
   service: TestableCodexService,
   threadId: string,
 ): CodexCanonicalConversationState | null {
-  const record = (service as unknown as {
-    getMaybeConversationRecord: (id: string) => {
-      canonicalState: CodexCanonicalConversationState | null;
-    } | null;
-  }).getMaybeConversationRecord(threadId);
+  const record = (
+    service as unknown as {
+      getMaybeConversationRecord: (id: string) => {
+        canonicalState: CodexCanonicalConversationState | null;
+      } | null;
+    }
+  ).getMaybeConversationRecord(threadId);
   return record?.canonicalState ?? null;
 }
 
@@ -727,24 +742,28 @@ function makeConversationSnapshot(input: {
   return {
     ...makeThreadDetail(input.threadId),
     resumeState: "resumed",
-    turns: [{
-      threadId: input.threadId,
-      turnId: "turn-1",
-      status: "inProgress",
-      itemIds: ["assistant-1"],
-      items: [{
+    turns: [
+      {
         threadId: input.threadId,
         turnId: "turn-1",
-        itemId: "assistant-1",
-        type: "assistant_message",
-        kind: "assistantMessage",
-        semanticKind: "assistantMessage",
         status: "inProgress",
-        markdownText: input.text ?? "",
-        createdAt: input.revision ?? 1,
-        updatedAt: input.revision ?? 1,
-      }],
-    }],
+        itemIds: ["assistant-1"],
+        items: [
+          {
+            threadId: input.threadId,
+            turnId: "turn-1",
+            itemId: "assistant-1",
+            type: "assistant_message",
+            kind: "assistantMessage",
+            semanticKind: "assistantMessage",
+            status: "inProgress",
+            markdownText: input.text ?? "",
+            createdAt: input.revision ?? 1,
+            updatedAt: input.revision ?? 1,
+          },
+        ],
+      },
+    ],
     requests: [],
     queuedFollowUps: [],
     pendingSteers: [],
@@ -814,11 +833,7 @@ function buildTestPatchPublication(input: {
       patches: input.patches ?? buildCodexConversationStateUpdates(input.before, input.after),
     },
     baseCheckpoint: input.baseCheckpoint,
-    checkpoint: buildTestStreamCheckpoint(
-      input.after,
-      revision,
-      input.baseCheckpoint.ownerEpoch,
-    ),
+    checkpoint: buildTestStreamCheckpoint(input.after, revision, input.baseCheckpoint.ownerEpoch),
     ownerNotificationSequence: input.ownerNotificationSequence,
   };
 }
@@ -858,9 +873,7 @@ function makeDesktopWorkspaceThread(
   };
 }
 
-function makeProject(
-  overrides: Partial<Project> & Pick<Project, "id">,
-): Project {
+function makeProject(overrides: Partial<Project> & Pick<Project, "id">): Project {
   const { id, ...rest } = overrides;
   return {
     id,
@@ -984,17 +997,20 @@ describe("codex-service provider-backed scheduled automations", () => {
     };
 
     try {
-      await internals.resumeHeartbeatTargetThread({
-        threadId: "thread-heartbeat-kimi",
-        cwd: "/tmp/kimi",
-        executionProfile: {
-          providerId: "kimi-for-coding",
-          modelId: "kimi-k3",
-          harnessId: "kimi-code",
-          reasoningEffort: "Thinking",
-          serviceTier: null,
+      await internals.resumeHeartbeatTargetThread(
+        {
+          threadId: "thread-heartbeat-kimi",
+          cwd: "/tmp/kimi",
+          executionProfile: {
+            providerId: "kimi-for-coding",
+            modelId: "kimi-k3",
+            harnessId: "kimi-code",
+            reasoningEffort: "Thinking",
+            serviceTier: null,
+          },
         },
-      }, "/tmp/kimi/rollout.jsonl");
+        "/tmp/kimi/rollout.jsonl",
+      );
 
       const params = requests[0]?.params as {
         model?: string | null;
@@ -1097,8 +1113,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
       projectionRevision: 0,
     }),
     getProject: async () => null,
-    readProjectPermissionMode: async (projectId: string) =>
-      permissionModes.get(projectId) ?? null,
+    readProjectPermissionMode: async (projectId: string) => permissionModes.get(projectId) ?? null,
     readProjectlessPermissionMode: async () => projectlessPermissionMode,
     setProjectPermissionMode: async (projectId: string, mode: CodexPermissionMode) => {
       permissionModes.set(projectId, mode);
@@ -1125,8 +1140,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
           id: thread.sessionId ?? `session:${thread.threadId}`,
           projectId: thread.projectId,
           noThreadFallbackTitle: thread.threadName ?? "New thread",
-          displayTitle:
-            (thread.threadName ?? thread.threadPreview) || "New thread",
+          displayTitle: (thread.threadName ?? thread.threadPreview) || "New thread",
           order: 0,
           pinned: true,
           pinnedOrder: thread.pinnedOrder,
@@ -1204,17 +1218,17 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
         projectlessWorkspaceBrowserRoot: location.projectlessWorkspaceBrowserRoot,
       });
     },
-    moveThread: async (
-      input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0],
-    ) => {
-      const thread = updateThread(input.threadId, {
-        projectId: input.targetProjectId,
-        ...input.metadata,
-      }) ?? makeDesktopWorkspaceThread({
-        threadId: input.threadId,
-        projectId: input.targetProjectId,
-        ...input.metadata,
-      });
+    moveThread: async (input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]) => {
+      const thread =
+        updateThread(input.threadId, {
+          projectId: input.targetProjectId,
+          ...input.metadata,
+        }) ??
+        makeDesktopWorkspaceThread({
+          threadId: input.threadId,
+          projectId: input.targetProjectId,
+          ...input.metadata,
+        });
       threads.set(input.threadId, thread);
       return {
         thread,
@@ -1256,7 +1270,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
         threadId,
         projectId: thread.projectId,
         permissionMode: thread.projectId
-          ? permissionModes.get(thread.projectId) ?? null
+          ? (permissionModes.get(thread.projectId) ?? null)
           : projectlessPermissionMode,
         dynamicToolCatalogs: [],
         writableRoots: [...(writableRootsByThread.get(threadId) ?? [])],
@@ -1264,9 +1278,7 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
     },
     replaceThreadDynamicToolCatalogs: async (
       _threadId: string,
-      catalogs: Parameters<
-        DesktopProjectWorkspacePort["replaceThreadDynamicToolCatalogs"]
-      >[1],
+      catalogs: Parameters<DesktopProjectWorkspacePort["replaceThreadDynamicToolCatalogs"]>[1],
     ) => catalogs,
     mergeThreadWritableRoots: async (threadId: string, roots: readonly string[]) => {
       const merged = [...new Set([...(writableRootsByThread.get(threadId) ?? []), ...roots])];
@@ -1278,8 +1290,8 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
       return [...roots];
     },
     listBackgroundProcesses: async (threadId?: string | null) =>
-      [...backgroundProcesses.values()].filter((process) =>
-        threadId === null || threadId === undefined || process.threadId === threadId
+      [...backgroundProcesses.values()].filter(
+        (process) => threadId === null || threadId === undefined || process.threadId === threadId,
       ),
     listManagedWorktreeWindow: async () => ({
       items: [],
@@ -1345,10 +1357,13 @@ const createTestProjectWorkspace = (): DesktopProjectWorkspacePort => {
     setThreadPinned: async (threadId: string, pinned: boolean) => {
       const current = threads.get(threadId);
       if (current) {
-        threads.set(threadId, makeDesktopWorkspaceThread({
-          ...current,
-          pinnedOrder: pinned ? 0 : null,
-        }));
+        threads.set(
+          threadId,
+          makeDesktopWorkspaceThread({
+            ...current,
+            pinnedOrder: pinned ? 0 : null,
+          }),
+        );
       }
       return readSidebar();
     },
@@ -1368,10 +1383,13 @@ afterAll(() => {
 function createUserInputAutoResolutionTestClock() {
   let now = 1_000;
   let nextId = 0;
-  const timers = new Map<number, {
-    callback: () => void;
-    deadline: number;
-  }>();
+  const timers = new Map<
+    number,
+    {
+      callback: () => void;
+      deadline: number;
+    }
+  >();
 
   return {
     now: () => now,
@@ -1456,20 +1474,18 @@ function createService(options?: {
     inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,
     inactiveRendererOwnerRetryMs: options?.inactiveRendererOwnerRetryMs,
     supportsChatGptApps: options?.supportsChatGptApps,
-    projectAwareDeveloperInstructionsResolver:
-      options?.projectAwareDeveloperInstructionsResolver,
+    projectAwareDeveloperInstructionsResolver: options?.projectAwareDeveloperInstructionsResolver,
     gitSettingsResolver: options?.gitSettingsResolver,
     managedWorktreeSettingsPort: {
       read: () => managedWorktreeSettings,
       update: (input) => {
         managedWorktreeSettings = {
-          worktreeRoot: input.worktreeRoot === undefined
-            ? managedWorktreeSettings.worktreeRoot
-            : input.worktreeRoot,
-          autoDeleteEnabled: input.autoDeleteEnabled
-            ?? managedWorktreeSettings.autoDeleteEnabled,
-          autoDeleteLimit: input.autoDeleteLimit
-            ?? managedWorktreeSettings.autoDeleteLimit,
+          worktreeRoot:
+            input.worktreeRoot === undefined
+              ? managedWorktreeSettings.worktreeRoot
+              : input.worktreeRoot,
+          autoDeleteEnabled: input.autoDeleteEnabled ?? managedWorktreeSettings.autoDeleteEnabled,
+          autoDeleteLimit: input.autoDeleteLimit ?? managedWorktreeSettings.autoDeleteLimit,
         };
         return managedWorktreeSettings;
       },
@@ -1479,20 +1495,16 @@ function createService(options?: {
     projectlessHomeDirectory:
       options?.projectlessHomeDirectory ?? (() => DEFAULT_TEST_LOCAL_STORE_ROOT),
     resolveThreadGoalAttachmentsRoot:
-      options?.resolveThreadGoalAttachmentsRoot
-      ?? (() => DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT),
+      options?.resolveThreadGoalAttachmentsRoot ??
+      (() => DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT),
     loadWorktreeSetupBaseEnvironment: options?.loadWorktreeSetupBaseEnvironment,
     browserTransferStateReader:
       options?.browserTransferStateReader ?? EMPTY_TEST_BROWSER_TRANSFER_STATE_READER,
     forkSidePanelTransferLifecycle: options?.forkSidePanelTransferLifecycle,
     userInputAutoResolutionTimer: options?.userInputAutoResolutionTimer,
   }) as unknown as TestableCodexService;
-  service.setAutomationModule(
-    options?.automationModule ?? createTestAutomationModule(),
-  );
-  service.setProjectWorkspacePort(
-    options?.projectWorkspace ?? createTestProjectWorkspace(),
-  );
+  service.setAutomationModule(options?.automationModule ?? createTestAutomationModule());
+  service.setProjectWorkspacePort(options?.projectWorkspace ?? createTestProjectWorkspace());
   service.setNodexAgentAuthorityPort(TEST_NODEX_AGENT_AUTHORITY);
   const internals = service as unknown as {
     getMaybeConversationRecord: (threadId: string) => {
@@ -1501,14 +1513,16 @@ function createService(options?: {
       serverRequests: CodexCanonicalConversationState["requests"];
       hasUnreadTurn: boolean;
       latestThreadSettings: CodexConversationThreadSettings | null;
-      latestTokenUsageInfo:
-        CodexCanonicalConversationState["sidecar"]["latestTokenUsageInfo"];
+      latestTokenUsageInfo: CodexCanonicalConversationState["sidecar"]["latestTokenUsageInfo"];
       threadGoal: ThreadGoal | null;
       completedThreadGoal: ThreadGoal | null;
       threadGoalResumeConfirmation: ThreadGoal | null;
     } | null;
     setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-    handleNotification: (notification: CodexTestServerNotification, options?: unknown) => Promise<void>;
+    handleNotification: (
+      notification: CodexTestServerNotification,
+      options?: unknown,
+    ) => Promise<void>;
     handleServerRequest: (request: { method?: unknown; params?: unknown }) => Promise<unknown>;
     isConversationArchived: (threadId: string) => boolean;
     upsertPlanImplementationRequest: (
@@ -1523,26 +1537,23 @@ function createService(options?: {
     const detail = record?.detail;
     if (!record || !detail) return;
     const detailTurnIds = detail.turns.flatMap((turn) =>
-      typeof turn.turnId === "string" ? [turn.turnId] : []
+      typeof turn.turnId === "string" ? [turn.turnId] : [],
     );
-    const hasNullTurn = detail.turns.some((turn) =>
-      (turn as { turnId: string | null }).turnId === null
+    const hasNullTurn = detail.turns.some(
+      (turn) => (turn as { turnId: string | null }).turnId === null,
     );
     const detailRawItemIds = detail.transcript.flatMap((entry) =>
-      isCodexCanonicalProtocolItem(entry.rawItem)
-        ? [entry.rawItem.id]
-        : []
+      isCodexCanonicalProtocolItem(entry.rawItem) ? [entry.rawItem.id] : [],
     );
-    if (!force &&
-      record.canonicalState
-      && detailTurnIds.every((turnId) =>
-        record.canonicalState?.turns.some((turn) => turn.protocol.id === turnId)
-      )
-      && (!hasNullTurn || record.canonicalState.turns.some((turn) => turn.protocol.id === null))
-      && detailRawItemIds.every((itemId) =>
-        record.canonicalState?.turns.some((turn) =>
-          turn.items.some((item) => item.id === itemId)
-        )
+    if (
+      !force &&
+      record.canonicalState &&
+      detailTurnIds.every((turnId) =>
+        record.canonicalState?.turns.some((turn) => turn.protocol.id === turnId),
+      ) &&
+      (!hasNullTurn || record.canonicalState.turns.some((turn) => turn.protocol.id === null)) &&
+      detailRawItemIds.every((itemId) =>
+        record.canonicalState?.turns.some((turn) => turn.items.some((item) => item.id === itemId)),
       )
     ) {
       return;
@@ -1551,11 +1562,12 @@ function createService(options?: {
     const turns = detail.turns.map((turn, turnIndex): Turn => {
       const nullableTurnId = (turn as { turnId: string | null }).turnId;
       const protocolTurnId = nullableTurnId ?? `fixture-null-turn-${turnIndex}`;
-      const existing = nullableTurnId === null
-        ? record.canonicalState?.turns[turnIndex]
-        : record.canonicalState?.turns.find((candidate) =>
-            candidate.protocol.id === nullableTurnId
-          );
+      const existing =
+        nullableTurnId === null
+          ? record.canonicalState?.turns[turnIndex]
+          : record.canonicalState?.turns.find(
+              (candidate) => candidate.protocol.id === nullableTurnId,
+            );
       const transcriptItems = detail.transcript.flatMap((entry): ThreadItem[] => {
         if ((entry as { turnId: string | null }).turnId !== nullableTurnId) return [];
         const rawItem = entry.rawItem;
@@ -1581,9 +1593,8 @@ function createService(options?: {
         error: turn.errorMessage
           ? { message: turn.errorMessage, codexErrorInfo: null, additionalDetails: null }
           : null,
-        startedAt: turn.turnStartedAtMs == null
-          ? turn.startedAt ?? null
-          : turn.turnStartedAtMs / 1_000,
+        startedAt:
+          turn.turnStartedAtMs == null ? (turn.startedAt ?? null) : turn.turnStartedAtMs / 1_000,
         completedAt: turn.completedAt == null ? null : turn.completedAt / 1_000,
         durationMs: turn.durationMs ?? null,
       };
@@ -1608,10 +1619,11 @@ function createService(options?: {
       sidecar: {
         ...canonical.sidecar,
         hasUnreadTurn: record.hasUnreadTurn,
-        latestThreadSettings:
-          record.canonicalState?.sidecar.latestThreadSettings ?? null,
+        latestThreadSettings: record.canonicalState?.sidecar.latestThreadSettings ?? null,
         latestTokenUsageInfo:
-          record.latestTokenUsageInfo ?? record.canonicalState?.sidecar.latestTokenUsageInfo ?? null,
+          record.latestTokenUsageInfo ??
+          record.canonicalState?.sidecar.latestTokenUsageInfo ??
+          null,
         threadGoal: record.threadGoal,
         completedThreadGoal: record.completedThreadGoal,
         threadGoalResumeConfirmation: record.threadGoalResumeConfirmation,
@@ -1620,11 +1632,12 @@ function createService(options?: {
         const detailTurn = detail.turns[turnIndex];
         if (!detailTurn) return canonicalTurn;
         const nullableTurnId = (detailTurn as { turnId: string | null }).turnId;
-        const existing = nullableTurnId === null
-          ? record.canonicalState?.turns[turnIndex]
-          : record.canonicalState?.turns.find((candidate) =>
-              candidate.protocol.id === nullableTurnId
-            );
+        const existing =
+          nullableTurnId === null
+            ? record.canonicalState?.turns[turnIndex]
+            : record.canonicalState?.turns.find(
+                (candidate) => candidate.protocol.id === nullableTurnId,
+              );
         return {
           ...canonicalTurn,
           protocol: {
@@ -1635,20 +1648,15 @@ function createService(options?: {
             ...canonicalTurn.sidecar,
             params: existing?.sidecar.params ?? canonicalTurn.sidecar.params,
             diff: detailTurn.diff ?? existing?.sidecar.diff ?? null,
-            completedAtMs:
-              detailTurn.completedAt ?? existing?.sidecar.completedAtMs ?? null,
-            firstTurnWorkItemStartedAtMs:
-              detailTurn.firstTurnWorkItemStartedAtMs ?? null,
-            finalAssistantStartedAtMs:
-              detailTurn.finalAssistantStartedAtMs ?? null,
-            commandExecutionStartedAtMsById:
-              detailTurn.commandExecutionStartedAtMsById,
+            completedAtMs: detailTurn.completedAt ?? existing?.sidecar.completedAtMs ?? null,
+            firstTurnWorkItemStartedAtMs: detailTurn.firstTurnWorkItemStartedAtMs ?? null,
+            finalAssistantStartedAtMs: detailTurn.finalAssistantStartedAtMs ?? null,
+            commandExecutionStartedAtMsById: detailTurn.commandExecutionStartedAtMsById,
             interruptedCommandExecutionItemIds:
-              detailTurn.interruptedCommandExecutionItemIds
-              ?? existing?.sidecar.interruptedCommandExecutionItemIds,
+              detailTurn.interruptedCommandExecutionItemIds ??
+              existing?.sidecar.interruptedCommandExecutionItemIds,
             hookRuns: detailTurn.hookRuns ?? existing?.sidecar.hookRuns,
-            safetyBuffering:
-              detailTurn.safetyBuffering ?? existing?.sidecar.safetyBuffering,
+            safetyBuffering: detailTurn.safetyBuffering ?? existing?.sidecar.safetyBuffering,
           },
         };
       }),
@@ -1658,55 +1666,62 @@ function createService(options?: {
   internals.handleNotification = async (notification, handleOptions) => {
     const { method, params } = notification;
     const requiresFullCanonicalSync =
-      method === "item/started"
-      || method === "item/completed"
-      || method === "item/agentMessage/delta"
-      || method === "item/plan/delta"
-      || method === "item/reasoning/summaryTextDelta"
-      || method === "item/reasoning/textDelta"
-      || method === "item/commandExecution/outputDelta"
-      || method === "item/commandExecution/terminalInteraction"
-      || method === "item/fileChange/patchUpdated"
-      || method === "item/mcpToolCall/progress";
-    const isTurnMetadata = method === "turn/started"
-      || method === "turn/completed"
-      || method === "turn/diff/updated"
-      || method === "turn/plan/updated"
-      || method === "model/safetyBuffering/updated"
-      || method === "hook/started"
-      || method === "hook/completed"
-      || method === "model/rerouted"
-      || method === "item/autoApprovalReview/started"
-      || method === "item/autoApprovalReview/completed"
-      || method === "guardianWarning"
-      || method === "error";
-    const isThreadMetadata = method === "thread/started"
-      || method === "thread/name/updated"
-      || method === "thread/settings/updated"
-      || method === "thread/status/changed"
-      || method === "thread/goal/updated"
-      || method === "thread/goal/cleared"
-      || method === "thread/tokenUsage/updated";
+      method === "item/started" ||
+      method === "item/completed" ||
+      method === "item/agentMessage/delta" ||
+      method === "item/plan/delta" ||
+      method === "item/reasoning/summaryTextDelta" ||
+      method === "item/reasoning/textDelta" ||
+      method === "item/commandExecution/outputDelta" ||
+      method === "item/commandExecution/terminalInteraction" ||
+      method === "item/fileChange/patchUpdated" ||
+      method === "item/mcpToolCall/progress";
+    const isTurnMetadata =
+      method === "turn/started" ||
+      method === "turn/completed" ||
+      method === "turn/diff/updated" ||
+      method === "turn/plan/updated" ||
+      method === "model/safetyBuffering/updated" ||
+      method === "hook/started" ||
+      method === "hook/completed" ||
+      method === "model/rerouted" ||
+      method === "item/autoApprovalReview/started" ||
+      method === "item/autoApprovalReview/completed" ||
+      method === "guardianWarning" ||
+      method === "error";
+    const isThreadMetadata =
+      method === "thread/started" ||
+      method === "thread/name/updated" ||
+      method === "thread/settings/updated" ||
+      method === "thread/status/changed" ||
+      method === "thread/goal/updated" ||
+      method === "thread/goal/cleared" ||
+      method === "thread/tokenUsage/updated";
     if (requiresFullCanonicalSync || isTurnMetadata || isThreadMetadata) {
-      const threadId = typeof params === "object" && params !== null
-        ? (params as { threadId?: unknown }).threadId
-        : null;
+      const threadId =
+        typeof params === "object" && params !== null
+          ? (params as { threadId?: unknown }).threadId
+          : null;
       if (typeof threadId === "string") {
-        const paramsRecord = typeof params === "object" && params !== null
-          ? params as { turnId?: unknown; turn?: unknown }
-          : null;
-        const turnRecord = typeof paramsRecord?.turn === "object" && paramsRecord.turn !== null
-          ? paramsRecord.turn as { id?: unknown }
-          : null;
-        const turnId = typeof paramsRecord?.turnId === "string"
-          ? paramsRecord.turnId
-          : typeof turnRecord?.id === "string"
-            ? turnRecord.id
+        const paramsRecord =
+          typeof params === "object" && params !== null
+            ? (params as { turnId?: unknown; turn?: unknown })
             : null;
+        const turnRecord =
+          typeof paramsRecord?.turn === "object" && paramsRecord.turn !== null
+            ? (paramsRecord.turn as { id?: unknown })
+            : null;
+        const turnId =
+          typeof paramsRecord?.turnId === "string"
+            ? paramsRecord.turnId
+            : typeof turnRecord?.id === "string"
+              ? turnRecord.id
+              : null;
         const canonical = internals.getMaybeConversationRecord(threadId)?.canonicalState;
-        const hasTurn = turnId === null
-          ? (canonical?.turns.length ?? 0) > 0
-          : canonical?.turns.some((turn) => turn.protocol.id === turnId) === true;
+        const hasTurn =
+          turnId === null
+            ? (canonical?.turns.length ?? 0) > 0
+            : canonical?.turns.some((turn) => turn.protocol.id === turnId) === true;
         if (requiresFullCanonicalSync || !canonical || (!isThreadMetadata && !hasTurn)) {
           syncCanonicalFixture(threadId, isThreadMetadata);
         }
@@ -1716,38 +1731,42 @@ function createService(options?: {
   };
   const handleServerRequest = internals.handleServerRequest.bind(service);
   internals.handleServerRequest = async (request) => {
-    const params = typeof request.params === "object" && request.params !== null
-      ? request.params as { threadId?: unknown }
-      : null;
+    const params =
+      typeof request.params === "object" && request.params !== null
+        ? (request.params as { threadId?: unknown })
+        : null;
     if (typeof params?.threadId === "string" && params.threadId.length > 0) {
       let existingRecord = internals.getMaybeConversationRecord(params.threadId);
-      const requestTurnId = typeof (request.params as { turnId?: unknown }).turnId === "string"
-        ? (request.params as { turnId: string }).turnId
-        : null;
-      const isConversationRequest = typeof request.method === "string" && (
-        request.method === "item/commandExecution/requestApproval"
-        || request.method === "item/fileChange/requestApproval"
-        || request.method === "item/permissions/requestApproval"
-        || request.method === "item/tool/requestUserInput"
-        || request.method === "item/tool/requestOptionPicker"
-        || request.method === "item/tool/requestSetupCodexContextPicker"
-        || request.method === "item/tool/call"
-        || request.method === "mcpServer/elicitation/request"
-      );
+      const requestTurnId =
+        typeof (request.params as { turnId?: unknown }).turnId === "string"
+          ? (request.params as { turnId: string }).turnId
+          : null;
+      const isConversationRequest =
+        typeof request.method === "string" &&
+        (request.method === "item/commandExecution/requestApproval" ||
+          request.method === "item/fileChange/requestApproval" ||
+          request.method === "item/permissions/requestApproval" ||
+          request.method === "item/tool/requestUserInput" ||
+          request.method === "item/tool/requestOptionPicker" ||
+          request.method === "item/tool/requestSetupCodexContextPicker" ||
+          request.method === "item/tool/call" ||
+          request.method === "mcpServer/elicitation/request");
       if (
-        !existingRecord
-        && isConversationRequest
-        && !internals.isConversationArchived(params.threadId)
+        !existingRecord &&
+        isConversationRequest &&
+        !internals.isConversationArchived(params.threadId)
       ) {
         internals.setConversationRecordDetail({
           ...makeThreadDetail(params.threadId),
           turns: requestTurnId
-            ? [{
-                threadId: params.threadId,
-                turnId: requestTurnId,
-                status: "inProgress",
-                itemIds: [],
-              }]
+            ? [
+                {
+                  threadId: params.threadId,
+                  turnId: requestTurnId,
+                  status: "inProgress",
+                  itemIds: [],
+                },
+              ]
             : [],
           transcript: [],
         });
@@ -1757,12 +1776,14 @@ function createService(options?: {
         internals.setConversationRecordDetail({
           ...makeThreadDetail(params.threadId),
           turns: requestTurnId
-            ? [{
-                threadId: params.threadId,
-                turnId: requestTurnId,
-                status: "inProgress",
-                itemIds: [],
-              }]
+            ? [
+                {
+                  threadId: params.threadId,
+                  turnId: requestTurnId,
+                  status: "inProgress",
+                  itemIds: [],
+                },
+              ]
             : [],
           transcript: [],
         });
@@ -1771,21 +1792,10 @@ function createService(options?: {
     }
     return await handleServerRequest(request);
   };
-  const upsertPlanImplementationRequest =
-    internals.upsertPlanImplementationRequest.bind(service);
-  internals.upsertPlanImplementationRequest = (
-    threadId,
-    turnId,
-    planContent,
-    itemCreatedAt,
-  ) => {
+  const upsertPlanImplementationRequest = internals.upsertPlanImplementationRequest.bind(service);
+  internals.upsertPlanImplementationRequest = (threadId, turnId, planContent, itemCreatedAt) => {
     syncCanonicalFixture(threadId);
-    return upsertPlanImplementationRequest(
-      threadId,
-      turnId,
-      planContent,
-      itemCreatedAt,
-    );
+    return upsertPlanImplementationRequest(threadId, turnId, planContent, itemCreatedAt);
   };
   const steerService = service as unknown as {
     steerTurn: (
@@ -1832,9 +1842,7 @@ describe("codex-service sidebar Thread Project moves", () => {
       createdAt: 1,
       updatedAt: 1,
     });
-    const moveInputs: Array<
-      Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]
-    > = [];
+    const moveInputs: Array<Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]> = [];
     const projectWorkspace = {
       ...baseWorkspace,
       getProject: async (projectId: string) => projects.get(projectId) ?? null,
@@ -1853,9 +1861,7 @@ describe("codex-service sidebar Thread Project moves", () => {
         createdAt: "2026-08-12T00:00:00.000Z",
         updatedAt: "2026-08-12T00:00:00.000Z",
       }),
-      moveThread: async (
-        input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0],
-      ) => {
+      moveThread: async (input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]) => {
         moveInputs.push(input);
         return await baseWorkspace.moveThread(input);
       },
@@ -2012,10 +2018,7 @@ describe("codex-service sidebar Thread Project moves", () => {
     client.request = async (method) => {
       expect(method).toBe("thread/settings/update");
       events.push("app-server-sync");
-      throw new CodexRpcError(
-        "thread not found: thread:dormant-move",
-        -32600,
-      );
+      throw new CodexRpcError("thread not found: thread:dormant-move", -32600);
     };
 
     try {
@@ -2052,9 +2055,7 @@ function makeRecordingForkSidePanelTransferLifecycle(
       events.push(`direct:${sourceConversationId}:${targetConversationId}`);
     },
     capturePending: async ({ pendingWorktreeId, sourceConversationId, sourceWorkspaceRoot }) => {
-      events.push(
-        `capture:${pendingWorktreeId}:${sourceConversationId}:${sourceWorkspaceRoot}`,
-      );
+      events.push(`capture:${pendingWorktreeId}:${sourceConversationId}:${sourceWorkspaceRoot}`);
     },
     promotePending: async ({ pendingWorktreeId, targetConversationId, targetWorkspaceRoot }) => {
       events.push(`promote:${pendingWorktreeId}:${targetConversationId}:${targetWorkspaceRoot}`);
@@ -2133,9 +2134,7 @@ test("returns the last-known sidebar without repeating a failed Core read", asyn
 
   try {
     const initial = await service.syncSidebarThreadsDetailed({ policy: "read" });
-    expect(initial.snapshot.items.map((item) => item.threadId)).toEqual([
-      "thread:cached-sidebar",
-    ]);
+    expect(initial.snapshot.items.map((item) => item.threadId)).toEqual(["thread:cached-sidebar"]);
     coreBusy = true;
 
     const degraded = await service.syncSidebarThreadsDetailed({
@@ -2144,9 +2143,7 @@ test("returns the last-known sidebar without repeating a failed Core read", asyn
     });
 
     expect(degraded.source).toBe("stale-last-known");
-    expect(degraded.snapshot.items.map((item) => item.threadId)).toEqual([
-      "thread:cached-sidebar",
-    ]);
+    expect(degraded.snapshot.items.map((item) => item.threadId)).toEqual(["thread:cached-sidebar"]);
     expect(reads).toBe(2);
   } finally {
     await service.shutdown();
@@ -2245,10 +2242,12 @@ test("propagates a cold-start Core busy failure instead of fabricating an empty 
   };
 
   try {
-    await expect(service.syncSidebarThreadsDetailed({
-      policy: "force",
-      reason: "manual",
-    })).rejects.toThrow("Core request deadline was exceeded");
+    await expect(
+      service.syncSidebarThreadsDetailed({
+        policy: "force",
+        reason: "manual",
+      }),
+    ).rejects.toThrow("Core request deadline was exceeded");
     expect(reads).toBe(1);
   } finally {
     await service.shutdown();
@@ -2326,15 +2325,19 @@ test("repairs a leaked child sidebar Session before returning it", async () => {
   const service = createService({ projectWorkspace });
 
   try {
-    const repaired = await (service as unknown as {
-      ensureSidebarThreadSession: (threadId: string) => Promise<ProjectSession | null>;
-    }).ensureSidebarThreadSession("thread:child");
+    const repaired = await (
+      service as unknown as {
+        ensureSidebarThreadSession: (threadId: string) => Promise<ProjectSession | null>;
+      }
+    ).ensureSidebarThreadSession("thread:child");
 
     expect(repaired).toBeNull();
-    expect(updateCalls).toEqual([{
-      threadId: "thread:child",
-      patch: { parentThreadId: "thread:root" },
-    }]);
+    expect(updateCalls).toEqual([
+      {
+        threadId: "thread:child",
+        patch: { parentThreadId: "thread:root" },
+      },
+    ]);
   } finally {
     await service.shutdown();
   }
@@ -2383,13 +2386,15 @@ test("returns after the first sidebar page and serializes a forced refresh at th
     await waitForCondition(() => threadListRequests.length === 2, 1_000);
 
     let secondResolved = false;
-    const second = service.syncSidebarThreadsDetailed({
-      policy: "force",
-      reason: "manual",
-    }).then((result) => {
-      secondResolved = true;
-      return result;
-    });
+    const second = service
+      .syncSidebarThreadsDetailed({
+        policy: "force",
+        reason: "manual",
+      })
+      .then((result) => {
+        secondResolved = true;
+        return result;
+      });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(secondResolved).toBe(false);
     expect(threadListRequests.length).toBe(2);
@@ -2441,7 +2446,7 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
     ...baseWorkspace,
     getProjectSession: async (candidateSessionId: string) =>
       candidateSessionId === sessionId
-        ? { id: sessionId, projectId: null } as ProjectSession
+        ? ({ id: sessionId, projectId: null } as ProjectSession)
         : null,
   } as DesktopProjectWorkspacePort;
   const service = createService({ projectWorkspace });
@@ -2470,13 +2475,15 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
     }
     const recencyAt = requestNumber === 1 ? 1 : 20;
     return {
-      data: [{
-        ...makeProtocolThread(threadId, "/tmp/recency"),
-        createdAt: 1,
-        updatedAt: recencyAt,
-        recencyAt,
-        status: { type: "idle" },
-      }],
+      data: [
+        {
+          ...makeProtocolThread(threadId, "/tmp/recency"),
+          createdAt: 1,
+          updatedAt: recencyAt,
+          recencyAt,
+          status: { type: "idle" },
+        },
+      ],
       nextCursor: null,
     };
   };
@@ -2514,9 +2521,9 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
     for (let attempt = 0; attempt < 10 && threadListRequests < 2; attempt += 1) {
       await Promise.resolve();
     }
-    const syncInFlight = Reflect.get(service as object, "sidebarSyncInFlight") as
-      | Promise<import("../../shared/types").CodexSidebarSyncResult>
-      | null;
+    const syncInFlight = Reflect.get(service as object, "sidebarSyncInFlight") as Promise<
+      import("../../shared/types").CodexSidebarSyncResult
+    > | null;
     await syncInFlight;
 
     expect(threadListRequests).toBe(2);
@@ -2525,9 +2532,9 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
       (message): message is Extract<CodexHostMessage, { type: "sidebarSyncUpdated" }> =>
         message.type === "sidebarSyncUpdated",
     );
-    expect(syncMessage?.result.snapshot.items.find(
-      (item) => item.threadId === threadId,
-    )?.recencyAt).toBe(20_000);
+    expect(
+      syncMessage?.result.snapshot.items.find((item) => item.threadId === threadId)?.recencyAt,
+    ).toBe(20_000);
   } finally {
     releaseStaleRequest();
     await service.shutdown();
@@ -2568,10 +2575,7 @@ test("does not reconcile an incomplete sidebar sweep and resumes its failed curs
       reason: "manual",
     });
     await vi.advanceTimersByTimeAsync(0);
-    expect(requests.map((request) => request.cursor)).toEqual([
-      null,
-      "active:page-2",
-    ]);
+    expect(requests.map((request) => request.cursor)).toEqual([null, "active:page-2"]);
     expect(reconcileCalls).toBe(0);
 
     await vi.advanceTimersByTimeAsync(2_000);
@@ -2596,10 +2600,7 @@ test("reads Git settings live for every project-aware instruction build", async 
   const resolveInstructions = Reflect.get(
     service as object,
     "resolveProjectAwareDeveloperInstructions",
-  ) as (input: {
-    cwd: string;
-    threadId: string | null;
-  }) => Promise<string>;
+  ) as (input: { cwd: string; threadId: string | null }) => Promise<string>;
 
   try {
     const first = await resolveInstructions.call(service, {
@@ -2653,15 +2654,18 @@ test("canonical history projection retains null occurrences and suppresses each 
         };
       },
     });
-    const userMessages = timeline.transcript.filter((entry) => entry.semanticKind === "userMessage");
+    const userMessages = timeline.transcript.filter(
+      (entry) => entry.semanticKind === "userMessage",
+    );
 
     expect(userMessages.map((entry) => entry.itemId)).toStrictEqual([
       "turn-index-0:input",
       "turn_history_projection:input",
     ]);
     expect(userMessages.every((entry) => entry.source === "bootstrap")).toBe(true);
-    expect((userMessages[0]?.userAttachments?.[0] as { path?: string } | undefined)?.path)
-      .toBe("/workspace/project/file.ts");
+    expect((userMessages[0]?.userAttachments?.[0] as { path?: string } | undefined)?.path).toBe(
+      "/workspace/project/file.ts",
+    );
     expect(timeline.turns[0]?.turnStartedAtMs).toBe(1_711_278_050_000);
     expect(timeline.turns[0]?.completedAt).toBe(1_711_278_060_000);
   } finally {
@@ -2693,16 +2697,18 @@ test("history projection splits command actions while retaining the raw command 
   try {
     const timeline = buildCanonicalHistoryTimeline(service, {
       threadId,
-      turns: [{
-        id: "turn-command",
-        items: [rawCommand],
-        itemsView: "full",
-        status: "completed",
-        error: null,
-        startedAt: null,
-        completedAt: null,
-        durationMs: 25,
-      }],
+      turns: [
+        {
+          id: "turn-command",
+          items: [rawCommand],
+          itemsView: "full",
+          status: "completed",
+          error: null,
+          startedAt: null,
+          completedAt: null,
+          durationMs: 25,
+        },
+      ],
       transformState: (state) => ({
         ...state,
         turns: state.turns.map((turn) => ({
@@ -2745,49 +2751,51 @@ test("history projection keeps patch, visualization, and filtered turn diff stat
   try {
     const timeline = buildCanonicalHistoryTimeline(service, {
       threadId,
-      turns: [{
-        id: "turn-patch",
-        itemsView: "full",
-        status: "inProgress",
-        error: null,
-        startedAt: null,
-        completedAt: null,
-        durationMs: null,
-        items: [
-          {
-          type: "commandExecution",
-          id: "command-cwd",
-          pluginId: null,
-          scriptPath: null,
-          command: "pwd",
-          cwd: "/workspace/changed",
-          processId: null,
-          source: "agent",
-          status: "completed",
-          commandActions: [],
-          aggregatedOutput: null,
-          exitCode: 0,
-          durationMs: 1,
-          },
-          {
-          type: "fileChange",
-          id: "file-mixed",
+      turns: [
+        {
+          id: "turn-patch",
+          itemsView: "full",
           status: "inProgress",
-          changes: [
+          error: null,
+          startedAt: null,
+          completedAt: null,
+          durationMs: null,
+          items: [
             {
-              path: "src/app.ts",
-              kind: { type: "update", move_path: null },
-              diff: "@@ -1 +1 @@\n-old\n+new\n",
+              type: "commandExecution",
+              id: "command-cwd",
+              pluginId: null,
+              scriptPath: null,
+              command: "pwd",
+              cwd: "/workspace/changed",
+              processId: null,
+              source: "agent",
+              status: "completed",
+              commandActions: [],
+              aggregatedOutput: null,
+              exitCode: 0,
+              durationMs: 1,
             },
             {
-              path: visualizationPath,
-              kind: { type: "add" },
-              diff: "<html></html>",
+              type: "fileChange",
+              id: "file-mixed",
+              status: "inProgress",
+              changes: [
+                {
+                  path: "src/app.ts",
+                  kind: { type: "update", move_path: null },
+                  diff: "@@ -1 +1 @@\n-old\n+new\n",
+                },
+                {
+                  path: visualizationPath,
+                  kind: { type: "add" },
+                  diff: "<html></html>",
+                },
+              ],
             },
           ],
-          },
-        ],
-      }],
+        },
+      ],
       transformState: (state) => ({
         ...state,
         turns: state.turns.map((turn) => ({
@@ -2801,10 +2809,12 @@ test("history projection keeps patch, visualization, and filtered turn diff stat
     });
     const patch = timeline.transcript.find((entry) => entry.itemId === "file-mixed");
     const turnDiff = timeline.transcript.find((entry) => entry.semanticKind === "diff");
-    const turnDiffRaw = turnDiff?.rawItem as {
-      unifiedDiff?: string;
-      patchBatches?: Array<{ cwd?: string; changes?: unknown[] }>;
-    } | undefined;
+    const turnDiffRaw = turnDiff?.rawItem as
+      | {
+          unifiedDiff?: string;
+          patchBatches?: Array<{ cwd?: string; changes?: unknown[] }>;
+        }
+      | undefined;
 
     expect(getCodexFileChangePaths(patch?.fileChange?.changes).join(",")).toBe("src/app.ts");
     expect(patch?.fileChange?.visualizationActivities?.[0]?.path).toBe(visualizationPath);
@@ -2823,84 +2833,86 @@ test("history projection applies MCP, dynamic, collab, and web special-family ru
   try {
     const timeline = buildCanonicalHistoryTimeline(service, {
       threadId,
-      turns: [{
-        id: "turn-special",
-        itemsView: "full",
-        status: "inProgress",
-        error: null,
-        startedAt: null,
-        completedAt: null,
-        durationMs: null,
-        items: [
+      turns: [
         {
-          type: "mcpToolCall",
-          id: "mcp-1",
-          server: "node_repl",
-          tool: "run",
-          status: "completed",
-          arguments: { code: "fixture()" },
-          appContext: null,
-          pluginId: null,
-          readOnlyHint: false,
-          result: { content: [], structuredContent: null, _meta: null },
+          id: "turn-special",
+          itemsView: "full",
+          status: "inProgress",
           error: null,
-          durationMs: 5,
+          startedAt: null,
+          completedAt: null,
+          durationMs: null,
+          items: [
+            {
+              type: "mcpToolCall",
+              id: "mcp-1",
+              server: "node_repl",
+              tool: "run",
+              status: "completed",
+              arguments: { code: "fixture()" },
+              appContext: null,
+              pluginId: null,
+              readOnlyHint: false,
+              result: { content: [], structuredContent: null, _meta: null },
+              error: null,
+              durationMs: 5,
+            },
+            {
+              type: "dynamicToolCall",
+              id: "dynamic-generic",
+              namespace: "fixture",
+              tool: "fixture_tool",
+              arguments: { value: true },
+              status: "completed",
+              contentItems: [{ type: "inputText", text: "canonical generic output" }],
+              success: true,
+              durationMs: 6,
+            },
+            {
+              type: "dynamicToolCall",
+              id: "dynamic-hidden",
+              namespace: "codex_app",
+              tool: "load_workspace_dependencies",
+              arguments: {},
+              status: "completed",
+              contentItems: null,
+              success: true,
+              durationMs: 1,
+            },
+            {
+              type: "collabAgentToolCall",
+              id: "collab-wait",
+              tool: "wait",
+              status: "completed",
+              senderThreadId: "sender",
+              receiverThreadIds: [],
+              prompt: null,
+              model: null,
+              reasoningEffort: null,
+              agentsStates: {},
+            },
+            {
+              type: "collabAgentToolCall",
+              id: "collab-spawn",
+              tool: "spawnAgent",
+              status: "completed",
+              senderThreadId: "sender",
+              receiverThreadIds: ["receiver"],
+              prompt: "Inspect",
+              model: "gpt-fixture",
+              reasoningEffort: "medium",
+              agentsStates: {},
+            },
+            {
+              type: "webSearch",
+              id: "web-active",
+              query: "fixture",
+              action: { type: "search", query: "fixture", queries: ["fixture"] },
+              results: null,
+            },
+          ],
         },
-        {
-          type: "dynamicToolCall",
-          id: "dynamic-generic",
-          namespace: "fixture",
-          tool: "fixture_tool",
-          arguments: { value: true },
-          status: "completed",
-          contentItems: [{ type: "inputText", text: "canonical generic output" }],
-          success: true,
-          durationMs: 6,
-        },
-        {
-          type: "dynamicToolCall",
-          id: "dynamic-hidden",
-          namespace: "codex_app",
-          tool: "load_workspace_dependencies",
-          arguments: {},
-          status: "completed",
-          contentItems: null,
-          success: true,
-          durationMs: 1,
-        },
-        {
-          type: "collabAgentToolCall",
-          id: "collab-wait",
-          tool: "wait",
-          status: "completed",
-          senderThreadId: "sender",
-          receiverThreadIds: [],
-          prompt: null,
-          model: null,
-          reasoningEffort: null,
-          agentsStates: {},
-        },
-        {
-          type: "collabAgentToolCall",
-          id: "collab-spawn",
-          tool: "spawnAgent",
-          status: "completed",
-          senderThreadId: "sender",
-          receiverThreadIds: ["receiver"],
-          prompt: "Inspect",
-          model: "gpt-fixture",
-          reasoningEffort: "medium",
-          agentsStates: {},
-        },
-        {
-          type: "webSearch",
-          id: "web-active",
-          query: "fixture",
-          action: { type: "search", query: "fixture", queries: ["fixture"] },
-          results: null,
-        },
-        ],
-      }],
+      ],
     });
     const mcp = timeline.transcript.find((entry) => entry.itemId === "mcp-1");
     const dynamic = timeline.transcript.find((entry) => entry.itemId === "dynamic-generic");
@@ -2912,10 +2924,12 @@ test("history projection applies MCP, dynamic, collab, and web special-family ru
     expect(mcp?.mcpToolCall?.completed).toBe(true);
     expect(mcp?.toolCall === undefined).toBe(true);
     expect(dynamic?.dynamicToolCall?.completed).toBe(true);
-    expect(dynamic?.dynamicToolCall?.contentItems).toEqual([{
-      type: "inputText",
-      text: "canonical generic output",
-    }]);
+    expect(dynamic?.dynamicToolCall?.contentItems).toEqual([
+      {
+        type: "inputText",
+        text: "canonical generic output",
+      },
+    ]);
     expect(dynamic?.dynamicToolCall?.success).toBe(true);
     expect(dynamic?.dynamicToolCall?.durationMs).toBe(6);
     expect(spawn?.semanticKind).toBe("multiAgentAction");
@@ -2933,16 +2947,18 @@ test("history timeline projects turn diff before canonical request rows", async 
   try {
     const timeline = buildCanonicalHistoryTimeline(service, {
       threadId,
-      turns: [{
-        id: "turn-requests",
-        itemsView: "full",
-        status: "inProgress",
-        error: null,
-        startedAt: null,
-        completedAt: null,
-        durationMs: null,
-        items: [],
-      }],
+      turns: [
+        {
+          id: "turn-requests",
+          itemsView: "full",
+          status: "inProgress",
+          error: null,
+          startedAt: null,
+          completedAt: null,
+          durationMs: null,
+          items: [],
+        },
+      ],
       requests: [
         {
           id: 701,
@@ -2966,14 +2982,16 @@ test("history timeline projects turn diff before canonical request rows", async 
             threadId,
             turnId: "turn-requests",
             itemId: "input-pending",
-            questions: [{
-              id: "choice",
-              header: "Choice",
-              question: "Continue?",
-              isOther: true,
-              isSecret: false,
-              options: [{ label: "Yes", description: "Continue." }],
-            }],
+            questions: [
+              {
+                id: "choice",
+                header: "Choice",
+                question: "Continue?",
+                isOther: true,
+                isSecret: false,
+                options: [{ label: "Yes", description: "Continue." }],
+              },
+            ],
             isBlocking: true,
             autoResolutionMs: null,
           },
@@ -3017,7 +3035,10 @@ test("fork rollback rematerializes through the attached-session owner", async ()
       response: ThreadRollbackResponse;
       fallbackRef: null;
       fallbackCwd: string;
-      materialize: (thread: Thread, resolvedCwd: string) => {
+      materialize: (
+        thread: Thread,
+        resolvedCwd: string,
+      ) => {
         detail: CodexThreadDetail;
         summary: null;
       };
@@ -3082,10 +3103,7 @@ async function flushAsyncWork(ticks = 2): Promise<void> {
   }
 }
 
-async function waitForCondition(
-  predicate: () => boolean,
-  timeoutMs: number,
-): Promise<void> {
+async function waitForCondition(predicate: () => boolean, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (predicate()) return;
@@ -3169,12 +3187,14 @@ describe("codex-service renderer owner stream publishing", () => {
         hostMessages.push(message);
       }
     });
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
+    (
+      service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }
+    ).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
       if (message.message.type !== "threadOwnerNotification") return;
       service.ackRendererThreadOwnerNotification(message.targetClientId, {
@@ -3328,8 +3348,7 @@ describe("codex-service renderer owner stream publishing", () => {
         params: {
           threadId: "thread-owner-migrated",
           kind: "tooManyDenials",
-          message:
-            "Automatic approval review rejected too many approval requests for this turn.",
+          message: "Automatic approval review rejected too many approval requests for this turn.",
         },
       });
       await serviceInternals.handleNotification({
@@ -3391,8 +3410,9 @@ describe("codex-service renderer owner stream publishing", () => {
 
       const methods = ownerMessages
         .map((message) => message.message)
-        .filter((message): message is Extract<CodexHostMessage, { type: "threadOwnerNotification" }> =>
-          message.type === "threadOwnerNotification"
+        .filter(
+          (message): message is Extract<CodexHostMessage, { type: "threadOwnerNotification" }> =>
+            message.type === "threadOwnerNotification",
         )
         .map((message) => message.notification.method)
         .join(",");
@@ -3407,8 +3427,12 @@ describe("codex-service renderer owner stream publishing", () => {
       expect((snapshot?.turns[0]?.tokenUsage ?? null) === null).toBe(true);
       expect(snapshot?.turns[0]?.safetyBuffering?.showBufferingUi).toBe(true);
       expect(snapshot?.turns[0]?.safetyBuffering?.fasterModel).toBe("gpt-5.4-mini");
-      const rerouteItem = snapshot?.turns[0]?.items.find((item) => item.semanticKind === "modelRerouted");
-      const rerouteRaw = rerouteItem?.rawItem as { fromModel?: string; toModel?: string; reason?: string } | undefined;
+      const rerouteItem = snapshot?.turns[0]?.items.find(
+        (item) => item.semanticKind === "modelRerouted",
+      );
+      const rerouteRaw = rerouteItem?.rawItem as
+        | { fromModel?: string; toModel?: string; reason?: string }
+        | undefined;
       expect(rerouteItem?.status).toBe("completed");
       expect(rerouteRaw?.fromModel).toBe("gpt-5.4-codex");
       expect(rerouteRaw?.toModel).toBe("gpt-5.4-mini");
@@ -3416,15 +3440,23 @@ describe("codex-service renderer owner stream publishing", () => {
       const hookItem = snapshot?.turns[0]?.items.find((item) => item.itemId === "hook-run-1");
       expect(hookItem?.semanticKind).toBe("hook");
       expect(hookItem?.status).toBe("completed");
-      const reviewItem = snapshot?.turns[0]?.items.find((item) => item.itemId === "automatic-approval-review:review-1");
-      const reviewRaw = reviewItem?.rawItem as { status?: string; targetItemId?: string | null } | undefined;
+      const reviewItem = snapshot?.turns[0]?.items.find(
+        (item) => item.itemId === "automatic-approval-review:review-1",
+      );
+      const reviewRaw = reviewItem?.rawItem as
+        | { status?: string; targetItemId?: string | null }
+        | undefined;
       expect(reviewItem?.semanticKind).toBe("automaticApprovalReview");
       expect(reviewItem?.status).toBe("completed");
       expect(reviewRaw?.status).toBe("approved");
       expect(reviewRaw?.targetItemId).toBe("item-command-1");
-      const warningItem = snapshot?.turns[0]?.items.find((item) => item.semanticKind === "autoReviewInterruptionWarning");
+      const warningItem = snapshot?.turns[0]?.items.find(
+        (item) => item.semanticKind === "autoReviewInterruptionWarning",
+      );
       expect(warningItem?.status).toBe("completed");
-      expect(warningItem?.markdownText).toBe("Automatic approval review rejected too many approval requests for this turn");
+      expect(warningItem?.markdownText).toBe(
+        "Automatic approval review rejected too many approval requests for this turn",
+      );
     } finally {
       await service.shutdown();
     }
@@ -3433,12 +3465,14 @@ describe("codex-service renderer owner stream publishing", () => {
   test("routes thread-started owner notifications without requiring a top-level thread id", async () => {
     const service = createService();
     const ownerMessages: Array<{ targetClientId: string; message: CodexHostMessage }> = [];
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
+    (
+      service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }
+    ).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
     });
     const serviceInternals = service as unknown as {
@@ -3487,12 +3521,14 @@ describe("codex-service renderer owner stream publishing", () => {
         hostMessages.push(message);
       }
     });
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
+    (
+      service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }
+    ).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
     });
     const serviceInternals = service as unknown as {
@@ -3630,12 +3666,14 @@ describe("codex-service renderer owner stream publishing", () => {
         hostMessages.push(message);
       }
     });
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
+    (
+      service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }
+    ).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
     });
     const serviceInternals = service as unknown as {
@@ -3705,12 +3743,14 @@ describe("codex-service renderer owner stream publishing", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail(threadId),
-        turns: [{
-          threadId,
-          turnId,
-          status: "inProgress",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId,
+            turnId,
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
       await serviceInternals.handleNotification({
@@ -3727,12 +3767,15 @@ describe("codex-service renderer owner stream publishing", () => {
 
       const record = serviceInternals.getMaybeConversationRecord(threadId);
       if (record) record.detail = null;
-      serviceInternals.applyFileChangePatchUpdate({
-        conversationId: threadId,
-        turnId,
-        itemId: "patch-without-detail",
-        changes: [],
-      }, true);
+      serviceInternals.applyFileChangePatchUpdate(
+        {
+          conversationId: threadId,
+          turnId,
+          itemId: "patch-without-detail",
+          changes: [],
+        },
+        true,
+      );
 
       const canonicalPatch = record?.canonicalState?.turns[0]?.items[1];
       expect(canonicalPatch?.type).toBe("fileChange");
@@ -3754,12 +3797,14 @@ describe("codex-service renderer owner stream publishing", () => {
         hostMessages.push(message);
       }
     });
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
+    (
+      service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }
+    ).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
     });
     const serviceInternals = service as unknown as {
@@ -3801,8 +3846,9 @@ describe("codex-service renderer owner stream publishing", () => {
 
       const methods = ownerMessages
         .map((message) => message.message)
-        .filter((message): message is Extract<CodexHostMessage, { type: "threadOwnerNotification" }> =>
-          message.type === "threadOwnerNotification"
+        .filter(
+          (message): message is Extract<CodexHostMessage, { type: "threadOwnerNotification" }> =>
+            message.type === "threadOwnerNotification",
         )
         .map((message) => message.notification.method)
         .join(",");
@@ -3877,9 +3923,10 @@ describe("codex-service renderer owner stream publishing", () => {
           goal: completedGoal,
         },
       });
-      await waitForCondition(() =>
-        requests.filter((request) => request.method === "thread/goal/clear").length === 1,
-      1_000);
+      await waitForCondition(
+        () => requests.filter((request) => request.method === "thread/goal/clear").length === 1,
+        1_000,
+      );
 
       expect(record.threadGoal?.status).toBe("complete");
       expect(record.completedThreadGoal?.updatedAt).toBe(102);
@@ -3907,9 +3954,10 @@ describe("codex-service renderer owner stream publishing", () => {
           },
         },
       });
-      await waitForCondition(() =>
-        requests.filter((request) => request.method === "thread/goal/clear").length === 2,
-      1_000);
+      await waitForCondition(
+        () => requests.filter((request) => request.method === "thread/goal/clear").length === 2,
+        1_000,
+      );
       expect(record.completedThreadGoal?.updatedAt).toBe(103);
     } finally {
       await service.shutdown();
@@ -3944,8 +3992,13 @@ describe("codex-service renderer owner stream publishing", () => {
     };
 
     try {
-      const goal = await service.setThreadGoal({ threadId: "thread-goal-status", status: "paused" });
-      const params = requests[0]?.params as { threadId?: string; objective?: unknown; status?: unknown } | undefined;
+      const goal = await service.setThreadGoal({
+        threadId: "thread-goal-status",
+        status: "paused",
+      });
+      const params = requests[0]?.params as
+        | { threadId?: string; objective?: unknown; status?: unknown }
+        | undefined;
 
       expect(goal?.status).toBe("paused");
       expect(requests[0]?.method).toBe("thread/goal/set");
@@ -3996,13 +4049,17 @@ describe("codex-service renderer owner stream publishing", () => {
         turns: [],
         transcript: [],
       });
-      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
-        threadId: "thread-goal-objective",
-        threadTurns: [],
-        initialTurnsPage: null,
-      }));
+      serviceInternals.hydrateCanonicalConversationState(
+        makeCanonicalResumeResponse({
+          threadId: "thread-goal-objective",
+          threadTurns: [],
+          initialTurnsPage: null,
+        }),
+      );
       await service.setThreadGoal({ threadId: "thread-goal-objective", objective: "Ship parity" });
-      const params = requests[0]?.params as { objective?: unknown; status?: unknown; tokenBudget?: unknown } | undefined;
+      const params = requests[0]?.params as
+        | { objective?: unknown; status?: unknown; tokenBudget?: unknown }
+        | undefined;
       const snapshot = await service.requestConversationSnapshot("thread-goal-objective");
       const turn = snapshot?.turns[0];
       const item = turn?.items[0];
@@ -4067,11 +4124,13 @@ describe("codex-service renderer owner stream publishing", () => {
         turns: [],
         transcript: [],
       });
-      serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
-        threadId: "thread-goal-settings",
-        threadTurns: [],
-        initialTurnsPage: null,
-      }));
+      serviceInternals.hydrateCanonicalConversationState(
+        makeCanonicalResumeResponse({
+          threadId: "thread-goal-settings",
+          threadTurns: [],
+          initialTurnsPage: null,
+        }),
+      );
       await service.setThreadGoal({
         threadId: "thread-goal-settings",
         objective: "Ship parity",
@@ -4083,19 +4142,23 @@ describe("codex-service renderer owner stream publishing", () => {
           collaborationMode: "plan",
         },
       });
-      const settingsParams = requests[0]?.params as {
-        threadId?: string;
-        model?: string;
-        effort?: string;
-        summary?: string;
-      } | undefined;
-      const goalParams = requests[1]?.params as {
-        threadId?: string;
-        objective?: string;
-        status?: string;
-        appendTranscriptItem?: unknown;
-        threadSettings?: unknown;
-      } | undefined;
+      const settingsParams = requests[0]?.params as
+        | {
+            threadId?: string;
+            model?: string;
+            effort?: string;
+            summary?: string;
+          }
+        | undefined;
+      const goalParams = requests[1]?.params as
+        | {
+            threadId?: string;
+            objective?: string;
+            status?: string;
+            appendTranscriptItem?: unknown;
+            threadSettings?: unknown;
+          }
+        | undefined;
 
       expect(requests[0]?.method).toBe("thread/settings/update");
       expect(settingsParams?.threadId).toBe("thread-goal-settings");
@@ -4106,7 +4169,9 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(goalParams?.threadId).toBe("thread-goal-settings");
       expect(goalParams?.objective).toBe("Ship parity");
       expect(goalParams?.status).toBe("active");
-      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "appendTranscriptItem")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "appendTranscriptItem")).toBe(
+        false,
+      );
       expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "threadSettings")).toBe(false);
       const snapshot = await service.requestConversationSnapshot("thread-goal-settings");
       expect(snapshot?.turns.length ?? 0).toBe(0);
@@ -4126,22 +4191,29 @@ describe("codex-service renderer owner stream publishing", () => {
     });
     try {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
-      const nextConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "hello" });
+      const nextConversation = makeConversationSnapshot({
+        threadId: "thread-owner",
+        text: "hello",
+      });
       service.setRendererConversationOwner("thread-owner", "owner-a");
       const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 1);
 
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
-      )).toEqual({ accepted: true, checkpoint: baseCheckpoint });
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestPatchPublication({
-          before: baseConversation,
-          after: nextConversation,
-          baseCheckpoint,
-        }),
-      ).accepted).toBe(true);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
+        ),
+      ).toEqual({ accepted: true, checkpoint: baseCheckpoint });
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestPatchPublication({
+            before: baseConversation,
+            after: nextConversation,
+            baseCheckpoint,
+          }),
+        ).accepted,
+      ).toBe(true);
 
       const latest = projectConversationFromHostMessages(hostMessages);
       const lastMessage = hostMessages[hostMessages.length - 1];
@@ -4167,36 +4239,48 @@ describe("codex-service renderer owner stream publishing", () => {
     });
     const serviceInternals = service as unknown as {
       getNextOwnerNotificationSequence: (conversationId: string) => number;
-      drainRendererOwnerNotificationsBefore: (conversationId: string, callback: () => void) => boolean;
+      drainRendererOwnerNotificationsBefore: (
+        conversationId: string,
+        callback: () => void,
+      ) => boolean;
     };
 
     try {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
-      const repairedConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "live text" });
+      const repairedConversation = makeConversationSnapshot({
+        threadId: "thread-owner",
+        text: "live text",
+      });
       service.setRendererConversationOwner("thread-owner", "owner-a");
       const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 1);
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
-      ).accepted).toBe(true);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
+        ).accepted,
+      ).toBe(true);
 
       for (let index = 0; index < 5; index += 1) {
         serviceInternals.getNextOwnerNotificationSequence("thread-owner");
       }
       let drained = false;
-      expect(serviceInternals.drainRendererOwnerNotificationsBefore("thread-owner", () => {
-        drained = true;
-      })).toBe(true);
-
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestSnapshotPublication({
-          conversation: repairedConversation,
-          revision: 2,
-          baseCheckpoint,
-          ownerNotificationSequence: 5,
+      expect(
+        serviceInternals.drainRendererOwnerNotificationsBefore("thread-owner", () => {
+          drained = true;
         }),
-      ).accepted).toBe(true);
+      ).toBe(true);
+
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestSnapshotPublication({
+            conversation: repairedConversation,
+            revision: 2,
+            baseCheckpoint,
+            ownerNotificationSequence: 5,
+          }),
+        ).accepted,
+      ).toBe(true);
 
       const latest = projectConversationFromHostMessages(hostMessages);
       const lastMessage = hostMessages[hostMessages.length - 1];
@@ -4248,12 +4332,17 @@ describe("codex-service renderer owner stream publishing", () => {
         text: "owner remains authoritative",
       });
       const ownerBaseCheckpoint = buildTestStreamCheckpoint(ownerBase, 1);
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestSnapshotPublication({ conversation: ownerBase, revision: 1 }),
-      ).accepted).toBe(true);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestSnapshotPublication({ conversation: ownerBase, revision: 1 }),
+        ).accepted,
+      ).toBe(true);
 
-      serviceInternals.syncDormantConversationFromRecord("thread-source-null-guard", "owner-unavailable");
+      serviceInternals.syncDormantConversationFromRecord(
+        "thread-source-null-guard",
+        "owner-unavailable",
+      );
       serviceInternals.syncAcceptedConversationDocumentSilently("thread-source-null-guard");
       serviceInternals.mutateAcceptedConversationDocumentSilently(
         "thread-source-null-guard",
@@ -4262,17 +4351,20 @@ describe("codex-service renderer owner stream publishing", () => {
         },
       );
       expect(String(hostMessages.length)).toBe("1");
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestPatchPublication({
-          before: ownerBase,
-          after: ownerNext,
-          baseCheckpoint: ownerBaseCheckpoint,
-        }),
-      ).accepted).toBe(true);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestPatchPublication({
+            before: ownerBase,
+            after: ownerNext,
+            baseCheckpoint: ownerBaseCheckpoint,
+          }),
+        ).accepted,
+      ).toBe(true);
       expect(hostMessages).toHaveLength(2);
-      expect(projectConversationFromHostMessages(hostMessages)?.turns[0]?.items[0]?.markdownText)
-        .toBe("owner remains authoritative");
+      expect(
+        projectConversationFromHostMessages(hostMessages)?.turns[0]?.items[0]?.markdownText,
+      ).toBe("owner remains authoritative");
 
       hostMessages.length = 0;
       const snapshot = await service.requestConversationSnapshot("thread-source-null-guard");
@@ -4302,8 +4394,8 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(service.getRendererConversationOwner("thread-c")).toBe(null);
       expect(service.serializeConversationSnapshot("thread-a")?.resumeState).toBe("needs_resume");
       expect(service.serializeConversationSnapshot("thread-c")?.resumeState).toBe("needs_resume");
-      const unavailableMessage = hostMessages.find((message) =>
-        message.type === "threadOwnerUnavailable"
+      const unavailableMessage = hostMessages.find(
+        (message) => message.type === "threadOwnerUnavailable",
       );
       expect(unavailableMessage?.type).toBe("threadOwnerUnavailable");
       if (unavailableMessage?.type === "threadOwnerUnavailable") {
@@ -4334,45 +4426,55 @@ describe("codex-service renderer owner stream publishing", () => {
       service.setRendererConversationViewActive("thread-main-owned", "renderer-viewer", true);
 
       expect(service.getRendererConversationOwner("thread-main-owned")).toBeNull();
-      expect(serviceInternals.resolveNodexAgentAuthorizationPresentation(
-        "thread-main-owned",
-        "turn-1",
-        "thread-main-owned",
-      )).toEqual({
+      expect(
+        serviceInternals.resolveNodexAgentAuthorizationPresentation(
+          "thread-main-owned",
+          "turn-1",
+          "thread-main-owned",
+        ),
+      ).toEqual({
         clientId: "renderer-viewer",
         threadId: "thread-main-owned",
         turnId: "turn-1",
       });
 
       service.setRendererConversationOwner("thread-main-owned", "renderer-state-owner");
-      expect(serviceInternals.resolveNodexAgentAuthorizationPresentation(
-        "thread-main-owned",
-        "turn-1",
-        "thread-main-owned",
-      )?.clientId).toBe("renderer-viewer");
+      expect(
+        serviceInternals.resolveNodexAgentAuthorizationPresentation(
+          "thread-main-owned",
+          "turn-1",
+          "thread-main-owned",
+        )?.clientId,
+      ).toBe("renderer-viewer");
 
       service.setRendererConversationViewActive("thread-main-owned", "renderer-viewer", false);
-      expect(serviceInternals.resolveNodexAgentAuthorizationPresentation(
-        "thread-main-owned",
-        "turn-1",
-        "thread-main-owned",
-      )).toBeNull();
+      expect(
+        serviceInternals.resolveNodexAgentAuthorizationPresentation(
+          "thread-main-owned",
+          "turn-1",
+          "thread-main-owned",
+        ),
+      ).toBeNull();
 
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thread-root"),
-        turns: [{
-          threadId: "thread-root",
-          turnId: "turn-root",
-          status: "inProgress",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId: "thread-root",
+            turnId: "turn-root",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
       });
       service.setRendererConversationViewActive("thread-root", "renderer-root-viewer", true);
-      expect(serviceInternals.resolveNodexAgentAuthorizationPresentation(
-        "thread-child",
-        "turn-child",
-        "thread-root",
-      )).toEqual({
+      expect(
+        serviceInternals.resolveNodexAgentAuthorizationPresentation(
+          "thread-child",
+          "turn-child",
+          "thread-root",
+        ),
+      ).toEqual({
         clientId: "renderer-root-viewer",
         threadId: "thread-root",
         turnId: "turn-root",
@@ -4407,12 +4509,14 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(force).toBe(true);
       const detail = {
         ...makeThreadDetail(threadId),
-        turns: [{
-          threadId,
-          turnId: "turn-reacquired",
-          status: "completed" as const,
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId,
+            turnId: "turn-reacquired",
+            status: "completed" as const,
+            itemIds: [],
+          },
+        ],
         transcript: [],
       };
       serviceInternals.setConversationRecordDetail(detail);
@@ -4473,15 +4577,17 @@ describe("codex-service renderer owner stream publishing", () => {
           namespace: "codex_app",
           tool: "request_onboarding_input",
           arguments: {
-            questions: [{
-              id: "first_task",
-              header: "Start",
-              question: "What should Codex do?",
-              options: [
-                { label: "Audit", description: "Inspect first" },
-                { label: "Build", description: "Implement first" },
-              ],
-            }],
+            questions: [
+              {
+                id: "first_task",
+                header: "Start",
+                question: "What should Codex do?",
+                options: [
+                  { label: "Audit", description: "Inspect first" },
+                  { label: "Build", description: "Implement first" },
+                ],
+              },
+            ],
           },
         },
       });
@@ -4506,20 +4612,22 @@ describe("codex-service renderer owner stream publishing", () => {
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(1);
 
       service.setRendererConversationOwner(threadId, "owner-after-disconnect");
-      expect(await serviceInternals.respondToUserInput(
-        requestId,
-        { first_task: ["Audit"] },
-        threadId,
-      )).toBe(true);
-      expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify({
-        contentItems: [{
-          type: "inputText",
-          text: JSON.stringify({
-            answers: { first_task: { answers: ["Audit"] } },
-          }),
-        }],
-        success: true,
-      }));
+      expect(
+        await serviceInternals.respondToUserInput(requestId, { first_task: ["Audit"] }, threadId),
+      ).toBe(true);
+      expect(JSON.stringify(await requestPromise)).toBe(
+        JSON.stringify({
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify({
+                answers: { first_task: { answers: ["Audit"] } },
+              }),
+            },
+          ],
+          success: true,
+        }),
+      );
       expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
     } finally {
@@ -4538,7 +4646,10 @@ describe("codex-service renderer owner stream publishing", () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const hostMessages: CodexHostMessage[] = [];
     service.on("hostMessage", (message) => {
-      if (message.type === "threadOwnerUnavailable" || message.type === "threadStreamStateChanged") {
+      if (
+        message.type === "threadOwnerUnavailable" ||
+        message.type === "threadStreamStateChanged"
+      ) {
         hostMessages.push(message);
       }
     });
@@ -4557,14 +4668,20 @@ describe("codex-service renderer owner stream publishing", () => {
       service.setRendererConversationViewActive("thread-inactive-owner", "owner-a", false);
 
       await waitForCondition(
-        () => requests.length > 0 && service.getRendererConversationOwner("thread-inactive-owner") === null,
+        () =>
+          requests.length > 0 &&
+          service.getRendererConversationOwner("thread-inactive-owner") === null,
         120,
       );
 
       expect(requests[0]?.method).toBe("thread/unsubscribe");
-      expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe("thread-inactive-owner");
+      expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe(
+        "thread-inactive-owner",
+      );
       expect(service.getRendererConversationOwner("thread-inactive-owner")).toBe(null);
-      expect(service.serializeConversationSnapshot("thread-inactive-owner")?.resumeState).toBe("needs_resume");
+      expect(service.serializeConversationSnapshot("thread-inactive-owner")?.resumeState).toBe(
+        "needs_resume",
+      );
       expect(hostMessages[0]?.type).toBe("threadOwnerUnavailable");
       expect(hostMessages).toHaveLength(1);
     } finally {
@@ -4614,7 +4731,9 @@ describe("codex-service renderer owner stream publishing", () => {
         },
       });
       await waitForCondition(
-        () => requests.length > 0 && service.getRendererConversationOwner("thread-inactive-in-progress") === null,
+        () =>
+          requests.length > 0 &&
+          service.getRendererConversationOwner("thread-inactive-in-progress") === null,
         120,
       );
 
@@ -4656,7 +4775,9 @@ describe("codex-service renderer owner stream publishing", () => {
 
       expect(String(requestCount)).toBe("2");
       expect(service.getRendererConversationOwner("thread-inactive-retry")).toBe(null);
-      expect(service.serializeConversationSnapshot("thread-inactive-retry")?.resumeState).toBe("needs_resume");
+      expect(service.serializeConversationSnapshot("thread-inactive-retry")?.resumeState).toBe(
+        "needs_resume",
+      );
     } finally {
       await service.shutdown();
     }
@@ -4689,12 +4810,16 @@ describe("codex-service renderer owner stream publishing", () => {
       });
 
       await waitForCondition(
-        () => requests.length > 0 && service.getRendererConversationOwner("thread-inactive-limit-a") === null,
+        () =>
+          requests.length > 0 &&
+          service.getRendererConversationOwner("thread-inactive-limit-a") === null,
         120,
       );
 
       expect(requests[0]?.method).toBe("thread/unsubscribe");
-      expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe("thread-inactive-limit-a");
+      expect((requests[0]?.params as { threadId?: string } | undefined)?.threadId).toBe(
+        "thread-inactive-limit-a",
+      );
       expect(service.getRendererConversationOwner("thread-inactive-limit-a")).toBe(null);
       expect(service.getRendererConversationOwner("thread-inactive-limit-b")).toBe("owner-b");
     } finally {
@@ -4720,23 +4845,27 @@ describe("codex-service renderer owner stream publishing", () => {
         hostMessages.push(message);
       }
     });
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
+    (
+      service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }
+    ).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
     });
 
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thread-owner-drain"),
-      turns: [{
-        threadId: "thread-owner-drain",
-        turnId: "turn-owner-drain",
-        status: "inProgress",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thread-owner-drain",
+          turnId: "turn-owner-drain",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
       transcript: [],
     });
 
@@ -4762,9 +4891,9 @@ describe("codex-service renderer owner stream publishing", () => {
           delta: "hello",
         },
       });
-      const canonicalAssistant = serviceInternals
-        .getMaybeConversationRecord("thread-owner-drain")
-        ?.canonicalState?.turns[0]?.items[0];
+      const canonicalAssistant =
+        serviceInternals.getMaybeConversationRecord("thread-owner-drain")?.canonicalState?.turns[0]
+          ?.items[0];
       expect(canonicalAssistant?.type).toBe("agentMessage");
       if (canonicalAssistant?.type === "agentMessage") {
         expect(canonicalAssistant.text).toBe("hello");
@@ -4829,12 +4958,14 @@ describe("codex-service renderer owner stream publishing", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail(threadId),
-        turns: [{
-          threadId,
-          turnId,
-          status: "inProgress",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId,
+            turnId,
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
       await serviceInternals.handleNotification({
@@ -4851,13 +4982,15 @@ describe("codex-service renderer owner stream publishing", () => {
 
       const record = serviceInternals.getMaybeConversationRecord(threadId);
       if (record) record.detail = null;
-      serviceInternals.applyFrameTextDeltas([{
-        conversationId: threadId,
-        turnId,
-        itemId,
-        target: { type: "agentMessage" },
-        delta: "canonical only",
-      }]);
+      serviceInternals.applyFrameTextDeltas([
+        {
+          conversationId: threadId,
+          turnId,
+          itemId,
+          target: { type: "agentMessage" },
+          delta: "canonical only",
+        },
+      ]);
 
       const canonicalAssistant = record?.canonicalState?.turns[0]?.items[0];
       expect(canonicalAssistant?.type).toBe("agentMessage");
@@ -4888,12 +5021,14 @@ describe("codex-service renderer owner stream publishing", () => {
         hostMessages.push(message);
       }
     });
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
+    (
+      service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }
+    ).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
     });
 
@@ -4907,12 +5042,14 @@ describe("codex-service renderer owner stream publishing", () => {
       source: {
         parentThreadId: "thread-owner-turn",
       },
-      turns: [{
-        threadId: "thread-owner-turn-child",
-        turnId: "turn-owner-child",
-        status: "inProgress",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thread-owner-turn-child",
+          turnId: "turn-owner-child",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
       transcript: [],
     });
 
@@ -4936,11 +5073,13 @@ describe("codex-service renderer owner stream publishing", () => {
             id: "turn-owner",
             status: "completed",
             durationMs: 42,
-            items: [{
-              type: "agentMessage",
-              id: "agent-owner",
-              text: "Owner turn finished",
-            }],
+            items: [
+              {
+                type: "agentMessage",
+                id: "agent-owner",
+                text: "Owner turn finished",
+              },
+            ],
           },
         },
       });
@@ -4986,22 +5125,29 @@ describe("codex-service renderer owner stream publishing", () => {
 
     try {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
-      const nextConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "wrong" });
+      const nextConversation = makeConversationSnapshot({
+        threadId: "thread-owner",
+        text: "wrong",
+      });
       service.setRendererConversationOwner("thread-owner", "owner-a");
       const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 1);
 
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
-      ).accepted).toBe(true);
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-b",
-        buildTestPatchPublication({
-          before: baseConversation,
-          after: nextConversation,
-          baseCheckpoint,
-        }),
-      )).toMatchObject({ accepted: false, reason: "not-owner" });
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
+        ).accepted,
+      ).toBe(true);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-b",
+          buildTestPatchPublication({
+            before: baseConversation,
+            after: nextConversation,
+            baseCheckpoint,
+          }),
+        ),
+      ).toMatchObject({ accepted: false, reason: "not-owner" });
 
       const latest = projectConversationFromHostMessages(hostMessages);
       expect(String(hostMessages.length)).toBe("1");
@@ -5022,29 +5168,36 @@ describe("codex-service renderer owner stream publishing", () => {
 
     try {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner" });
-      const nextConversation = makeConversationSnapshot({ threadId: "thread-owner", text: "stale" });
+      const nextConversation = makeConversationSnapshot({
+        threadId: "thread-owner",
+        text: "stale",
+      });
       service.setRendererConversationOwner("thread-owner", "owner-a");
       const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 3);
 
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestSnapshotPublication({ conversation: baseConversation, revision: 3 }),
-      ).accepted).toBe(true);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestSnapshotPublication({ conversation: baseConversation, revision: 3 }),
+        ).accepted,
+      ).toBe(true);
       const staleBase = { ...baseCheckpoint, revision: 2 };
-      expect(service.publishRendererThreadStreamStateChange("owner-a", {
-        ...buildTestPatchPublication({
-          before: baseConversation,
-          after: nextConversation,
-          baseCheckpoint,
+      expect(
+        service.publishRendererThreadStreamStateChange("owner-a", {
+          ...buildTestPatchPublication({
+            before: baseConversation,
+            after: nextConversation,
+            baseCheckpoint,
+          }),
+          baseCheckpoint: staleBase,
+          change: {
+            type: "patches",
+            baseRevision: 2,
+            revision: 4,
+            patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
+          },
         }),
-        baseCheckpoint: staleBase,
-        change: {
-          type: "patches",
-          baseRevision: 2,
-          revision: 4,
-          patches: buildCodexConversationStateUpdates(baseConversation, nextConversation),
-        },
-      })).toMatchObject({ accepted: false, reason: "base-checkpoint-mismatch" });
+      ).toMatchObject({ accepted: false, reason: "base-checkpoint-mismatch" });
 
       const latest = projectConversationFromHostMessages(hostMessages);
       expect(String(hostMessages.length)).toBe("1");
@@ -5064,7 +5217,10 @@ describe("codex-service renderer owner stream publishing", () => {
     });
     const serviceInternals = service as unknown as {
       getNextOwnerNotificationSequence: (conversationId: string) => number;
-      drainRendererOwnerNotificationsBefore: (conversationId: string, callback: () => void) => boolean;
+      drainRendererOwnerNotificationsBefore: (
+        conversationId: string,
+        callback: () => void,
+      ) => boolean;
     };
 
     try {
@@ -5076,29 +5232,31 @@ describe("codex-service renderer owner stream publishing", () => {
       service.setRendererConversationOwner("thread-owner-repair", "owner-a");
       const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 1);
 
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
-      ).accepted).toBe(true);
-      expect(serviceInternals.getNextOwnerNotificationSequence("thread-owner-repair"))
-        .toBe(1);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
+        ).accepted,
+      ).toBe(true);
+      expect(serviceInternals.getNextOwnerNotificationSequence("thread-owner-repair")).toBe(1);
       let notificationDrained = false;
-      expect(serviceInternals.drainRendererOwnerNotificationsBefore(
-        "thread-owner-repair",
-        () => {
+      expect(
+        serviceInternals.drainRendererOwnerNotificationsBefore("thread-owner-repair", () => {
           notificationDrained = true;
-        },
-      )).toBe(true);
+        }),
+      ).toBe(true);
       const invalidPublication = buildTestPatchPublication({
         before: baseConversation,
         after: repairedConversation,
         baseCheckpoint,
         ownerNotificationSequence: 1,
-        patches: [{
+        patches: [
+          {
             op: "replace",
             path: ["canonicalState", "turns", 0, "items", 0],
             value: { id: "missing-parent" },
-        }],
+          },
+        ],
       });
       const rejected = service.publishRendererThreadStreamStateChange(
         "owner-a",
@@ -5110,23 +5268,26 @@ describe("codex-service renderer owner stream publishing", () => {
         recovery: { checkpoint: baseCheckpoint },
       });
       expect(notificationDrained).toBe(false);
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestSnapshotPublication({
-          conversation: repairedConversation,
-          revision: 2,
-          baseCheckpoint,
-          ownerNotificationSequence: 1,
-        }),
-      ).accepted).toBe(true);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestSnapshotPublication({
+            conversation: repairedConversation,
+            revision: 2,
+            baseCheckpoint,
+            ownerNotificationSequence: 1,
+          }),
+        ).accepted,
+      ).toBe(true);
 
       expect(notificationDrained).toBe(true);
       expect(hostMessages).toHaveLength(2);
-      expect(hostMessages[1]?.type === "threadStreamStateChanged"
-        ? hostMessages[1].change.type
-        : null).toBe("snapshot");
-      expect(projectConversationFromHostMessages(hostMessages)?.turns[0]?.items[0]?.markdownText)
-        .toBe("repaired");
+      expect(
+        hostMessages[1]?.type === "threadStreamStateChanged" ? hostMessages[1].change.type : null,
+      ).toBe("snapshot");
+      expect(
+        projectConversationFromHostMessages(hostMessages)?.turns[0]?.items[0]?.markdownText,
+      ).toBe("repaired");
     } finally {
       await service.shutdown();
     }
@@ -5136,32 +5297,41 @@ describe("codex-service renderer owner stream publishing", () => {
     const service = createService();
     try {
       const baseConversation = makeConversationSnapshot({ threadId: "thread-owner-claim" });
-      const nextConversation = makeConversationSnapshot({ threadId: "thread-owner-claim", text: "owner" });
+      const nextConversation = makeConversationSnapshot({
+        threadId: "thread-owner-claim",
+        text: "owner",
+      });
 
-      expect(service.publishRendererThreadStreamStateChange(
-        "client-stale",
-        buildTestPatchPublication({
-          before: baseConversation,
-          after: nextConversation,
-          baseCheckpoint: buildTestStreamCheckpoint(baseConversation, 7),
-        }),
-      )).toMatchObject({ accepted: false, reason: "not-owner" });
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "client-stale",
+          buildTestPatchPublication({
+            before: baseConversation,
+            after: nextConversation,
+            baseCheckpoint: buildTestStreamCheckpoint(baseConversation, 7),
+          }),
+        ),
+      ).toMatchObject({ accepted: false, reason: "not-owner" });
 
       service.setRendererConversationOwner("thread-owner-claim", "client-owner");
       const baseCheckpoint = buildTestStreamCheckpoint(baseConversation, 1);
-      expect(service.publishRendererThreadStreamStateChange(
-        "client-owner",
-        buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
-      ).accepted).toBe(true);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "client-owner",
+          buildTestSnapshotPublication({ conversation: baseConversation, revision: 1 }),
+        ).accepted,
+      ).toBe(true);
 
-      expect(service.publishRendererThreadStreamStateChange(
-        "client-stale",
-        buildTestSnapshotPublication({
-          conversation: nextConversation,
-          revision: 2,
-          baseCheckpoint,
-        }),
-      )).toMatchObject({ accepted: false, reason: "not-owner" });
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "client-stale",
+          buildTestSnapshotPublication({
+            conversation: nextConversation,
+            revision: 2,
+            baseCheckpoint,
+          }),
+        ),
+      ).toMatchObject({ accepted: false, reason: "not-owner" });
     } finally {
       await service.shutdown();
     }
@@ -5173,10 +5343,12 @@ describe("codex-service renderer owner stream publishing", () => {
       const baseline = makeConversationSnapshot({ threadId: "thread-owner-adoption-race" });
       service.setRendererConversationOwner("thread-owner-adoption-race", "owner-a");
       const checkpoint = buildTestStreamCheckpoint(baseline, 7);
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestSnapshotPublication({ conversation: baseline, revision: 7 }),
-      ).accepted).toBe(true);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestSnapshotPublication({ conversation: baseline, revision: 7 }),
+        ).accepted,
+      ).toBe(true);
 
       const result = await service.requestRendererConversationResume(
         "thread-owner-adoption-race",
@@ -5223,20 +5395,14 @@ describe("codex-service renderer owner stream publishing", () => {
         }
       >;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      syncDormantConversationFromRecord: (
-        id: string,
-        reason: "owner-unavailable",
-      ) => void;
+      syncDormantConversationFromRecord: (id: string, reason: "owner-unavailable") => void;
     };
     serviceInternals.setConversationRecordDetail(makeThreadDetail(threadId));
     const record = serviceInternals.getConversationRecord(threadId);
     record.resumeState = "resumed";
     record.streamRole = "owner";
     record.isStreaming = true;
-    serviceInternals.syncDormantConversationFromRecord(
-      threadId,
-      "owner-unavailable",
-    );
+    serviceInternals.syncDormantConversationFromRecord(threadId, "owner-unavailable");
     serviceInternals.pendingFreshSessionFirstTurnByThreadId.set(threadId, {
       launchId,
       rendererClientId: ownerClientId,
@@ -5261,9 +5427,7 @@ describe("codex-service renderer owner stream publishing", () => {
       );
       expect(adopted.role).toBe("owner");
       expect(adopted.conversation.threadId).toBe(threadId);
-      expect(service.getRendererConversationOwner(threadId)).toBe(
-        ownerClientId,
-      );
+      expect(service.getRendererConversationOwner(threadId)).toBe(ownerClientId);
       expect(requests).toEqual([]);
       await service.releaseConversationResumeBuffer(threadId);
     } finally {
@@ -5359,36 +5523,36 @@ describe("codex-service renderer owner stream publishing", () => {
       };
     };
     const serviceInternals = service as unknown as {
-      pendingFreshSessionFirstTurnByThreadId: Map<string, {
-        launchId: string;
-        rendererClientId: string;
-        projectId: string | null;
-        sessionId: string;
-        threadId: string;
-        runInTarget: "localProject";
-        startedAt: number;
-        clientUserMessageId: string;
-        canonicalParams: Record<string, unknown>;
-        turnStartParams: typeof turnStartParams;
-        verifiedBuiltinFullAccess: boolean;
-        goalObjective: string;
-        rawGoalDraft: null;
-        heartbeatAutomation: null;
-        state: "prepared" | "adopted" | "starting";
-      }>;
+      pendingFreshSessionFirstTurnByThreadId: Map<
+        string,
+        {
+          launchId: string;
+          rendererClientId: string;
+          projectId: string | null;
+          sessionId: string;
+          threadId: string;
+          runInTarget: "localProject";
+          startedAt: number;
+          clientUserMessageId: string;
+          canonicalParams: Record<string, unknown>;
+          turnStartParams: typeof turnStartParams;
+          verifiedBuiltinFullAccess: boolean;
+          goalObjective: string;
+          rawGoalDraft: null;
+          heartbeatAutomation: null;
+          state: "prepared" | "adopted" | "starting";
+        }
+      >;
       startRendererOwnedSessionFirstTurn: (
         clientId: string,
         id: string,
         launch: string,
       ) => Promise<{ turn: { id: string } }>;
-      markAutomationRunAcceptedForUserContinuation: (
-        id: string,
-      ) => Promise<void>;
+      markAutomationRunAcceptedForUserContinuation: (id: string) => Promise<void>;
       markThreadAsActive: (id: string) => Promise<void>;
       applyStartedSessionThreadGoal: (input: unknown) => Promise<void>;
     };
-    serviceInternals.markAutomationRunAcceptedForUserContinuation =
-      async () => undefined;
+    serviceInternals.markAutomationRunAcceptedForUserContinuation = async () => undefined;
     serviceInternals.markThreadAsActive = async () => undefined;
     serviceInternals.applyStartedSessionThreadGoal = async () => undefined;
     serviceInternals.pendingFreshSessionFirstTurnByThreadId.set(threadId, {
@@ -5410,26 +5574,21 @@ describe("codex-service renderer owner stream publishing", () => {
     });
 
     try {
-      const response =
-        await serviceInternals.startRendererOwnedSessionFirstTurn(
-          ownerClientId,
-          threadId,
-          launchId,
-        );
+      const response = await serviceInternals.startRendererOwnedSessionFirstTurn(
+        ownerClientId,
+        threadId,
+        launchId,
+      );
       expect(response.turn.id).toBe("turn-fresh-owner-first-turn");
-      expect(requests).toEqual([{
-        method: "turn/start",
-        params: turnStartParams,
-      }]);
-      expect(
-        serviceInternals.pendingFreshSessionFirstTurnByThreadId.has(threadId),
-      ).toBe(false);
+      expect(requests).toEqual([
+        {
+          method: "turn/start",
+          params: turnStartParams,
+        },
+      ]);
+      expect(serviceInternals.pendingFreshSessionFirstTurnByThreadId.has(threadId)).toBe(false);
       await expect(
-        serviceInternals.startRendererOwnedSessionFirstTurn(
-          ownerClientId,
-          threadId,
-          launchId,
-        ),
+        serviceInternals.startRendererOwnedSessionFirstTurn(ownerClientId, threadId, launchId),
       ).rejects.toThrow(`Fresh thread launch '${launchId}' is unavailable`);
       expect(requests).toHaveLength(1);
     } finally {
@@ -5460,10 +5619,12 @@ describe("codex-service renderer owner stream publishing", () => {
       await Promise.resolve();
       service.setRendererConversationOwner("thread-owner-concurrent-race", "owner-a");
       const checkpoint = buildTestStreamCheckpoint(baseline, 7);
-      expect(service.publishRendererThreadStreamStateChange(
-        "owner-a",
-        buildTestSnapshotPublication({ conversation: baseline, revision: 7 }),
-      ).accepted).toBe(true);
+      expect(
+        service.publishRendererThreadStreamStateChange(
+          "owner-a",
+          buildTestSnapshotPublication({ conversation: baseline, revision: 7 }),
+        ).accepted,
+      ).toBe(true);
       releaseResume();
 
       await expect(competingResume).resolves.toEqual({
@@ -5487,11 +5648,13 @@ function getRecordedItem(
   turnId: string,
   itemId: string,
 ): CodexItemView | null {
-  const record = (service as {
-    getConversationRecord: (id: string) => {
-      itemsByTurn: Map<string, Map<string, CodexItemView>>;
-    };
-  }).getConversationRecord(threadId);
+  const record = (
+    service as {
+      getConversationRecord: (id: string) => {
+        itemsByTurn: Map<string, Map<string, CodexItemView>>;
+      };
+    }
+  ).getConversationRecord(threadId);
   const items = record.itemsByTurn.get(turnId);
   if (!items) return null;
   for (const item of items.values()) {
@@ -5501,10 +5664,10 @@ function getRecordedItem(
 }
 
 function installManualApprovalState(service: unknown, projectId: string): void {
-  const stateByProject = Reflect.get(
-    service as object,
-    "permissionStateByScope",
-  ) as Map<string, CodexPermissionState>;
+  const stateByProject = Reflect.get(service as object, "permissionStateByScope") as Map<
+    string,
+    CodexPermissionState
+  >;
   stateByProject.set(projectId, {
     mode: "auto",
     effectivePreset: "auto",
@@ -5650,19 +5813,25 @@ describe("codex-service rate limit polling", () => {
         return {
           rateLimits: {
             primary: { usedPercent: 18, windowDurationMins: 300, resetsAt: Date.now() + 1_000 },
-            secondary: { usedPercent: 39, windowDurationMins: 10_080, resetsAt: Date.now() + 2_000 },
+            secondary: {
+              usedPercent: 39,
+              windowDurationMins: 10_080,
+              resetsAt: Date.now() + 2_000,
+            },
           },
           rateLimitResetCredits: {
             availableCount: 2,
-            credits: [{
-              id: "reset-credit-1",
-              resetType: "codexRateLimits",
-              status: "available",
-              grantedAt: 1_784_246_400,
-              expiresAt: 1_810_166_400,
-              title: "Quota reset",
-              description: null,
-            }],
+            credits: [
+              {
+                id: "reset-credit-1",
+                resetType: "codexRateLimits",
+                status: "available",
+                grantedAt: 1_784_246_400,
+                expiresAt: 1_810_166_400,
+                title: "Quota reset",
+                description: null,
+              },
+            ],
           },
         };
       }
@@ -5716,10 +5885,12 @@ describe("codex-service rate limit polling", () => {
     });
     await service.shutdown();
 
-    expect(consumeInputs).toEqual([{
-      idempotencyKey: "attempt-1",
-      creditId: "reset-credit-1",
-    }]);
+    expect(consumeInputs).toEqual([
+      {
+        idempotencyKey: "attempt-1",
+        creditId: "reset-credit-1",
+      },
+    ]);
     expect(rateLimitsReadCount).toBe(1);
     expect(result.outcome).toBe("alreadyRedeemed");
     expect(result.account.rateLimitResetCredits?.availableCount).toBe(1);
@@ -5770,7 +5941,6 @@ describe("codex-service rate limit polling", () => {
 });
 
 describe("codex-service readThread fallback", () => {
-
   test("searches app-server tasks and paginates past filtered results", async () => {
     const service = createService();
     const client = Reflect.get(service as object, "client") as {
@@ -5888,21 +6058,24 @@ describe("codex-service readThread fallback", () => {
     client.request = async (_method, params) => {
       cursors.push((params as { cursor?: string | null }).cursor);
       return {
-        data: [{
-          thread: {
-            ...makeProtocolThread(`thr_internal_${cursors.length}`, "/tmp/codex"),
-            threadSource: "system",
+        data: [
+          {
+            thread: {
+              ...makeProtocolThread(`thr_internal_${cursors.length}`, "/tmp/codex"),
+              threadSource: "system",
+            },
+            snippet: "Filtered internal task",
           },
-          snippet: "Filtered internal task",
-        }],
+        ],
         nextCursor: "repeated-cursor",
         backwardsCursor: null,
       };
     };
 
     try {
-      await expect(service.searchCommandPaletteThreads({ query: "internal", limit: 5 }))
-        .resolves.toEqual([]);
+      await expect(
+        service.searchCommandPaletteThreads({ query: "internal", limit: 5 }),
+      ).resolves.toEqual([]);
       expect(cursors).toEqual([null, "repeated-cursor"]);
     } finally {
       await service.shutdown();
@@ -5924,8 +6097,9 @@ describe("codex-service readThread fallback", () => {
 
     try {
       await expect(service.searchCommandPaletteThreads({ query: "   " })).resolves.toEqual([]);
-      await expect(service.searchCommandPaletteThreads({ query: "needle" }))
-        .rejects.toThrow("search unavailable");
+      await expect(service.searchCommandPaletteThreads({ query: "needle" })).rejects.toThrow(
+        "search unavailable",
+      );
       expect(requestCalls).toBe(1);
     } finally {
       await service.shutdown();
@@ -5934,7 +6108,6 @@ describe("codex-service readThread fallback", () => {
 });
 
 describe("codex-service session-backed transcript recovery", () => {
-
   test("reconciles historically inverted and stale app-server Thread timestamps", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
@@ -6221,7 +6394,9 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(params.modelProvider).toBe(null);
       expect(String(params.developerInstructions).includes("<app-context>")).toBe(true);
       expect(String(params.developerInstructions).includes("### Thread Coordination")).toBe(true);
-      expect((params.config as Record<string, unknown>)["features.apply_patch_streaming_events"]).toBe(true);
+      expect(
+        (params.config as Record<string, unknown>)["features.apply_patch_streaming_events"],
+      ).toBe(true);
       expect((params.config as Record<string, unknown>)["features.thread_tools"]).toBe(true);
       expect(Object.prototype.hasOwnProperty.call(params, "permissions")).toBe(false);
       expect(Object.prototype.hasOwnProperty.call(params, "sandbox")).toBe(false);
@@ -6490,7 +6665,9 @@ describe("codex-service session-backed transcript recovery", () => {
       resolveGoal = resolve;
     });
     const serviceInternals = service as unknown as {
-      hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+      ) => CodexCanonicalConversationState;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       hydrateThreadGoalAfterResume: (id: string, expectedRevision: number) => Promise<void>;
       syncDormantConversationFromRecord: (id: string, reason: string) => void;
@@ -6505,10 +6682,12 @@ describe("codex-service session-backed transcript recovery", () => {
       throw new Error(`Unexpected client request: ${method}`);
     };
     serviceInternals.setConversationRecordDetail(makeThreadDetail(threadId));
-    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
-      threadId,
-      initialTurnsPage: null,
-    }));
+    serviceInternals.hydrateCanonicalConversationState(
+      makeCanonicalResumeResponse({
+        threadId,
+        initialTurnsPage: null,
+      }),
+    );
 
     try {
       const hydration = serviceInternals.hydrateThreadGoalAfterResume(threadId, 0);
@@ -6543,7 +6722,9 @@ describe("codex-service session-backed transcript recovery", () => {
     let continuationSettled = false;
     let tailStarted = false;
     const serviceInternals = service as unknown as {
-      hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+      ) => CodexCanonicalConversationState;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       startPostResumeGoalFlow: (id: string, expectedRevision: number) => Promise<void>;
       maybeContinueActiveThreadGoal: (id: string) => Promise<void>;
@@ -6573,14 +6754,16 @@ describe("codex-service session-backed transcript recovery", () => {
       throw new Error(`Unexpected client request: ${method}`);
     };
     serviceInternals.setConversationRecordDetail(makeThreadDetail(threadId));
-    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
-      threadId,
-      initialTurnsPage: {
-        data: [],
-        nextCursor: "older-page",
-        backwardsCursor: null,
-      },
-    }));
+    serviceInternals.hydrateCanonicalConversationState(
+      makeCanonicalResumeResponse({
+        threadId,
+        initialTurnsPage: {
+          data: [],
+          nextCursor: "older-page",
+          backwardsCursor: null,
+        },
+      }),
+    );
     serviceInternals.maybeContinueActiveThreadGoal = async () => {
       await continuationGate;
       continuationSettled = true;
@@ -6619,8 +6802,16 @@ describe("codex-service session-backed transcript recovery", () => {
         notification: CodexTestServerNotification,
         options?: { bypassResumeBuffer?: boolean },
       ) => Promise<void>;
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
-      handleServerRequestNow: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
+      handleServerRequestNow: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
       resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
     };
     const originalHandleNotification = serviceInternals.handleNotification.bind(service);
@@ -6713,10 +6904,16 @@ describe("codex-service session-backed transcript recovery", () => {
       let didInjectNestedNotification = false;
       serviceInternals.handleNotification = async (notification) => {
         if (!serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)) {
-          order.push(`${notification.method}:${(notification.params as { itemId?: string }).itemId ?? ""}`);
+          order.push(
+            `${notification.method}:${(notification.params as { itemId?: string }).itemId ?? ""}`,
+          );
         }
         await originalHandleNotification(notification);
-        if (notification.method !== "item/reasoning/summaryPartAdded" || didInjectNestedNotification) return;
+        if (
+          notification.method !== "item/reasoning/summaryPartAdded" ||
+          didInjectNestedNotification
+        )
+          return;
 
         didInjectNestedNotification = true;
         await serviceInternals.handleNotification({
@@ -6733,9 +6930,9 @@ describe("codex-service session-backed transcript recovery", () => {
       await serviceInternals.replayBufferedResumeNotifications(threadId);
 
       expect(order.join(",")).toBe(
-        "item/reasoning/summaryPartAdded:reasoning-1,"
-          + "item/mcpToolCall/progress:mcp-live-nested,"
-          + "item/mcpToolCall/progress:mcp-old-tail",
+        "item/reasoning/summaryPartAdded:reasoning-1," +
+          "item/mcpToolCall/progress:mcp-live-nested," +
+          "item/mcpToolCall/progress:mcp-old-tail",
       );
       expect(serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)).toBe(false);
     } finally {
@@ -6858,8 +7055,9 @@ describe("codex-service session-backed transcript recovery", () => {
         },
       },
     ]);
-    const replayedDeltas = replay.map((event) =>
-      (event.notification.params as { delta?: string }).delta ?? "");
+    const replayedDeltas = replay.map(
+      (event) => (event.notification.params as { delta?: string }).delta ?? "",
+    );
     expect(replayedDeltas.join("|")).toBe("a|bc");
 
     await service.shutdown();
@@ -6893,8 +7091,12 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(canonical.turns[0]?.sidecar.params.effort).toBe("low");
       expect(canonical.sidecar.hydrationContext?.latestModel ?? "").toBe("gpt-response");
       expect(canonical.sidecar.hydrationContext?.latestReasoningEffort ?? null).toBe("high");
-      expect(canonical.sidecar.hydrationContext?.latestThreadSettings?.model ?? "").toBe("gpt-response");
-      expect(canonical.sidecar.hydrationContext?.latestThreadSettings?.serviceTier ?? null).toBe(null);
+      expect(canonical.sidecar.hydrationContext?.latestThreadSettings?.model ?? "").toBe(
+        "gpt-response",
+      );
+      expect(canonical.sidecar.hydrationContext?.latestThreadSettings?.serviceTier ?? null).toBe(
+        null,
+      );
       expect(canonical.sidecar.hydrationContext?.latestThreadSettings?.multiAgentMode ?? null).toBe(
         "explicitRequestOnly",
       );
@@ -6951,7 +7153,9 @@ describe("codex-service session-backed transcript recovery", () => {
       expect((currentTime as { currentTimeAt?: number }).currentTimeAt !== undefined).toBe(true);
       expect(replayedThreadIds.join(",")).toBe("");
 
-      await serviceInternals.completeThreadStartNotificationDeferral("thr_deferred_creation_context");
+      await serviceInternals.completeThreadStartNotificationDeferral(
+        "thr_deferred_creation_context",
+      );
 
       expect(replayedThreadIds.join(",")).toBe("thr_deferred_creation_context");
     } finally {
@@ -6993,11 +7197,13 @@ describe("codex-service session-backed transcript recovery", () => {
     const originalHandleServerRequestNow = serviceInternals.handleServerRequestNow.bind(service);
     serviceInternals.upsertSidebarThreadFromAppServerThread = () => null;
     serviceInternals.handleNotification = async (notification, options) => {
-      const bufferedBefore = serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)
-        || serviceInternals.threadStartNotificationBuffersByThreadId.has(threadId);
+      const bufferedBefore =
+        serviceInternals.resumeNotificationBuffersByThreadId.has(threadId) ||
+        serviceInternals.threadStartNotificationBuffersByThreadId.has(threadId);
       await originalHandleNotification(notification, options);
-      const bufferedAfter = serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)
-        || serviceInternals.threadStartNotificationBuffersByThreadId.has(threadId);
+      const bufferedAfter =
+        serviceInternals.resumeNotificationBuffersByThreadId.has(threadId) ||
+        serviceInternals.threadStartNotificationBuffersByThreadId.has(threadId);
       if (!bufferedBefore && !bufferedAfter) order.push(`notification:${notification.method}`);
     };
     serviceInternals.handleServerRequestNow = async (request) => {
@@ -7029,14 +7235,16 @@ describe("codex-service session-backed transcript recovery", () => {
         },
       });
       let ordinaryRequestSettled = false;
-      const ordinaryRequest = serviceInternals.handleServerRequest({
-        id: "ordinary-request",
-        method: "item/tool/requestUserInput",
-        params: { threadId },
-      }).then((value) => {
-        ordinaryRequestSettled = true;
-        return value;
-      });
+      const ordinaryRequest = serviceInternals
+        .handleServerRequest({
+          id: "ordinary-request",
+          method: "item/tool/requestUserInput",
+          params: { threadId },
+        })
+        .then((value) => {
+          ordinaryRequestSettled = true;
+          return value;
+        });
       const currentTime = await serviceInternals.handleServerRequest({
         id: "current-time-request",
         method: "currentTime/read",
@@ -7047,15 +7255,21 @@ describe("codex-service session-backed transcript recovery", () => {
       await serviceInternals.replayBufferedResumeNotifications(threadId);
       await Promise.resolve();
       expect(ordinaryRequestSettled).toBe(false);
-      const outerEvents = serviceInternals.threadStartNotificationBuffersByThreadId.get(threadId) as Array<{
-        type?: string;
-        notification?: { method?: string };
-        request?: { method?: string };
-      }> | undefined;
+      const outerEvents = serviceInternals.threadStartNotificationBuffersByThreadId.get(
+        threadId,
+      ) as
+        | Array<{
+            type?: string;
+            notification?: { method?: string };
+            request?: { method?: string };
+          }>
+        | undefined;
       expect(outerEvents?.length ?? 0).toBe(3);
-      expect(outerEvents?.map((event) => event.notification?.method ?? event.request?.method ?? "").join(",") ?? "").toBe(
-        "thread/started,item/reasoning/summaryPartAdded,item/tool/requestUserInput",
-      );
+      expect(
+        outerEvents
+          ?.map((event) => event.notification?.method ?? event.request?.method ?? "")
+          .join(",") ?? "",
+      ).toBe("thread/started,item/reasoning/summaryPartAdded,item/tool/requestUserInput");
       expect(order.join(",")).toBe("");
 
       await serviceInternals.completeThreadStartNotificationDeferral(threadId);
@@ -7084,14 +7298,16 @@ describe("codex-service session-backed transcript recovery", () => {
         throw new Error(`Unexpected client request: ${method}`);
       }
       return {
-        data: [{
-          name: "docs",
-          serverInfo: null,
-          tools: {},
-          resources: [],
-          resourceTemplates: [],
-          authStatus: "unsupported",
-        }],
+        data: [
+          {
+            name: "docs",
+            serverInfo: null,
+            tools: {},
+            resources: [],
+            resourceTemplates: [],
+            authStatus: "unsupported",
+          },
+        ],
         nextCursor: "next-page",
       };
     };
@@ -7144,9 +7360,7 @@ describe("codex-service session-backed transcript recovery", () => {
       await expect(service.listMcpApps()).resolves.toEqual([]);
       await (
         service as unknown as {
-          handleNotification: (
-            notification: CodexTestServerNotification,
-          ) => Promise<void>;
+          handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
         }
       ).handleNotification({
         method: "app/list/updated",
@@ -7182,23 +7396,25 @@ describe("codex-service session-backed transcript recovery", () => {
 
       const cursor = (params as { cursor?: string | null }).cursor ?? null;
       return {
-        data: [{
-          id: cursor === null ? "connector_docs" : "connector_calendar",
-          name: cursor === null ? "Docs" : "Calendar",
-          description: null,
-          logoUrl: null,
-          logoUrlDark: null,
-          iconAssets: cursor === null ? { "256_square": " /assets/docs.png " } : null,
-          iconDarkAssets: null,
-          distributionChannel: null,
-          branding: null,
-          appMetadata: null,
-          labels: null,
-          installUrl: "https://apps.example.test/install",
-          isAccessible: true,
-          isEnabled: true,
-          pluginDisplayNames: [],
-        }],
+        data: [
+          {
+            id: cursor === null ? "connector_docs" : "connector_calendar",
+            name: cursor === null ? "Docs" : "Calendar",
+            description: null,
+            logoUrl: null,
+            logoUrlDark: null,
+            iconAssets: cursor === null ? { "256_square": " /assets/docs.png " } : null,
+            iconDarkAssets: null,
+            distributionChannel: null,
+            branding: null,
+            appMetadata: null,
+            labels: null,
+            installUrl: "https://apps.example.test/install",
+            isAccessible: true,
+            isEnabled: true,
+            pluginDisplayNames: [],
+          },
+        ],
         nextCursor: cursor === null ? "next-page" : null,
       };
     };
@@ -7215,9 +7431,9 @@ describe("codex-service session-backed transcript recovery", () => {
       expect((requests[2]?.params as { cursor?: string | null })?.cursor).toBe("next-page");
       expect((requests[1]?.params as { limit?: number })?.limit).toBe(1_000);
       expect((requests[1]?.params as { forceRefetch?: boolean })?.forceRefetch).toBe(false);
-      expect(
-        requests.every(({ params }) => !Object.hasOwn(params as object, "threadId")),
-      ).toBe(true);
+      expect(requests.every(({ params }) => !Object.hasOwn(params as object, "threadId"))).toBe(
+        true,
+      );
     } finally {
       await service.shutdown();
     }
@@ -7239,15 +7455,17 @@ describe("codex-service session-backed transcript recovery", () => {
       }
       const cursor = (params as { cursor?: string | null }).cursor ?? null;
       return {
-        data: [{
-          name: cursor === null ? "apps" : "memories",
-          stage: "stable",
-          displayName: null,
-          description: null,
-          announcement: null,
-          enabled: true,
-          defaultEnabled: true,
-        }],
+        data: [
+          {
+            name: cursor === null ? "apps" : "memories",
+            stage: "stable",
+            displayName: null,
+            description: null,
+            announcement: null,
+            enabled: true,
+            defaultEnabled: true,
+          },
+        ],
         nextCursor: cursor === null ? "next-page" : null,
       };
     };
@@ -7257,7 +7475,9 @@ describe("codex-service session-backed transcript recovery", () => {
 
       expect(features.map((feature) => feature.name)).toEqual(["apps", "memories"]);
       expect(requests).toHaveLength(2);
-      expect(requests.every(({ params }) => !Object.hasOwn(params as object, "threadId"))).toBe(true);
+      expect(requests.every(({ params }) => !Object.hasOwn(params as object, "threadId"))).toBe(
+        true,
+      );
       expect((requests[0]?.params as { limit?: number })?.limit).toBe(100);
       expect((requests[1]?.params as { cursor?: string | null })?.cursor).toBe("next-page");
     } finally {
@@ -7300,9 +7520,8 @@ describe("codex-service session-backed transcript recovery", () => {
       });
 
       const update = events.find(
-        (event): event is Extract<CodexEvent, { type: "appsUpdated" }> => (
-          event.type === "appsUpdated"
-        ),
+        (event): event is Extract<CodexEvent, { type: "appsUpdated" }> =>
+          event.type === "appsUpdated",
       );
       expect(update?.apps[0]?.logoUrl).toBe("https://apps.example.test/assets/docs.png");
       expect(update?.apps[0]?.logoUrlDark).toBe("https://apps.example.test/assets/docs.png");
@@ -7326,28 +7545,32 @@ describe("codex-service session-backed transcript recovery", () => {
         const cursor = (params as { cursor?: string | null }).cursor ?? null;
         if (cursor === null) {
           return {
-            data: [{
-              itemId: "item-a",
-              processId: "proc-a",
-              command: "bun run dev",
-              cwd: "/tmp/a",
-              osPid: 101,
-              cpuPercent: 12.5,
-              rssKb: 2048n,
-            }],
+            data: [
+              {
+                itemId: "item-a",
+                processId: "proc-a",
+                command: "bun run dev",
+                cwd: "/tmp/a",
+                osPid: 101,
+                cpuPercent: 12.5,
+                rssKb: 2048n,
+              },
+            ],
             nextCursor: "next-page",
           };
         }
         return {
-          data: [{
-            itemId: "item-b",
-            processId: "proc-b",
-            command: "python -m http.server",
-            cwd: "/tmp/b",
-            osPid: null,
-            cpuPercent: null,
-            rssKb: null,
-          }],
+          data: [
+            {
+              itemId: "item-b",
+              processId: "proc-b",
+              command: "python -m http.server",
+              cwd: "/tmp/b",
+              osPid: null,
+              cpuPercent: null,
+              rssKb: null,
+            },
+          ],
           nextCursor: null,
         };
       }
@@ -7361,7 +7584,9 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(rows[0]?.processId).toBe("proc-a");
       expect(rows[1]?.processId).toBe("proc-b");
       expect(requests.length).toBe(2);
-      expect((requests[0]?.params as { threadId?: string; cursor?: string | null })?.threadId).toBe("thr_process_rows");
+      expect((requests[0]?.params as { threadId?: string; cursor?: string | null })?.threadId).toBe(
+        "thr_process_rows",
+      );
       expect((requests[0]?.params as { cursor?: string | null })?.cursor).toBe(null);
       expect((requests[1]?.params as { cursor?: string | null })?.cursor).toBe("next-page");
     } finally {
@@ -7395,22 +7620,24 @@ describe("codex-service session-backed transcript recovery", () => {
       expect(terminated).toBe(true);
       expect(requests.length).toBe(1);
       expect(requests[0]?.method).toBe("thread/backgroundTerminals/terminate");
-      expect((requests[0]?.params as { threadId?: string; processId?: string })?.threadId).toBe("thr_process_stop");
-      expect((requests[0]?.params as { threadId?: string; processId?: string })?.processId).toBe("proc-42");
+      expect((requests[0]?.params as { threadId?: string; processId?: string })?.threadId).toBe(
+        "thr_process_stop",
+      );
+      expect((requests[0]?.params as { threadId?: string; processId?: string })?.processId).toBe(
+        "proc-42",
+      );
     } finally {
       await service.shutdown();
     }
   });
-
 });
 
 describe("codex-service edit-last-user-turn and fork-from-turn", () => {
   test("fork-from-turn uses full fork, seeded resume, child rollback, a provenance marker, and caller title", async () => {
     const projectWorkspace = createTestProjectWorkspace();
     const persistedWritableRoots = new Map<string, readonly string[]>();
-    const replaceThreadWritableRoots = projectWorkspace.replaceThreadWritableRoots.bind(
-      projectWorkspace,
-    );
+    const replaceThreadWritableRoots =
+      projectWorkspace.replaceThreadWritableRoots.bind(projectWorkspace);
     projectWorkspace.replaceThreadWritableRoots = async (threadId, roots) => {
       persistedWritableRoots.set(threadId, [...roots]);
       return await replaceThreadWritableRoots(threadId, roots);
@@ -7494,16 +7721,16 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       })),
       transcript: [],
     });
-    serviceInternals.buildThreadDetailFromCanonicalState = (state) => (
-      makeCanonicalStateDetailFixture(state, { projectId: "project-exact-fork" })
-    );
+    serviceInternals.buildThreadDetailFromCanonicalState = (state) =>
+      makeCanonicalStateDetailFixture(state, { projectId: "project-exact-fork" });
     serviceInternals.persistThreadDetailSummary = () => {};
     serviceInternals.applyThreadNameLocal = (id, name) => {
       const detail = service.serializeThreadDetail(id);
       if (!detail) return;
       serviceInternals.setConversationRecordDetail({ ...detail, threadName: name });
     };
-    const originalAppendForkMarker = serviceInternals.appendForkedFromConversationMarker.bind(service);
+    const originalAppendForkMarker =
+      serviceInternals.appendForkedFromConversationMarker.bind(service);
     serviceInternals.beginThreadStartNotificationDeferral = () => {
       order.push("deferral:begin");
     };
@@ -7576,19 +7803,29 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       expect(rollbackParams.threadId).toBe(childThreadId);
       expect(rollbackParams.numTurns).toBe(1);
       expect(order.indexOf("deferral:begin") < order.indexOf("request:thread/fork")).toBe(true);
-      expect(order.indexOf("deferral:complete") < order.indexOf("request:thread/rollback")).toBe(true);
+      expect(order.indexOf("deferral:complete") < order.indexOf("request:thread/rollback")).toBe(
+        true,
+      );
       expect(order.indexOf("deferral:end") < order.indexOf("request:thread/rollback")).toBe(true);
-      expect(order.indexOf("request:thread/rollback") < order.indexOf("provenance:append")).toBe(true);
+      expect(order.indexOf("request:thread/rollback") < order.indexOf("provenance:append")).toBe(
+        true,
+      );
       expect(result.composerIntent?.prompt ?? "missing").toBe("");
       expect(canonical?.turns.length ?? 0).toBe(2);
       expect(canonical?.turns.at(-1)?.protocol.id).toBe("turn_2");
       expect(marker?.type).toBe("forkedFromConversation");
-      expect(marker && "sourceConversationId" in marker ? marker.sourceConversationId : null).toBe(sourceThreadId);
-      expect(marker && "sourceConversationTitle" in marker ? marker.sourceConversationTitle : null).toBe(
-        "Exact fork source",
+      expect(marker && "sourceConversationId" in marker ? marker.sourceConversationId : null).toBe(
+        sourceThreadId,
       );
-      expect((requests.at(-1)?.params as { name?: string }).name ?? "").toBe("Exact fork source (2)");
-      expect(service.serializeThreadDetail(childThreadId)?.threadName ?? "").toBe("Exact fork source (2)");
+      expect(
+        marker && "sourceConversationTitle" in marker ? marker.sourceConversationTitle : null,
+      ).toBe("Exact fork source");
+      expect((requests.at(-1)?.params as { name?: string }).name ?? "").toBe(
+        "Exact fork source (2)",
+      );
+      expect(service.serializeThreadDetail(childThreadId)?.threadName ?? "").toBe(
+        "Exact fork source (2)",
+      );
     } finally {
       await service.shutdown();
     }
@@ -7648,20 +7885,26 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       expect(requests.map((request) => request.method).join(",")).toBe(
         "thread/fork,thread/inject_items",
       );
-      expect(JSON.stringify(resolverInputs)).toBe(JSON.stringify([{
-        cwd: "/workspace/side-exact",
-        model: null,
-        threadId: "thr_side_exact_parent",
-      }]));
+      expect(JSON.stringify(resolverInputs)).toBe(
+        JSON.stringify([
+          {
+            cwd: "/workspace/side-exact",
+            model: null,
+            threadId: "thr_side_exact_parent",
+          },
+        ]),
+      );
       expect(JSON.stringify(configCwds)).toBe(JSON.stringify(["/workspace/side-exact"]));
       expect(forkParams.path).toBe(null);
       expect(forkParams.ephemeral).toBe(true);
       expect(forkParams.excludeTurns).toBe(true);
       expect(config["mcp.test_enabled"]).toBe(true);
       expect(config.model_reasoning_effort).toBe("xhigh");
-      expect(String(forkParams.developerInstructions).startsWith(
-        "  Resolved desktop instructions  \n\nYou are in a side conversation",
-      )).toBe(true);
+      expect(
+        String(forkParams.developerInstructions).startsWith(
+          "  Resolved desktop instructions  \n\nYou are in a side conversation",
+        ),
+      ).toBe(true);
       expect(result.threadId).toBe("thr_side_exact_child");
       expect(getCanonicalConversationState(service, result.threadId)?.turns.length ?? -1).toBe(0);
     } finally {
@@ -7672,103 +7915,102 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
   test.each([
     { label: "missing", hasStaleCwd: false },
     { label: "non-empty but unavailable", hasStaleCwd: true },
-  ])("side chat repairs and persists a $label projectless parent workspace before forking", async ({
-    hasStaleCwd,
-  }) => {
-    const projectlessHome = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nodex-side-chat-projectless-"),
-    );
-    const staleCwd = hasStaleCwd
-      ? path.join(projectlessHome, "deleted-parent-workspace")
-      : null;
-    const projectWorkspace = createTestProjectWorkspace();
-    await projectWorkspace.upsertThread("thr_side_projectless_parent", {
-      projectId: null,
-      cwd: staleCwd,
-      projectlessOutputDirectory: null,
-      projectlessWorkspaceBrowserRoot: null,
-      threadName: "Repair side chat workspace",
-      threadPreview: "Repair side chat workspace",
-    });
-    const service = createService({
-      projectWorkspace,
-      projectlessHomeDirectory: () => projectlessHome,
-    });
-    await (service as unknown as {
-      readWorkspaceThread: (threadId: string) => Promise<DesktopProjectWorkspaceThread | null>;
-    }).readWorkspaceThread("thr_side_projectless_parent");
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    client.start = async () => undefined;
-    client.request = async (method, params) => {
-      requests.push({ method, params });
-      if (method === "thread/fork") {
-        const cwd = (params as { cwd: string }).cwd;
-        return makeCanonicalForkResponse({
-          threadId: "thr_side_projectless_child",
-          cwd,
-          turns: [],
-        });
-      }
-      if (method === "thread/inject_items") return {};
-      throw new Error(`Unexpected client request: ${method}`);
-    };
-    service.readThread = async () => ({
-      ...makeThreadDetail("thr_side_projectless_parent"),
-      projectId: null,
-      source: null,
-      cwd: staleCwd,
-      projectlessOutputDirectory: null,
-      projectlessWorkspaceBrowserRoot: null,
-      threadName: "Repair side chat workspace",
-      threadPreview: "Repair side chat workspace",
-      sandbox: {
-        type: "workspaceWrite",
-        writableRoots: [],
-        networkAccess: false,
-        excludeTmpdirEnvVar: false,
-        excludeSlashTmp: false,
-      },
-    });
-
-    try {
-      const result = await service.startSideChat({
-        parentThreadId: "thr_side_projectless_parent",
-        parentNavigationPath:
-          "session:session-projectless/thread:thr_side_projectless_parent",
+  ])(
+    "side chat repairs and persists a $label projectless parent workspace before forking",
+    async ({ hasStaleCwd }) => {
+      const projectlessHome = fs.mkdtempSync(
+        path.join(os.tmpdir(), "nodex-side-chat-projectless-"),
+      );
+      const staleCwd = hasStaleCwd ? path.join(projectlessHome, "deleted-parent-workspace") : null;
+      const projectWorkspace = createTestProjectWorkspace();
+      await projectWorkspace.upsertThread("thr_side_projectless_parent", {
+        projectId: null,
+        cwd: staleCwd,
+        projectlessOutputDirectory: null,
+        projectlessWorkspaceBrowserRoot: null,
+        threadName: "Repair side chat workspace",
+        threadPreview: "Repair side chat workspace",
       });
-      const forkParams = requests[0]?.params as { cwd?: string };
-      const persistedParent = await projectWorkspace.getThread(
-        "thr_side_projectless_parent",
-      );
+      const service = createService({
+        projectWorkspace,
+        projectlessHomeDirectory: () => projectlessHome,
+      });
+      await (
+        service as unknown as {
+          readWorkspaceThread: (threadId: string) => Promise<DesktopProjectWorkspaceThread | null>;
+        }
+      ).readWorkspaceThread("thr_side_projectless_parent");
+      const client = Reflect.get(service as object, "client") as {
+        start: () => Promise<void>;
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      const requests: Array<{ method: string; params: unknown }> = [];
+      client.start = async () => undefined;
+      client.request = async (method, params) => {
+        requests.push({ method, params });
+        if (method === "thread/fork") {
+          const cwd = (params as { cwd: string }).cwd;
+          return makeCanonicalForkResponse({
+            threadId: "thr_side_projectless_child",
+            cwd,
+            turns: [],
+          });
+        }
+        if (method === "thread/inject_items") return {};
+        throw new Error(`Unexpected client request: ${method}`);
+      };
+      service.readThread = async () => ({
+        ...makeThreadDetail("thr_side_projectless_parent"),
+        projectId: null,
+        source: null,
+        cwd: staleCwd,
+        projectlessOutputDirectory: null,
+        projectlessWorkspaceBrowserRoot: null,
+        threadName: "Repair side chat workspace",
+        threadPreview: "Repair side chat workspace",
+        sandbox: {
+          type: "workspaceWrite",
+          writableRoots: [],
+          networkAccess: false,
+          excludeTmpdirEnvVar: false,
+          excludeSlashTmp: false,
+        },
+      });
 
-      expect(requests.map((request) => request.method).join(",")).toBe(
-        "thread/fork,thread/inject_items",
-      );
-      expect(forkParams.cwd?.startsWith(path.join(projectlessHome, "Documents", "Nodex")))
-        .toBe(true);
-      expect(forkParams.cwd).not.toBe(staleCwd);
-      expect(fs.statSync(forkParams.cwd ?? "").isDirectory()).toBe(true);
-      expect(persistedParent?.cwd).toBe(forkParams.cwd);
-      expect(persistedParent?.projectlessOutputDirectory).toBe(forkParams.cwd);
-      expect(persistedParent?.projectlessWorkspaceBrowserRoot).toBe(
-        path.join(projectlessHome, "Documents", "Nodex"),
-      );
-      expect(result.conversation.projectId).toBeNull();
-      expect(result.conversation.cwd).toBe(forkParams.cwd);
-      expect(result.conversation.projectlessOutputDirectory).toBe(forkParams.cwd);
-      expect(result.conversation.projectlessWorkspaceBrowserRoot).toBe(
-        path.join(projectlessHome, "Documents", "Nodex"),
-      );
-      expect(await projectWorkspace.getThread(result.threadId)).toBeNull();
-    } finally {
-      await service.shutdown();
-      fs.rmSync(projectlessHome, { recursive: true, force: true });
-    }
-  });
+      try {
+        const result = await service.startSideChat({
+          parentThreadId: "thr_side_projectless_parent",
+          parentNavigationPath: "session:session-projectless/thread:thr_side_projectless_parent",
+        });
+        const forkParams = requests[0]?.params as { cwd?: string };
+        const persistedParent = await projectWorkspace.getThread("thr_side_projectless_parent");
+
+        expect(requests.map((request) => request.method).join(",")).toBe(
+          "thread/fork,thread/inject_items",
+        );
+        expect(forkParams.cwd?.startsWith(path.join(projectlessHome, "Documents", "Nodex"))).toBe(
+          true,
+        );
+        expect(forkParams.cwd).not.toBe(staleCwd);
+        expect(fs.statSync(forkParams.cwd ?? "").isDirectory()).toBe(true);
+        expect(persistedParent?.cwd).toBe(forkParams.cwd);
+        expect(persistedParent?.projectlessOutputDirectory).toBe(forkParams.cwd);
+        expect(persistedParent?.projectlessWorkspaceBrowserRoot).toBe(
+          path.join(projectlessHome, "Documents", "Nodex"),
+        );
+        expect(result.conversation.projectId).toBeNull();
+        expect(result.conversation.cwd).toBe(forkParams.cwd);
+        expect(result.conversation.projectlessOutputDirectory).toBe(forkParams.cwd);
+        expect(result.conversation.projectlessWorkspaceBrowserRoot).toBe(
+          path.join(projectlessHome, "Documents", "Nodex"),
+        );
+        expect(await projectWorkspace.getThread(result.threadId)).toBeNull();
+      } finally {
+        await service.shutdown();
+        fs.rmSync(projectlessHome, { recursive: true, force: true });
+      }
+    },
+  );
 
   test.each([
     {
@@ -7783,11 +8025,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       existingProjectId: null,
       nextCwd: "/Users/test/Documents/Nodex/My Project/nested",
     },
-  ])("sidebar refresh preserves $label", async ({
-    threadId,
-    existingProjectId,
-    nextCwd,
-  }) => {
+  ])("sidebar refresh preserves $label", async ({ threadId, existingProjectId, nextCwd }) => {
     const baseWorkspace = createTestProjectWorkspace();
     const existing = await baseWorkspace.upsertThread(threadId, {
       projectId: existingProjectId,
@@ -7799,12 +8037,8 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
       createdAt: 1,
       updatedAt: 1,
     });
-    const upsertPatches: Array<
-      Parameters<DesktopProjectWorkspacePort["upsertThread"]>[1]
-    > = [];
-    const moveInputs: Array<
-      Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]
-    > = [];
+    const upsertPatches: Array<Parameters<DesktopProjectWorkspacePort["upsertThread"]>[1]> = [];
+    const moveInputs: Array<Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]> = [];
     const projectWorkspace = {
       ...baseWorkspace,
       getProjectSession: async (sessionId: string) => ({
@@ -7818,9 +8052,7 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
         upsertPatches.push(patch);
         return await baseWorkspace.upsertThread(id, patch);
       },
-      moveThread: async (
-        input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0],
-      ) => {
+      moveThread: async (input: Parameters<DesktopProjectWorkspacePort["moveThread"]>[0]) => {
         moveInputs.push(input);
         return await baseWorkspace.moveThread(input);
       },
@@ -7838,46 +8070,47 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     };
 
     try {
-      const result = await internals.upsertSidebarThreadFromAppServerThread({
-        id: threadId,
-        name: threadId,
-        preview: threadId,
-        modelProvider: "openai",
-        cwd: nextCwd,
-        status: { type: "idle" },
-        createdAt: 1,
-        updatedAt: 2,
-      }, {
-        projects: [
-          makeProject({
-            id: "project:durable",
-            sources: [{ root: "/workspace/durable", order: 0 }],
-            primaryWorkspaceRoot: "/workspace/durable",
-          }),
-          makeProject({
-            id: "project:default",
-            sources: [{
-              root: "/Users/test/Documents/Nodex/My Project",
-              order: 0,
-            }],
-            primaryWorkspaceRoot: "/Users/test/Documents/Nodex/My Project",
-          }),
-        ],
-        includeArchived: false,
-        reason: "manual",
-      });
+      const result = await internals.upsertSidebarThreadFromAppServerThread(
+        {
+          id: threadId,
+          name: threadId,
+          preview: threadId,
+          modelProvider: "openai",
+          cwd: nextCwd,
+          status: { type: "idle" },
+          createdAt: 1,
+          updatedAt: 2,
+        },
+        {
+          projects: [
+            makeProject({
+              id: "project:durable",
+              sources: [{ root: "/workspace/durable", order: 0 }],
+              primaryWorkspaceRoot: "/workspace/durable",
+            }),
+            makeProject({
+              id: "project:default",
+              sources: [
+                {
+                  root: "/Users/test/Documents/Nodex/My Project",
+                  order: 0,
+                },
+              ],
+              primaryWorkspaceRoot: "/Users/test/Documents/Nodex/My Project",
+            }),
+          ],
+          includeArchived: false,
+          reason: "manual",
+        },
+      );
 
       expect(existing.sessionId).not.toBeNull();
       expect(result.summary?.projectId).toBe(existingProjectId);
       expect(result.projectId).toBe(existingProjectId);
-      expect((await baseWorkspace.getThread(threadId))?.projectId).toBe(
-        existingProjectId,
-      );
+      expect((await baseWorkspace.getThread(threadId))?.projectId).toBe(existingProjectId);
       expect(moveInputs).toEqual([]);
       expect(
-        upsertPatches.some((patch) =>
-          Object.prototype.hasOwnProperty.call(patch, "projectId")
-        ),
+        upsertPatches.some((patch) => Object.prototype.hasOwnProperty.call(patch, "projectId")),
       ).toBe(false);
     } finally {
       await service.shutdown();
@@ -7906,9 +8139,11 @@ describe("codex-service edit-last-user-turn and fork-from-turn", () => {
     });
 
     try {
-      await expect(service.startSideChat({
-        parentThreadId: "thr_side_unpersisted_parent",
-      })).rejects.toThrow(
+      await expect(
+        service.startSideChat({
+          parentThreadId: "thr_side_unpersisted_parent",
+        }),
+      ).rejects.toThrow(
         "Projectless side chat requires a workspace, but its parent workspace could not be repaired",
       );
       expect(requests.length).toBe(0);
@@ -8000,9 +8235,7 @@ describe("codex-service interrupt target resolution", () => {
 
     try {
       const result = await service.interruptTurn("thr_interrupt");
-      const interruptRequest = requests.find(
-        (request) => request.method === "turn/interrupt",
-      );
+      const interruptRequest = requests.find((request) => request.method === "turn/interrupt");
       expect(result).toBe(true);
       expect(requests.length >= 1).toBe(true);
       expect(Boolean(interruptRequest)).toBe(true);
@@ -8121,12 +8354,14 @@ describe("codex-service interrupt target resolution", () => {
       ...makeThreadDetail("thr_goal_continue"),
       cwd: "/tmp/goal-continue",
       statusType: "active",
-      turns: [{
-        threadId: "thr_goal_continue",
-        turnId: "turn_done",
-        status: "completed",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_goal_continue",
+          turnId: "turn_done",
+          status: "completed",
+          itemIds: [],
+        },
+      ],
     };
 
     serviceInternals.setConversationRecordDetail(detail);
@@ -8171,7 +8406,9 @@ describe("codex-service interrupt target resolution", () => {
 
       const goalSetRequests = requests.filter((request) => request.method === "thread/goal/set");
       expect(goalSetRequests.length).toBe(1);
-      expect((goalSetRequests[0]?.params as { threadId?: string })?.threadId).toBe("thr_goal_continue");
+      expect((goalSetRequests[0]?.params as { threadId?: string })?.threadId).toBe(
+        "thr_goal_continue",
+      );
       expect((goalSetRequests[0]?.params as { status?: string })?.status).toBe("active");
       expect(record.detail?.statusType).toBe("idle");
     } finally {
@@ -8201,12 +8438,14 @@ describe("codex-service interrupt target resolution", () => {
       ...makeThreadDetail("thr_goal_continue_fallback"),
       cwd: "/tmp/goal-continue-fallback",
       statusType: "active",
-      turns: [{
-        threadId: "thr_goal_continue_fallback",
-        turnId: "turn_done",
-        status: "completed",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_goal_continue_fallback",
+          turnId: "turn_done",
+          status: "completed",
+          itemIds: [],
+        },
+      ],
     };
 
     Reflect.set(service as object, "threadSettingsUpdateSupport", "unsupported");
@@ -8238,14 +8477,19 @@ describe("codex-service interrupt target resolution", () => {
         : null;
       void serviceInternals.maybeContinueActiveThreadGoal("thr_goal_continue_fallback");
 
-      await waitForCondition(() =>
-        requests.some((request) => request.method === "turn/start"),
-      1_000);
+      await waitForCondition(
+        () => requests.some((request) => request.method === "turn/start"),
+        1_000,
+      );
 
       const turnStartRequest = requests.find((request) => request.method === "turn/start");
       expect(requests.some((request) => request.method === "thread/goal/set")).toBe(false);
-      expect((turnStartRequest?.params as { threadId?: string })?.threadId).toBe("thr_goal_continue_fallback");
-      expect((turnStartRequest?.params as { cwd?: string })?.cwd).toBe("/tmp/goal-continue-fallback");
+      expect((turnStartRequest?.params as { threadId?: string })?.threadId).toBe(
+        "thr_goal_continue_fallback",
+      );
+      expect((turnStartRequest?.params as { cwd?: string })?.cwd).toBe(
+        "/tmp/goal-continue-fallback",
+      );
       expect(((turnStartRequest?.params as { input?: unknown[] })?.input ?? []).length).toBe(0);
     } finally {
       await service.shutdown();
@@ -8278,18 +8522,23 @@ describe("codex-service interrupt target resolution", () => {
       ...makeThreadDetail("thr_goal_continue_settings"),
       cwd: "/tmp/goal-continue-settings",
       statusType: "active",
-      turns: [{
-        threadId: "thr_goal_continue_settings",
-        turnId: "turn_done",
-        status: "completed",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_goal_continue_settings",
+          turnId: "turn_done",
+          status: "completed",
+          itemIds: [],
+        },
+      ],
     };
     let resolveSettings: (value: unknown) => void = () => {};
 
-    pendingThreadSettingsUpdates.set("thr_goal_continue_settings", new Promise((resolve) => {
-      resolveSettings = resolve;
-    }));
+    pendingThreadSettingsUpdates.set(
+      "thr_goal_continue_settings",
+      new Promise((resolve) => {
+        resolveSettings = resolve;
+      }),
+    );
     serviceInternals.setConversationRecordDetail(detail);
     const record = serviceInternals.getConversationRecord("thr_goal_continue_settings");
     record.resumeState = "resumed";
@@ -8340,9 +8589,10 @@ describe("codex-service interrupt target resolution", () => {
         },
       });
 
-      await waitForCondition(() =>
-        requests.some((request) => request.method === "thread/goal/set"),
-      1_000);
+      await waitForCondition(
+        () => requests.some((request) => request.method === "thread/goal/set"),
+        1_000,
+      );
 
       const goalSetRequest = requests.find((request) => request.method === "thread/goal/set");
       expect((goalSetRequest?.params as { status?: string })?.status).toBe("active");
@@ -8526,7 +8776,9 @@ describe("codex-service startTurn", () => {
   test("starts a follow-up for projectless thread metadata without forcing a workspace cwd", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      parseThreadRef: (threadId: string) => { projectId: string | null | null; cwd: string | null } | null;
+      parseThreadRef: (
+        threadId: string,
+      ) => { projectId: string | null | null; cwd: string | null } | null;
       markThreadAsActive: (threadId: string) => void;
       persistThreadSnapshot: (threadId: string) => void;
     };
@@ -8559,7 +8811,7 @@ describe("codex-service startTurn", () => {
       expect(turn?.turnId).toBe("turn_projectless");
       const turnStartRequest = requests.find((request) => request.method === "turn/start");
       expect(turnStartRequest).toBeDefined();
-      expect(JSON.stringify(turnStartRequest?.params).includes("\"cwd\"")).toBe(false);
+      expect(JSON.stringify(turnStartRequest?.params).includes('"cwd"')).toBe(false);
     } finally {
       await service.shutdown();
     }
@@ -8600,7 +8852,8 @@ describe("codex-service startTurn", () => {
         return { requirements: null };
       }
       if (method === "config/batchWrite") {
-        const edits = (params as { edits?: Array<{ keyPath?: string; value?: unknown }> }).edits ?? [];
+        const edits =
+          (params as { edits?: Array<{ keyPath?: string; value?: unknown }> }).edits ?? [];
         for (const edit of edits) {
           if (edit.keyPath) config[edit.keyPath] = edit.value;
         }
@@ -8669,7 +8922,8 @@ describe("codex-service startTurn", () => {
       expect(state.mode).toBe("auto");
       expect(await projectWorkspace.readProjectPermissionMode("project:one")).toBeNull();
       expect(
-        (Reflect.get(service as object, "verifiedPermissionModeByProject") as Map<string, unknown>).size,
+        (Reflect.get(service as object, "verifiedPermissionModeByProject") as Map<string, unknown>)
+          .size,
       ).toBe(0);
     } finally {
       await service.shutdown();
@@ -8753,19 +9007,21 @@ describe("codex-service startTurn", () => {
       cwd: "/workspace/project",
     });
     serviceInternals.persistThreadDetailSummary = () => {};
-    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
-      threadId: "thr_start",
-      initialTurnsPage: {
-        data: [],
-        nextCursor: null,
-        backwardsCursor: null,
-      },
-    }));
+    serviceInternals.hydrateCanonicalConversationState(
+      makeCanonicalResumeResponse({
+        threadId: "thr_start",
+        initialTurnsPage: {
+          data: [],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }),
+    );
     const originalHandleNotification = serviceInternals.handleNotification.bind(service);
     serviceInternals.handleNotification = async (notification, options) => {
       if (
-        notification.method === "item/agentMessage/delta"
-        && !serviceInternals.resumeNotificationBuffersByThreadId.has("thr_start")
+        notification.method === "item/agentMessage/delta" &&
+        !serviceInternals.resumeNotificationBuffersByThreadId.has("thr_start")
       ) {
         const canonical = getCanonicalConversationState(service, "thr_start");
         resumeOrder.push(canonical ? "replay-after-hydration" : "replay-before-hydration");
@@ -8834,13 +9090,13 @@ describe("codex-service startTurn", () => {
       expect(resumeOrder.join(",")).toBe("replay-after-hydration,turn-retry");
       const resumeRequest = requests.find((request) => request.method === "thread/resume");
       expect(resumeRequest).toBeDefined();
-      expect(((resumeRequest?.params as { threadId?: string }).threadId)).toBe("thr_start");
-      const resumeConfig = (resumeRequest?.params as { config?: Record<string, unknown> })?.config ?? {};
+      expect((resumeRequest?.params as { threadId?: string }).threadId).toBe("thr_start");
+      const resumeConfig =
+        (resumeRequest?.params as { config?: Record<string, unknown> })?.config ?? {};
       expect(resumeConfig["features.apply_patch_streaming_events"]).toBe(true);
       const snapshot = service.serializeConversationSnapshot("thr_start");
-      const userItems = snapshot?.turns.flatMap((turn) =>
-        turn.items.filter((item) => item.role === "user")
-      ) ?? [];
+      const userItems =
+        snapshot?.turns.flatMap((turn) => turn.items.filter((item) => item.role === "user")) ?? [];
       expect(userItems).toHaveLength(1);
       expect(userItems[0]?.markdownText).toBe("Ship the fix");
       expect(snapshot?.canonicalState?.turns).toHaveLength(1);
@@ -8892,10 +9148,18 @@ describe("codex-service startTurn", () => {
       const turnStartRequests = requests.filter((request) => request.method === "turn/start");
       expect(startedTurn?.turnId).toBe("turn_full_access");
       expect(turnStartRequests.length).toBe(1);
-      expect((turnStartRequests[0]?.params as { approvalPolicy?: string })?.approvalPolicy).toBe("never");
-      expect(JSON.stringify((turnStartRequests[0]?.params as { sandboxPolicy?: { type?: string } })?.sandboxPolicy)).toBe(JSON.stringify({
-        type: "dangerFullAccess",
-      }));
+      expect((turnStartRequests[0]?.params as { approvalPolicy?: string })?.approvalPolicy).toBe(
+        "never",
+      );
+      expect(
+        JSON.stringify(
+          (turnStartRequests[0]?.params as { sandboxPolicy?: { type?: string } })?.sandboxPolicy,
+        ),
+      ).toBe(
+        JSON.stringify({
+          type: "dangerFullAccess",
+        }),
+      );
     } finally {
       await service.shutdown();
     }
@@ -8940,8 +9204,12 @@ describe("codex-service startTurn", () => {
       expect(startedTurn?.turnId).toBe("turn_custom");
       const turnStartRequest = requests.find((request) => request.method === "turn/start");
       expect(turnStartRequest).toBeDefined();
-      expect((turnStartRequest?.params as { approvalPolicy?: unknown })?.approvalPolicy).toBe(undefined);
-      expect((turnStartRequest?.params as { sandboxPolicy?: unknown })?.sandboxPolicy).toBe(undefined);
+      expect((turnStartRequest?.params as { approvalPolicy?: unknown })?.approvalPolicy).toBe(
+        undefined,
+      );
+      expect((turnStartRequest?.params as { sandboxPolicy?: unknown })?.sandboxPolicy).toBe(
+        undefined,
+      );
       expect((turnStartRequest?.params as { model?: unknown })?.model).toBe(undefined);
     } finally {
       await service.shutdown();
@@ -8987,20 +9255,22 @@ describe("codex-service collaboration modes", () => {
     try {
       const presets = await service.listCollaborationModes();
       expect(presets.length).toBe(2);
-      expect(JSON.stringify(presets)).toBe(JSON.stringify([
-        {
-          name: "Default",
-          mode: "default",
-          model: "gpt-5.3-codex",
-          reasoningEffort: "high",
-        },
-        {
-          name: "Plan",
-          mode: "plan",
-          model: "gpt-5.3-codex",
-          reasoningEffort: null,
-        },
-      ]));
+      expect(JSON.stringify(presets)).toBe(
+        JSON.stringify([
+          {
+            name: "Default",
+            mode: "default",
+            model: "gpt-5.3-codex",
+            reasoningEffort: "high",
+          },
+          {
+            name: "Plan",
+            mode: "plan",
+            model: "gpt-5.3-codex",
+            reasoningEffort: null,
+          },
+        ]),
+      );
     } finally {
       await service.shutdown();
     }
@@ -9085,9 +9355,7 @@ describe("codex-service collaboration modes", () => {
       await service.startTurn("thr_start_settings_priority", "Suppress summaries", {
         summary: "none",
       });
-      const thirdTurn = requests
-        .filter((request) => request.method === "turn/start")[2]
-        ?.params;
+      const thirdTurn = requests.filter((request) => request.method === "turn/start")[2]?.params;
       expect(thirdTurn?.summary).toBe("none");
     } finally {
       await service.shutdown();
@@ -9131,10 +9399,10 @@ describe("codex-service collaboration modes", () => {
     serviceInternals.ensureConversationDetail("thr_unloaded_settings");
 
     try {
-      const settings = await service.updateThreadSettingsForNextTurn(
-        "thr_unloaded_settings",
-        { model: "gpt-settings", reasoningEffort: "high" },
-      );
+      const settings = await service.updateThreadSettingsForNextTurn("thr_unloaded_settings", {
+        model: "gpt-settings",
+        reasoningEffort: "high",
+      });
       await service.startTurn("thr_unloaded_settings", "Use persisted settings");
 
       expect(settings.model).toBe("gpt-settings");
@@ -9194,72 +9462,78 @@ describe("codex-service collaboration modes", () => {
     });
     serviceInternals.resolveAgentExecutionProfile = async (profile) => profile;
     serviceInternals.listAgentProviderCatalog = async () => ({
-      providers: [{
-        id: "openai",
-        displayName: "OpenAI",
-        description: null,
-        wireApi: "responses",
-        credentialStatus: "runtimeManaged",
-        supportedByNodex: true,
-        isDefault: true,
-        credentialEnvKey: null,
-        recommendedHarnessId: null,
-        models: [
-          {
-            providerId: "openai",
-            modelId: "gpt-5.4",
-            displayName: "GPT-5.4",
-            description: null,
-            hidden: false,
-            isDefault: false,
-            recommendedHarnessId: null,
-            supportedReasoningEfforts: [],
-            defaultReasoningEffort: null,
-            supportedServiceTiers: [],
-            defaultServiceTier: null,
-            inputCapabilities: ["text"],
-            switchPolicy: "same-thread",
-          },
-          {
-            providerId: "openai",
-            modelId: "gpt-new-thread-only",
-            displayName: "New task only",
-            description: null,
-            hidden: false,
-            isDefault: false,
-            recommendedHarnessId: null,
-            supportedReasoningEfforts: [],
-            defaultReasoningEffort: null,
-            supportedServiceTiers: [],
-            defaultServiceTier: null,
-            inputCapabilities: ["text"],
-            switchPolicy: "new-thread",
-          },
-          {
-            providerId: "openai",
-            modelId: "gpt-5.6",
-            displayName: "GPT-5.6",
-            description: null,
-            hidden: false,
-            isDefault: false,
-            recommendedHarnessId: null,
-            supportedReasoningEfforts: [{
-              value: "xhigh",
-              displayName: "Extra high",
+      providers: [
+        {
+          id: "openai",
+          displayName: "OpenAI",
+          description: null,
+          wireApi: "responses",
+          credentialStatus: "runtimeManaged",
+          supportedByNodex: true,
+          isDefault: true,
+          credentialEnvKey: null,
+          recommendedHarnessId: null,
+          models: [
+            {
+              providerId: "openai",
+              modelId: "gpt-5.4",
+              displayName: "GPT-5.4",
               description: null,
-            }],
-            defaultReasoningEffort: "xhigh",
-            supportedServiceTiers: [{
-              value: "fast",
-              displayName: "Fast",
+              hidden: false,
+              isDefault: false,
+              recommendedHarnessId: null,
+              supportedReasoningEfforts: [],
+              defaultReasoningEffort: null,
+              supportedServiceTiers: [],
+              defaultServiceTier: null,
+              inputCapabilities: ["text"],
+              switchPolicy: "same-thread",
+            },
+            {
+              providerId: "openai",
+              modelId: "gpt-new-thread-only",
+              displayName: "New task only",
               description: null,
-            }],
-            defaultServiceTier: "fast",
-            inputCapabilities: ["text"],
-            switchPolicy: "same-thread",
-          },
-        ],
-      }],
+              hidden: false,
+              isDefault: false,
+              recommendedHarnessId: null,
+              supportedReasoningEfforts: [],
+              defaultReasoningEffort: null,
+              supportedServiceTiers: [],
+              defaultServiceTier: null,
+              inputCapabilities: ["text"],
+              switchPolicy: "new-thread",
+            },
+            {
+              providerId: "openai",
+              modelId: "gpt-5.6",
+              displayName: "GPT-5.6",
+              description: null,
+              hidden: false,
+              isDefault: false,
+              recommendedHarnessId: null,
+              supportedReasoningEfforts: [
+                {
+                  value: "xhigh",
+                  displayName: "Extra high",
+                  description: null,
+                },
+              ],
+              defaultReasoningEffort: "xhigh",
+              supportedServiceTiers: [
+                {
+                  value: "fast",
+                  displayName: "Fast",
+                  description: null,
+                },
+              ],
+              defaultServiceTier: "fast",
+              inputCapabilities: ["text"],
+              switchPolicy: "same-thread",
+            },
+          ],
+        },
+      ],
     });
     serviceInternals.updateWorkspaceThreadSummary = async (_threadId, patch) => {
       persistedProfiles.push(patch.executionProfile);
@@ -9286,10 +9560,9 @@ describe("codex-service collaboration modes", () => {
     };
 
     try {
-      const settings = await service.updateThreadSettingsForNextTurn(
-        "thr_profile_update",
-        { executionProfile: nextProfile },
-      );
+      const settings = await service.updateThreadSettingsForNextTurn("thr_profile_update", {
+        executionProfile: nextProfile,
+      });
       const params = requests[0]?.params;
       expect(persistedProfiles).toEqual([nextProfile]);
       expect(params?.model).toBe("gpt-5.4");
@@ -9299,31 +9572,25 @@ describe("codex-service collaboration modes", () => {
       expect(settings.model).toBe("gpt-5.4");
       expect(settings.serviceTier).toBe("fast");
 
-      await service.updateThreadSettingsForNextTurn(
-        "thr_profile_update",
-        {
-          executionProfile: {
-            ...currentProfile,
-            reasoningEffort: "xhigh",
-          },
-          executionProfileChange: "reasoningEffort",
+      await service.updateThreadSettingsForNextTurn("thr_profile_update", {
+        executionProfile: {
+          ...currentProfile,
+          reasoningEffort: "xhigh",
         },
-      );
+        executionProfileChange: "reasoningEffort",
+      });
       expect(persistedProfiles[1]).toEqual({
         ...nextProfile,
         reasoningEffort: "xhigh",
       });
 
-      await service.updateThreadSettingsForNextTurn(
-        "thr_profile_update",
-        {
-          executionProfile: {
-            ...currentProfile,
-            modelId: "gpt-5.6",
-          },
-          executionProfileChange: "model",
+      await service.updateThreadSettingsForNextTurn("thr_profile_update", {
+        executionProfile: {
+          ...currentProfile,
+          modelId: "gpt-5.6",
         },
-      );
+        executionProfileChange: "model",
+      });
       const latestProfile = {
         ...nextProfile,
         modelId: "gpt-5.6",
@@ -9331,15 +9598,14 @@ describe("codex-service collaboration modes", () => {
       };
       expect(persistedProfiles[2]).toEqual(latestProfile);
 
-      await expect(service.updateThreadSettingsForNextTurn(
-        "thr_profile_update",
-        {
+      await expect(
+        service.updateThreadSettingsForNextTurn("thr_profile_update", {
           executionProfile: {
             ...nextProfile,
             modelId: "gpt-new-thread-only",
           },
-        },
-      )).rejects.toThrow("Start a new thread");
+        }),
+      ).rejects.toThrow("Start a new thread");
       expect(persistedProfiles).toEqual([
         nextProfile,
         {
@@ -9378,10 +9644,12 @@ describe("codex-service hooks settings", () => {
       });
 
       expect(result).toBe(response);
-      expect(requests).toEqual([{
-        method: "hooks/list",
-        params: { cwds: ["/workspace/alpha", "/workspace/beta"] },
-      }]);
+      expect(requests).toEqual([
+        {
+          method: "hooks/list",
+          params: { cwds: ["/workspace/alpha", "/workspace/beta"] },
+        },
+      ]);
     } finally {
       await service.shutdown();
     }
@@ -9412,23 +9680,27 @@ describe("codex-service hooks settings", () => {
         ],
       });
 
-      expect(requests).toEqual([{
-        method: "config/batchWrite",
-        params: {
-          edits: [{
-            keyPath: "hooks.state",
-            value: {
-              "hook-enable": { enabled: false },
-              "hook-trust": { trusted_hash: "sha256:trusted" },
-              "hook-both": { enabled: true, trusted_hash: "sha256:both" },
-            },
-            mergeStrategy: "upsert",
-          }],
-          filePath: null,
-          expectedVersion: null,
-          reloadUserConfig: true,
+      expect(requests).toEqual([
+        {
+          method: "config/batchWrite",
+          params: {
+            edits: [
+              {
+                keyPath: "hooks.state",
+                value: {
+                  "hook-enable": { enabled: false },
+                  "hook-trust": { trusted_hash: "sha256:trusted" },
+                  "hook-both": { enabled: true, trusted_hash: "sha256:both" },
+                },
+                mergeStrategy: "upsert",
+              },
+            ],
+            filePath: null,
+            expectedVersion: null,
+            reloadUserConfig: true,
+          },
         },
-      }]);
+      ]);
     } finally {
       await service.shutdown();
     }
@@ -9452,12 +9724,15 @@ describe("codex-service hooks settings", () => {
     };
 
     try {
-      await expect(service.listHooks({ hostId: "remote", cwds: ["/workspace"] }))
-        .rejects.toThrow("Codex host is unavailable: remote");
-      await expect(service.updateHooksState({
-        hostId: "remote",
-        patches: [{ key: "hook", enabled: true }],
-      })).rejects.toThrow("Codex host is unavailable: remote");
+      await expect(service.listHooks({ hostId: "remote", cwds: ["/workspace"] })).rejects.toThrow(
+        "Codex host is unavailable: remote",
+      );
+      await expect(
+        service.updateHooksState({
+          hostId: "remote",
+          patches: [{ key: "hook", enabled: true }],
+        }),
+      ).rejects.toThrow("Codex host is unavailable: remote");
 
       expect(startCount).toBe(0);
       expect(requestCount).toBe(0);
@@ -9475,25 +9750,33 @@ describe("codex-service hooks settings", () => {
     client.start = start;
 
     try {
-      await expect(service.updateHooksState({
-        hostId: DEFAULT_CODEX_HOST_ID,
-        patches: [],
-      })).rejects.toThrow("At least one hook state patch is required");
-      await expect(service.updateHooksState({
-        hostId: DEFAULT_CODEX_HOST_ID,
-        patches: [
-          { key: "hook", enabled: true },
-          { key: "hook", enabled: false },
-        ],
-      })).rejects.toThrow("Duplicate hook state patch: hook");
-      await expect(service.updateHooksState({
-        hostId: DEFAULT_CODEX_HOST_ID,
-        patches: [{ key: " ", enabled: true }],
-      })).rejects.toThrow("Hook key is required");
-      await expect(service.updateHooksState({
-        hostId: DEFAULT_CODEX_HOST_ID,
-        patches: [{ key: "hook", trustedHash: " " }],
-      })).rejects.toThrow("Hook trusted hash is required");
+      await expect(
+        service.updateHooksState({
+          hostId: DEFAULT_CODEX_HOST_ID,
+          patches: [],
+        }),
+      ).rejects.toThrow("At least one hook state patch is required");
+      await expect(
+        service.updateHooksState({
+          hostId: DEFAULT_CODEX_HOST_ID,
+          patches: [
+            { key: "hook", enabled: true },
+            { key: "hook", enabled: false },
+          ],
+        }),
+      ).rejects.toThrow("Duplicate hook state patch: hook");
+      await expect(
+        service.updateHooksState({
+          hostId: DEFAULT_CODEX_HOST_ID,
+          patches: [{ key: " ", enabled: true }],
+        }),
+      ).rejects.toThrow("Hook key is required");
+      await expect(
+        service.updateHooksState({
+          hostId: DEFAULT_CODEX_HOST_ID,
+          patches: [{ key: "hook", trustedHash: " " }],
+        }),
+      ).rejects.toThrow("Hook trusted hash is required");
 
       expect(start).not.toHaveBeenCalled();
     } finally {
@@ -9503,13 +9786,12 @@ describe("codex-service hooks settings", () => {
 });
 
 describe("codex-service startThreadForSession", () => {
-
   test("rejects a second Thread start for an already linked Session", async () => {
     const sessionId = "session-already-linked";
     const threadId = "thread-already-linked";
     const projectWorkspace = {
       ...createTestProjectWorkspace(),
-      getProjectSession: async (candidateSessionId: string): Promise<ProjectSession | null> => (
+      getProjectSession: async (candidateSessionId: string): Promise<ProjectSession | null> =>
         candidateSessionId === sessionId
           ? {
               id: sessionId,
@@ -9539,8 +9821,7 @@ describe("codex-service startThreadForSession", () => {
               createdAt: "2026-08-15T00:00:00.000Z",
               updatedAt: "2026-08-15T00:00:00.000Z",
             }
-          : null
-      ),
+          : null,
     } as DesktopProjectWorkspacePort;
     const service = createService({ projectWorkspace });
     const client = Reflect.get(service as object, "client") as {
@@ -9555,14 +9836,14 @@ describe("codex-service startThreadForSession", () => {
     };
 
     try {
-      await expect(service.startThreadForSession({
-        projectId: "alpha",
-        sessionId,
-        prompt: "Do not create another Thread",
-        runInTarget: "localProject",
-      })).rejects.toThrow(
-        `Project session is already linked to Codex thread: ${threadId}`,
-      );
+      await expect(
+        service.startThreadForSession({
+          projectId: "alpha",
+          sessionId,
+          prompt: "Do not create another Thread",
+          runInTarget: "localProject",
+        }),
+      ).rejects.toThrow(`Project session is already linked to Codex thread: ${threadId}`);
       expect(requests).toEqual([]);
     } finally {
       await service.shutdown();
@@ -9581,11 +9862,14 @@ describe("codex-service startThreadForSession", () => {
           startTurn: (params: Record<string, unknown>) => Promise<unknown>;
           interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
           unsubscribeThread: (threadId: string) => Promise<unknown>;
-          onNotification: (handler: (notification: { method: string; params: unknown }) => void) => () => void;
+          onNotification: (
+            handler: (notification: { method: string; params: unknown }) => void,
+          ) => () => void;
         };
       }) => Promise<string | null>;
     };
-    let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null = null;
+    let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null =
+      null;
     let threadStartParams: Record<string, unknown> | null = null;
     let turnStartParams: Record<string, unknown> | null = null;
     let unsubscribedThreadId: string | null = null;
@@ -9607,7 +9891,7 @@ describe("codex-service startThreadForSession", () => {
             params: {
               threadId: "thr_title_1",
               turnId: "turn_title_1",
-              delta: "{\"title\":\"Refactor inbox list layout\"}",
+              delta: '{"title":"Refactor inbox list layout"}',
             },
           });
           notificationHandler?.({
@@ -9638,49 +9922,56 @@ describe("codex-service startThreadForSession", () => {
         client: mockClient,
       });
       expect(generated).toBe("Refactor inbox list layout");
-      expect(JSON.stringify(threadStartParams)).toBe(JSON.stringify({
-        model: CODEX_THREAD_TITLE_MODEL,
-        modelProvider: null,
-        cwd: "/tmp/codex",
-        approvalPolicy: "never",
-        permissions: ":read-only",
-        runtimeWorkspaceRoots: [],
-        config: CODEX_THREAD_TITLE_CONFIG,
-        personality: null,
-        ephemeral: true,
-        threadSource: "system",
-        experimentalRawEvents: false,
-        dynamicTools: null,
-        serviceTier: null,
-        serviceName: "source-service",
-      }));
+      expect(JSON.stringify(threadStartParams)).toBe(
+        JSON.stringify({
+          model: CODEX_THREAD_TITLE_MODEL,
+          modelProvider: null,
+          cwd: "/tmp/codex",
+          approvalPolicy: "never",
+          permissions: ":read-only",
+          runtimeWorkspaceRoots: [],
+          config: CODEX_THREAD_TITLE_CONFIG,
+          personality: null,
+          ephemeral: true,
+          threadSource: "system",
+          experimentalRawEvents: false,
+          dynamicTools: null,
+          serviceTier: null,
+          serviceName: "source-service",
+        }),
+      );
 
-      const turnStartPayload = turnStartParams && typeof turnStartParams === "object"
-        ? turnStartParams as { clientUserMessageId?: unknown; input?: Array<{ text?: string }> }
-        : {};
+      const turnStartPayload =
+        turnStartParams && typeof turnStartParams === "object"
+          ? (turnStartParams as { clientUserMessageId?: unknown; input?: Array<{ text?: string }> })
+          : {};
       expect(typeof turnStartPayload.clientUserMessageId).toBe("string");
       const generatedPrompt = turnStartPayload.input?.[0]?.text ?? "";
       expect(generatedPrompt.includes("User prompt:\nRefactor inbox list layout")).toBe(true);
-      expect(JSON.stringify({
-        ...(turnStartParams ?? {}),
-        clientUserMessageId: "<uuid>",
-        input: [{ type: "text", text: "<title-prompt>", text_elements: [] }],
-      })).toBe(JSON.stringify({
-        threadId: "thr_title_1",
-        clientUserMessageId: "<uuid>",
-        input: [{ type: "text", text: "<title-prompt>", text_elements: [] }],
-        cwd: null,
-        approvalPolicy: null,
-        permissions: ":read-only",
-        runtimeWorkspaceRoots: [],
-        model: null,
-        effort: null,
-        serviceTier: null,
-        summary: "none",
-        personality: null,
-        outputSchema: CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
-        collaborationMode: null,
-      }));
+      expect(
+        JSON.stringify({
+          ...(turnStartParams ?? {}),
+          clientUserMessageId: "<uuid>",
+          input: [{ type: "text", text: "<title-prompt>", text_elements: [] }],
+        }),
+      ).toBe(
+        JSON.stringify({
+          threadId: "thr_title_1",
+          clientUserMessageId: "<uuid>",
+          input: [{ type: "text", text: "<title-prompt>", text_elements: [] }],
+          cwd: null,
+          approvalPolicy: null,
+          permissions: ":read-only",
+          runtimeWorkspaceRoots: [],
+          model: null,
+          effort: null,
+          serviceTier: null,
+          summary: "none",
+          personality: null,
+          outputSchema: CODEX_THREAD_TITLE_OUTPUT_SCHEMA,
+          collaborationMode: null,
+        }),
+      );
       expect(unsubscribedThreadId).toBe("thr_title_1");
     } finally {
       await service.shutdown();
@@ -9721,12 +10012,8 @@ describe("codex-service startThreadForSession", () => {
         "/workspace",
       );
 
-      expect(appliedTitles[0]).toBe(
-        "Build a refined migration plan with careful details careful…",
-      );
-      expect((requests[0]?.params as { name?: string } | undefined)?.name).toBe(
-        appliedTitles[0],
-      );
+      expect(appliedTitles[0]).toBe("Build a refined migration plan with careful details careful…");
+      expect((requests[0]?.params as { name?: string } | undefined)?.name).toBe(appliedTitles[0]);
     } finally {
       await service.shutdown();
     }
@@ -9743,11 +10030,14 @@ describe("codex-service startThreadForSession", () => {
           startTurn: (params: Record<string, unknown>) => Promise<unknown>;
           interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
           unsubscribeThread: (threadId: string) => Promise<unknown>;
-          onNotification: (handler: (notification: { method: string; params: unknown }) => void) => () => void;
+          onNotification: (
+            handler: (notification: { method: string; params: unknown }) => void,
+          ) => () => void;
         };
       }) => Promise<string | null>;
     };
-    let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null = null;
+    let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null =
+      null;
     let turnStartParams: Record<string, unknown> | null = null;
     let unsubscribedThreadId: string | null = null;
     const longPrompt = "x".repeat(2_500);
@@ -9780,7 +10070,7 @@ describe("codex-service startThreadForSession", () => {
               turnId: "turn_title_2",
               item: makeProtocolAgentMessage({
                 id: "title-message",
-                text: "{\"title\":\"title: \\\"Fix flaky.\\\"\"}",
+                text: '{"title":"title: \\"Fix flaky.\\""}',
               }),
             },
           });
@@ -9812,9 +10102,10 @@ describe("codex-service startThreadForSession", () => {
       });
       expect(generated).toBe("Fix flaky");
 
-      const turnStartPayload = turnStartParams && typeof turnStartParams === "object"
-        ? turnStartParams as { input?: Array<{ text?: string }> }
-        : {};
+      const turnStartPayload =
+        turnStartParams && typeof turnStartParams === "object"
+          ? (turnStartParams as { input?: Array<{ text?: string }> })
+          : {};
       const generatedPrompt = turnStartPayload.input?.[0]?.text ?? "";
       const userPrompt = generatedPrompt.split("User prompt:\n")[1] ?? "";
       expect(userPrompt.length).toBe(2_000);
@@ -9835,11 +10126,14 @@ describe("codex-service startThreadForSession", () => {
           startTurn: (params: Record<string, unknown>) => Promise<unknown>;
           interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
           unsubscribeThread: (threadId: string) => Promise<unknown>;
-          onNotification: (handler: (notification: { method: string; params: unknown }) => void) => () => void;
+          onNotification: (
+            handler: (notification: { method: string; params: unknown }) => void,
+          ) => () => void;
         };
       }) => Promise<string | null>;
     };
-    let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null = null;
+    let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null =
+      null;
 
     const mockClient = {
       startThread: async () => ({ thread: { id: "thr_title_3" } }),
@@ -9858,7 +10152,7 @@ describe("codex-service startThreadForSession", () => {
             params: {
               threadId: "thr_title_3",
               turnId: "turn_title_3",
-              delta: "{\"title\":\"Fix worktree startup race\"}",
+              delta: '{"title":"Fix worktree startup race"}',
             },
           });
           notificationHandler?.({
@@ -9901,11 +10195,14 @@ describe("codex-service startThreadForSession", () => {
           startTurn: (params: Record<string, unknown>) => Promise<unknown>;
           interruptTurn: (params: { threadId: string; turnId: string }) => Promise<unknown>;
           unsubscribeThread: (threadId: string) => Promise<unknown>;
-          onNotification: (handler: (notification: { method: string; params: unknown }) => void) => () => void;
+          onNotification: (
+            handler: (notification: { method: string; params: unknown }) => void,
+          ) => () => void;
         };
       }) => Promise<string | null>;
     };
-    let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null = null;
+    let notificationHandler: ((notification: { method: string; params: unknown }) => void) | null =
+      null;
     let interruptParams: { threadId: string; turnId: string } | null = null;
     let unsubscribedThreadId: string | null = null;
 
@@ -9960,10 +10257,12 @@ describe("codex-service startThreadForSession", () => {
       }
 
       expect(didReject).toBe(true);
-      expect(JSON.stringify(interruptParams)).toBe(JSON.stringify({
-        threadId: "thr_title_failed",
-        turnId: "turn_title_failed",
-      }));
+      expect(JSON.stringify(interruptParams)).toBe(
+        JSON.stringify({
+          threadId: "thr_title_failed",
+          turnId: "turn_title_failed",
+        }),
+      );
       expect(unsubscribedThreadId).toBe("thr_title_failed");
     } finally {
       await service.shutdown();
@@ -9973,7 +10272,10 @@ describe("codex-service startThreadForSession", () => {
   test("returns null when title generation fails", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      generateThreadTitle: (input: { prompt: string; cwd: string | null }) => Promise<{ title: string | null }>;
+      generateThreadTitle: (input: {
+        prompt: string;
+        cwd: string | null;
+      }) => Promise<{ title: string | null }>;
     };
     const client = Reflect.get(service as object, "client") as {
       start: () => Promise<void>;
@@ -10024,11 +10326,13 @@ describe("codex-service startThreadForSession", () => {
       expect(message).toBe("feat: generated commit message");
       const capturedRequest = requests[0];
       expect(capturedRequest?.method).toBe("generate-commit-message");
-      expect(JSON.stringify(capturedRequest?.params)).toBe(JSON.stringify({
-        hostId: "local",
-        prompt: "Changes:\ndiff --git a/feature.txt b/feature.txt",
-        cwd: "/tmp/project",
-      }));
+      expect(JSON.stringify(capturedRequest?.params)).toBe(
+        JSON.stringify({
+          hostId: "local",
+          prompt: "Changes:\ndiff --git a/feature.txt b/feature.txt",
+          cwd: "/tmp/project",
+        }),
+      );
     } finally {
       await service.shutdown();
     }
@@ -10064,22 +10368,25 @@ describe("codex-service startThreadForSession", () => {
         cwd: "/tmp/project",
       });
 
-      expect(JSON.stringify(message)).toBe(JSON.stringify({
-        title: "Generated PR title",
-        body: "Generated PR body",
-      }));
+      expect(JSON.stringify(message)).toBe(
+        JSON.stringify({
+          title: "Generated PR title",
+          body: "Generated PR body",
+        }),
+      );
       const capturedRequest = requests[0];
       expect(capturedRequest?.method).toBe("generate-pull-request-message");
-      expect(JSON.stringify(capturedRequest?.params)).toBe(JSON.stringify({
-        hostId: "local",
-        prompt: "Branches:\n- Head: feature\n- Base: main",
-        cwd: "/tmp/project",
-      }));
+      expect(JSON.stringify(capturedRequest?.params)).toBe(
+        JSON.stringify({
+          hostId: "local",
+          prompt: "Branches:\n- Head: feature\n- Base: main",
+          cwd: "/tmp/project",
+        }),
+      );
     } finally {
       await service.shutdown();
     }
   });
-
 });
 
 describe("codex-service pending managed worktree setup", () => {
@@ -10109,9 +10416,10 @@ describe("codex-service pending managed worktree setup", () => {
       hostId: input.hostId ?? "local",
       label: "Pending setup task",
       sourceWorkspaceRoot: input.sourceWorkspaceRoot,
-      startingState: input.startingState === undefined
-        ? { type: "branch", branchName: "main" }
-        : input.startingState,
+      startingState:
+        input.startingState === undefined
+          ? { type: "branch", branchName: "main" }
+          : input.startingState,
       localEnvironmentConfigPath: input.localEnvironmentConfigPath,
       prompt: "Run pending setup",
       launchMode: "start-conversation",
@@ -10192,11 +10500,9 @@ describe("codex-service pending managed worktree setup", () => {
         workerState.signal = options.signal;
         const creationGate = new Promise<void>((resolve, reject) => {
           workerState.finishCreation = resolve;
-          options.signal.addEventListener(
-            "abort",
-            () => reject(new Error("Request canceled")),
-            { once: true },
-          );
+          options.signal.addEventListener("abort", () => reject(new Error("Request canceled")), {
+            once: true,
+          });
         });
         options.onEvent({
           operation: "create",
@@ -10227,10 +10533,7 @@ describe("codex-service pending managed worktree setup", () => {
         warnings: [],
       }),
     };
-    (service as unknown as CodexService).setWorktreeWorkerPort(
-      "local",
-      localWorker,
-    );
+    (service as unknown as CodexService).setWorktreeWorkerPort("local", localWorker);
 
     try {
       const created = service.createPendingWorktree({
@@ -10269,9 +10572,9 @@ describe("codex-service pending managed worktree setup", () => {
       pendingWorktreeId = created.pendingWorktreeId;
       await flushAsyncWork();
 
-      const entry = service.listPendingWorktrees().find(
-        (candidate) => candidate.id === created.pendingWorktreeId,
-      );
+      const entry = service
+        .listPendingWorktrees()
+        .find((candidate) => candidate.id === created.pendingWorktreeId);
       expect(entry).toMatchObject({
         phase: "creating",
         errorMessage: null,
@@ -10323,25 +10626,30 @@ describe("codex-service pending managed worktree setup", () => {
     );
 
     try {
-      await expect(pendingWorktreeCreator(service).createPendingManagedWorktree(
-        makePendingManagedWorktreeEntry({
-          id: "failed-after-allocation",
-          sourceWorkspaceRoot: "/local/repo",
-          localEnvironmentConfigPath: null,
-        }),
-        {
-          signal: new AbortController().signal,
-          onEvent: () => undefined,
-        },
-      )).rejects.toThrow("git worktree add failed");
+      await expect(
+        pendingWorktreeCreator(service).createPendingManagedWorktree(
+          makePendingManagedWorktreeEntry({
+            id: "failed-after-allocation",
+            sourceWorkspaceRoot: "/local/repo",
+            localEnvironmentConfigPath: null,
+          }),
+          {
+            signal: new AbortController().signal,
+            onEvent: () => undefined,
+          },
+        ),
+      ).rejects.toThrow("git worktree add failed");
 
-      const lifecycle = (service as unknown as {
-        managedWorktreeLifecycle: {
-          listNewborns: () => readonly { readonly worktreeGitRoot: string }[];
-        };
-      }).managedWorktreeLifecycle;
-      expect(lifecycle.listNewborns().some((item) => item.worktreeGitRoot === allocatedRoot))
-        .toBe(false);
+      const lifecycle = (
+        service as unknown as {
+          managedWorktreeLifecycle: {
+            listNewborns: () => readonly { readonly worktreeGitRoot: string }[];
+          };
+        }
+      ).managedWorktreeLifecycle;
+      expect(lifecycle.listNewborns().some((item) => item.worktreeGitRoot === allocatedRoot)).toBe(
+        false,
+      );
     } finally {
       await service.shutdown();
     }
@@ -10386,14 +10694,16 @@ describe("codex-service pending managed worktree setup", () => {
     );
 
     try {
-      await expect(pendingWorktreeCreator(service).createPendingManagedWorktree(
-        makePendingManagedWorktreeEntry({
-          id: "canceled-after-worker-result",
-          sourceWorkspaceRoot: "/local/repo",
-          localEnvironmentConfigPath: null,
-        }),
-        { signal: abortController.signal, onEvent: () => undefined },
-      )).rejects.toThrow("Request canceled");
+      await expect(
+        pendingWorktreeCreator(service).createPendingManagedWorktree(
+          makePendingManagedWorktreeEntry({
+            id: "canceled-after-worker-result",
+            sourceWorkspaceRoot: "/local/repo",
+            localEnvironmentConfigPath: null,
+          }),
+          { signal: abortController.signal, onEvent: () => undefined },
+        ),
+      ).rejects.toThrow("Request canceled");
       expect(removed).toHaveLength(1);
       expect(removed[0]).toMatchObject({
         hostId: "local",
@@ -10520,7 +10830,8 @@ describe("codex-service pending managed worktree setup", () => {
         expect(result.setupError).toBe(null);
         const setupStartedIndex = events.indexOf("setup-started");
         const setupOutputIndex = events.findIndex((event) =>
-          event.includes("pending-setup-output"));
+          event.includes("pending-setup-output"),
+        );
         expect(setupStartedIndex >= 0).toBe(true);
         expect(setupOutputIndex > setupStartedIndex).toBe(true);
 
@@ -10612,11 +10923,10 @@ describe("codex-service pending managed worktree setup", () => {
           expect(setupStarted).toBe(1);
           expect(result.setupError?.includes(scenario.expectedError) ?? false).toBe(true);
           expect(fs.existsSync(result.worktreeGitRoot)).toBe(true);
-          const worktreeList = execFileSync(
-            "git",
-            ["worktree", "list", "--porcelain"],
-            { cwd: repositoryPath, encoding: "utf8" },
-          );
+          const worktreeList = execFileSync("git", ["worktree", "list", "--porcelain"], {
+            cwd: repositoryPath,
+            encoding: "utf8",
+          });
           expect(worktreeList.includes(path.resolve(result.worktreeGitRoot))).toBe(true);
           if (scenario.id === "pending-script-failure") {
             expect(output.includes("pending-setup-failed")).toBe(true);
@@ -10703,11 +11013,10 @@ describe("codex-service pending managed worktree setup", () => {
           "Failed to store worktree shell environment: persist aborted",
         );
 
-        const worktreeList = execFileSync(
-          "git",
-          ["worktree", "list", "--porcelain"],
-          { cwd: repositoryPath, encoding: "utf8" },
-        );
+        const worktreeList = execFileSync("git", ["worktree", "list", "--porcelain"], {
+          cwd: repositoryPath,
+          encoding: "utf8",
+        });
         expect(worktreeList.includes(persistenceResult.worktreeGitRoot)).toBe(true);
         await removeManagedWorktree(persistenceResult.worktreeGitRoot);
       } finally {
@@ -10736,23 +11045,29 @@ describe("codex-service pending managed worktree setup", () => {
       startConversationParamsInput: {
         ...base.startConversationParamsInput,
         input: [{ type: "text" as const, text: "Original request", text_elements: [] }],
-        commentAttachments: [{
-          id: "comment",
-          type: "comment" as const,
-          content: [{ content_type: "text" as const, text: "Review this line" }],
-          position: { side: "right" as const, path: "src/index.ts", line: 1 },
-          createdAt: 1,
-        }],
-        fileAttachments: [{
-          label: "before.txt",
-          path: "before.txt",
-          fsPath: "before.txt",
-        }],
-        addedFiles: [{
-          label: "added.txt",
-          path: "added.txt",
-          fsPath: "added.txt",
-        }],
+        commentAttachments: [
+          {
+            id: "comment",
+            type: "comment" as const,
+            content: [{ content_type: "text" as const, text: "Review this line" }],
+            position: { side: "right" as const, path: "src/index.ts", line: 1 },
+            createdAt: 1,
+          },
+        ],
+        fileAttachments: [
+          {
+            label: "before.txt",
+            path: "before.txt",
+            fsPath: "before.txt",
+          },
+        ],
+        addedFiles: [
+          {
+            label: "added.txt",
+            path: "added.txt",
+            fsPath: "added.txt",
+          },
+        ],
         serviceTier: "standard",
       },
     } satisfies CodexPendingWorktreeEntry;
@@ -10808,10 +11123,10 @@ describe("codex-service pending managed worktree setup", () => {
       const repairInput = repair.startConversationParamsInput.input[0];
       expect(repairInput?.type).toBe("text");
       expect(
-        repairInput?.type === "text"
-          && repairInput.text.includes("Do not continue the original user request")
-          && repairInput.text.includes(".codex/environments/dev.toml")
-          && repairInput.text.includes("install failed")
+        repairInput?.type === "text" &&
+          repairInput.text.includes("Do not continue the original user request") &&
+          repairInput.text.includes(".codex/environments/dev.toml") &&
+          repairInput.text.includes("install failed"),
       ).toBe(true);
     } finally {
       await service.shutdown();
@@ -10885,13 +11200,15 @@ describe("codex-service pending managed worktree setup", () => {
     serviceInternals.resolveDynamicCreateServiceTier = async () => "fast";
 
     try {
-      await (service as unknown as {
-        createPendingWorktreeSetupRepair: (
-          hostId: string,
-          pendingWorktreeId: string,
-          agentMode: CodexAgentMode,
-        ) => Promise<unknown>;
-      }).createPendingWorktreeSetupRepair("local", original.id, "full-access");
+      await (
+        service as unknown as {
+          createPendingWorktreeSetupRepair: (
+            hostId: string,
+            pendingWorktreeId: string,
+            agentMode: CodexAgentMode,
+          ) => Promise<unknown>;
+        }
+      ).createPendingWorktreeSetupRepair("local", original.id, "full-access");
       const repair = captured[0];
       if (repair?.launchMode !== "start-conversation") {
         throw new Error("Expected a repair start request");
@@ -10904,10 +11221,9 @@ describe("codex-service pending managed worktree setup", () => {
         "gpt-frozen-plan",
       );
       for (const key of ["permissionProfileId", "projectAssignment", "serviceName"]) {
-        expect(Object.prototype.hasOwnProperty.call(
-          repair.startConversationParamsInput,
-          key,
-        )).toBe(false);
+        expect(Object.prototype.hasOwnProperty.call(repair.startConversationParamsInput, key)).toBe(
+          false,
+        );
       }
       expect(pendingRuntime.list()[0] === original).toBe(true);
     } finally {
@@ -11012,9 +11328,9 @@ describe("codex-service pending worktree conversation ownership", () => {
           readonly worktreeWorkspaceRoot: string;
         }>;
       };
-      resolveThread: (clientThreadId: string) =>
-        | { readonly state: "waiting" | "failed" | "succeeded" }
-        | null;
+      resolveThread: (
+        clientThreadId: string,
+      ) => { readonly state: "waiting" | "failed" | "succeeded" } | null;
     };
     runtime.dependencies.createWorktree = async () => ({
       worktreeGitRoot: worktreeWorkspaceRoot,
@@ -11060,11 +11376,13 @@ describe("codex-service pending worktree conversation ownership", () => {
         launchMode: "start-conversation",
         prompt: "Start in the reserved session",
         startConversationParamsInput: {
-          input: [{
-            type: "text",
-            text: "Start in the reserved session",
-            text_elements: [],
-          }],
+          input: [
+            {
+              type: "text",
+              text: "Start in the reserved session",
+              text_elements: [],
+            },
+          ],
           commentAttachments: [],
           workspaceRoots: [sourceWorkspaceRoot],
           cwd: sourceWorkspaceRoot,
@@ -11091,10 +11409,12 @@ describe("codex-service pending worktree conversation ownership", () => {
         sourceCollaborationMode: null,
       });
       if (!created.clientThreadId) throw new Error("Expected a pending client Thread id");
-      await waitForCondition(() =>
-        requests.includes("turn/start")
-          || runtime.resolveThread(created.clientThreadId ?? "")?.state === "failed",
-      2_000);
+      await waitForCondition(
+        () =>
+          requests.includes("turn/start") ||
+          runtime.resolveThread(created.clientThreadId ?? "")?.state === "failed",
+        2_000,
+      );
 
       expect(requests.includes("turn/start")).toBe(true);
       expect(ownerByThreadId.get(threadId)).toBe(reservedSessionId);
@@ -11108,9 +11428,7 @@ describe("codex-service pending worktree conversation ownership", () => {
 });
 
 describe("codex-service pending goal draft lifecycle", () => {
-  type ManagedGoalSource = Awaited<
-    ReturnType<PastedTextAttachmentManager["createRawSource"]>
-  >;
+  type ManagedGoalSource = Awaited<ReturnType<PastedTextAttachmentManager["createRawSource"]>>;
   type PendingGoalStartCreateInput = Extract<
     CodexPendingWorktreeCreateInput,
     { readonly launchMode: "start-conversation" }
@@ -11170,9 +11488,10 @@ describe("codex-service pending goal draft lifecycle", () => {
   }
 
   interface PendingGoalLifecycleService {
-    createPendingWorktree: (
-      input: CodexPendingWorktreeCreateInput,
-    ) => { readonly pendingWorktreeId: string; readonly clientThreadId: string | null };
+    createPendingWorktree: (input: CodexPendingWorktreeCreateInput) => {
+      readonly pendingWorktreeId: string;
+      readonly clientThreadId: string | null;
+    };
     retryPendingWorktree: (hostId: string, pendingWorktreeId: string) => void;
     workLocallyFromPendingWorktree: (
       hostId: string,
@@ -11205,11 +11524,13 @@ describe("codex-service pending goal draft lifecycle", () => {
       prompt: "Original frozen pending prompt",
       launchMode: "start-conversation",
       startConversationParamsInput: {
-        input: [{
-          type: "text",
-          text: "Original frozen pending input",
-          text_elements: [],
-        }],
+        input: [
+          {
+            type: "text",
+            text: "Original frozen pending input",
+            text_elements: [],
+          },
+        ],
         commentAttachments: [],
         workspaceRoots: [sourceWorkspaceRoot],
         cwd: sourceWorkspaceRoot,
@@ -11221,11 +11542,13 @@ describe("codex-service pending goal draft lifecycle", () => {
           },
           { ...source.file },
         ],
-        addedFiles: [{
-          label: "added.txt",
-          path: "added.txt",
-          fsPath: path.join(sourceWorkspaceRoot, "added.txt"),
-        }],
+        addedFiles: [
+          {
+            label: "added.txt",
+            path: "added.txt",
+            fsPath: path.join(sourceWorkspaceRoot, "added.txt"),
+          },
+        ],
         agentMode: "auto",
         shouldSendPermissionOverrides: true,
         model: null,
@@ -11263,8 +11586,9 @@ describe("codex-service pending goal draft lifecycle", () => {
     const entries = fs.existsSync(attachmentsRoot)
       ? fs.readdirSync(attachmentsRoot, { withFileTypes: true })
       : [];
-    const match = entries.find((entry) =>
-      entry.isDirectory() && fs.existsSync(path.join(attachmentsRoot, entry.name, filename))
+    const match = entries.find(
+      (entry) =>
+        entry.isDirectory() && fs.existsSync(path.join(attachmentsRoot, entry.name, filename)),
     );
     return match ? path.join(attachmentsRoot, match.name) : null;
   }
@@ -11279,10 +11603,7 @@ describe("codex-service pending goal draft lifecycle", () => {
 
   test("retries registry-owned pending removals when the service starts", async () => {
     const attachmentsRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-goal-startup-cleanup-"));
-    const ownedDirectory = path.join(
-      attachmentsRoot,
-      "550e8400-e29b-41d4-a716-446655440000",
-    );
+    const ownedDirectory = path.join(attachmentsRoot, "550e8400-e29b-41d4-a716-446655440000");
     const ownedPath = path.join(ownedDirectory, "pasted-text.txt");
     fs.mkdirSync(ownedDirectory, { recursive: true });
     fs.writeFileSync(ownedPath, "remove after restart", "utf8");
@@ -11301,20 +11622,19 @@ describe("codex-service pending goal draft lifecycle", () => {
       await waitForCondition(() => {
         if (fs.existsSync(ownedPath)) return false;
         try {
-          const registry = JSON.parse(fs.readFileSync(
-            path.join(attachmentsRoot, "pasted-text-attachments.json"),
-            "utf8",
-          )) as { attachmentPaths?: string[]; pendingRemovalPaths?: string[] };
-          return registry.attachmentPaths?.length === 0
-            && registry.pendingRemovalPaths?.length === 0;
+          const registry = JSON.parse(
+            fs.readFileSync(path.join(attachmentsRoot, "pasted-text-attachments.json"), "utf8"),
+          ) as { attachmentPaths?: string[]; pendingRemovalPaths?: string[] };
+          return (
+            registry.attachmentPaths?.length === 0 && registry.pendingRemovalPaths?.length === 0
+          );
         } catch {
           return false;
         }
       }, 2_000);
-      const registry = JSON.parse(fs.readFileSync(
-        path.join(attachmentsRoot, "pasted-text-attachments.json"),
-        "utf8",
-      )) as {
+      const registry = JSON.parse(
+        fs.readFileSync(path.join(attachmentsRoot, "pasted-text-attachments.json"), "utf8"),
+      ) as {
         attachmentPaths: string[];
         pendingRemovalPaths: string[];
         textExcerptsByPath: Record<string, string>;
@@ -11322,11 +11642,13 @@ describe("codex-service pending goal draft lifecycle", () => {
 
       expect(fs.existsSync(ownedPath)).toBe(false);
       expect(fs.statSync(ownedDirectory).isDirectory()).toBe(true);
-      expect(JSON.stringify(registry)).toBe(JSON.stringify({
-        attachmentPaths: [],
-        pendingRemovalPaths: [],
-        textExcerptsByPath: {},
-      }));
+      expect(JSON.stringify(registry)).toBe(
+        JSON.stringify({
+          attachmentPaths: [],
+          pendingRemovalPaths: [],
+          textExcerptsByPath: {},
+        }),
+      );
     } finally {
       await service.shutdown();
       fs.rmSync(attachmentsRoot, { recursive: true, force: true });
@@ -11437,8 +11759,9 @@ describe("codex-service pending goal draft lifecycle", () => {
       expect(events.includes("heartbeat")).toBe(true);
       expect(events.indexOf("metadata") < events.indexOf("cleanup-1-start")).toBe(true);
       expect(events.indexOf("heartbeat") < events.indexOf("cleanup-1-start")).toBe(true);
-      expect(service.listPendingWorktrees().some((entry) => entry.id === created.pendingWorktreeId))
-        .toBe(true);
+      expect(
+        service.listPendingWorktrees().some((entry) => entry.id === created.pendingWorktreeId),
+      ).toBe(true);
       expect(fs.existsSync(source.file.fsPath)).toBe(true);
       expect(directoryContaining(attachmentsRoot, "pasted-text-1.txt") !== null).toBe(true);
 
@@ -11499,14 +11822,8 @@ describe("codex-service pending goal draft lifecycle", () => {
       const created = lifecycle.createPendingWorktree(pendingGoalCreateInput(source));
       const clientThreadId = created.clientThreadId;
       if (!clientThreadId) throw new Error("Expected a pending client thread id");
-      await waitForCondition(
-        () => service.listPendingWorktrees().length === 0,
-        2_000,
-      );
-      await waitForCondition(
-        () => cleanupCalls === 1 && !fs.existsSync(source.file.fsPath),
-        2_000,
-      );
+      await waitForCondition(() => service.listPendingWorktrees().length === 0, 2_000);
+      await waitForCondition(() => cleanupCalls === 1 && !fs.existsSync(source.file.fsPath), 2_000);
 
       expect(cleanupCalls).toBe(1);
       expect(service.listPendingWorktrees().length).toBe(0);
@@ -11565,10 +11882,7 @@ describe("codex-service pending goal draft lifecycle", () => {
       expect(service.listPendingWorktrees().length).toBe(1);
 
       lifecycle.retryPendingWorktree("local", created.pendingWorktreeId);
-      await waitForCondition(
-        () => service.listPendingWorktrees().length === 0,
-        2_000,
-      );
+      await waitForCondition(() => service.listPendingWorktrees().length === 0, 2_000);
       await waitForCondition(() => cleanupCalls === 2, 2_000);
       await flushAsyncWork();
 
@@ -11632,13 +11946,12 @@ describe("codex-service pending goal draft lifecycle", () => {
       const created = lifecycle.createPendingWorktree(createInput);
       await flushAsyncWork(1);
       let localResult: { readonly threadId: string } | null = null;
-      const localLaunch = lifecycle.workLocallyFromPendingWorktree(
-        "local",
-        created.pendingWorktreeId,
-      ).then((result) => {
-        localResult = result;
-        return result;
-      });
+      const localLaunch = lifecycle
+        .workLocallyFromPendingWorktree("local", created.pendingWorktreeId)
+        .then((result) => {
+          localResult = result;
+          return result;
+        });
       await waitForCondition(() => cleanupCalls === 1, 2_000);
       await flushAsyncWork();
 
@@ -11650,21 +11963,22 @@ describe("codex-service pending goal draft lifecycle", () => {
       expect(materializeCalls).toBe(0);
       expect(metadataCalls).toBe(0);
       expect(heartbeatCalls).toBe(0);
-      expect(JSON.stringify(realizedLaunch?.firstTurnInput)).toBe(JSON.stringify(
-        createInput.startConversationParamsInput.input,
-      ));
-      const attachmentPaths = realizedLaunch?.firstTurnAttachments.map((attachment) =>
-        attachment.path
-      ) ?? [];
+      expect(JSON.stringify(realizedLaunch?.firstTurnInput)).toBe(
+        JSON.stringify(createInput.startConversationParamsInput.input),
+      );
+      const attachmentPaths =
+        realizedLaunch?.firstTurnAttachments.map((attachment) => attachment.path) ?? [];
       expect(attachmentPaths.includes("ordinary.txt")).toBe(true);
       expect(attachmentPaths.includes("added.txt")).toBe(true);
       expect(attachmentPaths.includes(source.file.path)).toBe(true);
       expect(realizedLaunch?.managedWorktreePath).toBe(null);
       expect(realizedLaunch?.target.cwd).toBe(createInput.sourceWorkspaceRoot);
-      expect(JSON.stringify(realizedLaunch?.target.workspaceRoots)).toBe(JSON.stringify([
-        createInput.sourceWorkspaceRoot,
-      ]));
-      expect(Object.prototype.hasOwnProperty.call(realizedLaunch ?? {}, "worktreeInit")).toBe(false);
+      expect(JSON.stringify(realizedLaunch?.target.workspaceRoots)).toBe(
+        JSON.stringify([createInput.sourceWorkspaceRoot]),
+      );
+      expect(Object.prototype.hasOwnProperty.call(realizedLaunch ?? {}, "worktreeInit")).toBe(
+        false,
+      );
 
       cleanupGate.release();
       await localLaunch;
@@ -11747,7 +12061,11 @@ describe("codex-service approval fallback", () => {
   test("answers app-server currentTime/read requests with Unix seconds", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
     };
     const originalDateNow = Date.now;
 
@@ -11774,8 +12092,7 @@ describe("codex-service approval fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      getUserInputAutoResolutionSnapshot: () =>
-        CodexUserInputAutoResolutionEntry[];
+      getUserInputAutoResolutionSnapshot: () => CodexUserInputAutoResolutionEntry[];
       respondToUserInput: (
         requestId: string | number,
         answers: Record<string, string[]>,
@@ -11798,13 +12115,15 @@ describe("codex-service approval fallback", () => {
           turnId: "turn-1",
           itemId: "item-1",
           isBlocking: false,
-          questions: [{
-            id: "scope",
-            header: "Scope",
-            question: "Continue?",
-            isOther: false,
-            isSecret: false,
-          }],
+          questions: [
+            {
+              id: "scope",
+              header: "Scope",
+              question: "Continue?",
+              isOther: false,
+              isSecret: false,
+            },
+          ],
         },
       });
       await Promise.resolve();
@@ -11836,8 +12155,7 @@ describe("codex-service approval fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      getUserInputAutoResolutionSnapshot: () =>
-        CodexUserInputAutoResolutionEntry[];
+      getUserInputAutoResolutionSnapshot: () => CodexUserInputAutoResolutionEntry[];
       getConversationRecord: (threadId: string) => {
         canonicalState: CodexCanonicalConversationState;
       };
@@ -11852,15 +12170,14 @@ describe("codex-service approval fallback", () => {
     serviceInternals.on("userInputAutoResolutionChanged", (change) => {
       changes.push(change);
     });
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: {
-          targetClientId: string;
-          message: CodexHostMessage;
-        }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
+    (
+      service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }
+    ).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
     });
     service.setRendererConversationOwner(threadId, "owner-auto-resolution");
@@ -11874,18 +12191,21 @@ describe("codex-service approval fallback", () => {
           turnId: "turn-1",
           itemId: "item-1",
           isBlocking: false,
-          questions: [{
-            id: "scope",
-            header: "Scope",
-            question: "Continue?",
-            isOther: false,
-            isSecret: false,
-          }],
+          questions: [
+            {
+              id: "scope",
+              header: "Scope",
+              question: "Continue?",
+              isOther: false,
+              isSecret: false,
+            },
+          ],
         },
       });
       await Promise.resolve();
-      expect(serviceInternals.getUserInputAutoResolutionSnapshot()[0]?.phase.type)
-        .toBe("scheduled");
+      expect(serviceInternals.getUserInputAutoResolutionSnapshot()[0]?.phase.type).toBe(
+        "scheduled",
+      );
 
       clock.advanceBy(USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS);
       expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toEqual([]);
@@ -11898,10 +12218,11 @@ describe("codex-service approval fallback", () => {
       await Promise.resolve();
 
       expect(
-        serviceInternals.getConversationRecord(threadId).canonicalState.requests
-          .some((candidate) =>
-            candidate.method === "item/tool/requestUserInput"
-            && candidate.id === requestId
+        serviceInternals
+          .getConversationRecord(threadId)
+          .canonicalState.requests.some(
+            (candidate) =>
+              candidate.method === "item/tool/requestUserInput" && candidate.id === requestId,
           ),
       ).toBe(false);
       expect(ownerMessages).toContainEqual({
@@ -11930,8 +12251,7 @@ describe("codex-service approval fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      getUserInputAutoResolutionSnapshot: () =>
-        CodexUserInputAutoResolutionEntry[];
+      getUserInputAutoResolutionSnapshot: () => CodexUserInputAutoResolutionEntry[];
       respondToUserInput: (
         requestId: string | number,
         answers: Record<string, string[]>,
@@ -11950,23 +12270,23 @@ describe("codex-service approval fallback", () => {
           turnId: "turn-1",
           itemId: "item-1",
           isBlocking: true,
-          questions: [{
-            id: "scope",
-            header: "Scope",
-            question: "Continue?",
-            isOther: false,
-            isSecret: false,
-          }],
+          questions: [
+            {
+              id: "scope",
+              header: "Scope",
+              question: "Continue?",
+              isOther: false,
+              isSecret: false,
+            },
+          ],
         },
       });
       await Promise.resolve();
 
       expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toEqual([]);
-      expect(await serviceInternals.respondToUserInput(
-        requestId,
-        { scope: ["yes"] },
-        threadId,
-      )).toBe(true);
+      expect(
+        await serviceInternals.respondToUserInput(requestId, { scope: ["yes"] }, threadId),
+      ).toBe(true);
       expect(await request).toEqual({
         answers: {
           scope: { answers: ["yes"] },
@@ -11985,8 +12305,7 @@ describe("codex-service approval fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      getUserInputAutoResolutionSnapshot: () =>
-        CodexUserInputAutoResolutionEntry[];
+      getUserInputAutoResolutionSnapshot: () => CodexUserInputAutoResolutionEntry[];
       respondToUserInput: (
         requestId: string | number,
         answers: Record<string, string[]>,
@@ -12003,13 +12322,15 @@ describe("codex-service approval fallback", () => {
           turnId: "turn-1",
           itemId,
           isBlocking: false,
-          questions: [{
-            id: "scope",
-            header: "Scope",
-            question: "Continue?",
-            isOther: false,
-            isSecret: false,
-          }],
+          questions: [
+            {
+              id: "scope",
+              header: "Scope",
+              question: "Continue?",
+              isOther: false,
+              isSecret: false,
+            },
+          ],
         },
       });
 
@@ -12293,7 +12614,7 @@ describe("codex-service approval fallback", () => {
     const baseWorkspace = createTestProjectWorkspace();
     const projectWorkspace = {
       ...baseWorkspace,
-      getProject: async (projectId: string) => projectId === project.id ? project : null,
+      getProject: async (projectId: string) => (projectId === project.id ? project : null),
     } as DesktopProjectWorkspacePort;
     const threadId = "thread:handoff-vertical";
     await projectWorkspace.upsertThread(threadId, {
@@ -12336,12 +12657,14 @@ describe("codex-service approval fallback", () => {
         resumeRequests.push(request);
         runtimeCwd = String(request.cwd);
         runtimeRoots = [...(request.runtimeWorkspaceRoots as string[])];
-        const response = makeCanonicalForkResumeResponse(makeCanonicalForkResponse({
-          threadId,
-          cwd: runtimeCwd,
-          turns: [],
-          runtimeWorkspaceRoots: runtimeRoots,
-        }));
+        const response = makeCanonicalForkResumeResponse(
+          makeCanonicalForkResponse({
+            threadId,
+            cwd: runtimeCwd,
+            turns: [],
+            runtimeWorkspaceRoots: runtimeRoots,
+          }),
+        );
         return {
           ...response,
           thread: { ...response.thread, path: rolloutPath },
@@ -12374,12 +12697,13 @@ describe("codex-service approval fallback", () => {
       expect(worktreeThread?.threadId).toBe(threadId);
       expect(worktreeThread?.cwd).toBe(runtimeCwd);
       expect(runtimeRoots).toEqual([worktreeThread?.cwd]);
-      expect(fs.readFileSync(path.join(runtimeCwd, "README.md"), "utf8"))
-        .toBe("# changed during handoff\n");
-      expect(fs.readFileSync(path.join(runtimeCwd, "untracked.txt"), "utf8"))
-        .toBe("preserve me\n");
-      expect(execFileSync("git", ["status", "--porcelain"], { cwd: repositoryPath, encoding: "utf8" }))
-        .toBe("");
+      expect(fs.readFileSync(path.join(runtimeCwd, "README.md"), "utf8")).toBe(
+        "# changed during handoff\n",
+      );
+      expect(fs.readFileSync(path.join(runtimeCwd, "untracked.txt"), "utf8")).toBe("preserve me\n");
+      expect(
+        execFileSync("git", ["status", "--porcelain"], { cwd: repositoryPath, encoding: "utf8" }),
+      ).toBe("");
 
       const movedToCheckout = await internals.threadExecutionLocationService.start({
         operationId: "handoff-to-checkout",
@@ -12394,10 +12718,12 @@ describe("codex-service approval fallback", () => {
         managedWorktreePath: null,
       });
       expect(runtimeCwd).toBe(repositoryPath);
-      expect(fs.readFileSync(path.join(repositoryPath, "README.md"), "utf8"))
-        .toBe("# changed during handoff\n");
-      expect(fs.readFileSync(path.join(repositoryPath, "untracked.txt"), "utf8"))
-        .toBe("preserve me\n");
+      expect(fs.readFileSync(path.join(repositoryPath, "README.md"), "utf8")).toBe(
+        "# changed during handoff\n",
+      );
+      expect(fs.readFileSync(path.join(repositoryPath, "untracked.txt"), "utf8")).toBe(
+        "preserve me\n",
+      );
       expect(resumeRequests).toHaveLength(2);
       expect(resumeRequests.every((request) => request.threadId === threadId)).toBe(true);
     } finally {
@@ -12412,8 +12738,7 @@ describe("codex-service approval fallback", () => {
     const cwd = "/workspace/dynamic-fork";
     const transferEvents: string[] = [];
     const service = createService({
-      forkSidePanelTransferLifecycle:
-        makeRecordingForkSidePanelTransferLifecycle(transferEvents),
+      forkSidePanelTransferLifecycle: makeRecordingForkSidePanelTransferLifecycle(transferEvents),
     });
     const sourceDetail = {
       ...makeThreadDetail(sourceThreadId),
@@ -12492,7 +12817,10 @@ describe("codex-service approval fallback", () => {
         tool: "fork_thread",
         arguments: { environment: { type: "same-directory" } },
       });
-      const output = JSON.parse(response.contentItems[0]?.text ?? "null") as Record<string, unknown>;
+      const output = JSON.parse(response.contentItems[0]?.text ?? "null") as Record<
+        string,
+        unknown
+      >;
       const forkParams = requests[0]?.params as Record<string, unknown>;
 
       expect(response.success).toBe(true);
@@ -12504,12 +12832,10 @@ describe("codex-service approval fallback", () => {
       );
       expect(forkParams.path).toBe(null);
       expect(forkParams.threadSource).toBe("subagent");
-      expect(getCanonicalConversationState(service, childThreadId)?.turns.at(-1)?.items.at(-1)?.type).toBe(
-        "forkedFromConversation",
-      );
-      expect(transferEvents.join(",")).toBe(
-        `direct:${sourceThreadId}:${childThreadId}`,
-      );
+      expect(
+        getCanonicalConversationState(service, childThreadId)?.turns.at(-1)?.items.at(-1)?.type,
+      ).toBe("forkedFromConversation");
+      expect(transferEvents.join(",")).toBe(`direct:${sourceThreadId}:${childThreadId}`);
     } finally {
       await service.shutdown();
     }
@@ -12566,10 +12892,7 @@ describe("codex-service approval fallback", () => {
       cwd: "/workspace/dynamic-pending-fork",
     });
     serviceInternals.maybeResolveProjectRuntimeContext = async () => ({
-      workspaceRoots: [
-        "/workspace/dynamic-pending-fork",
-        "/workspace/shared",
-      ],
+      workspaceRoots: ["/workspace/dynamic-pending-fork", "/workspace/shared"],
       primaryWorkspaceRoot: "/workspace/dynamic-pending-fork",
     });
     serviceInternals.readThreadWritableRoots = async () => [
@@ -12610,10 +12933,12 @@ describe("codex-service approval fallback", () => {
       expect(pending.projectAssignment?.projectId).toBe("project-dynamic-pending-fork");
       expect(pending.sourceCollaborationMode?.settings.model).toBe("gpt-pending-fork");
       expect(pending.threadSource).toBe("subagent");
-      expect(transferEvents.join(",")).toBe([
-        `create:${pending.id}`,
-        `capture:${pending.id}:${sourceThreadId}:/workspace/dynamic-pending-fork`,
-      ].join(","));
+      expect(transferEvents.join(",")).toBe(
+        [
+          `create:${pending.id}`,
+          `capture:${pending.id}:${sourceThreadId}:/workspace/dynamic-pending-fork`,
+        ].join(","),
+      );
 
       transferLifecycle.capturePending = () => {
         transferEvents.push("capture-failed");
@@ -12694,10 +13019,12 @@ describe("codex-service approval fallback", () => {
       });
 
       const configRead = requests.find((request) => request.method === "config/read");
-      expect(JSON.stringify(configRead?.params)).toBe(JSON.stringify({
-        includeLayers: false,
-        cwd: "/tmp/destination-permissions",
-      }));
+      expect(JSON.stringify(configRead?.params)).toBe(
+        JSON.stringify({
+          includeLayers: false,
+          cwd: "/tmp/destination-permissions",
+        }),
+      );
       expect(snapshot.rawConfig.model).toBe("base-model");
       expect(snapshot.rawConfig.approval_policy).toBe("on-request");
       expect(snapshot.expandedConfig.model).toBe("profile-model");
@@ -12744,7 +13071,10 @@ describe("codex-service approval fallback", () => {
         hostMode: "read-only" | "auto" | "full-access" | "custom",
       ) => Promise<{
         mode: string;
-        context: { activePermissionProfile: { id: string } | null; sandboxPolicy: { type: string } };
+        context: {
+          activePermissionProfile: { id: string } | null;
+          sandboxPolicy: { type: string };
+        };
       }>;
     };
     const record = serviceInternals.getConversationRecord(sourceThreadId);
@@ -12841,26 +13171,36 @@ describe("codex-service approval fallback", () => {
     };
 
     try {
-      const prepared = await serviceInternals.preparePromptForTurn("", {
-        text: "",
-        fileAttachments: [{
-          label: "source.ts",
-          path: "src/source.ts",
-          fsPath: "/repo/src/source.ts",
-        }],
-        addedFiles: [{
-          label: "generated.ts",
-          path: "src/generated.ts",
-          fsPath: "/repo/src/generated.ts",
-        }],
-        textAttachments: [{ text: "  \n\t  " }],
-      }, { allowEmptyTextPlaceholder: true });
+      const prepared = await serviceInternals.preparePromptForTurn(
+        "",
+        {
+          text: "",
+          fileAttachments: [
+            {
+              label: "source.ts",
+              path: "src/source.ts",
+              fsPath: "/repo/src/source.ts",
+            },
+          ],
+          addedFiles: [
+            {
+              label: "generated.ts",
+              path: "src/generated.ts",
+              fsPath: "/repo/src/generated.ts",
+            },
+          ],
+          textAttachments: [{ text: "  \n\t  " }],
+        },
+        { allowEmptyTextPlaceholder: true },
+      );
 
-      expect(JSON.stringify(prepared.inputItems)).toBe(JSON.stringify([
-        { type: "text", text: "", text_elements: [] },
-        { type: "mention", name: "source.ts", path: "src/source.ts" },
-        { type: "mention", name: "generated.ts", path: "src/generated.ts" },
-      ]));
+      expect(JSON.stringify(prepared.inputItems)).toBe(
+        JSON.stringify([
+          { type: "text", text: "", text_elements: [] },
+          { type: "mention", name: "source.ts", path: "src/source.ts" },
+          { type: "mention", name: "generated.ts", path: "src/generated.ts" },
+        ]),
+      );
       expect(JSON.stringify(prepared.pendingInputItems)).toBe(
         '[{"type":"text","text":"","text_elements":[]}]',
       );
@@ -12902,9 +13242,7 @@ describe("codex-service approval fallback", () => {
   });
 
   test("materializes an owned pasted-text source exactly at the main-process turn boundary", async () => {
-    const attachmentRoot = fs.mkdtempSync(
-      path.join(os.tmpdir(), "nodex-pasted-text-turn-"),
-    );
+    const attachmentRoot = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-pasted-text-turn-"));
     const service = createService({
       resolveThreadGoalAttachmentsRoot: () => attachmentRoot,
     });
@@ -12927,10 +13265,7 @@ describe("codex-service approval fallback", () => {
         textAttachments: [attachment],
       });
 
-      expect(prepared.inputItems.map((item) => item.text)).toEqual([
-        "Prompt",
-        pastedText,
-      ]);
+      expect(prepared.inputItems.map((item) => item.text)).toEqual(["Prompt", pastedText]);
       expect(prepared.pastedTextAttachments).toEqual([attachment]);
     } finally {
       await service.shutdown();
@@ -13090,9 +13425,9 @@ describe("codex-service approval fallback", () => {
       expect((request?.label.length ?? 0) <= 80).toBe(true);
       expect(request?.label.endsWith("…")).toBe(true);
       expect(request?.startingState?.type).toBe("branch");
-      expect(request?.startingState?.type === "branch" ? request.startingState.branchName : null).toBe(
-        "main",
-      );
+      expect(
+        request?.startingState?.type === "branch" ? request.startingState.branchName : null,
+      ).toBe("main");
       expect(firstInput?.type).toBe("text");
       expect(
         firstInput?.type === "text"
@@ -13102,15 +13437,19 @@ describe("codex-service approval fallback", () => {
       expect(request?.startConversationParamsInput.serviceName).toBe("source-service");
       expect(request?.startConversationParamsInput.serviceTier).toBe("fast");
       expect(request?.startConversationParamsInput.config.model).toBe("profile-model");
-      expect(Object.prototype.hasOwnProperty.call(
-        request?.startConversationParamsInput ?? {},
-        "permissionProfileId",
-      )).toBe(true);
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          request?.startConversationParamsInput ?? {},
+          "permissionProfileId",
+        ),
+      ).toBe(true);
       expect(request?.startConversationParamsInput.permissionProfileId).toBe(undefined);
-      expect(Object.prototype.hasOwnProperty.call(
-        request?.startConversationParamsInput ?? {},
-        "serviceName",
-      )).toBe(true);
+      expect(
+        Object.prototype.hasOwnProperty.call(
+          request?.startConversationParamsInput ?? {},
+          "serviceName",
+        ),
+      ).toBe(true);
       expect(
         Object.prototype.hasOwnProperty.call(
           request?.startConversationParamsInput.projectAssignment ?? {},
@@ -13120,46 +13459,52 @@ describe("codex-service approval fallback", () => {
 
       if (!request) throw new Error("Pending request was not captured");
       let mappedThreadId = "";
-      const launched = await serviceInternals.launchPendingWorktreeConversation({
-        ...request,
-        startConversationParamsInput: {
-          ...request.startConversationParamsInput,
-          permissionProfileId: "team-profile",
-          configOverrides: { frozen_override_marker: "override" },
-          memoryPreferences: { generateMemories: true, useMemories: false },
-          mode: "work",
-          threadStartKind: "composer",
-          baseInstructions: "Frozen base instructions",
-          additionalDeveloperInstructions: "Frozen additional instructions",
+      const launched = await serviceInternals.launchPendingWorktreeConversation(
+        {
+          ...request,
+          startConversationParamsInput: {
+            ...request.startConversationParamsInput,
+            permissionProfileId: "team-profile",
+            configOverrides: { frozen_override_marker: "override" },
+            memoryPreferences: { generateMemories: true, useMemories: false },
+            mode: "work",
+            threadStartKind: "composer",
+            baseInstructions: "Frozen base instructions",
+            additionalDeveloperInstructions: "Frozen additional instructions",
+          },
+          createdAt: 1,
+          attempt: 1,
+          phase: "worktree-ready",
+          labelEdited: false,
+          worktreeOutputText: "Worktree created\n",
+          setupOutputText: "",
+          errorMessage: null,
+          worktreeWorkspaceRoot: "/worktree/repo",
+          worktreeGitRoot: "/missing/worktree-git-root",
+          needsAttention: false,
+          isPinned: true,
+          pinnedBeforeThreadId: "thread-existing-anchor",
         },
-        createdAt: 1,
-        attempt: 1,
-        phase: "worktree-ready",
-        labelEdited: false,
-        worktreeOutputText: "Worktree created\n",
-        setupOutputText: "",
-        errorMessage: null,
-        worktreeWorkspaceRoot: "/worktree/repo",
-        worktreeGitRoot: "/missing/worktree-git-root",
-        needsAttention: false,
-        isPinned: true,
-        pinnedBeforeThreadId: "thread-existing-anchor",
-      }, "/worktree/repo", {
-        includeWorktreeInit: true,
-        onThreadCreated: (threadId) => {
-          realizationEvents.push("callback");
-          mappedThreadId = threadId;
+        "/worktree/repo",
+        {
+          includeWorktreeInit: true,
+          onThreadCreated: (threadId) => {
+            realizationEvents.push("callback");
+            mappedThreadId = threadId;
+          },
         },
-      });
+      );
       const capturedLaunch = launchedInput as Record<string, unknown> | null;
       const launchedTarget = capturedLaunch?.target as Record<string, unknown> | undefined;
-      const launchedPermissions = capturedLaunch?.permissionSelection as {
-        context?: {
-          activePermissionProfile?: { id?: string } | null;
-          runtimeWorkspaceRoots?: readonly string[];
-          sandboxPolicy?: { type?: string; writableRoots?: readonly string[] };
-        };
-      } | undefined;
+      const launchedPermissions = capturedLaunch?.permissionSelection as
+        | {
+            context?: {
+              activePermissionProfile?: { id?: string } | null;
+              runtimeWorkspaceRoots?: readonly string[];
+              sandboxPolicy?: { type?: string; writableRoots?: readonly string[] };
+            };
+          }
+        | undefined;
 
       expect(launched.threadId).toBe("thread-pending-contract");
       expect(mappedThreadId).toBe("thread-pending-contract");
@@ -13175,15 +13520,16 @@ describe("codex-service approval fallback", () => {
       expect(realizationEvents.join(",")).toBe(
         `launch,map:thread-pending-contract:${request.clientThreadId},callback,metadata`,
       );
-      expect(Object.prototype.hasOwnProperty.call(capturedLaunch ?? {}, "initialTitle")).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(capturedLaunch ?? {}, "initialTitle")).toBe(
+        false,
+      );
       expect(capturedLaunch?.serviceName).toBe("source-service");
       expect(
         (capturedLaunch?.memoryPreferences as { generateMemories?: boolean } | undefined)
           ?.generateMemories,
       ).toBe(true);
       expect(
-        (capturedLaunch?.memoryPreferences as { useMemories?: boolean } | undefined)
-          ?.useMemories,
+        (capturedLaunch?.memoryPreferences as { useMemories?: boolean } | undefined)?.useMemories,
       ).toBe(false);
       expect(capturedLaunch?.mode).toBe("work");
       expect(capturedLaunch?.threadStartKind).toBe("composer");
@@ -13210,11 +13556,13 @@ describe("codex-service approval fallback", () => {
       expect((capturedLaunch?.worktreeInit as { id?: string } | undefined)?.id).toBe(
         `${request.id}:1`,
       );
-      expect(JSON.stringify(pinnedCall)).toBe(JSON.stringify({
-        threadId: "thread-pending-contract",
-        pinned: true,
-        beforeThreadId: "thread-existing-anchor",
-      }));
+      expect(JSON.stringify(pinnedCall)).toBe(
+        JSON.stringify({
+          threadId: "thread-pending-contract",
+          pinned: true,
+          beforeThreadId: "thread-existing-anchor",
+        }),
+      );
     } finally {
       await service.shutdown();
     }
@@ -13223,8 +13571,7 @@ describe("codex-service approval fallback", () => {
   test("promotes a Work-locally fork snapshot before durable client mapping", async () => {
     const events: string[] = [];
     const service = createService({
-      forkSidePanelTransferLifecycle:
-        makeRecordingForkSidePanelTransferLifecycle(events),
+      forkSidePanelTransferLifecycle: makeRecordingForkSidePanelTransferLifecycle(events),
     });
     const entry = {
       id: "local:work-locally-transfer",
@@ -13289,12 +13636,14 @@ describe("codex-service approval fallback", () => {
       );
 
       expect(result.threadId).toBe("thread-target-work-locally-transfer");
-      expect(events.join(",")).toBe([
-        "launch",
-        "promote:local:work-locally-transfer:thread-target-work-locally-transfer:/repo/source",
-        "map:thread-target-work-locally-transfer:client-new-thread:work-locally-transfer",
-        "callback:thread-target-work-locally-transfer",
-      ].join(","));
+      expect(events.join(",")).toBe(
+        [
+          "launch",
+          "promote:local:work-locally-transfer:thread-target-work-locally-transfer:/repo/source",
+          "map:thread-target-work-locally-transfer:client-new-thread:work-locally-transfer",
+          "callback:thread-target-work-locally-transfer",
+        ].join(","),
+      );
     } finally {
       await service.shutdown();
     }
@@ -13303,8 +13652,7 @@ describe("codex-service approval fallback", () => {
   test("promotes a normal pending fork after accepted mapping and before metadata", async () => {
     const events: string[] = [];
     const service = createService({
-      forkSidePanelTransferLifecycle:
-        makeRecordingForkSidePanelTransferLifecycle(events),
+      forkSidePanelTransferLifecycle: makeRecordingForkSidePanelTransferLifecycle(events),
     });
     const runtime = Reflect.get(service as object, "pendingWorktreeRuntime") as {
       readonly dependencies: {
@@ -13313,14 +13661,16 @@ describe("codex-service approval fallback", () => {
           readonly worktreeWorkspaceRoot: string;
         }>;
       };
-      resolveThread: (clientThreadId: string) =>
-        | { readonly state: "waiting" | "failed" | "succeeded"; readonly threadId?: string }
-        | null;
+      resolveThread: (clientThreadId: string) => {
+        readonly state: "waiting" | "failed" | "succeeded";
+        readonly threadId?: string;
+      } | null;
     };
     const internals = service as unknown as {
-      createPendingWorktree: (
-        input: CodexPendingWorktreeCreateInput,
-      ) => { readonly pendingWorktreeId: string; readonly clientThreadId: string | null };
+      createPendingWorktree: (input: CodexPendingWorktreeCreateInput) => {
+        readonly pendingWorktreeId: string;
+        readonly clientThreadId: string | null;
+      };
       launchPendingWorktreeFork: () => Promise<{ readonly threadId: string }>;
       persistClientThreadIdentity: (threadId: string, clientThreadId: string) => void;
       applyPendingWorktreeConversationMetadata: () => Promise<void>;
@@ -13359,17 +13709,16 @@ describe("codex-service approval fallback", () => {
       });
       const clientThreadId = created.clientThreadId;
       if (!clientThreadId) throw new Error("Expected a pending client thread id");
-      await waitForCondition(
-        () => service.listPendingWorktrees().length === 0,
-        2_000,
-      );
+      await waitForCondition(() => service.listPendingWorktrees().length === 0, 2_000);
 
-      expect(events.join(",")).toBe([
-        "launch",
-        `map:thread-normal-transfer:${clientThreadId}`,
-        `promote:${created.pendingWorktreeId}:thread-normal-transfer:/repo/worktree`,
-        "metadata",
-      ].join(","));
+      expect(events.join(",")).toBe(
+        [
+          "launch",
+          `map:thread-normal-transfer:${clientThreadId}`,
+          `promote:${created.pendingWorktreeId}:thread-normal-transfer:/repo/worktree`,
+          "metadata",
+        ].join(","),
+      );
       expect(runtime.resolveThread(clientThreadId)).toBe(null);
     } finally {
       await service.shutdown();
@@ -13379,9 +13728,15 @@ describe("codex-service approval fallback", () => {
   test("routes dynamic tool-call requests through renderer owner from bundle 51920-52390", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
       pendingDynamicToolCalls: Map<string | number, unknown>;
-      respondToDynamicToolCall: (requestId: string | number) => Promise<{ success: boolean } | null>;
+      respondToDynamicToolCall: (
+        requestId: string | number,
+      ) => Promise<{ success: boolean } | null>;
       setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
       on: (
         event: "rendererOwnerHostMessage",
@@ -13428,7 +13783,7 @@ describe("codex-service approval fallback", () => {
       }
 
       const ownerResponse = await serviceInternals.respondToDynamicToolCall(74);
-      const serverResponse = await requestPromise as { success: boolean };
+      const serverResponse = (await requestPromise) as { success: boolean };
       expect(ownerResponse?.success).toBe(false);
       expect(serverResponse.success).toBe(false);
       expect(serviceInternals.pendingDynamicToolCalls.has(74)).toBe(false);
@@ -13462,10 +13817,7 @@ describe("codex-service approval fallback", () => {
       handleDynamicToolCall: typeof handleDynamicToolCall;
       captureNodexAgentTurnAuthority: () => typeof projectAuthority;
       pendingDynamicToolCalls: { readonly size: number };
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: unknown) => void,
-      ) => void;
+      on: (event: "rendererOwnerHostMessage", listener: (message: unknown) => void) => void;
     };
     const ownerMessages: unknown[] = [];
     serviceInternals.handleDynamicToolCall = handleDynamicToolCall;
@@ -13473,24 +13825,23 @@ describe("codex-service approval fallback", () => {
     serviceInternals.on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
     });
-    service.setRendererConversationOwner(
-      "thread-direct-project",
-      "renderer-state-owner",
-    );
+    service.setRendererConversationOwner("thread-direct-project", "renderer-state-owner");
 
     try {
-      await expect(serviceInternals.handleServerRequest({
-        id: "request-direct-project",
-        method: "item/tool/call",
-        params: {
-          threadId: "thread-direct-project",
-          turnId: "turn-direct-project",
-          callId: "call-direct-project",
-          namespace: "nodex_app",
-          tool: "get_context",
-          arguments: {},
-        },
-      })).resolves.toMatchObject({ success: true });
+      await expect(
+        serviceInternals.handleServerRequest({
+          id: "request-direct-project",
+          method: "item/tool/call",
+          params: {
+            threadId: "thread-direct-project",
+            turnId: "turn-direct-project",
+            callId: "call-direct-project",
+            namespace: "nodex_app",
+            tool: "get_context",
+            arguments: {},
+          },
+        }),
+      ).resolves.toMatchObject({ success: true });
       expect(handleDynamicToolCall).toHaveBeenCalledWith(
         expect.objectContaining({
           threadId: "thread-direct-project",
@@ -13623,18 +13974,24 @@ describe("codex-service approval fallback", () => {
       await Promise.resolve();
       expect(serviceInternals.pendingDynamicToolCalls.size).toBe(1);
       expect(serviceInternals.getConversationRecord("").serverRequests.length).toBe(1);
-      expect(await serviceInternals.respondToSetupCodexStep(
-        "",
-        "stored-dynamic-empty-thread",
-        { step: "role", action: "submit", selectedRoles: ["engineer"] },
-      )).toBe(true);
-      expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify({
-        contentItems: [{
-          type: "inputText",
-          text: JSON.stringify({ action: "submit", selectedRoles: ["engineer"] }),
-        }],
-        success: true,
-      }));
+      expect(
+        await serviceInternals.respondToSetupCodexStep("", "stored-dynamic-empty-thread", {
+          step: "role",
+          action: "submit",
+          selectedRoles: ["engineer"],
+        }),
+      ).toBe(true);
+      expect(JSON.stringify(await requestPromise)).toBe(
+        JSON.stringify({
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify({ action: "submit", selectedRoles: ["engineer"] }),
+            },
+          ],
+          success: true,
+        }),
+      );
       expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
     } finally {
       await service.shutdown();
@@ -13655,18 +14012,19 @@ describe("codex-service approval fallback", () => {
         serverRequests: Array<{ id: string | number; method: string }>;
       };
     };
-    const request = (callId: string) => serviceInternals.handleServerRequest({
-      id: "withdraw-stored-empty-thread",
-      method: "item/tool/call",
-      params: {
-        threadId: "",
-        turnId: "turn-withdraw-stored-empty-thread",
-        callId,
-        namespace: "codex_app",
-        tool: "setup_codex_step",
-        arguments: { step: "role" },
-      },
-    });
+    const request = (callId: string) =>
+      serviceInternals.handleServerRequest({
+        id: "withdraw-stored-empty-thread",
+        method: "item/tool/call",
+        params: {
+          threadId: "",
+          turnId: "turn-withdraw-stored-empty-thread",
+          callId,
+          namespace: "codex_app",
+          tool: "setup_codex_step",
+          arguments: { step: "role" },
+        },
+      });
 
     try {
       const firstPromise = request("call-withdraw-stored-empty-thread-1");
@@ -13704,7 +14062,10 @@ describe("codex-service approval fallback", () => {
       respondToDynamicToolCall: (
         requestId: string | number,
         conversationId: string,
-      ) => Promise<{ contentItems: Array<{ type: string; text?: string }>; success: boolean } | null>;
+      ) => Promise<{
+        contentItems: Array<{ type: string; text?: string }>;
+        success: boolean;
+      } | null>;
       respondToUserInput: (
         requestId: string | number,
         answers: Record<string, string[]>,
@@ -13742,40 +14103,40 @@ describe("codex-service approval fallback", () => {
     });
 
     try {
-      const onboardingPromise = serviceInternals.handleServerRequest(request(
-        "call-stored-onboarding",
-        "request_onboarding_input",
-        {
-          questions: [{
-            id: "first_task",
-            header: "Start",
-            question: "What should Codex do?",
-            options: [
-              { label: "Audit", description: "Inspect first" },
-              { label: "Build", description: "Implement first" },
-            ],
-          }],
-        },
-      ));
-      const firstDispatchedPromise = serviceInternals.handleServerRequest(request(
-        "call-dispatched-first",
-        "unsupported_occurrence_first",
-        {},
-      ));
-      const secondDispatchedPromise = serviceInternals.handleServerRequest(request(
-        "call-dispatched-second",
-        "unsupported_occurrence_second",
-        {},
-      ));
+      const onboardingPromise = serviceInternals.handleServerRequest(
+        request("call-stored-onboarding", "request_onboarding_input", {
+          questions: [
+            {
+              id: "first_task",
+              header: "Start",
+              question: "What should Codex do?",
+              options: [
+                { label: "Audit", description: "Inspect first" },
+                { label: "Build", description: "Implement first" },
+              ],
+            },
+          ],
+        }),
+      );
+      const firstDispatchedPromise = serviceInternals.handleServerRequest(
+        request("call-dispatched-first", "unsupported_occurrence_first", {}),
+      );
+      const secondDispatchedPromise = serviceInternals.handleServerRequest(
+        request("call-dispatched-second", "unsupported_occurrence_second", {}),
+      );
       await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
 
       expect(ownerMessages.length).toBe(3);
       expect(serviceInternals.pendingDynamicToolCalls.size).toBe(3);
-      expect(JSON.stringify(
-        serviceInternals.getConversationRecord(threadId).serverRequests.map((entry) => entry.method),
-      )).toBe(JSON.stringify(["item/tool/call"]));
+      expect(
+        JSON.stringify(
+          serviceInternals
+            .getConversationRecord(threadId)
+            .serverRequests.map((entry) => entry.method),
+        ),
+      ).toBe(JSON.stringify(["item/tool/call"]));
 
       const firstResponse = await serviceInternals.respondToDynamicToolCall(requestId, threadId);
       expect(firstResponse?.contentItems[0]?.text).toBe(
@@ -13792,20 +14153,22 @@ describe("codex-service approval fallback", () => {
       expect(serviceInternals.pendingDynamicToolCalls.size).toBe(1);
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(1);
 
-      expect(await serviceInternals.respondToUserInput(
-        requestId,
-        { first_task: ["Audit"] },
-        threadId,
-      )).toBe(true);
-      expect(JSON.stringify(await onboardingPromise)).toBe(JSON.stringify({
-        contentItems: [{
-          type: "inputText",
-          text: JSON.stringify({
-            answers: { first_task: { answers: ["Audit"] } },
-          }),
-        }],
-        success: true,
-      }));
+      expect(
+        await serviceInternals.respondToUserInput(requestId, { first_task: ["Audit"] }, threadId),
+      ).toBe(true);
+      expect(JSON.stringify(await onboardingPromise)).toBe(
+        JSON.stringify({
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify({
+                answers: { first_task: { answers: ["Audit"] } },
+              }),
+            },
+          ],
+          success: true,
+        }),
+      );
       expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
     } finally {
@@ -13818,7 +14181,11 @@ describe("codex-service approval fallback", () => {
       const service = createService();
       const serviceInternals = service as unknown as {
         parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-        handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+        handleServerRequest: (request: {
+          id: string | number;
+          method: string;
+          params: unknown;
+        }) => Promise<unknown>;
         pendingApprovals: Map<
           string | number,
           {
@@ -13833,7 +14200,7 @@ describe("codex-service approval fallback", () => {
         respondToApproval: (
           requestId: string | number,
           response: CodexApprovalResponse,
-      ) => Promise<boolean>;
+        ) => Promise<boolean>;
         on: (eventName: "event", listener: (event: CodexEvent) => void) => void;
       };
       const events: CodexEvent[] = [];
@@ -13881,36 +14248,56 @@ describe("codex-service approval fallback", () => {
         expect(serviceInternals.pendingApprovals.size).toBe(3);
         expect(serviceInternals.pendingApprovals.has(42)).toBe(true);
         expect(serviceInternals.pendingApprovals.has("42")).toBe(true);
-        const approvalItem = getRecordedItem(serviceInternals, "thr_request_id", "turn_request_id", "item_request_id");
+        const approvalItem = getRecordedItem(
+          serviceInternals,
+          "thr_request_id",
+          "turn_request_id",
+          "item_request_id",
+        );
         expect(approvalItem?.approvalRequestId).toBe(undefined);
 
         const requestedEvent = events.find(
-          (event): event is Extract<CodexEvent, { type: "approvalRequested" }> => event.type === "approvalRequested",
+          (event): event is Extract<CodexEvent, { type: "approvalRequested" }> =>
+            event.type === "approvalRequested",
         );
         expect(requestedEvent?.request.requestId).toBe(42);
-        expect(JSON.stringify(
-          serviceInternals.getConversationRecord("thr_request_id").serverRequests.map((request) => request.id),
-        )).toBe(JSON.stringify([42, 42, "42"]));
-        expect(JSON.stringify(
-          serviceInternals.getConversationRecord("thr_request_id").canonicalState?.requests.map(
-            (request) => request.id,
+        expect(
+          JSON.stringify(
+            serviceInternals
+              .getConversationRecord("thr_request_id")
+              .serverRequests.map((request) => request.id),
           ),
-        )).toBe(JSON.stringify([42, 42, "42"]));
+        ).toBe(JSON.stringify([42, 42, "42"]));
+        expect(
+          JSON.stringify(
+            serviceInternals
+              .getConversationRecord("thr_request_id")
+              .canonicalState?.requests.map((request) => request.id),
+          ),
+        ).toBe(JSON.stringify([42, 42, "42"]));
 
-        expect(await serviceInternals.respondToApproval(42, { kind: "command", decision: "decline" })).toBe(true);
+        expect(
+          await serviceInternals.respondToApproval(42, { kind: "command", decision: "decline" }),
+        ).toBe(true);
         expect(JSON.stringify(await numericPromise)).toBe(JSON.stringify({ decision: "decline" }));
         expect(await duplicateNumericPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
         expect(serviceInternals.pendingApprovals.size).toBe(1);
         expect(serviceInternals.pendingApprovals.has(42)).toBe(false);
         expect(serviceInternals.pendingApprovals.has("42")).toBe(true);
-        expect(JSON.stringify(
-          serviceInternals.getConversationRecord("thr_request_id").serverRequests.map((request) => request.id),
-        )).toBe(JSON.stringify(["42"]));
-        expect(JSON.stringify(
-          serviceInternals.getConversationRecord("thr_request_id").canonicalState?.requests.map(
-            (request) => request.id,
+        expect(
+          JSON.stringify(
+            serviceInternals
+              .getConversationRecord("thr_request_id")
+              .serverRequests.map((request) => request.id),
           ),
-        )).toBe(JSON.stringify(["42"]));
+        ).toBe(JSON.stringify(["42"]));
+        expect(
+          JSON.stringify(
+            serviceInternals
+              .getConversationRecord("thr_request_id")
+              .canonicalState?.requests.map((request) => request.id),
+          ),
+        ).toBe(JSON.stringify(["42"]));
 
         for (const pending of serviceInternals.pendingApprovals.values()) {
           pending.reject(new Error("test cleanup"));
@@ -13930,7 +14317,11 @@ describe("codex-service approval fallback", () => {
     const secondThreadId = "thr_request_scope_second";
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       getConversationRecord: (threadId: string) => {
         serverRequests: Array<{ id: string | number }>;
@@ -13978,13 +14369,25 @@ describe("codex-service approval fallback", () => {
       });
       await Promise.resolve();
 
-      expect(await serviceInternals.respondToApproval(requestId, { kind: "command", decision: "decline" }, secondThreadId)).toBe(true);
+      expect(
+        await serviceInternals.respondToApproval(
+          requestId,
+          { kind: "command", decision: "decline" },
+          secondThreadId,
+        ),
+      ).toBe(true);
       expect(JSON.stringify(await secondPromise)).toBe(JSON.stringify({ decision: "decline" }));
       expect(serviceInternals.pendingApprovals.size).toBe(1);
       expect(serviceInternals.getConversationRecord(firstThreadId).serverRequests.length).toBe(1);
       expect(serviceInternals.getConversationRecord(secondThreadId).serverRequests.length).toBe(0);
 
-      expect(await serviceInternals.respondToApproval(requestId, { kind: "command", decision: "decline" }, firstThreadId)).toBe(true);
+      expect(
+        await serviceInternals.respondToApproval(
+          requestId,
+          { kind: "command", decision: "decline" },
+          firstThreadId,
+        ),
+      ).toBe(true);
       expect(JSON.stringify(await firstPromise)).toBe(JSON.stringify({ decision: "decline" }));
     } finally {
       await service.shutdown();
@@ -14053,15 +14456,29 @@ describe("codex-service approval fallback", () => {
       await Promise.resolve();
 
       const wrongKind = input.firstKind === "command" ? "file" : "command";
-      expect(await serviceInternals.respondToApproval(input.requestId, { kind: wrongKind, decision: "decline" }, input.threadId)).toBe(false);
-      expect(serviceInternals.pendingApprovals.size).toBe(2);
-      expect(JSON.stringify(
-        serviceInternals.getConversationRecord(input.threadId).serverRequests.map(
-          (request) => request.method,
+      expect(
+        await serviceInternals.respondToApproval(
+          input.requestId,
+          { kind: wrongKind, decision: "decline" },
+          input.threadId,
         ),
-      )).toBe(JSON.stringify([firstRequest.method, secondRequest.method]));
+      ).toBe(false);
+      expect(serviceInternals.pendingApprovals.size).toBe(2);
+      expect(
+        JSON.stringify(
+          serviceInternals
+            .getConversationRecord(input.threadId)
+            .serverRequests.map((request) => request.method),
+        ),
+      ).toBe(JSON.stringify([firstRequest.method, secondRequest.method]));
 
-      expect(await serviceInternals.respondToApproval(input.requestId, { kind: input.firstKind, decision: "decline" }, input.threadId)).toBe(true);
+      expect(
+        await serviceInternals.respondToApproval(
+          input.requestId,
+          { kind: input.firstKind, decision: "decline" },
+          input.threadId,
+        ),
+      ).toBe(true);
       expect(JSON.stringify(await firstPromise)).toBe(JSON.stringify({ decision: "decline" }));
       expect(await secondPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
       expect(serviceInternals.getConversationRecord(input.threadId).serverRequests.length).toBe(0);
@@ -14086,7 +14503,11 @@ describe("codex-service approval fallback", () => {
   test("stores synthetic-family requests for empty or missing target turns without inventing items", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       getConversationRecord: (threadId: string) => {
         serverRequests: Array<{ id: string | number }>;
@@ -14105,12 +14526,14 @@ describe("codex-service approval fallback", () => {
     });
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thr_request_missing_turn"),
-      turns: [{
-        threadId: "thr_request_missing_turn",
-        turnId: "turn_existing",
-        status: "completed",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_request_missing_turn",
+          turnId: "turn_existing",
+          status: "completed",
+          itemIds: [],
+        },
+      ],
       transcript: [],
     });
 
@@ -14123,13 +14546,15 @@ describe("codex-service approval fallback", () => {
           turnId: "turn_absent",
           itemId: "user-input-empty-turn",
           isBlocking: true,
-          questions: [{
-            id: "q-empty",
-            header: "Empty",
-            question: "Continue?",
-            isOther: false,
-            isSecret: false,
-          }],
+          questions: [
+            {
+              id: "q-empty",
+              header: "Empty",
+              question: "Continue?",
+              isOther: false,
+              isSecret: false,
+            },
+          ],
         },
       });
       const missingPromise = serviceInternals.handleServerRequest({
@@ -14155,31 +14580,41 @@ describe("codex-service approval fallback", () => {
         JSON.stringify(["empty-turn-user-input"]),
       );
       expect(emptyRecord.hasUnreadTurn).toBe(true);
-      expect(service.serializeConversationSnapshot("thr_request_empty_turns")?.turns.length ?? -1).toBe(0);
-      expect(getRecordedItem(
-        serviceInternals,
-        "thr_request_empty_turns",
-        "turn_absent",
-        "user-input-response-empty-turn-user-input",
-      )).toBe(null);
+      expect(
+        service.serializeConversationSnapshot("thr_request_empty_turns")?.turns.length ?? -1,
+      ).toBe(0);
+      expect(
+        getRecordedItem(
+          serviceInternals,
+          "thr_request_empty_turns",
+          "turn_absent",
+          "user-input-response-empty-turn-user-input",
+        ),
+      ).toBe(null);
 
       expect(JSON.stringify(missingRecord.serverRequests.map((request) => request.id))).toBe(
         JSON.stringify(["missing-turn-permission"]),
       );
       expect(missingRecord.hasUnreadTurn).toBe(true);
-      expect(service.serializeConversationSnapshot("thr_request_missing_turn")?.turns.length ?? -1).toBe(1);
-      expect(getRecordedItem(
-        serviceInternals,
-        "thr_request_missing_turn",
-        "turn_missing",
-        "permission-request-missing-turn-permission",
-      )).toBe(null);
+      expect(
+        service.serializeConversationSnapshot("thr_request_missing_turn")?.turns.length ?? -1,
+      ).toBe(1);
+      expect(
+        getRecordedItem(
+          serviceInternals,
+          "thr_request_missing_turn",
+          "turn_missing",
+          "permission-request-missing-turn-permission",
+        ),
+      ).toBe(null);
 
       expect(await service.respondToUserInput("empty-turn-user-input", {})).toBe(true);
-      expect(await serviceInternals.respondToPermissionRequest(
-        "missing-turn-permission",
-        { permissions: {}, scope: "turn" },
-      )).toBe(true);
+      expect(
+        await serviceInternals.respondToPermissionRequest("missing-turn-permission", {
+          permissions: {},
+          scope: "turn",
+        }),
+      ).toBe(true);
       await emptyPromise;
       await missingPromise;
     } finally {
@@ -14198,7 +14633,11 @@ describe("codex-service approval fallback", () => {
     }> = [];
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
       requestConversationResume: (
         threadId: string,
         options?: { syncDormantConversationSnapshots?: boolean },
@@ -14241,14 +14680,21 @@ describe("codex-service approval fallback", () => {
 
       await Promise.resolve();
       expect(resumeObservations.length).toBe(1);
-      expect(JSON.stringify(resumeObservations[0])).toBe(JSON.stringify({
-        threadId: "thr_file_approval_resume",
-        requestIds: ["file-approval-resume"],
-        hasUnreadTurn: true,
-        syncDormantConversationSnapshots: false,
-      }));
+      expect(JSON.stringify(resumeObservations[0])).toBe(
+        JSON.stringify({
+          threadId: "thr_file_approval_resume",
+          requestIds: ["file-approval-resume"],
+          hasUnreadTurn: true,
+          syncDormantConversationSnapshots: false,
+        }),
+      );
 
-      expect(await serviceInternals.respondToApproval("file-approval-resume", { kind: "file", decision: "decline" })).toBe(true);
+      expect(
+        await serviceInternals.respondToApproval("file-approval-resume", {
+          kind: "file",
+          decision: "decline",
+        }),
+      ).toBe(true);
       expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify({ decision: "decline" }));
     } finally {
       await service.shutdown();
@@ -14262,7 +14708,11 @@ describe("codex-service approval fallback", () => {
       notificationEvents.push(event);
     });
     const serviceInternals = service as unknown as {
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
       respondToOptionPicker: (
         conversationId: string,
         requestId: string | number,
@@ -14347,11 +14797,12 @@ describe("codex-service approval fallback", () => {
         JSON.stringify([610, "dynamic-option-611", 612, "dynamic-setup-613"]),
       );
       expect(record.hasUnreadTurn).toBe(true);
-      expect(notificationEvents.filter((event) => event.type === "user-input-requested"))
-        .toMatchObject([
-          { requestId: 610, questionCount: 0 },
-          { requestId: "dynamic-option-611", questionCount: 0 },
-        ]);
+      expect(
+        notificationEvents.filter((event) => event.type === "user-input-requested"),
+      ).toMatchObject([
+        { requestId: 610, questionCount: 0 },
+        { requestId: "dynamic-option-611", questionCount: 0 },
+      ]);
 
       const directOptionResponse = {
         action: "submit" as const,
@@ -14372,29 +14823,41 @@ describe("codex-service approval fallback", () => {
         selectedSources: [],
       };
 
-      expect(await serviceInternals.respondToOptionPicker(threadId, 610, directOptionResponse)).toBe(true);
-      expect(await serviceInternals.respondToOptionPicker(
-        threadId,
-        "dynamic-option-611",
-        dynamicOptionResponse,
-      )).toBe(true);
-      expect(await serviceInternals.respondToSetupContextPicker(threadId, 612, directSetupResponse)).toBe(true);
-      expect(await serviceInternals.respondToSetupContextPicker(
-        threadId,
-        "dynamic-setup-613",
-        dynamicSetupResponse,
-      )).toBe(true);
+      expect(
+        await serviceInternals.respondToOptionPicker(threadId, 610, directOptionResponse),
+      ).toBe(true);
+      expect(
+        await serviceInternals.respondToOptionPicker(
+          threadId,
+          "dynamic-option-611",
+          dynamicOptionResponse,
+        ),
+      ).toBe(true);
+      expect(
+        await serviceInternals.respondToSetupContextPicker(threadId, 612, directSetupResponse),
+      ).toBe(true);
+      expect(
+        await serviceInternals.respondToSetupContextPicker(
+          threadId,
+          "dynamic-setup-613",
+          dynamicSetupResponse,
+        ),
+      ).toBe(true);
 
       expect(JSON.stringify(await directOptionPromise)).toBe(JSON.stringify(directOptionResponse));
-      expect(JSON.stringify(await dynamicOptionPromise)).toBe(JSON.stringify({
-        contentItems: [{ type: "inputText", text: JSON.stringify(dynamicOptionResponse) }],
-        success: true,
-      }));
+      expect(JSON.stringify(await dynamicOptionPromise)).toBe(
+        JSON.stringify({
+          contentItems: [{ type: "inputText", text: JSON.stringify(dynamicOptionResponse) }],
+          success: true,
+        }),
+      );
       expect(JSON.stringify(await directSetupPromise)).toBe(JSON.stringify(directSetupResponse));
-      expect(JSON.stringify(await dynamicSetupPromise)).toBe(JSON.stringify({
-        contentItems: [{ type: "inputText", text: JSON.stringify(dynamicSetupResponse) }],
-        success: true,
-      }));
+      expect(JSON.stringify(await dynamicSetupPromise)).toBe(
+        JSON.stringify({
+          contentItems: [{ type: "inputText", text: JSON.stringify(dynamicSetupResponse) }],
+          success: true,
+        }),
+      );
       expect(record.serverRequests.length).toBe(0);
       expect(record.canonicalState?.requests.length).toBe(0);
       expect(record.canonicalState?.sidecar.hasUnreadTurn).toBe(true);
@@ -14471,29 +14934,35 @@ describe("codex-service approval fallback", () => {
       });
       await Promise.resolve();
 
-      expect(JSON.stringify(
-        serviceInternals.getConversationRecord(threadId).serverRequests.map((request) => request.method),
-      )).toBe(JSON.stringify([
-        "item/tool/requestSetupCodexContextPicker",
-        "item/tool/requestOptionPicker",
-        "item/tool/requestOptionPicker",
-      ]));
-      expect(await serviceInternals.respondToOptionPicker(threadId, requestId, {
-        action: "submit",
-        selectedOptions: ["First"],
-        freeformAnswer: null,
-      })).toBe(false);
+      expect(
+        JSON.stringify(
+          serviceInternals
+            .getConversationRecord(threadId)
+            .serverRequests.map((request) => request.method),
+        ),
+      ).toBe(
+        JSON.stringify([
+          "item/tool/requestSetupCodexContextPicker",
+          "item/tool/requestOptionPicker",
+          "item/tool/requestOptionPicker",
+        ]),
+      );
+      expect(
+        await serviceInternals.respondToOptionPicker(threadId, requestId, {
+          action: "submit",
+          selectedOptions: ["First"],
+          freeformAnswer: null,
+        }),
+      ).toBe(false);
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(3);
 
       const setupResponse = {
         action: "continue" as const,
         selectedSources: ["workspace"],
       };
-      expect(await serviceInternals.respondToSetupContextPicker(
-        threadId,
-        requestId,
-        setupResponse,
-      )).toBe(true);
+      expect(
+        await serviceInternals.respondToSetupContextPicker(threadId, requestId, setupResponse),
+      ).toBe(true);
       expect(JSON.stringify(await setupPromise)).toBe(JSON.stringify(setupResponse));
       expect(await firstOptionPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
       expect(await duplicateOptionPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
@@ -14516,7 +14985,11 @@ describe("codex-service approval fallback", () => {
     };
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       mergeItem: (item: CodexItemView) => void;
       getConversationRecord: (threadId: string) => {
@@ -14536,15 +15009,17 @@ describe("codex-service approval fallback", () => {
       ...makeThreadDetail(threadId),
       createdAt: 700,
       updatedAt: 800,
-      turns: [{
-        threadId,
-        turnId,
-        status: "inProgress",
-        itemIds: [itemId],
-        turnStartedAtMs: 710,
-        firstTurnWorkItemStartedAtMs: 720,
-        finalAssistantStartedAtMs: 730,
-      }],
+      turns: [
+        {
+          threadId,
+          turnId,
+          status: "inProgress",
+          itemIds: [itemId],
+          turnStartedAtMs: 710,
+          firstTurnWorkItemStartedAtMs: 720,
+          finalAssistantStartedAtMs: 730,
+        },
+      ],
       transcript: [],
     });
     serviceInternals.mergeItem({
@@ -14605,13 +15080,17 @@ describe("codex-service approval fallback", () => {
       expect(approvalRow?.createdAt).toBe(760);
       expect(JSON.stringify(readTimestamps())).toBe(JSON.stringify(baselineTimestamps));
 
-      expect(await serviceInternals.respondToApproval(614, { kind: "command", decision: "decline" })).toBe(true);
+      expect(
+        await serviceInternals.respondToApproval(614, { kind: "command", decision: "decline" }),
+      ).toBe(true);
       expect(JSON.stringify(await requestPromise)).toBe(JSON.stringify({ decision: "decline" }));
 
       const replied = getRecordedItem(serviceInternals, threadId, turnId, itemId);
       expect(replied?.approvalRequestId ?? null).toBe(null);
       expect(replied?.rawItem === rawItem).toBe(true);
-      expect(getRecordedItem(serviceInternals, threadId, turnId, approvalItemId) === null).toBe(true);
+      expect(getRecordedItem(serviceInternals, threadId, turnId, approvalItemId) === null).toBe(
+        true,
+      );
       expect(JSON.stringify(readTimestamps())).toBe(JSON.stringify(baselineTimestamps));
     } finally {
       await service.shutdown();
@@ -14625,7 +15104,11 @@ describe("codex-service approval fallback", () => {
     const turnId = "turn_interrupt_request_families";
     const serviceInternals = service as unknown as {
       parseThreadRef: (threadId: string) => { projectId: string; cwd: string | null } | null;
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       requestConversationResume: () => Promise<CodexConversationSnapshot | null>;
       persistThreadSnapshot: (threadId: string) => void;
@@ -14692,13 +15175,15 @@ describe("codex-service approval fallback", () => {
           turnId,
           itemId: "user-interrupt",
           isBlocking: true,
-          questions: [{
-            id: "q-interrupt",
-            header: "Interrupt",
-            question: "Continue?",
-            isOther: false,
-            isSecret: false,
-          }],
+          questions: [
+            {
+              id: "q-interrupt",
+              header: "Interrupt",
+              question: "Continue?",
+              isOther: false,
+              isSecret: false,
+            },
+          ],
         },
       });
       const optionPromise = serviceInternals.handleServerRequest({
@@ -14734,44 +15219,62 @@ describe("codex-service approval fallback", () => {
       });
 
       await Promise.resolve();
-      expect(JSON.stringify(
-        serviceInternals.getConversationRecord(threadId).serverRequests.map((request) => request.id),
-      )).toBe(JSON.stringify([
-        "interrupt-command",
-        "interrupt-file",
-        "interrupt-permission",
-        "interrupt-user",
-        "interrupt-option",
-        "interrupt-setup",
-        "interrupt-mcp",
-      ]));
+      expect(
+        JSON.stringify(
+          serviceInternals
+            .getConversationRecord(threadId)
+            .serverRequests.map((request) => request.id),
+        ),
+      ).toBe(
+        JSON.stringify([
+          "interrupt-command",
+          "interrupt-file",
+          "interrupt-permission",
+          "interrupt-user",
+          "interrupt-option",
+          "interrupt-setup",
+          "interrupt-mcp",
+        ]),
+      );
 
       expect(await service.interruptTurn(threadId, turnId)).toBe(true);
-      expect(JSON.stringify(interruptCalls)).toBe(JSON.stringify([{
-        method: "turn/interrupt",
-        params: { threadId, turnId },
-      }]));
+      expect(JSON.stringify(interruptCalls)).toBe(
+        JSON.stringify([
+          {
+            method: "turn/interrupt",
+            params: { threadId, turnId },
+          },
+        ]),
+      );
       expect(JSON.stringify(await commandPromise)).toBe(JSON.stringify({ decision: "decline" }));
       expect(JSON.stringify(await filePromise)).toBe(JSON.stringify({ decision: "decline" }));
-      expect(JSON.stringify(await permissionPromise)).toBe(JSON.stringify({
-        permissions: {},
-        scope: "turn",
-      }));
+      expect(JSON.stringify(await permissionPromise)).toBe(
+        JSON.stringify({
+          permissions: {},
+          scope: "turn",
+        }),
+      );
       expect(JSON.stringify(await userPromise)).toBe(JSON.stringify({ answers: {} }));
-      expect(JSON.stringify(await optionPromise)).toBe(JSON.stringify({
-        action: "dismiss",
-        selectedOptions: [],
-        freeformAnswer: null,
-      }));
-      expect(JSON.stringify(await setupPromise)).toBe(JSON.stringify({
-        action: "dismiss",
-        selectedSources: [],
-      }));
-      expect(JSON.stringify(await mcpPromise)).toBe(JSON.stringify({
-        action: "decline",
-        content: null,
-        _meta: null,
-      }));
+      expect(JSON.stringify(await optionPromise)).toBe(
+        JSON.stringify({
+          action: "dismiss",
+          selectedOptions: [],
+          freeformAnswer: null,
+        }),
+      );
+      expect(JSON.stringify(await setupPromise)).toBe(
+        JSON.stringify({
+          action: "dismiss",
+          selectedSources: [],
+        }),
+      );
+      expect(JSON.stringify(await mcpPromise)).toBe(
+        JSON.stringify({
+          action: "decline",
+          content: null,
+          _meta: null,
+        }),
+      );
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
       expect(service.serializeConversationSnapshot(threadId)?.turns[0]?.status).toBe("interrupted");
     } finally {
@@ -14811,22 +15314,26 @@ describe("codex-service approval fallback", () => {
         namespace: "codex_app",
         tool: "request_onboarding_input",
         arguments: {
-          questions: [{
-            id: "first_task",
-            header: "Start",
-            question: "What should Codex do first?",
-            options: [
-              { label: "Audit", description: "Inspect the implementation" },
-              { label: "Build", description: "Implement the change" },
-            ],
-          }],
+          questions: [
+            {
+              id: "first_task",
+              header: "Start",
+              question: "What should Codex do first?",
+              options: [
+                { label: "Audit", description: "Inspect the implementation" },
+                { label: "Build", description: "Implement the change" },
+              ],
+            },
+          ],
         },
       },
     });
 
     try {
       const firstPromise = serviceInternals.handleServerRequest(request("onboarding-call-first"));
-      const duplicatePromise = serviceInternals.handleServerRequest(request("onboarding-call-duplicate"));
+      const duplicatePromise = serviceInternals.handleServerRequest(
+        request("onboarding-call-duplicate"),
+      );
       await Promise.resolve();
 
       const pendingRecord = serviceInternals.getConversationRecord(threadId);
@@ -14838,22 +15345,24 @@ describe("codex-service approval fallback", () => {
       );
       expect(pendingRecord.hasUnreadTurn).toBe(true);
 
-      expect(await serviceInternals.respondToUserInput(
-        requestId,
-        { first_task: ["Audit"] },
-        threadId,
-      )).toBe(true);
-      expect(JSON.stringify(await firstPromise)).toBe(JSON.stringify({
-        contentItems: [{
-          type: "inputText",
-          text: JSON.stringify({
-            answers: {
-              first_task: { answers: ["Audit"] },
+      expect(
+        await serviceInternals.respondToUserInput(requestId, { first_task: ["Audit"] }, threadId),
+      ).toBe(true);
+      expect(JSON.stringify(await firstPromise)).toBe(
+        JSON.stringify({
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify({
+                answers: {
+                  first_task: { answers: ["Audit"] },
+                },
+              }),
             },
-          }),
-        }],
-        success: true,
-      }));
+          ],
+          success: true,
+        }),
+      );
       expect(await duplicatePromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
       expect(pendingRecord.serverRequests.length).toBe(0);
       expect(pendingRecord.canonicalState?.requests.length).toBe(0);
@@ -14878,9 +15387,21 @@ describe("codex-service approval fallback", () => {
         conversationId: string,
         requestId: string | number,
         response:
-          | { step: "role"; action: "submit" | "skip" | "dismiss"; selectedRoles: readonly string[] }
-          | { step: "task"; action: "submit" | "skip" | "dismiss"; answers: Readonly<Record<string, { readonly answers: readonly string[] }>> }
-          | { step: "context"; action: "continue" | "skip" | "dismiss"; selectedSources: readonly string[] },
+          | {
+              step: "role";
+              action: "submit" | "skip" | "dismiss";
+              selectedRoles: readonly string[];
+            }
+          | {
+              step: "task";
+              action: "submit" | "skip" | "dismiss";
+              answers: Readonly<Record<string, { readonly answers: readonly string[] }>>;
+            }
+          | {
+              step: "context";
+              action: "continue" | "skip" | "dismiss";
+              selectedSources: readonly string[];
+            },
       ) => Promise<boolean>;
       getConversationRecord: (targetThreadId: string) => {
         canonicalState: CodexCanonicalConversationState | null;
@@ -14915,13 +15436,17 @@ describe("codex-service approval fallback", () => {
           arguments: { step: "complete" },
         },
       });
-      expect(JSON.stringify(completeResult)).toBe(JSON.stringify({
-        contentItems: [{
-          type: "inputText",
-          text: JSON.stringify({ completed: true }),
-        }],
-        success: true,
-      }));
+      expect(JSON.stringify(completeResult)).toBe(
+        JSON.stringify({
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify({ completed: true }),
+            },
+          ],
+          success: true,
+        }),
+      );
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
 
       let roleResolved = false;
@@ -14933,67 +15458,87 @@ describe("codex-service approval fallback", () => {
       });
       await Promise.resolve();
 
-      expect(await serviceInternals.respondToSetupCodexStep(
-        threadId,
-        "setup-role-616",
-        { step: "context", action: "dismiss", selectedSources: [] },
-      )).toBe(false);
+      expect(
+        await serviceInternals.respondToSetupCodexStep(threadId, "setup-role-616", {
+          step: "context",
+          action: "dismiss",
+          selectedSources: [],
+        }),
+      ).toBe(false);
       await Promise.resolve();
       expect(roleResolved).toBe(false);
-      expect(JSON.stringify(
-        serviceInternals.getConversationRecord(threadId).serverRequests.map((request) => request.id),
-      )).toBe(JSON.stringify(["setup-role-616", "setup-task-617", "setup-context-618"]));
+      expect(
+        JSON.stringify(
+          serviceInternals
+            .getConversationRecord(threadId)
+            .serverRequests.map((request) => request.id),
+        ),
+      ).toBe(JSON.stringify(["setup-role-616", "setup-task-617", "setup-context-618"]));
 
-      expect(await serviceInternals.respondToSetupCodexStep(
-        threadId,
-        "setup-role-616",
-        { step: "role", action: "submit", selectedRoles: ["engineer", "reviewer"] },
-      )).toBe(true);
-      expect(await serviceInternals.respondToSetupCodexStep(
-        threadId,
-        "setup-task-617",
-        {
+      expect(
+        await serviceInternals.respondToSetupCodexStep(threadId, "setup-role-616", {
+          step: "role",
+          action: "submit",
+          selectedRoles: ["engineer", "reviewer"],
+        }),
+      ).toBe(true);
+      expect(
+        await serviceInternals.respondToSetupCodexStep(threadId, "setup-task-617", {
           step: "task",
           action: "skip",
           answers: { first_task: { answers: ["Ship parity"] } },
-        },
-      )).toBe(true);
-      expect(await serviceInternals.respondToSetupCodexStep(
-        threadId,
-        "setup-context-618",
-        { step: "context", action: "continue", selectedSources: ["repo", "docs"] },
-      )).toBe(true);
+        }),
+      ).toBe(true);
+      expect(
+        await serviceInternals.respondToSetupCodexStep(threadId, "setup-context-618", {
+          step: "context",
+          action: "continue",
+          selectedSources: ["repo", "docs"],
+        }),
+      ).toBe(true);
 
-      expect(JSON.stringify(await rolePromise)).toBe(JSON.stringify({
-        contentItems: [{
-          type: "inputText",
-          text: JSON.stringify({
-            action: "submit",
-            selectedRoles: ["engineer", "reviewer"],
-          }),
-        }],
-        success: true,
-      }));
-      expect(JSON.stringify(await taskPromise)).toBe(JSON.stringify({
-        contentItems: [{
-          type: "inputText",
-          text: JSON.stringify({
-            action: "skip",
-            answers: { first_task: { answers: ["Ship parity"] } },
-          }),
-        }],
-        success: true,
-      }));
-      expect(JSON.stringify(await contextPromise)).toBe(JSON.stringify({
-        contentItems: [{
-          type: "inputText",
-          text: JSON.stringify({
-            action: "continue",
-            selectedSources: ["repo", "docs"],
-          }),
-        }],
-        success: true,
-      }));
+      expect(JSON.stringify(await rolePromise)).toBe(
+        JSON.stringify({
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify({
+                action: "submit",
+                selectedRoles: ["engineer", "reviewer"],
+              }),
+            },
+          ],
+          success: true,
+        }),
+      );
+      expect(JSON.stringify(await taskPromise)).toBe(
+        JSON.stringify({
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify({
+                action: "skip",
+                answers: { first_task: { answers: ["Ship parity"] } },
+              }),
+            },
+          ],
+          success: true,
+        }),
+      );
+      expect(JSON.stringify(await contextPromise)).toBe(
+        JSON.stringify({
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify({
+                action: "continue",
+                selectedSources: ["repo", "docs"],
+              }),
+            },
+          ],
+          success: true,
+        }),
+      );
       const record = serviceInternals.getConversationRecord(threadId);
       expect(record.serverRequests.length).toBe(0);
       expect(record.canonicalState?.requests.length).toBe(0);
@@ -15063,7 +15608,12 @@ describe("codex-service streaming notification parity", () => {
       });
       await new Promise((resolve) => setTimeout(resolve, 30));
 
-      const planItem = getRecordedItem(serviceInternals, "thr_plan_delta", "turn_plan_delta", "plan_item");
+      const planItem = getRecordedItem(
+        serviceInternals,
+        "thr_plan_delta",
+        "turn_plan_delta",
+        "plan_item",
+      );
       const reasoningItem = getRecordedItem(
         serviceInternals,
         "thr_plan_delta",
@@ -15140,8 +15690,9 @@ describe("codex-service streaming notification parity", () => {
         },
       });
       await waitForCondition(
-        () => service.serializeConversationSnapshot("thr_plan_delta_existing")
-          ?.turns[0]?.items[0]?.markdownText === "Draft plan from deltas",
+        () =>
+          service.serializeConversationSnapshot("thr_plan_delta_existing")?.turns[0]?.items[0]
+            ?.markdownText === "Draft plan from deltas",
         120,
       );
 
@@ -15200,12 +15751,14 @@ describe("codex-service streaming notification parity", () => {
 
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thr_reasoning_delta"),
-      turns: [{
-        threadId: "thr_reasoning_delta",
-        turnId: "turn_reasoning_delta",
-        status: "inProgress",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_reasoning_delta",
+          turnId: "turn_reasoning_delta",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
       transcript: [],
     });
 
@@ -15237,8 +15790,9 @@ describe("codex-service streaming notification parity", () => {
         },
       });
       await waitForCondition(
-        () => service.serializeConversationSnapshot("thr_reasoning_delta")
-          ?.turns[0]?.items[0]?.markdownText === "Thinking",
+        () =>
+          service.serializeConversationSnapshot("thr_reasoning_delta")?.turns[0]?.items[0]
+            ?.markdownText === "Thinking",
         120,
       );
 
@@ -15246,9 +15800,10 @@ describe("codex-service streaming notification parity", () => {
       const latest = service.serializeConversationSnapshot("thr_reasoning_delta");
       expect(latest?.turns[0]?.items[0]?.markdownText).toBe("Thinking");
       const rawItem = latest?.turns[0]?.items[0]?.rawItem;
-      const summary = rawItem && typeof rawItem === "object"
-        ? (rawItem as { summary?: unknown[] }).summary
-        : null;
+      const summary =
+        rawItem && typeof rawItem === "object"
+          ? (rawItem as { summary?: unknown[] }).summary
+          : null;
       expect(Array.isArray(summary)).toBe(true);
       expect(String(summary?.[0] ?? "")).toBe("Thinking");
 
@@ -15263,19 +15818,21 @@ describe("codex-service streaming notification parity", () => {
         },
       });
       await waitForCondition(() => {
-        const rawItem = service.serializeConversationSnapshot("thr_reasoning_delta")
-          ?.turns[0]?.items[0]?.rawItem;
-        const content = rawItem && typeof rawItem === "object"
-          ? (rawItem as { content?: unknown[] }).content
-          : null;
+        const rawItem =
+          service.serializeConversationSnapshot("thr_reasoning_delta")?.turns[0]?.items[0]?.rawItem;
+        const content =
+          rawItem && typeof rawItem === "object"
+            ? (rawItem as { content?: unknown[] }).content
+            : null;
         return String(content?.[0] ?? "") === "Private chain";
       }, 120);
 
       const contentLatest = service.serializeConversationSnapshot("thr_reasoning_delta");
       const contentRawItem = contentLatest?.turns[0]?.items[0]?.rawItem;
-      const content = contentRawItem && typeof contentRawItem === "object"
-        ? (contentRawItem as { content?: unknown[] }).content
-        : null;
+      const content =
+        contentRawItem && typeof contentRawItem === "object"
+          ? (contentRawItem as { content?: unknown[] }).content
+          : null;
       expect(Array.isArray(content)).toBe(true);
       expect(String(content?.[0] ?? "")).toBe("Private chain");
     } finally {
@@ -15299,7 +15856,7 @@ describe("codex-service item identity dedupe", () => {
       normalizedKind: "userMessage",
       semanticKind: "userMessage",
       role: "user",
-      markdownText: "say \"hi\"",
+      markdownText: 'say "hi"',
     };
 
     try {
@@ -15316,10 +15873,12 @@ describe("codex-service item identity dedupe", () => {
         updatedAt: 20,
       });
 
-      const byItem = serviceInternals.conversationRecords.get("thr_dedupe")?.itemsByTurn.get("turn_dedupe");
+      const byItem = serviceInternals.conversationRecords
+        .get("thr_dedupe")
+        ?.itemsByTurn.get("turn_dedupe");
       expect(byItem?.size).toBe(1);
       const merged = byItem ? Array.from(byItem.values())[0] : null;
-      expect(merged?.markdownText).toBe("say \"hi\"");
+      expect(merged?.markdownText).toBe('say "hi"');
       expect(merged?.itemId).toBe("878d0f9b-7c9f-468f-b297-9063a9c350ad");
     } finally {
       await service.shutdown();
@@ -15363,7 +15922,9 @@ describe("codex-service item identity dedupe", () => {
       expect(byItem?.size).toBe(1);
       const merged = byItem ? Array.from(byItem.values())[0] : null;
       expect(merged?.normalizedKind).toBe("assistantMessage");
-      expect(merged?.markdownText).toBe("I added the shared module. Next I’m rewiring project-switcher.tsx.");
+      expect(merged?.markdownText).toBe(
+        "I added the shared module. Next I’m rewiring project-switcher.tsx.",
+      );
       expect(merged?.itemId).toBe("msg_0827a35f777c91c901699cc22e743081918e86cc129ba14c30");
     } finally {
       await service.shutdown();
@@ -15405,9 +15966,12 @@ describe("codex-service item identity dedupe", () => {
         .get("thr_live_dupe_guard")
         ?.itemsByTurn.get("turn_live_dupe_guard");
       expect(byItem?.size).toBe(2);
-      expect(Array.from(byItem?.values() ?? []).map((item) => item.itemId).sort().join(",")).toBe(
-        "msg_0001,msg_0002",
-      );
+      expect(
+        Array.from(byItem?.values() ?? [])
+          .map((item) => item.itemId)
+          .sort()
+          .join(","),
+      ).toBe("msg_0001,msg_0002");
     } finally {
       await service.shutdown();
     }
@@ -15418,7 +15982,9 @@ describe("codex-service item lifecycle status fallback", () => {
   test("replaces the pending manual compaction row with an accepted manual lifecycle item", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+      ) => CodexCanonicalConversationState;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
@@ -15432,45 +15998,54 @@ describe("codex-service item lifecycle status fallback", () => {
       throw new Error(`Unexpected method: ${method}`);
     };
 
-    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
-      threadId: "thr_manual_compaction",
-      threadTurns: [{
-        ...makeCanonicalHydrationTurn("turn_manual_compaction"),
-        items: [],
-        status: "inProgress",
-        completedAt: null,
-        durationMs: null,
-      }],
-      initialTurnsPage: {
-        data: [{
-          ...makeCanonicalHydrationTurn("turn_manual_compaction"),
-          items: [],
-          status: "inProgress",
-          completedAt: null,
-          durationMs: null,
-        }],
-        nextCursor: null,
-        backwardsCursor: null,
-      },
-    }));
+    serviceInternals.hydrateCanonicalConversationState(
+      makeCanonicalResumeResponse({
+        threadId: "thr_manual_compaction",
+        threadTurns: [
+          {
+            ...makeCanonicalHydrationTurn("turn_manual_compaction"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          },
+        ],
+        initialTurnsPage: {
+          data: [
+            {
+              ...makeCanonicalHydrationTurn("turn_manual_compaction"),
+              items: [],
+              status: "inProgress",
+              completedAt: null,
+              durationMs: null,
+            },
+          ],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }),
+    );
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thr_manual_compaction"),
-      turns: [{
-        threadId: "thr_manual_compaction",
-        turnId: "turn_manual_compaction",
-        status: "inProgress",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_manual_compaction",
+          turnId: "turn_manual_compaction",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
       transcript: [],
     });
 
     try {
-      await (service as unknown as {
-        startThreadCompaction: (threadId: string) => Promise<void>;
-      }).startThreadCompaction("thr_manual_compaction");
+      await (
+        service as unknown as {
+          startThreadCompaction: (threadId: string) => Promise<void>;
+        }
+      ).startThreadCompaction("thr_manual_compaction");
       expect(
-        getCanonicalConversationState(service, "thr_manual_compaction")
-          ?.turns[0]?.items[0]?.id,
+        getCanonicalConversationState(service, "thr_manual_compaction")?.turns[0]?.items[0]?.id,
       ).toBe("pending-manual-context-compaction");
 
       await serviceInternals.handleNotification({
@@ -15482,9 +16057,11 @@ describe("codex-service item lifecycle status fallback", () => {
           item: { id: "compaction-accepted", type: "contextCompaction" },
         },
       });
-      const items = getCanonicalConversationState(service, "thr_manual_compaction")
-        ?.turns[0]?.items ?? [];
-      const accepted = items[0] as { id?: string; source?: string; completed?: boolean } | undefined;
+      const items =
+        getCanonicalConversationState(service, "thr_manual_compaction")?.turns[0]?.items ?? [];
+      const accepted = items[0] as
+        | { id?: string; source?: string; completed?: boolean }
+        | undefined;
       expect(items.length).toBe(1);
       expect(accepted?.id).toBe("compaction-accepted");
       expect(accepted?.source).toBe("manual");
@@ -15497,7 +16074,9 @@ describe("codex-service item lifecycle status fallback", () => {
   test("removes the pending manual compaction row when the request fails", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+      ) => CodexCanonicalConversationState;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
     };
     const client = Reflect.get(service as object, "client") as {
@@ -15510,46 +16089,57 @@ describe("codex-service item lifecycle status fallback", () => {
       throw new Error(`Unexpected method: ${method}`);
     };
 
-    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
-      threadId: "thr_manual_compaction_failure",
-      threadTurns: [{
-        ...makeCanonicalHydrationTurn("turn_manual_compaction_failure"),
-        items: [],
-        status: "inProgress",
-        completedAt: null,
-        durationMs: null,
-      }],
-      initialTurnsPage: {
-        data: [{
-          ...makeCanonicalHydrationTurn("turn_manual_compaction_failure"),
-          items: [],
-          status: "inProgress",
-          completedAt: null,
-          durationMs: null,
-        }],
-        nextCursor: null,
-        backwardsCursor: null,
-      },
-    }));
+    serviceInternals.hydrateCanonicalConversationState(
+      makeCanonicalResumeResponse({
+        threadId: "thr_manual_compaction_failure",
+        threadTurns: [
+          {
+            ...makeCanonicalHydrationTurn("turn_manual_compaction_failure"),
+            items: [],
+            status: "inProgress",
+            completedAt: null,
+            durationMs: null,
+          },
+        ],
+        initialTurnsPage: {
+          data: [
+            {
+              ...makeCanonicalHydrationTurn("turn_manual_compaction_failure"),
+              items: [],
+              status: "inProgress",
+              completedAt: null,
+              durationMs: null,
+            },
+          ],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }),
+    );
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thr_manual_compaction_failure"),
-      turns: [{
-        threadId: "thr_manual_compaction_failure",
-        turnId: "turn_manual_compaction_failure",
-        status: "inProgress",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_manual_compaction_failure",
+          turnId: "turn_manual_compaction_failure",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
       transcript: [],
     });
 
     try {
-      await expect((service as unknown as {
-        startThreadCompaction: (threadId: string) => Promise<void>;
-      }).startThreadCompaction("thr_manual_compaction_failure"))
-        .rejects.toThrow("compaction rejected");
+      await expect(
+        (
+          service as unknown as {
+            startThreadCompaction: (threadId: string) => Promise<void>;
+          }
+        ).startThreadCompaction("thr_manual_compaction_failure"),
+      ).rejects.toThrow("compaction rejected");
       expect(
-        getCanonicalConversationState(service, "thr_manual_compaction_failure")
-          ?.turns[0]?.items.length,
+        getCanonicalConversationState(service, "thr_manual_compaction_failure")?.turns[0]?.items
+          .length,
       ).toBe(0);
     } finally {
       await service.shutdown();
@@ -15559,7 +16149,9 @@ describe("codex-service item lifecycle status fallback", () => {
   test("keeps an earlier local turn when an unbound manual compaction turn is added and removed", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      hydrateCanonicalConversationState: (input: ThreadResumeResponse) => CodexCanonicalConversationState;
+      hydrateCanonicalConversationState: (
+        input: ThreadResumeResponse,
+      ) => CodexCanonicalConversationState;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       appendThreadGoalTranscriptTurn: (threadId: string, goal: ThreadGoal) => void;
       conversationRecords: Map<string, { detail: CodexThreadDetail | null }>;
@@ -15571,9 +16163,9 @@ describe("codex-service item lifecycle status fallback", () => {
     client.start = async () => undefined;
     client.request = async (method) => {
       if (method !== "thread/compact/start") throw new Error(`Unexpected method: ${method}`);
-      const pendingDetail = serviceInternals.conversationRecords
-        .get("thr_manual_compaction_unbound")
-        ?.detail;
+      const pendingDetail = serviceInternals.conversationRecords.get(
+        "thr_manual_compaction_unbound",
+      )?.detail;
       expect(pendingDetail?.turns).toMatchObject([
         { turnId: null, status: "completed" },
         { turnId: null, status: "inProgress" },
@@ -15585,15 +16177,17 @@ describe("codex-service item lifecycle status fallback", () => {
       throw new Error("compaction rejected");
     };
 
-    serviceInternals.hydrateCanonicalConversationState(makeCanonicalResumeResponse({
-      threadId: "thr_manual_compaction_unbound",
-      threadTurns: [],
-      initialTurnsPage: {
-        data: [],
-        nextCursor: null,
-        backwardsCursor: null,
-      },
-    }));
+    serviceInternals.hydrateCanonicalConversationState(
+      makeCanonicalResumeResponse({
+        threadId: "thr_manual_compaction_unbound",
+        threadTurns: [],
+        initialTurnsPage: {
+          data: [],
+          nextCursor: null,
+          backwardsCursor: null,
+        },
+      }),
+    );
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thr_manual_compaction_unbound"),
       turns: [],
@@ -15611,10 +16205,13 @@ describe("codex-service item lifecycle status fallback", () => {
     });
 
     try {
-      await expect((service as unknown as {
-        startThreadCompaction: (threadId: string) => Promise<void>;
-      }).startThreadCompaction("thr_manual_compaction_unbound"))
-        .rejects.toThrow("compaction rejected");
+      await expect(
+        (
+          service as unknown as {
+            startThreadCompaction: (threadId: string) => Promise<void>;
+          }
+        ).startThreadCompaction("thr_manual_compaction_unbound"),
+      ).rejects.toThrow("compaction rejected");
       expect(
         getCanonicalConversationState(service, "thr_manual_compaction_unbound")?.turns,
       ).toHaveLength(1);
@@ -15943,9 +16540,10 @@ describe("codex-service item lifecycle status fallback", () => {
       });
 
       let snapshot = await service.requestConversationSnapshot("thr_guardian_warning");
-      let warningItems = snapshot?.turns[0]?.items.filter((item) =>
-        item.semanticKind === "autoReviewInterruptionWarning"
-      ) ?? [];
+      let warningItems =
+        snapshot?.turns[0]?.items.filter(
+          (item) => item.semanticKind === "autoReviewInterruptionWarning",
+        ) ?? [];
       expect(String(warningItems.length)).toBe("0");
 
       await serviceInternals.handleNotification({
@@ -15958,13 +16556,16 @@ describe("codex-service item lifecycle status fallback", () => {
       });
 
       snapshot = await service.requestConversationSnapshot("thr_guardian_warning");
-      warningItems = snapshot?.turns[0]?.items.filter((item) =>
-        item.semanticKind === "autoReviewInterruptionWarning"
-      ) ?? [];
+      warningItems =
+        snapshot?.turns[0]?.items.filter(
+          (item) => item.semanticKind === "autoReviewInterruptionWarning",
+        ) ?? [];
       const warning = warningItems[0];
       expect(String(warningItems.length)).toBe("1");
       expect(warning?.type).toBe("autoReviewInterruptionWarning");
-      expect(warning?.markdownText).toBe("Automatic approval review rejected too many approval requests for this turn");
+      expect(warning?.markdownText).toBe(
+        "Automatic approval review rejected too many approval requests for this turn",
+      );
     } finally {
       await service.shutdown();
     }
@@ -16066,8 +16667,12 @@ describe("codex-service item lifecycle status fallback", () => {
       });
 
       const snapshot = await service.requestConversationSnapshot("thr_model_reroute");
-      const item = snapshot?.turns[0]?.items.find((candidate) => candidate.semanticKind === "modelRerouted");
-      const raw = item?.rawItem as { fromModel?: string; toModel?: string; reason?: string } | undefined;
+      const item = snapshot?.turns[0]?.items.find(
+        (candidate) => candidate.semanticKind === "modelRerouted",
+      );
+      const raw = item?.rawItem as
+        | { fromModel?: string; toModel?: string; reason?: string }
+        | undefined;
       expect(item?.status).toBe("completed");
       expect(raw?.fromModel).toBe("gpt-5.4-codex");
       expect(raw?.toModel).toBe("gpt-5.4-mini");
@@ -16081,7 +16686,11 @@ describe("codex-service item lifecycle status fallback", () => {
   test("declines unsupported MCP elicitation requests before owner routing from bundle 27071 and 52137", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
       pendingMcpElicitations: Map<string, unknown>;
       setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
       on: (
@@ -16131,16 +16740,20 @@ describe("codex-service item lifecycle status fallback", () => {
         },
       });
 
-      expect(JSON.stringify(result)).toBe(JSON.stringify({
-        action: "decline",
-        content: null,
-        _meta: null,
-      }));
-      expect(JSON.stringify(unknownModeResult)).toBe(JSON.stringify({
-        action: "decline",
-        content: null,
-        _meta: null,
-      }));
+      expect(JSON.stringify(result)).toBe(
+        JSON.stringify({
+          action: "decline",
+          content: null,
+          _meta: null,
+        }),
+      );
+      expect(JSON.stringify(unknownModeResult)).toBe(
+        JSON.stringify({
+          action: "decline",
+          content: null,
+          _meta: null,
+        }),
+      );
       expect(serviceInternals.pendingMcpElicitations.has("mcp_invalid")).toBe(false);
       expect(serviceInternals.pendingMcpElicitations.has("mcp_unknown_mode")).toBe(false);
       expect(String(ownerMessages.length)).toBe("0");
@@ -16154,7 +16767,9 @@ describe("codex-service item lifecycle status fallback", () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-      listPendingConversationRequests: (threadId: string) => Array<{ type: string; turnId: string }>;
+      listPendingConversationRequests: (
+        threadId: string,
+      ) => Array<{ type: string; turnId: string }>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       persistThreadSnapshot: (threadId: string) => void;
@@ -16252,7 +16867,9 @@ describe("codex-service item lifecycle status fallback", () => {
       handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
       mergeTurn: (threadId: string, turn: CodexTurnSummary) => void;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      listPendingConversationRequests: (threadId: string) => Array<{ type: string; turnId: string }>;
+      listPendingConversationRequests: (
+        threadId: string,
+      ) => Array<{ type: string; turnId: string }>;
       persistThreadSnapshot: (threadId: string) => void;
       syncThreadStatusFromKnownTurns: (threadId: string) => void;
     };
@@ -16499,28 +17116,20 @@ describe("codex-service item lifecycle status fallback", () => {
         2,
       );
       expect(record.hasUnreadTurn).toBe(true);
-      expect(JSON.stringify(record.serverRequests.map((request) => request.id))).toBe(JSON.stringify([
-        "unrelated-option",
-        "stale-plan",
-        "orphan-plan",
-        fresh.requestId,
-      ]));
-      expect(JSON.stringify(record.canonicalState?.requests.map((request) => request.id))).toBe(JSON.stringify([
-        "unrelated-option",
-        "stale-plan",
-        "orphan-plan",
-        fresh.requestId,
-      ]));
+      expect(JSON.stringify(record.serverRequests.map((request) => request.id))).toBe(
+        JSON.stringify(["unrelated-option", "stale-plan", "orphan-plan", fresh.requestId]),
+      );
+      expect(JSON.stringify(record.canonicalState?.requests.map((request) => request.id))).toBe(
+        JSON.stringify(["unrelated-option", "stale-plan", "orphan-plan", fresh.requestId]),
+      );
 
       serviceInternals.completeStalePlanImplementationItems(threadId, currentTurnId);
-      expect(JSON.stringify(record.serverRequests.map((request) => request.id))).toBe(JSON.stringify([
-        "unrelated-option",
-        fresh.requestId,
-      ]));
-      expect(JSON.stringify(record.canonicalState?.requests.map((request) => request.id))).toBe(JSON.stringify([
-        "unrelated-option",
-        fresh.requestId,
-      ]));
+      expect(JSON.stringify(record.serverRequests.map((request) => request.id))).toBe(
+        JSON.stringify(["unrelated-option", fresh.requestId]),
+      );
+      expect(JSON.stringify(record.canonicalState?.requests.map((request) => request.id))).toBe(
+        JSON.stringify(["unrelated-option", fresh.requestId]),
+      );
       expect(JSON.stringify([...record.planImplementationRequestsByTurnId.keys()])).toBe(
         JSON.stringify([currentTurnId]),
       );
@@ -16555,7 +17164,11 @@ describe("codex-service item lifecycle status fallback", () => {
         threadId: "thr_plan_impl_remove",
         turnId: "turn_plan_impl_remove",
         status: "completed",
-        itemIds: ["plan_text", "todo-list:turn_plan_impl_remove", "implement-plan:turn_plan_impl_remove"],
+        itemIds: [
+          "plan_text",
+          "todo-list:turn_plan_impl_remove",
+          "implement-plan:turn_plan_impl_remove",
+        ],
       });
 
       serviceInternals.mergeItem({
@@ -16774,11 +17387,26 @@ describe("codex-service terminal turn reconciliation", () => {
       );
       expect(turnEvents.length).toBe(1);
       expect(turnEvents[0]?.turn.status).toBe("completed");
-      const reasoningItem = getRecordedItem(serviceInternals, "thr_terminal", "turn_terminal", "item_reasoning");
+      const reasoningItem = getRecordedItem(
+        serviceInternals,
+        "thr_terminal",
+        "turn_terminal",
+        "item_reasoning",
+      );
       expect(reasoningItem?.status).toBe("completed");
-      const commandItem = getRecordedItem(serviceInternals, "thr_terminal", "turn_terminal", "item_tool");
+      const commandItem = getRecordedItem(
+        serviceInternals,
+        "thr_terminal",
+        "turn_terminal",
+        "item_tool",
+      );
       expect(commandItem?.status).toBe("inProgress");
-      const mcpItem = getRecordedItem(serviceInternals, "thr_terminal", "turn_terminal", "item_mcp");
+      const mcpItem = getRecordedItem(
+        serviceInternals,
+        "thr_terminal",
+        "turn_terminal",
+        "item_mcp",
+      );
       expect(mcpItem?.status).toBe("completed");
       expect(mcpItem?.mcpToolCall?.completed).toBe(true);
     } finally {
@@ -16839,16 +17467,26 @@ describe("codex-service terminal turn reconciliation", () => {
         updatedAt: 10,
       });
 
-      const interrupted = await service.interruptTurn("thr_interrupt_terminal", "turn_interrupt_terminal");
+      const interrupted = await service.interruptTurn(
+        "thr_interrupt_terminal",
+        "turn_interrupt_terminal",
+      );
       expect(interrupted).toBe(true);
 
       const turnEvents = events.filter(
         (event): event is Extract<CodexEvent, { type: "turn" }> => event.type === "turn",
       );
       expect(turnEvents.some((event) => event.turn.status === "interrupted")).toBe(true);
-      const interruptedTurn = turnEvents.find((event) => event.turn.turnId === "turn_interrupt_terminal")?.turn;
+      const interruptedTurn = turnEvents.find(
+        (event) => event.turn.turnId === "turn_interrupt_terminal",
+      )?.turn;
       expect(interruptedTurn?.interruptedCommandExecutionItemIds?.[0]).toBe("item_tool");
-      const item = getRecordedItem(serviceInternals, "thr_interrupt_terminal", "turn_interrupt_terminal", "item_tool");
+      const item = getRecordedItem(
+        serviceInternals,
+        "thr_interrupt_terminal",
+        "turn_interrupt_terminal",
+        "item_tool",
+      );
       expect(item?.status).toBe("interrupted");
     } finally {
       await service.shutdown();
@@ -16907,8 +17545,9 @@ describe("codex-service terminal turn reconciliation", () => {
         },
       });
       await waitForCondition(
-        () => service.serializeConversationSnapshot("thr_streaming_delta")
-          ?.turns[0]?.items[0]?.markdownText === "hello",
+        () =>
+          service.serializeConversationSnapshot("thr_streaming_delta")?.turns[0]?.items[0]
+            ?.markdownText === "hello",
         120,
       );
 
@@ -16966,19 +17605,22 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      const baseConversation = service.serializeConversationSnapshot("thr_streaming_delta_hot_path");
+      const baseConversation = service.serializeConversationSnapshot(
+        "thr_streaming_delta_hot_path",
+      );
       expect(baseConversation).not.toBeNull();
-      const broadcastCache = Reflect.get(service as object, "acceptedConversationDocumentById") as Map<
-        string,
-        CodexConversationSnapshot
-      >;
+      const broadcastCache = Reflect.get(
+        service as object,
+        "acceptedConversationDocumentById",
+      ) as Map<string, CodexConversationSnapshot>;
 
-      const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
+      const originalSerializeConversationSnapshot =
+        serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
       let serializeConversationSnapshotCallCount = 0;
-      serviceInternals.serializeConversationSnapshot = ((threadId: string) => {
+      serviceInternals.serializeConversationSnapshot = (threadId: string) => {
         serializeConversationSnapshotCallCount += 1;
         return originalSerializeConversationSnapshot(threadId);
-      });
+      };
 
       await serviceInternals.handleNotification({
         method: "item/agentMessage/delta",
@@ -16990,8 +17632,9 @@ describe("codex-service terminal turn reconciliation", () => {
         },
       });
       await waitForCondition(
-        () => broadcastCache.get("thr_streaming_delta_hot_path")
-          ?.turns[0]?.items[0]?.markdownText === "hello",
+        () =>
+          broadcastCache.get("thr_streaming_delta_hot_path")?.turns[0]?.items[0]?.markdownText ===
+          "hello",
         120,
       );
 
@@ -17021,12 +17664,14 @@ describe("codex-service terminal turn reconciliation", () => {
 
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thr_streaming_large_delta"),
-      turns: [{
-        threadId: "thr_streaming_large_delta",
-        turnId: "turn_streaming_large_delta",
-        status: "inProgress",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_streaming_large_delta",
+          turnId: "turn_streaming_large_delta",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
       transcript: [],
     });
 
@@ -17044,10 +17689,10 @@ describe("codex-service terminal turn reconciliation", () => {
       });
       const baseConversation = service.serializeConversationSnapshot("thr_streaming_large_delta");
       expect(baseConversation).not.toBeNull();
-      const broadcastCache = Reflect.get(service as object, "acceptedConversationDocumentById") as Map<
-        string,
-        CodexConversationSnapshot
-      >;
+      const broadcastCache = Reflect.get(
+        service as object,
+        "acceptedConversationDocumentById",
+      ) as Map<string, CodexConversationSnapshot>;
 
       await serviceInternals.handleNotification({
         method: "item/agentMessage/delta",
@@ -17059,8 +17704,9 @@ describe("codex-service terminal turn reconciliation", () => {
         },
       });
       await waitForCondition(
-        () => broadcastCache.get("thr_streaming_large_delta")
-          ?.turns[0]?.items[0]?.markdownText === largeDelta,
+        () =>
+          broadcastCache.get("thr_streaming_large_delta")?.turns[0]?.items[0]?.markdownText ===
+          largeDelta,
         180,
       );
 
@@ -17073,8 +17719,14 @@ describe("codex-service terminal turn reconciliation", () => {
   });
 
   test("synchronously drains pending assistant deltas in main fallback before applying item/completed", async () => {
-    const previousRequestAnimationFrameDescriptor = Object.getOwnPropertyDescriptor(globalThis, "requestAnimationFrame");
-    const previousCancelAnimationFrameDescriptor = Object.getOwnPropertyDescriptor(globalThis, "cancelAnimationFrame");
+    const previousRequestAnimationFrameDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "requestAnimationFrame",
+    );
+    const previousCancelAnimationFrameDescriptor = Object.getOwnPropertyDescriptor(
+      globalThis,
+      "cancelAnimationFrame",
+    );
     const previousDocumentDescriptor = Object.getOwnPropertyDescriptor(globalThis, "document");
     let requestAnimationFrameCalled = false;
     Object.defineProperty(globalThis, "requestAnimationFrame", {
@@ -17111,12 +17763,14 @@ describe("codex-service terminal turn reconciliation", () => {
 
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thr_streaming_completion_drain"),
-      turns: [{
-        threadId: "thr_streaming_completion_drain",
-        turnId: "turn_streaming_completion_drain",
-        status: "inProgress",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_streaming_completion_drain",
+          turnId: "turn_streaming_completion_drain",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
       transcript: [],
     });
 
@@ -17132,7 +17786,9 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      const baseConversation = service.serializeConversationSnapshot("thr_streaming_completion_drain");
+      const baseConversation = service.serializeConversationSnapshot(
+        "thr_streaming_completion_drain",
+      );
       expect(baseConversation).not.toBeNull();
 
       await serviceInternals.handleNotification({
@@ -17164,12 +17820,20 @@ describe("codex-service terminal turn reconciliation", () => {
     } finally {
       await service.shutdown();
       if (previousRequestAnimationFrameDescriptor) {
-        Object.defineProperty(globalThis, "requestAnimationFrame", previousRequestAnimationFrameDescriptor);
+        Object.defineProperty(
+          globalThis,
+          "requestAnimationFrame",
+          previousRequestAnimationFrameDescriptor,
+        );
       } else {
         Reflect.deleteProperty(globalThis, "requestAnimationFrame");
       }
       if (previousCancelAnimationFrameDescriptor) {
-        Object.defineProperty(globalThis, "cancelAnimationFrame", previousCancelAnimationFrameDescriptor);
+        Object.defineProperty(
+          globalThis,
+          "cancelAnimationFrame",
+          previousCancelAnimationFrameDescriptor,
+        );
       } else {
         Reflect.deleteProperty(globalThis, "cancelAnimationFrame");
       }
@@ -17198,12 +17862,14 @@ describe("codex-service terminal turn reconciliation", () => {
 
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thr_streaming_short_completion_drain"),
-      turns: [{
-        threadId: "thr_streaming_short_completion_drain",
-        turnId: "turn_streaming_short_completion_drain",
-        status: "inProgress",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_streaming_short_completion_drain",
+          turnId: "turn_streaming_short_completion_drain",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
       transcript: [],
     });
 
@@ -17219,7 +17885,9 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      const baseConversation = service.serializeConversationSnapshot("thr_streaming_short_completion_drain");
+      const baseConversation = service.serializeConversationSnapshot(
+        "thr_streaming_short_completion_drain",
+      );
       expect(baseConversation).not.toBeNull();
 
       await serviceInternals.handleNotification({
@@ -17270,12 +17938,14 @@ describe("codex-service terminal turn reconciliation", () => {
 
     serviceInternals.setConversationRecordDetail({
       ...makeThreadDetail("thr_streaming_turn_completion_drain"),
-      turns: [{
-        threadId: "thr_streaming_turn_completion_drain",
-        turnId: "turn_streaming_turn_completion_drain",
-        status: "inProgress",
-        itemIds: [],
-      }],
+      turns: [
+        {
+          threadId: "thr_streaming_turn_completion_drain",
+          turnId: "turn_streaming_turn_completion_drain",
+          status: "inProgress",
+          itemIds: [],
+        },
+      ],
       transcript: [],
     });
 
@@ -17291,7 +17961,9 @@ describe("codex-service terminal turn reconciliation", () => {
           }),
         },
       });
-      const baseConversation = service.serializeConversationSnapshot("thr_streaming_turn_completion_drain");
+      const baseConversation = service.serializeConversationSnapshot(
+        "thr_streaming_turn_completion_drain",
+      );
       expect(baseConversation).not.toBeNull();
 
       await serviceInternals.handleNotification({
@@ -17381,15 +18053,11 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(String(mcpMessages.length)).toBe("1");
       const mcpMessage = mcpMessages[0];
       expect(mcpMessage?.type).toBe("mcpNotification");
+      expect(mcpMessage?.type === "mcpNotification" ? mcpMessage.notification.method : "").toBe(
+        "item/commandExecution/outputDelta",
+      );
       expect(
-        mcpMessage?.type === "mcpNotification"
-          ? mcpMessage.notification.method
-          : "",
-      ).toBe("item/commandExecution/outputDelta");
-      expect(
-        mcpMessage?.type === "mcpNotification"
-          ? mcpMessage.notification.params.delta
-          : "",
+        mcpMessage?.type === "mcpNotification" ? mcpMessage.notification.params.delta : "",
       ).toBe("1340 pass\n");
 
       const threadMessageCountAfterStarted = threadMessages.length;
@@ -17422,12 +18090,14 @@ describe("codex-service terminal turn reconciliation", () => {
         mcpMessages.push(message);
       }
     });
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
+    (
+      service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }
+    ).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
     });
 
@@ -17468,16 +18138,19 @@ describe("codex-service terminal turn reconciliation", () => {
         },
       });
 
-      const outputOwnerMessages = ownerMessages.filter((message) =>
-        message.message.type === "threadOwnerNotification" &&
-        message.message.notification.method === "item/commandExecution/outputDelta"
+      const outputOwnerMessages = ownerMessages.filter(
+        (message) =>
+          message.message.type === "threadOwnerNotification" &&
+          message.message.notification.method === "item/commandExecution/outputDelta",
       );
       expect(String(mcpMessages.length)).toBe("0");
       expect(String(outputOwnerMessages.length)).toBe("1");
       expect(outputOwnerMessages[0]?.targetClientId).toBe("owner-a");
       expect(outputOwnerMessages[0]?.message.type).toBe("threadOwnerNotification");
       if (outputOwnerMessages[0]?.message.type === "threadOwnerNotification") {
-        expect(outputOwnerMessages[0].message.notification.method).toBe("item/commandExecution/outputDelta");
+        expect(outputOwnerMessages[0].message.notification.method).toBe(
+          "item/commandExecution/outputDelta",
+        );
         expect(outputOwnerMessages[0].message.sequence).toBe(2);
       }
 
@@ -17507,12 +18180,14 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail(threadId),
-        turns: [{
-          threadId,
-          turnId,
-          status: "inProgress",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId,
+            turnId,
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
       await serviceInternals.handleNotification({
@@ -17530,12 +18205,14 @@ describe("codex-service terminal turn reconciliation", () => {
 
       const record = serviceInternals.getMaybeConversationRecord(threadId);
       if (record) record.detail = null;
-      serviceInternals.applyOutputDeltas([{
-        conversationId: threadId,
-        turnId,
-        itemId,
-        delta: "canonical output\n",
-      }]);
+      serviceInternals.applyOutputDeltas([
+        {
+          conversationId: threadId,
+          turnId,
+          itemId,
+          delta: "canonical output\n",
+        },
+      ]);
 
       const canonicalCommand = record?.canonicalState?.turns[0]?.items[0];
       expect(canonicalCommand?.type).toBe("commandExecution");
@@ -17561,12 +18238,14 @@ describe("codex-service terminal turn reconciliation", () => {
         hostMessages.push(message);
       }
     });
-    (service as unknown as {
-      on: (
-        event: "rendererOwnerHostMessage",
-        listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
-      ) => void;
-    }).on("rendererOwnerHostMessage", (message) => {
+    (
+      service as unknown as {
+        on: (
+          event: "rendererOwnerHostMessage",
+          listener: (message: { targetClientId: string; message: CodexHostMessage }) => void,
+        ) => void;
+      }
+    ).on("rendererOwnerHostMessage", (message) => {
       ownerMessages.push(message);
     });
 
@@ -17620,9 +18299,10 @@ describe("codex-service terminal turn reconciliation", () => {
         },
       });
 
-      const terminalOwnerMessages = ownerMessages.filter((message) =>
-        message.message.type === "threadOwnerNotification" &&
-        message.message.notification.method === "item/commandExecution/terminalInteraction"
+      const terminalOwnerMessages = ownerMessages.filter(
+        (message) =>
+          message.message.type === "threadOwnerNotification" &&
+          message.message.notification.method === "item/commandExecution/terminalInteraction",
       );
       expect(String(hostMessages.length)).toBe(String(streamMessagesBeforeTerminal));
 
@@ -17664,12 +18344,14 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail(threadId),
-        turns: [{
-          threadId,
-          turnId,
-          status: "inProgress",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId,
+            turnId,
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
       await serviceInternals.handleNotification({
@@ -17744,12 +18426,14 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_completed_work_stamp"),
-        turns: [{
-          threadId: "thr_completed_work_stamp",
-          turnId: "turn_completed_work_stamp",
-          status: "inProgress",
-          itemIds: ["exec_completed"],
-        }],
+        turns: [
+          {
+            threadId: "thr_completed_work_stamp",
+            turnId: "turn_completed_work_stamp",
+            status: "inProgress",
+            itemIds: ["exec_completed"],
+          },
+        ],
         transcript: [],
       });
 
@@ -17771,19 +18455,19 @@ describe("codex-service terminal turn reconciliation", () => {
       let snapshot = service.serializeConversationSnapshot("thr_completed_work_stamp");
       expect(typeof snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
       expect(snapshot?.turns[0]?.items.length).toBe(0);
-      expect(
-        snapshot?.turns[0]?.commandExecutionStartedAtMsById?.exec_completed,
-      ).toBe(950);
+      expect(snapshot?.turns[0]?.commandExecutionStartedAtMsById?.exec_completed).toBe(950);
 
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_existing_work_stamp"),
-        turns: [{
-          threadId: "thr_existing_work_stamp",
-          turnId: "turn_existing_work_stamp",
-          status: "inProgress",
-          itemIds: ["exec_existing"],
-          firstTurnWorkItemStartedAtMs: 123,
-        }],
+        turns: [
+          {
+            threadId: "thr_existing_work_stamp",
+            turnId: "turn_existing_work_stamp",
+            status: "inProgress",
+            itemIds: ["exec_existing"],
+            firstTurnWorkItemStartedAtMs: 123,
+          },
+        ],
         transcript: [],
       });
 
@@ -17820,12 +18504,14 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_hidden_review_lifecycle"),
-        turns: [{
-          threadId: "thr_hidden_review_lifecycle",
-          turnId: "turn_hidden_review_lifecycle",
-          status: "inProgress",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId: "thr_hidden_review_lifecycle",
+            turnId: "turn_hidden_review_lifecycle",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
 
@@ -17857,7 +18543,8 @@ describe("codex-service terminal turn reconciliation", () => {
       });
 
       const snapshot = service.serializeConversationSnapshot("thr_hidden_review_lifecycle");
-      const canonicalItem = serviceInternals.getConversationRecord("thr_hidden_review_lifecycle")
+      const canonicalItem = serviceInternals
+        .getConversationRecord("thr_hidden_review_lifecycle")
         .canonicalState?.turns[0]?.items.find((item) => item.id === "review-mode-marker");
       expect(snapshot?.turns[0]?.items.length ?? -1).toBe(0);
       expect(typeof snapshot?.turns[0]?.firstTurnWorkItemStartedAtMs).toBe("number");
@@ -17893,12 +18580,14 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_hidden_visible_roundtrip"),
-        turns: [{
-          threadId: "thr_hidden_visible_roundtrip",
-          turnId: "turn_hidden_visible_roundtrip",
-          status: "inProgress",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId: "thr_hidden_visible_roundtrip",
+            turnId: "turn_hidden_visible_roundtrip",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
       for (const itemId of ["before", "target", "after"]) {
@@ -17958,8 +18647,10 @@ describe("codex-service terminal turn reconciliation", () => {
         JSON.stringify(["before", "target", "after"]),
       );
       expect(snapshot?.turns[0]?.items[1]?.status).toBe("completed");
-      expect(serviceInternals.getConversationRecord("thr_hidden_visible_roundtrip")
-        .canonicalState?.turns[0]?.items[1]?.type).toBe("commandExecution");
+      expect(
+        serviceInternals.getConversationRecord("thr_hidden_visible_roundtrip").canonicalState
+          ?.turns[0]?.items[1]?.type,
+      ).toBe("commandExecution");
     } finally {
       await service.shutdown();
     }
@@ -17991,12 +18682,14 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_hidden_patch_replacement"),
-        turns: [{
-          threadId: "thr_hidden_patch_replacement",
-          turnId: "turn_hidden_patch_replacement",
-          status: "inProgress",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId: "thr_hidden_patch_replacement",
+            turnId: "turn_hidden_patch_replacement",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
       for (const itemId of ["before", "target", "after"]) {
@@ -18037,12 +18730,12 @@ describe("codex-service terminal turn reconciliation", () => {
 
       let snapshot = service.serializeConversationSnapshot("thr_hidden_patch_replacement");
       let target = snapshot?.turns[0]?.items.find((item) => item.itemId === "target");
-      expect(snapshot?.turns[0]?.items.map((item) => item.itemId).join(",")).toBe(
-        "before,after",
-      );
+      expect(snapshot?.turns[0]?.items.map((item) => item.itemId).join(",")).toBe("before,after");
       expect(target).toBeUndefined();
-      expect(serviceInternals.getConversationRecord("thr_hidden_patch_replacement")
-        .canonicalState?.turns[0]?.items[1]?.type).toBe("fileChange");
+      expect(
+        serviceInternals.getConversationRecord("thr_hidden_patch_replacement").canonicalState
+          ?.turns[0]?.items[1]?.type,
+      ).toBe("fileChange");
 
       await serviceInternals.handleNotification({
         method: "item/completed",
@@ -18072,9 +18765,7 @@ describe("codex-service terminal turn reconciliation", () => {
       );
       expect(target?.kind).toBe("fileChange");
       expect(target?.status).toBe("completed");
-      expect(getCodexFileChangePaths(target?.fileChange?.changes).join(",")).toBe(
-        "src/final.ts",
-      );
+      expect(getCodexFileChangePaths(target?.fileChange?.changes).join(",")).toBe("src/final.ts");
     } finally {
       await service.shutdown();
     }
@@ -18090,12 +18781,14 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_hidden_completion_mismatch"),
-        turns: [{
-          threadId: "thr_hidden_completion_mismatch",
-          turnId: "turn_hidden_completion_mismatch",
-          status: "inProgress",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId: "thr_hidden_completion_mismatch",
+            turnId: "turn_hidden_completion_mismatch",
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
       await serviceInternals.handleNotification({
@@ -18133,8 +18826,8 @@ describe("codex-service terminal turn reconciliation", () => {
         },
       });
 
-      const item = service.serializeConversationSnapshot("thr_hidden_completion_mismatch")
-        ?.turns[0]?.items[0];
+      const item = service.serializeConversationSnapshot("thr_hidden_completion_mismatch")?.turns[0]
+        ?.items[0];
       expect(item?.itemId).toBe("shared-id");
       expect((item?.rawItem as { type?: string } | undefined)?.type).toBe("commandExecution");
     } finally {
@@ -18154,12 +18847,14 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail(threadId),
-        turns: [{
-          threadId,
-          turnId: null as unknown as string,
-          status: "completed",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId,
+            turnId: null as unknown as string,
+            status: "completed",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
 
@@ -18205,9 +18900,12 @@ describe("codex-service terminal turn reconciliation", () => {
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-      conversationRecords: Map<string, {
-        itemsByTurn: Map<string, Map<string, CodexItemView>>;
-      }>;
+      conversationRecords: Map<
+        string,
+        {
+          itemsByTurn: Map<string, Map<string, CodexItemView>>;
+        }
+      >;
     };
     const recordThreadId = "thr_visible_record_null_placeholder";
     const transcriptThreadId = "thr_visible_transcript_null_placeholder";
@@ -18235,19 +18933,20 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail(recordThreadId),
-        turns: [{
-          threadId: recordThreadId,
-          turnId: nullTurnId,
-          status: "completed",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId: recordThreadId,
+            turnId: nullTurnId,
+            status: "completed",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
       const recordItem = makeVisibleItem(recordThreadId, "assistant-recorded-outside-order");
-      serviceInternals.conversationRecords.get(recordThreadId)?.itemsByTurn.set(
-        nullTurnId,
-        new Map([[recordItem.itemId, recordItem]]),
-      );
+      serviceInternals.conversationRecords
+        .get(recordThreadId)
+        ?.itemsByTurn.set(nullTurnId, new Map([[recordItem.itemId, recordItem]]));
 
       const transcriptItem = makeVisibleItem(
         transcriptThreadId,
@@ -18255,16 +18954,20 @@ describe("codex-service terminal turn reconciliation", () => {
       );
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail(transcriptThreadId),
-        turns: [{
-          threadId: transcriptThreadId,
-          turnId: nullTurnId,
-          status: "completed",
-          itemIds: [],
-        }],
-        transcript: [{
-          ...transcriptItem,
-          kind: "assistantMessage",
-        }],
+        turns: [
+          {
+            threadId: transcriptThreadId,
+            turnId: nullTurnId,
+            status: "completed",
+            itemIds: [],
+          },
+        ],
+        transcript: [
+          {
+            ...transcriptItem,
+            kind: "assistantMessage",
+          },
+        ],
       });
 
       for (const threadId of [recordThreadId, transcriptThreadId]) {
@@ -18288,13 +18991,12 @@ describe("codex-service terminal turn reconciliation", () => {
       const transcriptSnapshot = service.serializeConversationSnapshot(transcriptThreadId);
       expect(transcriptSnapshot?.turns.length ?? -1).toBe(1);
       expect(
-        (transcriptSnapshot?.turns[0] as { turnId: string | null } | undefined)?.turnId
-          ?? null,
+        (transcriptSnapshot?.turns[0] as { turnId: string | null } | undefined)?.turnId ?? null,
       ).toBe(null);
       expect(transcriptSnapshot?.turns[0]?.status).toBe("completed");
       expect(
-        serviceInternals.conversationRecords.get(recordThreadId)?.itemsByTurn.get(nullTurnId)?.size
-          ?? 0,
+        serviceInternals.conversationRecords.get(recordThreadId)?.itemsByTurn.get(nullTurnId)
+          ?.size ?? 0,
       ).toBe(0);
       expect(service.serializeThreadDetail(transcriptThreadId)?.transcript[0]?.itemId).toBe(
         transcriptItem.itemId,
@@ -18350,12 +19052,14 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thr_completed_output_timer"),
-        turns: [{
-          threadId: "thr_completed_output_timer",
-          turnId: "turn_completed_output_timer",
-          status: "inProgress",
-          itemIds: ["exec_completed_output_timer"],
-        }],
+        turns: [
+          {
+            threadId: "thr_completed_output_timer",
+            turnId: "turn_completed_output_timer",
+            status: "inProgress",
+            itemIds: ["exec_completed_output_timer"],
+          },
+        ],
         transcript: [],
       });
 
@@ -18479,12 +19183,14 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail(threadId),
-        turns: [{
-          threadId,
-          turnId,
-          status: "inProgress",
-          itemIds: [],
-        }],
+        turns: [
+          {
+            threadId,
+            turnId,
+            status: "inProgress",
+            itemIds: [],
+          },
+        ],
         transcript: [],
       });
       await serviceInternals.handleNotification({
@@ -18505,24 +19211,29 @@ describe("codex-service terminal turn reconciliation", () => {
         if (firstTurn) {
           record.canonicalState = {
             ...record.canonicalState,
-            turns: [{
-              ...firstTurn,
-              sidecar: {
-                ...firstTurn.sidecar,
-                hookRuns: undefined,
+            turns: [
+              {
+                ...firstTurn,
+                sidecar: {
+                  ...firstTurn.sidecar,
+                  hookRuns: undefined,
+                },
               },
-            }],
+            ],
           };
         }
       }
       expect(record?.canonicalState?.turns[0]?.sidecar.hookRuns).toBeUndefined();
       if (record) record.detail = null;
-      serviceInternals.applyMcpToolCallProgressUpdate({
-        conversationId: threadId,
-        turnId,
-        itemId: "missing-mcp-item",
-        message: "working",
-      }, true);
+      serviceInternals.applyMcpToolCallProgressUpdate(
+        {
+          conversationId: threadId,
+          turnId,
+          itemId: "missing-mcp-item",
+          message: "working",
+        },
+        true,
+      );
 
       expect(record?.canonicalState?.turns[0]?.sidecar.hookRuns).toEqual([]);
       expect(record?.canonicalState?.turns[0]?.items.length).toBe(1);
@@ -18538,7 +19249,11 @@ describe("codex-service terminal turn reconciliation", () => {
     const serviceInternals = service as unknown as {
       serializeConversationSnapshot: (threadId: string) => CodexConversationSnapshot | null;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleServerRequest: (request: { id: string | number; method: string; params: unknown }) => Promise<unknown>;
+      handleServerRequest: (request: {
+        id: string | number;
+        method: string;
+        params: unknown;
+      }) => Promise<unknown>;
       handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
     };
     const hostMessages: CodexHostMessage[] = [];
@@ -18558,17 +19273,18 @@ describe("codex-service terminal turn reconciliation", () => {
     try {
       const baseConversation = await service.requestConversationSnapshot(threadId);
       expect(baseConversation).not.toBeNull();
-      const broadcastCache = Reflect.get(service as object, "acceptedConversationDocumentById") as Map<
-        string,
-        CodexConversationSnapshot
-      >;
+      const broadcastCache = Reflect.get(
+        service as object,
+        "acceptedConversationDocumentById",
+      ) as Map<string, CodexConversationSnapshot>;
 
-      const originalSerializeConversationSnapshot = serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
+      const originalSerializeConversationSnapshot =
+        serviceInternals.serializeConversationSnapshot.bind(serviceInternals);
       let serializeConversationSnapshotCallCount = 0;
-      serviceInternals.serializeConversationSnapshot = ((targetThreadId: string) => {
+      serviceInternals.serializeConversationSnapshot = (targetThreadId: string) => {
         serializeConversationSnapshotCallCount += 1;
         return originalSerializeConversationSnapshot(targetThreadId);
-      });
+      };
 
       const userPromise = serviceInternals.handleServerRequest({
         id: 701,
@@ -18578,13 +19294,15 @@ describe("codex-service terminal turn reconciliation", () => {
           turnId,
           itemId: "user-request-hot-path",
           isBlocking: true,
-          questions: [{
-            id: "q-hot-path",
-            header: "Hot path",
-            question: "Continue?",
-            isOther: false,
-            isSecret: false,
-          }],
+          questions: [
+            {
+              id: "q-hot-path",
+              header: "Hot path",
+              question: "Continue?",
+              isOther: false,
+              isSecret: false,
+            },
+          ],
         },
       });
       const mcpPromise = serviceInternals.handleServerRequest({
@@ -18605,18 +19323,23 @@ describe("codex-service terminal turn reconciliation", () => {
       expect(serializeConversationSnapshotCallCount).toBe(0);
       expect(hostMessages).toHaveLength(0);
       const pendingConversation = broadcastCache.get(threadId);
-      expect(JSON.stringify(
-        pendingConversation?.canonicalRequests?.map((request) => request.id) ?? [],
-      )).toBe(JSON.stringify([701, "702"]));
+      expect(
+        JSON.stringify(pendingConversation?.canonicalRequests?.map((request) => request.id) ?? []),
+      ).toBe(JSON.stringify([701, "702"]));
       expect(pendingConversation?.hasUnreadTurn).toBe(true);
-      expect(pendingConversation?.turns[0]?.items.find(
-        (item) => item.itemId === "user-input-response-701",
-      )?.status).toBe("inProgress");
-      expect(pendingConversation?.turns[0]?.items.find(
-        (item) => item.itemId === "mcp-server-elicitation-702",
-      )?.status).toBe("inProgress");
-      expect(notificationEvents.filter((event) => event.type === "user-input-requested"))
-        .toMatchObject([{ requestId: 701, questionCount: 1 }]);
+      expect(
+        pendingConversation?.turns[0]?.items.find(
+          (item) => item.itemId === "user-input-response-701",
+        )?.status,
+      ).toBe("inProgress");
+      expect(
+        pendingConversation?.turns[0]?.items.find(
+          (item) => item.itemId === "mcp-server-elicitation-702",
+        )?.status,
+      ).toBe("inProgress");
+      expect(
+        notificationEvents.filter((event) => event.type === "user-input-requested"),
+      ).toMatchObject([{ requestId: 701, questionCount: 1 }]);
 
       await serviceInternals.handleNotification({
         method: "serverRequest/resolved",
@@ -18651,19 +19374,20 @@ describe("codex-service terminal turn reconciliation", () => {
         (item) => item.itemId === "mcp-server-elicitation-702",
       );
       expect(resolvedUserItem?.status).toBe("completed");
-      expect((resolvedUserItem?.rawItem as { completed?: boolean } | undefined)?.completed).toBe(true);
-      expect(JSON.stringify(
-        (resolvedUserItem?.rawItem as { answers?: unknown } | undefined)?.answers,
-      )).toBe(JSON.stringify({}));
+      expect((resolvedUserItem?.rawItem as { completed?: boolean } | undefined)?.completed).toBe(
+        true,
+      );
+      expect(
+        JSON.stringify((resolvedUserItem?.rawItem as { answers?: unknown } | undefined)?.answers),
+      ).toBe(JSON.stringify({}));
       expect(resolvedMcpItem?.status).toBe("completed");
-      expect((resolvedMcpItem?.rawItem as { completed?: boolean } | undefined)?.completed).toBe(true);
+      expect((resolvedMcpItem?.rawItem as { completed?: boolean } | undefined)?.completed).toBe(
+        true,
+      );
       expect((resolvedMcpItem?.rawItem as { action?: unknown } | undefined)?.action).toBe(null);
-      expect(notificationEvents.filter((event) => event.type === "request-resolved"))
-        .toMatchObject([
-          { requestId: 701 },
-          { requestId: "702" },
-          { requestId: 701 },
-        ]);
+      expect(notificationEvents.filter((event) => event.type === "request-resolved")).toMatchObject(
+        [{ requestId: 701 }, { requestId: "702" }, { requestId: 701 }],
+      );
       expect(await userPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
       expect(await mcpPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
     } finally {
@@ -18685,16 +19409,18 @@ describe("codex-service managed worktree inventory", () => {
     const basePort = createTestProjectWorkspace();
     const projectWorkspace = {
       ...basePort,
-      getThread: async (threadId: string) => threadId === thread.threadId ? thread : null,
+      getThread: async (threadId: string) => (threadId === thread.threadId ? thread : null),
       readManagedWorktreeLifecycleSnapshot: async () => ({
         projectionRevision: 1,
         consumers: [],
-        projects: [{
-          projectId: "project-one",
-          lifecycle: "active" as const,
-          sourceRoots: ["/repositories/repository"],
-          primaryWorkspaceRoot: "/repositories/repository",
-        }],
+        projects: [
+          {
+            projectId: "project-one",
+            lifecycle: "active" as const,
+            sourceRoots: ["/repositories/repository"],
+            primaryWorkspaceRoot: "/repositories/repository",
+          },
+        ],
       }),
     } satisfies DesktopProjectWorkspacePort;
     let releaseInspection: () => void = () => {};
@@ -18736,22 +19462,28 @@ describe("codex-service managed worktree inventory", () => {
         expect.objectContaining({ state: "restorable" }),
       ]);
       expect(inspect).toHaveBeenCalledOnce();
-      expect(inspect).toHaveBeenCalledWith(expect.objectContaining({
-        hostId: "local",
-        managedRoot: "/managed",
-        worktreeGitRoot: worktreePath,
-        cwd: `${worktreePath}/packages/app`,
-        candidateRepositoryPaths: ["/repositories/repository"],
-      }), expect.any(Object));
+      expect(inspect).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hostId: "local",
+          managedRoot: "/managed",
+          worktreeGitRoot: worktreePath,
+          cwd: `${worktreePath}/packages/app`,
+          candidateRepositoryPaths: ["/repositories/repository"],
+        }),
+        expect.any(Object),
+      );
 
       await expect(service.restoreThreadManagedWorktree(thread.threadId)).resolves.toEqual({
         availability: { state: "available" },
         ownerWarning: null,
       });
-      expect(restore).toHaveBeenCalledWith(expect.objectContaining({
-        ownerThreadId: thread.threadId,
-        worktreeGitRoot: worktreePath,
-      }), expect.any(Object));
+      expect(restore).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerThreadId: thread.threadId,
+          worktreeGitRoot: worktreePath,
+        }),
+        expect.any(Object),
+      );
     } finally {
       await service.shutdown();
     }
@@ -18771,22 +19503,24 @@ describe("codex-service managed worktree inventory", () => {
       ...basePort,
       readManagedWorktreeLifecycleSnapshot: async () => ({
         projectionRevision: 2,
-        consumers: [{
-          threadId: "thread-replacement",
-          projectId: "project-one",
-          sessionId: "session-replacement",
-          executionHostId: "local",
-          cwd: `${worktreePath}/packages/app`,
-          managedWorktreePath: worktreePath,
-          runtimeWorkspaceRoots: [worktreePath],
-          archived: false,
-          pinnedOrder: null,
-          statusType: "active" as const,
-          statusActiveFlags: [],
-          createdAt: 1,
-          updatedAt: 20,
-          linkedAt: "2026-08-14T00:00:00.000Z",
-        }],
+        consumers: [
+          {
+            threadId: "thread-replacement",
+            projectId: "project-one",
+            sessionId: "session-replacement",
+            executionHostId: "local",
+            cwd: `${worktreePath}/packages/app`,
+            managedWorktreePath: worktreePath,
+            runtimeWorkspaceRoots: [worktreePath],
+            archived: false,
+            pinnedOrder: null,
+            statusType: "active" as const,
+            statusActiveFlags: [],
+            createdAt: 1,
+            updatedAt: 20,
+            linkedAt: "2026-08-14T00:00:00.000Z",
+          },
+        ],
         projects: [],
       }),
     } satisfies DesktopProjectWorkspacePort;
@@ -18802,10 +19536,13 @@ describe("codex-service managed worktree inventory", () => {
 
     try {
       await service.reconcileArchivedThreadManagedWorktree(archived, "archive");
-      expect(setOwner).toHaveBeenCalledWith(expect.objectContaining({
-        ownerThreadId: "thread-replacement",
-        worktreeGitRoot: worktreePath,
-      }), expect.any(Object));
+      expect(setOwner).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerThreadId: "thread-replacement",
+          worktreeGitRoot: worktreePath,
+        }),
+        expect.any(Object),
+      );
       expect(remove).not.toHaveBeenCalled();
     } finally {
       await service.shutdown();
@@ -18845,10 +19582,13 @@ describe("codex-service managed worktree inventory", () => {
 
     try {
       await service.reconcileArchivedThreadManagedWorktree(archived, "archive");
-      expect(remove).toHaveBeenCalledWith(expect.objectContaining({
-        reason: "archive",
-        snapshotPolicy: "required",
-      }), expect.any(Object));
+      expect(remove).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: "archive",
+          snapshotPolicy: "required",
+        }),
+        expect.any(Object),
+      );
     } finally {
       await service.shutdown();
     }
@@ -18896,72 +19636,84 @@ describe("codex-service managed worktree inventory", () => {
             linkedAt: "2026-08-14T00:00:01.000Z",
           },
         ],
-        projects: [{
-          projectId: "project-one",
-          lifecycle: "active" as const,
-          sourceRoots: [permanentPath],
-          primaryWorkspaceRoot: permanentPath,
-        }],
+        projects: [
+          {
+            projectId: "project-one",
+            lifecycle: "active" as const,
+            sourceRoots: [permanentPath],
+            primaryWorkspaceRoot: permanentPath,
+          },
+        ],
       }),
       listProjects: async () => [makeProject({ id: "project-one", name: "Repository" })],
-      getThread: async (threadId: string) => makeDesktopWorkspaceThread({
-        threadId,
-        threadName: threadId === "thread-one" ? "First" : "Second",
-      }),
-      getProjectSession: async (sessionId: string) => ({
-        id: sessionId,
-        projectId: "project-one",
-        displayTitle: sessionId === "session-one" ? "Newest" : "Older",
-      }) as never,
+      getThread: async (threadId: string) =>
+        makeDesktopWorkspaceThread({
+          threadId,
+          threadName: threadId === "thread-one" ? "First" : "Second",
+        }),
+      getProjectSession: async (sessionId: string) =>
+        ({
+          id: sessionId,
+          projectId: "project-one",
+          displayTitle: sessionId === "session-one" ? "Newest" : "Older",
+        }) as never,
     } satisfies DesktopProjectWorkspacePort;
     const service = createService({ projectWorkspace });
     const worker = {
       ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
       list: async () => ({
-        entries: [{
-          worktreeGitRoot: sharedPath,
-          repositoryPath: "/repositories/repository",
-          createdAtMs: 100,
-          ownerThreadId: "thread-one",
-          ownerReadFailed: false,
-        }, {
-          worktreeGitRoot: permanentPath,
-          repositoryPath: "/repositories/permanent",
-          createdAtMs: 90,
-          ownerThreadId: null,
-          ownerReadFailed: false,
-        }],
+        entries: [
+          {
+            worktreeGitRoot: sharedPath,
+            repositoryPath: "/repositories/repository",
+            createdAtMs: 100,
+            ownerThreadId: "thread-one",
+            ownerReadFailed: false,
+          },
+          {
+            worktreeGitRoot: permanentPath,
+            repositoryPath: "/repositories/permanent",
+            createdAtMs: 90,
+            ownerThreadId: null,
+            ownerReadFailed: false,
+          },
+        ],
       }),
     } satisfies CodexWorktreeWorkerPort;
     (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
 
     try {
-      await expect(service.listManagedWorktrees()).resolves.toEqual([{
-        hostId: "local",
-        path: sharedPath,
-        exists: true,
-        repositoryPath: "/repositories/repository",
-        createdAtMs: 100,
-        conversations: [{
-          threadId: "thread-one",
-          projectId: "project-one",
-          projectName: "Repository",
-          sessionId: "session-one",
-          sessionTitle: "Newest",
-          threadName: "First",
-          archived: false,
-          updatedAt: 30,
-        }, {
-          threadId: "thread-two",
-          projectId: "project-one",
-          projectName: "Repository",
-          sessionId: "session-two",
-          sessionTitle: "Older",
-          threadName: "Second",
-          archived: true,
-          updatedAt: 20,
-        }],
-      }]);
+      await expect(service.listManagedWorktrees()).resolves.toEqual([
+        {
+          hostId: "local",
+          path: sharedPath,
+          exists: true,
+          repositoryPath: "/repositories/repository",
+          createdAtMs: 100,
+          conversations: [
+            {
+              threadId: "thread-one",
+              projectId: "project-one",
+              projectName: "Repository",
+              sessionId: "session-one",
+              sessionTitle: "Newest",
+              threadName: "First",
+              archived: false,
+              updatedAt: 30,
+            },
+            {
+              threadId: "thread-two",
+              projectId: "project-one",
+              projectName: "Repository",
+              sessionId: "session-two",
+              sessionTitle: "Older",
+              threadName: "Second",
+              archived: true,
+              updatedAt: 20,
+            },
+          ],
+        },
+      ]);
     } finally {
       await service.shutdown();
     }
@@ -18979,8 +19731,7 @@ describe("codex-service managed worktree inventory", () => {
       readManagedWorktreeLifecycleSnapshot: readSnapshot,
     } satisfies DesktopProjectWorkspacePort;
     const service = createService({ projectWorkspace });
-    const limit = (service as unknown as CodexService).getManagedWorktreeSettings()
-      .autoDeleteLimit;
+    const limit = (service as unknown as CodexService).getManagedWorktreeSettings().autoDeleteLimit;
     const remove = vi.fn(async () => ({
       removed: true,
       alreadyMissing: false,
@@ -19011,10 +19762,13 @@ describe("codex-service managed worktree inventory", () => {
         "/managed/0001/repository",
       ]);
       expect(remove).toHaveBeenCalledTimes(2);
-      expect(remove).toHaveBeenCalledWith(expect.objectContaining({
-        reason: "automatic-retention",
-        snapshotPolicy: "required",
-      }), expect.any(Object));
+      expect(remove).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: "automatic-retention",
+          snapshotPolicy: "required",
+        }),
+        expect.any(Object),
+      );
     } finally {
       await service.shutdown();
     }
@@ -19069,17 +19823,16 @@ describe("codex-service managed worktree inventory", () => {
 
     try {
       await expect(service.deleteManagedWorktree("local", worktreePath)).resolves.toBe(true);
-      expect(calls).toEqual([
-        "archive:thread-one:true",
-        "archive:thread-two:true",
-        "remove",
-      ]);
-      expect(remove).toHaveBeenCalledWith(expect.objectContaining({
-        hostId: "local",
-        worktreeGitRoot: worktreePath,
-        reason: "settings-delete",
-        snapshotPolicy: "best-effort",
-      }), expect.any(Object));
+      expect(calls).toEqual(["archive:thread-one:true", "archive:thread-two:true", "remove"]);
+      expect(remove).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hostId: "local",
+          worktreeGitRoot: worktreePath,
+          reason: "settings-delete",
+          snapshotPolicy: "best-effort",
+        }),
+        expect.any(Object),
+      );
     } finally {
       await service.shutdown();
     }

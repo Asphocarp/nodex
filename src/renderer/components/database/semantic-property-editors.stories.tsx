@@ -30,9 +30,9 @@ export const Status: Story = {};
 export const RenamedStatus: Story = {
   args: {
     label: "Workflow",
-    options: statusOptions.map((option) => option.id === "build"
-      ? { ...option, name: "In progress" }
-      : option),
+    options: statusOptions.map((option) =>
+      option.id === "build" ? { ...option, name: "In progress" } : option,
+    ),
   },
 };
 export const Priority: Story = {

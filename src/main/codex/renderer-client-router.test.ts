@@ -177,11 +177,13 @@ describe("RendererClientRouter", () => {
     expect(router.handleResponse(other, response)).toBe(false);
     expect(router.getPendingRequestCount()).toBe(1);
 
-    expect(router.handleResponse(target, {
-      type: "success",
-      requestId: request.requestId,
-      result: "right",
-    })).toBe(true);
+    expect(
+      router.handleResponse(target, {
+        type: "success",
+        requestId: request.requestId,
+        result: "right",
+      }),
+    ).toBe(true);
     expect(await resultPromise).toBe("right");
   });
 
@@ -272,11 +274,13 @@ describe("RendererClientRouter", () => {
     expect(request.method).toBe("thread-role");
     expect((request.params as { conversationId?: string }).conversationId).toBe("thread-1");
 
-    expect(router.handleResponse(target, {
-      type: "success",
-      requestId: request.requestId,
-      result: "owner",
-    })).toBe(true);
+    expect(
+      router.handleResponse(target, {
+        type: "success",
+        requestId: request.requestId,
+        result: "owner",
+      }),
+    ).toBe(true);
     expect(await rolePromise).toBe("owner");
   });
 
@@ -293,11 +297,13 @@ describe("RendererClientRouter", () => {
 
     const ownerPromise = router.requireThreadOwner(registration.clientId, "thread-1");
     const request = readFirstRequest(target);
-    expect(router.handleResponse(target, {
-      type: "success",
-      requestId: request.requestId,
-      result: "follower",
-    })).toBe(true);
+    expect(
+      router.handleResponse(target, {
+        type: "success",
+        requestId: request.requestId,
+        result: "follower",
+      }),
+    ).toBe(true);
 
     const message = await readRejectionMessage(ownerPromise);
     expect(message.includes("no-client-found")).toBe(true);
@@ -317,11 +323,10 @@ describe("RendererClientRouter", () => {
     const sourceRegistration = router.register(source);
     router.register(follower);
 
-    const sentCount = router.broadcast(
-      "codex:test",
-      [{ value: 1 }],
-      { sourceClientId: sourceRegistration.clientId, includeSource: false },
-    );
+    const sentCount = router.broadcast("codex:test", [{ value: 1 }], {
+      sourceClientId: sourceRegistration.clientId,
+      includeSource: false,
+    });
 
     expect(sentCount).toBe(1);
     expect(source.sent.length).toBe(0);

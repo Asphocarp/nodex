@@ -19,35 +19,54 @@ const stressWorkflow = (steps: readonly Record<string, unknown>[]): Record<strin
 });
 
 test("accepts stress jobs that delegate their complete gate", () => {
-  expect(verifyStressWorkflow(filePath, stressWorkflow([
-    { uses: "actions/checkout@locked" },
-    { uses: "./.github/actions/run-stress-tests" },
-  ]))).toBe(1);
+  expect(
+    verifyStressWorkflow(
+      filePath,
+      stressWorkflow([
+        { uses: "actions/checkout@locked" },
+        { uses: "./.github/actions/run-stress-tests" },
+      ]),
+    ),
+  ).toBe(1);
 });
 
 test("rejects stress jobs that bypass or duplicate the shared gate", () => {
-  expect(() => verifyStressWorkflow(filePath, stressWorkflow([
-    { uses: "actions/checkout@locked" },
-    { run: "pnpm run test:stress" },
-  ]))).toThrow("must use ./.github/actions/run-stress-tests exactly once");
+  expect(() =>
+    verifyStressWorkflow(
+      filePath,
+      stressWorkflow([{ uses: "actions/checkout@locked" }, { run: "pnpm run test:stress" }]),
+    ),
+  ).toThrow("must use ./.github/actions/run-stress-tests exactly once");
 
-  expect(() => verifyStressWorkflow(filePath, stressWorkflow([
-    { uses: "./.github/actions/run-stress-tests" },
-    { uses: "./.github/actions/setup-playwright" },
-  ]))).toThrow("duplicates setup owned by ./.github/actions/run-stress-tests");
+  expect(() =>
+    verifyStressWorkflow(
+      filePath,
+      stressWorkflow([
+        { uses: "./.github/actions/run-stress-tests" },
+        { uses: "./.github/actions/setup-playwright" },
+      ]),
+    ),
+  ).toThrow("duplicates setup owned by ./.github/actions/run-stress-tests");
 
-  expect(() => verifyStressWorkflow(filePath, stressWorkflow([
-    { uses: "./.github/actions/run-stress-tests" },
-    { run: "pnpm run build-resources:prepare" },
-  ]))).toThrow("duplicates commands owned by ./.github/actions/run-stress-tests");
+  expect(() =>
+    verifyStressWorkflow(
+      filePath,
+      stressWorkflow([
+        { uses: "./.github/actions/run-stress-tests" },
+        { run: "pnpm run build-resources:prepare" },
+      ]),
+    ),
+  ).toThrow("duplicates commands owned by ./.github/actions/run-stress-tests");
 });
 
 test("rejects workflows that drop a required stress job", () => {
-  expect(() => verifyStressWorkflow(filePath, { jobs: {} }, ["stress-tests"]))
-    .toThrow("must define stress job stress-tests");
+  expect(() => verifyStressWorkflow(filePath, { jobs: {} }, ["stress-tests"])).toThrow(
+    "must define stress job stress-tests",
+  );
 });
 
 test("rejects a missing required stress workflow file", () => {
-  expect(() => verifyRequiredStressWorkflowFiles(new Set([".github/workflows/ci.yml"])))
-    .toThrow("Required stress workflow is missing: .github/workflows/ci-nightly.yml");
+  expect(() => verifyRequiredStressWorkflowFiles(new Set([".github/workflows/ci.yml"]))).toThrow(
+    "Required stress workflow is missing: .github/workflows/ci-nightly.yml",
+  );
 });

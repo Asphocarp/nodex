@@ -1,9 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
-import type {
-  AuthorityResource,
-  AuthorizedReadStamp,
-} from "../../shared/authorized-read-stamp";
+import type { AuthorityResource, AuthorizedReadStamp } from "../../shared/authorized-read-stamp";
 import {
   authorizedReadStampHash,
   canonicalizeAuthorityResources,
@@ -70,11 +67,9 @@ describe("AuthorityFreshnessIndex", () => {
       roots: [page("page-a")],
     });
 
-    await expect(index.admitRead(
-      lease,
-      await stamp({ subject: page("page-a"), commitSeq: 1 }),
-      vi.fn(),
-    )).rejects.toBeInstanceOf(StaleAuthorizedReadError);
+    await expect(
+      index.admitRead(lease, await stamp({ subject: page("page-a"), commitSeq: 1 }), vi.fn()),
+    ).rejects.toBeInstanceOf(StaleAuthorizedReadError);
 
     expect(index.diagnostics()).toMatchObject({ inFlightReads: 0 });
   });
@@ -97,16 +92,8 @@ describe("AuthorityFreshnessIndex", () => {
       subject: page("page-b"),
       requestDependencies: [page("page-b")],
     });
-    await index.admitRead(
-      leaseA,
-      await stamp({ subject: page("page-a"), commitSeq: 2 }),
-      fenceA,
-    );
-    await index.admitRead(
-      leaseB,
-      await stamp({ subject: page("page-b"), commitSeq: 2 }),
-      fenceB,
-    );
+    await index.admitRead(leaseA, await stamp({ subject: page("page-a"), commitSeq: 2 }), fenceA);
+    await index.admitRead(leaseB, await stamp({ subject: page("page-b"), commitSeq: 2 }), fenceB);
 
     index.admitVisibility({
       deliveryAddress: address,
@@ -188,11 +175,7 @@ describe("AuthorityFreshnessIndex", () => {
       subject: page("page-a"),
       requestDependencies: [page("page-a")],
     });
-    await index.admitRead(
-      adopted,
-      await stamp({ subject: page("page-a"), commitSeq: 1 }),
-      fence,
-    );
+    await index.admitRead(adopted, await stamp({ subject: page("page-a"), commitSeq: 1 }), fence);
     const stale = index.beginRead({
       deliveryAddress: address,
       storeEpoch: "epoch-1",
@@ -208,11 +191,9 @@ describe("AuthorityFreshnessIndex", () => {
     });
 
     expect(fence).toHaveBeenCalledOnce();
-    await expect(index.admitRead(
-      stale,
-      await stamp({ subject: page("page-b"), commitSeq: 3 }),
-      vi.fn(),
-    )).rejects.toBeInstanceOf(StaleAuthorizedReadError);
+    await expect(
+      index.admitRead(stale, await stamp({ subject: page("page-b"), commitSeq: 3 }), vi.fn()),
+    ).rejects.toBeInstanceOf(StaleAuthorizedReadError);
   });
 
   test("root floor GC waits for an older in-flight lease", () => {
@@ -256,12 +237,14 @@ describe("AuthorityFreshnessIndex", () => {
       subject: page("page-a"),
       requestDependencies: [page("page-a")],
     });
-    void index.admitRead(
-      lease,
-      // Deliberately unresolved; the overflow assertion is synchronous.
-      {} as AuthorizedReadStamp,
-      fence,
-    ).catch(() => undefined);
+    void index
+      .admitRead(
+        lease,
+        // Deliberately unresolved; the overflow assertion is synchronous.
+        {} as AuthorizedReadStamp,
+        fence,
+      )
+      .catch(() => undefined);
     index.admitVisibility({
       deliveryAddress: address,
       storeEpoch: "epoch-1",
@@ -270,13 +253,15 @@ describe("AuthorityFreshnessIndex", () => {
       roots: [page("page-a")],
     });
 
-    expect(() => index.admitVisibility({
-      deliveryAddress: address,
-      storeEpoch: "epoch-1",
-      commitSeq: 3,
-      change: "revoke",
-      roots: [page("page-b")],
-    })).toThrow(AuthorityFreshnessCapacityError);
+    expect(() =>
+      index.admitVisibility({
+        deliveryAddress: address,
+        storeEpoch: "epoch-1",
+        commitSeq: 3,
+        change: "revoke",
+        roots: [page("page-b")],
+      }),
+    ).toThrow(AuthorityFreshnessCapacityError);
     expect(index.diagnostics()).toMatchObject({ rootFloors: 0, addressFloors: 1 });
   });
 
@@ -303,27 +288,29 @@ describe("AuthorityFreshnessIndex", () => {
       requestDependencies: [page("page-stale")],
     });
 
-    expect(() => index.beginRead({
-      deliveryAddress: address,
-      storeEpoch: "epoch-1",
-      observedCommitSeq: 4,
-      subject: page("page-overflow"),
-      requestDependencies: [page("page-overflow")],
-    })).toThrow(AuthorityFreshnessCapacityError);
-    expect(fence).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "address_reset",
-      commitSeq: 4,
-    }));
+    expect(() =>
+      index.beginRead({
+        deliveryAddress: address,
+        storeEpoch: "epoch-1",
+        observedCommitSeq: 4,
+        subject: page("page-overflow"),
+        requestDependencies: [page("page-overflow")],
+      }),
+    ).toThrow(AuthorityFreshnessCapacityError);
+    expect(fence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "address_reset",
+        commitSeq: 4,
+      }),
+    );
     expect(index.diagnostics()).toMatchObject({
       addressFloors: 1,
       inFlightReads: 1,
     });
 
-    await expect(index.admitRead(
-      stale,
-      await stamp({ subject: page("page-stale"), commitSeq: 4 }),
-      vi.fn(),
-    )).rejects.toBeInstanceOf(StaleAuthorizedReadError);
+    await expect(
+      index.admitRead(stale, await stamp({ subject: page("page-stale"), commitSeq: 4 }), vi.fn()),
+    ).rejects.toBeInstanceOf(StaleAuthorizedReadError);
     expect(index.diagnostics().inFlightReads).toBe(0);
     registration.release();
   });
@@ -351,15 +338,19 @@ describe("AuthorityFreshnessIndex", () => {
       requestDependencies: [page("page-overflow")],
     });
 
-    await expect(index.admitRead(
-      overflow,
-      await stamp({ subject: page("page-overflow"), commitSeq: 5 }),
-      vi.fn(),
-    )).rejects.toBeInstanceOf(AuthorityFreshnessCapacityError);
-    expect(fence).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "address_reset",
-      commitSeq: 5,
-    }));
+    await expect(
+      index.admitRead(
+        overflow,
+        await stamp({ subject: page("page-overflow"), commitSeq: 5 }),
+        vi.fn(),
+      ),
+    ).rejects.toBeInstanceOf(AuthorityFreshnessCapacityError);
+    expect(fence).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "address_reset",
+        commitSeq: 5,
+      }),
+    );
     expect(index.diagnostics()).toMatchObject({
       addressFloors: 1,
       registrations: 1,
@@ -375,16 +366,18 @@ describe("AuthorityFreshnessIndex", () => {
       commitSeq: 6,
     });
 
-    expect(() => index.beginRead({
-      deliveryAddress: {
-        ...address,
-        project_id: "project-overflow",
-      },
-      storeEpoch: "epoch-1",
-      observedCommitSeq: 6,
-      subject: page("page-overflow"),
-      requestDependencies: [page("page-overflow")],
-    })).toThrow(AuthorityFreshnessCapacityError);
+    expect(() =>
+      index.beginRead({
+        deliveryAddress: {
+          ...address,
+          project_id: "project-overflow",
+        },
+        storeEpoch: "epoch-1",
+        observedCommitSeq: 6,
+        subject: page("page-overflow"),
+        requestDependencies: [page("page-overflow")],
+      }),
+    ).toThrow(AuthorityFreshnessCapacityError);
     expect(index.diagnostics()).toMatchObject({
       addresses: 1,
       addressFloors: 0,
@@ -411,13 +404,15 @@ describe("AuthorityFreshnessIndex", () => {
     }
     expect(index.diagnostics().rootFloors).toBe(10_000);
 
-    expect(() => index.admitVisibility({
-      deliveryAddress: address,
-      storeEpoch: "epoch-1",
-      commitSeq: 3,
-      change: "grant",
-      roots: [page("page-overflow")],
-    })).toThrow(AuthorityFreshnessCapacityError);
+    expect(() =>
+      index.admitVisibility({
+        deliveryAddress: address,
+        storeEpoch: "epoch-1",
+        commitSeq: 3,
+        change: "grant",
+        roots: [page("page-overflow")],
+      }),
+    ).toThrow(AuthorityFreshnessCapacityError);
     expect(index.diagnostics()).toMatchObject({ rootFloors: 0, addressFloors: 1 });
     index.releaseRead(lease);
   });

@@ -19,10 +19,7 @@ const REGULAR_MODE = 0o644;
 const PLUGIN_NAME = "browser";
 
 export function browserPluginNodeModuleDirs(): string[] {
-  return [
-    "runtime/lib/node_modules",
-    BROWSER_PLUGIN_NODE_MODULE_DIR,
-  ];
+  return ["runtime/lib/node_modules", BROWSER_PLUGIN_NODE_MODULE_DIR];
 }
 
 type VendorBrowserRuntimeOptions = {
@@ -67,23 +64,15 @@ function readJsonFile(filePath: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function readNonEmptyString(
-  value: unknown,
-  label: string,
-): string {
+function readNonEmptyString(value: unknown, label: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`Missing ${label}`);
   }
   return value.trim();
 }
 
-export function readCuaRuntimeVersion(
-  manifest: Record<string, unknown>,
-): string {
-  return readNonEmptyString(
-    manifest.runtime_archive_version,
-    "CUA runtime version",
-  );
+export function readCuaRuntimeVersion(manifest: Record<string, unknown>): string {
+  return readNonEmptyString(manifest.runtime_archive_version, "CUA runtime version");
 }
 
 function readExecutableVersion(filePath: string): string {
@@ -174,9 +163,10 @@ function classifyArtifact(
     }
     const architectures = readArchitectures(filePath);
     const expected = targetArch === "x64" ? "x86_64" : "arm64";
-    const architecture = architectures.includes("arm64") && architectures.includes("x86_64")
-      ? "universal"
-      : targetArch;
+    const architecture =
+      architectures.includes("arm64") && architectures.includes("x86_64")
+        ? "universal"
+        : targetArch;
     if (!architectures.includes(expected)) {
       throw new Error(
         `Browser runtime native artifact ${relativePath} does not include ${expected}`,
@@ -194,13 +184,12 @@ function classifyArtifact(
       const architectures = readArchitectures(filePath);
       const expected = targetArch === "x64" ? "x86_64" : "arm64";
       if (!architectures.includes(expected)) {
-        throw new Error(
-          `Browser runtime executable ${relativePath} does not include ${expected}`,
-        );
+        throw new Error(`Browser runtime executable ${relativePath} does not include ${expected}`);
       }
-      architecture = architectures.includes("arm64") && architectures.includes("x86_64")
-        ? "universal"
-        : targetArch;
+      architecture =
+        architectures.includes("arm64") && architectures.includes("x86_64")
+          ? "universal"
+          : targetArch;
     }
     return { architecture, executable: true, kind: "executable" };
   }
@@ -263,18 +252,20 @@ function writeBrowserMarketplaceManifest(
         category: "Engineering",
       },
       ...(includeComputerUse
-        ? [{
-          name: "computer-use",
-          source: {
-            source: "local",
-            path: "./plugins/computer-use",
-          },
-          policy: {
-            installation: "AVAILABLE",
-            authentication: "ON_INSTALL",
-          },
-          category: "Productivity",
-        }]
+        ? [
+            {
+              name: "computer-use",
+              source: {
+                source: "local",
+                path: "./plugins/computer-use",
+              },
+              policy: {
+                installation: "AVAILABLE",
+                authentication: "ON_INSTALL",
+              },
+              category: "Productivity",
+            },
+          ]
         : []),
     ],
   };
@@ -288,8 +279,8 @@ function writeBrowserMarketplaceManifest(
 function assertPeerAddonLoads(nodePath: string, addonPath: string): void {
   readCommand(nodePath, [
     "-e",
-    "const addon=require(process.argv[1]);"
-      + "if(typeof addon.authorizeSocketPeer!=='function')process.exit(2)",
+    "const addon=require(process.argv[1]);" +
+      "if(typeof addon.authorizeSocketPeer!=='function')process.exit(2)",
     addonPath,
   ]);
 }
@@ -300,14 +291,16 @@ function isMachO(filePath: string): boolean {
     const header = Buffer.alloc(4);
     if (fs.readSync(descriptor, header, 0, header.length, 0) !== header.length) return false;
     const magic = header.readUInt32BE(0);
-    return magic === 0xfeedface
-      || magic === 0xfeedfacf
-      || magic === 0xcefaedfe
-      || magic === 0xcffaedfe
-      || magic === 0xcafebabe
-      || magic === 0xbebafeca
-      || magic === 0xcafebabf
-      || magic === 0xbfbafeca;
+    return (
+      magic === 0xfeedface ||
+      magic === 0xfeedfacf ||
+      magic === 0xcefaedfe ||
+      magic === 0xcffaedfe ||
+      magic === 0xcafebabe ||
+      magic === 0xbebafeca ||
+      magic === 0xcafebabf ||
+      magic === 0xbfbafeca
+    );
   } finally {
     fs.closeSync(descriptor);
   }
@@ -334,9 +327,7 @@ function pruneForeignNativeArtifacts(
   }
 }
 
-export function vendorBrowserRuntime(
-  options: VendorBrowserRuntimeOptions,
-): BrowserRuntimeManifest {
+export function vendorBrowserRuntime(options: VendorBrowserRuntimeOptions): BrowserRuntimeManifest {
   if (process.platform !== "darwin") {
     throw new Error("Preparing the macOS Browser runtime requires macOS");
   }
@@ -352,20 +343,10 @@ export function vendorBrowserRuntime(
   const cuaRoot = path.join(resourcesPath, "cua_node");
   const nodePath = path.join(cuaRoot, "bin", "node");
   const nodeReplPath = path.join(cuaRoot, "bin", "node_repl");
-  const peerAddonPath = path.join(
-    resourcesPath,
-    "native",
-    "browser-use-peer-authorization.node",
-  );
+  const peerAddonPath = path.join(resourcesPath, "native", "browser-use-peer-authorization.node");
   const skyAddonPath = path.join(resourcesPath, "native", "sky.node");
   const remoteHostedPipAssetsPath = path.join(resourcesPath, "native", "remote-hosted-pip");
-  const pluginRoot = path.join(
-    resourcesPath,
-    "plugins",
-    "openai-bundled",
-    "plugins",
-    PLUGIN_NAME,
-  );
+  const pluginRoot = path.join(resourcesPath, "plugins", "openai-bundled", "plugins", PLUGIN_NAME);
   const computerUsePluginRoot = path.join(
     resourcesPath,
     "plugins",
@@ -373,8 +354,8 @@ export function vendorBrowserRuntime(
     "plugins",
     "computer-use",
   );
-  const computerUseAvailable = options.targetArch === "arm64"
-    && fs.existsSync(computerUsePluginRoot);
+  const computerUseAvailable =
+    options.targetArch === "arm64" && fs.existsSync(computerUsePluginRoot);
   const computerUseClientRelativePath = "bin/computer-use-client-launcher";
   const computerUseAppPath = path.join(
     cuaRoot,
@@ -391,17 +372,15 @@ export function vendorBrowserRuntime(
     "SkyComputerUseService",
   );
   const cuaManifest = readJsonFile(path.join(cuaRoot, "manifest.json"));
-  const pluginManifest = readJsonFile(
-    path.join(pluginRoot, ".codex-plugin", "plugin.json"),
-  );
+  const pluginManifest = readJsonFile(path.join(pluginRoot, ".codex-plugin", "plugin.json"));
 
   for (const binaryPath of [codexPath, nodePath, nodeReplPath, peerAddonPath, skyAddonPath]) {
     assertArchitecture(binaryPath, options.targetArch);
   }
   if (computerUseAvailable) assertArchitecture(computerUseServicePath, options.targetArch);
   if (
-    computerUseAvailable
-    && !fs.existsSync(path.join(computerUsePluginRoot, ...computerUseClientRelativePath.split("/")))
+    computerUseAvailable &&
+    !fs.existsSync(path.join(computerUsePluginRoot, ...computerUseClientRelativePath.split("/")))
   ) {
     throw new Error(
       `Computer Use plugin is missing its launcher: ${computerUseClientRelativePath}`,
@@ -425,23 +404,24 @@ export function vendorBrowserRuntime(
     try {
       const stats = fs.lstatSync(outputPath);
       if (stats.isDirectory() && !stats.isSymbolicLink()) {
-        existing = parseBrowserRuntimeManifest(JSON.parse(fs.readFileSync(
-          path.join(outputPath, BROWSER_RUNTIME_MANIFEST_FILENAME),
-          "utf8",
-        )));
+        existing = parseBrowserRuntimeManifest(
+          JSON.parse(
+            fs.readFileSync(path.join(outputPath, BROWSER_RUNTIME_MANIFEST_FILENAME), "utf8"),
+          ),
+        );
       }
     } catch {
       existing = null;
     }
     if (
-      existing
-      && existing.codexCompatibilityVersion === options.codexCompatibilityVersion
-      && existing.desktopBuild === desktopBuild
-      && existing.desktopBuildNumber === desktopBuildNumber
-      && existing.browserPlugin.version === pluginVersion
-      && existing.peerAuthorization.signingTeamId === peerSigningTeamId
-      && existing.targetArch === options.targetArch
-      && JSON.stringify(existing.runtimeVersions) === JSON.stringify(runtimeVersions)
+      existing &&
+      existing.codexCompatibilityVersion === options.codexCompatibilityVersion &&
+      existing.desktopBuild === desktopBuild &&
+      existing.desktopBuildNumber === desktopBuildNumber &&
+      existing.browserPlugin.version === pluginVersion &&
+      existing.peerAuthorization.signingTeamId === peerSigningTeamId &&
+      existing.targetArch === options.targetArch &&
+      JSON.stringify(existing.runtimeVersions) === JSON.stringify(runtimeVersions)
     ) {
       return existing;
     }
@@ -461,14 +441,8 @@ export function vendorBrowserRuntime(
       path.join(preparedRoot, "native", "browser-use-peer-authorization.node"),
     );
     copyTree(skyAddonPath, path.join(preparedRoot, "native", "sky.node"));
-    copyTree(
-      remoteHostedPipAssetsPath,
-      path.join(preparedRoot, "native", "remote-hosted-pip"),
-    );
-    copyTree(
-      pluginRoot,
-      path.join(preparedRoot, "marketplace", "plugins", PLUGIN_NAME),
-    );
+    copyTree(remoteHostedPipAssetsPath, path.join(preparedRoot, "native", "remote-hosted-pip"));
+    copyTree(pluginRoot, path.join(preparedRoot, "marketplace", "plugins", PLUGIN_NAME));
     if (computerUseAvailable) {
       copyTree(
         computerUsePluginRoot,
@@ -503,37 +477,37 @@ export function vendorBrowserRuntime(
       capabilities: {
         computerUse: computerUseAvailable
           ? {
-            appBundle: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app",
-            appBundleIdentifier: readPlistValue(
-              path.join(computerUseAppPath, "Contents", "Info.plist"),
-              "CFBundleIdentifier",
-            ),
-            client: `marketplace/plugins/computer-use/${computerUseClientRelativePath}`,
-            ipcProtocol: "CodexComputerUseIPC-2",
-            minimumMacOSVersion: "14.4",
-            plugin: {
-              docs: "marketplace/plugins/computer-use/skills/computer-use/SKILL.md",
-              id: "computer-use@openai-bundled",
-              manifest: "marketplace/plugins/computer-use/.codex-plugin/plugin.json",
-              marketplaceManifest: "marketplace/.agents/plugins/marketplace.json",
-              marketplaceRoot: "marketplace",
-              nodeModuleDirs: ["runtime/lib/node_modules"],
-              root: "marketplace/plugins/computer-use",
-              version: readNonEmptyString(
-                readJsonFile(
-                  path.join(computerUsePluginRoot, ".codex-plugin", "plugin.json"),
-                ).version,
-                "Computer Use plugin version",
+              appBundle: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app",
+              appBundleIdentifier: readPlistValue(
+                path.join(computerUseAppPath, "Contents", "Info.plist"),
+                "CFBundleIdentifier",
               ),
-            },
-            serviceExecutable: "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
-            signingTeamId: readSigningTeamId(computerUseServicePath),
-            status: "available",
-          }
+              client: `marketplace/plugins/computer-use/${computerUseClientRelativePath}`,
+              ipcProtocol: "CodexComputerUseIPC-2",
+              minimumMacOSVersion: "14.4",
+              plugin: {
+                docs: "marketplace/plugins/computer-use/skills/computer-use/SKILL.md",
+                id: "computer-use@openai-bundled",
+                manifest: "marketplace/plugins/computer-use/.codex-plugin/plugin.json",
+                marketplaceManifest: "marketplace/.agents/plugins/marketplace.json",
+                marketplaceRoot: "marketplace",
+                nodeModuleDirs: ["runtime/lib/node_modules"],
+                root: "marketplace/plugins/computer-use",
+                version: readNonEmptyString(
+                  readJsonFile(path.join(computerUsePluginRoot, ".codex-plugin", "plugin.json"))
+                    .version,
+                  "Computer Use plugin version",
+                ),
+              },
+              serviceExecutable:
+                "runtime/lib/node_modules/@oai/sky/Codex Computer Use.app/Contents/MacOS/SkyComputerUseService",
+              signingTeamId: readSigningTeamId(computerUseServicePath),
+              status: "available",
+            }
           : {
-            reason: "architecture-unsupported",
-            status: "unavailable",
-          },
+              reason: "architecture-unsupported",
+              status: "unavailable",
+            },
         nativePip: {
           addon: "native/sky.node",
           controlAssets: [
@@ -596,15 +570,15 @@ function parseCliOptions(argv: string[]): VendorBrowserRuntimeOptions {
   const outputPath = values.get("--out");
   const targetArch = values.get("--target-arch");
   if (
-    !appPath
-    || !codexCompatibilityVersion
-    || !outputPath
-    || (targetArch !== "arm64" && targetArch !== "x64")
+    !appPath ||
+    !codexCompatibilityVersion ||
+    !outputPath ||
+    (targetArch !== "arm64" && targetArch !== "x64")
   ) {
     throw new Error(
-      "Usage: vendor-browser-runtime.ts "
-      + "--codex-compatibility-version <version> --target-arch <arm64|x64> "
-      + "--app <ChatGPT.app> --out <directory> [--reuse-existing]",
+      "Usage: vendor-browser-runtime.ts " +
+        "--codex-compatibility-version <version> --target-arch <arm64|x64> " +
+        "--app <ChatGPT.app> --out <directory> [--reuse-existing]",
     );
   }
   return {
@@ -628,7 +602,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       })}\n`,
     );
   } catch (error) {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   }

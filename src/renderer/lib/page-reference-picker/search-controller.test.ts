@@ -17,8 +17,8 @@ const request = (query: string): PageReferencePickerRequest => ({
 describe("Page reference search controller", () => {
   it("fails closed when an older response settles after a newer request", async () => {
     const resolvers = new Map<string, (items: PageReferenceCandidate[]) => void>();
-    const controller = createPageReferenceSearchController((input) =>
-      new Promise((resolve) => resolvers.set(input.query, resolve))
+    const controller = createPageReferenceSearchController(
+      (input) => new Promise((resolve) => resolvers.set(input.query, resolve)),
     );
     const oldSearch = controller.search(request("old"));
     const currentSearch = controller.search(request("current"));
@@ -30,13 +30,17 @@ describe("Page reference search controller", () => {
 
   it("passes source context only for inline mention and link searches", () => {
     expect(resolvePageReferenceSourcePageId(request("query"))).toBe("page:host");
-    expect(resolvePageReferenceSourcePageId({
-      ...request("query"),
-      intent: "link",
-    })).toBe("page:host");
-    expect(resolvePageReferenceSourcePageId({
-      ...request("query"),
-      intent: "reference_block",
-    })).toBeUndefined();
+    expect(
+      resolvePageReferenceSourcePageId({
+        ...request("query"),
+        intent: "link",
+      }),
+    ).toBe("page:host");
+    expect(
+      resolvePageReferenceSourcePageId({
+        ...request("query"),
+        intent: "reference_block",
+      }),
+    ).toBeUndefined();
   });
 });

@@ -30,7 +30,8 @@ vi.mock("./threads-icon", () => ({
 }));
 
 vi.mock("./toggle-list-icon", () => ({
-  ToggleListIcon: ({ className }: { className?: string }) => createElement("span", { className }, "L"),
+  ToggleListIcon: ({ className }: { className?: string }) =>
+    createElement("span", { className }, "L"),
 }));
 
 const apiMock: {
@@ -77,11 +78,14 @@ function makeCommandContext(
 
 describe("buildCommandPaletteCommands", () => {
   test("exposes Create Page with contextual availability", () => {
-    const available = buildCommandPaletteCommands(makeCommandContext())
-      .find((command) => command.id === "createPage");
-    const unavailable = buildCommandPaletteCommands(makeCommandContext({
-      pageCreateUnavailableReason: "Focus a Board before creating a Page.",
-    })).find((command) => command.id === "createPage");
+    const available = buildCommandPaletteCommands(makeCommandContext()).find(
+      (command) => command.id === "createPage",
+    );
+    const unavailable = buildCommandPaletteCommands(
+      makeCommandContext({
+        pageCreateUnavailableReason: "Focus a Board before creating a Page.",
+      }),
+    ).find((command) => command.id === "createPage");
 
     expect(available?.shortcut).toBe("C");
     expect(Boolean(available?.disabled)).toBe(false);
@@ -144,9 +148,11 @@ describe("buildCommandPaletteCommands", () => {
   });
 
   test("omits dev-only mock commands and removed redundant commands in production contexts", () => {
-    const commands = buildCommandPaletteCommands(makeCommandContext({
-      showMockCommands: false,
-    }));
+    const commands = buildCommandPaletteCommands(
+      makeCommandContext({
+        showMockCommands: false,
+      }),
+    );
     const ids = commands.map((command) => command.id).join(",");
 
     expect(commands.some((command) => command.mockReason !== undefined)).toBe(false);
@@ -157,9 +163,11 @@ describe("buildCommandPaletteCommands", () => {
   });
 
   test("keeps unsupported parity commands as disabled mock rows in dev contexts", () => {
-    const commands = buildCommandPaletteCommands(makeCommandContext({
-      showMockCommands: true,
-    }));
+    const commands = buildCommandPaletteCommands(
+      makeCommandContext({
+        showMockCommands: true,
+      }),
+    );
     const searchFiles = commands.find((command) => command.id === "searchFiles");
     const gitCommit = commands.find((command) => command.id === "git.commit");
     const ids = commands.map((command) => command.id).join(",");
@@ -173,22 +181,32 @@ describe("buildCommandPaletteCommands", () => {
   });
 
   test("uses custom command-keymap labels for shell commands", () => {
-    const commands = buildCommandPaletteCommands(makeCommandContext({
-      commandKeymapState: createCommandKeymapState({
-        toggleSidebar: ["CmdOrCtrl+Alt+B"],
-      }, "macOS"),
-    }));
+    const commands = buildCommandPaletteCommands(
+      makeCommandContext({
+        commandKeymapState: createCommandKeymapState(
+          {
+            toggleSidebar: ["CmdOrCtrl+Alt+B"],
+          },
+          "macOS",
+        ),
+      }),
+    );
     const sidebarCommand = commands.find((command) => command.id === TOGGLE_SIDEBAR_COMMAND_ID);
 
     expect(sidebarCommand?.shortcut).toBe("⌘⌥B");
   });
 
   test("omits the shortcut label when a shell command is explicitly unassigned", () => {
-    const commands = buildCommandPaletteCommands(makeCommandContext({
-      commandKeymapState: createCommandKeymapState({
-        [TOGGLE_BOTTOM_PANEL_COMMAND_ID]: [],
-      }, "macOS"),
-    }));
+    const commands = buildCommandPaletteCommands(
+      makeCommandContext({
+        commandKeymapState: createCommandKeymapState(
+          {
+            [TOGGLE_BOTTOM_PANEL_COMMAND_ID]: [],
+          },
+          "macOS",
+        ),
+      }),
+    );
     const bottomPanelCommand = commands.find(
       (command) => command.id === TOGGLE_BOTTOM_PANEL_COMMAND_ID,
     );
@@ -197,20 +215,22 @@ describe("buildCommandPaletteCommands", () => {
   });
 
   test("disables unavailable session and side-chat commands", () => {
-    const commands = buildCommandPaletteCommands(makeCommandContext({
-      hasActiveSession: false,
-      hasAttachedThread: false,
-      panelActionAvailability: {
-        db_view: false,
-        page_stage: false,
-        canvas_stage: false,
-        terminal: false,
-        browser: false,
-        review: false,
-        files: false,
-        side_chat: false,
-      },
-    }));
+    const commands = buildCommandPaletteCommands(
+      makeCommandContext({
+        hasActiveSession: false,
+        hasAttachedThread: false,
+        panelActionAvailability: {
+          db_view: false,
+          page_stage: false,
+          canvas_stage: false,
+          terminal: false,
+          browser: false,
+          review: false,
+          files: false,
+          side_chat: false,
+        },
+      }),
+    );
     const renameCommand = commands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
     const archiveCommand = commands.find((command) => command.id === "archiveThread");
     const sideChatCommand = commands.find((command) => command.id === "openSideChat");
@@ -223,30 +243,36 @@ describe("buildCommandPaletteCommands", () => {
   });
 
   test("keeps general New chat available without an active Project", () => {
-    const commands = buildCommandPaletteCommands(makeCommandContext({
-      canStartNewChat: true,
-      canStartNewChatInProject: false,
-    }));
+    const commands = buildCommandPaletteCommands(
+      makeCommandContext({
+        canStartNewChat: true,
+        canStartNewChatInProject: false,
+      }),
+    );
 
     expect(commands.find((command) => command.id === "newThread")?.disabled).toBe(false);
     expect(commands.find((command) => command.id === "newThreadInProject")?.disabled).toBe(true);
   });
 
   test("uses the shared panel eligibility for attached projectless chats", () => {
-    const commands = buildCommandPaletteCommands(makeCommandContext({
-      panelActionAvailability: {
-        db_view: false,
-        page_stage: false,
-        canvas_stage: false,
-        terminal: true,
-        browser: true,
-        review: false,
-        files: false,
-        side_chat: true,
-      },
-    }));
+    const commands = buildCommandPaletteCommands(
+      makeCommandContext({
+        panelActionAvailability: {
+          db_view: false,
+          page_stage: false,
+          canvas_stage: false,
+          terminal: true,
+          browser: true,
+          review: false,
+          files: false,
+          side_chat: true,
+        },
+      }),
+    );
 
-    const disabledById = Object.fromEntries(commands.map((command) => [command.id, command.disabled]));
+    const disabledById = Object.fromEntries(
+      commands.map((command) => [command.id, command.disabled]),
+    );
     expect(disabledById.openSideChat).toBe(false);
     expect(disabledById.openBrowserTab).toBe(false);
     expect(disabledById.toggleTerminal).toBe(false);
@@ -257,7 +283,8 @@ describe("buildCommandPaletteCommands", () => {
 });
 
 function makePage(overrides: Partial<DatabasePageSummary> = {}): DatabasePageSummary {
-  const descriptionPreview = overrides.descriptionPreview ?? "Rebuild the fuzzy search indxer for the palette.";
+  const descriptionPreview =
+    overrides.descriptionPreview ?? "Rebuild the fuzzy search indxer for the palette.";
   const title = overrides.title ?? "Misc task";
   return {
     id: overrides.id ?? "page-1",
@@ -417,24 +444,28 @@ describe("CommandPaletteSurface", () => {
         pages={pages}
         pageSearchBatch={makePageSearchBatch({
           query: "search indexer",
-          results: [makePageSearchResult(pages[0]!, {
-            excerptParts: [
-              { text: "Rebuild the fuzzy ", highlighted: false },
-              { text: "search indxer", highlighted: true },
-              { text: " for the palette.", highlighted: false },
-            ],
-            matches: [{
-              source: "body",
-              quality: "fuzzy",
-              blockId: "block:page-1",
-              blockType: "paragraph",
-              parts: [
+          results: [
+            makePageSearchResult(pages[0]!, {
+              excerptParts: [
                 { text: "Rebuild the fuzzy ", highlighted: false },
                 { text: "search indxer", highlighted: true },
                 { text: " for the palette.", highlighted: false },
               ],
-            }],
-          })],
+              matches: [
+                {
+                  source: "body",
+                  quality: "fuzzy",
+                  blockId: "block:page-1",
+                  blockType: "paragraph",
+                  parts: [
+                    { text: "Rebuild the fuzzy ", highlighted: false },
+                    { text: "search indxer", highlighted: true },
+                    { text: " for the palette.", highlighted: false },
+                  ],
+                },
+              ],
+            }),
+          ],
         })}
         loading={false}
         pagesLoading={false}
@@ -501,7 +532,7 @@ describe("CommandPaletteSurface", () => {
     await settleAsyncRender();
 
     const input = getByLabelText("Command palette search") as HTMLInputElement;
-    const resultButtons = Array.from(container.querySelectorAll('button[cmdk-item]'));
+    const resultButtons = Array.from(container.querySelectorAll("button[cmdk-item]"));
     expect(input.value).toBe("settings");
     expect(resultButtons.length).toBe(1);
     expect(textContent(container).includes("Misc task")).toBe(false);
@@ -510,13 +541,15 @@ describe("CommandPaletteSurface", () => {
 
   test("keeps Page search pending instead of flashing a false empty state", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const pages = [makePalettePage({
-      page: makePage({
-        id: "unrelated-page",
-        title: "Release checklist",
-        descriptionPreview: "Prepare the packaged build.",
+    const pages = [
+      makePalettePage({
+        page: makePage({
+          id: "unrelated-page",
+          title: "Release checklist",
+          descriptionPreview: "Prepare the packaged build.",
+        }),
       }),
-    })];
+    ];
     const { container } = render(
       <CommandPaletteSurface
         open
@@ -546,12 +579,14 @@ describe("CommandPaletteSurface", () => {
 
   test("surfaces Core Page-search failures without falling back to local Pages", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const pages = [makePalettePage({
-      page: makePage({
-        id: "local-only-page",
-        title: "Incomplete local result",
+    const pages = [
+      makePalettePage({
+        page: makePage({
+          id: "local-only-page",
+          title: "Incomplete local result",
+        }),
       }),
-    })];
+    ];
     const { container } = render(
       <CommandPaletteSurface
         open
@@ -583,13 +618,15 @@ describe("CommandPaletteSurface", () => {
 
   test("shows the Page empty state only after the current search settles", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const pages = [makePalettePage({
-      page: makePage({
-        id: "unrelated-page",
-        title: "Release checklist",
-        descriptionPreview: "Prepare the packaged build.",
+    const pages = [
+      makePalettePage({
+        page: makePage({
+          id: "unrelated-page",
+          title: "Release checklist",
+          descriptionPreview: "Prepare the packaged build.",
+        }),
       }),
-    })];
+    ];
     const { container } = render(
       <CommandPaletteSurface
         open
@@ -618,15 +655,17 @@ describe("CommandPaletteSurface", () => {
 
   test("fills the root discovery budget with Pages without an independent Page cap", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const pages = Array.from({ length: 10 }, (_, index) => makePalettePage({
-      id: `default:page-result-${index}`,
-      boardIndex: index,
-      page: makePage({
-        id: `page-result-${index}`,
-        title: `Page result ${index}`,
-        descriptionPreview: "Root discovery result.",
+    const pages = Array.from({ length: 10 }, (_, index) =>
+      makePalettePage({
+        id: `default:page-result-${index}`,
+        boardIndex: index,
+        page: makePage({
+          id: `page-result-${index}`,
+          title: `Page result ${index}`,
+          descriptionPreview: "Root discovery result.",
+        }),
       }),
-    }));
+    );
     const { container } = render(
       <CommandPaletteSurface
         open
@@ -652,21 +691,24 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
 
-    const pageButtons = Array.from(container.querySelectorAll("button[cmdk-item]"))
-      .filter((button) => button.textContent?.includes("Page result"));
+    const pageButtons = Array.from(container.querySelectorAll("button[cmdk-item]")).filter(
+      (button) => button.textContent?.includes("Page result"),
+    );
     expect(pageButtons).toHaveLength(7);
     expect(textContent(container)).toContain("Pages");
   });
 
   test("surfaces Page body-only matches in root mode", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const pages = [makePalettePage({
-      page: makePage({
-        id: "body-only-page",
-        title: "Replication design note",
-        descriptionPreview: "No local metadata match.",
+    const pages = [
+      makePalettePage({
+        page: makePage({
+          id: "body-only-page",
+          title: "Replication design note",
+          descriptionPreview: "No local metadata match.",
+        }),
       }),
-    })];
+    ];
     const { container } = render(
       <CommandPaletteSurface
         open
@@ -679,36 +721,40 @@ describe("CommandPaletteSurface", () => {
         threadSearchIndex={createCommandPaletteThreadSearchIndex([])}
         pageSearchBatch={makePageSearchBatch({
           query: "vector clocks",
-          results: [{
-            projectId: "default",
-            pageId: "body-only-page",
-            pageKey: null,
-            title: "Body-only page",
-            status: "build",
-            priority: null,
-            tags: [],
-            assignee: null,
-            locationLabel: "Default / Build",
-            titleParts: [],
-            excerpt: "Document vector clocks and replicated queue recovery.",
-            excerptParts: [
-              { text: "Document ", highlighted: false },
-              { text: "vector clocks", highlighted: true },
-              { text: " and replicated queue recovery.", highlighted: false },
-            ],
-            matches: [{
-              source: "body",
-              quality: "exact",
-              blockId: "block:vector-clocks",
-              blockType: "paragraph",
-              parts: [
+          results: [
+            {
+              projectId: "default",
+              pageId: "body-only-page",
+              pageKey: null,
+              title: "Body-only page",
+              status: "build",
+              priority: null,
+              tags: [],
+              assignee: null,
+              locationLabel: "Default / Build",
+              titleParts: [],
+              excerpt: "Document vector clocks and replicated queue recovery.",
+              excerptParts: [
                 { text: "Document ", highlighted: false },
                 { text: "vector clocks", highlighted: true },
                 { text: " and replicated queue recovery.", highlighted: false },
               ],
-            }],
-            updatedAt: "2026-08-17T00:00:00.000Z",
-          }],
+              matches: [
+                {
+                  source: "body",
+                  quality: "exact",
+                  blockId: "block:vector-clocks",
+                  blockType: "paragraph",
+                  parts: [
+                    { text: "Document ", highlighted: false },
+                    { text: "vector clocks", highlighted: true },
+                    { text: " and replicated queue recovery.", highlighted: false },
+                  ],
+                },
+              ],
+              updatedAt: "2026-08-17T00:00:00.000Z",
+            },
+          ],
         })}
         threadSearchBatch={{ query: "vector clocks", results: [], loading: false, error: null }}
         loading={false}
@@ -729,24 +775,30 @@ describe("CommandPaletteSurface", () => {
 
   test("uses only the root budget remaining after commands and chats for Pages", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const pages = Array.from({ length: 8 }, (_, index) => makePalettePage({
-      id: `default:page-result-${index}`,
-      boardIndex: index,
-      page: makePage({
-        id: `page-result-${index}`,
-        title: `Page result ${index}`,
+    const pages = Array.from({ length: 8 }, (_, index) =>
+      makePalettePage({
+        id: `default:page-result-${index}`,
+        boardIndex: index,
+        page: makePage({
+          id: `page-result-${index}`,
+          title: `Page result ${index}`,
+        }),
       }),
-    }));
-    const threads = Array.from({ length: 2 }, (_, index) => makePaletteThread({
-      id: `thread:page-chat-${index}`,
-      threadId: `page-chat-${index}`,
-      title: `Page chat ${index}`,
-    }));
-    const commands = Array.from({ length: 2 }, (_, index) => makePaletteCommand({
-      id: `page-command-${index}`,
-      title: `Page command ${index}`,
-      keywords: ["page"],
-    }));
+    );
+    const threads = Array.from({ length: 2 }, (_, index) =>
+      makePaletteThread({
+        id: `thread:page-chat-${index}`,
+        threadId: `page-chat-${index}`,
+        title: `Page chat ${index}`,
+      }),
+    );
+    const commands = Array.from({ length: 2 }, (_, index) =>
+      makePaletteCommand({
+        id: `page-command-${index}`,
+        title: `Page command ${index}`,
+        keywords: ["page"],
+      }),
+    );
     const { container } = render(
       <CommandPaletteSurface
         open
@@ -772,8 +824,9 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
 
-    const pageButtons = Array.from(container.querySelectorAll("button[cmdk-item]"))
-      .filter((button) => button.textContent?.includes("Page result"));
+    const pageButtons = Array.from(container.querySelectorAll("button[cmdk-item]")).filter(
+      (button) => button.textContent?.includes("Page result"),
+    );
     expect(container.querySelectorAll("button[cmdk-item]")).toHaveLength(7);
     expect(pageButtons).toHaveLength(3);
   });
@@ -874,7 +927,7 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
 
-    const resultButtons = Array.from(container.querySelectorAll('button[cmdk-item]'));
+    const resultButtons = Array.from(container.querySelectorAll("button[cmdk-item]"));
     expect(resultButtons.length).toBe(1);
     expect(textContent(container).includes("Thread transcript session")).toBe(false);
     expect(textContent(container).includes("Thread transcript page")).toBe(true);
@@ -892,26 +945,28 @@ describe("CommandPaletteSurface", () => {
     ];
     apiMock.invokeImplementation = async (channel: unknown) => {
       if (channel === "codex:threads:palette:search") {
-        return [{
-          thread: {
-            threadId: "thr-content-hit",
-            sessionId: null,
-            projectId: "default",
-            projectName: "Default",
-            title: "Content hit",
-            preview: "",
-            cwd: "/tmp/default",
-            gitBranch: null,
-            projectless: false,
-            pinned: false,
-            pinnedOrder: null,
-            statusType: "notLoaded",
-            statusActiveFlags: [],
-            createdAt: 1,
-            updatedAt: 1,
+        return [
+          {
+            thread: {
+              threadId: "thr-content-hit",
+              sessionId: null,
+              projectId: "default",
+              projectName: "Default",
+              title: "Content hit",
+              preview: "",
+              cwd: "/tmp/default",
+              gitBranch: null,
+              projectless: false,
+              pinned: false,
+              pinnedOrder: null,
+              statusType: "notLoaded",
+              statusActiveFlags: [],
+              createdAt: 1,
+              updatedAt: 1,
+            },
+            snippet: "backend snippet",
           },
-          snippet: "backend snippet",
-        }];
+        ];
       }
       return [];
     };
@@ -981,11 +1036,13 @@ describe("CommandPaletteSurface", () => {
 
   test("reserves the ninth root chat slot for current-query loading state", async () => {
     const { CommandPaletteSurface } = await import("./command-palette-surface");
-    const threads = Array.from({ length: 9 }, (_, index) => makePaletteThread({
-      id: `thread:common-${index}`,
-      threadId: `common-${index}`,
-      title: `Common chat ${index}`,
-    }));
+    const threads = Array.from({ length: 9 }, (_, index) =>
+      makePaletteThread({
+        id: `thread:common-${index}`,
+        threadId: `common-${index}`,
+        title: `Common chat ${index}`,
+      }),
+    );
     const { container } = render(
       <CommandPaletteSurface
         open
@@ -1042,16 +1099,15 @@ describe("CommandPaletteSurface", () => {
   });
 
   test("deduplicates concurrent app-server searches and reuses the short-lived cache", async () => {
-    const {
-      clearCommandPaletteThreadSearchCacheForTests,
-      searchCommandPaletteThreads,
-    } = await import("../../lib/command-palette-chat-search");
+    const { clearCommandPaletteThreadSearchCacheForTests, searchCommandPaletteThreads } =
+      await import("../../lib/command-palette-chat-search");
     const searchedQueries: string[] = [];
     apiMock.invokeImplementation = async (channel: unknown, input: unknown) => {
       if (channel === "codex:threads:palette:search") {
-        const query = typeof input === "object" && input !== null && "query" in input
-          ? String((input as { query?: unknown }).query ?? "")
-          : "";
+        const query =
+          typeof input === "object" && input !== null && "query" in input
+            ? String((input as { query?: unknown }).query ?? "")
+            : "";
         searchedQueries.push(query);
         return [];
       }
@@ -1075,9 +1131,10 @@ describe("CommandPaletteSurface", () => {
     apiMock.invokeImplementation = async (channel: unknown, ...args: unknown[]) => {
       if (channel === "pages:search") {
         const input = args[1];
-        const query = typeof input === "object" && input !== null && "query" in input
-          ? String((input as { query?: unknown }).query ?? "")
-          : "";
+        const query =
+          typeof input === "object" && input !== null && "query" in input
+            ? String((input as { query?: unknown }).query ?? "")
+            : "";
         searchedQueries.push(query);
         return [];
       }
@@ -1207,8 +1264,9 @@ describe("CommandPaletteSurface", () => {
 
     await settleAsyncRender();
 
-    const mockButton = Array.from(container.querySelectorAll('button[cmdk-item]'))
-      .find((button) => button.textContent?.includes("Search files"));
+    const mockButton = Array.from(container.querySelectorAll("button[cmdk-item]")).find((button) =>
+      button.textContent?.includes("Search files"),
+    );
 
     expect(textContent(container).includes("Mock")).toBe(true);
     expect(mockButton !== undefined).toBe(true);
@@ -1299,11 +1357,13 @@ describe("CommandPaletteSurface", () => {
 
 describe("buildCommandPaletteCommands navigation", () => {
   test("builds Codex navigation commands with exact ids, labels, shortcuts, and disabled states", async () => {
-    const commands = buildCommandPaletteCommands(makeCommandContext({
-      canGoBack: false,
-      canGoForward: true,
-      isMac: true,
-    }));
+    const commands = buildCommandPaletteCommands(
+      makeCommandContext({
+        canGoBack: false,
+        canGoForward: true,
+        isMac: true,
+      }),
+    );
 
     const backCommand = commands.find((command) => command.id === "navigateBack");
     const forwardCommand = commands.find((command) => command.id === "navigateForward");
@@ -1319,28 +1379,34 @@ describe("buildCommandPaletteCommands navigation", () => {
   });
 
   test("builds non-mac navigation shortcut labels", async () => {
-    const commands = buildCommandPaletteCommands(makeCommandContext({
-      canGoBack: true,
-      canGoForward: true,
-      isMac: false,
-    }));
+    const commands = buildCommandPaletteCommands(
+      makeCommandContext({
+        canGoBack: true,
+        canGoForward: true,
+        isMac: false,
+      }),
+    );
 
     expect(commands.find((command) => command.id === "navigateBack")?.shortcut).toBe("Ctrl+[");
     expect(commands.find((command) => command.id === "navigateForward")?.shortcut).toBe("Ctrl+]");
   });
 
   test("builds the Codex renameThread command with shortcut and disabled state", async () => {
-    const enabledCommands = buildCommandPaletteCommands(makeCommandContext({
-      canGoBack: true,
-      canGoForward: true,
-      isMac: true,
-    }));
-    const disabledCommands = buildCommandPaletteCommands(makeCommandContext({
-      canGoBack: true,
-      canGoForward: true,
-      hasActiveSession: false,
-      isMac: false,
-    }));
+    const enabledCommands = buildCommandPaletteCommands(
+      makeCommandContext({
+        canGoBack: true,
+        canGoForward: true,
+        isMac: true,
+      }),
+    );
+    const disabledCommands = buildCommandPaletteCommands(
+      makeCommandContext({
+        canGoBack: true,
+        canGoForward: true,
+        hasActiveSession: false,
+        isMac: false,
+      }),
+    );
     const enabled = enabledCommands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
     const disabled = disabledCommands.find((command) => command.id === RENAME_THREAD_COMMAND_ID);
 

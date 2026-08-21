@@ -10,11 +10,7 @@ export function ThreadMcpAppsProvider({
   apps: readonly ProtocolAppInfo[];
   children: ReactNode;
 }) {
-  return (
-    <ThreadMcpAppsContext.Provider value={apps}>
-      {children}
-    </ThreadMcpAppsContext.Provider>
-  );
+  return <ThreadMcpAppsContext.Provider value={apps}>{children}</ThreadMcpAppsContext.Provider>;
 }
 
 export function useThreadMcpApps(): readonly ProtocolAppInfo[] {

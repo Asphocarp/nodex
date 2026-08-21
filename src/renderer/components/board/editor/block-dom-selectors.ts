@@ -25,7 +25,5 @@ export function findBlockDescendantById<TElement extends Element>(
   if (!blockId) return null;
 
   const escapedBlockId = escapeAttributeValue(blockId);
-  return editorDom.querySelector<TElement>(
-    `.bn-block[data-id="${escapedBlockId}"] ${selector}`,
-  );
+  return editorDom.querySelector<TElement>(`.bn-block[data-id="${escapedBlockId}"] ${selector}`);
 }

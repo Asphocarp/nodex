@@ -103,8 +103,10 @@ describe("Database View Display option reducer", () => {
       kind: "intrinsic",
       field: "created_at",
     });
-    expect(displayFieldForcedByOrdering({ kind: "property", propertyId: "priority" }))
-      .toEqual({ kind: "property", propertyId: "priority" });
+    expect(displayFieldForcedByOrdering({ kind: "property", propertyId: "priority" })).toEqual({
+      kind: "property",
+      propertyId: "priority",
+    });
     expect(displayFieldForcedByOrdering({ kind: "title" })).toBeNull();
   });
 

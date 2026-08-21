@@ -5,10 +5,7 @@ import { BootstrapRuntimeEventQueue } from "./bootstrap-events";
 import { writeBootstrapLog } from "./bootstrap-log";
 import { resolveLogSinkLevels } from "./logging/log-level";
 import { getDiagnosticsSettings } from "./local-store/config";
-import {
-  captureMainException,
-  initializeMainSentry,
-} from "./observability/sentry-main";
+import { captureMainException, initializeMainSentry } from "./observability/sentry-main";
 import { electronMainSentryAdapter } from "./observability/sentry-electron-main-adapter";
 import {
   runMacApplicationsInstallerGate,
@@ -38,8 +35,10 @@ let primaryIsolatedRunId: string | null = null;
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off") return false;
-  if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on") return true;
+  if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off")
+    return false;
+  if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on")
+    return true;
   return fallback;
 }
 
@@ -145,8 +144,7 @@ function createMacApplicationsInstallerEnvironment(): MacApplicationsInstallerEn
           cancelId: 0,
           noLink: true,
           message: "Quit the installed copy of Nodex first.",
-          detail:
-            "Nodex cannot replace the copy in Applications while that copy is running.",
+          detail: "Nodex cannot replace the copy in Applications while that copy is running.",
         });
         return false;
       }
@@ -247,7 +245,8 @@ function registerPrimaryInstance(): void {
     });
   });
 
-  app.whenReady()
+  app
+    .whenReady()
     .then(startRuntime)
     .catch((error: unknown) => {
       void handleStartupFailure(error);

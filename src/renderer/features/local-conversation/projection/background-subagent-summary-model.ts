@@ -15,9 +15,9 @@ function isBackgroundSubagentWorking(row: BackgroundSubagentSummaryRowCore): boo
   return row.status !== "done";
 }
 
-export function buildBackgroundSubagentCompactStripModel<T extends BackgroundSubagentSummaryRowCore>(
-  rows: readonly T[],
-): BackgroundSubagentCompactStripModel<T> {
+export function buildBackgroundSubagentCompactStripModel<
+  T extends BackgroundSubagentSummaryRowCore,
+>(rows: readonly T[]): BackgroundSubagentCompactStripModel<T> {
   const inlineRows = rows.filter((row) => row.showInlineActivity);
   const workingRows = inlineRows.filter(isBackgroundSubagentWorking);
   const doneRows = inlineRows.filter((row) => row.status === "done");

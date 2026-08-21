@@ -147,7 +147,9 @@ describe("AppShellTabs", () => {
     });
 
     expect(view.getByRole("tab", { name: "Beta project, Two" }) !== null).toBe(true);
-    expect(view.container.querySelector('[data-app-shell-tab-context-label="two"]')?.textContent).toBe("Beta");
+    expect(
+      view.container.querySelector('[data-app-shell-tab-context-label="two"]')?.textContent,
+    ).toBe("Beta");
     expect(view.getByRole("tabpanel").getAttribute("aria-label")).toBe("Beta project, Two");
     expect(view.getByLabelText("Close Beta project, Two tab") !== null).toBe(true);
 
@@ -162,26 +164,28 @@ describe("AppShellTabs", () => {
     const listeners = new Set<() => void>();
     let panelRenderCount = 0;
     const view = renderAppShellTabs({
-      tabs: [{
-        id: "live-title",
-        title: "Fallback title",
-        titleSource: {
-          getSnapshot: () => title,
-          subscribe: (listener) => {
-            listeners.add(listener);
-            return () => {
-              listeners.delete(listener);
-            };
+      tabs: [
+        {
+          id: "live-title",
+          title: "Fallback title",
+          titleSource: {
+            getSnapshot: () => title,
+            subscribe: (listener) => {
+              listeners.add(listener);
+              return () => {
+                listeners.delete(listener);
+              };
+            },
+          },
+          contextLabel: "Beta",
+          titleLabel: (resolvedTitle) => `Beta project, ${resolvedTitle}`,
+          closable: true,
+          renderPanel: () => {
+            panelRenderCount += 1;
+            return <div>Stable panel</div>;
           },
         },
-        contextLabel: "Beta",
-        titleLabel: (resolvedTitle) => `Beta project, ${resolvedTitle}`,
-        closable: true,
-        renderPanel: () => {
-          panelRenderCount += 1;
-          return <div>Stable panel</div>;
-        },
-      }],
+      ],
       activeTabId: "live-title",
       onCloseTab: () => undefined,
     });
@@ -192,7 +196,9 @@ describe("AppShellTabs", () => {
       await Promise.resolve();
     });
 
-    expect(view.container.querySelector('[data-app-shell-tab-title="live-title"]')?.textContent).toBe("Live title");
+    expect(
+      view.container.querySelector('[data-app-shell-tab-title="live-title"]')?.textContent,
+    ).toBe("Live title");
     expect(view.getByRole("tab", { name: "Beta project, Live title" }) !== null).toBe(true);
     expect(view.getByRole("tabpanel").getAttribute("aria-label")).toBe("Beta project, Live title");
     expect(view.getByLabelText("Close Beta project, Live title tab") !== null).toBe(true);
@@ -220,7 +226,9 @@ describe("AppShellTabs", () => {
 
     expect(view.container.querySelectorAll('[role="tablist"]').length).toBe(1);
     expect(view.container.querySelectorAll('[role="tab"][aria-selected="true"]').length).toBe(1);
-    expect(view.container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Two");
+    expect(view.container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe(
+      "Two",
+    );
     expect(textContent(view.getByRole("tabpanel"))).toBe("Panel two");
   });
 
@@ -244,7 +252,11 @@ describe("AppShellTabs", () => {
       ],
     });
 
-    expect(view.container.querySelector('[data-panel-tab-id="review-durable-id"][data-tab-id="diff"]') !== null).toBe(true);
+    expect(
+      view.container.querySelector(
+        '[data-panel-tab-id="review-durable-id"][data-tab-id="diff"]',
+      ) !== null,
+    ).toBe(true);
     const panel = view.getByRole("tabpanel");
     expect(panel.getAttribute("data-app-shell-tab-panel-controller")).toBe("right");
     expect(panel.getAttribute("data-tab-id")).toBe("diff");
@@ -277,11 +289,7 @@ describe("AppShellTabs", () => {
     ];
     const renderTabs = (activeTabId: string) => (
       <NodexTooltipProvider>
-        <AppShellTabs
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onSelect={() => undefined}
-        />
+        <AppShellTabs tabs={tabs} activeTabId={activeTabId} onSelect={() => undefined} />
       </NodexTooltipProvider>
     );
     const view = render(renderTabs("one"));
@@ -323,11 +331,7 @@ describe("AppShellTabs", () => {
     ];
     const renderTabs = (tabs: AppShellTabItem[]) => (
       <NodexTooltipProvider>
-        <AppShellTabs
-          tabs={tabs}
-          activeTabId="preview-card"
-          onSelect={() => undefined}
-        />
+        <AppShellTabs tabs={tabs} activeTabId="preview-card" onSelect={() => undefined} />
       </NodexTooltipProvider>
     );
     const view = render(renderTabs(makePromotionTabs(true)));
@@ -347,14 +351,16 @@ describe("AppShellTabs", () => {
   });
 
   test("preserves tab chrome when semantic preview identity changes", () => {
-    const makePreviewTabs = (id: string, title: string): AppShellTabItem[] => [{
-      id,
-      presentationId: "preview-presentation",
-      title,
-      preview: true,
-      closable: true,
-      renderPanel: () => <div>{title} panel</div>,
-    }];
+    const makePreviewTabs = (id: string, title: string): AppShellTabItem[] => [
+      {
+        id,
+        presentationId: "preview-presentation",
+        title,
+        preview: true,
+        closable: true,
+        renderPanel: () => <div>{title} panel</div>,
+      },
+    ];
     const renderTabs = (tabs: AppShellTabItem[]) => (
       <NodexTooltipProvider>
         <AppShellTabs
@@ -381,16 +387,18 @@ describe("AppShellTabs", () => {
     const view = renderAppShellTabs({
       activeTabId: "preview-file",
       onPinTab: (tabId) => pinned.push(tabId),
-      tabs: [{
-        id: "preview-file",
-        title: "one.ts",
-        preview: true,
-        renderPanel: () => (
-          <div data-tab-preview-pin-exempt="true">
-            <button type="button">Open two.ts</button>
-          </div>
-        ),
-      }],
+      tabs: [
+        {
+          id: "preview-file",
+          title: "one.ts",
+          preview: true,
+          renderPanel: () => (
+            <div data-tab-preview-pin-exempt="true">
+              <button type="button">Open two.ts</button>
+            </div>
+          ),
+        },
+      ],
     });
 
     await act(async () => {
@@ -416,13 +424,15 @@ describe("AppShellTabs", () => {
     const view = renderAppShellTabs({
       activeTabId: "image-preview",
       onPinTab: (tabId) => pinned.push(tabId),
-      tabs: [{
-        id: "image-preview",
-        title: "User attachment",
-        preview: true,
-        pinBehavior: "disabled",
-        renderPanel: () => <button type="button">Comment</button>,
-      }],
+      tabs: [
+        {
+          id: "image-preview",
+          title: "User attachment",
+          preview: true,
+          pinBehavior: "disabled",
+          renderPanel: () => <button type="button">Comment</button>,
+        },
+      ],
     });
 
     await act(async () => {
@@ -430,18 +440,16 @@ describe("AppShellTabs", () => {
       fireEvent.keyDown(view.getByRole("button", { name: "Comment" }), {
         key: "Enter",
       });
-      fireEvent.doubleClick(view.getByRole("tab", {
-        name: "User attachment",
-      }));
+      fireEvent.doubleClick(
+        view.getByRole("tab", {
+          name: "User attachment",
+        }),
+      );
       await Promise.resolve();
     });
 
     expect(pinned).toEqual([]);
-    expect(
-      view.getByRole("tabpanel").getAttribute(
-        "data-app-shell-tabpanel-preview",
-      ),
-    ).toBe("true");
+    expect(view.getByRole("tabpanel").getAttribute("data-app-shell-tabpanel-preview")).toBe("true");
   });
 
   test("pins an automatic image preview when its tab label is double-clicked", async () => {
@@ -449,19 +457,23 @@ describe("AppShellTabs", () => {
     const view = renderAppShellTabs({
       activeTabId: "image-preview",
       onPinTab: (tabId) => pinned.push(tabId),
-      tabs: [{
-        id: "image-preview",
-        title: "User attachment",
-        preview: true,
-        pinBehavior: "automatic",
-        renderPanel: () => <div>Image editor</div>,
-      }],
+      tabs: [
+        {
+          id: "image-preview",
+          title: "User attachment",
+          preview: true,
+          pinBehavior: "automatic",
+          renderPanel: () => <div>Image editor</div>,
+        },
+      ],
     });
 
     await act(async () => {
-      fireEvent.doubleClick(view.getByRole("tab", {
-        name: "User attachment",
-      }));
+      fireEvent.doubleClick(
+        view.getByRole("tab", {
+          name: "User attachment",
+        }),
+      );
       await Promise.resolve();
     });
 
@@ -483,11 +495,7 @@ describe("AppShellTabs", () => {
     ];
     const renderTabs = (activeTabId: string) => (
       <NodexTooltipProvider>
-        <AppShellTabs
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onSelect={() => undefined}
-        />
+        <AppShellTabs tabs={tabs} activeTabId={activeTabId} onSelect={() => undefined} />
       </NodexTooltipProvider>
     );
     const view = render(renderTabs("one"));
@@ -541,13 +549,25 @@ describe("AppShellTabs", () => {
     expect(text.indexOf("Sticky") > text.indexOf("History")).toBe(true);
     expect(text.indexOf("Sticky") < text.indexOf("After")).toBe(true);
     expect(tabRow.style.scrollPaddingInlineEnd).toBe("28px");
-    expect(view.getByTestId("before-list").parentElement?.getAttribute("role")).toBe("presentation");
+    expect(view.getByTestId("before-list").parentElement?.getAttribute("role")).toBe(
+      "presentation",
+    );
     expect(view.getByTestId("before-list").parentElement?.className.includes("no-drag")).toBe(true);
-    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("sticky")).toBe(true);
-    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("no-drag")).toBe(true);
-    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("right-0")).toBe(true);
-    expect(view.getByTestId("after-list-sticky").parentElement?.getAttribute("role")).toBe("presentation");
-    expect(view.getByTestId("after-list-sticky").parentElement?.className.includes("no-drag")).toBe(true);
+    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("sticky")).toBe(
+      true,
+    );
+    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("no-drag")).toBe(
+      true,
+    );
+    expect(view.getByTestId("after-tabs-inline").parentElement?.className.includes("right-0")).toBe(
+      true,
+    );
+    expect(view.getByTestId("after-list-sticky").parentElement?.getAttribute("role")).toBe(
+      "presentation",
+    );
+    expect(view.getByTestId("after-list-sticky").parentElement?.className.includes("no-drag")).toBe(
+      true,
+    );
     expect(view.getByTestId("after-list").parentElement?.getAttribute("role")).toBe("presentation");
     expect(view.getByTestId("after-list").parentElement?.className.includes("no-drag")).toBe(true);
   });
@@ -555,7 +575,9 @@ describe("AppShellTabs", () => {
   test("does not render the title fade when the tab title fits", () => {
     const view = renderAppShellTabs({ activeTabId: "two" });
 
-    expect(view.container.querySelector('[data-app-shell-tab-title-fade="two"]') === null).toBe(true);
+    expect(view.container.querySelector('[data-app-shell-tab-title-fade="two"]') === null).toBe(
+      true,
+    );
   });
 
   test("renders the title fade only when the tab title overflows", async () => {
@@ -576,7 +598,9 @@ describe("AppShellTabs", () => {
       window.dispatchEvent(new Event("resize"));
     });
 
-    expect(view.container.querySelector('[data-app-shell-tab-title-fade="two"]') === null).toBe(false);
+    expect(view.container.querySelector('[data-app-shell-tab-title-fade="two"]') === null).toBe(
+      false,
+    );
   });
 
   test("close button suppresses selection on mouse down", () => {
@@ -594,7 +618,9 @@ describe("AppShellTabs", () => {
     const closeIcon = closeButton.querySelector("svg");
     expect(closeButton.tagName).toBe("BUTTON");
     expect(closeIcon?.getAttribute("viewBox")).toBe("0 0 21 21");
-    expect(closeIcon?.querySelector("path")?.getAttribute("d")?.startsWith("M14.6549 5.57307")).toBe(true);
+    expect(
+      closeIcon?.querySelector("path")?.getAttribute("d")?.startsWith("M14.6549 5.57307"),
+    ).toBe(true);
 
     fireEvent.mouseDown(closeButton, { button: 0 });
     fireEvent.click(closeButton);
@@ -613,7 +639,9 @@ describe("AppShellTabs", () => {
       onDirectCloseTab: (tabId) => directClosed.push(tabId),
     });
 
-    const tabChrome = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="two"] [data-tab-id="two"]');
+    const tabChrome = view.container.querySelector(
+      '[data-app-shell-tab-controller][data-tab-id="two"] [data-tab-id="two"]',
+    );
     if (!tabChrome) throw new Error("Expected tab chrome");
     fireEvent.mouseDown(tabChrome, { button: 1 });
 
@@ -624,7 +652,12 @@ describe("AppShellTabs", () => {
   test("direct close locks the whole row to the clicked tab width", async () => {
     const closed: string[] = [];
     const tabs: AppShellTabItem[] = [
-      { id: "one", title: "Long active tab title", closable: true, renderPanel: () => <div>Panel one</div> },
+      {
+        id: "one",
+        title: "Long active tab title",
+        closable: true,
+        renderPanel: () => <div>Panel one</div>,
+      },
       { id: "two", title: "Two", closable: true, renderPanel: () => <div>Panel two</div> },
       { id: "three", title: "Three", closable: true, renderPanel: () => <div>Panel three</div> },
     ];
@@ -661,7 +694,12 @@ describe("AppShellTabs", () => {
     const closed: string[] = [];
     const tabs: AppShellTabItem[] = [
       { id: "one", title: "One", closable: true, renderPanel: () => <div>Panel one</div> },
-      { id: "two", title: "Two with a long title", closable: true, renderPanel: () => <div>Panel two</div> },
+      {
+        id: "two",
+        title: "Two with a long title",
+        closable: true,
+        renderPanel: () => <div>Panel two</div>,
+      },
     ];
     const view = renderAppShellTabs({
       tabs,
@@ -673,7 +711,9 @@ describe("AppShellTabs", () => {
       ["two", 156],
     ]);
 
-    const tabChrome = view.container.querySelector('[data-app-shell-tab-controller][data-panel-tab-id="one"] [data-tab-id="one"]');
+    const tabChrome = view.container.querySelector(
+      '[data-app-shell-tab-controller][data-panel-tab-id="one"] [data-tab-id="one"]',
+    );
     if (!tabChrome) throw new Error("Expected tab chrome");
     await act(async () => {
       fireEvent.mouseDown(tabChrome, { button: 1 });
@@ -745,8 +785,20 @@ describe("AppShellTabs", () => {
 
   test("active panel tab drag exits rapid close mode", async () => {
     const tabs: AppShellTabItem[] = [
-      { id: "one", title: "One", closable: true, reorderable: true, renderPanel: () => <div>Panel one</div> },
-      { id: "two", title: "Two", closable: true, reorderable: true, renderPanel: () => <div>Panel two</div> },
+      {
+        id: "one",
+        title: "One",
+        closable: true,
+        reorderable: true,
+        renderPanel: () => <div>Panel one</div>,
+      },
+      {
+        id: "two",
+        title: "Two",
+        closable: true,
+        reorderable: true,
+        renderPanel: () => <div>Panel two</div>,
+      },
     ];
     const renderWithActiveDragId = (activeDragId: string | null) => (
       <NodexTooltipProvider>
@@ -829,11 +881,7 @@ describe("AppShellTabs", () => {
     const tabs = makeTabs();
     const renderTabs = (activeTabId: string) => (
       <NodexTooltipProvider>
-        <AppShellTabs
-          tabs={tabs}
-          activeTabId={activeTabId}
-          onSelect={() => undefined}
-        />
+        <AppShellTabs tabs={tabs} activeTabId={activeTabId} onSelect={() => undefined} />
       </NodexTooltipProvider>
     );
 
@@ -877,11 +925,7 @@ describe("AppShellTabs", () => {
     const tabs = makeTabs();
     const renderTabs = (visibleTabs: AppShellTabItem[]) => (
       <NodexTooltipProvider>
-        <AppShellTabs
-          tabs={visibleTabs}
-          activeTabId="one"
-          onSelect={() => undefined}
-        />
+        <AppShellTabs tabs={visibleTabs} activeTabId="one" onSelect={() => undefined} />
       </NodexTooltipProvider>
     );
 
@@ -893,7 +937,9 @@ describe("AppShellTabs", () => {
         await Promise.resolve();
       });
 
-      expect(view.container.querySelector('[data-app-shell-tab-controller][data-panel-tab-id="two"]')).toBe(null);
+      expect(
+        view.container.querySelector('[data-app-shell-tab-controller][data-panel-tab-id="two"]'),
+      ).toBe(null);
     } finally {
       motionPreference.reduced = false;
     }
@@ -939,15 +985,26 @@ describe("AppShellTabs", () => {
       if (!startSentinel || !endSentinel) throw new Error("Expected two edge sentinels");
 
       await act(async () => {
-        observer.callback([
-          { target: startSentinel, isIntersecting: false } as IntersectionObserverEntry,
-          { target: endSentinel, isIntersecting: true } as IntersectionObserverEntry,
-        ], {} as IntersectionObserver);
+        observer.callback(
+          [
+            { target: startSentinel, isIntersecting: false } as IntersectionObserverEntry,
+            { target: endSentinel, isIntersecting: true } as IntersectionObserverEntry,
+          ],
+          {} as IntersectionObserver,
+        );
         await Promise.resolve();
       });
 
-      expect(view.container.querySelector('[data-app-shell-tab-edge-fade="start"]')?.getAttribute("data-clipped")).toBe("true");
-      expect(view.container.querySelector('[data-app-shell-tab-edge-fade="end"]')?.getAttribute("data-clipped")).toBe("false");
+      expect(
+        view.container
+          .querySelector('[data-app-shell-tab-edge-fade="start"]')
+          ?.getAttribute("data-clipped"),
+      ).toBe("true");
+      expect(
+        view.container
+          .querySelector('[data-app-shell-tab-edge-fade="end"]')
+          ?.getAttribute("data-clipped"),
+      ).toBe("false");
     } finally {
       globalThis.IntersectionObserver = OriginalIntersectionObserver;
     }
@@ -960,7 +1017,9 @@ describe("AppShellTabs", () => {
       onCloseTab: (tabId) => closed.push(tabId),
     });
 
-    const closableChrome = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="two"]');
+    const closableChrome = view.container.querySelector(
+      '[data-app-shell-tab-controller][data-tab-id="two"]',
+    );
     if (!closableChrome) throw new Error("Expected closable tab chrome");
     fireEvent.contextMenu(closableChrome);
     await settleAsyncRender();
@@ -1002,7 +1061,9 @@ describe("AppShellTabs", () => {
       onSplitTab: () => undefined,
     });
 
-    const tabChrome = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="two"]');
+    const tabChrome = view.container.querySelector(
+      '[data-app-shell-tab-controller][data-tab-id="two"]',
+    );
     if (!tabChrome) throw new Error("Expected tab chrome");
     fireEvent.contextMenu(tabChrome);
     await settleAsyncRender();
@@ -1017,7 +1078,9 @@ describe("AppShellTabs", () => {
     expect(within(menu).getByText("Move to bottom panel") !== null).toBe(true);
     expect(within(menu).getByText("Split tab right") !== null).toBe(true);
 
-    const closeTabsToRightItem = within(menu).getByText("Close tabs to the right").closest('[role="menuitem"]');
+    const closeTabsToRightItem = within(menu)
+      .getByText("Close tabs to the right")
+      .closest('[role="menuitem"]');
     expect(closeTabsToRightItem?.getAttribute("data-disabled")).toBe("");
 
     fireEvent.click(within(menu).getByText("Close other tabs"));
@@ -1030,12 +1093,16 @@ describe("AppShellTabs", () => {
       onCloseTab: () => undefined,
     });
 
-    const tabChrome = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="two"]');
+    const tabChrome = view.container.querySelector(
+      '[data-app-shell-tab-controller][data-tab-id="two"]',
+    );
     if (!tabChrome) throw new Error("Expected tab chrome");
     fireEvent.contextMenu(tabChrome);
     await settleAsyncRender();
 
-    const closeTabsToRightItem = view.getByText("Close tabs to the right").closest('[role="menuitem"]');
+    const closeTabsToRightItem = view
+      .getByText("Close tabs to the right")
+      .closest('[role="menuitem"]');
     expect(closeTabsToRightItem?.getAttribute("data-disabled")).toBe("");
   });
 
@@ -1056,7 +1123,9 @@ describe("AppShellTabs", () => {
       onCloseTab: (tabId) => closed.push(tabId),
     });
 
-    const tabChrome = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="one"]');
+    const tabChrome = view.container.querySelector(
+      '[data-app-shell-tab-controller][data-tab-id="one"]',
+    );
     if (!tabChrome) throw new Error("Expected tab chrome");
     fireEvent.contextMenu(tabChrome);
     await settleAsyncRender();
@@ -1068,7 +1137,9 @@ describe("AppShellTabs", () => {
   test("places tab ids on the wrapper and leaves native DnD opt-in", () => {
     const view = renderAppShellTabs({ activeTabId: "one" });
 
-    const wrapper = view.container.querySelector('[data-app-shell-tab-controller][data-tab-id="two"]');
+    const wrapper = view.container.querySelector(
+      '[data-app-shell-tab-controller][data-tab-id="two"]',
+    );
     expect(wrapper?.className.includes("no-drag")).toBe(true);
     expect(wrapper?.getAttribute("data-panel-tab-id")).toBe("two");
     expect(wrapper?.getAttribute("aria-roledescription")).toBe(null);
@@ -1091,7 +1162,9 @@ describe("AppShellTabs", () => {
       },
     });
 
-    const marker = view.container.querySelector('[data-panel-tab-insertion-marker="right:leaf-a:2"]');
+    const marker = view.container.querySelector(
+      '[data-panel-tab-insertion-marker="right:leaf-a:2"]',
+    );
     expect(marker instanceof HTMLElement).toBe(true);
     expect((marker as HTMLElement).style.left).toBe("48px");
   });
@@ -1125,7 +1198,9 @@ describe("AppShellTabs", () => {
 
     await clickCloseButton(view, "Close One tab");
 
-    const marker = view.container.querySelector('[data-panel-tab-insertion-marker="right:leaf-a:1"]');
+    const marker = view.container.querySelector(
+      '[data-panel-tab-insertion-marker="right:leaf-a:1"]',
+    );
     expect(marker instanceof HTMLElement).toBe(true);
     expect((marker as HTMLElement).style.left).toBe("48px");
     expect(getTabController(view, "two").style.flexBasis).toBe("96px");
@@ -1152,22 +1227,26 @@ describe("AppShellTabs", () => {
   });
 
   test("shows separators for projected drag positions", () => {
-    expect(shouldShowAppShellTabSeparator({
-      index: 0,
-      tabCount: 3,
-      activeIndex: 2,
-      draggingIndex: 2,
-      isActive: false,
-      isDragging: false,
-    })).toBe(true);
-    expect(shouldShowAppShellTabSeparator({
-      index: 1,
-      tabCount: 3,
-      activeIndex: 2,
-      draggingIndex: 2,
-      isActive: false,
-      isDragging: false,
-    })).toBe(false);
+    expect(
+      shouldShowAppShellTabSeparator({
+        index: 0,
+        tabCount: 3,
+        activeIndex: 2,
+        draggingIndex: 2,
+        isActive: false,
+        isDragging: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldShowAppShellTabSeparator({
+        index: 1,
+        tabCount: 3,
+        activeIndex: 2,
+        draggingIndex: 2,
+        isActive: false,
+        isDragging: false,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -1235,10 +1314,7 @@ async function clickCloseButton(view: ReturnType<typeof render>, label: string) 
   });
 }
 
-function prepareTabWidths(
-  view: ReturnType<typeof render>,
-  tabWidths: [string, number][],
-) {
+function prepareTabWidths(view: ReturnType<typeof render>, tabWidths: [string, number][]) {
   for (const [tabId, width] of tabWidths) {
     Object.defineProperty(getTabController(view, tabId), "offsetWidth", {
       configurable: true,
@@ -1248,7 +1324,9 @@ function prepareTabWidths(
 }
 
 function getTabController(view: ReturnType<typeof render>, tabId: string): HTMLElement {
-  const element = view.container.querySelector(`[data-app-shell-tab-controller][data-panel-tab-id="${tabId}"]`);
+  const element = view.container.querySelector(
+    `[data-app-shell-tab-controller][data-panel-tab-id="${tabId}"]`,
+  );
   if (!(element instanceof HTMLElement)) throw new Error(`Expected tab controller for ${tabId}`);
   return element;
 }

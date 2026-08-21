@@ -17,9 +17,10 @@ describe("Store Administration maintenance scheduler", () => {
     let release: (() => void) | undefined;
     const administration = createPort();
     vi.mocked(administration.runMaintenance).mockImplementationOnce(
-      async () => await new Promise<void>((resolve) => {
-        release = resolve;
-      }),
+      async () =>
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        }),
     );
     const scheduler = startStoreAdministrationMaintenanceScheduler({
       administration,

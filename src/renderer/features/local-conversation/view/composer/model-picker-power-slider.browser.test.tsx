@@ -5,9 +5,30 @@ import { ModelPickerPowerSlider } from "./model-picker-power-slider";
 import "../../../../globals.css";
 
 const CHOICES: readonly ComposerPowerChoice[] = [
-  { id: "terra:low", model: "gpt-5.6-terra", reasoningEffort: "low", modelLabel: "5.6 Terra", reasoningLabel: "Light", isUltra: false },
-  { id: "sol:medium", model: "gpt-5.6-sol", reasoningEffort: "medium", modelLabel: "5.6 Sol", reasoningLabel: "Medium", isUltra: false },
-  { id: "sol:xhigh", model: "gpt-5.6-sol", reasoningEffort: "xhigh", modelLabel: "5.6 Sol", reasoningLabel: "Extra High", isUltra: false },
+  {
+    id: "terra:low",
+    model: "gpt-5.6-terra",
+    reasoningEffort: "low",
+    modelLabel: "5.6 Terra",
+    reasoningLabel: "Light",
+    isUltra: false,
+  },
+  {
+    id: "sol:medium",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "medium",
+    modelLabel: "5.6 Sol",
+    reasoningLabel: "Medium",
+    isUltra: false,
+  },
+  {
+    id: "sol:xhigh",
+    model: "gpt-5.6-sol",
+    reasoningEffort: "xhigh",
+    modelLabel: "5.6 Sol",
+    reasoningLabel: "Extra High",
+    isUltra: false,
+  },
 ];
 
 describe("ModelPickerPowerSlider", () => {

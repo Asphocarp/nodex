@@ -1,9 +1,6 @@
 import type { ComponentType } from "react";
 import type { ComposerEnterBehavior } from "../../lib/composer-enter-behavior";
-import type {
-  Project,
-  WorktreeStartMode,
-} from "../../lib/types";
+import type { Project, WorktreeStartMode } from "../../lib/types";
 import type {
   BrowserSettingsAnchor,
   BrowserSettingsDestination,

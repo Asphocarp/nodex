@@ -1,9 +1,6 @@
 import type { ChildProcess } from "node:child_process";
 
-export function killChildProcessTree(
-  child: ChildProcess,
-  signal: NodeJS.Signals,
-): void {
+export function killChildProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
   const pid = child.pid;
   if (process.platform !== "win32" && pid !== undefined) {
     try {

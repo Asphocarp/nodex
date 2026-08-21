@@ -70,10 +70,7 @@ function LibraryResourceAccessModalContent({
 
 export function LibraryResourceAccessModal(props: LibraryResourceAccessModalProps) {
   return (
-    <LibraryResourceAccessModalContent
-      key={libraryResourceTargetKey(props.target)}
-      {...props}
-    />
+    <LibraryResourceAccessModalContent key={libraryResourceTargetKey(props.target)} {...props} />
   );
 }
 
@@ -96,7 +93,7 @@ function LibraryOpenInProjectModalContent({
   const { mutation } = useApplyLibraryOperation();
   const projectId = projects.some((project) => project.id === requestedProjectId)
     ? requestedProjectId
-    : projects[0]?.id ?? "";
+    : (projects[0]?.id ?? "");
 
   const applyGrant = async () => {
     const project = projects.find((candidate) => candidate.id === projectId);
@@ -105,11 +102,13 @@ function LibraryOpenInProjectModalContent({
       return;
     }
     try {
-      const receipt = await mutation.mutateAsync(buildLibraryProjectGrantOperation({
-        projectId: project.id,
-        target,
-        access,
-      }));
+      const receipt = await mutation.mutateAsync(
+        buildLibraryProjectGrantOperation({
+          projectId: project.id,
+          target,
+          access,
+        }),
+      );
       if (!receipt.didMutate) toast.info(`${project.name} already has this access`);
       onClose();
       await onOpenInProject(project.id, target, title);
@@ -138,7 +137,9 @@ function LibraryOpenInProjectModalContent({
                 onChange={(event) => setRequestedProjectId(event.target.value)}
               >
                 {projects.map((project) => (
-                  <option key={project.id} value={project.id}>{project.name}</option>
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
                 ))}
               </select>
             </label>
@@ -165,9 +166,7 @@ function LibraryOpenInProjectModalContent({
             </fieldset>
           </NodexDialogBody>
           <NodexDialogFooter>
-            <NodexDialogAction onClick={onClose}>
-              Cancel
-            </NodexDialogAction>
+            <NodexDialogAction onClick={onClose}>Cancel</NodexDialogAction>
             <NodexDialogAction
               tone="primary"
               disabled={!projectId || mutation.isPending}
@@ -184,9 +183,6 @@ function LibraryOpenInProjectModalContent({
 
 export function LibraryOpenInProjectModal(props: LibraryOpenInProjectModalProps) {
   return (
-    <LibraryOpenInProjectModalContent
-      key={libraryResourceTargetKey(props.target)}
-      {...props}
-    />
+    <LibraryOpenInProjectModalContent key={libraryResourceTargetKey(props.target)} {...props} />
   );
 }

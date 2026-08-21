@@ -5,17 +5,52 @@ import {
 } from "../../shared/file-link-openers";
 import { invoke } from "./api";
 import { readFileLinkOpener } from "./file-link-opener-settings";
-import {
-  DEFAULT_NFM_AUTOLINK_SETTINGS,
-  shouldAutoLinkValue,
-} from "./nfm-autolink-settings";
+import { DEFAULT_NFM_AUTOLINK_SETTINGS, shouldAutoLinkValue } from "./nfm-autolink-settings";
 import { parsePageDeepLink } from "../../shared/nodex-deeplink";
 
 const LIKELY_RELATIVE_FILE_SUFFIXES = new Set([
-  "avif", "bmp", "c", "cc", "cpp", "css", "csv", "doc", "docx", "gif", "go",
-  "heic", "html", "java", "jpeg", "jpg", "js", "json", "jsx", "md", "mjs",
-  "pdf", "php", "png", "py", "rb", "rs", "scss", "sh", "sql", "svg", "toml",
-  "ts", "tsx", "txt", "webp", "xls", "xlsx", "xml", "yaml", "yml", "zip",
+  "avif",
+  "bmp",
+  "c",
+  "cc",
+  "cpp",
+  "css",
+  "csv",
+  "doc",
+  "docx",
+  "gif",
+  "go",
+  "heic",
+  "html",
+  "java",
+  "jpeg",
+  "jpg",
+  "js",
+  "json",
+  "jsx",
+  "md",
+  "mjs",
+  "pdf",
+  "php",
+  "png",
+  "py",
+  "rb",
+  "rs",
+  "scss",
+  "sh",
+  "sql",
+  "svg",
+  "toml",
+  "ts",
+  "tsx",
+  "txt",
+  "webp",
+  "xls",
+  "xlsx",
+  "xml",
+  "yaml",
+  "yml",
+  "zip",
 ]);
 
 export type NfmResolvedLinkAction =
@@ -148,10 +183,7 @@ function resolveWorkspaceFileTarget(
   if (!projectWorkspacePath?.trim()) return null;
 
   const { pathPart, fragment } = splitHash(href);
-  const resolvedPath = resolveRelativePathAgainstWorkspace(
-    projectWorkspacePath,
-    pathPart,
-  );
+  const resolvedPath = resolveRelativePathAgainstWorkspace(projectWorkspacePath, pathPart);
   if (!resolvedPath) return null;
 
   return {
@@ -167,10 +199,7 @@ function buildOpenTimeWebUrl(href: string): string {
   return `https://${href}`;
 }
 
-function resolveBlockedReason(
-  href: string,
-  projectWorkspacePath?: string | null,
-): string {
+function resolveBlockedReason(href: string, projectWorkspacePath?: string | null): string {
   if (hasExplicitProtocol(href)) {
     return "Blocked unsupported link protocol.";
   }
@@ -303,7 +332,7 @@ export async function openNfmResolvedLinkAction(
   }
 
   try {
-    return await invokeImpl("shell:open-file-link", action.target, opener) as boolean;
+    return (await invokeImpl("shell:open-file-link", action.target, opener)) as boolean;
   } catch {
     return false;
   }

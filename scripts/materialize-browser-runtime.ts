@@ -67,9 +67,7 @@ function assertNoLinksOrSpecialFiles(rootPath: string, currentPath = rootPath): 
       continue;
     }
     if (!stats.isFile()) {
-      throw new Error(
-        `Browser runtime archive contains an unsupported entry: ${relativePath}`,
-      );
+      throw new Error(`Browser runtime archive contains an unsupported entry: ${relativePath}`);
     }
   }
 }
@@ -82,29 +80,22 @@ function assertManifestMatchesLock(input: {
   targetArch: BrowserRuntimeTargetArch;
   targetPlatform: BrowserRuntimeTargetPlatform;
 }): void {
-  const {
-    asset,
-    lock,
-    manifest,
-    manifestPath,
-    targetArch,
-    targetPlatform,
-  } = input;
+  const { asset, lock, manifest, manifestPath, targetArch, targetPlatform } = input;
   const manifestSha256 = readBrowserRuntimeFileSha256(manifestPath);
   if (manifestSha256 !== asset.manifestSha256) {
     throw new Error(
-      `Browser runtime manifest checksum mismatch: expected ${asset.manifestSha256}, `
-      + `found ${manifestSha256}`,
+      `Browser runtime manifest checksum mismatch: expected ${asset.manifestSha256}, ` +
+        `found ${manifestSha256}`,
     );
   }
   if (
-    manifest.browserPlugin.version !== lock.browserPluginVersion
-    || manifest.codexCompatibilityVersion !== lock.codexCompatibilityVersion
-    || manifest.desktopBuild !== lock.source.desktopBuild
-    || manifest.desktopBuildNumber !== lock.source.buildNumber
-    || manifest.targetArch !== targetArch
-    || manifest.targetPlatform !== targetPlatform
-    || JSON.stringify(manifest.runtimeVersions) !== JSON.stringify(asset.runtimeVersions)
+    manifest.browserPlugin.version !== lock.browserPluginVersion ||
+    manifest.codexCompatibilityVersion !== lock.codexCompatibilityVersion ||
+    manifest.desktopBuild !== lock.source.desktopBuild ||
+    manifest.desktopBuildNumber !== lock.source.buildNumber ||
+    manifest.targetArch !== targetArch ||
+    manifest.targetPlatform !== targetPlatform ||
+    JSON.stringify(manifest.runtimeVersions) !== JSON.stringify(asset.runtimeVersions)
   ) {
     throw new Error("Browser runtime manifest does not match the release lock");
   }
@@ -163,19 +154,13 @@ function assertArchivePathsAreSafe(archivePath: string): void {
   }
   for (const entry of entries) {
     const withoutPrefix = entry.replace(/^(?:\.\/)+/u, "");
-    const normalized = withoutPrefix.endsWith("/")
-      ? withoutPrefix.slice(0, -1)
-      : withoutPrefix;
+    const normalized = withoutPrefix.endsWith("/") ? withoutPrefix.slice(0, -1) : withoutPrefix;
     if (normalized.length === 0) continue;
     if (normalized.startsWith("/") || normalized.includes("\\")) {
       throw new Error(`Browser runtime archive contains an unsafe path: ${entry}`);
     }
     const segments = normalized.split("/");
-    if (
-      segments.some(
-        (segment) => segment.length === 0 || segment === "." || segment === "..",
-      )
-    ) {
+    if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
       throw new Error(`Browser runtime archive contains an unsafe path: ${entry}`);
     }
   }
@@ -194,25 +179,22 @@ function assertArchivePathsAreSafe(archivePath: string): void {
   }
 }
 
-function assertArchiveMatches(
-  archivePath: string,
-  asset: BrowserRuntimeReleaseAsset,
-): void {
+function assertArchiveMatches(archivePath: string, asset: BrowserRuntimeReleaseAsset): void {
   const stats = lstatSync(archivePath);
   if (!stats.isFile() || stats.isSymbolicLink()) {
     throw new Error(`Browser runtime archive must be a regular file: ${archivePath}`);
   }
   if (stats.size !== asset.archiveSize) {
     throw new Error(
-      `Browser runtime archive size mismatch: expected ${asset.archiveSize}, `
-      + `found ${stats.size}`,
+      `Browser runtime archive size mismatch: expected ${asset.archiveSize}, ` +
+        `found ${stats.size}`,
     );
   }
   const sha256 = readBrowserRuntimeFileSha256(archivePath);
   if (sha256 !== asset.archiveSha256) {
     throw new Error(
-      `Browser runtime archive checksum mismatch: expected ${asset.archiveSha256}, `
-      + `found ${sha256}`,
+      `Browser runtime archive checksum mismatch: expected ${asset.archiveSha256}, ` +
+        `found ${sha256}`,
     );
   }
   assertArchivePathsAreSafe(archivePath);
@@ -230,8 +212,8 @@ async function downloadArchive(
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) !== expectedSize) {
     throw new Error(
-      `Browser runtime download size mismatch: expected ${expectedSize}, `
-      + `server reported ${contentLength}`,
+      `Browser runtime download size mismatch: expected ${expectedSize}, ` +
+        `server reported ${contentLength}`,
     );
   }
   mkdirSync(path.dirname(destinationPath), { recursive: true });
@@ -256,8 +238,8 @@ async function downloadArchive(
     );
     if (downloadedSize !== expectedSize) {
       throw new Error(
-        `Browser runtime download size mismatch: expected ${expectedSize}, `
-        + `received ${downloadedSize}`,
+        `Browser runtime download size mismatch: expected ${expectedSize}, ` +
+          `received ${downloadedSize}`,
       );
     }
     if (existsSync(destinationPath)) {
@@ -294,12 +276,10 @@ export async function materializeBrowserRuntime(
   }
 
   const cachePath = path.resolve(
-    options.cachePath
-      ?? path.join(projectRoot, ".generated", "browser-runtime-cache"),
+    options.cachePath ?? path.join(projectRoot, ".generated", "browser-runtime-cache"),
   );
   const archivePath = path.resolve(
-    options.archivePath
-      ?? path.join(cachePath, asset.archiveSha256, asset.assetName),
+    options.archivePath ?? path.join(cachePath, asset.archiveSha256, asset.assetName),
   );
   if (existsSync(archivePath)) {
     try {
@@ -352,14 +332,14 @@ function parseCliOptions(argv: string[]): MaterializeBrowserRuntimeOptions {
   const targetArch = values.get("--target-arch");
   const targetPlatform = values.get("--target-platform");
   if (
-    !outputPath
-    || (targetArch !== "arm64" && targetArch !== "x64")
-    || targetPlatform !== "darwin"
+    !outputPath ||
+    (targetArch !== "arm64" && targetArch !== "x64") ||
+    targetPlatform !== "darwin"
   ) {
     throw new Error(
-      "Usage: materialize-browser-runtime.ts --target-platform darwin "
-      + "--target-arch <arm64|x64> --out <directory> [--lock <lock.json>] "
-      + "[--cache <directory>] [--archive <tar.gz>]",
+      "Usage: materialize-browser-runtime.ts --target-platform darwin " +
+        "--target-arch <arm64|x64> --out <directory> [--lock <lock.json>] " +
+        "[--cache <directory>] [--archive <tar.gz>]",
     );
   }
   return {
@@ -373,20 +353,20 @@ function parseCliOptions(argv: string[]): MaterializeBrowserRuntimeOptions {
 }
 
 async function main(): Promise<void> {
-  const manifest = await materializeBrowserRuntime(
-    parseCliOptions(process.argv.slice(2)),
+  const manifest = await materializeBrowserRuntime(parseCliOptions(process.argv.slice(2)));
+  process.stdout.write(
+    `${JSON.stringify({
+      artifacts: manifest.artifacts.length,
+      desktopBuild: manifest.desktopBuild,
+      pluginVersion: manifest.browserPlugin.version,
+      targetArch: manifest.targetArch,
+    })}\n`,
   );
-  process.stdout.write(`${JSON.stringify({
-    artifacts: manifest.artifacts.length,
-    desktopBuild: manifest.desktopBuild,
-    pluginVersion: manifest.browserPlugin.version,
-    targetArch: manifest.targetArch,
-  })}\n`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   void main().catch((error: unknown) => {
-    const message = error instanceof Error ? error.stack ?? error.message : String(error);
+    const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
     process.stderr.write(`${message}\n`);
     process.exitCode = 1;
   });

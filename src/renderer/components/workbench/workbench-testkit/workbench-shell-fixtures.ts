@@ -147,9 +147,10 @@ export function updatePanelLeafActiveTab(
     return {
       ...node,
       activeTabId: tabId ?? node.activeTabId,
-      mruTabIds: tabId && node.tabIds.includes(tabId)
-        ? [tabId, ...node.mruTabIds.filter((id) => id !== tabId)]
-        : node.mruTabIds,
+      mruTabIds:
+        tabId && node.tabIds.includes(tabId)
+          ? [tabId, ...node.mruTabIds.filter((id) => id !== tabId)]
+          : node.mruTabIds,
     };
   }
   return {
@@ -208,15 +209,17 @@ export function activateTestPanelLayout(
   };
 }
 
-export function makePanels(options: {
-  rightTabIds?: string[];
-  rightActiveTabId?: string | null;
-  rightCollapsed?: boolean;
-  rightFullWidth?: boolean;
-  bottomTabIds?: string[];
-  bottomActiveTabId?: string | null;
-  bottomCollapsed?: boolean;
-} = {}): ProjectSession["panels"] {
+export function makePanels(
+  options: {
+    rightTabIds?: string[];
+    rightActiveTabId?: string | null;
+    rightCollapsed?: boolean;
+    rightFullWidth?: boolean;
+    bottomTabIds?: string[];
+    bottomActiveTabId?: string | null;
+    bottomCollapsed?: boolean;
+  } = {},
+): ProjectSession["panels"] {
   const rightTabIds = options.rightTabIds ?? [];
   const bottomTabIds = options.bottomTabIds ?? [];
   return {
@@ -234,17 +237,19 @@ export function makePanels(options: {
 }
 
 export type SessionTabFixtureCommon = Pick<WorkbenchTabProjection, "id" | "title"> &
-  Partial<Pick<
-    WorkbenchTabProjection,
-    | "sessionId"
-    | "projectId"
-    | "panelId"
-    | "order"
-    | "stateKey"
-    | "state"
-    | "createdAt"
-    | "updatedAt"
-  >>;
+  Partial<
+    Pick<
+      WorkbenchTabProjection,
+      | "sessionId"
+      | "projectId"
+      | "panelId"
+      | "order"
+      | "stateKey"
+      | "state"
+      | "createdAt"
+      | "updatedAt"
+    >
+  >;
 export type SessionTabFixtureConfiguration =
   | Exclude<WorkbenchProjectionTabConfiguration, { kind: "db_view" }>
   | {
@@ -275,8 +280,7 @@ export function fillDbViewFixtureConfig(
 ): WorkbenchProjectionDbViewTabConfig {
   return {
     ...config,
-    databaseViewId: config.databaseViewId
-      ?? `database-view:${config.projectId}:primary-board`,
+    databaseViewId: config.databaseViewId ?? `database-view:${config.projectId}:primary-board`,
   };
 }
 
@@ -301,9 +305,10 @@ export function makeSessionTab(overrides: SessionTabInput): WorkbenchTabProjecti
     | "createdAt"
     | "updatedAt"
   >;
-  const filled = overrides.kind === "db_view"
-    ? { ...overrides, config: fillDbViewFixtureConfig(overrides.config) }
-    : overrides;
+  const filled =
+    overrides.kind === "db_view"
+      ? { ...overrides, config: fillDbViewFixtureConfig(overrides.config) }
+      : overrides;
   return filled.kind === "browser"
     ? {
         ...base,
@@ -326,21 +331,69 @@ export function updateSessionTab(
   };
   switch (tab.kind) {
     case "db_view":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
+      return {
+        ...tab,
+        ...common,
+        ...(input.config === undefined
+          ? {}
+          : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }),
+      };
     case "page_stage":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
+      return {
+        ...tab,
+        ...common,
+        ...(input.config === undefined
+          ? {}
+          : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }),
+      };
     case "canvas_stage":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
+      return {
+        ...tab,
+        ...common,
+        ...(input.config === undefined
+          ? {}
+          : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }),
+      };
     case "terminal":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
+      return {
+        ...tab,
+        ...common,
+        ...(input.config === undefined
+          ? {}
+          : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }),
+      };
     case "browser":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
+      return {
+        ...tab,
+        ...common,
+        ...(input.config === undefined
+          ? {}
+          : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }),
+      };
     case "review":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
+      return {
+        ...tab,
+        ...common,
+        ...(input.config === undefined
+          ? {}
+          : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }),
+      };
     case "files":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
+      return {
+        ...tab,
+        ...common,
+        ...(input.config === undefined
+          ? {}
+          : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }),
+      };
     case "image_editor":
-      return { ...tab, ...common, ...(input.config === undefined ? {} : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }) };
+      return {
+        ...tab,
+        ...common,
+        ...(input.config === undefined
+          ? {}
+          : { config: parseWorkbenchProjectionTabConfig(tab.kind, input.config) }),
+      };
   }
 }
 
@@ -357,43 +410,50 @@ export function makeSession(overrides: SessionFixtureOverrides = {}): ProjectSes
   const sessionId = overrides.id ?? "session:alpha:database-view";
   const thread = sessionOverrides.thread ?? null;
   const noThreadFallbackTitle = sessionOverrides.noThreadFallbackTitle ?? title ?? "Database View";
-  const displayTitle = sessionOverrides.displayTitle
-    ?? title
-    ?? thread?.threadName
-    ?? thread?.threadPreview
-    ?? noThreadFallbackTitle;
+  const displayTitle =
+    sessionOverrides.displayTitle ??
+    title ??
+    thread?.threadName ??
+    thread?.threadPreview ??
+    noThreadFallbackTitle;
   const databaseViewStarter = thread === null && noThreadFallbackTitle === "Database View";
   const tabId = `${sessionId}:db`;
-  const defaultTabs: SessionTabInput[] = projectId === null ? [] : [
+  const defaultTabs: SessionTabInput[] =
+    projectId === null
+      ? []
+      : [
+          makeSessionTab({
+            id: tabId,
+            sessionId,
+            projectId,
+            kind: "db_view",
+            title: "DB View",
+            config: { projectId },
+          }),
+        ];
+  const tabs = (rawTabs ?? defaultTabs).map((tab, index) =>
     makeSessionTab({
-      id: tabId,
       sessionId,
-      projectId,
-      kind: "db_view",
-      title: "DB View",
-      config: { projectId },
+      projectId: tab.projectId ?? projectId ?? "alpha",
+      panelId: tab.panelId ?? (tab.kind === "terminal" ? "bottom" : "right"),
+      order: index,
+      ...tab,
     }),
-  ];
-  const tabs = (rawTabs ?? defaultTabs).map((tab, index) => makeSessionTab({
-    sessionId,
-    projectId: tab.projectId ?? projectId ?? "alpha",
-    panelId: tab.panelId ?? (tab.kind === "terminal" ? "bottom" : "right"),
-    order: index,
-    ...tab,
-  }));
+  );
   const rightTabIds = tabs.filter((tab) => tab.panelId === "right").map((tab) => tab.id);
   const bottomTabIds = tabs.filter((tab) => tab.panelId === "bottom").map((tab) => tab.id);
-  const panels = overrides.panels ?? makePanels({
-    rightTabIds,
-    rightActiveTabId: rightLayout?.root.type === "leaf"
-      ? rightLayout.root.activeTabId
-      : rightTabIds[0] ?? null,
-    rightCollapsed: rightCollapsed ?? false,
-    rightFullWidth: rightFullWidth ?? sessionOverrides.pinned ?? databaseViewStarter,
-    bottomTabIds,
-    bottomActiveTabId: bottomTabIds[0] ?? null,
-    bottomCollapsed: bottomTabIds.length === 0,
-  });
+  const panels =
+    overrides.panels ??
+    makePanels({
+      rightTabIds,
+      rightActiveTabId:
+        rightLayout?.root.type === "leaf" ? rightLayout.root.activeTabId : (rightTabIds[0] ?? null),
+      rightCollapsed: rightCollapsed ?? false,
+      rightFullWidth: rightFullWidth ?? sessionOverrides.pinned ?? databaseViewStarter,
+      bottomTabIds,
+      bottomActiveTabId: bottomTabIds[0] ?? null,
+      bottomCollapsed: bottomTabIds.length === 0,
+    });
   return {
     id: sessionId,
     projectId,
@@ -439,37 +499,40 @@ export function makeAttachedSession(overrides: SessionFixtureOverrides = {}): Pr
 }
 
 export function makeSessionViewFixture(session: ProjectSession): WorkbenchSessionViewSnapshot {
-  const tabsById = Object.fromEntries(session.tabs.map((tab) => {
-    const common = {
-      id: tab.id,
-      titleSnapshot: tab.title,
-      stateKey: tab.stateKey,
-      state: tab.state,
-    };
-    const viewTab = tab.kind === "browser"
-      ? {
-          ...common,
-          kind: tab.kind,
-          config: {
-            browserTabId: tab.browserTabId,
-            ...("url" in tab.config && tab.config.url ? { url: tab.config.url } : {}),
-            ...("title" in tab.config && tab.config.title ? { title: tab.config.title } : {}),
-            ...("faviconUrl" in tab.config && tab.config.faviconUrl
-              ? { faviconUrl: tab.config.faviconUrl }
-              : {}),
-            ...("deviceToolbarVisible" in tab.config
-              && tab.config.deviceToolbarVisible !== undefined
-              ? { deviceToolbarVisible: tab.config.deviceToolbarVisible }
-              : {}),
-          },
-        }
-      : {
-          ...common,
-          kind: tab.kind,
-          config: tab.config,
-        };
-    return [tab.id, viewTab as WorkbenchSessionViewTab];
-  }));
+  const tabsById = Object.fromEntries(
+    session.tabs.map((tab) => {
+      const common = {
+        id: tab.id,
+        titleSnapshot: tab.title,
+        stateKey: tab.stateKey,
+        state: tab.state,
+      };
+      const viewTab =
+        tab.kind === "browser"
+          ? {
+              ...common,
+              kind: tab.kind,
+              config: {
+                browserTabId: tab.browserTabId,
+                ...("url" in tab.config && tab.config.url ? { url: tab.config.url } : {}),
+                ...("title" in tab.config && tab.config.title ? { title: tab.config.title } : {}),
+                ...("faviconUrl" in tab.config && tab.config.faviconUrl
+                  ? { faviconUrl: tab.config.faviconUrl }
+                  : {}),
+                ...("deviceToolbarVisible" in tab.config &&
+                tab.config.deviceToolbarVisible !== undefined
+                  ? { deviceToolbarVisible: tab.config.deviceToolbarVisible }
+                  : {}),
+              },
+            }
+          : {
+              ...common,
+              kind: tab.kind,
+              config: tab.config,
+            };
+      return [tab.id, viewTab as WorkbenchSessionViewTab];
+    }),
+  );
   return {
     version: WORKBENCH_SESSION_VIEW_VERSION,
     sessionId: session.id,
@@ -527,7 +590,9 @@ export function makeBlankSession(overrides: SessionFixtureOverrides = {}): Proje
   });
 }
 
-export function makeBottomPanelTerminalSession(overrides: SessionFixtureOverrides = {}): ProjectSession {
+export function makeBottomPanelTerminalSession(
+  overrides: SessionFixtureOverrides = {},
+): ProjectSession {
   return makeSession({
     id: "session:alpha:terminal",
     title: "Terminal",
@@ -559,11 +624,13 @@ export function replaceSession(
 
 export function sortProjectSessionsForTest(sessions: ProjectSession[]): ProjectSession[] {
   return [...sessions].sort((a, b) => {
-    const rank = (session: ProjectSession) => session.pinned ? 0 : 1;
+    const rank = (session: ProjectSession) => (session.pinned ? 0 : 1);
     const rankDelta = rank(a) - rank(b);
     if (rankDelta !== 0) return rankDelta;
     if (a.pinned || b.pinned) {
-      return (a.pinnedOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinnedOrder ?? Number.MAX_SAFE_INTEGER);
+      return (
+        (a.pinnedOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinnedOrder ?? Number.MAX_SAFE_INTEGER)
+      );
     }
     return a.order - b.order;
   });

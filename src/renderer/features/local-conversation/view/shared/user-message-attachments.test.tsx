@@ -100,12 +100,14 @@ describe("UserAttachmentStrip", () => {
           hostId="local"
         >
           <UserAttachmentStrip
-            attachments={[{
-              type: "image",
-              id: "thread-image",
-              source,
-              sourceKind: "inline-image",
-            }]}
+            attachments={[
+              {
+                type: "image",
+                id: "thread-image",
+                source,
+                sourceKind: "inline-image",
+              },
+            ]}
           />
         </ConversationImageAssetProvider>
       </TestQueryProvider>,
@@ -200,8 +202,9 @@ describe("UserAttachmentStrip", () => {
     );
 
     await waitFor(() => {
-      expect(view.container.querySelector("img")?.getAttribute("src"))
-        .toBe("data:image/png;base64,aW1hZ2U=");
+      expect(view.container.querySelector("img")?.getAttribute("src")).toBe(
+        "data:image/png;base64,aW1hZ2U=",
+      );
     });
 
     expect(invokeCalls).toEqual(["read-file-binary"]);
@@ -220,17 +223,16 @@ describe("UserAttachmentStrip", () => {
 
     const view = render(
       <TestQueryProvider>
-        <ConversationImageAssetProvider
-          conversationId="remote-conversation"
-          hostId="ssh:remote"
-        >
+        <ConversationImageAssetProvider conversationId="remote-conversation" hostId="ssh:remote">
           <UserAttachmentStrip
-            attachments={[{
-              type: "image",
-              id: "remote-host-local-image",
-              source: "/Users/example/secret.png",
-              sourceKind: "local-image",
-            }]}
+            attachments={[
+              {
+                type: "image",
+                id: "remote-host-local-image",
+                source: "/Users/example/secret.png",
+                sourceKind: "local-image",
+              },
+            ]}
           />
         </ConversationImageAssetProvider>
       </TestQueryProvider>,

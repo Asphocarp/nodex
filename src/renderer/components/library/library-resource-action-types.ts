@@ -1,9 +1,6 @@
 import type { LibraryResourceTarget as AnyLibraryResourceTarget } from "../../../shared/library-module";
 
-export type LibraryResourceTarget = Exclude<
-  AnyLibraryResourceTarget,
-  { readonly kind: "canvas" }
->;
+export type LibraryResourceTarget = Exclude<AnyLibraryResourceTarget, { readonly kind: "canvas" }>;
 
 export interface LibraryProjectOption {
   readonly id: string;

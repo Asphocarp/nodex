@@ -1,14 +1,6 @@
 import type { Dirent } from "node:fs";
 import { open, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
-import {
-  basename,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-  sep,
-  win32,
-} from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep, win32 } from "node:path";
 import type {
   WorkspaceDirectoryEntriesInput,
   WorkspaceDirectoryEntriesResult,
@@ -86,7 +78,10 @@ export function isWorkspaceFileUserError(error: unknown): error is WorkspaceFile
 
 function normalizeHostId(value: WorkspaceFileHostInput): "local" {
   if (value && value !== "local") {
-    throw new WorkspaceFileUserError("unsupported_host", `Unsupported workspace file host: ${value}`);
+    throw new WorkspaceFileUserError(
+      "unsupported_host",
+      `Unsupported workspace file host: ${value}`,
+    );
   }
   return "local";
 }
@@ -105,7 +100,10 @@ export function normalizeWorkspaceDirectoryPath(value: string | undefined): stri
   const trimmed = value?.trim() ?? "";
   if (!trimmed || trimmed === ".") return "";
   if (isAbsolute(trimmed) || win32.isAbsolute(trimmed)) {
-    throw new WorkspaceFileUserError("invalid_directory", "directoryPath must be relative to workspaceRoot");
+    throw new WorkspaceFileUserError(
+      "invalid_directory",
+      "directoryPath must be relative to workspaceRoot",
+    );
   }
   return trimmed
     .replace(/\\/g, "/")
@@ -115,9 +113,7 @@ export function normalizeWorkspaceDirectoryPath(value: string | undefined): stri
 
 function isPathInsideRoot(workspaceRoot: string, targetPath: string): boolean {
   const pathFromRoot = relative(workspaceRoot, targetPath);
-  return pathFromRoot !== ".."
-    && !pathFromRoot.startsWith(`..${sep}`)
-    && !isAbsolute(pathFromRoot);
+  return pathFromRoot !== ".." && !pathFromRoot.startsWith(`..${sep}`) && !isAbsolute(pathFromRoot);
 }
 
 function assertPathInsideRoot(workspaceRoot: string, targetPath: string): void {
@@ -129,7 +125,10 @@ function assertPathInsideRoot(workspaceRoot: string, targetPath: string): void {
 }
 
 function toCanonicalRelativePath(value: string): string {
-  return value.replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+$/, "");
+  return value
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+$/, "");
 }
 
 function getParentDirectoryPath(directoryPath: string): string | null {
@@ -148,7 +147,9 @@ async function resolveWorkspaceDirectory(input: WorkspaceDirectoryEntriesInput):
   const resolvedWorkspaceRoot = normalizeAbsolutePath(input.workspaceRoot, "workspaceRoot");
   const requestedDirectoryPath = normalizeWorkspaceDirectoryPath(input.directoryPath);
   const resolvedDirectoryPath = resolve(resolvedWorkspaceRoot, requestedDirectoryPath);
-  const directoryPath = toCanonicalRelativePath(relative(resolvedWorkspaceRoot, resolvedDirectoryPath));
+  const directoryPath = toCanonicalRelativePath(
+    relative(resolvedWorkspaceRoot, resolvedDirectoryPath),
+  );
   assertPathInsideRoot(resolvedWorkspaceRoot, resolvedDirectoryPath);
 
   const workspaceStats = await stat(resolvedWorkspaceRoot);
@@ -162,7 +163,10 @@ async function resolveWorkspaceDirectory(input: WorkspaceDirectoryEntriesInput):
 
   const directoryStats = await stat(resolvedDirectoryPath);
   if (!directoryStats.isDirectory()) {
-    throw new WorkspaceFileUserError("invalid_directory", "directoryPath must point to a directory");
+    throw new WorkspaceFileUserError(
+      "invalid_directory",
+      "directoryPath must point to a directory",
+    );
   }
 
   return {
@@ -208,10 +212,12 @@ export async function searchWorkspaceFiles(
     directoryPath: "",
     includeHidden: true,
   });
-  const queue: Array<{ directoryPath: string; resolvedPath: string }> = [{
-    directoryPath: "",
-    resolvedPath: root.resolvedDirectoryPath,
-  }];
+  const queue: Array<{ directoryPath: string; resolvedPath: string }> = [
+    {
+      directoryPath: "",
+      resolvedPath: root.resolvedDirectoryPath,
+    },
+  ];
   const matches: WorkspaceFileSearchMatch[] = [];
   const ancestorDirectories = new Set<string>();
   const visitedRealDirectories = new Set<string>([root.realWorkspaceRoot]);
@@ -224,16 +230,19 @@ export async function searchWorkspaceFiles(
     const directory = queue[queueIndex];
     queueIndex += 1;
     if (!directory) break;
-    const entries = await readdir(directory.resolvedPath, { withFileTypes: true })
-      .catch((error: unknown) => {
+    const entries = await readdir(directory.resolvedPath, { withFileTypes: true }).catch(
+      (error: unknown) => {
         const code = readErrorCode(error);
         if (code && EXPECTED_FILE_SYSTEM_ERROR_CODES.has(code)) return [];
         throw error;
-      });
-    entries.sort((left, right) => left.name.localeCompare(right.name, undefined, {
-      sensitivity: "base",
-      numeric: true,
-    }));
+      },
+    );
+    entries.sort((left, right) =>
+      left.name.localeCompare(right.name, undefined, {
+        sensitivity: "base",
+        numeric: true,
+      }),
+    );
 
     for (const entry of entries) {
       visitedEntries += 1;
@@ -266,7 +275,9 @@ export async function searchWorkspaceFiles(
       const score = scoreWorkspaceFileSearchMatch(relativePath, normalizedQuery);
       if (score === null) continue;
       matches.push({ path: relativePath, kind: "file", score });
-      matches.sort((left, right) => left.score - right.score || left.path.localeCompare(right.path));
+      matches.sort(
+        (left, right) => left.score - right.score || left.path.localeCompare(right.path),
+      );
       if (matches.length > maxResults) {
         matches.pop();
         truncated = true;
@@ -325,15 +336,19 @@ export async function listWorkspaceDirectoryEntries(
 ): Promise<WorkspaceDirectoryEntriesResult> {
   const resolved = await resolveWorkspaceDirectory(input);
   const directoryEntries = await readdir(resolved.resolvedDirectoryPath, { withFileTypes: true });
-  const visibleEntries = directoryEntries.filter((entry) => (
-    input.includeHidden === true || !entry.name.startsWith(".")
-  ));
-  const mappedEntries = await Promise.all(visibleEntries.map((entry) => mapDirectoryEntry({
-    entry,
-    realWorkspaceRoot: resolved.realWorkspaceRoot,
-    resolvedDirectoryPath: resolved.resolvedDirectoryPath,
-    resolvedWorkspaceRoot: resolved.resolvedWorkspaceRoot,
-  })));
+  const visibleEntries = directoryEntries.filter(
+    (entry) => input.includeHidden === true || !entry.name.startsWith("."),
+  );
+  const mappedEntries = await Promise.all(
+    visibleEntries.map((entry) =>
+      mapDirectoryEntry({
+        entry,
+        realWorkspaceRoot: resolved.realWorkspaceRoot,
+        resolvedDirectoryPath: resolved.resolvedDirectoryPath,
+        resolvedWorkspaceRoot: resolved.resolvedWorkspaceRoot,
+      }),
+    ),
+  );
   const entries = mappedEntries
     .filter((entry): entry is WorkspaceFileDirectoryEntry => entry !== null)
     .filter((entry) => input.directoriesOnly !== true || entry.type === "directory")
@@ -376,7 +391,10 @@ async function readFileSample(filePath: string, byteLimit: number): Promise<Buff
 }
 
 function detectMimeType(bytes: Buffer): string | undefined {
-  if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
+  if (
+    bytes.length >= 8 &&
+    bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  ) {
     return "image/png";
   }
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
@@ -388,14 +406,23 @@ function detectMimeType(bytes: Buffer): string | undefined {
   if (prefix.startsWith("%PDF-")) return "application/pdf";
   if (prefix.startsWith("BM")) return "image/bmp";
 
-  const textPrefix = bytes.subarray(0, 1_024).toString("utf8").replace(/^\uFEFF/, "").trimStart();
-  if (textPrefix.startsWith("<svg") || (textPrefix.startsWith("<?xml") && textPrefix.includes("<svg"))) {
+  const textPrefix = bytes
+    .subarray(0, 1_024)
+    .toString("utf8")
+    .replace(/^\uFEFF/, "")
+    .trimStart();
+  if (
+    textPrefix.startsWith("<svg") ||
+    (textPrefix.startsWith("<?xml") && textPrefix.includes("<svg"))
+  ) {
     return "image/svg+xml";
   }
   return undefined;
 }
 
-export async function readWorkspaceFile(input: WorkspaceFileTextReadInput): Promise<WorkspaceFileReadResult> {
+export async function readWorkspaceFile(
+  input: WorkspaceFileTextReadInput,
+): Promise<WorkspaceFileReadResult> {
   const filePath = resolveFileRequestPath(input);
   const handle = await open(filePath, "r");
   try {
@@ -430,12 +457,11 @@ export async function readWorkspaceFileMetadata(
   const filePath = resolveFileRequestPath(input);
   const fileStats = await stat(filePath);
   const isFile = fileStats.isFile();
-  const shouldReadSample = input.contentSampleByteLimit !== undefined
-    && isFile
-    && (
-      input.contentSampleMaxFileBytes === undefined
-      || fileStats.size <= input.contentSampleMaxFileBytes
-    );
+  const shouldReadSample =
+    input.contentSampleByteLimit !== undefined &&
+    isFile &&
+    (input.contentSampleMaxFileBytes === undefined ||
+      fileStats.size <= input.contentSampleMaxFileBytes);
   const contentSampleByteLimit = input.contentSampleByteLimit ?? DEFAULT_CONTENT_SAMPLE_BYTES;
   const sample = shouldReadSample ? await readFileSample(filePath, contentSampleByteLimit) : null;
   const mimeType = sample === null ? undefined : detectMimeType(sample);
@@ -448,9 +474,9 @@ export async function readWorkspaceFileMetadata(
     ...(sample === null
       ? {}
       : {
-        contentKind: isProbablyBinary(sample) ? "binary" : "text",
-        ...(mimeType ? { mimeType } : {}),
-      }),
+          contentKind: isProbablyBinary(sample) ? "binary" : "text",
+          ...(mimeType ? { mimeType } : {}),
+        }),
   };
 }
 
@@ -474,9 +500,8 @@ export async function writeWorkspaceFile(
     if (readErrorCode(error) === "ENOENT") return null;
     throw error;
   });
-  const currentMtimeMs = currentStats && Number.isFinite(currentStats.mtimeMs)
-    ? currentStats.mtimeMs
-    : null;
+  const currentMtimeMs =
+    currentStats && Number.isFinite(currentStats.mtimeMs) ? currentStats.mtimeMs : null;
   if (currentMtimeMs !== input.expectedMtimeMs) {
     return { outcome: "conflict", mtimeMs: currentMtimeMs };
   }

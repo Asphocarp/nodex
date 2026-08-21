@@ -9,10 +9,7 @@ import type {
   ClipboardPasteInspectionResult,
 } from "../shared/types";
 
-const CLIPBOARD_TEXT_FORMATS = [
-  "text/uri-list",
-  "public.file-url",
-] as const;
+const CLIPBOARD_TEXT_FORMATS = ["text/uri-list", "public.file-url"] as const;
 
 export const CLIPBOARD_INSPECTION_MAX_FORMAT_BYTES = 256 * 1024;
 export const CLIPBOARD_INSPECTION_MAX_LINES = 128;
@@ -29,9 +26,7 @@ export function truncateClipboardUtf8(value: string, maxBytes: number): string {
   const minimumEnd = Math.max(0, maxBytes - 3);
   for (let end = maxBytes; end >= minimumEnd; end -= 1) {
     try {
-      return new TextDecoder("utf-8", { fatal: true }).decode(
-        bytes.subarray(0, end),
-      );
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, end));
     } catch {
       // A UTF-8 code point may span at most four bytes; trim to its boundary.
     }
@@ -127,9 +122,7 @@ function readClipboardFormat(
   }
 }
 
-function readClipboardHtml(
-  clipboard: typeof import("electron").clipboard,
-): string | undefined {
+function readClipboardHtml(clipboard: typeof import("electron").clipboard): string | undefined {
   try {
     const value = clipboard.readHTML();
     return value.trim().length > 0
@@ -140,9 +133,7 @@ function readClipboardHtml(
   }
 }
 
-function readClipboardText(
-  clipboard: typeof import("electron").clipboard,
-): string | undefined {
+function readClipboardText(clipboard: typeof import("electron").clipboard): string | undefined {
   try {
     const value = clipboard.readText();
     return value.length > 0

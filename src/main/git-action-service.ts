@@ -73,7 +73,7 @@ export interface CommitGitChangesOptions {
   gitWorker: GitActionWorkerPort;
   generateCommitMessage?: (input: GitCommitMessageGenerationRequest) => Promise<string | null>;
   generatePullRequestMessage?: (
-    input: GitPullRequestMessageGenerationRequest
+    input: GitPullRequestMessageGenerationRequest,
   ) => Promise<GitPullRequestMessageGenerationResponse | null>;
 }
 
@@ -219,8 +219,12 @@ function gitErrorStderr(error: unknown): string {
 }
 
 async function isGitRepository(cwd: string, signal?: AbortSignal): Promise<boolean> {
-  const result = await runGitCommand(["rev-parse", "--is-inside-work-tree"], cwd, [0], signal)
-    .catch(ignoreGitCommandErrorUnlessAborted);
+  const result = await runGitCommand(
+    ["rev-parse", "--is-inside-work-tree"],
+    cwd,
+    [0],
+    signal,
+  ).catch(ignoreGitCommandErrorUnlessAborted);
   return result?.stdout.trim() === "true";
 }
 
@@ -276,13 +280,13 @@ function summarizeUnifiedDiff(diff: string | null): CommitMessageDiffSummary | n
   return { filesChanged, linesAdded, linesRemoved };
 }
 
-function formatCommitMessageChanges(input: Pick<
-  CommitMessagePromptInput,
-  "diffError" | "includesUntrackedChanges" | "oversizedDiffSummary" | "uncommittedDiff"
->): string | null {
-  const untrackedNote = input.includesUntrackedChanges
-    ? []
-    : ["", COMMIT_MESSAGE_UNTRACKED_NOTE];
+function formatCommitMessageChanges(
+  input: Pick<
+    CommitMessagePromptInput,
+    "diffError" | "includesUntrackedChanges" | "oversizedDiffSummary" | "uncommittedDiff"
+  >,
+): string | null {
+  const untrackedNote = input.includesUntrackedChanges ? [] : ["", COMMIT_MESSAGE_UNTRACKED_NOTE];
   if (input.oversizedDiffSummary) {
     return [
       "Changes:",
@@ -334,9 +338,8 @@ function buildCommitMessagePromptFromDiff(input: {
 }): string {
   const diffSummary = summarizeUnifiedDiff(input.diff);
   const changedLines = (diffSummary?.linesAdded ?? 0) + (diffSummary?.linesRemoved ?? 0);
-  const oversizedDiffSummary = changedLines > COMMIT_MESSAGE_DIFF_INLINE_LINE_THRESHOLD
-    ? diffSummary
-    : null;
+  const oversizedDiffSummary =
+    changedLines > COMMIT_MESSAGE_DIFF_INLINE_LINE_THRESHOLD ? diffSummary : null;
 
   return buildCommitMessagePrompt({
     diffError: input.diffError,
@@ -382,19 +385,19 @@ function buildPullRequestMessagePrompt({
 }): string {
   const sections: string[] = [];
   if (headBranch || baseBranch) {
-    sections.push([
-      "Branches:",
-      `- Head: ${headBranch ?? "-"}`,
-      `- Base: ${baseBranch ?? "-"}`,
-    ].join("\n"));
+    sections.push(
+      ["Branches:", `- Head: ${headBranch ?? "-"}`, `- Base: ${baseBranch ?? "-"}`].join("\n"),
+    );
   }
 
   if (title.length > 0 || body.length > 0) {
-    sections.push([
-      "Pull request draft:",
-      `Title: ${title || "-"}`,
-      body.length > 0 ? `Body:\n${body}` : "Body: -",
-    ].join("\n"));
+    sections.push(
+      [
+        "Pull request draft:",
+        `Title: ${title || "-"}`,
+        body.length > 0 ? `Body:\n${body}` : "Body: -",
+      ].join("\n"),
+    );
   }
 
   if (!baseBranch) {
@@ -516,11 +519,10 @@ async function readCommitMessageContext(
   unifiedDiff: string | null;
   diffError: CommitMessagePromptInput["diffError"];
 }> {
-  const sources = includeUnstaged
-    ? (["staged", "unstaged"] as const)
-    : (["staged"] as const);
-  const patches = await Promise.all(sources.map(async (source) =>
-    await gitWorker.readReviewPatch({ cwd, source }, signal)));
+  const sources = includeUnstaged ? (["staged", "unstaged"] as const) : (["staged"] as const);
+  const patches = await Promise.all(
+    sources.map(async (source) => await gitWorker.readReviewPatch({ cwd, source }, signal)),
+  );
   throwIfAborted(signal);
 
   const repositoryFailure = patches.find((patch) => !patch.isGitRepository);
@@ -536,7 +538,7 @@ async function readCommitMessageContext(
   }
 
   const unifiedDiff = patches
-    .flatMap((patch) => patch.diff.type === "success" ? [patch.diff.unifiedDiff] : [])
+    .flatMap((patch) => (patch.diff.type === "success" ? [patch.diff.unifiedDiff] : []))
     .filter((diff) => diff.trim().length > 0)
     .join("\n");
   return {
@@ -553,12 +555,7 @@ async function resolveCommitMessage(
   signal?: AbortSignal,
 ): Promise<string> {
   if (requestedMessage) return requestedMessage;
-  const context = await readCommitMessageContext(
-    cwd,
-    includeUnstaged,
-    options.gitWorker,
-    signal,
-  );
+  const context = await readCommitMessageContext(cwd, includeUnstaged, options.gitWorker, signal);
   return await generateCommitMessage(
     cwd,
     requestedMessage,
@@ -580,8 +577,9 @@ function summarizeUnifiedDiffPaths(diff: string | null): string {
 }
 
 async function readRemotes(cwd: string, signal?: AbortSignal): Promise<string[]> {
-  const result = await runGitCommand(["remote"], cwd, [0, 128], signal)
-    .catch(ignoreGitCommandErrorUnlessAborted);
+  const result = await runGitCommand(["remote"], cwd, [0, 128], signal).catch(
+    ignoreGitCommandErrorUnlessAborted,
+  );
   if (!result) return [];
   return result.stdout
     .split(/\r?\n/)
@@ -600,10 +598,7 @@ async function readUpstreamBranch(cwd: string, signal?: AbortSignal): Promise<st
   return upstream || null;
 }
 
-async function readPushGitState(
-  cwd: string,
-  signal?: AbortSignal,
-): Promise<PushGitState> {
+async function readPushGitState(cwd: string, signal?: AbortSignal): Promise<PushGitState> {
   if (!(await isGitRepository(cwd, signal))) {
     return {
       currentBranch: null,
@@ -625,7 +620,12 @@ async function readPushGitState(
   };
 }
 
-function mutationError(cwd: string, branch: string | null, error: unknown, fallback: string): GitActionMutationResult {
+function mutationError(
+  cwd: string,
+  branch: string | null,
+  error: unknown,
+  fallback: string,
+): GitActionMutationResult {
   return {
     cwd,
     status: "error",
@@ -683,13 +683,12 @@ async function pushGitBranch(
     throw new Error("No upstream branch or origin remote is configured.");
   }
 
-  return runGitCommand([
-    "push",
-    ...(force ? ["--force-with-lease"] : []),
-    "-u",
-    "origin",
-    state.currentBranch,
-  ], cwd, [0], signal);
+  return runGitCommand(
+    ["push", ...(force ? ["--force-with-lease"] : []), "-u", "origin", state.currentBranch],
+    cwd,
+    [0],
+    signal,
+  );
 }
 
 export function commitGitChanges(
@@ -738,12 +737,15 @@ export function commitGitChanges(
         options,
         signal,
       );
-      const committed = await options.gitWorker.commit({
-        ...input,
-        cwd,
-        message,
-        nextStep: "commit",
-      }, signal);
+      const committed = await options.gitWorker.commit(
+        {
+          ...input,
+          cwd,
+          message,
+          nextStep: "commit",
+        },
+        signal,
+      );
       if (committed.status !== "success" || input.nextStep !== "commit-and-push") {
         return committed;
       }
@@ -857,15 +859,16 @@ export function generateGitPullRequestMessage(
       const headBranch = input.headBranch?.trim() || status.currentBranch;
       const baseBranch = input.baseBranch?.trim() || status.defaultBranch;
       const patch = baseBranch
-        ? await options.gitWorker.readReviewPatch({
-          cwd,
-          source: "branch",
-          baseBranch,
-        }, signal)
+        ? await options.gitWorker.readReviewPatch(
+            {
+              cwd,
+              source: "branch",
+              baseBranch,
+            },
+            signal,
+          )
         : null;
-      const unifiedDiff = patch?.diff.type === "success"
-        ? patch.diff.unifiedDiff
-        : null;
+      const unifiedDiff = patch?.diff.type === "success" ? patch.diff.unifiedDiff : null;
       const generated = await generatePullRequestMessage(
         cwd,
         {
@@ -888,7 +891,11 @@ export function generateGitPullRequestMessage(
         errorMessage: null,
       };
     } catch (error) {
-      return pullRequestMessageGenerationError(cwd, error, "Could not generate pull request title and body.");
+      return pullRequestMessageGenerationError(
+        cwd,
+        error,
+        "Could not generate pull request title and body.",
+      );
     }
   });
 }

@@ -1,10 +1,7 @@
 import { readRelationValuePreview } from "@/lib/data-source-relation-value";
 import type { DatabaseJsonValue } from "../../../../shared/database-kernel";
 import type { DataSourcePropertyRecordV2 } from "../../../../shared/database-module-v2";
-import {
-  WORKFLOW_STATUS_LABELS,
-  isWorkflowStatus,
-} from "../../../../shared/workflow-status";
+import { WORKFLOW_STATUS_LABELS, isWorkflowStatus } from "../../../../shared/workflow-status";
 
 export const DATABASE_LIST_MUTED_ICON_COLOR = "var(--database-list-icon-muted)";
 

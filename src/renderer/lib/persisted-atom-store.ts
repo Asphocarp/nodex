@@ -129,9 +129,7 @@ export function getPersistedAtomTransport(): PersistedAtomTransport {
 
 export async function readAtom(key: string, fallback: unknown): Promise<unknown> {
   const current = await readOrderedSnapshot();
-  return Object.prototype.hasOwnProperty.call(current.values, key)
-    ? current.values[key]
-    : fallback;
+  return Object.prototype.hasOwnProperty.call(current.values, key) ? current.values[key] : fallback;
 }
 
 export async function writeAtom(key: string, value: unknown): Promise<void> {

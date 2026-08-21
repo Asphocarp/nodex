@@ -63,10 +63,7 @@ export function DatabaseListRow({
   readonly trailingCells: ReactNode;
   readonly onSelect: (mode: "replace" | "toggle" | "range") => void;
   readonly onActivate: () => void;
-  readonly onOpen: (
-    titleSnapshot: string,
-    openMode: DatabaseViewPageOpenMode,
-  ) => void;
+  readonly onOpen: (titleSnapshot: string, openMode: DatabaseViewPageOpenMode) => void;
   readonly statusOptions: readonly { readonly id: string; readonly name: string }[];
   readonly priorityOptions: readonly { readonly id: string; readonly name: string }[];
   readonly onSetStatus: (optionId: string | null) => void;
@@ -84,23 +81,19 @@ export function DatabaseListRow({
   const dnd = useDatabaseListPageDnd(item);
   const setListDndNodeRef = dnd.setNodeRef;
   const [pageDragHandle, setPageDragHandle] = useState<HTMLButtonElement | null>(null);
-  const { setElementRef: setPageDragSourceRef } =
-    useDatabaseViewPageDragSource(pragmaticDragData, {
-      dragHandle: pageDragHandle,
-      nativePreview: "source",
-    });
-  const setRowRef = useCallback((element: HTMLDivElement | null): void => {
-    setListDndNodeRef(element);
-    setPageDragSourceRef(element);
-  }, [setListDndNodeRef, setPageDragSourceRef]);
-  const dropEdge = dnd.target?.kind === "page"
-    ? dnd.target.indicatorEdge
-    : externalDropEdge;
-  const presentedTitle = usePresentedPageTitle(
-    item.pageId,
-    item.row.title,
-    libraryId,
+  const { setElementRef: setPageDragSourceRef } = useDatabaseViewPageDragSource(pragmaticDragData, {
+    dragHandle: pageDragHandle,
+    nativePreview: "source",
+  });
+  const setRowRef = useCallback(
+    (element: HTMLDivElement | null): void => {
+      setListDndNodeRef(element);
+      setPageDragSourceRef(element);
+    },
+    [setListDndNodeRef, setPageDragSourceRef],
   );
+  const dropEdge = dnd.target?.kind === "page" ? dnd.target.indicatorEdge : externalDropEdge;
+  const presentedTitle = usePresentedPageTitle(item.pageId, item.row.title, libraryId);
   const selectionMode = (event: MouseEvent): "replace" | "toggle" | "range" => {
     if (event.shiftKey) return "range";
     if (event.metaKey || event.ctrlKey) return "toggle";
@@ -135,23 +128,22 @@ export function DatabaseListRow({
       data-raise-row={active || dnd.active || undefined}
       data-drop-position={dropEdge ?? undefined}
       data-database-view-page-presented={presented ? "true" : undefined}
-      data-list-transient-kind={item.transientKind === "none"
-        ? undefined
-        : item.transientKind}
+      data-list-transient-kind={item.transientKind === "none" ? undefined : item.transientKind}
       className={cn(
         "group/list-row relative grid h-11 min-h-11 min-w-0 items-center gap-x-2 rounded-lg outline-none [grid-template-columns:subgrid] [grid-column:1/-1]",
         "before:absolute before:inset-x-2 before:inset-y-0 before:-z-0 before:rounded-lg before:content-['']",
         "hover:before:bg-[var(--database-list-row-hover)]",
-        selected && "before:bg-[var(--database-list-row-selected)] hover:before:bg-[var(--database-list-row-selected)]",
+        selected &&
+          "before:bg-[var(--database-list-row-selected)] hover:before:bg-[var(--database-list-row-selected)]",
         selected && selectedBefore && "before:rounded-t-none",
         selected && selectedAfter && "before:rounded-b-none",
-        active && "focus-visible:before:ring-1 focus-visible:before:ring-inset focus-visible:before:ring-[var(--database-list-focus)]",
-        item.transientKind !== "none"
-          && "before:opacity-60 [&>[role=gridcell]]:opacity-60",
+        active &&
+          "focus-visible:before:ring-1 focus-visible:before:ring-inset focus-visible:before:ring-[var(--database-list-focus)]",
+        item.transientKind !== "none" && "before:opacity-60 [&>[role=gridcell]]:opacity-60",
         dnd.active && "opacity-70",
-        dnd.target?.kind === "page"
-          && dnd.target.indicatorEdge === "inside"
-          && "before:ring-1 before:ring-inset before:ring-[var(--database-list-drop-indicator)]",
+        dnd.target?.kind === "page" &&
+          dnd.target.indicatorEdge === "inside" &&
+          "before:ring-1 before:ring-inset before:ring-[var(--database-list-drop-indicator)]",
       )}
       onFocus={(event) => {
         if (event.target === event.currentTarget) onActivate();
@@ -175,9 +167,10 @@ export function DatabaseListRow({
         if (event.shiftKey) return;
         const target = event.target as HTMLElement;
         if (
-          target.closest(DATABASE_LIST_INTERACTIVE_SELECTOR)
-          && !target.closest("[data-database-view-page-open]")
-        ) return;
+          target.closest(DATABASE_LIST_INTERACTIVE_SELECTOR) &&
+          !target.closest("[data-database-view-page-open]")
+        )
+          return;
         if (dnd.active || dnd.suppressesNextClick()) return;
         onActivate();
         onOpen(presentedTitle, "durable");
@@ -187,9 +180,7 @@ export function DatabaseListRow({
         <span
           aria-hidden="true"
           data-list-drop-indicator="true"
-          data-prospective-depth={
-            dnd.target?.kind === "page" ? dnd.target.prospectiveDepth : 0
-          }
+          data-prospective-depth={dnd.target?.kind === "page" ? dnd.target.prospectiveDepth : 0}
           className={cn(
             "pointer-events-none absolute right-2 z-[3] h-0.5 rounded-full bg-[var(--database-list-drop-indicator)]",
             dropEdge === "before" ? "top-0" : "bottom-0",
@@ -252,7 +243,7 @@ export function DatabaseListRow({
             searchPlaceholder="Change priority to…"
             searchLeading={null}
             contentClassName="w-[min(220px,calc(100vw-16px))]"
-            triggerButton={(
+            triggerButton={
               <NodexButton
                 variant="ghost"
                 size="icon-xs"
@@ -261,13 +252,11 @@ export function DatabaseListRow({
               >
                 <DatabaseListPriorityIcon priority={item.row.priority ?? null} />
               </NodexButton>
-            )}
+            }
             onSelectedIdsChange={(selectedIds) => onSetPriority(selectedIds[0] ?? null)}
             renderOption={(option) => (
               <span className="flex min-w-0 items-center gap-2">
-                <DatabaseListPriorityIcon
-                  priority={isPriority(option.id) ? option.id : null}
-                />
+                <DatabaseListPriorityIcon priority={isPriority(option.id) ? option.id : null} />
                 <span className="truncate">{option.name}</span>
               </span>
             )}
@@ -308,7 +297,7 @@ export function DatabaseListRow({
             searchPlaceholder="Change status…"
             searchLeading={null}
             contentClassName="w-[min(220px,calc(100vw-16px))]"
-            triggerButton={(
+            triggerButton={
               <NodexButton
                 variant="ghost"
                 size="icon-xs"
@@ -317,17 +306,15 @@ export function DatabaseListRow({
               >
                 {item.row.status ? (
                   <StatusIcon statusId={item.row.status} className="size-4" />
-                ) : <span className="size-2 rounded-full ring-[1px] ring-[var(--database-list-icon-muted)]" />}
+                ) : (
+                  <span className="size-2 rounded-full ring-[1px] ring-[var(--database-list-icon-muted)]" />
+                )}
               </NodexButton>
-            )}
+            }
             onSelectedIdsChange={(selectedIds) => onSetStatus(selectedIds[0] ?? null)}
             renderOption={(option) => (
               <span className="flex min-w-0 items-center gap-2">
-                <StatusIcon
-                  statusId={option.id}
-                  label={option.name}
-                  className="size-4"
-                />
+                <StatusIcon statusId={option.id} label={option.name} className="size-4" />
                 <span className="truncate">{option.name}</span>
               </span>
             )}

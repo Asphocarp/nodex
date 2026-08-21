@@ -1,10 +1,6 @@
 import { ListFilter } from "@/components/shared/icons/generic-icons";
 import { NodexButton, NodexIconButton } from "@/components/ui/button";
-import {
-  NodexPopover,
-  NodexPopoverContent,
-  NodexPopoverTrigger,
-} from "@/components/ui/popover";
+import { NodexPopover, NodexPopoverContent, NodexPopoverTrigger } from "@/components/ui/popover";
 import { commitDatabaseViewOperations } from "@/lib/database-view-row-mutations";
 import type { DatabaseViewRenderModel } from "@/lib/database-view-render-model";
 import { useEffect, useState } from "react";
@@ -61,18 +57,11 @@ export function DatabaseViewFilter({
     );
     if (tagsProperty) onRequestPropertyOptions(tagsProperty);
   }, [model.query.properties, onRequestPropertyOptions, open]);
-  const changed = JSON.stringify(draft.filter)
-    !== JSON.stringify(model.query.view.config.filter);
-  const taskFilterCapabilities = resolveDatabaseTaskFilterCapabilities(
-    model.query.properties,
-    {
-      tags: optionRegistries.tags ?? [],
-    },
-  );
-  const taskFilterState = decodeDatabaseTaskFilter(
-    draft.filter,
-    taskFilterCapabilities,
-  );
+  const changed = JSON.stringify(draft.filter) !== JSON.stringify(model.query.view.config.filter);
+  const taskFilterCapabilities = resolveDatabaseTaskFilterCapabilities(model.query.properties, {
+    tags: optionRegistries.tags ?? [],
+  });
+  const taskFilterState = decodeDatabaseTaskFilter(draft.filter, taskFilterCapabilities);
   const save = async () => {
     if (!changed || busy) return;
     setBusy(true);
@@ -80,17 +69,19 @@ export function DatabaseViewFilter({
     try {
       await commitOperations({
         model,
-        operations: [{
-          kind: "put_view",
-          databaseId: model.databaseId,
-          dataSourceId: model.dataSourceId,
-          viewId: model.databaseViewId,
-          expectedRevision: model.query.view.revision,
-          name: model.query.view.name,
-          defaultLayout: model.query.view.defaultLayout,
-          config: draft,
-          isDefault: model.query.view.isDefault,
-        }],
+        operations: [
+          {
+            kind: "put_view",
+            databaseId: model.databaseId,
+            dataSourceId: model.dataSourceId,
+            viewId: model.databaseViewId,
+            expectedRevision: model.query.view.revision,
+            name: model.query.view.name,
+            defaultLayout: model.query.view.defaultLayout,
+            config: draft,
+            isDefault: model.query.view.isDefault,
+          },
+        ],
       });
       await onCommitted?.();
       setOpen(false);
@@ -112,19 +103,18 @@ export function DatabaseViewFilter({
           title="Filter"
         />
       </NodexPopoverTrigger>
-      <NodexPopoverContent
-        align="end"
-        className="w-[min(34rem,calc(100vw-2rem))] p-0"
-      >
+      <NodexPopoverContent align="end" className="w-[min(34rem,calc(100vw-2rem))] p-0">
         {taskFilterState ? (
           <DatabaseViewTaskFilterEditor
             state={taskFilterState}
             capabilities={taskFilterCapabilities}
             disabled={busy}
-            onChange={(state) => setDraft({
-              ...draft,
-              filter: encodeDatabaseTaskFilter(state, taskFilterCapabilities),
-            })}
+            onChange={(state) =>
+              setDraft({
+                ...draft,
+                filter: encodeDatabaseTaskFilter(state, taskFilterCapabilities),
+              })
+            }
           />
         ) : (
           <>

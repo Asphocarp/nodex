@@ -19,8 +19,8 @@ describe("UserMessageText", () => {
     await waitFor(() => {
       expect(view.getByLabelText("Full user message")).toBeDefined();
     });
-    expect(
-      view.getByLabelText("Full user message").getAttribute("data-source-viewer"),
-    ).toBe("true");
+    expect(view.getByLabelText("Full user message").getAttribute("data-source-viewer")).toBe(
+      "true",
+    );
   });
 });

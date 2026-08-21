@@ -3,7 +3,7 @@ import type { ComponentProps } from "react";
 import { render, textContent } from "../../../test/dom";
 
 vi.mock("./paste-resource-dialog-deps", async (importOriginal) => ({
-  ...await importOriginal<typeof import("./paste-resource-dialog-deps")>(),
+  ...(await importOriginal<typeof import("./paste-resource-dialog-deps")>()),
   Button: ({ children, ...props }: ComponentProps<"button">) => (
     <button {...props}>{children}</button>
   ),
@@ -31,9 +31,9 @@ describe("paste resource dialog", () => {
           items: [{ kind: "file", name: "report.txt", path: "/tmp/report.txt" }],
           allowLink: true,
         }}
-        onOpenChange={() => { }}
-        onChooseMode={() => { }}
-        onContinueInline={() => { }}
+        onOpenChange={() => {}}
+        onChooseMode={() => {}}
+        onContinueInline={() => {}}
       />,
     );
     const withoutLinkRender = render(
@@ -49,9 +49,9 @@ describe("paste resource dialog", () => {
           items: [{ kind: "file", name: "report.txt", mimeType: "text/plain" }],
           allowLink: false,
         }}
-        onOpenChange={() => { }}
-        onChooseMode={() => { }}
-        onContinueInline={() => { }}
+        onOpenChange={() => {}}
+        onChooseMode={() => {}}
+        onContinueInline={() => {}}
       />,
     );
 
@@ -80,15 +80,19 @@ Please keep the markdown formatting when this is pasted inline.`;
           textPayload: pastedText,
           allowLink: false,
         }}
-        onOpenChange={() => { }}
-        onChooseMode={() => { }}
-        onContinueInline={() => { }}
+        onOpenChange={() => {}}
+        onChooseMode={() => {}}
+        onContinueInline={() => {}}
       />,
     );
 
     expect(textContent(container).includes("Paste Anyway")).toBe(true);
     expect(textContent(container).includes("Keep as Link")).toBe(false);
-    expect(textContent(container).includes("Save a copy to assets and link to it, paste it anyway, or cancel.")).toBe(true);
+    expect(
+      textContent(container).includes(
+        "Save a copy to assets and link to it, paste it anyway, or cancel.",
+      ),
+    ).toBe(true);
     expect(textContent(container).includes("# Incident note")).toBe(true);
     expect(textContent(container).includes("145 characters")).toBe(true);
     expect(textContent(container).includes("4 lines")).toBe(true);
@@ -109,13 +113,15 @@ Please keep the markdown formatting when this is pasted inline.`;
           items: [{ kind: "folder", name: "Designs", path: "/tmp/Designs" }],
           allowLink: true,
         }}
-        onOpenChange={() => { }}
-        onChooseMode={() => { }}
+        onOpenChange={() => {}}
+        onChooseMode={() => {}}
       />,
     );
 
     expect(textContent(container).includes("Keep as Link")).toBe(true);
     expect(textContent(container).includes("Save a Copy")).toBe(false);
-    expect(textContent(container).includes("Keep a link to the original folder, or cancel.")).toBe(true);
+    expect(textContent(container).includes("Keep a link to the original folder, or cancel.")).toBe(
+      true,
+    );
   });
 });

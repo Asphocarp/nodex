@@ -97,26 +97,20 @@ describe("database Board card drag data", () => {
     expect(payload).not.toBeNull();
     expect(payload?.projectId).toBe("project-1");
     expect(payload?.dataSourceId).toBe(dataSourceId);
-    expect(payload?.dragItems.map((item) => item.card.id)).toEqual([
-      "page-a",
-      "page-b",
-    ]);
-    expect(payload?.dragItems.map((item) => item.columnName)).toEqual([
-      "p1-high",
-      "p3-low",
-    ]);
-    expect(payload?.sourcePage.richTitle).toEqual(
-      plainTextToPortableRichText("page-a"),
-    );
+    expect(payload?.dragItems.map((item) => item.card.id)).toEqual(["page-a", "page-b"]);
+    expect(payload?.dragItems.map((item) => item.columnName)).toEqual(["p1-high", "p3-low"]);
+    expect(payload?.sourcePage.richTitle).toEqual(plainTextToPortableRichText("page-a"));
   });
 
   test("does not expose a Project-bound editor transfer from Library context", () => {
-    expect(buildDatabaseViewPageDragData({
-      model: { ...model, accessContext: { kind: "library" } },
-      row: rows[0]!,
-      allRows: rows,
-      selectedPageIds: new Set(),
-      instanceId: Symbol("library-board"),
-    })).toBeNull();
+    expect(
+      buildDatabaseViewPageDragData({
+        model: { ...model, accessContext: { kind: "library" } },
+        row: rows[0]!,
+        allRows: rows,
+        selectedPageIds: new Set(),
+        instanceId: Symbol("library-board"),
+      }),
+    ).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 # Codex Thread Turn Ordering And Assistant Promotion
 
 ## Intent
+
 This document is the detailed source of truth for one narrow but high-risk part of local-thread rendering:
 
 - how one turn's ordered item stream is classified into semantic render lanes
@@ -11,6 +12,7 @@ This document is the detailed source of truth for one narrow but high-risk part 
 This doc exists because the most common regression here is subtle but visible: Nodex starts from the right transcript items, then over-promotes the assistant or ties search/placeholder logic to the wrong lane.
 
 ## Authoritative Model
+
 The authoritative rendering model is:
 
 - the real turn classifier is imported, not a local "latest assistant wins" helper
@@ -31,6 +33,7 @@ The corresponding Nodex implementation lives in:
 ## Canonical Turn Pipeline In Nodex
 
 ### 1. Build one ordered renderer item stream
+
 `buildRendererItemStream(...)` starts from the canonical ordered `turn.items` array and converts it into renderer-facing transcript/request items.
 
 Important rules:
@@ -45,6 +48,7 @@ Important rules:
 The renderer must not sort transcript blocks by timestamp, id, or local heuristics after this point.
 
 ### 2. Classify ordered items into semantic buckets
+
 `bucketizeTurnItems(...)` owns the shared classifier shape.
 
 It produces:
@@ -66,6 +70,7 @@ The critical invariant is:
 They are not interchangeable.
 
 ### 3. Build turn view state from the classified buckets
+
 `buildTurnViewModel(...)` consumes the buckets and derives:
 
 - v2 hidden/standalone/groupable activity units and generic group summaries
@@ -84,10 +89,12 @@ This stage may filter visible rows, but it must not rewrite ownership incorrectl
 ## Classification Rules
 
 ### Leading prefix
+
 - leading `userMessage` rows stay in `userItems`
 - leading `hook` rows before the first non-user/non-hook row stay in `preUserItems`
 
 ### Dedicated side slots
+
 These families are peeled out before fallback agent classification:
 
 - `turnDiff`
@@ -104,6 +111,7 @@ These families are peeled out before fallback agent classification:
 - incomplete `mcpServerElicitation`
 
 ### Fallback agent-like family
+
 The fallback ordered candidate list includes:
 
 - `assistantMessage`
@@ -128,6 +136,7 @@ The fallback ordered candidate list includes:
 - later `hook` rows when a later user/agent-like row still exists
 
 ### Conditional assistant promotion
+
 After side-slot extraction and trailing automatic-approval-review peel:
 
 - if the last surviving agent candidate is an `assistantMessage`, that item becomes `assistantItem`
@@ -138,6 +147,7 @@ This is the central classifier rule. The renderer must not "helpfully" promote t
 After this extraction, same-turn subagent activity has one narrow override: a renderable trailing assistant in `commentary` phase moves back into `agentItems` when anchored or null-anchor subagent activity owns the turn. Final-answer assistants are not moved by this rule.
 
 ### Trailing automatic approval review
+
 Trailing `automaticApprovalReview` rows are peeled off the end of the agent candidate list first.
 
 Then:
@@ -146,6 +156,7 @@ Then:
 - if no assistant is promoted, those reviews go back inline in the agent lane
 
 ### Conditional system event promotion
+
 `systemEventItem` is promoted only after assistant promotion is resolved, and only when:
 
 - the turn is not `inProgress`
@@ -153,6 +164,7 @@ Then:
 - the last remaining agent candidate is `systemError`
 
 ## Render Order
+
 Once the turn is classified, the visible order is semantic-slot order:
 
 1. `modelChangedItems`
@@ -177,16 +189,19 @@ The correct behavior is "canonical item order, then semantic lane order."
 ## Scenario Matrix
 
 ### `user -> final assistant`
+
 - `latestAssistantMessage = assistant`
 - `assistantItem = assistant`
 - visible result: `user, assistant`
 
 ### `user -> commentary assistant -> final assistant`
+
 - earlier commentary assistant stays in `agentItems`
 - latest assistant is promoted
 - visible result: `user, commentary assistant, assistant`
 
 ### `user -> final assistant -> exec`
+
 - `latestAssistantMessage = assistant`
 - `assistantItem = null`
 - `agentItems = [assistant, exec]`
@@ -195,33 +210,40 @@ The correct behavior is "canonical item order, then semantic lane order."
 This is the regression-prone case. If Nodex renders `user, assistant, exec` with the assistant pinned in a dedicated final lane, assistant ownership is wrong.
 
 ### `user -> final assistant -> exploration exec -> reasoning`
+
 - latest assistant stays inline
 - exploration rows group inside the agent body
 - visible result: `user, assistant, exploration cluster`
 
 ### `user -> final assistant -> mcp tool call`
+
 - latest assistant stays inline
 - visible result: `user, assistant, MCP call`
 
 ### `user -> final assistant -> web search`
+
 - latest assistant stays inline
 - visible result: `user, assistant, web search`
 
 ### `user -> final assistant -> hook`
+
 - hook is not agent-like if no later user/agent-like row survives
 - assistant is promoted
 - visible result: `user, assistant, hook`
 
 ### `user -> final assistant -> context compaction`
+
 - assistant stays inline
 - visible result: `user, assistant, context compaction`
 
 ### `user -> final assistant -> automatic approval review`
+
 - trailing review is peeled
 - assistant is promoted
 - visible result: `user, assistant, review`
 
 ### `user -> final assistant -> worked-for`
+
 - `workedFor` participates in classification
 - assistant is not promoted because `workedFor` is the last surviving agent candidate
 - completed `workedFor` is later removed from visible agent rows and reused as historical collapse-label input
@@ -229,11 +251,13 @@ This is the regression-prone case. If Nodex renders `user, assistant, exec` with
 - visible result: `user, inline assistant`, plus worked/working-for label behavior
 
 ### `tool/exploration before final assistant`
+
 - earlier tool rows stay in `agentItems`
 - final assistant is promoted
 - visible result: `user, tool/exploration, assistant`
 
 ## `worked-for` Contract
+
 `worked-for` is not a normal visible transcript row, but it is also not "just a divider."
 
 The correct contract is:
@@ -252,6 +276,7 @@ In practice this means:
 - do not let its visual treatment rewrite assistant ownership
 
 ## Latest Assistant Search Ownership
+
 Thread-find/search follows the latest assistant by raw normalized item order, not by dedicated final-slot ownership.
 
 So:
@@ -266,6 +291,7 @@ This is why Nodex keeps `latestAssistantMessage` separate from `assistantItem`.
 ## Placeholder And Collapse Rules
 
 ### Thinking placeholder
+
 Thinking/streaming placeholder logic must not use `assistantItem` as shorthand for "the latest assistant exists."
 
 It should consider:
@@ -279,6 +305,7 @@ It should consider:
 This keeps `assistant -> exec` ownership correct in both `inProgress` and `completed` turns.
 
 ### Agent-body collapse
+
 The agent body is driven by grouped `agentItems`, not by "all items before the final assistant."
 
 Consequences:
@@ -291,6 +318,7 @@ Consequences:
 - completion must not silently promote the assistant into a dedicated final slot
 
 ### Worked-for divider
+
 The collapsed agent-body summary uses the Codex worked-for precedence:
 
 - explicit live worked-for timing, with `Working` / `Working for …` while the turn is active
@@ -302,6 +330,7 @@ If `assistantItem` is `null`, assistant actions stay on the deferred action-only
 ## Common Regression Traps
 
 ### Wrong: "latest assistant always wins"
+
 This causes:
 
 - assistant pinned below later tool rows
@@ -309,18 +338,21 @@ This causes:
 - incorrect lane ownership in completed turns
 
 ### Wrong: search ownership derived from `assistantItem`
+
 This causes:
 
 - missing assistant thread-find unit in `assistant -> exec`
 - search highlighting disappearing when later tool rows arrive
 
 ### Wrong: filtering `workedFor` before classification
+
 This causes:
 
 - assistant promoted in `assistant -> worked-for` when the classifier should keep it inline
 - wrong collapse label/divider behavior
 
 ### Wrong: re-sorting transcript rows in the renderer
+
 This causes:
 
 - reopened long-running threads diverging from canonical turn order
@@ -340,6 +372,7 @@ This causes:
 - `src/renderer/features/local-conversation/view/local-conversation-turn-entry.test.tsx`
 
 ## Acceptance Criteria
+
 Any future refactor is valid only if all are true:
 
 - later surviving tool-like rows keep the latest assistant inline

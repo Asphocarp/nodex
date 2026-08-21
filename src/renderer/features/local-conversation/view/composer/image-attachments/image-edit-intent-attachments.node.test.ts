@@ -84,24 +84,28 @@ describe("image edit intent attachments", () => {
       mask: MASK,
     });
 
-    expect(buildComposerImageEditAttachments({
-      currentAttachments: [],
-      executionHostId: "default",
-      generation: 1,
-      intent,
-    })?.[0]).toMatchObject({
+    expect(
+      buildComposerImageEditAttachments({
+        currentAttachments: [],
+        executionHostId: "default",
+        generation: 1,
+        intent,
+      })?.[0],
+    ).toMatchObject({
       materialization: {
         hostId: "default",
         localPath: null,
         managedSource: "nodex://assets/managed.png",
       },
     });
-    expect(buildComposerImageEditAttachments({
-      currentAttachments: [],
-      executionHostId: "ssh:remote",
-      generation: 1,
-      intent,
-    })).toBeNull();
+    expect(
+      buildComposerImageEditAttachments({
+        currentAttachments: [],
+        executionHostId: "ssh:remote",
+        generation: 1,
+        intent,
+      }),
+    ).toBeNull();
   });
 
   test("treats an unowned absolute path as local instead of leaking it to a remote host", () => {
@@ -119,23 +123,27 @@ describe("image edit intent attachments", () => {
       mask: MASK,
     });
 
-    expect(buildComposerImageEditAttachments({
-      currentAttachments: [],
-      executionHostId: "default",
-      generation: 1,
-      intent,
-    })?.[0]).toMatchObject({
+    expect(
+      buildComposerImageEditAttachments({
+        currentAttachments: [],
+        executionHostId: "default",
+        generation: 1,
+        intent,
+      })?.[0],
+    ).toMatchObject({
       materialization: {
         hostId: "default",
         localPath: "/tmp/original.png",
         managedSource: null,
       },
     });
-    expect(buildComposerImageEditAttachments({
-      currentAttachments: [],
-      executionHostId: "ssh:remote",
-      generation: 1,
-      intent,
-    })).toBeNull();
+    expect(
+      buildComposerImageEditAttachments({
+        currentAttachments: [],
+        executionHostId: "ssh:remote",
+        generation: 1,
+        intent,
+      }),
+    ).toBeNull();
   });
 });

@@ -39,37 +39,45 @@ const target: PageCreateTarget = {
 
 describe("active Project Page-create capability", () => {
   test("distinguishes missing configuration, read failure, loading, and ready", () => {
-    expect(resolveProjectDefaultPageCreateCapability({
-      project: project(null),
-      target: null,
-      error: null,
-    })).toEqual({
+    expect(
+      resolveProjectDefaultPageCreateCapability({
+        project: project(null),
+        target: null,
+        error: null,
+      }),
+    ).toEqual({
       status: "unavailable",
       reason: "This Project has no active default Database View.",
     });
 
-    expect(resolveProjectDefaultPageCreateCapability({
-      project: project("view:alpha"),
-      target: null,
-      error: "read failed",
-    })).toEqual({
+    expect(
+      resolveProjectDefaultPageCreateCapability({
+        project: project("view:alpha"),
+        target: null,
+        error: "read failed",
+      }),
+    ).toEqual({
       status: "unavailable",
       reason: "Couldn’t prepare this Project’s default Database View.",
     });
 
-    expect(resolveProjectDefaultPageCreateCapability({
-      project: project("view:alpha"),
-      target: null,
-      error: null,
-    })).toEqual({
+    expect(
+      resolveProjectDefaultPageCreateCapability({
+        project: project("view:alpha"),
+        target: null,
+        error: null,
+      }),
+    ).toEqual({
       status: "loading",
       reason: "Preparing this Project’s default Database View…",
     });
 
-    expect(resolveProjectDefaultPageCreateCapability({
-      project: project("view:alpha"),
-      target,
-      error: null,
-    })).toEqual({ status: "ready", target });
+    expect(
+      resolveProjectDefaultPageCreateCapability({
+        project: project("view:alpha"),
+        target,
+        error: null,
+      }),
+    ).toEqual({ status: "ready", target });
   });
 });

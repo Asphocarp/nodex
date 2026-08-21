@@ -7,11 +7,7 @@ describe("BlockNote shadcn suggestion roots", () => {
     const SuggestionRoot = blockNoteShadcnComponents.SuggestionMenu.Root;
 
     const view = render(
-      <SuggestionRoot
-        id="bn-suggestion-menu"
-        aria-busy
-        data-test="suggestion-root"
-      >
+      <SuggestionRoot id="bn-suggestion-menu" aria-busy data-test="suggestion-root">
         <div>Loading</div>
       </SuggestionRoot>,
     );

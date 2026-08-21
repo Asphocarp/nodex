@@ -10,7 +10,9 @@ describe("page stage raw content", () => {
   test("renders exact raw content in a read-only chrome", async () => {
     const { PageStageRawContent } = await import("./raw-content");
     const { container, getByText } = render(
-      <PageStageRawContent content={`# Heading\n\n- item 1\n- item 2\n<image source="nodex://assets/demo.png" />`} />,
+      <PageStageRawContent
+        content={`# Heading\n\n- item 1\n- item 2\n<image source="nodex://assets/demo.png" />`}
+      />,
     );
 
     expect(getByText("Raw format").textContent).toBe("Raw format");
@@ -18,9 +20,7 @@ describe("page stage raw content", () => {
     await waitFor(() => {
       const source = container.querySelector("diffs-container");
       expect(
-        source?.shadowRoot?.textContent.includes(
-          '<image source="nodex://assets/demo.png" />',
-        ),
+        source?.shadowRoot?.textContent.includes('<image source="nodex://assets/demo.png" />'),
       ).toBe(true);
     });
   });

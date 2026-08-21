@@ -16,8 +16,5 @@ export {
 } from "@/components/ui/dropdown";
 export { BranchSelectorPopover } from "../shared/branch-selector-popover";
 export { EnvironmentSelectorPopover } from "../shared/environment-selector-popover";
-export {
-  ContextWindowIndicator,
-  resolvePromptTextareaMaxHeightPx,
-} from "../shared/context-window";
+export { ContextWindowIndicator, resolvePromptTextareaMaxHeightPx } from "../shared/context-window";
 export { PermissionModeDropdown } from "../shared/permission-mode-dropdown";

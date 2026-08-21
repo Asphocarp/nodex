@@ -26,10 +26,12 @@ const unwrapCoreResult = <Value>(result: CoreResult<Value>, label: string): Valu
 };
 
 const requireSuccess = <Value>(
-  result: { readonly ok: true; readonly value: Value } | {
-    readonly ok: false;
-    readonly error: { readonly message: string };
-  },
+  result:
+    | { readonly ok: true; readonly value: Value }
+    | {
+        readonly ok: false;
+        readonly error: { readonly message: string };
+      },
   label: string,
 ): Value => {
   if (result.ok) return result.value;
@@ -47,23 +49,22 @@ export class RendererIpcSeedAdapter implements ScenarioSeedPort {
     channel: Channel,
     ...args: IpcApi[Channel]["args"]
   ): Promise<IpcApi[Channel]["result"]> {
-    return await this.#page.evaluate(
+    return (await this.#page.evaluate(
       async ({ targetChannel, targetArgs }) => {
-        const api = (window as unknown as {
-          api?: { invoke(channel: string, ...args: unknown[]): Promise<unknown> };
-        }).api;
+        const api = (
+          window as unknown as {
+            api?: { invoke(channel: string, ...args: unknown[]): Promise<unknown> };
+          }
+        ).api;
         if (!api) throw new Error("Nodex preload API is unavailable");
         return await api.invoke(targetChannel, ...(targetArgs as unknown[]));
       },
       { targetChannel: channel as string, targetArgs: args as unknown[] },
-    ) as IpcApi[Channel]["result"];
+    )) as IpcApi[Channel]["result"];
   }
 
   async createProject(input: ProjectCreateInput): Promise<Project> {
-    return unwrapCoreResult(
-      await this.#invoke("projects:create", input),
-      "Project creation",
-    );
+    return unwrapCoreResult(await this.#invoke("projects:create", input), "Project creation");
   }
 
   async createPage(input: ScenarioPageSeed): Promise<{ readonly documentId: string }> {
@@ -91,16 +92,10 @@ export class RendererIpcSeedAdapter implements ScenarioSeedPort {
 
   #databasePort(): ScenarioDatabasePort {
     return {
-      read: async (request) => await this.#invoke(
-        "database-module:read",
-        request.projectId,
-        request,
-      ),
-      apply: async (request) => await this.#invoke(
-        "database-module:apply",
-        request.projectId,
-        request,
-      ),
+      read: async (request) =>
+        await this.#invoke("database-module:read", request.projectId, request),
+      apply: async (request) =>
+        await this.#invoke("database-module:apply", request.projectId, request),
     };
   }
 
@@ -122,11 +117,8 @@ export class RendererIpcSeedAdapter implements ScenarioSeedPort {
       await this.#invoke("block-document:owned:prepare", input.projectId, input.pageId),
       `Prepare ${input.pageId}`,
     );
-    const mutation = requireSuccess(await this.#invoke(
-      "block-documents:mutate",
-      input.projectId,
-      descriptor.documentId,
-      {
+    const mutation = requireSuccess(
+      await this.#invoke("block-documents:mutate", input.projectId, descriptor.documentId, {
         mutationId: input.mutationId,
         projectId: input.projectId,
         storeEpoch: descriptor.storeEpoch,
@@ -136,8 +128,9 @@ export class RendererIpcSeedAdapter implements ScenarioSeedPort {
         generation: descriptor.generation,
         expectedHeadSeq: descriptor.headSeq,
         nfm: input.nfm,
-      },
-    ), `Replace ${input.pageId}`);
+      }),
+      `Replace ${input.pageId}`,
+    );
     return { commitSeq: mutation.commitSeq };
   }
 

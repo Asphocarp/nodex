@@ -13,21 +13,65 @@
 
 .nodex-browser-tab-favicon-clip-loading {
   clip-path: circle(5px);
-  transition-timing-function: linear(0, 0.3439 10%, 0.5904 20%, 0.7599 30%, 0.8704 40%, 0.9375 50%, 0.9744 60%, 0.9919 70%, 0.9984 80%, 0.9999 90%, 1);
+  transition-timing-function: linear(
+    0,
+    0.3439 10%,
+    0.5904 20%,
+    0.7599 30%,
+    0.8704 40%,
+    0.9375 50%,
+    0.9744 60%,
+    0.9919 70%,
+    0.9984 80%,
+    0.9999 90%,
+    1
+  );
 }
 
 .nodex-browser-tab-favicon-image-loading {
-  transition-timing-function: linear(0, 0 10%, 0.137968 20%, 0.494693 30%, 0.727248 40%, 0.868464 50%, 0.946123 60%, 0.982953 70%, 0.996633 80%, 0.99979 90%, 1);
+  transition-timing-function: linear(
+    0,
+    0 10%,
+    0.137968 20%,
+    0.494693 30%,
+    0.727248 40%,
+    0.868464 50%,
+    0.946123 60%,
+    0.982953 70%,
+    0.996633 80%,
+    0.99979 90%,
+    1
+  );
   transform: scale(0.625);
 }
 
 .nodex-browser-tab-favicon-clip-settled {
   clip-path: circle(11.3137px);
-  transition-timing-function: linear(0, 0.0361 10%, 0.1296 20%, 0.2601 30%, 0.4096 40%, 0.5625 50%, 0.7056 60%, 0.8281 70%, 0.9216 80%, 0.9801 90%, 1);
+  transition-timing-function: linear(
+    0,
+    0.0361 10%,
+    0.1296 20%,
+    0.2601 30%,
+    0.4096 40%,
+    0.5625 50%,
+    0.7056 60%,
+    0.8281 70%,
+    0.9216 80%,
+    0.9801 90%,
+    1
+  );
 }
 
 .nodex-browser-tab-favicon-image-settled {
-  transition-timing-function: linear(0, 0.075975 10%, 0.272752 20%, 0.547399 30%, 0.862032 40%, 1 50%, 1);
+  transition-timing-function: linear(
+    0,
+    0.075975 10%,
+    0.272752 20%,
+    0.547399 30%,
+    0.862032 40%,
+    1 50%,
+    1
+  );
   transform: scale(1);
 }
 
@@ -65,64 +109,182 @@
 .nodex-browser-tab-throbber-arc {
   fill: none;
   stroke: currentColor;
-  stroke-dasharray: max(5, var(--browser-tab-throbber-sweep)) calc(360 - max(5, var(--browser-tab-throbber-sweep)));
+  stroke-dasharray: max(5, var(--browser-tab-throbber-sweep))
+    calc(360 - max(5, var(--browser-tab-throbber-sweep)));
   stroke-linecap: round;
   stroke-width: 2px;
 }
 
 .nodex-browser-tab-throbber-arc-growing {
   opacity: 1;
-  stroke-dashoffset: calc(5 - min(5, var(--browser-tab-throbber-sweep)) - var(--browser-tab-throbber-turn));
+  stroke-dashoffset: calc(
+    5 - min(5, var(--browser-tab-throbber-sweep)) - var(--browser-tab-throbber-turn)
+  );
   animation: 5.33333s linear infinite nodex-browser-tab-throbber-growing-arc;
 }
 
 .nodex-browser-tab-throbber-arc-shrinking {
   opacity: 0;
-  stroke-dashoffset: calc(-270 - var(--browser-tab-throbber-turn) + var(--browser-tab-throbber-sweep) + max(0, 5 - var(--browser-tab-throbber-sweep)) + max(0, 5 - var(--browser-tab-throbber-sweep)));
+  stroke-dashoffset: calc(
+    -270 - var(--browser-tab-throbber-turn) + var(--browser-tab-throbber-sweep) +
+      max(0, 5 - var(--browser-tab-throbber-sweep)) + max(0, 5 - var(--browser-tab-throbber-sweep))
+  );
   animation: 5.33333s linear infinite nodex-browser-tab-throbber-shrinking-arc;
 }
 
 @keyframes nodex-browser-tab-throbber-rotation {
-  from { transform: rotate(-90deg); }
-  to { transform: rotate(270deg); }
+  from {
+    transform: rotate(-90deg);
+  }
+  to {
+    transform: rotate(270deg);
+  }
 }
 
 @keyframes nodex-browser-tab-throbber-growing-arc {
-  0% { --browser-tab-throbber-sweep: 0; --browser-tab-throbber-turn: 0; opacity: 1; animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
-  12.5% { --browser-tab-throbber-sweep: 270; --browser-tab-throbber-turn: 0; opacity: 1; }
-  12.5001% { opacity: 0; }
-  25% { --browser-tab-throbber-sweep: 0; --browser-tab-throbber-turn: 270; opacity: 0; }
-  25.0001% { opacity: 1; animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
-  37.5% { --browser-tab-throbber-sweep: 270; --browser-tab-throbber-turn: 270; opacity: 1; }
-  37.5001% { opacity: 0; }
-  50% { --browser-tab-throbber-sweep: 0; --browser-tab-throbber-turn: 540; opacity: 0; }
-  50.0001% { opacity: 1; animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
-  62.5% { --browser-tab-throbber-sweep: 270; --browser-tab-throbber-turn: 540; opacity: 1; }
-  62.5001% { opacity: 0; }
-  75% { --browser-tab-throbber-sweep: 0; --browser-tab-throbber-turn: 810; opacity: 0; }
-  75.0001% { opacity: 1; animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
-  87.5% { --browser-tab-throbber-sweep: 270; --browser-tab-throbber-turn: 810; opacity: 1; }
-  87.5001% { opacity: 0; }
-  to { --browser-tab-throbber-sweep: 0; --browser-tab-throbber-turn: 1080; opacity: 0; }
+  0% {
+    --browser-tab-throbber-sweep: 0;
+    --browser-tab-throbber-turn: 0;
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  12.5% {
+    --browser-tab-throbber-sweep: 270;
+    --browser-tab-throbber-turn: 0;
+    opacity: 1;
+  }
+  12.5001% {
+    opacity: 0;
+  }
+  25% {
+    --browser-tab-throbber-sweep: 0;
+    --browser-tab-throbber-turn: 270;
+    opacity: 0;
+  }
+  25.0001% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  37.5% {
+    --browser-tab-throbber-sweep: 270;
+    --browser-tab-throbber-turn: 270;
+    opacity: 1;
+  }
+  37.5001% {
+    opacity: 0;
+  }
+  50% {
+    --browser-tab-throbber-sweep: 0;
+    --browser-tab-throbber-turn: 540;
+    opacity: 0;
+  }
+  50.0001% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  62.5% {
+    --browser-tab-throbber-sweep: 270;
+    --browser-tab-throbber-turn: 540;
+    opacity: 1;
+  }
+  62.5001% {
+    opacity: 0;
+  }
+  75% {
+    --browser-tab-throbber-sweep: 0;
+    --browser-tab-throbber-turn: 810;
+    opacity: 0;
+  }
+  75.0001% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  87.5% {
+    --browser-tab-throbber-sweep: 270;
+    --browser-tab-throbber-turn: 810;
+    opacity: 1;
+  }
+  87.5001% {
+    opacity: 0;
+  }
+  to {
+    --browser-tab-throbber-sweep: 0;
+    --browser-tab-throbber-turn: 1080;
+    opacity: 0;
+  }
 }
 
 @keyframes nodex-browser-tab-throbber-shrinking-arc {
-  0% { --browser-tab-throbber-sweep: 270; --browser-tab-throbber-turn: 0; opacity: 0; }
-  12.4999% { --browser-tab-throbber-sweep: 270; --browser-tab-throbber-turn: 0; opacity: 0; }
-  12.5% { opacity: 1; animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
-  25% { --browser-tab-throbber-sweep: 0; --browser-tab-throbber-turn: 0; opacity: 1; }
-  25.0001% { opacity: 0; }
-  37.4999% { --browser-tab-throbber-sweep: 270; --browser-tab-throbber-turn: 270; opacity: 0; }
-  37.5% { opacity: 1; animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
-  50% { --browser-tab-throbber-sweep: 0; --browser-tab-throbber-turn: 270; opacity: 1; }
-  50.0001% { opacity: 0; }
-  62.4999% { --browser-tab-throbber-sweep: 270; --browser-tab-throbber-turn: 540; opacity: 0; }
-  62.5% { opacity: 1; animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
-  75% { --browser-tab-throbber-sweep: 0; --browser-tab-throbber-turn: 540; opacity: 1; }
-  75.0001% { opacity: 0; }
-  87.4999% { --browser-tab-throbber-sweep: 270; --browser-tab-throbber-turn: 810; opacity: 0; }
-  87.5% { opacity: 1; animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1); }
-  to { --browser-tab-throbber-sweep: 0; --browser-tab-throbber-turn: 810; opacity: 1; }
+  0% {
+    --browser-tab-throbber-sweep: 270;
+    --browser-tab-throbber-turn: 0;
+    opacity: 0;
+  }
+  12.4999% {
+    --browser-tab-throbber-sweep: 270;
+    --browser-tab-throbber-turn: 0;
+    opacity: 0;
+  }
+  12.5% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  25% {
+    --browser-tab-throbber-sweep: 0;
+    --browser-tab-throbber-turn: 0;
+    opacity: 1;
+  }
+  25.0001% {
+    opacity: 0;
+  }
+  37.4999% {
+    --browser-tab-throbber-sweep: 270;
+    --browser-tab-throbber-turn: 270;
+    opacity: 0;
+  }
+  37.5% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  50% {
+    --browser-tab-throbber-sweep: 0;
+    --browser-tab-throbber-turn: 270;
+    opacity: 1;
+  }
+  50.0001% {
+    opacity: 0;
+  }
+  62.4999% {
+    --browser-tab-throbber-sweep: 270;
+    --browser-tab-throbber-turn: 540;
+    opacity: 0;
+  }
+  62.5% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  75% {
+    --browser-tab-throbber-sweep: 0;
+    --browser-tab-throbber-turn: 540;
+    opacity: 1;
+  }
+  75.0001% {
+    opacity: 0;
+  }
+  87.4999% {
+    --browser-tab-throbber-sweep: 270;
+    --browser-tab-throbber-turn: 810;
+    opacity: 0;
+  }
+  87.5% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  to {
+    --browser-tab-throbber-sweep: 0;
+    --browser-tab-throbber-turn: 810;
+    opacity: 1;
+  }
 }
 
 @property --browser-tab-throbber-sweep {

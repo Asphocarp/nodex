@@ -55,31 +55,25 @@ const captureBoundaryCode = (operation: () => unknown): string => {
     operation();
     return "none";
   } catch (error) {
-    return error instanceof OwnedBlockDocumentBoundaryError
-      ? error.code
-      : "unexpected";
+    return error instanceof OwnedBlockDocumentBoundaryError ? error.code : "unexpected";
   }
 };
 
 describe("owned Block Document renderer boundary", () => {
   test("validates Library descriptors without admitting Project coordinates", () => {
-    const ready = validateLibraryOwnedBlockDocumentDescriptor(
-      REQUEST.ownerBlockId,
-      { ...makeDescriptor(), accessContext: { kind: "library" } },
-    );
+    const ready = validateLibraryOwnedBlockDocumentDescriptor(REQUEST.ownerBlockId, {
+      ...makeDescriptor(),
+      accessContext: { kind: "library" },
+    });
     expect(ready.accessContext).toEqual({ kind: "library" });
     expect("projectId" in ready).toBe(false);
-    expect(() => validateLibraryOwnedBlockDocumentDescriptor(
-      REQUEST.ownerBlockId,
-      makeDescriptor(),
-    )).toThrow("requested access context");
+    expect(() =>
+      validateLibraryOwnedBlockDocumentDescriptor(REQUEST.ownerBlockId, makeDescriptor()),
+    ).toThrow("requested access context");
   });
 
   test("accepts only the requested ready active nodex.page descriptor", () => {
-    const descriptor = validateOwnedBlockDocumentDescriptor(
-      REQUEST,
-      makeDescriptor(),
-    );
+    const descriptor = validateOwnedBlockDocumentDescriptor(REQUEST, makeDescriptor());
     expect(descriptor.documentId).toBe("opaque-owned-document-id");
     expect(descriptor.sync.kind).toBe("yjs");
     expect(JSON.stringify(ownedBlockDocumentIdentity(descriptor))).toBe(
@@ -97,21 +91,13 @@ describe("owned Block Document renderer boundary", () => {
       schemaKey: SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY,
       schemaVersion: SYNCED_BLOCK_DOCUMENT_SCHEMA_VERSION,
     });
-    const registered = validateRegisteredOwnedBlockDocumentDescriptor(
-      REQUEST,
-      synced,
-    );
+    const registered = validateRegisteredOwnedBlockDocumentDescriptor(REQUEST, synced);
     expect(registered.ownerType).toBe(SYNCED_BLOCK_SOURCE_TYPE);
-    expect(
-      captureBoundaryCode(() =>
-        validateOwnedBlockDocumentDescriptor(REQUEST, synced),
-      ),
-    ).toBe("unsupported_owner_type");
-
-    const fetched = await fetchRegisteredOwnedBlockDocumentDescriptor(
-      REQUEST,
-      async () => synced,
+    expect(captureBoundaryCode(() => validateOwnedBlockDocumentDescriptor(REQUEST, synced))).toBe(
+      "unsupported_owner_type",
     );
+
+    const fetched = await fetchRegisteredOwnedBlockDocumentDescriptor(REQUEST, async () => synced);
     expect(fetched.schemaKey).toBe(SYNCED_BLOCK_DOCUMENT_SCHEMA_KEY);
 
     const client = new QueryClient({
@@ -169,9 +155,7 @@ describe("owned Block Document renderer boundary", () => {
     expect(
       JSON.stringify(
         cases.map(({ descriptor }) =>
-          captureBoundaryCode(() =>
-            validateOwnedBlockDocumentDescriptor(REQUEST, descriptor),
-          ),
+          captureBoundaryCode(() => validateOwnedBlockDocumentDescriptor(REQUEST, descriptor)),
         ),
       ),
     ).toBe(JSON.stringify(cases.map(({ expected }) => expected)));
@@ -190,9 +174,9 @@ describe("owned Block Document renderer boundary", () => {
       },
     );
 
-    expect(JSON.stringify(calls)).toBe(JSON.stringify([
-      '{"kind":"project","projectId":"project-a"}/card-a',
-    ]));
+    expect(JSON.stringify(calls)).toBe(
+      JSON.stringify(['{"kind":"project","projectId":"project-a"}/card-a']),
+    );
     expect(descriptor.documentId).toBe("server-owned-document");
     expect(descriptor.sync.kind).toBe("yjs");
   });
@@ -227,10 +211,7 @@ describe("owned Block Document renderer boundary", () => {
         },
       );
     } catch (error) {
-      code =
-        error instanceof OwnedBlockDocumentBoundaryError
-          ? error.code
-          : "unexpected";
+      code = error instanceof OwnedBlockDocumentBoundaryError ? error.code : "unexpected";
     }
     expect(calls).toBe(0);
     expect(code).toBe("invalid_request");
@@ -250,10 +231,7 @@ describe("owned Block Document renderer boundary", () => {
         }),
       );
     } catch (error) {
-      failedCode =
-        error instanceof OwnedBlockDocumentBoundaryError
-          ? error.code
-          : "unexpected";
+      failedCode = error instanceof OwnedBlockDocumentBoundaryError ? error.code : "unexpected";
     }
     expect(failedCode).toBe("fetch_failed");
 
@@ -272,9 +250,7 @@ describe("owned Block Document renderer boundary", () => {
       );
     } catch (error) {
       invalidPrimaryCode =
-        error instanceof OwnedBlockDocumentBoundaryError
-          ? error.code
-          : "unexpected";
+        error instanceof OwnedBlockDocumentBoundaryError ? error.code : "unexpected";
     }
     expect(invalidPrimaryCode).toBe("document_not_ready");
   });

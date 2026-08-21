@@ -33,9 +33,7 @@ describe("renderer api transport", () => {
       const result = await invoke("window:new");
 
       expect(result).toBe("ok");
-      expect(JSON.stringify(invokeCalls)).toBe(JSON.stringify([
-        ["window:new"],
-      ]));
+      expect(JSON.stringify(invokeCalls)).toBe(JSON.stringify([["window:new"]]));
     } finally {
       restoreWindow(originalWindowDescriptor);
     }
@@ -124,5 +122,4 @@ describe("renderer api transport", () => {
       restoreWindow(originalWindowDescriptor);
     }
   });
-
 });

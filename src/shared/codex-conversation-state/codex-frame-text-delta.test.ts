@@ -72,16 +72,18 @@ function buildState(
     agentRole: null,
     gitInfo: null,
     name: "C-04 delta fixture",
-    turns: [{
-      id: TURN_ID,
-      items,
-      itemsView: "full",
-      status,
-      error: null,
-      startedAt: 1,
-      completedAt: status === "completed" ? 2 : null,
-      durationMs: status === "completed" ? 1_000 : null,
-    }],
+    turns: [
+      {
+        id: TURN_ID,
+        items,
+        itemsView: "full",
+        status,
+        error: null,
+        startedAt: 1,
+        completedAt: status === "completed" ? 2 : null,
+        durationMs: status === "completed" ? 1_000 : null,
+      },
+    ],
   };
   return createCodexCanonicalConversationState(thread, {
     turnParamsById: { [TURN_ID]: buildTurnParams() },
@@ -140,15 +142,11 @@ describe("canonical frame-text delta reduction", () => {
       },
     ] satisfies ServerNotification[];
 
-    const mapped = notifications.map((notification) =>
-      toCodexFrameTextDelta(notification, null)
-    );
+    const mapped = notifications.map((notification) => toCodexFrameTextDelta(notification, null));
     expect(mapped.map((entry) => entry.target.type).join(",")).toBe(
       "agentMessage,plan,reasoningSummary,reasoningContent",
     );
-    expect(mapped.map((entry) => String(entry.turnId)).join(",")).toBe(
-      "null,null,null,null",
-    );
+    expect(mapped.map((entry) => String(entry.turnId)).join(",")).toBe("null,null,null,null");
   });
 
   test("updates the reverse-last same-ID exact raw protocol type", () => {
@@ -195,7 +193,13 @@ describe("canonical frame-text delta reduction", () => {
       update({ type: "reasoningSummary", summaryIndex: 3 }, "three"),
     );
     const paddedItem = padded.items[0] as Extract<ThreadItem, { type: "reasoning" }>;
-    const invalidIndexes = [-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1];
+    const invalidIndexes = [
+      -1,
+      0.5,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.MAX_SAFE_INTEGER + 1,
+    ];
 
     expect(paddedItem.summary.join("|")).toBe("zero|||three");
     for (const index of invalidIndexes) {
@@ -235,12 +239,18 @@ describe("canonical frame-text delta reduction", () => {
       update({ type: "reasoningContent", contentIndex: 0 }, ""),
     );
     const initial = buildState([reasoning]);
-    const canonicalResult = reduceCodexConversationFrameTextDeltas(initial, [
-      update({ type: "reasoningSummary", summaryIndex: 0 }, ""),
-      update({ type: "reasoningContent", contentIndex: 0 }, ""),
-    ], { now: () => {
-      throw new Error("an existing empty-delta slot must not read the clock");
-    } });
+    const canonicalResult = reduceCodexConversationFrameTextDeltas(
+      initial,
+      [
+        update({ type: "reasoningSummary", summaryIndex: 0 }, ""),
+        update({ type: "reasoningContent", contentIndex: 0 }, ""),
+      ],
+      {
+        now: () => {
+          throw new Error("an existing empty-delta slot must not read the clock");
+        },
+      },
+    );
 
     expect(summaryResult.items === rawItems).toBe(true);
     expect(summaryResult.items[0] === reasoning).toBe(true);
@@ -252,13 +262,17 @@ describe("canonical frame-text delta reduction", () => {
   });
 
   test("uses latest for nullable turn IDs and never rebinds an in-progress null placeholder", () => {
-    const latest = resolveCodexFrameTextDeltaTurn([
-      { turnId: "older", status: "completed", hasError: false, itemCount: 1 },
-      { turnId: "latest", status: "inProgress", hasError: false, itemCount: 1 },
-    ], null);
-    const inProgressPlaceholder = resolveCodexFrameTextDeltaTurn([
-      { turnId: null, status: "inProgress", hasError: false, itemCount: 0 },
-    ], "incoming");
+    const latest = resolveCodexFrameTextDeltaTurn(
+      [
+        { turnId: "older", status: "completed", hasError: false, itemCount: 1 },
+        { turnId: "latest", status: "inProgress", hasError: false, itemCount: 1 },
+      ],
+      null,
+    );
+    const inProgressPlaceholder = resolveCodexFrameTextDeltaTurn(
+      [{ turnId: null, status: "inProgress", hasError: false, itemCount: 0 }],
+      "incoming",
+    );
 
     expect(latest.kind).toBe("latest");
     expect("turnIndex" in latest ? latest.turnIndex : -1).toBe(1);
@@ -269,30 +283,36 @@ describe("canonical frame-text delta reduction", () => {
     const initial = buildState([], "completed");
     const placeholder = {
       ...initial,
-      turns: [{
-        ...initial.turns[0]!,
-        protocol: {
-          ...initial.turns[0]!.protocol,
-          id: null,
-          status: "completed" as const,
+      turns: [
+        {
+          ...initial.turns[0]!,
+          protocol: {
+            ...initial.turns[0]!.protocol,
+            id: null,
+            status: "completed" as const,
+          },
+          sidecar: {
+            ...initial.turns[0]!.sidecar,
+            turnStartedAtMs: null,
+          },
         },
-        sidecar: {
-          ...initial.turns[0]!.sidecar,
-          turnStartedAtMs: null,
-        },
-      }],
+      ],
     };
     let clockCalls = 0;
     const result = reduceCodexConversationFrameTextDeltas(
       placeholder,
-      [update({ type: "plan" }, "missing", {
-        turnId: "rebound-turn",
-        itemId: "missing-plan",
-      })],
-      { now: () => {
-        clockCalls += 1;
-        return 44_000;
-      } },
+      [
+        update({ type: "plan" }, "missing", {
+          turnId: "rebound-turn",
+          itemId: "missing-plan",
+        }),
+      ],
+      {
+        now: () => {
+          clockCalls += 1;
+          return 44_000;
+        },
+      },
     );
 
     expect(result.state.turns[0]?.protocol.id).toBe("rebound-turn");
@@ -318,24 +338,32 @@ describe("canonical frame-text delta reduction", () => {
     const initialBase = buildState(items, "completed");
     const initial = {
       ...initialBase,
-      turns: [{
-        ...initialBase.turns[0]!,
-        sidecar: {
-          ...initialBase.turns[0]!.sidecar,
-          turnStartedAtMs: 10,
-          firstTurnWorkItemStartedAtMs: 20,
-          finalAssistantStartedAtMs: 30,
+      turns: [
+        {
+          ...initialBase.turns[0]!,
+          sidecar: {
+            ...initialBase.turns[0]!.sidecar,
+            turnStartedAtMs: 10,
+            firstTurnWorkItemStartedAtMs: 20,
+            finalAssistantStartedAtMs: 30,
+          },
         },
-      }],
+      ],
     };
-    const result = reduceCodexConversationFrameTextDeltas(initial, [
-      update({ type: "agentMessage" }, "agent", { itemId: "agent" }),
-      update({ type: "plan" }, "plan", { itemId: "plan" }),
-      update({ type: "reasoningSummary", summaryIndex: 1 }, "summary", { itemId: "reasoning" }),
-      update({ type: "reasoningContent", contentIndex: 2 }, "content", { itemId: "reasoning" }),
-    ], { now: () => {
-      throw new Error("ordinary deltas must not read the clock");
-    } });
+    const result = reduceCodexConversationFrameTextDeltas(
+      initial,
+      [
+        update({ type: "agentMessage" }, "agent", { itemId: "agent" }),
+        update({ type: "plan" }, "plan", { itemId: "plan" }),
+        update({ type: "reasoningSummary", summaryIndex: 1 }, "summary", { itemId: "reasoning" }),
+        update({ type: "reasoningContent", contentIndex: 2 }, "content", { itemId: "reasoning" }),
+      ],
+      {
+        now: () => {
+          throw new Error("ordinary deltas must not read the clock");
+        },
+      },
+    );
     const turn = result.state.turns[0]!;
     const agent = turn.items[0] as Extract<ThreadItem, { type: "agentMessage" }>;
     const plan = turn.items[1] as Extract<ThreadItem, { type: "plan" }>;
@@ -352,21 +380,27 @@ describe("canonical frame-text delta reduction", () => {
   });
 
   test("treats summaryPartAdded as an explicit state/effect no-op", () => {
-    const initial = buildState([{
-      type: "reasoning",
-      id: "reasoning",
-      summary: [],
-      content: [],
-    }]);
-    const next = reduceCodexConversationEvent(initial, notificationEvent({
-      method: "item/reasoning/summaryPartAdded",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        itemId: "reasoning",
-        summaryIndex: 4,
+    const initial = buildState([
+      {
+        type: "reasoning",
+        id: "reasoning",
+        summary: [],
+        content: [],
       },
-    }), { now: () => 1 });
+    ]);
+    const next = reduceCodexConversationEvent(
+      initial,
+      notificationEvent({
+        method: "item/reasoning/summaryPartAdded",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          itemId: "reasoning",
+          summaryIndex: 4,
+        },
+      }),
+      { now: () => 1 },
+    );
 
     expect(next === initial).toBe(true);
   });
@@ -382,28 +416,34 @@ describe("canonical frame-text delta reduction", () => {
       id: "shared-item",
       text: "authoritative final",
     };
-    const afterDelta = reduceCodexConversationEvent(buildState([started]), notificationEvent({
-      method: "item/plan/delta",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        itemId: "shared-item",
-        delta: " provisional",
-      },
-    }), { now: () => 1 });
-    const afterCompletion = reduceCodexConversationEvent(afterDelta, notificationEvent({
-      method: "item/completed",
-      params: {
-        threadId: THREAD_ID,
-        turnId: TURN_ID,
-        item: completed,
-        completedAtMs: 2_000,
-      },
-    }), { now: () => 3_000 });
-
-    expect((afterDelta.turns[0]?.items[0] as { text?: string }).text).toBe(
-      "draft provisional",
+    const afterDelta = reduceCodexConversationEvent(
+      buildState([started]),
+      notificationEvent({
+        method: "item/plan/delta",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          itemId: "shared-item",
+          delta: " provisional",
+        },
+      }),
+      { now: () => 1 },
     );
+    const afterCompletion = reduceCodexConversationEvent(
+      afterDelta,
+      notificationEvent({
+        method: "item/completed",
+        params: {
+          threadId: THREAD_ID,
+          turnId: TURN_ID,
+          item: completed,
+          completedAtMs: 2_000,
+        },
+      }),
+      { now: () => 3_000 },
+    );
+
+    expect((afterDelta.turns[0]?.items[0] as { text?: string }).text).toBe("draft provisional");
     expect(afterCompletion.turns[0]?.items[0] === completed).toBe(true);
     expect((afterCompletion.turns[0]?.items[0] as { text?: string }).text).toBe(
       "authoritative final",

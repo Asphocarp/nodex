@@ -40,9 +40,7 @@ function setCursorBefore(editor: BlockNoteEditor, character: string) {
     throw new Error(`Could not find ${character} in the editor document`);
   }
 
-  view.dispatch(
-    view.state.tr.setSelection(TextSelection.create(view.state.doc, position)),
-  );
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, position)));
 }
 
 describe("inline code input rule", () => {
@@ -73,9 +71,7 @@ describe("inline code input rule", () => {
   it("keeps an adjacent-word backtick span literal without deleting its left neighbor", () => {
     typeString(editor, "123`456`");
 
-    expect(editor.document[0].content).toEqual([
-      { type: "text", text: "123`456`", styles: {} },
-    ]);
+    expect(editor.document[0].content).toEqual([{ type: "text", text: "123`456`", styles: {} }]);
   });
 
   it("formats a boundary-delimited span and preserves spaces inside it", () => {
@@ -90,9 +86,7 @@ describe("inline code input rule", () => {
   it("keeps a span with trailing whitespace inside the delimiters literal", () => {
     typeString(editor, "12 `34 56 `");
 
-    expect(editor.document[0].content).toEqual([
-      { type: "text", text: "12 `34 56 `", styles: {} },
-    ]);
+    expect(editor.document[0].content).toEqual([{ type: "text", text: "12 `34 56 `", styles: {} }]);
   });
 
   it("does not retroactively format a literal span when a later space is typed", () => {
@@ -124,8 +118,6 @@ describe("inline code input rule", () => {
 
     simulateTextInput(editor, "`");
 
-    expect(editor.document[0].content).toEqual([
-      { type: "text", text: "12 `code`X", styles: {} },
-    ]);
+    expect(editor.document[0].content).toEqual([{ type: "text", text: "12 `code`X", styles: {} }]);
   });
 });

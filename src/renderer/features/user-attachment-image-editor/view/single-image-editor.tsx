@@ -18,10 +18,7 @@ import {
   WidescreenAspectRatioIcon,
 } from "@/components/shared/icons";
 import { NodexButton } from "@/components/ui/button";
-import {
-  NodexDropdownItem,
-  NodexDropdownMenu,
-} from "@/components/ui/dropdown";
+import { NodexDropdownItem, NodexDropdownMenu } from "@/components/ui/dropdown";
 import { toast } from "@/components/ui/toast";
 import { invoke } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -47,10 +44,7 @@ import type {
 } from "../model/types";
 import type { ImageEditComposerSubmitResult } from "@/lib/image-edit-composer-channel";
 import { ImageCommentSurface } from "./image-comment-surface";
-import {
-  ImageCommentModeToolbar,
-  ImageEditorToolbarPill,
-} from "./image-editor-toolbar";
+import { ImageCommentModeToolbar, ImageEditorToolbarPill } from "./image-editor-toolbar";
 import { ImageRemoveEditor } from "./image-remove-editor";
 import { GeneratedImageDotField } from "./generated-image-dot-field";
 import { ImageZoomViewer } from "./image-zoom-viewer";
@@ -116,9 +110,10 @@ function LocalImageOpenControl({
 }) {
   const openPath = async (target: "default" | "fileManager") => {
     try {
-      const opened = target === "default"
-        ? await invoke("shell:open-path-default", path)
-        : await invoke("shell:open-file-link", { path }, "fileManager");
+      const opened =
+        target === "default"
+          ? await invoke("shell:open-path-default", path)
+          : await invoke("shell:open-file-link", { path }, "fileManager");
       if (!opened) toast.danger("Could not open image");
     } catch {
       toast.danger("Could not open image");
@@ -146,7 +141,7 @@ function LocalImageOpenControl({
         align="end"
         contentWidth="xs"
         disabled={disabled}
-        triggerButton={(
+        triggerButton={
           <button
             type="button"
             aria-label="Open options"
@@ -155,7 +150,7 @@ function LocalImageOpenControl({
           >
             <ChevronDownIcon aria-hidden="true" className="icon-2xs" />
           </button>
-        )}
+        }
       >
         <NodexDropdownItem
           leftSlot={<FolderOpenIcon aria-hidden="true" className="icon-sm" />}
@@ -165,9 +160,13 @@ function LocalImageOpenControl({
         </NodexDropdownItem>
         <NodexDropdownItem
           disabled={isDownloading}
-          leftSlot={isDownloading
-            ? <LoaderCircleIcon aria-hidden="true" className="icon-sm animate-spin" />
-            : <DownloadIcon aria-hidden="true" className="icon-sm" />}
+          leftSlot={
+            isDownloading ? (
+              <LoaderCircleIcon aria-hidden="true" className="icon-sm animate-spin" />
+            ) : (
+              <DownloadIcon aria-hidden="true" className="icon-sm" />
+            )
+          }
           onSelect={() => void onDownload()}
         >
           {isDownloading ? "Saving…" : "Save as…"}
@@ -204,9 +203,10 @@ export function SingleImageEditor({
   const [descriptorRetryRequested, setDescriptorRetryRequested] = useState(false);
   const displaySrc = asset.previewSrc;
   const isLoading = image.loading === true || asset.isLoading;
-  const hasError = (image.error != null && !descriptorRetryRequested)
-    || asset.isError
-    || (!isLoading && !displaySrc);
+  const hasError =
+    (image.error != null && !descriptorRetryRequested) ||
+    asset.isError ||
+    (!isLoading && !displaySrc);
   const canEdit = !isLoading && !hasError && displaySrc !== null && !isSubmitting;
 
   const selectTool = (tool: SingleImageTool) => {
@@ -221,13 +221,13 @@ export function SingleImageEditor({
   useEffect(() => {
     if (!displaySrc) return;
     onResolvedSource?.(
-      downloadAsset.dataUrl
-      ?? asset.dataUrl
-      ?? image.dataUrl
-      ?? image.localPath
-      ?? image.downloadSrc
-      ?? image.attachmentSrc
-      ?? image.src,
+      downloadAsset.dataUrl ??
+        asset.dataUrl ??
+        image.dataUrl ??
+        image.localPath ??
+        image.downloadSrc ??
+        image.attachmentSrc ??
+        image.src,
     );
   }, [
     asset.dataUrl,
@@ -267,10 +267,7 @@ export function SingleImageEditor({
   };
 
   const downloadControl = (
-    <div
-      data-tab-preview-pin-exempt="true"
-      className="flex items-center"
-    >
+    <div data-tab-preview-pin-exempt="true" className="flex items-center">
       {downloadAsset.localPath ? (
         <LocalImageOpenControl
           disabled={isLoading}
@@ -289,9 +286,11 @@ export function SingleImageEditor({
           className="!size-7 rounded-full"
           onClick={() => void handleDownload()}
         >
-          {isDownloading
-            ? <LoaderCircleIcon aria-hidden="true" className="icon-xs animate-spin" />
-            : <DownloadIcon aria-hidden="true" className="icon-xs" />}
+          {isDownloading ? (
+            <LoaderCircleIcon aria-hidden="true" className="icon-xs animate-spin" />
+          ) : (
+            <DownloadIcon aria-hidden="true" className="icon-xs" />
+          )}
         </NodexButton>
       )}
     </div>
@@ -305,11 +304,7 @@ export function SingleImageEditor({
       )}
       data-testid="user-attachment-image-editor-single"
       onKeyDown={(event) => {
-        if (
-          event.key !== "Escape"
-          || event.defaultPrevented
-          || activeTool === "navigate"
-        ) return;
+        if (event.key !== "Escape" || event.defaultPrevented || activeTool === "navigate") return;
         event.preventDefault();
         event.stopPropagation();
         if (activeTool === "comment") onCommentsChange([]);
@@ -344,7 +339,7 @@ export function SingleImageEditor({
               side="bottom"
               contentWidth="xs"
               disabled={!canEdit}
-              triggerButton={(
+              triggerButton={
                 <NodexButton
                   variant="ghost"
                   size="composer"
@@ -352,18 +347,22 @@ export function SingleImageEditor({
                   aria-label="Resize"
                   aria-busy={isSubmitting || undefined}
                   className="!h-token-button-composer-sm !gap-1 !rounded-full !px-2 !text-base"
-                  onClick={() => trackImageToolOpen({
-                    imageSource: image.source,
-                    mode: "resize",
-                    view: "single",
-                  })}
+                  onClick={() =>
+                    trackImageToolOpen({
+                      imageSource: image.source,
+                      mode: "resize",
+                      view: "single",
+                    })
+                  }
                 >
-                  {isSubmitting
-                    ? <LoaderCircleIcon aria-hidden="true" className="icon-sm animate-spin" />
-                    : <ImageResizeIcon aria-hidden="true" className="icon-sm" />}
+                  {isSubmitting ? (
+                    <LoaderCircleIcon aria-hidden="true" className="icon-sm animate-spin" />
+                  ) : (
+                    <ImageResizeIcon aria-hidden="true" className="icon-sm" />
+                  )}
                   <span className="[@container_(max-width:630px)]:sr-only">Resize</span>
                 </NodexButton>
-              )}
+              }
             >
               {IMAGE_ASPECT_RATIO_OPTIONS.map(({ label, ratio }) => {
                 const Icon = ASPECT_RATIO_ICONS[ratio];
@@ -371,11 +370,15 @@ export function SingleImageEditor({
                   <NodexDropdownItem
                     key={ratio}
                     leftSlot={<Icon aria-hidden="true" className="icon-sm" />}
-                    onSelect={() => void submitAndExit(buildResizeSubmissionIntent({
-                      aspectRatio: ratio,
-                      entrypoint,
-                      image,
-                    }))}
+                    onSelect={() =>
+                      void submitAndExit(
+                        buildResizeSubmissionIntent({
+                          aspectRatio: ratio,
+                          entrypoint,
+                          image,
+                        }),
+                      )
+                    }
                   >
                     <span className="flex w-full items-center justify-between gap-4">
                       <span>{label}</span>
@@ -387,9 +390,7 @@ export function SingleImageEditor({
             </NodexDropdownMenu>
           </ImageEditorToolbarPill>
           {isLoading || hasError || !displaySrc ? (
-            <div className="absolute top-2 right-2 flex h-8 items-center">
-              {downloadControl}
-            </div>
+            <div className="absolute top-2 right-2 flex h-8 items-center">{downloadControl}</div>
           ) : null}
         </div>
       ) : null}
@@ -408,18 +409,20 @@ export function SingleImageEditor({
               }}
               onSend={() => {
                 void (async () => {
-                  const composerResult = await onRequestCommentSubmit?.()
-                    ?? {
-                      status: "unavailable" as const,
-                      reason: "composer-unmounted" as const,
-                    };
-                  const submitted = composerResult.status === "submitted"
-                    || composerResult.status === "queued"
-                    || composerResult.status === "unavailable"
-                    && await submitAndExit(buildCommentSubmissionIntent({
-                      commentedImages: [{ comments, image }],
-                      entrypoint,
-                    }));
+                  const composerResult = (await onRequestCommentSubmit?.()) ?? {
+                    status: "unavailable" as const,
+                    reason: "composer-unmounted" as const,
+                  };
+                  const submitted =
+                    composerResult.status === "submitted" ||
+                    composerResult.status === "queued" ||
+                    (composerResult.status === "unavailable" &&
+                      (await submitAndExit(
+                        buildCommentSubmissionIntent({
+                          commentedImages: [{ comments, image }],
+                          entrypoint,
+                        }),
+                      )));
                   if (!submitted) return;
                   onCommentsChange([]);
                   selectTool("navigate");
@@ -437,9 +440,11 @@ export function SingleImageEditor({
             }}
             onSubmitComment={(comment) => {
               const existing = comments.some((candidate) => candidate.id === comment.id);
-              onCommentsChange(existing
-                ? comments.map((candidate) => candidate.id === comment.id ? comment : candidate)
-                : [...comments, comment]);
+              onCommentsChange(
+                existing
+                  ? comments.map((candidate) => (candidate.id === comment.id ? comment : candidate))
+                  : [...comments, comment],
+              );
             }}
           />
         </>
@@ -461,17 +466,21 @@ export function SingleImageEditor({
               source: image.source,
               src: maskDataUrl,
             };
-            await submitAndExit(buildRemoveSubmissionIntent({
-              entrypoint,
-              image,
-              mask,
-            }));
+            await submitAndExit(
+              buildRemoveSubmissionIntent({
+                entrypoint,
+                image,
+                mask,
+              }),
+            );
           }}
         />
       ) : isLoading ? (
-        image.source === "generated" && image.loading
-          ? <GeneratedImageLoadingState imageId={image.id} />
-          : <EditorLoadingState />
+        image.source === "generated" && image.loading ? (
+          <GeneratedImageLoadingState imageId={image.id} />
+        ) : (
+          <EditorLoadingState />
+        )
       ) : hasError || !displaySrc ? (
         <EditorLoadingState>
           <div className="flex flex-col items-center gap-2 text-center">

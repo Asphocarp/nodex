@@ -43,7 +43,9 @@ export function ContextWindowTooltipContent({
   if (state.status !== "ready" || state.usedTokens === null || state.windowTokens === null) {
     return (
       <div className="flex flex-col gap-0.5">
-        <span className="whitespace-pre-line text-token-input-placeholder-foreground">Context window:</span>
+        <span className="whitespace-pre-line text-token-input-placeholder-foreground">
+          Context window:
+        </span>
         <span>0% used (100% left)</span>
       </div>
     );
@@ -54,14 +56,21 @@ export function ContextWindowTooltipContent({
 
   return (
     <div className="flex w-38 flex-col gap-0.5 text-center">
-      <span className="whitespace-pre-line text-token-input-placeholder-foreground">Context window:</span>
+      <span className="whitespace-pre-line text-token-input-placeholder-foreground">
+        Context window:
+      </span>
       <span className={isFullLabel ? "text-token-input-placeholder-foreground" : undefined}>
         {isFullLabel
           ? `${state.percentFull}% full`
           : `${state.percentFull}% used (${remainingPercent}% left)`}
       </span>
-      <span>{formatRoundedTokenThousands(state.usedTokens)} / {formatRoundedTokenThousands(state.windowTokens)} tokens used</span>
-      {showAutoCompactionNote ? <p className="mt-2 font-medium">Nodex automatically compacts its context</p> : null}
+      <span>
+        {formatRoundedTokenThousands(state.usedTokens)} /{" "}
+        {formatRoundedTokenThousands(state.windowTokens)} tokens used
+      </span>
+      {showAutoCompactionNote ? (
+        <p className="mt-2 font-medium">Nodex automatically compacts its context</p>
+      ) : null}
     </div>
   );
 }
@@ -94,7 +103,15 @@ export function ContextWindowIndicator({
   const showAutoCompaction = shouldShowAutoCompactionNote(account);
   const ring = (
     <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" className="shrink-0">
-      <circle cx="6" cy="6" r={CONTEXT_RING_RADIUS} stroke="currentColor" strokeWidth="2" fill="none" opacity="0.16" />
+      <circle
+        cx="6"
+        cy="6"
+        r={CONTEXT_RING_RADIUS}
+        stroke="currentColor"
+        strokeWidth="2"
+        fill="none"
+        opacity="0.16"
+      />
       <circle
         cx="6"
         cy="6"
@@ -118,18 +135,18 @@ export function ContextWindowIndicator({
 
   return (
     <NodexTooltip
-      tooltipContent={(
-        <ContextWindowTooltipContent
-          state={state}
-          showAutoCompactionNote={showAutoCompaction}
-        />
-      )}
+      tooltipContent={
+        <ContextWindowTooltipContent state={state} showAutoCompactionNote={showAutoCompaction} />
+      }
       side="top"
     >
       {!showFallbackLabel ? (
         <span
           aria-label={contextWindowAriaLabel(state)}
-          className={cn("icon-xs inline-flex items-center justify-center text-token-description-foreground", className)}
+          className={cn(
+            "icon-xs inline-flex items-center justify-center text-token-description-foreground",
+            className,
+          )}
           role="img"
         >
           {ring}

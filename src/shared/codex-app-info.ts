@@ -40,9 +40,7 @@ function normalizeCodexAppLogoUrl(
 }
 
 /** Exact app-list logo projection; returns the original array when no row changes. */
-export function normalizeCodexAppInfoLogos(
-  apps: ProtocolAppInfo[],
-): ProtocolAppInfo[] {
+export function normalizeCodexAppInfoLogos(apps: ProtocolAppInfo[]): ProtocolAppInfo[] {
   let changed = false;
   const normalizedApps = apps.map((app) => {
     const selected = selectCodexAppLogoUrls(app);

@@ -56,8 +56,7 @@ vi.mock("./database-page-drag-runtime", async (importOriginal) => ({
 }));
 
 vi.mock("./page-metadata-board-runtime", () => ({
-  commitPageMetadataPatchForBoardWithReceipt:
-    testState.commitPageMetadataPatchForBoardWithReceipt,
+  commitPageMetadataPatchForBoardWithReceipt: testState.commitPageMetadataPatchForBoardWithReceipt,
 }));
 
 import { useBoard } from "./use-board";
@@ -92,9 +91,9 @@ describe("useBoard createPage result", () => {
     testState.commitPageLifecycleIntent.mockReset();
     testState.commitDatabasePageDrag.mockReset();
     testState.commitPageMetadataPatchForBoardWithReceipt.mockReset();
-    testState.runOptimisticMutation.mockReset().mockImplementation(
-      async () => testState.mutationOutcome,
-    );
+    testState.runOptimisticMutation
+      .mockReset()
+      .mockImplementation(async () => testState.mutationOutcome);
   });
 
   test("returns the committed Page on success", async () => {
@@ -119,39 +118,47 @@ describe("useBoard createPage result", () => {
   });
 
   test("does not overwrite a retained View presentation before preference hydration", () => {
-    renderHook(() => useBoard({
-      projectId: "project-test",
-      databaseViewId: "view-test",
-      presentationOverrideReady: false,
-    }));
+    renderHook(() =>
+      useBoard({
+        projectId: "project-test",
+        databaseViewId: "view-test",
+        presentationOverrideReady: false,
+      }),
+    );
 
     expect(testState.setPresentationOverride).not.toHaveBeenCalled();
   });
 
   test("does not let a non-owner overwrite a shared View presentation", () => {
-    renderHook(() => useBoard({
-      projectId: "project-test",
-      databaseViewId: "view-test",
-    }));
+    renderHook(() =>
+      useBoard({
+        projectId: "project-test",
+        databaseViewId: "view-test",
+      }),
+    );
 
     expect(testState.setPresentationOverride).not.toHaveBeenCalled();
   });
 
   test("lets the presentation owner explicitly restore the durable View", () => {
-    renderHook(() => useBoard({
-      projectId: "project-test",
-      databaseViewId: "view-test",
-      presentationOverride: null,
-    }));
+    renderHook(() =>
+      useBoard({
+        projectId: "project-test",
+        databaseViewId: "view-test",
+        presentationOverride: null,
+      }),
+    );
 
     expect(testState.setPresentationOverride).toHaveBeenCalledWith(null);
   });
 
   test("hands off the projection coordinate synchronously before persistence", () => {
-    const { result } = renderHook(() => useBoard({
-      projectId: "project-test",
-      databaseViewId: "view-test",
-    }));
+    const { result } = renderHook(() =>
+      useBoard({
+        projectId: "project-test",
+        databaseViewId: "view-test",
+      }),
+    );
 
     act(() => result.current.setPresentationOverride({ group: null }));
 
@@ -195,10 +202,12 @@ describe("useBoard createPage result", () => {
         readOnlyReason: "Grouping is not writable",
       },
     };
-    const { result } = renderHook(() => useBoard({
-      projectId: "project-test",
-      databaseViewId: "view-test",
-    }));
+    const { result } = renderHook(() =>
+      useBoard({
+        projectId: "project-test",
+        databaseViewId: "view-test",
+      }),
+    );
 
     let createResult: Awaited<ReturnType<typeof result.current.createPage>> | undefined;
     await act(async () => {

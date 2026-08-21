@@ -36,7 +36,7 @@ function DetailHarness() {
   const detail = useDatabaseRowDetail("project-1", "card-1");
   return (
     <span data-testid="detail-state">
-      {detail.loading ? "loading" : detail.error ?? detail.card?.title ?? "empty"}
+      {detail.loading ? "loading" : (detail.error ?? detail.card?.title ?? "empty")}
     </span>
   );
 }
@@ -135,16 +135,22 @@ describe("card detail store", () => {
   });
 
   test("only notifies subscribers for the changed card detail key", async () => {
-    setDatabaseRowDetail("project-1", buildCard({
-      id: "card-1",
-      title: "First title",
-      revision: 1,
-    }));
-    setDatabaseRowDetail("project-1", buildCard({
-      id: "card-2",
-      title: "Second title",
-      revision: 1,
-    }));
+    setDatabaseRowDetail(
+      "project-1",
+      buildCard({
+        id: "card-1",
+        title: "First title",
+        revision: 1,
+      }),
+    );
+    setDatabaseRowDetail(
+      "project-1",
+      buildCard({
+        id: "card-2",
+        title: "Second title",
+        revision: 1,
+      }),
+    );
 
     let firstRenderCount = 0;
     let secondRenderCount = 0;
@@ -171,11 +177,14 @@ describe("card detail store", () => {
     expect(secondRenderCount).toBe(1);
 
     await act(async () => {
-      setDatabaseRowDetail("project-1", buildCard({
-        id: "card-1",
-        title: "Updated first title",
-        revision: 2,
-      }));
+      setDatabaseRowDetail(
+        "project-1",
+        buildCard({
+          id: "card-1",
+          title: "Updated first title",
+          revision: 2,
+        }),
+      );
       await Promise.resolve();
     });
 
@@ -203,11 +212,14 @@ describe("card detail store", () => {
       on: () => () => {},
     });
 
-    setDatabaseRowDetail("project-1", buildCard({
-      title: "Cached title",
-      description: "Cached body",
-      revision: 1,
-    }));
+    setDatabaseRowDetail(
+      "project-1",
+      buildCard({
+        title: "Cached title",
+        description: "Cached body",
+        revision: 1,
+      }),
+    );
 
     function RevisionHarness() {
       const detail = useDatabaseRowDetail("project-1", "card-1", "build", 2);

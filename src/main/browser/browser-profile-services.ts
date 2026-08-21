@@ -16,9 +16,7 @@ export interface BrowserProfileServices {
 
 let services: BrowserProfileServices | null = null;
 
-export function configureBrowserProfileServices(
-  nextServices: BrowserProfileServices,
-): void {
+export function configureBrowserProfileServices(nextServices: BrowserProfileServices): void {
   services = nextServices;
 }
 

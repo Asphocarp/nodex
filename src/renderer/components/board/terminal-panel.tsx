@@ -50,22 +50,15 @@ function ConnectedTerminalPanel({
   projectSessionId,
   onNewTerminalTab,
 }: TerminalPanelProps) {
-  const {
-    containerRef,
-    isUnavailable,
-    error,
-    leaseConflict,
-    reconnect,
-    takeOver,
-    kill,
-  } = useTerminal({
-    terminalId,
-    visible: true,
-    cwd,
-    conversationId,
-    projectSessionId,
-    onNewTerminalTab,
-  });
+  const { containerRef, isUnavailable, error, leaseConflict, reconnect, takeOver, kill } =
+    useTerminal({
+      terminalId,
+      visible: true,
+      cwd,
+      conversationId,
+      projectSessionId,
+      onNewTerminalTab,
+    });
 
   return (
     <TerminalSurface terminalId={terminalId}>
@@ -123,13 +116,7 @@ function ConnectedTerminalPanel({
   );
 }
 
-function TerminalSurface({
-  terminalId,
-  children,
-}: {
-  terminalId: string;
-  children: ReactNode;
-}) {
+function TerminalSurface({ terminalId, children }: { terminalId: string; children: ReactNode }) {
   return (
     <div
       id={`terminal-panel-${terminalId}`}
@@ -142,9 +129,7 @@ function TerminalSurface({
         color: "var(--vscode-terminal-foreground)",
       }}
     >
-      <div className="flex-1 overflow-hidden">
-        {children}
-      </div>
+      <div className="flex-1 overflow-hidden">{children}</div>
     </div>
   );
 }

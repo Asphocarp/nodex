@@ -53,9 +53,11 @@ function AvailabilityStatus({ snapshot }: { snapshot: ComputerUseSettingsSnapsho
   return (
     <span className="inline-flex items-center gap-2 text-sm text-token-text-secondary">
       <span
-        className={snapshot.available
-          ? "size-2 rounded-full bg-[var(--color-icon-success)]"
-          : "size-2 rounded-full bg-token-error-foreground"}
+        className={
+          snapshot.available
+            ? "size-2 rounded-full bg-[var(--color-icon-success)]"
+            : "size-2 rounded-full bg-token-error-foreground"
+        }
       />
       {snapshot.available ? "Available" : "Unavailable"}
     </span>
@@ -63,11 +65,7 @@ function AvailabilityStatus({ snapshot }: { snapshot: ComputerUseSettingsSnapsho
 }
 
 function EmptyApprovals() {
-  return (
-    <div className="p-3 text-center text-sm text-token-text-secondary">
-      None yet
-    </div>
-  );
+  return <div className="p-3 text-center text-sm text-token-text-secondary">None yet</div>;
 }
 
 export function ComputerUseSettingsView({
@@ -79,9 +77,9 @@ export function ComputerUseSettingsView({
   onSetLockedUseEnabled,
   onSetSoundMode,
 }: ComputerUseSettingsViewProps) {
-  const selectedSoundMode = SOUND_MODE_OPTIONS.find(
-    (option) => option.value === snapshot.soundMode,
-  ) ?? SOUND_MODE_OPTIONS[0];
+  const selectedSoundMode =
+    SOUND_MODE_OPTIONS.find((option) => option.value === snapshot.soundMode) ??
+    SOUND_MODE_OPTIONS[0];
 
   return (
     <NodexSettingsPageSurface
@@ -129,7 +127,9 @@ export function ComputerUseSettingsView({
       {snapshot.available ? (
         <>
           <NodexSettingsSection title="Always-allowed apps">
-            {snapshot.approvedApps.length === 0 ? <EmptyApprovals /> : (
+            {snapshot.approvedApps.length === 0 ? (
+              <EmptyApprovals />
+            ) : (
               snapshot.approvedApps.map((approvedApp) => (
                 <NodexSettingsRow
                   key={approvedApp.bundleIdentifier}
@@ -182,19 +182,19 @@ export function ComputerUseSettingsView({
                 align="end"
                 contentWidth="menu"
                 disabled={pending !== null}
-                triggerButton={(
+                triggerButton={
                   <NodexSettingsDropdownTrigger className="min-w-60 max-w-[22rem]">
                     <span className="truncate">{selectedSoundMode.label}</span>
                   </NodexSettingsDropdownTrigger>
-                )}
+                }
               >
                 {SOUND_MODE_OPTIONS.map((option) => (
                   <NodexDropdownItem
                     key={option.value}
                     onSelect={() => onSetSoundMode(option.value)}
-                    rightSlot={option.value === snapshot.soundMode
-                      ? <NodexDropdownSelectedIcon />
-                      : null}
+                    rightSlot={
+                      option.value === snapshot.soundMode ? <NodexDropdownSelectedIcon /> : null
+                    }
                   >
                     {option.label}
                   </NodexDropdownItem>
@@ -217,13 +217,15 @@ export function ComputerUseSettingsPage({ open }: { open: boolean }) {
     if (!open) return;
     let disposed = false;
     setError(null);
-    void invoke("computer-use-settings-get").then((nextSnapshot) => {
-      if (!disposed) setSnapshot(nextSnapshot);
-    }).catch((cause) => {
-      if (!disposed) {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      }
-    });
+    void invoke("computer-use-settings-get")
+      .then((nextSnapshot) => {
+        if (!disposed) setSnapshot(nextSnapshot);
+      })
+      .catch((cause) => {
+        if (!disposed) {
+          setError(cause instanceof Error ? cause.message : String(cause));
+        }
+      });
     return () => {
       disposed = true;
     };
@@ -237,18 +239,21 @@ export function ComputerUseSettingsPage({ open }: { open: boolean }) {
     if (pending !== null) return;
     setPending(key);
     setError(null);
-    void operation().then((nextSnapshot) => {
-      setSnapshot(nextSnapshot);
-      toast.success(successMessage);
-    }).catch((cause) => {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      setError(message);
-      toast.danger("Could not update Computer Use settings", {
-        description: message,
+    void operation()
+      .then((nextSnapshot) => {
+        setSnapshot(nextSnapshot);
+        toast.success(successMessage);
+      })
+      .catch((cause) => {
+        const message = cause instanceof Error ? cause.message : String(cause);
+        setError(message);
+        toast.danger("Could not update Computer Use settings", {
+          description: message,
+        });
+      })
+      .finally(() => {
+        setPending(null);
       });
-    }).finally(() => {
-      setPending(null);
-    });
   };
 
   if (!snapshot) {
@@ -271,34 +276,46 @@ export function ComputerUseSettingsPage({ open }: { open: boolean }) {
       <ComputerUseSettingsView
         pending={pending}
         snapshot={snapshot}
-        onRemoveAppApproval={(bundleIdentifier) => mutate(
-          `app:${bundleIdentifier}`,
-          () => invoke("computer-use-settings-remove-app-approval", bundleIdentifier),
-          "Allowed app removed",
-        )}
-        onRemoveMessageApproval={(chatGuid) => mutate(
-          `message:${chatGuid}`,
-          () => invoke("computer-use-settings-remove-message-approval", chatGuid),
-          "Allowed message thread removed",
-        )}
-        onSetAlwaysHidePictureInPicture={(value) => mutate(
-          "always-hide",
-          () => invoke("computer-use-settings-set-always-hide-pip", value),
-          value ? "Picture in picture hidden" : "Picture in picture enabled",
-        )}
-        onSetLockedUseEnabled={(value) => mutate(
-          "locked-use",
-          () => invoke("computer-use-settings-set-locked-use", value),
-          value ? "Locked use enabled" : "Locked use disabled",
-        )}
-        onSetSoundMode={(value) => mutate(
-          "sound",
-          () => invoke("computer-use-settings-set-sound-mode", value),
-          "Click sound setting saved",
-        )}
+        onRemoveAppApproval={(bundleIdentifier) =>
+          mutate(
+            `app:${bundleIdentifier}`,
+            () => invoke("computer-use-settings-remove-app-approval", bundleIdentifier),
+            "Allowed app removed",
+          )
+        }
+        onRemoveMessageApproval={(chatGuid) =>
+          mutate(
+            `message:${chatGuid}`,
+            () => invoke("computer-use-settings-remove-message-approval", chatGuid),
+            "Allowed message thread removed",
+          )
+        }
+        onSetAlwaysHidePictureInPicture={(value) =>
+          mutate(
+            "always-hide",
+            () => invoke("computer-use-settings-set-always-hide-pip", value),
+            value ? "Picture in picture hidden" : "Picture in picture enabled",
+          )
+        }
+        onSetLockedUseEnabled={(value) =>
+          mutate(
+            "locked-use",
+            () => invoke("computer-use-settings-set-locked-use", value),
+            value ? "Locked use enabled" : "Locked use disabled",
+          )
+        }
+        onSetSoundMode={(value) =>
+          mutate(
+            "sound",
+            () => invoke("computer-use-settings-set-sound-mode", value),
+            "Click sound setting saved",
+          )
+        }
       />
       {error ? (
-        <span className="sr-only" role="alert">{error}</span>
+        <span className="sr-only" role="alert">
+          {error}
+        </span>
       ) : null}
     </>
   );

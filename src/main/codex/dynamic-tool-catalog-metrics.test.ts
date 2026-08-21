@@ -24,9 +24,7 @@ describe("Nodex Agent catalog metrics", () => {
   });
 
   test("rejects an absent or ambiguous namespace", () => {
-    expect(() => measureDynamicToolCatalog([])).toThrow(
-      "exactly one dynamic-tool namespace",
-    );
+    expect(() => measureDynamicToolCatalog([])).toThrow("exactly one dynamic-tool namespace");
     const catalog = buildNodexAgentV3DynamicToolCatalog();
     expect(() => measureDynamicToolCatalog([...catalog, ...catalog])).toThrow(
       "exactly one dynamic-tool namespace",
@@ -38,13 +36,12 @@ describe("Nodex Agent catalog metrics", () => {
     const metrics = measureDynamicToolCatalog(catalog);
 
     expect(metrics.eagerBytes).toBeLessThanOrEqual(NODEX_AGENT_V3_CATALOG_BUDGETS.eagerBytes);
-    expect(metrics.completeBytes).toBeLessThanOrEqual(
-      NODEX_AGENT_V3_CATALOG_BUDGETS.completeBytes,
-    );
+    expect(metrics.completeBytes).toBeLessThanOrEqual(NODEX_AGENT_V3_CATALOG_BUDGETS.completeBytes);
     for (const tool of metrics.tools) {
-      const budget = NODEX_AGENT_V3_CATALOG_BUDGETS.tools[
-        tool.name as keyof typeof NODEX_AGENT_V3_CATALOG_BUDGETS.tools
-      ];
+      const budget =
+        NODEX_AGENT_V3_CATALOG_BUDGETS.tools[
+          tool.name as keyof typeof NODEX_AGENT_V3_CATALOG_BUDGETS.tools
+        ];
       if (budget === undefined) continue;
       expect(tool.totalBytes, tool.name).toBeLessThanOrEqual(budget);
     }
@@ -59,8 +56,8 @@ describe("Nodex Agent catalog metrics", () => {
     const serialized = JSON.stringify(catalog);
     expect(serialized).not.toContain(NESTED_MARKDOWN_AGENT_GUIDE.instructions);
     expect(serialized).not.toMatch(/NFM|nfm/u);
-    expect(namespace.tools.filter((tool) => tool.deferLoading !== true).map(
-      (tool) => tool.name,
-    )).toEqual(["fetch", "get_context", "search"]);
+    expect(
+      namespace.tools.filter((tool) => tool.deferLoading !== true).map((tool) => tool.name),
+    ).toEqual(["fetch", "get_context", "search"]);
   });
 });

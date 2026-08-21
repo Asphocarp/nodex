@@ -1,10 +1,4 @@
-import {
-  mkdir,
-  open,
-  readFile,
-  rename,
-  rm,
-} from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { parse as parseToml, stringify as stringifyToml } from "smol-toml";
 import {
@@ -97,10 +91,7 @@ function projectSnapshot(config: UnknownRecord): BrowserUsePolicySnapshot {
 
 export interface BrowserUsePolicyReader {
   snapshot(): BrowserUsePolicySnapshot;
-  isExplicitlyDenied(
-    resource: BrowserUsePolicyResource,
-    urlOrOrigin: string,
-  ): boolean;
+  isExplicitlyDenied(resource: BrowserUsePolicyResource, urlOrOrigin: string): boolean;
 }
 
 export class BrowserUsePolicyStore implements BrowserUsePolicyReader {
@@ -148,10 +139,7 @@ export class BrowserUsePolicyStore implements BrowserUsePolicyReader {
     };
   }
 
-  isExplicitlyDenied(
-    resource: BrowserUsePolicyResource,
-    urlOrOrigin: string,
-  ): boolean {
+  isExplicitlyDenied(resource: BrowserUsePolicyResource, urlOrOrigin: string): boolean {
     let origin: string;
     try {
       origin = normalizeBrowserUsePolicyOrigin(urlOrOrigin);
@@ -168,25 +156,20 @@ export class BrowserUsePolicyStore implements BrowserUsePolicyReader {
     return originDenied || denied.includes(origin);
   }
 
-  async updateModes(
-    rawUpdate: BrowserUsePolicyModesUpdate,
-  ): Promise<BrowserUsePolicySnapshot> {
+  async updateModes(rawUpdate: BrowserUsePolicyModesUpdate): Promise<BrowserUsePolicySnapshot> {
     await this.initialize();
     const update = BrowserUsePolicyModesUpdateSchema.parse(rawUpdate);
     if (update.approvalMode !== undefined) {
       this.config.approval_mode = writeApprovalMode(update.approvalMode);
     }
     if (update.historyApprovalMode !== undefined) {
-      this.config.history_approval_mode =
-        writeApprovalMode(update.historyApprovalMode);
+      this.config.history_approval_mode = writeApprovalMode(update.historyApprovalMode);
     }
     if (update.downloadApprovalMode !== undefined) {
-      this.config.download_approval_mode =
-        writeApprovalMode(update.downloadApprovalMode);
+      this.config.download_approval_mode = writeApprovalMode(update.downloadApprovalMode);
     }
     if (update.uploadApprovalMode !== undefined) {
-      this.config.upload_approval_mode =
-        writeApprovalMode(update.uploadApprovalMode);
+      this.config.upload_approval_mode = writeApprovalMode(update.uploadApprovalMode);
     }
     if (update.fullCdpAccessEnabled !== undefined) {
       this.config.full_cdp_access_enabled = update.fullCdpAccessEnabled;
@@ -196,16 +179,12 @@ export class BrowserUsePolicyStore implements BrowserUsePolicyReader {
     return this.snapshot();
   }
 
-  async updateOriginRule(
-    rawUpdate: BrowserUseOriginRuleUpdate,
-  ): Promise<BrowserUsePolicySnapshot> {
+  async updateOriginRule(rawUpdate: BrowserUseOriginRuleUpdate): Promise<BrowserUsePolicySnapshot> {
     await this.initialize();
     const update = BrowserUseOriginRuleUpdateSchema.parse(rawUpdate);
     const origin = normalizeBrowserUsePolicyOrigin(update.origin);
     const tableName = TABLE_BY_RESOURCE[update.resource];
-    const table = isRecord(this.config[tableName])
-      ? this.config[tableName]
-      : {};
+    const table = isRecord(this.config[tableName]) ? this.config[tableName] : {};
     this.config[tableName] = table;
     const selected = readStringArray(table[update.kind]);
     if (update.action === "remove") {
@@ -268,7 +247,5 @@ export class BrowserUsePolicyStore implements BrowserUsePolicyReader {
 }
 
 function isMissingFileError(error: unknown): boolean {
-  return error instanceof Error
-    && "code" in error
-    && error.code === "ENOENT";
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }

@@ -52,10 +52,7 @@ const ActivePageOutlinerDocument = lazy(() =>
 const projectedTitle = (target: PageOutlinerTarget): ReactNode => {
   if (target.status !== "available") return pageOutlinerPlainTitle(target);
   return (
-    <PortableRichTitle
-      value={target.page.richTitle}
-      fallback={pageOutlinerPlainTitle(target)}
-    />
+    <PortableRichTitle value={target.page.richTitle} fallback={pageOutlinerPlainTitle(target)} />
   );
 };
 
@@ -76,12 +73,8 @@ export function PageOutlinerBlock({
   visibilityOverride,
 }: PageOutlinerBlockProps) {
   const host = useBlockReferenceHostRuntime();
-  const contentAccessContext = host?.contentAccessContext
-    ?? libraryContentAccess;
-  const reference = usePageTargetReadModel(
-    contentAccessContext,
-    host ? targetBlockId.trim() : "",
-  );
+  const contentAccessContext = host?.contentAccessContext ?? libraryContentAccess;
+  const reference = usePageTargetReadModel(contentAccessContext, host ? targetBlockId.trim() : "");
   const target = resolvePageOutlinerTarget({
     relationship,
     targetBlockId,
@@ -93,9 +86,7 @@ export function PageOutlinerBlock({
     ancestorPageIds: host?.ancestorPageIds ?? [],
   });
   const expandable =
-    host !== null &&
-    target.status === "available" &&
-    target.inlineMode === "editable";
+    host !== null && target.status === "available" && target.inlineMode === "editable";
   const activation = usePageOutlinerActivation({
     disclosureKey: shellBlockId,
     expandable,
@@ -109,32 +100,36 @@ export function PageOutlinerBlock({
     readonly clientX: number;
     readonly clientY: number;
   } | null>(null);
-  const [focusIntent, setFocusIntent] = useState<PageOutlinerFocusIntent | null>(
-    null,
+  const [focusIntent, setFocusIntent] = useState<PageOutlinerFocusIntent | null>(null);
+  const requestBoundaryFocus = useCallback(
+    (direction: VerticalArrowDirection) => {
+      if (!expandable) return false;
+      nextFocusIntentId.current += 1;
+      engageTitle();
+      setFocusIntent({
+        id: nextFocusIntentId.current,
+        kind: "boundary",
+        direction,
+      });
+      return true;
+    },
+    [engageTitle, expandable],
   );
-  const requestBoundaryFocus = useCallback((direction: VerticalArrowDirection) => {
-    if (!expandable) return false;
-    nextFocusIntentId.current += 1;
-    engageTitle();
-    setFocusIntent({
-      id: nextFocusIntentId.current,
-      kind: "boundary",
-      direction,
-    });
-    return true;
-  }, [engageTitle, expandable]);
-  const requestPointerFocus = useCallback((clientX: number, clientY: number) => {
-    if (!expandable) return false;
-    nextFocusIntentId.current += 1;
-    engageTitle();
-    setFocusIntent({
-      id: nextFocusIntentId.current,
-      kind: "pointer",
-      clientX,
-      clientY,
-    });
-    return true;
-  }, [engageTitle, expandable]);
+  const requestPointerFocus = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!expandable) return false;
+      nextFocusIntentId.current += 1;
+      engageTitle();
+      setFocusIntent({
+        id: nextFocusIntentId.current,
+        kind: "pointer",
+        clientX,
+        clientY,
+      });
+      return true;
+    },
+    [engageTitle, expandable],
+  );
 
   useEffect(() => {
     if (!hostEditor || !expandable) return;
@@ -165,43 +160,40 @@ export function PageOutlinerBlock({
         }
       : {}),
   };
-  const handleProjectedPointerDown = (
-    event: PointerEvent<HTMLButtonElement>,
-  ): void => {
+  const handleProjectedPointerDown = (event: PointerEvent<HTMLButtonElement>): void => {
     projectedPointerIntent.current = {
       clientX: event.clientX,
       clientY: event.clientY,
     };
   };
-  const editableProjectedTitle = target.status === "available" && expandable
-    ? (
-        <button
-          type="button"
-          data-page-outliner-title-trigger
-          aria-label={`Edit ${plainTitle} title`}
-          className="block w-full cursor-text text-left"
-          onPointerDown={handleProjectedPointerDown}
-          onClick={() => {
-            const pointer = projectedPointerIntent.current;
-            projectedPointerIntent.current = null;
-            if (pointer) {
-              requestPointerFocus(pointer.clientX, pointer.clientY);
-              return;
-            }
-            requestBoundaryFocus("up");
-          }}
-        >
-          {projectedTitle(target)}
-        </button>
-      )
-    : projectedTitle(target);
+  const editableProjectedTitle =
+    target.status === "available" && expandable ? (
+      <button
+        type="button"
+        data-page-outliner-title-trigger
+        aria-label={`Edit ${plainTitle} title`}
+        className="block w-full cursor-text text-left"
+        onPointerDown={handleProjectedPointerDown}
+        onClick={() => {
+          const pointer = projectedPointerIntent.current;
+          projectedPointerIntent.current = null;
+          if (pointer) {
+            requestPointerFocus(pointer.clientX, pointer.clientY);
+            return;
+          }
+          requestBoundaryFocus("up");
+        }}
+      >
+        {projectedTitle(target)}
+      </button>
+    ) : (
+      projectedTitle(target)
+    );
 
   return (
     <PageOutlinerFrame
       targetBlockId={target.targetBlockId}
-      {...(target.status === "available"
-        ? { accessKind: target.contentAccessContext.kind }
-        : {})}
+      {...(target.status === "available" ? { accessKind: target.contentAccessContext.kind } : {})}
       expanded={activation.expanded}
       active={activation.active}
       sectionRef={activation.sectionRef}
@@ -211,10 +203,7 @@ export function PageOutlinerBlock({
         {target.status === "available" && activation.active && host ? (
           <Suspense
             fallback={
-              <PageOutlinerRowSlots
-                {...rowProps}
-                title={projectedTitle(target)}
-              >
+              <PageOutlinerRowSlots {...rowProps} title={projectedTitle(target)}>
                 <PageOutlinerBodySkeleton />
               </PageOutlinerRowSlots>
             }
@@ -225,9 +214,7 @@ export function PageOutlinerBlock({
               hostRuntime={host}
               focusIntent={focusIntent}
               onFocusIntentConsumed={(intentId) => {
-                setFocusIntent((current) =>
-                  current?.id === intentId ? null : current,
-                );
+                setFocusIntent((current) => (current?.id === intentId ? null : current));
               }}
               onTitleFocus={() => {
                 activation.engageTitle();
@@ -236,11 +223,7 @@ export function PageOutlinerBlock({
               onTitleBlur={activation.releaseTitle}
               onMoveToHostBoundary={(direction) =>
                 hostEditor
-                  ? moveFromEmbeddedSurfaceToHostNeighbor(
-                      hostEditor,
-                      shellBlockId,
-                      direction,
-                    )
+                  ? moveFromEmbeddedSurfaceToHostNeighbor(hostEditor, shellBlockId, direction)
                   : false
               }
               onEscapeToHostShell={() => {

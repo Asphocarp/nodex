@@ -1,6 +1,4 @@
-import type {
-  DocumentSyncCommandResult,
-} from "../shared/block-documents/document-sync";
+import type { DocumentSyncCommandResult } from "../shared/block-documents/document-sync";
 
 export interface DocumentSyncClientTarget {
   readonly id: number;

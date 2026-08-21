@@ -6,8 +6,10 @@ export function shouldEnableCodexMcpAppsQuery(input: {
   callerEnabled: boolean;
   productSupportsApps: boolean;
 }): boolean {
-  return input.productSupportsApps
-    && input.callerEnabled
-    && input.appsFeatureEnabled
-    && input.account?.account?.type === "chatgpt";
+  return (
+    input.productSupportsApps &&
+    input.callerEnabled &&
+    input.appsFeatureEnabled &&
+    input.account?.account?.type === "chatgpt"
+  );
 }

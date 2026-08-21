@@ -56,10 +56,7 @@ export const usePageOutlinerActivation = ({
 }): PageOutlinerActivation => {
   const surfaceInstanceId = useId();
   const surfaceInstanceKey = `page-outliner:${disclosureKey}:mount:${surfaceInstanceId}`;
-  const [preferredExpanded, setExpanded] = useBlockDisclosure(
-    disclosureKey,
-    disclosureStore,
-  );
+  const [preferredExpanded, setExpanded] = useBlockDisclosure(disclosureKey, disclosureStore);
   const expanded = expandable && preferredExpanded;
   const visibility = useElementVisibility();
   const visible = visibilityOverride ?? visibility.visible;
@@ -145,10 +142,7 @@ export interface PageOutlinerRowContentProps {
   readonly children?: ReactNode;
 }
 
-export type PageOutlinerRowChromeProps = Omit<
-  PageOutlinerRowContentProps,
-  "title" | "children"
->;
+export type PageOutlinerRowChromeProps = Omit<PageOutlinerRowContentProps, "title" | "children">;
 
 interface PageOutlinerDisclosureProps extends PageOutlinerRowChromeProps {
   readonly children: ReactNode;
@@ -188,9 +182,7 @@ export function PageOutlinerDisclosure({
       <button
         type="button"
         data-page-outliner-caret
-        aria-label={
-          expanded ? `Collapse ${plainTitle}` : `Expand ${plainTitle}`
-        }
+        aria-label={expanded ? `Collapse ${plainTitle}` : `Expand ${plainTitle}`}
         aria-expanded={expanded}
         disabled={!expandable}
         className={cn(
@@ -256,9 +248,7 @@ export function PageOutlinerRowContent(props: PageOutlinerRowContentProps) {
   );
 }
 
-export interface PageOutlinerRowProps
-  extends PageOutlinerFrameProps,
-    PageOutlinerRowContentProps {}
+export interface PageOutlinerRowProps extends PageOutlinerFrameProps, PageOutlinerRowContentProps {}
 
 /** Convenience composite for stories and simple consumers. */
 export function PageOutlinerRow({
@@ -285,12 +275,7 @@ export function PageOutlinerRow({
 
 export function PageOutlinerBodySkeleton() {
   return (
-    <div
-      role="status"
-      aria-label="Opening Page content"
-      aria-live="polite"
-      className="py-1.5"
-    >
+    <div role="status" aria-label="Opening Page content" aria-live="polite" className="py-1.5">
       <LoadingResultsShimmer
         lines={2}
         maxWidth={72}

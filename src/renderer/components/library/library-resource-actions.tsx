@@ -44,10 +44,7 @@ import type {
   OpenLibraryResourceInProject,
 } from "./library-resource-action-types";
 
-export type {
-  LibraryProjectOption,
-  LibraryResourceTarget,
-} from "./library-resource-action-types";
+export type { LibraryProjectOption, LibraryResourceTarget } from "./library-resource-action-types";
 
 type PendingDialog = "manage_access" | "open_project" | "archive" | null;
 
@@ -91,17 +88,18 @@ export function LibraryResourceActions({
     try {
       await mutation.mutateAsync({
         kind: lifecycle === "active" ? "archive_resource" : "restore_resource",
-        target: target.kind === "page"
-          ? {
-              kind: "page",
-              pageId: target.pageId,
-              expectedMetadataRevision,
-            }
-          : {
-              kind: "database",
-              databaseId: target.databaseId,
-              expectedMetadataRevision,
-            },
+        target:
+          target.kind === "page"
+            ? {
+                kind: "page",
+                pageId: target.pageId,
+                expectedMetadataRevision,
+              }
+            : {
+                kind: "database",
+                databaseId: target.databaseId,
+                expectedMetadataRevision,
+              },
       });
       setArchiveOpen(false);
     } catch (error) {
@@ -199,9 +197,7 @@ export function LibraryResourceActions({
         ) : null}
         {expectedMetadataRevision !== undefined ? (
           <NodexDropdownItem
-            leftSlot={lifecycle === "active"
-              ? <ArchiveIcon />
-              : <RefreshIcon />}
+            leftSlot={lifecycle === "active" ? <ArchiveIcon /> : <RefreshIcon />}
             onSelect={() => {
               if (lifecycle === "active") {
                 pendingDialogRef.current = "archive";
@@ -225,9 +221,7 @@ export function LibraryResourceActions({
               </NodexDialogDescription>
             </NodexDialogHeader>
             <NodexDialogFooter>
-              <NodexDialogAction onClick={() => setArchiveOpen(false)}>
-                Cancel
-              </NodexDialogAction>
+              <NodexDialogAction onClick={() => setArchiveOpen(false)}>Cancel</NodexDialogAction>
               <NodexDialogAction
                 tone="danger"
                 disabled={mutation.isPending}

@@ -21,10 +21,7 @@ import {
   PAGE_DOCUMENT_SCHEMA_VERSION,
   createPageDocument,
 } from "./page-document";
-import type {
-  DocumentBlockOperation,
-  DocumentBlockUpdatePatch,
-} from "./document-operations";
+import type { DocumentBlockOperation, DocumentBlockUpdatePatch } from "./document-operations";
 import { cloneXmlSubtree } from "./xml-subtree-codec";
 import {
   plainTextToPortableRichText,
@@ -106,9 +103,7 @@ const stableStringify = (value: unknown): string => {
     .join(",")}}`;
 };
 
-const flattenBlockTree = (
-  blocks: readonly BlockTreeNode[],
-): readonly BlockTreeNode[] =>
+const flattenBlockTree = (blocks: readonly BlockTreeNode[]): readonly BlockTreeNode[] =>
   blocks.flatMap((block) => [block, ...flattenBlockTree(block.children)]);
 
 const flattenBlockCoordinates = (
@@ -147,8 +142,7 @@ const readContentElement = (
 ): { readonly element: Y.XmlElement; readonly index: number } => {
   const children = container.toArray();
   const index = children.findIndex(
-    (child) =>
-      child instanceof Y.XmlElement && child.nodeName !== BLOCK_GROUP_NODE_NAME,
+    (child) => child instanceof Y.XmlElement && child.nodeName !== BLOCK_GROUP_NODE_NAME,
   );
   const element = children[index];
   if (index >= 0 && element instanceof Y.XmlElement) return { element, index };
@@ -197,10 +191,7 @@ const patchedStandaloneBlock = (
   };
 };
 
-const blockSemanticFieldsEqual = (
-  left: BlockTreeNode,
-  right: BlockTreeNode,
-): boolean =>
+const blockSemanticFieldsEqual = (left: BlockTreeNode, right: BlockTreeNode): boolean =>
   left.type === right.type &&
   stableStringify(left.props) === stableStringify(right.props) &&
   stableStringify(left.content) === stableStringify(right.content);
@@ -234,10 +225,7 @@ export const compileBlockTreeReplacementOperations = (
     });
   }
 
-  const arrangeSiblings = (
-    siblings: readonly BlockTreeNode[],
-    parentBlockId?: string,
-  ): void => {
+  const arrangeSiblings = (siblings: readonly BlockTreeNode[], parentBlockId?: string): void => {
     for (let index = siblings.length - 1; index >= 0; index -= 1) {
       const block = siblings[index];
       if (!block) continue;
@@ -257,10 +245,7 @@ export const compileBlockTreeReplacementOperations = (
   // moved to its requested target parent.
   for (const coordinate of currentCoordinates) {
     if (targetById.has(coordinate.block.id)) continue;
-    if (
-      coordinate.parentBlockId !== null &&
-      !targetById.has(coordinate.parentBlockId)
-    ) {
+    if (coordinate.parentBlockId !== null && !targetById.has(coordinate.parentBlockId)) {
       continue;
     }
     operations.push({ kind: "delete_block", blockId: coordinate.block.id });
@@ -268,10 +253,7 @@ export const compileBlockTreeReplacementOperations = (
 
   for (const coordinate of targetCoordinates) {
     const currentCoordinate = currentById.get(coordinate.block.id);
-    if (
-      !currentCoordinate ||
-      blockSemanticFieldsEqual(currentCoordinate.block, coordinate.block)
-    ) {
+    if (!currentCoordinate || blockSemanticFieldsEqual(currentCoordinate.block, coordinate.block)) {
       continue;
     }
     operations.push({
@@ -330,14 +312,8 @@ const replaceBlockContent = (
       candidate.document.getXmlFragment("body"),
       operation.blockId,
     );
-    const currentContent = readContentElement(
-      currentLocation.container,
-      operation.blockId,
-    );
-    const candidateContent = readContentElement(
-      candidateLocation.container,
-      operation.blockId,
-    );
+    const currentContent = readContentElement(currentLocation.container, operation.blockId);
+    const candidateContent = readContentElement(candidateLocation.container, operation.blockId);
     currentLocation.container.delete(currentContent.index, 1);
     currentLocation.container.insert(currentContent.index, [
       cloneXmlSubtree(candidateContent.element),
@@ -379,12 +355,8 @@ const insertBlock = (
       targetBody: document.getXmlFragment("body"),
       rootBlockIds: [operation.block.id],
       target: {
-        ...(operation.parentBlockId
-          ? { parentBlockId: operation.parentBlockId }
-          : {}),
-        ...(operation.beforeBlockId
-          ? { beforeBlockId: operation.beforeBlockId }
-          : {}),
+        ...(operation.parentBlockId ? { parentBlockId: operation.parentBlockId } : {}),
+        ...(operation.beforeBlockId ? { beforeBlockId: operation.beforeBlockId } : {}),
       },
       transactionOrigin: `document-operation:insert:${operationIndex}`,
     });
@@ -407,12 +379,8 @@ const deleteBlock = (
     documentId: `${document.guid}:delete:${operationIndex}`,
   });
   try {
-    const location = indexBlockDocumentTree(
-      document.getXmlFragment("body"),
-    ).blocks.get(blockId);
-    const deletedIds = location
-      ? [location.blockId, ...location.descendantBlockIds]
-      : [blockId];
+    const location = indexBlockDocumentTree(document.getXmlFragment("body")).blocks.get(blockId);
+    const deletedIds = location ? [location.blockId, ...location.descendantBlockIds] : [blockId];
     relocateBlockSubtrees({
       sourceDocument: document,
       targetDocument: trash.document,
@@ -457,9 +425,9 @@ const moveBlock = (
   writeFenceBlockIds: Set<string>,
 ): void => {
   if (isMoveNoop(document, operation)) return;
-  const location = indexBlockDocumentTree(
-    document.getXmlFragment("body"),
-  ).blocks.get(operation.blockId);
+  const location = indexBlockDocumentTree(document.getXmlFragment("body")).blocks.get(
+    operation.blockId,
+  );
   const invalidatedIds = location
     ? [location.blockId, ...location.descendantBlockIds]
     : [operation.blockId];
@@ -470,12 +438,8 @@ const moveBlock = (
     targetBody: document.getXmlFragment("body"),
     rootBlockIds: [operation.blockId],
     target: {
-      ...(operation.parentBlockId
-        ? { parentBlockId: operation.parentBlockId }
-        : {}),
-      ...(operation.beforeBlockId
-        ? { beforeBlockId: operation.beforeBlockId }
-        : {}),
+      ...(operation.parentBlockId ? { parentBlockId: operation.parentBlockId } : {}),
+      ...(operation.beforeBlockId ? { beforeBlockId: operation.beforeBlockId } : {}),
     },
     transactionOrigin: `document-operation:move:${operationIndex}`,
   });
@@ -493,39 +457,19 @@ const mapSubtreeError = (
   };
   switch (error.code) {
     case "source_block_not_found":
-      return new DocumentOperationEngineError(
-        "block_not_found",
-        error.message,
-        options,
-      );
+      return new DocumentOperationEngineError("block_not_found", error.message, options);
     case "target_parent_not_found":
     case "target_parent_childless":
     case "target_anchor_not_found":
     case "target_anchor_wrong_parent":
     case "target_anchor_in_moved_subtree":
-      return new DocumentOperationEngineError(
-        "invalid_anchor",
-        error.message,
-        options,
-      );
+      return new DocumentOperationEngineError("invalid_anchor", error.message, options);
     case "ancestor_cycle":
-      return new DocumentOperationEngineError(
-        "ancestor_cycle",
-        error.message,
-        options,
-      );
+      return new DocumentOperationEngineError("ancestor_cycle", error.message, options);
     case "target_identity_conflict":
-      return new DocumentOperationEngineError(
-        "duplicate_block_id",
-        error.message,
-        options,
-      );
+      return new DocumentOperationEngineError("duplicate_block_id", error.message, options);
     default:
-      return new DocumentOperationEngineError(
-        "invalid_operation",
-        error.message,
-        options,
-      );
+      return new DocumentOperationEngineError("invalid_operation", error.message, options);
   }
 };
 
@@ -553,7 +497,8 @@ const applyOperation = (
         if (
           portableRichTextSemanticSource(readPortableRichTextFromYText(title)) ===
           portableRichTextSemanticSource(desired)
-        ) return;
+        )
+          return;
         titleWriteFence.required = true;
         replaceYTextWithPortableRichText(title, desired);
         return;
@@ -570,7 +515,8 @@ const applyOperation = (
         if (
           portableRichTextSemanticSource(readPortableRichTextFromYText(title)) ===
           portableRichTextSemanticSource(operation.richTitle)
-        ) return;
+        )
+          return;
         titleWriteFence.required = true;
         replaceYTextWithPortableRichText(title, operation.richTitle);
         return;
@@ -638,15 +584,9 @@ export const prepareDocumentOperationUpdate = ({
   try {
     Y.applyUpdate(working, sourceState);
     const initialIndex = indexBlockDocumentTree(working.getXmlFragment("body"));
-    collectInsertedIds(
-      operations,
-      new Set(initialIndex.blockIdsInDocumentOrder),
-    );
+    collectInsertedIds(operations, new Set(initialIndex.blockIdsInDocumentOrder));
     const semanticBlocks = new Map(
-      flattenBlockTree(sourceMaterialization.blockTree).map((block) => [
-        block.id,
-        block,
-      ]),
+      flattenBlockTree(sourceMaterialization.blockTree).map((block) => [block.id, block]),
     );
     const writeFenceBlockIds = new Set<string>();
     const titleWriteFence = { required: false };

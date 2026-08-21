@@ -92,10 +92,7 @@ describe("usePortalHost", () => {
     const { container } = render(
       <>
         <div id={PRIMARY_FALLBACK_ID} data-legacy-fallback="true" />
-        <div
-          data-above-composer-portal="true"
-          data-above-composer-conversation-id="thread-other"
-        />
+        <div data-above-composer-portal="true" data-above-composer-conversation-id="thread-other" />
         <RoutedPortal
           attribute={PRIMARY_ATTRIBUTE}
           conversationId="thread-target"

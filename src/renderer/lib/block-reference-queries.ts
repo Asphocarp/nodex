@@ -3,11 +3,7 @@ import { hashKey, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { PageTargetReadModel } from "../../shared/page-targets";
 import type { PageOwnershipPathReadModel } from "../../shared/page-ownership-paths";
 import type { DatabaseViewReadModel } from "../../shared/database-views";
-import {
-  readDatabaseViewReference,
-  resolvePageOwnershipPath,
-  resolvePageTarget,
-} from "./api";
+import { readDatabaseViewReference, resolvePageOwnershipPath, resolvePageTarget } from "./api";
 import { queryKeys } from "./query-keys";
 import { resolveRendererTransport } from "./renderer-transport";
 import { createProjectEventSubscriptionHub } from "./project-event-subscription-hub";
@@ -38,34 +34,30 @@ const toError = (error: unknown): Error | null => {
 };
 
 const resolveReferenceAuthority = (_queryKey: readonly unknown[], data: unknown) => {
-  const authorization = (data as {
-    readonly authorization?: AuthorizedReadStamp | null;
-  } | null)?.authorization;
+  const authorization = (
+    data as {
+      readonly authorization?: AuthorizedReadStamp | null;
+    } | null
+  )?.authorization;
   return authorization ? { authorizations: [authorization] } : null;
 };
 
-const pageOwnershipPathChangeSubscriptions =
-  createProjectEventSubscriptionHub({
-    subscribeToProject: (projectId, listener) =>
-      resolveRendererTransport().subscribePageOwnershipPathChanges(
-        projectId,
-        listener,
-      ),
-  });
+const pageOwnershipPathChangeSubscriptions = createProjectEventSubscriptionHub({
+  subscribeToProject: (projectId, listener) =>
+    resolveRendererTransport().subscribePageOwnershipPathChanges(projectId, listener),
+});
 
-const pageTargetQueryOptions = (
-  accessContext: ContentAccessContext,
-  targetBlockId: string,
-) => {
+const pageTargetQueryOptions = (accessContext: ContentAccessContext, targetBlockId: string) => {
   return {
     queryKey: queryKeys.pageTargets.byId(accessContext, targetBlockId),
-    queryFn: async () => admitResourceAuthorityQuery(
-      await resolvePageTarget({
-        accessContext,
-        targetPageId: targetBlockId,
-      }),
-      resolveReferenceAuthority,
-    ),
+    queryFn: async () =>
+      admitResourceAuthorityQuery(
+        await resolvePageTarget({
+          accessContext,
+          targetPageId: targetBlockId,
+        }),
+        resolveReferenceAuthority,
+      ),
     enabled: targetBlockId.length > 0,
     staleTime: 5_000,
     refetchOnWindowFocus: true,
@@ -81,26 +73,28 @@ const useProjectionQueryRefresh = (input: {
 }): void => {
   const queryClient = useQueryClient();
   const consumerKey = hashKey(input.queryKey);
-  useProjectionRegistration(input.scope
-    ? {
-      scope: input.scope,
-      consumerKey,
-      getDependencies: () => input.dependencies,
-      getCursor: () => {
-        const current = queryClient.getQueryData<{
-          readonly storeEpoch: string;
-          readonly commitSeq: number;
-        }>(input.queryKey);
-        return current
-          ? {
-              storeEpoch: current.storeEpoch,
-              commitSeq: current.commitSeq,
-            }
-          : input.cursor;
-      },
-      invalidate: () => invalidateExactQuery(queryClient, input.queryKey),
-    }
-    : null);
+  useProjectionRegistration(
+    input.scope
+      ? {
+          scope: input.scope,
+          consumerKey,
+          getDependencies: () => input.dependencies,
+          getCursor: () => {
+            const current = queryClient.getQueryData<{
+              readonly storeEpoch: string;
+              readonly commitSeq: number;
+            }>(input.queryKey);
+            return current
+              ? {
+                  storeEpoch: current.storeEpoch,
+                  commitSeq: current.commitSeq,
+                }
+              : input.cursor;
+          },
+          invalidate: () => invalidateExactQuery(queryClient, input.queryKey),
+        }
+      : null,
+  );
 };
 
 export const usePageTargetReadModel = (
@@ -113,15 +107,16 @@ export const usePageTargetReadModel = (
   const libraryId = library.data?.libraryId ?? query.data?.libraryId ?? null;
   const queryKey = queryKeys.pageTargets.byId(accessContext, targetBlockId);
   useProjectionQueryRefresh({
-    scope: enabled && libraryId
-      ? accessContext.kind === "library"
-        ? { kind: "library", libraryId }
-        : {
-            kind: "project",
-            libraryId,
-            projectId: accessContext.projectId,
-          }
-      : null,
+    scope:
+      enabled && libraryId
+        ? accessContext.kind === "library"
+          ? { kind: "library", libraryId }
+          : {
+              kind: "project",
+              libraryId,
+              projectId: accessContext.projectId,
+            }
+        : null,
     dependencies: { pageIds: [targetBlockId] },
     cursor: query.data
       ? { storeEpoch: query.data.storeEpoch, commitSeq: query.data.commitSeq }
@@ -143,35 +138,35 @@ export const usePageOwnershipPathReadModel = (
   const enabled = targetPageId.length > 0;
   const projectId = projectIdFromContentAccessContext(accessContext);
   const library = useLibraryMetadata(enabled);
-  const queryKey = queryKeys.pageOwnershipPaths.byPage(
-    accessContext,
-    targetPageId,
-  );
+  const queryKey = queryKeys.pageOwnershipPaths.byPage(accessContext, targetPageId);
   const query = useQuery({
     queryKey,
-    queryFn: async () => admitResourceAuthorityQuery(
-      await resolvePageOwnershipPath({ accessContext, targetPageId }),
-      resolveReferenceAuthority,
-    ),
+    queryFn: async () =>
+      admitResourceAuthorityQuery(
+        await resolvePageOwnershipPath({ accessContext, targetPageId }),
+        resolveReferenceAuthority,
+      ),
     enabled,
     staleTime: 5_000,
     refetchOnWindowFocus: true,
     meta: resourceAuthorityQueryMeta(resolveReferenceAuthority),
   });
   const libraryId = library.data?.libraryId ?? query.data?.libraryId ?? null;
-  const observedPageIds = query.data?.status === "available"
-    ? [targetPageId, ...query.data.ancestors.map((ancestor) => ancestor.pageId)]
-    : [targetPageId];
+  const observedPageIds =
+    query.data?.status === "available"
+      ? [targetPageId, ...query.data.ancestors.map((ancestor) => ancestor.pageId)]
+      : [targetPageId];
   useProjectionQueryRefresh({
-    scope: enabled && libraryId
-      ? accessContext.kind === "library"
-        ? { kind: "library", libraryId }
-        : {
-            kind: "project",
-            libraryId,
-            projectId: accessContext.projectId,
-          }
-      : null,
+    scope:
+      enabled && libraryId
+        ? accessContext.kind === "library"
+          ? { kind: "library", libraryId }
+          : {
+              kind: "project",
+              libraryId,
+              projectId: accessContext.projectId,
+            }
+        : null,
     dependencies: { pageIds: observedPageIds },
     cursor: query.data
       ? { storeEpoch: query.data.storeEpoch, commitSeq: query.data.commitSeq }
@@ -181,18 +176,14 @@ export const usePageOwnershipPathReadModel = (
 
   useEffect(() => {
     if (!enabled || !projectId) return;
-    return pageOwnershipPathChangeSubscriptions.subscribe(
-      projectId,
-      "page-ownership-paths",
-      () => {
-        void queryClient.invalidateQueries({
-          queryKey: queryKeys.pageOwnershipPaths.byScope({
-            kind: "project",
-            projectId,
-          }),
-        });
-      },
-    );
+    return pageOwnershipPathChangeSubscriptions.subscribe(projectId, "page-ownership-paths", () => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.pageOwnershipPaths.byScope({
+          kind: "project",
+          projectId,
+        }),
+      });
+    });
   }, [enabled, projectId, queryClient]);
 
   return {
@@ -216,14 +207,15 @@ export const useDatabaseViewReadModel = (
   );
   const { data, error, status } = useQuery({
     queryKey,
-    queryFn: async () => admitResourceAuthorityQuery(
-      await readDatabaseViewReference({
-        accessContext,
-        databaseViewId,
-        ...(hostBlockId ? { hostBlockId } : {}),
-      }),
-      resolveReferenceAuthority,
-    ),
+    queryFn: async () =>
+      admitResourceAuthorityQuery(
+        await readDatabaseViewReference({
+          accessContext,
+          databaseViewId,
+          ...(hostBlockId ? { hostBlockId } : {}),
+        }),
+        resolveReferenceAuthority,
+      ),
     enabled,
     staleTime: 5_000,
     refetchOnWindowFocus: true,
@@ -231,24 +223,23 @@ export const useDatabaseViewReadModel = (
   });
   const libraryId = library.data?.libraryId ?? data?.libraryId ?? null;
   useProjectionQueryRefresh({
-    scope: enabled && libraryId
-      ? accessContext.kind === "library"
-        ? { kind: "library", libraryId }
-        : {
-            kind: "project",
-            libraryId,
-            projectId: accessContext.projectId,
-          }
-      : null,
+    scope:
+      enabled && libraryId
+        ? accessContext.kind === "library"
+          ? { kind: "library", libraryId }
+          : {
+              kind: "project",
+              libraryId,
+              projectId: accessContext.projectId,
+            }
+        : null,
     dependencies: {
       databaseIds: data ? [data.view.databaseBlockId] : [],
       dataSourceIds: data ? [data.dataSourceId] : [],
       viewIds: [databaseViewId],
       pageIds: data?.rows.map((row) => row.page.id) ?? [],
     },
-    cursor: data
-      ? { storeEpoch: data.storeEpoch, commitSeq: data.commitSeq }
-      : null,
+    cursor: data ? { storeEpoch: data.storeEpoch, commitSeq: data.commitSeq } : null,
     queryKey,
   });
   return {

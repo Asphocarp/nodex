@@ -12,11 +12,16 @@ const sortedKeys = (value: object): string => Object.keys(value).sort().join(","
 interface SchemaConfig {
   readonly type: string;
   readonly content: string;
-  readonly propSchema: Readonly<Record<string, {
-    readonly default: unknown;
-    readonly type?: string;
-    readonly values?: readonly unknown[];
-  }>>;
+  readonly propSchema: Readonly<
+    Record<
+      string,
+      {
+        readonly default: unknown;
+        readonly type?: string;
+        readonly values?: readonly unknown[];
+      }
+    >
+  >;
 }
 
 const configSignature = (input: unknown): string => {
@@ -28,10 +33,10 @@ const configSignature = (input: unknown): string => {
     type: config.type,
     content: config.content,
     props: Object.entries(config.propSchema).map(([key, prop]) => ({
-    key,
-    default: prop.default === undefined ? { kind: "undefined" } : prop.default,
-    type: prop.type ?? null,
-    values: prop.values ?? null,
+      key,
+      default: prop.default === undefined ? { kind: "undefined" } : prop.default,
+      type: prop.type ?? null,
+      values: prop.values ?? null,
     })),
   });
 };
@@ -64,9 +69,7 @@ describe("Block Document schema parity", () => {
   });
 
   test("keeps foreign-body configs decode-only", () => {
-    const writableBlockSchema = nfmSchema.blockSchema as Readonly<
-      Record<string, unknown>
-    >;
+    const writableBlockSchema = nfmSchema.blockSchema as Readonly<Record<string, unknown>>;
     for (const type of Object.keys(legacyBlockDocumentCustomBlockConfigs) as Array<
       keyof typeof legacyBlockDocumentCustomBlockConfigs
     >) {

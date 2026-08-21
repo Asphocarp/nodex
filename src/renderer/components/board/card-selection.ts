@@ -84,22 +84,28 @@ export function resolveDragGroup(
   },
 ): SelectedCardEntry[] {
   if (!selection.pageIds.has(activePage.card.id) || selection.pageIds.size <= 1) {
-    return [{
-      card: activePage.card,
-      columnId: activePage.columnId,
-      columnName: board?.columns.find((column) => column.id === activePage.columnId)?.name
-        ?? activePage.columnId,
-    }];
+    return [
+      {
+        card: activePage.card,
+        columnId: activePage.columnId,
+        columnName:
+          board?.columns.find((column) => column.id === activePage.columnId)?.name ??
+          activePage.columnId,
+      },
+    ];
   }
 
   const selectedEntries = resolveSelectedCardEntries(board, selection);
   if (selectedEntries.length === 0) {
-    return [{
-      card: activePage.card,
-      columnId: activePage.columnId,
-      columnName: board?.columns.find((column) => column.id === activePage.columnId)?.name
-        ?? activePage.columnId,
-    }];
+    return [
+      {
+        card: activePage.card,
+        columnId: activePage.columnId,
+        columnName:
+          board?.columns.find((column) => column.id === activePage.columnId)?.name ??
+          activePage.columnId,
+      },
+    ];
   }
 
   return selectedEntries;

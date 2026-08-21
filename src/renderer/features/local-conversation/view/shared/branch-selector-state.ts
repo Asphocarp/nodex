@@ -54,19 +54,18 @@ export function parseBranchSelectorState(result: unknown): BranchSelectorState {
 
   const branches = Array.isArray(candidate.branches)
     ? candidate.branches
-      .filter((branch): branch is string => typeof branch === "string")
-      .map((branch) => branch.trim())
-      .filter((branch, index, items) => branch.length > 0 && items.indexOf(branch) === index)
+        .filter((branch): branch is string => typeof branch === "string")
+        .map((branch) => branch.trim())
+        .filter((branch, index, items) => branch.length > 0 && items.indexOf(branch) === index)
     : [];
   const remoteBranchRefs = Array.isArray(candidate.remoteBranchRefs)
     ? candidate.remoteBranchRefs
-      .filter((branch): branch is string => typeof branch === "string")
-      .map((branch) => branch.trim())
-      .filter((branch, index, items) => (
-        branch.length > 0
-        && !branch.endsWith("/HEAD")
-        && items.indexOf(branch) === index
-      ))
+        .filter((branch): branch is string => typeof branch === "string")
+        .map((branch) => branch.trim())
+        .filter(
+          (branch, index, items) =>
+            branch.length > 0 && !branch.endsWith("/HEAD") && items.indexOf(branch) === index,
+        )
     : [];
 
   return {
@@ -77,16 +76,11 @@ export function parseBranchSelectorState(result: unknown): BranchSelectorState {
   };
 }
 
-export function filterBranchSelectorBranches(
-  branches: string[],
-  query: string,
-): string[] {
+export function filterBranchSelectorBranches(branches: string[], query: string): string[] {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return branches;
 
-  return branches.filter((branch) =>
-    branch.toLowerCase().includes(normalizedQuery),
-  );
+  return branches.filter((branch) => branch.toLowerCase().includes(normalizedQuery));
 }
 
 export function isBranchSelectorMutationCurrent(input: {
@@ -99,7 +93,6 @@ export function isBranchSelectorMutationCurrent(input: {
   if (!requestedCwd) return false;
 
   return (
-    input.activeRequestId === input.requestId &&
-    normalizePath(input.activeCwd) === requestedCwd
+    input.activeRequestId === input.requestId && normalizePath(input.activeCwd) === requestedCwd
   );
 }

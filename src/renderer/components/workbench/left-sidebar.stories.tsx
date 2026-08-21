@@ -1,6 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { CodexAccountSnapshot, CodexSidebarThreadItem, Project, ProjectSession } from "@/lib/types";
+import type {
+  CodexAccountSnapshot,
+  CodexSidebarThreadItem,
+  Project,
+  ProjectSession,
+} from "@/lib/types";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 import { AutomationsIcon, ComposerPluginsIcon } from "@/components/shared/icons";
 import {
@@ -94,10 +99,7 @@ const PROJECTS: Project[] = [
   },
 ];
 
-const PROJECT_ORDER = [
-  "default",
-  "bundle",
-];
+const PROJECT_ORDER = ["default", "bundle"];
 
 const SIDEBAR_PARITY_PROJECTS: Project[] = [
   {
@@ -127,8 +129,14 @@ const SIDEBAR_PARITY_PROJECTS: Project[] = [
     name: "Codex Electron readable bundle with a very long project label",
     description: "",
     appearance: { color: "purple", marker: { kind: "icon", icon: "book" } },
-    sources: [{ root: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable", order: 0 }],
-    primaryWorkspaceRoot: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable",
+    sources: [
+      {
+        root: "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable",
+        order: 0,
+      },
+    ],
+    primaryWorkspaceRoot:
+      "/Users/asc/repo/devtools-codex/codex_electron_26.519.81530_to_be_readable",
     pinned: false,
     pinnedOrder: null,
     created: new Date("2026-06-02T00:00:00.000Z"),
@@ -177,15 +185,17 @@ const FOOTER_QUOTA_ACCOUNT: CodexAccountSnapshot = {
   },
   rateLimitResetCredits: {
     availableCount: 2,
-    credits: [{
-      id: "reset-credit-story-1",
-      resetType: "codexRateLimits",
-      status: "available",
-      grantedAt: 1_784_246_400,
-      expiresAt: 1_810_166_400,
-      title: "Quota reset",
-      description: "Reset an eligible Codex quota window.",
-    }],
+    credits: [
+      {
+        id: "reset-credit-story-1",
+        resetType: "codexRateLimits",
+        status: "available",
+        grantedAt: 1_784_246_400,
+        expiresAt: 1_810_166_400,
+        title: "Quota reset",
+        description: "Reset an eligible Codex quota window.",
+      },
+    ],
   },
 };
 
@@ -407,7 +417,10 @@ function SidebarNewChatControlsHarness() {
             className={SIDEBAR_SCROLL_AREA_CLASS}
             onScroll={sidebarScrollChrome.syncScrollChrome}
           >
-            <div className="flex shrink-0 flex-col gap-2" data-app-action-sidebar-scroll-top-actions="">
+            <div
+              className="flex shrink-0 flex-col gap-2"
+              data-app-action-sidebar-scroll-top-actions=""
+            >
               <div className="shrink-0 px-row-x">
                 <div className="flex flex-col gap-1">
                   <div className="flex flex-col gap-px">
@@ -475,16 +488,20 @@ function CodexProjectsHarness({
     if (!projectName) return;
     let editFrameId: number | null = null;
     const frameId = window.requestAnimationFrame(() => {
-      const trigger = document.querySelector<HTMLElement>(`[aria-label='Project actions for ${projectName}']`);
+      const trigger = document.querySelector<HTMLElement>(
+        `[aria-label='Project actions for ${projectName}']`,
+      );
       if (!trigger) return;
-      const event = typeof PointerEvent === "function"
-        ? new PointerEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false })
-        : new MouseEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false });
+      const event =
+        typeof PointerEvent === "function"
+          ? new PointerEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false })
+          : new MouseEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false });
       trigger.dispatchEvent(event);
       if (!openEditFor) return;
       editFrameId = window.requestAnimationFrame(() => {
-        const editItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-          .find((item) => item.textContent?.trim() === "Edit project");
+        const editItem = Array.from(
+          document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+        ).find((item) => item.textContent?.trim() === "Edit project");
         editItem?.click();
       });
     });
@@ -499,9 +516,10 @@ function CodexProjectsHarness({
     const frameId = window.requestAnimationFrame(() => {
       const trigger = document.querySelector<HTMLElement>("[aria-label='Project sidebar options']");
       if (!trigger) return;
-      const event = typeof PointerEvent === "function"
-        ? new PointerEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false })
-        : new MouseEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false });
+      const event =
+        typeof PointerEvent === "function"
+          ? new PointerEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false })
+          : new MouseEvent("pointerdown", { bubbles: true, button: 0, ctrlKey: false });
       trigger.dispatchEvent(event);
     });
     return () => window.cancelAnimationFrame(frameId);
@@ -516,7 +534,9 @@ function CodexProjectsHarness({
       >
         {revealProjectDisclosureChevrons ? (
           <style>
-            {"[data-story-project-chevron-reveal] [data-app-action-sidebar-project-marker] { visibility: hidden; } [data-story-project-chevron-reveal] [data-app-action-sidebar-project-toggle-chevron] { opacity: 1; pointer-events: auto; }"}
+            {
+              "[data-story-project-chevron-reveal] [data-app-action-sidebar-project-marker] { visibility: hidden; } [data-story-project-chevron-reveal] [data-app-action-sidebar-project-toggle-chevron] { opacity: 1; pointer-events: auto; }"
+            }
           </style>
         ) : null}
         <div className="app-shell-left-panel w-[300px] overflow-visible py-4">
@@ -529,7 +549,9 @@ function CodexProjectsHarness({
             onSelectProject={() => {}}
             onCreateProject={async () => projects[0] ?? null}
             onArchiveProject={async () => ({ kind: "not-found" })}
-            onUpdateProject={async () => projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null}
+            onUpdateProject={async () =>
+              projects.find((project) => project.id === activeProjectId) ?? projects[0] ?? null
+            }
             projectPickerOpenTick={0}
           />
         </div>
@@ -539,9 +561,12 @@ function CodexProjectsHarness({
 }
 
 function sortPinnedStoryProjects(projects: Project[]) {
-  return [...projects].filter((project) => project.pinned).sort((a, b) =>
-    (a.pinnedOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinnedOrder ?? Number.MAX_SAFE_INTEGER)
-  );
+  return [...projects]
+    .filter((project) => project.pinned)
+    .sort(
+      (a, b) =>
+        (a.pinnedOrder ?? Number.MAX_SAFE_INTEGER) - (b.pinnedOrder ?? Number.MAX_SAFE_INTEGER),
+    );
 }
 
 function CodexSortableProjectSections({
@@ -558,23 +583,41 @@ function CodexSortableProjectSections({
   const projectOrderIds = useMemo(() => projects.map((project) => project.id), [projects]);
   const pinnedProjects = useMemo(() => sortPinnedStoryProjects(projects), [projects]);
   const unpinnedProjects = useMemo(() => projects.filter((project) => !project.pinned), [projects]);
-  const pinnedProjectIds = useMemo(() => pinnedProjects.map((project) => project.id), [pinnedProjects]);
-  const unpinnedProjectIds = useMemo(() => unpinnedProjects.map((project) => project.id), [unpinnedProjects]);
+  const pinnedProjectIds = useMemo(
+    () => pinnedProjects.map((project) => project.id),
+    [pinnedProjects],
+  );
+  const unpinnedProjectIds = useMemo(
+    () => unpinnedProjects.map((project) => project.id),
+    [unpinnedProjects],
+  );
   const pinnedDroppable = useSidebarPinnedDropContainer();
 
-  const reorderUnpinned = useCallback((nextIds: string[]) => {
-    const nextOrderIds = replaceVisibleOrder(projectOrderIds, unpinnedProjectIds, nextIds);
-    const byId = new Map(projects.map((project) => [project.id, project]));
-    onProjectsChange(nextOrderIds.map((id) => byId.get(id)).filter((project): project is Project => Boolean(project)));
-  }, [onProjectsChange, projectOrderIds, projects, unpinnedProjectIds]);
+  const reorderUnpinned = useCallback(
+    (nextIds: string[]) => {
+      const nextOrderIds = replaceVisibleOrder(projectOrderIds, unpinnedProjectIds, nextIds);
+      const byId = new Map(projects.map((project) => [project.id, project]));
+      onProjectsChange(
+        nextOrderIds
+          .map((id) => byId.get(id))
+          .filter((project): project is Project => Boolean(project)),
+      );
+    },
+    [onProjectsChange, projectOrderIds, projects, unpinnedProjectIds],
+  );
 
-  const reorderPinned = useCallback((nextIds: string[]) => {
-    const pinnedOrderById = new Map(nextIds.map((id, index) => [id, index]));
-    onProjectsChange(projects.map((project) => ({
-      ...project,
-      pinnedOrder: pinnedOrderById.get(project.id) ?? project.pinnedOrder,
-    })));
-  }, [onProjectsChange, projects]);
+  const reorderPinned = useCallback(
+    (nextIds: string[]) => {
+      const pinnedOrderById = new Map(nextIds.map((id, index) => [id, index]));
+      onProjectsChange(
+        projects.map((project) => ({
+          ...project,
+          pinnedOrder: pinnedOrderById.get(project.id) ?? project.pinnedOrder,
+        })),
+      );
+    },
+    [onProjectsChange, projects],
+  );
 
   const pinnedReorder = useSidebarGroupReorderController({
     groupIds: pinnedProjectIds,
@@ -608,13 +651,17 @@ function CodexSortableProjectSections({
       onUpdateProject={async () => project}
       onArchiveProject={async () => ({ kind: "not-found" })}
       onSetProjectPinned={async (_projectId, input) => {
-        onProjectsChange(projects.map((candidate) => candidate.id === project.id
-          ? {
-              ...candidate,
-              pinned: input.pinned,
-              pinnedOrder: input.pinned ? pinnedProjects.length : null,
-            }
-          : candidate));
+        onProjectsChange(
+          projects.map((candidate) =>
+            candidate.id === project.id
+              ? {
+                  ...candidate,
+                  pinned: input.pinned,
+                  pinnedOrder: input.pinned ? pinnedProjects.length : null,
+                }
+              : candidate,
+          ),
+        );
         return project;
       }}
     />
@@ -640,10 +687,7 @@ function CodexSortableProjectSections({
           </CodexSidebarSection>
         </div>
       ) : forceEmptyPinnedDropTarget ? (
-        <div
-          ref={pinnedDroppable.setNodeRef}
-          className="absolute inset-x-0 top-0 px-row-x"
-        >
+        <div ref={pinnedDroppable.setNodeRef} className="absolute inset-x-0 top-0 px-row-x">
           <SidebarDropIndicator />
           <div className="h-4" />
         </div>
@@ -655,7 +699,9 @@ function CodexSortableProjectSections({
             <div className="flex flex-col" role="list" aria-label="Projects">
               {orderedUnpinnedProjects.map((project, index) => (
                 <Fragment key={project.id}>
-                  {forceDropIndicator && pinnedProjects.length === 0 && index === 1 ? <SidebarDropIndicator /> : null}
+                  {forceDropIndicator && pinnedProjects.length === 0 && index === 1 ? (
+                    <SidebarDropIndicator />
+                  ) : null}
                   {renderProjectRow(project, unpinnedReorder.controller)}
                 </Fragment>
               ))}
@@ -681,7 +727,7 @@ function CodexSortableProjectsHarness({
       ...project,
       pinned: pinned && index < 1,
       pinnedOrder: pinned && index < 1 ? index : null,
-    }))
+    })),
   );
 
   return (
@@ -690,13 +736,25 @@ function CodexSortableProjectsHarness({
         <div className="app-shell-left-panel relative w-[300px] overflow-visible py-4">
           <SidebarReorderDndProvider
             onProjectDrop={(drop) => {
-              setProjects((current) => current.map((project) => project.id === drop.projectId
-                ? { ...project, pinned: true, pinnedOrder: sortPinnedStoryProjects(current).length }
-                : project));
+              setProjects((current) =>
+                current.map((project) =>
+                  project.id === drop.projectId
+                    ? {
+                        ...project,
+                        pinned: true,
+                        pinnedOrder: sortPinnedStoryProjects(current).length,
+                      }
+                    : project,
+                ),
+              );
             }}
           >
             <CodexSortableProjectSections
-              projects={emptyPinnedDropTarget ? projects.map((project) => ({ ...project, pinned: false, pinnedOrder: null })) : projects}
+              projects={
+                emptyPinnedDropTarget
+                  ? projects.map((project) => ({ ...project, pinned: false, pinnedOrder: null }))
+                  : projects
+              }
               onProjectsChange={setProjects}
               forceDropIndicator={dropIndicator}
               forceEmptyPinnedDropTarget={emptyPinnedDropTarget}
@@ -730,23 +788,23 @@ function makeStorySession(input: {
     unread: input.unread ?? false,
     thread: input.threadId
       ? {
-        sessionId: input.id,
-        projectId: "nodex",
-        threadId: input.threadId,
-        parentThreadId: undefined,
-        threadName: input.title,
-        threadPreview: "",
-        modelProvider: "openai",
-        executionHostId: "local",
-        cwd: "/Users/asc/repo/nodex",
-        statusType: "notLoaded",
-        statusActiveFlags: [],
-        archived: false,
-        createdAt: 1_780_800_000_000,
-        updatedAt: 1_780_800_000_000,
-        recencyAt: 1_780_800_000_000,
-        linkedAt: "2026-06-07T00:00:00.000Z",
-      }
+          sessionId: input.id,
+          projectId: "nodex",
+          threadId: input.threadId,
+          parentThreadId: undefined,
+          threadName: input.title,
+          threadPreview: "",
+          modelProvider: "openai",
+          executionHostId: "local",
+          cwd: "/Users/asc/repo/nodex",
+          statusType: "notLoaded",
+          statusActiveFlags: [],
+          archived: false,
+          createdAt: 1_780_800_000_000,
+          updatedAt: 1_780_800_000_000,
+          recencyAt: 1_780_800_000_000,
+          linkedAt: "2026-06-07T00:00:00.000Z",
+        }
       : null,
     createdAt: "2026-06-07T00:00:00.000Z",
     updatedAt: "2026-06-07T00:00:00.000Z",
@@ -756,11 +814,37 @@ function makeStorySession(input: {
 function CodexProjectSessionRowsHarness() {
   const project = SIDEBAR_PARITY_PROJECTS[0]!;
   const sessions = [
-    makeStorySession({ id: "session:nodex:database-view", title: "Database View", pinned: true, pinnedOrder: 0, rightFullWidth: true }),
-    makeStorySession({ id: "thread:nodex:pinned", title: "Pinned architecture notes", pinned: true, pinnedOrder: 1, threadId: "local:pinned" }),
-    makeStorySession({ id: "thread:nodex:parity", title: "Mirror Codex Electron layout", unread: true, threadId: "local:sidebar-parity" }),
-    makeStorySession({ id: "thread:nodex:unread-idle", title: "Unread accent idle", unread: true, threadId: "local:unread-idle" }),
-    makeStorySession({ id: "thread:nodex:long", title: "Very long session title that should truncate before colliding with row actions", threadId: "local:long-title" }),
+    makeStorySession({
+      id: "session:nodex:database-view",
+      title: "Database View",
+      pinned: true,
+      pinnedOrder: 0,
+      rightFullWidth: true,
+    }),
+    makeStorySession({
+      id: "thread:nodex:pinned",
+      title: "Pinned architecture notes",
+      pinned: true,
+      pinnedOrder: 1,
+      threadId: "local:pinned",
+    }),
+    makeStorySession({
+      id: "thread:nodex:parity",
+      title: "Mirror Codex Electron layout",
+      unread: true,
+      threadId: "local:sidebar-parity",
+    }),
+    makeStorySession({
+      id: "thread:nodex:unread-idle",
+      title: "Unread accent idle",
+      unread: true,
+      threadId: "local:unread-idle",
+    }),
+    makeStorySession({
+      id: "thread:nodex:long",
+      title: "Very long session title that should truncate before colliding with row actions",
+      threadId: "local:long-title",
+    }),
   ];
 
   return (
@@ -828,8 +912,9 @@ function makeSidebarThreadItem(input: {
   return {
     key: input.key,
     kind,
-    runLocation: input.runLocation
-      ?? (kind === "pending-worktree"
+    runLocation:
+      input.runLocation ??
+      (kind === "pending-worktree"
         ? hostId === "local"
           ? { kind: "local-worktree", path: null, phase: "pending" }
           : { kind: "remote-worktree", hostId, path: null, phase: "pending" }
@@ -845,9 +930,12 @@ function makeSidebarThreadItem(input: {
     preview: "",
     cwd: input.cwd ?? null,
     updatedAt: input.updatedAt ?? 1_780_800_000_000,
-    recencyAt: input.recencyAt === undefined
-      ? kind === "pending-worktree" ? null : input.updatedAt ?? 1_780_800_000_000
-      : input.recencyAt,
+    recencyAt:
+      input.recencyAt === undefined
+        ? kind === "pending-worktree"
+          ? null
+          : (input.updatedAt ?? 1_780_800_000_000)
+        : input.recencyAt,
     createdAt: 1_780_700_000_000,
     pinned: input.pinned ?? false,
     pinnedOrder: input.pinnedOrder ?? null,
@@ -864,9 +952,7 @@ function SidebarProjectsChrome({ children }: { children: ReactNode }) {
   return (
     <NodexTooltipProvider>
       <div data-codex-window-type="electron" className="min-h-screen bg-token-bg-primary p-8">
-        <div className="app-shell-left-panel w-[300px] overflow-visible py-4">
-          {children}
-        </div>
+        <div className="app-shell-left-panel w-[300px] overflow-visible py-4">{children}</div>
       </div>
     </NodexTooltipProvider>
   );
@@ -938,9 +1024,7 @@ function CodexPinnedThreadsSortableHarness() {
     () => new Map(items.map((item) => [item.key, item] as const)),
     [items],
   );
-  const [visibleThreadKeys, setVisibleThreadKeys] = useState(() =>
-    items.map((item) => item.key)
-  );
+  const [visibleThreadKeys, setVisibleThreadKeys] = useState(() => items.map((item) => item.key));
   const reorder = useSidebarThreadReorderController({
     visibleThreadKeys,
     onVisibleThreadOrderChange: async ({ nextVisibleThreadKeys }) => {
@@ -960,9 +1044,9 @@ function CodexPinnedThreadsSortableHarness() {
                   if (!item) return null;
                   return (
                     <Fragment key={threadKey}>
-                      {reorder.dropIndicatorTarget?.beforeThreadKey === threadKey
-                        ? <SidebarThreadDropIndicator />
-                        : null}
+                      {reorder.dropIndicatorTarget?.beforeThreadKey === threadKey ? (
+                        <SidebarThreadDropIndicator />
+                      ) : null}
                       <SidebarThreadSortableItem
                         threadKey={threadKey}
                         controller={reorder.controller}
@@ -978,9 +1062,9 @@ function CodexPinnedThreadsSortableHarness() {
                     </Fragment>
                   );
                 })}
-                {reorder.dropIndicatorTarget?.beforeThreadKey === null
-                  ? <SidebarThreadDropIndicator />
-                  : null}
+                {reorder.dropIndicatorTarget?.beforeThreadKey === null ? (
+                  <SidebarThreadDropIndicator />
+                ) : null}
               </div>
             </div>
           </SidebarThreadSortableContext>
@@ -991,11 +1075,14 @@ function CodexPinnedThreadsSortableHarness() {
 }
 
 function CodexPinnedProjectThreadsSortableHarness() {
-  const project = useMemo(() => ({
-    ...SIDEBAR_PARITY_PROJECTS[0]!,
-    pinned: true,
-    pinnedOrder: 0,
-  }), []);
+  const project = useMemo(
+    () => ({
+      ...SIDEBAR_PARITY_PROJECTS[0]!,
+      pinned: true,
+      pinnedOrder: 0,
+    }),
+    [],
+  );
   const items = useMemo(() => {
     const first = makeSidebarThreadItem({
       key: "local:project-thread-a",
@@ -1060,11 +1147,13 @@ function CodexPinnedProjectThreadsSortableHarness() {
                       visibleThreadKeys,
                       nextVisibleThreadKeys,
                     }) => {
-                      setThreadKeys((current) => replaceVisibleCodexSidebarThreadKeyOrder({
-                        threadKeysInDisplayOrder: current,
-                        visibleThreadKeys,
-                        nextVisibleThreadKeys,
-                      }));
+                      setThreadKeys((current) =>
+                        replaceVisibleCodexSidebarThreadKeyOrder({
+                          threadKeysInDisplayOrder: current,
+                          visibleThreadKeys,
+                          nextVisibleThreadKeys,
+                        }),
+                      );
                     }}
                     renderThread={(threadKey) => {
                       const item = itemsByKey.get(threadKey);
@@ -1092,49 +1181,52 @@ function CodexPinnedProjectThreadsSortableHarness() {
 
 function CodexCrossProjectThreadDropHarness() {
   const projects = useMemo(() => SIDEBAR_PARITY_PROJECTS.slice(0, 2), []);
-  const items = useMemo(() => [
-    makeSidebarThreadItem({
-      key: "local:cross-alpha",
-      threadId: "cross-alpha",
-      sessionId: "session-cross-alpha",
-      projectId: projects[0]?.id ?? "nodex",
-      title: "Drag me between projects",
-    }),
-    makeSidebarThreadItem({
-      key: "local:cross-alpha-pinned",
-      threadId: "cross-alpha-pinned",
-      sessionId: "session-cross-alpha-pinned",
-      projectId: projects[0]?.id ?? "nodex",
-      pinned: true,
-      pinnedOrder: 0,
-      title: "Pinned inside this project",
-    }),
-    makeSidebarThreadItem({
-      key: "local:cross-beta",
-      threadId: "cross-beta",
-      sessionId: "session-cross-beta",
-      projectId: projects[1]?.id ?? "codex-electron",
-      title: "Destination anchor task",
-    }),
-    makeSidebarThreadItem({
-      key: "local:cross-chats",
-      threadId: "cross-chats",
-      sessionId: "session-cross-chats",
-      projectId: null,
-      projectless: true,
-      title: "Projectless Chats task",
-    }),
-    makeSidebarThreadItem({
-      key: "local:cross-projectless-pinned",
-      threadId: "cross-projectless-pinned",
-      sessionId: "session-cross-projectless-pinned",
-      projectId: null,
-      projectless: true,
-      pinned: true,
-      pinnedOrder: 1,
-      title: "Global projectless pin",
-    }),
-  ], [projects]);
+  const items = useMemo(
+    () => [
+      makeSidebarThreadItem({
+        key: "local:cross-alpha",
+        threadId: "cross-alpha",
+        sessionId: "session-cross-alpha",
+        projectId: projects[0]?.id ?? "nodex",
+        title: "Drag me between projects",
+      }),
+      makeSidebarThreadItem({
+        key: "local:cross-alpha-pinned",
+        threadId: "cross-alpha-pinned",
+        sessionId: "session-cross-alpha-pinned",
+        projectId: projects[0]?.id ?? "nodex",
+        pinned: true,
+        pinnedOrder: 0,
+        title: "Pinned inside this project",
+      }),
+      makeSidebarThreadItem({
+        key: "local:cross-beta",
+        threadId: "cross-beta",
+        sessionId: "session-cross-beta",
+        projectId: projects[1]?.id ?? "codex-electron",
+        title: "Destination anchor task",
+      }),
+      makeSidebarThreadItem({
+        key: "local:cross-chats",
+        threadId: "cross-chats",
+        sessionId: "session-cross-chats",
+        projectId: null,
+        projectless: true,
+        title: "Projectless Chats task",
+      }),
+      makeSidebarThreadItem({
+        key: "local:cross-projectless-pinned",
+        threadId: "cross-projectless-pinned",
+        sessionId: "session-cross-projectless-pinned",
+        projectId: null,
+        projectless: true,
+        pinned: true,
+        pinnedOrder: 1,
+        title: "Global projectless pin",
+      }),
+    ],
+    [projects],
+  );
   const itemsByKey = useMemo(
     () => new Map(items.map((item) => [item.key, item] as const)),
     [items],
@@ -1159,43 +1251,51 @@ function CodexCrossProjectThreadDropHarness() {
     (threadKey: string) => itemsByKey.get(threadKey)?.threadId ?? null,
     [itemsByKey],
   );
-  const homeContainerIdByThreadId = useMemo(() => new Map(
-    Object.entries(threadKeysByContainer).flatMap(([containerId, threadKeys]) => (
-      threadKeys.flatMap((threadKey) => {
-        const threadId = getThreadId(threadKey);
-        return threadId ? [[threadId, containerId] as const] : [];
-      })
-    )),
-  ), [getThreadId, threadKeysByContainer]);
-  const handleThreadDrop = useCallback(async (drop: SidebarThreadDropRequest) => {
-    const threadKey = threadKeyById.get(drop.threadId);
-    if (!threadKey) return null;
-    setThreadKeysByContainer((current) => {
-      const next = Object.fromEntries(
-        Object.entries(current).map(([containerId, threadKeys]) => [
-          containerId,
-          threadKeys.filter((candidate) => candidate !== threadKey),
-        ]),
-      );
-      const targetThreadKeys = next[drop.targetContainerId] ?? [];
-      const beforeThreadKey = drop.beforeThreadId
-        ? threadKeyById.get(drop.beforeThreadId) ?? null
-        : null;
-      const rawInsertionIndex = drop.insertAtEnd || drop.useDefaultOrder
-        ? targetThreadKeys.length
-        : beforeThreadKey === null
-          ? 0
-          : targetThreadKeys.indexOf(beforeThreadKey);
-      const insertionIndex = rawInsertionIndex < 0 ? targetThreadKeys.length : rawInsertionIndex;
-      next[drop.targetContainerId] = [
-        ...targetThreadKeys.slice(0, insertionIndex),
-        threadKey,
-        ...targetThreadKeys.slice(insertionIndex),
-      ];
-      return next;
-    });
-    return { operationId: `story:${drop.threadId}`, projectionRevision: 1 };
-  }, [threadKeyById]);
+  const homeContainerIdByThreadId = useMemo(
+    () =>
+      new Map(
+        Object.entries(threadKeysByContainer).flatMap(([containerId, threadKeys]) =>
+          threadKeys.flatMap((threadKey) => {
+            const threadId = getThreadId(threadKey);
+            return threadId ? [[threadId, containerId] as const] : [];
+          }),
+        ),
+      ),
+    [getThreadId, threadKeysByContainer],
+  );
+  const handleThreadDrop = useCallback(
+    async (drop: SidebarThreadDropRequest) => {
+      const threadKey = threadKeyById.get(drop.threadId);
+      if (!threadKey) return null;
+      setThreadKeysByContainer((current) => {
+        const next = Object.fromEntries(
+          Object.entries(current).map(([containerId, threadKeys]) => [
+            containerId,
+            threadKeys.filter((candidate) => candidate !== threadKey),
+          ]),
+        );
+        const targetThreadKeys = next[drop.targetContainerId] ?? [];
+        const beforeThreadKey = drop.beforeThreadId
+          ? (threadKeyById.get(drop.beforeThreadId) ?? null)
+          : null;
+        const rawInsertionIndex =
+          drop.insertAtEnd || drop.useDefaultOrder
+            ? targetThreadKeys.length
+            : beforeThreadKey === null
+              ? 0
+              : targetThreadKeys.indexOf(beforeThreadKey);
+        const insertionIndex = rawInsertionIndex < 0 ? targetThreadKeys.length : rawInsertionIndex;
+        next[drop.targetContainerId] = [
+          ...targetThreadKeys.slice(0, insertionIndex),
+          threadKey,
+          ...targetThreadKeys.slice(insertionIndex),
+        ];
+        return next;
+      });
+      return { operationId: `story:${drop.threadId}`, projectionRevision: 1 };
+    },
+    [threadKeyById],
+  );
   const renderRows = (containerId: string) => {
     const threadKeys = threadKeysByContainer[containerId] ?? [];
     return (
@@ -1289,10 +1389,7 @@ function CodexCrossProjectThreadDropHarness() {
           </div>
         </CodexSidebarSection>
         <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
-          <SidebarThreadDropContainer
-            containerId="chats"
-            targetProjectKind="local"
-          >
+          <SidebarThreadDropContainer containerId="chats" targetProjectKind="local">
             <div className="flex flex-col" role="list" aria-label="Chats">
               {renderRows("chats")}
             </div>
@@ -1414,16 +1511,22 @@ function CodexSidebarProjectlessChatsHarness() {
 function CodexSidebarProjectlessChatsPagedHarness() {
   const [expanded, setExpanded] = useState(false);
   const [extraPageCount, setExtraPageCount] = useState(1);
-  const items = useMemo(() => Array.from({ length: 52 }, (_, index) => makeSidebarThreadItem({
-    key: `local:projectless-paged-${index + 1}`,
-    threadId: `thread-projectless-paged-${index + 1}`,
-    title: `Projectless chat ${index + 1}`,
-    sessionId: `session-projectless-paged-${index + 1}`,
-    projectId: null,
-    projectless: true,
-    cwd: "/Users/asc/Desktop/scratch",
-    updatedAt: 1_780_930_000_000 - index,
-  })), []);
+  const items = useMemo(
+    () =>
+      Array.from({ length: 52 }, (_, index) =>
+        makeSidebarThreadItem({
+          key: `local:projectless-paged-${index + 1}`,
+          threadId: `thread-projectless-paged-${index + 1}`,
+          title: `Projectless chat ${index + 1}`,
+          sessionId: `session-projectless-paged-${index + 1}`,
+          projectId: null,
+          projectless: true,
+          cwd: "/Users/asc/Desktop/scratch",
+          updatedAt: 1_780_930_000_000 - index,
+        }),
+      ),
+    [],
+  );
   const pagination = paginateCodexSidebarItems({
     items,
     getKey: (item) => item.key,
@@ -1448,7 +1551,11 @@ function CodexSidebarProjectlessChatsPagedHarness() {
   return (
     <SidebarProjectsChrome>
       <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
-        <ThreadRowsList label="Chats" items={pagination.visibleItems} activeKey="local:projectless-paged-1" />
+        <ThreadRowsList
+          label="Chats"
+          items={pagination.visibleItems}
+          activeKey="local:projectless-paged-1"
+        />
         {pagination.showPager ? (
           <div className={CODEX_SIDEBAR_DEFAULT_PAGER_ROW_CLASS} role="listitem">
             {pagination.hasOverflow ? (
@@ -1675,22 +1782,24 @@ function CodexSidebarProjectHoverCardHarness() {
   );
 }
 
-function CodexSidebarShowMoreHarness({
-  initialExpanded = false,
-}: {
-  initialExpanded?: boolean;
-}) {
+function CodexSidebarShowMoreHarness({ initialExpanded = false }: { initialExpanded?: boolean }) {
   const project = SIDEBAR_PARITY_PROJECTS[0]!;
   const [expanded, setExpanded] = useState(initialExpanded);
   const [extraPageCount, setExtraPageCount] = useState(1);
-  const items = useMemo(() => Array.from({ length: 16 }, (_, index) => makeSidebarThreadItem({
-    key: `local:paged-${index + 1}`,
-    threadId: `thread-paged-${index + 1}`,
-    title: `Paged chat ${index + 1}`,
-    projectId: project.id,
-    cwd: "/Users/asc/repo/nodex",
-    updatedAt: 1_780_960_000_000 - index,
-  })), [project.id]);
+  const items = useMemo(
+    () =>
+      Array.from({ length: 16 }, (_, index) =>
+        makeSidebarThreadItem({
+          key: `local:paged-${index + 1}`,
+          threadId: `thread-paged-${index + 1}`,
+          title: `Paged chat ${index + 1}`,
+          projectId: project.id,
+          cwd: "/Users/asc/repo/nodex",
+          updatedAt: 1_780_960_000_000 - index,
+        }),
+      ),
+    [project.id],
+  );
   const pagination = paginateCodexSidebarItems({
     items,
     getKey: (item) => item.key,
@@ -1743,12 +1852,20 @@ function CodexSidebarShowMoreHarness({
                 {pagination.showPager ? (
                   <div className={CODEX_SIDEBAR_PROJECT_THREAD_PAGER_ROW_CLASS} role="listitem">
                     {pagination.hasOverflow ? (
-                      <button type="button" className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS} onClick={showMore}>
+                      <button
+                        type="button"
+                        className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS}
+                        onClick={showMore}
+                      >
                         Show more
                       </button>
                     ) : null}
                     {expanded ? (
-                      <button type="button" className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS} onClick={showLess}>
+                      <button
+                        type="button"
+                        className={CODEX_SIDEBAR_PAGER_BUTTON_CLASS}
+                        onClick={showLess}
+                      >
                         Show less
                       </button>
                     ) : null}
@@ -1836,7 +1953,9 @@ function CodexSidebarWorktreeRunLocationsHarness({
   return (
     <NodexTooltipProvider>
       <div data-codex-window-type="electron" className="min-h-screen bg-token-bg-primary p-8">
-        <div className={`app-shell-left-panel overflow-visible py-4 ${narrow ? "w-[228px]" : "w-[300px]"}`}>
+        <div
+          className={`app-shell-left-panel overflow-visible py-4 ${narrow ? "w-[228px]" : "w-[300px]"}`}
+        >
           <CodexSidebarSection heading="Chats" collapsed={false} onToggle={() => {}}>
             <div className="isolate flex flex-col [contain:layout]">
               <div className="flex flex-col" role="list" aria-label="Worktree execution locations">
@@ -1917,7 +2036,8 @@ export const NewChatControls: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The fixed sidebar header pairs the Nodex wordmark with a compact beta chip while retaining its top-edge treatment; the bottom fade appears only when additional rows remain below the scroll viewport.",
+        story:
+          "The fixed sidebar header pairs the Nodex wordmark with a compact beta chip while retaining its top-edge treatment; the bottom fade appears only when additional rows remain below the scroll viewport.",
       },
     },
   },
@@ -1928,11 +2048,14 @@ export const CodexProjectsExpanded: Story = {
 };
 
 export const CodexProjectDisclosureChevronsRevealed: Story = {
-  render: () => <CodexProjectsHarness expanded activeProjectId="nodex" revealProjectDisclosureChevrons />,
+  render: () => (
+    <CodexProjectsHarness expanded activeProjectId="nodex" revealProjectDisclosureChevrons />
+  ),
   parameters: {
     docs: {
       description: {
-        story: "Project-row hover state: the optically inset disclosure chevron replaces the marker in the same fixed leading slot, while the Project name keeps its Session-aligned position as a separate navigation control.",
+        story:
+          "Project-row hover state: the optically inset disclosure chevron replaces the marker in the same fixed leading slot, while the Project name keeps its Session-aligned position as a separate navigation control.",
       },
     },
   },
@@ -1972,7 +2095,8 @@ export const CodexProjectsSortable: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Interactive project-folder reorder using the production sidebar gesture coordinator. Drag a project label to inspect the compact body-level folder ghost, inert 20% source, suppressed sibling transforms, and line-and-dot insertion boundary.",
+        story:
+          "Interactive project-folder reorder using the production sidebar gesture coordinator. Drag a project label to inspect the compact body-level folder ghost, inert 20% source, suppressed sibling transforms, and line-and-dot insertion boundary.",
       },
     },
   },
@@ -1983,7 +2107,8 @@ export const CodexProjectsDraggingOverProject: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Non-layout-shifting project insertion indicator with the link-blue rail and sidebar-filled leading dot. The interactive sortable story uses the same 6px activation and same-row midpoint refresh contract as production.",
+        story:
+          "Non-layout-shifting project insertion indicator with the link-blue rail and sidebar-filled leading dot. The interactive sortable story uses the same 6px activation and same-row midpoint refresh contract as production.",
       },
     },
   },
@@ -2006,7 +2131,8 @@ export const CodexCrossProjectThreadDrop: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Interactive lane-aware transfer across project-local pinned and regular rows, plus projectless Pinned and Chats. Hover a chat until its rich preview opens, then drag it to exercise the stable tooltip/ref lifecycle.",
+        story:
+          "Interactive lane-aware transfer across project-local pinned and regular rows, plus projectless Pinned and Chats. Hover a chat until its rich preview opens, then drag it to exercise the stable tooltip/ref lifecycle.",
       },
     },
   },
@@ -2053,7 +2179,8 @@ export const CodexSidebarWorktreeRunLocations: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Local and remote checkout/worktree identities, including pending pulse, selected state, long-title clipping, and an open action rail replacing resting environment glyphs.",
+        story:
+          "Local and remote checkout/worktree identities, including pending pulse, selected state, long-title clipping, and an open action rail replacing resting environment glyphs.",
       },
     },
   },

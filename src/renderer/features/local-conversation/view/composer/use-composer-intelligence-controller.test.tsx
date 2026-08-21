@@ -60,11 +60,7 @@ function buildModel(): ThreadFooterModel {
 }
 
 function provider({ children }: { children: ReactNode }) {
-  return (
-    <CodexServiceTierSettingsProvider>
-      {children}
-    </CodexServiceTierSettingsProvider>
-  );
+  return <CodexServiceTierSettingsProvider>{children}</CodexServiceTierSettingsProvider>;
 }
 
 describe("useComposerIntelligenceController", () => {
@@ -76,17 +72,18 @@ describe("useComposerIntelligenceController", () => {
   test("keeps the latest optimistic selection and skips superseded work after an older failure", async () => {
     const firstCommit = deferred();
     const commits: ComposerIntelligenceSelection[] = [];
-    const onIntelligenceSelectionChange = vi.fn(async (selection: ComposerIntelligenceSelection) => {
-      commits.push(selection);
-      if (commits.length === 1) await firstCommit.promise;
-    });
+    const onIntelligenceSelectionChange = vi.fn(
+      async (selection: ComposerIntelligenceSelection) => {
+        commits.push(selection);
+        if (commits.length === 1) await firstCommit.promise;
+      },
+    );
     const actions = {
       onIntelligenceSelectionChange,
     } as unknown as ThreadStageActions;
-    const hook = renderHook(
-      () => useComposerIntelligenceController(buildModel(), actions),
-      { wrapper: provider },
-    );
+    const hook = renderHook(() => useComposerIntelligenceController(buildModel(), actions), {
+      wrapper: provider,
+    });
 
     act(() => {
       hook.result.current.select(FIRST_SELECTION);
@@ -114,10 +111,9 @@ describe("useComposerIntelligenceController", () => {
         throw new Error("Could not save selection");
       }),
     } as unknown as ThreadStageActions;
-    const hook = renderHook(
-      () => useComposerIntelligenceController(buildModel(), actions),
-      { wrapper: provider },
-    );
+    const hook = renderHook(() => useComposerIntelligenceController(buildModel(), actions), {
+      wrapper: provider,
+    });
 
     act(() => {
       hook.result.current.select(LATEST_SELECTION);

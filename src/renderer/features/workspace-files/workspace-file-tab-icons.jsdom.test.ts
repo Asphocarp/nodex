@@ -70,7 +70,9 @@ describe("resolveWorkspaceFileTabIconKey", () => {
 
     expect(documentSvg?.getAttribute("data-file-tab-icon")).toBe("document");
     expect(documentSvg?.getAttribute("viewBox")).toBe("0 0 21 21");
-    expect(documentSvg?.querySelector("path")?.getAttribute("d")?.startsWith("M3.685 13.9927")).toBe(true);
+    expect(
+      documentSvg?.querySelector("path")?.getAttribute("d")?.startsWith("M3.685 13.9927"),
+    ).toBe(true);
     expect(fileSvg?.getAttribute("data-file-tab-icon")).toBe("file");
     expect(fileSvg?.getAttribute("viewBox")).toBe("0 0 10 10");
     expect(fileSvg?.querySelector("use")).toBe(null);

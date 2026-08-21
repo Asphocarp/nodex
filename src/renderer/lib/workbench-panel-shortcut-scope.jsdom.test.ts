@@ -64,13 +64,10 @@ describe("workbench panel shortcut scope", () => {
     document.body.append(input, dialog, blockNote, nfm);
 
     expect(isWorkbenchNewChatShortcutTargetEditable(input)).toBe(true);
-    expect(isWorkbenchNewChatShortcutTargetEditable(dialogChild))
-      .toBe(true);
+    expect(isWorkbenchNewChatShortcutTargetEditable(dialogChild)).toBe(true);
     expect(isFocusedPanelTabShortcutTargetBlocked(input)).toBe(true);
-    expect(isFocusedPanelTabShortcutTargetBlocked(dialogChild))
-      .toBe(true);
-    expect(isFocusedPanelTabShortcutTargetBlocked(blockNoteChild))
-      .toBe(true);
+    expect(isFocusedPanelTabShortcutTargetBlocked(dialogChild)).toBe(true);
+    expect(isFocusedPanelTabShortcutTargetBlocked(blockNoteChild)).toBe(true);
     expect(isFocusedPanelTabShortcutTargetBlocked(nfmChild)).toBe(false);
 
     const terminal = document.createElement("div");

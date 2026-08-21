@@ -35,14 +35,10 @@ declare global {
       onAppUpdateStatus?: (callback: (status: AppUpdateStatus) => void) => () => void;
       awaitInitialization?: () => Promise<void>;
       getCoreAuthorityStatus?: () => Promise<CoreAuthorityStatus>;
-      onCoreAuthorityStatus?: (
-        callback: (status: CoreAuthorityStatus) => void,
-      ) => () => void;
+      onCoreAuthorityStatus?: (callback: (status: CoreAuthorityStatus) => void) => () => void;
       retryCoreAuthority?: () => Promise<void>;
       relaunchForCoreAuthority?: () => Promise<void>;
-      onInitializationStep?: (
-        callback: (step: AppInitializationStep) => void,
-      ) => () => void;
+      onInitializationStep?: (callback: (step: AppInitializationStep) => void) => () => void;
       reportInitializationReady?: (input: {
         durationMs: number;
         outcome: "failed" | "ready";

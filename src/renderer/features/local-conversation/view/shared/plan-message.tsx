@@ -46,7 +46,11 @@ export function PlanMessage({
 
   const handleDownload = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
-    if (typeof document === "undefined" || typeof URL === "undefined" || typeof Blob === "undefined") {
+    if (
+      typeof document === "undefined" ||
+      typeof URL === "undefined" ||
+      typeof Blob === "undefined"
+    ) {
       return;
     }
 
@@ -116,7 +120,12 @@ export function PlanMessage({
           <ThreadActionIconButton label="Download plan" onClick={handleDownload}>
             <PlanDownloadIcon />
           </ThreadActionIconButton>
-          <CopyMessageActionButton text={content} label="Copy" copiedLabel="Copied" stopPropagation />
+          <CopyMessageActionButton
+            text={content}
+            label="Copy"
+            copiedLabel="Copied"
+            stopPropagation
+          />
           {completed ? (
             <>
               <AssistantRatingButton
@@ -130,7 +139,10 @@ export function PlanMessage({
                 onSelect={setSelectedRating}
               />
               {canOpenSidePanel ? (
-                <ThreadActionIconButton label="Open plan in side panel" onClick={handleOpenSidePanel}>
+                <ThreadActionIconButton
+                  label="Open plan in side panel"
+                  onClick={handleOpenSidePanel}
+                >
                   <PlanSidePanelOpenIcon className="icon-2xs shrink-0" />
                 </ThreadActionIconButton>
               ) : null}
@@ -143,7 +155,8 @@ export function PlanMessage({
         data-plan-preview-body="true"
         className={cn(
           "relative overflow-hidden",
-          !isSidePanelActive && "[mask-image:linear-gradient(to_bottom,black_calc(100%_-_4rem),transparent)]",
+          !isSidePanelActive &&
+            "[mask-image:linear-gradient(to_bottom,black_calc(100%_-_4rem),transparent)]",
         )}
         initial={false}
         animate={{

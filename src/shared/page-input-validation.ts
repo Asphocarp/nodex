@@ -15,13 +15,7 @@ import {
   MAX_PAGE_TITLE_LENGTH,
 } from "./page-limits";
 
-const ESTIMATE_VALUES: Estimate[] = [
-  "xs",
-  "s",
-  "m",
-  "l",
-  "xl",
-];
+const ESTIMATE_VALUES: Estimate[] = ["xs", "s", "m", "l", "xl"];
 
 const RUN_IN_TARGET_VALUES: Array<NonNullable<PageInput["runInTarget"]>> = [
   "localProject",
@@ -29,19 +23,11 @@ const RUN_IN_TARGET_VALUES: Array<NonNullable<PageInput["runInTarget"]>> = [
   "cloud",
 ];
 
-const RECURRENCE_FREQUENCY_VALUES: RecurrenceFrequency[] = [
-  "daily",
-  "weekly",
-  "monthly",
-  "yearly",
-];
+const RECURRENCE_FREQUENCY_VALUES: RecurrenceFrequency[] = ["daily", "weekly", "monthly", "yearly"];
 
 const MAX_REMINDER_OFFSET_MINUTES = 365 * 24 * 60;
 
-export function assertValidPageInput(
-  input: Partial<PageInput>,
-  mode: "create" | "update",
-): void {
+export function assertValidPageInput(input: Partial<PageInput>, mode: "create" | "update"): void {
   if (mode === "create") {
     if (typeof input.title !== "string") {
       throw new Error("Page title is required");
@@ -77,11 +63,7 @@ export function assertValidPageInput(
   assertOptionalRunInEnvironmentPath(input.runInEnvironmentPath);
 }
 
-function assertOptionalString(
-  fieldName: string,
-  value: unknown,
-  maxLength: number,
-): void {
+function assertOptionalString(fieldName: string, value: unknown, maxLength: number): void {
   if (value === undefined) return;
   if (typeof value !== "string") {
     throw new Error(`Invalid ${fieldName} value`);
@@ -168,11 +150,7 @@ function assertScheduledRange(start: unknown, end: unknown): void {
   }
 }
 
-function assertAllDaySchedulePair(
-  isAllDay: unknown,
-  start: unknown,
-  end: unknown,
-): void {
+function assertAllDaySchedulePair(isAllDay: unknown, start: unknown, end: unknown): void {
   if (isAllDay !== true) return;
   if (start instanceof Date && end instanceof Date) return;
   throw new Error("isAllDay requires scheduledStart and scheduledEnd");
@@ -281,7 +259,8 @@ function isRecurrenceConfig(value: unknown): value is RecurrenceConfig {
   };
 
   if (typeof recurrence.frequency !== "string") return false;
-  if (!RECURRENCE_FREQUENCY_VALUES.includes(recurrence.frequency as RecurrenceFrequency)) return false;
+  if (!RECURRENCE_FREQUENCY_VALUES.includes(recurrence.frequency as RecurrenceFrequency))
+    return false;
   if (!Number.isInteger(recurrence.interval) || (recurrence.interval as number) < 1) return false;
 
   if (recurrence.byWeekdays !== undefined) {

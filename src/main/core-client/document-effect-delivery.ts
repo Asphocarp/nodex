@@ -8,18 +8,14 @@ import type {
 } from "../../shared/block-documents/document-sync";
 import type { CoreAuthorizedDeliveryPacket } from "./types";
 
-export type AuthorizedDocumentEffect =
-  CoreAuthorizedDeliveryPacket["document_effects"][number];
+export type AuthorizedDocumentEffect = CoreAuthorizedDeliveryPacket["document_effects"][number];
 
 export type ExactDocumentUpdateFetcher = (
   input: DocumentUpdateResourceRef & { readonly clientSessionId: string },
 ) => Promise<DocumentSyncCommandResult<DocumentUpdateResourceReadResult>>;
 
 type CommitIdentity = CoreAuthorizedDeliveryPacket["manifest"]["identity"];
-type DocumentResyncEvent = Extract<
-  DocumentSyncRealtimeEvent,
-  { readonly kind: "resync-required" }
->;
+type DocumentResyncEvent = Extract<DocumentSyncRealtimeEvent, { readonly kind: "resync-required" }>;
 
 const resyncEvent = (
   effect: AuthorizedDocumentEffect,
@@ -50,10 +46,7 @@ export const resolveInlineAuthorizedDocumentEffect = (
   const reference = effect.reference;
   const update = Uint8Array.from(effect.inline_update);
   const hash = createHash("sha256").update(update).digest("hex");
-  if (
-    update.byteLength !== reference.update_byte_length
-    || hash !== reference.update_hash
-  ) {
+  if (update.byteLength !== reference.update_byte_length || hash !== reference.update_hash) {
     return resyncEvent(effect, identity, "resource-integrity-failure");
   }
   return {
@@ -75,10 +68,9 @@ export const resolveAuthorizedDocumentEffect = async (
   effect: AuthorizedDocumentEffect,
   identity: CommitIdentity,
   fetchUpdateResource: ExactDocumentUpdateFetcher,
-): Promise<Extract<
-  DocumentSyncRealtimeEvent,
-  { readonly kind: "document-update" | "resync-required" }
->> => {
+): Promise<
+  Extract<DocumentSyncRealtimeEvent, { readonly kind: "document-update" | "resync-required" }>
+> => {
   const reference = effect.reference;
   const inline = resolveInlineAuthorizedDocumentEffect(effect, identity);
   if (inline) return inline;
@@ -105,13 +97,14 @@ export const resolveAuthorizedDocumentEffect = async (
     }
     if (fetched.value.kind === "resync-required") {
       const unavailable = fetched.value;
-      const reason = unavailable.reason === "compacted"
-        ? "history-compacted"
-        : unavailable.reason === "generation_changed"
-          ? "identity-boundary-changed"
-          : unavailable.reason === "hash_mismatch"
-            ? "resource-integrity-failure"
-            : "event-gap";
+      const reason =
+        unavailable.reason === "compacted"
+          ? "history-compacted"
+          : unavailable.reason === "generation_changed"
+            ? "identity-boundary-changed"
+            : unavailable.reason === "hash_mismatch"
+              ? "resource-integrity-failure"
+              : "event-gap";
       return resyncEvent(effect, identity, reason, {
         generation: unavailable.currentGeneration,
         headSeq: unavailable.currentHeadSeq,
@@ -119,13 +112,13 @@ export const resolveAuthorizedDocumentEffect = async (
     }
     const resource = fetched.value;
     if (
-      resource.documentId !== reference.document_id
-      || resource.generation !== reference.generation
-      || resource.baseHeadSeq !== reference.base_head_seq
-      || resource.headSeq !== reference.result_head_seq
-      || resource.updateId !== reference.update_id
-      || resource.updateHash !== reference.update_hash
-      || resource.updateByteLength !== reference.update_byte_length
+      resource.documentId !== reference.document_id ||
+      resource.generation !== reference.generation ||
+      resource.baseHeadSeq !== reference.base_head_seq ||
+      resource.headSeq !== reference.result_head_seq ||
+      resource.updateId !== reference.update_id ||
+      resource.updateHash !== reference.update_hash ||
+      resource.updateByteLength !== reference.update_byte_length
     ) {
       return resyncEvent(effect, identity, "resource-integrity-failure");
     }

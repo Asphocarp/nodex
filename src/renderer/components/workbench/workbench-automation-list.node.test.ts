@@ -55,8 +55,17 @@ describe("workbench automation list model", () => {
   test("groups current and paused rows after search", () => {
     const list = buildWorkbenchAutomationListModel({
       automations: [
-        automation({ id: "automation-current", name: "Project summary", prompt: "Summarize project." }),
-        automation({ id: "automation-paused", name: "Inbox triage", prompt: "Triage inbox.", status: "PAUSED" }),
+        automation({
+          id: "automation-current",
+          name: "Project summary",
+          prompt: "Summarize project.",
+        }),
+        automation({
+          id: "automation-paused",
+          name: "Inbox triage",
+          prompt: "Triage inbox.",
+          status: "PAUSED",
+        }),
       ],
       runningAutomationIds: new Set(),
       unreadAutomationIds: new Set(),
@@ -75,19 +84,33 @@ describe("workbench automation list model", () => {
       unreadAutomationIds: new Set(),
     });
 
-    expect(workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("customer"))).toBe(true);
-    expect(workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("weekly"))).toBe(true);
-    expect(workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("missing"))).toBe(false);
+    expect(
+      workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("customer")),
+    ).toBe(true);
+    expect(
+      workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("weekly")),
+    ).toBe(true);
+    expect(
+      workbenchAutomationRowMatchesSearch(row, normalizeAutomationListSearchText("missing")),
+    ).toBe(false);
   });
 
   test("formats multi-cwd and heartbeat workspace labels", () => {
-    expect(formatWorkbenchAutomationWorkspaceLabel(automation({
-      cwds: ["/tmp/alpha", "/tmp/beta", "/tmp/gamma"],
-    }))).toBe("alpha + 2 more");
-    expect(formatWorkbenchAutomationWorkspaceLabel(automation({
-      kind: "heartbeat",
-      targetThreadId: "thread-alpha",
-      cwds: [],
-    }))).toBe("Chat");
+    expect(
+      formatWorkbenchAutomationWorkspaceLabel(
+        automation({
+          cwds: ["/tmp/alpha", "/tmp/beta", "/tmp/gamma"],
+        }),
+      ),
+    ).toBe("alpha + 2 more");
+    expect(
+      formatWorkbenchAutomationWorkspaceLabel(
+        automation({
+          kind: "heartbeat",
+          targetThreadId: "thread-alpha",
+          cwds: [],
+        }),
+      ),
+    ).toBe("Chat");
   });
 });

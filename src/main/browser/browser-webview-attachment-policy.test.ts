@@ -26,9 +26,7 @@ const authorization: BrowserAuthorizedAttachment = {
   ownerWebContentsId: 7,
 };
 
-function decide(
-  overrides: Partial<Parameters<typeof decideBrowserWebviewAttachment>[0]> = {},
-) {
+function decide(overrides: Partial<Parameters<typeof decideBrowserWebviewAttachment>[0]> = {}) {
   return decideBrowserWebviewAttachment({
     authorizeAttachment: () => ({ ok: true, authorization }),
     isRegisteredBrowserStorage: () => true,
@@ -60,17 +58,21 @@ describe("Browser webview attachment policy", () => {
       authorization,
     }));
 
-    expect(decide({
-      authorizeAttachment,
-      ownerBrowserViewScopeId: "window-session-2",
-    })).toMatchObject({
+    expect(
+      decide({
+        authorizeAttachment,
+        ownerBrowserViewScopeId: "window-session-2",
+      }),
+    ).toMatchObject({
       ok: false,
       reason: "window-session-mismatch",
     });
-    expect(decide({
-      authorizeAttachment,
-      src: "javascript:alert(1)",
-    })).toMatchObject({
+    expect(
+      decide({
+        authorizeAttachment,
+        src: "javascript:alert(1)",
+      }),
+    ).toMatchObject({
       ok: false,
       reason: "navigation-url-blocked",
     });
@@ -81,29 +83,28 @@ describe("Browser webview attachment policy", () => {
     const isRegisteredBrowserStorage = vi.fn(() => false);
     const revokeAuthorizedAttachment = vi.fn();
 
-    expect(decide({
-      isRegisteredBrowserStorage,
-      revokeAuthorizedAttachment,
-    })).toMatchObject({
+    expect(
+      decide({
+        isRegisteredBrowserStorage,
+        revokeAuthorizedAttachment,
+      }),
+    ).toMatchObject({
       ok: false,
       reason: "storage-identity-mismatch",
     });
-    expect(isRegisteredBrowserStorage).toHaveBeenCalledWith(
-      route,
-      authorization.browserStorageId,
-    );
-    expect(revokeAuthorizedAttachment).toHaveBeenCalledWith(
-      authorization.attachToken,
-    );
+    expect(isRegisteredBrowserStorage).toHaveBeenCalledWith(route, authorization.browserStorageId);
+    expect(revokeAuthorizedAttachment).toHaveBeenCalledWith(authorization.attachToken);
   });
 
   test("preserves the exact registry rejection reason", () => {
-    expect(decide({
-      authorizeAttachment: () => ({
-        ok: false,
-        reason: "host-mismatch",
+    expect(
+      decide({
+        authorizeAttachment: () => ({
+          ok: false,
+          reason: "host-mismatch",
+        }),
       }),
-    })).toMatchObject({
+    ).toMatchObject({
       ok: false,
       reason: "authorization-host-mismatch",
     });
@@ -116,51 +117,36 @@ describe("Browser webview attachment policy", () => {
       attachToken: "attach-2",
     };
 
-    expect(registerPendingBrowserWebviewAttachment(
-      pending,
-      "41",
-      authorization,
-    )).toEqual({ ok: true, instanceId: 41 });
-    expect(registerPendingBrowserWebviewAttachment(
-      pending,
-      42,
-      secondAuthorization,
-    )).toEqual({ ok: true, instanceId: 42 });
-    expect(consumePendingBrowserWebviewAttachment(
-      pending,
-      42,
-    )).toBe(secondAuthorization);
-    expect(consumePendingBrowserWebviewAttachment(
-      pending,
-      41,
-    )).toBe(authorization);
-    expect(consumePendingBrowserWebviewAttachment(
-      pending,
-      41,
-    )).toBeNull();
+    expect(registerPendingBrowserWebviewAttachment(pending, "41", authorization)).toEqual({
+      ok: true,
+      instanceId: 41,
+    });
+    expect(registerPendingBrowserWebviewAttachment(pending, 42, secondAuthorization)).toEqual({
+      ok: true,
+      instanceId: 42,
+    });
+    expect(consumePendingBrowserWebviewAttachment(pending, 42)).toBe(secondAuthorization);
+    expect(consumePendingBrowserWebviewAttachment(pending, 41)).toBe(authorization);
+    expect(consumePendingBrowserWebviewAttachment(pending, 41)).toBeNull();
   });
 
   test("rejects invalid or duplicate Electron instance ids without overwriting", () => {
     const pending = new Map<number, BrowserAuthorizedAttachment>();
 
-    expect(registerPendingBrowserWebviewAttachment(
-      pending,
-      0,
-      authorization,
-    )).toEqual({ ok: false, reason: "invalid-instance-id" });
-    expect(registerPendingBrowserWebviewAttachment(
-      pending,
-      7,
-      authorization,
-    )).toEqual({ ok: true, instanceId: 7 });
-    expect(registerPendingBrowserWebviewAttachment(
-      pending,
-      7,
-      { ...authorization, attachToken: "replacement" },
-    )).toEqual({ ok: false, reason: "duplicate-instance-id" });
-    expect(consumePendingBrowserWebviewAttachment(
-      pending,
-      7,
-    )).toBe(authorization);
+    expect(registerPendingBrowserWebviewAttachment(pending, 0, authorization)).toEqual({
+      ok: false,
+      reason: "invalid-instance-id",
+    });
+    expect(registerPendingBrowserWebviewAttachment(pending, 7, authorization)).toEqual({
+      ok: true,
+      instanceId: 7,
+    });
+    expect(
+      registerPendingBrowserWebviewAttachment(pending, 7, {
+        ...authorization,
+        attachToken: "replacement",
+      }),
+    ).toEqual({ ok: false, reason: "duplicate-instance-id" });
+    expect(consumePendingBrowserWebviewAttachment(pending, 7)).toBe(authorization);
   });
 });

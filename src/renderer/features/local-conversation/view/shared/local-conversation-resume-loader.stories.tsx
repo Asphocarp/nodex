@@ -16,9 +16,15 @@ const RESUMING_STORY_CONTROLS: ThreadStageStoryControls = {
 
 function buildResumeLoaderArgs() {
   const scenario = buildThreadStageStoryScenario(RESUMING_STORY_CONTROLS);
-  const { bodyModel } = buildThreadStageStorySurfaceModels(scenario, RESUMING_STORY_CONTROLS, scenario.runtime);
+  const { bodyModel } = buildThreadStageStorySurfaceModels(
+    scenario,
+    RESUMING_STORY_CONTROLS,
+    scenario.runtime,
+  );
   if (bodyModel.body.emptyState.type !== "resumingThread") {
-    throw new Error("Expected the resuming story fixture to produce the resuming thread empty state.");
+    throw new Error(
+      "Expected the resuming story fixture to produce the resuming thread empty state.",
+    );
   }
   return {
     title: bodyModel.body.emptyState.title,

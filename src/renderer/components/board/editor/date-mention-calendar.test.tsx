@@ -19,9 +19,7 @@ describe("DateMentionCalendar", () => {
       onSelectDate,
       onSelectRange,
     };
-    const view = render(
-      <DateMentionCalendar {...sharedProps} hasEndDate={false} />,
-    );
+    const view = render(<DateMentionCalendar {...sharedProps} hasEndDate={false} />);
 
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: /Saturday, August 22/ }));
@@ -36,9 +34,14 @@ describe("DateMentionCalendar", () => {
       await Promise.resolve();
     });
 
-    expect(onSelectRange).toHaveBeenCalledWith(expect.objectContaining({
-      from: AUGUST_21,
-      to: new Date(2026, 7, 25),
-    }), expect.any(Date), expect.any(Object), expect.any(Object));
+    expect(onSelectRange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        from: AUGUST_21,
+        to: new Date(2026, 7, 25),
+      }),
+      expect.any(Date),
+      expect.any(Object),
+      expect.any(Object),
+    );
   });
 });

@@ -13,9 +13,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion, type MotionValue } from "motion/react";
 import { codexSidebarProjectThreadContainerId } from "../../../shared/codex-sidebar-thread-move";
 import type { LibraryResourceTarget } from "../../../shared/library-module";
-import type {
-  LibraryResourceTarget as ActionableLibraryResourceTarget,
-} from "../library/library-resource-actions";
+import type { LibraryResourceTarget as ActionableLibraryResourceTarget } from "../library/library-resource-actions";
 import {
   CodexProjectRow,
   CodexProjectSessionList,
@@ -228,9 +226,10 @@ function SidebarProjectGroupRowsContent({
     reorderGroups,
   });
   const orderedVisibleItems = useMemo(
-    () => reorder.groupIds
-      .map((projectId) => visibleGroupById.get(projectId))
-      .filter((group): group is CodexSidebarProjectGroup => Boolean(group)),
+    () =>
+      reorder.groupIds
+        .map((projectId) => visibleGroupById.get(projectId))
+        .filter((group): group is CodexSidebarProjectGroup => Boolean(group)),
     [reorder.groupIds, visibleGroupById],
   );
 
@@ -238,17 +237,24 @@ function SidebarProjectGroupRowsContent({
     <div className="isolate flex flex-col [contain:layout]">
       <SidebarProjectSortableContext groupIds={reorder.groupIds}>
         <div className="flex flex-col" role="list" aria-label="Projects">
-          {orderedVisibleItems.length > 0 ? orderedVisibleItems.map((group, index) => (
-            <Fragment key={group.project.id}>
-              {reorder.dropIndicatorIndex === index ? <SidebarDropIndicator /> : null}
-              {renderProjectGroup(group, reorder.controller)}
-            </Fragment>
-          )) : (
-            <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
+          {orderedVisibleItems.length > 0 ? (
+            orderedVisibleItems.map((group, index) => (
+              <Fragment key={group.project.id}>
+                {reorder.dropIndicatorIndex === index ? <SidebarDropIndicator /> : null}
+                {renderProjectGroup(group, reorder.controller)}
+              </Fragment>
+            ))
+          ) : (
+            <div
+              className="px-row-x py-row-y text-sm text-token-description-foreground"
+              role="listitem"
+            >
               {loading ? "Loading projects..." : emptyText}
             </div>
           )}
-          {reorder.dropIndicatorIndex === orderedVisibleItems.length ? <SidebarDropIndicator /> : null}
+          {reorder.dropIndicatorIndex === orderedVisibleItems.length ? (
+            <SidebarDropIndicator />
+          ) : null}
           {pager}
         </div>
       </SidebarProjectSortableContext>
@@ -354,16 +360,18 @@ function SidebarThreadContainerRowsContent({
     threadKeysInDisplayOrder: threadKeys,
     getThreadId,
   });
-  const sortableThreadKeys = optimisticThreadKeys.filter((threadKey) => (
-    getSessionId(threadKey) !== null && !suppressedKeys.has(threadKey)
-  ));
+  const sortableThreadKeys = optimisticThreadKeys.filter(
+    (threadKey) => getSessionId(threadKey) !== null && !suppressedKeys.has(threadKey),
+  );
   const reorder = useSidebarThreadReorderController({
     visibleThreadKeys: sortableThreadKeys,
     onVisibleThreadOrderChange: async ({ nextVisibleThreadKeys }) => {
-      await onVisibleSessionOrderChange(nextVisibleThreadKeys.flatMap((threadKey) => {
-        const sessionId = getSessionId(threadKey);
-        return sessionId === null ? [] : [sessionId];
-      }));
+      await onVisibleSessionOrderChange(
+        nextVisibleThreadKeys.flatMap((threadKey) => {
+          const sessionId = getSessionId(threadKey);
+          return sessionId === null ? [] : [sessionId];
+        }),
+      );
     },
   });
   const displayedThreadKeys = replaceVisibleCodexSidebarThreadKeyOrder({
@@ -418,8 +426,7 @@ function SidebarThreadContainerRowsContent({
                   targetProjectKind="local"
                 />
               ) : null}
-              {pagination.visibleItems.length === 0
-                || collectionState.kind === "error" ? (
+              {pagination.visibleItems.length === 0 || collectionState.kind === "error" ? (
                 <SidebarSessionCollectionFallback
                   state={collectionState}
                   loadingText="Loading chats..."
@@ -482,37 +489,48 @@ function SidebarProjectThreadRowsContent({
   const pinnedContainerId = codexSidebarProjectThreadContainerId(project.id, true);
   const regularContainerId = codexSidebarProjectThreadContainerId(project.id, false);
   const pendingThreadDrops = usePendingSidebarThreadDrops();
-  const optimisticPinnedThreadKeys = useMemo(() => resolveSidebarThreadKeysWithPendingDrops({
-    containerId: pinnedContainerId,
-    pendingThreadDrops,
-    threadKeys: pinnedThreadKeys,
-    getThreadId,
-  }), [getThreadId, pendingThreadDrops, pinnedContainerId, pinnedThreadKeys]);
-  const optimisticRegularThreadKeys = useMemo(() => resolveSidebarThreadKeysWithPendingDrops({
-    containerId: regularContainerId,
-    pendingThreadDrops,
-    threadKeys,
-    threadKeysInDisplayOrder: threadKeys,
-    getThreadId,
-  }), [
-    getThreadId,
-    pendingThreadDrops,
-    regularContainerId,
-    threadKeys,
-  ]);
+  const optimisticPinnedThreadKeys = useMemo(
+    () =>
+      resolveSidebarThreadKeysWithPendingDrops({
+        containerId: pinnedContainerId,
+        pendingThreadDrops,
+        threadKeys: pinnedThreadKeys,
+        getThreadId,
+      }),
+    [getThreadId, pendingThreadDrops, pinnedContainerId, pinnedThreadKeys],
+  );
+  const optimisticRegularThreadKeys = useMemo(
+    () =>
+      resolveSidebarThreadKeysWithPendingDrops({
+        containerId: regularContainerId,
+        pendingThreadDrops,
+        threadKeys,
+        threadKeysInDisplayOrder: threadKeys,
+        getThreadId,
+      }),
+    [getThreadId, pendingThreadDrops, regularContainerId, threadKeys],
+  );
   const sortablePinnedThreadKeySet = useMemo(
     () => new Set(sortablePinnedThreadKeys),
     [sortablePinnedThreadKeys],
   );
-  const optimisticSortablePinnedThreadKeys = useMemo(() => optimisticPinnedThreadKeys.filter(
-    (threadKey) => sortablePinnedThreadKeySet.has(threadKey) && !suppressedKeys.has(threadKey),
-  ), [optimisticPinnedThreadKeys, sortablePinnedThreadKeySet, suppressedKeys]);
-  const sortableRegularThreadKeys = useMemo(() => listReorderableCodexSidebarChatKeys({
-    visibleThreadKeys: optimisticRegularThreadKeys.filter(
-      (threadKey) => !suppressedKeys.has(threadKey),
-    ),
-    getSessionId,
-  }), [getSessionId, optimisticRegularThreadKeys, suppressedKeys]);
+  const optimisticSortablePinnedThreadKeys = useMemo(
+    () =>
+      optimisticPinnedThreadKeys.filter(
+        (threadKey) => sortablePinnedThreadKeySet.has(threadKey) && !suppressedKeys.has(threadKey),
+      ),
+    [optimisticPinnedThreadKeys, sortablePinnedThreadKeySet, suppressedKeys],
+  );
+  const sortableRegularThreadKeys = useMemo(
+    () =>
+      listReorderableCodexSidebarChatKeys({
+        visibleThreadKeys: optimisticRegularThreadKeys.filter(
+          (threadKey) => !suppressedKeys.has(threadKey),
+        ),
+        getSessionId,
+      }),
+    [getSessionId, optimisticRegularThreadKeys, suppressedKeys],
+  );
   const pinnedReorder = useSidebarThreadReorderController({
     visibleThreadKeys: optimisticSortablePinnedThreadKeys,
     onVisibleThreadOrderChange: onPinnedThreadOrderChange,
@@ -520,30 +538,40 @@ function SidebarProjectThreadRowsContent({
   const regularReorder = useSidebarThreadReorderController({
     visibleThreadKeys: sortableRegularThreadKeys,
     onVisibleThreadOrderChange: async ({ nextVisibleThreadKeys }) => {
-      await onRegularSessionOrderChange(nextVisibleThreadKeys.flatMap((threadKey) => {
-        const sessionId = getSessionId(threadKey);
-        return sessionId === null ? [] : [sessionId];
-      }));
+      await onRegularSessionOrderChange(
+        nextVisibleThreadKeys.flatMap((threadKey) => {
+          const sessionId = getSessionId(threadKey);
+          return sessionId === null ? [] : [sessionId];
+        }),
+      );
     },
   });
-  const displayedPinnedThreadKeys = useMemo(() => replaceVisibleCodexSidebarThreadKeyOrder({
-    threadKeysInDisplayOrder: optimisticPinnedThreadKeys,
-    visibleThreadKeys: optimisticSortablePinnedThreadKeys,
-    nextVisibleThreadKeys: pinnedReorder.displayedVisibleThreadKeys,
-  }), [
-    optimisticPinnedThreadKeys,
-    optimisticSortablePinnedThreadKeys,
-    pinnedReorder.displayedVisibleThreadKeys,
-  ]);
-  const displayedRegularThreadKeys = useMemo(() => replaceVisibleCodexSidebarThreadKeyOrder({
-    threadKeysInDisplayOrder: optimisticRegularThreadKeys,
-    visibleThreadKeys: sortableRegularThreadKeys,
-    nextVisibleThreadKeys: regularReorder.displayedVisibleThreadKeys,
-  }), [
-    optimisticRegularThreadKeys,
-    regularReorder.displayedVisibleThreadKeys,
-    sortableRegularThreadKeys,
-  ]);
+  const displayedPinnedThreadKeys = useMemo(
+    () =>
+      replaceVisibleCodexSidebarThreadKeyOrder({
+        threadKeysInDisplayOrder: optimisticPinnedThreadKeys,
+        visibleThreadKeys: optimisticSortablePinnedThreadKeys,
+        nextVisibleThreadKeys: pinnedReorder.displayedVisibleThreadKeys,
+      }),
+    [
+      optimisticPinnedThreadKeys,
+      optimisticSortablePinnedThreadKeys,
+      pinnedReorder.displayedVisibleThreadKeys,
+    ],
+  );
+  const displayedRegularThreadKeys = useMemo(
+    () =>
+      replaceVisibleCodexSidebarThreadKeyOrder({
+        threadKeysInDisplayOrder: optimisticRegularThreadKeys,
+        visibleThreadKeys: sortableRegularThreadKeys,
+        nextVisibleThreadKeys: regularReorder.displayedVisibleThreadKeys,
+      }),
+    [
+      optimisticRegularThreadKeys,
+      regularReorder.displayedVisibleThreadKeys,
+      sortableRegularThreadKeys,
+    ],
+  );
   const displayedThreadKeys = useMemo(
     () => [...displayedPinnedThreadKeys, ...displayedRegularThreadKeys],
     [displayedPinnedThreadKeys, displayedRegularThreadKeys],
@@ -576,19 +604,16 @@ function SidebarProjectThreadRowsContent({
     >
       {(pagination, pager) => {
         const pinnedThreadKeySet = new Set(displayedPinnedThreadKeys);
-        const visiblePinnedThreadKeys = pagination.visibleItems.filter((threadKey) => (
-          pinnedThreadKeySet.has(threadKey)
-        ));
-        const visibleRegularThreadKeys = pagination.visibleItems.filter((threadKey) => (
-          !pinnedThreadKeySet.has(threadKey)
-        ));
+        const visiblePinnedThreadKeys = pagination.visibleItems.filter((threadKey) =>
+          pinnedThreadKeySet.has(threadKey),
+        );
+        const visibleRegularThreadKeys = pagination.visibleItems.filter(
+          (threadKey) => !pinnedThreadKeySet.has(threadKey),
+        );
 
         return (
           <CodexProjectSessionList project={project} showAll={expanded}>
-            <SidebarThreadDropContainer
-              containerId={pinnedContainerId}
-              targetProjectKind="local"
-            >
+            <SidebarThreadDropContainer containerId={pinnedContainerId} targetProjectKind="local">
               <SidebarThreadSortableRows
                 containerId={pinnedContainerId}
                 getThreadId={getThreadId}
@@ -602,10 +627,7 @@ function SidebarProjectThreadRowsContent({
                 targetProjectKind="local"
               />
             </SidebarThreadDropContainer>
-            <SidebarThreadDropContainer
-              containerId={regularContainerId}
-              targetProjectKind="local"
-            >
+            <SidebarThreadDropContainer containerId={regularContainerId} targetProjectKind="local">
               <SidebarThreadSortableRows
                 containerId={regularContainerId}
                 getItemId={(threadKey) => getSessionId(threadKey) ?? undefined}
@@ -624,8 +646,7 @@ function SidebarProjectThreadRowsContent({
                 targetProjectKind="local"
               />
             </SidebarThreadDropContainer>
-            {pagination.visibleItems.length === 0
-              || collectionState.kind === "error" ? (
+            {pagination.visibleItems.length === 0 || collectionState.kind === "error" ? (
               <SidebarSessionCollectionFallback
                 state={collectionState}
                 loadingText={null}
@@ -706,9 +727,7 @@ function SidebarThreadOrganizerSections({
   activeSessionId: string | null;
   activePendingClientThreadId?: string | null;
   contextMenuSessionId?: string | null;
-  sessionCollectionsByProject: Readonly<
-    Record<string, WorkbenchSessionCollection>
-  >;
+  sessionCollectionsByProject: Readonly<Record<string, WorkbenchSessionCollection>>;
   projectlessSessionCollection: WorkbenchSessionCollection;
   expandedProjectIds: Set<string>;
   pinnedThreadsSectionCollapsed: boolean;
@@ -728,7 +747,10 @@ function SidebarThreadOrganizerSections({
   onSelectSidebarThread: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onPreviewSidebarThread?: (item: CodexSidebarThreadItem) => void;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
-  onSessionTitleDoubleClick?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
+  onSessionTitleDoubleClick?: (
+    session: ProjectSession,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => void;
   onPendingWorktreeTitleDoubleClick?: (
     item: CodexSidebarThreadItem,
     event: ReactMouseEvent<HTMLElement>,
@@ -768,45 +790,51 @@ function SidebarThreadOrganizerSections({
   onLoadMoreProjects?: () => Promise<void>;
 }) {
   const sessionsByProject = useMemo<Record<string, ProjectSession[]>>(
-    () => Object.fromEntries(
-      Object.entries(projectSessionProjectionsByProject(sessionCollectionsByProject))
-        .map(([projectId, sessions]) => [
-          projectId,
-          sessions.filter((session) => isCodexSidebarRootThread(session.thread)),
-        ]),
-    ),
+    () =>
+      Object.fromEntries(
+        Object.entries(projectSessionProjectionsByProject(sessionCollectionsByProject)).map(
+          ([projectId, sessions]) => [
+            projectId,
+            sessions.filter((session) => isCodexSidebarRootThread(session.thread)),
+          ],
+        ),
+      ),
     [sessionCollectionsByProject],
   );
   const projectlessSessions = useMemo(
-    () => projectlessSessionCollection.projections.filter(
-      (session) => isCodexSidebarRootThread(session.thread),
-    ),
+    () =>
+      projectlessSessionCollection.projections.filter((session) =>
+        isCodexSidebarRootThread(session.thread),
+      ),
     [projectlessSessionCollection.projections],
   );
   const [pinnedProjectsExpanded, setPinnedProjectsExpanded] = useState(false);
   const [projectsExpanded, setProjectsExpanded] = useState(false);
-  const [expandedProjectThreadListIds, setExpandedProjectThreadListIds] = useState<Set<string>>(new Set());
+  const [expandedProjectThreadListIds, setExpandedProjectThreadListIds] = useState<Set<string>>(
+    new Set(),
+  );
   const [projectlessThreadListExpanded, setProjectlessThreadListExpanded] = useState(false);
-  const [previouslyExpandedProjectGroupIds, setPreviouslyExpandedProjectGroupIds] = useState<string[]>([]);
+  const [previouslyExpandedProjectGroupIds, setPreviouslyExpandedProjectGroupIds] = useState<
+    string[]
+  >([]);
   const openHoverSurfaceKeysRef = useRef(new Set<string>());
-  const setSidebarHoverSurfaceOpen = useCallback((
-    key: string,
-    open: boolean,
-  ) => {
-    const openKeys = openHoverSurfaceKeysRef.current;
-    if (open) {
-      openKeys.add(key);
-    } else {
-      openKeys.delete(key);
-    }
-    onHoverSurfaceOpenChange?.(openKeys.size > 0);
-  }, [onHoverSurfaceOpenChange]);
+  const setSidebarHoverSurfaceOpen = useCallback(
+    (key: string, open: boolean) => {
+      const openKeys = openHoverSurfaceKeysRef.current;
+      if (open) {
+        openKeys.add(key);
+      } else {
+        openKeys.delete(key);
+      }
+      onHoverSurfaceOpenChange?.(openKeys.size > 0);
+    },
+    [onHoverSurfaceOpenChange],
+  );
   const pinnedDropTarget = useSidebarPinnedDropContainer();
   const sessionsById = useMemo(() => {
-    const entries = [
-      ...Object.values(sessionsByProject).flat(),
-      ...projectlessSessions,
-    ].map((session) => [session.id, session] as const);
+    const entries = [...Object.values(sessionsByProject).flat(), ...projectlessSessions].map(
+      (session) => [session.id, session] as const,
+    );
     return new Map(entries);
   }, [projectlessSessions, sessionsByProject]);
   const knownSessions = useMemo(
@@ -863,8 +891,10 @@ function SidebarThreadOrganizerSections({
           pinnedOrder: session.pinnedOrder,
           unread: session.unread,
           archived: session.archived || session.thread?.archived === true,
-          statusType: (session.thread?.statusType ?? "notLoaded") as CodexSidebarThreadItem["statusType"],
-          statusActiveFlags: (session.thread?.statusActiveFlags ?? []) as CodexSidebarThreadItem["statusActiveFlags"],
+          statusType: (session.thread?.statusType ??
+            "notLoaded") as CodexSidebarThreadItem["statusType"],
+          statusActiveFlags: (session.thread?.statusActiveFlags ??
+            []) as CodexSidebarThreadItem["statusActiveFlags"],
           projectless: session.projectId === null,
           disabled: false,
         };
@@ -877,21 +907,27 @@ function SidebarThreadOrganizerSections({
     }
     return itemsByKey;
   }, [fallbackThreadItems, model.threadItemsByKey]);
-  const getSidebarRealThreadId = useCallback((threadKey: string) => {
-    const item = sidebarThreadItemsByKey.get(threadKey);
-    if (!item || item.pendingWorktreeId) return null;
-    if (model.threadItemsByKey.has(threadKey)) return item.threadId;
-    const session = item.sessionId
-      ? sessionsById.get(item.sessionId)
-      : sessionsByThreadId.get(item.threadId);
-    return session?.thread?.threadId ?? null;
-  }, [model.threadItemsByKey, sessionsById, sessionsByThreadId, sidebarThreadItemsByKey]);
-  const getSidebarSessionId = useCallback((threadKey: string) => {
-    const item = sidebarThreadItemsByKey.get(threadKey);
-    if (!item || item.pendingWorktreeId) return null;
-    if (item.sessionId) return item.sessionId;
-    return sessionsByThreadId.get(item.threadId)?.id ?? null;
-  }, [sessionsByThreadId, sidebarThreadItemsByKey]);
+  const getSidebarRealThreadId = useCallback(
+    (threadKey: string) => {
+      const item = sidebarThreadItemsByKey.get(threadKey);
+      if (!item || item.pendingWorktreeId) return null;
+      if (model.threadItemsByKey.has(threadKey)) return item.threadId;
+      const session = item.sessionId
+        ? sessionsById.get(item.sessionId)
+        : sessionsByThreadId.get(item.threadId);
+      return session?.thread?.threadId ?? null;
+    },
+    [model.threadItemsByKey, sessionsById, sessionsByThreadId, sidebarThreadItemsByKey],
+  );
+  const getSidebarSessionId = useCallback(
+    (threadKey: string) => {
+      const item = sidebarThreadItemsByKey.get(threadKey);
+      if (!item || item.pendingWorktreeId) return null;
+      if (item.sessionId) return item.sessionId;
+      return sessionsByThreadId.get(item.threadId)?.id ?? null;
+    },
+    [sessionsByThreadId, sidebarThreadItemsByKey],
+  );
   const sidebarThreadKeyBySessionId = useMemo(() => {
     const entries: Array<readonly [string, string]> = [];
     for (const [threadKey, item] of sidebarThreadItemsByKey) {
@@ -902,9 +938,7 @@ function SidebarThreadOrganizerSections({
   }, [sessionsByThreadId, sidebarThreadItemsByKey]);
   const allPinnedThreadKeys = useMemo(() => {
     const fallbackPinnedThreadKeys = sortSidebarThreadKeysForDisplay({
-      threadKeys: fallbackThreadItems
-        .filter((item) => item.pinned)
-        .map((item) => item.key),
+      threadKeys: fallbackThreadItems.filter((item) => item.pinned).map((item) => item.key),
       itemsByKey: sidebarThreadItemsByKey,
       sessionsById,
     });
@@ -914,103 +948,127 @@ function SidebarThreadOrganizerSections({
     () => new Set(model.projectGroups.map((group) => group.project.id)),
     [model.projectGroups],
   );
-  const pinnedStandaloneThreadKeys = useMemo(() => allPinnedThreadKeys.filter((threadKey) => {
-    const projectId = sidebarThreadItemsByKey.get(threadKey)?.projectId ?? null;
-    return projectId === null || !knownProjectIds.has(projectId);
-  }), [allPinnedThreadKeys, knownProjectIds, sidebarThreadItemsByKey]);
-  const sortablePinnedStandaloneThreadKeys = useMemo(() =>
-    pinnedStandaloneThreadKeys.filter((threadKey) =>
-      model.threadItemsByKey.has(threadKey)
-      && !sidebarArchivePendingKeys.has(threadKey)
-    ), [model.threadItemsByKey, pinnedStandaloneThreadKeys, sidebarArchivePendingKeys]);
-  const fallbackPinnedStandaloneThreadKeys = useMemo(() =>
-    pinnedStandaloneThreadKeys.filter((threadKey) =>
-      !model.threadItemsByKey.has(threadKey)
-      && !sidebarArchivePendingKeys.has(threadKey)
-    ), [model.threadItemsByKey, pinnedStandaloneThreadKeys, sidebarArchivePendingKeys]);
-  const reorderVisiblePinnedThreads = useCallback(async ({
-    visibleThreadKeys,
-    nextVisibleThreadKeys,
-  }: {
-    visibleThreadKeys: string[];
-    nextVisibleThreadKeys: string[];
-  }) => {
-    const mutation = buildCodexSidebarPinnedReorderMutation({
-      pinnedThreadIds: model.snapshot.pinnedThreadIds,
+  const pinnedStandaloneThreadKeys = useMemo(
+    () =>
+      allPinnedThreadKeys.filter((threadKey) => {
+        const projectId = sidebarThreadItemsByKey.get(threadKey)?.projectId ?? null;
+        return projectId === null || !knownProjectIds.has(projectId);
+      }),
+    [allPinnedThreadKeys, knownProjectIds, sidebarThreadItemsByKey],
+  );
+  const sortablePinnedStandaloneThreadKeys = useMemo(
+    () =>
+      pinnedStandaloneThreadKeys.filter(
+        (threadKey) =>
+          model.threadItemsByKey.has(threadKey) && !sidebarArchivePendingKeys.has(threadKey),
+      ),
+    [model.threadItemsByKey, pinnedStandaloneThreadKeys, sidebarArchivePendingKeys],
+  );
+  const fallbackPinnedStandaloneThreadKeys = useMemo(
+    () =>
+      pinnedStandaloneThreadKeys.filter(
+        (threadKey) =>
+          !model.threadItemsByKey.has(threadKey) && !sidebarArchivePendingKeys.has(threadKey),
+      ),
+    [model.threadItemsByKey, pinnedStandaloneThreadKeys, sidebarArchivePendingKeys],
+  );
+  const reorderVisiblePinnedThreads = useCallback(
+    async ({
       visibleThreadKeys,
       nextVisibleThreadKeys,
-      itemsByKey: sidebarThreadItemsByKey,
-    });
-    const pendingItemsById = new Map(nextVisibleThreadKeys.flatMap((threadKey) => {
-      const item = sidebarThreadItemsByKey.get(threadKey);
-      return item?.pendingWorktreeId ? [[item.pendingWorktreeId, item] as const] : [];
-    }));
-    const pendingRequests = mutation.pendingUpdates.flatMap((update) => {
-      const pendingItem = pendingItemsById.get(update.pendingWorktreeId);
-      if (!pendingItem) return [];
-      return [invoke(
-        "codex:pending-worktree:set-pinned-before-thread",
-        pendingItem.hostId,
-        update.pendingWorktreeId,
-        update.beforeThreadId,
-      ).catch(() => {
-        toast.danger("Failed to reorder pending chat");
-      })];
-    });
-
-    try {
-      const pinnedOrderRequest = onReorderPinnedThreads(mutation.pinnedThreadIds)
-        .then(() => undefined);
-      await Promise.all([pinnedOrderRequest, ...pendingRequests]);
-    } catch (error) {
-      toast.danger("Failed to reorder pinned chats");
-      throw error;
-    }
-  }, [model.snapshot.pinnedThreadIds, onReorderPinnedThreads, sidebarThreadItemsByKey]);
-  const projectGroups = useMemo(() => model.projectGroups.map((group) => {
-    const projectPinnedThreadKeySet = new Set([
-      ...group.pinnedThreadKeys,
-      ...fallbackThreadItems
-        .filter((item) => item.projectId === group.project.id && item.pinned)
-        .map((item) => item.key),
-    ]);
-    const pinnedThreadKeys = allPinnedThreadKeys.filter((threadKey) => (
-      projectPinnedThreadKeySet.has(threadKey)
-    ));
-    const canonicalThreadKeys = (sessionsByProject[group.project.id] ?? [])
-      .filter((session) => !session.pinned)
-      .flatMap((session) => {
-        const threadKey = sidebarThreadKeyBySessionId.get(session.id);
-        return threadKey ? [threadKey] : [];
+    }: {
+      visibleThreadKeys: string[];
+      nextVisibleThreadKeys: string[];
+    }) => {
+      const mutation = buildCodexSidebarPinnedReorderMutation({
+        pinnedThreadIds: model.snapshot.pinnedThreadIds,
+        visibleThreadKeys,
+        nextVisibleThreadKeys,
+        itemsByKey: sidebarThreadItemsByKey,
       });
-    const canonicalThreadKeySet = new Set(canonicalThreadKeys);
-    const threadKeys = [
-      ...canonicalThreadKeys,
-      ...group.threadKeys.filter((threadKey) => !canonicalThreadKeySet.has(threadKey)),
-    ];
-    return {
-      project: group.project,
-      pinnedThreadKeys,
-      threadKeys,
-    };
-  }), [
-    allPinnedThreadKeys,
-    fallbackThreadItems,
-    model.projectGroups,
-    sessionsByProject,
-    sidebarThreadKeyBySessionId,
-  ]);
+      const pendingItemsById = new Map(
+        nextVisibleThreadKeys.flatMap((threadKey) => {
+          const item = sidebarThreadItemsByKey.get(threadKey);
+          return item?.pendingWorktreeId ? [[item.pendingWorktreeId, item] as const] : [];
+        }),
+      );
+      const pendingRequests = mutation.pendingUpdates.flatMap((update) => {
+        const pendingItem = pendingItemsById.get(update.pendingWorktreeId);
+        if (!pendingItem) return [];
+        return [
+          invoke(
+            "codex:pending-worktree:set-pinned-before-thread",
+            pendingItem.hostId,
+            update.pendingWorktreeId,
+            update.beforeThreadId,
+          ).catch(() => {
+            toast.danger("Failed to reorder pending chat");
+          }),
+        ];
+      });
+
+      try {
+        const pinnedOrderRequest = onReorderPinnedThreads(mutation.pinnedThreadIds).then(
+          () => undefined,
+        );
+        await Promise.all([pinnedOrderRequest, ...pendingRequests]);
+      } catch (error) {
+        toast.danger("Failed to reorder pinned chats");
+        throw error;
+      }
+    },
+    [model.snapshot.pinnedThreadIds, onReorderPinnedThreads, sidebarThreadItemsByKey],
+  );
+  const projectGroups = useMemo(
+    () =>
+      model.projectGroups.map((group) => {
+        const projectPinnedThreadKeySet = new Set([
+          ...group.pinnedThreadKeys,
+          ...fallbackThreadItems
+            .filter((item) => item.projectId === group.project.id && item.pinned)
+            .map((item) => item.key),
+        ]);
+        const pinnedThreadKeys = allPinnedThreadKeys.filter((threadKey) =>
+          projectPinnedThreadKeySet.has(threadKey),
+        );
+        const canonicalThreadKeys = (sessionsByProject[group.project.id] ?? [])
+          .filter((session) => !session.pinned)
+          .flatMap((session) => {
+            const threadKey = sidebarThreadKeyBySessionId.get(session.id);
+            return threadKey ? [threadKey] : [];
+          });
+        const canonicalThreadKeySet = new Set(canonicalThreadKeys);
+        const threadKeys = [
+          ...canonicalThreadKeys,
+          ...group.threadKeys.filter((threadKey) => !canonicalThreadKeySet.has(threadKey)),
+        ];
+        return {
+          project: group.project,
+          pinnedThreadKeys,
+          threadKeys,
+        };
+      }),
+    [
+      allPinnedThreadKeys,
+      fallbackThreadItems,
+      model.projectGroups,
+      sessionsByProject,
+      sidebarThreadKeyBySessionId,
+    ],
+  );
   const stableWorktreeWorkspaceRootOptions = useMemo(
-    () => projectGroups.flatMap(({ project }) =>
-      project.sources.map((source) => source.root)
-    ),
+    () => projectGroups.flatMap(({ project }) => project.sources.map((source) => source.root)),
     [projectGroups],
   );
-  const stableWorktreeWorkspaceRootLabels = useMemo(() => Object.fromEntries(
-    projectGroups.flatMap(({ project }) =>
-      project.sources.map((source) => [source.root, project.name] as const)
-    ),
-  ), [projectGroups]);
+  const stableWorktreeWorkspaceRootLabels = useMemo(
+    () =>
+      Object.fromEntries(
+        projectGroups.flatMap(({ project }) =>
+          project.sources.map((source) => [source.root, project.name] as const),
+        ),
+      ),
+    [projectGroups],
+  );
   const projectLabelById = useMemo(() => {
     const entries = projectGroups.map(({ project }) => [project.id, project.name] as const);
     return new Map(entries);
@@ -1019,24 +1077,25 @@ function SidebarThreadOrganizerSections({
     () => projectGroups.map((group) => group.project.id),
     [projectGroups],
   );
-  const projectActivityQuery = useQuery(
-    projectActivitySummariesQueryOptions(projectOrderIds),
-  );
+  const projectActivityQuery = useQuery(projectActivitySummariesQueryOptions(projectOrderIds));
   const projectActivityById = useMemo(
-    () => new Map(
-      (projectActivityQuery.data?.summaries ?? []).map(
-        (summary) => [summary.projectId, summary] as const,
+    () =>
+      new Map(
+        (projectActivityQuery.data?.summaries ?? []).map(
+          (summary) => [summary.projectId, summary] as const,
+        ),
       ),
-    ),
     [projectActivityQuery.data?.summaries],
   );
   const pinnedProjectGroups = useMemo(
-    () => projectGroups
-      .filter((group) => group.project.pinned)
-      .sort((left, right) =>
-        (left.project.pinnedOrder ?? Number.MAX_SAFE_INTEGER)
-        - (right.project.pinnedOrder ?? Number.MAX_SAFE_INTEGER)
-      ),
+    () =>
+      projectGroups
+        .filter((group) => group.project.pinned)
+        .sort(
+          (left, right) =>
+            (left.project.pinnedOrder ?? Number.MAX_SAFE_INTEGER) -
+            (right.project.pinnedOrder ?? Number.MAX_SAFE_INTEGER),
+        ),
     [projectGroups],
   );
   const pinnedProjectIds = useMemo(
@@ -1051,66 +1110,74 @@ function SidebarThreadOrganizerSections({
     () => unpinnedProjectGroups.map((group) => group.project.id),
     [unpinnedProjectGroups],
   );
-  const projectGroupCollapseAction = useMemo(() => resolveSidebarProjectGroupCollapseAction({
-    visibleGroupIds: visibleProjectGroupIds,
-    expandedGroupIds: expandedProjectIds,
-    previouslyExpandedGroupIds: previouslyExpandedProjectGroupIds,
-  }), [expandedProjectIds, previouslyExpandedProjectGroupIds, visibleProjectGroupIds]);
-  const runProjectGroupCollapseAction = useCallback((action: SidebarProjectGroupCollapseAction) => {
-    if (action === "collapse-all") {
-      const expandedVisibleProjectGroupIds = listExpandedVisibleProjectGroupIds(
-        visibleProjectGroupIds,
-        expandedProjectIds,
-      );
-      if (expandedVisibleProjectGroupIds.length === 0) return;
+  const projectGroupCollapseAction = useMemo(
+    () =>
+      resolveSidebarProjectGroupCollapseAction({
+        visibleGroupIds: visibleProjectGroupIds,
+        expandedGroupIds: expandedProjectIds,
+        previouslyExpandedGroupIds: previouslyExpandedProjectGroupIds,
+      }),
+    [expandedProjectIds, previouslyExpandedProjectGroupIds, visibleProjectGroupIds],
+  );
+  const runProjectGroupCollapseAction = useCallback(
+    (action: SidebarProjectGroupCollapseAction) => {
+      if (action === "collapse-all") {
+        const expandedVisibleProjectGroupIds = listExpandedVisibleProjectGroupIds(
+          visibleProjectGroupIds,
+          expandedProjectIds,
+        );
+        if (expandedVisibleProjectGroupIds.length === 0) return;
 
-      setPreviouslyExpandedProjectGroupIds(expandedVisibleProjectGroupIds);
-      for (const projectId of expandedVisibleProjectGroupIds) {
+        setPreviouslyExpandedProjectGroupIds(expandedVisibleProjectGroupIds);
+        for (const projectId of expandedVisibleProjectGroupIds) {
+          onToggleProjectExpanded(projectId);
+        }
+        return;
+      }
+
+      const reopenableProjectGroupIds = listReopenableVisibleProjectGroupIds(
+        visibleProjectGroupIds,
+        previouslyExpandedProjectGroupIds,
+      ).filter((projectId) => !expandedProjectIds.has(projectId));
+      setPreviouslyExpandedProjectGroupIds([]);
+      for (const projectId of reopenableProjectGroupIds) {
         onToggleProjectExpanded(projectId);
       }
-      return;
-    }
-
-    const reopenableProjectGroupIds = listReopenableVisibleProjectGroupIds(
-      visibleProjectGroupIds,
+    },
+    [
+      expandedProjectIds,
+      onToggleProjectExpanded,
       previouslyExpandedProjectGroupIds,
-    ).filter((projectId) => !expandedProjectIds.has(projectId));
-    setPreviouslyExpandedProjectGroupIds([]);
-    for (const projectId of reopenableProjectGroupIds) {
-      onToggleProjectExpanded(projectId);
-    }
-  }, [
-    expandedProjectIds,
-    onToggleProjectExpanded,
-    previouslyExpandedProjectGroupIds,
-    visibleProjectGroupIds,
-  ]);
-  const reorderVisibleProjectGroups = useCallback((
-    visibleGroupIds: string[],
-    nextVisibleGroupIds: string[],
-  ) => {
-    const orderedProjectIds = replaceVisibleOrder(
-      projectOrderIds,
-      visibleGroupIds,
-      nextVisibleGroupIds,
-    );
-    return onReorderProjects({ orderedProjectIds }).then(() => undefined);
-  }, [onReorderProjects, projectOrderIds]);
-  const reorderVisiblePinnedProjectGroups = useCallback((
-    visibleGroupIds: string[],
-    nextVisibleGroupIds: string[],
-  ) => {
-    const orderedProjectIds = replaceVisibleOrder(
-      pinnedProjectIds,
-      visibleGroupIds,
-      nextVisibleGroupIds,
-    );
-    return onSetPinnedProjectOrder({ orderedProjectIds }).then(() => undefined);
-  }, [onSetPinnedProjectOrder, pinnedProjectIds]);
-  const hasVisiblePinnedStandaloneThreads = pinnedStandaloneThreadKeys.some((threadKey) =>
-    !sidebarArchivePendingKeys.has(threadKey)
+      visibleProjectGroupIds,
+    ],
   );
-  const hasVisiblePinnedSectionItems = hasVisiblePinnedStandaloneThreads || pinnedProjectGroups.length > 0;
+  const reorderVisibleProjectGroups = useCallback(
+    (visibleGroupIds: string[], nextVisibleGroupIds: string[]) => {
+      const orderedProjectIds = replaceVisibleOrder(
+        projectOrderIds,
+        visibleGroupIds,
+        nextVisibleGroupIds,
+      );
+      return onReorderProjects({ orderedProjectIds }).then(() => undefined);
+    },
+    [onReorderProjects, projectOrderIds],
+  );
+  const reorderVisiblePinnedProjectGroups = useCallback(
+    (visibleGroupIds: string[], nextVisibleGroupIds: string[]) => {
+      const orderedProjectIds = replaceVisibleOrder(
+        pinnedProjectIds,
+        visibleGroupIds,
+        nextVisibleGroupIds,
+      );
+      return onSetPinnedProjectOrder({ orderedProjectIds }).then(() => undefined);
+    },
+    [onSetPinnedProjectOrder, pinnedProjectIds],
+  );
+  const hasVisiblePinnedStandaloneThreads = pinnedStandaloneThreadKeys.some(
+    (threadKey) => !sidebarArchivePendingKeys.has(threadKey),
+  );
+  const hasVisiblePinnedSectionItems =
+    hasVisiblePinnedStandaloneThreads || pinnedProjectGroups.length > 0;
   const projectlessThreadKeys = useMemo(() => {
     const canonicalThreadKeys = projectlessSessions
       .filter((session) => !session.pinned)
@@ -1122,29 +1189,23 @@ function SidebarThreadOrganizerSections({
     return [
       ...canonicalThreadKeys,
       ...model.snapshot.items
-        .filter((item) => (
-          item.projectless
-          && !item.pinned
-          && !canonicalThreadKeySet.has(item.key)
-        ))
+        .filter((item) => item.projectless && !item.pinned && !canonicalThreadKeySet.has(item.key))
         .map((item) => item.key),
     ];
-  }, [
-    model.snapshot.items,
-    projectlessSessions,
-    sidebarThreadKeyBySessionId,
-  ]);
+  }, [model.snapshot.items, projectlessSessions, sidebarThreadKeyBySessionId]);
   const canonicalThreadLanes = useMemo<SidebarThreadCanonicalLanes>(() => {
-    const threadIdsForKeys = (threadKeys: readonly string[]) => threadKeys.flatMap(
-      (threadKey) => {
+    const threadIdsForKeys = (threadKeys: readonly string[]) =>
+      threadKeys.flatMap((threadKey) => {
         const threadId = getSidebarRealThreadId(threadKey);
         return threadId === null ? [] : [threadId];
-      },
-    );
-    const lanes = new Map<string, {
-      projectionRevision: number | null;
-      threadIds: readonly string[];
-    }>();
+      });
+    const lanes = new Map<
+      string,
+      {
+        projectionRevision: number | null;
+        threadIds: readonly string[];
+      }
+    >();
     lanes.set("pinned", {
       projectionRevision: null,
       threadIds: threadIdsForKeys(pinnedStandaloneThreadKeys),
@@ -1154,8 +1215,8 @@ function SidebarThreadOrganizerSections({
       threadIds: threadIdsForKeys(projectlessThreadKeys),
     });
     for (const group of projectGroups) {
-      const projectionRevision = sessionCollectionsByProject[group.project.id]
-        ?.projectionRevision ?? null;
+      const projectionRevision =
+        sessionCollectionsByProject[group.project.id]?.projectionRevision ?? null;
       lanes.set(codexSidebarProjectThreadContainerId(group.project.id, true), {
         projectionRevision,
         threadIds: threadIdsForKeys(group.pinnedThreadKeys),
@@ -1204,110 +1265,133 @@ function SidebarThreadOrganizerSections({
     });
   }, []);
 
-  const resolveSessionForItem = useCallback((item: CodexSidebarThreadItem) => {
-    if (item.sessionId) {
-      const session = sessionsById.get(item.sessionId);
-      if (session) return session;
-    }
-    return sessionsByThreadId.get(item.threadId) ?? null;
-  }, [sessionsById, sessionsByThreadId]);
+  const resolveSessionForItem = useCallback(
+    (item: CodexSidebarThreadItem) => {
+      if (item.sessionId) {
+        const session = sessionsById.get(item.sessionId);
+        if (session) return session;
+      }
+      return sessionsByThreadId.get(item.threadId) ?? null;
+    },
+    [sessionsById, sessionsByThreadId],
+  );
 
-  const renderThreadRow = useCallback((
-    threadKey: string,
-    options: {
-      hoverCardProjectLabel?: string | null;
-    } = {},
-  ) => {
-    const item = sidebarThreadItemsByKey.get(threadKey);
-    if (!item) return null;
-    const session = resolveSessionForItem(item);
-    const sessionId = item.sessionId ?? session?.id ?? null;
-    const hoverCardProjectLabel = options.hoverCardProjectLabel
-      ?? (item.projectId ? projectLabelById.get(item.projectId) ?? null : null);
+  const renderThreadRow = useCallback(
+    (
+      threadKey: string,
+      options: {
+        hoverCardProjectLabel?: string | null;
+      } = {},
+    ) => {
+      const item = sidebarThreadItemsByKey.get(threadKey);
+      if (!item) return null;
+      const session = resolveSessionForItem(item);
+      const sessionId = item.sessionId ?? session?.id ?? null;
+      const hoverCardProjectLabel =
+        options.hoverCardProjectLabel ??
+        (item.projectId ? (projectLabelById.get(item.projectId) ?? null) : null);
 
-    return (
-      <CodexSidebarThreadRow
-        key={item.key}
-        item={item}
-        active={(item.clientThreadId ?? item.threadId) === activePendingClientThreadId
-          || Boolean(sessionId && activeSessionId === sessionId)}
-        contextMenuOpen={Boolean(sessionId && contextMenuSessionId === sessionId)}
-        hoverCardProjectLabel={hoverCardProjectLabel}
-        onHoverCardOpenChange={(open) => {
-          setSidebarHoverSurfaceOpen(`thread:${item.key}`, open);
-        }}
-        onSelect={() => {
-          void onSelectSidebarThread(item);
-        }}
-        onPreview={() => onPreviewSidebarThread?.(item)}
-        onOpenContextMenu={session && onOpenSessionContextMenu
-          ? (_item, event) => onOpenSessionContextMenu(session, event)
-          : undefined}
-        onRenameFromTitleDoubleClick={session && onSessionTitleDoubleClick
-          ? (_item, event) => onSessionTitleDoubleClick(session, event)
-          : item.kind === "pending-worktree" && onPendingWorktreeTitleDoubleClick
-            ? (_item, event) => onPendingWorktreeTitleDoubleClick(item, event)
-            : undefined}
-        archivePending={sidebarArchivePendingKeys.has(item.key)}
-        onArchive={onArchiveSidebarThread}
-        onTogglePinned={session && onToggleSessionPinned
-          ? () => onToggleSessionPinned(session)
-          : onToggleSidebarThreadPinned}
-      />
-    );
-  }, [
-    activeSessionId,
-    activePendingClientThreadId,
-    contextMenuSessionId,
-    onOpenSessionContextMenu,
-    onArchiveSidebarThread,
-    onSelectSidebarThread,
-    onPreviewSidebarThread,
-    onSessionTitleDoubleClick,
-    onPendingWorktreeTitleDoubleClick,
-    onToggleSessionPinned,
-    onToggleSidebarThreadPinned,
-    projectLabelById,
-    resolveSessionForItem,
-    setSidebarHoverSurfaceOpen,
-    sidebarArchivePendingKeys,
-    sidebarThreadItemsByKey,
-  ]);
+      return (
+        <CodexSidebarThreadRow
+          key={item.key}
+          item={item}
+          active={
+            (item.clientThreadId ?? item.threadId) === activePendingClientThreadId ||
+            Boolean(sessionId && activeSessionId === sessionId)
+          }
+          contextMenuOpen={Boolean(sessionId && contextMenuSessionId === sessionId)}
+          hoverCardProjectLabel={hoverCardProjectLabel}
+          onHoverCardOpenChange={(open) => {
+            setSidebarHoverSurfaceOpen(`thread:${item.key}`, open);
+          }}
+          onSelect={() => {
+            void onSelectSidebarThread(item);
+          }}
+          onPreview={() => onPreviewSidebarThread?.(item)}
+          onOpenContextMenu={
+            session && onOpenSessionContextMenu
+              ? (_item, event) => onOpenSessionContextMenu(session, event)
+              : undefined
+          }
+          onRenameFromTitleDoubleClick={
+            session && onSessionTitleDoubleClick
+              ? (_item, event) => onSessionTitleDoubleClick(session, event)
+              : item.kind === "pending-worktree" && onPendingWorktreeTitleDoubleClick
+                ? (_item, event) => onPendingWorktreeTitleDoubleClick(item, event)
+                : undefined
+          }
+          archivePending={sidebarArchivePendingKeys.has(item.key)}
+          onArchive={onArchiveSidebarThread}
+          onTogglePinned={
+            session && onToggleSessionPinned
+              ? () => onToggleSessionPinned(session)
+              : onToggleSidebarThreadPinned
+          }
+        />
+      );
+    },
+    [
+      activeSessionId,
+      activePendingClientThreadId,
+      contextMenuSessionId,
+      onOpenSessionContextMenu,
+      onArchiveSidebarThread,
+      onSelectSidebarThread,
+      onPreviewSidebarThread,
+      onSessionTitleDoubleClick,
+      onPendingWorktreeTitleDoubleClick,
+      onToggleSessionPinned,
+      onToggleSidebarThreadPinned,
+      projectLabelById,
+      resolveSessionForItem,
+      setSidebarHoverSurfaceOpen,
+      sidebarArchivePendingKeys,
+      sidebarThreadItemsByKey,
+    ],
+  );
 
-  const renderThreadList = useCallback((
-    threadKeys: string[],
-    emptyText: string,
-    options: {
-      ariaLabel?: string;
-      maxItems?: number | null;
-      expanded?: boolean;
-      onExpandedChange?: (expanded: boolean) => void;
-      forcedVisibleKey?: string | null;
-    } = {},
-  ) => (
-    <SidebarPaginatedItems
-      items={threadKeys}
-      getKey={(threadKey) => threadKey}
-      maxItems={options.maxItems}
-      expanded={options.expanded ?? false}
-      onExpandedChange={options.onExpandedChange}
-      forcedVisibleKey={options.forcedVisibleKey ?? null}
-      suppressedKeys={sidebarArchivePendingKeys}
-    >
-      {(pagination, pager) => (
-        <div className="isolate flex flex-col [contain:layout]">
-          <div className="flex flex-col" role="list" aria-label={options.ariaLabel}>
-            {pagination.visibleItems.length > 0 ? pagination.visibleItems.map((threadKey) => renderThreadRow(threadKey)) : (
-              <div className="px-row-x py-row-y text-sm text-token-description-foreground" role="listitem">
-                {emptyText}
-              </div>
-            )}
-            {pager}
+  const renderThreadList = useCallback(
+    (
+      threadKeys: string[],
+      emptyText: string,
+      options: {
+        ariaLabel?: string;
+        maxItems?: number | null;
+        expanded?: boolean;
+        onExpandedChange?: (expanded: boolean) => void;
+        forcedVisibleKey?: string | null;
+      } = {},
+    ) => (
+      <SidebarPaginatedItems
+        items={threadKeys}
+        getKey={(threadKey) => threadKey}
+        maxItems={options.maxItems}
+        expanded={options.expanded ?? false}
+        onExpandedChange={options.onExpandedChange}
+        forcedVisibleKey={options.forcedVisibleKey ?? null}
+        suppressedKeys={sidebarArchivePendingKeys}
+      >
+        {(pagination, pager) => (
+          <div className="isolate flex flex-col [contain:layout]">
+            <div className="flex flex-col" role="list" aria-label={options.ariaLabel}>
+              {pagination.visibleItems.length > 0 ? (
+                pagination.visibleItems.map((threadKey) => renderThreadRow(threadKey))
+              ) : (
+                <div
+                  className="px-row-x py-row-y text-sm text-token-description-foreground"
+                  role="listitem"
+                >
+                  {emptyText}
+                </div>
+              )}
+              {pager}
+            </div>
           </div>
-        </div>
-      )}
-    </SidebarPaginatedItems>
-  ), [renderThreadRow, sidebarArchivePendingKeys]);
+        )}
+      </SidebarPaginatedItems>
+    ),
+    [renderThreadRow, sidebarArchivePendingKeys],
+  );
 
   const renderProjectGroupRows = (
     groups: typeof projectGroups,
@@ -1343,11 +1427,7 @@ function SidebarThreadOrganizerSections({
               }
               return reorderVisibleProjectGroups(visibleGroupIds, nextVisibleGroupIds);
             }}
-            renderProjectGroup={({
-              project,
-              pinnedThreadKeys,
-              threadKeys,
-            }, groupDndController) => {
+            renderProjectGroup={({ project, pinnedThreadKeys, threadKeys }, groupDndController) => {
               const expanded = expandedProjectIds.has(project.id);
               const threadListExpanded = expandedProjectThreadListIds.has(project.id);
               const projectThreadItems = Array.from(new Set([...pinnedThreadKeys, ...threadKeys]))
@@ -1357,11 +1437,13 @@ function SidebarThreadOrganizerSections({
                 <CodexProjectRow
                   key={project.id}
                   project={project}
-                  activity={projectActivityQuery.isPending
-                    ? undefined
-                    : projectActivityQuery.isError
-                      ? null
-                      : projectActivityById.get(project.id) ?? null}
+                  activity={
+                    projectActivityQuery.isPending
+                      ? undefined
+                      : projectActivityQuery.isError
+                        ? null
+                        : (projectActivityById.get(project.id) ?? null)
+                  }
                   active={activeSessionId === null && activeProjectId === project.id}
                   expanded={expanded}
                   groupDndController={groupDndController}
@@ -1386,10 +1468,11 @@ function SidebarThreadOrganizerSections({
                   <SidebarProjectThreadRowsContent
                     project={project}
                     pinnedThreadKeys={pinnedThreadKeys}
-                    sortablePinnedThreadKeys={pinnedThreadKeys.filter((threadKey) => (
-                      model.threadItemsByKey.has(threadKey)
-                      && !sidebarArchivePendingKeys.has(threadKey)
-                    ))}
+                    sortablePinnedThreadKeys={pinnedThreadKeys.filter(
+                      (threadKey) =>
+                        model.threadItemsByKey.has(threadKey) &&
+                        !sidebarArchivePendingKeys.has(threadKey),
+                    )}
                     threadKeys={threadKeys}
                     expanded={threadListExpanded}
                     onExpandedChange={(nextExpanded) => {
@@ -1398,23 +1481,24 @@ function SidebarThreadOrganizerSections({
                     forcedVisibleKey={activeThreadKey}
                     suppressedKeys={sidebarArchivePendingKeys}
                     collectionState={
-                      sessionCollectionsByProject[project.id]?.state
-                      ?? IDLE_SESSION_COLLECTION_STATE
+                      sessionCollectionsByProject[project.id]?.state ??
+                      IDLE_SESSION_COLLECTION_STATE
                     }
-                    hasMoreAtSource={
-                      sessionCollectionsByProject[project.id]?.hasMore === true
-                    }
+                    hasMoreAtSource={sessionCollectionsByProject[project.id]?.hasMore === true}
                     onLoadMore={() => onLoadMoreTaskWindow(project.id)}
                     onRetry={() => onRetryTaskWindow(project.id)}
                     onPinnedThreadOrderChange={reorderVisiblePinnedThreads}
                     onRegularSessionOrderChange={(orderedSessionIds) =>
-                      onReorderSessions(project.id, orderedSessionIds)}
+                      onReorderSessions(project.id, orderedSessionIds)
+                    }
                     getSessionId={getSidebarSessionId}
                     getThreadId={getSidebarRealThreadId}
                     itemsByKey={sidebarThreadItemsByKey}
-                    renderThread={(threadKey) => renderThreadRow(threadKey, {
-                      hoverCardProjectLabel: project.name,
-                    })}
+                    renderThread={(threadKey) =>
+                      renderThreadRow(threadKey, {
+                        hoverCardProjectLabel: project.name,
+                      })
+                    }
                   />
                 </CodexProjectRow>
               );
@@ -1427,9 +1511,9 @@ function SidebarThreadOrganizerSections({
 
   const renderPinnedSection = () => {
     if (
-      !hasVisiblePinnedSectionItems
-      && !pinnedDropTarget.projectDragActive
-      && !pinnedDropTarget.isExternalThreadDropTarget
+      !hasVisiblePinnedSectionItems &&
+      !pinnedDropTarget.projectDragActive &&
+      !pinnedDropTarget.isExternalThreadDropTarget
     ) {
       return null;
     }
@@ -1440,18 +1524,18 @@ function SidebarThreadOrganizerSections({
           ref={pinnedDropTarget.setNodeRef}
           className={cn(
             "-my-4 px-row-x",
-            pinnedDropTarget.projectDragActive
-              && pinnedDropTarget.isOver
-              && "rounded-[10px] bg-token-bg-secondary/40 ring-1 ring-inset ring-token-border",
-            pinnedDropTarget.isExternalThreadDropTarget
-              && pinnedDropTarget.isOver
-              && "rounded-[10px] bg-token-bg-secondary/40",
+            pinnedDropTarget.projectDragActive &&
+              pinnedDropTarget.isOver &&
+              "rounded-[10px] bg-token-bg-secondary/40 ring-1 ring-inset ring-token-border",
+            pinnedDropTarget.isExternalThreadDropTarget &&
+              pinnedDropTarget.isOver &&
+              "rounded-[10px] bg-token-bg-secondary/40",
           )}
         >
           <div className="h-4">
-            {pinnedDropTarget.projectDragActive && pinnedDropTarget.isOver
-              ? <SidebarDropIndicator />
-              : null}
+            {pinnedDropTarget.projectDragActive && pinnedDropTarget.isOver ? (
+              <SidebarDropIndicator />
+            ) : null}
           </div>
         </div>
       );
@@ -1462,9 +1546,9 @@ function SidebarThreadOrganizerSections({
         ref={pinnedDropTarget.setNodeRef}
         className={cn(
           "relative",
-          pinnedDropTarget.isExternalThreadDropTarget
-            && pinnedDropTarget.isOver
-            && "rounded-lg bg-token-list-hover-background",
+          pinnedDropTarget.isExternalThreadDropTarget &&
+            pinnedDropTarget.isOver &&
+            "rounded-lg bg-token-list-hover-background",
         )}
       >
         <CodexSidebarSection
@@ -1490,10 +1574,10 @@ function SidebarThreadOrganizerSections({
             : null}
           {pinnedProjectGroups.length > 0
             ? renderProjectGroupRows(pinnedProjectGroups, {
-              reorderScope: "pinned",
-              expanded: pinnedProjectsExpanded,
-              onExpandedChange: setPinnedProjectsExpanded,
-            })
+                reorderScope: "pinned",
+                expanded: pinnedProjectsExpanded,
+                onExpandedChange: setPinnedProjectsExpanded,
+              })
             : null}
         </CodexSidebarSection>
       </div>
@@ -1518,19 +1602,16 @@ function SidebarThreadOrganizerSections({
         heading="Projects"
         collapsed={projectsSectionCollapsed}
         onToggle={onToggleProjectsSectionCollapsed}
-        actions={(
+        actions={
           <SidebarProjectsSectionActions
             projectGroupCollapseAction={projectGroupCollapseAction}
             onProjectGroupCollapseAction={runProjectGroupCollapseAction}
             onCreateProject={onCreateProject}
             openCreateDialogTick={projectPickerOpenTick}
           />
-        )}
+        }
       >
-        <StableWorktreeSidebarRows
-          entries={pendingStableWorktrees}
-          onOpen={onOpenStableWorktree}
-        />
+        <StableWorktreeSidebarRows entries={pendingStableWorktrees} onOpen={onOpenStableWorktree} />
         {renderProjectGroupRows(unpinnedProjectGroups, {
           reorderScope: "projects",
           expanded: projectsExpanded,
@@ -1542,7 +1623,7 @@ function SidebarThreadOrganizerSections({
         heading="Chats"
         collapsed={chatsSectionCollapsed}
         onToggle={onToggleChatsSectionCollapsed}
-        actions={(
+        actions={
           <CodexSidebarActionButton
             label="New projectless chat"
             data-app-action-sidebar-projectless-new-chat=""
@@ -1550,7 +1631,7 @@ function SidebarThreadOrganizerSections({
           >
             <NewChatIcon />
           </CodexSidebarActionButton>
-        )}
+        }
       >
         <SidebarThreadContainerRowsContent
           containerId="chats"
@@ -1567,7 +1648,8 @@ function SidebarThreadOrganizerSections({
           onLoadMore={() => onLoadMoreTaskWindow(null)}
           onRetry={() => onRetryTaskWindow(null)}
           onVisibleSessionOrderChange={(orderedSessionIds) =>
-            onReorderSessions(null, orderedSessionIds)}
+            onReorderSessions(null, orderedSessionIds)
+          }
           renderThread={renderThreadRow}
         />
       </CodexSidebarSection>
@@ -1584,9 +1666,7 @@ export interface ProjectSessionSidebarProps {
   activeSessionId: string | null;
   activePendingClientThreadId?: string | null;
   contextMenuSessionId?: string | null;
-  sessionCollectionsByProject: Readonly<
-    Record<string, WorkbenchSessionCollection>
-  >;
+  sessionCollectionsByProject: Readonly<Record<string, WorkbenchSessionCollection>>;
   projectlessSessionCollection: WorkbenchSessionCollection;
   sidebarThreadModel: CodexSidebarThreadSyncModel;
   pendingStableWorktrees: readonly StableWorktreeEntry[];
@@ -1602,7 +1682,11 @@ export interface ProjectSessionSidebarProps {
   contentOpacity?: MotionValue<number>;
   resizeDisabled?: boolean;
   getWindowZoom?: () => number;
-  onResizeWidth: (width: number, phase?: SidebarResizePhase, surface?: SidebarResizeSurface) => void;
+  onResizeWidth: (
+    width: number,
+    phase?: SidebarResizePhase,
+    surface?: SidebarResizeSurface,
+  ) => void;
   onResizeActiveChange?: (active: boolean) => void;
   onHoverSurfaceOpenChange?: (open: boolean) => void;
   onTogglePinnedProjectsSectionCollapsed: () => void;
@@ -1614,7 +1698,10 @@ export interface ProjectSessionSidebarProps {
   onSelectSidebarThread: (item: CodexSidebarThreadItem) => void | Promise<void>;
   onPreviewSidebarThread?: (item: CodexSidebarThreadItem) => void;
   onOpenSessionContextMenu?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
-  onSessionTitleDoubleClick?: (session: ProjectSession, event: ReactMouseEvent<HTMLElement>) => void;
+  onSessionTitleDoubleClick?: (
+    session: ProjectSession,
+    event: ReactMouseEvent<HTMLElement>,
+  ) => void;
   onPendingWorktreeTitleDoubleClick?: (
     item: CodexSidebarThreadItem,
     event: ReactMouseEvent<HTMLElement>,
@@ -1650,9 +1737,7 @@ export interface ProjectSessionSidebarProps {
     projectId: string | null,
     orderedSessionIds: readonly string[],
   ) => Promise<void>;
-  onMoveSidebarThread: (
-    drop: SidebarThreadDropRequest,
-  ) => Promise<SidebarThreadDropCommit | null>;
+  onMoveSidebarThread: (drop: SidebarThreadDropRequest) => Promise<SidebarThreadDropCommit | null>;
   onReorderPinnedThreads: (orderedThreadIds: readonly string[]) => Promise<unknown>;
   onOpenSettings: () => void;
   account: CodexAccountSnapshot | null;
@@ -1749,12 +1834,13 @@ export function ProjectSessionSidebar({
   onLoadMoreProjects,
 }: ProjectSessionSidebarProps) {
   const knownSessionProjections = useMemo(
-    () => [
-      ...Object.values(sessionCollectionsByProject).flatMap(
-        (collection) => collection.projections,
-      ),
-      ...projectlessSessionCollection.projections,
-    ].filter((session) => isCodexSidebarRootThread(session.thread)),
+    () =>
+      [
+        ...Object.values(sessionCollectionsByProject).flatMap(
+          (collection) => collection.projections,
+        ),
+        ...projectlessSessionCollection.projections,
+      ].filter((session) => isCodexSidebarRootThread(session.thread)),
     [projectlessSessionCollection.projections, sessionCollectionsByProject],
   );
   const [sidebarResizing, setSidebarResizing] = useState(false);
@@ -1771,32 +1857,43 @@ export function ProjectSessionSidebar({
     setSidebarResizing(active);
     onResizeActiveChange?.(active);
   };
-  useEffect(() => () => {
-    onHoverSurfaceOpenChange?.(false);
-  }, [onHoverSurfaceOpenChange]);
-  const handleProjectDrop = useCallback((drop: { projectId: string; targetContainerId: string }) => {
-    if (drop.targetContainerId !== "pinned") return;
-    void onSetProjectPinned(drop.projectId, { pinned: true }).catch(() => {
-      toast.danger("Failed to pin project");
-    });
-  }, [onSetProjectPinned]);
-  const handleLibraryMove = useCallback(async ({
-    resource,
-    parent,
-  }: {
-    resource: SidebarLibraryDragResource;
-    parent: import("../../../shared/library-module").LibraryWriteParent;
-  }) => {
-    try {
-      await libraryMutation.mutateAsync(buildLibraryMoveOperation({
-        target: resource.target,
-        expectedLocationRevision: resource.expectedLocationRevision,
-        parent,
-      }));
-    } catch (error) {
-      toast.danger(error instanceof Error ? error.message : "Could not move Library item");
-    }
-  }, [libraryMutation]);
+  useEffect(
+    () => () => {
+      onHoverSurfaceOpenChange?.(false);
+    },
+    [onHoverSurfaceOpenChange],
+  );
+  const handleProjectDrop = useCallback(
+    (drop: { projectId: string; targetContainerId: string }) => {
+      if (drop.targetContainerId !== "pinned") return;
+      void onSetProjectPinned(drop.projectId, { pinned: true }).catch(() => {
+        toast.danger("Failed to pin project");
+      });
+    },
+    [onSetProjectPinned],
+  );
+  const handleLibraryMove = useCallback(
+    async ({
+      resource,
+      parent,
+    }: {
+      resource: SidebarLibraryDragResource;
+      parent: import("../../../shared/library-module").LibraryWriteParent;
+    }) => {
+      try {
+        await libraryMutation.mutateAsync(
+          buildLibraryMoveOperation({
+            target: resource.target,
+            expectedLocationRevision: resource.expectedLocationRevision,
+            parent,
+          }),
+        );
+      } catch (error) {
+        toast.danger(error instanceof Error ? error.message : "Could not move Library item");
+      }
+    },
+    [libraryMutation],
+  );
   const confirmLibraryGrantDrop = useCallback(async () => {
     if (!pendingLibraryGrantDrop) return;
     const project = sidebarThreadModel.projectGroups.find(
@@ -1808,11 +1905,13 @@ export function ProjectSessionSidebar({
       return;
     }
     try {
-      const receipt = await libraryMutation.mutateAsync(buildLibraryProjectGrantOperation({
-        projectId: project.id,
-        target: pendingLibraryGrantDrop.resource.target,
-        access: libraryGrantAccess,
-      }));
+      const receipt = await libraryMutation.mutateAsync(
+        buildLibraryProjectGrantOperation({
+          projectId: project.id,
+          target: pendingLibraryGrantDrop.resource.target,
+          access: libraryGrantAccess,
+        }),
+      );
       if (!receipt.didMutate) toast.info(`${project.name} already has this access`);
       setPendingLibraryGrantDrop(null);
     } catch (error) {
@@ -1825,9 +1924,9 @@ export function ProjectSessionSidebar({
     sidebarThreadModel.projectGroups,
   ]);
   const pendingLibraryGrantProject = pendingLibraryGrantDrop
-    ? sidebarThreadModel.projectGroups.find(
+    ? (sidebarThreadModel.projectGroups.find(
         (group) => group.project.id === pendingLibraryGrantDrop.projectId,
-      )?.project ?? null
+      )?.project ?? null)
     : null;
   const sidebarThreadIdByKey = useMemo(() => {
     const entries: Array<readonly [string, string]> = [];
@@ -1868,17 +1967,10 @@ export function ProjectSessionSidebar({
         knownProjectIds: knownSidebarProjectIds,
       });
       if (containerId === null) continue;
-      entries.push([
-        session.thread.threadId,
-        containerId,
-      ]);
+      entries.push([session.thread.threadId, containerId]);
     }
     return new Map(entries);
-  }, [
-    knownSidebarProjectIds,
-    knownSessionProjections,
-    sidebarThreadModel.threadItemsByKey,
-  ]);
+  }, [knownSidebarProjectIds, knownSessionProjections, sidebarThreadModel.threadItemsByKey]);
   const getSidebarThreadIdByKey = useCallback(
     (threadKey: string) => sidebarThreadIdByKey.get(threadKey) ?? null,
     [sidebarThreadIdByKey],
@@ -1898,7 +1990,7 @@ export function ProjectSessionSidebar({
     setSidebarResizeActive(true);
 
     const resolveNextWidth = (nextEvent: PointerEvent) =>
-      startWidth + ((nextEvent.clientX / resolveZoom()) - startX);
+      startWidth + (nextEvent.clientX / resolveZoom() - startX);
 
     function stopResize() {
       setSidebarResizeActive(false);
@@ -1944,7 +2036,9 @@ export function ProjectSessionSidebar({
       data-testid="sidebar-resize-strip"
       className={cn(
         "group absolute flex touch-none select-none z-20 -top-toolbar right-0 bottom-0 w-4 translate-x-2",
-        sidebarResizeDisabled ? "pointer-events-none" : "cursor-col-resize active:cursor-col-resize",
+        sidebarResizeDisabled
+          ? "pointer-events-none"
+          : "cursor-col-resize active:cursor-col-resize",
       )}
     >
       <div
@@ -1968,7 +2062,7 @@ export function ProjectSessionSidebar({
         "font-sans text-sm",
       )}
       style={{
-        width: floating ? width : animatedWidth ?? width,
+        width: floating ? width : (animatedWidth ?? width),
         ...(!floating ? { paddingTop: "var(--height-toolbar)" } : {}),
       }}
       data-testid={floating ? "app-shell-floating-left-panel" : "project-session-sidebar"}
@@ -2004,7 +2098,10 @@ export function ProjectSessionSidebar({
               className={SIDEBAR_SCROLL_AREA_CLASS}
               onScroll={sidebarScrollChrome.syncScrollChrome}
             >
-              <div className="flex shrink-0 flex-col gap-2" data-app-action-sidebar-scroll-top-actions="">
+              <div
+                className="flex shrink-0 flex-col gap-2"
+                data-app-action-sidebar-scroll-top-actions=""
+              >
                 <div className="shrink-0 px-row-x">
                   <div className="flex flex-col gap-1">
                     <div className="flex flex-col gap-px">
@@ -2089,57 +2186,59 @@ export function ProjectSessionSidebar({
                 />
               </SidebarReorderDndProvider>
               <NodexDialog
-                  open={pendingLibraryGrantDrop !== null}
-                  onOpenChange={(open) => {
-                    if (!open) setPendingLibraryGrantDrop(null);
-                  }}
-                >
-                  <NodexDialogContent size="compact">
-                    <NodexDialogFrame>
-                      <NodexDialogHeader>
-                        <NodexDialogTitle>Give Project access?</NodexDialogTitle>
-                        <NodexDialogDescription>
-                          {pendingLibraryGrantProject?.name ?? "This Project"} will receive recursive access to {pendingLibraryGrantDrop?.resource.title ?? "this Library item"}. Ownership and Database bindings will not change.
-                        </NodexDialogDescription>
-                      </NodexDialogHeader>
-                      <NodexDialogBody>
-                        <fieldset className="grid gap-2 text-sm text-token-text-primary">
-                          <legend className="mb-1">Access</legend>
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              name="library-drop-access"
-                              checked={libraryGrantAccess === "read"}
-                              onChange={() => setLibraryGrantAccess("read")}
-                            />
-                            Read
-                          </label>
-                          <label className="flex items-center gap-2">
-                            <input
-                              type="radio"
-                              name="library-drop-access"
-                              checked={libraryGrantAccess === "read_write"}
-                              onChange={() => setLibraryGrantAccess("read_write")}
-                            />
-                            Read &amp; write
-                          </label>
-                        </fieldset>
-                      </NodexDialogBody>
-                      <NodexDialogFooter>
-                        <NodexDialogAction onClick={() => setPendingLibraryGrantDrop(null)}>
-                          Cancel
-                        </NodexDialogAction>
-                        <NodexDialogAction
-                          tone="primary"
-                          disabled={!pendingLibraryGrantProject || libraryMutation.isPending}
-                          onClick={() => void confirmLibraryGrantDrop()}
-                        >
-                          Grant access
-                        </NodexDialogAction>
-                      </NodexDialogFooter>
-                    </NodexDialogFrame>
-                  </NodexDialogContent>
-                </NodexDialog>
+                open={pendingLibraryGrantDrop !== null}
+                onOpenChange={(open) => {
+                  if (!open) setPendingLibraryGrantDrop(null);
+                }}
+              >
+                <NodexDialogContent size="compact">
+                  <NodexDialogFrame>
+                    <NodexDialogHeader>
+                      <NodexDialogTitle>Give Project access?</NodexDialogTitle>
+                      <NodexDialogDescription>
+                        {pendingLibraryGrantProject?.name ?? "This Project"} will receive recursive
+                        access to {pendingLibraryGrantDrop?.resource.title ?? "this Library item"}.
+                        Ownership and Database bindings will not change.
+                      </NodexDialogDescription>
+                    </NodexDialogHeader>
+                    <NodexDialogBody>
+                      <fieldset className="grid gap-2 text-sm text-token-text-primary">
+                        <legend className="mb-1">Access</legend>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="library-drop-access"
+                            checked={libraryGrantAccess === "read"}
+                            onChange={() => setLibraryGrantAccess("read")}
+                          />
+                          Read
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="library-drop-access"
+                            checked={libraryGrantAccess === "read_write"}
+                            onChange={() => setLibraryGrantAccess("read_write")}
+                          />
+                          Read &amp; write
+                        </label>
+                      </fieldset>
+                    </NodexDialogBody>
+                    <NodexDialogFooter>
+                      <NodexDialogAction onClick={() => setPendingLibraryGrantDrop(null)}>
+                        Cancel
+                      </NodexDialogAction>
+                      <NodexDialogAction
+                        tone="primary"
+                        disabled={!pendingLibraryGrantProject || libraryMutation.isPending}
+                        onClick={() => void confirmLibraryGrantDrop()}
+                      >
+                        Grant access
+                      </NodexDialogAction>
+                    </NodexDialogFooter>
+                  </NodexDialogFrame>
+                </NodexDialogContent>
+              </NodexDialog>
             </div>
 
             <LeftSidebarFooter

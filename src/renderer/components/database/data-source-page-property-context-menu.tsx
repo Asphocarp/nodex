@@ -41,15 +41,13 @@ const INPUT_CLASS_NAME = cn(
   "text-token-text-primary outline-none placeholder:text-token-description-foreground focus-visible:ring-1 focus-visible:ring-token-focus",
 );
 
-const PropertyMenuTrigger = forwardRef<HTMLDivElement, {
-  readonly descriptor: DataSourcePagePropertyMenuDescriptor;
-  readonly itemDataAttribute?: string;
-} & ComponentPropsWithoutRef<"div">>(function PropertyMenuTrigger({
-  descriptor,
-  itemDataAttribute,
-  className,
-  ...props
-}, ref) {
+const PropertyMenuTrigger = forwardRef<
+  HTMLDivElement,
+  {
+    readonly descriptor: DataSourcePagePropertyMenuDescriptor;
+    readonly itemDataAttribute?: string;
+  } & ComponentPropsWithoutRef<"div">
+>(function PropertyMenuTrigger({ descriptor, itemDataAttribute, className, ...props }, ref) {
   const Icon = dataSourcePropertyIcon(descriptor.property);
   return (
     <div
@@ -79,8 +77,12 @@ function ScalarPropertyEditorContent({
 }) {
   const number = binding.property.valueType === "number";
   const committed = number
-    ? typeof binding.value === "number" ? String(binding.value) : ""
-    : typeof binding.value === "string" ? binding.value : "";
+    ? typeof binding.value === "number"
+      ? String(binding.value)
+      : ""
+    : typeof binding.value === "string"
+      ? binding.value
+      : "";
   const [draft, setDraft] = useState(committed);
   const [error, setError] = useState<string | null>(null);
   const saveRef = useRef<HTMLDivElement>(null);
@@ -117,50 +119,50 @@ function ScalarPropertyEditorContent({
   };
 
   return (
-      <div className="p-2">
-        <input
-          autoFocus
-          aria-label={`${binding.property.name} value`}
-          inputMode={number ? "decimal" : "text"}
-          value={draft}
+    <div className="p-2">
+      <input
+        autoFocus
+        aria-label={`${binding.property.name} value`}
+        inputMode={number ? "decimal" : "text"}
+        value={draft}
+        disabled={binding.disabled || binding.pending}
+        placeholder="Empty"
+        onChange={(event) => {
+          setDraft(event.target.value);
+          setError(null);
+        }}
+        onPointerDown={(event) => event.stopPropagation()}
+        onKeyDown={handleKeyDown}
+        className={INPUT_CLASS_NAME}
+      />
+      {error ? (
+        <p role="alert" className="px-1 pt-1 text-xs text-token-error-foreground">
+          {error}
+        </p>
+      ) : null}
+      {binding.error ? <PropertyEditorFeedback message={binding.error} /> : null}
+      <div className="mt-2 flex gap-1">
+        <NodexContextMenuItem
+          ref={saveRef}
           disabled={binding.disabled || binding.pending}
-          placeholder="Empty"
-          onChange={(event) => {
-            setDraft(event.target.value);
-            setError(null);
+          className={cn(ITEM_CLASS_NAME, "flex-1 text-center")}
+          onSelect={(event) => {
+            if (!commit()) event.preventDefault();
           }}
-          onPointerDown={(event) => event.stopPropagation()}
-          onKeyDown={handleKeyDown}
-          className={INPUT_CLASS_NAME}
-        />
-        {error ? (
-          <p role="alert" className="px-1 pt-1 text-xs text-token-error-foreground">
-            {error}
-          </p>
-        ) : null}
-        {binding.error ? <PropertyEditorFeedback message={binding.error} /> : null}
-        <div className="mt-2 flex gap-1">
+        >
+          Save
+        </NodexContextMenuItem>
+        {committed ? (
           <NodexContextMenuItem
-            ref={saveRef}
             disabled={binding.disabled || binding.pending}
-            className={cn(ITEM_CLASS_NAME, "flex-1 text-center")}
-            onSelect={(event) => {
-              if (!commit()) event.preventDefault();
-            }}
+            className={cn(ITEM_CLASS_NAME, "flex-1 text-center text-token-description-foreground")}
+            onSelect={() => binding.onChange(null)}
           >
-            Save
+            Clear
           </NodexContextMenuItem>
-          {committed ? (
-            <NodexContextMenuItem
-              disabled={binding.disabled || binding.pending}
-              className={cn(ITEM_CLASS_NAME, "flex-1 text-center text-token-description-foreground")}
-              onSelect={() => binding.onChange(null)}
-            >
-              Clear
-            </NodexContextMenuItem>
-          ) : null}
-        </div>
+        ) : null}
       </div>
+    </div>
   );
 }
 
@@ -171,9 +173,10 @@ function SharedPropertyEditorContent({
   readonly binding: DataSourcePropertyEditorBinding;
   readonly onContextMenuCommit: () => void;
 }) {
-  const embeddedOverlay = binding.property.valueType === "date"
-    || binding.property.valueType === "datetime"
-    || binding.property.valueType === "relation";
+  const embeddedOverlay =
+    binding.property.valueType === "date" ||
+    binding.property.valueType === "datetime" ||
+    binding.property.valueType === "relation";
   return (
     <>
       {embeddedOverlay ? (
@@ -188,11 +191,7 @@ function SharedPropertyEditorContent({
         <>
           <NodexDropdown.SectionLabel>{binding.property.name}</NodexDropdown.SectionLabel>
           <div className="px-2 pb-2">
-            <DataSourcePropertyValueEditor
-              {...binding}
-              showLabel={false}
-              presentation="page"
-            />
+            <DataSourcePropertyValueEditor {...binding} showLabel={false} presentation="page" />
           </div>
         </>
       )}
@@ -211,15 +210,12 @@ const propertySubmenuContentClassName = (
   if (descriptor.property.valueType === "relation") {
     return "pointer-events-auto m-0 w-[min(360px,calc(100vw-16px))] p-0";
   }
-  if (
-    descriptor.property.valueType === "date"
-    || descriptor.property.valueType === "datetime"
-  ) {
+  if (descriptor.property.valueType === "date" || descriptor.property.valueType === "datetime") {
     return "pointer-events-auto m-0 w-[280px] p-0";
   }
   if (
-    descriptor.property.valueType === "select"
-    || descriptor.property.valueType === "multi_select"
+    descriptor.property.valueType === "select" ||
+    descriptor.property.valueType === "multi_select"
   ) {
     return "pointer-events-auto m-0 w-[min(320px,calc(100vw-16px))] overflow-hidden p-0";
   }
@@ -236,10 +232,7 @@ function ResolvedPropertyEditorContent({
   readonly onContextMenuCommit: () => void;
 }) {
   const binding = source.resolveBinding(descriptor.property.propertyId);
-  if (
-    binding.property.valueType === "select"
-    || binding.property.valueType === "multi_select"
-  ) {
+  if (binding.property.valueType === "select" || binding.property.valueType === "multi_select") {
     return (
       <DataSourcePropertyValueEditor
         {...binding}
@@ -254,10 +247,7 @@ function ResolvedPropertyEditorContent({
     return <ScalarPropertyEditorContent binding={binding} />;
   }
   return (
-    <SharedPropertyEditorContent
-      binding={binding}
-      onContextMenuCommit={onContextMenuCommit}
-    />
+    <SharedPropertyEditorContent binding={binding} onContextMenuCommit={onContextMenuCommit} />
   );
 }
 
@@ -275,12 +265,9 @@ function PropertySubmenu({
   return (
     <NodexContextMenuSubmenu
       disabled={descriptor.disabled || descriptor.pending}
-      trigger={(
-        <PropertyMenuTrigger
-          descriptor={descriptor}
-          itemDataAttribute={itemDataAttribute}
-        />
-      )}
+      trigger={
+        <PropertyMenuTrigger descriptor={descriptor} itemDataAttribute={itemDataAttribute} />
+      }
       contentClassName={propertySubmenuContentClassName(descriptor)}
       onContentFocusOutside={preserveInteractiveSubmenuRootFocus}
       renderContent={() => (
@@ -325,14 +312,16 @@ export function DataSourcePagePropertyContextMenuItems({
       ))}
       {!model.searching && model.overflow.length > 0 ? (
         <NodexContextMenuSubmenu
-          trigger={<NodexContextMenuSubmenuTrigger
-            data-page-property-menu-item="true"
-            data-card-menu-item={itemDataAttribute}
-            leftSlot={<SlidersHorizontal className="size-4" strokeWidth={1.8} />}
-            rightSlot={<ChevronRightIcon className="size-3.5" />}
-          >
-            More properties…
-          </NodexContextMenuSubmenuTrigger>}
+          trigger={
+            <NodexContextMenuSubmenuTrigger
+              data-page-property-menu-item="true"
+              data-card-menu-item={itemDataAttribute}
+              leftSlot={<SlidersHorizontal className="size-4" strokeWidth={1.8} />}
+              rightSlot={<ChevronRightIcon className="size-3.5" />}
+            >
+              More properties…
+            </NodexContextMenuSubmenuTrigger>
+          }
           contentClassName="m-0 w-[265px]"
           onContentFocusOutside={preserveInteractiveSubmenuRootFocus}
           renderContent={() => (

@@ -24,18 +24,14 @@ interface PageTitleProjectionContextValue {
   readonly store: PageTitleProjectionStore;
 }
 
-const PageTitleProjectionContext =
-  createContext<PageTitleProjectionContextValue | null>(null);
+const PageTitleProjectionContext = createContext<PageTitleProjectionContextValue | null>(null);
 
 export function PageTitleProjectionProvider({
   currentLibraryId,
   store,
   children,
 }: PageTitleProjectionContextValue & { readonly children: ReactNode }) {
-  const value = useMemo(() => ({ currentLibraryId, store }), [
-    currentLibraryId,
-    store,
-  ]);
+  const value = useMemo(() => ({ currentLibraryId, store }), [currentLibraryId, store]);
   return (
     <PageTitleProjectionContext.Provider value={value}>
       {children}
@@ -53,14 +49,10 @@ export function usePresentedPageTitle(
   const resolvedLibraryId = libraryId ?? context?.currentLibraryId ?? null;
   const source = useMemo(() => {
     if (!store || !resolvedLibraryId || !pageId) return null;
-    return store.createSource(
-      makePageTitleResourceKey(resolvedLibraryId, pageId),
-      fallbackTitle,
-    );
+    return store.createSource(makePageTitleResourceKey(resolvedLibraryId, pageId), fallbackTitle);
   }, [fallbackTitle, pageId, resolvedLibraryId, store]);
   const subscribe = source?.subscribe ?? EMPTY_SOURCE.subscribe;
-  const getSnapshot = source?.getSnapshot
-    ?? (() => presentFallbackTitle(fallbackTitle));
+  const getSnapshot = source?.getSnapshot ?? (() => presentFallbackTitle(fallbackTitle));
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
 
@@ -81,17 +73,10 @@ export function PageTitleProjectionPublisher({
 
   useLayoutEffect(() => {
     if (!store) return;
-    const resourceKey = makePageTitleResourceKey(
-      identity.libraryId,
-      identity.pageId,
-    );
+    const resourceKey = makePageTitleResourceKey(identity.libraryId, identity.pageId);
     const leasedPublisherId = `${publisherId}:${publisherLeaseId}`;
     const publish = () => {
-      store.publishLive(
-        resourceKey,
-        leasedPublisherId,
-        title.toString(),
-      );
+      store.publishLive(resourceKey, leasedPublisherId, title.toString());
     };
     publish();
     title.observe(publish);
@@ -99,20 +84,12 @@ export function PageTitleProjectionPublisher({
       title.unobserve(publish);
       store.releasePublisher(resourceKey, leasedPublisherId);
     };
-  }, [
-    identity.libraryId,
-    identity.pageId,
-    publisherId,
-    publisherLeaseId,
-    store,
-    title,
-  ]);
+  }, [identity.libraryId, identity.pageId, publisherId, publisherLeaseId, store, title]);
 
   return children;
 }
 
-const presentFallbackTitle = (title: string): string =>
-  title.trim() || "Untitled";
+const presentFallbackTitle = (title: string): string => title.trim() || "Untitled";
 
 const EMPTY_SOURCE = {
   subscribe: () => () => undefined,

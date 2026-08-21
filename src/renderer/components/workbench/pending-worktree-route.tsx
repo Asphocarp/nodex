@@ -35,18 +35,11 @@ import type { CodexAgentMode } from "../../../shared/types";
 import { PendingWorktreeProgress } from "./pending-worktree-progress";
 import { resolvePendingWorktreeRouteActions } from "./pending-worktree-route-model";
 
-type PendingWorktreeRouteAction =
-  | "auto-fix"
-  | "cancel"
-  | "continue"
-  | "retry"
-  | "work-locally";
+type PendingWorktreeRouteAction = "auto-fix" | "cancel" | "continue" | "retry" | "work-locally";
 
 export interface PendingWorktreeRouteTransport {
   list: () => Promise<readonly CodexPendingWorktreeEntry[]>;
-  resolveThread: (
-    clientThreadId: string,
-  ) => Promise<CodexPendingWorktreeThreadResolution | null>;
+  resolveThread: (clientThreadId: string) => Promise<CodexPendingWorktreeThreadResolution | null>;
   autoFix: (
     hostId: string,
     pendingWorktreeId: string,
@@ -61,15 +54,9 @@ export interface PendingWorktreeRouteTransport {
   cancel: (hostId: string, pendingWorktreeId: string) => Promise<void>;
   discardForkSidePanelTransfer: (pendingWorktreeId: string) => Promise<void>;
   rename: (hostId: string, pendingWorktreeId: string, label: string) => Promise<void>;
-  setPinned: (
-    hostId: string,
-    pendingWorktreeId: string,
-    isPinned: boolean,
-  ) => Promise<void>;
+  setPinned: (hostId: string, pendingWorktreeId: string, isPinned: boolean) => Promise<void>;
   clearAttention: (hostId: string, pendingWorktreeId: string) => Promise<void>;
-  subscribe: (
-    listener: (entries: CodexPendingWorktreesChangedEvent) => void,
-  ) => () => void;
+  subscribe: (listener: (entries: CodexPendingWorktreesChangedEvent) => void) => () => void;
 }
 
 const ELECTRON_PENDING_WORKTREE_TRANSPORT: PendingWorktreeRouteTransport = {
@@ -121,10 +108,12 @@ function findPendingWorktreeEntry(
   entries: readonly CodexPendingWorktreeEntry[],
   clientThreadId: string,
 ): CodexPendingWorktreeEntry | null {
-  return entries.find((entry) =>
-    entry.launchMode !== "create-stable-worktree"
-    && entry.clientThreadId === clientThreadId
-  ) ?? null;
+  return (
+    entries.find(
+      (entry) =>
+        entry.launchMode !== "create-stable-worktree" && entry.clientThreadId === clientThreadId,
+    ) ?? null
+  );
 }
 
 export interface PendingWorktreeRouteViewProps {
@@ -158,12 +147,11 @@ function PendingWorktreeActionButton({
       disabled={disabled || loading}
       className={cn(
         "no-drag flex h-6 cursor-interaction items-center gap-1 rounded-full border border-transparent px-2 py-0.5 text-sm leading-[18px] whitespace-nowrap select-none focus:outline-none focus-visible:ring-2 focus-visible:ring-token-focus disabled:cursor-not-allowed disabled:opacity-40",
-        tone === "secondary"
-          && "bg-token-foreground/5 text-token-foreground enabled:hover:bg-token-foreground/10",
-        tone === "ghost"
-          && "text-token-text-tertiary enabled:hover:bg-token-list-hover-background",
-        tone === "primary"
-          && "bg-token-foreground text-token-dropdown-background enabled:hover:bg-token-foreground/80",
+        tone === "secondary" &&
+          "bg-token-foreground/5 text-token-foreground enabled:hover:bg-token-foreground/10",
+        tone === "ghost" && "text-token-text-tertiary enabled:hover:bg-token-list-hover-background",
+        tone === "primary" &&
+          "bg-token-foreground text-token-dropdown-background enabled:hover:bg-token-foreground/80",
         className,
       )}
       {...props}
@@ -187,71 +175,61 @@ export function PendingWorktreeRouteView({
   onWorkLocally,
 }: PendingWorktreeRouteViewProps) {
   const availableActions = resolvePendingWorktreeRouteActions(entry, resolution);
-  const actionButtons = availableActions.canCancel
-    || availableActions.canAutoFix
-    || availableActions.canContinue
-    || availableActions.canEditEnvironment
-    || availableActions.canRetry
-    || availableActions.canWorkLocally
-    ? (
-        <>
-          {availableActions.canWorkLocally ? (
-            <PendingWorktreeActionButton
-              tone="ghost"
-              loading={busyAction === "work-locally" || busyAction === "cancel"}
-              onClick={onWorkLocally}
-            >
-              <PendingWorktreeLocalIcon />
-              Work locally
-            </PendingWorktreeActionButton>
-          ) : null}
-          {availableActions.canCancel ? (
-            <PendingWorktreeActionButton
-              tone="ghost"
-              loading={busyAction === "work-locally" || busyAction === "cancel"}
-              onClick={onCancel}
-            >
-              <CloseIcon />
-              Cancel
-            </PendingWorktreeActionButton>
-          ) : null}
-          {availableActions.canEditEnvironment ? (
-            <PendingWorktreeActionButton
-              tone="secondary"
-              onClick={onEditEnvironment}
-            >
-              Edit environment
-            </PendingWorktreeActionButton>
-          ) : null}
-          {availableActions.canAutoFix ? (
-            <PendingWorktreeActionButton
-              tone="secondary"
-              loading={busyAction === "auto-fix"}
-              onClick={onAutoFix}
-            >
-              Auto-fix
-            </PendingWorktreeActionButton>
-          ) : null}
-          {availableActions.canRetry ? (
-            <PendingWorktreeActionButton
-              tone="ghost"
-              onClick={onRetry}
-            >
-              <PendingWorktreeRetryIcon />
-              Retry
-            </PendingWorktreeActionButton>
-          ) : null}
-          {availableActions.canContinue ? (
-            <PendingWorktreeActionButton
-              tone="primary"
-              onClick={onContinue}
-            >
-              Continue anyway
-            </PendingWorktreeActionButton>
-          ) : null}
-        </>
-      )
-    : null;
+  const actionButtons =
+    availableActions.canCancel ||
+    availableActions.canAutoFix ||
+    availableActions.canContinue ||
+    availableActions.canEditEnvironment ||
+    availableActions.canRetry ||
+    availableActions.canWorkLocally ? (
+      <>
+        {availableActions.canWorkLocally ? (
+          <PendingWorktreeActionButton
+            tone="ghost"
+            loading={busyAction === "work-locally" || busyAction === "cancel"}
+            onClick={onWorkLocally}
+          >
+            <PendingWorktreeLocalIcon />
+            Work locally
+          </PendingWorktreeActionButton>
+        ) : null}
+        {availableActions.canCancel ? (
+          <PendingWorktreeActionButton
+            tone="ghost"
+            loading={busyAction === "work-locally" || busyAction === "cancel"}
+            onClick={onCancel}
+          >
+            <CloseIcon />
+            Cancel
+          </PendingWorktreeActionButton>
+        ) : null}
+        {availableActions.canEditEnvironment ? (
+          <PendingWorktreeActionButton tone="secondary" onClick={onEditEnvironment}>
+            Edit environment
+          </PendingWorktreeActionButton>
+        ) : null}
+        {availableActions.canAutoFix ? (
+          <PendingWorktreeActionButton
+            tone="secondary"
+            loading={busyAction === "auto-fix"}
+            onClick={onAutoFix}
+          >
+            Auto-fix
+          </PendingWorktreeActionButton>
+        ) : null}
+        {availableActions.canRetry ? (
+          <PendingWorktreeActionButton tone="ghost" onClick={onRetry}>
+            <PendingWorktreeRetryIcon />
+            Retry
+          </PendingWorktreeActionButton>
+        ) : null}
+        {availableActions.canContinue ? (
+          <PendingWorktreeActionButton tone="primary" onClick={onContinue}>
+            Continue anyway
+          </PendingWorktreeActionButton>
+        ) : null}
+      </>
+    ) : null;
 
   return (
     <div
@@ -263,10 +241,7 @@ export function PendingWorktreeRouteView({
         <LocalConversationThreadScrollLayout>
           <div className="flex flex-col gap-4">
             <div className="group flex flex-col items-end gap-2">
-              <div
-                data-user-message-bubble="true"
-                className={THREAD_VISUAL_TOKENS.userBubble}
-              >
+              <div data-user-message-bubble="true" className={THREAD_VISUAL_TOKENS.userBubble}>
                 <UserMessageText text={entry.prompt} />
               </div>
               <ThreadMessageActionRow align="end" className="opacity-100">
@@ -362,34 +337,35 @@ export function PendingWorktreeRoute({
   const loadSequenceRef = useRef(0);
   const openingThreadIdRef = useRef<string | null>(null);
 
-  const load = useCallback(async (
-    entriesOverride?: readonly CodexPendingWorktreeEntry[],
-  ) => {
-    const sequence = loadSequenceRef.current + 1;
-    loadSequenceRef.current = sequence;
-    try {
-      const [entries, resolution] = await Promise.all([
-        entriesOverride ?? transport.list(),
-        transport.resolveThread(clientThreadId),
-      ]);
-      if (loadSequenceRef.current !== sequence) return;
-      const entry = findPendingWorktreeEntry(entries, clientThreadId);
-      setSnapshot({
-        status: entry || resolution ? "ready" : "missing",
-        entry,
-        resolution,
-        errorMessage: null,
-      });
-    } catch (error) {
-      if (loadSequenceRef.current !== sequence) return;
-      setSnapshot({
-        status: "error",
-        entry: null,
-        resolution: null,
-        errorMessage: errorMessage(error),
-      });
-    }
-  }, [clientThreadId, transport]);
+  const load = useCallback(
+    async (entriesOverride?: readonly CodexPendingWorktreeEntry[]) => {
+      const sequence = loadSequenceRef.current + 1;
+      loadSequenceRef.current = sequence;
+      try {
+        const [entries, resolution] = await Promise.all([
+          entriesOverride ?? transport.list(),
+          transport.resolveThread(clientThreadId),
+        ]);
+        if (loadSequenceRef.current !== sequence) return;
+        const entry = findPendingWorktreeEntry(entries, clientThreadId);
+        setSnapshot({
+          status: entry || resolution ? "ready" : "missing",
+          entry,
+          resolution,
+          errorMessage: null,
+        });
+      } catch (error) {
+        if (loadSequenceRef.current !== sequence) return;
+        setSnapshot({
+          status: "error",
+          entry: null,
+          resolution: null,
+          errorMessage: errorMessage(error),
+        });
+      }
+    },
+    [clientThreadId, transport],
+  );
 
   useEffect(() => {
     setSnapshot(INITIAL_SNAPSHOT);
@@ -415,74 +391,90 @@ export function PendingWorktreeRoute({
     clearAttentionOnRouteEntry();
   }, [pendingWorktreeId]);
 
-  const openResolvedThread = useCallback((threadId: string) => {
-    if (openingThreadIdRef.current === threadId) return;
-    openingThreadIdRef.current = threadId;
+  const openResolvedThread = useCallback(
+    (threadId: string) => {
+      if (openingThreadIdRef.current === threadId) return;
+      openingThreadIdRef.current = threadId;
 
-    void onOpenThread(threadId)
-      .then((opened) => {
-        if (opened === false) {
-          throw new Error("The created task could not be opened.");
-        }
-        onClose();
-      })
-      .catch((error) => {
-        openingThreadIdRef.current = null;
-        setActionError(errorMessage(error));
-      });
-  }, [onClose, onOpenThread]);
+      void onOpenThread(threadId)
+        .then((opened) => {
+          if (opened === false) {
+            throw new Error("The created task could not be opened.");
+          }
+          onClose();
+        })
+        .catch((error) => {
+          openingThreadIdRef.current = null;
+          setActionError(errorMessage(error));
+        });
+    },
+    [onClose, onOpenThread],
+  );
 
   useEffect(() => {
     if (snapshot.resolution?.state !== "succeeded") return;
     openResolvedThread(snapshot.resolution.threadId);
   }, [openResolvedThread, snapshot.resolution]);
 
-  const runAction = useCallback(async (action: PendingWorktreeRouteAction) => {
-    const entry = snapshot.entry;
-    const pendingWorktreeId = entry?.id;
-    const hostId = entry?.hostId;
-    if (!entry || !pendingWorktreeId || !hostId || busyAction !== null) return;
-    setActionError(null);
-    if (action === "work-locally") setWorkLocallyHidden(true);
-    setBusyAction(action);
-    try {
-      if (action === "cancel") {
-        await transport.cancel(hostId, pendingWorktreeId);
-        await transport.discardForkSidePanelTransfer(pendingWorktreeId);
-        await onCancelToSource?.(entry);
-        onClose();
-        return;
-      }
-      if (action === "work-locally") {
-        const result = await transport.workLocally(hostId, pendingWorktreeId);
-        openResolvedThread(result.threadId);
-        return;
-      }
-      if (action === "auto-fix") {
-        const result = await transport.autoFix(hostId, pendingWorktreeId, agentMode);
-        if (!result.clientThreadId) {
-          throw new Error("The worktree repair task has no client thread id.");
+  const runAction = useCallback(
+    async (action: PendingWorktreeRouteAction) => {
+      const entry = snapshot.entry;
+      const pendingWorktreeId = entry?.id;
+      const hostId = entry?.hostId;
+      if (!entry || !pendingWorktreeId || !hostId || busyAction !== null) return;
+      setActionError(null);
+      if (action === "work-locally") setWorkLocallyHidden(true);
+      setBusyAction(action);
+      try {
+        if (action === "cancel") {
+          await transport.cancel(hostId, pendingWorktreeId);
+          await transport.discardForkSidePanelTransfer(pendingWorktreeId);
+          await onCancelToSource?.(entry);
+          onClose();
+          return;
         }
-        onOpenPendingWorktree?.(result.clientThreadId);
-        return;
+        if (action === "work-locally") {
+          const result = await transport.workLocally(hostId, pendingWorktreeId);
+          openResolvedThread(result.threadId);
+          return;
+        }
+        if (action === "auto-fix") {
+          const result = await transport.autoFix(hostId, pendingWorktreeId, agentMode);
+          if (!result.clientThreadId) {
+            throw new Error("The worktree repair task has no client thread id.");
+          }
+          onOpenPendingWorktree?.(result.clientThreadId);
+          return;
+        }
+        if (action === "continue") {
+          await transport.continue(hostId, pendingWorktreeId);
+        } else {
+          await transport.retry(hostId, pendingWorktreeId);
+        }
+        await load();
+      } catch (error) {
+        if (action === "work-locally") setWorkLocallyHidden(false);
+        const message = errorMessage(error);
+        if (action === "auto-fix") {
+          toast.danger("Error starting task", { description: message });
+        }
+        setActionError(message);
+      } finally {
+        setBusyAction(null);
       }
-      if (action === "continue") {
-        await transport.continue(hostId, pendingWorktreeId);
-      } else {
-        await transport.retry(hostId, pendingWorktreeId);
-      }
-      await load();
-    } catch (error) {
-      if (action === "work-locally") setWorkLocallyHidden(false);
-      const message = errorMessage(error);
-      if (action === "auto-fix") {
-        toast.danger("Error starting task", { description: message });
-      }
-      setActionError(message);
-    } finally {
-      setBusyAction(null);
-    }
-  }, [agentMode, busyAction, load, onCancelToSource, onClose, onOpenPendingWorktree, openResolvedThread, snapshot.entry, transport]);
+    },
+    [
+      agentMode,
+      busyAction,
+      load,
+      onCancelToSource,
+      onClose,
+      onOpenPendingWorktree,
+      openResolvedThread,
+      snapshot.entry,
+      transport,
+    ],
+  );
 
   if (workLocallyHidden && actionError === null) return null;
   if (snapshot.status === "loading") {
@@ -521,10 +513,7 @@ export function PendingWorktreeRoute({
     if (actionError) {
       return <PendingWorktreeRouteStatusSurface error={actionError} onClose={onClose} />;
     }
-    if (
-      snapshot.resolution?.state === "waiting"
-      || snapshot.resolution?.state === "starting"
-    ) {
+    if (snapshot.resolution?.state === "waiting" || snapshot.resolution?.state === "starting") {
       return <PendingWorktreeRouteStatusSurface error={null} onClose={onClose} />;
     }
     if (snapshot.resolution?.state === "failed") {

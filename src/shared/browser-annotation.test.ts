@@ -15,12 +15,14 @@ const attachment = {
   note: "Increase the spacing",
   pageTitle: "Checkout",
   pageUrl: "https://example.com/checkout",
-  anchors: [{
-    id: "anchor-1",
-    kind: "region" as const,
-    pageUrl: "https://example.com/checkout",
-    rect: { x: 10, y: 20, width: 100, height: 50 },
-  }],
+  anchors: [
+    {
+      id: "anchor-1",
+      kind: "region" as const,
+      pageUrl: "https://example.com/checkout",
+      rect: { x: 10, y: 20, width: 100, height: 50 },
+    },
+  ],
   evidence: {
     attachmentId: "evidence.png",
     source: "nodex://assets/evidence.png",
@@ -32,13 +34,15 @@ const attachment = {
 
 describe("Browser annotation contracts", () => {
   test("serializes design intent, anchors, and evidence without image bytes", () => {
-    expect(serializeBrowserAnnotationAttachmentForPrompt(attachment)).toBe([
-      "[Browser design change: Checkout]",
-      "URL: https://example.com/checkout",
-      "1. region: rect(10, 20, 100, 50)",
-      "Comment: Increase the spacing",
-      "Screenshot evidence: evidence.png",
-    ].join("\n"));
+    expect(serializeBrowserAnnotationAttachmentForPrompt(attachment)).toBe(
+      [
+        "[Browser design change: Checkout]",
+        "URL: https://example.com/checkout",
+        "1. region: rect(10, 20, 100, 50)",
+        "Comment: Increase the spacing",
+        "Screenshot evidence: evidence.png",
+      ].join("\n"),
+    );
 
     const additionalContext = JSON.parse(
       serializeBrowserAnnotationAttachmentsForAdditionalContext([attachment]),
@@ -50,16 +54,17 @@ describe("Browser annotation contracts", () => {
   test("defaults old attachments to comment intent and rejects oversized anchors", () => {
     const { intent, ...legacyAttachment } = attachment;
     expect(intent).toBe("designChange");
-    expect(BrowserAnnotationAttachmentSchema.parse(legacyAttachment).intent)
-      .toBe("comment");
-    expect(() => BrowserAnnotationSelectionEventSchema.parse({
-      sessionId: "session-1",
-      multiSelect: false,
-      anchor: {
-        ...attachment.anchors[0],
-        rect: { x: 0, y: 0, width: 100_001, height: 1 },
-      },
-    })).toThrow();
+    expect(BrowserAnnotationAttachmentSchema.parse(legacyAttachment).intent).toBe("comment");
+    expect(() =>
+      BrowserAnnotationSelectionEventSchema.parse({
+        sessionId: "session-1",
+        multiSelect: false,
+        anchor: {
+          ...attachment.anchors[0],
+          rect: { x: 0, y: 0, width: 100_001, height: 1 },
+        },
+      }),
+    ).toThrow();
   });
 
   test("serializes structured design before and after values", () => {
@@ -75,7 +80,8 @@ describe("Browser annotation contracts", () => {
     expect(serializeBrowserAnnotationAttachmentForPrompt(designed)).toContain(
       "Design property: borderRadius\nBefore: 4px\nAfter: 12px",
     );
-    expect(BrowserAnnotationAttachmentSchema.parse(designed).designChange)
-      .toEqual(designed.designChange);
+    expect(BrowserAnnotationAttachmentSchema.parse(designed).designChange).toEqual(
+      designed.designChange,
+    );
   });
 });

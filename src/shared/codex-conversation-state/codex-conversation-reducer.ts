@@ -1,9 +1,5 @@
 import type { ServerNotification } from "@nodex/codex-app-server-protocol";
-import type {
-  Thread,
-  ThreadItem,
-  UserInput,
-} from "@nodex/codex-app-server-protocol/v2";
+import type { Thread, ThreadItem, UserInput } from "@nodex/codex-app-server-protocol/v2";
 import type { CodexConversationReplayEvent } from "./codex-conversation-replay";
 import type { CodexItemStatus } from "../types";
 import {
@@ -172,8 +168,7 @@ export interface ResolveCodexItemLifecycleTurnOptions {
   readonly turnId?: string | null;
 }
 
-export const CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID =
-  "pending-manual-context-compaction";
+export const CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID = "pending-manual-context-compaction";
 
 function findLastResolutionTurnIndex(
   turns: readonly CodexItemLifecycleTurnResolutionInput[],
@@ -195,9 +190,7 @@ export function resolveCodexItemLifecycleTurn(
   const latestTurn = turns[latestTurnIndex];
   if (!latestTurn) return { kind: "ignore" };
 
-  const turnId = options.turnId === undefined
-    ? notification.params.turnId
-    : options.turnId;
+  const turnId = options.turnId === undefined ? notification.params.turnId : options.turnId;
   const { item } = notification.params;
   if (notification.method === "item/completed" && item.type !== "userMessage") {
     if (turnId == null) {
@@ -205,9 +198,7 @@ export function resolveCodexItemLifecycleTurn(
     }
 
     const exactIndex = findLastResolutionTurnIndex(turns, turnId);
-    return exactIndex < 0
-      ? { kind: "ignore" }
-      : { kind: "existing", turnIndex: exactIndex };
+    return exactIndex < 0 ? { kind: "ignore" } : { kind: "existing", turnIndex: exactIndex };
   }
 
   if (!turnId) {
@@ -220,13 +211,10 @@ export function resolveCodexItemLifecycleTurn(
   }
 
   if (
-    notification.method === "item/started"
-    && latestTurn.turnId === null
-    && latestTurn.status === "inProgress"
-    && (
-      item.type === "contextCompaction"
-      || latestTurn.clientUserMessageId != null
-    )
+    notification.method === "item/started" &&
+    latestTurn.turnId === null &&
+    latestTurn.status === "inProgress" &&
+    (item.type === "contextCompaction" || latestTurn.clientUserMessageId != null)
   ) {
     return {
       kind: "rebindInProgressPlaceholder",
@@ -235,11 +223,11 @@ export function resolveCodexItemLifecycleTurn(
   }
 
   if (
-    turns.length === 1
-    && latestTurn.turnId === null
-    && latestTurn.status === "completed"
-    && !latestTurn.hasError
-    && latestTurn.itemCount === 0
+    turns.length === 1 &&
+    latestTurn.turnId === null &&
+    latestTurn.status === "completed" &&
+    !latestTurn.hasError &&
+    latestTurn.itemCount === 0
   ) {
     return {
       kind: "rebindCompletedEmptyPlaceholder",
@@ -351,10 +339,7 @@ function materializeCanonicalLifecycleItem(
   item: ThreadItem,
   context: CodexConversationReducerContext,
 ): CodexCanonicalItem {
-  return materializeCodexCanonicalProtocolItem(
-    item,
-    context.resolveCollabReceiverThread,
-  );
+  return materializeCodexCanonicalProtocolItem(item, context.resolveCollabReceiverThread);
 }
 
 function enqueueCollabHydrationEffect(
@@ -378,10 +363,11 @@ function isMatchingPendingSteer(
     return false;
   }
 
-  const matchesTurn = item.targetTurnId === null
-    ? item.targetTurnStartedAtMs !== null
-      && item.targetTurnStartedAtMs === turn.sidecar.turnStartedAtMs
-    : item.targetTurnId === turn.protocol.id;
+  const matchesTurn =
+    item.targetTurnId === null
+      ? item.targetTurnStartedAtMs !== null &&
+        item.targetTurnStartedAtMs === turn.sidecar.turnStartedAtMs
+      : item.targetTurnId === turn.protocol.id;
   if (!matchesTurn) {
     return false;
   }
@@ -394,8 +380,10 @@ function isMatchingPendingSteer(
     content,
     item.restoreMessage.context.commentAttachments,
   );
-  return item.compareKey.rawText === compareKey.rawText
-    && item.compareKey.imageCount === compareKey.imageCount;
+  return (
+    item.compareKey.rawText === compareKey.rawText &&
+    item.compareKey.imageCount === compareKey.imageCount
+  );
 }
 
 function findMatchingPendingSteerIndex(
@@ -405,26 +393,29 @@ function findMatchingPendingSteerIndex(
   turn: CodexCanonicalTurnState,
 ): number {
   return items.findIndex((item) =>
-    isMatchingPendingSteer(item, clientUserMessageId, content, turn)
+    isMatchingPendingSteer(item, clientUserMessageId, content, turn),
   );
 }
 
 function getHeartbeatField(text: string, field: string): string | null {
-  return new RegExp(`<${field}>\\s*([\\s\\S]*?)\\s*<\\/${field}>`, "i")
-    .exec(text)?.[1]?.trim() ?? null;
+  return (
+    new RegExp(`<${field}>\\s*([\\s\\S]*?)\\s*<\\/${field}>`, "i").exec(text)?.[1]?.trim() ?? null
+  );
 }
 
 function isHeartbeatUserMessage(content: readonly UserInput[]): boolean {
   const text = content
-    .flatMap((entry) => entry.type === "text" ? [entry.text] : [])
+    .flatMap((entry) => (entry.type === "text" ? [entry.text] : []))
     .join("\n")
     .trim();
   if (!text.startsWith("<heartbeat>") || !text.endsWith("</heartbeat>")) {
     return false;
   }
 
-  return getHeartbeatField(text, "current_time_iso") !== null
-    && getHeartbeatField(text, "instructions") !== null;
+  return (
+    getHeartbeatField(text, "current_time_iso") !== null &&
+    getHeartbeatField(text, "instructions") !== null
+  );
 }
 
 export function isCodexLifecycleFirstTurnWorkItem(item: ThreadItem): boolean {
@@ -446,19 +437,17 @@ function findExactItemTypeIndex(
 }
 
 function isCodexItemStatus(value: unknown): value is CodexItemStatus {
-  return value === "inProgress"
-    || value === "completed"
-    || value === "failed"
-    || value === "declined"
-    || value === "interrupted";
+  return (
+    value === "inProgress" ||
+    value === "completed" ||
+    value === "failed" ||
+    value === "declined" ||
+    value === "interrupted"
+  );
 }
 
 function resolveCompletedLifecycleStatus(item: ThreadItem): CodexItemStatus {
-  if (
-    "status" in item
-    && isCodexItemStatus(item.status)
-    && item.status !== "inProgress"
-  ) {
+  if ("status" in item && isCodexItemStatus(item.status) && item.status !== "inProgress") {
     return item.status;
   }
   return "completed";
@@ -471,15 +460,11 @@ function resolveLifecycleStatus(
   if (notification.method === "item/started") {
     // Item IDs are occurrence identities. Once an occurrence is terminal, a
     // duplicate or delayed started event cannot reopen it.
-    return previous !== undefined && previous !== "inProgress"
-      ? previous
-      : "inProgress";
+    return previous !== undefined && previous !== "inProgress" ? previous : "inProgress";
   }
 
   const completedStatus = resolveCompletedLifecycleStatus(notification.params.item);
-  return previous !== undefined && previous !== "inProgress"
-    ? previous
-    : completedStatus;
+  return previous !== undefined && previous !== "inProgress" ? previous : completedStatus;
 }
 
 /**
@@ -520,11 +505,8 @@ export function reduceCodexItemLifecycleMetadata(
       };
     }
     if (
-      item.type === "userMessage"
-      && (
-        options.hasMatchingPendingSteer === true
-        || !isHeartbeatUserMessage(item.content)
-      )
+      item.type === "userMessage" &&
+      (options.hasMatchingPendingSteer === true || !isHeartbeatUserMessage(item.content))
     ) {
       return {
         shouldUpsertItem: false,
@@ -539,10 +521,7 @@ export function reduceCodexItemLifecycleMetadata(
     if (item.type === "agentMessage") {
       finalAssistantStartedAtMs = context.now();
     }
-    if (
-      isCodexLifecycleFirstTurnWorkItem(item)
-      && firstTurnWorkItemStartedAtMs == null
-    ) {
+    if (isCodexLifecycleFirstTurnWorkItem(item) && firstTurnWorkItemStartedAtMs == null) {
       firstTurnWorkItemStartedAtMs = context.now();
     }
     if (item.type === "commandExecution") {
@@ -588,8 +567,8 @@ export function reduceCodexItemLifecycleMetadata(
   }
 
   return {
-    shouldUpsertItem: item.type === "subAgentActivity"
-      || findExactItemTypeIndex(state.items, item) >= 0,
+    shouldUpsertItem:
+      item.type === "subAgentActivity" || findExactItemTypeIndex(state.items, item) >= 0,
     upsertIndex,
     firstTurnWorkItemStartedAtMs,
     finalAssistantStartedAtMs,
@@ -609,8 +588,7 @@ function applyLifecycleMetadata(
       ...(metadata.firstTurnWorkItemStartedAtMs === undefined
         ? {}
         : {
-            firstTurnWorkItemStartedAtMs:
-              metadata.firstTurnWorkItemStartedAtMs,
+            firstTurnWorkItemStartedAtMs: metadata.firstTurnWorkItemStartedAtMs,
           }),
       finalAssistantStartedAtMs: metadata.finalAssistantStartedAtMs ?? null,
       ...(metadata.lifecycleStatusByItemId === undefined
@@ -621,8 +599,7 @@ function applyLifecycleMetadata(
       ...(metadata.commandExecutionStartedAtMsById === undefined
         ? {}
         : {
-            commandExecutionStartedAtMsById:
-              metadata.commandExecutionStartedAtMsById,
+            commandExecutionStartedAtMsById: metadata.commandExecutionStartedAtMsById,
           }),
     },
   };
@@ -649,27 +626,22 @@ function reduceItemStarted(
     })),
     notification,
   );
-  const resolved = applyCanonicalTurnResolution(
-    state.turns,
-    resolution,
-    turnId,
-    context,
-  );
+  const resolved = applyCanonicalTurnResolution(state.turns, resolution, turnId, context);
   if (!resolved) {
     return state;
   }
 
   let turn = ensureCodexCanonicalTurnCollections(resolved.turns[resolved.turnIndex]!);
-  const hasMatchingPendingSteer = item.type === "userMessage"
-    && findMatchingPendingSteerIndex(turn.items, item.clientId, item.content, turn) >= 0;
+  const hasMatchingPendingSteer =
+    item.type === "userMessage" &&
+    findMatchingPendingSteerIndex(turn.items, item.clientId, item.content, turn) >= 0;
   const metadata = reduceCodexItemLifecycleMetadata(
     {
       items: turn.items,
       firstTurnWorkItemStartedAtMs: turn.sidecar.firstTurnWorkItemStartedAtMs,
       finalAssistantStartedAtMs: turn.sidecar.finalAssistantStartedAtMs,
       lifecycleStatusByItemId: turn.sidecar.lifecycleStatusByItemId,
-      commandExecutionStartedAtMsById:
-        turn.sidecar.commandExecutionStartedAtMsById,
+      commandExecutionStartedAtMsById: turn.sidecar.commandExecutionStartedAtMsById,
     },
     notification,
     context,
@@ -688,9 +660,10 @@ function reduceItemStarted(
     nextItem = {
       ...item,
       completed: false,
-      source: context.consumeContextCompactionSource?.()
-        ?? context.contextCompactionSource
-        ?? "automatic",
+      source:
+        context.consumeContextCompactionSource?.() ??
+        context.contextCompactionSource ??
+        "automatic",
     } satisfies CodexCanonicalContextCompactionItem;
     items = items.filter(
       (candidate) => candidate.id !== CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID,
@@ -710,14 +683,14 @@ function buildCompletedContextCompaction(
   items: readonly CodexCanonicalItem[],
 ): CodexCanonicalContextCompactionItem {
   const existing = items.find(
-    (candidate) =>
-      candidate.type === "contextCompaction"
-      && candidate.id === item.id,
+    (candidate) => candidate.type === "contextCompaction" && candidate.id === item.id,
   );
-  const source = existing && "source" in existing
-    && (existing.source === "automatic" || existing.source === "manual")
-    ? existing.source
-    : "automatic";
+  const source =
+    existing &&
+    "source" in existing &&
+    (existing.source === "automatic" || existing.source === "manual")
+      ? existing.source
+      : "automatic";
 
   return {
     ...item,
@@ -774,32 +747,28 @@ function reduceItemCompleted(
     notification,
     { turnId: turnId as string | null },
   );
-  const resolved = applyCanonicalTurnResolution(
-    state.turns,
-    resolution,
-    turnId,
-    context,
-  );
+  const resolved = applyCanonicalTurnResolution(state.turns, resolution, turnId, context);
   if (!resolved) {
     return state;
   }
 
   let turn = ensureCodexCanonicalTurnCollections(resolved.turns[resolved.turnIndex]!);
   enqueueCollabHydrationEffect(item, effects);
-  const completedItem: CodexCanonicalItem = item.type === "contextCompaction"
-    ? buildCompletedContextCompaction(item, turn.items)
-    : materializeCanonicalLifecycleItem(item, context);
-  const pendingIndex = item.type === "userMessage"
-    ? findMatchingPendingSteerIndex(turn.items, item.clientId, item.content, turn)
-    : -1;
+  const completedItem: CodexCanonicalItem =
+    item.type === "contextCompaction"
+      ? buildCompletedContextCompaction(item, turn.items)
+      : materializeCanonicalLifecycleItem(item, context);
+  const pendingIndex =
+    item.type === "userMessage"
+      ? findMatchingPendingSteerIndex(turn.items, item.clientId, item.content, turn)
+      : -1;
   const metadata = reduceCodexItemLifecycleMetadata(
     {
       items: turn.items,
       firstTurnWorkItemStartedAtMs: turn.sidecar.firstTurnWorkItemStartedAtMs,
       finalAssistantStartedAtMs: turn.sidecar.finalAssistantStartedAtMs,
       lifecycleStatusByItemId: turn.sidecar.lifecycleStatusByItemId,
-      commandExecutionStartedAtMsById:
-        turn.sidecar.commandExecutionStartedAtMsById,
+      commandExecutionStartedAtMsById: turn.sidecar.commandExecutionStartedAtMsById,
     },
     notification,
     context,
@@ -808,9 +777,10 @@ function reduceItemCompleted(
   turn = applyLifecycleMetadata(turn, metadata);
 
   if (item.type === "userMessage") {
-    turn = pendingIndex >= 0
-      ? acceptPendingSteer(turn, pendingIndex, item.id)
-      : { ...turn, items: upsertCodexCanonicalItemById(turn.items, completedItem) };
+    turn =
+      pendingIndex >= 0
+        ? acceptPendingSteer(turn, pendingIndex, item.id)
+        : { ...turn, items: upsertCodexCanonicalItemById(turn.items, completedItem) };
     const turns = replaceCodexCanonicalTurnAt(resolved.turns, resolved.turnIndex, turn);
     return { ...state, turns };
   }
@@ -842,11 +812,7 @@ export function reduceCodexConversationEventWithEffects(
   }
 
   if (event.notification.method === "serverRequest/resolved") {
-    return reduceCodexConversationServerRequestResolved(
-      state,
-      event.notification,
-      context,
-    );
+    return reduceCodexConversationServerRequestResolved(state, event.notification, context);
   }
 
   if (isCodexFrameTextDeltaNotification(event.notification)) {
@@ -947,10 +913,7 @@ export function reduceCodexConversationEventWithEffects(
 
   if (event.notification.method === "thread/goal/cleared") {
     return {
-      state: reduceCodexConversationThreadGoalCleared(
-        state,
-        event.notification.params.threadId,
-      ),
+      state: reduceCodexConversationThreadGoalCleared(state, event.notification.params.threadId),
       effects,
     };
   }
@@ -967,25 +930,13 @@ export function reduceCodexConversationEventWithEffects(
 
   if (event.notification.method === "turn/diff/updated") {
     const { threadId, turnId, diff } = event.notification.params;
-    const reduced = reduceCodexConversationTurnDiff(
-      state,
-      threadId,
-      turnId,
-      diff,
-      context.now(),
-    );
+    const reduced = reduceCodexConversationTurnDiff(state, threadId, turnId, diff, context.now());
     return { state: reduced.state, effects: reduced.effects };
   }
 
   if (event.notification.method === "model/safetyBuffering/updated") {
-    const {
-      threadId,
-      turnId,
-      useCases,
-      reasons,
-      showBufferingUi,
-      fasterModel,
-    } = event.notification.params;
+    const { threadId, turnId, useCases, reasons, showBufferingUi, fasterModel } =
+      event.notification.params;
     const reduced = reduceCodexConversationSafetyBuffering(
       state,
       threadId,
@@ -997,8 +948,8 @@ export function reduceCodexConversationEventWithEffects(
   }
 
   if (
-    event.notification.method === "hook/started"
-    || event.notification.method === "hook/completed"
+    event.notification.method === "hook/started" ||
+    event.notification.method === "hook/completed"
   ) {
     const { threadId, turnId, run } = event.notification.params;
     const reduced = reduceCodexConversationHookRun(
@@ -1046,8 +997,8 @@ export function reduceCodexConversationEventWithEffects(
   }
 
   if (
-    event.notification.method === "item/autoApprovalReview/started"
-    || event.notification.method === "item/autoApprovalReview/completed"
+    event.notification.method === "item/autoApprovalReview/started" ||
+    event.notification.method === "item/autoApprovalReview/completed"
   ) {
     const reduced = reduceCodexConversationAutomaticApprovalReview(
       state,
@@ -1061,8 +1012,9 @@ export function reduceCodexConversationEventWithEffects(
     const params = event.notification.params as typeof event.notification.params & {
       readonly kind?: string;
     };
-    const accepted = params.kind === "tooManyDenials"
-      || params.message.startsWith(
+    const accepted =
+      params.kind === "tooManyDenials" ||
+      params.message.startsWith(
         "Automatic approval review rejected too many approval requests for this turn",
       );
     if (!accepted) return { state, effects };
@@ -1076,8 +1028,8 @@ export function reduceCodexConversationEventWithEffects(
   }
 
   if (
-    event.notification.method === "turn/started"
-    || event.notification.method === "turn/completed"
+    event.notification.method === "turn/started" ||
+    event.notification.method === "turn/completed"
   ) {
     return {
       state: reduceCodexConversationTurnLifecycle(state, {

@@ -79,19 +79,17 @@ const effective: EffectiveDatabaseViewPresentation = {
   },
 };
 
-const model = (
-  commitSeq: number,
-  storeEpoch = "epoch-1",
-): DatabaseViewRenderModel => ({
-  libraryId: "library-1",
-  accessContext: { kind: "project", projectId: "project-1" },
-  databaseViewId: "view-1",
-  databaseId: "database-1",
-  dataSourceId: "source-1",
-  storeEpoch,
-  commitSeq,
-  authorization: {},
-} as unknown as DatabaseViewRenderModel);
+const model = (commitSeq: number, storeEpoch = "epoch-1"): DatabaseViewRenderModel =>
+  ({
+    libraryId: "library-1",
+    accessContext: { kind: "project", projectId: "project-1" },
+    databaseViewId: "view-1",
+    databaseId: "database-1",
+    dataSourceId: "source-1",
+    storeEpoch,
+    commitSeq,
+    authorization: {},
+  }) as unknown as DatabaseViewRenderModel;
 
 const waitForStore = async (): Promise<void> => {
   await new Promise<void>((resolve) => globalThis.setTimeout(resolve, 0));
@@ -105,10 +103,7 @@ describe("Database List window stitching", () => {
     expect(mergeDatabaseListWindow(state(first), first, next)).toMatchObject({
       kind: "merged",
       state: {
-        rows: [
-          { occurrenceKey: "one" },
-          { occurrenceKey: "two" },
-        ],
+        rows: [{ occurrenceKey: "one" }, { occurrenceKey: "two" }],
         loadingMore: false,
       },
     });
@@ -116,21 +111,27 @@ describe("Database List window stitching", () => {
 
   test("requests a clean restart for gaps, duplicates, or projection changes", () => {
     const first = snapshot({ rows: [{ occurrenceKey: "one" }], windowStart: 0 });
-    expect(mergeDatabaseListWindow(
-      state(first),
-      first,
-      snapshot({ rows: [{ occurrenceKey: "two" }], windowStart: 2 }),
-    )).toEqual({ kind: "restart" });
-    expect(mergeDatabaseListWindow(
-      state(first),
-      first,
-      snapshot({ rows: [{ occurrenceKey: "one" }], windowStart: 1 }),
-    )).toEqual({ kind: "restart" });
-    expect(mergeDatabaseListWindow(
-      state(first),
-      first,
-      snapshot({ rows: [{ occurrenceKey: "two" }], windowStart: 1, commitSeq: 5 }),
-    )).toEqual({ kind: "restart" });
+    expect(
+      mergeDatabaseListWindow(
+        state(first),
+        first,
+        snapshot({ rows: [{ occurrenceKey: "two" }], windowStart: 2 }),
+      ),
+    ).toEqual({ kind: "restart" });
+    expect(
+      mergeDatabaseListWindow(
+        state(first),
+        first,
+        snapshot({ rows: [{ occurrenceKey: "one" }], windowStart: 1 }),
+      ),
+    ).toEqual({ kind: "restart" });
+    expect(
+      mergeDatabaseListWindow(
+        state(first),
+        first,
+        snapshot({ rows: [{ occurrenceKey: "two" }], windowStart: 1, commitSeq: 5 }),
+      ),
+    ).toEqual({ kind: "restart" });
   });
 
   test("atomically replaces retained rows when an active List advances", async () => {
@@ -174,11 +175,13 @@ describe("Database List window stitching", () => {
     });
     expect(requestLayouts.at(-1)).toBe("list");
 
-    resolveReplacement(snapshot({
-      rows: [{ occurrenceKey: "stable-new-order" }],
-      windowStart: 0,
-      commitSeq: 5,
-    }));
+    resolveReplacement(
+      snapshot({
+        rows: [{ occurrenceKey: "stable-new-order" }],
+        windowStart: 0,
+        commitSeq: 5,
+      }),
+    );
     await waitForStore();
 
     expect(sameStore.getSnapshot()).toMatchObject({
@@ -189,9 +192,7 @@ describe("Database List window stitching", () => {
 
     sameStore.setRequest(model(4), effective);
     expect(requestLayouts).toHaveLength(2);
-    expect(sameStore.getSnapshot().rows).toMatchObject([
-      { occurrenceKey: "stable-new-order" },
-    ]);
+    expect(sameStore.getSnapshot().rows).toMatchObject([{ occurrenceKey: "stable-new-order" }]);
     unsubscribe();
   });
 
@@ -276,16 +277,12 @@ describe("Database List window stitching", () => {
     await waitForStore();
 
     expect(requestCommitSeqs).toEqual([100]);
-    expect(store.getSnapshot().rows).toMatchObject([
-      { occurrenceKey: "latest" },
-    ]);
+    expect(store.getSnapshot().rows).toMatchObject([{ occurrenceKey: "latest" }]);
     unsubscribe();
   });
 
   test("keeps rapid first-window replacements single-flight and reads only the latest target", async () => {
-    const pending: Array<(
-      value: DatabaseListWindowSnapshot,
-    ) => void> = [];
+    const pending: Array<(value: DatabaseListWindowSnapshot) => void> = [];
     let requestCount = 0;
     let activeReads = 0;
     let maxActiveReads = 0;
@@ -313,20 +310,24 @@ describe("Database List window stitching", () => {
     expect(requestCount).toBe(1);
     expect(maxActiveReads).toBe(1);
 
-    pending.shift()?.(snapshot({
-      rows: [{ occurrenceKey: "obsolete" }],
-      windowStart: 0,
-      commitSeq: 1,
-    }));
+    pending.shift()?.(
+      snapshot({
+        rows: [{ occurrenceKey: "obsolete" }],
+        windowStart: 0,
+        commitSeq: 1,
+      }),
+    );
     await waitForStore();
     expect(requestCount).toBe(2);
     expect(maxActiveReads).toBe(1);
 
-    pending.shift()?.(snapshot({
-      rows: [{ occurrenceKey: "latest" }],
-      windowStart: 0,
-      commitSeq: 100,
-    }));
+    pending.shift()?.(
+      snapshot({
+        rows: [{ occurrenceKey: "latest" }],
+        windowStart: 0,
+        commitSeq: 100,
+      }),
+    );
     await waitForStore();
 
     expect(requestCount).toBe(2);
@@ -369,12 +370,14 @@ describe("Database List window stitching", () => {
       rows: [],
     });
 
-    resolveReplacement(snapshot({
-      rows: [{ occurrenceKey: "new-epoch-row" }],
-      windowStart: 0,
-      commitSeq: 1,
-      storeEpoch: "epoch-2",
-    }));
+    resolveReplacement(
+      snapshot({
+        rows: [{ occurrenceKey: "new-epoch-row" }],
+        windowStart: 0,
+        commitSeq: 1,
+        storeEpoch: "epoch-2",
+      }),
+    );
     await waitForStore();
 
     expect(store.getSnapshot()).toMatchObject({

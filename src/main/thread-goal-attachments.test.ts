@@ -32,11 +32,13 @@ describe("thread goal attachment materialization", () => {
     const attachment = await manager.createRawSource({ text: exactText });
 
     expect(await manager.readRawSource(attachment.file)).toBe(exactText);
-    await expect(manager.readRawSource({
-      label: "outside",
-      path: join(dirname(attachmentsRoot), "outside.txt"),
-      fsPath: join(dirname(attachmentsRoot), "outside.txt"),
-    })).rejects.toThrow("Unknown pasted text attachment");
+    await expect(
+      manager.readRawSource({
+        label: "outside",
+        path: join(dirname(attachmentsRoot), "outside.txt"),
+        fsPath: join(dirname(attachmentsRoot), "outside.txt"),
+      }),
+    ).rejects.toThrow("Unknown pasted text attachment");
   });
 
   test("rejects one UTF-8 byte over the paste limit before writing", async () => {
@@ -44,8 +46,9 @@ describe("thread goal attachment materialization", () => {
     const manager = new PastedTextAttachmentManager({ attachmentsRoot });
     const oversizedText = `${"é".repeat(COMPOSER_PASTED_TEXT_MAX_BYTES / 2)}a`;
 
-    await expect(manager.createRawSource({ text: oversizedText }))
-      .rejects.toThrow("Pasted text must be 10 MB or smaller.");
+    await expect(manager.createRawSource({ text: oversizedText })).rejects.toThrow(
+      "Pasted text must be 10 MB or smaller.",
+    );
     expect(await readdir(attachmentsRoot).catch(() => [])).toEqual([]);
   });
 
@@ -53,11 +56,12 @@ describe("thread goal attachment materialization", () => {
     const attachmentsRoot = await createTempGoalRoot();
     const longText = `  ${"x".repeat(82)}  `;
 
-    const materialized = await new PastedTextAttachmentManager({ attachmentsRoot })
-      .materializeSources([
-        { text: "  First\n\tpasted   request  ", hostId: "host-1" },
-        { text: longText },
-      ]);
+    const materialized = await new PastedTextAttachmentManager({
+      attachmentsRoot,
+    }).materializeSources([
+      { text: "  First\n\tpasted   request  ", hostId: "host-1" },
+      { text: longText },
+    ]);
 
     expect(materialized.attachments.length).toBe(2);
     expect(materialized.createdAttachmentPaths.length).toBe(2);
@@ -91,8 +95,9 @@ describe("thread goal attachment materialization", () => {
   test("uses the exact fallback preview without changing whitespace-only source bytes", async () => {
     const attachmentsRoot = await createTempGoalRoot();
     const rawText = " \n\t  ";
-    const materialized = await new PastedTextAttachmentManager({ attachmentsRoot })
-      .materializeSources([{ text: rawText }]);
+    const materialized = await new PastedTextAttachmentManager({
+      attachmentsRoot,
+    }).materializeSources([{ text: rawText }]);
 
     expect(materialized.attachments[0]?.preview).toBe("Pasted text");
     expect(materialized.attachments[0]?.characterCount).toBe(rawText.length);
@@ -104,8 +109,10 @@ describe("thread goal attachment materialization", () => {
     const sourcePath = join(attachmentsRoot, "..", "existing-pasted-source.txt");
     await writeFile(sourcePath, "Existing pasted request", "utf8");
 
-    const materialized = await new PastedTextAttachmentManager({ attachmentsRoot })
-      .materializeSources([{
+    const materialized = await new PastedTextAttachmentManager({
+      attachmentsRoot,
+    }).materializeSources([
+      {
         text: "Existing pasted request",
         characterCount: 777,
         file: {
@@ -115,7 +122,8 @@ describe("thread goal attachment materialization", () => {
           startLine: null,
           endLine: 9,
         },
-      }]);
+      },
+    ]);
 
     expect(materialized.createdAttachmentPaths.length).toBe(0);
     expect(materialized.attachments[0]?.file.path).toBe("/display/source.txt");
@@ -123,14 +131,17 @@ describe("thread goal attachment materialization", () => {
     expect(materialized.attachments[0]?.file.endLine).toBe(9);
     expect(materialized.attachments[0]?.preview).toBe("Existing pasted request");
     expect(materialized.attachments[0]?.characterCount).toBe(777);
-    expect(Object.prototype.hasOwnProperty.call(materialized.attachments[0] ?? {}, "text"))
-      .toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(materialized.attachments[0] ?? {}, "text")).toBe(
+      false,
+    );
   });
 
   test("retains an already-materialized pasted wrapper without reintroducing raw text", async () => {
     const attachmentsRoot = await createTempGoalRoot();
-    const materialized = await new PastedTextAttachmentManager({ attachmentsRoot })
-      .materializeSources([{
+    const materialized = await new PastedTextAttachmentManager({
+      attachmentsRoot,
+    }).materializeSources([
+      {
         file: {
           label: "Pasted text.txt",
           path: "/attachments/existing/pasted-text.txt",
@@ -139,19 +150,22 @@ describe("thread goal attachment materialization", () => {
         preview: "Frozen request",
         hostId: "local",
         characterCount: 14,
-      }]);
+      },
+    ]);
 
     expect(materialized.createdAttachmentPaths.length).toBe(0);
-    expect(JSON.stringify(materialized.attachments[0])).toBe(JSON.stringify({
-      file: {
-        label: "Pasted text.txt",
-        path: "/attachments/existing/pasted-text.txt",
-        fsPath: "/attachments/existing/pasted-text.txt",
-      },
-      preview: "Frozen request",
-      hostId: "local",
-      characterCount: 14,
-    }));
+    expect(JSON.stringify(materialized.attachments[0])).toBe(
+      JSON.stringify({
+        file: {
+          label: "Pasted text.txt",
+          path: "/attachments/existing/pasted-text.txt",
+          fsPath: "/attachments/existing/pasted-text.txt",
+        },
+        preview: "Frozen request",
+        hostId: "local",
+        characterCount: 14,
+      }),
+    );
   });
 
   test("rolls back every newly-owned pasted source directory when materialization fails", async () => {
@@ -164,8 +178,10 @@ describe("thread goal attachment materialization", () => {
     let errorMessage = "";
 
     try {
-      await new PastedTextAttachmentManager({ attachmentsRoot })
-        .materializeSources([{ text: "Created before failure" }, malformedAttachment]);
+      await new PastedTextAttachmentManager({ attachmentsRoot }).materializeSources([
+        { text: "Created before failure" },
+        malformedAttachment,
+      ]);
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
     }
@@ -187,12 +203,13 @@ describe("thread goal attachment materialization", () => {
   test("keeps short text-only objectives inline without creating an attachment directory", async () => {
     const attachmentsRoot = await createTempGoalRoot();
 
-    const materialized = await new ThreadGoalAttachmentDirectoryManager({ attachmentsRoot })
-      .materializeDraft({
-        objective: "  Ship goal parity  ",
-        pastedTextAttachments: [],
-        imageAttachments: [],
-      });
+    const materialized = await new ThreadGoalAttachmentDirectoryManager({
+      attachmentsRoot,
+    }).materializeDraft({
+      objective: "  Ship goal parity  ",
+      pastedTextAttachments: [],
+      imageAttachments: [],
+    });
 
     expect(materialized.objective).toBe("Ship goal parity");
     expect(materialized.attachmentDirectory).toBe(null);
@@ -203,15 +220,16 @@ describe("thread goal attachment materialization", () => {
     const localImagePath = join(attachmentsRoot, "..", "diagram-source.bin");
     await writeFile(localImagePath, Buffer.from("image-bytes", "utf8"));
 
-    const materialized = await new ThreadGoalAttachmentDirectoryManager({ attachmentsRoot })
-      .materializeDraft({
-        objective: "Use these references",
-        pastedTextAttachments: [{ text: "Pasted requirements" }],
-        imageAttachments: [
-          { src: `file://${encodeURIComponent(localImagePath)}`, filename: "diagram.PNG" },
-          { src: "https://example.com/remote.png", filename: "remote.png" },
-        ],
-      });
+    const materialized = await new ThreadGoalAttachmentDirectoryManager({
+      attachmentsRoot,
+    }).materializeDraft({
+      objective: "Use these references",
+      pastedTextAttachments: [{ text: "Pasted requirements" }],
+      imageAttachments: [
+        { src: `file://${encodeURIComponent(localImagePath)}`, filename: "diagram.PNG" },
+        { src: "https://example.com/remote.png", filename: "remote.png" },
+      ],
+    });
 
     expect(materialized.attachmentDirectory !== null).toBe(true);
     const directory = materialized.attachmentDirectory ?? "";
@@ -221,11 +239,21 @@ describe("thread goal attachment materialization", () => {
     expect(pastedText).toBe("Pasted requirements");
     expect(imageText).toBe("image-bytes");
     expect(Boolean(materialized.objective.includes("Referenced pasted text files:"))).toBe(true);
-    expect(Boolean(materialized.objective.includes(`- pasted text file: ${join(directory, "pasted-text-1.txt")}. Read this file before continuing.`))).toBe(true);
+    expect(
+      Boolean(
+        materialized.objective.includes(
+          `- pasted text file: ${join(directory, "pasted-text-1.txt")}. Read this file before continuing.`,
+        ),
+      ),
+    ).toBe(true);
     expect(Boolean(materialized.objective.includes("Referenced image files:"))).toBe(true);
-    expect(Boolean(materialized.objective.includes(`- [Image #1]: ${join(directory, "image-1.png")}`))).toBe(true);
+    expect(
+      Boolean(materialized.objective.includes(`- [Image #1]: ${join(directory, "image-1.png")}`)),
+    ).toBe(true);
     expect(Boolean(materialized.objective.includes("Referenced image URLs:"))).toBe(true);
-    expect(Boolean(materialized.objective.includes("- [Image #2]: https://example.com/remote.png"))).toBe(true);
+    expect(
+      Boolean(materialized.objective.includes("- [Image #2]: https://example.com/remote.png")),
+    ).toBe(true);
   });
 
   test("copies file-backed pasted source bytes into the materialized goal directory", async () => {
@@ -233,10 +261,12 @@ describe("thread goal attachment materialization", () => {
     const sourcePath = join(attachmentsRoot, "..", "goal-pasted-source.txt");
     await writeFile(sourcePath, "Requirements from the frozen source", "utf8");
 
-    const materialized = await new ThreadGoalAttachmentDirectoryManager({ attachmentsRoot })
-      .materializeDraft({
-        objective: "Use the source",
-        pastedTextAttachments: [{
+    const materialized = await new ThreadGoalAttachmentDirectoryManager({
+      attachmentsRoot,
+    }).materializeDraft({
+      objective: "Use the source",
+      pastedTextAttachments: [
+        {
           text: "Stale in-memory text must not win",
           preview: "Requirements from the frozen source",
           file: {
@@ -244,9 +274,10 @@ describe("thread goal attachment materialization", () => {
             path: sourcePath,
             fsPath: sourcePath,
           },
-        }],
-        imageAttachments: [],
-      });
+        },
+      ],
+      imageAttachments: [],
+    });
 
     const directory = materialized.attachmentDirectory ?? "";
     expect(await readFile(join(directory, "pasted-text-1.txt"), "utf8")).toBe(
@@ -291,41 +322,51 @@ describe("thread goal attachment materialization", () => {
     expect(startedReads.join(",")).toBe("/first.txt,/second.txt");
     releaseReads();
     const materialized = await materialization;
-    expect(await readFile(join(materialized.attachmentDirectory ?? "", "pasted-text-1.txt"), "utf8"))
-      .toBe("first");
-    expect(await readFile(join(materialized.attachmentDirectory ?? "", "pasted-text-2.txt"), "utf8"))
-      .toBe("second");
+    expect(
+      await readFile(join(materialized.attachmentDirectory ?? "", "pasted-text-1.txt"), "utf8"),
+    ).toBe("first");
+    expect(
+      await readFile(join(materialized.attachmentDirectory ?? "", "pasted-text-2.txt"), "utf8"),
+    ).toBe("second");
   });
 
   test("stores long objectives in goal-objective.md and loads them for editing", async () => {
     const attachmentsRoot = await createTempGoalRoot();
     const longObjective = "x".repeat(4001);
 
-    const materialized = await new ThreadGoalAttachmentDirectoryManager({ attachmentsRoot })
-      .materializeDraft({
-        objective: longObjective,
-        pastedTextAttachments: [],
-        imageAttachments: [],
-      });
+    const materialized = await new ThreadGoalAttachmentDirectoryManager({
+      attachmentsRoot,
+    }).materializeDraft({
+      objective: longObjective,
+      pastedTextAttachments: [],
+      imageAttachments: [],
+    });
 
     const objectiveFilePath = parseThreadGoalObjectiveFileReference(materialized.objective);
     expect(objectiveFilePath !== null).toBe(true);
     expect(Boolean(objectiveFilePath?.endsWith("goal-objective.md"))).toBe(true);
     expect(await readFile(objectiveFilePath ?? "", "utf8")).toBe(longObjective);
-    expect(await readThreadGoalEditableObjective({ attachmentsRoot, objective: materialized.objective })).toBe(longObjective);
-    expect(await readThreadGoalEditableObjective({
-      attachmentsRoot,
-      objective: "Read the Codex goal objective file at /tmp/not-owned/goal-objective.md before continuing.",
-    })).toBe("Read the Codex goal objective file at /tmp/not-owned/goal-objective.md before continuing.");
+    expect(
+      await readThreadGoalEditableObjective({ attachmentsRoot, objective: materialized.objective }),
+    ).toBe(longObjective);
+    expect(
+      await readThreadGoalEditableObjective({
+        attachmentsRoot,
+        objective:
+          "Read the Codex goal objective file at /tmp/not-owned/goal-objective.md before continuing.",
+      }),
+    ).toBe(
+      "Read the Codex goal objective file at /tmp/not-owned/goal-objective.md before continuing.",
+    );
   });
 
   test("removes owned materialized directories", async () => {
     const attachmentsRoot = await createTempGoalRoot();
     const manager = new ThreadGoalAttachmentDirectoryManager({ attachmentsRoot });
     const materialized = await manager.materializeDraft({
-        objective: "",
-        pastedTextAttachments: [{ text: "Temporary" }],
-        imageAttachments: [],
+      objective: "",
+      pastedTextAttachments: [{ text: "Temporary" }],
+      imageAttachments: [],
     });
     const directory = materialized.attachmentDirectory ?? "";
 
@@ -336,9 +377,7 @@ describe("thread goal attachment materialization", () => {
 
     let rejectedOutsideRoot = false;
     try {
-      await manager.removeDirectory(
-        "/tmp/attachments/550e8400-e29b-41d4-a716-446655440000",
-      );
+      await manager.removeDirectory("/tmp/attachments/550e8400-e29b-41d4-a716-446655440000");
     } catch {
       rejectedOutsideRoot = true;
     }
@@ -366,9 +405,7 @@ describe("managed pasted text attachment lifecycle", () => {
     const registry = await readPastedTextAttachmentRegistry(attachmentsRoot);
     expect(JSON.stringify(registry.attachmentPaths)).toBe(JSON.stringify([attachment.file.path]));
     expect(JSON.stringify(registry.pendingRemovalPaths)).toBe(JSON.stringify([]));
-    expect(registry.textExcerptsByPath[attachment.file.path]).toBe(
-      rawText.trim().slice(0, 2000),
-    );
+    expect(registry.textExcerptsByPath[attachment.file.path]).toBe(rawText.trim().slice(0, 2000));
 
     const reloaded = new PastedTextAttachmentManager({ attachmentsRoot });
     expect(JSON.stringify(await reloaded.getTextExcerpts([attachment.file]))).toBe(
@@ -450,8 +487,10 @@ describe("managed pasted text attachment lifecycle", () => {
     await manager.remove(unmanagedPath);
 
     expect(await readFile(unmanagedPath, "utf8")).toBe("unmanaged");
-    expect((await stat(join(attachmentsRoot, "pasted-text-attachments.json")).catch(() => null)) === null)
-      .toBe(true);
+    expect(
+      (await stat(join(attachmentsRoot, "pasted-text-attachments.json")).catch(() => null)) ===
+        null,
+    ).toBe(true);
   });
 
   test("reports only sources created by the current freeze for allocation rollback", async () => {
@@ -472,8 +511,9 @@ describe("managed pasted text attachment lifecycle", () => {
 
     await Promise.allSettled(frozen.createdAttachmentPaths.map((path) => manager.remove(path)));
     expect(await readFile(composerOwned.file.path, "utf8")).toBe("already owned by composer");
-    expect((await stat(frozen.attachments[1]?.file.path ?? "").catch(() => null)) === null)
-      .toBe(true);
+    expect((await stat(frozen.attachments[1]?.file.path ?? "").catch(() => null)) === null).toBe(
+      true,
+    );
   });
 
   test("filters outside and malformed managed paths while rejecting malformed registry data", async () => {
@@ -507,11 +547,15 @@ describe("managed pasted text attachment lifecycle", () => {
     );
 
     const manager = new PastedTextAttachmentManager({ attachmentsRoot });
-    expect(JSON.stringify(await manager.getTextExcerpts([
-      { label: "valid", path: validPath, fsPath: validPath },
-      { label: "outside", path: outsidePath, fsPath: outsidePath },
-      { label: "wrong", path: wrongVersionPath, fsPath: wrongVersionPath },
-    ]))).toBe(JSON.stringify(["valid excerpt"]));
+    expect(
+      JSON.stringify(
+        await manager.getTextExcerpts([
+          { label: "valid", path: validPath, fsPath: validPath },
+          { label: "outside", path: outsidePath, fsPath: outsidePath },
+          { label: "wrong", path: wrongVersionPath, fsPath: wrongVersionPath },
+        ]),
+      ),
+    ).toBe(JSON.stringify(["valid excerpt"]));
     await manager.remove(outsidePath);
     expect(await readFile(outsidePath, "utf8")).toBe("outside");
 
@@ -524,8 +568,9 @@ describe("managed pasted text attachment lifecycle", () => {
     );
     let malformedError = "";
     try {
-      await new PastedTextAttachmentManager({ attachmentsRoot: malformedRoot })
-        .getTextExcerpts([{ label: "x", path: "x", fsPath: "x" }]);
+      await new PastedTextAttachmentManager({ attachmentsRoot: malformedRoot }).getTextExcerpts([
+        { label: "x", path: "x", fsPath: "x" },
+      ]);
     } catch (error) {
       malformedError = error instanceof Error ? error.message : String(error);
     }
@@ -569,7 +614,10 @@ describe("managed pasted text attachment lifecycle", () => {
         async writeFile(path, data) {
           if (basename(path) === "pasted-text-attachments.json") {
             activeRegistryWrites += 1;
-            maximumActiveRegistryWrites = Math.max(maximumActiveRegistryWrites, activeRegistryWrites);
+            maximumActiveRegistryWrites = Math.max(
+              maximumActiveRegistryWrites,
+              activeRegistryWrites,
+            );
             await Promise.resolve();
             await writeFile(path, data);
             activeRegistryWrites -= 1;
@@ -656,8 +704,9 @@ describe("owned thread goal attachment directories", () => {
     expect(await readFile(written.path, "utf8")).toBe("goal bytes");
     let unknownError = "";
     try {
-      await new ThreadGoalAttachmentDirectoryManager({ attachmentsRoot })
-        .removeDirectory(directory.path);
+      await new ThreadGoalAttachmentDirectoryManager({ attachmentsRoot }).removeDirectory(
+        directory.path,
+      );
     } catch (error) {
       unknownError = error instanceof Error ? error.message : String(error);
     }
@@ -707,16 +756,19 @@ describe("owned thread goal attachment directories", () => {
     const materialized = await manager.materializeDraft({
       objective: "Use image",
       pastedTextAttachments: [],
-      imageAttachments: [{
-        src: `data:image/png;base64,${Buffer.from("image bytes", "utf8").toString("base64")}`,
-        filename: "image.PNG",
-      }],
+      imageAttachments: [
+        {
+          src: `data:image/png;base64,${Buffer.from("image bytes", "utf8").toString("base64")}`,
+          filename: "image.PNG",
+        },
+      ],
     });
     const directoryPath = materialized.attachmentDirectory ?? "";
 
     expect(await readFile(join(directoryPath, "image-1.png"), "utf8")).toBe("image bytes");
-    expect(materialized.objective.includes(`- [Image #1]: ${join(directoryPath, "image-1.png")}`))
-      .toBe(true);
+    expect(
+      materialized.objective.includes(`- [Image #1]: ${join(directoryPath, "image-1.png")}`),
+    ).toBe(true);
     await manager.removeMaterializedDraft(materialized);
     expect((await stat(directoryPath).catch(() => null)) === null).toBe(true);
   });
@@ -740,8 +792,9 @@ describe("owned thread goal attachment directories", () => {
     });
 
     expect(readPaths.join(",")).toBe("DATA:image/png;base64,aW1hZ2U=");
-    expect(await readFile(join(uppercase.attachmentDirectory ?? "", "image-1.png"), "utf8"))
-      .toBe("uppercase data path");
+    expect(await readFile(join(uppercase.attachmentDirectory ?? "", "image-1.png"), "utf8")).toBe(
+      "uppercase data path",
+    );
 
     let malformedError = "";
     try {

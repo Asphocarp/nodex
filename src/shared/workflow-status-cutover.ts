@@ -1,7 +1,4 @@
-import {
-  isWorkflowStatus,
-  type WorkflowStatus,
-} from "./workflow-status";
+import { isWorkflowStatus, type WorkflowStatus } from "./workflow-status";
 
 export const LEGACY_WORKFLOW_STATUS_ORDER = [
   "draft",
@@ -11,12 +8,9 @@ export const LEGACY_WORKFLOW_STATUS_ORDER = [
   "done",
 ] as const;
 
-export type LegacyWorkflowStatus =
-  (typeof LEGACY_WORKFLOW_STATUS_ORDER)[number];
+export type LegacyWorkflowStatus = (typeof LEGACY_WORKFLOW_STATUS_ORDER)[number];
 
-export const LEGACY_WORKFLOW_STATUS_LABELS: Readonly<
-  Record<LegacyWorkflowStatus, string>
-> = {
+export const LEGACY_WORKFLOW_STATUS_LABELS: Readonly<Record<LegacyWorkflowStatus, string>> = {
   draft: "Draft",
   backlog: "Backlog",
   in_progress: "In Progress",
@@ -24,15 +18,12 @@ export const LEGACY_WORKFLOW_STATUS_LABELS: Readonly<
   done: "Done",
 };
 
-export const LEGACY_WORKFLOW_STATUS_COLUMNS =
-  LEGACY_WORKFLOW_STATUS_ORDER.map((status) => ({
-    id: status,
-    name: LEGACY_WORKFLOW_STATUS_LABELS[status],
-  }));
+export const LEGACY_WORKFLOW_STATUS_COLUMNS = LEGACY_WORKFLOW_STATUS_ORDER.map((status) => ({
+  id: status,
+  name: LEGACY_WORKFLOW_STATUS_LABELS[status],
+}));
 
-export const WORKFLOW_STATUS_CUTOVER_MAP: Readonly<
-  Record<LegacyWorkflowStatus, WorkflowStatus>
-> = {
+export const WORKFLOW_STATUS_CUTOVER_MAP: Readonly<Record<LegacyWorkflowStatus, WorkflowStatus>> = {
   draft: "triage",
   backlog: "plan",
   in_progress: "build",
@@ -40,16 +31,14 @@ export const WORKFLOW_STATUS_CUTOVER_MAP: Readonly<
   done: "ship",
 };
 
-export function isLegacyWorkflowStatus(
-  value: unknown,
-): value is LegacyWorkflowStatus {
-  return typeof value === "string"
-    && LEGACY_WORKFLOW_STATUS_ORDER.includes(value as LegacyWorkflowStatus);
+export function isLegacyWorkflowStatus(value: unknown): value is LegacyWorkflowStatus {
+  return (
+    typeof value === "string" &&
+    LEGACY_WORKFLOW_STATUS_ORDER.includes(value as LegacyWorkflowStatus)
+  );
 }
 
-export function upgradeLegacyWorkflowStatus(
-  value: unknown,
-): WorkflowStatus | null {
+export function upgradeLegacyWorkflowStatus(value: unknown): WorkflowStatus | null {
   if (isWorkflowStatus(value)) return value;
   if (!isLegacyWorkflowStatus(value)) return null;
   return WORKFLOW_STATUS_CUTOVER_MAP[value];

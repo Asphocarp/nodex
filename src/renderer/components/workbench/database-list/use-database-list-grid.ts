@@ -23,8 +23,7 @@ const createDatabaseListIdentifierMeasurer = (
 
   return (value) => {
     const glyphWidth = context.measureText(value).width;
-    const trackingWidth = Math.max(0, value.length - 1)
-      * DATABASE_LIST_IDENTIFIER_LETTER_SPACING;
+    const trackingWidth = Math.max(0, value.length - 1) * DATABASE_LIST_IDENTIFIER_LETTER_SPACING;
     const width = glyphWidth + trackingWidth;
     return Number.isFinite(width) ? width : null;
   };
@@ -42,23 +41,26 @@ export const useDatabaseListGrid = (
 } => {
   const { identityFields, inlineFields, trailingFields } = partitionDatabaseListFields(fields);
   const identifierVisible = identityFields.length > 0;
-  const fontFamily = typeof document === "undefined"
-    ? "sans-serif"
-    : getComputedStyle(document.body).fontFamily || "sans-serif";
+  const fontFamily =
+    typeof document === "undefined"
+      ? "sans-serif"
+      : getComputedStyle(document.body).fontFamily || "sans-serif";
   const identifierMinWidth = useMemo(() => {
     if (!identifierVisible) return null;
     const measureText = createDatabaseListIdentifierMeasurer(fontFamily);
-    return measureText
-      ? databaseListIdentifierMinWidth(identifierSamples, measureText)
-      : null;
+    return measureText ? databaseListIdentifierMinWidth(identifierSamples, measureText) : null;
   }, [fontFamily, identifierSamples, identifierVisible]);
   return {
     identityFields,
     inlineFields,
     trailingFields,
-    gridTemplateColumns: databaseListGridTemplate(trailingFields, {
-      ...coreColumns,
-      identifier: identifierVisible,
-    }, identifierMinWidth),
+    gridTemplateColumns: databaseListGridTemplate(
+      trailingFields,
+      {
+        ...coreColumns,
+        identifier: identifierVisible,
+      },
+      identifierMinWidth,
+    ),
   };
 };

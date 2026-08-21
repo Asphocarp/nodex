@@ -1,6 +1,5 @@
 export const GENERATED_IMAGE_VIEW_TRANSITION_DURATION_MS = 450;
-export const GENERATED_IMAGE_VIEW_TRANSITION_EASING =
-  "cubic-bezier(0.22, 1, 0.36, 1)";
+export const GENERATED_IMAGE_VIEW_TRANSITION_EASING = "cubic-bezier(0.22, 1, 0.36, 1)";
 
 export interface GeneratedImageTransitionRect {
   readonly height: number;
@@ -25,12 +24,14 @@ function round4(value: number): number {
 export function isUsableGeneratedImageTransitionRect(
   rect: GeneratedImageTransitionRect | null | undefined,
 ): rect is GeneratedImageTransitionRect {
-  return rect !== null
-    && rect !== undefined
-    && Number.isFinite(rect.width)
-    && Number.isFinite(rect.height)
-    && rect.width > 0
-    && rect.height > 0;
+  return (
+    rect !== null &&
+    rect !== undefined &&
+    Number.isFinite(rect.width) &&
+    Number.isFinite(rect.height) &&
+    rect.width > 0 &&
+    rect.height > 0
+  );
 }
 
 /**
@@ -45,9 +46,7 @@ export function createGeneratedImageViewTransitionPlan(input: {
   readonly enteringCanvas: boolean;
   readonly windowZoom: number;
 }): GeneratedImageViewTransitionPlan {
-  const canvasZoom = input.enteringCanvas
-    ? normalizeScale(input.canvasZoomPercent / 100)
-    : 1;
+  const canvasZoom = input.enteringCanvas ? normalizeScale(input.canvasZoomPercent / 100) : 1;
   const translationScale = normalizeScale(input.windowZoom) * canvasZoom;
   const translateX = round4((input.before.left - input.after.left) / translationScale);
   const translateY = round4((input.before.top - input.after.top) / translationScale);
@@ -72,20 +71,16 @@ export function createGeneratedImageViewTransitionPlan(input: {
 
 export function readImageEditorWindowZoom(element: Element | null): number {
   if (!element || typeof window === "undefined") return 1;
-  const rawValue = window.getComputedStyle(element)
-    .getPropertyValue("--codex-window-zoom");
+  const rawValue = window.getComputedStyle(element).getPropertyValue("--codex-window-zoom");
   const zoom = Number.parseFloat(rawValue);
   return normalizeScale(zoom);
 }
 
-export function scrollGeneratedImageTransitionTargetIntoView(
-  element: HTMLElement,
-): void {
-  const scroller = element.closest<HTMLElement>(
-    "[data-generated-image-playground-scroll]",
-  );
-  const clippedRight = scroller !== null
-    && element.getBoundingClientRect().right > scroller.getBoundingClientRect().right;
+export function scrollGeneratedImageTransitionTargetIntoView(element: HTMLElement): void {
+  const scroller = element.closest<HTMLElement>("[data-generated-image-playground-scroll]");
+  const clippedRight =
+    scroller !== null &&
+    element.getBoundingClientRect().right > scroller.getBoundingClientRect().right;
   if (typeof element.scrollIntoView !== "function") return;
   element.scrollIntoView({
     block: "start",

@@ -9,9 +9,9 @@ describe("Page reference derived records", () => {
         { id: "reference-1", type: "pageRef", props: {}, children: [] },
       ],
       [
-        'See <mention-page url="nodex://pages/page-1" /> and '
-          + '<mention-page url="nodex://pages/page-1" /> or '
-          + '[the Page](nodex://pages/page-1)',
+        'See <mention-page url="nodex://pages/page-1" /> and ' +
+          '<mention-page url="nodex://pages/page-1" /> or ' +
+          "[the Page](nodex://pages/page-1)",
         '<page-ref url="nodex://pages/page-1" />',
       ].join("\n"),
     );
@@ -47,7 +47,7 @@ describe("Page reference derived records", () => {
         { id: "paragraph-1", type: "paragraph", props: {}, children: [] },
         { id: "page-1", type: "page", props: {}, children: [] },
       ],
-      "[docs](https://example.com)\n<page uuid=\"page-1\" />",
+      '[docs](https://example.com)\n<page uuid="page-1" />',
     );
 
     expect(records.references).toEqual([]);

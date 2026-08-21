@@ -1,7 +1,4 @@
-const requireBackgroundProcessCoordinate = (
-  value: string,
-  fieldName: string,
-): string => {
+const requireBackgroundProcessCoordinate = (value: string, fieldName: string): string => {
   const normalized = value.trim();
   if (normalized) return normalized;
   throw new Error(`${fieldName} is required`);

@@ -7,10 +7,7 @@ import {
 } from "@/components/ui/dropdown";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  PageStageBreadcrumb,
-  type PageStageBreadcrumbProps,
-} from "./breadcrumb";
+import { PageStageBreadcrumb, type PageStageBreadcrumbProps } from "./breadcrumb";
 
 interface PageStageToolbarProps {
   saving: boolean;
@@ -28,8 +25,7 @@ interface PageStageToolbarProps {
   onNavigateBack?: () => void;
 }
 
-const pageStageToolbarButtonChrome =
-  "inline-flex size-7 items-center justify-center rounded-md";
+const pageStageToolbarButtonChrome = "inline-flex size-7 items-center justify-center rounded-md";
 
 const pageStageToolbarButtonHover =
   "hover:bg-[color-mix(in_srgb,var(--foreground)_5%,transparent)]";
@@ -69,22 +65,19 @@ export function PageStageToolbar({
         </NodexTooltip>
       ) : null}
       {breadcrumb ? (
-        <PageStageBreadcrumb
-          {...breadcrumb}
-          disabled={disabled}
-        />
+        <PageStageBreadcrumb {...breadcrumb} disabled={disabled} />
       ) : (
         <div className="min-w-0 flex-1" />
       )}
 
       <div className="flex shrink-0 items-center gap-1">
-        {saving && (
-          <span className="mr-2 text-xs text-(--foreground-tertiary)">
-            Saving...
-          </span>
-        )}
+        {saving && <span className="mr-2 text-xs text-(--foreground-tertiary)">Saving...</span>}
 
-        <NodexTooltip tooltipContent={showRawContent ? "Show editor" : "Show raw-format content"} side="bottom" delayDuration={0}>
+        <NodexTooltip
+          tooltipContent={showRawContent ? "Show editor" : "Show raw-format content"}
+          side="bottom"
+          delayDuration={0}
+        >
           <button
             type="button"
             onClick={onToggleShowRawContent}
@@ -98,7 +91,8 @@ export function PageStageToolbar({
                 : "text-(--foreground-tertiary)",
               pageStageToolbarButtonHover,
               "hover:text-(--foreground-secondary)",
-              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
+              disabled &&
+                "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
             )}
           >
             <CodeBracketsIcon className="icon-xs shrink-0" />
@@ -119,7 +113,8 @@ export function PageStageToolbar({
                 : "text-(--foreground-tertiary)",
               pageStageToolbarButtonHover,
               "hover:text-(--foreground-secondary)",
-              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
+              disabled &&
+                "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
             )}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -148,7 +143,8 @@ export function PageStageToolbar({
                 : "text-(--foreground-tertiary)",
               pageStageToolbarButtonHover,
               "hover:text-(--foreground-secondary)",
-              disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
+              disabled &&
+                "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
             )}
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -168,7 +164,7 @@ export function PageStageToolbar({
           sideOffset={6}
           contentWidth="xs"
           disabled={disabled}
-          triggerButton={(
+          triggerButton={
             <button
               type="button"
               aria-label="Page actions"
@@ -180,12 +176,13 @@ export function PageStageToolbar({
                 "text-(--foreground-tertiary)",
                 pageStageToolbarButtonHover,
                 "hover:text-(--foreground-secondary)",
-                disabled && "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
+                disabled &&
+                  "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-(--foreground-tertiary)",
               )}
             >
               <ProjectActionsIcon className="icon-sm shrink-0" />
             </button>
-          )}
+          }
         >
           <NodexDropdownItem
             leftSlot={<Link2 className="icon-2xs shrink-0" />}

@@ -21,9 +21,15 @@ describe("composer dictation transport", () => {
     });
 
     const bodyText = new TextDecoder().decode(payload);
-    expect(Boolean(bodyText.includes('Content-Disposition: form-data; name="file"; filename="codex.webm"'))).toBe(true);
+    expect(
+      Boolean(
+        bodyText.includes('Content-Disposition: form-data; name="file"; filename="codex.webm"'),
+      ),
+    ).toBe(true);
     expect(Boolean(bodyText.includes("Content-Type: audio/webm"))).toBe(true);
-    expect(Boolean(bodyText.includes('Content-Disposition: form-data; name="language"'))).toBe(true);
+    expect(Boolean(bodyText.includes('Content-Disposition: form-data; name="language"'))).toBe(
+      true,
+    );
     expect(Boolean(bodyText.includes("audio-bytes"))).toBe(true);
   });
 
@@ -32,15 +38,12 @@ describe("composer dictation transport", () => {
       contentType: string;
       base64Payload: string;
     } | null = null;
-    const text = await transcribeDictationBlob(
-      new Blob(["audio-bytes"], { type: "audio/webm" }),
-      {
-        transcribe: async (input) => {
-          capturedInput = input;
-          return "transcribed text";
-        },
+    const text = await transcribeDictationBlob(new Blob(["audio-bytes"], { type: "audio/webm" }), {
+      transcribe: async (input) => {
+        capturedInput = input;
+        return "transcribed text";
       },
-    );
+    });
 
     const input = capturedInput as unknown as {
       contentType: string;
@@ -51,7 +54,11 @@ describe("composer dictation transport", () => {
     expect(input.base64Payload.length > 0).toBe(true);
 
     const decoded = atob(input.base64Payload);
-    expect(Boolean(decoded.includes('Content-Disposition: form-data; name="file"; filename="codex.webm"'))).toBe(true);
+    expect(
+      Boolean(
+        decoded.includes('Content-Disposition: form-data; name="file"; filename="codex.webm"'),
+      ),
+    ).toBe(true);
   });
 
   test("encodes bytes using the same chunked base64 strategy", () => {

@@ -8,9 +8,7 @@ export function normalizeOrderedListStart(value: unknown): number | undefined {
   return value;
 }
 
-export function resolveOrderedListStarts(
-  blocks: NfmBlock[],
-): Array<number | undefined> {
+export function resolveOrderedListStarts(blocks: NfmBlock[]): Array<number | undefined> {
   const starts: Array<number | undefined> = [];
   let nextStart = 1;
 

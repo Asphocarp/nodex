@@ -24,11 +24,18 @@ export function resolveSidebarProjectGroupCollapseAction({
   expandedGroupIds: ReadonlySet<string>;
   previouslyExpandedGroupIds: readonly string[];
 }): SidebarProjectGroupCollapseAction | null {
-  const expandedVisibleGroupIds = listExpandedVisibleProjectGroupIds(visibleGroupIds, expandedGroupIds);
+  const expandedVisibleGroupIds = listExpandedVisibleProjectGroupIds(
+    visibleGroupIds,
+    expandedGroupIds,
+  );
   if (expandedVisibleGroupIds.length > 1) return "collapse-all";
 
-  const reopenableGroupIds = listReopenableVisibleProjectGroupIds(visibleGroupIds, previouslyExpandedGroupIds);
-  if (expandedVisibleGroupIds.length === 0 && reopenableGroupIds.length > 0) return "reopen-previous";
+  const reopenableGroupIds = listReopenableVisibleProjectGroupIds(
+    visibleGroupIds,
+    previouslyExpandedGroupIds,
+  );
+  if (expandedVisibleGroupIds.length === 0 && reopenableGroupIds.length > 0)
+    return "reopen-previous";
 
   return null;
 }

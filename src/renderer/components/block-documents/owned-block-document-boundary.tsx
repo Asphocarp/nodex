@@ -52,10 +52,7 @@ export function OwnedBlockDocumentBoundary({
   children,
 }: OwnedBlockDocumentBoundaryProps) {
   const queryClient = useQueryClient();
-  const model = useOwnedBlockDocument(
-    { accessContext, ownerBlockId },
-    dependencies,
-  );
+  const model = useOwnedBlockDocument({ accessContext, ownerBlockId }, dependencies);
 
   const reload = async (): Promise<void> => {
     await queryClient.resetQueries({
@@ -75,10 +72,7 @@ export function RegisteredOwnedBlockDocumentBoundary({
   children,
 }: RegisteredOwnedBlockDocumentBoundaryProps) {
   const queryClient = useQueryClient();
-  const model = useRegisteredOwnedBlockDocument(
-    { accessContext, ownerBlockId },
-    dependencies,
-  );
+  const model = useRegisteredOwnedBlockDocument({ accessContext, ownerBlockId }, dependencies);
 
   const reload = async (): Promise<void> => {
     await queryClient.resetQueries({

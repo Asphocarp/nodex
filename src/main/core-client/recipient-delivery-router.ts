@@ -68,21 +68,16 @@ const HASH_PATTERN = /^[a-f0-9]{64}$/u;
 const RESET_RETRY_WINDOW_MS = 10 * 60_000;
 const RESET_RETRY_WINDOW_LIMIT = 20;
 
-const digest = (value: unknown): string => createHash("sha256")
-  .update(JSON.stringify(value))
-  .digest("hex");
+const digest = (value: unknown): string =>
+  createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
-const identityKey = (
-  value: DeliveryAddress | DeliveryAuthorizationScope,
-): string => JSON.stringify(value);
+const identityKey = (value: DeliveryAddress | DeliveryAuthorizationScope): string =>
+  JSON.stringify(value);
 
 const stateKey = (senderId: number, address: DeliveryAddress): string =>
   `${senderId}:${identityKey(address)}`;
 
-const floorMax = (
-  left: DeliveryFloor | null,
-  right: DeliveryFloor,
-): DeliveryFloor => {
+const floorMax = (left: DeliveryFloor | null, right: DeliveryFloor): DeliveryFloor => {
   if (!left || left.storeEpoch !== right.storeEpoch) return right;
   return left.commitSeq >= right.commitSeq ? left : right;
 };
@@ -95,28 +90,28 @@ const packetFloor = (packet: AuthorizedDeliveryPacket): DeliveryFloor => ({
 const packetDeliveryId = (
   lease: AuthorizedRecipientLease,
   packet: AuthorizedDeliveryPacket,
-): string => digest([
-  "recipient-packet-v2",
-  lease.lease_id,
-  lease.delivery_address,
-  lease.authorization_scope,
-  packet.manifest.identity.store_epoch,
-  packet.manifest.identity.manifest_hash,
-  packet.packet_hash,
-]);
+): string =>
+  digest([
+    "recipient-packet-v2",
+    lease.lease_id,
+    lease.delivery_address,
+    lease.authorization_scope,
+    packet.manifest.identity.store_epoch,
+    packet.manifest.identity.manifest_hash,
+    packet.packet_hash,
+  ]);
 
 const validLease = (lease: AuthorizedRecipientLease): boolean =>
-  HASH_PATTERN.test(lease.lease_id)
-  && identityKey(lease.delivery_address)
-    === identityKey(lease.authorization_scope);
+  HASH_PATTERN.test(lease.lease_id) &&
+  identityKey(lease.delivery_address) === identityKey(lease.authorization_scope);
 
 const validPacketForLease = (
   lease: AuthorizedRecipientLease,
   packet: AuthorizedDeliveryPacket,
-): boolean => packet.packet_version === 4
-  && identityKey(packet.delivery_address) === identityKey(lease.delivery_address)
-  && identityKey(packet.authorization_scope)
-    === identityKey(lease.authorization_scope);
+): boolean =>
+  packet.packet_version === 4 &&
+  identityKey(packet.delivery_address) === identityKey(lease.delivery_address) &&
+  identityKey(packet.authorization_scope) === identityKey(lease.authorization_scope);
 
 /**
  * Owns volatile renderer admission for one sender/address pair. Every failure
@@ -137,15 +132,9 @@ export class RecipientDeliveryRouter {
   constructor(input: RecipientDeliveryRouterInput) {
     this.#send = input.send;
     this.#ackTimeoutMs = Math.max(50, Math.floor(input.ackTimeoutMs ?? 1_000));
-    this.#maxPendingPerRecipient = Math.max(
-      1,
-      Math.floor(input.maxPendingPerRecipient ?? 128),
-    );
+    this.#maxPendingPerRecipient = Math.max(1, Math.floor(input.maxPendingPerRecipient ?? 128));
     this.#retryBaseMs = Math.max(1, Math.floor(input.retryBaseMs ?? 100));
-    this.#retryMaxMs = Math.max(
-      this.#retryBaseMs,
-      Math.floor(input.retryMaxMs ?? 60_000),
-    );
+    this.#retryMaxMs = Math.max(this.#retryBaseMs, Math.floor(input.retryMaxMs ?? 60_000));
     this.#random = input.random ?? Math.random;
   }
 
@@ -154,10 +143,7 @@ export class RecipientDeliveryRouter {
     lease: AuthorizedRecipientLease,
   ): {
     readonly publish: (packet: AuthorizedDeliveryPacket) => FanoutReport;
-    readonly reset: (
-      floor: DeliveryFloor,
-      reason: AddressResetReason,
-    ) => FanoutReport;
+    readonly reset: (floor: DeliveryFloor, reason: AddressResetReason) => FanoutReport;
     readonly release: () => void;
   } {
     if (!validLease(lease)) {
@@ -205,18 +191,15 @@ export class RecipientDeliveryRouter {
     if (!pending.reset) return true;
     const required = state.requiredFloor;
     if (
-      required
-      && required.storeEpoch === pending.floor.storeEpoch
-      && required.commitSeq <= pending.floor.commitSeq
+      required &&
+      required.storeEpoch === pending.floor.storeEpoch &&
+      required.commitSeq <= pending.floor.commitSeq
     ) {
       state.requiredFloor = null;
       state.retryAttempt = 0;
       state.retryWindowStartedAt = Date.now();
       state.retryWindowAttempts = 0;
-      this.#requiredFloors.delete(stateKey(
-        state.sender.id,
-        state.lease.delivery_address,
-      ));
+      this.#requiredFloors.delete(stateKey(state.sender.id, state.lease.delivery_address));
       this.#clearRetry(state);
     }
     if (state.requiredFloor) this.#sendReset(state);
@@ -263,10 +246,7 @@ export class RecipientDeliveryRouter {
     };
   }
 
-  #publish(
-    state: RecipientState,
-    packet: AuthorizedDeliveryPacket,
-  ): FanoutReport {
+  #publish(state: RecipientState, packet: AuthorizedDeliveryPacket): FanoutReport {
     if (state.released) return this.#releasedReport();
     if (!validPacketForLease(state.lease, packet)) {
       this.#fence(state, packetFloor(packet), "integrity_failure");
@@ -297,11 +277,7 @@ export class RecipientDeliveryRouter {
     };
   }
 
-  #reset(
-    state: RecipientState,
-    floor: DeliveryFloor,
-    reason: AddressResetReason,
-  ): FanoutReport {
+  #reset(state: RecipientState, floor: DeliveryFloor, reason: AddressResetReason): FanoutReport {
     if (state.released) return this.#releasedReport();
     this.#fence(state, floor, reason);
     const sent = this.#sendReset(state);
@@ -360,11 +336,7 @@ export class RecipientDeliveryRouter {
     reset: boolean,
   ): boolean {
     if (state.pending.has(envelope.deliveryId)) return true;
-    if (
-      state.released
-      || state.sender.isDestroyed()
-      || state.sender.isLoadingMainFrame?.()
-    ) {
+    if (state.released || state.sender.isDestroyed() || state.sender.isLoadingMainFrame?.()) {
       this.#fence(state, floor, reset ? state.resetReason : "stream_gap");
       return false;
     }
@@ -401,11 +373,7 @@ export class RecipientDeliveryRouter {
     return true;
   }
 
-  #fence(
-    state: RecipientState,
-    floor: DeliveryFloor,
-    reason: AddressResetReason,
-  ): void {
+  #fence(state: RecipientState, floor: DeliveryFloor, reason: AddressResetReason): void {
     state.requiredFloor = floorMax(state.requiredFloor, floor);
     state.resetReason = reason;
     this.#requiredFloors.set(
@@ -432,10 +400,9 @@ export class RecipientDeliveryRouter {
     if (state.released || state.retryTimer || !state.requiredFloor) return;
     const cap = Math.min(
       this.#retryMaxMs,
-      this.#retryBaseMs * (2 ** Math.min(state.retryAttempt, 16)),
+      this.#retryBaseMs * 2 ** Math.min(state.retryAttempt, 16),
     );
-    const delay = requiredDelayMs
-      ?? Math.max(1, Math.floor(cap * this.#random()));
+    const delay = requiredDelayMs ?? Math.max(1, Math.floor(cap * this.#random()));
     if (requiredDelayMs === undefined) state.retryAttempt += 1;
     state.retryTimer = setTimeout(() => {
       state.retryTimer = null;
@@ -482,16 +449,15 @@ export class RecipientDeliveryRouter {
     if (typeof value !== "object" || value === null) return false;
     const candidate = value as Partial<RecipientAdmissionResult>;
     if (
-      candidate.version !== RECIPIENT_DELIVERY_VERSION
-      || typeof candidate.deliveryId !== "string"
-      || !HASH_PATTERN.test(candidate.deliveryId)
-      || (candidate.outcome !== "ack" && candidate.outcome !== "nack")
-    ) return false;
+      candidate.version !== RECIPIENT_DELIVERY_VERSION ||
+      typeof candidate.deliveryId !== "string" ||
+      !HASH_PATTERN.test(candidate.deliveryId) ||
+      (candidate.outcome !== "ack" && candidate.outcome !== "nack")
+    )
+      return false;
     if (candidate.outcome === "ack") return true;
     const reason = "reason" in candidate ? candidate.reason : undefined;
-    return reason === "capacity"
-      || reason === "causal_divergence"
-      || reason === "invalid_message";
+    return reason === "capacity" || reason === "causal_divergence" || reason === "invalid_message";
   }
 
   #releasedReport(): FanoutReport {

@@ -15,7 +15,10 @@ type DictationAuthMethod = CodexDictationStateSnapshot["authMethod"];
 
 export interface CodexDictationServiceDependencies {
   readConfig: () => Promise<ConfigReadResponse>;
-  readAuthStatus: (input: { includeToken: boolean; refreshToken: boolean }) => Promise<GetAuthStatusResponse>;
+  readAuthStatus: (input: {
+    includeToken: boolean;
+    refreshToken: boolean;
+  }) => Promise<GetAuthStatusResponse>;
   requestChatGptDesktop?: (input: ChatGptDesktopRequestInput) => Promise<Response>;
   logger?: Pick<BackendLogger, "warn">;
 }
@@ -31,11 +34,17 @@ export class CodexDictationService {
   private readonly logger: Pick<BackendLogger, "warn">;
 
   constructor(private readonly deps: CodexDictationServiceDependencies) {
-    this.requestChatGptDesktop = deps.requestChatGptDesktop ?? (async (input) => await requestChatGptDesktop({
-      readAuthStatus: deps.readAuthStatus,
-      fetchImpl: fetch,
-      getAppVersion: () => "0.0.0",
-    }, input));
+    this.requestChatGptDesktop =
+      deps.requestChatGptDesktop ??
+      (async (input) =>
+        await requestChatGptDesktop(
+          {
+            readAuthStatus: deps.readAuthStatus,
+            fetchImpl: fetch,
+            getAppVersion: () => "0.0.0",
+          },
+          input,
+        ));
     this.logger = deps.logger ?? logger;
   }
 
@@ -51,10 +60,7 @@ export class CodexDictationService {
     };
   }
 
-  async transcribe(input: {
-    contentType: string;
-    base64Payload: string;
-  }): Promise<string> {
+  async transcribe(input: { contentType: string; base64Payload: string }): Promise<string> {
     const configResponse = await this.deps.readConfig();
     const baseUrl = resolveChatGptBaseUrl(configResponse);
     const response = await this.requestChatGptDesktop({

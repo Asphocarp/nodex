@@ -40,17 +40,15 @@ interface CalendarEventBlockProps {
   onOpen: () => void;
   onDragStartMove?: (event: React.DragEvent<HTMLDivElement>) => void;
   onDragEndMove?: (event: React.DragEvent<HTMLDivElement>) => void;
-  onPointerDownResize: (
-    edge: "start" | "end",
-    event: React.PointerEvent<HTMLDivElement>,
-  ) => void;
+  onPointerDownResize: (edge: "start" | "end", event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void;
   onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void;
   onLostPointerCapture: (event: React.PointerEvent<HTMLDivElement>) => void;
 }
 
-const BADGE = "inline-flex items-center h-[calc(var(--spacing)*3.5)] text-xs px-[calc(var(--spacing)*1)] rounded-sm leading-none shrink-0";
+const BADGE =
+  "inline-flex items-center h-[calc(var(--spacing)*3.5)] text-xs px-[calc(var(--spacing)*1)] rounded-sm leading-none shrink-0";
 const RECURRING_BADGE_BASE = cn(BADGE, "gap-0.5");
 const RECURRING_BADGE = cn(
   RECURRING_BADGE_BASE,
@@ -126,14 +124,8 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
 
   const startOffsetMinutes = (scheduledStart.getTime() - startOfDay.getTime()) / 60000;
   const startMinutes = Math.max(0, Math.min(startOffsetMinutes, 24 * 60 - 1));
-  const durationMinutes = Math.max(
-    (scheduledEnd.getTime() - scheduledStart.getTime()) / 60000,
-    15,
-  );
-  const visibleDurationMinutes = Math.max(
-    15,
-    Math.min(durationMinutes, 24 * 60 - startMinutes),
-  );
+  const durationMinutes = Math.max((scheduledEnd.getTime() - scheduledStart.getTime()) / 60000, 15);
+  const visibleDurationMinutes = Math.max(15, Math.min(durationMinutes, 24 * 60 - startMinutes));
 
   const top = startMinutes * (hourHeight / 60);
   const height = visibleDurationMinutes * (hourHeight / 60);
@@ -144,9 +136,9 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
   const width = `calc(${laneWidth}% - 4px)`;
 
   // Progressive disclosure tiers
-  const isShort = visibleDurationMinutes <= 30;   // tier 1: row layout
-  const isMedium = visibleDurationMinutes <= 60;  // tier 2: title + time + priority
-  const isLarge = visibleDurationMinutes <= 120;  // tier 3: + estimate + tags
+  const isShort = visibleDurationMinutes <= 30; // tier 1: row layout
+  const isMedium = visibleDurationMinutes <= 60; // tier 2: title + time + priority
+  const isLarge = visibleDurationMinutes <= 120; // tier 3: + estimate + tags
 
   const handleResizePointerDown = (
     edge: "start" | "end",
@@ -163,11 +155,18 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
   const priorityLabel = priorityOption?.shortLabel ?? null;
   const isSourceGhost = dragVisual === "source-ghost";
   const isOverlayGhost = dragVisual === "overlay-ghost";
-  const recurringIndicatorVariant = resolveRecurringIndicatorVariant(isRecurring, visibleDurationMinutes);
-  const recurringIndicatorType = resolveRecurringIndicatorType(isRecurring, isSeriesFirstOccurrence);
-  const recurringIndicatorLabel = recurringIndicatorType === "series-start"
-    ? "Recurring series starts here"
-    : "Recurring occurrence";
+  const recurringIndicatorVariant = resolveRecurringIndicatorVariant(
+    isRecurring,
+    visibleDurationMinutes,
+  );
+  const recurringIndicatorType = resolveRecurringIndicatorType(
+    isRecurring,
+    isSeriesFirstOccurrence,
+  );
+  const recurringIndicatorLabel =
+    recurringIndicatorType === "series-start"
+      ? "Recurring series starts here"
+      : "Recurring occurrence";
   const isSeriesStartIndicator = recurringIndicatorType === "series-start";
 
   return (
@@ -200,9 +199,7 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
         "border-l-[calc(var(--spacing)*0.75)]",
         "group text-left outline-none select-none",
         interactive && "cursor-default active:cursor-grabbing",
-        isActive || isInteracting
-          ? "shadow-md ring-2 ring-(--accent-blue)"
-          : undefined,
+        isActive || isInteracting ? "shadow-md ring-2 ring-(--accent-blue)" : undefined,
         interactive && "focus-visible:ring-2 focus-visible:ring-(--accent-blue)",
         muted && "opacity-60",
         isSourceGhost && "opacity-35 saturate-75",
@@ -316,9 +313,7 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
                 {timeRange}
               </span>
               {priorityOption && priorityLabel ? (
-                <span className={cn(BADGE, priorityOption.className)}>
-                  {priorityLabel}
-                </span>
+                <span className={cn(BADGE, priorityOption.className)}>{priorityLabel}</span>
               ) : null}
             </div>
           ) : (
@@ -338,9 +333,7 @@ export const CalendarEventBlock = memo(function CalendarEventBlock({
               {/* Tier 3+: badges row */}
               <div className="mt-1 flex min-w-0 flex-wrap items-center gap-0.75">
                 {priorityOption && priorityLabel ? (
-                  <span className={cn(BADGE, priorityOption.className)}>
-                    {priorityLabel}
-                  </span>
+                  <span className={cn(BADGE, priorityOption.className)}>{priorityLabel}</span>
                 ) : null}
                 {estimate && (
                   <span className={cn(BADGE, estimateStyles[estimate].className)}>

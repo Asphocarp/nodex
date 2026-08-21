@@ -40,6 +40,4 @@ export interface BrowserDownloadActionRequest {
   downloadId: string;
 }
 
-export type BrowserDownloadActionResult =
-  | { ok: true }
-  | { ok: false; message: string };
+export type BrowserDownloadActionResult = { ok: true } | { ok: false; message: string };

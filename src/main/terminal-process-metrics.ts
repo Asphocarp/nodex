@@ -234,26 +234,31 @@ export async function readTerminalProcessMetricsByRootPid(
   }
   if (validRootPids.length === 0) return metricsByRootPid;
 
-  const processTree = platform === "win32"
-    ? await readWindowsProcessTreeEntries()
-    : await readUnixProcessTreeEntries();
+  const processTree =
+    platform === "win32"
+      ? await readWindowsProcessTreeEntries()
+      : await readUnixProcessTreeEntries();
   const descendantPidsByRootPid = new Map<number, number[]>();
   const allDescendantPids = new Set<number>();
 
   for (const rootPid of validRootPids) {
-    const descendantPids = collectDescendantPids(
-      processTree,
-      [{ pid: rootPid, includeRoot: false }],
-    ).sort((left, right) => left - right);
+    const descendantPids = collectDescendantPids(processTree, [
+      { pid: rootPid, includeRoot: false },
+    ]).sort((left, right) => left - right);
     descendantPidsByRootPid.set(rootPid, descendantPids);
     for (const pid of descendantPids) allDescendantPids.add(pid);
   }
 
   if (allDescendantPids.size === 0) return metricsByRootPid;
 
-  const samples = platform === "win32"
-    ? await readWindowsProcessMetricSamples([...allDescendantPids].sort((left, right) => left - right))
-    : await readUnixProcessMetricSamples([...allDescendantPids].sort((left, right) => left - right));
+  const samples =
+    platform === "win32"
+      ? await readWindowsProcessMetricSamples(
+          [...allDescendantPids].sort((left, right) => left - right),
+        )
+      : await readUnixProcessMetricSamples(
+          [...allDescendantPids].sort((left, right) => left - right),
+        );
   const sampleByPid = new Map(samples.map((sample) => [sample.pid, sample]));
 
   for (const [rootPid, descendantPids] of descendantPidsByRootPid) {
@@ -301,7 +306,9 @@ async function readUnixProcessTreeEntries(): Promise<ProcessTreeEntry[]> {
   return parseUnixProcessTreeOutput(treeOutput);
 }
 
-async function readUnixProcessMetricSamples(pids: readonly number[]): Promise<ProcessMetricSample[]> {
+async function readUnixProcessMetricSamples(
+  pids: readonly number[],
+): Promise<ProcessMetricSample[]> {
   if (pids.length === 0) return [];
 
   const chunks = chunk(pids, PROCESS_CHUNK_SIZE);
@@ -310,7 +317,7 @@ async function readUnixProcessMetricSamples(pids: readonly number[]): Promise<Pr
       execUtf8("ps", ["-p", pids.join(","), "-o", "pid=,ppid=,%cpu=,rss=,etime=,command="], {
         timeout: UNIX_TIMEOUT_MS,
         maxBuffer: UNIX_MAX_BUFFER,
-      })
+      }),
     ),
   );
   return outputs.flatMap(parseUnixProcessMetricOutput);
@@ -339,17 +346,23 @@ async function readWindowsProcessTreeEntries(): Promise<ProcessTreeEntry[]> {
   return parseWindowsProcessMetricOutput(treeOutput);
 }
 
-async function readWindowsProcessMetricSamples(pids: readonly number[]): Promise<ProcessMetricSample[]> {
+async function readWindowsProcessMetricSamples(
+  pids: readonly number[],
+): Promise<ProcessMetricSample[]> {
   if (pids.length === 0) return [];
 
   const chunks = chunk(pids, PROCESS_CHUNK_SIZE);
   const outputs = await Promise.all(
     chunks.map((pids) =>
-      execUtf8("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", buildWindowsMetricCommand(pids)], {
-        timeout: WINDOWS_TIMEOUT_MS,
-        maxBuffer: WINDOWS_MAX_BUFFER,
-        windowsHide: true,
-      })
+      execUtf8(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", buildWindowsMetricCommand(pids)],
+        {
+          timeout: WINDOWS_TIMEOUT_MS,
+          maxBuffer: WINDOWS_MAX_BUFFER,
+          windowsHide: true,
+        },
+      ),
     ),
   );
   return outputs.flatMap(parseWindowsProcessMetricOutput);

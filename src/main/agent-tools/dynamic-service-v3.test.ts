@@ -40,10 +40,12 @@ function unavailable() {
 
 function context(
   authorize: NodexAgentDynamicExecutionContext["authorize"],
-  resolveResourceAccess: NodexAgentDynamicExecutionContext["resolveResourceAccess"] =
-    async (intents) => ({
-      kind: "consent_required",
-      requirements: [{
+  resolveResourceAccess: NodexAgentDynamicExecutionContext["resolveResourceAccess"] = async (
+    intents,
+  ) => ({
+    kind: "consent_required",
+    requirements: [
+      {
         intent: intents[0] ?? {
           target: { kind: "library", libraryId: "library-v3" },
           action: "create_child",
@@ -55,24 +57,27 @@ function context(
         },
         reason: "library_consent_required",
         persistable: false,
-      }],
-      inspectionAccess: {
-        kind: "inspection",
-        scope: "call",
-        threadId: "thread-v3",
-        turnId: "turn-v3",
-        callId: "call-v3",
-        rootThreadId: "thread-v3",
-        actorProjectId: "project-v3",
-        libraryId: "library-v3",
-        storeEpoch: "store-v3",
-        grants: [{
+      },
+    ],
+    inspectionAccess: {
+      kind: "inspection",
+      scope: "call",
+      threadId: "thread-v3",
+      turnId: "turn-v3",
+      callId: "call-v3",
+      rootThreadId: "thread-v3",
+      actorProjectId: "project-v3",
+      libraryId: "library-v3",
+      storeEpoch: "store-v3",
+      grants: [
+        {
           root: { kind: "library", libraryId: "library-v3" },
           access: "read_write",
           libraryActions: ["create_child"],
-        }],
-      },
-    }),
+        },
+      ],
+    },
+  }),
 ): NodexAgentDynamicExecutionContext {
   const authority = {
     threadId: "thread-v3",
@@ -102,19 +107,23 @@ describe("NodexAgentV3DynamicService", () => {
   test("authorizes and executes a complete Card batch with a Markdown preview", async () => {
     const input = CreatePagesV3InputSchema.parse({
       destination: { kind: "library" },
-      pages: [{
-        title: "**Launch** plan",
-        markdown: "## Milestones\n\n- [ ] Ship",
-      }],
+      pages: [
+        {
+          title: "**Launch** plan",
+          markdown: "## Milestones\n\n- [ ] Ship",
+        },
+      ],
     });
     const output = CreatePagesV6OutputSchema.parse({
       data: {
-        pages: [{
-          pageId: "page-created",
-          pageKey: null,
-          location: { kind: "library", libraryId: "library-v3" },
-          bodyBlocksCreated: 2,
-        }],
+        pages: [
+          {
+            pageId: "page-created",
+            pageKey: null,
+            location: { kind: "library", libraryId: "library-v3" },
+            bodyBlocksCreated: 2,
+          },
+        ],
         created: 1,
       },
     });
@@ -127,20 +136,22 @@ describe("NodexAgentV3DynamicService", () => {
       storeEpoch: "store-v3",
       input,
       destination: { kind: "library" },
-      pages: [{
-        input: {
-          resource: {
-            kind: "page",
-            title: { kind: "plain", text: "Launch plan" },
-            body: { format: "nfm", content: "## Milestones\n\n- [ ] Ship" },
+      pages: [
+        {
+          input: {
+            resource: {
+              kind: "page",
+              title: { kind: "plain", text: "Launch plan" },
+              body: { format: "nfm", content: "## Milestones\n\n- [ ] Ship" },
+            },
+            destination: { kind: "library" },
           },
-          destination: { kind: "library" },
+          pageId: output.data.pages[0]?.pageId ?? "page-created",
+          bodyBlockIds: ["block-heading", "block-task"],
+          primaryMembershipId: "membership-primary",
+          targetMembershipId: "membership-target",
         },
-        pageId: output.data.pages[0]?.pageId ?? "page-created",
-        bodyBlockIds: ["block-heading", "block-task"],
-        primaryMembershipId: "membership-primary",
-        targetMembershipId: "membership-target",
-      }],
+      ],
     };
     const trace: string[] = [];
     const prepareNodexAgentCreatePages = vi.fn(async (request) => {
@@ -151,17 +162,17 @@ describe("NodexAgentV3DynamicService", () => {
           kind: "prepared" as const,
           command: {
             ...command,
-            ...(request.resourceAccess
-              ? { resourceAccess: request.resourceAccess }
-              : {}),
+            ...(request.resourceAccess ? { resourceAccess: request.resourceAccess } : {}),
           },
           documentHeads: [],
-          previews: [{
-            pageId: "page-created",
-            title: "Launch plan",
-            bodyBlockCount: 2,
-            targetMarkdown: "## Milestones\n\n- [ ] Ship",
-          }],
+          previews: [
+            {
+              pageId: "page-created",
+              title: "Launch plan",
+              bodyBlockCount: 2,
+              targetMarkdown: "## Milestones\n\n- [ ] Ship",
+            },
+          ],
         },
       });
     });
@@ -217,11 +228,17 @@ describe("NodexAgentV3DynamicService", () => {
       recordTaskResourceAccess,
     };
 
-    await expect(service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "create_pages",
-    }, input, executionContext)).resolves.toEqual({ effect: "write", output });
+    await expect(
+      service.registry.execute(
+        {
+          namespace: NODEX_APP_TOOL_NAMESPACE,
+          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+          tool: "create_pages",
+        },
+        input,
+        executionContext,
+      ),
+    ).resolves.toEqual({ effect: "write", output });
     expect(trace).toEqual(["prepare", "authorize", "prepare", "execute"]);
     expect(executeNodexAgentCreatePages).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -230,10 +247,12 @@ describe("NodexAgentV3DynamicService", () => {
       }),
       [],
     );
-    expect(recordTaskResourceAccess).toHaveBeenCalledWith([{
-      root: { kind: "page", pageId: "page-created" },
-      access: "read_write",
-    }]);
+    expect(recordTaskResourceAccess).toHaveBeenCalledWith([
+      {
+        root: { kind: "page", pageId: "page-created" },
+        access: "read_write",
+      },
+    ]);
   });
 
   test("classifies whole-Page replacement as destructive and completes it through the Document kernel", async () => {
@@ -248,32 +267,36 @@ describe("NodexAgentV3DynamicService", () => {
       },
     });
     const mutation = { operationId: "document-operation" };
-    const prepareNodexAgentPageUpdate = vi.fn(async () => envelope({
-      ok: true as const,
-      value: {
-        kind: "prepared" as const,
-        mutation,
-        effects: {
-          createdBlockIds: ["block-new"],
-          localBlockIds: {},
-          copiedBlockIds: {},
-          updatedBlockIds: [],
-          movedBlockIds: [],
-          deletedBlockIds: ["block-old-1", "block-old-2"],
-          deletedOwnerBlockIds: [],
-          titleChanged: false,
+    const prepareNodexAgentPageUpdate = vi.fn(async () =>
+      envelope({
+        ok: true as const,
+        value: {
+          kind: "prepared" as const,
+          mutation,
+          effects: {
+            createdBlockIds: ["block-new"],
+            localBlockIds: {},
+            copiedBlockIds: {},
+            updatedBlockIds: [],
+            movedBlockIds: [],
+            deletedBlockIds: ["block-old-1", "block-old-2"],
+            deletedOwnerBlockIds: [],
+            titleChanged: false,
+          },
+          targetMarkdown: "# New body",
         },
-        targetMarkdown: "# New body",
-      },
-    }));
+      }),
+    );
     const applyDocumentMutation = vi.fn(async () => ({
       ok: true as const,
       value: { operationId: "document-operation" },
     }));
-    const completeNodexAgentPageUpdate = vi.fn(async () => envelope({
-      ok: true as const,
-      output,
-    }));
+    const completeNodexAgentPageUpdate = vi.fn(async () =>
+      envelope({
+        ok: true as const,
+        output,
+      }),
+    );
     const writer = {
       readNodexAgentV3Tool: unavailable(),
       prepareNodexAgentPageUpdate,
@@ -296,11 +319,17 @@ describe("NodexAgentV3DynamicService", () => {
     });
     const executionContext = context(authorize);
 
-    await expect(service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "update_page",
-    }, input, executionContext)).resolves.toEqual({
+    await expect(
+      service.registry.execute(
+        {
+          namespace: NODEX_APP_TOOL_NAMESPACE,
+          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+          tool: "update_page",
+        },
+        input,
+        executionContext,
+      ),
+    ).resolves.toEqual({
       effect: "destructive",
       output,
     });
@@ -310,21 +339,26 @@ describe("NodexAgentV3DynamicService", () => {
       resource: { kind: "page", pageId: "page-update" },
       callId: "call-v3",
     });
-    expect(completeNodexAgentPageUpdate).toHaveBeenCalledWith(expect.objectContaining({
-      tool: "update_page",
-      pageId: "page-update",
-    }));
+    expect(completeNodexAgentPageUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tool: "update_page",
+        pageId: "page-update",
+      }),
+    );
 
     const directAuthorize = vi.fn(async () => "deny" as const);
-    const directContext = context(
-      directAuthorize,
-      async () => ({ kind: "authorized" as const }),
-    );
-    await expect(service.registry.execute({
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_TOOLSET_REVISION,
-      tool: "update_page",
-    }, input, directContext)).resolves.toEqual({
+    const directContext = context(directAuthorize, async () => ({ kind: "authorized" as const }));
+    await expect(
+      service.registry.execute(
+        {
+          namespace: NODEX_APP_TOOL_NAMESPACE,
+          toolsetRevision: NODEX_APP_TOOLSET_REVISION,
+          tool: "update_page",
+        },
+        input,
+        directContext,
+      ),
+    ).resolves.toEqual({
       effect: "destructive",
       output,
     });

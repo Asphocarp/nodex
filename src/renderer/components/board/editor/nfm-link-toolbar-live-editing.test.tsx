@@ -23,39 +23,42 @@ vi.mock("./nfm-link-toolbar-deps", () => ({
     focus: () => {
       focusCalls += 1;
     },
-    transact: <T,>(fn: (tr: {
-      doc: {
-        type: {
-          schema: {
-            marks: {
-              link: {
-                create: (attrs: { href: string }) => { href: string };
+    transact: <T,>(
+      fn: (tr: {
+        doc: {
+          type: {
+            schema: {
+              marks: {
+                link: {
+                  create: (attrs: { href: string }) => { href: string };
+                };
               };
             };
           };
         };
-      };
-      insertText: (text: string, from: number, to: number) => void;
-      addMark: (from: number, to: number, mark: { href: string }) => void;
-    }) => T) => fn({
-      doc: {
-        type: {
-          schema: {
-            marks: {
-              link: {
-                create: (attrs: { href: string }) => attrs,
+        insertText: (text: string, from: number, to: number) => void;
+        addMark: (from: number, to: number, mark: { href: string }) => void;
+      }) => T,
+    ) =>
+      fn({
+        doc: {
+          type: {
+            schema: {
+              marks: {
+                link: {
+                  create: (attrs: { href: string }) => attrs,
+                },
               },
             },
           },
         },
-      },
-      insertText: (text: string, from: number, to: number) => {
-        insertCalls.push({ text, from, to });
-      },
-      addMark: (from: number, to: number, mark: { href: string }) => {
-        markCalls.push({ from, to, href: mark.href });
-      },
-    }),
+        insertText: (text: string, from: number, to: number) => {
+          insertCalls.push({ text, from, to });
+        },
+        addMark: (from: number, to: number, mark: { href: string }) => {
+          markCalls.push({ from, to, href: mark.href });
+        },
+      }),
   }),
   useComponentsContext: () => null,
   useDictionary: () => ({
@@ -116,16 +119,9 @@ vi.mock("./nfm-link-toolbar-deps", () => ({
       </button>
     </div>
   ),
-  NfmLinkEditToolbarSurface: ({
-    onUrlChange,
-  }: {
-    onUrlChange: (value: string) => void;
-  }) => (
+  NfmLinkEditToolbarSurface: ({ onUrlChange }: { onUrlChange: (value: string) => void }) => (
     <div data-testid="nfm-link-edit-toolbar">
-      <input
-        aria-label="Type or paste a link"
-        defaultValue=""
-      />
+      <input aria-label="Type or paste a link" defaultValue="" />
       <button
         type="button"
         onMouseDown={(event) => {
@@ -193,7 +189,9 @@ describe("NfmLinkToolbar live editing", () => {
       await settleAsyncRender();
     });
 
-    const focusProbe = view.getByRole("textbox", { name: "Type or paste a link" }) as HTMLInputElement;
+    const focusProbe = view.getByRole("textbox", {
+      name: "Type or paste a link",
+    }) as HTMLInputElement;
     focusProbe.focus();
 
     await act(async () => {

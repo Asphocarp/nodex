@@ -14,8 +14,12 @@ const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
 export const parseClassificationDocument = (value: unknown): ClassificationDocument => {
   if (!isRecord(value)) throw new Error("Classification document must be an object.");
   const unknown = Object.keys(value).filter((key) => key !== "changedPaths" && key !== "plan");
-  if (unknown.length > 0) throw new Error(`Classification document has unknown fields: ${unknown.join(", ")}.`);
-  if (!Array.isArray(value.changedPaths) || !value.changedPaths.every((entry) => typeof entry === "string")) {
+  if (unknown.length > 0)
+    throw new Error(`Classification document has unknown fields: ${unknown.join(", ")}.`);
+  if (
+    !Array.isArray(value.changedPaths) ||
+    !value.changedPaths.every((entry) => typeof entry === "string")
+  ) {
     throw new Error("Classification changedPaths must be a string array.");
   }
   if (value.changedPaths.some((entry) => /[\r\n]/u.test(entry))) {

@@ -25,16 +25,21 @@ describe("Computer Use runtime config", () => {
   test("resolves locale strings, direction, and a validated accent", () => {
     const localesDirectory = path.join(makeTemporaryRoot(), "locales");
     fs.mkdirSync(localesDirectory);
-    fs.writeFileSync(path.join(localesDirectory, "ar.json"), JSON.stringify({
-      "computerUseOverlay.escToCancel": "اضغط Esc للإلغاء",
-      "computerUseOverlay.usingComputer": "يستخدم Nodex جهاز الكمبيوتر الخاص بك",
-    }));
+    fs.writeFileSync(
+      path.join(localesDirectory, "ar.json"),
+      JSON.stringify({
+        "computerUseOverlay.escToCancel": "اضغط Esc للإلغاء",
+        "computerUseOverlay.usingComputer": "يستخدم Nodex جهاز الكمبيوتر الخاص بك",
+      }),
+    );
 
-    expect(buildComputerUseRuntimeConfig({
-      accentColor: "#12aBcD",
-      locale: "ar-EG",
-      localesDirectory,
-    })).toEqual({
+    expect(
+      buildComputerUseRuntimeConfig({
+        accentColor: "#12aBcD",
+        locale: "ar-EG",
+        localesDirectory,
+      }),
+    ).toEqual({
       accentColor: "#12aBcD",
       direction: "rtl",
       locale: "ar-EG",
@@ -64,10 +69,9 @@ describe("Computer Use runtime config", () => {
     ]);
 
     const directory = path.join(runtimeStateHome, "computer-use");
-    const config = JSON.parse(fs.readFileSync(
-      path.join(directory, "config.json"),
-      "utf8",
-    )) as Record<string, unknown>;
+    const config = JSON.parse(
+      fs.readFileSync(path.join(directory, "config.json"), "utf8"),
+    ) as Record<string, unknown>;
     expect(config).toEqual({
       accentColor: "#339cff",
       direction: "ltr",
@@ -77,7 +81,6 @@ describe("Computer Use runtime config", () => {
         usingComputer: "Nodex 正在使用你的电脑",
       },
     });
-    expect(fs.readdirSync(directory).filter((entry) => entry.endsWith(".tmp")))
-      .toEqual([]);
+    expect(fs.readdirSync(directory).filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
   });
 });

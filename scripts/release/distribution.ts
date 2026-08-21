@@ -1,11 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import {
-  readFileSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { readFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -15,7 +9,11 @@ import {
   verifyPackagedNativeRuntimeSmoke,
   verifyPackagedNativeRuntimeStructure,
 } from "../verify-native-runtime";
-import { recordArchitectureBuild, type ArchitectureBuildManifest, type MacArchitecture } from "./bundle";
+import {
+  recordArchitectureBuild,
+  type ArchitectureBuildManifest,
+  type MacArchitecture,
+} from "./bundle";
 import { parseReleaseIdentity, type ReleaseIdentity } from "./model";
 import { inspectReleaseSource } from "./source";
 
@@ -24,12 +22,13 @@ const run = (
   command: string,
   args: readonly string[],
   environment: NodeJS.ProcessEnv = process.env,
-): string => execFileSync(command, [...args], {
-  cwd,
-  encoding: "utf8",
-  env: environment,
-  stdio: ["ignore", "pipe", "inherit"],
-}).trim();
+): string =>
+  execFileSync(command, [...args], {
+    cwd,
+    encoding: "utf8",
+    env: environment,
+    stdio: ["ignore", "pipe", "inherit"],
+  }).trim();
 
 const runTask = (
   cwd: string,
@@ -103,7 +102,9 @@ const assertSourceIdentity = (cwd: string, identity: ReleaseIdentity): void => {
 
 const appAtRoot = (root: string): string => {
   const appNames = readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && entry.name.endsWith(".app"))
+    .filter(
+      (entry) => entry.isDirectory() && !entry.isSymbolicLink() && entry.name.endsWith(".app"),
+    )
     .map(({ name }) => name);
   if (appNames.length !== 1) {
     throw new Error(`Expected exactly one app bundle in ${root}; found ${appNames.length}.`);
@@ -121,18 +122,21 @@ interface VerifiedAppIdentity {
 
 const readAppIdentity = (appPath: string): Omit<VerifiedAppIdentity, "provenanceId"> => {
   const infoPlist = join(appPath, "Contents/Info.plist");
-  const readPlist = (key: string): string => execFileSync(
-    "/usr/bin/plutil",
-    ["-extract", key, "raw", "-o", "-", infoPlist],
-    { encoding: "utf8" },
-  ).trim();
+  const readPlist = (key: string): string =>
+    execFileSync("/usr/bin/plutil", ["-extract", key, "raw", "-o", "-", infoPlist], {
+      encoding: "utf8",
+    }).trim();
   const signature = spawnSync("/usr/bin/codesign", ["-dv", "--verbose=4", appPath], {
     encoding: "utf8",
   });
   if (signature.error || signature.status !== 0) {
-    throw new Error(`Unable to inspect app signing identity: ${signature.error?.message ?? signature.stderr}`);
+    throw new Error(
+      `Unable to inspect app signing identity: ${signature.error?.message ?? signature.stderr}`,
+    );
   }
-  const teamIdentifier = /^TeamIdentifier=(.+)$/mu.exec(`${signature.stdout}\n${signature.stderr}`)?.[1]?.trim();
+  const teamIdentifier = /^TeamIdentifier=(.+)$/mu
+    .exec(`${signature.stdout}\n${signature.stderr}`)?.[1]
+    ?.trim();
   if (!teamIdentifier || teamIdentifier === "not set") {
     throw new Error("Packaged app does not have a Developer ID team identifier.");
   }
@@ -206,7 +210,9 @@ export async function buildMacDistribution(options: {
   readonly identityPath: string;
 }): Promise<ArchitectureBuildManifest> {
   const cwd = resolve(options.cwd);
-  const identity = parseReleaseIdentity(JSON.parse(readFileSync(resolve(options.identityPath), "utf8")) as unknown);
+  const identity = parseReleaseIdentity(
+    JSON.parse(readFileSync(resolve(options.identityPath), "utf8")) as unknown,
+  );
   const version = identity.version;
   requireNativeMac(options.architecture);
   assertSourceIdentity(cwd, identity);
@@ -227,14 +233,34 @@ export async function buildMacDistribution(options: {
   ] as const;
   for (const script of prerequisiteScripts) runTask(cwd, "pnpm", ["run", script]);
   runTask(cwd, "pnpm", ["run", "build"], releaseEnvironment);
-  runTask(cwd, "pnpm", ["run", `stage:native-runtime:mac:${options.architecture}`], releaseEnvironment);
-  runTask(cwd, "pnpm", ["exec", "tsx", "scripts/prepared-electron-build.ts", "verify"], releaseEnvironment);
-  runTask(cwd, "pnpm", [
-    "exec", "electron-builder", "--mac", "dmg", `--${options.architecture}`,
-    "--publish", "never",
-    `--config.extraMetadata.version=${identity.version}`,
-    `--config.buildVersion=${identity.buildVersion}`,
-  ], releaseEnvironment);
+  runTask(
+    cwd,
+    "pnpm",
+    ["run", `stage:native-runtime:mac:${options.architecture}`],
+    releaseEnvironment,
+  );
+  runTask(
+    cwd,
+    "pnpm",
+    ["exec", "tsx", "scripts/prepared-electron-build.ts", "verify"],
+    releaseEnvironment,
+  );
+  runTask(
+    cwd,
+    "pnpm",
+    [
+      "exec",
+      "electron-builder",
+      "--mac",
+      "dmg",
+      `--${options.architecture}`,
+      "--publish",
+      "never",
+      `--config.extraMetadata.version=${identity.version}`,
+      `--config.buildVersion=${identity.buildVersion}`,
+    ],
+    releaseEnvironment,
+  );
   assertSourceIdentity(cwd, identity);
 
   const distDirectory = join(cwd, "dist");
@@ -294,7 +320,9 @@ export async function buildMacDistribution(options: {
       channel: identity.channel,
     });
     if (JSON.stringify(zipProvenance) !== JSON.stringify(dmgProvenance)) {
-      throw new Error("ZIP and DMG apps do not share one version, bundle, team, and package provenance identity.");
+      throw new Error(
+        "ZIP and DMG apps do not share one version, bundle, team, and package provenance identity.",
+      );
     }
 
     return recordArchitectureBuild({

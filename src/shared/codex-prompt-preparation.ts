@@ -135,7 +135,9 @@ function buildReviewDiffCommentAdditionalContext(
 
 function buildApplicationAdditionalContext(input: {
   readonly commentAttachments: readonly CodexReviewDiffCommentAttachment[];
-  readonly browserAnnotationAttachments: NonNullable<CodexPromptInput["browserAnnotationAttachments"]>;
+  readonly browserAnnotationAttachments: NonNullable<
+    CodexPromptInput["browserAnnotationAttachments"]
+  >;
   readonly appshots: NonNullable<CodexPromptInput["appshots"]>;
 }): NonNullable<CodexPreparedPrompt["additionalContext"]> {
   const context: NonNullable<CodexPreparedPrompt["additionalContext"]> = {
@@ -192,8 +194,7 @@ export async function prepareCodexPrompt(
     appshots.map((appshot) => options.resolveImageInput(appshot.imageDataUrl)),
   );
   const skillItems = (promptInput?.skills ?? []).map(resolveSkillInput);
-  const explicitMentionItems = (promptInput?.mentions ?? [])
-    .map(resolveMentionInput);
+  const explicitMentionItems = (promptInput?.mentions ?? []).map(resolveMentionInput);
   const documentItems = promptInput?.documentItems?.map(resolveDocumentInput);
   const explicitFileAttachments = dedupeCodexLiveFileAttachments(
     promptInput?.fileAttachments ?? [],
@@ -206,25 +207,21 @@ export async function prepareCodexPrompt(
     ordinaryMentionPaths.add(attachment.path);
     return [resolveMentionInput({ name: attachment.label, path: attachment.path })];
   });
-  const commentAttachments = (promptInput?.commentAttachments ?? []).filter(
-    (attachment) => attachment.content.some(
-      (part) => part.content_type === "text" && part.text.trim().length > 0,
-    ),
+  const commentAttachments = (promptInput?.commentAttachments ?? []).filter((attachment) =>
+    attachment.content.some((part) => part.content_type === "text" && part.text.trim().length > 0),
   );
   const commentItems = commentAttachments.map((attachment) =>
-    createCodexTextUserInput(serializeReviewDiffCommentAttachmentForPrompt(attachment))
+    createCodexTextUserInput(serializeReviewDiffCommentAttachmentForPrompt(attachment)),
   );
-  const browserAnnotationAttachments = (
-    promptInput?.browserAnnotationAttachments ?? []
-  ).map((attachment) => BrowserAnnotationAttachmentSchema.parse(attachment));
+  const browserAnnotationAttachments = (promptInput?.browserAnnotationAttachments ?? []).map(
+    (attachment) => BrowserAnnotationAttachmentSchema.parse(attachment),
+  );
   const browserAnnotationItems = browserAnnotationAttachments.map((attachment) =>
-    createCodexTextUserInput(serializeBrowserAnnotationAttachmentForPrompt(attachment))
+    createCodexTextUserInput(serializeBrowserAnnotationAttachmentForPrompt(attachment)),
   );
   const browserAnnotationEvidenceItems = await Promise.all(
     browserAnnotationAttachments.flatMap((attachment) =>
-      attachment.evidence
-        ? [options.resolveImageInput(attachment.evidence.source)]
-        : []
+      attachment.evidence ? [options.resolveImageInput(attachment.evidence.source)] : [],
     ),
   );
   const additionalContext = buildApplicationAdditionalContext({

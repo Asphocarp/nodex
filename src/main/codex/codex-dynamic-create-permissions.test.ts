@@ -84,16 +84,20 @@ describe("resolveCodexDynamicCreatePermissionSelection", () => {
     expect(selection.sourcePermissionProfileId).toBe(undefined);
     expect(selection.context.approvalPolicy).toBe("never");
     expect(selection.context.approvalsReviewer).toBe("auto_review");
-    expect(JSON.stringify(selection.launchParams)).toBe(JSON.stringify({
-      approvalPolicy: "never",
-      approvalsReviewer: "auto_review",
-      sandbox: "workspace-write",
-    }));
-    expect(JSON.stringify(selection.turnParams)).toBe(JSON.stringify({
-      approvalPolicy: "never",
-      approvalsReviewer: "auto_review",
-      sandboxPolicy: defaultContext.sandboxPolicy,
-    }));
+    expect(JSON.stringify(selection.launchParams)).toBe(
+      JSON.stringify({
+        approvalPolicy: "never",
+        approvalsReviewer: "auto_review",
+        sandbox: "workspace-write",
+      }),
+    );
+    expect(JSON.stringify(selection.turnParams)).toBe(
+      JSON.stringify({
+        approvalPolicy: "never",
+        approvalsReviewer: "auto_review",
+        sandboxPolicy: defaultContext.sandboxPolicy,
+      }),
+    );
   });
 
   test("inherits the complete same-cwd selection and merges both root collections", () => {
@@ -129,17 +133,21 @@ describe("resolveCodexDynamicCreatePermissionSelection", () => {
     expect(JSON.stringify(selection.context.runtimeWorkspaceRoots)).toBe(
       JSON.stringify(["/source/runtime", "/target/repo", "/target/shared"]),
     );
-    expect(JSON.stringify(
-      selection.context.sandboxPolicy.type === "workspaceWrite"
-        ? selection.context.sandboxPolicy.writableRoots
-        : [],
-    )).toBe(JSON.stringify(["/source/write", "/target/repo", "/target/shared"]));
-    expect(JSON.stringify(selection.launchParams)).toBe(JSON.stringify({
-      approvalPolicy: "never",
-      approvalsReviewer: "guardian_subagent",
-      permissions: "team-profile",
-      runtimeWorkspaceRoots: ["/source/runtime", "/target/repo", "/target/shared"],
-    }));
+    expect(
+      JSON.stringify(
+        selection.context.sandboxPolicy.type === "workspaceWrite"
+          ? selection.context.sandboxPolicy.writableRoots
+          : [],
+      ),
+    ).toBe(JSON.stringify(["/source/write", "/target/repo", "/target/shared"]));
+    expect(JSON.stringify(selection.launchParams)).toBe(
+      JSON.stringify({
+        approvalPolicy: "never",
+        approvalsReviewer: "guardian_subagent",
+        permissions: "team-profile",
+        runtimeWorkspaceRoots: ["/source/runtime", "/target/repo", "/target/shared"],
+      }),
+    );
     expect(JSON.stringify(selection.turnParams)).toBe(JSON.stringify(selection.launchParams));
   });
 
@@ -192,30 +200,36 @@ describe("resolveCodexDynamicCreatePermissionSelection", () => {
     expect(selection.sourcePermissionProfileId).toBe(":team-built-in");
     expect(selection.context.activePermissionProfile?.id ?? null).toBe(":team-built-in");
     expect(selection.context.activePermissionProfile?.extends).toBe(null);
-    expect(JSON.stringify(selection.context.runtimeWorkspaceRoots)).toBe(JSON.stringify(TARGET_ROOTS));
+    expect(JSON.stringify(selection.context.runtimeWorkspaceRoots)).toBe(
+      JSON.stringify(TARGET_ROOTS),
+    );
     expect(selection.context.approvalsReviewer).toBe("user");
     expect(typeof selection.context.approvalPolicy).toBe("object");
-    expect(JSON.stringify(selection.context.sandboxPolicy)).toBe(JSON.stringify({
-      type: "workspaceWrite",
-      writableRoots: TARGET_ROOTS,
-      excludeSlashTmp: false,
-      excludeTmpdirEnvVar: false,
-      networkAccess: false,
-    }));
-    expect(JSON.stringify(selection.launchParams)).toBe(JSON.stringify({
-      approvalPolicy: {
-        granular: {
-          sandbox_approval: false,
-          rules: false,
-          skill_approval: false,
-          request_permissions: true,
-          mcp_elicitations: true,
+    expect(JSON.stringify(selection.context.sandboxPolicy)).toBe(
+      JSON.stringify({
+        type: "workspaceWrite",
+        writableRoots: TARGET_ROOTS,
+        excludeSlashTmp: false,
+        excludeTmpdirEnvVar: false,
+        networkAccess: false,
+      }),
+    );
+    expect(JSON.stringify(selection.launchParams)).toBe(
+      JSON.stringify({
+        approvalPolicy: {
+          granular: {
+            sandbox_approval: false,
+            rules: false,
+            skill_approval: false,
+            request_permissions: true,
+            mcp_elicitations: true,
+          },
         },
-      },
-      approvalsReviewer: "user",
-      permissions: ":team-built-in",
-      runtimeWorkspaceRoots: TARGET_ROOTS,
-    }));
+        approvalsReviewer: "user",
+        permissions: ":team-built-in",
+        runtimeWorkspaceRoots: TARGET_ROOTS,
+      }),
+    );
     expect(JSON.stringify(selection.turnParams)).toBe(JSON.stringify(selection.launchParams));
   });
 
@@ -235,32 +249,40 @@ describe("resolveCodexDynamicCreatePermissionSelection", () => {
 
     expect(selection.mode).toBe("auto");
     expect(selection.context.activePermissionProfile?.id ?? null).toBe(":workspace");
-    expect(("permissions" in selection.launchParams ? selection.launchParams.permissions : null)).toBe(":workspace");
-    expect(("permissions" in selection.turnParams ? selection.turnParams.permissions : null)).toBe(":workspace");
+    expect(
+      "permissions" in selection.launchParams ? selection.launchParams.permissions : null,
+    ).toBe(":workspace");
+    expect("permissions" in selection.turnParams ? selection.turnParams.permissions : null).toBe(
+      ":workspace",
+    );
   });
 
   test("falls back from a profile's missing runtime roots to workspace-write roots", () => {
     const selection = resolveCodexDynamicCreatePermissionSelection({
       source: null,
-      destination: defaultDestination(workspaceContext({
-        activePermissionProfile: { id: ":workspace", extends: null },
-        runtimeWorkspaceRoots: undefined,
-        sandboxPolicy: {
-          type: "workspaceWrite",
-          writableRoots: ["/target/repo", "/target/profile-write"],
-          excludeSlashTmp: false,
-          excludeTmpdirEnvVar: false,
-          networkAccess: false,
-        },
-      })),
+      destination: defaultDestination(
+        workspaceContext({
+          activePermissionProfile: { id: ":workspace", extends: null },
+          runtimeWorkspaceRoots: undefined,
+          sandboxPolicy: {
+            type: "workspaceWrite",
+            writableRoots: ["/target/repo", "/target/profile-write"],
+            excludeSlashTmp: false,
+            excludeTmpdirEnvVar: false,
+            networkAccess: false,
+          },
+        }),
+      ),
     });
 
-    expect(JSON.stringify(selection.launchParams)).toBe(JSON.stringify({
-      approvalPolicy: "on-request",
-      approvalsReviewer: "user",
-      permissions: ":workspace",
-      runtimeWorkspaceRoots: ["/target/repo", "/target/profile-write"],
-    }));
+    expect(JSON.stringify(selection.launchParams)).toBe(
+      JSON.stringify({
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
+        permissions: ":workspace",
+        runtimeWorkspaceRoots: ["/target/repo", "/target/profile-write"],
+      }),
+    );
     expect(JSON.stringify(selection.turnParams)).toBe(JSON.stringify(selection.launchParams));
   });
 });
@@ -286,13 +308,15 @@ describe("buildCodexDynamicCreatePermissionContextForMode", () => {
     expect(context.activePermissionProfile).toBe(null);
     expect(context.approvalPolicy).toBe("never");
     expect(context.approvalsReviewer).toBe("auto_review");
-    expect(JSON.stringify(context.sandboxPolicy)).toBe(JSON.stringify({
-      type: "workspaceWrite",
-      writableRoots: ["/worktree/repo", "/shared/write"],
-      excludeSlashTmp: false,
-      excludeTmpdirEnvVar: true,
-      networkAccess: true,
-    }));
+    expect(JSON.stringify(context.sandboxPolicy)).toBe(
+      JSON.stringify({
+        type: "workspaceWrite",
+        writableRoots: ["/worktree/repo", "/shared/write"],
+        excludeSlashTmp: false,
+        excludeTmpdirEnvVar: true,
+        networkAccess: true,
+      }),
+    );
   });
 
   test("uses guardian reviewer and drops the workspace profile for configured workspace-write", () => {
@@ -308,13 +332,15 @@ describe("buildCodexDynamicCreatePermissionContextForMode", () => {
 
     expect(context.activePermissionProfile).toBe(null);
     expect(context.approvalsReviewer).toBe("guardian_subagent");
-    expect(JSON.stringify(context.sandboxPolicy)).toBe(JSON.stringify({
-      type: "workspaceWrite",
-      writableRoots: ["/worktree/repo"],
-      excludeSlashTmp: false,
-      excludeTmpdirEnvVar: false,
-      networkAccess: false,
-    }));
+    expect(JSON.stringify(context.sandboxPolicy)).toBe(
+      JSON.stringify({
+        type: "workspaceWrite",
+        writableRoots: ["/worktree/repo"],
+        excludeSlashTmp: false,
+        excludeTmpdirEnvVar: false,
+        networkAccess: false,
+      }),
+    );
   });
 
   test("applies the frozen profile after rebuilding permissions without retaining source roots", () => {
@@ -333,11 +359,13 @@ describe("buildCodexDynamicCreatePermissionContextForMode", () => {
     expect(JSON.stringify(selection.context.runtimeWorkspaceRoots)).toBe(
       JSON.stringify(["/worktree/repo"]),
     );
-    expect(JSON.stringify(
-      selection.context.sandboxPolicy.type === "workspaceWrite"
-        ? selection.context.sandboxPolicy.writableRoots
-        : [],
-    )).toBe(JSON.stringify(["/worktree/repo"]));
+    expect(
+      JSON.stringify(
+        selection.context.sandboxPolicy.type === "workspaceWrite"
+          ? selection.context.sandboxPolicy.writableRoots
+          : [],
+      ),
+    ).toBe(JSON.stringify(["/worktree/repo"]));
   });
 
   test("falls back from a disabled guardian reviewer in custom config", () => {
@@ -374,47 +402,55 @@ describe("inferCodexDynamicCreatePermissionMode", () => {
   });
 
   test("matches the exact policy, reviewer, and sandbox predicates", () => {
-    expect(inferCodexDynamicCreatePermissionMode({
-      activePermissionProfile: { id: "custom-profile", extends: null },
-      approvalPolicy: "on-request",
-      approvalsReviewer: "user",
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots: ["/workspace", "/extra"],
-        excludeSlashTmp: false,
-        excludeTmpdirEnvVar: false,
-        networkAccess: false,
-      },
-    })).toBe("auto");
-    expect(inferCodexDynamicCreatePermissionMode({
-      activePermissionProfile: null,
-      approvalPolicy: "on-request",
-      approvalsReviewer: "auto_review",
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots: ["/workspace"],
-        excludeSlashTmp: false,
-        excludeTmpdirEnvVar: false,
-        networkAccess: false,
-      },
-    })).toBe("guardian-approvals");
-    expect(inferCodexDynamicCreatePermissionMode({
-      activePermissionProfile: { id: ":workspace", extends: null },
-      approvalPolicy: "on-request",
-      approvalsReviewer: "user",
-      sandboxPolicy: {
-        type: "workspaceWrite",
-        writableRoots: ["/workspace"],
-        excludeSlashTmp: false,
-        excludeTmpdirEnvVar: false,
-        networkAccess: true,
-      },
-    })).toBe("custom");
-    expect(inferCodexDynamicCreatePermissionMode({
-      activePermissionProfile: null,
-      approvalPolicy: "never",
-      approvalsReviewer: "guardian_subagent",
-      sandboxPolicy: { type: "dangerFullAccess" },
-    })).toBe("full-access");
+    expect(
+      inferCodexDynamicCreatePermissionMode({
+        activePermissionProfile: { id: "custom-profile", extends: null },
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
+        sandboxPolicy: {
+          type: "workspaceWrite",
+          writableRoots: ["/workspace", "/extra"],
+          excludeSlashTmp: false,
+          excludeTmpdirEnvVar: false,
+          networkAccess: false,
+        },
+      }),
+    ).toBe("auto");
+    expect(
+      inferCodexDynamicCreatePermissionMode({
+        activePermissionProfile: null,
+        approvalPolicy: "on-request",
+        approvalsReviewer: "auto_review",
+        sandboxPolicy: {
+          type: "workspaceWrite",
+          writableRoots: ["/workspace"],
+          excludeSlashTmp: false,
+          excludeTmpdirEnvVar: false,
+          networkAccess: false,
+        },
+      }),
+    ).toBe("guardian-approvals");
+    expect(
+      inferCodexDynamicCreatePermissionMode({
+        activePermissionProfile: { id: ":workspace", extends: null },
+        approvalPolicy: "on-request",
+        approvalsReviewer: "user",
+        sandboxPolicy: {
+          type: "workspaceWrite",
+          writableRoots: ["/workspace"],
+          excludeSlashTmp: false,
+          excludeTmpdirEnvVar: false,
+          networkAccess: true,
+        },
+      }),
+    ).toBe("custom");
+    expect(
+      inferCodexDynamicCreatePermissionMode({
+        activePermissionProfile: null,
+        approvalPolicy: "never",
+        approvalsReviewer: "guardian_subagent",
+        sandboxPolicy: { type: "dangerFullAccess" },
+      }),
+    ).toBe("full-access");
   });
 });

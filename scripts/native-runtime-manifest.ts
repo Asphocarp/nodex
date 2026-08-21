@@ -6,9 +6,7 @@ export type NativeRuntimeArchitecture = "arm64" | "x64";
 export const swiftTargetForNativeRuntime = (
   architecture: NativeRuntimeArchitecture,
 ): "arm64-apple-macos12.0" | "x86_64-apple-macos12.0" =>
-  architecture === "arm64"
-    ? "arm64-apple-macos12.0"
-    : "x86_64-apple-macos12.0";
+  architecture === "arm64" ? "arm64-apple-macos12.0" : "x86_64-apple-macos12.0";
 
 export type NativeRuntimeBinaryName =
   | "nodex"
@@ -35,9 +33,7 @@ export interface NativeRuntimeManifest {
   readonly targetPlatform: "darwin";
 }
 
-export const NATIVE_RUNTIME_BINARY_PATHS: Readonly<
-  Record<NativeRuntimeBinaryName, string>
-> = {
+export const NATIVE_RUNTIME_BINARY_PATHS: Readonly<Record<NativeRuntimeBinaryName, string>> = {
   nodex: "Resources/bin/nodex",
   "nodex-appshot-helper": "Resources/bin/nodex-appshot-helper",
   "nodex-browser-profile-helper": "Resources/bin/nodex-browser-profile-helper",
@@ -103,9 +99,8 @@ export function parseNativeRuntimeManifest(value: unknown): NativeRuntimeManifes
   if (value.targetArch !== "arm64" && value.targetArch !== "x64") {
     throw new Error("Unsupported native runtime target architecture");
   }
-  const expectedRustTarget = value.targetArch === "arm64"
-    ? "aarch64-apple-darwin"
-    : "x86_64-apple-darwin";
+  const expectedRustTarget =
+    value.targetArch === "arm64" ? "aarch64-apple-darwin" : "x86_64-apple-darwin";
   if (value.rustTarget !== expectedRustTarget) {
     throw new Error("Native runtime Rust target does not match its architecture");
   }
@@ -113,7 +108,9 @@ export function parseNativeRuntimeManifest(value: unknown): NativeRuntimeManifes
     throw new Error("Native runtime minimum macOS must be 12.0");
   }
   const productVersion = requireString(value.productVersion, "productVersion");
-  if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-nightly\.\d{8}\.[1-9]\d*)?$/.test(productVersion)) {
+  if (
+    !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-nightly\.\d{8}\.[1-9]\d*)?$/.test(productVersion)
+  ) {
     throw new Error("Native runtime productVersion must be a release semantic version");
   }
   if (!Array.isArray(value.binaries)) {
@@ -121,8 +118,10 @@ export function parseNativeRuntimeManifest(value: unknown): NativeRuntimeManifes
   }
   const binaries = value.binaries.map(parseBinary);
   const names = new Set(binaries.map(({ name }) => name));
-  if (names.size !== EXPECTED_BINARY_NAMES.size
-    || [...EXPECTED_BINARY_NAMES].some((name) => !names.has(name))) {
+  if (
+    names.size !== EXPECTED_BINARY_NAMES.size ||
+    [...EXPECTED_BINARY_NAMES].some((name) => !names.has(name))
+  ) {
     throw new Error("Native runtime manifest must contain each required binary exactly once");
   }
   return {

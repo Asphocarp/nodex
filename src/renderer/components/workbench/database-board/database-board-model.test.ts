@@ -1,5 +1,8 @@
 import { describe, expect, test } from "vitest";
-import type { DatabaseJsonValue, DatabasePropertyValueType } from "../../../../shared/database-kernel";
+import type {
+  DatabaseJsonValue,
+  DatabasePropertyValueType,
+} from "../../../../shared/database-kernel";
 import type {
   DataSourcePageRowV2,
   DataSourcePropertyRecordV2,
@@ -29,9 +32,7 @@ const property = (
   name,
   ...testPropertySemantics(valueType, 1),
   valueType,
-  config: valueType === "select" || valueType === "multi_select"
-    ? { options: [] }
-    : {},
+  config: valueType === "select" || valueType === "multi_select" ? { options: [] } : {},
   rankKey: propertyId,
   lifecycle: "active",
   revision: 1,
@@ -64,21 +65,24 @@ const authority = (values: Readonly<Record<string, DatabaseJsonValue>>): DataSou
     createdAt: timestamp,
     updatedAt: timestamp,
   },
-  values: Object.fromEntries(Object.entries(values).map(([propertyId, value]) => [
-    propertyId,
-    {
-      propertyId: parseDataSourcePropertyId(propertyId),
-      valueType: typeof value === "boolean"
-        ? "checkbox"
-        : typeof value === "number"
-          ? "number"
-          : Array.isArray(value)
-            ? "multi_select"
-            : "text",
-      value,
-      revision: 1,
-    },
-  ])),
+  values: Object.fromEntries(
+    Object.entries(values).map(([propertyId, value]) => [
+      propertyId,
+      {
+        propertyId: parseDataSourcePropertyId(propertyId),
+        valueType:
+          typeof value === "boolean"
+            ? "checkbox"
+            : typeof value === "number"
+              ? "number"
+              : Array.isArray(value)
+                ? "multi_select"
+                : "text",
+        value,
+        revision: 1,
+      },
+    ]),
+  ),
   taskParent: { parentPageId: null, siblingRank: null, valueRevision: 1 },
   position: { rankKey: "a", revision: 1 },
   effectiveGroupKey: null,
@@ -98,13 +102,15 @@ describe("database Board presentation model", () => {
     expect(status.surfaceColor).toBe("var(--column-build-header-bg)");
     expect(status.activeSurfaceColor).toBe("var(--column-build-drop-bg)");
 
-    expect(projectDatabaseBoardGroup({
-      property: property("priority", "select", "Priority"),
-      groupKey: "p1-high",
-      label: "P1 - High",
-      pathKey: "priority/p1-high",
-      options: [{ id: "p1-high", name: "P1 - High", color: "red" }],
-    }).marker).toEqual({ kind: "priority", priorityId: "p1-high" });
+    expect(
+      projectDatabaseBoardGroup({
+        property: property("priority", "select", "Priority"),
+        groupKey: "p1-high",
+        label: "P1 - High",
+        pathKey: "priority/p1-high",
+        options: [{ id: "p1-high", name: "P1 - High", color: "red" }],
+      }).marker,
+    ).toEqual({ kind: "priority", priorityId: "p1-high" });
 
     const option = projectDatabaseBoardGroup({
       property: property("p_TEAM0001", "select", "Team"),
@@ -118,32 +124,32 @@ describe("database Board presentation model", () => {
       optionId: "o_platform",
       color: "#56ABFD",
     });
-    expect(option.surfaceColor).toBe(
-      "color-mix(in srgb, #56ABFD 4%, var(--background))",
-    );
-    expect(option.activeSurfaceColor).toBe(
-      "color-mix(in srgb, #56ABFD 8%, var(--background))",
-    );
+    expect(option.surfaceColor).toBe("color-mix(in srgb, #56ABFD 4%, var(--background))");
+    expect(option.activeSurfaceColor).toBe("color-mix(in srgb, #56ABFD 8%, var(--background))");
 
-    expect(projectDatabaseBoardGroup({
-      property: property("p_CHECK001", "checkbox", "Approved"),
-      groupKey: "true",
-      label: "Checked",
-      pathKey: "approved/true",
-      options: [],
-    }).marker).toEqual({
+    expect(
+      projectDatabaseBoardGroup({
+        property: property("p_CHECK001", "checkbox", "Approved"),
+        groupKey: "true",
+        label: "Checked",
+        pathKey: "approved/true",
+        options: [],
+      }).marker,
+    ).toEqual({
       kind: "property",
       propertyId: "p_CHECK001",
       valueType: "checkbox",
     });
 
-    expect(projectDatabaseBoardGroup({
-      property: property("p_DATE0001", "date", "Due"),
-      groupKey: null,
-      label: "No Due",
-      pathKey: "due/unassigned",
-      options: [],
-    }).marker).toEqual({
+    expect(
+      projectDatabaseBoardGroup({
+        property: property("p_DATE0001", "date", "Due"),
+        groupKey: null,
+        label: "No Due",
+        pathKey: "due/unassigned",
+        options: [],
+      }).marker,
+    ).toEqual({
       kind: "unassigned",
       propertyId: "p_DATE0001",
       valueType: "date",
@@ -151,13 +157,15 @@ describe("database Board presentation model", () => {
   });
 
   test("resolves multi-select grouping colors only through the option registry", () => {
-    expect(projectDatabaseBoardGroup({
-      property: property("p_TEAM0001", "multi_select", "Team"),
-      groupKey: '["o_platform"]',
-      label: "Platform",
-      pathKey: "team/platform",
-      options: [{ id: "o_platform", name: "Platform", color: "blue" }],
-    }).marker).toEqual({
+    expect(
+      projectDatabaseBoardGroup({
+        property: property("p_TEAM0001", "multi_select", "Team"),
+        groupKey: '["o_platform"]',
+        label: "Platform",
+        pathKey: "team/platform",
+        options: [{ id: "o_platform", name: "Platform", color: "blue" }],
+      }).marker,
+    ).toEqual({
       kind: "option",
       optionId: "o_platform",
       color: "#56ABFD",
@@ -167,7 +175,7 @@ describe("database Board presentation model", () => {
   test("does not infer unknown option labels or colors outside the registry", () => {
     const projected = projectDatabaseBoardGroup({
       property: property("p_TEAM0001", "multi_select", "Team"),
-      groupKey: "[\"missing\"]",
+      groupKey: '["missing"]',
       label: "Unknown option",
       pathKey: "team/missing",
       options: [],
@@ -222,18 +230,12 @@ describe("database Board presentation model", () => {
 
   test("formats recent and older Board timestamps like quiet activity metadata", () => {
     const now = new Date("2026-08-19T12:00:00.000Z");
-    expect(formatDatabaseBoardMetadataTimestamp(
-      "created_at",
-      "2026-08-12T10:00:00.000Z",
-      now,
-      "en-US",
-    )).toBe("Created Aug 12");
-    expect(formatDatabaseBoardMetadataTimestamp(
-      "updated_at",
-      "2026-02-10T10:00:00.000Z",
-      now,
-      "en-US",
-    )).toBe("Updated Feb 2026");
+    expect(
+      formatDatabaseBoardMetadataTimestamp("created_at", "2026-08-12T10:00:00.000Z", now, "en-US"),
+    ).toBe("Created Aug 12");
+    expect(
+      formatDatabaseBoardMetadataTimestamp("updated_at", "2026-02-10T10:00:00.000Z", now, "en-US"),
+    ).toBe("Updated Feb 2026");
   });
 
   test("treats false and zero as meaningful compact values", () => {

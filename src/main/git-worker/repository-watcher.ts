@@ -6,12 +6,7 @@ export const GIT_REVIEW_REPOSITORY_CHANGE_DELAY_MS = 1_000;
 export const GIT_REVIEW_WATCH_RETRY_MS = 1_000;
 export const GIT_REVIEW_MAX_WORKING_TREE_PATHS = 64;
 
-const WORKTREE_TOPOLOGY_FILES = new Set([
-  "HEAD",
-  "commondir",
-  "gitdir",
-  "locked",
-]);
+const WORKTREE_TOPOLOGY_FILES = new Set(["HEAD", "commondir", "gitdir", "locked"]);
 
 const logger = getLogger({
   subsystem: "git-review",
@@ -50,9 +45,7 @@ export interface GitReviewRepositoryWatcher {
 export interface GitReviewRepositoryWatcherOptions {
   readonly roots: GitReviewWatchRoots;
   readonly host: FileWatchHost;
-  readonly onChange: (
-    event: GitReviewRepositoryChangedEvent,
-  ) => void | Promise<void>;
+  readonly onChange: (event: GitReviewRepositoryChangedEvent) => void | Promise<void>;
   readonly onRequiresRecoveryChanged?: (requiresRecovery: boolean) => void;
 }
 
@@ -69,42 +62,35 @@ interface WatchTarget {
 
 function isPathInside(directory: string, candidate: string): boolean {
   const relative = path.relative(directory, candidate);
-  return relative === ""
-    || (
-      relative !== ".."
-      && !relative.startsWith(`..${path.sep}`)
-      && !path.isAbsolute(relative)
-    );
+  return (
+    relative === "" ||
+    (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative))
+  );
 }
 
 function isUnlockedPath(directory: string, candidate: string): boolean {
   return !candidate.endsWith(".lock") && isPathInside(directory, candidate);
 }
 
-function isWorktreeTopologyPath(
-  worktreesDirectory: string,
-  candidate: string,
-): boolean {
+function isWorktreeTopologyPath(worktreesDirectory: string, candidate: string): boolean {
   if (!isPathInside(worktreesDirectory, candidate)) return false;
   const relative = path.relative(worktreesDirectory, candidate);
   if (relative === "") return true;
   const parts = relative.split(path.sep);
-  return parts.length === 1
-    || (parts.length === 2 && WORKTREE_TOPOLOGY_FILES.has(parts[1] ?? ""));
+  return parts.length === 1 || (parts.length === 2 && WORKTREE_TOPOLOGY_FILES.has(parts[1] ?? ""));
 }
 
-export function shouldRefreshGitReviewSummary(
-  change: GitReviewRepositoryChange,
-): boolean {
-  return change === "config"
-    || change === "head"
-    || change === "index"
-    || change === "remote-refs"
-    || change === "working-tree";
+export function shouldRefreshGitReviewSummary(change: GitReviewRepositoryChange): boolean {
+  return (
+    change === "config" ||
+    change === "head" ||
+    change === "index" ||
+    change === "remote-refs" ||
+    change === "working-tree"
+  );
 }
 
-export class NodeGitReviewRepositoryWatcher
-implements GitReviewRepositoryWatcher {
+export class NodeGitReviewRepositoryWatcher implements GitReviewRepositoryWatcher {
   private readonly watchTargets: WatchTarget[] = [];
   private readonly pendingChangeCounts: Record<GitReviewRepositoryChange, number> = {
     config: 0,
@@ -128,8 +114,8 @@ implements GitReviewRepositoryWatcher {
 
   get requiresRecovery(): boolean {
     return this.watchTargets.some(
-      (target) => target.session === null
-        || (target.recursive && !target.session.coverage.recursive),
+      (target) =>
+        target.session === null || (target.recursive && !target.session.coverage.recursive),
     );
   }
 
@@ -145,8 +131,7 @@ implements GitReviewRepositoryWatcher {
       return;
     }
 
-    const { commonDir, gitDir, headPath, indexPath, root, syncedBranchPath } =
-      this.options.roots;
+    const { commonDir, gitDir, headPath, indexPath, root, syncedBranchPath } = this.options.roots;
     await this.tryWatchFile(headPath, "head");
 
     const commonHeadPath = path.join(commonDir, "HEAD");
@@ -155,28 +140,18 @@ implements GitReviewRepositoryWatcher {
     }
 
     await this.tryWatchFile(indexPath, "index");
-    await this.tryWatchFile(
-      path.join(commonDir, "FETCH_HEAD"),
-      "remote-refs",
-    );
-    await this.tryWatchFile(
-      path.join(commonDir, "packed-refs"),
-      "remote-refs",
-    );
+    await this.tryWatchFile(path.join(commonDir, "FETCH_HEAD"), "remote-refs");
+    await this.tryWatchFile(path.join(commonDir, "packed-refs"), "remote-refs");
 
     const localHeadsDirectory = path.join(commonDir, "refs", "heads");
-    await this.tryWatchDirectory(
-      localHeadsDirectory,
-      "head",
-      (changedPath) => isUnlockedPath(localHeadsDirectory, changedPath),
+    await this.tryWatchDirectory(localHeadsDirectory, "head", (changedPath) =>
+      isUnlockedPath(localHeadsDirectory, changedPath),
     );
 
     const refsDirectory = path.join(commonDir, "refs");
     const remoteRefsDirectory = path.join(refsDirectory, "remotes");
-    await this.tryWatchDirectory(
-      refsDirectory,
-      "remote-refs",
-      (changedPath) => isUnlockedPath(remoteRefsDirectory, changedPath),
+    await this.tryWatchDirectory(refsDirectory, "remote-refs", (changedPath) =>
+      isUnlockedPath(remoteRefsDirectory, changedPath),
     );
 
     await this.tryWatchFile(path.join(commonDir, "config"), "config");
@@ -193,10 +168,8 @@ implements GitReviewRepositoryWatcher {
     await this.tryWatchFile(syncedBranchPath, "synced-branch");
 
     const worktreesDirectory = path.join(commonDir, "worktrees");
-    await this.tryWatchDirectory(
-      commonDir,
-      "worktree-topology",
-      (changedPath) => isWorktreeTopologyPath(worktreesDirectory, changedPath),
+    await this.tryWatchDirectory(commonDir, "worktree-topology", (changedPath) =>
+      isWorktreeTopologyPath(worktreesDirectory, changedPath),
     );
     await this.tryWatchDirectory(
       root,
@@ -251,10 +224,7 @@ implements GitReviewRepositoryWatcher {
     await this.tryStartWatchSession(target, false);
   }
 
-  private async tryStartWatchSession(
-    target: WatchTarget,
-    isRetry: boolean,
-  ): Promise<void> {
+  private async tryStartWatchSession(target: WatchTarget, isRetry: boolean): Promise<void> {
     if (this.disposed || target.retryTimer !== null) return;
     if (target.sessionStartPromise !== null) {
       await target.sessionStartPromise;
@@ -275,18 +245,13 @@ implements GitReviewRepositoryWatcher {
     }
   }
 
-  private async startWatchSession(
-    target: WatchTarget,
-    isRetry: boolean,
-  ): Promise<void> {
+  private async startWatchSession(target: WatchTarget, isRetry: boolean): Promise<void> {
     try {
       const workingTree = target.changeType === "working-tree";
       const session = await this.options.host.startFileWatch({
         path: target.watchPath,
         recursive: target.recursive,
-        renameEventHandling: workingTree
-          ? "changed-path-with-parent-directory"
-          : "changed-path",
+        renameEventHandling: workingTree ? "changed-path-with-parent-directory" : "changed-path",
         onChange: ({ changedPaths }) => {
           const acceptedPaths = changedPaths.flatMap((changedPath) => {
             if (!target.shouldHandleChangedPath(changedPath)) return [];
@@ -295,13 +260,10 @@ implements GitReviewRepositoryWatcher {
             return affectedPath === null ? [] : [affectedPath];
           });
           if (changedPaths.length > 0 && acceptedPaths.length === 0) return;
-          const includesRoot = workingTree
-            && acceptedPaths.includes(this.options.roots.root);
+          const includesRoot = workingTree && acceptedPaths.includes(this.options.roots.root);
           this.handleFileWatchEvent(
             target,
-            changedPaths.length === 0 || includesRoot
-              ? undefined
-              : acceptedPaths,
+            changedPaths.length === 0 || includesRoot ? undefined : acceptedPaths,
           );
         },
       });
@@ -314,11 +276,8 @@ implements GitReviewRepositoryWatcher {
       target.session = session;
       this.updateRequiresRecovery();
       void session.closed.then((closed) => {
-        if (
-          this.disposed
-          || target.session !== session
-          || !this.watchTargets.includes(target)
-        ) return;
+        if (this.disposed || target.session !== session || !this.watchTargets.includes(target))
+          return;
         if (closed.reason === "watch-error") {
           logger.warn("Git repository watcher session failed", {
             path: target.path,
@@ -358,10 +317,7 @@ implements GitReviewRepositoryWatcher {
     this.options.onRequiresRecoveryChanged?.(next);
   }
 
-  private handleFileWatchEvent(
-    target: WatchTarget,
-    changedPaths?: readonly string[],
-  ): void {
+  private handleFileWatchEvent(target: WatchTarget, changedPaths?: readonly string[]): void {
     this.pendingChangeCounts[target.changeType] += 1;
     if (target.changeType === "working-tree") {
       if (changedPaths === undefined) {
@@ -379,11 +335,7 @@ implements GitReviewRepositoryWatcher {
   private addPendingWorkingTreePath(changedPath: string): void {
     const pendingPaths = this.pendingWorkingTreePaths;
     if (pendingPaths === null) return;
-    if (
-      [...pendingPaths].some((existingPath) =>
-        isPathInside(existingPath, changedPath)
-      )
-    ) return;
+    if ([...pendingPaths].some((existingPath) => isPathInside(existingPath, changedPath))) return;
 
     for (const existingPath of pendingPaths) {
       if (isPathInside(changedPath, existingPath)) {
@@ -397,10 +349,10 @@ implements GitReviewRepositoryWatcher {
     for (const pendingPath of pendingPaths) {
       const relative = path.relative(this.options.roots.root, pendingPath);
       if (
-        relative === ""
-        || relative === ".."
-        || relative.startsWith(`..${path.sep}`)
-        || path.isAbsolute(relative)
+        relative === "" ||
+        relative === ".." ||
+        relative.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relative)
       ) {
         this.pendingWorkingTreePaths = null;
         return;
@@ -421,10 +373,11 @@ implements GitReviewRepositoryWatcher {
 
   private scheduleRepositoryChange(changeType: GitReviewRepositoryChange): void {
     if (
-      this.disposed
-      || this.activeChangeEmissions.has(changeType)
-      || this.changeTimers.has(changeType)
-    ) return;
+      this.disposed ||
+      this.activeChangeEmissions.has(changeType) ||
+      this.changeTimers.has(changeType)
+    )
+      return;
 
     const timer = setTimeout(() => {
       this.changeTimers.delete(changeType);
@@ -433,15 +386,13 @@ implements GitReviewRepositoryWatcher {
     this.changeTimers.set(changeType, timer);
   }
 
-  private async emitRepositoryChange(
-    changeType: GitReviewRepositoryChange,
-  ): Promise<void> {
+  private async emitRepositoryChange(changeType: GitReviewRepositoryChange): Promise<void> {
     this.activeChangeEmissions.add(changeType);
     this.pendingChangeCounts[changeType] = 0;
-    const changedPaths = changeType === "working-tree"
-      && this.pendingWorkingTreePaths !== null
-      ? [...this.pendingWorkingTreePaths]
-      : undefined;
+    const changedPaths =
+      changeType === "working-tree" && this.pendingWorkingTreePaths !== null
+        ? [...this.pendingWorkingTreePaths]
+        : undefined;
     if (changeType === "working-tree") {
       this.pendingWorkingTreePaths = new Set();
     }
@@ -460,26 +411,20 @@ implements GitReviewRepositoryWatcher {
   }
 
   private isGitInternalPath(changedPath: string): boolean {
-    return isPathInside(this.options.roots.commonDir, changedPath)
-      || isPathInside(path.join(this.options.roots.root, ".git"), changedPath);
+    return (
+      isPathInside(this.options.roots.commonDir, changedPath) ||
+      isPathInside(path.join(this.options.roots.root, ".git"), changedPath)
+    );
   }
 
   private getAffectedWorkingTreePath(changedPath: string): string | null {
-    const relativeParts = path
-      .relative(this.options.roots.root, changedPath)
-      .split(path.sep);
+    const relativeParts = path.relative(this.options.roots.root, changedPath).split(path.sep);
     const gitPartIndex = relativeParts.indexOf(".git");
     if (gitPartIndex < 1) return changedPath;
     const metadataName = relativeParts[gitPartIndex + 1];
-    if (
-      metadataName !== "HEAD"
-      && metadataName !== "packed-refs"
-      && metadataName !== "refs"
-    ) return null;
-    return path.join(
-      this.options.roots.root,
-      ...relativeParts.slice(0, gitPartIndex),
-    );
+    if (metadataName !== "HEAD" && metadataName !== "packed-refs" && metadataName !== "refs")
+      return null;
+    return path.join(this.options.roots.root, ...relativeParts.slice(0, gitPartIndex));
   }
 
   private disposeWatchTarget(target: WatchTarget): void {

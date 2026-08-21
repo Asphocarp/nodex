@@ -43,11 +43,7 @@ function resolveScopeKey(scopeKey: string | null): string {
 }
 
 export function normalizePromptHistoryState(value: unknown): PromptHistoryState {
-  if (
-    isRecord(value)
-    && value.version === 1
-    && isRecord(value.histories)
-  ) {
+  if (isRecord(value) && value.version === 1 && isRecord(value.histories)) {
     return normalizePromptHistoryState(value.histories);
   }
 
@@ -74,9 +70,7 @@ function encodePromptHistoryState(value: PromptHistoryState): PromptHistoryEnvel
     version: 1,
     histories: Array.isArray(value)
       ? { [GLOBAL_PROMPT_HISTORY_SCOPE]: [...value] }
-      : Object.fromEntries(
-          Object.entries(value).map(([scope, history]) => [scope, [...history]]),
-        ),
+      : Object.fromEntries(Object.entries(value).map(([scope, history]) => [scope, [...history]])),
   };
 }
 
@@ -92,7 +86,10 @@ export const promptHistoryAtom = persistedAtom<PromptHistoryState>({
   encode: encodePromptHistoryState,
 });
 
-export function readScopedPromptHistory(state: PromptHistoryState, scopeKey: string | null): string[] {
+export function readScopedPromptHistory(
+  state: PromptHistoryState,
+  scopeKey: string | null,
+): string[] {
   const scope = resolveScopeKey(scopeKey);
   if (Array.isArray(state)) {
     return scope === GLOBAL_PROMPT_HISTORY_SCOPE ? state : [];
@@ -172,75 +169,90 @@ export function useThreadComposerPromptHistoryRecall({
     selectedIndexRef.current = null;
   }, []);
 
-  const appendPromptToHistory = useCallback((text: string) => {
-    if (text.trim().length === 0) return;
+  const appendPromptToHistory = useCallback(
+    (text: string) => {
+      if (text.trim().length === 0) return;
 
-    selectedIndexRef.current = null;
-    void preloadPersistedAtom(store, promptHistoryAtom)
-      .then(() => setHistoryState((currentState) => {
-        const nextState = appendPromptToHistoryState(currentState, scope, text);
-        historyStateRef.current = nextState;
-        return nextState;
-      }))
-      .catch(() => undefined);
-  }, [scope, setHistoryState, store]);
-
-  const restoreHistoryEntry = useCallback((index: number): boolean => {
-    const editor = editorRef.current;
-    if (!editor) return false;
-
-    const history = readScopedPromptHistory(historyStateRef.current, scope);
-    const entry = history[index];
-    if (typeof entry !== "string") return false;
-
-    selectedIndexRef.current = index;
-    editor.setPromptText(entry);
-    editor.focus();
-    return true;
-  }, [editorRef, scope]);
-
-  const moveHistorySelection = useCallback((direction: "up" | "down"): boolean => {
-    const editor = editorRef.current;
-    if (!editor) return false;
-
-    const history = readScopedPromptHistory(historyStateRef.current, scope);
-    if (history.length === 0) return false;
-
-    const selectedIndex = selectedIndexRef.current;
-    if (selectedIndex === null) {
-      if (direction === "down") return false;
-      if (editor.getPersistedText().trim().length !== 0) return false;
-      return restoreHistoryEntry(history.length - 1);
-    }
-
-    if (direction === "down" && selectedIndex === history.length - 1) {
       selectedIndexRef.current = null;
-      editor.setText("");
+      void preloadPersistedAtom(store, promptHistoryAtom)
+        .then(() =>
+          setHistoryState((currentState) => {
+            const nextState = appendPromptToHistoryState(currentState, scope, text);
+            historyStateRef.current = nextState;
+            return nextState;
+          }),
+        )
+        .catch(() => undefined);
+    },
+    [scope, setHistoryState, store],
+  );
+
+  const restoreHistoryEntry = useCallback(
+    (index: number): boolean => {
+      const editor = editorRef.current;
+      if (!editor) return false;
+
+      const history = readScopedPromptHistory(historyStateRef.current, scope);
+      const entry = history[index];
+      if (typeof entry !== "string") return false;
+
+      selectedIndexRef.current = index;
+      editor.setPromptText(entry);
       editor.focus();
       return true;
-    }
+    },
+    [editorRef, scope],
+  );
 
-    const delta = direction === "up" ? -1 : 1;
-    const nextIndex = (selectedIndex + delta + history.length) % history.length;
-    return restoreHistoryEntry(nextIndex);
-  }, [editorRef, restoreHistoryEntry, scope]);
+  const moveHistorySelection = useCallback(
+    (direction: "up" | "down"): boolean => {
+      const editor = editorRef.current;
+      if (!editor) return false;
 
-  const handlePromptHistoryKeyDown = useCallback((event: ComposerPromptEditorKeyboardEvent): boolean => {
-    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return false;
-    if (eventHasModifier(event)) return false;
+      const history = readScopedPromptHistory(historyStateRef.current, scope);
+      if (history.length === 0) return false;
 
-    const editor = editorRef.current;
-    if (!editor || !editor.isCursorAtEnd()) return false;
+      const selectedIndex = selectedIndexRef.current;
+      if (selectedIndex === null) {
+        if (direction === "down") return false;
+        if (editor.getPersistedText().trim().length !== 0) return false;
+        return restoreHistoryEntry(history.length - 1);
+      }
 
-    const handled = event.key === "ArrowUp"
-      ? (selectLatestQueuedFollowUp?.() || moveHistorySelection("up"))
-      : moveHistorySelection("down");
-    if (!handled) return false;
+      if (direction === "down" && selectedIndex === history.length - 1) {
+        selectedIndexRef.current = null;
+        editor.setText("");
+        editor.focus();
+        return true;
+      }
 
-    event.preventDefault();
-    event.stopPropagation();
-    return true;
-  }, [editorRef, moveHistorySelection, selectLatestQueuedFollowUp]);
+      const delta = direction === "up" ? -1 : 1;
+      const nextIndex = (selectedIndex + delta + history.length) % history.length;
+      return restoreHistoryEntry(nextIndex);
+    },
+    [editorRef, restoreHistoryEntry, scope],
+  );
+
+  const handlePromptHistoryKeyDown = useCallback(
+    (event: ComposerPromptEditorKeyboardEvent): boolean => {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return false;
+      if (eventHasModifier(event)) return false;
+
+      const editor = editorRef.current;
+      if (!editor || !editor.isCursorAtEnd()) return false;
+
+      const handled =
+        event.key === "ArrowUp"
+          ? selectLatestQueuedFollowUp?.() || moveHistorySelection("up")
+          : moveHistorySelection("down");
+      if (!handled) return false;
+
+      event.preventDefault();
+      event.stopPropagation();
+      return true;
+    },
+    [editorRef, moveHistorySelection, selectLatestQueuedFollowUp],
+  );
 
   return {
     appendPromptToHistory,

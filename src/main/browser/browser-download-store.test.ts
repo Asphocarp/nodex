@@ -36,9 +36,11 @@ async function store(now = 42) {
 }
 
 afterEach(async () => {
-  await Promise.all(directories.splice(0).map(async (directory) =>
-    await rm(directory, { force: true, recursive: true })
-  ));
+  await Promise.all(
+    directories
+      .splice(0)
+      .map(async (directory) => await rm(directory, { force: true, recursive: true })),
+  );
 });
 
 describe("FileBrowserDownloadStore", () => {
@@ -54,9 +56,7 @@ describe("FileBrowserDownloadStore", () => {
     await fixture.store.upsert(record("download-1"));
     await fixture.store.upsert(record("download-2"));
     await fixture.store.remove("download-1");
-    expect((await fixture.store.list()).map((item) => item.id)).toEqual([
-      "download-2",
-    ]);
+    expect((await fixture.store.list()).map((item) => item.id)).toEqual(["download-2"]);
     await fixture.store.clear();
     await expect(fixture.store.list()).resolves.toEqual([]);
   });
@@ -65,9 +65,8 @@ describe("FileBrowserDownloadStore", () => {
     const fixture = await store();
     await writeFile(fixture.filePath, "{broken", "utf8");
     await expect(fixture.store.list()).resolves.toEqual([]);
-    await expect(readFile(
-      join(fixture.directory, "browser-downloads.json.corrupt-42"),
-      "utf8",
-    )).resolves.toBe("{broken");
+    await expect(
+      readFile(join(fixture.directory, "browser-downloads.json.corrupt-42"), "utf8"),
+    ).resolves.toBe("{broken");
   });
 });

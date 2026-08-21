@@ -10,35 +10,12 @@ import {
 describe("workbench panel slot keys", () => {
   test("encodes panel and leaf slots and only decodes matching scope", () => {
     const ownerKey = makeWorkbenchSessionPanelOwnerKey("session:one");
-    expect(makeWorkbenchPanelSlotKey(ownerKey, "right"))
-      .toBe(`${ownerKey}:right`);
-    const key = makeWorkbenchSessionPanelSlotKey(
-      "session:one",
-      "bottom",
-      "leaf:two",
-    );
+    expect(makeWorkbenchPanelSlotKey(ownerKey, "right")).toBe(`${ownerKey}:right`);
+    const key = makeWorkbenchSessionPanelSlotKey("session:one", "bottom", "leaf:two");
     expect(key).toBe(`${ownerKey}:bottom:leaf:two`);
-    expect(
-      resolveWorkbenchPanelSlotLeafId(
-        key,
-        "session:one",
-        "bottom",
-      ),
-    ).toBe("leaf:two");
-    expect(
-      resolveWorkbenchPanelSlotLeafId(
-        key,
-        "session:other",
-        "bottom",
-      ),
-    ).toBeNull();
-    expect(
-      resolveWorkbenchPanelSlotLeafId(
-        key,
-        "session:one",
-        "right",
-      ),
-    ).toBeNull();
+    expect(resolveWorkbenchPanelSlotLeafId(key, "session:one", "bottom")).toBe("leaf:two");
+    expect(resolveWorkbenchPanelSlotLeafId(key, "session:other", "bottom")).toBeNull();
+    expect(resolveWorkbenchPanelSlotLeafId(key, "session:one", "right")).toBeNull();
     expect(
       resolveWorkbenchPanelSlotLeafId(
         makeWorkbenchSessionPanelSlotKey("session:one", "bottom"),
@@ -54,14 +31,9 @@ describe("workbench panel slot keys", () => {
       bottom: "bottom-tab",
       other: "other-tab",
     };
-    expect(clearTransientPanelSelection(current, "missing"))
-      .toBe(current);
+    expect(clearTransientPanelSelection(current, "missing")).toBe(current);
 
-    const next = clearTransientPanelSelection(
-      current,
-      "right",
-      "bottom",
-    );
+    const next = clearTransientPanelSelection(current, "right", "bottom");
     expect(next).toEqual({ other: "other-tab" });
     expect(current).toEqual({
       right: "right-tab",

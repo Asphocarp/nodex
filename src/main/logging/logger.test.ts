@@ -31,13 +31,15 @@ function restoreEnv(): void {
   if (ORIGINAL_ENV.NODEX_LOG_LEVEL === undefined) delete process.env.NODEX_LOG_LEVEL;
   else process.env.NODEX_LOG_LEVEL = ORIGINAL_ENV.NODEX_LOG_LEVEL;
 
-  if (ORIGINAL_ENV.NODEX_LOG_CONSOLE_LEVEL === undefined) delete process.env.NODEX_LOG_CONSOLE_LEVEL;
+  if (ORIGINAL_ENV.NODEX_LOG_CONSOLE_LEVEL === undefined)
+    delete process.env.NODEX_LOG_CONSOLE_LEVEL;
   else process.env.NODEX_LOG_CONSOLE_LEVEL = ORIGINAL_ENV.NODEX_LOG_CONSOLE_LEVEL;
 
   if (ORIGINAL_ENV.NODEX_LOG_FILE_LEVEL === undefined) delete process.env.NODEX_LOG_FILE_LEVEL;
   else process.env.NODEX_LOG_FILE_LEVEL = ORIGINAL_ENV.NODEX_LOG_FILE_LEVEL;
 
-  if (ORIGINAL_ENV.NODEX_LOG_OBSERVER_LEVEL === undefined) delete process.env.NODEX_LOG_OBSERVER_LEVEL;
+  if (ORIGINAL_ENV.NODEX_LOG_OBSERVER_LEVEL === undefined)
+    delete process.env.NODEX_LOG_OBSERVER_LEVEL;
   else process.env.NODEX_LOG_OBSERVER_LEVEL = ORIGINAL_ENV.NODEX_LOG_OBSERVER_LEVEL;
 
   if (ORIGINAL_ENV.NODEX_LOG_FILE === undefined) delete process.env.NODEX_LOG_FILE;
@@ -49,19 +51,24 @@ function restoreEnv(): void {
   if (ORIGINAL_ENV.NODEX_LOG_DIR === undefined) delete process.env.NODEX_LOG_DIR;
   else process.env.NODEX_LOG_DIR = ORIGINAL_ENV.NODEX_LOG_DIR;
 
-  if (ORIGINAL_ENV.NODEX_LOG_MAX_FILE_BYTES === undefined) delete process.env.NODEX_LOG_MAX_FILE_BYTES;
+  if (ORIGINAL_ENV.NODEX_LOG_MAX_FILE_BYTES === undefined)
+    delete process.env.NODEX_LOG_MAX_FILE_BYTES;
   else process.env.NODEX_LOG_MAX_FILE_BYTES = ORIGINAL_ENV.NODEX_LOG_MAX_FILE_BYTES;
 
-  if (ORIGINAL_ENV.NODEX_LOG_MAX_TOTAL_BYTES === undefined) delete process.env.NODEX_LOG_MAX_TOTAL_BYTES;
+  if (ORIGINAL_ENV.NODEX_LOG_MAX_TOTAL_BYTES === undefined)
+    delete process.env.NODEX_LOG_MAX_TOTAL_BYTES;
   else process.env.NODEX_LOG_MAX_TOTAL_BYTES = ORIGINAL_ENV.NODEX_LOG_MAX_TOTAL_BYTES;
 
-  if (ORIGINAL_ENV.NODEX_LOG_MAX_QUEUE_ENTRIES === undefined) delete process.env.NODEX_LOG_MAX_QUEUE_ENTRIES;
+  if (ORIGINAL_ENV.NODEX_LOG_MAX_QUEUE_ENTRIES === undefined)
+    delete process.env.NODEX_LOG_MAX_QUEUE_ENTRIES;
   else process.env.NODEX_LOG_MAX_QUEUE_ENTRIES = ORIGINAL_ENV.NODEX_LOG_MAX_QUEUE_ENTRIES;
 
-  if (ORIGINAL_ENV.NODEX_LOG_MAX_QUEUE_BYTES === undefined) delete process.env.NODEX_LOG_MAX_QUEUE_BYTES;
+  if (ORIGINAL_ENV.NODEX_LOG_MAX_QUEUE_BYTES === undefined)
+    delete process.env.NODEX_LOG_MAX_QUEUE_BYTES;
   else process.env.NODEX_LOG_MAX_QUEUE_BYTES = ORIGINAL_ENV.NODEX_LOG_MAX_QUEUE_BYTES;
 
-  if (ORIGINAL_ENV.NODEX_INTERNAL_APP_PACKAGED === undefined) delete process.env.NODEX_INTERNAL_APP_PACKAGED;
+  if (ORIGINAL_ENV.NODEX_INTERNAL_APP_PACKAGED === undefined)
+    delete process.env.NODEX_INTERNAL_APP_PACKAGED;
   else process.env.NODEX_INTERNAL_APP_PACKAGED = ORIGINAL_ENV.NODEX_INTERNAL_APP_PACKAGED;
 }
 
@@ -107,7 +114,8 @@ describe("backend logger", () => {
 
       const logDir = loggerModule.getBackendLogDirectory();
       const records = fs.readdirSync(logDir).flatMap((fileName) =>
-        fs.readFileSync(path.join(logDir, fileName), "utf8")
+        fs
+          .readFileSync(path.join(logDir, fileName), "utf8")
           .trim()
           .split("\n")
           .filter(Boolean)
@@ -159,8 +167,8 @@ describe("backend logger", () => {
         expect(entries.length).toBe(1);
 
         const raw = fs.readFileSync(path.join(logDir, entries[0]), "utf8");
-        expect(raw.includes("\"authorization\":\"[REDACTED]\"")).toBe(true);
-        expect(raw.includes("\"apiKey\":\"[REDACTED]\"")).toBe(true);
+        expect(raw.includes('"authorization":"[REDACTED]"')).toBe(true);
+        expect(raw.includes('"apiKey":"[REDACTED]"')).toBe(true);
       } finally {
         unsubscribe();
         await loggerModule.resetBackendLoggerForTests();
@@ -265,7 +273,9 @@ describe("backend logger", () => {
 
       const files = fs.readdirSync(logDir).sort();
       expect(files.length).toBeGreaterThan(1);
-      expect(files.every((fileName) => /^backend-\d{4}-\d{2}-\d{2}-\d{3}\.log$/.test(fileName))).toBe(true);
+      expect(
+        files.every((fileName) => /^backend-\d{4}-\d{2}-\d{2}-\d{3}\.log$/.test(fileName)),
+      ).toBe(true);
 
       const totalBytes = files.reduce(
         (total, fileName) => total + fs.statSync(path.join(logDir, fileName)).size,
@@ -274,10 +284,12 @@ describe("backend logger", () => {
       expect(totalBytes).toBeLessThanOrEqual(4096);
       for (const fileName of files) {
         const lines = fs.readFileSync(path.join(logDir, fileName), "utf8").trim().split("\n");
-        expect(lines.every((line) => {
-          JSON.parse(line);
-          return true;
-        })).toBe(true);
+        expect(
+          lines.every((line) => {
+            JSON.parse(line);
+            return true;
+          }),
+        ).toBe(true);
       }
 
       await loggerModule.resetBackendLoggerForTests();
@@ -309,7 +321,8 @@ describe("backend logger", () => {
       await loggerModule.shutdownBackendLogger();
 
       const records = fs.readdirSync(logDir).flatMap((fileName) =>
-        fs.readFileSync(path.join(logDir, fileName), "utf8")
+        fs
+          .readFileSync(path.join(logDir, fileName), "utf8")
           .trim()
           .split("\n")
           .filter(Boolean)

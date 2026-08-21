@@ -18,9 +18,7 @@ const execFileAsync = promisify(execFile);
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map((root) =>
-    rm(root, { recursive: true, force: true })
-  ));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 async function git(cwd: string, args: readonly string[]): Promise<string> {
@@ -75,15 +73,17 @@ describe("managed worktree data-safety effects", () => {
     expect(result.worktreeId).toBe(resolveManagedWorktreeId(input.worktreeGitRoot));
     expect(result.snapshotRef).toBe(resolveManagedWorktreeSnapshotRef(input.worktreeGitRoot));
     expect(result.changed).toBe(true);
-    expect(await git(input.repositoryPath, ["show", `${result.snapshotRef}:tracked.txt`]))
-      .toBe("working tree");
-    expect(await git(input.repositoryPath, ["show", `${result.snapshotRef}:staged.txt`]))
-      .toBe("working after staged");
-    const binary = await execFileAsync(
-      "git",
-      ["show", `${result.snapshotRef}:binary.bin`],
-      { cwd: input.repositoryPath, encoding: "buffer", maxBuffer: 1024 },
+    expect(await git(input.repositoryPath, ["show", `${result.snapshotRef}:tracked.txt`])).toBe(
+      "working tree",
     );
+    expect(await git(input.repositoryPath, ["show", `${result.snapshotRef}:staged.txt`])).toBe(
+      "working after staged",
+    );
+    const binary = await execFileAsync("git", ["show", `${result.snapshotRef}:binary.bin`], {
+      cwd: input.repositoryPath,
+      encoding: "buffer",
+      maxBuffer: 1024,
+    });
     expect(binary.stdout).toEqual(Buffer.from([0, 1, 2, 255, 0, 19]));
     expect(await git(input.worktreeGitRoot, ["status", "--porcelain=v1"])).toBe(before);
   });
@@ -111,10 +111,10 @@ describe("managed worktree data-safety effects", () => {
       reason: "archive",
     });
     expect(snapshot.changed).toBe(true);
-    expect(await git(worktreeGitRoot, ["show", `${snapshot.snapshotRef}:first.txt`]))
-      .toBe("first");
-    expect(await git(worktreeGitRoot, ["rev-list", "--parents", "-n", "1", snapshot.commitId]))
-      .toBe(snapshot.commitId);
+    expect(await git(worktreeGitRoot, ["show", `${snapshot.snapshotRef}:first.txt`])).toBe("first");
+    expect(
+      await git(worktreeGitRoot, ["rev-list", "--parents", "-n", "1", snapshot.commitId]),
+    ).toBe(snapshot.commitId);
   });
 
   test("removes with a required snapshot, reports restorable, and restores in place", async () => {
@@ -156,22 +156,27 @@ describe("managed worktree data-safety effects", () => {
       ownerThreadId: "thread:one",
     });
     expect(restored.ownerWarning).toBeNull();
-    await expect(readFile(path.join(input.worktreeGitRoot, "untracked.txt"), "utf8"))
-      .resolves.toBe("recover me\n");
-    await expect(readFile(
-      await git(input.worktreeGitRoot, [
-        "rev-parse",
-        "--path-format=absolute",
-        "--git-path",
-        "codex-thread.json",
-      ]),
-      "utf8",
-    )).resolves.toContain('"ownerThreadId": "thread:one"');
-    await expect(restoreManagedWorktree({
-      ...inspectionInput,
-      requestId: "restore:again",
-      ownerThreadId: "thread:one",
-    })).resolves.toMatchObject({
+    await expect(readFile(path.join(input.worktreeGitRoot, "untracked.txt"), "utf8")).resolves.toBe(
+      "recover me\n",
+    );
+    await expect(
+      readFile(
+        await git(input.worktreeGitRoot, [
+          "rev-parse",
+          "--path-format=absolute",
+          "--git-path",
+          "codex-thread.json",
+        ]),
+        "utf8",
+      ),
+    ).resolves.toContain('"ownerThreadId": "thread:one"');
+    await expect(
+      restoreManagedWorktree({
+        ...inspectionInput,
+        requestId: "restore:again",
+        ownerThreadId: "thread:one",
+      }),
+    ).resolves.toMatchObject({
       worktreeGitRoot: input.worktreeGitRoot,
       snapshotRef: resolveManagedWorktreeSnapshotRef(input.worktreeGitRoot),
     });
@@ -183,14 +188,17 @@ describe("managed worktree data-safety effects", () => {
     await mkdir(path.join(input.repositoryPath, ".codex", "environments"), {
       recursive: true,
     });
-    await writeFile(path.join(input.repositoryPath, environmentPath), [
-      'name = "cleanup"',
-      "[setup]",
-      'script = ""',
-      "[cleanup]",
-      'script = "printf cleaned > $CODEX_SOURCE_TREE_PATH/cleanup.log"',
-      "",
-    ].join("\n"));
+    await writeFile(
+      path.join(input.repositoryPath, environmentPath),
+      [
+        'name = "cleanup"',
+        "[setup]",
+        'script = ""',
+        "[cleanup]",
+        'script = "printf cleaned > $CODEX_SOURCE_TREE_PATH/cleanup.log"',
+        "",
+      ].join("\n"),
+    );
     await git(input.repositoryPath, ["config", "extensions.worktreeConfig", "true"]);
     await git(input.worktreeGitRoot, [
       "config",
@@ -203,21 +211,25 @@ describe("managed worktree data-safety effects", () => {
       requestId: "remove:cleanup",
       snapshotPolicy: "required",
     });
-    await expect(readFile(path.join(input.repositoryPath, "cleanup.log"), "utf8"))
-      .resolves.toBe("cleaned");
+    await expect(readFile(path.join(input.repositoryPath, "cleanup.log"), "utf8")).resolves.toBe(
+      "cleaned",
+    );
 
     const failing = await fixture();
     await mkdir(path.join(failing.repositoryPath, ".codex", "environments"), {
       recursive: true,
     });
-    await writeFile(path.join(failing.repositoryPath, environmentPath), [
-      'name = "cleanup-failure"',
-      "[setup]",
-      'script = ""',
-      "[cleanup]",
-      'script = "exit 17"',
-      "",
-    ].join("\n"));
+    await writeFile(
+      path.join(failing.repositoryPath, environmentPath),
+      [
+        'name = "cleanup-failure"',
+        "[setup]",
+        'script = ""',
+        "[cleanup]",
+        'script = "exit 17"',
+        "",
+      ].join("\n"),
+    );
     await git(failing.repositoryPath, ["config", "extensions.worktreeConfig", "true"]);
     await git(failing.worktreeGitRoot, [
       "config",
@@ -225,17 +237,21 @@ describe("managed worktree data-safety effects", () => {
       "codex.localEnvironmentConfigPath",
       environmentPath,
     ]);
-    await expect(removeRetainedManagedWorktree({
-      ...snapshotInput(failing),
-      requestId: "remove:cleanup-failure",
-      snapshotPolicy: "required",
-    })).rejects.toThrow("cleanup script failed");
+    await expect(
+      removeRetainedManagedWorktree({
+        ...snapshotInput(failing),
+        requestId: "remove:cleanup-failure",
+        snapshotPolicy: "required",
+      }),
+    ).rejects.toThrow("cleanup script failed");
     await expect(statDirectory(failing.worktreeGitRoot)).resolves.toBe(true);
-    expect(await git(failing.repositoryPath, [
-      "show-ref",
-      "--verify",
-      resolveManagedWorktreeSnapshotRef(failing.worktreeGitRoot),
-    ])).toContain(resolveManagedWorktreeSnapshotRef(failing.worktreeGitRoot));
+    expect(
+      await git(failing.repositoryPath, [
+        "show-ref",
+        "--verify",
+        resolveManagedWorktreeSnapshotRef(failing.worktreeGitRoot),
+      ]),
+    ).toContain(resolveManagedWorktreeSnapshotRef(failing.worktreeGitRoot));
   });
 
   test("lists only contained two-level managed worktrees", async () => {
@@ -248,14 +264,16 @@ describe("managed worktree data-safety effects", () => {
       hostId: "local",
       managedRoot: input.managedRoot,
     });
-    expect(result.entries).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        worktreeGitRoot: input.worktreeGitRoot,
-        repositoryPath: await realpath(input.repositoryPath),
-        ownerThreadId: null,
-        ownerReadFailed: false,
-      }),
-    ]));
+    expect(result.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          worktreeGitRoot: input.worktreeGitRoot,
+          repositoryPath: await realpath(input.repositoryPath),
+          ownerThreadId: null,
+          ownerReadFailed: false,
+        }),
+      ]),
+    );
   });
 });
 

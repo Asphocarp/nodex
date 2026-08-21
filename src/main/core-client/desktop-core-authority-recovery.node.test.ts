@@ -1,10 +1,4 @@
-import {
-  accessSync,
-  constants,
-  existsSync,
-  mkdtempSync,
-  rmSync,
-} from "node:fs";
+import { accessSync, constants, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
@@ -19,10 +13,7 @@ import { applyResultCursor } from "./types";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 
-const waitUntil = async (
-  predicate: () => boolean,
-  message: string,
-): Promise<void> => {
+const waitUntil = async (predicate: () => boolean, message: string): Promise<void> => {
   const deadline = Date.now() + 20_000;
   while (Date.now() < deadline) {
     if (predicate()) return;
@@ -76,13 +67,7 @@ describe("Desktop native Core generation recovery", () => {
       eventSubscription = superviseCoreEventStream({
         initialAfter: rootClient.handshake.commit_head,
         open: (after, onEvent, onCheckpoint, onResyncRequired, signal) =>
-          rootClient.openEventStream(
-            after,
-            onEvent,
-            onCheckpoint,
-            onResyncRequired,
-            signal,
-          ),
+          rootClient.openEventStream(after, onEvent, onCheckpoint, onResyncRequired, signal),
         onEvent: () => undefined,
         onResyncRequired: () => undefined,
         retryDelayMs: 10,

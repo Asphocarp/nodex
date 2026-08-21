@@ -1,8 +1,4 @@
-import {
-  memo,
-  Suspense,
-  type ComponentType,
-} from "react";
+import { memo, Suspense, type ComponentType } from "react";
 import {
   appScope,
   scopedAtom,
@@ -15,8 +11,8 @@ export interface ModalCloseProps {
   readonly onClose: () => void;
 }
 
-export type ModalOpenProps<Props extends ModalCloseProps> =
-  Omit<Props, "onClose"> & Partial<Pick<Props, "onClose">>;
+export type ModalOpenProps<Props extends ModalCloseProps> = Omit<Props, "onClose"> &
+  Partial<Pick<Props, "onClose">>;
 
 interface ModalEntry {
   readonly key: number;
@@ -52,10 +48,7 @@ export function openModal<Props extends ModalCloseProps>(
     };
 
     return {
-      modals: [
-        ...previous.modals.filter((candidate) => candidate.component !== component),
-        entry,
-      ],
+      modals: [...previous.modals.filter((candidate) => candidate.component !== component), entry],
       nextKey: existing ? previous.nextKey : previous.nextKey + 1,
     };
   });
@@ -80,9 +73,9 @@ export function updateOpenModalProps<Props extends ModalCloseProps>(
   if (!isModalOpen(appHandle, component)) return false;
   appHandle.set(modalRegistryAtom, (previous) => ({
     ...previous,
-    modals: previous.modals.map((entry) => entry.component === component
-      ? { ...entry, props: { ...entry.props, ...patch } }
-      : entry),
+    modals: previous.modals.map((entry) =>
+      entry.component === component ? { ...entry, props: { ...entry.props, ...patch } } : entry,
+    ),
   }));
   return true;
 }
@@ -91,18 +84,15 @@ export function isModalOpen<Props extends ModalCloseProps>(
   appHandle: ScopeHandle,
   component: ComponentType<Props>,
 ): boolean {
-  return appHandle
-    .get(modalRegistryAtom)
-    .modals
-    .some((entry) => entry.component === component);
+  return appHandle.get(modalRegistryAtom).modals.some((entry) => entry.component === component);
 }
 
 export function useIsModalOpen<Props extends ModalCloseProps>(
   component: ComponentType<Props>,
 ): boolean {
-  return useScopedAtomValue(modalRegistryAtom)
-    .modals
-    .some((entry) => entry.component === component);
+  return useScopedAtomValue(modalRegistryAtom).modals.some(
+    (entry) => entry.component === component,
+  );
 }
 
 const NodexModalHostEntry = memo(function NodexModalHostEntry({

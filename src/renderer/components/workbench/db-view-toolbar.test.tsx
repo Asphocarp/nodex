@@ -54,20 +54,20 @@ describe("DbViewToolbar", () => {
   test("renders database view tabs and the idle search trigger", async () => {
     const { DB_VIEW_TOOLBAR_TEST_ID, DbViewToolbar } = await import("./db-view-toolbar");
     const { container, getByLabelText, getByText, getByTestId } = render(
-      <DbViewToolbar
-        {...BASE_PROPS}
-        activeSearchQuery=""
-        taskSearchOpen={false}
-      />,
+      <DbViewToolbar {...BASE_PROPS} activeSearchQuery="" taskSearchOpen={false} />,
     );
 
-    expect(getByTestId(DB_VIEW_TOOLBAR_TEST_ID).getAttribute("data-testid")).toBe(DB_VIEW_TOOLBAR_TEST_ID);
+    expect(getByTestId(DB_VIEW_TOOLBAR_TEST_ID).getAttribute("data-testid")).toBe(
+      DB_VIEW_TOOLBAR_TEST_ID,
+    );
     expect(getByLabelText("Database views").getAttribute("aria-label")).toBe("Database views");
     expect(getByText("Board").textContent).toBe("Board");
     expect(getByText("List").textContent).toBe("List");
     expect(container.querySelectorAll('[data-tab-label-visible="true"]').length).toBe(1);
     expect(getByLabelText("Search").getAttribute("aria-label")).toBe("Search");
-    expect(getByTestId(DB_VIEW_TOOLBAR_TEST_ID).querySelector('[aria-hidden="true"]') !== null).toBe(true);
+    expect(
+      getByTestId(DB_VIEW_TOOLBAR_TEST_ID).querySelector('[aria-hidden="true"]') !== null,
+    ).toBe(true);
   });
 
   test("renders Canvas as an adjacent destination action, not a Database tab", async () => {
@@ -76,12 +76,14 @@ describe("DbViewToolbar", () => {
     const { getByLabelText } = render(
       <DbViewToolbar
         {...BASE_PROPS}
-        destinationItems={[{
-          id: "primary-canvas",
-          label: "Canvas",
-          icon: CanvasIcon,
-          onSelect: onOpenCanvas,
-        }]}
+        destinationItems={[
+          {
+            id: "primary-canvas",
+            label: "Canvas",
+            icon: CanvasIcon,
+            onSelect: onOpenCanvas,
+          },
+        ]}
         activeSearchQuery=""
         taskSearchOpen={false}
       />,
@@ -96,30 +98,28 @@ describe("DbViewToolbar", () => {
   test("renders the inline search field when open or when a query is active", async () => {
     const { DbViewToolbar } = await import("./db-view-toolbar");
     const openRender = render(
-      <DbViewToolbar
-        {...BASE_PROPS}
-        activeSearchQuery="bugfix"
-        taskSearchOpen
-      />,
+      <DbViewToolbar {...BASE_PROPS} activeSearchQuery="bugfix" taskSearchOpen />,
     );
 
     expect(openRender.container.querySelector('[aria-hidden="false"]') !== null).toBe(true);
-    expect(openRender.getByPlaceholderText("Type to search...").getAttribute("placeholder")).toBe("Type to search...");
-    expect(openRender.getByLabelText("Clear search").getAttribute("aria-label")).toBe("Clear search");
+    expect(openRender.getByPlaceholderText("Type to search...").getAttribute("placeholder")).toBe(
+      "Type to search...",
+    );
+    expect(openRender.getByLabelText("Clear search").getAttribute("aria-label")).toBe(
+      "Clear search",
+    );
     expect(openRender.getByDisplayValue("bugfix").getAttribute("value")).toBe("bugfix");
 
     openRender.unmount();
 
     const filteredRender = render(
-      <DbViewToolbar
-        {...BASE_PROPS}
-        activeSearchQuery="bugfix"
-        taskSearchOpen={false}
-      />,
+      <DbViewToolbar {...BASE_PROPS} activeSearchQuery="bugfix" taskSearchOpen={false} />,
     );
 
     expect(filteredRender.container.querySelector('[aria-hidden="false"]') !== null).toBe(true);
-    expect(filteredRender.getByPlaceholderText("Type to search...").getAttribute("placeholder")).toBe("Type to search...");
+    expect(
+      filteredRender.getByPlaceholderText("Type to search...").getAttribute("placeholder"),
+    ).toBe("Type to search...");
     expect(filteredRender.getByDisplayValue("bugfix").getAttribute("value")).toBe("bugfix");
   });
 
@@ -146,12 +146,12 @@ describe("DbViewToolbar", () => {
         {...BASE_PROPS}
         activeSearchQuery=""
         taskSearchOpen={false}
-        databaseViewControls={(
+        databaseViewControls={
           <>
             <button type="button">Filter View</button>
             <button type="button">Display options</button>
           </>
-        )}
+        }
       />,
     );
 

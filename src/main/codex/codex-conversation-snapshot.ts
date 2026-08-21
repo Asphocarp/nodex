@@ -28,10 +28,12 @@ const DEFAULT_COLLABORATION_MODE_STATE: CodexCollaborationModeState = {
 };
 
 function sortConversationItems(left: CodexTranscriptEntry, right: CodexTranscriptEntry): number {
-  return (left.sequence ?? 0) - (right.sequence ?? 0)
-    || left.createdAt - right.createdAt
-    || left.updatedAt - right.updatedAt
-    || left.itemId.localeCompare(right.itemId);
+  return (
+    (left.sequence ?? 0) - (right.sequence ?? 0) ||
+    left.createdAt - right.createdAt ||
+    left.updatedAt - right.updatedAt ||
+    left.itemId.localeCompare(right.itemId)
+  );
 }
 
 function sortTurnItemsByCanonicalOrder(
@@ -69,13 +71,16 @@ export function buildCodexConversationTurn(
   const nullableTurnId = (turn as { turnId: string | null }).turnId;
   const projectedItemIds = new Set(turn.itemIds);
   const items = detail.transcript
-    .filter((entry) => nullableTurnId === null && projectedItemIds.size > 0
-      ? projectedItemIds.has(entry.itemId)
-      : entry.turnId === turn.turnId)
+    .filter((entry) =>
+      nullableTurnId === null && projectedItemIds.size > 0
+        ? projectedItemIds.has(entry.itemId)
+        : entry.turnId === turn.turnId,
+    )
     .sort(sortConversationItems);
 
-  const orderedItems = sortTurnItemsByCanonicalOrder(items, turn)
-    .map<CodexConversationItem>((entry) => ({ ...entry }));
+  const orderedItems = sortTurnItemsByCanonicalOrder(items, turn).map<CodexConversationItem>(
+    (entry) => ({ ...entry }),
+  );
 
   return {
     ...turn,
@@ -106,7 +111,8 @@ export function buildCodexConversationSnapshot(input: {
 
   return {
     ...detail,
-    latestCollaborationMode: input.detail.latestCollaborationMode ?? DEFAULT_COLLABORATION_MODE_STATE,
+    latestCollaborationMode:
+      input.detail.latestCollaborationMode ?? DEFAULT_COLLABORATION_MODE_STATE,
     latestThreadSettings: input.detail.latestThreadSettings ?? null,
     latestTokenUsageInfo: input.detail.latestTokenUsageInfo ?? null,
     threadGoal: input.threadGoal ?? null,
@@ -130,8 +136,12 @@ export function buildCodexConversationSnapshot(input: {
       ? {}
       : { unreadMessageCount: input.unreadMessageCount }),
     requests: [...input.requests],
-    queuedFollowUps: [...(input.queuedFollowUps ?? [])].sort((left, right) => left.createdAt - right.createdAt),
-    pendingSteers: [...(input.pendingSteers ?? [])].sort((left, right) => left.createdAt - right.createdAt),
+    queuedFollowUps: [...(input.queuedFollowUps ?? [])].sort(
+      (left, right) => left.createdAt - right.createdAt,
+    ),
+    pendingSteers: [...(input.pendingSteers ?? [])].sort(
+      (left, right) => left.createdAt - right.createdAt,
+    ),
     backgroundTerminalRows: [...(input.backgroundTerminalRows ?? [])],
     childMemberships: [...(input.childMemberships ?? [])],
     capabilityFlags: input.capabilityFlags,

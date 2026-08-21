@@ -13,10 +13,7 @@ import {
   SearchV5OutputSchema,
 } from "./v5-schemas";
 
-const defineV5Contract = <
-  TInputSchema extends z.ZodType,
-  TOutputSchema extends z.ZodType,
->(
+const defineV5Contract = <TInputSchema extends z.ZodType, TOutputSchema extends z.ZodType>(
   contract: NodexAgentToolContract<TInputSchema, TOutputSchema>,
 ): NodexAgentToolContract<TInputSchema, TOutputSchema> => contract;
 

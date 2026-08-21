@@ -10,10 +10,7 @@ import {
   type RefObject,
 } from "react";
 import { useReducedMotionConfig } from "motion/react";
-import {
-  FastModeIcon,
-  ChevronDownIcon,
-} from "@/components/shared/icons";
+import { FastModeIcon, ChevronDownIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
 import { COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME } from "../shared/composer-footer-controls";
@@ -23,8 +20,7 @@ export const INTELLIGENCE_SELECTOR_FAST_SLOT_WIDTH_PX = 18;
 export const INTELLIGENCE_SELECTOR_SIDE_OFFSET_PX = 8;
 
 const INTELLIGENCE_SELECTOR_ALIGN_NUDGE_PX = 1;
-const INTELLIGENCE_SELECTOR_WIDTH_TRANSITION =
-  "inline-size 320ms cubic-bezier(0.23, 1, 0.32, 1)";
+const INTELLIGENCE_SELECTOR_WIDTH_TRANSITION = "inline-size 320ms cubic-bezier(0.23, 1, 0.32, 1)";
 
 export interface IntelligenceSelectorLabelCandidate {
   id: string;
@@ -61,9 +57,9 @@ export function resolveIntelligenceSelectorExpandedContentWidth(input: {
 
   return Math.max(
     input.maxLabelWidth,
-    INTELLIGENCE_SELECTOR_MENU_WIDTH_PX
-      - input.triggerChromeWidth
-      - INTELLIGENCE_SELECTOR_FAST_SLOT_WIDTH_PX,
+    INTELLIGENCE_SELECTOR_MENU_WIDTH_PX -
+      input.triggerChromeWidth -
+      INTELLIGENCE_SELECTOR_FAST_SLOT_WIDTH_PX,
   );
 }
 
@@ -75,12 +71,13 @@ export function resolveIntelligenceSelectorAlignOffset(input: {
     return undefined;
   }
 
-  const expandedTriggerWidth = input.triggerChromeWidth
-    + INTELLIGENCE_SELECTOR_FAST_SLOT_WIDTH_PX
-    + input.expandedContentWidth;
+  const expandedTriggerWidth =
+    input.triggerChromeWidth +
+    INTELLIGENCE_SELECTOR_FAST_SLOT_WIDTH_PX +
+    input.expandedContentWidth;
   return (
-    (expandedTriggerWidth - INTELLIGENCE_SELECTOR_MENU_WIDTH_PX) / 2
-    - INTELLIGENCE_SELECTOR_ALIGN_NUDGE_PX
+    (expandedTriggerWidth - INTELLIGENCE_SELECTOR_MENU_WIDTH_PX) / 2 -
+    INTELLIGENCE_SELECTOR_ALIGN_NUDGE_PX
   );
 }
 
@@ -109,10 +106,10 @@ export function useIntelligenceSelectorTriggerGeometry(
 
     setMeasurements((current) => {
       if (
-        current.maxLabelWidth !== null
-        && current.triggerChromeWidth !== null
-        && Math.abs(current.maxLabelWidth - maxLabelWidth) <= 0.5
-        && Math.abs(current.triggerChromeWidth - triggerChromeWidth) <= 0.5
+        current.maxLabelWidth !== null &&
+        current.triggerChromeWidth !== null &&
+        Math.abs(current.maxLabelWidth - maxLabelWidth) <= 0.5 &&
+        Math.abs(current.triggerChromeWidth - triggerChromeWidth) <= 0.5
       ) {
         return current;
       }
@@ -202,8 +199,10 @@ function IntelligenceSelectorLabel({
   );
 }
 
-interface IntelligenceSelectorTriggerProps
-  extends Omit<ComponentPropsWithoutRef<"button">, "children" | "title"> {
+interface IntelligenceSelectorTriggerProps extends Omit<
+  ComponentPropsWithoutRef<"button">,
+  "children" | "title"
+> {
   geometry: IntelligenceSelectorTriggerGeometry;
   isOpen: boolean;
   labelCandidates: readonly IntelligenceSelectorLabelCandidate[];
@@ -241,24 +240,24 @@ export const IntelligenceSelectorTrigger = forwardRef<
   const prefersReducedMotion = useResolvedReducedMotion();
   const configuredReducedMotion = useReducedMotionConfig();
   const shouldReduceMotion = Boolean(prefersReducedMotion || configuredReducedMotion);
-  const setTriggerRef = useCallback((element: HTMLButtonElement | null) => {
-    geometry.triggerRef.current = element;
-    setForwardedRef(forwardedRef, element);
-  }, [forwardedRef, geometry.triggerRef]);
+  const setTriggerRef = useCallback(
+    (element: HTMLButtonElement | null) => {
+      geometry.triggerRef.current = element;
+      setForwardedRef(forwardedRef, element);
+    },
+    [forwardedRef, geometry.triggerRef],
+  );
   const reserveFastSlot = isOpen || showFastIndicator;
-  const transition = shouldReduceMotion
-    ? "none"
-    : INTELLIGENCE_SELECTOR_WIDTH_TRANSITION;
+  const transition = shouldReduceMotion ? "none" : INTELLIGENCE_SELECTOR_WIDTH_TRANSITION;
   const fastSlotStyle = {
-    inlineSize: reserveFastSlot
-      ? INTELLIGENCE_SELECTOR_FAST_SLOT_WIDTH_PX
-      : 0,
+    inlineSize: reserveFastSlot ? INTELLIGENCE_SELECTOR_FAST_SLOT_WIDTH_PX : 0,
     transition,
   } satisfies CSSProperties;
   const contentStyle = {
-    inlineSize: isOpen && geometry.expandedContentWidth !== undefined
-      ? geometry.expandedContentWidth
-      : undefined,
+    inlineSize:
+      isOpen && geometry.expandedContentWidth !== undefined
+        ? geometry.expandedContentWidth
+        : undefined,
     interpolateSize: "allow-keywords",
     transition,
   } satisfies CSSProperties;
@@ -270,11 +269,7 @@ export const IntelligenceSelectorTrigger = forwardRef<
       type="button"
       aria-label="Select model"
       title={title}
-      className={cn(
-        COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME,
-        "relative min-w-0",
-        className,
-      )}
+      className={cn(COMPOSER_FOOTER_GHOST_BUTTON_CLASS_NAME, "relative min-w-0", className)}
       data-intelligence-selector-trigger="true"
     >
       <span

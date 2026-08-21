@@ -114,16 +114,16 @@ function configApprovalsReviewer(config: Readonly<Partial<Config>>): ApprovalsRe
 
   const flatGuardianApproval = config["features.guardian_approval"];
   const nestedFeatures = config.features;
-  const nestedGuardianApproval = typeof nestedFeatures === "object"
-    && nestedFeatures !== null
-    && !Array.isArray(nestedFeatures)
-    ? Object.getOwnPropertyDescriptor(nestedFeatures, "guardian_approval")?.value
-    : undefined;
-  const guardianApprovalEnabled = typeof flatGuardianApproval === "boolean"
-    ? flatGuardianApproval
-    : typeof nestedGuardianApproval === "boolean"
-      ? nestedGuardianApproval
+  const nestedGuardianApproval =
+    typeof nestedFeatures === "object" && nestedFeatures !== null && !Array.isArray(nestedFeatures)
+      ? Object.getOwnPropertyDescriptor(nestedFeatures, "guardian_approval")?.value
       : undefined;
+  const guardianApprovalEnabled =
+    typeof flatGuardianApproval === "boolean"
+      ? flatGuardianApproval
+      : typeof nestedGuardianApproval === "boolean"
+        ? nestedGuardianApproval
+        : undefined;
   return guardianApprovalEnabled === false ? "user" : reviewer;
 }
 
@@ -134,11 +134,13 @@ function isAutomaticApprovalsReviewer(reviewer: ApprovalsReviewer): boolean {
 function isExactGranularApprovalPolicy(policy: AskForApproval): boolean {
   if (typeof policy !== "object" || policy === null || !("granular" in policy)) return false;
   const granular = policy.granular;
-  return granular.sandbox_approval === GRANULAR_APPROVAL_POLICY.granular.sandbox_approval
-    && granular.rules === GRANULAR_APPROVAL_POLICY.granular.rules
-    && granular.skill_approval === GRANULAR_APPROVAL_POLICY.granular.skill_approval
-    && granular.request_permissions === GRANULAR_APPROVAL_POLICY.granular.request_permissions
-    && granular.mcp_elicitations === GRANULAR_APPROVAL_POLICY.granular.mcp_elicitations;
+  return (
+    granular.sandbox_approval === GRANULAR_APPROVAL_POLICY.granular.sandbox_approval &&
+    granular.rules === GRANULAR_APPROVAL_POLICY.granular.rules &&
+    granular.skill_approval === GRANULAR_APPROVAL_POLICY.granular.skill_approval &&
+    granular.request_permissions === GRANULAR_APPROVAL_POLICY.granular.request_permissions &&
+    granular.mcp_elicitations === GRANULAR_APPROVAL_POLICY.granular.mcp_elicitations
+  );
 }
 
 function isDefaultReadOnlySandbox(policy: SandboxPolicy): boolean {
@@ -146,10 +148,12 @@ function isDefaultReadOnlySandbox(policy: SandboxPolicy): boolean {
 }
 
 function isDefaultWorkspaceWriteSandbox(policy: SandboxPolicy): boolean {
-  return policy.type === "workspaceWrite"
-    && policy.excludeSlashTmp === false
-    && policy.excludeTmpdirEnvVar === false
-    && policy.networkAccess === false;
+  return (
+    policy.type === "workspaceWrite" &&
+    policy.excludeSlashTmp === false &&
+    policy.excludeTmpdirEnvVar === false &&
+    policy.networkAccess === false
+  );
 }
 
 /** Exact bundle `bue`: infer the reusable source agent mode from effective permissions. */
@@ -159,28 +163,26 @@ export function inferCodexDynamicCreatePermissionMode(
   const { approvalPolicy, approvalsReviewer, sandboxPolicy } = context;
   if (approvalPolicy == null || sandboxPolicy == null) return null;
   if (
-    sandboxPolicy.type === "readOnly"
-    && approvalPolicy === "on-request"
-    && isDefaultReadOnlySandbox(sandboxPolicy)
+    sandboxPolicy.type === "readOnly" &&
+    approvalPolicy === "on-request" &&
+    isDefaultReadOnlySandbox(sandboxPolicy)
   ) {
     return "read-only";
   }
   if (
-    sandboxPolicy.type === "workspaceWrite"
-    && isExactGranularApprovalPolicy(approvalPolicy)
-    && approvalsReviewer === "user"
-    && isDefaultWorkspaceWriteSandbox(sandboxPolicy)
+    sandboxPolicy.type === "workspaceWrite" &&
+    isExactGranularApprovalPolicy(approvalPolicy) &&
+    approvalsReviewer === "user" &&
+    isDefaultWorkspaceWriteSandbox(sandboxPolicy)
   ) {
     return "granular";
   }
   if (
-    sandboxPolicy.type === "workspaceWrite"
-    && approvalPolicy === "on-request"
-    && isDefaultWorkspaceWriteSandbox(sandboxPolicy)
+    sandboxPolicy.type === "workspaceWrite" &&
+    approvalPolicy === "on-request" &&
+    isDefaultWorkspaceWriteSandbox(sandboxPolicy)
   ) {
-    return isAutomaticApprovalsReviewer(approvalsReviewer)
-      ? "guardian-approvals"
-      : "auto";
+    return isAutomaticApprovalsReviewer(approvalsReviewer) ? "guardian-approvals" : "auto";
   }
   if (sandboxPolicy.type === "dangerFullAccess" && approvalPolicy === "never") {
     return "full-access";
@@ -199,10 +201,7 @@ function workspaceWriteContext(input: {
     activePermissionProfile: input.activePermissionProfile,
     sandboxPolicy: {
       type: "workspaceWrite",
-      writableRoots: [
-        ...input.workspaceRoots,
-        ...(input.config?.writable_roots ?? []),
-      ],
+      writableRoots: [...input.workspaceRoots, ...(input.config?.writable_roots ?? [])],
       excludeSlashTmp: input.config?.exclude_slash_tmp ?? false,
       excludeTmpdirEnvVar: input.config?.exclude_tmpdir_env_var ?? false,
       networkAccess: input.config?.network_access ?? false,
@@ -252,9 +251,8 @@ export function buildCodexDynamicCreatePermissionContextForMode(input: {
   }
   if (input.mode === "guardian-approvals") {
     const approvalPolicy = input.config.approval_policy;
-    const usesOnRequest = approvalPolicy === null
-      || approvalPolicy === undefined
-      || approvalPolicy === "on-request";
+    const usesOnRequest =
+      approvalPolicy === null || approvalPolicy === undefined || approvalPolicy === "on-request";
     if (input.config.sandbox_mode === "read-only" && usesOnRequest) {
       return {
         activePermissionProfile: { id: ":read-only", extends: null },
@@ -368,15 +366,15 @@ function clonePermissionContext(
     ...(context.runtimeWorkspaceRoots === undefined
       ? {}
       : {
-          runtimeWorkspaceRoots: context.runtimeWorkspaceRoots === null
-            ? null
-            : [...context.runtimeWorkspaceRoots],
+          runtimeWorkspaceRoots:
+            context.runtimeWorkspaceRoots === null ? null : [...context.runtimeWorkspaceRoots],
         }),
-    approvalPolicy: typeof context.approvalPolicy === "string"
-      ? context.approvalPolicy
-      : {
-          granular: { ...context.approvalPolicy.granular },
-        },
+    approvalPolicy:
+      typeof context.approvalPolicy === "string"
+        ? context.approvalPolicy
+        : {
+            granular: { ...context.approvalPolicy.granular },
+          },
     approvalsReviewer: context.approvalsReviewer,
     sandboxPolicy: cloneSandboxPolicy(context.sandboxPolicy),
   };
@@ -386,12 +384,13 @@ function mergePermissionContextWorkspaceRoots(
   context: CodexDynamicCreatePermissionContext,
   workspaceRoots: readonly string[],
 ): CodexDynamicCreatePermissionContext {
-  const sandboxPolicy = context.sandboxPolicy.type === "workspaceWrite"
-    ? {
-        ...context.sandboxPolicy,
-        writableRoots: appendUniqueRoots(context.sandboxPolicy.writableRoots, workspaceRoots),
-      }
-    : cloneSandboxPolicy(context.sandboxPolicy);
+  const sandboxPolicy =
+    context.sandboxPolicy.type === "workspaceWrite"
+      ? {
+          ...context.sandboxPolicy,
+          writableRoots: appendUniqueRoots(context.sandboxPolicy.writableRoots, workspaceRoots),
+        }
+      : cloneSandboxPolicy(context.sandboxPolicy);
   return {
     ...clonePermissionContext(context),
     runtimeWorkspaceRoots: appendUniqueRoots(context.runtimeWorkspaceRoots ?? [], workspaceRoots),
@@ -564,9 +563,7 @@ export function resolveCodexDynamicCreatePermissionSelection(
     context,
     launchParams: buildLaunchParams(context),
     mode: selectedSource?.mode ?? input.destination.defaultMode,
-    ...(sourcePermissionProfileId === undefined
-      ? {}
-      : { sourcePermissionProfileId }),
+    ...(sourcePermissionProfileId === undefined ? {} : { sourcePermissionProfileId }),
     turnParams: buildTurnParams(context),
   };
 }

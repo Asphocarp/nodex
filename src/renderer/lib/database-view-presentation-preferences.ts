@@ -11,26 +11,21 @@ import {
   type DatabaseViewPersonalPresentationV2,
 } from "../../shared/database-module-v2";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
-import {
-  applyDatabaseModule,
-  readDatabaseModule,
-  subscribeDatabaseChanges,
-} from "./api";
+import { applyDatabaseModule, readDatabaseModule, subscribeDatabaseChanges } from "./api";
 
 const LEGACY_STORAGE_KEY = "nodex-database-view-presentation-overrides-v1";
-const EMPTY_OVERRIDES: Readonly<Record<string, DatabaseViewPresentationOverride>> =
-  Object.freeze({});
+const EMPTY_OVERRIDES: Readonly<Record<string, DatabaseViewPresentationOverride>> = Object.freeze(
+  {},
+);
 
 type OverrideMap = Readonly<Record<string, DatabaseViewPresentationOverride>>;
 
 const record = (value: unknown): Readonly<Record<string, unknown>> | null =>
   typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Readonly<Record<string, unknown>>
+    ? (value as Readonly<Record<string, unknown>>)
     : null;
 
-export const normalizeDatabaseViewPresentationPreferences = (
-  value: unknown,
-): OverrideMap => {
+export const normalizeDatabaseViewPresentationPreferences = (value: unknown): OverrideMap => {
   const candidates = record(value);
   if (!candidates) return EMPTY_OVERRIDES;
   const normalized: Record<string, DatabaseViewPresentationOverride> = {};
@@ -50,9 +45,7 @@ const readLegacyOverrides = (): OverrideMap => {
   if (typeof window === "undefined") return EMPTY_OVERRIDES;
   try {
     const raw = window.localStorage.getItem(LEGACY_STORAGE_KEY);
-    return raw
-      ? normalizeDatabaseViewPresentationPreferences(JSON.parse(raw))
-      : EMPTY_OVERRIDES;
+    return raw ? normalizeDatabaseViewPresentationPreferences(JSON.parse(raw)) : EMPTY_OVERRIDES;
   } catch {
     return EMPTY_OVERRIDES;
   }
@@ -78,9 +71,7 @@ const removeMigratedLegacyOverride = (viewId: string): void => {
 const normalizePresentation = (
   input: DatabaseViewPersonalPresentationV2,
 ): DatabaseViewPersonalPresentationV2 => ({
-  presentationOverride: parseDatabaseViewPresentationOverride(
-    input.presentationOverride,
-  ),
+  presentationOverride: parseDatabaseViewPresentationOverride(input.presentationOverride),
   revision: input.revision,
 });
 
@@ -95,9 +86,10 @@ const disclosureTargetKey = (target: DatabaseViewDisclosureTargetV2): string =>
 const receiptPresentationRevision = (
   receipt: DatabaseApplyReceiptV2,
   viewId: DatabaseViewId,
-): number | null => Object.entries(receipt.committedRevisions).find(
-  ([key]) => key.startsWith("view_presentation:") && key.endsWith(`:${viewId}`),
-)?.[1] ?? null;
+): number | null =>
+  Object.entries(receipt.committedRevisions).find(
+    ([key]) => key.startsWith("view_presentation:") && key.endsWith(`:${viewId}`),
+  )?.[1] ?? null;
 
 const readCorePresentation = async (
   projectId: string,
@@ -162,17 +154,18 @@ const writeCorePresentation = async (input: {
     operationId: crypto.randomUUID(),
     storeEpoch: input.storeEpoch,
     actor: { kind: "renderer_database_view_personal_state" },
-    operations: [{
-      kind: "put_view_personal_presentation",
-      viewId: input.viewId,
-      expectedRevision: input.value.revision,
-      presentationOverride: input.value.presentationOverride,
-    }],
+    operations: [
+      {
+        kind: "put_view_personal_presentation",
+        viewId: input.viewId,
+        expectedRevision: input.value.revision,
+        presentationOverride: input.value.presentationOverride,
+      },
+    ],
   });
   if (!result.ok) throw new Error(result.error.message);
   return {
-    revision: receiptPresentationRevision(result.value, input.viewId)
-      ?? input.value.revision + 1,
+    revision: receiptPresentationRevision(result.value, input.viewId) ?? input.value.revision + 1,
     commitSeq: result.value.commitSeq,
   };
 };
@@ -189,12 +182,14 @@ const writeCoreDisclosure = async (input: {
     operationId: crypto.randomUUID(),
     storeEpoch: input.storeEpoch,
     actor: { kind: "renderer_database_view_personal_state" },
-    operations: [{
-      kind: "set_view_occurrence_disclosure",
-      viewId: input.viewId,
-      target: input.target,
-      collapsed: input.collapsed,
-    }],
+    operations: [
+      {
+        kind: "set_view_occurrence_disclosure",
+        viewId: input.viewId,
+        target: input.target,
+        collapsed: input.collapsed,
+      },
+    ],
   });
   if (!result.ok) throw new Error(result.error.message);
   return result.value.commitSeq;
@@ -266,11 +261,14 @@ class DatabaseViewPersonalStateStore {
   private hydrationError: string | null = null;
   private presentationLocalEditVersion = 0;
   private disclosureEditSequence = 0;
-  private readonly disclosureOverrides = new Map<string, {
-    readonly target: DatabaseViewDisclosureTargetV2;
-    readonly collapsed: boolean;
-    readonly version: number;
-  }>();
+  private readonly disclosureOverrides = new Map<
+    string,
+    {
+      readonly target: DatabaseViewDisclosureTargetV2;
+      readonly collapsed: boolean;
+      readonly version: number;
+    }
+  >();
   private pendingPresentationWrites = 0;
   private pendingDisclosureWrites = 0;
   private generation = 0;
@@ -349,10 +347,7 @@ class DatabaseViewPersonalStateStore {
     return hydration;
   }
 
-  private async hydrate(
-    generation: number,
-    expectedStoreEpoch: string | null,
-  ): Promise<void> {
+  private async hydrate(generation: number, expectedStoreEpoch: string | null): Promise<void> {
     this.publish({ loading: true, error: null });
     try {
       const [loadedPresentation, disclosure] = await Promise.all([
@@ -364,16 +359,12 @@ class DatabaseViewPersonalStateStore {
       if (presentation.storeEpoch !== disclosure.storeEpoch) {
         throw new Error("Database View personal state read crossed a Store epoch");
       }
-      if (
-        expectedStoreEpoch !== null
-        && presentation.storeEpoch !== expectedStoreEpoch
-      ) {
+      if (expectedStoreEpoch !== null && presentation.storeEpoch !== expectedStoreEpoch) {
         throw new Error("Database View personal state read crossed a Store epoch");
       }
 
-      const legacy = presentation.value.revision === 0
-        ? readLegacyOverrides()[this.viewId]
-        : undefined;
+      const legacy =
+        presentation.value.revision === 0 ? readLegacyOverrides()[this.viewId] : undefined;
       if (legacy) {
         const result = await writeCorePresentation({
           projectId: this.projectId,
@@ -438,8 +429,8 @@ class DatabaseViewPersonalStateStore {
         this.presentationCommitSeq = event.commitSeq;
         this.committedPresentation = incoming;
         if (
-          this.pendingPresentationWrites === 0
-          || sameOverride(this.desiredPresentation.presentationOverride, incoming.presentationOverride)
+          this.pendingPresentationWrites === 0 ||
+          sameOverride(this.desiredPresentation.presentationOverride, incoming.presentationOverride)
         ) {
           this.desiredPresentation = incoming;
         }
@@ -493,58 +484,66 @@ class DatabaseViewPersonalStateStore {
 
     const generation = this.generation;
     let succeeded = true;
-    const operation = this.presentationWriteChain.catch(() => undefined).then(async () => {
-      await this.ensureHydrated();
-      if (generation !== this.generation || !this.hydrated) {
-        succeeded = false;
-        return;
-      }
-      const desired = this.desiredPresentation;
-      if (sameOverride(
-        desired.presentationOverride,
-        this.committedPresentation.presentationOverride,
-      )) {
-        this.desiredPresentation = this.committedPresentation;
-        return;
-      }
-      try {
-        const result = await writeCorePresentation({
-          projectId: this.projectId,
-          viewId: this.viewId,
-          storeEpoch: this.storeEpoch,
-          value: {
-            presentationOverride: desired.presentationOverride,
-            revision: this.committedPresentation.revision,
-          },
-        });
-        if (generation !== this.generation) return;
-        const committed = { ...desired, revision: result.revision };
-        if (result.commitSeq >= this.presentationCommitSeq) {
-          this.presentationCommitSeq = result.commitSeq;
-          this.committedPresentation = committed;
+    const operation = this.presentationWriteChain
+      .catch(() => undefined)
+      .then(async () => {
+        await this.ensureHydrated();
+        if (generation !== this.generation || !this.hydrated) {
+          succeeded = false;
+          return;
         }
-        this.desiredPresentation = sameOverride(
-          this.desiredPresentation.presentationOverride,
-          desired.presentationOverride,
-        )
-          ? this.committedPresentation
-          : { ...this.desiredPresentation, revision: result.revision };
-      } catch (cause) {
-        if (generation !== this.generation) return;
-        succeeded = false;
-        try {
-          await this.refreshPresentation(generation);
-        } catch {
+        const desired = this.desiredPresentation;
+        if (
+          sameOverride(
+            desired.presentationOverride,
+            this.committedPresentation.presentationOverride,
+          )
+        ) {
           this.desiredPresentation = this.committedPresentation;
+          return;
         }
-        this.hydrationError = cause instanceof Error ? cause.message : String(cause);
-      }
-    }).finally(() => {
-      if (generation !== this.generation) return;
-      this.pendingPresentationWrites = Math.max(0, this.pendingPresentationWrites - 1);
-      this.publish({ error: succeeded ? null : this.hydrationError });
-    });
-    this.presentationWriteChain = operation.then(() => undefined, () => undefined);
+        try {
+          const result = await writeCorePresentation({
+            projectId: this.projectId,
+            viewId: this.viewId,
+            storeEpoch: this.storeEpoch,
+            value: {
+              presentationOverride: desired.presentationOverride,
+              revision: this.committedPresentation.revision,
+            },
+          });
+          if (generation !== this.generation) return;
+          const committed = { ...desired, revision: result.revision };
+          if (result.commitSeq >= this.presentationCommitSeq) {
+            this.presentationCommitSeq = result.commitSeq;
+            this.committedPresentation = committed;
+          }
+          this.desiredPresentation = sameOverride(
+            this.desiredPresentation.presentationOverride,
+            desired.presentationOverride,
+          )
+            ? this.committedPresentation
+            : { ...this.desiredPresentation, revision: result.revision };
+        } catch (cause) {
+          if (generation !== this.generation) return;
+          succeeded = false;
+          try {
+            await this.refreshPresentation(generation);
+          } catch {
+            this.desiredPresentation = this.committedPresentation;
+          }
+          this.hydrationError = cause instanceof Error ? cause.message : String(cause);
+        }
+      })
+      .finally(() => {
+        if (generation !== this.generation) return;
+        this.pendingPresentationWrites = Math.max(0, this.pendingPresentationWrites - 1);
+        this.publish({ error: succeeded ? null : this.hydrationError });
+      });
+    this.presentationWriteChain = operation.then(
+      () => undefined,
+      () => undefined,
+    );
     return operation.then(() => succeeded);
   };
 
@@ -564,47 +563,53 @@ class DatabaseViewPersonalStateStore {
     const generation = this.generation;
     let succeeded = true;
     const previous = this.disclosureWriteChains.get(targetKey) ?? Promise.resolve();
-    const operation = previous.catch(() => undefined).then(async () => {
-      await this.ensureHydrated();
-      if (generation !== this.generation || !this.hydrated) {
-        succeeded = false;
-        return;
-      }
-      try {
-        const commitSeq = await writeCoreDisclosure({
-          projectId: this.projectId,
-          viewId: this.viewId,
-          storeEpoch: this.storeEpoch,
-          target,
-          collapsed,
-        });
-        if (generation !== this.generation) return;
-        const seen = this.disclosureCommitSeqByTarget.get(targetKey) ?? 0;
-        if (commitSeq >= seen) {
-          this.disclosureCommitSeqByTarget.set(targetKey, commitSeq);
-          this.disclosureCommitSeq = Math.max(this.disclosureCommitSeq, commitSeq);
-          this.applyCommittedDisclosure(target, collapsed);
+    const operation = previous
+      .catch(() => undefined)
+      .then(async () => {
+        await this.ensureHydrated();
+        if (generation !== this.generation || !this.hydrated) {
+          succeeded = false;
+          return;
         }
-      } catch (cause) {
-        if (generation !== this.generation) return;
-        succeeded = false;
         try {
-          await this.refreshDisclosure(generation);
-        } catch {
-          // Keep the optimistic state visible until a later authoritative event/read.
+          const commitSeq = await writeCoreDisclosure({
+            projectId: this.projectId,
+            viewId: this.viewId,
+            storeEpoch: this.storeEpoch,
+            target,
+            collapsed,
+          });
+          if (generation !== this.generation) return;
+          const seen = this.disclosureCommitSeqByTarget.get(targetKey) ?? 0;
+          if (commitSeq >= seen) {
+            this.disclosureCommitSeqByTarget.set(targetKey, commitSeq);
+            this.disclosureCommitSeq = Math.max(this.disclosureCommitSeq, commitSeq);
+            this.applyCommittedDisclosure(target, collapsed);
+          }
+        } catch (cause) {
+          if (generation !== this.generation) return;
+          succeeded = false;
+          try {
+            await this.refreshDisclosure(generation);
+          } catch {
+            // Keep the optimistic state visible until a later authoritative event/read.
+          }
+          this.hydrationError = cause instanceof Error ? cause.message : String(cause);
         }
-        this.hydrationError = cause instanceof Error ? cause.message : String(cause);
-      }
-    }).finally(() => {
-      if (generation !== this.generation) return;
-      if (this.disclosureOverrides.get(targetKey)?.version === version) {
-        this.disclosureOverrides.delete(targetKey);
-      }
-      this.rebuildCollapsedOccurrences();
-      this.pendingDisclosureWrites = Math.max(0, this.pendingDisclosureWrites - 1);
-      this.publish({ error: succeeded ? null : this.hydrationError });
-    });
-    const settled = operation.then(() => undefined, () => undefined);
+      })
+      .finally(() => {
+        if (generation !== this.generation) return;
+        if (this.disclosureOverrides.get(targetKey)?.version === version) {
+          this.disclosureOverrides.delete(targetKey);
+        }
+        this.rebuildCollapsedOccurrences();
+        this.pendingDisclosureWrites = Math.max(0, this.pendingDisclosureWrites - 1);
+        this.publish({ error: succeeded ? null : this.hydrationError });
+      });
+    const settled = operation.then(
+      () => undefined,
+      () => undefined,
+    );
     this.disclosureWriteChains.set(targetKey, settled);
     void settled.finally(() => {
       if (this.disclosureWriteChains.get(targetKey) === settled) {
@@ -670,10 +675,13 @@ class DatabaseViewPersonalStateStore {
 }
 
 class DatabaseViewPersonalStateRegistry {
-  private readonly stores = new Map<string, {
-    readonly store: DatabaseViewPersonalStateStore;
-    lastAccess: number;
-  }>();
+  private readonly stores = new Map<
+    string,
+    {
+      readonly store: DatabaseViewPersonalStateStore;
+      lastAccess: number;
+    }
+  >();
   private accessSequence = 0;
 
   getStore(projectId: string, viewId: DatabaseViewId): DatabaseViewPersonalStateStore {
@@ -733,15 +741,12 @@ export const useDatabaseViewPresentationPreference = (
     () => sharedPersonalStateRegistry.getStore(projectId, viewId),
     [projectId, viewId],
   );
-  const snapshot = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot,
-    store.getSnapshot,
-  );
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   return {
-    presentationOverride: Object.keys(snapshot.presentation.presentationOverride).length === 0
-      ? undefined
-      : snapshot.presentation.presentationOverride,
+    presentationOverride:
+      Object.keys(snapshot.presentation.presentationOverride).length === 0
+        ? undefined
+        : snapshot.presentation.presentationOverride,
     collapsedOccurrenceKeys: snapshot.collapsedOccurrenceKeys,
     presentationRevision: snapshot.presentation.revision,
     loading: snapshot.loading,

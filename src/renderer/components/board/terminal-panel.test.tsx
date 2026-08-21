@@ -47,8 +47,9 @@ describe("TerminalPanel", () => {
     expect(terminalRoot instanceof HTMLElement).toBe(true);
     expect(terminalRoot?.getAttribute("data-codex-xterm")).toBe("true");
     expect(queryByText("Session Terminal")).toBe(null);
-    expect(getByText("Terminal requires the Electron desktop app").textContent)
-      .toBe("Terminal requires the Electron desktop app");
+    expect(getByText("Terminal requires the Electron desktop app").textContent).toBe(
+      "Terminal requires the Electron desktop app",
+    );
   });
 
   test("passes a normalized cwd into the terminal hook", async () => {
@@ -62,23 +63,20 @@ describe("TerminalPanel", () => {
       />,
     );
 
-    expect(JSON.stringify(useTerminalCalls[0])).toBe(JSON.stringify({
-      terminalId: "terminal-test",
-      visible: true,
-      cwd: "/Users/asc/repo/nodex",
-      conversationId: "thread-1",
-      projectSessionId: "session-1",
-    }));
+    expect(JSON.stringify(useTerminalCalls[0])).toBe(
+      JSON.stringify({
+        terminalId: "terminal-test",
+        visible: true,
+        cwd: "/Users/asc/repo/nodex",
+        conversationId: "thread-1",
+        projectSessionId: "session-1",
+      }),
+    );
   });
 
   test("blocks blank cwd instead of attaching a PTY with its process default", async () => {
     const { TerminalPanel } = await import("./terminal-panel");
-    render(
-      <TerminalPanel
-        terminalId="terminal-test"
-        cwd="   "
-      />,
-    );
+    render(<TerminalPanel terminalId="terminal-test" cwd="   " />);
 
     expect(useTerminalCalls).toHaveLength(0);
     expect(document.body.textContent).toContain("Terminal workspace is unavailable");
@@ -94,9 +92,7 @@ describe("TerminalPanel", () => {
       },
     };
     const { TerminalPanel } = await import("./terminal-panel");
-    const view = render(
-      <TerminalPanel terminalId="terminal-test" cwd="/Users/asc/repo/nodex" />,
-    );
+    const view = render(<TerminalPanel terminalId="terminal-test" cwd="/Users/asc/repo/nodex" />);
 
     expect(view.getByText("Active in another window")).toBeTruthy();
     await act(async () => {

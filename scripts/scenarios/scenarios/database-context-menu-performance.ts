@@ -26,10 +26,10 @@ export const requireDatabaseContextMenuPerformanceFacts = (
   const envelope = parseScenarioFacts(value);
   const candidate = value as Record<string, unknown>;
   if (
-    envelope.scenarioId !== DATABASE_CONTEXT_MENU_PERFORMANCE_SCENARIO_ID
-    || envelope.scenarioRevision !== DATABASE_CONTEXT_MENU_PERFORMANCE_SCENARIO_REVISION
-    || candidate.totalRows !== DATABASE_CONTEXT_MENU_PERFORMANCE_PAGE_COUNT
-    || candidate.propertyCount !== DATABASE_CONTEXT_MENU_PERFORMANCE_PROPERTY_COUNT
+    envelope.scenarioId !== DATABASE_CONTEXT_MENU_PERFORMANCE_SCENARIO_ID ||
+    envelope.scenarioRevision !== DATABASE_CONTEXT_MENU_PERFORMANCE_SCENARIO_REVISION ||
+    candidate.totalRows !== DATABASE_CONTEXT_MENU_PERFORMANCE_PAGE_COUNT ||
+    candidate.propertyCount !== DATABASE_CONTEXT_MENU_PERFORMANCE_PROPERTY_COUNT
   ) {
     throw new Error("database/context-menu-performance facts are invalid");
   }
@@ -89,11 +89,7 @@ const inspect = async (
   manifest: ScenarioManifest,
 ): Promise<DatabaseContextMenuPerformanceFacts> => {
   const [board, propertyCount] = await Promise.all([
-    port.readBoard(
-      manifest.projectId,
-      manifest.databaseViewId,
-      manifest.minimumCommitSeq,
-    ),
+    port.readBoard(manifest.projectId, manifest.databaseViewId, manifest.minimumCommitSeq),
     port.readPrimaryDataSourcePropertyCount(manifest.projectId),
   ]);
   return requireDatabaseContextMenuPerformanceFacts({

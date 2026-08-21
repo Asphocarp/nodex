@@ -1,9 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { queryKeys } from "../../../lib/query-keys";
-import {
-  createTestQueryClient,
-  TestQueryProvider,
-} from "../../../test/query";
+import { createTestQueryClient, TestQueryProvider } from "../../../test/query";
 
 function createLocalConversationTestQueryClient() {
   const client = createTestQueryClient();
@@ -15,11 +12,7 @@ function createLocalConversationTestQueryClient() {
 }
 
 /** Provides isolated server-state defaults for mounted conversation turns. */
-export function LocalConversationTestQueryProvider({
-  children,
-}: {
-  readonly children: ReactNode;
-}) {
+export function LocalConversationTestQueryProvider({ children }: { readonly children: ReactNode }) {
   const [client] = useState(createLocalConversationTestQueryClient);
   return <TestQueryProvider client={client}>{children}</TestQueryProvider>;
 }

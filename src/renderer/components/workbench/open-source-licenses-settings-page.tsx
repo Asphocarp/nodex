@@ -9,11 +9,7 @@ import {
 import { queryKeys } from "@/lib/query-keys";
 import { invoke } from "./workbench-settings-overlay-deps";
 
-export function OpenSourceLicensesSettingsPage({
-  onBack,
-}: {
-  onBack: () => void;
-}) {
+export function OpenSourceLicensesSettingsPage({ onBack }: { onBack: () => void }) {
   const noticesQuery = useQuery({
     queryKey: queryKeys.settings.thirdPartyNotices(),
     queryFn: () => invoke("settings:third-party-notices:get"),
@@ -59,7 +55,7 @@ export function OpenSourceLicensesSettingsPage({
       title="Open source licenses"
       subtitle="Third-party notices for dependencies included in this app"
       contentClassName="max-w-3xl"
-      backSlot={(
+      backSlot={
         <NodexButton
           aria-label="Back to General"
           className="no-drag"
@@ -70,7 +66,7 @@ export function OpenSourceLicensesSettingsPage({
           <ArrowLeft className="icon-xs" />
           Back
         </NodexButton>
-      )}
+      }
     >
       {content}
     </SettingsPageSurface>

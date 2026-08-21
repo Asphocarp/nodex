@@ -4,10 +4,7 @@ import { McpAppHostDispatcher } from "./mcp-app-host-dispatcher";
 
 function scope(toolName: string): McpAppScopeSnapshot {
   return {
-    allowedTools: new Map([[
-      toolName,
-      { name: toolName, inputSchema: { type: "object" } },
-    ]]),
+    allowedTools: new Map([[toolName, { name: toolName, inputSchema: { type: "object" } }]]),
     codexAppsToolScope: null,
     originResourceUri: "ui://calendar/widget",
     resourceTemplates: [],

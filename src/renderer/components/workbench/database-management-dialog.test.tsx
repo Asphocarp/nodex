@@ -32,107 +32,121 @@ const primaryViewId = parseDatabaseViewId("view-primary");
 const listViewId = parseDatabaseViewId("view-list");
 
 test("maps database management failures without leaking authority details", () => {
-  expect(databaseManagementErrorMessage(
-    new DatabaseManagementReadError("databaseModuleReadV2 leaked detail", false),
-  )).toBe("Couldn’t load database settings. Try again.");
-  expect(databaseManagementErrorMessage(new DatabaseManagementMutationError({
-    code: "revision_conflict",
-    message: "databaseApplyV2 leaked detail",
-    retryable: false,
-  }))).toBe("Database settings changed elsewhere. Review and try again.");
+  expect(
+    databaseManagementErrorMessage(
+      new DatabaseManagementReadError("databaseModuleReadV2 leaked detail", false),
+    ),
+  ).toBe("Couldn’t load database settings. Try again.");
+  expect(
+    databaseManagementErrorMessage(
+      new DatabaseManagementMutationError({
+        code: "revision_conflict",
+        message: "databaseApplyV2 leaked detail",
+        retryable: false,
+      }),
+    ),
+  ).toBe("Database settings changed elsewhere. Review and try again.");
 });
 
-const databases: readonly DatabaseContainerDescriptorV2[] = [{
-  database: {
-    databaseId,
-    libraryId,
-    name: "Tasks",
-    lifecycle: "active",
-    defaultViewId: primaryViewId,
-    accessRevision: 1,
-    metadataRevision: 1,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  },
-  dataSources: [{
-    dataSourceId,
-    libraryId,
-    homeDatabaseId: databaseId,
-    name: "Pages",
-    schemaKey: "nodex.pages",
-    schemaRevision: 2,
-    lifecycle: "active",
-    rankKey: "a",
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }],
-  views: [
-    {
-      viewId: primaryViewId,
+const databases: readonly DatabaseContainerDescriptorV2[] = [
+  {
+    database: {
       databaseId,
-      dataSourceId,
-      name: "Board",
-      defaultLayout: "board",
-      config: upgradeDatabaseViewConfigV2({
-        schemaKey: "nodex.database-view",
-        schemaVersion: 2,
-        filter: { kind: "group", operator: "and", children: [] },
-        sort: [{
-          field: { kind: "manual" },
-          direction: "asc",
-          nulls: "last",
-        }],
-        group: null,
-        display: { propertyIds: ["tags"], showTitle: true },
-      }),
-      isDefault: true,
-      revision: 1,
-      rankKey: "a",
+      libraryId,
+      name: "Tasks",
       lifecycle: "active",
+      defaultViewId: primaryViewId,
+      accessRevision: 1,
+      metadataRevision: 1,
       createdAt: timestamp,
       updatedAt: timestamp,
     },
+    dataSources: [
+      {
+        dataSourceId,
+        libraryId,
+        homeDatabaseId: databaseId,
+        name: "Pages",
+        schemaKey: "nodex.pages",
+        schemaRevision: 2,
+        lifecycle: "active",
+        rankKey: "a",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    ],
+    views: [
+      {
+        viewId: primaryViewId,
+        databaseId,
+        dataSourceId,
+        name: "Board",
+        defaultLayout: "board",
+        config: upgradeDatabaseViewConfigV2({
+          schemaKey: "nodex.database-view",
+          schemaVersion: 2,
+          filter: { kind: "group", operator: "and", children: [] },
+          sort: [
+            {
+              field: { kind: "manual" },
+              direction: "asc",
+              nulls: "last",
+            },
+          ],
+          group: null,
+          display: { propertyIds: ["tags"], showTitle: true },
+        }),
+        isDefault: true,
+        revision: 1,
+        rankKey: "a",
+        lifecycle: "active",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+      {
+        viewId: listViewId,
+        databaseId,
+        dataSourceId,
+        name: "List",
+        defaultLayout: "list",
+        config: upgradeDatabaseViewConfigV2({
+          schemaKey: "nodex.database-view",
+          schemaVersion: 2,
+          filter: { kind: "group", operator: "and", children: [] },
+          sort: [],
+          group: null,
+          display: { propertyIds: [], showTitle: true },
+        }),
+        isDefault: false,
+        revision: 2,
+        rankKey: "b",
+        lifecycle: "active",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    ],
+  },
+];
+
+const source: DataSourceDescriptorV2 = {
+  dataSource: databases[0]!.dataSources[0]!,
+  properties: [
     {
-      viewId: listViewId,
-      databaseId,
+      propertyId: parseDataSourcePropertyId("tags"),
       dataSourceId,
-      name: "List",
-      defaultLayout: "list",
-      config: upgradeDatabaseViewConfigV2({
-        schemaKey: "nodex.database-view",
-        schemaVersion: 2,
-        filter: { kind: "group", operator: "and", children: [] },
-        sort: [],
-        group: null,
-        display: { propertyIds: [], showTitle: true },
-      }),
-      isDefault: false,
-      revision: 2,
-      rankKey: "b",
+      name: "Tags",
+      ...testPropertySemantics("multi_select", 1),
+      valueType: "multi_select",
+      config: {
+        options: [{ id: "o_AAAAAAAA", name: "Page first" }],
+      },
+      rankKey: "a",
       lifecycle: "active",
+      revision: 1,
       createdAt: timestamp,
       updatedAt: timestamp,
     },
   ],
-}];
-
-const source: DataSourceDescriptorV2 = {
-  dataSource: databases[0]!.dataSources[0]!,
-  properties: [{
-    propertyId: parseDataSourcePropertyId("tags"),
-    dataSourceId,
-    name: "Tags",
-    ...testPropertySemantics("multi_select", 1),
-    valueType: "multi_select",
-    config: {
-      options: [{ id: "o_AAAAAAAA", name: "Page first" }],
-    },
-    rankKey: "a",
-    lifecycle: "active",
-    revision: 1,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-  }],
 };
 
 const noop = () => undefined;
@@ -194,11 +208,7 @@ describe("DatabaseManagementSurface", () => {
       name: "Owner",
       valueType: "text",
     });
-    expect(deletedOptions[0]).toEqual([
-      dataSourceId,
-      "tags",
-      "o_AAAAAAAA",
-    ]);
+    expect(deletedOptions[0]).toEqual([dataSourceId, "tags", "o_AAAAAAAA"]);
   });
 
   test("saves a View through Container, Source, and View identity", async () => {
@@ -248,8 +258,10 @@ describe("DatabaseManagementSurface", () => {
       });
       await Promise.resolve();
     });
-    expect(screen.getAllByRole("menuitem").map((option) => option.textContent))
-      .toEqual(["List", "Board"]);
+    expect(screen.getAllByRole("menuitem").map((option) => option.textContent)).toEqual([
+      "List",
+      "Board",
+    ]);
     await act(async () => {
       fireEvent.click(screen.getByRole("menuitem", { name: "Board" }));
       await Promise.resolve();
@@ -275,22 +287,24 @@ describe("DatabaseManagementSurface", () => {
     const screen = render(
       <DatabaseManagementSurface
         {...baseProps()}
-        databases={[{
-          ...databases[0]!,
-          views: databases[0]!.views.map((view) => ({
-            ...view,
-            config: {
-              ...view.config,
-              presentation: {
-                ...view.config.presentation,
-                layouts: {
-                  board: { fields: [], showEmptyGroups: false },
-                  list: { fields: [], showEmptyGroups: false },
+        databases={[
+          {
+            ...databases[0]!,
+            views: databases[0]!.views.map((view) => ({
+              ...view,
+              config: {
+                ...view.config,
+                presentation: {
+                  ...view.config.presentation,
+                  layouts: {
+                    board: { fields: [], showEmptyGroups: false },
+                    list: { fields: [], showEmptyGroups: false },
+                  },
                 },
               },
-            },
-          })),
-        }]}
+            })),
+          },
+        ]}
         onDeleteProperty={(...args) => {
           deleted.push(args);
         }}
@@ -299,8 +313,7 @@ describe("DatabaseManagementSurface", () => {
 
     fireEvent.click(screen.getByLabelText("Delete property Tags"));
     expect(deleted).toEqual([]);
-    expect(screen.getByText("Delete this Property and its values from every Page?"))
-      .toBeTruthy();
+    expect(screen.getByText("Delete this Property and its values from every Page?")).toBeTruthy();
 
     await act(async () => {
       fireEvent.click(screen.getByLabelText("Confirm delete property Tags"));

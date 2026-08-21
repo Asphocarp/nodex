@@ -66,7 +66,9 @@ export function isBlockLevelSelection(selection: unknown): boolean {
   return maybeBlockSelection.node !== undefined || Array.isArray(maybeBlockSelection.nodes);
 }
 
-export function resolveNodexTextActionRows(input: TextActionMenuRuntimeInput): TextActionNodexRow[] {
+export function resolveNodexTextActionRows(
+  input: TextActionMenuRuntimeInput,
+): TextActionNodexRow[] {
   if (!input.currentBlockId) return [];
 
   const rows: TextActionNodexRow[] = [];
@@ -87,10 +89,7 @@ export function resolveNodexTextActionRows(input: TextActionMenuRuntimeInput): T
     });
   }
 
-  if (
-    input.currentBlockType === "divider"
-    && input.hasConvertDividerToThreadSection
-  ) {
+  if (input.currentBlockType === "divider" && input.hasConvertDividerToThreadSection) {
     rows.push({
       key: "convert-divider-to-thread-section",
       label: "Make thread section",

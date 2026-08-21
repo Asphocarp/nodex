@@ -79,20 +79,14 @@ const requireHeadSeq = (value: number): number => {
   throw new DocumentLocalCheckpointError("headSeq must be a non-negative integer");
 };
 
-const validateBoundary = (
-  boundary: DocumentCheckpointBoundary,
-): DocumentCheckpointBoundary => ({
+const validateBoundary = (boundary: DocumentCheckpointBoundary): DocumentCheckpointBoundary => ({
   documentId: requireIdentity(boundary.documentId, "documentId"),
   storeEpoch: requireIdentity(boundary.storeEpoch, "storeEpoch"),
   generation: requireGeneration(boundary.generation),
 });
 
 const checkpointKey = (boundary: DocumentCheckpointBoundary): string =>
-  JSON.stringify([
-    boundary.documentId,
-    boundary.storeEpoch,
-    boundary.generation,
-  ]);
+  JSON.stringify([boundary.documentId, boundary.storeEpoch, boundary.generation]);
 
 const DEFAULT_STATE_CONSTRAINTS: DocumentLocalCheckpointStateConstraints = {
   maxStateBytes: MAX_PAGE_DOCUMENT_STATE_BYTES,
@@ -117,15 +111,10 @@ const validateStateConstraints = (
   constraints: DocumentLocalCheckpointStateConstraints | undefined,
 ): DocumentLocalCheckpointStateConstraints => {
   const resolved = constraints ?? DEFAULT_STATE_CONSTRAINTS;
-  if (
-    Number.isSafeInteger(resolved.maxStateBytes) &&
-    resolved.maxStateBytes > 0
-  ) {
+  if (Number.isSafeInteger(resolved.maxStateBytes) && resolved.maxStateBytes > 0) {
     return resolved;
   }
-  throw new DocumentLocalCheckpointError(
-    "maxStateBytes must be a positive integer",
-  );
+  throw new DocumentLocalCheckpointError("maxStateBytes must be a positive integer");
 };
 
 const copyState = (
@@ -160,12 +149,10 @@ const requestResult = <T>(request: IDBRequest<T>): Promise<T> =>
 const transactionComplete = (transaction: IDBTransaction): Promise<void> =>
   new Promise<void>((resolve, reject) => {
     transaction.oncomplete = () => resolve();
-    transaction.onerror = () => reject(
-      transaction.error ?? new Error("IndexedDB transaction failed"),
-    );
-    transaction.onabort = () => reject(
-      transaction.error ?? new Error("IndexedDB transaction was aborted"),
-    );
+    transaction.onerror = () =>
+      reject(transaction.error ?? new Error("IndexedDB transaction failed"));
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("IndexedDB transaction was aborted"));
   });
 
 const openCheckpointDatabase = (factory: IDBFactory): Promise<IDBDatabase> =>
@@ -180,9 +167,8 @@ const openCheckpointDatabase = (factory: IDBFactory): Promise<IDBDatabase> =>
       store.createIndex(DOCUMENT_ID_INDEX, "documentId", { unique: false });
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(
-      request.error ?? new Error("Could not open the document checkpoint cache"),
-    );
+    request.onerror = () =>
+      reject(request.error ?? new Error("Could not open the document checkpoint cache"));
   });
 
 const toStoredCheckpoint = (
@@ -199,10 +185,7 @@ const toStoredCheckpoint = (
     key: checkpointKey(boundary),
     ...boundary,
     headSeq: requireHeadSeq(checkpoint.headSeq),
-    state: state.buffer.slice(
-      state.byteOffset,
-      state.byteOffset + state.byteLength,
-    ) as ArrayBuffer,
+    state: state.buffer.slice(state.byteOffset, state.byteOffset + state.byteLength) as ArrayBuffer,
     updatedAt,
   };
 };
@@ -233,8 +216,7 @@ const fromStoredCheckpoint = (
   };
 };
 
-export class IndexedDbDocumentLocalCheckpointStore
-implements DocumentLocalCheckpointStore {
+export class IndexedDbDocumentLocalCheckpointStore implements DocumentLocalCheckpointStore {
   private databasePromise: Promise<IDBDatabase> | null = null;
 
   constructor(private readonly factory: IDBFactory) {}
@@ -246,9 +228,9 @@ implements DocumentLocalCheckpointStore {
     const boundary = validateBoundary(input);
     const database = await this.getDatabase();
     const transaction = database.transaction(CHECKPOINT_STORE, "readonly");
-    const stored = await requestResult(
+    const stored = (await requestResult(
       transaction.objectStore(CHECKPOINT_STORE).get(checkpointKey(boundary)),
-    ) as StoredDocumentLocalCheckpoint | undefined;
+    )) as StoredDocumentLocalCheckpoint | undefined;
     await transactionComplete(transaction);
     return stored ? fromStoredCheckpoint(stored, boundary, constraints) : null;
   };
@@ -261,15 +243,12 @@ implements DocumentLocalCheckpointStore {
     const database = await this.getDatabase();
     const transaction = database.transaction(CHECKPOINT_STORE, "readwrite");
     const store = transaction.objectStore(CHECKPOINT_STORE);
-    const existing = await requestResult(store.get(stored.key)) as
+    const existing = (await requestResult(store.get(stored.key))) as
       | StoredDocumentLocalCheckpoint
       | undefined;
     if (existing) {
       const mergedState = copyState(
-        Y.mergeUpdates([
-          new Uint8Array(existing.state),
-          new Uint8Array(stored.state),
-        ]),
+        Y.mergeUpdates([new Uint8Array(existing.state), new Uint8Array(stored.state)]),
         constraints,
       );
       stored = {
@@ -289,9 +268,7 @@ implements DocumentLocalCheckpointStore {
     const normalizedDocumentId = requireIdentity(documentId, "documentId");
     const database = await this.getDatabase();
     const transaction = database.transaction(CHECKPOINT_STORE, "readwrite");
-    const index = transaction
-      .objectStore(CHECKPOINT_STORE)
-      .index(DOCUMENT_ID_INDEX);
+    const index = transaction.objectStore(CHECKPOINT_STORE).index(DOCUMENT_ID_INDEX);
     const request = index.openCursor(normalizedDocumentId);
     await new Promise<void>((resolve, reject) => {
       request.onsuccess = () => {
@@ -303,9 +280,8 @@ implements DocumentLocalCheckpointStore {
         cursor.delete();
         cursor.continue();
       };
-      request.onerror = () => reject(
-        request.error ?? new Error("Could not clear Document checkpoints"),
-      );
+      request.onerror = () =>
+        reject(request.error ?? new Error("Could not clear Document checkpoints"));
     });
     await transactionComplete(transaction);
   };
@@ -330,17 +306,16 @@ implements DocumentLocalCheckpointStore {
   }
 }
 
-export const createDefaultDocumentLocalCheckpointStore = (
-): DocumentLocalCheckpointStore | null => {
-  if (typeof globalThis.indexedDB === "undefined") return null;
-  return new IndexedDbDocumentLocalCheckpointStore(globalThis.indexedDB);
-};
+export const createDefaultDocumentLocalCheckpointStore =
+  (): DocumentLocalCheckpointStore | null => {
+    if (typeof globalThis.indexedDB === "undefined") return null;
+    return new IndexedDbDocumentLocalCheckpointStore(globalThis.indexedDB);
+  };
 
 export const captureDocumentLocalCheckpoint = (
   document: Y.Doc,
   input: DocumentCheckpointBoundary & { readonly headSeq: number },
-  schemaAdapter: DocumentLocalCheckpointSchemaAdapter =
-    DEFAULT_CARD_SCHEMA_ADAPTER,
+  schemaAdapter: DocumentLocalCheckpointSchemaAdapter = DEFAULT_CARD_SCHEMA_ADAPTER,
 ): DocumentLocalCheckpoint => {
   const boundary = validateBoundary(input);
   assertValidDocumentState(document, schemaAdapter);
@@ -357,8 +332,7 @@ export const restoreDocumentLocalCheckpoint = (
   serverStateVector: Uint8Array,
   checkpoint: DocumentLocalCheckpoint,
   origin: unknown,
-  schemaAdapter: DocumentLocalCheckpointSchemaAdapter =
-    DEFAULT_CARD_SCHEMA_ADAPTER,
+  schemaAdapter: DocumentLocalCheckpointSchemaAdapter = DEFAULT_CARD_SCHEMA_ADAPTER,
 ): Uint8Array => {
   const boundary = validateBoundary(checkpoint);
   requireHeadSeq(checkpoint.headSeq);
@@ -369,10 +343,7 @@ export const restoreDocumentLocalCheckpoint = (
     Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document), "checkpoint-current");
     Y.applyUpdate(candidate, checkpointState, "checkpoint-candidate");
     assertValidDocumentState(candidate, schemaAdapter);
-    const missingOnServer = Y.equalSnapshots(
-      durableSnapshot,
-      Y.snapshot(candidate),
-    )
+    const missingOnServer = Y.equalSnapshots(durableSnapshot, Y.snapshot(candidate))
       ? EMPTY_DOCUMENT_UPDATE.slice()
       : Y.encodeStateAsUpdate(candidate, serverStateVector);
     Y.applyUpdate(document, checkpointState, origin);

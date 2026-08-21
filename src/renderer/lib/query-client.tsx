@@ -1,8 +1,4 @@
-import {
-  QueryClient,
-  QueryClientProvider,
-  type DefaultOptions,
-} from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, type DefaultOptions } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { subscribeCodexEvents } from "./api";
 import { queryKeys } from "./query-keys";
@@ -28,14 +24,13 @@ export const NODEX_QUERY_DEFAULT_OPTIONS: DefaultOptions = {
   },
 };
 
-export function createNodexQueryClient(defaultOptions: DefaultOptions = NODEX_QUERY_DEFAULT_OPTIONS): QueryClient {
+export function createNodexQueryClient(
+  defaultOptions: DefaultOptions = NODEX_QUERY_DEFAULT_OPTIONS,
+): QueryClient {
   return new QueryClient({ defaultOptions });
 }
 
-export function applyCodexHostCatalogEvent(
-  queryClient: QueryClient,
-  event: CodexEvent,
-): void {
+export function applyCodexHostCatalogEvent(queryClient: QueryClient, event: CodexEvent): void {
   if (event.type !== "appsUpdated") return;
 
   const queryKey = queryKeys.mcp.apps();

@@ -5,10 +5,7 @@ export function installAsyncRequestAnimationFrame(frameDelayMs = 0): void {
     configurable: true,
     writable: true,
     value: ((callback: FrameRequestCallback) => {
-      return setTimeout(
-        () => callback(performance.now()),
-        frameDelayMs,
-      ) as unknown as number;
+      return setTimeout(() => callback(performance.now()), frameDelayMs) as unknown as number;
     }) as typeof globalThis.requestAnimationFrame,
   });
 
@@ -28,15 +25,17 @@ export function installMeasuredResizeObserver({
   blockSize: number;
   inlineSize: number;
 }): void {
-  const scheduleFrame = typeof requestAnimationFrame === "function"
-    ? requestAnimationFrame
-    : ((callback: FrameRequestCallback) =>
-      setTimeout(() => callback(performance.now()), 0) as unknown as number);
-  const cancelFrame = typeof cancelAnimationFrame === "function"
-    ? cancelAnimationFrame
-    : ((handle: number) => {
-      clearTimeout(handle as unknown as ReturnType<typeof setTimeout>);
-    });
+  const scheduleFrame =
+    typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : (callback: FrameRequestCallback) =>
+          setTimeout(() => callback(performance.now()), 0) as unknown as number;
+  const cancelFrame =
+    typeof cancelAnimationFrame === "function"
+      ? cancelAnimationFrame
+      : (handle: number) => {
+          clearTimeout(handle as unknown as ReturnType<typeof setTimeout>);
+        };
 
   Object.defineProperty(globalThis, "ResizeObserver", {
     configurable: true,
@@ -75,13 +74,16 @@ export function installMeasuredResizeObserver({
           this.pendingFrame = null;
           const entries = Array.from(this.observedTargets)
             .filter((target) => target.isConnected)
-            .map((target) => ({
-              target,
-              contentRect: target.getBoundingClientRect(),
-              borderBoxSize: [{ blockSize, inlineSize }],
-              contentBoxSize: [{ blockSize, inlineSize }],
-              devicePixelContentBoxSize: [{ blockSize, inlineSize }],
-            }) as unknown as ResizeObserverEntry);
+            .map(
+              (target) =>
+                ({
+                  target,
+                  contentRect: target.getBoundingClientRect(),
+                  borderBoxSize: [{ blockSize, inlineSize }],
+                  contentBoxSize: [{ blockSize, inlineSize }],
+                  devicePixelContentBoxSize: [{ blockSize, inlineSize }],
+                }) as unknown as ResizeObserverEntry,
+            );
           if (entries.length === 0) return;
           this.callback(entries, this);
         });
@@ -108,8 +110,8 @@ export function installWindowApi(api: unknown): void {
 }
 
 function createMediaQueryList(query: string, reducedMotion: boolean): MediaQueryList {
-  const isReducedMotionQuery = query === "(prefers-reduced-motion)"
-    || query === "(prefers-reduced-motion: reduce)";
+  const isReducedMotionQuery =
+    query === "(prefers-reduced-motion)" || query === "(prefers-reduced-motion: reduce)";
   return {
     matches: reducedMotion && isReducedMotionQuery,
     media: query,

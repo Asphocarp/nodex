@@ -10,18 +10,13 @@ import type {
 } from "../thread-stage-types";
 import { shouldShowThreadScrollToBottomControl } from "./local-conversation-turn-virtualization";
 import { LocalConversationComposerShell } from "./composer/local-conversation-composer-shell";
-import {
-  ComposerContextRail,
-  ComposerContextRailSlot,
-} from "./composer-context-rail";
+import { ComposerContextRail, ComposerContextRailSlot } from "./composer-context-rail";
 import {
   LocalConversationAboveComposerPortalHost,
   LocalConversationAboveComposerQueuePortalHost,
 } from "./local-conversation-above-composer-portal";
 import { useLocalConversationThreadScrollController } from "./local-conversation-thread-scroll-controller";
-import {
-  RightPanelComposerLatestTurnPreview,
-} from "./right-panel-composer-latest-turn-preview";
+import { RightPanelComposerLatestTurnPreview } from "./right-panel-composer-latest-turn-preview";
 import {
   RightPanelComposerOverlay,
   type RightPanelComposerOverlayVisibility,
@@ -120,19 +115,18 @@ function LocalConversationFooterComponent({
     responseSpacerState,
     scrollToBottom,
   } = useLocalConversationThreadScrollController();
-  const [scrollDistanceFromBottomPx, setScrollDistanceFromBottomPx] = useState(
-    () => getLastScrollDistanceFromBottomPx(),
+  const [scrollDistanceFromBottomPx, setScrollDistanceFromBottomPx] = useState(() =>
+    getLastScrollDistanceFromBottomPx(),
   );
   const [latestTurnExpansion, setLatestTurnExpansion] = useState<{
     readonly ownerKey: string;
     readonly turnKey: string;
   } | null>(null);
-  const isResumingActiveThread = !model.isNewThreadTab && model.resumeState !== null && model.resumeState !== "resumed";
-  const controlledOverlay =
-    rightPanelComposerOverlay?.visibility?.kind === "controlled";
+  const isResumingActiveThread =
+    !model.isNewThreadTab && model.resumeState !== null && model.resumeState !== "resumed";
+  const controlledOverlay = rightPanelComposerOverlay?.visibility?.kind === "controlled";
   const rightPanelOverlayEnabled =
-    rightPanelComposerOverlay?.enabled === true
-    && (!isResumingActiveThread || controlledOverlay);
+    rightPanelComposerOverlay?.enabled === true && (!isResumingActiveThread || controlledOverlay);
   const latestTurn = useMemo(() => {
     if (!rightPanelOverlayEnabled || !model.conversation) return null;
 
@@ -152,44 +146,38 @@ function LocalConversationFooterComponent({
     });
   }, [model.conversation, rightPanelOverlayEnabled]);
   const latestTurnKey = latestTurn?.turnKey ?? null;
-  const latestTurnOwnerKey =
-    model.composerScopeIdentity?.trim() || model.threadId;
+  const latestTurnOwnerKey = model.composerScopeIdentity?.trim() || model.threadId;
   const latestTurnExpanded = Boolean(
-    latestTurnOwnerKey
-    && latestTurnKey
-    && latestTurnExpansion?.ownerKey === latestTurnOwnerKey
-    && latestTurnExpansion.turnKey === latestTurnKey,
+    latestTurnOwnerKey &&
+    latestTurnKey &&
+    latestTurnExpansion?.ownerKey === latestTurnOwnerKey &&
+    latestTurnExpansion.turnKey === latestTurnKey,
   );
-  const handleLatestTurnExpandedChange = useCallback((expanded: boolean) => {
-    if (!expanded || !latestTurnOwnerKey || !latestTurnKey) {
-      setLatestTurnExpansion(null);
-      return;
-    }
-    setLatestTurnExpansion({
-      ownerKey: latestTurnOwnerKey,
-      turnKey: latestTurnKey,
-    });
-  }, [latestTurnKey, latestTurnOwnerKey]);
+  const handleLatestTurnExpandedChange = useCallback(
+    (expanded: boolean) => {
+      if (!expanded || !latestTurnOwnerKey || !latestTurnKey) {
+        setLatestTurnExpansion(null);
+        return;
+      }
+      setLatestTurnExpansion({
+        ownerKey: latestTurnOwnerKey,
+        turnKey: latestTurnKey,
+      });
+    },
+    [latestTurnKey, latestTurnOwnerKey],
+  );
   useEffect(() => {
     if (!latestTurnExpansion) return;
     if (
-      rightPanelOverlayEnabled
-      && latestTurnExpansion.ownerKey === latestTurnOwnerKey
-      && latestTurnExpansion.turnKey === latestTurnKey
+      rightPanelOverlayEnabled &&
+      latestTurnExpansion.ownerKey === latestTurnOwnerKey &&
+      latestTurnExpansion.turnKey === latestTurnKey
     ) {
       return;
     }
     setLatestTurnExpansion(null);
-  }, [
-    latestTurnExpansion,
-    latestTurnKey,
-    latestTurnOwnerKey,
-    rightPanelOverlayEnabled,
-  ]);
-  useEffect(
-    () => addScrollListener(setScrollDistanceFromBottomPx),
-    [addScrollListener],
-  );
+  }, [latestTurnExpansion, latestTurnKey, latestTurnOwnerKey, rightPanelOverlayEnabled]);
+  useEffect(() => addScrollListener(setScrollDistanceFromBottomPx), [addScrollListener]);
 
   const actionsWithSubmitPlacement = useMemo<ThreadStageActions>(() => {
     const prepareExistingThreadPlacement = () => {
@@ -314,48 +302,47 @@ function LocalConversationFooterComponent({
   );
   const contextRailLeadingContent = rightPanelComposerOverlay?.leadingContent;
   const showLatestTurnPreview = Boolean(
-    rightPanelOverlayEnabled
-    && latestTurn
-    && latestTurn.blocks.length > 0,
+    rightPanelOverlayEnabled && latestTurn && latestTurn.blocks.length > 0,
   );
-  const latestTurnPreview = showLatestTurnPreview && latestTurn ? (
-    <RightPanelComposerLatestTurnPreview
-      key={latestTurnOwnerKey ?? "right-panel-latest-turn"}
-      turn={latestTurn}
-      expanded={latestTurnExpanded}
-      contextRailLeadingContent={contextRailLeadingContent}
-      projectWorkspacePath={model.projectWorkspacePath}
-      threadCwd={model.cwd}
-      onExpandedChange={handleLatestTurnExpandedChange}
-      onEditLastUserTurn={actions.onEditLastUserTurn}
-      onForkFromTurn={actions.onForkFromTurn}
-      onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
-      onOpenTurnDiffFileInSidePanel={actions.onOpenTurnDiffFileInSidePanel}
-      onOpenSideChat={actions.onOpenSideChat}
-      onOpenThread={actions.onOpenThread}
-      onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
-      onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
-      onClosePlanSidePanel={actions.onClosePlanSidePanel}
-      planSidePanelState={planSidePanelState}
-      turnDiffHoverPreviewDisabled={rightPanelOverlayEnabled || turnDiffHoverPreviewDisabled}
-    />
-  ) : null;
+  const latestTurnPreview =
+    showLatestTurnPreview && latestTurn ? (
+      <RightPanelComposerLatestTurnPreview
+        key={latestTurnOwnerKey ?? "right-panel-latest-turn"}
+        turn={latestTurn}
+        expanded={latestTurnExpanded}
+        contextRailLeadingContent={contextRailLeadingContent}
+        projectWorkspacePath={model.projectWorkspacePath}
+        threadCwd={model.cwd}
+        onExpandedChange={handleLatestTurnExpandedChange}
+        onEditLastUserTurn={actions.onEditLastUserTurn}
+        onForkFromTurn={actions.onForkFromTurn}
+        onOpenTurnDiffReview={actions.onOpenTurnDiffReview}
+        onOpenTurnDiffFileInSidePanel={actions.onOpenTurnDiffFileInSidePanel}
+        onOpenSideChat={actions.onOpenSideChat}
+        onOpenThread={actions.onOpenThread}
+        onOpenMcpAppSidePanel={actions.onOpenMcpAppSidePanel}
+        onOpenPlanInSidePanel={actions.onOpenPlanInSidePanel}
+        onClosePlanSidePanel={actions.onClosePlanSidePanel}
+        planSidePanelState={planSidePanelState}
+        turnDiffHoverPreviewDisabled={rightPanelOverlayEnabled || turnDiffHoverPreviewDisabled}
+      />
+    ) : null;
 
   if (rightPanelOverlayEnabled) {
     return (
       <RightPanelComposerOverlay
         target={rightPanelComposerOverlay?.target ?? null}
         compact={rightPanelComposerOverlay?.compact === true}
-        visibility={rightPanelComposerOverlay?.visibility
-          ?? (rightPanelComposerOverlay?.compact
+        visibility={
+          rightPanelComposerOverlay?.visibility ??
+          (rightPanelComposerOverlay?.compact
             ? {
                 kind: "browser-auto",
-                documentBottomKey:
-                  rightPanelComposerOverlay.documentBottomKey ?? null,
-                isAtDocumentBottom:
-                  rightPanelComposerOverlay.isAtDocumentBottom === true,
+                documentBottomKey: rightPanelComposerOverlay.documentBottomKey ?? null,
+                isAtDocumentBottom: rightPanelComposerOverlay.isAtDocumentBottom === true,
               }
-            : { kind: "always" })}
+            : { kind: "always" })
+        }
         onPointerDownOutside={() => {
           handleLatestTurnExpandedChange(false);
         }}
@@ -367,9 +354,7 @@ function LocalConversationFooterComponent({
           onErrorMessage={onErrorMessage}
           catchUpControl={catchUpControl}
           latestTurnPreview={latestTurnPreview}
-          contextRailLeadingContent={showLatestTurnPreview
-            ? undefined
-            : contextRailLeadingContent}
+          contextRailLeadingContent={showLatestTurnPreview ? undefined : contextRailLeadingContent}
           showComposer={!isResumingActiveThread && worktreeRuntimeAvailable}
         />
       </RightPanelComposerOverlay>
@@ -378,7 +363,13 @@ function LocalConversationFooterComponent({
 
   if (isResumingActiveThread || !worktreeRuntimeAvailable) {
     return (
-      <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar"}>
+      <div
+        className={
+          variant === "newThreadHome"
+            ? "min-w-0 w-full"
+            : "mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar"
+        }
+      >
         <LocalConversationFooterChrome
           model={model}
           actions={actionsWithSubmitPlacement}
@@ -392,7 +383,13 @@ function LocalConversationFooterComponent({
   }
 
   return (
-    <div className={variant === "newThreadHome" ? "min-w-0 w-full" : "mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar"}>
+    <div
+      className={
+        variant === "newThreadHome"
+          ? "min-w-0 w-full"
+          : "mx-auto flex w-full max-w-(--thread-content-max-width) flex-col px-toolbar"
+      }
+    >
       <LocalConversationFooterChrome
         model={model}
         actions={actionsWithSubmitPlacement}

@@ -12,15 +12,19 @@ describe("resolveCoreAuthorityStatusPresentation", () => {
   });
 
   test("distinguishes transient recovery from actionable unavailability", () => {
-    expect(resolveCoreAuthorityStatusPresentation({
-      attempt: 2,
-      kind: "recovering",
-    })).toMatchObject({ kind: "recovering", detail: null });
-    expect(resolveCoreAuthorityStatusPresentation({
-      circuitOpen: true,
-      kind: "unavailable",
-      message: "Automatic recovery was paused.",
-    })).toEqual({
+    expect(
+      resolveCoreAuthorityStatusPresentation({
+        attempt: 2,
+        kind: "recovering",
+      }),
+    ).toMatchObject({ kind: "recovering", detail: null });
+    expect(
+      resolveCoreAuthorityStatusPresentation({
+        circuitOpen: true,
+        kind: "unavailable",
+        message: "Automatic recovery was paused.",
+      }),
+    ).toEqual({
       detail: "Automatic recovery was paused.",
       kind: "unavailable",
       label: "Nodex Core is unavailable",

@@ -14,15 +14,14 @@ if (typeof globalThis.CSS === "undefined") {
   };
 }
 
-function makeDom(
-  blockId: string,
-  showChildren: string,
-): ParentNode {
+function makeDom(blockId: string, showChildren: string): ParentNode {
   const sel = `.bn-block[data-id="${blockId}"] .bn-toggle-wrapper`;
   return {
     querySelector: (s: string) =>
       s === sel
-        ? ({ getAttribute: (a: string) => (a === "data-show-children" ? showChildren : null) } as unknown as Element)
+        ? ({
+            getAttribute: (a: string) => (a === "data-show-children" ? showChildren : null),
+          } as unknown as Element)
         : null,
   } as unknown as ParentNode;
 }
@@ -171,8 +170,7 @@ function makeChildEditor(
       if (id === parentId) return parentBlock;
       return undefined;
     },
-    getParentBlock: (id: string) =>
-      hasParent && id === blockId ? parentBlock : undefined,
+    getParentBlock: (id: string) => (hasParent && id === blockId ? parentBlock : undefined),
     insertBlocks: (_blocks, refId) => {
       insertedAfter = refId;
       return [{ id: "new-sibling-1" }];

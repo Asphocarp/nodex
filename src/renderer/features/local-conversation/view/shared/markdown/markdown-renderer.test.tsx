@@ -17,17 +17,11 @@ const FENCED_TYPESCRIPT_CODE = [
   "console.log(result);",
 ].join("\n");
 
-const FENCED_TYPESCRIPT_MARKDOWN = [
-  "```ts",
-  FENCED_TYPESCRIPT_CODE,
-  "```",
-].join("\n");
+const FENCED_TYPESCRIPT_MARKDOWN = ["```ts", FENCED_TYPESCRIPT_CODE, "```"].join("\n");
 
 describe("MarkdownRenderer", () => {
   test("renders inline code with the shared inline-markdown span contract", async () => {
-    const { container } = render(
-      <MarkdownRenderer content={"Run `bun test` before shipping."} />,
-    );
+    const { container } = render(<MarkdownRenderer content={"Run `bun test` before shipping."} />);
 
     await settleAsyncRender();
 
@@ -38,9 +32,7 @@ describe("MarkdownRenderer", () => {
   });
 
   test("marks heading inline code with the heading-inline-code scope", async () => {
-    const { container } = render(
-      <MarkdownRenderer content={"## Heading with `inline code`"} />,
-    );
+    const { container } = render(<MarkdownRenderer content={"## Heading with `inline code`"} />);
 
     await settleAsyncRender();
 
@@ -98,11 +90,7 @@ describe("MarkdownRenderer", () => {
   test("groups ordered lists by digit width like Codex Electron", async () => {
     const { container } = render(
       <MarkdownRenderer
-        content={[
-          "99. Ninety-nine",
-          "100. One hundred",
-          "101. One hundred one",
-        ].join("\n")}
+        content={["99. Ninety-nine", "100. One hundred", "101. One hundred one"].join("\n")}
       />,
     );
 
@@ -129,11 +117,7 @@ describe("MarkdownRenderer", () => {
   });
 
   test("keeps fenced code blocks on the highlighted code-block renderer path", async () => {
-    const { container } = render(
-      <MarkdownRenderer
-        content={FENCED_TYPESCRIPT_MARKDOWN}
-      />,
-    );
+    const { container } = render(<MarkdownRenderer content={FENCED_TYPESCRIPT_MARKDOWN} />);
 
     await waitForStreamdownCodeHighlight(container);
 
@@ -141,12 +125,16 @@ describe("MarkdownRenderer", () => {
     const code = container.querySelector('[data-streamdown="code-block"] code');
     expect(code !== null).toBe(true);
     expect(code?.querySelectorAll(":scope > span").length).toBe(6);
+    expect(code?.querySelector(':scope > span > span[style*="--sdm-c"]') !== null).toBe(true);
     expect(
-      code?.querySelector(':scope > span > span[style*="--sdm-c"]') !== null,
+      container.querySelector('[data-streamdown="code-block"] .inline-markdown') === null,
     ).toBe(true);
-    expect(container.querySelector('[data-streamdown="code-block"] .inline-markdown') === null).toBe(true);
-    expect(container.querySelector('[data-streamdown="code-block-copy-button"]') !== null).toBe(true);
-    expect(container.querySelector('[data-streamdown="code-block-download-button"]') === null).toBe(true);
+    expect(container.querySelector('[data-streamdown="code-block-copy-button"]') !== null).toBe(
+      true,
+    );
+    expect(container.querySelector('[data-streamdown="code-block-download-button"]') === null).toBe(
+      true,
+    );
   });
 
   test("copies fenced code through the Nodex clipboard fallback with line breaks intact", async () => {
@@ -173,9 +161,7 @@ describe("MarkdownRenderer", () => {
     });
 
     try {
-      const { container } = render(
-        <MarkdownRenderer content={FENCED_TYPESCRIPT_MARKDOWN} />,
-      );
+      const { container } = render(<MarkdownRenderer content={FENCED_TYPESCRIPT_MARKDOWN} />);
 
       await waitForStreamdownCodeHighlight(container);
 

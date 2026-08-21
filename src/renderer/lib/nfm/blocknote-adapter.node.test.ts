@@ -92,7 +92,8 @@ describe("blocknote adapter", () => {
     expect(blocks[0].rows[0]?.cells[1]?.content[0]?.type).toBe("text");
     if (blocks[0].rows[0]?.cells[1]?.content[0]?.type !== "text") return;
     expect(blocks[0].rows[0].cells[1].content[0].styles.bold).toBe(true);
-    expect(serializeNfm(blocks)).toBe(`<table header-row="true" header-column="true" fit-page-width="false">
+    expect(serializeNfm(blocks))
+      .toBe(`<table header-row="true" header-column="true" fit-page-width="false">
 \t<colgroup>
 \t\t<col width="180" align="center" />
 \t\t<col align="right" />
@@ -257,12 +258,16 @@ describe("blocknote adapter", () => {
   });
 
   test("date mention inline content round-trips between NFM and BlockNote", () => {
-    const nfm = '<mention-date start="2026-06-28T09:30:00+08:00" end="2026-06-29T10:45:00+08:00" tz="Asia/Shanghai" format="relative" time-format="24h" reminder="hour:1" />';
+    const nfm =
+      '<mention-date start="2026-06-28T09:30:00+08:00" end="2026-06-29T10:45:00+08:00" tz="Asia/Shanghai" format="relative" time-format="24h" reminder="hour:1" />';
     const blockNoteBlocks = nfmToBlockNote(parseNfm(nfm));
 
     expect(blockNoteBlocks.length).toBe(1);
     expect(blockNoteBlocks[0].type).toBe("paragraph");
-    const content = blockNoteBlocks[0].content as Array<{ type?: string; props?: Record<string, unknown> }>;
+    const content = blockNoteBlocks[0].content as Array<{
+      type?: string;
+      props?: Record<string, unknown>;
+    }>;
     expect(content[0]?.type).toBe("dateMention");
     expect(content[0]?.props?.start).toBe("2026-06-28T09:30:00+08:00");
     expect(content[0]?.props?.end).toBe("2026-06-29T10:45:00+08:00");
@@ -391,7 +396,12 @@ describe("blocknote adapter", () => {
     const blocks = parseNfm('▶### Colored Toggle {color="blue"}');
     expect(blocks.length).toBe(1);
     expect(blocks[0].type).toBe("heading");
-    const heading = blocks[0] as { type: "heading"; level: number; isToggleable?: boolean; color?: string };
+    const heading = blocks[0] as {
+      type: "heading";
+      level: number;
+      isToggleable?: boolean;
+      color?: string;
+    };
     expect(heading.level).toBe(3);
     expect(heading.isToggleable).toBe(true);
     expect(heading.color).toBe("blue");
@@ -413,7 +423,8 @@ describe("blocknote adapter", () => {
   });
 
   test("attachment inline content parses and serializes with escaped paths", () => {
-    const nfm = 'before <attachment kind="file" mode="link" source="/tmp/My &amp; Stuff/report.txt" name="report &amp; notes.txt" mime="text/plain" bytes="42" origin="/tmp/My &amp; Stuff/report.txt" /> after';
+    const nfm =
+      'before <attachment kind="file" mode="link" source="/tmp/My &amp; Stuff/report.txt" name="report &amp; notes.txt" mime="text/plain" bytes="42" origin="/tmp/My &amp; Stuff/report.txt" /> after';
     const blocks = parseNfm(nfm);
 
     expect(blocks.length).toBe(1);
@@ -494,7 +505,9 @@ describe("blocknote adapter", () => {
     expect(nfmBlocks[0]?.type).toBe("paragraph");
     if (nfmBlocks[0]?.type !== "paragraph") return;
     expect(nfmBlocks[0].content[1]?.type).toBe("agentConfig");
-    expect(serializeNfm(nfmBlocks)).toBe('Use <agent-config mode="plan" model="gpt-5.5" reasoning="high" />');
+    expect(serializeNfm(nfmBlocks)).toBe(
+      'Use <agent-config mode="plan" model="gpt-5.5" reasoning="high" />',
+    );
 
     const reloaded = nfmToBlockNote(nfmBlocks);
     const agentConfig = Array.isArray(reloaded[0]?.content) ? reloaded[0]?.content[1] : undefined;
@@ -566,9 +579,7 @@ describe("blocknote adapter", () => {
     );
 
     const reloaded = nfmToBlockNote(nfmBlocks);
-    const mention = Array.isArray(reloaded[0]?.content)
-      ? reloaded[0]?.content[1]
-      : undefined;
+    const mention = Array.isArray(reloaded[0]?.content) ? reloaded[0]?.content[1] : undefined;
     expect(mention?.type).toBe("pageMention");
     expect(mention?.props.targetPageId).toBe("page/alpha");
   });
@@ -759,7 +770,8 @@ describe("blocknote adapter", () => {
   });
 
   test("serialize and parse toggle-list inline view round-trip", () => {
-    const nfm = '<toggle-list-inline-view project="default" statuses="plan" priorities="p1-high,p2-medium" tags="frontend,ui" tag-mode="all" rank-primary="priority" rank-primary-direction="desc" rank-secondary="created" rank-secondary-direction="asc" property-order="status,priority,estimate,tags" hidden-properties="estimate,tags" include-host-card="true" show-empty-estimate="true" />';
+    const nfm =
+      '<toggle-list-inline-view project="default" statuses="plan" priorities="p1-high,p2-medium" tags="frontend,ui" tag-mode="all" rank-primary="priority" rank-primary-direction="desc" rank-secondary="created" rank-secondary-direction="asc" property-order="status,priority,estimate,tags" hidden-properties="estimate,tags" include-host-card="true" show-empty-estimate="true" />';
     const blocks = parseNfm(nfm);
     const serialized = serializeNfm(blocks);
     expect(serialized).toBe(
@@ -813,7 +825,9 @@ describe("blocknote adapter", () => {
     if (blocks[0].type !== "toggleListInlineView") return;
     expect(blocks[0].sourceProjectId).toBe("default");
     expect(blocks[0].rulesV2B64).toBe(undefined);
-    expect(JSON.stringify(blocks[0].propertyOrder)).toBe(JSON.stringify(["priority", "status", "estimate", "tags"]));
+    expect(JSON.stringify(blocks[0].propertyOrder)).toBe(
+      JSON.stringify(["priority", "status", "estimate", "tags"]),
+    );
     expect(JSON.stringify(blocks[0].hiddenProperties)).toBe(JSON.stringify(["estimate", "tags"]));
     expect(blocks[0].showEmptyEstimate).toBe(true);
   });
@@ -827,7 +841,8 @@ describe("blocknote adapter", () => {
   });
 
   test("toggle-list inline view preserves rules-v2 attribute", () => {
-    const nfm = '<toggle-list-inline-view project="default" rules-v2="eyJtb2RlIjoiYWR2YW5jZWQifQ" />';
+    const nfm =
+      '<toggle-list-inline-view project="default" rules-v2="eyJtb2RlIjoiYWR2YW5jZWQifQ" />';
     const blocks = parseNfm(nfm);
     const serialized = serializeNfm(blocks);
     const bnBlocks = nfmToBlockNote(blocks);
@@ -888,9 +903,7 @@ describe("blocknote adapter", () => {
       },
     ]);
     const serialized = serializeNfm(blocks);
-    expect(serialized).toBe(
-      '<image source="">uploading...</image>',
-    );
+    expect(serialized).toBe('<image source="">uploading...</image>');
     expect(parseNfm(serialized)).toMatchObject(blocks);
   });
 
@@ -977,9 +990,7 @@ describe("blocknote adapter", () => {
   });
 
   test("card-ref NFM → BN retires live legacy props", () => {
-    const blocks = parseNfm(
-      '<card-ref project="my-project" card="abc1234" />',
-    );
+    const blocks = parseNfm('<card-ref project="my-project" card="abc1234" />');
     const bnBlocks = nfmToBlockNote(blocks);
 
     expect(bnBlocks.length).toBe(1);
@@ -1043,9 +1054,7 @@ describe("blocknote adapter", () => {
   });
 
   test("thread-section NFM → BN maps custom props", () => {
-    const blocks = parseNfm(
-      '<thread-section label="Investigate parser" thread="thr_123" />',
-    );
+    const blocks = parseNfm('<thread-section label="Investigate parser" thread="thr_123" />');
     const bnBlocks = nfmToBlockNote(blocks);
 
     expect(bnBlocks.length).toBe(1);
@@ -1113,7 +1122,9 @@ describe("blocknote adapter", () => {
     expect(blocks[0].type).toBe("threadSection");
     if (blocks[0].type !== "threadSection") return;
     expect(blocks[0].children.length).toBe(1);
-    expect(serializeNfm(blocks)).toBe(`<thread-section label="Investigate parser" thread="thr_123" />\n\tChild note`);
+    expect(serializeNfm(blocks)).toBe(
+      `<thread-section label="Investigate parser" thread="thr_123" />\n\tChild note`,
+    );
   });
 
   test("childless blocks are normalized by hoisting nested children", () => {
@@ -1183,7 +1194,8 @@ describe("blocknote adapter", () => {
   });
 
   test("card-toggle NFM → BN maps props and children", () => {
-    const blocks = parseNfm(`<card-toggle card=\"abc123\" meta=\"[P1]\" snapshot=\"c25hcA==\" project=\"default\" status=\"build\" status-name=\"Build\">
+    const blocks =
+      parseNfm(`<card-toggle card=\"abc123\" meta=\"[P1]\" snapshot=\"c25hcA==\" project=\"default\" status=\"build\" status-name=\"Build\">
 \tDropped card
 \tChild details
 </card-toggle>`);
@@ -1264,7 +1276,7 @@ describe("blocknote adapter", () => {
     const serialized = serializeNfm(blocks);
     const parsed = parseNfm(serialized);
 
-    expect(serialized.includes("<card-toggle card=\"abc123\" meta=\"[P1]\">")).toBe(true);
+    expect(serialized.includes('<card-toggle card="abc123" meta="[P1]">')).toBe(true);
     expect(serialized.includes("\n\t\n\tChild details\n")).toBe(true);
     expect(parsed.length).toBe(1);
     expect(parsed[0].type).toBe("cardToggle");

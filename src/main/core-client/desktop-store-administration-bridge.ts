@@ -32,9 +32,7 @@ export interface DesktopStoreMaintenanceInput {
 export interface DesktopStoreAdministrationPort {
   listBackups(): Promise<BackupRecord[]>;
   createBackup(input?: CreateBackupInput): Promise<BackupRecord>;
-  deleteBackup(
-    backupId: string,
-  ): Promise<{ success: true; deletedBackupId: string }>;
+  deleteBackup(backupId: string): Promise<{ success: true; deletedBackupId: string }>;
   restoreBackup(input: RestoreBackupInput): Promise<RestoreBackupResult>;
   pruneBackups(retainCount: number): Promise<void>;
   runMaintenance(input: DesktopStoreMaintenanceInput): Promise<void>;
@@ -49,8 +47,7 @@ export interface CoreStoreAdministrationInvalidation {
   readonly readinessChanged: boolean;
 }
 
-const operationId = (kind: string): string =>
-  `electron:administration:${kind}:${randomUUID()}`;
+const operationId = (kind: string): string => `electron:administration:${kind}:${randomUUID()}`;
 
 const mapBackup = (backup: CoreBackupRecord): BackupRecord => ({
   version: backup.version,
@@ -64,17 +61,13 @@ const mapBackup = (backup: CoreBackupRecord): BackupRecord => ({
   totalBytes: backup.total_bytes,
 });
 
-const requireBackupId = (
-  committed: StoreAdministrationApplyResult,
-): string => {
+const requireBackupId = (committed: StoreAdministrationApplyResult): string => {
   const backupId = committed.outcome.backup_id;
   if (backupId) return backupId;
   throw new Error("Core Store Administration commit omitted its Backup identity");
 };
 
-const createCorePort = (
-  client: CoreClientPort,
-): DesktopStoreAdministrationPort => {
+const createCorePort = (client: CoreClientPort): DesktopStoreAdministrationPort => {
   const listBackups = async (): Promise<BackupRecord[]> => {
     const snapshot = await client.administrationRead({
       kind: "backups",
@@ -102,9 +95,7 @@ const createCorePort = (
         },
       });
       const backupId = requireBackupId(committed);
-      const created = (await listBackups()).find((backup) =>
-        backup.id === backupId
-      );
+      const created = (await listBackups()).find((backup) => backup.id === backupId);
       if (created) return created;
       throw new Error("Core Backup commit is missing from the durable inventory");
     },
@@ -153,10 +144,7 @@ const createCorePort = (
           ...(input.blockRetentionCount === undefined
             ? {}
             : {
-                block_retention_count: Math.max(
-                  0,
-                  Math.trunc(input.blockRetentionCount),
-                ),
+                block_retention_count: Math.max(0, Math.trunc(input.blockRetentionCount)),
               }),
         },
       });
@@ -176,14 +164,10 @@ export function createDesktopStoreAdministrationBridge(
 
   return {
     listBackups: async () => await (await resolve()).listBackups(),
-    createBackup: async (backupInput) =>
-      await (await resolve()).createBackup(backupInput),
-    deleteBackup: async (backupId) =>
-      await (await resolve()).deleteBackup(backupId),
-    restoreBackup: async (restoreInput) =>
-      await (await resolve()).restoreBackup(restoreInput),
-    pruneBackups: async (retainCount) =>
-      await (await resolve()).pruneBackups(retainCount),
+    createBackup: async (backupInput) => await (await resolve()).createBackup(backupInput),
+    deleteBackup: async (backupId) => await (await resolve()).deleteBackup(backupId),
+    restoreBackup: async (restoreInput) => await (await resolve()).restoreBackup(restoreInput),
+    pruneBackups: async (retainCount) => await (await resolve()).pruneBackups(retainCount),
     runMaintenance: async (maintenanceInput) =>
       await (await resolve()).runMaintenance(maintenanceInput),
   };

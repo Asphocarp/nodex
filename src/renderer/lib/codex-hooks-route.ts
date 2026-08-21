@@ -30,9 +30,7 @@ const CODEX_HOOKS_SETTINGS_SOURCES = new Set<CodexHooksSettingsSource>([
   "unknown",
 ]);
 
-export function normalizeCodexHooksSettingsSource(
-  source: HookSource,
-): CodexHooksSettingsSource {
+export function normalizeCodexHooksSettingsSource(source: HookSource): CodexHooksSettingsSource {
   switch (source) {
     case "plugin":
       return "plugin";
@@ -102,9 +100,7 @@ function appendCodexHooksSettingsSelection(
   query.set("pluginId", selection.pluginId ?? CODEX_HOOKS_UNKNOWN_PLUGIN_ID);
 }
 
-export function buildCodexHooksSettingsPath(
-  target: CodexHooksSettingsTarget,
-): string {
+export function buildCodexHooksSettingsPath(target: CodexHooksSettingsTarget): string {
   const query = new URLSearchParams();
   query.set("hostId", target.hostId);
   appendCodexHooksSettingsSelection(query, target.selection);
@@ -138,9 +134,7 @@ export function parseCodexHooksSettingsSelection(
   const knownProjectRoots = new Set(projectRoots);
 
   if (source == null && projectRoot != null) {
-    return knownProjectRoots.has(projectRoot)
-      ? { source: "project", projectRoot }
-      : null;
+    return knownProjectRoots.has(projectRoot) ? { source: "project", projectRoot } : null;
   }
 
   if (!isCodexHooksSettingsSource(source)) return null;

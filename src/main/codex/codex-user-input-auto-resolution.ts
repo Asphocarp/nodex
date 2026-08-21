@@ -23,14 +23,10 @@ export interface CodexUserInputAutoResolutionTimerOptions {
   clearTimeout?: (timer: unknown) => void;
 }
 
-interface CodexUserInputAutoResolutionControllerOptions
-  extends CodexUserInputAutoResolutionTimerOptions {
+interface CodexUserInputAutoResolutionControllerOptions extends CodexUserInputAutoResolutionTimerOptions {
   isConversationPresented: (conversationId: string) => boolean;
   onChange: (change: CodexUserInputAutoResolutionChange) => void;
-  onResolve: (
-    conversationId: string,
-    requestId: CodexProtocolRequestId,
-  ) => void | Promise<void>;
+  onResolve: (conversationId: string, requestId: CodexProtocolRequestId) => void | Promise<void>;
   onResolveError?: (
     error: unknown,
     conversationId: string,
@@ -38,10 +34,7 @@ interface CodexUserInputAutoResolutionControllerOptions
   ) => void;
 }
 
-function sameRequestId(
-  left: CodexProtocolRequestId,
-  right: CodexProtocolRequestId,
-): boolean {
+function sameRequestId(left: CodexProtocolRequestId, right: CodexProtocolRequestId): boolean {
   return typeof left === typeof right && left === right;
 }
 
@@ -65,24 +58,25 @@ export class CodexUserInputAutoResolutionController {
 
   constructor(options: CodexUserInputAutoResolutionControllerOptions) {
     this.now = options.now ?? Date.now;
-    this.setTimer = options.setTimeout ?? ((callback, timeoutMs) => {
-      const timer = setTimeout(callback, timeoutMs);
-      timer.unref?.();
-      return timer;
-    });
-    this.clearTimer = options.clearTimeout ?? ((timer) => {
-      clearTimeout(timer as ReturnType<typeof setTimeout>);
-    });
+    this.setTimer =
+      options.setTimeout ??
+      ((callback, timeoutMs) => {
+        const timer = setTimeout(callback, timeoutMs);
+        timer.unref?.();
+        return timer;
+      });
+    this.clearTimer =
+      options.clearTimeout ??
+      ((timer) => {
+        clearTimeout(timer as ReturnType<typeof setTimeout>);
+      });
     this.isConversationPresented = options.isConversationPresented;
     this.onChange = options.onChange;
     this.onResolve = options.onResolve;
     this.onResolveError = options.onResolveError ?? (() => undefined);
   }
 
-  observeRequest(
-    conversationId: string,
-    requestId: CodexProtocolRequestId,
-  ): void {
+  observeRequest(conversationId: string, requestId: CodexProtocolRequestId): void {
     if (this.getTracked(conversationId, requestId)) return;
     const previous = this.trackedByConversationId.get(conversationId);
     if (previous) this.removeTracked(previous, "replaced");
@@ -104,17 +98,11 @@ export class CodexUserInputAutoResolutionController {
     this.scheduleCountdown(tracked);
   }
 
-  observeResponse(
-    conversationId: string,
-    requestId: CodexProtocolRequestId,
-  ): void {
+  observeResponse(conversationId: string, requestId: CodexProtocolRequestId): void {
     this.removeMatching(conversationId, requestId, "responded");
   }
 
-  observeServerResolution(
-    conversationId: string,
-    requestId: CodexProtocolRequestId,
-  ): void {
+  observeServerResolution(conversationId: string, requestId: CodexProtocolRequestId): void {
     this.removeMatching(conversationId, requestId, "resolved");
   }
 
@@ -139,10 +127,7 @@ export class CodexUserInputAutoResolutionController {
     this.waitForInactivity(tracked, false);
   }
 
-  snooze(
-    conversationId: string,
-    requestId: CodexProtocolRequestId,
-  ): boolean {
+  snooze(conversationId: string, requestId: CodexProtocolRequestId): boolean {
     const tracked = this.getTracked(conversationId, requestId);
     if (!tracked) return false;
     this.cancelTimer(tracked);
@@ -155,9 +140,7 @@ export class CodexUserInputAutoResolutionController {
   }
 
   snapshot(): CodexUserInputAutoResolutionEntry[] {
-    return [...this.trackedByConversationId.values()].map(
-      (tracked) => tracked.entry,
-    );
+    return [...this.trackedByConversationId.values()].map((tracked) => tracked.entry);
   }
 
   clearConversation(conversationId: string): void {
@@ -171,9 +154,7 @@ export class CodexUserInputAutoResolutionController {
   ): void {
     const tracked = this.trackedByConversationId.get(conversationId);
     if (!tracked) return;
-    if (requestIds.some((requestId) =>
-      sameRequestId(requestId, tracked.entry.requestId)
-    )) return;
+    if (requestIds.some((requestId) => sameRequestId(requestId, tracked.entry.requestId))) return;
     this.removeTracked(tracked, "disposed");
   }
 
@@ -193,20 +174,15 @@ export class CodexUserInputAutoResolutionController {
     }
   }
 
-  private waitForInactivity(
-    tracked: TrackedUserInput,
-    publish = true,
-  ): void {
+  private waitForInactivity(tracked: TrackedUserInput, publish = true): void {
     this.cancelTimer(tracked);
     tracked.entry = {
       ...tracked.entry,
       phase: { type: "waitingForInactivity" },
     };
     if (publish) this.publishUpdated(tracked);
-    this.installTimer(
-      tracked,
-      USER_INPUT_FOREGROUND_INACTIVITY_MS,
-      () => this.scheduleCountdown(tracked),
+    this.installTimer(tracked, USER_INPUT_FOREGROUND_INACTIVITY_MS, () =>
+      this.scheduleCountdown(tracked),
     );
   }
 
@@ -220,26 +196,19 @@ export class CodexUserInputAutoResolutionController {
       },
     };
     this.publishUpdated(tracked);
-    this.installTimer(
-      tracked,
-      USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS,
-      () => this.handleTimeout(tracked),
+    this.installTimer(tracked, USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS, () =>
+      this.handleTimeout(tracked),
     );
   }
 
-  private installTimer(
-    tracked: TrackedUserInput,
-    timeoutMs: number,
-    callback: () => void,
-  ): void {
+  private installTimer(tracked: TrackedUserInput, timeoutMs: number, callback: () => void): void {
     const generation = tracked.generation;
     let timer: unknown = null;
     timer = this.setTimer(() => {
       if (
-        this.trackedByConversationId.get(tracked.entry.conversationId)
-          !== tracked
-        || tracked.generation !== generation
-        || tracked.timer !== timer
+        this.trackedByConversationId.get(tracked.entry.conversationId) !== tracked ||
+        tracked.generation !== generation ||
+        tracked.timer !== timer
       ) {
         return;
       }
@@ -287,12 +256,7 @@ export class CodexUserInputAutoResolutionController {
 
   private removeTracked(
     tracked: TrackedUserInput,
-    reason:
-      | "responded"
-      | "resolved"
-      | "replaced"
-      | "disconnected"
-      | "disposed",
+    reason: "responded" | "resolved" | "replaced" | "disconnected" | "disposed",
   ): void {
     this.cancelTimer(tracked);
     const { conversationId, requestId } = tracked.entry;

@@ -187,9 +187,7 @@ const IMPLEMENT_PLAN_MODELS: CodexModelOption[] = [
     displayName: "GPT-5.6 Terra",
     description: "Fast everyday implementation work.",
     hidden: false,
-    supportedReasoningEfforts: [
-      { reasoningEffort: "low", description: "Light" },
-    ],
+    supportedReasoningEfforts: [{ reasoningEffort: "low", description: "Light" }],
     defaultReasoningEffort: "low",
     isDefault: false,
   },
@@ -239,7 +237,8 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
   {
     id: "session-starting-local",
     name: "Session Started",
-    description: "Materialized first local-project turn with the submitted prompt and Thinking state.",
+    description:
+      "Materialized first local-project turn with the submitted prompt and Thinking state.",
   },
   {
     id: "session-starting-worktree",
@@ -264,12 +263,14 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
   {
     id: "long-thread-streaming",
     name: "Long Thread Streaming",
-    description: "Long transcript mounted through the two-layer virtualizer with latest-turn follow and response-spacer behavior.",
+    description:
+      "Long transcript mounted through the two-layer virtualizer with latest-turn follow and response-spacer behavior.",
   },
   {
     id: "long-thread-search-open",
     name: "Long Thread Search",
-    description: "Long transcript with find-in-thread open against virtualized reveal, restore, and shared search indexing.",
+    description:
+      "Long transcript with find-in-thread open against virtualized reveal, restore, and shared search indexing.",
   },
   {
     id: "completed-collapsed",
@@ -279,12 +280,14 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
   {
     id: "tool-call-mixed",
     name: "Tool Call Mixed",
-    description: "Production-like completed thread with command, file edit, web, MCP, dynamic, turn diff, auto-review, and multi-agent activity.",
+    description:
+      "Production-like completed thread with command, file edit, web, MCP, dynamic, turn diff, auto-review, and multi-agent activity.",
   },
   {
     id: "blocked-fixed-content",
     name: "Blocked Fixed Content",
-    description: "Blocked active turn where live patch activity remains in the transcript while todo, turn diff, and Thinking yield to the request owner.",
+    description:
+      "Blocked active turn where live patch activity remains in the transcript while todo, turn diff, and Thinking yield to the request owner.",
   },
   {
     id: "approval-lane",
@@ -339,7 +342,8 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
   {
     id: "auto-review-nudge",
     name: "Auto-review Nudge",
-    description: "Idle thread whose repeated manual approvals give the nudge exclusive composer ownership.",
+    description:
+      "Idle thread whose repeated manual approvals give the nudge exclusive composer ownership.",
   },
   {
     id: "background-permission-option",
@@ -354,7 +358,8 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
   {
     id: "background-activity",
     name: "Background Activity",
-    description: "Active thread plus a no-anchor inline subagent, background child approval, and side-channel rows.",
+    description:
+      "Active thread plus a no-anchor inline subagent, background child approval, and side-channel rows.",
   },
   {
     id: "search-open",
@@ -369,7 +374,8 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
   {
     id: "inline-edit-failure",
     name: "Inline Edit Failure",
-    description: "Auto-submits an edit failure and leaves the inline editor open with the error state.",
+    description:
+      "Auto-submits an edit failure and leaves the inline editor open with the error state.",
   },
   {
     id: "latest-turn-fork",
@@ -385,8 +391,13 @@ export const THREAD_STAGE_STORY_PRESETS: ThreadStageStoryPreset[] = [
 
 export const THREAD_STAGE_STORY_DEFAULT_PRESET = THREAD_STAGE_STORY_PRESETS[0];
 
-export function resolveThreadStageStoryPreset(preset: ThreadStageStoryPresetId): ThreadStageStoryPreset {
-  return THREAD_STAGE_STORY_PRESETS.find((candidate) => candidate.id === preset) ?? THREAD_STAGE_STORY_DEFAULT_PRESET;
+export function resolveThreadStageStoryPreset(
+  preset: ThreadStageStoryPresetId,
+): ThreadStageStoryPreset {
+  return (
+    THREAD_STAGE_STORY_PRESETS.find((candidate) => candidate.id === preset) ??
+    THREAD_STAGE_STORY_DEFAULT_PRESET
+  );
 }
 
 function buildStoryCard(): DatabasePage {
@@ -416,7 +427,9 @@ function buildStoryCard(): DatabasePage {
   };
 }
 
-export function buildStoryConversationItem(overrides: Partial<CodexConversationItem>): CodexConversationItem {
+export function buildStoryConversationItem(
+  overrides: Partial<CodexConversationItem>,
+): CodexConversationItem {
   return {
     threadId: STORY_THREAD_ID,
     turnId: "turn_story_1",
@@ -430,7 +443,9 @@ export function buildStoryConversationItem(overrides: Partial<CodexConversationI
   };
 }
 
-export function buildStoryConversationTurn(overrides: Partial<CodexConversationTurn>): CodexConversationTurn {
+export function buildStoryConversationTurn(
+  overrides: Partial<CodexConversationTurn>,
+): CodexConversationTurn {
   const items = overrides.items ?? [];
   return {
     threadId: STORY_THREAD_ID,
@@ -520,7 +535,8 @@ function buildPrimaryCompletedConversation(): CodexConversationSnapshot {
             kind: "userMessage",
             semanticKind: "userMessage",
             role: "user",
-            markdownText: "Add Storybook scenes for the thread feature, including tool calls, edit flow, and fork flow.",
+            markdownText:
+              "Add Storybook scenes for the thread feature, including tool calls, edit flow, and fork flow.",
             createdAt: 5_000,
             updatedAt: 5_000,
           }),
@@ -540,7 +556,8 @@ function buildPrimaryCompletedConversation(): CodexConversationSnapshot {
                 path: "src/renderer/features/local-conversation",
               } satisfies CodexCommandAction,
             ],
-            aggregatedOutput: "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+            aggregatedOutput:
+              "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
             toolCall: {
               subtype: "command",
               toolName: "exec_command",
@@ -556,7 +573,8 @@ function buildPrimaryCompletedConversation(): CodexConversationSnapshot {
                   } satisfies CodexCommandAction,
                 ],
               },
-              result: "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+              result:
+                "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
             },
             createdAt: 6_000,
             updatedAt: 8_000,
@@ -569,7 +587,8 @@ function buildPrimaryCompletedConversation(): CodexConversationSnapshot {
             semanticKind: "assistantMessage",
             role: "assistant",
             assistantPhase: "commentary",
-            markdownText: "Building reusable fixtures first so the stage and leaf stories stay aligned.",
+            markdownText:
+              "Building reusable fixtures first so the stage and leaf stories stay aligned.",
             createdAt: 9_000,
             updatedAt: 9_000,
           }),
@@ -614,7 +633,8 @@ function buildStreamingConversation(
             kind: "userMessage",
             semanticKind: "userMessage",
             role: "user",
-            markdownText: "Build the thread Storybook fixtures and wire a fake Electron bridge for the stage screen.",
+            markdownText:
+              "Build the thread Storybook fixtures and wire a fake Electron bridge for the stage screen.",
             createdAt: 20_000,
             updatedAt: 20_000,
           }),
@@ -644,7 +664,8 @@ function buildStreamingConversation(
                 cwd: STORY_WORKSPACE_PATH,
                 summaryLabel: "Reading renderer transport seams",
               },
-              result: "import { resolveInvokeTransport, resolveRendererTransport } from \"./renderer-transport\";",
+              result:
+                'import { resolveInvokeTransport, resolveRendererTransport } from "./renderer-transport";',
             },
             createdAt: 22_000,
             updatedAt: 25_000,
@@ -741,12 +762,14 @@ function buildBlockedFixedContentConversation(): CodexConversationSnapshot {
           semanticKind: "patch",
           status: "inProgress",
           fileChange: {
-            changes: buildCodexFileChangeMap([{
-              type: "update",
-              path: "src/renderer/features/local-conversation/projection/build-turn-view-model.ts",
-              unifiedDiff,
-              movePath: null,
-            }]),
+            changes: buildCodexFileChangeMap([
+              {
+                type: "update",
+                path: "src/renderer/features/local-conversation/projection/build-turn-view-model.ts",
+                unifiedDiff,
+                movePath: null,
+              },
+            ]),
             label: "Edited build-turn-view-model.ts",
           },
           toolCall: {
@@ -855,20 +878,22 @@ function buildUserInputRequestConversation(): CodexConversationSnapshot {
 function buildImplementPlanConversation(): CodexConversationSnapshot {
   return buildStoryConversation({
     updatedAt: 30_000,
-    requests: [{
-      type: "implementPlan",
-      requestId: "implement-plan:turn_story_plan",
-      projectId: STORY_PROJECT_ID,
-      threadId: STORY_THREAD_ID,
-      turnId: "turn_story_plan",
-      itemId: "implement-plan:turn_story_plan",
-      planContent: [
-        "1. Add story fixtures on top of the split header/body/footer surfaces.",
-        "2. Cover tool-call families and request cards with focused stories.",
-        "3. Extract the threadSection row for editor and Storybook reuse.",
-      ].join("\n"),
-      createdAt: 29_500,
-    }],
+    requests: [
+      {
+        type: "implementPlan",
+        requestId: "implement-plan:turn_story_plan",
+        projectId: STORY_PROJECT_ID,
+        threadId: STORY_THREAD_ID,
+        turnId: "turn_story_plan",
+        itemId: "implement-plan:turn_story_plan",
+        planContent: [
+          "1. Add story fixtures on top of the split header/body/footer surfaces.",
+          "2. Cover tool-call families and request cards with focused stories.",
+          "3. Extract the threadSection row for editor and Storybook reuse.",
+        ].join("\n"),
+        createdAt: 29_500,
+      },
+    ],
     turns: [
       buildStoryConversationTurn({
         turnId: "turn_story_plan",
@@ -1013,7 +1038,8 @@ function buildBackgroundConversation(): {
       {
         id: "background_terminal_story_1",
         turnId: "turn_story_background",
-        command: "bun test src/renderer/features/local-conversation/view/shared/request-cards/local-conversation-request-cards.test.tsx",
+        command:
+          "bun test src/renderer/features/local-conversation/view/shared/request-cards/local-conversation-request-cards.test.tsx",
         cwd: STORY_WORKSPACE_PATH,
         previewLine: "1418 pass",
         processId: 4172,
@@ -1058,7 +1084,8 @@ function buildBackgroundConversation(): {
         turnId: "turn_story_background",
         itemId: "background_exec_story",
         reason: "Background child wants to run the isolated request-card tests.",
-        command: "bun test src/renderer/features/local-conversation/view/shared/request-cards/local-conversation-request-cards.test.tsx",
+        command:
+          "bun test src/renderer/features/local-conversation/view/shared/request-cards/local-conversation-request-cards.test.tsx",
         cwd: STORY_WORKSPACE_PATH,
         createdAt: 26_500,
       },
@@ -1144,7 +1171,7 @@ function buildMixedDynamicToolCallItem(turnId: string): CodexTranscriptEntry {
       toolName: "read_thread",
       server: "codex_app",
       args: { threadId: STORY_THREAD_ID, turnLimit: 1 },
-      result: [{ type: "inputText", text: "{\"threadId\":\"thread_storybook\"}" }],
+      result: [{ type: "inputText", text: '{"threadId":"thread_storybook"}' }],
     },
     dynamicToolCall: {
       callId: "mixed_dynamic_read_thread",
@@ -1152,7 +1179,7 @@ function buildMixedDynamicToolCallItem(turnId: string): CodexTranscriptEntry {
       tool: "read_thread",
       arguments: { threadId: STORY_THREAD_ID, turnLimit: 1 },
       status: "completed",
-      contentItems: [{ type: "inputText", text: "{\"threadId\":\"thread_storybook\"}" }],
+      contentItems: [{ type: "inputText", text: '{"threadId":"thread_storybook"}' }],
       success: true,
       durationMs: 18,
       completed: true,
@@ -1203,7 +1230,8 @@ function buildMixedToolCallConversation(): CodexConversationSnapshot {
             semanticKind: "assistantMessage",
             role: "assistant",
             assistantPhase: "final_answer",
-            markdownText: "The mixed thread renders command, patch, web, MCP, dynamic, turn-diff, auto-review, and multi-agent activity through the production projection pipeline.",
+            markdownText:
+              "The mixed thread renders command, patch, web, MCP, dynamic, turn-diff, auto-review, and multi-agent activity through the production projection pipeline.",
             createdAt: 52_000,
             updatedAt: 52_000,
           }),
@@ -1267,7 +1295,8 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
       } satisfies CodexCommandAction,
       {
         type: "read",
-        command: "sed -n '1,220p' src/renderer/features/local-conversation/view/local-conversation-thread-body.tsx",
+        command:
+          "sed -n '1,220p' src/renderer/features/local-conversation/view/local-conversation-thread-body.tsx",
         name: "local-conversation-thread-body.tsx",
         path: "src/renderer/features/local-conversation/view/local-conversation-thread-body.tsx",
       } satisfies CodexCommandAction,
@@ -1291,7 +1320,8 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
     type: "file_change",
     kind: "fileChange",
     fileChange: {
-      label: "Edited src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+      label:
+        "Edited src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
       success: true,
       changes: {
         "src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx": {
@@ -1299,8 +1329,8 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
           movePath: null,
           unifiedDiff: [
             "@@ -1,5 +1,7 @@",
-            " import { useState } from \"react\";",
-            "+import { StoryShell } from \"./thread-stage-dev-story\";",
+            ' import { useState } from "react";',
+            '+import { StoryShell } from "./thread-stage-dev-story";',
             " ",
             " export function LocalConversationStageScreen() {",
             "+  return <StoryShell />;",
@@ -1313,7 +1343,8 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
       subtype: "fileChange",
       toolName: "file_change",
       args: {
-        label: "Edited src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
+        label:
+          "Edited src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
       },
       result: null,
     },
@@ -1330,17 +1361,17 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
         "--- a/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
         "+++ b/src/renderer/features/local-conversation/view/local-conversation-stage-screen.tsx",
         "@@ -3,11 +3,12 @@",
-        " import { LocalConversationFooter } from \"./local-conversation-footer\";",
-        " import { ThreadStageHeader } from \"./local-conversation-stage-header\";",
-        " import { LocalConversationThreadBody } from \"./local-conversation-thread-body\";",
-        "+import { StoryShell } from \"./thread-stage-dev-story\";",
+        ' import { LocalConversationFooter } from "./local-conversation-footer";',
+        ' import { ThreadStageHeader } from "./local-conversation-stage-header";',
+        ' import { LocalConversationThreadBody } from "./local-conversation-thread-body";',
+        '+import { StoryShell } from "./thread-stage-dev-story";',
         " ",
         " export function LocalConversationStageScreen({ model, actions, initialUiState }: ThreadStageScreenProps) {",
         "   const [errorMessage, setErrorMessage] = useState<string | null>(null);",
         " ",
         "   return (",
-        "-    <div className=\"flex h-full min-h-0 flex-col bg-(--background)\">",
-        "+    <StoryShell className=\"flex h-full min-h-0 flex-col bg-(--background)\">",
+        '-    <div className="flex h-full min-h-0 flex-col bg-(--background)">',
+        '+    <StoryShell className="flex h-full min-h-0 flex-col bg-(--background)">',
         "       <ThreadStageHeader model={model} actions={actions} onErrorMessage={setErrorMessage} />",
         "       <LocalConversationThreadBody",
         "@@ -22,6 +23,6 @@",
@@ -1357,8 +1388,8 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
         " export const TurnDiff: Story = {",
         "   render: () => (",
         "     <StorySurface",
-        "-      description=\"Turn-level unified diff rendered separately from the file-edit tool call.\"",
-        "+      description=\"Turn-level unified diff rendered as a Codex-style files-changed card with embedded file rows.\"",
+        '-      description="Turn-level unified diff rendered separately from the file-edit tool call."',
+        '+      description="Turn-level unified diff rendered as a Codex-style files-changed card with embedded file rows."',
         "     >",
         "       <TurnDiffSurface",
         "         item={THREAD_TOOL_CALL_STORY_ITEMS.turnDiff}",
@@ -1377,19 +1408,19 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
         "+++ b/src/renderer/features/local-conversation/view/shared/turn-diff-surface.tsx",
         "@@ -183,7 +183,7 @@",
         "   return (",
-        "     <div className=\"mb-2 flex flex-col overflow-hidden rounded-xl bg-token-list-hover-background/60 text-base\">",
-        "       <div className=\"flex items-center gap-2\">",
-        "-        <div className=\"flex w-full min-w-0 flex-nowrap items-center gap-1 pr-1 pl-3\">",
-        "+        <div className=\"flex w-full min-w-0 flex-nowrap items-center gap-1 pr-1 pl-3 pb-0.5\">",
+        '     <div className="mb-2 flex flex-col overflow-hidden rounded-xl bg-token-list-hover-background/60 text-base">',
+        '       <div className="flex items-center gap-2">',
+        '-        <div className="flex w-full min-w-0 flex-nowrap items-center gap-1 pr-1 pl-3">',
+        '+        <div className="flex w-full min-w-0 flex-nowrap items-center gap-1 pr-1 pl-3 pb-0.5">',
         "           <TurnDiffFilesChangedLabel fileCount={summary.fileCount} />",
         "           <DiffStats",
         "             additions={summary.additions}",
         "@@ -322,7 +322,7 @@",
-        "           <div className=\"flex-1\" />",
+        '           <div className="flex-1" />',
         "         </div>",
         "       </div>",
-        "-      <div className=\"flex flex-col divide-y-[0.5px] divide-token-border\">",
-        "+      <div className=\"flex flex-col divide-y-[0.5px] divide-token-border bg-token-side-bar-background\">",
+        '-      <div className="flex flex-col divide-y-[0.5px] divide-token-border">',
+        '+      <div className="flex flex-col divide-y-[0.5px] divide-token-border bg-token-side-bar-background">',
         "         {rows.map((row) => (",
         "           <TurnDiffEmbeddedRow",
         "             key={row.key}",
@@ -1398,16 +1429,16 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
         "@@ -61,6 +61,7 @@",
         "     );",
         " ",
-        "     expect(Boolean(container.textContent?.includes(\"2 files changed\"))).toBe(true);",
-        "+    expect(Boolean(container.textContent?.includes(\"files changed\"))).toBe(true);",
-        "     expect(Boolean(container.textContent?.includes(\"+2\"))).toBe(true);",
-        "     expect(Boolean(container.textContent?.includes(\"-2\"))).toBe(true);",
-        "     expect(container.querySelectorAll('[role=\"button\"][aria-expanded=\"false\"]').length).toBe(2);",
+        '     expect(Boolean(container.textContent?.includes("2 files changed"))).toBe(true);',
+        '+    expect(Boolean(container.textContent?.includes("files changed"))).toBe(true);',
+        '     expect(Boolean(container.textContent?.includes("+2"))).toBe(true);',
+        '     expect(Boolean(container.textContent?.includes("-2"))).toBe(true);',
+        '     expect(container.querySelectorAll(\'[role="button"][aria-expanded="false"]\').length).toBe(2);',
         "@@ -108,6 +109,7 @@",
         "     );",
         " ",
-        "     expect(Boolean(container.textContent?.includes(\"2 files changed\"))).toBe(true);",
-        "+    expect(Boolean(container.textContent?.includes(\"files changed\"))).toBe(true);",
+        '     expect(Boolean(container.textContent?.includes("2 files changed"))).toBe(true);',
+        '+    expect(Boolean(container.textContent?.includes("files changed"))).toBe(true);',
         "     expect(container.querySelectorAll('[role=\"button\"]').length).toBe(0);",
         "   });",
         " });",
@@ -1422,10 +1453,7 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
       query: "storybook react vite args decorators loaders play",
       action: {
         type: "search",
-        queries: [
-          "storybook react vite args decorators loaders play",
-          "storybook react vite args",
-        ],
+        queries: ["storybook react vite args decorators loaders play", "storybook react vite args"],
       },
       completed: true,
     },
@@ -1435,20 +1463,14 @@ export const THREAD_TOOL_CALL_STORY_ITEMS = {
       args: { query: "storybook react vite args decorators loaders play" },
       result: {
         type: "search",
-        queries: [
-          "storybook react vite args decorators loaders play",
-          "storybook react vite args",
-        ],
+        queries: ["storybook react vite args decorators loaders play", "storybook react vite args"],
       },
     },
     rawItem: {
       query: "storybook react vite args decorators loaders play",
       action: {
         type: "search",
-        queries: [
-          "storybook react vite args decorators loaders play",
-          "storybook react vite args",
-        ],
+        queries: ["storybook react vite args decorators loaders play", "storybook react vite args"],
       },
     },
   }),
@@ -2026,7 +2048,8 @@ export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
       willRetry: false,
       error: {
         message: "Failed to reconnect to the stream.",
-        additionalDetails: "The connection could not be re-established after repeated retry attempts.",
+        additionalDetails:
+          "The connection could not be re-established after repeated retry attempts.",
       },
     },
   }),
@@ -2071,7 +2094,8 @@ export const THREAD_TRANSCRIPT_SPECIAL_STORY_ITEMS = {
         status: "denied",
         riskScore: 0.91,
         riskLevel: "high",
-        rationale: "The requested command can modify generated package output outside the active workspace.",
+        rationale:
+          "The requested command can modify generated package output outside the active workspace.",
       },
       action: {
         type: "command",
@@ -2326,8 +2350,10 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     threadId: STORY_THREAD_ID,
     turnId: "turn_story_request",
     itemId: "item_story_request_approval",
-    approvalReason: "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
-    reason: "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
+    approvalReason:
+      "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
+    reason:
+      "Do you want to let me restage the thread Storybook files and verify the index state before committing?",
     command: [
       "git add docs/FRONTEND.md",
       "src/renderer/features/local-conversation/view/shared/request-cards/local-conversation-request-cards.stories.tsx",
@@ -2335,11 +2361,7 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
       "&& git status --short",
     ].join("\n"),
     cwd: STORY_WORKSPACE_PATH,
-    cmd: [
-      "git",
-      "add",
-      "docs/FRONTEND.md",
-    ],
+    cmd: ["git", "add", "docs/FRONTEND.md"],
     proposedExecpolicyAmendment: ["git", "add"],
     createdAt: 1,
   },
@@ -2365,7 +2387,11 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     approvalRequestId: "file_approval_story_card",
     fileChange: {
       changes: buildCodexFileChangeMap([
-        { type: "add", path: "src/generated-preview.ts", content: "export const preview = true;\n" },
+        {
+          type: "add",
+          path: "src/generated-preview.ts",
+          content: "export const preview = true;\n",
+        },
         {
           type: "update",
           path: "src/generated-preview.ts",
@@ -2434,7 +2460,8 @@ export const THREAD_REQUEST_CARD_STORY_DATA = {
     turnId: "turn_story_request",
     itemId: "item_story_request_permission",
     cwd: STORY_WORKSPACE_PATH,
-    reason: "Codex needs network access and read access to the generated Storybook output for this turn.",
+    reason:
+      "Codex needs network access and read access to the generated Storybook output for this turn.",
     permissions: {
       network: {
         enabled: true,
@@ -2514,111 +2541,128 @@ function buildStoryDynamicRequest(input: {
 
 function buildOnboardingInputRequestConversation(): CodexConversationSnapshot {
   return buildStreamingConversation({
-    canonicalRequests: [buildStoryDynamicRequest({
-      id: "onboarding_story_active",
-      tool: "request_onboarding_input",
-      arguments: {
-        questions: [{
-          id: "first_goal",
-          question: "What should Codex help you accomplish first?",
-          options: [
-            { label: "Build a feature", description: "Start with implementation." },
-            { label: "Review code", description: "Start with a focused review." },
+    canonicalRequests: [
+      buildStoryDynamicRequest({
+        id: "onboarding_story_active",
+        tool: "request_onboarding_input",
+        arguments: {
+          questions: [
+            {
+              id: "first_goal",
+              question: "What should Codex help you accomplish first?",
+              options: [
+                { label: "Build a feature", description: "Start with implementation." },
+                { label: "Review code", description: "Start with a focused review." },
+              ],
+            },
           ],
-        }],
-      },
-    })],
+        },
+      }),
+    ],
   });
 }
 
 function buildPermissionRequestConversation(): CodexConversationSnapshot {
   return buildStreamingConversation({
-    requests: [{
-      ...THREAD_REQUEST_CARD_STORY_DATA.permissionRequest,
-      requestId: "permission_story_active",
-      turnId: "turn_story_streaming",
-      itemId: "reasoning_story_streaming",
-      createdAt: 26_000,
-    }],
+    requests: [
+      {
+        ...THREAD_REQUEST_CARD_STORY_DATA.permissionRequest,
+        requestId: "permission_story_active",
+        turnId: "turn_story_streaming",
+        itemId: "reasoning_story_streaming",
+        createdAt: 26_000,
+      },
+    ],
   });
 }
 
 function buildFileApprovalRequestConversation(): CodexConversationSnapshot {
   const conversation = buildStreamingConversation();
-  const turns = conversation.turns.map((turn) => turn.turnId === "turn_story_streaming"
-    ? {
-        ...turn,
-        itemIds: [...turn.itemIds, "file_story_streaming"],
-        items: [
-          ...turn.items,
-          {
-            ...THREAD_REQUEST_CARD_STORY_DATA.fileApprovalItem,
-            threadId: STORY_THREAD_ID,
-            turnId: "turn_story_streaming",
-            itemId: "file_story_streaming",
-            entryId: "file_story_streaming",
-          },
-        ],
-      }
-    : turn);
+  const turns = conversation.turns.map((turn) =>
+    turn.turnId === "turn_story_streaming"
+      ? {
+          ...turn,
+          itemIds: [...turn.itemIds, "file_story_streaming"],
+          items: [
+            ...turn.items,
+            {
+              ...THREAD_REQUEST_CARD_STORY_DATA.fileApprovalItem,
+              threadId: STORY_THREAD_ID,
+              turnId: "turn_story_streaming",
+              itemId: "file_story_streaming",
+              entryId: "file_story_streaming",
+            },
+          ],
+        }
+      : turn,
+  );
   return {
     ...conversation,
     turns,
-    requests: [{
-      ...THREAD_REQUEST_CARD_STORY_DATA.fileApproval,
-      requestId: "file_approval_story_active",
-      turnId: "turn_story_streaming",
-      itemId: "file_story_streaming",
-      createdAt: 26_000,
-    }],
+    requests: [
+      {
+        ...THREAD_REQUEST_CARD_STORY_DATA.fileApproval,
+        requestId: "file_approval_story_active",
+        turnId: "turn_story_streaming",
+        itemId: "file_story_streaming",
+        createdAt: 26_000,
+      },
+    ],
   };
 }
 
 function buildMcpElicitationRequestConversation(): CodexConversationSnapshot {
   return buildStreamingConversation({
-    requests: [{
-      ...THREAD_REQUEST_CARD_STORY_DATA.mcpServerElicitation,
-      requestId: "mcp_story_active",
-      turnId: "turn_story_streaming",
-      itemId: "reasoning_story_streaming",
-      createdAt: 26_000,
-    }],
+    requests: [
+      {
+        ...THREAD_REQUEST_CARD_STORY_DATA.mcpServerElicitation,
+        requestId: "mcp_story_active",
+        turnId: "turn_story_streaming",
+        itemId: "reasoning_story_streaming",
+        createdAt: 26_000,
+      },
+    ],
   });
 }
 
 function buildOptionPickerRequestConversation(): CodexConversationSnapshot {
   return buildStreamingConversation({
-    canonicalRequests: [{
-      id: "option_story_active",
-      method: "item/tool/requestOptionPicker",
-      params: {
-        threadId: STORY_THREAD_ID,
-        turnId: "turn_story_streaming",
-        question: THREAD_REQUEST_CARD_STORY_DATA.optionPicker.question,
-        options: THREAD_REQUEST_CARD_STORY_DATA.optionPicker.options,
-        allowMultiple: true,
-        submitLabel: "Continue",
-        skipLabel: "Not now",
-      },
-    }],
-  });
-}
-
-function buildSetupStepRequestConversation(step: "role" | "task" | "context"): CodexConversationSnapshot {
-  const request: CodexCanonicalServerRequest = step === "context"
-    ? {
-        id: "setup_context_story_active",
-        method: "item/tool/requestSetupCodexContextPicker",
+    canonicalRequests: [
+      {
+        id: "option_story_active",
+        method: "item/tool/requestOptionPicker",
         params: {
           threadId: STORY_THREAD_ID,
           turnId: "turn_story_streaming",
+          question: THREAD_REQUEST_CARD_STORY_DATA.optionPicker.question,
+          options: THREAD_REQUEST_CARD_STORY_DATA.optionPicker.options,
+          allowMultiple: true,
+          submitLabel: "Continue",
+          skipLabel: "Not now",
         },
-      }
-    : buildStoryDynamicRequest({
-        id: `setup_${step}_story_active`,
-        tool: "setup_codex_step",
-        arguments: { step },
-      });
+      },
+    ],
+  });
+}
+
+function buildSetupStepRequestConversation(
+  step: "role" | "task" | "context",
+): CodexConversationSnapshot {
+  const request: CodexCanonicalServerRequest =
+    step === "context"
+      ? {
+          id: "setup_context_story_active",
+          method: "item/tool/requestSetupCodexContextPicker",
+          params: {
+            threadId: STORY_THREAD_ID,
+            turnId: "turn_story_streaming",
+          },
+        }
+      : buildStoryDynamicRequest({
+          id: `setup_${step}_story_active`,
+          tool: "setup_codex_step",
+          arguments: { step },
+        });
   return buildStreamingConversation({ canonicalRequests: [request] });
 }
 
@@ -2672,13 +2716,15 @@ function buildBackgroundPermissionOptionConversation(): {
 function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageStoryScenario {
   const preset = resolveThreadStageStoryPreset(controls.preset);
   const transportCard = buildStoryCard();
-  const permissionDescription = controls.permissionMode === "custom"
-    ? "Custom policy: allow reads, searches, and tests; require approval for file writes."
-    : "Custom policy is not active for this preset.";
+  const permissionDescription =
+    controls.permissionMode === "custom"
+      ? "Custom policy: allow reads, searches, and tests; require approval for file writes."
+      : "Custom policy is not active for this preset.";
 
   const completedConversation = buildPrimaryCompletedConversation();
-  const collapsedAgentBodyByTurnId: Record<string, boolean> =
-    controls.collapseAgentBody ? { turn_story_latest: true } : {};
+  const collapsedAgentBodyByTurnId: Record<string, boolean> = controls.collapseAgentBody
+    ? { turn_story_latest: true }
+    : {};
 
   const baseRuntime: ThreadStageStoryRuntimeState = {
     isNewThreadTab: false,
@@ -3019,15 +3065,16 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
   }
 
   if (
-    controls.preset === "setup-role-lane"
-    || controls.preset === "setup-task-lane"
-    || controls.preset === "setup-context-lane"
+    controls.preset === "setup-role-lane" ||
+    controls.preset === "setup-task-lane" ||
+    controls.preset === "setup-context-lane"
   ) {
-    const step = controls.preset === "setup-role-lane"
-      ? "role"
-      : controls.preset === "setup-task-lane"
-        ? "task"
-        : "context";
+    const step =
+      controls.preset === "setup-role-lane"
+        ? "role"
+        : controls.preset === "setup-task-lane"
+          ? "task"
+          : "context";
     const conversation = buildSetupStepRequestConversation(step);
     return {
       preset,
@@ -3173,13 +3220,13 @@ function buildScenarioRuntime(controls: ThreadStageStoryControls): ThreadStageSt
   };
 }
 
-export function buildThreadStageStoryScenario(controls: ThreadStageStoryControls): ThreadStageStoryScenario {
+export function buildThreadStageStoryScenario(
+  controls: ThreadStageStoryControls,
+): ThreadStageStoryScenario {
   return buildScenarioRuntime(controls);
 }
 
-function resolveStoryThreadTitle(
-  runtime: ThreadStageStoryRuntimeState,
-): string {
+function resolveStoryThreadTitle(runtime: ThreadStageStoryRuntimeState): string {
   return (
     runtime.conversation?.threadName ||
     runtime.conversation?.threadPreview ||
@@ -3195,12 +3242,11 @@ export function buildThreadStageStorySurfaceModels(
   runtime: ThreadStageStoryRuntimeState,
 ): ThreadStageStorySurfaceModels {
   void scenario;
-  const readyThreadId = runtime.threadStartProgress?.phase === "ready"
-    ? runtime.threadStartProgress.threadId?.trim()
-    : null;
-  const activeThreadId = runtime.isNewThreadTab
-    ? readyThreadId || null
-    : runtime.activeThreadId;
+  const readyThreadId =
+    runtime.threadStartProgress?.phase === "ready"
+      ? runtime.threadStartProgress.threadId?.trim()
+      : null;
+  const activeThreadId = runtime.isNewThreadTab ? readyThreadId || null : runtime.activeThreadId;
   const conversation = runtime.conversation;
   const turns = conversation?.turns ?? [];
   const requests = conversation?.requests ?? [];
@@ -3228,7 +3274,8 @@ export function buildThreadStageStorySurfaceModels(
   });
 
   const headerModel: ThreadStageHeaderModel = {
-    projectId: conversation?.projectId ?? runtime.activeThreadSummary?.projectId ?? STORY_PROJECT_ID,
+    projectId:
+      conversation?.projectId ?? runtime.activeThreadSummary?.projectId ?? STORY_PROJECT_ID,
     sessionId: runtime.newThreadTarget?.sessionId ?? null,
     threadId: conversation?.threadId ?? runtime.activeThreadSummary?.threadId ?? activeThreadId,
     title: resolveStoryThreadTitle(runtime),
@@ -3252,22 +3299,20 @@ export function buildThreadStageStorySurfaceModels(
   });
 
   const activeTurn = [...turns].reverse().find((turn) => turn.status === "inProgress") ?? null;
-  const availableModels = controls.preset === "implement-plan"
-    ? IMPLEMENT_PLAN_MODELS
-    : DEFAULT_MODELS;
-  const selectedModel = controls.preset === "implement-plan"
-    ? "gpt-5.6-sol"
-    : (availableModels[0]?.model ?? "");
-  const selectedReasoningEffort = controls.preset === "implement-plan"
-    ? "xhigh"
-    : "high";
+  const availableModels =
+    controls.preset === "implement-plan" ? IMPLEMENT_PLAN_MODELS : DEFAULT_MODELS;
+  const selectedModel =
+    controls.preset === "implement-plan" ? "gpt-5.6-sol" : (availableModels[0]?.model ?? "");
+  const selectedReasoningEffort = controls.preset === "implement-plan" ? "xhigh" : "high";
   const footerModel: ThreadFooterModel = {
     projectId: STORY_PROJECT_ID,
     hostId: "default",
     projectWorkspacePath: STORY_WORKSPACE_PATH,
     threadId: activeThreadId,
     cwd: conversation?.cwd ?? null,
-    account: controls.authenticatedAccount ? DEFAULT_ACCOUNT_AUTHENTICATED : DEFAULT_ACCOUNT_SIGNED_OUT,
+    account: controls.authenticatedAccount
+      ? DEFAULT_ACCOUNT_AUTHENTICATED
+      : DEFAULT_ACCOUNT_SIGNED_OUT,
     conversation,
     resumeState,
     activeTurn,
@@ -3296,24 +3341,25 @@ export function buildThreadStageStorySurfaceModels(
       availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
       approvalPolicy: "on-request",
       approvalsReviewer: controls.permissionMode === "guardian-approvals" ? "auto_review" : "user",
-      sandboxMode: controls.permissionMode === "full-access" ? "danger-full-access" : "workspace-write",
-      sandbox: controls.permissionMode === "full-access"
-        ? { type: "dangerFullAccess" }
-        : {
-            type: "workspaceWrite",
-            writableRoots: [STORY_WORKSPACE_PATH],
-            networkAccess: false,
-            excludeTmpdirEnvVar: false,
-            excludeSlashTmp: false,
-          },
+      sandboxMode:
+        controls.permissionMode === "full-access" ? "danger-full-access" : "workspace-write",
+      sandbox:
+        controls.permissionMode === "full-access"
+          ? { type: "dangerFullAccess" }
+          : {
+              type: "workspaceWrite",
+              writableRoots: [STORY_WORKSPACE_PATH],
+              networkAccess: false,
+              excludeTmpdirEnvVar: false,
+              excludeSlashTmp: false,
+            },
       autoReviewAvailable: true,
       configTarget: {
         source: "user",
         filePath: `${STORY_WORKSPACE_PATH}/.codex/config.toml`,
       },
-      customDescription: controls.permissionMode === "custom"
-        ? "Custom Storybook permissions"
-        : null,
+      customDescription:
+        controls.permissionMode === "custom" ? "Custom Storybook permissions" : null,
     },
     isQueueingEnabled: controls.isQueueingEnabled,
     composerEnterBehavior: "enter",
@@ -3355,9 +3401,7 @@ function createStorybookElectronBridge(input: {
   permissionMode: CodexPermissionMode;
   permissionDescription: string;
 }): StorybookBridge {
-  const gitWorkerListeners = new Set<
-    (message: GitWorkerMessageForView) => void
-  >();
+  const gitWorkerListeners = new Set<(message: GitWorkerMessageForView) => void>();
 
   let branchState = {
     currentBranch: "codex/thread-storybook",
@@ -3462,18 +3506,21 @@ function createStorybookElectronBridge(input: {
             effectivePreset: input.permissionMode === "custom" ? "custom" : input.permissionMode,
             availableModes: ["auto", "guardian-approvals", "full-access", "custom"],
             approvalPolicy: "on-request",
-            approvalsReviewer: input.permissionMode === "guardian-approvals" ? "auto_review" : "user",
-            sandboxMode: input.permissionMode === "full-access" ? "danger-full-access" : "workspace-write",
-            sandbox: input.permissionMode === "full-access"
-              ? { type: "dangerFullAccess" }
-              : {
-                  type: "workspaceWrite",
-                  writableRoots: ["/tmp/project"],
-                  readOnlyAccess: { type: "fullAccess" },
-                  networkAccess: false,
-                  excludeTmpdirEnvVar: false,
-                  excludeSlashTmp: false,
-                },
+            approvalsReviewer:
+              input.permissionMode === "guardian-approvals" ? "auto_review" : "user",
+            sandboxMode:
+              input.permissionMode === "full-access" ? "danger-full-access" : "workspace-write",
+            sandbox:
+              input.permissionMode === "full-access"
+                ? { type: "dangerFullAccess" }
+                : {
+                    type: "workspaceWrite",
+                    writableRoots: ["/tmp/project"],
+                    readOnlyAccess: { type: "fullAccess" },
+                    networkAccess: false,
+                    excludeTmpdirEnvVar: false,
+                    excludeSlashTmp: false,
+                  },
             autoReviewAvailable: true,
             configTarget: {
               source: "user",
@@ -3503,7 +3550,7 @@ function createStorybookElectronBridge(input: {
       gitWorkerListeners.add(listener);
       return () => gitWorkerListeners.delete(listener);
     },
-    on: () => () => { },
+    on: () => () => {},
   } as StorybookBridge;
 }
 

@@ -6,9 +6,7 @@ describe("toggle shortcut", () => {
     const expectedSelector = '.bn-block[data-id="abc1234"] .bn-toggle-button';
     const button = { click: () => {} } as HTMLButtonElement;
     const root = {
-      querySelector: (selector: string) => (
-        selector === expectedSelector ? button : null
-      ),
+      querySelector: (selector: string) => (selector === expectedSelector ? button : null),
     } as unknown as ParentNode;
 
     const found = findToggleButtonForBlock(root, "abc1234");
@@ -24,9 +22,7 @@ describe("toggle shortcut", () => {
       },
     } as HTMLButtonElement;
     const root = {
-      querySelector: (selector: string) => (
-        selector === expectedSelector ? button : null
-      ),
+      querySelector: (selector: string) => (selector === expectedSelector ? button : null),
     } as unknown as ParentNode;
 
     const didToggle = toggleCurrentToggleBlock({

@@ -1,9 +1,6 @@
 /** Calendar view helper utilities — pure functions, no side effects. */
 
-import {
-  normalizeShiftWheelDelta,
-  type ShiftWheelDeltaInput,
-} from "./calendar-shift-scroll";
+import { normalizeShiftWheelDelta, type ShiftWheelDeltaInput } from "./calendar-shift-scroll";
 
 export const HOUR_HEIGHT = 60;
 export const MIN_HOUR_HEIGHT = 32;
@@ -45,8 +42,12 @@ export function resolveTimelineViewportHeight({
   if (!Number.isFinite(panelHeight) || panelHeight <= 0) return 0;
 
   const resolvedHeaderHeight = Number.isFinite(headerHeight) ? Math.max(headerHeight, 0) : 0;
-  const resolvedAllDayLaneHeight = Number.isFinite(allDayLaneHeight) ? Math.max(allDayLaneHeight, 0) : 0;
-  const resolvedSeparatorHeight = Number.isFinite(separatorHeight) ? Math.max(separatorHeight, 0) : 0;
+  const resolvedAllDayLaneHeight = Number.isFinite(allDayLaneHeight)
+    ? Math.max(allDayLaneHeight, 0)
+    : 0;
+  const resolvedSeparatorHeight = Number.isFinite(separatorHeight)
+    ? Math.max(separatorHeight, 0)
+    : 0;
 
   return Math.max(
     panelHeight - resolvedHeaderHeight - resolvedAllDayLaneHeight - resolvedSeparatorHeight,
@@ -167,10 +168,7 @@ export function moveSlotRange(
   const endSlot = clampSlot(Math.max(range.endSlot, startSlot));
   const durationSlots = endSlot - startSlot + 1;
   const maxStart = Math.max(0, TOTAL_SLOTS - durationSlots);
-  const nextStart = Math.max(
-    0,
-    Math.min(pointerSlot - grabOffsetSlots, maxStart),
-  );
+  const nextStart = Math.max(0, Math.min(pointerSlot - grabOffsetSlots, maxStart));
 
   return {
     startSlot: nextStart,
@@ -206,18 +204,18 @@ export function timeToY(hour: number, minute: number, hourHeight: number = HOUR_
 
 /** Resolve the current-time marker Y using sub-minute precision. */
 export function resolveNowY(now: Date, hourHeight: number = HOUR_HEIGHT): number {
-  const effectiveHourHeight = Number.isFinite(hourHeight) && hourHeight > 0
-    ? hourHeight
-    : HOUR_HEIGHT;
-  const minutesSinceMidnight = now.getHours() * 60
-    + now.getMinutes()
-    + now.getSeconds() / 60
-    + now.getMilliseconds() / 60000;
+  const effectiveHourHeight =
+    Number.isFinite(hourHeight) && hourHeight > 0 ? hourHeight : HOUR_HEIGHT;
+  const minutesSinceMidnight =
+    now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60 + now.getMilliseconds() / 60000;
   return minutesSinceMidnight * (effectiveHourHeight / 60);
 }
 
 /** Convert a Y pixel offset to { hour, minute }. */
-export function yToTime(y: number, hourHeight: number = HOUR_HEIGHT): { hour: number; minute: number } {
+export function yToTime(
+  y: number,
+  hourHeight: number = HOUR_HEIGHT,
+): { hour: number; minute: number } {
   const totalMinutes = Math.round(y / (hourHeight / 60));
   const clamped = Math.max(0, Math.min(totalMinutes, 24 * 60 - 1));
   return { hour: Math.floor(clamped / 60), minute: clamped % 60 };
@@ -231,8 +229,7 @@ export function slotToTime(slot: number): { hour: number; minute: number } {
 
 /** Format a time range like "9:00 AM – 10:30 AM". */
 export function formatTimeRange(start: Date, end: Date): string {
-  const fmt = (d: Date) =>
-    d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  const fmt = (d: Date) => d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
   return `${fmt(start)} – ${fmt(end)}`;
 }
 

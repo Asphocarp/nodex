@@ -51,8 +51,7 @@ describe("isolated run ownership", () => {
     expect(readIsolatedRunLeaseOwner(nodexHome)).toEqual(lease.owner);
     expect(lstatSync(isolatedRunLeaseDirectory(nodexHome)).mode & 0o777).toBe(0o700);
     expect(
-      lstatSync(path.join(isolatedRunLeaseDirectory(nodexHome), "owner.json")).mode
-        & 0o777,
+      lstatSync(path.join(isolatedRunLeaseDirectory(nodexHome), "owner.json")).mode & 0o777,
     ).toBe(0o600);
     expect(() =>
       acquireIsolatedRunLease({
@@ -116,9 +115,7 @@ describe("isolated run ownership", () => {
     ).toEqual(ready);
     expect(readIsolatedRunClaim(nodexHome)).toEqual(ready);
     expect(
-      lstatSync(
-        path.join(isolatedRunLeaseDirectory(nodexHome), "host-claim.json"),
-      ).mode & 0o777,
+      lstatSync(path.join(isolatedRunLeaseDirectory(nodexHome), "host-claim.json")).mode & 0o777,
     ).toBe(0o600);
     expect(() =>
       publishIsolatedRunClaim({
@@ -181,9 +178,7 @@ describe("isolated run ownership", () => {
     mkdirSync(path.dirname(malformedLease), { mode: 0o700 });
     mkdirSync(malformedLease, { mode: 0o700 });
     writeFileSync(path.join(malformedLease, "owner.json"), "{}", { mode: 0o600 });
-    expect(() => readIsolatedRunLeaseOwner(malformedHome)).toThrow(
-      "version is unsupported",
-    );
+    expect(() => readIsolatedRunLeaseOwner(malformedHome)).toThrow("version is unsupported");
 
     const oversizedHome = createNodexHome();
     const oversizedLease = isolatedRunLeaseDirectory(oversizedHome);
@@ -200,11 +195,9 @@ describe("isolated run ownership", () => {
       runId: RUN_A,
       supervisorPid: process.pid,
     });
-    writeFileSync(
-      path.join(isolatedRunLeaseDirectory(unexpectedHome), "unexpected"),
-      "",
-      { mode: 0o600 },
-    );
+    writeFileSync(path.join(isolatedRunLeaseDirectory(unexpectedHome), "unexpected"), "", {
+      mode: 0o600,
+    });
     expect(() => lease.release()).toThrow("unexpected entry");
   });
 
@@ -224,13 +217,8 @@ describe("isolated run ownership", () => {
       runId: RUN_A,
       supervisorPid: process.pid,
     });
-    chmodSync(
-      path.join(isolatedRunLeaseDirectory(modeHome), "owner.json"),
-      0o644,
-    );
-    expect(() => readIsolatedRunLeaseOwner(modeHome)).toThrow(
-      "mode 644; expected 600",
-    );
+    chmodSync(path.join(isolatedRunLeaseDirectory(modeHome), "owner.json"), 0o644);
+    expect(() => readIsolatedRunLeaseOwner(modeHome)).toThrow("mode 644; expected 600");
     expect(() => lease.release()).toThrow("mode 644; expected 600");
   });
 
@@ -256,8 +244,6 @@ describe("isolated run ownership", () => {
     mkdirSync(leaseDirectory, { mode: 0o700 });
     mkdirSync(path.join(leaseDirectory, "owner.json"), { mode: 0o700 });
 
-    expect(() => readIsolatedRunLeaseOwner(nodexHome)).toThrow(
-      "must be a regular file",
-    );
+    expect(() => readIsolatedRunLeaseOwner(nodexHome)).toThrow("must be a regular file");
   });
 });

@@ -10,7 +10,10 @@ export function normalizeSortEmptyPlacement(value: unknown): SortEmptyPlacement 
   return value === "first" ? "first" : DEFAULT_SORT_EMPTY_PLACEMENT;
 }
 
-export function buildSortKeyWithEmptyPlacement<TField extends string, TDirection extends string>(args: {
+export function buildSortKeyWithEmptyPlacement<
+  TField extends string,
+  TDirection extends string,
+>(args: {
   field: TField;
   direction: TDirection;
   emptyPlacement?: unknown;
@@ -38,7 +41,10 @@ export function buildSortKeyWithEmptyPlacement<TField extends string, TDirection
   };
 }
 
-export function resolveSortEmptyPlacement(field: string, emptyPlacement?: SortEmptyPlacement): SortEmptyPlacement {
+export function resolveSortEmptyPlacement(
+  field: string,
+  emptyPlacement?: SortEmptyPlacement,
+): SortEmptyPlacement {
   if (!supportsSortEmptyPlacementField(field)) {
     return DEFAULT_SORT_EMPTY_PLACEMENT;
   }

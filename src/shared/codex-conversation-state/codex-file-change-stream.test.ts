@@ -1,10 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { ServerNotification } from "@nodex/codex-app-server-protocol";
-import type {
-  FileUpdateChange,
-  Thread,
-  ThreadItem,
-} from "@nodex/codex-app-server-protocol/v2";
+import type { FileUpdateChange, Thread, ThreadItem } from "@nodex/codex-app-server-protocol/v2";
 import {
   createCodexCanonicalConversationState,
   type CodexCanonicalConversationState,
@@ -86,16 +82,18 @@ function buildState(items: ThreadItem[] = []): CodexCanonicalConversationState {
     agentRole: null,
     gitInfo: null,
     name: "C-06 file stream fixture",
-    turns: [{
-      id: TURN_ID,
-      items,
-      itemsView: "full",
-      status: "inProgress",
-      error: null,
-      startedAt: 1,
-      completedAt: null,
-      durationMs: null,
-    }],
+    turns: [
+      {
+        id: TURN_ID,
+        items,
+        itemsView: "full",
+        status: "inProgress",
+        error: null,
+        startedAt: 1,
+        completedAt: null,
+        durationMs: null,
+      },
+    ],
   };
 
   return createCodexCanonicalConversationState(thread, {
@@ -133,12 +131,8 @@ function withCanonicalTurns(
       sidecar: {
         ...template.sidecar,
         turnStartedAtMs: fixture.turnStartedAtMs ?? null,
-        ...("firstWork" in fixture
-          ? { firstTurnWorkItemStartedAtMs: fixture.firstWork }
-          : {}),
-        ...("hookRuns" in fixture
-          ? { hookRuns: fixture.hookRuns }
-          : {}),
+        ...("firstWork" in fixture ? { firstTurnWorkItemStartedAtMs: fixture.firstWork } : {}),
+        ...("hookRuns" in fixture ? { hookRuns: fixture.hookRuns } : {}),
       },
     })),
   };
@@ -160,10 +154,7 @@ function rawTurn(
   };
 }
 
-function change(
-  path: string,
-  diff = `diff for ${path}`,
-): FileUpdateChange {
+function change(path: string, diff = `diff for ${path}`): FileUpdateChange {
   return {
     path,
     kind: { type: "update", move_path: null },
@@ -236,34 +227,38 @@ describe("Codex canonical file-change stream", () => {
     const foreign = reduceCodexConversationFileChangePatch(
       state,
       patchUpdate([], { conversationId: "foreign-thread" }),
-      { now: () => {
-        throw new Error("foreign updates must not read the clock");
-      } },
+      {
+        now: () => {
+          throw new Error("foreign updates must not read the clock");
+        },
+      },
     );
     const noTurnsState: CodexCanonicalConversationState = {
       ...state,
       turns: [],
     };
-    const noTurns = reduceCodexConversationFileChangePatch(
-      noTurnsState,
-      patchUpdate([]),
-      { now: () => {
+    const noTurns = reduceCodexConversationFileChangePatch(noTurnsState, patchUpdate([]), {
+      now: () => {
         throw new Error("zero-turn updates must not read the clock");
-      } },
-    );
+      },
+    });
     const missingPatch = reduceCodexConversationFileChangePatch(
       state,
       patchUpdate([], { turnId: "missing-turn" }),
-      { now: () => {
-        throw new Error("missing-turn updates must not read the clock");
-      } },
+      {
+        now: () => {
+          throw new Error("missing-turn updates must not read the clock");
+        },
+      },
     );
     const missingProgress = reduceCodexConversationMcpToolCallProgress(
       state,
       progressUpdate({ turnId: "missing-turn" }),
-      { now: () => {
-        throw new Error("missing progress must not read the clock");
-      } },
+      {
+        now: () => {
+          throw new Error("missing progress must not read the clock");
+        },
+      },
     );
 
     expect(foreign.disposition).toBe("foreignConversation");
@@ -294,9 +289,11 @@ describe("Codex canonical file-change stream", () => {
     const result = reduceCodexFileChangePatchRawTurns(
       turns,
       patchUpdate(incoming, { turnId: "duplicate" }),
-      { now: () => {
-        throw new Error("existing clocks must be preserved");
-      } },
+      {
+        now: () => {
+          throw new Error("existing clocks must be preserved");
+        },
+      },
     );
 
     expect(result.disposition).toBe("applied");
@@ -320,19 +317,23 @@ describe("Codex canonical file-change stream", () => {
     const patch = reduceCodexFileChangePatchRawTurns(
       [source],
       patchUpdate(emptyChanges, { turnId: "bound-turn" }),
-      { now: () => {
-        const value = clockValues[clockCalls];
-        clockCalls += 1;
-        if (value === undefined) throw new Error("Unexpected clock call");
-        return value;
-      } },
+      {
+        now: () => {
+          const value = clockValues[clockCalls];
+          clockCalls += 1;
+          if (value === undefined) throw new Error("Unexpected clock call");
+          return value;
+        },
+      },
     );
     const progress = reduceCodexMcpToolCallProgressRawTurns(
       [source],
       progressUpdate({ turnId: "bound-turn" }),
-      { now: () => {
-        throw new Error("MCP progress cannot bind a live null placeholder");
-      } },
+      {
+        now: () => {
+          throw new Error("MCP progress cannot bind a live null placeholder");
+        },
+      },
     );
 
     expect(patch.resolutionKind).toBe("reboundInProgressPlaceholder");
@@ -359,20 +360,24 @@ describe("Codex canonical file-change stream", () => {
     const patch = reduceCodexFileChangePatchRawTurns(
       [source],
       patchUpdate([change("created.ts")], { turnId: "patch-turn" }),
-      { now: () => {
-        const value = patchClock.shift();
-        if (value === undefined) throw new Error("Unexpected patch clock call");
-        return value;
-      } },
+      {
+        now: () => {
+          const value = patchClock.shift();
+          if (value === undefined) throw new Error("Unexpected patch clock call");
+          return value;
+        },
+      },
     );
     let progressClockCalls = 0;
     const progress = reduceCodexMcpToolCallProgressRawTurns(
       [source],
       progressUpdate({ turnId: "progress-turn" }),
-      { now: () => {
-        progressClockCalls += 1;
-        return 30_001;
-      } },
+      {
+        now: () => {
+          progressClockCalls += 1;
+          return 30_001;
+        },
+      },
     );
 
     expect(patch.resolutionKind).toBe("reboundCompletedEmptyPlaceholder");
@@ -415,9 +420,11 @@ describe("Codex canonical file-change stream", () => {
     const result = reduceCodexFileChangePatchRawTurns(
       [source],
       patchUpdate(incoming, { itemId: "shared" }),
-      { now: () => {
-        throw new Error("ordinary patch updates must preserve clocks");
-      } },
+      {
+        now: () => {
+          throw new Error("ordinary patch updates must preserve clocks");
+        },
+      },
     );
     const resultItem = result.rawItem as typeof last | null;
 
@@ -456,9 +463,11 @@ describe("Codex canonical file-change stream", () => {
     const result = reduceCodexFileChangePatchRawTurns(
       [rawTurn([firstWrongType, middle, laterWrongType])],
       patchUpdate(incoming, { itemId: "shared" }),
-      { now: () => {
-        throw new Error("existing first-work time must suppress the clock");
-      } },
+      {
+        now: () => {
+          throw new Error("existing first-work time must suppress the clock");
+        },
+      },
     );
 
     expect(result.itemIndex).toBe(0);
@@ -474,21 +483,17 @@ describe("Codex canonical file-change stream", () => {
     const changes = [change("same.ts")];
     const existing = fileChange("patch-item", changes, "completed");
     const source = rawTurn([existing], { hookRuns: [] });
-    const same = reduceCodexFileChangePatchRawTurns(
-      [source],
-      patchUpdate(changes),
-      { now: () => {
+    const same = reduceCodexFileChangePatchRawTurns([source], patchUpdate(changes), {
+      now: () => {
         throw new Error("identity updates must not read the clock");
-      } },
-    );
+      },
+    });
     const structurallyEqual = [changes[0]!];
-    const changed = reduceCodexFileChangePatchRawTurns(
-      [source],
-      patchUpdate(structurallyEqual),
-      { now: () => {
+    const changed = reduceCodexFileChangePatchRawTurns([source], patchUpdate(structurallyEqual), {
+      now: () => {
         throw new Error("ordinary updates must not read the clock");
-      } },
-    );
+      },
+    });
 
     expect(same.rawItem).toBe(existing);
     expect(same.turn).toBe(source);
@@ -514,25 +519,23 @@ describe("Codex canonical file-change stream", () => {
       firstTurnWorkItemStartedAtMs: null,
       hookRuns: [],
     });
-    const rawResult = reduceCodexMcpToolCallProgressRawTurns(
-      [raw],
-      progressUpdate(),
-      { now: () => {
+    const rawResult = reduceCodexMcpToolCallProgressRawTurns([raw], progressUpdate(), {
+      now: () => {
         throw new Error("ordinary progress must not read the clock");
-      } },
-    );
-    const state = withCanonicalTurns(buildState(), [{
-      turnId: TURN_ID,
-      items: [first, last, wrongType],
-      hookRuns: [],
-    }]);
-    const canonical = reduceCodexConversationMcpToolCallProgress(
-      state,
-      progressUpdate(),
-      { now: () => {
+      },
+    });
+    const state = withCanonicalTurns(buildState(), [
+      {
+        turnId: TURN_ID,
+        items: [first, last, wrongType],
+        hookRuns: [],
+      },
+    ]);
+    const canonical = reduceCodexConversationMcpToolCallProgress(state, progressUpdate(), {
+      now: () => {
         throw new Error("ordinary canonical progress must not read the clock");
-      } },
-    );
+      },
+    });
 
     expect(rawResult.disposition).toBe("applied");
     expect(rawResult.matchedItemIndex).toBe(1);
@@ -542,50 +545,45 @@ describe("Codex canonical file-change stream", () => {
     expect(canonical.disposition).toBe("applied");
     expect(canonical.state).toBe(state);
     expect(canonical.stateChanged).toBe(false);
-    expect(
-      canonical.state.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs
-        === undefined,
-    ).toBe(true);
+    expect(canonical.state.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs === undefined).toBe(true);
   });
 
   test("repairs missing turn collections before ordinary MCP progress", () => {
     const raw = rawTurn([], {
       firstTurnWorkItemStartedAtMs: null,
     });
-    const firstRaw = reduceCodexMcpToolCallProgressRawTurns(
-      [raw],
-      progressUpdate(),
-      { now: () => {
+    const firstRaw = reduceCodexMcpToolCallProgressRawTurns([raw], progressUpdate(), {
+      now: () => {
         throw new Error("collection repair must not read the clock");
-      } },
-    );
+      },
+    });
     const repairedRaw = firstRaw.turn;
     if (!repairedRaw) throw new Error("Missing repaired raw turn");
-    const secondRaw = reduceCodexMcpToolCallProgressRawTurns(
-      [repairedRaw],
-      progressUpdate(),
-      { now: () => {
+    const secondRaw = reduceCodexMcpToolCallProgressRawTurns([repairedRaw], progressUpdate(), {
+      now: () => {
         throw new Error("repaired progress must not read the clock");
-      } },
-    );
+      },
+    });
 
-    const state = withCanonicalTurns(buildState(), [{
-      turnId: TURN_ID,
-      items: [],
-    }]);
-    const firstCanonical = reduceCodexConversationMcpToolCallProgress(
-      state,
-      progressUpdate(),
-      { now: () => {
+    const state = withCanonicalTurns(buildState(), [
+      {
+        turnId: TURN_ID,
+        items: [],
+      },
+    ]);
+    const firstCanonical = reduceCodexConversationMcpToolCallProgress(state, progressUpdate(), {
+      now: () => {
         throw new Error("canonical collection repair must not read the clock");
-      } },
-    );
+      },
+    });
     const secondCanonical = reduceCodexConversationMcpToolCallProgress(
       firstCanonical.state,
       progressUpdate(),
-      { now: () => {
-        throw new Error("repaired canonical progress must not read the clock");
-      } },
+      {
+        now: () => {
+          throw new Error("repaired canonical progress must not read the clock");
+        },
+      },
     );
 
     expect(firstRaw.stateChanged).toBe(true);
@@ -607,12 +605,14 @@ describe("Codex canonical file-change stream", () => {
       ...fileChange("patch-item", oldChanges, "failed"),
       extensionSentinel: "preserve-me",
     } as FileChangeItem & { readonly extensionSentinel: string };
-    const existing = withCanonicalTurns(buildState(), [{
-      turnId: TURN_ID,
-      items: [file],
-      turnStartedAtMs: 50_001,
-      firstWork: 50_002,
-    }]);
+    const existing = withCanonicalTurns(buildState(), [
+      {
+        turnId: TURN_ID,
+        items: [file],
+        turnStartedAtMs: 50_001,
+        firstWork: 50_002,
+      },
+    ]);
     const incoming = [change("after.ts")];
     const patchNotification = {
       method: "item/fileChange/patchUpdated",
@@ -623,12 +623,18 @@ describe("Codex canonical file-change stream", () => {
         changes: incoming,
       },
     } satisfies ServerNotification;
-    const patched = reduceCodexConversationEventWithEffects(existing, {
-      type: "notification",
-      notification: patchNotification,
-    }, { now: () => {
-      throw new Error("existing replay clocks must be preserved");
-    } });
+    const patched = reduceCodexConversationEventWithEffects(
+      existing,
+      {
+        type: "notification",
+        notification: patchNotification,
+      },
+      {
+        now: () => {
+          throw new Error("existing replay clocks must be preserved");
+        },
+      },
+    );
     const patchedItem = patched.state.turns[0]?.items[0] as typeof file;
 
     expect(patched.state === existing).toBe(false);
@@ -639,17 +645,17 @@ describe("Codex canonical file-change stream", () => {
     expect(patched.state.protocol).toBe(existing.protocol);
     expect(patched.state.protocol.updatedAt).toBe(2);
     expect(patched.state.turns[0]?.sidecar.turnStartedAtMs).toBe(50_001);
-    expect(
-      patched.state.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs,
-    ).toBe(50_002);
+    expect(patched.state.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs).toBe(50_002);
     expect(patched.state.turns[0]?.sidecar.hookRuns?.length ?? -1).toBe(0);
 
-    const placeholder = withCanonicalTurns(buildState(), [{
-      turnId: null,
-      status: "completed",
-      items: [],
-      turnStartedAtMs: null,
-    }]);
+    const placeholder = withCanonicalTurns(buildState(), [
+      {
+        turnId: null,
+        status: "completed",
+        items: [],
+        turnStartedAtMs: null,
+      },
+    ]);
     let clockCalls = 0;
     const progressNotification = {
       method: "item/mcpToolCall/progress",
@@ -660,21 +666,25 @@ describe("Codex canonical file-change stream", () => {
         message: "working",
       },
     } satisfies ServerNotification;
-    const rebound = reduceCodexConversationEvent(placeholder, {
-      type: "notification",
-      notification: progressNotification,
-    }, { now: () => {
-      clockCalls += 1;
-      return 60_001;
-    } });
+    const rebound = reduceCodexConversationEvent(
+      placeholder,
+      {
+        type: "notification",
+        notification: progressNotification,
+      },
+      {
+        now: () => {
+          clockCalls += 1;
+          return 60_001;
+        },
+      },
+    );
 
     expect(rebound === placeholder).toBe(false);
     expect(rebound.turns[0]?.protocol.id).toBe("bound-progress-turn");
     expect(rebound.turns[0]?.protocol.status).toBe("inProgress");
     expect(rebound.turns[0]?.sidecar.turnStartedAtMs).toBe(60_001);
-    expect(
-      rebound.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs === undefined,
-    ).toBe(true);
+    expect(rebound.turns[0]?.sidecar.firstTurnWorkItemStartedAtMs === undefined).toBe(true);
     expect(rebound.turns[0]?.items === placeholder.turns[0]?.items).toBe(true);
     expect(rebound.turns[0]?.sidecar.hookRuns?.length ?? -1).toBe(0);
     expect(clockCalls).toBe(1);
@@ -691,12 +701,18 @@ describe("Codex canonical file-change stream", () => {
         delta: "legacy textual output",
       },
     } satisfies ServerNotification;
-    const result = reduceCodexConversationEventWithEffects(state, {
-      type: "notification",
-      notification,
-    }, { now: () => {
-      throw new Error("file output must not read the state clock");
-    } });
+    const result = reduceCodexConversationEventWithEffects(
+      state,
+      {
+        type: "notification",
+        notification,
+      },
+      {
+        now: () => {
+          throw new Error("file output must not read the state clock");
+        },
+      },
+    );
 
     expect(result.state).toBe(state);
     expect(result.effects.length).toBe(0);

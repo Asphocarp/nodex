@@ -1,14 +1,5 @@
-import type {
-  Dispatch,
-  PointerEvent as ReactPointerEvent,
-  ReactNode,
-  SetStateAction,
-} from "react";
-import {
-  motion,
-  type MotionStyle,
-  type MotionValue,
-} from "motion/react";
+import type { Dispatch, PointerEvent as ReactPointerEvent, ReactNode, SetStateAction } from "react";
+import { motion, type MotionStyle, type MotionValue } from "motion/react";
 import { APP_SHELL_RIGHT_PANEL_LAYER_CLASS } from "@/lib/app-shell-layers";
 import type { AppShellMainContentLayout } from "@/lib/codex-panel-motion";
 import { cn } from "@/lib/utils";
@@ -43,15 +34,9 @@ export interface WorkbenchSceneFrameProps {
   };
   readonly chrome: {
     readonly bottomPanelGlobalHeaderControls: ReactNode;
-    readonly setRightPanelComposerOverlayTarget: Dispatch<
-      SetStateAction<HTMLElement | null>
-    >;
-    readonly resizeRightPanel: (
-      event: ReactPointerEvent<HTMLDivElement>,
-    ) => void;
-    readonly resizeBottomPanel: (
-      event: ReactPointerEvent<HTMLDivElement>,
-    ) => void;
+    readonly setRightPanelComposerOverlayTarget: Dispatch<SetStateAction<HTMLElement | null>>;
+    readonly resizeRightPanel: (event: ReactPointerEvent<HTMLDivElement>) => void;
+    readonly resizeBottomPanel: (event: ReactPointerEvent<HTMLDivElement>) => void;
   };
 }
 
@@ -79,25 +64,19 @@ export function WorkbenchSceneFrame({
           data-testid={primaryTestId}
           data-workbench-primary-hidden={primaryHidden ? "true" : "false"}
           data-session-thread-page-hidden={
-            primaryTestId === "session-thread-page"
-              ? primaryHidden ? "true" : "false"
-              : undefined
+            primaryTestId === "session-thread-page" ? (primaryHidden ? "true" : "false") : undefined
           }
           data-app-shell-main-content-layout={layout.appShellMainContentLayout}
           aria-hidden={primaryHidden ? "true" : undefined}
           className={cn(
             "app-shell-main-content-viewport relative flex min-h-0 min-w-0 flex-col",
-            primaryHidden
-              ? "w-0 flex-none overflow-hidden"
-              : "flex-1",
+            primaryHidden ? "w-0 flex-none overflow-hidden" : "flex-1",
           )}
         >
           <div
             className={cn(
               "app-shell-main-content-frame relative mt-(--app-shell-main-content-frame-top-offset) flex min-h-0 flex-1 flex-col border-t",
-              layout.frameBorderVisible
-                ? "border-token-border-default"
-                : "border-transparent",
+              layout.frameBorderVisible ? "border-token-border-default" : "border-transparent",
             )}
           >
             <div
@@ -114,9 +93,7 @@ export function WorkbenchSceneFrame({
             key={ownerKey}
             data-app-shell-focus-area="right-panel"
             data-testid={rightPanelTestId}
-            data-right-panel-width-mode={
-              layout.rightPanel.fullWidth ? "full" : "regular"
-            }
+            data-right-panel-width-mode={layout.rightPanel.fullWidth ? "full" : "regular"}
             className={cn(
               "relative ml-auto h-full min-h-0 min-w-0 shrink-0 overflow-visible",
               APP_SHELL_RIGHT_PANEL_LAYER_CLASS,
@@ -144,13 +121,14 @@ export function WorkbenchSceneFrame({
                 data-right-panel-composer-overlay-host="true"
                 className={cn(
                   "absolute top-0 right-0 bottom-0 min-w-0 bg-token-main-surface-primary",
-                  !layout.rightPanel.fullWidth
-                    && "border-l border-token-border",
+                  !layout.rightPanel.fullWidth && "border-l border-token-border",
                 )}
-                style={{
-                  width: layout.rightPanelTargetWidth,
-                  "--thread-content-top-inset": "calc(var(--spacing) * 8)",
-                } as MotionStyle}
+                style={
+                  {
+                    width: layout.rightPanelTargetWidth,
+                    "--thread-content-top-inset": "calc(var(--spacing) * 8)",
+                  } as MotionStyle
+                }
               >
                 {layout.rightPanel.content}
               </motion.div>

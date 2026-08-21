@@ -33,12 +33,7 @@ export type SettingsSectionId =
   | "page"
   | "backups";
 
-export type SettingsSectionGroupKey =
-  | "personal"
-  | "integrations"
-  | "coding"
-  | "workspace"
-  | "data";
+export type SettingsSectionGroupKey = "personal" | "integrations" | "coding" | "workspace" | "data";
 
 export interface SettingsSectionDefinition {
   id: SettingsSectionId;

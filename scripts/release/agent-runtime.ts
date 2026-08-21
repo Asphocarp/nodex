@@ -8,10 +8,11 @@ const AGENT_RUNTIME_ASSET_NAMES = {
   x64: "open-interpreter-package-x86_64-apple-darwin.tar.gz",
 } as const;
 
-const run = (args: readonly string[]): string => execFileSync("gh", [...args], {
-  encoding: "utf8",
-  stdio: ["ignore", "pipe", "pipe"],
-}).trim();
+const run = (args: readonly string[]): string =>
+  execFileSync("gh", [...args], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 
 export function agentRuntimeReleaseArguments(options: {
   readonly arm64Path: string;
@@ -38,22 +39,26 @@ export function agentRuntimeReleaseArguments(options: {
     const filePath = paths[architecture];
     const stats = lstatSync(filePath);
     if (
-      !stats.isFile()
-      || stats.isSymbolicLink()
-      || basename(filePath) !== AGENT_RUNTIME_ASSET_NAMES[architecture]
+      !stats.isFile() ||
+      stats.isSymbolicLink() ||
+      basename(filePath) !== AGENT_RUNTIME_ASSET_NAMES[architecture]
     ) {
       throw new Error(`Agent runtime ${architecture} archive is invalid.`);
     }
   }
 
   return [
-    "release", "create", options.tag,
+    "release",
+    "create",
+    options.tag,
     paths.arm64,
     paths.x64,
-    "--repo", options.repo,
+    "--repo",
+    options.repo,
     "--verify-tag",
     "--latest=false",
-    "--title", `Nodex Agent runtime ${options.tag.replace("agent-runtime-v", "")}`,
+    "--title",
+    `Nodex Agent runtime ${options.tag.replace("agent-runtime-v", "")}`,
     "--notes",
     `Immutable Open Interpreter runtime closure based on openinterpreter/openinterpreter@${options.sourceCommit}; reviewed build patches are declared by the Nodex release lock.`,
   ];
@@ -69,8 +74,13 @@ export function publishAgentRuntime(options: {
   const latestBefore = JSON.parse(run(["api", `repos/${options.repo}/releases/latest`])) as {
     readonly tag_name?: unknown;
   };
-  if (typeof latestBefore.tag_name !== "string" || !stableVersionFromAppTag(latestBefore.tag_name)) {
-    throw new Error("Agent runtime publication requires Latest to already be a stable app release.");
+  if (
+    typeof latestBefore.tag_name !== "string" ||
+    !stableVersionFromAppTag(latestBefore.tag_name)
+  ) {
+    throw new Error(
+      "Agent runtime publication requires Latest to already be a stable app release.",
+    );
   }
   run(agentRuntimeReleaseArguments(options));
   const latestAfter = JSON.parse(run(["api", `repos/${options.repo}/releases/latest`])) as {

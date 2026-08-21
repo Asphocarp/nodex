@@ -17,17 +17,19 @@ const manifest = () => ({
     name: `Nodex-${VERSION}-appcast-arm64.xml`,
     sha256: "a".repeat(64),
   },
-  deltas: [{
-    bytes: 42,
-    edSignature: SIGNATURE,
-    fromBuildVersion: "0.2.1",
-    fromVersion: "0.2.1",
-    name: `Nodex-0.2.1-to-${VERSION}-arm64.delta`,
-    sha256: "b".repeat(64),
-    toBuildVersion: VERSION,
-    toVersion: VERSION,
-    url: `https://github.com/junyudev/nodex/releases/download/v${VERSION}/Nodex-0.2.1-to-${VERSION}-arm64.delta`,
-  }],
+  deltas: [
+    {
+      bytes: 42,
+      edSignature: SIGNATURE,
+      fromBuildVersion: "0.2.1",
+      fromVersion: "0.2.1",
+      name: `Nodex-0.2.1-to-${VERSION}-arm64.delta`,
+      sha256: "b".repeat(64),
+      toBuildVersion: VERSION,
+      toVersion: VERSION,
+      url: `https://github.com/junyudev/nodex/releases/download/v${VERSION}/Nodex-0.2.1-to-${VERSION}-arm64.delta`,
+    },
+  ],
   full: {
     bytes: 456,
     edSignature: SIGNATURE,
@@ -97,6 +99,9 @@ test("accepts a nightly feed identity and rejects a stable feed path", () => {
     target: { buildVersion: "1.8.42", version: nightly.target.version },
   });
 
-  const mismatched = { ...nightly, appcast: { ...nightly.appcast, feedPath: "updates/stable/arm64/appcast.xml" } };
+  const mismatched = {
+    ...nightly,
+    appcast: { ...nightly.appcast, feedPath: "updates/stable/arm64/appcast.xml" },
+  };
   expect(() => parseSparkleArchitectureUpdateManifest(mismatched)).toThrow("projection identity");
 });

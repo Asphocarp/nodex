@@ -23,7 +23,7 @@ export const SESSION_CONTEXT_MENU_ACTION_IDS = {
 } as const;
 
 export type SessionContextMenuActionId =
-  | typeof SESSION_CONTEXT_MENU_ACTION_IDS[keyof typeof SESSION_CONTEXT_MENU_ACTION_IDS]
+  | (typeof SESSION_CONTEXT_MENU_ACTION_IDS)[keyof typeof SESSION_CONTEXT_MENU_ACTION_IDS]
   | `${typeof SESSION_CONTEXT_MENU_MOVE_TO_PROJECT_PREFIX}${string}`;
 
 export interface SessionContextMenuInput {
@@ -38,12 +38,12 @@ export function resolveSessionRevealPath(input: {
   session: ProjectSession;
   projectWorkspacePath?: string | null;
 }): string | null {
-  return input.session.thread?.cwd?.trim()
-    || input.projectWorkspacePath?.trim()
-    || null;
+  return input.session.thread?.cwd?.trim() || input.projectWorkspacePath?.trim() || null;
 }
 
-export function resolveRevealInFileManagerLabel(platform: NodeJS.Platform | "browser" | undefined): string {
+export function resolveRevealInFileManagerLabel(
+  platform: NodeJS.Platform | "browser" | undefined,
+): string {
   if (platform === "darwin") return "Reveal in Finder";
   if (platform === "win32") return "Reveal in File Explorer";
   return "Reveal in File Manager";
@@ -57,9 +57,7 @@ export function sessionMoveToProjectActionId(projectId: string): SessionContextM
   return `${SESSION_CONTEXT_MENU_MOVE_TO_PROJECT_PREFIX}${projectId}`;
 }
 
-export function readSessionMoveToProjectActionId(
-  actionId: string,
-): string | null {
+export function readSessionMoveToProjectActionId(actionId: string): string | null {
   if (!actionId.startsWith(SESSION_CONTEXT_MENU_MOVE_TO_PROJECT_PREFIX)) return null;
   return actionId.slice(SESSION_CONTEXT_MENU_MOVE_TO_PROJECT_PREFIX.length).trim() || null;
 }
@@ -71,16 +69,24 @@ export function resolveSessionProjectMoveContainers(
   sourceContainerId: CodexSidebarThreadContainerId;
   targetContainerId: CodexSidebarThreadContainerId;
 } {
-  const sourceContainerId = session.projectId === null
-    ? session.pinned ? "pinned" : "chats"
-    : codexSidebarProjectThreadContainerId(session.projectId, session.pinned);
-  const targetContainerId = targetProjectId === null
-    ? session.pinned ? "pinned" : "chats"
-    : codexSidebarProjectThreadContainerId(targetProjectId, session.pinned);
+  const sourceContainerId =
+    session.projectId === null
+      ? session.pinned
+        ? "pinned"
+        : "chats"
+      : codexSidebarProjectThreadContainerId(session.projectId, session.pinned);
+  const targetContainerId =
+    targetProjectId === null
+      ? session.pinned
+        ? "pinned"
+        : "chats"
+      : codexSidebarProjectThreadContainerId(targetProjectId, session.pinned);
   return { sourceContainerId, targetContainerId };
 }
 
-export function buildSessionContextMenuItems(input: SessionContextMenuInput): NativeContextMenuItem[] {
+export function buildSessionContextMenuItems(
+  input: SessionContextMenuInput,
+): NativeContextMenuItem[] {
   const { session } = input;
   const revealPath = resolveSessionRevealPath(input);
   const forkLocalEnabled = canForkSessionLocally(session);
@@ -98,20 +104,24 @@ export function buildSessionContextMenuItems(input: SessionContextMenuInput): Na
   const projectMoveActions: NativeContextMenuItem[] = [
     ...(projectMoveItems.length === 0
       ? []
-      : [{
-          id: "session.moveToProject",
-          type: "submenu" as const,
-          label: "Move to project",
-          iconKey: "folder" as const,
-          submenu: projectMoveItems,
-        }]),
+      : [
+          {
+            id: "session.moveToProject",
+            type: "submenu" as const,
+            label: "Move to project",
+            iconKey: "folder" as const,
+            submenu: projectMoveItems,
+          },
+        ]),
     ...(session.thread && session.projectId
-      ? [{
-          id: SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject,
-          label: `Remove from ${currentProject?.name ?? "project"}`,
-          enabled: true,
-          iconKey: "folder" as const,
-        }]
+      ? [
+          {
+            id: SESSION_CONTEXT_MENU_ACTION_IDS.removeFromProject,
+            label: `Remove from ${currentProject?.name ?? "project"}`,
+            enabled: true,
+            iconKey: "folder" as const,
+          },
+        ]
       : []),
   ];
 

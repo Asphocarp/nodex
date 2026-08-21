@@ -33,7 +33,10 @@ export interface ThreadSummaryPanelSectionModelInput {
   outputCount: number;
   suppressOutputs: boolean;
   sideChatCount: number;
-  backgroundSubagentRows: readonly Pick<ThreadComposerShellBackgroundAgentRowModel, "showInlineActivity" | "status">[];
+  backgroundSubagentRows: readonly Pick<
+    ThreadComposerShellBackgroundAgentRowModel,
+    "showInlineActivity" | "status"
+  >[];
   taskCount: number;
   hasComputerUsePip: boolean;
   browserCount: number;

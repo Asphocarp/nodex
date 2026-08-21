@@ -2,7 +2,7 @@ name: Nightly Retention
 
 on:
   schedule:
-    - cron: '41 4 * * 1'
+    - cron: "41 4 * * 1"
   workflow_dispatch:
     inputs:
       destructive:
@@ -28,7 +28,8 @@ jobs:
         with: { persist-credentials: false }
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: { node-version-file: .node-version, cache: pnpm, cache-dependency-path: pnpm-lock.yaml }
+        with:
+          { node-version-file: .node-version, cache: pnpm, cache-dependency-path: pnpm-lock.yaml }
       - run: pnpm install --frozen-lockfile
       - name: Plan or apply Nightly retention
         env:
@@ -48,10 +49,11 @@ jobs:
         with: { persist-credentials: false }
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: { node-version-file: .node-version, cache: pnpm, cache-dependency-path: pnpm-lock.yaml }
+        with:
+          { node-version-file: .node-version, cache: pnpm, cache-dependency-path: pnpm-lock.yaml }
       - run: pnpm install --frozen-lockfile
       - name: Apply approved Nightly retention
-        env: { GH_TOKEN: '${{ github.token }}' }
+        env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           pnpm release:retain:nightlies -- --repo "${GITHUB_REPOSITORY}" --keep 20 --min-age-days 14 --destructive true --output "${RUNNER_TEMP}/retention.json"
           cat "${RUNNER_TEMP}/retention.json" >> "${GITHUB_STEP_SUMMARY}"

@@ -39,10 +39,7 @@ describe("review full content store", () => {
       expand: () => FULL_METADATA,
     };
 
-    await Promise.all([
-      loadReviewFullContent(input),
-      loadReviewFullContent(input),
-    ]);
+    await Promise.all([loadReviewFullContent(input), loadReviewFullContent(input)]);
 
     expect(load).toHaveBeenCalledTimes(1);
     expect(readReviewFullContentState(input.key)).toMatchObject({
@@ -77,9 +74,7 @@ describe("review full content store", () => {
     resolveOld(FULL_CONTENTS);
     await first;
 
-    expect(readReviewFullContentState(key).fullDiffMetadata?.cacheKey).toBe(
-      "new",
-    );
+    expect(readReviewFullContentState(key).fullDiffMetadata?.cacheKey).toBe("new");
   });
 
   test("keeps partial metadata when full content cannot be validated", async () => {

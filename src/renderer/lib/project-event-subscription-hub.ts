@@ -1,9 +1,6 @@
 export type ProjectEventListener = () => void;
 
-type SubscribeToProject = (
-  projectId: string,
-  listener: ProjectEventListener,
-) => () => void;
+type SubscribeToProject = (projectId: string, listener: ProjectEventListener) => () => void;
 
 type ScheduleFlush = (flush: () => void) => void;
 
@@ -19,11 +16,7 @@ interface ProjectSubscription {
 }
 
 export interface ProjectEventSubscriptionHub {
-  subscribe: (
-    projectId: string,
-    consumerKey: string,
-    listener: ProjectEventListener,
-  ) => () => void;
+  subscribe: (projectId: string, consumerKey: string, listener: ProjectEventListener) => () => void;
 }
 
 const scheduleMicrotask: ScheduleFlush = (flush) => {
@@ -45,10 +38,7 @@ export const createProjectEventSubscriptionHub = ({
   const projects = new Map<string, ProjectSubscription>();
   let nextRegistrationId = 0;
 
-  const scheduleProjectFlush = (
-    projectId: string,
-    project: ProjectSubscription,
-  ): void => {
+  const scheduleProjectFlush = (projectId: string, project: ProjectSubscription): void => {
     if (project.flushScheduled) return;
     project.flushScheduled = true;
 
@@ -59,9 +49,7 @@ export const createProjectEventSubscriptionHub = ({
 
       const listeners = [...project.consumers.values()]
         .map((registrations) => registrations.values().next().value)
-        .filter((registration): registration is ConsumerRegistration =>
-          registration !== undefined
-        )
+        .filter((registration): registration is ConsumerRegistration => registration !== undefined)
         .map((registration) => registration.listener);
 
       for (const listener of listeners) {

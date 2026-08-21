@@ -6,9 +6,7 @@ import {
   type ComposerImageAttachment,
 } from "./composer-image-attachment-model";
 
-function attachment(
-  overrides: Partial<ComposerImageAttachment> = {},
-): ComposerImageAttachment {
+function attachment(overrides: Partial<ComposerImageAttachment> = {}): ComposerImageAttachment {
   return {
     id: "image-1",
     filename: "diagram.png",
@@ -35,10 +33,8 @@ describe("composer image attachment model", () => {
 
   test("uses a local materialization only on its execution host", () => {
     const value = attachment();
-    expect(selectComposerImagePromptSource(value, "default"))
-      .toBe("/managed/image-1.png");
-    expect(selectComposerImagePromptSource(value, "ssh:remote"))
-      .toBe(value.src);
+    expect(selectComposerImagePromptSource(value, "default")).toBe("/managed/image-1.png");
+    expect(selectComposerImagePromptSource(value, "ssh:remote")).toBe(value.src);
     expect(selectComposerImagePromptSource(value, null)).toBe(value.src);
   });
 
@@ -47,10 +43,12 @@ describe("composer image attachment model", () => {
       materialization: null,
       materializationStatus: "failed",
     });
-    expect(buildComposerImagePromptInputs([value], "default")).toEqual([{
-      source: value.src,
-      caption: "diagram.png",
-    }]);
+    expect(buildComposerImagePromptInputs([value], "default")).toEqual([
+      {
+        source: value.src,
+        caption: "diagram.png",
+      },
+    ]);
   });
 
   test("never sends a host-bound source to another execution host", () => {
@@ -58,8 +56,7 @@ describe("composer image attachment model", () => {
       src: "/managed/image-1.png",
     });
 
-    expect(selectComposerImagePromptSource(value, "default"))
-      .toBe("/managed/image-1.png");
+    expect(selectComposerImagePromptSource(value, "default")).toBe("/managed/image-1.png");
     expect(selectComposerImagePromptSource(value, "ssh:remote")).toBeNull();
     expect(selectComposerImagePromptSource(value, null)).toBeNull();
     expect(buildComposerImagePromptInputs([value], "ssh:remote")).toEqual([]);
@@ -75,8 +72,7 @@ describe("composer image attachment model", () => {
       },
     });
 
-    expect(selectComposerImagePromptSource(value, "default"))
-      .toBe("nodex://assets/image-1.png");
+    expect(selectComposerImagePromptSource(value, "default")).toBe("nodex://assets/image-1.png");
     expect(selectComposerImagePromptSource(value, "ssh:remote")).toBeNull();
   });
 

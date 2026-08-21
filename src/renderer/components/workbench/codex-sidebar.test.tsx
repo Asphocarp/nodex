@@ -62,10 +62,13 @@ function OpenThreadHoverCard({
   );
 }
 
-function renderOpenThreadHoverCard(item: CodexSidebarThreadItem, props: {
-  projectLabel?: string | null;
-  branchName?: string | null;
-} = {}) {
+function renderOpenThreadHoverCard(
+  item: CodexSidebarThreadItem,
+  props: {
+    projectLabel?: string | null;
+    branchName?: string | null;
+  } = {},
+) {
   return render(
     <OpenThreadHoverCard
       item={item}
@@ -96,15 +99,17 @@ describe("codex sidebar thread hover card", () => {
 
   test("uses Chat as the projectless fallback label", async () => {
     await act(async () => {
-      renderOpenThreadHoverCard(makeThreadItem({
-        key: "local:projectless",
-        threadId: "thread-projectless",
-        sessionId: "session-projectless",
-        projectId: null,
-        cwd: null,
-        projectless: true,
-        title: "Projectless chat",
-      }));
+      renderOpenThreadHoverCard(
+        makeThreadItem({
+          key: "local:projectless",
+          threadId: "thread-projectless",
+          sessionId: "session-projectless",
+          projectId: null,
+          cwd: null,
+          projectless: true,
+          title: "Projectless chat",
+        }),
+      );
     });
 
     const hoverCard = document.body.querySelector('[role="dialog"]') as HTMLElement | null;
@@ -117,12 +122,14 @@ describe("codex sidebar thread hover card", () => {
 
   test("does not present Session metadata time as draft conversation age", async () => {
     await act(async () => {
-      renderOpenThreadHoverCard(makeThreadItem({
-        threadId: "session-draft",
-        updatedAt: Date.now(),
-        recencyAt: null,
-        title: "New thread",
-      }));
+      renderOpenThreadHoverCard(
+        makeThreadItem({
+          threadId: "session-draft",
+          updatedAt: Date.now(),
+          recencyAt: null,
+          title: "New thread",
+        }),
+      );
     });
 
     const hoverCard = document.body.querySelector('[role="dialog"]') as HTMLElement | null;
@@ -138,51 +145,53 @@ describe("codex sidebar thread hover card", () => {
     await act(async () => {
       view = renderOpenThreadHoverCard(staleItem);
     });
-    expect(textContent(document.body.querySelector('[role="dialog"]') as HTMLElement)).toContain("7h");
+    expect(textContent(document.body.querySelector('[role="dialog"]') as HTMLElement)).toContain(
+      "7h",
+    );
 
     await act(async () => {
-      view.rerender(
-        <OpenThreadHoverCard
-          item={{ ...staleItem, recencyAt: Date.now() }}
-        />,
-      );
+      view.rerender(<OpenThreadHoverCard item={{ ...staleItem, recencyAt: Date.now() }} />);
       await Promise.resolve();
     });
 
-    expect(textContent(document.body.querySelector('[role="dialog"]') as HTMLElement)).toContain("now");
+    expect(textContent(document.body.querySelector('[role="dialog"]') as HTMLElement)).toContain(
+      "now",
+    );
   });
 
   test("renders remote host, branch, and managed worktree as separate metadata", async () => {
     await act(async () => {
-      renderOpenThreadHoverCard(makeThreadItem({
-        kind: "remote",
-        hostId: "build-host",
-        runLocation: {
-          kind: "remote-worktree",
+      renderOpenThreadHoverCard(
+        makeThreadItem({
+          kind: "remote",
           hostId: "build-host",
-          hostDisplayName: "Build workstation",
-          path: "/srv/.codex/worktrees/91a6/nodex",
-          phase: "ready",
+          runLocation: {
+            kind: "remote-worktree",
+            hostId: "build-host",
+            hostDisplayName: "Build workstation",
+            path: "/srv/.codex/worktrees/91a6/nodex",
+            phase: "ready",
+          },
+        }),
+        {
+          projectLabel: "Nodex",
+          branchName: "feat/worktree-sidebar",
         },
-      }), {
-        projectLabel: "Nodex",
-        branchName: "feat/worktree-sidebar",
-      });
+      );
     });
 
     const hoverCard = document.body.querySelector('[role="dialog"]') as HTMLElement | null;
     expect(hoverCard).not.toBeNull();
-    const metadataRows = [...(hoverCard as HTMLElement).querySelectorAll(
-      "[data-app-action-sidebar-thread-hover-card-metadata]",
-    )]
+    const metadataRows = [
+      ...(hoverCard as HTMLElement).querySelectorAll(
+        "[data-app-action-sidebar-thread-hover-card-metadata]",
+      ),
+    ]
       .map((row) => textContent(row).trim())
       .filter(Boolean);
-    expect(metadataRows).toEqual(expect.arrayContaining([
-      "Nodex",
-      "Build workstation",
-      "feat/worktree-sidebar",
-      "nodex",
-    ]));
+    expect(metadataRows).toEqual(
+      expect.arrayContaining(["Nodex", "Build workstation", "feat/worktree-sidebar", "nodex"]),
+    );
   });
 });
 
@@ -208,7 +217,9 @@ describe("codex sidebar thread row", () => {
       );
     });
 
-    expect(view.getByRole("button", { name: "X Plan Codex terminal reverse engineer" })).not.toBeNull();
+    expect(
+      view.getByRole("button", { name: "X Plan Codex terminal reverse engineer" }),
+    ).not.toBeNull();
     const icon = view.container.querySelector("[data-app-action-sidebar-thread-worktree-icon]");
     expect(icon).not.toBeNull();
     expect((icon as HTMLElement).dataset.phase).toBe("ready");
@@ -250,8 +261,12 @@ describe("codex sidebar thread row", () => {
     );
     expect(location).not.toBeNull();
     expect(location?.querySelectorAll("svg")).toHaveLength(2);
-    expect((location?.querySelector("[data-phase]") as HTMLElement | null)?.dataset.phase).toBe("pending");
-    expect(view.getByRole("button", { name: "X Plan Codex terminal reverse engineer" })).not.toBeNull();
+    expect((location?.querySelector("[data-phase]") as HTMLElement | null)?.dataset.phase).toBe(
+      "pending",
+    );
+    expect(
+      view.getByRole("button", { name: "X Plan Codex terminal reverse engineer" }),
+    ).not.toBeNull();
   });
 
   test("renders the running indicator without row time metadata", async () => {
@@ -269,7 +284,9 @@ describe("codex sidebar thread row", () => {
       ));
     });
 
-    const row = container.querySelector("[data-app-action-sidebar-thread-row]") as HTMLElement | null;
+    const row = container.querySelector(
+      "[data-app-action-sidebar-thread-row]",
+    ) as HTMLElement | null;
     expect(row?.dataset.appActionSidebarThreadRunning).toBe("true");
     expect(row?.querySelector("[data-app-action-sidebar-thread-running-indicator]")).not.toBeNull();
     expect(row?.querySelector("[data-app-action-sidebar-thread-elapsed]")).toBeNull();
@@ -291,7 +308,9 @@ describe("codex sidebar thread row", () => {
     });
 
     expect(view.queryByText("2d")).toBeNull();
-    expect(view.getByRole("button", { name: "X Plan Codex terminal reverse engineer" })).not.toBeNull();
+    expect(
+      view.getByRole("button", { name: "X Plan Codex terminal reverse engineer" }),
+    ).not.toBeNull();
   });
 
   test("keeps hover actions out of the main title content flow", async () => {
@@ -311,18 +330,34 @@ describe("codex sidebar thread row", () => {
       ));
     });
 
-    const row = container.querySelector("[data-app-action-sidebar-thread-row]") as HTMLElement | null;
+    const row = container.querySelector(
+      "[data-app-action-sidebar-thread-row]",
+    ) as HTMLElement | null;
     expect(row).not.toBeNull();
 
-    const main = (row as HTMLElement).querySelector("[data-app-action-sidebar-thread-main]") as HTMLElement | null;
-    const actionRail = (row as HTMLElement).querySelector("[data-app-action-sidebar-thread-action-rail]") as HTMLElement | null;
+    const main = (row as HTMLElement).querySelector(
+      "[data-app-action-sidebar-thread-main]",
+    ) as HTMLElement | null;
+    const actionRail = (row as HTMLElement).querySelector(
+      "[data-app-action-sidebar-thread-action-rail]",
+    ) as HTMLElement | null;
     expect(main).not.toBeNull();
     expect(actionRail).not.toBeNull();
 
-    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBe(true);
-    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") === null).toBe(true);
-    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") !== null).toBe(true);
-    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBe(true);
+    expect(
+      (main as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") === null,
+    ).toBe(true);
+    expect(
+      (main as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") === null,
+    ).toBe(true);
+    expect(
+      (actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") !==
+        null,
+    ).toBe(true);
+    expect(
+      (actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !==
+        null,
+    ).toBe(true);
   });
 
   test("keeps the pinned state visible while archive stays in the action rail", async () => {
@@ -342,20 +377,35 @@ describe("codex sidebar thread row", () => {
       ));
     });
 
-    const row = container.querySelector("[data-app-action-sidebar-thread-row]") as HTMLElement | null;
+    const row = container.querySelector(
+      "[data-app-action-sidebar-thread-row]",
+    ) as HTMLElement | null;
     expect(row).not.toBeNull();
 
-    const main = (row as HTMLElement).querySelector("[data-app-action-sidebar-thread-main]") as HTMLElement | null;
-    const actionRail = (row as HTMLElement).querySelector("[data-app-action-sidebar-thread-action-rail]") as HTMLElement | null;
+    const main = (row as HTMLElement).querySelector(
+      "[data-app-action-sidebar-thread-main]",
+    ) as HTMLElement | null;
+    const actionRail = (row as HTMLElement).querySelector(
+      "[data-app-action-sidebar-thread-action-rail]",
+    ) as HTMLElement | null;
     expect(main).not.toBeNull();
     expect(actionRail).not.toBeNull();
 
-    const restingPin = (main as HTMLElement).querySelector("[data-app-action-sidebar-thread-resting-pin]") as HTMLButtonElement | null;
+    const restingPin = (main as HTMLElement).querySelector(
+      "[data-app-action-sidebar-thread-resting-pin]",
+    ) as HTMLButtonElement | null;
     expect(restingPin).not.toBeNull();
     expect(restingPin?.getAttribute("aria-label")).toBe("Unpin chat");
-    expect((main as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") === null).toBe(true);
-    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") === null).toBe(true);
-    expect((actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !== null).toBe(true);
+    expect(
+      (main as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") === null,
+    ).toBe(true);
+    expect(
+      (actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-pin-session]") ===
+        null,
+    ).toBe(true);
+    expect(
+      (actionRail as HTMLElement).querySelector("[data-app-action-sidebar-thread-archive]") !==
+        null,
+    ).toBe(true);
   });
-
 });

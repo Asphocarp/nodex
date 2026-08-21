@@ -4,10 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { describe, expect, test } from "vitest";
-import {
-  CORE_CLIENT_REQUIREMENTS,
-  type components,
-} from "@nodex/core-protocol";
+import { CORE_CLIENT_REQUIREMENTS, type components } from "@nodex/core-protocol";
 
 import { CoreClient, CoreModuleResponseError } from "./core-client";
 import { readCoreRuntimeConnection } from "./runtime-descriptor";
@@ -18,11 +15,7 @@ import type {
   CoreRuntimeDescriptor,
   DocumentLiveRepair,
 } from "./types";
-import {
-  applyResultCursor,
-  applyResultDelivery,
-  applyResultStoreEpoch,
-} from "./types";
+import { applyResultCursor, applyResultDelivery, applyResultStoreEpoch } from "./types";
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const CORE_STDERR_LIMIT = 16 * 1024;
@@ -35,17 +28,12 @@ const spawnCore = (nodexHome: string): ChildProcessWithoutNullStreams => {
   });
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
-    coreStderr.set(
-      child,
-      `${coreStderr.get(child) ?? ""}${chunk}`.slice(-CORE_STDERR_LIMIT),
-    );
+    coreStderr.set(child, `${coreStderr.get(child) ?? ""}${chunk}`.slice(-CORE_STDERR_LIMIT));
   });
   return child;
 };
 
-const readDescriptor = (
-  child: ChildProcessWithoutNullStreams,
-): Promise<CoreRuntimeDescriptor> =>
+const readDescriptor = (child: ChildProcessWithoutNullStreams): Promise<CoreRuntimeDescriptor> =>
   new Promise((resolve, reject) => {
     const lines = createInterface({ input: child.stdout });
     const failure = (message: string): Error => {
@@ -59,10 +47,7 @@ const readDescriptor = (
     lines.once("line", (line) => {
       clearTimeout(timeout);
       lines.close();
-      resolve(
-        (JSON.parse(line) as components["schemas"]["CoreSelectionResult"])
-          .descriptor,
-      );
+      resolve((JSON.parse(line) as components["schemas"]["CoreSelectionResult"]).descriptor);
     });
     child.once("error", (error) => {
       clearTimeout(timeout);
@@ -80,9 +65,7 @@ const readDescriptor = (
     });
   });
 
-const waitForExit = (
-  child: ChildProcessWithoutNullStreams,
-): Promise<number | null> => {
+const waitForExit = (child: ChildProcessWithoutNullStreams): Promise<number | null> => {
   if (child.exitCode !== null) return Promise.resolve(child.exitCode);
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
@@ -95,10 +78,7 @@ const waitForExit = (
   });
 };
 
-const withTimeout = async <Value>(
-  promise: Promise<Value>,
-  message: string,
-): Promise<Value> => {
+const withTimeout = async <Value>(promise: Promise<Value>, message: string): Promise<Value> => {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -112,10 +92,7 @@ const withTimeout = async <Value>(
   }
 };
 
-async function createInitialProject(
-  client: CoreClient,
-  nodexHome: string,
-): Promise<number> {
+async function createInitialProject(client: CoreClient, nodexHome: string): Promise<number> {
   const source = path.join(nodexHome, "workspace");
   const committed = await client.workspaceApply({
     operationId: "node-initial-project",
@@ -248,10 +225,7 @@ describe("CoreClient over a Unix socket", () => {
         kind: "metadata",
         library_id: rootClient.handshake.library_id,
       });
-      const initialProjectEventSequence = await createInitialProject(
-        rootClient,
-        nodexHome,
-      );
+      const initialProjectEventSequence = await createInitialProject(rootClient, nodexHome);
       const client = rootClient.forProject("project:default");
       expect(client.handshake.generation.pid).toBe(winnerPid);
 
@@ -353,9 +327,7 @@ describe("CoreClient over a Unix socket", () => {
       };
       const threadCommitted = await client.workspaceApply(threadInput);
       const threadReplay = await client.workspaceApply(threadInput);
-      expect(applyResultCursor(threadReplay)).toBe(
-        applyResultCursor(threadCommitted),
-      );
+      expect(applyResultCursor(threadReplay)).toBe(applyResultCursor(threadCommitted));
       expect(threadReplay.receipt.duplicate).toBe(true);
       await client.workspaceApply({
         operationId: "node-workspace-thread-catalogs-1",
@@ -424,11 +396,13 @@ describe("CoreClient over a Unix socket", () => {
         intent: {
           kind: "persist_agent_project_resource_grants",
           provenance: agentProvenance,
-          grants: [{
-            root: { kind: "page", page_id: "page:node-integration" },
-            access: "read",
-            library_actions: [],
-          }],
+          grants: [
+            {
+              root: { kind: "page", page_id: "page:node-integration" },
+              access: "read",
+              library_actions: [],
+            },
+          ],
         },
       });
       const agentSearch = await client.libraryRead({
@@ -449,11 +423,13 @@ describe("CoreClient over a Unix socket", () => {
         kind: "agent_search",
         has_more: false,
         next_cursor: null,
-        items: [{
-          kind: "page",
-          id: "page:node-integration",
-          matches: [{ source: "title", quality: "fuzzy" }],
-        }],
+        items: [
+          {
+            kind: "page",
+            id: "page:node-integration",
+            matches: [{ source: "title", quality: "fuzzy" }],
+          },
+        ],
       });
       const databaseCatalog = await client.databaseRead({
         kind: "catalog_window",
@@ -494,13 +470,15 @@ describe("CoreClient over a Unix socket", () => {
         value: {
           data_source_id: dataSourceId,
           rows: {
-            items: [{
-              page_id: "page:getting-started",
-              title: "Welcome to Nodex",
-              database_values: {
-                status: "triage",
+            items: [
+              {
+                page_id: "page:getting-started",
+                title: "Welcome to Nodex",
+                database_values: {
+                  status: "triage",
+                },
               },
-            }],
+            ],
             next_cursor: null,
           },
         },
@@ -530,9 +508,7 @@ describe("CoreClient over a Unix socket", () => {
         },
       ]);
       const automationReplay = await client.automationApply(automationInput);
-      expect(applyResultCursor(automationReplay)).toBe(
-        applyResultCursor(automationCommitted),
-      );
+      expect(applyResultCursor(automationReplay)).toBe(applyResultCursor(automationCommitted));
       expect(automationReplay.receipt.duplicate).toBe(true);
       const automations = await client.automationRead({
         kind: "definitions",
@@ -684,24 +660,16 @@ describe("CoreClient over a Unix socket", () => {
           updates: { is_all_day: false },
         },
       };
-      const missingOccurrence = await client.automationApply(
-        missingOccurrenceInput,
-      );
+      const missingOccurrence = await client.automationApply(missingOccurrenceInput);
       expect(missingOccurrence.outcome.page_occurrence_mutation).toMatchObject({
         success: false,
         duplicate: false,
         commit_seq: null,
         code: "page_not_found",
       });
-      const missingOccurrenceReplay = await nativeCli.automationApply(
-        missingOccurrenceInput,
-      );
-      expect(applyResultCursor(missingOccurrenceReplay)).toBe(
-        applyResultCursor(missingOccurrence),
-      );
-      expect(
-        missingOccurrenceReplay.outcome.page_occurrence_mutation,
-      ).toMatchObject({
+      const missingOccurrenceReplay = await nativeCli.automationApply(missingOccurrenceInput);
+      expect(applyResultCursor(missingOccurrenceReplay)).toBe(applyResultCursor(missingOccurrence));
+      expect(missingOccurrenceReplay.outcome.page_occurrence_mutation).toMatchObject({
         success: false,
         duplicate: true,
         code: "page_not_found",
@@ -714,9 +682,7 @@ describe("CoreClient over a Unix socket", () => {
           lease_duration_ms: 60_000,
         },
       });
-      await expect(unauthorizedClaim).rejects.toBeInstanceOf(
-        CoreModuleResponseError,
-      );
+      await expect(unauthorizedClaim).rejects.toBeInstanceOf(CoreModuleResponseError);
       await expect(unauthorizedClaim).rejects.toMatchObject({
         coreError: { code: "unauthorized" },
       });
@@ -784,17 +750,11 @@ describe("CoreClient over a Unix socket", () => {
         },
       };
       const workspaceCommitted = await client.workspaceApply(workspaceInput);
-      expect(applyResultCursor(workspaceCommitted)).toBeGreaterThan(
-        applyResultCursor(committed),
-      );
+      expect(applyResultCursor(workspaceCommitted)).toBeGreaterThan(applyResultCursor(committed));
       expect(workspaceCommitted.receipt.duplicate).toBe(false);
-      expect(workspaceCommitted.outcome.affected_project_ids).toEqual([
-        "project:node-integration",
-      ]);
+      expect(workspaceCommitted.outcome.affected_project_ids).toEqual(["project:node-integration"]);
       const workspaceReplay = await client.workspaceApply(workspaceInput);
-      expect(applyResultCursor(workspaceReplay)).toBe(
-        applyResultCursor(workspaceCommitted),
-      );
+      expect(applyResultCursor(workspaceReplay)).toBe(applyResultCursor(workspaceCommitted));
       expect(workspaceReplay.receipt.duplicate).toBe(true);
       const createdProject = await client.workspaceRead({
         kind: "project",
@@ -828,17 +788,13 @@ describe("CoreClient over a Unix socket", () => {
         },
       };
       const staleEventStream = subscription.done.catch((error: unknown) => error);
-      const staleDocumentEventStream = documentSubscription.done.catch(
-        (error: unknown) => error,
-      );
+      const staleDocumentEventStream = documentSubscription.done.catch((error: unknown) => error);
       const restored = await client.administrationApply(restoreInput);
       expect(restored.receipt.duplicate).toBe(false);
       expect(restored.outcome.backup_id).toBe(backupCommitted.outcome.backup_id);
       expect(restored.outcome.safety_backup_id).toEqual(expect.any(String));
       expect(applyResultStoreEpoch(restored)).not.toBe(client.handshake.store_epoch);
-      await expect(staleEventStream).resolves.toBeInstanceOf(
-        CoreEventCompatibilityError,
-      );
+      await expect(staleEventStream).resolves.toBeInstanceOf(CoreEventCompatibilityError);
       subscription = undefined;
       await expect(staleDocumentEventStream).resolves.toBeUndefined();
       expect(documentRepairs).toEqual([
@@ -851,9 +807,7 @@ describe("CoreClient over a Unix socket", () => {
       documentSubscription = undefined;
 
       const replacedConnection = readCoreRuntimeConnection(nodexHome);
-      expect(replacedConnection.descriptor.store_epoch).toBe(
-        applyResultStoreEpoch(restored),
-      );
+      expect(replacedConnection.descriptor.store_epoch).toBe(applyResultStoreEpoch(restored));
       expect(replacedConnection.descriptor.readiness_generation).toBe(2);
       const reconnected = await CoreClient.connect({
         nodexHome,
@@ -884,9 +838,7 @@ describe("CoreClient over a Unix socket", () => {
       ).rejects.toMatchObject({ coreError: { code: "unauthorized" } });
       const restoreReplay = await client.administrationApply(restoreInput);
       expect(restoreReplay.receipt.duplicate).toBe(true);
-      expect(applyResultStoreEpoch(restoreReplay)).toBe(
-        applyResultStoreEpoch(restored),
-      );
+      expect(applyResultStoreEpoch(restoreReplay)).toBe(applyResultStoreEpoch(restored));
       await expect(
         reconnected.workspaceRead({
           kind: "project",
@@ -915,10 +867,14 @@ describe("CoreClient over a Unix socket", () => {
       const replayedEvent = new Promise<CoreEventEnvelope>((resolve) => {
         resolveReplayedEvent = resolve;
       });
-      restartedSubscription = await restartedClient.openEventStream(0, (candidate) => {
-        if (candidate.packet.manifest.operation_id !== applyInput.operationId) return;
-        resolveReplayedEvent?.(candidate);
-      }, () => undefined);
+      restartedSubscription = await restartedClient.openEventStream(
+        0,
+        (candidate) => {
+          if (candidate.packet.manifest.operation_id !== applyInput.operationId) return;
+          resolveReplayedEvent?.(candidate);
+        },
+        () => undefined,
+      );
       const replayed = await withTimeout(
         replayedEvent,
         "Core did not replay a durable event after restart",
@@ -939,9 +895,7 @@ describe("CoreClient over a Unix socket", () => {
       );
       expect(event.packet.manifest.event_version).toBe(8);
       expect(replayed.packet.manifest.event_version).toBe(8);
-      expect(replayed.packet.projection_effects).toEqual(
-        event.packet.projection_effects,
-      );
+      expect(replayed.packet.projection_effects).toEqual(event.packet.projection_effects);
       restartedSubscription.close();
       await restartedSubscription.done;
       restartedSubscription = undefined;

@@ -4,11 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { NodexTooltipProvider as TooltipProvider } from "../../../../../components/ui/tooltip";
 import type { CodexTranscriptEntry } from "../../../../../lib/types";
-import {
-  render,
-  textContent,
-  textContentIncludingShadowRoots,
-} from "../../../../../test/dom";
+import { render, textContent, textContentIncludingShadowRoots } from "../../../../../test/dom";
 import { DynamicToolCall } from "./dynamic-tool-call";
 
 vi.mock("../../../../../lib/use-theme", () => ({
@@ -43,14 +39,16 @@ function activityText(container: HTMLElement): string {
   return shimmer?.firstChild?.textContent ?? textContent(container);
 }
 
-function buildDynamicEntry(overrides?: Partial<NonNullable<CodexTranscriptEntry["dynamicToolCall"]>>): CodexTranscriptEntry {
+function buildDynamicEntry(
+  overrides?: Partial<NonNullable<CodexTranscriptEntry["dynamicToolCall"]>>,
+): CodexTranscriptEntry {
   const dynamicToolCall: NonNullable<CodexTranscriptEntry["dynamicToolCall"]> = {
     callId: "dynamic-1",
     namespace: "codex_app",
     tool: "read_thread",
     arguments: { threadId: "thread-1" },
     status: "completed",
-    contentItems: [{ type: "inputText", text: "{\"schemaVersion\":1}" }],
+    contentItems: [{ type: "inputText", text: '{"schemaVersion":1}' }],
     success: true,
     durationMs: 12,
     completed: true,
@@ -96,11 +94,7 @@ function renderWithQueryClient(ui: ReactElement) {
       queries: { retry: false },
     },
   });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      {ui}
-    </QueryClientProvider>,
-  );
+  return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
 describe("DynamicToolCall", () => {
@@ -111,8 +105,9 @@ describe("DynamicToolCall", () => {
     expect(textContent(container).includes("schemaVersion")).toBe(false);
     expect(textContent(container).includes("Arguments")).toBe(false);
     expect(
-      getByRole("button", { name: "Show codex_app.read_thread tool call details" })
-        .getAttribute("aria-expanded"),
+      getByRole("button", { name: "Show codex_app.read_thread tool call details" }).getAttribute(
+        "aria-expanded",
+      ),
     ).toBe("false");
   });
 
@@ -143,14 +138,18 @@ describe("DynamicToolCall", () => {
     expect(container.querySelectorAll("pre")).toHaveLength(0);
 
     await act(async () => {
-      fireEvent.click(getByRole("button", { name: "Show example.large_payload tool call details" }));
+      fireEvent.click(
+        getByRole("button", { name: "Show example.large_payload tool call details" }),
+      );
       await Promise.resolve();
     });
 
     expect(serializationCalls).toBe(1);
-    expect(Array.from(container.querySelectorAll("pre")).every(
-      (element) => (element.textContent?.length ?? 0) <= 32_000,
-    )).toBe(true);
+    expect(
+      Array.from(container.querySelectorAll("pre")).every(
+        (element) => (element.textContent?.length ?? 0) <= 32_000,
+      ),
+    ).toBe(true);
     expect(getByRole("button", { name: "View full Arguments" })).toBeTruthy();
     expect(getByRole("button", { name: /View full Output/ })).toBeTruthy();
   });
@@ -181,7 +180,7 @@ describe("DynamicToolCall", () => {
             prompt: "Continue in a background chat",
             target: { type: "projectless" },
           },
-          contentItems: [{ type: "inputText", text: "{\"threadId\":\"thread-created\"}" }],
+          contentItems: [{ type: "inputText", text: '{"threadId":"thread-created"}' }],
         })}
         onOpenThread={(threadId) => {
           openedThreads.push(threadId);
@@ -202,42 +201,44 @@ describe("DynamicToolCall", () => {
   });
 
   test("opens create_thread client results through normal thread navigation", async () => {
-      const openedThreads: string[] = [];
-      const { getByRole, container } = render(
-        <DynamicToolCall
-          item={buildDynamicEntry({
-            tool: "create_thread",
-            arguments: {
-              prompt: "Continue in a worktree chat",
-              target: {
-                type: "project",
-                projectId: "project-1",
-                environment: { type: "worktree" },
-              },
+    const openedThreads: string[] = [];
+    const { getByRole, container } = render(
+      <DynamicToolCall
+        item={buildDynamicEntry({
+          tool: "create_thread",
+          arguments: {
+            prompt: "Continue in a worktree chat",
+            target: {
+              type: "project",
+              projectId: "project-1",
+              environment: { type: "worktree" },
             },
-            contentItems: [{
+          },
+          contentItems: [
+            {
               type: "inputText",
-              text: "{\"clientThreadId\":\"client-new-thread:11111111-1111-4111-8111-111111111111\"}",
-            }],
-          })}
-          onOpenThread={(threadId) => {
-            openedThreads.push(threadId);
-          }}
-        />,
-      );
+              text: '{"clientThreadId":"client-new-thread:11111111-1111-4111-8111-111111111111"}',
+            },
+          ],
+        })}
+        onOpenThread={(threadId) => {
+          openedThreads.push(threadId);
+        }}
+      />,
+    );
 
-      expect(textContent(container).includes("Worktree task queued")).toBe(true);
-      expect(textContent(container).includes("Open setup")).toBe(true);
-      expect(getByRole("button", { name: "Open worktree setup" }).getAttribute("aria-label")).toBe("Open worktree setup");
+    expect(textContent(container).includes("Worktree task queued")).toBe(true);
+    expect(textContent(container).includes("Open setup")).toBe(true);
+    expect(getByRole("button", { name: "Open worktree setup" }).getAttribute("aria-label")).toBe(
+      "Open worktree setup",
+    );
 
-      await act(async () => {
-        fireEvent.click(getByRole("button", { name: "Open worktree setup" }));
-        await Promise.resolve();
-      });
+    await act(async () => {
+      fireEvent.click(getByRole("button", { name: "Open worktree setup" }));
+      await Promise.resolve();
+    });
 
-      expect(openedThreads.join(",")).toBe(
-        "client-new-thread:11111111-1111-4111-8111-111111111111",
-      );
+    expect(openedThreads.join(",")).toBe("client-new-thread:11111111-1111-4111-8111-111111111111");
   });
 
   test("does not materialize legacy create_thread pendingWorktreeId output as a card", () => {
@@ -253,7 +254,7 @@ describe("DynamicToolCall", () => {
               environment: { type: "worktree" },
             },
           },
-          contentItems: [{ type: "inputText", text: "{\"pendingWorktreeId\":\"pending-worktree\"}" }],
+          contentItems: [{ type: "inputText", text: '{"pendingWorktreeId":"pending-worktree"}' }],
         })}
       />,
     );
@@ -272,23 +273,37 @@ describe("DynamicToolCall", () => {
           status: "completed",
           completed: true,
           success: true,
-          contentItems: [{
-            type: "inputText",
-            text: JSON.stringify({
-              destinationHostDisplayName: "Local",
-              operationId: "operation-1",
-              status: "running",
-              steps: [
-                { id: "resolve-thread", label: "Resolve thread", status: "success", message: null },
-                { id: "handoff", label: "Move thread", status: "running", message: "Preparing thread handoff." },
-              ],
-            }),
-          }],
+          contentItems: [
+            {
+              type: "inputText",
+              text: JSON.stringify({
+                destinationHostDisplayName: "Local",
+                operationId: "operation-1",
+                status: "running",
+                steps: [
+                  {
+                    id: "resolve-thread",
+                    label: "Resolve thread",
+                    status: "success",
+                    message: null,
+                  },
+                  {
+                    id: "handoff",
+                    label: "Move thread",
+                    status: "running",
+                    message: "Preparing thread handoff.",
+                  },
+                ],
+              }),
+            },
+          ],
         })}
       />,
     );
 
-    expect(getByRole("button", { name: /Handing off task/i }).getAttribute("aria-expanded")).toBe("true");
+    expect(getByRole("button", { name: /Handing off task/i }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
     expect(textContent(container).includes("Resolve thread")).toBe(true);
     expect(textContent(container).includes("Move thread")).toBe(true);
     expect(textContent(container).includes("Arguments")).toBe(false);
@@ -354,26 +369,28 @@ describe("DynamicToolCall", () => {
           content: "## Launch checklist\n- [ ] Verify migration",
         },
       },
-      contentItems: [{
-        type: "inputText",
-        text: JSON.stringify({
-          schemaVersion: 1,
-          data: {
-            documentId: "document-1",
-            revision: "rev-card-2",
-            effects: {
-              createdBlockIds: ["heading-1", "task-1"],
-              localBlockIds: {},
-              copiedBlockIds: {},
-              updatedBlockIds: [],
-              movedBlockIds: [],
-              deletedBlockIds: [],
+      contentItems: [
+        {
+          type: "inputText",
+          text: JSON.stringify({
+            schemaVersion: 1,
+            data: {
+              documentId: "document-1",
+              revision: "rev-card-2",
+              effects: {
+                createdBlockIds: ["heading-1", "task-1"],
+                localBlockIds: {},
+                copiedBlockIds: {},
+                updatedBlockIds: [],
+                movedBlockIds: [],
+                deletedBlockIds: [],
+              },
+              body: { contentOmitted: true },
+              receipt: { duplicate: false },
             },
-            body: { contentOmitted: true },
-            receipt: { duplicate: false },
-          },
-        }),
-      }],
+          }),
+        },
+      ],
       success: true,
       durationMs: 37,
     });
@@ -390,7 +407,9 @@ describe("DynamicToolCall", () => {
     expect(textContent(container).includes("Arguments")).toBe(false);
 
     await act(async () => {
-      fireEvent.click(getByRole("button", { name: "Show nodex_app.edit_document tool call details" }));
+      fireEvent.click(
+        getByRole("button", { name: "Show nodex_app.edit_document tool call details" }),
+      );
       await Promise.resolve();
     });
 
@@ -432,10 +451,12 @@ describe("DynamicToolCall", () => {
             ifRevision: "revision-1",
             body: {
               kind: "nfm.patch",
-              patches: [{
-                oldNfm: "## Draft\n- [ ] Verify migration",
-                newNfm: "## Ready\n- [x] Verify migration",
-              }],
+              patches: [
+                {
+                  oldNfm: "## Draft\n- [ ] Verify migration",
+                  newNfm: "## Ready\n- [x] Verify migration",
+                },
+              ],
             },
           },
         })}
@@ -448,8 +469,9 @@ describe("DynamicToolCall", () => {
     expect(textContent(container).includes("+2")).toBe(true);
     expect(textContent(container).includes("Arguments")).toBe(false);
     expect(
-      getByRole("button", { name: "Show nodex_app.edit_document tool call details" })
-        .getAttribute("aria-expanded"),
+      getByRole("button", { name: "Show nodex_app.edit_document tool call details" }).getAttribute(
+        "aria-expanded",
+      ),
     ).toBe("false");
   });
 
@@ -461,21 +483,25 @@ describe("DynamicToolCall", () => {
         pageId: "page-launch",
         body: {
           kind: "patch",
-          patches: [{
-            oldMarkdown: "Status: Draft",
-            newMarkdown: "Status: Ready",
-          }],
+          patches: [
+            {
+              oldMarkdown: "Status: Draft",
+              newMarkdown: "Status: Ready",
+            },
+          ],
         },
       },
-      contentItems: [{
-        type: "inputText",
-        text: JSON.stringify({
-          data: {
-            pageId: "page-launch",
-            effects: { created: 0, updated: 1, moved: 0, deleted: 0 },
-          },
-        }),
-      }],
+      contentItems: [
+        {
+          type: "inputText",
+          text: JSON.stringify({
+            data: {
+              pageId: "page-launch",
+              effects: { created: 0, updated: 1, moved: 0, deleted: 0 },
+            },
+          }),
+        },
+      ],
       success: true,
       durationMs: 18,
     });
@@ -485,31 +511,36 @@ describe("DynamicToolCall", () => {
       </TooltipProvider>,
     );
 
-    expect(textContent(container).includes(
-      "Updated page “page-launch” · 1 Nested Markdown patch",
-    )).toBe(true);
+    expect(
+      textContent(container).includes("Updated page “page-launch” · 1 Nested Markdown patch"),
+    ).toBe(true);
     expect(textContent(container).includes("Status: Draft")).toBe(true);
     expect(textContent(container).includes("Status: Ready")).toBe(true);
     expect(textContent(container).includes("Arguments")).toBe(false);
 
     await act(async () => {
-      fireEvent.click(getByRole("button", {
-        name: "Show nodex_app.update_page tool call details",
-      }));
+      fireEvent.click(
+        getByRole("button", {
+          name: "Show nodex_app.update_page tool call details",
+        }),
+      );
       await Promise.resolve();
     });
     expect(textContent(container).includes("Arguments")).toBe(true);
     expect(textContent(container).includes("Output · json")).toBe(true);
 
     await act(async () => {
-      fireEvent.click(getByRole("button", {
-        name: "Show raw nodex_app.update_page tool call",
-      }));
+      fireEvent.click(
+        getByRole("button", {
+          name: "Show raw nodex_app.update_page tool call",
+        }),
+      );
       await Promise.resolve();
     });
     await waitFor(() => {
-      expect(textContentIncludingShadowRoots(getByRole("dialog")).includes('"pageId": "page-launch"'))
-        .toBe(true);
+      expect(
+        textContentIncludingShadowRoots(getByRole("dialog")).includes('"pageId": "page-launch"'),
+      ).toBe(true);
     });
     await act(async () => {
       fireEvent.click(within(getByRole("dialog")).getByRole("button", { name: "Copy" }));
@@ -558,7 +589,7 @@ describe("DynamicToolCall", () => {
           },
           contentItems: [
             { type: "inputText", text: "Created automation in the app." },
-            { type: "inputText", text: "{\"automationId\":\"automation-release\",\"mode\":\"create\"}" },
+            { type: "inputText", text: '{"automationId":"automation-release","mode":"create"}' },
           ],
         })}
         onOpenSummaryScheduledAutomation={(input) => {
@@ -601,13 +632,15 @@ describe("DynamicToolCall", () => {
       <DynamicToolCall
         item={item}
         onOpenSummaryScheduledAutomation={(input) => {
-          opened.push([
-            input.mode,
-            input.title,
-            input.createInput?.kind,
-            input.createInput?.name,
-            input.createInput?.cwds?.join(","),
-          ].join(":"));
+          opened.push(
+            [
+              input.mode,
+              input.title,
+              input.createInput?.kind,
+              input.createInput?.name,
+              input.createInput?.cwds?.join(","),
+            ].join(":"),
+          );
         }}
       />,
     );
@@ -619,6 +652,8 @@ describe("DynamicToolCall", () => {
 
     fireEvent.click(getByRole("button", { name: /Review release notes/i }));
 
-    expect(opened.join(",")).toBe("suggested-create:Review release notes:cron:Review release notes:/repo/nodex");
+    expect(opened.join(",")).toBe(
+      "suggested-create:Review release notes:cron:Review release notes:/repo/nodex",
+    );
   });
 });

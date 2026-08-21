@@ -80,8 +80,7 @@ export interface BrowserCredentialSummary {
   updatedAt: string;
 }
 
-export interface BrowserCredentialSaveCandidate
-extends BrowserSidebarTabIdentity {
+export interface BrowserCredentialSaveCandidate extends BrowserSidebarTabIdentity {
   candidateId: string;
   origin: string;
   username: string;
@@ -91,13 +90,11 @@ extends BrowserSidebarTabIdentity {
 
 export type BrowserCredentialListInput = BrowserSidebarTabIdentity;
 
-export interface BrowserCredentialFillInput
-extends BrowserSidebarTabIdentity {
+export interface BrowserCredentialFillInput extends BrowserSidebarTabIdentity {
   credentialId: string;
 }
 
-export interface BrowserCredentialGenerateInput
-extends BrowserSidebarTabIdentity {
+export interface BrowserCredentialGenerateInput extends BrowserSidebarTabIdentity {
   length?: number;
 }
 
@@ -141,8 +138,7 @@ export interface BrowserContactInfoUpsertInput {
   country: string;
 }
 
-export interface BrowserContactInfoFillInput
-extends BrowserSidebarTabIdentity {
+export interface BrowserContactInfoFillInput extends BrowserSidebarTabIdentity {
   contactInfoId: string;
 }
 
@@ -196,121 +192,146 @@ export interface BrowserExtensionsSnapshot {
   extensions: BrowserExtensionSummary[];
 }
 
-export const BrowserProfileImportInputSchema = z.object({
-  source: z.enum(["atlas", "chrome"]),
-  profilePath: BrowserPathSchema,
-  importCookies: z.boolean(),
-  importPasswords: z.boolean(),
-  cookieDomainAllowlist: z.array(BrowserDomainSchema).max(1_000).optional(),
-}).strict().superRefine((input, context) => {
-  if (!input.importCookies && !input.importPasswords) {
-    context.addIssue({
-      code: "custom",
-      message: "Select cookies, passwords, or both to import",
-    });
-  }
-  if (!input.importCookies && input.cookieDomainAllowlist !== undefined) {
-    context.addIssue({
-      code: "custom",
-      message: "Cookie domain selection requires cookie import",
-      path: ["cookieDomainAllowlist"],
-    });
-  }
-}) satisfies z.ZodType<BrowserProfileImportInput>;
+export const BrowserProfileImportInputSchema = z
+  .object({
+    source: z.enum(["atlas", "chrome"]),
+    profilePath: BrowserPathSchema,
+    importCookies: z.boolean(),
+    importPasswords: z.boolean(),
+    cookieDomainAllowlist: z.array(BrowserDomainSchema).max(1_000).optional(),
+  })
+  .strict()
+  .superRefine((input, context) => {
+    if (!input.importCookies && !input.importPasswords) {
+      context.addIssue({
+        code: "custom",
+        message: "Select cookies, passwords, or both to import",
+      });
+    }
+    if (!input.importCookies && input.cookieDomainAllowlist !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "Cookie domain selection requires cookie import",
+        path: ["cookieDomainAllowlist"],
+      });
+    }
+  }) satisfies z.ZodType<BrowserProfileImportInput>;
 
 export const BrowserCredentialListInputSchema =
   BrowserSidebarTabIdentitySchema satisfies z.ZodType<BrowserCredentialListInput>;
 
-export const BrowserCredentialFillInputSchema =
-  BrowserSidebarTabIdentitySchema.extend({
-    credentialId: BrowserIdSchema,
-  }).strict() satisfies z.ZodType<BrowserCredentialFillInput>;
+export const BrowserCredentialFillInputSchema = BrowserSidebarTabIdentitySchema.extend({
+  credentialId: BrowserIdSchema,
+}).strict() satisfies z.ZodType<BrowserCredentialFillInput>;
 
-export const BrowserCredentialGenerateInputSchema =
-  BrowserSidebarTabIdentitySchema.extend({
-    length: z.number().int().min(12).max(128).optional(),
-  }).strict() satisfies z.ZodType<BrowserCredentialGenerateInput>;
+export const BrowserCredentialGenerateInputSchema = BrowserSidebarTabIdentitySchema.extend({
+  length: z.number().int().min(12).max(128).optional(),
+}).strict() satisfies z.ZodType<BrowserCredentialGenerateInput>;
 
-export const BrowserCredentialCandidateActionInputSchema = z.object({
-  candidateId: BrowserIdSchema,
-  action: z.enum(["save", "dismiss"]),
-}).strict() satisfies z.ZodType<BrowserCredentialCandidateActionInput>;
+export const BrowserCredentialCandidateActionInputSchema = z
+  .object({
+    candidateId: BrowserIdSchema,
+    action: z.enum(["save", "dismiss"]),
+  })
+  .strict() satisfies z.ZodType<BrowserCredentialCandidateActionInput>;
 
 const BrowserContactFieldSchema = z.string().trim().max(4_096);
 
-export const BrowserContactInfoFieldsSchema = z.object({
-  label: BrowserContactFieldSchema,
-  fullName: BrowserContactFieldSchema,
-  email: BrowserContactFieldSchema,
-  phone: BrowserContactFieldSchema,
-  addressLine1: BrowserContactFieldSchema,
-  addressLine2: BrowserContactFieldSchema,
-  city: BrowserContactFieldSchema,
-  region: BrowserContactFieldSchema,
-  postalCode: BrowserContactFieldSchema,
-  country: BrowserContactFieldSchema,
-}).strict();
+export const BrowserContactInfoFieldsSchema = z
+  .object({
+    label: BrowserContactFieldSchema,
+    fullName: BrowserContactFieldSchema,
+    email: BrowserContactFieldSchema,
+    phone: BrowserContactFieldSchema,
+    addressLine1: BrowserContactFieldSchema,
+    addressLine2: BrowserContactFieldSchema,
+    city: BrowserContactFieldSchema,
+    region: BrowserContactFieldSchema,
+    postalCode: BrowserContactFieldSchema,
+    country: BrowserContactFieldSchema,
+  })
+  .strict();
 
-export const BrowserContactInfoUpsertInputSchema =
-BrowserContactInfoFieldsSchema.extend({
+export const BrowserContactInfoUpsertInputSchema = BrowserContactInfoFieldsSchema.extend({
   id: BrowserIdSchema.optional(),
-}).strict().superRefine((value, context) => {
-  const values = [
-    value.fullName,
-    value.email,
-    value.phone,
-    value.addressLine1,
-    value.addressLine2,
-    value.city,
-    value.region,
-    value.postalCode,
-    value.country,
-  ];
-  if (values.some(Boolean)) return;
-  context.addIssue({
-    code: "custom",
-    message: "Contact info must contain at least one value",
-  });
-}) satisfies z.ZodType<BrowserContactInfoUpsertInput>;
+})
+  .strict()
+  .superRefine((value, context) => {
+    const values = [
+      value.fullName,
+      value.email,
+      value.phone,
+      value.addressLine1,
+      value.addressLine2,
+      value.city,
+      value.region,
+      value.postalCode,
+      value.country,
+    ];
+    if (values.some(Boolean)) return;
+    context.addIssue({
+      code: "custom",
+      message: "Contact info must contain at least one value",
+    });
+  }) satisfies z.ZodType<BrowserContactInfoUpsertInput>;
 
-export const BrowserContactInfoFillInputSchema =
-  BrowserSidebarTabIdentitySchema.extend({
-    contactInfoId: BrowserIdSchema,
-  }).strict() satisfies z.ZodType<BrowserContactInfoFillInput>;
-
-export const BrowserContactInfoRemoveInputSchema = z.object({
+export const BrowserContactInfoFillInputSchema = BrowserSidebarTabIdentitySchema.extend({
   contactInfoId: BrowserIdSchema,
-}).strict();
+}).strict() satisfies z.ZodType<BrowserContactInfoFillInput>;
 
-export const BrowserHistoryListInputSchema = z.object({
-  query: BrowserLabelSchema.optional(),
-  limit: z.number().int().min(1).max(1_000).optional(),
-}).strict() satisfies z.ZodType<BrowserHistoryListInput>;
+export const BrowserContactInfoRemoveInputSchema = z
+  .object({
+    contactInfoId: BrowserIdSchema,
+  })
+  .strict();
 
-export const BrowserHistoryDeleteInputSchema = z.object({
-  id: BrowserIdSchema,
-}).strict();
+export const BrowserHistoryListInputSchema = z
+  .object({
+    query: BrowserLabelSchema.optional(),
+    limit: z.number().int().min(1).max(1_000).optional(),
+  })
+  .strict() satisfies z.ZodType<BrowserHistoryListInput>;
+
+export const BrowserHistoryDeleteInputSchema = z
+  .object({
+    id: BrowserIdSchema,
+  })
+  .strict();
 
 export const BrowserSiteInfoInputSchema =
   BrowserSidebarTabIdentitySchema satisfies z.ZodType<BrowserSidebarTabIdentity>;
 
-export const BrowserExtensionRemoveInputSchema = z.object({
-  extensionId: BrowserIdSchema,
-}).strict();
+export const BrowserExtensionRemoveInputSchema = z
+  .object({
+    extensionId: BrowserIdSchema,
+  })
+  .strict();
 
-export const BrowserCredentialGuestCandidateSchema = z.object({
-  username: BrowserUsernameSchema,
-  password: z.string().min(1).max(1024 * 1024),
-}).strict();
+export const BrowserCredentialGuestCandidateSchema = z
+  .object({
+    username: BrowserUsernameSchema,
+    password: z
+      .string()
+      .min(1)
+      .max(1024 * 1024),
+  })
+  .strict();
 
-export const BrowserCredentialGuestFillSchema = z.object({
-  origin: BrowserUrlSchema,
-  username: BrowserUsernameSchema,
-  password: z.string().min(1).max(1024 * 1024),
-  kind: z.enum(["generated", "saved"]),
-}).strict();
+export const BrowserCredentialGuestFillSchema = z
+  .object({
+    origin: BrowserUrlSchema,
+    username: BrowserUsernameSchema,
+    password: z
+      .string()
+      .min(1)
+      .max(1024 * 1024),
+    kind: z.enum(["generated", "saved"]),
+  })
+  .strict();
 
-export const BrowserContactInfoGuestFillSchema = z.object({
-  origin: BrowserUrlSchema,
-  contactInfo: BrowserContactInfoFieldsSchema.omit({ label: true }),
-}).strict();
+export const BrowserContactInfoGuestFillSchema = z
+  .object({
+    origin: BrowserUrlSchema,
+    contactInfo: BrowserContactInfoFieldsSchema.omit({ label: true }),
+  })
+  .strict();

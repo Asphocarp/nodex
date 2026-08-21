@@ -18,8 +18,7 @@ export const BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS = {
   Record<BuiltInDataSourcePropertyId, { readonly valueType: DatabasePropertyValueType }>
 >;
 
-export type BuiltInDataSourcePropertyRole =
-  keyof typeof BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS;
+export type BuiltInDataSourcePropertyRole = keyof typeof BUILT_IN_DATA_SOURCE_PROPERTY_DEFINITIONS;
 
 export const matchBuiltInDataSourceProperty = (input: {
   readonly propertyId: unknown;

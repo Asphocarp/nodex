@@ -38,13 +38,17 @@ function createEmptyBuckets(): ThreadTurnRenderBuckets {
   };
 }
 
-function isPendingRequestItem(item: ThreadRendererItemModel): item is ThreadPendingTurnRequestModel {
-  return item.type === "approval"
-    || item.type === "userInput"
-    || item.type === "optionPicker"
-    || item.type === "setupCodexStep"
-    || item.type === "permissionRequest"
-    || item.type === "implementPlan";
+function isPendingRequestItem(
+  item: ThreadRendererItemModel,
+): item is ThreadPendingTurnRequestModel {
+  return (
+    item.type === "approval" ||
+    item.type === "userInput" ||
+    item.type === "optionPicker" ||
+    item.type === "setupCodexStep" ||
+    item.type === "permissionRequest" ||
+    item.type === "implementPlan"
+  );
 }
 
 function isTranscriptBlock(item: ThreadRendererItemModel): item is ThreadTranscriptBlockModel {
@@ -105,7 +109,9 @@ function normalizeMcpServerName(value: string | undefined): string | null {
 
 function resolveMcpToolCallServer(item: ThreadTranscriptBlockModel): string | null {
   if (item.type !== "mcpToolCall") return null;
-  return normalizeMcpServerName(item.entry.mcpToolCall?.invocation.server ?? item.entry.toolCall?.server);
+  return normalizeMcpServerName(
+    item.entry.mcpToolCall?.invocation.server ?? item.entry.toolCall?.server,
+  );
 }
 
 function resolveMcpElicitationServer(item: ThreadTranscriptBlockModel): string | null {
@@ -113,9 +119,8 @@ function resolveMcpElicitationServer(item: ThreadTranscriptBlockModel): string |
   const rawItem = item.entry.rawItem;
   if (typeof rawItem !== "object" || rawItem === null) return null;
 
-  const serverName = "serverName" in rawItem && typeof rawItem.serverName === "string"
-    ? rawItem.serverName
-    : null;
+  const serverName =
+    "serverName" in rawItem && typeof rawItem.serverName === "string" ? rawItem.serverName : null;
   return normalizeMcpServerName(serverName ?? undefined);
 }
 
@@ -125,10 +130,12 @@ function shouldPushHookToAgentItems(
 ): boolean {
   return items.slice(currentIndex + 1).some((candidate) => {
     if (isPendingRequestItem(candidate)) {
-      return candidate.type === "approval"
-        || candidate.type === "userInput"
-        || candidate.type === "optionPicker"
-        || candidate.type === "setupCodexStep";
+      return (
+        candidate.type === "approval" ||
+        candidate.type === "userInput" ||
+        candidate.type === "optionPicker" ||
+        candidate.type === "setupCodexStep"
+      );
     }
 
     return candidate.type === "userMessage" || isRenderableAgentItem(candidate);
@@ -282,7 +289,11 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
   const trailingReviews: ThreadTranscriptBlockModel[] = [];
   while (agentCandidates.length > 0) {
     const reviewCandidate = agentCandidates[agentCandidates.length - 1];
-    if (!reviewCandidate || !isTranscriptBlock(reviewCandidate) || !isTrailingAutomaticApprovalReview(reviewCandidate)) {
+    if (
+      !reviewCandidate ||
+      !isTranscriptBlock(reviewCandidate) ||
+      !isTrailingAutomaticApprovalReview(reviewCandidate)
+    ) {
       break;
     }
     const review = agentCandidates.pop();
@@ -304,9 +315,9 @@ export function bucketizeTurnItems(input: BucketizeTurnItemsInput): ThreadTurnRe
 
   const trailingSystemCandidate = agentCandidates[agentCandidates.length - 1] ?? null;
   const canPromoteSystemError =
-    input.turnStatus !== "inProgress"
-    && !hasRenderableAssistantContent(buckets.assistantItem)
-    && trailingSystemCandidate?.type === "systemError";
+    input.turnStatus !== "inProgress" &&
+    !hasRenderableAssistantContent(buckets.assistantItem) &&
+    trailingSystemCandidate?.type === "systemError";
 
   if (canPromoteSystemError && trailingSystemCandidate) {
     buckets.systemEventItem = trailingSystemCandidate;

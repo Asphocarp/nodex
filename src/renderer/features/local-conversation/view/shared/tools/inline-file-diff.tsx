@@ -36,17 +36,11 @@ export function InlineFileDiff({
     } else {
       host.removeAttribute("data-file");
     }
-
   }, [displayPath]);
 
   return (
     <div ref={wrapperRef}>
-      <FileDiff
-        fileDiff={fileDiff}
-        className={className}
-        style={style}
-        options={options}
-      />
+      <FileDiff fileDiff={fileDiff} className={className} style={style} options={options} />
     </div>
   );
 }

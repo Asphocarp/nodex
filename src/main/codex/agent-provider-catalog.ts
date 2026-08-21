@@ -97,20 +97,25 @@ function parseModel(value: unknown, providerId: string, index: number): Model {
           `model ${providerId}/${id} reasoning effort`,
         );
         if (!effort) return [];
-        return [{
-          reasoningEffort: effort,
-          description: typeof entry.description === "string" ? entry.description : "",
-        }];
+        return [
+          {
+            reasoningEffort: effort,
+            description: typeof entry.description === "string" ? entry.description : "",
+          },
+        ];
       })
     : [];
-  const defaultReasoningEffort = parseOptionalCatalogString(
-    value.defaultReasoningEffort,
-    `model ${providerId}/${id} default reasoning effort`,
-  ) ?? reasoning[0]?.reasoningEffort ?? "none";
+  const defaultReasoningEffort =
+    parseOptionalCatalogString(
+      value.defaultReasoningEffort,
+      `model ${providerId}/${id} default reasoning effort`,
+    ) ??
+    reasoning[0]?.reasoningEffort ??
+    "none";
   const inputModalities = Array.isArray(value.inputModalities)
-    ? value.inputModalities.filter((entry): entry is "text" | "image" => (
-        entry === "text" || entry === "image"
-      ))
+    ? value.inputModalities.filter(
+        (entry): entry is "text" | "image" => entry === "text" || entry === "image",
+      )
     : [];
   const serviceTiers = Array.isArray(value.serviceTiers)
     ? value.serviceTiers.flatMap((entry) => {
@@ -120,14 +125,13 @@ function parseModel(value: unknown, providerId: string, index: number): Model {
           `model ${providerId}/${id} service tier id`,
         );
         if (!tierId) return [];
-        return [{
-          id: tierId,
-          name: parseCatalogString(
-            entry.name,
-            `model ${providerId}/${id} service tier name`,
-          ),
-          description: typeof entry.description === "string" ? entry.description.trim() : "",
-        }];
+        return [
+          {
+            id: tierId,
+            name: parseCatalogString(entry.name, `model ${providerId}/${id} service tier name`),
+            description: typeof entry.description === "string" ? entry.description.trim() : "",
+          },
+        ];
       })
     : [];
   const defaultServiceTier = parseOptionalCatalogString(
@@ -171,7 +175,8 @@ function parseHarnessResponse(value: unknown, providerId: string): InterpreterHa
     throw new Error(`Agent runtime harness catalog response for ${providerId} is invalid`);
   }
   return value.data.map((entry, index) => {
-    if (!isRecord(entry)) throw new Error(`Agent runtime harness ${providerId}[${index}] is invalid`);
+    if (!isRecord(entry))
+      throw new Error(`Agent runtime harness ${providerId}[${index}] is invalid`);
     const id = parseOptionalCatalogString(entry.id, `harness ${providerId}[${index}] id`);
     return {
       ...(id ? { id } : {}),
@@ -214,7 +219,7 @@ export async function resolveAgentHarnessId(input: {
   }
 
   const recommended = harnesses.find((harness) => harness.isRecommended);
-  return recommended ? recommended.id ?? null : input.fallbackHarnessId;
+  return recommended ? (recommended.id ?? null) : input.fallbackHarnessId;
 }
 
 export async function resolveAgentExecutionProfileFromCatalog(input: {
@@ -234,35 +239,30 @@ export async function resolveAgentExecutionProfileFromCatalog(input: {
     );
   }
   if (
-    provider.credentialStatus !== "ready"
-    && provider.credentialStatus !== "inherited"
-    && provider.credentialStatus !== "runtimeManaged"
+    provider.credentialStatus !== "ready" &&
+    provider.credentialStatus !== "inherited" &&
+    provider.credentialStatus !== "runtimeManaged"
   ) {
     throw new Error(`Agent provider '${requested.providerId}' needs an API key`);
   }
 
   const supportedReasoningEfforts = model.supportedReasoningEfforts.map((option) => option.value);
-  const advertisedDefaultReasoningEffort = model.defaultReasoningEffort
-    && supportedReasoningEfforts.includes(model.defaultReasoningEffort)
-    ? model.defaultReasoningEffort
-    : null;
-  const reasoningEffort = requested.reasoningEffort
-    ?? advertisedDefaultReasoningEffort
-    ?? model.supportedReasoningEfforts[0]?.value
-    ?? null;
-  if (
-    reasoningEffort
-    && !supportedReasoningEfforts.includes(reasoningEffort)
-  ) {
+  const advertisedDefaultReasoningEffort =
+    model.defaultReasoningEffort && supportedReasoningEfforts.includes(model.defaultReasoningEffort)
+      ? model.defaultReasoningEffort
+      : null;
+  const reasoningEffort =
+    requested.reasoningEffort ??
+    advertisedDefaultReasoningEffort ??
+    model.supportedReasoningEfforts[0]?.value ??
+    null;
+  if (reasoningEffort && !supportedReasoningEfforts.includes(reasoningEffort)) {
     throw new Error(
       `Reasoning effort '${reasoningEffort}' is unavailable for ${requested.providerId}/${requested.modelId}`,
     );
   }
   const supportedServiceTiers = model.supportedServiceTiers.map((option) => option.value);
-  if (
-    requested.serviceTier !== null
-    && !supportedServiceTiers.includes(requested.serviceTier)
-  ) {
+  if (requested.serviceTier !== null && !supportedServiceTiers.includes(requested.serviceTier)) {
     throw new Error(
       `Service tier '${requested.serviceTier}' is unavailable for ${requested.providerId}/${requested.modelId}`,
     );
@@ -272,9 +272,8 @@ export async function resolveAgentExecutionProfileFromCatalog(input: {
     client,
     providerId: requested.providerId,
     modelId: requested.modelId,
-    requestedHarnessId: requested.harnessId === provider.recommendedHarnessId
-      ? null
-      : requested.harnessId,
+    requestedHarnessId:
+      requested.harnessId === provider.recommendedHarnessId ? null : requested.harnessId,
     fallbackHarnessId: provider.recommendedHarnessId,
   });
   return {
@@ -305,20 +304,21 @@ function toModelOption(
       description: option.description || null,
     })),
     defaultReasoningEffort: model.defaultReasoningEffort || null,
-    supportedServiceTiers: model.serviceTiers.length > 0
-      ? [
-          {
-            value: null,
-            displayName: "Standard",
-            description: "Default speed, normal usage",
-          },
-          ...model.serviceTiers.map((tier) => ({
-            value: tier.id,
-            displayName: tier.name,
-            description: tier.description || null,
-          })),
-        ]
-      : [],
+    supportedServiceTiers:
+      model.serviceTiers.length > 0
+        ? [
+            {
+              value: null,
+              displayName: "Standard",
+              description: "Default speed, normal usage",
+            },
+            ...model.serviceTiers.map((tier) => ({
+              value: tier.id,
+              displayName: tier.name,
+              description: tier.description || null,
+            })),
+          ]
+        : [],
     defaultServiceTier: model.defaultServiceTier || null,
     inputCapabilities: model.inputModalities,
     switchPolicy: providerId === "openai" ? "same-thread" : "new-thread",
@@ -343,7 +343,10 @@ async function discoverProvider(input: {
     credentialStatusReader.status(provider.id),
   ]);
   const models = parseModelResponse(rawModels as InterpreterModelListResponse, provider.id);
-  const harnesses = parseHarnessResponse(rawHarnesses as InterpreterHarnessListResponse, provider.id);
+  const harnesses = parseHarnessResponse(
+    rawHarnesses as InterpreterHarnessListResponse,
+    provider.id,
+  );
   const providerRecommendedHarnessId = recommendedHarnessId(harnesses);
 
   return {
@@ -356,9 +359,7 @@ async function discoverProvider(input: {
     isDefault: provider.isDefault,
     credentialEnvKey: provider.envKey ?? null,
     recommendedHarnessId: providerRecommendedHarnessId,
-    models: models.map((model) => (
-      toModelOption(provider.id, model, providerRecommendedHarnessId)
-    )),
+    models: models.map((model) => toModelOption(provider.id, model, providerRecommendedHarnessId)),
   };
 }
 
@@ -369,15 +370,16 @@ export async function discoverAgentProviderCatalog(input: {
   const rawProviders = await input.client.request("interpreter/provider/list", {
     includeUnconfigured: true,
   });
-  const providers = parseProviderResponse(rawProviders as InterpreterProviderListResponse)
-    .filter((provider) => SUPPORTED_PROVIDER_ID_SET.has(provider.id));
+  const providers = parseProviderResponse(rawProviders as InterpreterProviderListResponse).filter(
+    (provider) => SUPPORTED_PROVIDER_ID_SET.has(provider.id),
+  );
   const providerById = new Map(providers.map((provider) => [provider.id, provider]));
   const orderedProviders = SUPPORTED_PROVIDER_IDS.flatMap((providerId) => {
     const provider = providerById.get(providerId);
     return provider ? [provider] : [];
   });
-  const catalogProviders = await Promise.all(orderedProviders.map((provider) => (
-    discoverProvider({ ...input, provider })
-  )));
+  const catalogProviders = await Promise.all(
+    orderedProviders.map((provider) => discoverProvider({ ...input, provider })),
+  );
   return { providers: catalogProviders };
 }

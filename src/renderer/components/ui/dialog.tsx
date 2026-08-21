@@ -3,12 +3,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { CloseIcon } from "@/components/shared/icons";
 import { cn } from "@/lib/utils";
 
-export type NodexDialogSize =
-  | "narrow"
-  | "compact"
-  | "default"
-  | "wide"
-  | "large";
+export type NodexDialogSize = "narrow" | "compact" | "default" | "wide" | "large";
 
 const NODEX_DIALOG_SIZE_CLASS: Record<NodexDialogSize, string> = {
   narrow: "w-[380px]",
@@ -35,27 +30,19 @@ const NODEX_DIALOG_ACTION_STYLES = {
   ],
 } as const;
 
-export function NodexDialog(
-  props: React.ComponentProps<typeof DialogPrimitive.Root>,
-) {
+export function NodexDialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
   return <DialogPrimitive.Root data-slot="codex-dialog" {...props} />;
 }
 
-export function NodexDialogTrigger(
-  props: React.ComponentProps<typeof DialogPrimitive.Trigger>,
-) {
+export function NodexDialogTrigger(props: React.ComponentProps<typeof DialogPrimitive.Trigger>) {
   return <DialogPrimitive.Trigger data-slot="codex-dialog-trigger" {...props} />;
 }
 
-export function NodexDialogPortal(
-  props: React.ComponentProps<typeof DialogPrimitive.Portal>,
-) {
+export function NodexDialogPortal(props: React.ComponentProps<typeof DialogPrimitive.Portal>) {
   return <DialogPrimitive.Portal data-slot="codex-dialog-portal" {...props} />;
 }
 
-export function NodexDialogClose(
-  props: React.ComponentProps<typeof DialogPrimitive.Close>,
-) {
+export function NodexDialogClose(props: React.ComponentProps<typeof DialogPrimitive.Close>) {
   return <DialogPrimitive.Close data-slot="codex-dialog-close" {...props} />;
 }
 
@@ -66,10 +53,7 @@ export function NodexDialogOverlay({
   return (
     <DialogPrimitive.Overlay
       data-slot="codex-dialog-overlay"
-      className={cn(
-        "codex-dialog-overlay fixed inset-0 z-50 bg-[#00000022]",
-        className,
-      )}
+      className={cn("codex-dialog-overlay fixed inset-0 z-50 bg-[#00000022]", className)}
       {...props}
     />
   );
@@ -133,10 +117,7 @@ export function NodexDialogContent({
 const NODEX_DIALOG_FRAME_CLASS =
   "flex flex-col gap-0 px-5 py-5 text-base leading-normal tracking-normal [--text-heading-md:21px] [font-weight:445]";
 
-export function NodexDialogFrame({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+export function NodexDialogFrame({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="codex-dialog-frame"
@@ -146,10 +127,7 @@ export function NodexDialogFrame({
   );
 }
 
-export function NodexDialogForm({
-  className,
-  ...props
-}: React.ComponentProps<"form">) {
+export function NodexDialogForm({ className, ...props }: React.ComponentProps<"form">) {
   return (
     <form
       data-slot="codex-dialog-form"
@@ -159,10 +137,7 @@ export function NodexDialogForm({
   );
 }
 
-export function NodexDialogBody({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+export function NodexDialogBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="codex-dialog-body"
@@ -172,19 +147,13 @@ export function NodexDialogBody({
   );
 }
 
-export function NodexDialogHeader({
-  className,
-  ...props
-}: React.ComponentProps<"div">) {
+export function NodexDialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <NodexDialogBody>
       <div className="flex flex-col items-start gap-3">
         <div
           data-slot="codex-dialog-header"
-          className={cn(
-            "flex min-w-0 flex-1 flex-col gap-1 self-stretch",
-            className,
-          )}
+          className={cn("flex min-w-0 flex-1 flex-col gap-1 self-stretch", className)}
           {...props}
         />
       </div>
@@ -217,10 +186,7 @@ export function NodexDialogTitle({
   return (
     <DialogPrimitive.Title
       data-slot="codex-dialog-title"
-      className={cn(
-        "heading-dialog min-w-0 font-semibold text-token-foreground",
-        className,
-      )}
+      className={cn("heading-dialog min-w-0 font-semibold text-token-foreground", className)}
       {...props}
     />
   );

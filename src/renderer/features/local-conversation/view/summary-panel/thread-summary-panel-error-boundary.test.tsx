@@ -47,11 +47,7 @@ function ResetKeyHarness() {
       </button>
       <ThreadSummaryPanelRenderBoundary
         fallback={({ resetError }) => (
-          <ThreadSummaryPanelRenderErrorFallback
-            mounted={true}
-            onRetry={resetError}
-            open={true}
-          />
+          <ThreadSummaryPanelRenderErrorFallback mounted={true} onRetry={resetError} open={true} />
         )}
         resetKey={threadId}
       >
@@ -79,7 +75,10 @@ describe("ThreadSummaryPanelRenderBoundary", () => {
 
       expect(textContent(container).includes("Summary panel couldn't render")).toBe(true);
       expect(container.querySelector('[data-pip-obstacle="thread-summary-panel"]')).not.toBeNull();
-      expect((container.querySelector('[data-pip-obstacle="thread-summary-panel"]') as HTMLElement).style.width).toBe("300px");
+      expect(
+        (container.querySelector('[data-pip-obstacle="thread-summary-panel"]') as HTMLElement).style
+          .width,
+      ).toBe("300px");
 
       const retryButton = container.querySelector("button");
       expect(retryButton).not.toBeNull();
@@ -119,10 +118,16 @@ describe("ThreadSummaryPanelRenderBoundary", () => {
       <ThreadSummaryPanelRenderErrorFallback mounted={false} onRetry={() => {}} open={true} />,
     );
 
-    expect(container.querySelector('[data-pip-obstacle="thread-summary-panel"]') === null).toBe(true);
+    expect(container.querySelector('[data-pip-obstacle="thread-summary-panel"]') === null).toBe(
+      true,
+    );
 
-    rerender(<ThreadSummaryPanelRenderErrorFallback mounted={true} onRetry={() => {}} open={false} />);
+    rerender(
+      <ThreadSummaryPanelRenderErrorFallback mounted={true} onRetry={() => {}} open={false} />,
+    );
 
-    expect(container.querySelector('[data-pip-obstacle="thread-summary-panel"]') === null).toBe(true);
+    expect(container.querySelector('[data-pip-obstacle="thread-summary-panel"]') === null).toBe(
+      true,
+    );
   });
 });

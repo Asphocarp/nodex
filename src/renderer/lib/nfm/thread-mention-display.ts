@@ -26,42 +26,49 @@ export function formatThreadMentionShortUuid(uuid: string): string {
 }
 
 function firstPreviewLine(thread: CodexThreadSummary): string {
-  return thread.threadPreview
-    .split("\n")
-    .map((line) => line.trim())
-    .find((line) => line.length > 0) ?? "";
+  return (
+    thread.threadPreview
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  );
 }
 
-function resolveThreadStateLabel(thread: CodexThreadSummary | null, resolving: boolean, missing: boolean): string {
+function resolveThreadStateLabel(
+  thread: CodexThreadSummary | null,
+  resolving: boolean,
+  missing: boolean,
+): string {
   if (resolving) return "Loading";
   if (missing) return "Missing";
   if (!thread) return "Thread";
   return resolveThreadStatusDisplayLabel(thread);
 }
 
-export function resolveThreadMentionDisplay(input: ThreadMentionDisplayInput): ThreadMentionDisplay {
+export function resolveThreadMentionDisplay(
+  input: ThreadMentionDisplayInput,
+): ThreadMentionDisplay {
   const uuid = input.uuid.trim();
   const thread = input.thread ?? null;
   const resolving = input.resolving === true;
   const missing = input.missing === true;
   const label = missing
     ? "Missing thread"
-    : thread?.threadName?.trim()
-      || (thread ? firstPreviewLine(thread) : "")
-      || formatThreadMentionShortUuid(uuid);
+    : thread?.threadName?.trim() ||
+      (thread ? firstPreviewLine(thread) : "") ||
+      formatThreadMentionShortUuid(uuid);
   const stateLabel = resolveThreadStateLabel(thread, resolving, missing);
   const shortUuid = formatThreadMentionShortUuid(uuid);
-  const detail = [stateLabel, shortUuid]
-    .filter((value) => value.trim().length > 0)
-    .join(" · ");
+  const detail = [stateLabel, shortUuid].filter((value) => value.trim().length > 0).join(" · ");
   const title = [label, detail, thread?.cwd ?? ""]
     .filter((value) => value.trim().length > 0)
     .join(" - ");
-  const tone = missing || thread?.statusType === "systemError"
-    ? "error"
-    : thread?.archived || resolving
-      ? "muted"
-      : "normal";
+  const tone =
+    missing || thread?.statusType === "systemError"
+      ? "error"
+      : thread?.archived || resolving
+        ? "muted"
+        : "normal";
 
   return { label, detail, stateLabel, shortUuid, title, tone };
 }

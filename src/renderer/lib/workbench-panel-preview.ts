@@ -18,20 +18,17 @@ const PREVIEWABLE_PROJECT_SESSION_TAB_KINDS = [
   "files",
 ] as const satisfies readonly WorkbenchTabProjection["kind"][];
 
-export type PreviewableWorkbenchTabKind =
-  (typeof PREVIEWABLE_PROJECT_SESSION_TAB_KINDS)[number];
+export type PreviewableWorkbenchTabKind = (typeof PREVIEWABLE_PROJECT_SESSION_TAB_KINDS)[number];
 
-const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET =
-  new Set<WorkbenchTabProjection["kind"]>(
-    PREVIEWABLE_PROJECT_SESSION_TAB_KINDS,
-  );
+const PREVIEWABLE_PROJECT_SESSION_TAB_KIND_SET = new Set<WorkbenchTabProjection["kind"]>(
+  PREVIEWABLE_PROJECT_SESSION_TAB_KINDS,
+);
 
 export type ProjectSessionPreviewTab =
   | (WorkbenchTabProjection & { preview: true })
   | ProjectSessionFilesPreviewTab;
 
-export type WorkbenchTabProjectionDraft =
-  WorkbenchProjectionTabConfiguration & { title: string };
+export type WorkbenchTabProjectionDraft = WorkbenchProjectionTabConfiguration & { title: string };
 
 function makeClientWorkbenchTabProjectionId(): string {
   const randomId = globalThis.crypto?.randomUUID?.();
@@ -43,15 +40,11 @@ function makeTerminalSessionId(sessionId: string): string {
   return `session:${sessionId}:terminal:${Date.now()}`;
 }
 
-function resolveProjectBoundSessionId(
-  session: WorkbenchSessionRenderProjection,
-): string | null {
+function resolveProjectBoundSessionId(session: WorkbenchSessionRenderProjection): string | null {
   return session.projectId;
 }
 
-export function makeClientTerminalTabId(
-  terminalSessionId: string,
-): string {
+export function makeClientTerminalTabId(terminalSessionId: string): string {
   return `terminal:${terminalSessionId}`;
 }
 
@@ -81,10 +74,7 @@ export function makeWorkbenchTabProjectionDraft(
   }
 
   if (kind === "terminal") {
-    if (
-      projectId === null
-      && (!session.thread || !normalizeOptionalPath(session.thread.cwd))
-    ) {
+    if (projectId === null && (!session.thread || !normalizeOptionalPath(session.thread.cwd))) {
       return null;
     }
     return {
@@ -137,11 +127,11 @@ export function makePreviewWorkbenchTabProjection(
 ): ProjectSessionPreviewTab {
   const projectId = resolveProjectBoundSessionId(session);
   if (
-    projectId === null
-    && draft.kind !== "browser"
-    && draft.kind !== "terminal"
-    && draft.kind !== "review"
-    && draft.kind !== "image_editor"
+    projectId === null &&
+    draft.kind !== "browser" &&
+    draft.kind !== "terminal" &&
+    draft.kind !== "review" &&
+    draft.kind !== "image_editor"
   ) {
     throw new Error("Projectless sessions cannot own this workbench tab");
   }
@@ -168,8 +158,7 @@ export function makePreviewWorkbenchTabProjection(
         kind: draft.kind,
         config: {
           ...draft.config,
-          browserStorageId:
-            draft.config.browserStorageId ?? `browser:${browserTabId}`,
+          browserStorageId: draft.config.browserStorageId ?? `browser:${browserTabId}`,
         },
         browserTabId,
       };
@@ -240,8 +229,7 @@ export function makePinnedPreviewTabCreateInput(
         ...base,
         kind: previewTab.kind,
         config: previewTab.config,
-        browserTabId:
-          requireWorkbenchBrowserTabProjectionId(previewTab),
+        browserTabId: requireWorkbenchBrowserTabProjectionId(previewTab),
       };
     case "files":
       return {
@@ -251,8 +239,7 @@ export function makePinnedPreviewTabCreateInput(
         config: isProjectSessionFilesPreviewTab(previewTab)
           ? {
               ...previewTab.config,
-              projectId:
-                session.projectId ?? previewTab.config.projectId,
+              projectId: session.projectId ?? previewTab.config.projectId,
             }
           : previewTab.config,
       };
@@ -331,9 +318,7 @@ export function makePreviewPageStageTab(
     config: {
       projectId: input.projectId,
       pageId: input.pageId,
-      ...(input.titleSnapshot
-        ? { titleSnapshot: input.titleSnapshot }
-        : {}),
+      ...(input.titleSnapshot ? { titleSnapshot: input.titleSnapshot } : {}),
     },
     stateKey: 0,
     state: {},

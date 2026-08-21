@@ -13,7 +13,10 @@ import type { NfmHeadingNavigationBlockLike } from "./nfm-heading-navigation-rai
 const originalMatchMedia = window.matchMedia;
 const originalRequestIdleCallback = window.requestIdleCallback;
 const originalCancelIdleCallback = window.cancelIdleCallback;
-const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth");
+const originalOffsetWidthDescriptor = Object.getOwnPropertyDescriptor(
+  HTMLElement.prototype,
+  "offsetWidth",
+);
 const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
 const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
 const originalElementFromPoint = document.elementFromPoint;
@@ -67,7 +70,10 @@ function restoreHeadingRailGeometry() {
   if (originalOffsetWidthDescriptor) {
     Object.defineProperty(HTMLElement.prototype, "offsetWidth", originalOffsetWidthDescriptor);
   } else {
-    Reflect.deleteProperty(HTMLElement.prototype as HTMLElement & { offsetWidth?: number }, "offsetWidth");
+    Reflect.deleteProperty(
+      HTMLElement.prototype as HTMLElement & { offsetWidth?: number },
+      "offsetWidth",
+    );
   }
 }
 
@@ -91,32 +97,25 @@ function HeadingRailHarness({
   const [portalElement, setPortalElement] = useState<HTMLDivElement | null>(null);
   const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(null);
   const [editorElement, setEditorElement] = useState<HTMLDivElement | null>(null);
-  const editor = useMemo(() => ({
-    document,
-    get domElement() {
-      return editorElement;
-    },
-    onChange: () => () => undefined,
-  }), [document, editorElement]);
+  const editor = useMemo(
+    () => ({
+      document,
+      get domElement() {
+        return editorElement;
+      },
+      onChange: () => () => undefined,
+    }),
+    [document, editorElement],
+  );
 
   return (
     <NodexTooltipProvider>
-      <div
-        ref={setPortalElement}
-        data-page-stage-heading-navigation-portal-target="true"
-      >
-        <div
-          ref={setScrollElement}
-          data-heading-rail-scroll="true"
-        >
+      <div ref={setPortalElement} data-page-stage-heading-navigation-portal-target="true">
+        <div ref={setScrollElement} data-heading-rail-scroll="true">
           <div data-page-stage-body="true">
             <div ref={setEditorElement}>
               {document.map((block) => (
-                <div
-                  key={block.id}
-                  className="bn-block"
-                  data-id={block.id}
-                >
+                <div key={block.id} className="bn-block" data-id={block.id}>
                   {`Heading ${block.id}`}
                 </div>
               ))}
@@ -157,10 +156,14 @@ describe("NfmHeadingNavigationRail", () => {
       configurable: true,
       writable: true,
       value: ((callback: IdleRequestCallback) =>
-        window.setTimeout(() => callback({
-          didTimeout: false,
-          timeRemaining: () => 50,
-        }), 0)) as typeof window.requestIdleCallback,
+        window.setTimeout(
+          () =>
+            callback({
+              didTimeout: false,
+              timeRemaining: () => 50,
+            }),
+          0,
+        )) as typeof window.requestIdleCallback,
     });
     Object.defineProperty(window, "cancelIdleCallback", {
       configurable: true,
@@ -235,7 +238,9 @@ describe("NfmHeadingNavigationRail", () => {
 
   test("click navigation reveals the matching heading smoothly", async () => {
     const scrollIntoViewCalls: ScrollIntoViewOptions[] = [];
-    HTMLElement.prototype.scrollIntoView = function scrollIntoViewMock(options?: boolean | ScrollIntoViewOptions) {
+    HTMLElement.prototype.scrollIntoView = function scrollIntoViewMock(
+      options?: boolean | ScrollIntoViewOptions,
+    ) {
       if (typeof options === "object") scrollIntoViewCalls.push(options);
     };
 
@@ -251,7 +256,9 @@ describe("NfmHeadingNavigationRail", () => {
 
   test("pointer drag scrubs to the row under the rail instantly", async () => {
     const scrollIntoViewCalls: ScrollIntoViewOptions[] = [];
-    HTMLElement.prototype.scrollIntoView = function scrollIntoViewMock(options?: boolean | ScrollIntoViewOptions) {
+    HTMLElement.prototype.scrollIntoView = function scrollIntoViewMock(
+      options?: boolean | ScrollIntoViewOptions,
+    ) {
       if (typeof options === "object") scrollIntoViewCalls.push(options);
     };
     Object.defineProperty(HTMLElement.prototype, "setPointerCapture", {

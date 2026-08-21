@@ -58,9 +58,11 @@ beforeAll(() => {
 describe("Store Administration IPC handlers", () => {
   test("routes the complete Backup surface through the selected authority", async () => {
     await expect(invoke("backup:list")).resolves.toEqual([backup]);
-    await expect(invoke("backup:create", {
-      label: "Before refactor",
-    })).resolves.toEqual(backup);
+    await expect(
+      invoke("backup:create", {
+        label: "Before refactor",
+      }),
+    ).resolves.toEqual(backup);
     expect(administration.createBackup).toHaveBeenCalledWith({
       trigger: "manual",
       label: "Before refactor",
@@ -69,11 +71,13 @@ describe("Store Administration IPC handlers", () => {
       success: true,
       deletedBackupId: backup.id,
     });
-    await expect(invoke("backup:restore", {
-      backupId: backup.id,
-      confirm: true,
-      createSafetyBackup: true,
-    })).resolves.toEqual({
+    await expect(
+      invoke("backup:restore", {
+        backupId: backup.id,
+        confirm: true,
+        createSafetyBackup: true,
+      }),
+    ).resolves.toEqual({
       success: true,
       restoredBackupId: backup.id,
     });

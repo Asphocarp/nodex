@@ -7,13 +7,31 @@ import { THREAD_QUEUE_FOLLOW_UPS_STORAGE_KEY } from "@/lib/thread-composer-follo
 import { COMPOSER_ENTER_BEHAVIOR_STORAGE_KEY } from "@/lib/composer-enter-behavior";
 import { type CodexScheduledAutomationCreateInput } from "@/lib/types";
 import { __getNodexToastSnapshotForTests } from "@/components/ui/toast";
-import {
-  parseDatabaseId,
-  parseDatabaseViewId,
-} from "../../../shared/database-identities";
+import { parseDatabaseId, parseDatabaseViewId } from "../../../shared/database-identities";
 import type { LibraryDatabaseNavigationNode } from "../../../shared/library-module";
-import { makeAttachedSession, makeBlankSession, makePanelLayout, makeProject, makeScheduledAutomation, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
-import { getHeaderShellSlot, getLastThreadStageActions, getPanelTabById, installShellBodyMeasurementForTest, installTerminalEventApiMock, invokeCalls, mockInvokeImpl, mockThreadStartProgress, renderWorkbench, setMockConversationHasVisibleTurn, setMockInvokeImpl, setMockThreadStartProgress } from "./workbench-testkit/workbench-shell-harness";
+import {
+  makeAttachedSession,
+  makeBlankSession,
+  makePanelLayout,
+  makeProject,
+  makeScheduledAutomation,
+  makeSession,
+  makeSessionTab,
+} from "./workbench-testkit/workbench-shell-fixtures";
+import {
+  getHeaderShellSlot,
+  getLastThreadStageActions,
+  getPanelTabById,
+  installShellBodyMeasurementForTest,
+  installTerminalEventApiMock,
+  invokeCalls,
+  mockInvokeImpl,
+  mockThreadStartProgress,
+  renderWorkbench,
+  setMockConversationHasVisibleTurn,
+  setMockInvokeImpl,
+  setMockThreadStartProgress,
+} from "./workbench-testkit/workbench-shell-harness";
 
 const standaloneTasksDatabase: LibraryDatabaseNavigationNode = {
   kind: "database",
@@ -33,9 +51,7 @@ const standaloneNotesDatabase: LibraryDatabaseNavigationNode = {
   title: "Notes",
 };
 
-const openStandaloneTasksDatabase = async (
-  screen: ReturnType<typeof renderWorkbench>,
-) => {
+const openStandaloneTasksDatabase = async (screen: ReturnType<typeof renderWorkbench>) => {
   await settleAsyncRender();
   await settleAsyncRender();
   const row = (await screen.findAllByText("Tasks"))
@@ -77,7 +93,9 @@ describe("workbench session shell / routes-threads", () => {
 
     const settingsSidebar = screen.container.querySelector(".app-shell-left-panel");
     expect(settingsSidebar !== null).toBe(true);
-    expect(screen.container.querySelector('[data-testid="settings-route-shell"] .main-surface') !== null).toBe(true);
+    expect(
+      screen.container.querySelector('[data-testid="settings-route-shell"] .main-surface') !== null,
+    ).toBe(true);
 
     await act(async () => {
       fireEvent.click(screen.getByText("Back to app"));
@@ -110,7 +128,9 @@ describe("workbench session shell / routes-threads", () => {
       .join(",");
 
     await waitFor(() => {
-      expect(within(headerContextSurface).queryByRole("button", { name: "Tasks" }) !== null).toBe(true);
+      expect(within(headerContextSurface).queryByRole("button", { name: "Tasks" }) !== null).toBe(
+        true,
+      );
     });
 
     expect(routeShell !== null).toBe(true);
@@ -123,8 +143,12 @@ describe("workbench session shell / routes-threads", () => {
     expect(rightSlot.getAttribute("style")?.includes("min-width: 0")).toBe(true);
     expect(within(globalHeader).queryByRole("button", { name: "Toggle bottom panel" })).toBe(null);
     expect(within(globalHeader).queryByRole("button", { name: "Toggle side panel" })).toBe(null);
-    expect(within(headerContextSurface).queryByRole("button", { name: "Templates" }) !== null).toBe(true);
-    expect(within(headerContextSurface).queryByRole("button", { name: "Create via chat" }) !== null).toBe(true);
+    expect(within(headerContextSurface).queryByRole("button", { name: "Templates" }) !== null).toBe(
+      true,
+    );
+    expect(
+      within(headerContextSurface).queryByRole("button", { name: "Create via chat" }) !== null,
+    ).toBe(true);
     expect(routeShell.contains(headerContextSurface)).toBe(false);
     expect(routeShell.querySelector("main > header") === null).toBe(true);
     expect(
@@ -132,16 +156,23 @@ describe("workbench session shell / routes-threads", () => {
         .getByRole("button", { name: "Scheduled" })
         .getAttribute("aria-current"),
     ).toBe("page");
-    expect(textContent(screen.container).includes("Ask ChatGPT to schedule tasks, set reminders, or monitor for updates.")).toBe(true);
+    expect(
+      textContent(screen.container).includes(
+        "Ask ChatGPT to schedule tasks, set reminders, or monitor for updates.",
+      ),
+    ).toBe(true);
     expect(textContent(screen.container).includes("Create your first scheduled task")).toBe(true);
-    const firstRunSuggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS
-      .map((suggestion) => suggestion.name)
-      .join(",");
-    const visibleFirstRunSuggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS
-      .map((suggestion) => screen.getByRole("button", { name: suggestion.name }).textContent?.trim() ?? "")
-      .join(",");
+    const firstRunSuggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS.map(
+      (suggestion) => suggestion.name,
+    ).join(",");
+    const visibleFirstRunSuggestionNames = WORKBENCH_AUTOMATION_FIRST_RUN_SUGGESTIONS.map(
+      (suggestion) =>
+        screen.getByRole("button", { name: suggestion.name }).textContent?.trim() ?? "",
+    ).join(",");
     expect(visibleFirstRunSuggestionNames).toBe(firstRunSuggestionNames);
-    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(
+      true,
+    );
   });
 
   test("routes a Pages Database through global Back and Forward", async () => {
@@ -183,9 +214,11 @@ describe("workbench session shell / routes-threads", () => {
 
     await openStandaloneTasksDatabase(screen);
 
-    const props = (globalThis as {
-      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
-    }).__lastWorkbenchDatabaseViewSurfaceProps;
+    const props = (
+      globalThis as {
+        __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+      }
+    ).__lastWorkbenchDatabaseViewSurfaceProps;
     expect(props?.accessContext).toEqual({ kind: "library" });
     expect(props?.target).toEqual({
       kind: "database-default",
@@ -200,33 +233,29 @@ describe("workbench session shell / routes-threads", () => {
     await settleAsyncRender();
     await openStandaloneTasksDatabase(screen);
 
-    const props = (globalThis as {
-      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
-    }).__lastWorkbenchDatabaseViewSurfaceProps;
+    const props = (
+      globalThis as {
+        __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+      }
+    ).__lastWorkbenchDatabaseViewSurfaceProps;
     if (typeof props?.onOpenPage !== "function") {
       throw new Error("Expected the Pages Database Page opener");
     }
     await act(async () => {
-      (props.onOpenPage as (
-        pageId: string,
-        title: string,
-        openMode: "preview" | "durable",
-      ) => void)(
-        "page:visible",
-        "Visible Page",
-        "preview",
-      );
+      (
+        props.onOpenPage as (pageId: string, title: string, openMode: "preview" | "durable") => void
+      )("page:visible", "Visible Page", "preview");
       await Promise.resolve();
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const nextProps = (globalThis as {
-      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
-    }).__lastWorkbenchDatabaseViewSurfaceProps;
-    const presentedPageIds = nextProps?.presentedPageIds as
-      | ReadonlySet<string>
-      | undefined;
+    const nextProps = (
+      globalThis as {
+        __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+      }
+    ).__lastWorkbenchDatabaseViewSurfaceProps;
+    const presentedPageIds = nextProps?.presentedPageIds as ReadonlySet<string> | undefined;
     expect(presentedPageIds?.has("page:visible")).toBe(true);
     expect(
       screen
@@ -254,9 +283,11 @@ describe("workbench session shell / routes-threads", () => {
     await openStandaloneTasksDatabase(screen);
 
     expect(screen.getAllByRole("tab")).toHaveLength(2);
-    const props = (globalThis as {
-      __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
-    }).__lastWorkbenchDatabaseViewSurfaceProps;
+    const props = (
+      globalThis as {
+        __lastWorkbenchDatabaseViewSurfaceProps?: Record<string, unknown>;
+      }
+    ).__lastWorkbenchDatabaseViewSurfaceProps;
     expect(props?.target).toEqual({
       kind: "database-default",
       databaseId: "database:test:standalone",
@@ -301,7 +332,9 @@ describe("workbench session shell / routes-threads", () => {
       await settleAsyncRender();
 
       const restoredRightPanel = screen.getByTestId("session-right-panel");
-      const restoredThreadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
+      const restoredThreadPage = screen.container.querySelector(
+        '[data-testid="session-thread-page"]',
+      );
       const restoreButton = screen.getByRole("button", { name: "Restore panel width" });
       expect(restoredRightPanel.getAttribute("data-right-panel-width-mode")).toBe("full");
       await waitFor(() => {
@@ -340,12 +373,15 @@ describe("workbench session shell / routes-threads", () => {
 
     const dbToolbarTabList = screen.getByRole("tablist", { name: "Database views" });
     expect(dbToolbarTabList.getAttribute("aria-label")).toBe("Database views");
-    expect(within(dbToolbarTabList).getByRole("tab", { name: "Board" }).getAttribute("aria-selected")).toBe("true");
+    expect(
+      within(dbToolbarTabList).getByRole("tab", { name: "Board" }).getAttribute("aria-selected"),
+    ).toBe("true");
     expect(screen.getByRole("button", { name: "Filter View" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Display options" })).toBeTruthy();
     expect(screen.getByDisplayValue("urgent").getAttribute("value")).toBe("urgent");
 
-    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> }).__lastDatabaseViewSurfaceProps;
+    const props = (globalThis as { __lastDatabaseViewSurfaceProps?: Record<string, unknown> })
+      .__lastDatabaseViewSurfaceProps;
     expect(props?.searchQuery).toBe("urgent");
     expect(props?.presentationLayout).toBe("board");
   });
@@ -357,37 +393,41 @@ describe("workbench session shell / routes-threads", () => {
 
     await act(async () => {
       const dbToolbarTabList = screen.getByRole("tablist", { name: "Database views" });
-      fireEvent.mouseDown(
-        within(dbToolbarTabList).getByRole("tab", { name: "List" }),
-        { button: 0, ctrlKey: false },
-      );
+      fireEvent.mouseDown(within(dbToolbarTabList).getByRole("tab", { name: "List" }), {
+        button: 0,
+        ctrlKey: false,
+      });
       await Promise.resolve();
     });
     await settleAsyncRender();
 
-    expect(invokeCalls.some((call) =>
-      call[0] === "window-session-view:tab-update"
-      && call[1] === "session:alpha:database-view:db"
-    )).toBe(false);
+    expect(
+      invokeCalls.some(
+        (call) =>
+          call[0] === "window-session-view:tab-update" &&
+          call[1] === "session:alpha:database-view:db",
+      ),
+    ).toBe(false);
     const dbToolbarTabList = screen.getByRole("tablist", { name: "Database views" });
     expect(
-      within(dbToolbarTabList).getByRole("tab", { name: "List" })
-        .getAttribute("aria-selected"),
+      within(dbToolbarTabList).getByRole("tab", { name: "List" }).getAttribute("aria-selected"),
     ).toBe("true");
     expect(screen.getByRole("grid", { name: "Database List" })).toBeTruthy();
-    const preferenceWrite = invokeCalls.find((call) =>
-      call[0] === "database-module:apply"
-      && call[1] === "alpha"
-      && (call[2] as { operations?: ReadonlyArray<{ kind?: string }> })
-        .operations?.some((operation) =>
-          operation.kind === "put_view_personal_presentation"
-        )
+    const preferenceWrite = invokeCalls.find(
+      (call) =>
+        call[0] === "database-module:apply" &&
+        call[1] === "alpha" &&
+        (call[2] as { operations?: ReadonlyArray<{ kind?: string }> }).operations?.some(
+          (operation) => operation.kind === "put_view_personal_presentation",
+        ),
     );
     expect(preferenceWrite?.[2]).toMatchObject({
-      operations: [{
-        kind: "put_view_personal_presentation",
-        presentationOverride: { layout: "list" },
-      }],
+      operations: [
+        {
+          kind: "put_view_personal_presentation",
+          presentationOverride: { layout: "list" },
+        },
+      ],
     });
   });
 
@@ -412,13 +452,12 @@ describe("workbench session shell / routes-threads", () => {
     });
     const screen = renderWorkbench({
       sessionsByProject: {
-        alpha: [makeSession({
-          tabs: [primaryTab, focusedTab],
-          rightLayout: makePanelLayout(
-            [primaryTab.id, focusedTab.id],
-            focusedTab.id,
-          ),
-        })],
+        alpha: [
+          makeSession({
+            tabs: [primaryTab, focusedTab],
+            rightLayout: makePanelLayout([primaryTab.id, focusedTab.id], focusedTab.id),
+          }),
+        ],
       },
     });
     await settleAsyncRender();
@@ -458,7 +497,8 @@ describe("workbench session shell / routes-threads", () => {
     expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("false");
     expect(textContent(screen.container).includes("Thread:thread-alpha")).toBe(true);
     expect(screen.container.querySelector('[data-thread-stage="true"]') !== null).toBe(true);
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(JSON.stringify(props?.activeThreadSummary).includes('"projectId":"alpha"')).toBe(true);
   });
 
@@ -473,7 +513,8 @@ describe("workbench session shell / routes-threads", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(props?.isQueueingEnabled).toBe(false);
     expect(props?.composerEnterBehavior).toBe("cmdIfMultiline");
   });
@@ -498,8 +539,11 @@ describe("workbench session shell / routes-threads", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    expect(JSON.stringify(props?.threadStartProgress)).toBe(JSON.stringify(mockThreadStartProgress));
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    expect(JSON.stringify(props?.threadStartProgress)).toBe(
+      JSON.stringify(mockThreadStartProgress),
+    );
     expect(props?.isNewThreadTab).toBe(true);
     expect(props?.activeThreadId).toBe(null);
   });
@@ -514,7 +558,9 @@ describe("workbench session shell / routes-threads", () => {
     await settleAsyncRender();
 
     const globalHeader = screen.container.querySelector('[data-testid="workbench-global-header"]');
-    const headerContextSurface = screen.container.querySelector('[data-testid="app-shell-header-context-menu-surface"]');
+    const headerContextSurface = screen.container.querySelector(
+      '[data-testid="app-shell-header-context-menu-surface"]',
+    );
     const threadStage = screen.container.querySelector('[data-thread-stage="true"]');
     const threadFrame = screen.container.querySelector(".app-shell-main-content-frame");
     if (!globalHeader || !threadFrame || !threadStage) {
@@ -524,8 +570,14 @@ describe("workbench session shell / routes-threads", () => {
     expect(textContent(globalHeader).includes("Alpha thread")).toBe(true);
     expect(textContent(threadStage).includes("Alpha thread")).toBe(false);
     expect(headerContextSurface !== null).toBe(true);
-    expect((threadFrame.getAttribute("style") ?? "").includes("--app-shell-main-content-frame-top-offset")).toBe(false);
-    expect(screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null).toBe(true);
+    expect(
+      (threadFrame.getAttribute("style") ?? "").includes(
+        "--app-shell-main-content-frame-top-offset",
+      ),
+    ).toBe(false);
+    expect(
+      screen.container.querySelector("[data-app-shell-main-content-header-divider]") === null,
+    ).toBe(true);
     const topFade = screen.container.querySelector(".app-shell-main-content-top-fade");
     expect(topFade?.getAttribute("data-app-shell-main-content-top-fade")).toBe("full-bleed");
   });
@@ -538,13 +590,22 @@ describe("workbench session shell / routes-threads", () => {
     await settleAsyncRender();
 
     const threadPage = screen.container.querySelector('[data-testid="session-thread-page"]');
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
     expect(threadPage?.getAttribute("data-session-thread-page-hidden")).toBe("false");
-    expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe("Write the first prompt for this new thread...");
-    expect(textContent(screen.container).includes("Attach an existing Codex thread to use this session page.")).toBe(false);
+    expect(screen.getByLabelText("Prompt").getAttribute("placeholder")).toBe(
+      "Write the first prompt for this new thread...",
+    );
+    expect(
+      textContent(screen.container).includes(
+        "Attach an existing Codex thread to use this session page.",
+      ),
+    ).toBe(false);
     expect(props?.isNewThreadTab).toBe(true);
     expect(props?.activeThreadId === null).toBe(true);
-    expect(JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:blank"')).toBe(true);
+    expect(
+      JSON.stringify(props?.newThreadTarget).includes('"sessionId":"session:alpha:blank"'),
+    ).toBe(true);
   });
 
   test("passes the start-in selector to attached thread summary panels", async () => {
@@ -554,11 +615,15 @@ describe("workbench session shell / routes-threads", () => {
     await settleAsyncRender();
     await settleAsyncRender();
 
-    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> }).__lastConnectedThreadStageProps;
-    const selector = props?.newThreadStartInSelector as {
-      target?: { runInTarget?: string; worktreeStartingState?: unknown };
-      disabled?: boolean;
-    } | null | undefined;
+    const props = (globalThis as { __lastConnectedThreadStageProps?: Record<string, unknown> })
+      .__lastConnectedThreadStageProps;
+    const selector = props?.newThreadStartInSelector as
+      | {
+          target?: { runInTarget?: string; worktreeStartingState?: unknown };
+          disabled?: boolean;
+        }
+      | null
+      | undefined;
     expect(props?.isNewThreadTab).toBe(false);
     expect(props?.newThreadTarget === null).toBe(true);
     expect(selector?.target?.runInTarget).toBe("localProject");
@@ -580,10 +645,9 @@ describe("workbench session shell / routes-threads", () => {
     await settleAsyncRender();
 
     const actions = getLastThreadStageActions();
-    const openScheduledAutomation = actions.onOpenSummaryScheduledAutomation as ((input: {
-      automationId: string;
-      title: string;
-    }) => void) | undefined;
+    const openScheduledAutomation = actions.onOpenSummaryScheduledAutomation as
+      | ((input: { automationId: string; title: string }) => void)
+      | undefined;
     expect(typeof openScheduledAutomation).toBe("function");
 
     await act(async () => {
@@ -595,11 +659,15 @@ describe("workbench session shell / routes-threads", () => {
     });
     await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-testid="automations-route-shell"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-testid="automations-route-shell"]') !== null).toBe(
+      true,
+    );
     await waitFor(() => {
       expect(textContent(screen.container).includes("Summary cadence")).toBe(true);
     });
-    expect(screen.container.querySelector('[data-testid="automation-detail-rail"]') !== null).toBe(true);
+    expect(screen.container.querySelector('[data-testid="automation-detail-rail"]') !== null).toBe(
+      true,
+    );
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Collapse details" }));
       await Promise.resolve();
@@ -613,18 +681,22 @@ describe("workbench session shell / routes-threads", () => {
     installTerminalEventApiMock();
     const screen = renderWorkbench({
       projects: [makeProject("alpha", "Alpha", "/tmp/project")],
-      sessionsByProject: { alpha: [makeAttachedSession({ id: "session:alpha:automation-proposal" })] },
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:automation-proposal" })],
+      },
       scheduledAutomations: [],
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
     const actions = getLastThreadStageActions();
-    const openScheduledAutomation = actions.onOpenSummaryScheduledAutomation as ((input: {
-      createInput: CodexScheduledAutomationCreateInput;
-      mode: "suggested-create";
-      title: string;
-    }) => void) | undefined;
+    const openScheduledAutomation = actions.onOpenSummaryScheduledAutomation as
+      | ((input: {
+          createInput: CodexScheduledAutomationCreateInput;
+          mode: "suggested-create";
+          title: string;
+        }) => void)
+      | undefined;
     expect(typeof openScheduledAutomation).toBe("function");
 
     await act(async () => {
@@ -647,7 +719,9 @@ describe("workbench session shell / routes-threads", () => {
     });
     await settleAsyncRender();
 
-    const sidePanel = screen.container.querySelector('[data-automation-side-panel-tab="true"]') as HTMLElement | null;
+    const sidePanel = screen.container.querySelector(
+      '[data-automation-side-panel-tab="true"]',
+    ) as HTMLElement | null;
     expect(sidePanel !== null).toBe(true);
     if (!sidePanel) throw new Error("Expected automation side panel");
     expect(screen.container.querySelector('[data-testid="automations-route-shell"]')).toBe(null);
@@ -663,9 +737,15 @@ describe("workbench session shell / routes-threads", () => {
     });
     expect(screen.getScheduledAutomations()[0]?.name).toBe("Review release notes");
     await waitFor(() => {
-      const currentSidePanel = screen.container.querySelector('[data-automation-side-panel-tab="true"]') as HTMLElement | null;
+      const currentSidePanel = screen.container.querySelector(
+        '[data-automation-side-panel-tab="true"]',
+      ) as HTMLElement | null;
       expect(currentSidePanel !== null).toBe(true);
-      expect(within(currentSidePanel as HTMLElement).getByRole("button", { name: "Open in Scheduled" }) !== null).toBe(true);
+      expect(
+        within(currentSidePanel as HTMLElement).getByRole("button", {
+          name: "Open in Scheduled",
+        }) !== null,
+      ).toBe(true);
     });
   });
 
@@ -673,18 +753,22 @@ describe("workbench session shell / routes-threads", () => {
     installTerminalEventApiMock();
     const screen = renderWorkbench({
       projects: [makeProject("alpha", "Alpha", "/tmp/project")],
-      sessionsByProject: { alpha: [makeAttachedSession({ id: "session:alpha:automation-proposal-failure" })] },
+      sessionsByProject: {
+        alpha: [makeAttachedSession({ id: "session:alpha:automation-proposal-failure" })],
+      },
       scheduledAutomations: [],
     });
     await settleAsyncRender();
     await settleAsyncRender();
 
     const actions = getLastThreadStageActions();
-    const openScheduledAutomation = actions.onOpenSummaryScheduledAutomation as ((input: {
-      createInput: CodexScheduledAutomationCreateInput;
-      mode: "suggested-create";
-      title: string;
-    }) => void) | undefined;
+    const openScheduledAutomation = actions.onOpenSummaryScheduledAutomation as
+      | ((input: {
+          createInput: CodexScheduledAutomationCreateInput;
+          mode: "suggested-create";
+          title: string;
+        }) => void)
+      | undefined;
     expect(typeof openScheduledAutomation).toBe("function");
 
     await act(async () => {
@@ -707,7 +791,9 @@ describe("workbench session shell / routes-threads", () => {
     });
     await settleAsyncRender();
 
-    const sidePanel = screen.container.querySelector('[data-automation-side-panel-tab="true"]') as HTMLElement | null;
+    const sidePanel = screen.container.querySelector(
+      '[data-automation-side-panel-tab="true"]',
+    ) as HTMLElement | null;
     expect(sidePanel !== null).toBe(true);
     if (!sidePanel) throw new Error("Expected automation side panel");
     const baseMockInvokeImpl = mockInvokeImpl;
@@ -724,16 +810,17 @@ describe("workbench session shell / routes-threads", () => {
     });
 
     await waitFor(() => {
-      expect(__getNodexToastSnapshotForTests().some((record) => (
-        record.kind === "plain"
-        && record.level === "danger"
-        && record.title === "Could not create scheduled task"
-        && record.description === "Create bridge failed"
-      ))).toBe(true);
+      expect(
+        __getNodexToastSnapshotForTests().some(
+          (record) =>
+            record.kind === "plain" &&
+            record.level === "danger" &&
+            record.title === "Could not create scheduled task" &&
+            record.description === "Create bridge failed",
+        ),
+      ).toBe(true);
     });
     expect(screen.getScheduledAutomations().length).toBe(0);
     expect(textContent(sidePanel).includes("Create bridge failed")).toBe(true);
   });
-
-
 });

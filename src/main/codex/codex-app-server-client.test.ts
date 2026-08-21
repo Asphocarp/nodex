@@ -114,11 +114,7 @@ function makeBinaryShim(binaryName: string): { dir: string; cleanup: () => void 
   const shimPath = path.join(dir, binaryName);
   const escapedExecPath = JSON.stringify(process.execPath);
 
-  fs.writeFileSync(
-    shimPath,
-    `#!/usr/bin/env bash\nexec ${escapedExecPath} "$@"\n`,
-    "utf8",
-  );
+  fs.writeFileSync(shimPath, `#!/usr/bin/env bash\nexec ${escapedExecPath} "$@"\n`, "utf8");
   fs.chmodSync(shimPath, 0o755);
 
   return {
@@ -130,7 +126,9 @@ function makeBinaryShim(binaryName: string): { dir: string; cleanup: () => void 
 describe("codex-app-server-client", () => {
   test("derives stderr severity from structured and tracing-formatted diagnostics", () => {
     expect(resolveCodexStderrLogLevel('{"level":"DEBUG","message":"cache hit"}')).toBe("debug");
-    expect(resolveCodexStderrLogLevel("2026-07-14T12:34:56.000Z WARN codex_core: retrying")).toBe("warn");
+    expect(resolveCodexStderrLogLevel("2026-07-14T12:34:56.000Z WARN codex_core: retrying")).toBe(
+      "warn",
+    );
     expect(resolveCodexStderrLogLevel("plain diagnostic without a level")).toBe("info");
   });
 
@@ -345,8 +343,8 @@ describe("codex-app-server-client", () => {
 
       const deadline = Date.now() + 1_000;
       while (
-        Date.now() < deadline
-        && !connectionStates.some((state) => state.status === "starting" && state.retries === 1)
+        Date.now() < deadline &&
+        !connectionStates.some((state) => state.status === "starting" && state.retries === 1)
       ) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
@@ -467,7 +465,9 @@ describe("codex-app-server-client", () => {
         await new Promise((resolve) => setTimeout(resolve, 20));
       }
       expect(client.getState().status).toBe("missingBinary");
-      expect(client.getState().message).toBe("Bundled Codex runtime is missing or corrupted. Reinstall Nodex.");
+      expect(client.getState().message).toBe(
+        "Bundled Codex runtime is missing or corrupted. Reinstall Nodex.",
+      );
     } finally {
       await client.stop();
     }
@@ -490,21 +490,28 @@ describe("codex-app-server-client", () => {
         "applyPatchApproval",
         "execCommandApproval",
       ]) {
-        const params = method === "account/chatgptAuthTokens/refresh"
-          ? { reason: "unauthorized" }
-          : method === "applyPatchApproval"
-            ? { conversationId: "thread-1", callId: "call-1", fileChanges: {}, reason: null, grantRoot: null }
-            : method === "execCommandApproval"
+        const params =
+          method === "account/chatgptAuthTokens/refresh"
+            ? { reason: "unauthorized" }
+            : method === "applyPatchApproval"
               ? {
                   conversationId: "thread-1",
                   callId: "call-1",
-                  approvalId: null,
-                  command: ["echo", "hi"],
-                  cwd: "/tmp",
+                  fileChanges: {},
                   reason: null,
-                  parsedCmd: [],
+                  grantRoot: null,
                 }
-              : {};
+              : method === "execCommandApproval"
+                ? {
+                    conversationId: "thread-1",
+                    callId: "call-1",
+                    approvalId: null,
+                    command: ["echo", "hi"],
+                    cwd: "/tmp",
+                    reason: null,
+                    parsedCmd: [],
+                  }
+                : {};
         const result = await client.request<{ responded: boolean }>("triggerIgnoredRequest", {
           method,
           params,
@@ -621,9 +628,12 @@ describe("codex-app-server-client", () => {
   test("emits structured logs for RPC requests", async () => {
     const mock = makeMockServerScript();
     const captured: Array<Record<string, unknown>> = [];
-    const unsubscribe = subscribeToBackendLogs((entry) => {
-      captured.push(entry);
-    }, { level: "trace" });
+    const unsubscribe = subscribeToBackendLogs(
+      (entry) => {
+        captured.push(entry);
+      },
+      { level: "trace" },
+    );
     const client = new CodexAppServerClient({
       binaryPath: process.execPath,
       args: [mock.scriptPath],
@@ -639,10 +649,18 @@ describe("codex-app-server-client", () => {
       await client.request<{ value: string }>("echo", { value: "log-me" });
 
       const hasSendLog = captured.some((entry) => {
-        return entry.level === "debug" && entry.msg === "Sending Codex RPC request" && entry.method === "echo";
+        return (
+          entry.level === "debug" &&
+          entry.msg === "Sending Codex RPC request" &&
+          entry.method === "echo"
+        );
       });
       const hasResponseLog = captured.some((entry) => {
-        return entry.level === "debug" && entry.msg === "Codex RPC request completed" && entry.method === "echo";
+        return (
+          entry.level === "debug" &&
+          entry.msg === "Codex RPC request completed" &&
+          entry.method === "echo"
+        );
       });
 
       expect(hasSendLog).toBe(true);
@@ -657,9 +675,12 @@ describe("codex-app-server-client", () => {
   test("records each app-server stderr line once at its declared severity", async () => {
     const mock = makeMockServerScript();
     const captured: Array<Record<string, unknown>> = [];
-    const unsubscribe = subscribeToBackendLogs((entry) => {
-      captured.push(entry);
-    }, { level: "trace" });
+    const unsubscribe = subscribeToBackendLogs(
+      (entry) => {
+        captured.push(entry);
+      },
+      { level: "trace" },
+    );
     const client = new CodexAppServerClient({
       binaryPath: process.execPath,
       args: [mock.scriptPath],
@@ -672,14 +693,14 @@ describe("codex-app-server-client", () => {
 
       const deadline = Date.now() + 1_000;
       while (
-        Date.now() < deadline
-        && !captured.some((entry) => entry.msg === "Codex app-server diagnostic")
+        Date.now() < deadline &&
+        !captured.some((entry) => entry.msg === "Codex app-server diagnostic")
       ) {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
 
-      const stderrRecords = captured.filter((entry) =>
-        entry.msg === "Codex app-server diagnostic" && entry.line === line
+      const stderrRecords = captured.filter(
+        (entry) => entry.msg === "Codex app-server diagnostic" && entry.line === line,
       );
       expect(stderrRecords).toHaveLength(1);
       expect(stderrRecords[0]?.level).toBe("warn");

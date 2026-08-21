@@ -18,7 +18,8 @@ describe("Codex steering compare key", () => {
       "## My request for Codex:",
       "steer fixture",
     ].join("\n");
-    const label = "The next image was attached by the user as additional visual context for Comment 7.";
+    const label =
+      "The next image was attached by the user as additional visual context for Comment 7.";
     const input = [
       { type: "text", text: serializedPrompt, text_elements: [] },
       { type: "text", text: label, text_elements: [] },
@@ -45,8 +46,6 @@ describe("Codex steering compare key", () => {
       { type: "localImage", path: "/tmp/two.png" },
     ] satisfies readonly UserInput[];
 
-    expect(serializeCodexSteeringCompareKey(first)).toBe(
-      serializeCodexSteeringCompareKey(second),
-    );
+    expect(serializeCodexSteeringCompareKey(first)).toBe(serializeCodexSteeringCompareKey(second));
   });
 });

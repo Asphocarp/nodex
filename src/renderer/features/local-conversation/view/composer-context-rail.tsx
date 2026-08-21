@@ -15,26 +15,17 @@ interface ComposerContextRailProps {
   className?: string;
 }
 
-export function ComposerContextRailSlot({
-  visible,
-  children,
-}: ComposerContextRailSlotProps) {
+export function ComposerContextRailSlot({ visible, children }: ComposerContextRailSlotProps) {
   if (!visible) return null;
 
   return (
-    <div
-      data-composer-external-footer-slot="true"
-      className="relative z-0 -mb-2"
-    >
+    <div data-composer-external-footer-slot="true" className="relative z-0 -mb-2">
       {children}
     </div>
   );
 }
 
-export function ComposerContextRail({
-  children,
-  className,
-}: ComposerContextRailProps) {
+export function ComposerContextRail({ children, className }: ComposerContextRailProps) {
   return (
     <div
       data-composer-lower-status-row="true"

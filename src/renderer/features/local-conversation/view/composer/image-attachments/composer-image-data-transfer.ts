@@ -63,8 +63,10 @@ function isHiddenElement(element: Element): boolean {
   if (element instanceof HTMLInputElement && element.type === "hidden") return true;
 
   const style = element.getAttribute("style")?.toLowerCase() ?? "";
-  return /(?:^|;)\s*display\s*:\s*none\b/.test(style)
-    || /(?:^|;)\s*visibility\s*:\s*hidden\b/.test(style);
+  return (
+    /(?:^|;)\s*display\s*:\s*none\b/.test(style) ||
+    /(?:^|;)\s*visibility\s*:\s*hidden\b/.test(style)
+  );
 }
 
 function hasHiddenAncestor(node: Node): boolean {
@@ -89,15 +91,12 @@ export function isComposerMediaOnlyHtml(html: string): boolean {
   if (!html || html.length > MEDIA_ONLY_HTML_LIMIT) return false;
 
   const documentNode = new DOMParser().parseFromString(html, "text/html");
-  const visibleMedia = Array.from(
-    documentNode.body.querySelectorAll(MEDIA_ELEMENT_SELECTOR),
-  ).some((element) => !isHiddenElement(element) && !hasHiddenAncestor(element));
+  const visibleMedia = Array.from(documentNode.body.querySelectorAll(MEDIA_ELEMENT_SELECTOR)).some(
+    (element) => !isHiddenElement(element) && !hasHiddenAncestor(element),
+  );
   if (!visibleMedia) return false;
 
-  const walker = documentNode.createTreeWalker(
-    documentNode.body,
-    NodeFilter.SHOW_TEXT,
-  );
+  const walker = documentNode.createTreeWalker(documentNode.body, NodeFilter.SHOW_TEXT);
   while (walker.nextNode()) {
     const node = walker.currentNode;
     if (!node.textContent?.trim()) continue;
@@ -108,13 +107,10 @@ export function isComposerMediaOnlyHtml(html: string): boolean {
   return true;
 }
 
-function hasMeaningfulClipboardText(
-  plainText: string,
-  files: readonly File[],
-): boolean {
-  const filenames = new Set(files.map((file) => (
-    normalizeComposerImageFilenameCandidate(file.name)
-  )));
+function hasMeaningfulClipboardText(plainText: string, files: readonly File[]): boolean {
+  const filenames = new Set(
+    files.map((file) => normalizeComposerImageFilenameCandidate(file.name)),
+  );
   const lines = plainText
     .split(/\r?\n/)
     .map(normalizeComposerImageFilenameCandidate)
@@ -132,8 +128,8 @@ export function classifyComposerDataTransfer(
   const html = dataTransfer.getData("text/html");
   const isMediaOnlyHtml = isComposerMediaOnlyHtml(html);
   const hasMeaningfulText = hasMeaningfulClipboardText(plainText, files);
-  const hasConsumableFiles = otherFiles.length > 0
-    || (imageFiles.length > 0 && (!hasMeaningfulText || isMediaOnlyHtml));
+  const hasConsumableFiles =
+    otherFiles.length > 0 || (imageFiles.length > 0 && (!hasMeaningfulText || isMediaOnlyHtml));
 
   return {
     imageFiles,
@@ -156,11 +152,14 @@ export function handleComposerFilePaste(
 
   const classification = classifyComposerDataTransfer(clipboard);
   if (classification.disposition !== "consume-files") return false;
-  if (onPasteFiles?.({
-    imageFiles: classification.imageFiles,
-    otherFiles: classification.otherFiles,
-    source: "paste",
-  }) !== true) return false;
+  if (
+    onPasteFiles?.({
+      imageFiles: classification.imageFiles,
+      otherFiles: classification.otherFiles,
+      source: "paste",
+    }) !== true
+  )
+    return false;
 
   event.preventDefault();
   return true;

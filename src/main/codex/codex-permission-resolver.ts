@@ -89,7 +89,9 @@ function isBoolean(value: unknown): value is boolean {
 }
 
 function isAutomaticApprovalsReviewer(value: unknown): value is CodexApprovalsReviewer {
-  return value === AUTO_REVIEW_APPROVALS_REVIEWER || value === LEGACY_AUTO_REVIEW_APPROVALS_REVIEWER;
+  return (
+    value === AUTO_REVIEW_APPROVALS_REVIEWER || value === LEGACY_AUTO_REVIEW_APPROVALS_REVIEWER
+  );
 }
 
 function readNestedBooleanFeature(value: unknown, key: string): boolean | null {
@@ -147,13 +149,12 @@ function isPermissionProfileAllowed(
   requirements: ConfigRequirements | null,
 ): boolean {
   const allowedPermissionProfiles = requirements?.allowedPermissionProfiles ?? null;
-  return allowedPermissionProfiles == null || allowedPermissionProfiles[permissionProfileId] === true;
+  return (
+    allowedPermissionProfiles == null || allowedPermissionProfiles[permissionProfileId] === true
+  );
 }
 
-function isPresetAllowed(
-  preset: ResolvedPreset,
-  requirements: ConfigRequirements | null,
-): boolean {
+function isPresetAllowed(preset: ResolvedPreset, requirements: ConfigRequirements | null): boolean {
   if (!isPermissionProfileAllowed(preset.permissionProfileId, requirements)) {
     return false;
   }
@@ -397,40 +398,39 @@ export function resolveCodexPermissionState(input: {
   });
   const fallbackPreset = resolveFallbackPreset(input.requirements, autoReviewAvailable);
   const matchedResolvedPreset = matchedPreset
-    ? INTERNAL_PRESETS.find((preset) => preset.preset === matchedPreset) ?? null
+    ? (INTERNAL_PRESETS.find((preset) => preset.preset === matchedPreset) ?? null)
     : null;
-  const matchedPresetAllowed = matchedResolvedPreset !== null
-    && isPresetAllowed(matchedResolvedPreset, input.requirements)
-    && (matchedPreset !== "guardian-approvals" || autoReviewAvailable);
+  const matchedPresetAllowed =
+    matchedResolvedPreset !== null &&
+    isPresetAllowed(matchedResolvedPreset, input.requirements) &&
+    (matchedPreset !== "guardian-approvals" || autoReviewAvailable);
   const explicitKeys = input.origins.approval_policy || input.origins.sandbox_mode;
-  const hasRepresentableExplicitConfig = Boolean(explicitKeys)
-    && isRepresentableCustomState(
-      sandboxMode,
-      approvalPolicy,
-      approvalsReviewer,
-      input.requirements,
-    );
+  const hasRepresentableExplicitConfig =
+    Boolean(explicitKeys) &&
+    isRepresentableCustomState(sandboxMode, approvalPolicy, approvalsReviewer, input.requirements);
   // Raw config values describe effective Codex sandbox behavior, not proof that
   // the user selected one of Nodex's built-in presets. Main may overlay a
   // separately persisted built-in selection after validating these values.
   const isCustom = hasRepresentableExplicitConfig;
   const effectivePreset = isCustom
     ? "custom"
-    : (matchedResolvedPreset && matchedPresetAllowed
+    : matchedResolvedPreset && matchedPresetAllowed
       ? matchedResolvedPreset.preset
-      : fallbackPreset.preset);
-  const effectiveResolvedPreset = effectivePreset === "custom"
-    ? null
-    : INTERNAL_PRESETS.find((preset) => preset.preset === effectivePreset) ?? fallbackPreset;
+      : fallbackPreset.preset;
+  const effectiveResolvedPreset =
+    effectivePreset === "custom"
+      ? null
+      : (INTERNAL_PRESETS.find((preset) => preset.preset === effectivePreset) ?? fallbackPreset);
 
   const visibleMode: CodexPermissionMode = isCustom
     ? "custom"
     : effectivePreset === "read-only"
       ? "custom"
       : effectivePreset;
-  const nextAvailableModes: CodexPermissionMode[] = hasRepresentableExplicitConfig && !availableModes.includes("custom")
-    ? [...availableModes, "custom"]
-    : availableModes;
+  const nextAvailableModes: CodexPermissionMode[] =
+    hasRepresentableExplicitConfig && !availableModes.includes("custom")
+      ? [...availableModes, "custom"]
+      : availableModes;
 
   return {
     mode: visibleMode,
@@ -460,11 +460,12 @@ export function buildPermissionModeConfigEdits(mode: CodexPermissionMode): Confi
     return [];
   }
 
-  const preset = mode === "guardian-approvals"
-    ? GUARDIAN_PRESET
-    : mode === "full-access"
-      ? FULL_ACCESS_PRESET
-      : AUTO_PRESET;
+  const preset =
+    mode === "guardian-approvals"
+      ? GUARDIAN_PRESET
+      : mode === "full-access"
+        ? FULL_ACCESS_PRESET
+        : AUTO_PRESET;
 
   return [
     {
@@ -502,28 +503,31 @@ export function buildTurnPermissionOverrides(input: {
     input.workspaceRoots,
     {
       writable_roots: input.workspaceRoots,
-      network_access: input.permissionState.sandbox?.type === "workspaceWrite"
-        ? input.permissionState.sandbox.networkAccess
-        : false,
-      exclude_tmpdir_env_var: input.permissionState.sandbox?.type === "workspaceWrite"
-        ? input.permissionState.sandbox.excludeTmpdirEnvVar
-        : false,
-      exclude_slash_tmp: input.permissionState.sandbox?.type === "workspaceWrite"
-        ? input.permissionState.sandbox.excludeSlashTmp
-        : false,
+      network_access:
+        input.permissionState.sandbox?.type === "workspaceWrite"
+          ? input.permissionState.sandbox.networkAccess
+          : false,
+      exclude_tmpdir_env_var:
+        input.permissionState.sandbox?.type === "workspaceWrite"
+          ? input.permissionState.sandbox.excludeTmpdirEnvVar
+          : false,
+      exclude_slash_tmp:
+        input.permissionState.sandbox?.type === "workspaceWrite"
+          ? input.permissionState.sandbox.excludeSlashTmp
+          : false,
     },
   );
 
   return {
-    ...(input.permissionState.approvalPolicy ? { approvalPolicy: input.permissionState.approvalPolicy } : {}),
+    ...(input.permissionState.approvalPolicy
+      ? { approvalPolicy: input.permissionState.approvalPolicy }
+      : {}),
     approvalsReviewer: input.permissionState.approvalsReviewer,
     ...(sandboxPolicy ? { sandboxPolicy } : {}),
   };
 }
 
-export function buildThreadPermissionOverrides(input: {
-  permissionState: CodexPermissionState;
-}): {
+export function buildThreadPermissionOverrides(input: { permissionState: CodexPermissionState }): {
   approvalPolicy?: CodexApprovalPolicy;
   approvalsReviewer?: CodexApprovalsReviewer;
   sandbox?: CodexSandboxMode;
@@ -533,7 +537,9 @@ export function buildThreadPermissionOverrides(input: {
   }
 
   return {
-    ...(input.permissionState.approvalPolicy ? { approvalPolicy: input.permissionState.approvalPolicy } : {}),
+    ...(input.permissionState.approvalPolicy
+      ? { approvalPolicy: input.permissionState.approvalPolicy }
+      : {}),
     approvalsReviewer: input.permissionState.approvalsReviewer,
     ...(input.permissionState.sandboxMode ? { sandbox: input.permissionState.sandboxMode } : {}),
   };

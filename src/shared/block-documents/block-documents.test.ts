@@ -45,10 +45,7 @@ const createBlock = (
 
   const paragraph = new Y.XmlElement(blockType);
   const text = new Y.XmlText();
-  text.applyDelta([
-    { insert: textContent, attributes: { bold: {} } },
-    { insert: " plain" },
-  ]);
+  text.applyDelta([{ insert: textContent, attributes: { bold: {} } }, { insert: " plain" }]);
   paragraph.insert(0, [text]);
   block.insert(0, [paragraph]);
 
@@ -120,9 +117,7 @@ describe("Card block document envelope", () => {
     const envelope = openPageDocument(reloaded);
 
     expect(envelope.title.toString()).toBe("Persisted title");
-    expect(assertValidBlockDocument(envelope.body)[0]?.id).toBe(
-      "persisted-block",
-    );
+    expect(assertValidBlockDocument(envelope.body)[0]?.id).toBe("persisted-block");
   });
 
   test("accepts canonical rich title Delta and materializes portable semantics", () => {
@@ -162,9 +157,7 @@ describe("Card block document envelope", () => {
 
   test("rejects an encoded non-text title root after typed Yjs root resolution", () => {
     const malformed = new Y.Doc({ guid: "malformed-title-source" });
-    malformed
-      .getXmlFragment("title")
-      .insert(0, [new Y.XmlElement("paragraph")]);
+    malformed.getXmlFragment("title").insert(0, [new Y.XmlElement("paragraph")]);
     const reloaded = new Y.Doc({ guid: "malformed-title-reloaded" });
     Y.applyUpdate(reloaded, Y.encodeStateAsUpdate(malformed));
 
@@ -182,9 +175,7 @@ describe("Card block document envelope", () => {
     const source = createPageDocument({
       documentId: "document-hidden-root-source",
     });
-    source.document
-      .getMap("hidden")
-      .set("payload", "not part of the Card envelope");
+    source.document.getMap("hidden").set("payload", "not part of the Card envelope");
     const reloaded = new Y.Doc({ guid: "document-hidden-root-reloaded" });
     Y.applyUpdate(reloaded, Y.encodeStateAsUpdate(source.document));
 
@@ -248,9 +239,7 @@ describe("registered document-bearing Block envelopes", () => {
       kind: "page",
       schemaVersion: 1,
       title: "Legacy plain title",
-      richTitle: [
-        { type: "text", text: "Legacy plain title", styles: {} },
-      ],
+      richTitle: [{ type: "text", text: "Legacy plain title", styles: {} }],
     });
   });
 
@@ -288,9 +277,7 @@ describe("registered document-bearing Block envelopes", () => {
 
     expect(adapter.contentModel).toBe("block_tree");
     expect(inspection.envelope.kind).toBe("synced_block");
-    expect(JSON.stringify([...envelope.document.share.keys()])).toBe(
-      '["body"]',
-    );
+    expect(JSON.stringify([...envelope.document.share.keys()])).toBe('["body"]');
   });
 
   test("rejects a Card title root in a Synced Block Document", () => {
@@ -327,14 +314,9 @@ describe("registered document-bearing Block envelopes", () => {
         documentId: `document:body-only:${index}`,
         label: registered.kind,
       });
-      const inspection = inspectRegisteredOwnedBlockDocument(
-        envelope.document,
-        registered,
-      );
+      const inspection = inspectRegisteredOwnedBlockDocument(envelope.document, registered);
       expect(inspection.envelope.kind).toBe(registered.kind);
-      expect(JSON.stringify([...envelope.document.share.keys()])).toBe(
-        '["body"]',
-      );
+      expect(JSON.stringify([...envelope.document.share.keys()])).toBe('["body"]');
       envelope.document.destroy();
     }
   });
@@ -442,9 +424,7 @@ describe("Block document structural validation", () => {
     getFirstText(block).insertEmbed(0, { unsupported: true });
 
     const scan = scanBlockDocument(envelope.body);
-    expect(
-      scan.issues.some((issue) => issue.code === "unsupported_xml_text_embed"),
-    ).toBe(true);
+    expect(scan.issues.some((issue) => issue.code === "unsupported_xml_text_embed")).toBe(true);
   });
 
   test("rejects nested shared types in XML attributes before persistence", () => {
@@ -457,9 +437,7 @@ describe("Block document structural validation", () => {
     block.setAttribute("invalid", new Y.Map() as unknown as string);
 
     const scan = scanBlockDocument(envelope.body);
-    expect(
-      scan.issues.some((issue) => issue.code === "unsupported_xml_value"),
-    ).toBe(true);
+    expect(scan.issues.some((issue) => issue.code === "unsupported_xml_value")).toBe(true);
   });
 });
 
@@ -476,9 +454,7 @@ describe("portable Y.Xml subtree codec", () => {
 
     expect(cloned instanceof Y.XmlElement).toBe(true);
     if (!(cloned instanceof Y.XmlElement)) return;
-    expect(
-      Object.prototype.hasOwnProperty.call(cloned.getAttributes(), "origin"),
-    ).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(cloned.getAttributes(), "origin")).toBe(true);
     expect(cloned.getAttribute("origin") === undefined).toBe(true);
   });
 
@@ -486,28 +462,16 @@ describe("portable Y.Xml subtree codec", () => {
     const source = createPageDocument({ documentId: "document-source" });
     const sourceGroup = getOnlyElement(source.body);
     sourceGroup.insert(0, [
-      createBlock("block-root", "Formatted", [
-        createBlock("block-child", "Nested"),
-      ]),
+      createBlock("block-root", "Formatted", [createBlock("block-child", "Nested")]),
     ]);
 
     const target = createPageDocument({ documentId: "document-target" });
     const targetGroup = getOnlyElement(target.body);
 
-    const sourceReplica = openPageDocument(
-      new Y.Doc({ guid: "document-source-replica" }),
-    );
-    const targetReplica = openPageDocument(
-      new Y.Doc({ guid: "document-target-replica" }),
-    );
-    Y.applyUpdate(
-      sourceReplica.document,
-      Y.encodeStateAsUpdate(source.document),
-    );
-    Y.applyUpdate(
-      targetReplica.document,
-      Y.encodeStateAsUpdate(target.document),
-    );
+    const sourceReplica = openPageDocument(new Y.Doc({ guid: "document-source-replica" }));
+    const targetReplica = openPageDocument(new Y.Doc({ guid: "document-target-replica" }));
+    Y.applyUpdate(sourceReplica.document, Y.encodeStateAsUpdate(source.document));
+    Y.applyUpdate(targetReplica.document, Y.encodeStateAsUpdate(target.document));
 
     const sourceVector = Y.encodeStateVector(source.document);
     const targetVector = Y.encodeStateVector(target.document);
@@ -528,32 +492,29 @@ describe("portable Y.Xml subtree codec", () => {
 
     const movedBlock = getOnlyElement(targetGroup);
     expect(JSON.stringify(getFirstText(movedBlock).toDelta())).toBe(
-      JSON.stringify([
-        { insert: "Formatted", attributes: { bold: {} } },
-        { insert: " plain" },
-      ]),
+      JSON.stringify([{ insert: "Formatted", attributes: { bold: {} } }, { insert: " plain" }]),
     );
 
     const sourceUpdate = Y.encodeStateAsUpdate(source.document, sourceVector);
     const targetUpdate = Y.encodeStateAsUpdate(target.document, targetVector);
     Y.applyUpdate(sourceReplica.document, sourceUpdate);
     Y.applyUpdate(targetReplica.document, targetUpdate);
-    const sourceStateAfterFirstApply = Array.from(
-      Y.encodeStateVector(sourceReplica.document),
-    ).join(",");
-    const targetStateAfterFirstApply = Array.from(
-      Y.encodeStateVector(targetReplica.document),
-    ).join(",");
+    const sourceStateAfterFirstApply = Array.from(Y.encodeStateVector(sourceReplica.document)).join(
+      ",",
+    );
+    const targetStateAfterFirstApply = Array.from(Y.encodeStateVector(targetReplica.document)).join(
+      ",",
+    );
 
     Y.applyUpdate(sourceReplica.document, sourceUpdate);
     Y.applyUpdate(targetReplica.document, targetUpdate);
 
-    expect(
-      Array.from(Y.encodeStateVector(sourceReplica.document)).join(","),
-    ).toBe(sourceStateAfterFirstApply);
-    expect(
-      Array.from(Y.encodeStateVector(targetReplica.document)).join(","),
-    ).toBe(targetStateAfterFirstApply);
+    expect(Array.from(Y.encodeStateVector(sourceReplica.document)).join(",")).toBe(
+      sourceStateAfterFirstApply,
+    );
+    expect(Array.from(Y.encodeStateVector(targetReplica.document)).join(",")).toBe(
+      targetStateAfterFirstApply,
+    );
     expect(assertValidBlockDocument(sourceReplica.body).length).toBe(0);
     expect(assertValidBlockDocument(targetReplica.body).length).toBe(2);
     expect(targetReplica.body.toString()).toBe(target.body.toString());

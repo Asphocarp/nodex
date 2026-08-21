@@ -60,9 +60,7 @@ export interface NodexAgentDynamicExecutionContext {
   readonly resolveResourceAccess: (
     intents: readonly NodexAgentResourceIntent[],
   ) => Promise<NodexAgentResourceAccessPlan>;
-  readonly recordTaskResourceAccess?: (
-    grants: readonly NodexAgentResourceGrantSpec[],
-  ) => void;
+  readonly recordTaskResourceAccess?: (grants: readonly NodexAgentResourceGrantSpec[]) => void;
   readonly authorize: (
     input: NodexAgentDynamicAuthorizationInput,
   ) => Promise<NodexAgentDynamicAuthorizationResolution>;
@@ -90,15 +88,15 @@ export function fail(failure: ToolFailure): never {
   throw new NodexAgentDynamicToolFailure(failure);
 }
 
-export function projectRequired(
-  context: NodexAgentDynamicExecutionContext,
-): string {
+export function projectRequired(context: NodexAgentDynamicExecutionContext): string {
   if (context.authority) return context.authority.actorProjectId;
-  return fail(toolFailure(
-    "project_context_required",
-    "This Nodex tool requires a task bound to a Project",
-    "start_new_task",
-  ));
+  return fail(
+    toolFailure(
+      "project_context_required",
+      "This Nodex tool requires a task bound to a Project",
+      "start_new_task",
+    ),
+  );
 }
 
 function requireStableAuthorizationFootprint(
@@ -106,37 +104,39 @@ function requireStableAuthorizationFootprint(
   after: NodexAgentAuthorizationFootprint,
 ): void {
   if (sameAuthorizationFootprint(before, after)) return;
-  fail(toolFailure(
-    "conflict",
-    "The mutation scope changed while authorization was pending; review and retry the call",
-    "retry_same",
-    true,
-  ));
+  fail(
+    toolFailure(
+      "conflict",
+      "The mutation scope changed while authorization was pending; review and retry the call",
+      "retry_same",
+      true,
+    ),
+  );
 }
 
 function failResourceAccessPlan(
   plan: Extract<NodexAgentResourceAccessPlan, { readonly kind: "denied" }>,
 ): never {
-  const code = plan.reason === "resource_not_found"
-    ? "not_found" as const
-    : plan.reason === "project_not_found" || plan.reason === "authority_stale"
-      ? "authorization_denied" as const
-      : "authorization_denied" as const;
-  fail(toolFailure(
-    code,
-    `Nodex resource access was denied: ${plan.reason}`,
-    plan.reason === "authority_stale" || plan.reason === "project_not_found"
-      ? "start_new_task"
-      : "none",
-  ));
+  const code =
+    plan.reason === "resource_not_found"
+      ? ("not_found" as const)
+      : plan.reason === "project_not_found" || plan.reason === "authority_stale"
+        ? ("authorization_denied" as const)
+        : ("authorization_denied" as const);
+  fail(
+    toolFailure(
+      code,
+      `Nodex resource access was denied: ${plan.reason}`,
+      plan.reason === "authority_stale" || plan.reason === "project_not_found"
+        ? "start_new_task"
+        : "none",
+    ),
+  );
 }
 
 async function requireAuthorization(
   context: NodexAgentDynamicExecutionContext,
-  input: Omit<
-    NodexAgentDynamicAuthorizationInput,
-    "threadId" | "callId" | "projectId"
-  >,
+  input: Omit<NodexAgentDynamicAuthorizationInput, "threadId" | "callId" | "projectId">,
 ): Promise<NodexAgentResourceAccessOverlay | undefined> {
   const projectId = projectRequired(context);
   const decision = await context.authorize({
@@ -147,17 +147,15 @@ async function requireAuthorization(
   });
   if (typeof decision === "object") return decision.resourceAccess;
   if (decision === "unavailable") {
-    fail(toolFailure(
-      "authorization_required",
-      "A visible task is required to authorize this Nodex resource access",
-      "request_authorization",
-    ));
+    fail(
+      toolFailure(
+        "authorization_required",
+        "A visible task is required to authorize this Nodex resource access",
+        "request_authorization",
+      ),
+    );
   }
-  fail(toolFailure(
-    "authorization_denied",
-    "The Nodex resource access was denied",
-    "none",
-  ));
+  fail(toolFailure("authorization_denied", "The Nodex resource access was denied", "none"));
 }
 
 export async function authorizeNodexAgentResourceIntents(
@@ -201,39 +199,31 @@ export async function prepareAuthorizedWrite<
       prepared: TPrepared,
     ) => Omit<
       NodexAgentDynamicAuthorizationInput,
-      | "threadId"
-      | "callId"
-      | "projectId"
-      | "effect"
-      | "requirements"
-      | "inspectionAccess"
+      "threadId" | "callId" | "projectId" | "effect" | "requirements" | "inspectionAccess"
     >;
   },
 ): Promise<CompletedWritePreflight<TOutput> | TPrepared> {
   const accessPlan = await context.resolveResourceAccess(input.intents);
   if (accessPlan.kind === "denied") return failResourceAccessPlan(accessPlan);
-  const initialAccess = accessPlan.kind === "authorized"
-    ? accessPlan.resourceAccess
-    : accessPlan.inspectionAccess;
+  const initialAccess =
+    accessPlan.kind === "authorized" ? accessPlan.resourceAccess : accessPlan.inspectionAccess;
   const prepared = await input.prepare(initialAccess);
   if (prepared.kind === "completed") return prepared;
 
   const approvedFootprint = input.footprint(prepared);
-  const executionAccess = accessPlan.kind === "authorized"
-    ? accessPlan.resourceAccess
-    : await requireAuthorization(context, {
-        ...input.authorization(prepared),
-        effect: approvedFootprint.effect,
-        requirements: accessPlan.requirements,
-        inspectionAccess: accessPlan.inspectionAccess,
-      });
+  const executionAccess =
+    accessPlan.kind === "authorized"
+      ? accessPlan.resourceAccess
+      : await requireAuthorization(context, {
+          ...input.authorization(prepared),
+          effect: approvedFootprint.effect,
+          requirements: accessPlan.requirements,
+          inspectionAccess: accessPlan.inspectionAccess,
+        });
 
   const refreshed = await input.prepare(executionAccess);
   if (refreshed.kind === "completed") return refreshed;
-  requireStableAuthorizationFootprint(
-    approvedFootprint,
-    input.footprint(refreshed),
-  );
+  requireStableAuthorizationFootprint(approvedFootprint, input.footprint(refreshed));
   return refreshed;
 }
 
@@ -246,14 +236,20 @@ export async function withExecutionTimeout<T>(
     return await Promise.race([
       run(),
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(() => reject(new NodexAgentDynamicToolFailure(
-          toolFailure(
-            "timeout",
-            "The Nodex write did not finish within its execution window; retry the same call identity",
-            "retry_same",
-            true,
-          ),
-        )), timeoutMs);
+        timeout = setTimeout(
+          () =>
+            reject(
+              new NodexAgentDynamicToolFailure(
+                toolFailure(
+                  "timeout",
+                  "The Nodex write did not finish within its execution window; retry the same call identity",
+                  "retry_same",
+                  true,
+                ),
+              ),
+            ),
+          timeoutMs,
+        );
       }),
     ]);
   } finally {

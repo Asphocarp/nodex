@@ -42,27 +42,30 @@ describe("materializeBrowserRuntime", () => {
       runtimeVersions,
       url: "https://github.com/example/nodex/releases/download/browser-runtime-test/browser-runtime.tar.gz",
     };
-    fs.writeFileSync(lockPath, JSON.stringify({
-      assets: {
-        "darwin-arm64": sharedAsset,
-        "darwin-x64": {
-          ...sharedAsset,
-          assetName: "browser-runtime-x64.tar.gz",
-          url: "https://github.com/example/nodex/releases/download/browser-runtime-test/browser-runtime-x64.tar.gz",
+    fs.writeFileSync(
+      lockPath,
+      JSON.stringify({
+        assets: {
+          "darwin-arm64": sharedAsset,
+          "darwin-x64": {
+            ...sharedAsset,
+            assetName: "browser-runtime-x64.tar.gz",
+            url: "https://github.com/example/nodex/releases/download/browser-runtime-test/browser-runtime-x64.tar.gz",
+          },
         },
-      },
-      browserPluginVersion: manifest.browserPlugin.version,
-      codexCompatibilityVersion: manifest.codexCompatibilityVersion,
-      repository: "example/nodex",
-      runtimeFamily: "browser",
-      schemaVersion: 1,
-      source: {
-        buildNumber: manifest.desktopBuildNumber,
-        desktopBuild: manifest.desktopBuild,
-        product: "chatgpt-desktop",
-      },
-      tag: "browser-runtime-test",
-    }));
+        browserPluginVersion: manifest.browserPlugin.version,
+        codexCompatibilityVersion: manifest.codexCompatibilityVersion,
+        repository: "example/nodex",
+        runtimeFamily: "browser",
+        schemaVersion: 1,
+        source: {
+          buildNumber: manifest.desktopBuildNumber,
+          desktopBuild: manifest.desktopBuild,
+          product: "chatgpt-desktop",
+        },
+        tag: "browser-runtime-test",
+      }),
+    );
 
     await materializeBrowserRuntime({
       archivePath,
@@ -71,13 +74,8 @@ describe("materializeBrowserRuntime", () => {
       targetArch: "arm64",
       targetPlatform: "darwin",
     });
-    const installedManifestPath = path.join(
-      outputPath,
-      BROWSER_RUNTIME_MANIFEST_FILENAME,
-    );
-    expect(readBrowserRuntimeFileSha256(installedManifestPath)).toBe(
-      archive.manifestSha256,
-    );
+    const installedManifestPath = path.join(outputPath, BROWSER_RUNTIME_MANIFEST_FILENAME);
+    expect(readBrowserRuntimeFileSha256(installedManifestPath)).toBe(archive.manifestSha256);
 
     const firstModifiedAt = fs.statSync(installedManifestPath).mtimeMs;
     await materializeBrowserRuntime({
@@ -99,29 +97,23 @@ describe("materializeBrowserRuntime", () => {
       targetPlatform: "darwin",
     });
     expect(fs.statSync(clientPath).size).toBe(
-      manifest.artifacts.find(
-        (artifact) => artifact.path === manifest.browserPlugin.client,
-      )!.size,
+      manifest.artifacts.find((artifact) => artifact.path === manifest.browserPlugin.client)!.size,
     );
 
     const cachePath = path.join(root, "cache");
-    const cachedArchivePath = path.join(
-      cachePath,
-      archive.archiveSha256,
-      archive.assetName,
-    );
+    const cachedArchivePath = path.join(cachePath, archive.archiveSha256, archive.assetName);
     fs.mkdirSync(path.dirname(cachedArchivePath), { recursive: true });
     fs.writeFileSync(cachedArchivePath, "corrupt");
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async () => new Response(
-      fs.readFileSync(archivePath),
-      {
-        headers: {
-          "content-length": String(archive.archiveSize),
-        },
-        status: 200,
-      },
-    )) as typeof fetch;
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response(fs.readFileSync(archivePath), {
+          headers: {
+            "content-length": String(archive.archiveSize),
+          },
+          status: 200,
+        }),
+    ) as typeof fetch;
     try {
       await materializeBrowserRuntime({
         cachePath,
@@ -133,8 +125,6 @@ describe("materializeBrowserRuntime", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
-    expect(readBrowserRuntimeFileSha256(cachedArchivePath)).toBe(
-      archive.archiveSha256,
-    );
+    expect(readBrowserRuntimeFileSha256(cachedArchivePath)).toBe(archive.archiveSha256);
   });
 });

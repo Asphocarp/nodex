@@ -43,29 +43,30 @@ interface BuildBrowserContextMenuInput {
 }
 
 function isPlainPageContext(params: BrowserContextMenuParams): boolean {
-  return !params.isEditable
-    && params.formControlType === "none"
-    && params.mediaType === "none"
-    && params.linkURL.length === 0
-    && params.srcURL.length === 0
-    && params.selectionText.length === 0;
+  return (
+    !params.isEditable &&
+    params.formControlType === "none" &&
+    params.mediaType === "none" &&
+    params.linkURL.length === 0 &&
+    params.srcURL.length === 0 &&
+    params.selectionText.length === 0
+  );
 }
 
 function canAttachImage(params: BrowserContextMenuParams): boolean {
-  return params.mediaType === "image"
-    && params.hasImageContents
-    && params.linkURL.length === 0
-    && params.srcURL.length > 0;
+  return (
+    params.mediaType === "image" &&
+    params.hasImageContents &&
+    params.linkURL.length === 0 &&
+    params.srcURL.length > 0
+  );
 }
 
 function hasCopyableSelection(params: BrowserContextMenuParams): boolean {
-  return !params.formControlType.endsWith("password")
-    && params.selectionText.trim().length > 0;
+  return !params.formControlType.endsWith("password") && params.selectionText.trim().length > 0;
 }
 
-function pushSeparator(
-  template: MenuItemConstructorOptions[],
-): void {
+function pushSeparator(template: MenuItemConstructorOptions[]): void {
   if (template.length === 0 || template.at(-1)?.type === "separator") return;
   template.push({ type: "separator" });
 }

@@ -6,7 +6,10 @@ function digitPlaces(container: HTMLElement): string {
   const additions = container.querySelector<HTMLElement>("[data-diff-stat-kind='additions']");
   if (!additions) return "";
   return Array.from(additions.querySelectorAll<HTMLElement>("[data-diff-stat-digit-place]"))
-    .map((element) => `${element.getAttribute("data-diff-stat-digit-place") ?? ""}:${element.querySelector(".diff-stat-digit-stack")?.className ?? ""}`)
+    .map(
+      (element) =>
+        `${element.getAttribute("data-diff-stat-digit-place") ?? ""}:${element.querySelector(".diff-stat-digit-stack")?.className ?? ""}`,
+    )
     .join("|");
 }
 

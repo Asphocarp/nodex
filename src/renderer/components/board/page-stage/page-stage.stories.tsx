@@ -127,7 +127,8 @@ export const NestedPageWithoutProperties: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A nested standalone Page omits the Properties section when no property rows are available.",
+        story:
+          "A nested standalone Page omits the Properties section when no property rows are available.",
       },
     },
   },
@@ -143,7 +144,8 @@ export const SparseCustomProperties: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Page Detail remains editable after optional built-in Properties are removed and renders custom number, checkbox, and text Properties from the active Source schema.",
+        story:
+          "Page Detail remains editable after optional built-in Properties are removed and renders custom number, checkbox, and text Properties from the active Source schema.",
       },
     },
   },
@@ -194,7 +196,8 @@ export const EmptyPropertyValues: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Unset Page Properties share one secondary Empty presentation and one value-column alignment while populated Status keeps its focused presenter.",
+        story:
+          "Unset Page Properties share one secondary Empty presentation and one value-column alignment while populated Status keeps its focused presenter.",
       },
     },
   },
@@ -222,7 +225,8 @@ export const HeadingRailScrub: Story = {
   parameters: {
     docs: {
       description: {
-        story: "Drag over the left heading rail to inspect instant scrub navigation and the shared marker states.",
+        story:
+          "Drag over the left heading rail to inspect instant scrub navigation and the shared marker states.",
       },
     },
   },

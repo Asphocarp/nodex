@@ -20,26 +20,26 @@ The first section title describes only the top-level action roots. Descendant bl
 
 Single-block labels:
 
-| Block type | Label |
-|------------|-------|
-| `paragraph` | `Text` |
-| `codeBlock` | `Code` |
-| `heading` with `level: 1/2/3` | `Heading 1/2/3` |
+| Block type                          | Label                  |
+| ----------------------------------- | ---------------------- |
+| `paragraph`                         | `Text`                 |
+| `codeBlock`                         | `Code`                 |
+| `heading` with `level: 1/2/3`       | `Heading 1/2/3`        |
 | `heading` with `isToggleable: true` | `Toggle heading 1/2/3` |
-| `bulletListItem` | `Bulleted list` |
-| `numberedListItem` | `Numbered list` |
-| `checkListItem` | `To-do list` |
-| `toggleListItem` | `Toggle list` |
-| `quote` | `Quote` |
-| `divider` | `Divider` |
-| `image` | `Image` |
-| `callout` | `Callout` |
-| `table` | `Table` |
-| `pageRef` | `Page reference` |
-| `cardToggle` | `Card` |
-| `toggleListInlineView` | `Toggle list view` |
-| `threadSection` | `Thread section` |
-| unknown or unsupported | `Block` |
+| `bulletListItem`                    | `Bulleted list`        |
+| `numberedListItem`                  | `Numbered list`        |
+| `checkListItem`                     | `To-do list`           |
+| `toggleListItem`                    | `Toggle list`          |
+| `quote`                             | `Quote`                |
+| `divider`                           | `Divider`              |
+| `image`                             | `Image`                |
+| `callout`                           | `Callout`              |
+| `table`                             | `Table`                |
+| `pageRef`                           | `Page reference`       |
+| `cardToggle`                        | `Card`                 |
+| `toggleListInlineView`              | `Toggle list view`     |
+| `threadSection`                     | `Thread section`       |
+| unknown or unsupported              | `Block`                |
 
 ## Production Actions
 

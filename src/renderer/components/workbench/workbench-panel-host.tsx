@@ -3,28 +3,16 @@ import type { AppShellTabItem } from "./app-shell-tabs";
 import { PanelGroupTree } from "./panel-group-tree";
 import { EmptyRightPane } from "./workbench-panel-controls";
 import type { PanelDestination } from "./panel-destination-picker-model";
-import type {
-  PanelId,
-  Project,
-  WorkbenchPanelLayout,
-  WorkbenchPanelSplitSide,
-} from "@/lib/types";
+import type { PanelId, Project, WorkbenchPanelLayout, WorkbenchPanelSplitSide } from "@/lib/types";
 import type { CommandKeymapState } from "../../../shared/command-keybindings";
-import type {
-  PanelNewTabAction,
-  PanelNewTabActionKind,
-} from "@/lib/workbench-panel-actions";
+import type { PanelNewTabAction, PanelNewTabActionKind } from "@/lib/workbench-panel-actions";
 import { WorkbenchPanelNewTabButton } from "./workbench-panel-new-tab-button";
 
 interface WorkbenchPanelHostCommands {
   readonly selectTab: (leafId: string, tabId: string) => void;
   readonly closeTab: (leafId: string, tabId: string) => void;
   readonly pinTab: (leafId: string, tabId: string) => void;
-  readonly reorderTab: (
-    leafId: string,
-    tabId: string,
-    targetIndex: number,
-  ) => void;
+  readonly reorderTab: (leafId: string, tabId: string, targetIndex: number) => void;
   readonly moveTab: (
     tabId: string,
     targetPanelId: PanelId,
@@ -35,28 +23,12 @@ interface WorkbenchPanelHostCommands {
       readonly side: WorkbenchPanelSplitSide;
     },
   ) => void;
-  readonly splitGroup: (
-    leafId: string,
-    side: WorkbenchPanelSplitSide,
-    tabId?: string,
-  ) => void;
+  readonly splitGroup: (leafId: string, side: WorkbenchPanelSplitSide, tabId?: string) => void;
   readonly focusGroup: (leafId: string) => void;
-  readonly activateGroup: (
-    leafId: string,
-    tabId?: string | null,
-  ) => void;
-  readonly resizeGroup: (
-    branchId: string,
-    ratio: number,
-  ) => Promise<void> | void;
-  readonly openAction: (
-    action: PanelNewTabActionKind,
-    leafId: string,
-  ) => void;
-  readonly openDestination: (
-    destination: PanelDestination,
-    leafId: string,
-  ) => Promise<void>;
+  readonly activateGroup: (leafId: string, tabId?: string | null) => void;
+  readonly resizeGroup: (branchId: string, ratio: number) => Promise<void> | void;
+  readonly openAction: (action: PanelNewTabActionKind, leafId: string) => void;
+  readonly openDestination: (destination: PanelDestination, leafId: string) => Promise<void>;
 }
 
 interface WorkbenchPanelHostProps {
@@ -107,37 +79,39 @@ export function WorkbenchPanelHost({
       layout={layout}
       tabItemsByLeafId={tabItemsByLeafId}
       activeTabIdsByLeafId={activeTabIdsByLeafId}
-      renderAfterTabs={(leafId) => (
-        renderNewTab?.(leafId) ?? <WorkbenchPanelNewTabButton
-          actions={availableActions}
-          projects={projects}
-          panelId={panelId}
-          currentProjectId={sessionProjectId}
-          currentProjectDbViewExists={currentProjectDbViewExists}
-          isMac={isMac}
-          commandKeymapState={commandKeymapState}
-          onAction={(action) => commands.openAction(action, leafId)}
-          onOpenDestination={(destination) =>
-            commands.openDestination(destination, leafId)}
-        />
-      )}
+      renderAfterTabs={(leafId) =>
+        renderNewTab?.(leafId) ?? (
+          <WorkbenchPanelNewTabButton
+            actions={availableActions}
+            projects={projects}
+            panelId={panelId}
+            currentProjectId={sessionProjectId}
+            currentProjectDbViewExists={currentProjectDbViewExists}
+            isMac={isMac}
+            commandKeymapState={commandKeymapState}
+            onAction={(action) => commands.openAction(action, leafId)}
+            onOpenDestination={(destination) => commands.openDestination(destination, leafId)}
+          />
+        )
+      }
       renderAfterList={renderAfterList}
       headerStartInsetPx={headerStartInsetPx}
       headerEndInsetPx={headerEndInsetPx}
       tabScrollEndPaddingPx={tabScrollEndPaddingPx}
-      renderEmptyLeaf={(leafId) => (
-        renderEmptyLeaf?.(leafId) ?? <EmptyRightPane
-          actions={availableActions}
-          projects={projects}
-          isMac={isMac}
-          commandKeymapState={commandKeymapState}
-          currentProjectId={sessionProjectId}
-          currentProjectDbViewExists={currentProjectDbViewExists}
-          onAction={(action) => commands.openAction(action, leafId)}
-          onOpenDestination={(destination) =>
-            commands.openDestination(destination, leafId)}
-        />
-      )}
+      renderEmptyLeaf={(leafId) =>
+        renderEmptyLeaf?.(leafId) ?? (
+          <EmptyRightPane
+            actions={availableActions}
+            projects={projects}
+            isMac={isMac}
+            commandKeymapState={commandKeymapState}
+            currentProjectId={sessionProjectId}
+            currentProjectDbViewExists={currentProjectDbViewExists}
+            onAction={(action) => commands.openAction(action, leafId)}
+            onOpenDestination={(destination) => commands.openDestination(destination, leafId)}
+          />
+        )
+      }
       onSelectTab={commands.selectTab}
       onCloseTab={commands.closeTab}
       onDirectCloseTab={commands.closeTab}

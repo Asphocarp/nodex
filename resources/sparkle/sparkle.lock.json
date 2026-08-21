@@ -15,10 +15,7 @@
   "framework": {
     "bundleVersion": "2059",
     "shortVersion": "2.9.4",
-    "architectures": [
-      "arm64",
-      "x86_64"
-    ]
+    "architectures": ["arm64", "x86_64"]
   },
   "license": {
     "path": "resources/sparkle/LICENSE",

@@ -40,7 +40,9 @@ describe("ProjectRemoveDialog", () => {
     );
 
     expect(view.getByRole("heading", { name: "Remove Alpha?" })).toBeTruthy();
-    expect(view.getByText(/Files on your computer and existing chats won’t be deleted/)).toBeTruthy();
+    expect(
+      view.getByText(/Files on your computer and existing chats won’t be deleted/),
+    ).toBeTruthy();
 
     fireEvent.click(view.getByRole("button", { name: "Remove project" }));
     await waitFor(() => {
@@ -81,9 +83,12 @@ describe("ProjectRemoveDialog", () => {
 
   test("prevents dismissal and duplicate submission while pending", async () => {
     let resolveArchive: ((result: ProjectLifecycleMutationResult) => void) | null = null;
-    const archive = vi.fn(() => new Promise<ProjectLifecycleMutationResult>((resolve) => {
-      resolveArchive = resolve;
-    }));
+    const archive = vi.fn(
+      () =>
+        new Promise<ProjectLifecycleMutationResult>((resolve) => {
+          resolveArchive = resolve;
+        }),
+    );
     const onOpenChange = vi.fn();
     const view = render(
       <ProjectRemoveDialog
@@ -96,8 +101,12 @@ describe("ProjectRemoveDialog", () => {
 
     fireEvent.click(view.getByRole("button", { name: "Remove project" }));
     await waitFor(() => {
-      expect((view.getByRole("button", { name: "Removing…" }) as HTMLButtonElement).disabled).toBe(true);
-      expect((view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(true);
+      expect((view.getByRole("button", { name: "Removing…" }) as HTMLButtonElement).disabled).toBe(
+        true,
+      );
+      expect((view.getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(
+        true,
+      );
     });
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.click(view.getByRole("button", { name: "Removing…" }));

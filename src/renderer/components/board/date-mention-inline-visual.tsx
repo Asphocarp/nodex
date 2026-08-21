@@ -7,10 +7,7 @@ import {
   isoDateToDate,
   todayIsoDate,
 } from "@/lib/nfm/date-mention";
-import {
-  useDateMentionMinuteEpoch,
-  useDateMentionTodayIso,
-} from "@/lib/nfm/date-mention-clock";
+import { useDateMentionMinuteEpoch, useDateMentionTodayIso } from "@/lib/nfm/date-mention-clock";
 import type { NfmDateMentionInlineContent } from "@/lib/nfm/types";
 import { cn } from "@/lib/utils";
 
@@ -24,15 +21,11 @@ interface DateMentionInlineVisualBaseProps {
   children?: never;
 }
 
-type DateMentionInlineVisualSpanProps =
-  & DateMentionInlineVisualBaseProps
-  & Omit<ComponentPropsWithoutRef<"span">, "children">
-  & { as?: "span" };
+type DateMentionInlineVisualSpanProps = DateMentionInlineVisualBaseProps &
+  Omit<ComponentPropsWithoutRef<"span">, "children"> & { as?: "span" };
 
-type DateMentionInlineVisualButtonProps =
-  & DateMentionInlineVisualBaseProps
-  & Omit<ComponentPropsWithoutRef<"button">, "children">
-  & { as: "button" };
+type DateMentionInlineVisualButtonProps = DateMentionInlineVisualBaseProps &
+  Omit<ComponentPropsWithoutRef<"button">, "children"> & { as: "button" };
 
 export type DateMentionInlineVisualProps =
   | DateMentionInlineVisualSpanProps
@@ -45,10 +38,9 @@ export function resolveDateMentionReminderTone(
   if (!payload.reminder) return "none";
   const date = dateMentionValueToIsoDate(payload.start) ?? todayIsoDate(now);
   const payloadTime = dateMentionValueToTime(payload.start);
-  const time = payloadTime
-    ?? (payload.reminder.startsWith("day:")
-      ? payload.reminder.split("@")[1] ?? "09:00"
-      : "23:59");
+  const time =
+    payloadTime ??
+    (payload.reminder.startsWith("day:") ? (payload.reminder.split("@")[1] ?? "09:00") : "23:59");
   const candidate = new Date(`${date}T${time}:00`);
   if (Number.isNaN(candidate.getTime())) return "pending";
   return candidate.getTime() < now.getTime() ? "overdue" : "pending";
@@ -58,11 +50,12 @@ export function DateMentionInlineVisual(props: DateMentionInlineVisualProps) {
   const isRelative = isRelativeDateMention(props.payload);
   const todayIso = useDateMentionTodayIso(isRelative);
   const minuteEpoch = useDateMentionMinuteEpoch(Boolean(props.payload.reminder));
-  const labelNow = todayIso ? isoDateToDate(todayIso) ?? undefined : undefined;
+  const labelNow = todayIso ? (isoDateToDate(todayIso) ?? undefined) : undefined;
   const label = formatDateMentionLabel(props.payload, labelNow ? { now: labelNow } : {});
-  const reminderTone = props.payload.reminder && minuteEpoch !== null
-    ? resolveDateMentionReminderTone(props.payload, new Date(minuteEpoch))
-    : "none";
+  const reminderTone =
+    props.payload.reminder && minuteEpoch !== null
+      ? resolveDateMentionReminderTone(props.payload, new Date(minuteEpoch))
+      : "none";
 
   if (props.as === "button") {
     const {
@@ -136,9 +129,17 @@ export function DateMentionInlineVisual(props: DateMentionInlineVisualProps) {
 function wrapDateMentionInlineGuards(chip: ReactNode) {
   return (
     <span className="inline align-baseline" data-date-mention-inline-root="true">
-      <span aria-hidden="true" className="inline-block w-0 overflow-hidden align-baseline" data-date-mention-guard="start" />
+      <span
+        aria-hidden="true"
+        className="inline-block w-0 overflow-hidden align-baseline"
+        data-date-mention-guard="start"
+      />
       {chip}
-      <span aria-hidden="true" className="inline-block w-0 overflow-hidden align-baseline" data-date-mention-guard="end" />
+      <span
+        aria-hidden="true"
+        className="inline-block w-0 overflow-hidden align-baseline"
+        data-date-mention-guard="end"
+      />
     </span>
   );
 }
@@ -155,9 +156,7 @@ function DateMentionInlineVisualChildren({
   return (
     <>
       <span className="leading-[inherit] opacity-50">@</span>
-      <span className={cn("min-w-0 truncate leading-[inherit]", labelClassName)}>
-        {label}
-      </span>
+      <span className={cn("min-w-0 truncate leading-[inherit]", labelClassName)}>{label}</span>
       {payload.reminder ? (
         <BellIcon className="ml-[0.25em] inline-block size-[0.95em] shrink-0 self-center opacity-80" />
       ) : null}

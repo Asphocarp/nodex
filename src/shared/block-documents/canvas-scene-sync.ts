@@ -15,10 +15,7 @@ import {
   type PortableCanvasScene,
 } from "./canvas-scene";
 import type { LocalCommitCommandSuccess } from "../local-commit-delivery";
-import {
-  parseContentAccessContext,
-  type ContentAccessContext,
-} from "../content-access-context";
+import { parseContentAccessContext, type ContentAccessContext } from "../content-access-context";
 
 export const MAX_CANVAS_SCENE_MUTATION_BYTES = 2 * 1024 * 1024;
 export const MAX_CANVAS_SCENE_SNAPSHOT_BYTES = 16 * 1024 * 1024;
@@ -32,9 +29,7 @@ export interface CanvasSceneAppStateIntent {
   readonly value: CanvasSceneOptionalJson;
 }
 
-export type CanvasSceneAppStateIntents = Readonly<
-  Record<string, CanvasSceneAppStateIntent>
->;
+export type CanvasSceneAppStateIntents = Readonly<Record<string, CanvasSceneAppStateIntent>>;
 
 export interface CanvasSceneMutationIntent {
   readonly mutationId: string;
@@ -197,30 +192,19 @@ export interface CanvasSceneResyncRequiredEvent {
   readonly headSeq: number;
 }
 
-export type CanvasSceneRealtimeEvent =
-  | CanvasSceneCommittedEvent
-  | CanvasSceneResyncRequiredEvent;
+export type CanvasSceneRealtimeEvent = CanvasSceneCommittedEvent | CanvasSceneResyncRequiredEvent;
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const requireSafeInteger = (
-  value: unknown,
-  field: string,
-  minimum: number,
-): number => {
+const requireSafeInteger = (value: unknown, field: string, minimum: number): number => {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum) {
     return value;
   }
-  throw new CanvasSceneContractError(
-    `${field} must be a safe integer >= ${minimum}`,
-  );
+  throw new CanvasSceneContractError(`${field} must be a safe integer >= ${minimum}`);
 };
 
-const requireAccessContext = (
-  value: unknown,
-  field: string,
-): ContentAccessContext => {
+const requireAccessContext = (value: unknown, field: string): ContentAccessContext => {
   try {
     return parseContentAccessContext(value);
   } catch (error) {
@@ -257,9 +241,7 @@ const canonicalOptionalJson = (
     return { kind: "absent" };
   }
   if (value.kind !== "value") {
-    throw new CanvasSceneContractError(
-      `${field}.kind must be absent or value`,
-    );
+    throw new CanvasSceneContractError(`${field}.kind must be absent or value`);
   }
   exactKeys(value, field, ["kind", "value"]);
   const parsed = pickPortableCanvasSceneAppState({
@@ -275,9 +257,7 @@ export const canonicalizeCanvasSceneMutationIntent = (
   input: unknown,
 ): CanvasSceneMutationIntent => {
   if (!isRecord(input)) {
-    throw new CanvasSceneContractError(
-      "Canvas scene mutation intent must be an object",
-    );
+    throw new CanvasSceneContractError("Canvas scene mutation intent must be an object");
   }
   exactKeys(input, "Canvas scene mutation intent", [
     "mutationId",
@@ -291,9 +271,7 @@ export const canonicalizeCanvasSceneMutationIntent = (
     "fileAdditions",
   ]);
   if (!Array.isArray(input.elementCandidates)) {
-    throw new CanvasSceneContractError(
-      "Canvas scene mutation.elementCandidates must be an array",
-    );
+    throw new CanvasSceneContractError("Canvas scene mutation.elementCandidates must be an array");
   }
   if (input.elementCandidates.length > MAX_CANVAS_SCENE_ELEMENTS) {
     throw new CanvasSceneContractError(
@@ -305,19 +283,13 @@ export const canonicalizeCanvasSceneMutationIntent = (
   );
   const elementIds = elementCandidates.map((element) => element.id as string);
   if (new Set(elementIds).size !== elementIds.length) {
-    throw new CanvasSceneContractError(
-      "Canvas scene mutation repeats an element id",
-    );
+    throw new CanvasSceneContractError("Canvas scene mutation repeats an element id");
   }
   if (!isRecord(input.appStateIntents)) {
-    throw new CanvasSceneContractError(
-      "Canvas scene mutation.appStateIntents must be an object",
-    );
+    throw new CanvasSceneContractError("Canvas scene mutation.appStateIntents must be an object");
   }
   const appStateIntents: Record<string, CanvasSceneAppStateIntent> = {};
-  const allowedAppStateKeys = new Set<string>(
-    DURABLE_CANVAS_SCENE_APP_STATE_KEYS,
-  );
+  const allowedAppStateKeys = new Set<string>(DURABLE_CANVAS_SCENE_APP_STATE_KEYS);
   for (const [key, intent] of Object.entries(input.appStateIntents)) {
     if (!allowedAppStateKeys.has(key)) {
       throw new CanvasSceneContractError(
@@ -329,10 +301,7 @@ export const canonicalizeCanvasSceneMutationIntent = (
         `Canvas scene mutation.appStateIntents.${key} must be an object`,
       );
     }
-    exactKeys(intent, `Canvas scene mutation.appStateIntents.${key}`, [
-      "expected",
-      "value",
-    ]);
+    exactKeys(intent, `Canvas scene mutation.appStateIntents.${key}`, ["expected", "value"]);
     appStateIntents[key] = {
       expected: canonicalOptionalJson(
         intent.expected,
@@ -347,9 +316,7 @@ export const canonicalizeCanvasSceneMutationIntent = (
     };
   }
   if (!isRecord(input.fileAdditions)) {
-    throw new CanvasSceneContractError(
-      "Canvas scene mutation.fileAdditions must be an object",
-    );
+    throw new CanvasSceneContractError("Canvas scene mutation.fileAdditions must be an object");
   }
   const fileEntries = Object.entries(input.fileAdditions);
   if (fileEntries.length > MAX_CANVAS_SCENE_FILES) {
@@ -360,10 +327,7 @@ export const canonicalizeCanvasSceneMutationIntent = (
   const fileAdditions = Object.fromEntries(
     fileEntries
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([fileId, file]) => [
-        fileId,
-        canonicalizeCanvasSceneFile(file, fileId),
-      ]),
+      .map(([fileId, file]) => [fileId, canonicalizeCanvasSceneFile(file, fileId)]),
   );
   const intent: CanvasSceneMutationIntent = {
     mutationId: requireCanvasSceneIdentity(input.mutationId, "mutationId"),
@@ -408,16 +372,11 @@ export const canonicalizeCanvasSceneMutationRequest = (
     "fileAdditions",
   ]);
   const intent = canonicalizeCanvasSceneMutationIntent(
-    Object.fromEntries(
-      Object.entries(input).filter(([key]) => key !== "clientSessionId"),
-    ),
+    Object.fromEntries(Object.entries(input).filter(([key]) => key !== "clientSessionId")),
   );
   const request = {
     ...intent,
-    clientSessionId: requireCanvasSceneIdentity(
-      input.clientSessionId,
-      "clientSessionId",
-    ),
+    clientSessionId: requireCanvasSceneIdentity(input.clientSessionId, "clientSessionId"),
   };
   const byteLength = new TextEncoder().encode(
     encodeCanonicalCanvasSceneMutationRequest(request),
@@ -430,27 +389,15 @@ export const canonicalizeCanvasSceneMutationRequest = (
 
 export const encodeCanonicalCanvasSceneMutationRequest = (
   request: CanvasSceneMutationRequest,
-): string =>
-  canonicalStringifyCanvasScene(request);
+): string => canonicalStringifyCanvasScene(request);
 
-const canonicalResultIds = (
-  value: unknown,
-  field: string,
-  maximum: number,
-): readonly string[] => {
+const canonicalResultIds = (value: unknown, field: string, maximum: number): readonly string[] => {
   if (!Array.isArray(value) || value.length > maximum) {
-    throw new CanvasSceneContractError(
-      `${field} must be a bounded identity array`,
-    );
+    throw new CanvasSceneContractError(`${field} must be a bounded identity array`);
   }
-  const ids = value.map((entry, index) =>
-    requireCanvasSceneIdentity(entry, `${field}[${index}]`),
-  );
+  const ids = value.map((entry, index) => requireCanvasSceneIdentity(entry, `${field}[${index}]`));
   const canonical = [...new Set(ids)].sort();
-  if (
-    canonical.length !== ids.length ||
-    canonical.some((id, index) => id !== ids[index])
-  ) {
+  if (canonical.length !== ids.length || canonical.some((id, index) => id !== ids[index])) {
     throw new CanvasSceneContractError(`${field} must be sorted and unique`);
   }
   return canonical;
@@ -484,19 +431,12 @@ export const canonicalizeCanvasSceneMutationResult = (
     ...(outcome === "committed" ? ["committedDelta"] : []),
   ]);
   if (typeof input.duplicate !== "boolean") {
-    throw new CanvasSceneContractError(
-      "Canvas scene mutation result.duplicate must be boolean",
-    );
+    throw new CanvasSceneContractError("Canvas scene mutation result.duplicate must be boolean");
   }
   if (outcome !== "committed" && outcome !== "no_change") {
-    throw new CanvasSceneContractError(
-      "Canvas scene mutation result.outcome is invalid",
-    );
+    throw new CanvasSceneContractError("Canvas scene mutation result.outcome is invalid");
   }
-  if (
-    typeof input.sceneHash !== "string" ||
-    !/^[a-f0-9]{64}$/u.test(input.sceneHash)
-  ) {
+  if (typeof input.sceneHash !== "string" || !/^[a-f0-9]{64}$/u.test(input.sceneHash)) {
     throw new CanvasSceneContractError(
       "Canvas scene mutation result.sceneHash must be lowercase SHA-256",
     );
@@ -507,10 +447,7 @@ export const canonicalizeCanvasSceneMutationResult = (
     );
   }
   const committedDate = new Date(input.committedAt);
-  if (
-    Number.isNaN(committedDate.getTime()) ||
-    committedDate.toISOString() !== input.committedAt
-  ) {
+  if (Number.isNaN(committedDate.getTime()) || committedDate.toISOString() !== input.committedAt) {
     throw new CanvasSceneContractError(
       "Canvas scene mutation result.committedAt must be canonical ISO time",
     );
@@ -527,9 +464,7 @@ export const canonicalizeCanvasSceneMutationResult = (
   );
   const allowedAppStateKeys = new Set<string>(DURABLE_CANVAS_SCENE_APP_STATE_KEYS);
   if (
-    [...appliedAppStateKeys, ...skippedAppStateKeys].some(
-      (key) => !allowedAppStateKeys.has(key),
-    )
+    [...appliedAppStateKeys, ...skippedAppStateKeys].some((key) => !allowedAppStateKeys.has(key))
   ) {
     throw new CanvasSceneContractError(
       "Canvas scene mutation result contains a non-durable appState key",
@@ -564,41 +499,35 @@ export const canonicalizeCanvasSceneMutationResult = (
       "removedFileIds",
     ]);
     if (
-      !Array.isArray(input.committedDelta.elementUpdates)
-      || !isRecord(input.committedDelta.appState)
-      || !isRecord(input.committedDelta.fileAdditions)
+      !Array.isArray(input.committedDelta.elementUpdates) ||
+      !isRecord(input.committedDelta.appState) ||
+      !isRecord(input.committedDelta.fileAdditions)
     ) {
       throw new CanvasSceneContractError(
         "Canvas scene mutation result.committedDelta has invalid fields",
       );
     }
     const elementUpdates = input.committedDelta.elementUpdates.map((element) =>
-      canonicalizeCanvasSceneElement(element)
+      canonicalizeCanvasSceneElement(element),
     );
     const fileAdditions = Object.fromEntries(
       Object.entries(input.committedDelta.fileAdditions)
         .sort(([left], [right]) => left.localeCompare(right))
-        .map(([fileId, file]) => [
-          fileId,
-          canonicalizeCanvasSceneFile(file, fileId),
-        ]),
+        .map(([fileId, file]) => [fileId, canonicalizeCanvasSceneFile(file, fileId)]),
     );
     const deltaRemovedFileIds = canonicalResultIds(
       input.committedDelta.removedFileIds,
       "Canvas scene mutation result.committedDelta.removedFileIds",
       MAX_CANVAS_SCENE_FILES,
     );
-    const deltaElementIds = [...elementUpdates]
-      .map((element) => element.id as string)
-      .sort();
+    const deltaElementIds = [...elementUpdates].map((element) => element.id as string).sort();
     const deltaFileIds = Object.keys(fileAdditions).sort();
     if (
-      canonicalStringifyCanvasScene(deltaElementIds)
-        !== canonicalStringifyCanvasScene(changedElementIds)
-      || canonicalStringifyCanvasScene(deltaFileIds)
-        !== canonicalStringifyCanvasScene(addedFileIds)
-      || canonicalStringifyCanvasScene(deltaRemovedFileIds)
-        !== canonicalStringifyCanvasScene(removedFileIds)
+      canonicalStringifyCanvasScene(deltaElementIds) !==
+        canonicalStringifyCanvasScene(changedElementIds) ||
+      canonicalStringifyCanvasScene(deltaFileIds) !== canonicalStringifyCanvasScene(addedFileIds) ||
+      canonicalStringifyCanvasScene(deltaRemovedFileIds) !==
+        canonicalStringifyCanvasScene(removedFileIds)
     ) {
       throw new CanvasSceneContractError(
         "Canvas scene mutation result.committedDelta disagrees with its summaries",
@@ -606,9 +535,7 @@ export const canonicalizeCanvasSceneMutationResult = (
     }
     committedDelta = {
       elementUpdates,
-      appState: pickPortableCanvasSceneAppState(
-        input.committedDelta.appState,
-      ),
+      appState: pickPortableCanvasSceneAppState(input.committedDelta.appState),
       fileAdditions,
       removedFileIds: deltaRemovedFileIds,
     };

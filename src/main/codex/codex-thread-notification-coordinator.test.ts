@@ -41,9 +41,7 @@ class FakeSource implements CodexThreadNotificationEventSource {
     };
   }
 
-  addRendererConversationPresentedInForegroundListener(
-    listener: (conversationId: string) => void,
-  ) {
+  addRendererConversationPresentedInForegroundListener(listener: (conversationId: string) => void) {
     this.presentedListener = listener;
     return () => {
       if (this.presentedListener === listener) this.presentedListener = null;
@@ -51,11 +49,13 @@ class FakeSource implements CodexThreadNotificationEventSource {
   }
 }
 
-function setup(settings: ThreadNotificationSettings = {
-  turnMode: "unfocused",
-  permissionsEnabled: true,
-  questionsEnabled: true,
-}) {
+function setup(
+  settings: ThreadNotificationSettings = {
+    turnMode: "unfocused",
+    permissionsEnabled: true,
+    questionsEnabled: true,
+  },
+) {
   const source = new FakeSource();
   const shown: DesktopNotificationPayload[] = [];
   const actions: Array<(action: DesktopNotificationActionPayload) => void> = [];
@@ -113,13 +113,15 @@ describe("CodexThreadNotificationCoordinator", () => {
       automationNotificationDecision: null,
       hasPendingContinuation: false,
     });
-    expect(runtime.shown).toMatchObject([{
-      id: "turn-turn-1",
-      title: "Notification parity",
-      body: "Stopped safely",
-      navigationPath: "thread:thread-1",
-      replyPlaceholder: "Reply to Nodex",
-    }]);
+    expect(runtime.shown).toMatchObject([
+      {
+        id: "turn-turn-1",
+        title: "Notification parity",
+        body: "Stopped safely",
+        navigationPath: "thread:thread-1",
+        replyPlaceholder: "Reply to Nodex",
+      },
+    ]);
 
     runtime.setForegrounded(true);
     runtime.source.eventListener?.({

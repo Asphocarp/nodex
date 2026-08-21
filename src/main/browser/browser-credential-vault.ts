@@ -21,39 +21,50 @@ const MAX_CREDENTIAL_COUNT = 20_000;
 const MAX_CONTACT_COUNT = 1_000;
 const MAX_CONTACT_CIPHERTEXT_LENGTH = 256 * 1024;
 
-const StoredCredentialSchema = z.object({
-  id: z.string().regex(/^[a-f0-9]{64}$/u),
-  origin: z.string().min(1).max(MAX_ORIGIN_LENGTH),
-  username: z.string().max(MAX_USERNAME_LENGTH),
-  label: z.string().max(2_048),
-  ciphertext: z.string().min(1).max(4 * MAX_PASSWORD_LENGTH),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-}).strict();
+const StoredCredentialSchema = z
+  .object({
+    id: z.string().regex(/^[a-f0-9]{64}$/u),
+    origin: z.string().min(1).max(MAX_ORIGIN_LENGTH),
+    username: z.string().max(MAX_USERNAME_LENGTH),
+    label: z.string().max(2_048),
+    ciphertext: z
+      .string()
+      .min(1)
+      .max(4 * MAX_PASSWORD_LENGTH),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
 
 const ContactPayloadSchema = BrowserContactInfoFieldsSchema;
 
-const StoredContactSchema = z.object({
-  id: z.string().uuid(),
-  ciphertext: z.string().min(1).max(MAX_CONTACT_CIPHERTEXT_LENGTH),
-  createdAt: z.string().datetime(),
-  updatedAt: z.string().datetime(),
-}).strict();
+const StoredContactSchema = z
+  .object({
+    id: z.string().uuid(),
+    ciphertext: z.string().min(1).max(MAX_CONTACT_CIPHERTEXT_LENGTH),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
 
-const CredentialFileSchema = z.object({
-  schemaVersion: z.literal(FILE_SCHEMA_VERSION),
-  credentials: z.array(StoredCredentialSchema).max(MAX_CREDENTIAL_COUNT),
-  contacts: z.array(StoredContactSchema).max(MAX_CONTACT_COUNT),
-}).strict();
+const CredentialFileSchema = z
+  .object({
+    schemaVersion: z.literal(FILE_SCHEMA_VERSION),
+    credentials: z.array(StoredCredentialSchema).max(MAX_CREDENTIAL_COUNT),
+    contacts: z.array(StoredContactSchema).max(MAX_CONTACT_COUNT),
+  })
+  .strict();
 
 type StoredCredential = z.infer<typeof StoredCredentialSchema>;
 type StoredContact = z.infer<typeof StoredContactSchema>;
 type CredentialFile = z.infer<typeof CredentialFileSchema>;
 
-const LegacyCredentialFileSchema = z.object({
-  schemaVersion: z.literal(1),
-  credentials: z.array(StoredCredentialSchema).max(MAX_CREDENTIAL_COUNT),
-}).strict();
+const LegacyCredentialFileSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    credentials: z.array(StoredCredentialSchema).max(MAX_CREDENTIAL_COUNT),
+  })
+  .strict();
 
 export interface BrowserCredentialEncryption {
   isAvailable(): boolean;
@@ -107,15 +118,15 @@ export class BrowserCredentialVault {
 
   async listForOrigin(origin: string): Promise<BrowserCredentialSummary[]> {
     const normalizedOrigin = normalizeOrigin(origin);
-    return this.readFile().credentials
-      .filter((credential) => credential.origin === normalizedOrigin)
+    return this.readFile()
+      .credentials.filter((credential) => credential.origin === normalizedOrigin)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map(toSummary);
   }
 
   async list(): Promise<BrowserCredentialSummary[]> {
-    return this.readFile().credentials
-      .slice()
+    return this.readFile()
+      .credentials.slice()
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map(toSummary);
   }
@@ -210,8 +221,8 @@ export class BrowserCredentialVault {
 
   async listContactInfo(): Promise<BrowserContactInfo[]> {
     this.requireEncryption();
-    return this.readFile().contacts
-      .slice()
+    return this.readFile()
+      .contacts.slice()
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .map((contact) => this.decryptContact(contact));
   }
@@ -222,9 +233,7 @@ export class BrowserCredentialVault {
     return contact ? this.decryptContact(contact) : null;
   }
 
-  async saveContactInfo(
-    rawInput: BrowserContactInfoUpsertInput,
-  ): Promise<BrowserContactInfo> {
+  async saveContactInfo(rawInput: BrowserContactInfoUpsertInput): Promise<BrowserContactInfo> {
     this.requireEncryption();
     const input = BrowserContactInfoUpsertInputSchema.parse(rawInput);
     const payload = ContactPayloadSchema.parse({
@@ -249,9 +258,7 @@ export class BrowserCredentialVault {
         throw new Error("Browser contact info no longer exists");
       }
       savedId = existing?.id ?? randomUUID();
-      const ciphertext = this.encryption.encryptString(
-        JSON.stringify(payload),
-      ).toString("base64");
+      const ciphertext = this.encryption.encryptString(JSON.stringify(payload)).toString("base64");
       const contact = StoredContactSchema.parse({
         id: savedId,
         ciphertext,
@@ -261,10 +268,10 @@ export class BrowserCredentialVault {
       return {
         schemaVersion: FILE_SCHEMA_VERSION,
         credentials: current.credentials,
-        contacts: [
-          contact,
-          ...current.contacts.filter((entry) => entry.id !== savedId),
-        ].slice(0, MAX_CONTACT_COUNT),
+        contacts: [contact, ...current.contacts.filter((entry) => entry.id !== savedId)].slice(
+          0,
+          MAX_CONTACT_COUNT,
+        ),
       };
     });
     if (!savedId) throw new Error("Browser contact info save did not complete");
@@ -332,9 +339,7 @@ export class BrowserCredentialVault {
     };
   }
 
-  private async enqueueWrite(
-    update: (current: CredentialFile) => CredentialFile,
-  ): Promise<void> {
+  private async enqueueWrite(update: (current: CredentialFile) => CredentialFile): Promise<void> {
     const operation = this.writeQueue.then(() => {
       const current = this.readFile();
       this.writeFileAtomically(CredentialFileSchema.parse(update(current)));
@@ -400,11 +405,7 @@ function normalizeOrigin(value: string): string {
   } catch {
     throw new Error("Browser credential origin is invalid");
   }
-  if (
-    (url.protocol !== "https:" && url.protocol !== "http:")
-    || url.username
-    || url.password
-  ) {
+  if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password) {
     throw new Error("Browser credentials require an HTTP(S) origin");
   }
   return url.origin;
@@ -425,11 +426,7 @@ function normalizePassword(value: string): string {
   return value;
 }
 
-function normalizeLabel(
-  requested: string | undefined,
-  origin: string,
-  username: string,
-): string {
+function normalizeLabel(requested: string | undefined, origin: string, username: string): string {
   const label = requested?.trim() || username || new URL(origin).hostname;
   return label.slice(0, 2_048);
 }

@@ -19,9 +19,8 @@ import { CodexUserInputRequestCard } from "./view/composer/request-cards/codex-u
 const api = vi.hoisted(() => ({
   getSnapshot: vi.fn<() => Promise<CodexUserInputAutoResolutionEntry[]>>(),
   recordActivity: vi.fn<(conversationId: string) => Promise<boolean>>(),
-  snooze: vi.fn<(
-    target: { conversationId: string; requestId: string | number },
-  ) => Promise<boolean>>(),
+  snooze:
+    vi.fn<(target: { conversationId: string; requestId: string | number }) => Promise<boolean>>(),
   listener: null as ((change: CodexUserInputAutoResolutionChange) => void) | null,
 }));
 
@@ -29,9 +28,8 @@ vi.mock("@/lib/api", () => ({
   getUserInputAutoResolutionSnapshot: () => api.getSnapshot(),
   recordUserInputAutoResolutionActivity: (conversationId: string) =>
     api.recordActivity(conversationId),
-  snoozeUserInputAutoResolution: (
-    target: { conversationId: string; requestId: string | number },
-  ) => api.snooze(target),
+  snoozeUserInputAutoResolution: (target: { conversationId: string; requestId: string | number }) =>
+    api.snooze(target),
   subscribeUserInputAutoResolutionChanges: (
     listener: (change: CodexUserInputAutoResolutionChange) => void,
   ) => {
@@ -54,7 +52,7 @@ function AutoResolutionProbe({
     <output>
       {entry?.phase.type === "scheduled"
         ? `scheduled:${entry.phase.deadlineMs}`
-        : entry?.phase.type ?? "none"}
+        : (entry?.phase.type ?? "none")}
     </output>
   );
 }
@@ -66,14 +64,16 @@ const draftRequest: CodexUserInputRequest = {
   threadId: "thread-draft",
   turnId: "turn-1",
   itemId: "item-1",
-  questions: [{
-    id: "secret-context",
-    header: "Secret context",
-    question: "What should Codex know?",
-    isOther: false,
-    isSecret: true,
-    options: undefined,
-  }],
+  questions: [
+    {
+      id: "secret-context",
+      header: "Secret context",
+      question: "What should Codex know?",
+      isOther: false,
+      isSecret: true,
+      options: undefined,
+    },
+  ],
   isBlocking: false,
   createdAt: 1,
 };
@@ -92,18 +92,13 @@ beforeEach(() => {
 
 describe("user input auto-resolution renderer state", () => {
   test("does not let a late snapshot overwrite a newer live update", async () => {
-    let resolveSnapshot: (
-      entries: CodexUserInputAutoResolutionEntry[],
-    ) => void = () => undefined;
-    api.getSnapshot.mockReturnValue(new Promise((resolve) => {
-      resolveSnapshot = resolve;
-    }));
-    const view = render(
-      <AutoResolutionProbe
-        conversationId="thread-1"
-        requestId="request-1"
-      />,
+    let resolveSnapshot: (entries: CodexUserInputAutoResolutionEntry[]) => void = () => undefined;
+    api.getSnapshot.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSnapshot = resolve;
+      }),
     );
+    const view = render(<AutoResolutionProbe conversationId="thread-1" requestId="request-1" />);
     await settleAsyncRender();
 
     await act(async () => {
@@ -120,11 +115,13 @@ describe("user input auto-resolution renderer state", () => {
     expect(view.getByText("scheduled:91000")).not.toBeNull();
 
     await act(async () => {
-      resolveSnapshot([{
-        conversationId: "thread-1",
-        requestId: "request-1",
-        phase: { type: "waitingForInactivity" },
-      }]);
+      resolveSnapshot([
+        {
+          conversationId: "thread-1",
+          requestId: "request-1",
+          phase: { type: "waitingForInactivity" },
+        },
+      ]);
       await settleAsyncRender();
     });
     expect(view.getByText("scheduled:91000")).not.toBeNull();
@@ -194,8 +191,7 @@ describe("user input auto-resolution renderer state", () => {
     const afterDisconnect = render(card);
     await settleAsyncRender();
     expect(
-      (afterDisconnect.getByPlaceholderText("Type your answer") as HTMLInputElement)
-        .value,
+      (afterDisconnect.getByPlaceholderText("Type your answer") as HTMLInputElement).value,
     ).toBe("");
   });
 });

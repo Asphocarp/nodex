@@ -8,10 +8,7 @@ import {
   type RustDataAuthorityRuntime,
 } from "../../../src/main/core-client";
 import type { IsolatedProfile } from "../profile/isolated-profile";
-import {
-  cleanupIsolatedProfile,
-  createIsolatedProfile,
-} from "../profile/isolated-profile";
+import { cleanupIsolatedProfile, createIsolatedProfile } from "../profile/isolated-profile";
 import type { ScenarioFacts, ScenarioManifest } from "../contracts";
 import { CoreClientSeedAdapter } from "../adapters/core-client-seed-adapter";
 import { inspectScenario, materializeScenario } from "../seed/scenario-seed";
@@ -43,9 +40,12 @@ const readBoundedCoreDiagnostics = async (nodexHome: string): Promise<string> =>
       .filter((entry) => entry.endsWith(".log"))
       .sort()
       .slice(-2);
-    const logs = await Promise.all(entries.map(async (entry) =>
-      `== ${entry} ==\n${await readFile(path.join(logDirectory, entry), "utf8")}`
-    ));
+    const logs = await Promise.all(
+      entries.map(
+        async (entry) =>
+          `== ${entry} ==\n${await readFile(path.join(logDirectory, entry), "utf8")}`,
+      ),
+    );
     return logs.join("\n").slice(-8_192);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
@@ -115,9 +115,9 @@ export const withCoreScenario = async <Value>(
   try {
     const cleanup = await cleanupIsolatedProfile(profile);
     if (cleanup.status === "unsafe") {
-      teardownErrors.push(new Error(
-        `Preserved Core scenario Profile ${profile.runRoot}: ${cleanup.reason}`,
-      ));
+      teardownErrors.push(
+        new Error(`Preserved Core scenario Profile ${profile.runRoot}: ${cleanup.reason}`),
+      );
     }
   } catch (error) {
     teardownErrors.push(error);

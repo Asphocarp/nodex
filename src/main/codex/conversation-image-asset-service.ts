@@ -25,7 +25,10 @@ function parsePointerFileId(pointer: string): string | null {
   return fileId.length > 0 ? fileId : null;
 }
 
-function failure(message: string, status: number | null = null): CodexConversationImageAssetResolveResult {
+function failure(
+  message: string,
+  status: number | null = null,
+): CodexConversationImageAssetResolveResult {
   return { ok: false, message, status };
 }
 
@@ -62,13 +65,12 @@ export class CodexConversationImageAssetService {
         return failure(await readResponseMessage(linkResponse), linkResponse.status);
       }
 
-      const payload = await linkResponse.json() as ConversationImageAssetDownloadResponse;
+      const payload = (await linkResponse.json()) as ConversationImageAssetDownloadResponse;
       if (payload.status != null && payload.status !== "success") {
         return failure("Generated image download is not ready");
       }
-      const downloadUrl = typeof payload.download_url === "string"
-        ? payload.download_url.trim()
-        : "";
+      const downloadUrl =
+        typeof payload.download_url === "string" ? payload.download_url.trim() : "";
       if (downloadUrl.length === 0) {
         return failure("Generated image download response is missing download_url");
       }

@@ -17,19 +17,21 @@ function ContextWindowTooltipStory({
       <div className="mb-4 max-w-xl">
         <div className="text-sm font-semibold text-(--foreground)">Context Window Tooltip</div>
         <div className="mt-1 text-sm/relaxed text-(--foreground-secondary)">
-          Codex Electron parity harness for the composer footer context-window tooltip. The open state stays pinned so the exact copy, width, spacing, and conditional compaction line are reviewable in Storybook.
+          Codex Electron parity harness for the composer footer context-window tooltip. The open
+          state stays pinned so the exact copy, width, spacing, and conditional compaction line are
+          reviewable in Storybook.
         </div>
       </div>
       <NodexTooltipProvider>
         <NodexTooltip
           open={true}
           side="top"
-          tooltipContent={(
+          tooltipContent={
             <ContextWindowTooltipContent
               state={state}
               showAutoCompactionNote={showAutoCompactionNote}
             />
-          )}
+          }
         >
           <button
             type="button"

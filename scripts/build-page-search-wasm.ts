@@ -16,14 +16,32 @@ if (!wasmBindgenVersion.endsWith(expectedWasmBindgenVersion)) {
   );
 }
 
-execFileSync("cargo", [
-  "build", "-p", "nodex-page-search-kernel", "--release",
-  "--target", "wasm32-unknown-unknown", "--features", "wasm",
-], { cwd: root, stdio: "inherit" });
-execFileSync("wasm-bindgen", [
-  resolve(root, "target/wasm32-unknown-unknown/release/nodex_page_search_kernel.wasm"),
-  "--out-dir", output, "--target", "web", "--typescript",
-], { cwd: root, stdio: "inherit" });
+execFileSync(
+  "cargo",
+  [
+    "build",
+    "-p",
+    "nodex-page-search-kernel",
+    "--release",
+    "--target",
+    "wasm32-unknown-unknown",
+    "--features",
+    "wasm",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
+execFileSync(
+  "wasm-bindgen",
+  [
+    resolve(root, "target/wasm32-unknown-unknown/release/nodex_page_search_kernel.wasm"),
+    "--out-dir",
+    output,
+    "--target",
+    "web",
+    "--typescript",
+  ],
+  { cwd: root, stdio: "inherit" },
+);
 
 const generatedJavaScript = resolve(output, "nodex_page_search_kernel.js");
 const source = readFileSync(generatedJavaScript, "utf8");

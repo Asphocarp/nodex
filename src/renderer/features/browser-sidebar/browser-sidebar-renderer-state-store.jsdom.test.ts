@@ -28,23 +28,18 @@ describe("browserSidebarRendererStateStore", () => {
     Object.defineProperty(window, "api", {
       configurable: true,
       value: {
-        on: (
-          channel: string,
-          handler: (payload: unknown) => void,
-        ) => {
+        on: (channel: string, handler: (payload: unknown) => void) => {
           handlers.set(channel, handler);
           return () => handlers.delete(channel);
         },
       },
     });
-    let resolveBootstrap:
-      | ((snapshot: BrowserSidebarRuntimeSnapshot) => void)
-      | undefined;
-    mocks.invoke.mockReturnValue(new Promise<BrowserSidebarRuntimeSnapshot>(
-      (resolve) => {
+    let resolveBootstrap: ((snapshot: BrowserSidebarRuntimeSnapshot) => void) | undefined;
+    mocks.invoke.mockReturnValue(
+      new Promise<BrowserSidebarRuntimeSnapshot>((resolve) => {
         resolveBootstrap = resolve;
-      },
-    ));
+      }),
+    );
 
     const stop = startBrowserSidebarRendererStateStore();
     const liveState = {
@@ -66,9 +61,7 @@ describe("browserSidebarRendererStateStore", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(browserSidebarRendererStateStore.getSnapshot().state).toBe(
-      liveState,
-    );
+    expect(browserSidebarRendererStateStore.getSnapshot().state).toBe(liveState);
     stop();
   });
 });

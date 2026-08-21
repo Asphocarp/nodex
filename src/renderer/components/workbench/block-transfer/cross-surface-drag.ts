@@ -8,8 +8,7 @@ import type {
 } from "../../../../shared/block-transfer";
 import type { PublicBlockTransferIntent } from "../../../../shared/block-transfer-transport";
 
-export const NODEX_BLOCK_TRANSFER_DRAG_MIME =
-  "application/vnd.nodex.block-transfer.v2+json";
+export const NODEX_BLOCK_TRANSFER_DRAG_MIME = "application/vnd.nodex.block-transfer.v2+json";
 
 const VERSION = 2 as const;
 const MAX_ITEMS = 128;
@@ -37,14 +36,11 @@ export const containsDatabaseBlockDrag = (
 ): boolean => payload.displayHints.includes("database");
 
 export const isSingleCanvasBlockDrag = (
-  payload: Pick<
-    CrossSurfaceBlockTransferPayload,
-    "displayHints" | "rootBlockIds"
-  >,
+  payload: Pick<CrossSurfaceBlockTransferPayload, "displayHints" | "rootBlockIds">,
 ): boolean =>
-  payload.rootBlockIds.length === 1
-  && payload.displayHints.length === 1
-  && payload.displayHints[0] === "canvas";
+  payload.rootBlockIds.length === 1 &&
+  payload.displayHints.length === 1 &&
+  payload.displayHints[0] === "canvas";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -64,11 +60,7 @@ const parseSource = (value: unknown): BlockTransferIntentSource | null => {
   ) {
     return { kind: "library", libraryId: value.libraryId };
   }
-  if (
-    value.kind === "page" &&
-    Object.keys(value).length === 2 &&
-    isBoundedIdentity(value.pageId)
-  ) {
+  if (value.kind === "page" && Object.keys(value).length === 2 && isBoundedIdentity(value.pageId)) {
     return { kind: "page", pageId: value.pageId };
   }
   if (
@@ -90,8 +82,7 @@ const parseSource = (value: unknown): BlockTransferIntentSource | null => {
 
 export const encodeBlockTransferDragPayload = (
   payload: Omit<CrossSurfaceBlockTransferPayload, "version" | "kind">,
-): string =>
-  JSON.stringify({ version: VERSION, kind: "block_transfer", ...payload });
+): string => JSON.stringify({ version: VERSION, kind: "block_transfer", ...payload });
 
 export const parseBlockTransferDragPayload = (
   serialized: string,
@@ -127,9 +118,7 @@ export const parseBlockTransferDragPayload = (
   if (
     !Array.isArray(value.displayHints) ||
     value.displayHints.length !== value.rootBlockIds.length ||
-    !value.displayHints.every(
-      (hint) => typeof hint === "string" && hint.length <= MAX_ID_LENGTH,
-    )
+    !value.displayHints.every((hint) => typeof hint === "string" && hint.length <= MAX_ID_LENGTH)
   ) {
     return null;
   }
@@ -146,16 +135,15 @@ export const parseBlockTransferDragPayload = (
   };
 };
 
-export const resolveCrossSurfaceTransferMode = (
-  event: { readonly altKey: boolean },
-): BlockTransferMode => (event.altKey ? "copy" : "move");
+export const resolveCrossSurfaceTransferMode = (event: {
+  readonly altKey: boolean;
+}): BlockTransferMode => (event.altKey ? "copy" : "move");
 
 export const resolvePagePromotionPolicy = (input: {
   readonly preferenceEnabled: boolean;
   readonly shiftKey: boolean;
-}): PagePromotionPolicy => input.preferenceEnabled && !input.shiftKey
-  ? "task_shorthand_v1"
-  : "literal";
+}): PagePromotionPolicy =>
+  input.preferenceEnabled && !input.shiftKey ? "task_shorthand_v1" : "literal";
 
 export const blockTransferDropLabel = (
   mode: BlockTransferMode,
@@ -195,10 +183,8 @@ export const buildBlockToDataSourceTransferIntent = (input: {
   promotionPolicy: input.promotionPolicy,
 });
 
-export const hasDragType = (
-  dataTransfer: Pick<DataTransfer, "types">,
-  mime: string,
-): boolean => Array.from(dataTransfer.types).includes(mime);
+export const hasDragType = (dataTransfer: Pick<DataTransfer, "types">, mime: string): boolean =>
+  Array.from(dataTransfer.types).includes(mime);
 
 export interface LocalBlockDragSession {
   readonly sessionId: string;
@@ -272,16 +258,10 @@ export interface ClaimLocalBlockDragDropTarget {
 
 export class BlockDragSessionCoordinator {
   private active: LocalBlockDragSession | null = null;
-  private readonly dropTargetsByElement = new WeakMap<
-    HTMLElement,
-    LocalBlockDragDropTarget
-  >();
+  private readonly dropTargetsByElement = new WeakMap<HTMLElement, LocalBlockDragDropTarget>();
   private activeDropTarget: LocalBlockDragDropTarget | null = null;
 
-  constructor(
-    private readonly createSessionId: () => string = () =>
-      crypto.randomUUID(),
-  ) {}
+  constructor(private readonly createSessionId: () => string = () => crypto.randomUUID()) {}
 
   start(
     input: Omit<
@@ -313,10 +293,7 @@ export class BlockDragSessionCoordinator {
       taskShorthandPreviewHints: [...(input.taskShorthandPreviewHints ?? [])],
     } satisfies LocalBlockDragSession;
 
-    dataTransfer.setData(
-      NODEX_BLOCK_TRANSFER_DRAG_MIME,
-      encodeBlockTransferDragPayload(payload),
-    );
+    dataTransfer.setData(NODEX_BLOCK_TRANSFER_DRAG_MIME, encodeBlockTransferDragPayload(payload));
     dataTransfer.effectAllowed = "copyMove";
     this.active = session;
     return session;
@@ -325,9 +302,7 @@ export class BlockDragSessionCoordinator {
   registerDropTarget(input: RegisterLocalBlockDragDropTarget): () => void {
     const existing = this.dropTargetsByElement.get(input.element);
     if (existing) {
-      throw new Error(
-        `Block drag drop target ${existing.surfaceId} already owns this element`,
-      );
+      throw new Error(`Block drag drop target ${existing.surfaceId} already owns this element`);
     }
     const target = { ...input } satisfies LocalBlockDragDropTarget;
     this.dropTargetsByElement.set(input.element, target);
@@ -362,10 +337,7 @@ export class BlockDragSessionCoordinator {
   }
 
   resolveDrop(
-    dataTransfer:
-      | Pick<DataTransfer, "types" | "getData">
-      | null
-      | undefined,
+    dataTransfer: Pick<DataTransfer, "types" | "getData"> | null | undefined,
   ): LocalBlockDragSession | null {
     const session = this.resolve(dataTransfer);
     if (!session || !dataTransfer) return null;
@@ -375,16 +347,10 @@ export class BlockDragSessionCoordinator {
     return token?.sessionId === session.sessionId ? session : null;
   }
 
-  end(input?: {
-    readonly sessionId?: string;
-    readonly sourceSurfaceId?: string;
-  }): void {
+  end(input?: { readonly sessionId?: string; readonly sourceSurfaceId?: string }): void {
     if (!this.active) return;
     if (input?.sessionId && input.sessionId !== this.active.sessionId) return;
-    if (
-      input?.sourceSurfaceId &&
-      input.sourceSurfaceId !== this.active.sourceSurfaceId
-    ) {
+    if (input?.sourceSurfaceId && input.sourceSurfaceId !== this.active.sourceSurfaceId) {
       return;
     }
     this.setActiveDropTarget(null);
@@ -429,21 +395,16 @@ export const registerLocalBlockDragDropTarget = (
   input: RegisterLocalBlockDragDropTarget,
 ): (() => void) => blockDragSessionCoordinator.registerDropTarget(input);
 
-export const claimLocalBlockDragDropTarget = (
-  input: ClaimLocalBlockDragDropTarget,
-): boolean => blockDragSessionCoordinator.claimDropTarget(input);
+export const claimLocalBlockDragDropTarget = (input: ClaimLocalBlockDragDropTarget): boolean =>
+  blockDragSessionCoordinator.claimDropTarget(input);
 
 export const releaseLocalBlockDragDropTarget = (surfaceId: string): void =>
   blockDragSessionCoordinator.releaseDropTarget(surfaceId);
 
 /** Resolve the authoritative session only after its drop-readable token matches. */
 export const resolveLocalBlockDragDropSession = (
-  dataTransfer:
-    | Pick<DataTransfer, "types" | "getData">
-    | null
-    | undefined,
-): LocalBlockDragSession | null =>
-  blockDragSessionCoordinator.resolveDrop(dataTransfer);
+  dataTransfer: Pick<DataTransfer, "types" | "getData"> | null | undefined,
+): LocalBlockDragSession | null => blockDragSessionCoordinator.resolveDrop(dataTransfer);
 
 export const shouldBlockNoteYieldManagedDrag = (input: {
   readonly session: LocalBlockDragSession | null;
@@ -455,16 +416,13 @@ export const shouldBlockNoteYieldManagedDrag = (input: {
   if (containsCanvasBlockDrag(input.session.payload)) return true;
   if (input.session.sourceSurfaceId !== input.currentSurfaceId) return true;
   if (!(input.eventTarget instanceof Element)) return true;
-  return (
-    input.eventTarget.closest(".nfm-editor") !== input.currentSurfaceElement
-  );
+  return input.eventTarget.closest(".nfm-editor") !== input.currentSurfaceElement;
 };
 
 /** Native cross-surface DnD is intentionally renderer-window local. */
 export const shouldHandleNativeCrossSurfaceDrag = (
   dataTransfer: Pick<DataTransfer, "types">,
-): boolean =>
-  resolveLocalBlockDragSession(dataTransfer) !== null;
+): boolean => resolveLocalBlockDragSession(dataTransfer) !== null;
 
 if (typeof window !== "undefined") {
   window.addEventListener("blur", () => blockDragSessionCoordinator.end());

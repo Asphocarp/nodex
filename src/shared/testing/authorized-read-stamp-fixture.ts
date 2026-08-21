@@ -1,9 +1,6 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 
-import type {
-  AuthorityResource,
-  AuthorizedReadStamp,
-} from "../authorized-read-stamp";
+import type { AuthorityResource, AuthorizedReadStamp } from "../authorized-read-stamp";
 import { canonicalizeAuthorityResources } from "../authorized-read-stamp";
 import type { DeliveryAddress } from "../recipient-delivery";
 
@@ -33,9 +30,15 @@ export const authorizedReadStampFixture = (input: {
   } as const;
   return {
     ...payload,
-    stamp_hash: bytesToHex(sha256(new TextEncoder().encode(JSON.stringify({
-      hash_version: 1,
-      ...payload,
-    })))),
+    stamp_hash: bytesToHex(
+      sha256(
+        new TextEncoder().encode(
+          JSON.stringify({
+            hash_version: 1,
+            ...payload,
+          }),
+        ),
+      ),
+    ),
   };
 };

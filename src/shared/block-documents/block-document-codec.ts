@@ -1,8 +1,5 @@
 import { BlockNoteEditor } from "@blocknote/core";
-import {
-  blocksToYXmlFragment,
-  yXmlFragmentToBlocks,
-} from "@blocknote/core/yjs";
+import { blocksToYXmlFragment, yXmlFragmentToBlocks } from "@blocknote/core/yjs";
 import * as Y from "yjs";
 import { createUuidV7 } from "../uuid-v7";
 import { extractPlainText } from "../nfm/extract-text";
@@ -55,10 +52,7 @@ export interface BlockTreeNode {
   readonly children: readonly BlockTreeNode[];
 }
 
-export type {
-  BlockDocumentAssetReference,
-  BlockDocumentReference,
-} from "./derived-records";
+export type { BlockDocumentAssetReference, BlockDocumentReference } from "./derived-records";
 
 export interface BlockDocumentMaterialization {
   readonly schemaVersion: number;
@@ -124,9 +118,7 @@ export class BlockDocumentCodecError extends Error {
  * BlockNote-backed Document. Disclosure state is intentionally omitted: an
  * expanded toggle is window-local UI state, not collaborative Card content.
  */
-export const createBlockDocumentNfmContentParitySignature = (
-  nfm: string,
-): string => {
+export const createBlockDocumentNfmContentParitySignature = (nfm: string): string => {
   let nextBlockId = 0;
   const blocks = nfmToBlockNoteWithIds(parseNfm(nfm), () => {
     nextBlockId += 1;
@@ -150,9 +142,7 @@ const ensureCanonicalBodyRoot = (body: Y.XmlFragment): void => {
  * application identity in authority data prevents the editor from inventing
  * its process-wide `initialBlockId` placeholder when an empty Page mounts.
  */
-export const createCanonicalEmptyParagraphBlock = (
-  blockId: BlockId,
-): BlockTreeNode => ({
+export const createCanonicalEmptyParagraphBlock = (blockId: BlockId): BlockTreeNode => ({
   id: blockId,
   type: "paragraph",
   props: {
@@ -171,9 +161,7 @@ export const populateBlockDocumentBodyFromNfm = (
 ): void => {
   const imported = nfmToBlockNoteWithIds(parseNfm(nfm), allocateBlockId);
   const blockNoteBlocks =
-    imported.length > 0
-      ? imported
-      : [createCanonicalEmptyParagraphBlock(allocateBlockId())];
+    imported.length > 0 ? imported : [createCanonicalEmptyParagraphBlock(allocateBlockId())];
   blocksToYXmlFragment(
     headlessEditor,
     blockNoteBlocks as (typeof headlessBlockDocumentSchema.Block)[],
@@ -201,30 +189,20 @@ const cloneBlockTreeValue = (
   ancestors = new Set<object>(),
 ): BlockTreeValue | typeof OMIT_VALUE => {
   if (value === undefined) return OMIT_VALUE;
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
     return value;
   }
   if (typeof value === "number") {
     if (!Number.isFinite(value)) {
-      throw new BlockDocumentCodecError(
-        "Block tree values must contain finite numbers",
-      );
+      throw new BlockDocumentCodecError("Block tree values must contain finite numbers");
     }
     return value;
   }
   if (typeof value !== "object") {
-    throw new BlockDocumentCodecError(
-      `Unsupported Block tree value: ${typeof value}`,
-    );
+    throw new BlockDocumentCodecError(`Unsupported Block tree value: ${typeof value}`);
   }
   if (ancestors.has(value)) {
-    throw new BlockDocumentCodecError(
-      "Block tree values must not contain cycles",
-    );
+    throw new BlockDocumentCodecError("Block tree values must not contain cycles");
   }
 
   const nextAncestors = new Set(ancestors);
@@ -238,9 +216,7 @@ const cloneBlockTreeValue = (
 
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
-    throw new BlockDocumentCodecError(
-      `Unsupported Block tree object: ${value.constructor.name}`,
-    );
+    throw new BlockDocumentCodecError(`Unsupported Block tree object: ${value.constructor.name}`);
   }
 
   const entries = Object.entries(value).flatMap(([key, entry]) => {
@@ -265,14 +241,10 @@ const cloneProps = (
   return cloned as Readonly<Record<string, BlockTreeValue>>;
 };
 
-const toBlockTree = (
-  blocks: readonly BlockNoteBlockValue[],
-): readonly BlockTreeNode[] =>
+const toBlockTree = (blocks: readonly BlockNoteBlockValue[]): readonly BlockTreeNode[] =>
   blocks.map((block) => {
     if (!block.id) {
-      throw new BlockDocumentCodecError(
-        "Materialized Block is missing its identity",
-      );
+      throw new BlockDocumentCodecError("Materialized Block is missing its identity");
     }
     const content = cloneBlockTreeValue(block.content);
     return {
@@ -309,20 +281,14 @@ const blockTreeValuesEqual = (
       left.every((entry, index) => blockTreeValuesEqual(entry, right[index]))
     );
   }
-  if (
-    typeof left !== "object" ||
-    left === null ||
-    typeof right !== "object" ||
-    right === null
-  ) {
+  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
     return false;
   }
   const leftEntries = Object.entries(left);
   const rightRecord = right as Readonly<Record<string, BlockTreeValue>>;
   return leftEntries.every(
     ([key, value]) =>
-      Object.hasOwn(rightRecord, key) &&
-      blockTreeValuesEqual(value, rightRecord[key]),
+      Object.hasOwn(rightRecord, key) && blockTreeValuesEqual(value, rightRecord[key]),
   );
 };
 
@@ -331,8 +297,7 @@ const requestedBlockSemanticsArePreserved = (
   actual: BlockTreeNode,
 ): boolean =>
   blockTreeValuesEqual(requested.props, actual.props) &&
-  (!Object.hasOwn(requested, "content") ||
-    blockTreeValuesEqual(requested.content, actual.content));
+  (!Object.hasOwn(requested, "content") || blockTreeValuesEqual(requested.content, actual.content));
 
 const assertMaterializationMatchesScan = (
   blockTree: readonly BlockTreeNode[],
@@ -352,16 +317,12 @@ const assertMaterializationMatchesScan = (
       scanned.blockType !== block.type ||
       scanned.parentBlockId !== parentBlockId
     ) {
-      throw new BlockDocumentCodecError(
-        `BlockNote materialization diverges at Block ${block.id}`,
-      );
+      throw new BlockDocumentCodecError(`BlockNote materialization diverges at Block ${block.id}`);
     }
   });
 };
 
-const assertCanonicalChildlessBlocks = (
-  body: Y.XmlFragment,
-): void => {
+const assertCanonicalChildlessBlocks = (body: Y.XmlFragment): void => {
   const violation = collectChildlessBlockViolations(body)[0];
   if (!violation) return;
   throw new BlockDocumentCodecError(
@@ -382,9 +343,7 @@ export const semanticEmptyDocumentRoot = (
   if (!root || root.type !== "paragraph" || root.children.length > 0) {
     return undefined;
   }
-  return Array.isArray(root.content) && root.content.length === 0
-    ? root
-    : undefined;
+  return Array.isArray(root.content) && root.content.length === 0 ? root : undefined;
 };
 
 export interface MaterializeBlockDocumentBodyInput {
@@ -422,10 +381,7 @@ export const materializeBlockDocumentBody = ({
   assertMaterializationMatchesScan(blockTree, scannedBlocks);
   const nfmBlocks = blockNoteToNfm(blockNoteBlocks);
   const nfm = semanticEmptyDocumentRoot(blockTree) ? "" : serializeNfm(nfmBlocks);
-  const { references, assetRefs } = deriveBlockDocumentRecords(
-    blockTree,
-    nfmBlocks,
-  );
+  const { references, assetRefs } = deriveBlockDocumentRecords(blockTree, nfmBlocks);
   const plainText = extractPlainText(nfm);
 
   return {
@@ -440,17 +396,15 @@ export const materializeBlockDocumentBody = ({
   };
 };
 
-export const materializePageDocument = (
-  document: Y.Doc,
-): PageDocumentMaterialization => {
+export const materializePageDocument = (document: Y.Doc): PageDocumentMaterialization => {
   const envelope = assertValidPageDocumentRoots(document);
   const richTitle = readPortableRichTextFromYText(envelope.title);
   return {
     ...materializeBlockDocumentBody({
-    body: envelope.body,
-    schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
-    title: portableRichTextPlainText(richTitle),
-    schemaLabel: "Page",
+      body: envelope.body,
+      schemaVersion: PAGE_DOCUMENT_SCHEMA_VERSION,
+      title: portableRichTextPlainText(richTitle),
+      schemaLabel: "Page",
     }),
     richTitle,
   };
@@ -464,9 +418,7 @@ export const createPageDocumentGenesis = ({
   allocateBlockId = createUuidV7,
 }: CreatePageDocumentGenesisInput): PageDocumentGenesis => {
   if (richTitle !== undefined && title.length > 0) {
-    throw new BlockDocumentCodecError(
-      "Page genesis accepts richTitle or plain title, not both",
-    );
+    throw new BlockDocumentCodecError("Page genesis accepts richTitle or plain title, not both");
   }
   const envelope = createPageDocument({
     documentId,
@@ -475,10 +427,7 @@ export const createPageDocumentGenesis = ({
   });
   try {
     if (richTitle !== undefined) {
-      replaceYTextWithPortableRichText(
-        envelope.title,
-        canonicalizePortableRichText(richTitle),
-      );
+      replaceYTextWithPortableRichText(envelope.title, canonicalizePortableRichText(richTitle));
     }
     populateBlockDocumentBodyFromNfm(envelope.body, nfm, allocateBlockId);
     const materialization = materializePageDocument(envelope.document);
@@ -491,10 +440,9 @@ export const createPageDocumentGenesis = ({
   } catch (error) {
     envelope.document.destroy();
     if (error instanceof BlockDocumentCodecError) throw error;
-    throw new BlockDocumentCodecError(
-      `Could not import NFM genesis for Document ${documentId}`,
-      { cause: error },
-    );
+    throw new BlockDocumentCodecError(`Could not import NFM genesis for Document ${documentId}`, {
+      cause: error,
+    });
   }
 };
 
@@ -510,9 +458,7 @@ export const createDetachedPageDocumentFromBlockTree = ({
   blockTree,
 }: CreateDetachedPageDocumentFromBlockTreeInput): DetachedPageDocumentFromBlockTree => {
   if (richTitle !== undefined && title.length > 0) {
-    throw new BlockDocumentCodecError(
-      "Detached Page accepts richTitle or plain title, not both",
-    );
+    throw new BlockDocumentCodecError("Detached Page accepts richTitle or plain title, not both");
   }
   const envelope = createPageDocument({
     documentId,
@@ -521,10 +467,7 @@ export const createDetachedPageDocumentFromBlockTree = ({
   });
   try {
     if (richTitle !== undefined) {
-      replaceYTextWithPortableRichText(
-        envelope.title,
-        canonicalizePortableRichText(richTitle),
-      );
+      replaceYTextWithPortableRichText(envelope.title, canonicalizePortableRichText(richTitle));
     }
     populateBlockDocumentBodyFromBlockTree(envelope.body, blockTree);
     const materialization = materializePageDocument(envelope.document);

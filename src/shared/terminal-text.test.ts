@@ -53,5 +53,4 @@ describe("applyTerminalTextDelta", () => {
     expect(result.text).toBe("x".repeat(MAX_CHARS));
     expect(result.didTruncate).toBe(true);
   });
-
 });

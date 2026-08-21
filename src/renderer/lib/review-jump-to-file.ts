@@ -33,8 +33,8 @@ export function compareReviewJumpToFileEntries(
   const leftParts = splitReviewJumpToFilePath(left.displayPath);
   const rightParts = splitReviewJumpToFilePath(right.displayPath);
   return (
-    leftParts.fileName.localeCompare(rightParts.fileName)
-    || leftParts.parentPath.localeCompare(rightParts.parentPath)
+    leftParts.fileName.localeCompare(rightParts.fileName) ||
+    leftParts.parentPath.localeCompare(rightParts.parentPath)
   );
 }
 
@@ -53,14 +53,17 @@ export function selectReviewJumpToFileMatches<T extends ReviewJumpToFileEntry>(
       const fileNameScore = scoreSettingsQueryMatch(fileName, trimmedQuery);
       return {
         entry,
-        score: fileNameScore > 0 ? fileNameScore : scoreSettingsQueryMatch(entry.displayPath, trimmedQuery),
+        score:
+          fileNameScore > 0
+            ? fileNameScore
+            : scoreSettingsQueryMatch(entry.displayPath, trimmedQuery),
       };
     })
     .filter(({ score }) => score > 0)
-    .sort((left, right) => (
-      right.score - left.score
-      || compareReviewJumpToFileEntries(left.entry, right.entry)
-    ))
+    .sort(
+      (left, right) =>
+        right.score - left.score || compareReviewJumpToFileEntries(left.entry, right.entry),
+    )
     .map(({ entry }) => entry);
 }
 

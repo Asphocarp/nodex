@@ -17,18 +17,20 @@ const projectAccess = {
   kind: "resource_project_access" as const,
   value: {
     target: { kind: "page" as const, pageId: "page-1" },
-    projects: [{
-      projectId: "project-1",
-      projectName: "Product",
-      appearance: {
-        color: "blue" as const,
-        marker: { kind: "icon" as const, icon: "folder" as const },
+    projects: [
+      {
+        projectId: "project-1",
+        projectName: "Product",
+        appearance: {
+          color: "blue" as const,
+          marker: { kind: "icon" as const, icon: "folder" as const },
+        },
+        lifecycle: "active" as const,
+        directGrant: null,
+        inheritedSources: [],
+        effectiveAccess: null,
       },
-      lifecycle: "active" as const,
-      directGrant: null,
-      inheritedSources: [],
-      effectiveAccess: null,
-    }],
+    ],
   },
 };
 
@@ -65,9 +67,12 @@ vi.mock("@/lib/use-library-navigation", () => ({
 
 const openActions = async (): Promise<void> => {
   await act(async () => {
-    fireEvent.pointerDown(screen.getByRole("button", {
-      name: "Actions for Research",
-    }), { button: 0, ctrlKey: false });
+    fireEvent.pointerDown(
+      screen.getByRole("button", {
+        name: "Actions for Research",
+      }),
+      { button: 0, ctrlKey: false },
+    );
     await Promise.resolve();
   });
 };
@@ -85,22 +90,23 @@ const openMoveSubmenu = async () => {
 const renderActions = (
   props: Partial<ComponentProps<typeof LibraryResourceActions>> = {},
   onPageRowPointerDown = vi.fn(),
-) => renderWithMaitai(
-  <NodexTooltipProvider>
-    <div data-testid="page-row" onPointerDown={onPageRowPointerDown}>
-      <LibraryResourceActions
-        target={{ kind: "page", pageId: "page-1" }}
-        title="Research"
-        expectedLocationRevision={2}
-        expectedMetadataRevision={3}
-        projects={[{ id: "project-1", name: "Product" }]}
-        onOpenInProject={() => undefined}
-        {...props}
-      />
-    </div>
-    <NodexModalHost />
-  </NodexTooltipProvider>,
-);
+) =>
+  renderWithMaitai(
+    <NodexTooltipProvider>
+      <div data-testid="page-row" onPointerDown={onPageRowPointerDown}>
+        <LibraryResourceActions
+          target={{ kind: "page", pageId: "page-1" }}
+          title="Research"
+          expectedLocationRevision={2}
+          expectedMetadataRevision={3}
+          projects={[{ id: "project-1", name: "Product" }]}
+          onOpenInProject={() => undefined}
+          {...props}
+        />
+      </div>
+      <NodexModalHost />
+    </NodexTooltipProvider>,
+  );
 
 describe("Library resource actions", () => {
   beforeEach(() => navigation.mutateAsync.mockReset());
@@ -123,9 +129,11 @@ describe("Library resource actions", () => {
     renderActions();
 
     await openActions();
-    fireEvent.click(await screen.findByRole("menuitem", {
-      name: "Manage access",
-    }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "Manage access",
+      }),
+    );
     expect(await screen.findByRole("dialog")).not.toBeNull();
     expect(screen.getByText("Product")).not.toBeNull();
 
@@ -154,15 +162,19 @@ describe("Library resource actions", () => {
       fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
       await Promise.resolve();
     });
-    await waitFor(() => expect(navigation.mutateAsync).toHaveBeenCalledWith({
-      kind: "set_project_access",
-      target: { kind: "page", pageId: "page-1" },
-      changes: [{
-        projectId: "project-1",
-        access: "read_write",
-        expectedRevision: null,
-      }],
-    }));
+    await waitFor(() =>
+      expect(navigation.mutateAsync).toHaveBeenCalledWith({
+        kind: "set_project_access",
+        target: { kind: "page", pageId: "page-1" },
+        changes: [
+          {
+            projectId: "project-1",
+            access: "read_write",
+            expectedRevision: null,
+          },
+        ],
+      }),
+    );
   });
 
   test("moves the resource from the menu-owned submenu", async () => {
@@ -177,15 +189,17 @@ describe("Library resource actions", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(navigation.mutateAsync).toHaveBeenCalledWith({
-      kind: "move_block",
-      target: {
-        kind: "page",
-        pageId: "page-1",
-        expectedLocationRevision: 2,
-      },
-      parent: { kind: "library" },
-    }));
+    await waitFor(() =>
+      expect(navigation.mutateAsync).toHaveBeenCalledWith({
+        kind: "move_block",
+        target: {
+          kind: "page",
+          pageId: "page-1",
+          expectedLocationRevision: 2,
+        },
+        parent: { kind: "library" },
+      }),
+    );
   });
 
   test("grants and opens the resource from the registry-owned modal", async () => {
@@ -201,12 +215,14 @@ describe("Library resource actions", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(navigation.mutateAsync).toHaveBeenCalledWith({
-      kind: "grant_project_access",
-      projectId: "project-1",
-      target: { kind: "page", pageId: "page-1" },
-      access: "read_write",
-    }));
+    await waitFor(() =>
+      expect(navigation.mutateAsync).toHaveBeenCalledWith({
+        kind: "grant_project_access",
+        projectId: "project-1",
+        target: { kind: "page", pageId: "page-1" },
+        access: "read_write",
+      }),
+    );
     expect(onOpenInProject).toHaveBeenCalledWith(
       "project-1",
       { kind: "page", pageId: "page-1" },
@@ -248,13 +264,21 @@ describe("Library resource actions", () => {
       fireEvent.keyDown(searchInput, { key: "Escape" });
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.queryByRole("combobox", {
-      name: "Move Research to",
-    })).toBeNull());
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("combobox", {
+          name: "Move Research to",
+        }),
+      ).toBeNull(),
+    );
     expect(screen.queryByRole("menuitem", { name: "Move to" })).toBeNull();
-    expect(screen.getByRole("button", {
-      name: "Actions for Research",
-    }).getAttribute("aria-expanded")).toBe("false");
+    expect(
+      screen
+        .getByRole("button", {
+          name: "Actions for Research",
+        })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
   });
 
   test("keeps Manage access mounted after its Page row unmounts", async () => {

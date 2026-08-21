@@ -1,7 +1,14 @@
 import { resolveThreadInProgressFollowUpMode } from "@/lib/thread-composer-follow-up-mode";
 import type { ComposerEnterBehavior } from "@/lib/composer-enter-behavior";
 
-export type StageThreadsBusyAction = "send" | "interrupt" | "resume" | "login" | "refresh" | "logout" | null;
+export type StageThreadsBusyAction =
+  | "send"
+  | "interrupt"
+  | "resume"
+  | "login"
+  | "refresh"
+  | "logout"
+  | null;
 export type StageThreadsComposerAction = "send" | "stop" | "resume";
 export type StageThreadsComposerSubmitAction = "send" | "queue" | "steer";
 export type StageThreadsComposerFollowUpAction = Exclude<StageThreadsComposerSubmitAction, "send">;
@@ -78,13 +85,13 @@ export function resolveStageThreadsComposerActionState(
   }
 
   if (
-    input.canResumeInterruptedTurn
-    && input.canSendPrompt
-    && !input.isThreadRunning
-    && input.latestTurnStatus === "interrupted"
-    && !input.hasThreadGoal
-    && !input.hasDraftContent
-    && input.busyAction === null
+    input.canResumeInterruptedTurn &&
+    input.canSendPrompt &&
+    !input.isThreadRunning &&
+    input.latestTurnStatus === "interrupted" &&
+    !input.hasThreadGoal &&
+    !input.hasDraftContent &&
+    input.busyAction === null
   ) {
     return {
       action: "resume",
@@ -108,11 +115,12 @@ export function resolveStageThreadsComposerActionState(
           isQueueingEnabled: input.isQueueingEnabled,
         })
       : null,
-    label: primarySubmitAction === "queue"
-      ? "Queue follow-up"
-      : primarySubmitAction === "steer"
-        ? "Steer follow-up"
-        : "Send prompt",
+    label:
+      primarySubmitAction === "queue"
+        ? "Queue follow-up"
+        : primarySubmitAction === "steer"
+          ? "Steer follow-up"
+          : "Send prompt",
     disabled: !input.canSendPrompt || input.busyAction !== null || !input.hasDraftContent,
   };
 }
@@ -123,9 +131,9 @@ export function resolveComposerSubmitIntentFromKeyDown(
   if (input.isComposing || input.key !== "Enter" || input.altKey) return null;
 
   if (
-    input.isThreadRunning
-    && input.alternateSubmitAction
-    && matchesAlternateSubmitShortcut(input)
+    input.isThreadRunning &&
+    input.alternateSubmitAction &&
+    matchesAlternateSubmitShortcut(input)
   ) {
     return {
       submitAction: input.alternateSubmitAction,

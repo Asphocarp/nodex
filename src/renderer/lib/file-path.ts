@@ -36,10 +36,7 @@ export function normalizePathSegments(value: string): string {
   return normalized.join("/");
 }
 
-export function resolveOpenPath(
-  path: string | null,
-  basePath: string | null,
-): string | null {
+export function resolveOpenPath(path: string | null, basePath: string | null): string | null {
   if (!path) return null;
 
   const normalizedPath = normalizePathSegments(stripPatchPrefix(path));

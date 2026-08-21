@@ -1,13 +1,6 @@
-import {
-  editorHasBlockWithType,
-  isTableCellSelection,
-} from "@blocknote/core";
+import { editorHasBlockWithType, isTableCellSelection } from "@blocknote/core";
 import { FormattingToolbarExtension } from "@blocknote/core/extensions";
-import {
-  useBlockNoteEditor,
-  useEditorState,
-  useExtension,
-} from "@blocknote/react";
+import { useBlockNoteEditor, useEditorState, useExtension } from "@blocknote/react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import {
   forwardRef,
@@ -51,14 +44,8 @@ import {
   TextActionStrikeIcon,
   TextActionUnderlineIcon,
 } from "@/components/shared/icons";
-import {
-  NodexDropdownContent,
-  NodexDropdownItem,
-} from "@/components/ui/dropdown";
-import {
-  NodexPopover,
-  NodexPopoverAnchor,
-} from "@/components/ui/popover";
+import { NodexDropdownContent, NodexDropdownItem } from "@/components/ui/dropdown";
+import { NodexPopover, NodexPopoverAnchor } from "@/components/ui/popover";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import {
   readTextActionRecentColors,
@@ -77,10 +64,7 @@ import {
   type TextActionEditorAdapter,
   type TextActionBlockTypeUpdate,
 } from "./nfm-text-action-menu-actions";
-import {
-  NfmCreateLinkButton,
-  type NfmCreateLinkTriggerProps,
-} from "./nfm-link-toolbar";
+import { NfmCreateLinkButton, type NfmCreateLinkTriggerProps } from "./nfm-link-toolbar";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
 import type { NfmMoveToDestination, NfmMoveToResultScope } from "./nfm-move-to-menu-model";
@@ -209,10 +193,30 @@ export interface NfmTextActionMenuSurfaceProps {
 
 const TEXT_ACTION_BLOCK_TYPE_DEFINITIONS = [
   { key: "paragraph", label: "Normal Text", type: "paragraph" },
-  { key: "heading-1", label: "Heading 1", type: "heading", props: { level: 1, isToggleable: false } },
-  { key: "heading-2", label: "Heading 2", type: "heading", props: { level: 2, isToggleable: false } },
-  { key: "heading-3", label: "Heading 3", type: "heading", props: { level: 3, isToggleable: false } },
-  { key: "toggle-heading-1", label: "Toggle Heading 1", type: "heading", props: { level: 1, isToggleable: true } },
+  {
+    key: "heading-1",
+    label: "Heading 1",
+    type: "heading",
+    props: { level: 1, isToggleable: false },
+  },
+  {
+    key: "heading-2",
+    label: "Heading 2",
+    type: "heading",
+    props: { level: 2, isToggleable: false },
+  },
+  {
+    key: "heading-3",
+    label: "Heading 3",
+    type: "heading",
+    props: { level: 3, isToggleable: false },
+  },
+  {
+    key: "toggle-heading-1",
+    label: "Toggle Heading 1",
+    type: "heading",
+    props: { level: 1, isToggleable: true },
+  },
   { key: "quote", label: "Quote", type: "quote" },
   { key: "bullet-list", label: "Bulleted List", type: "bulletListItem" },
   { key: "numbered-list", label: "Numbered List", type: "numberedListItem" },
@@ -245,7 +249,8 @@ const TEXT_ACTION_COLOR_LABELS = {
 const TEXT_ACTION_COLOR_STYLES = {
   default: "transparent",
   gray: "color-mix(in srgb, var(--color-token-foreground) 42%, transparent)",
-  brown: "color-mix(in srgb, var(--color-token-charts-orange) 70%, var(--color-token-foreground) 18%)",
+  brown:
+    "color-mix(in srgb, var(--color-token-charts-orange) 70%, var(--color-token-foreground) 18%)",
   orange: "var(--color-token-charts-orange)",
   yellow: "var(--color-token-charts-yellow)",
   green: "var(--color-token-charts-green)",
@@ -286,10 +291,7 @@ function keepEditorSelection(event: MouseEvent<HTMLElement> | PointerEvent<HTMLE
   event.preventDefault();
 }
 
-function activateOnKeyboard(
-  event: KeyboardEvent<HTMLElement>,
-  action: () => void,
-) {
+function activateOnKeyboard(event: KeyboardEvent<HTMLElement>, action: () => void) {
   if (event.key !== "Enter" && event.key !== " ") return;
   event.preventDefault();
   action();
@@ -297,8 +299,7 @@ function activateOnKeyboard(
 
 function hasLinkInSchema(editor: { schema: { inlineContentSchema: Record<string, unknown> } }) {
   return (
-    "link" in editor.schema.inlineContentSchema
-    && editor.schema.inlineContentSchema.link === "link"
+    "link" in editor.schema.inlineContentSchema && editor.schema.inlineContentSchema.link === "link"
   );
 }
 
@@ -320,27 +321,25 @@ function buildBlockTypeItems(
   editor: TextActionSnapshotEditor,
   firstSelectedBlock: TextActionBlockSnapshot,
 ): TextActionBlockTypeItem[] {
-  return TEXT_ACTION_BLOCK_TYPE_DEFINITIONS
-    .filter((item) => {
-      const props = "props" in item ? item.props : undefined;
-      return editorHasBlockWithType(
-        editor as Parameters<typeof editorHasBlockWithType>[0],
-        item.type,
-        propsToSchemaShape(props),
-      );
-    })
-    .map((item) => {
-      const props = "props" in item ? item.props : undefined;
-      return {
-        key: item.key,
-        label: item.label,
-        type: item.type,
-        props,
-        isSelected:
-          firstSelectedBlock.type === item.type
-          && blockPropsMatch(firstSelectedBlock.props ?? {}, props),
-      };
-    });
+  return TEXT_ACTION_BLOCK_TYPE_DEFINITIONS.filter((item) => {
+    const props = "props" in item ? item.props : undefined;
+    return editorHasBlockWithType(
+      editor as Parameters<typeof editorHasBlockWithType>[0],
+      item.type,
+      propsToSchemaShape(props),
+    );
+  }).map((item) => {
+    const props = "props" in item ? item.props : undefined;
+    return {
+      key: item.key,
+      label: item.label,
+      type: item.type,
+      props,
+      isSelected:
+        firstSelectedBlock.type === item.type &&
+        blockPropsMatch(firstSelectedBlock.props ?? {}, props),
+    };
+  });
 }
 
 function resolveBlockTypeLabel(items: TextActionBlockTypeItem[]) {
@@ -351,7 +350,9 @@ function createTextActionMenuSnapshot(editor: TextActionSnapshotEditor): TextAct
   const selection = editor.prosemirrorState.selection;
   const selectedBlocks = editor.getSelection()?.blocks ?? [editor.getTextCursorPosition().block];
   const firstSelectedBlock = selectedBlocks[0];
-  const hasInlineContent = selectedBlocks.some((block: { content?: unknown }) => block.content !== undefined);
+  const hasInlineContent = selectedBlocks.some(
+    (block: { content?: unknown }) => block.content !== undefined,
+  );
   const selectedTextLength = selection.empty
     ? 0
     : editor.prosemirrorState.doc.textBetween(selection.from, selection.to).length;
@@ -363,7 +364,9 @@ function createTextActionMenuSnapshot(editor: TextActionSnapshotEditor): TextAct
   return {
     eligible: shouldUseTextActionMenu({
       isEditable: editor.isEditable,
-      isTableCellSelection: isTableCellSelection(selection as Parameters<typeof isTableCellSelection>[0]),
+      isTableCellSelection: isTableCellSelection(
+        selection as Parameters<typeof isTableCellSelection>[0],
+      ),
       isBlockSelection: isBlockLevelSelection(selection),
       hasInlineContent,
       selectedTextLength,
@@ -382,13 +385,15 @@ function createTextActionMenuSnapshot(editor: TextActionSnapshotEditor): TextAct
       code: activeStyles.code === true,
     },
     textColor: typeof activeStyles.textColor === "string" ? activeStyles.textColor : "default",
-    backgroundColor: typeof activeStyles.backgroundColor === "string" ? activeStyles.backgroundColor : "default",
+    backgroundColor:
+      typeof activeStyles.backgroundColor === "string" ? activeStyles.backgroundColor : "default",
     canUseTextColor,
     canUseBackgroundColor,
-    canClearFormat: TEXT_ACTION_BASIC_STYLES.some((style) => textActionHasBooleanStyle(editor, style))
-      || canUseTextColor
-      || canUseBackgroundColor
-      || hasLinkInSchema(editor),
+    canClearFormat:
+      TEXT_ACTION_BASIC_STYLES.some((style) => textActionHasBooleanStyle(editor, style)) ||
+      canUseTextColor ||
+      canUseBackgroundColor ||
+      hasLinkInSchema(editor),
   };
 }
 
@@ -397,13 +402,13 @@ function selectCurrentBlocks(editor: TextActionSnapshotEditor) {
 }
 
 function TextActionDivider({ compact = false }: { compact?: boolean }) {
-  return (
-    <div className={cn("mx-2 h-px bg-token-menu-border", compact ? "my-0" : "my-1")} />
-  );
+  return <div className={cn("mx-2 h-px bg-token-menu-border", compact ? "my-0" : "my-1")} />;
 }
 
-interface TextActionButtonProps
-  extends Omit<ComponentPropsWithoutRef<"div">, "children" | "className" | "onMouseDown"> {
+interface TextActionButtonProps extends Omit<
+  ComponentPropsWithoutRef<"div">,
+  "children" | "className" | "onMouseDown"
+> {
   children: ReactNode;
   className?: string;
   label?: string;
@@ -416,73 +421,73 @@ interface TextActionButtonProps
   onActivate?: () => void;
 }
 
-const TextActionButton = forwardRef<HTMLDivElement, TextActionButtonProps>(function TextActionButton({
-  children,
-  className,
-  label,
-  selected,
-  disabled = false,
-  hasPopup,
-  expanded,
-  dataPopupOrigin = true,
-  onMouseDown = keepEditorSelection,
-  onActivate,
-  onClick,
-  onKeyDown,
-  ...props
-}, ref) {
-  return (
-    <div
-      {...props}
-      ref={ref}
-      role="button"
-      tabIndex={props.tabIndex ?? 0}
-      aria-label={label}
-      aria-pressed={selected === undefined ? undefined : selected}
-      aria-disabled={disabled || undefined}
-      aria-haspopup={hasPopup}
-      aria-expanded={hasPopup ? Boolean(expanded) : undefined}
-      data-popup-origin={dataPopupOrigin ? "true" : undefined}
-      contentEditable={false}
-      className={cn(
-        "inline-flex h-7 w-8 shrink-0 select-none items-center justify-center rounded-[6px] p-1.5 text-token-foreground outline-hidden",
-        "focus-visible:ring-1 focus-visible:ring-token-focus-border",
-        !disabled && "cursor-interaction hover:bg-token-list-hover-background focus:bg-token-list-hover-background",
-        selected === true && "bg-token-foreground/10",
-        disabled && "cursor-default opacity-40",
-        className,
-      )}
-      onMouseDown={onMouseDown}
-      onClick={(event) => {
-        event.stopPropagation();
-        if (disabled) return;
-        if (onActivate) {
-          onActivate();
-          return;
-        }
-        onClick?.(event);
-      }}
-      onKeyDown={(event) => {
-        if (disabled) return;
-        if (onActivate) {
-          activateOnKeyboard(event, onActivate);
-          return;
-        }
-        onKeyDown?.(event);
-      }}
-    >
-      {children}
-    </div>
-  );
-});
+const TextActionButton = forwardRef<HTMLDivElement, TextActionButtonProps>(
+  function TextActionButton(
+    {
+      children,
+      className,
+      label,
+      selected,
+      disabled = false,
+      hasPopup,
+      expanded,
+      dataPopupOrigin = true,
+      onMouseDown = keepEditorSelection,
+      onActivate,
+      onClick,
+      onKeyDown,
+      ...props
+    },
+    ref,
+  ) {
+    return (
+      <div
+        {...props}
+        ref={ref}
+        role="button"
+        tabIndex={props.tabIndex ?? 0}
+        aria-label={label}
+        aria-pressed={selected === undefined ? undefined : selected}
+        aria-disabled={disabled || undefined}
+        aria-haspopup={hasPopup}
+        aria-expanded={hasPopup ? Boolean(expanded) : undefined}
+        data-popup-origin={dataPopupOrigin ? "true" : undefined}
+        contentEditable={false}
+        className={cn(
+          "inline-flex h-7 w-8 shrink-0 select-none items-center justify-center rounded-[6px] p-1.5 text-token-foreground outline-hidden",
+          "focus-visible:ring-1 focus-visible:ring-token-focus-border",
+          !disabled &&
+            "cursor-interaction hover:bg-token-list-hover-background focus:bg-token-list-hover-background",
+          selected === true && "bg-token-foreground/10",
+          disabled && "cursor-default opacity-40",
+          className,
+        )}
+        onMouseDown={onMouseDown}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (disabled) return;
+          if (onActivate) {
+            onActivate();
+            return;
+          }
+          onClick?.(event);
+        }}
+        onKeyDown={(event) => {
+          if (disabled) return;
+          if (onActivate) {
+            activateOnKeyboard(event, onActivate);
+            return;
+          }
+          onKeyDown?.(event);
+        }}
+      >
+        {children}
+      </div>
+    );
+  },
+);
 
-function TextActionButtonTooltip({
-  children,
-  label,
-}: {
-  children: ReactNode;
-  label: ReactNode;
-}) {
+function TextActionButtonTooltip({ children, label }: { children: ReactNode; label: ReactNode }) {
   return (
     <NodexTooltip tooltipContent={label} side="top" delayDuration={0}>
       {children}
@@ -548,7 +553,7 @@ function BlockTypeIcon({ item }: { item: TextActionBlockTypeItem | null }) {
 
 function normalizeTextActionColor(color: string): TextActionColorValue {
   return TEXT_ACTION_COLOR_VALUES.includes(color as TextActionColorValue)
-    ? color as TextActionColorValue
+    ? (color as TextActionColorValue)
     : "default";
 }
 
@@ -570,16 +575,13 @@ function TextActionColorGlyph({
   const shouldShowTextGlyph = kind === "text" || textColor !== undefined;
   const glyphColor = textColor ?? color;
   const borderWidth = selected || isDefault ? 2 : 1;
-  const selectedBorderColor = isDefault
-    ? "var(--border-strong)"
-    : TEXT_ACTION_COLOR_STYLES[color];
+  const selectedBorderColor = isDefault ? "var(--border-strong)" : TEXT_ACTION_COLOR_STYLES[color];
   const swatchStyle: CSSProperties = {
-    backgroundColor: isBackground
-      ? TEXT_ACTION_BACKGROUND_COLOR_STYLES[color]
-      : "transparent",
-    color: glyphColor === "default"
-      ? "var(--color-token-foreground)"
-      : TEXT_ACTION_COLOR_STYLES[glyphColor],
+    backgroundColor: isBackground ? TEXT_ACTION_BACKGROUND_COLOR_STYLES[color] : "transparent",
+    color:
+      glyphColor === "default"
+        ? "var(--color-token-foreground)"
+        : TEXT_ACTION_COLOR_STYLES[glyphColor],
     boxShadow: `inset 0 0 0 ${borderWidth}px ${selected ? selectedBorderColor : TEXT_ACTION_COLOR_BORDER_STYLES[color]}`,
   };
 
@@ -618,13 +620,7 @@ function TextActionColorTriggerGlyph({
     );
   }
 
-  return (
-    <TextActionColorGlyph
-      kind="text"
-      color={normalizedTextColor}
-      size="trigger"
-    />
-  );
+  return <TextActionColorGlyph kind="text" color={normalizedTextColor} size="trigger" />;
 }
 
 function TextActionColorSection({
@@ -641,9 +637,7 @@ function TextActionColorSection({
       <div className="flex h-7 items-center px-2 text-[12px] text-token-text-secondary">
         <span className="min-w-0 flex-1 truncate">{label}</span>
       </div>
-      <div className={cn("grid grid-cols-5 gap-1 px-2", padBottom && "pb-2")}>
-        {children}
-      </div>
+      <div className={cn("grid grid-cols-5 gap-1 px-2", padBottom && "pb-2")}>{children}</div>
     </div>
   );
 }
@@ -691,12 +685,7 @@ function TextActionColorSwatchItem({
           }}
         >
           <span className="flex min-h-[26px] items-center justify-center">
-            <TextActionColorGlyph
-              kind={kind}
-              color={color}
-              size="menu"
-              selected={selected}
-            />
+            <TextActionColorGlyph kind={kind} color={color} size="menu" selected={selected} />
           </span>
         </div>
       </div>
@@ -721,7 +710,9 @@ function TextActionColorMenu({
   | "onSetBackgroundColor"
 >) {
   const [open, setOpen] = useState(false);
-  const [recentColors, setRecentColors] = useState<TextActionRecentColor[]>(() => readTextActionRecentColors());
+  const [recentColors, setRecentColors] = useState<TextActionRecentColor[]>(() =>
+    readTextActionRecentColors(),
+  );
   const normalizedTextColor = normalizeTextActionColor(textColor);
   const normalizedBackgroundColor = normalizeTextActionColor(backgroundColor);
   const canUseAnyColor = canUseTextColor || canUseBackgroundColor;
@@ -748,10 +739,7 @@ function TextActionColorMenu({
     return (
       <TextActionButtonTooltip label="Color">
         <TextActionButton label="Color" disabled hasPopup="dialog">
-          <TextActionColorTriggerGlyph
-            textColor={textColor}
-            backgroundColor={backgroundColor}
-          />
+          <TextActionColorTriggerGlyph textColor={textColor} backgroundColor={backgroundColor} />
         </TextActionButton>
       </TextActionButtonTooltip>
     );
@@ -762,10 +750,7 @@ function TextActionColorMenu({
       <TextActionButtonTooltip label="Color">
         <DropdownMenuPrimitive.Trigger asChild>
           <TextActionButton label="Color" hasPopup="dialog" expanded={open}>
-            <TextActionColorTriggerGlyph
-              textColor={textColor}
-              backgroundColor={backgroundColor}
-            />
+            <TextActionColorTriggerGlyph textColor={textColor} backgroundColor={backgroundColor} />
           </TextActionButton>
         </DropdownMenuPrimitive.Trigger>
       </TextActionButtonTooltip>
@@ -796,10 +781,12 @@ function TextActionColorMenu({
                 {recentColors.map((recentColor) => {
                   const recentLabel = TEXT_ACTION_COLOR_LABELS[recentColor.color];
                   const recentAriaLabel = `Recently used: ${recentLabel} ${recentColor.kind === "background" ? "background" : "text"}`;
-                  const canUseRecentColor = recentColor.kind === "text" ? canUseTextColor : canUseBackgroundColor;
-                  const recentSelected = recentColor.kind === "text"
-                    ? normalizedTextColor === recentColor.color
-                    : normalizedBackgroundColor === recentColor.color;
+                  const canUseRecentColor =
+                    recentColor.kind === "text" ? canUseTextColor : canUseBackgroundColor;
+                  const recentSelected =
+                    recentColor.kind === "text"
+                      ? normalizedTextColor === recentColor.color
+                      : normalizedBackgroundColor === recentColor.color;
 
                   return (
                     <TextActionColorSwatchItem
@@ -860,9 +847,10 @@ function TextActionBlockTypeMenu({
   NfmTextActionMenuSurfaceProps,
   "currentBlockTypeLabel" | "blockTypeItems" | "onSelectBlockType"
 >) {
-  const currentBlockTypeItem = blockTypeItems.find((item) => item.isSelected)
-    ?? blockTypeItems.find((item) => item.label === currentBlockTypeLabel)
-    ?? null;
+  const currentBlockTypeItem =
+    blockTypeItems.find((item) => item.isSelected) ??
+    blockTypeItems.find((item) => item.label === currentBlockTypeLabel) ??
+    null;
 
   return (
     <DropdownMenuPrimitive.Root modal={false}>
@@ -890,7 +878,11 @@ function TextActionBlockTypeMenu({
         {blockTypeItems.map((item) => (
           <NodexDropdownItem
             key={item.key}
-            leftSlot={<span className="text-token-description-foreground"><BlockTypeIcon item={item} /></span>}
+            leftSlot={
+              <span className="text-token-description-foreground">
+                <BlockTypeIcon item={item} />
+              </span>
+            }
             rightSlot={item.isSelected ? <CheckmarkIcon className="size-4" /> : null}
             onPointerDownCapture={keepEditorSelection}
             onSelect={() => onSelectBlockType(item)}
@@ -1000,117 +992,123 @@ type TextActionSkillRowProps = Omit<
   onClick?: () => void;
 };
 
-const TextActionSkillRow = forwardRef<HTMLDivElement, TextActionSkillRowProps>(function TextActionSkillRow({
-  label,
-  disabled = true,
-  mockReason,
-  rightSlot,
-  hasPopup,
-  expanded,
-  onClick,
-  onPointerEnter,
-  onPointerLeave,
-  onFocus,
-  onBlur,
-  onKeyDown,
-  ...props
-}, forwardedRef) {
-  const labelRef = useRef<HTMLSpanElement>(null);
-  const [tooltipOpen, setTooltipOpen] = useState(false);
-  const [labelOverflowing, setLabelOverflowing] = useState(false);
+const TextActionSkillRow = forwardRef<HTMLDivElement, TextActionSkillRowProps>(
+  function TextActionSkillRow(
+    {
+      label,
+      disabled = true,
+      mockReason,
+      rightSlot,
+      hasPopup,
+      expanded,
+      onClick,
+      onPointerEnter,
+      onPointerLeave,
+      onFocus,
+      onBlur,
+      onKeyDown,
+      ...props
+    },
+    forwardedRef,
+  ) {
+    const labelRef = useRef<HTMLSpanElement>(null);
+    const [tooltipOpen, setTooltipOpen] = useState(false);
+    const [labelOverflowing, setLabelOverflowing] = useState(false);
 
-  const openTooltipIfOverflowing = () => {
-    const nextLabelOverflowing = isTextActionLabelOverflowing(labelRef.current);
-    setLabelOverflowing(nextLabelOverflowing);
-    setTooltipOpen(nextLabelOverflowing);
-  };
+    const openTooltipIfOverflowing = () => {
+      const nextLabelOverflowing = isTextActionLabelOverflowing(labelRef.current);
+      setLabelOverflowing(nextLabelOverflowing);
+      setTooltipOpen(nextLabelOverflowing);
+    };
 
-  const closeTooltip = () => {
-    setTooltipOpen(false);
-  };
+    const closeTooltip = () => {
+      setTooltipOpen(false);
+    };
 
-  const row = (
-    <div
-      {...props}
-      ref={forwardedRef}
-      role="button"
-      tabIndex={props.tabIndex ?? 0}
-      aria-disabled={disabled || undefined}
-      aria-haspopup={hasPopup}
-      aria-expanded={hasPopup ? Boolean(expanded) : undefined}
-      contentEditable={false}
-      className={cn(
-        "group flex h-7 select-none items-center justify-start gap-1.5 rounded-[6px] px-2 whitespace-nowrap outline-hidden",
-        disabled
-          ? "cursor-default text-token-text-secondary opacity-55"
-          : "cursor-interaction text-token-foreground hover:bg-token-list-hover-background focus:bg-token-list-hover-background",
-      )}
-      onPointerEnter={(event) => {
-        onPointerEnter?.(event);
-        openTooltipIfOverflowing();
-      }}
-      onPointerLeave={(event) => {
-        onPointerLeave?.(event);
-        closeTooltip();
-      }}
-      onFocus={(event) => {
-        onFocus?.(event);
-        openTooltipIfOverflowing();
-      }}
-      onBlur={(event) => {
-        onBlur?.(event);
-        closeTooltip();
-      }}
-      onMouseDown={keepEditorSelection}
-      onClick={(event) => {
-        event.stopPropagation();
-        if (disabled) return;
-        onClick?.();
-      }}
-      onKeyDown={(event) => {
-        onKeyDown?.(event);
-        if (event.defaultPrevented) return;
-        if (disabled || !onClick) return;
-        activateOnKeyboard(event, onClick);
-      }}
-    >
-      <span ref={labelRef} className="min-w-0 flex-1 truncate">{label}</span>
-      {mockReason ? (
-        <TextActionMockBadge reason={mockReason} />
-      ) : null}
-      {rightSlot ?? (disabled ? (
-        <span
-          role="button"
-          tabIndex={-1}
-          aria-label="Edit skill"
-          aria-disabled="true"
-          className="ml-auto shrink-0 opacity-0 transition-opacity duration-100 group-hover:opacity-40 group-focus:opacity-40"
-        >
-          <TextActionPencilSmallIcon className="size-4 text-token-text-secondary" />
-        </span>
-      ) : null)}
-    </div>
-  );
-
-  return (
-    <NodexTooltip
-      tooltipContent={label}
-      side="top"
-      delayDuration={0}
-      open={tooltipOpen && labelOverflowing}
-      onOpenChange={(nextOpen) => {
-        if (!nextOpen) {
+    const row = (
+      <div
+        {...props}
+        ref={forwardedRef}
+        role="button"
+        tabIndex={props.tabIndex ?? 0}
+        aria-disabled={disabled || undefined}
+        aria-haspopup={hasPopup}
+        aria-expanded={hasPopup ? Boolean(expanded) : undefined}
+        contentEditable={false}
+        className={cn(
+          "group flex h-7 select-none items-center justify-start gap-1.5 rounded-[6px] px-2 whitespace-nowrap outline-hidden",
+          disabled
+            ? "cursor-default text-token-text-secondary opacity-55"
+            : "cursor-interaction text-token-foreground hover:bg-token-list-hover-background focus:bg-token-list-hover-background",
+        )}
+        onPointerEnter={(event) => {
+          onPointerEnter?.(event);
+          openTooltipIfOverflowing();
+        }}
+        onPointerLeave={(event) => {
+          onPointerLeave?.(event);
           closeTooltip();
-          return;
-        }
+        }}
+        onFocus={(event) => {
+          onFocus?.(event);
+          openTooltipIfOverflowing();
+        }}
+        onBlur={(event) => {
+          onBlur?.(event);
+          closeTooltip();
+        }}
+        onMouseDown={keepEditorSelection}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (disabled) return;
+          onClick?.();
+        }}
+        onKeyDown={(event) => {
+          onKeyDown?.(event);
+          if (event.defaultPrevented) return;
+          if (disabled || !onClick) return;
+          activateOnKeyboard(event, onClick);
+        }}
+      >
+        <span ref={labelRef} className="min-w-0 flex-1 truncate">
+          {label}
+        </span>
+        {mockReason ? <TextActionMockBadge reason={mockReason} /> : null}
+        {rightSlot ??
+          (disabled ? (
+            <span
+              role="button"
+              tabIndex={-1}
+              aria-label="Edit skill"
+              aria-disabled="true"
+              className="ml-auto shrink-0 opacity-0 transition-opacity duration-100 group-hover:opacity-40 group-focus:opacity-40"
+            >
+              <TextActionPencilSmallIcon className="size-4 text-token-text-secondary" />
+            </span>
+          ) : null)}
+      </div>
+    );
 
-        openTooltipIfOverflowing();
-      }}
-    >
-      {row}
-    </NodexTooltip>
-  );
-});
+    return (
+      <NodexTooltip
+        tooltipContent={label}
+        side="top"
+        delayDuration={0}
+        open={tooltipOpen && labelOverflowing}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            closeTooltip();
+            return;
+          }
+
+          openTooltipIfOverflowing();
+        }}
+      >
+        {row}
+      </NodexTooltip>
+    );
+  },
+);
 
 function TextActionMoveToRow({
   row,
@@ -1165,9 +1163,11 @@ function TextActionMoveToRow({
           disabled={!enabled}
           hasPopup="dialog"
           expanded={open}
-          rightSlot={enabled ? (
-            <ChevronRightIcon className="size-4 shrink-0 text-token-text-secondary" />
-          ) : undefined}
+          rightSlot={
+            enabled ? (
+              <ChevronRightIcon className="size-4 shrink-0 text-token-text-secondary" />
+            ) : undefined
+          }
           onClick={() => {
             if (enabled) onOpenChange(true);
           }}
@@ -1182,9 +1182,7 @@ function TextActionMoveToRow({
         className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
         style={{ width: 330 }}
       >
-        {renderMoveToMenu?.(menuProps) ?? (
-          <NfmMoveToMenu {...menuProps} />
-        )}
+        {renderMoveToMenu?.(menuProps) ?? <NfmMoveToMenu {...menuProps} />}
       </NfmEditorPopoverContent>
     </NodexPopover>
   );
@@ -1246,9 +1244,11 @@ function TextActionSendToThreadRow({
           disabled={!enabled}
           hasPopup="dialog"
           expanded={open}
-          rightSlot={enabled ? (
-            <ChevronRightIcon className="size-4 shrink-0 text-token-text-secondary" />
-          ) : undefined}
+          rightSlot={
+            enabled ? (
+              <ChevronRightIcon className="size-4 shrink-0 text-token-text-secondary" />
+            ) : undefined
+          }
           onClick={() => {
             if (enabled) onOpenChange(true);
           }}
@@ -1263,9 +1263,7 @@ function TextActionSendToThreadRow({
         className="w-[330px] max-w-[calc(100vw-24px)] overflow-hidden p-0 text-[14px] leading-[1.2] shadow-xl-spread backdrop-blur-xl"
         style={{ width: 330 }}
       >
-        {renderSendToThreadMenu?.(menuProps) ?? (
-          <NfmSendToThreadMenu {...menuProps} />
-        )}
+        {renderSendToThreadMenu?.(menuProps) ?? <NfmSendToThreadMenu {...menuProps} />}
       </NfmEditorPopoverContent>
     </NodexPopover>
   );
@@ -1330,14 +1328,14 @@ function TextActionAiPane({
     onActionPopoverOpenChange?.(activePopover !== null);
   }, [activePopover, onActionPopoverOpenChange]);
 
-  useEffect(() => () => {
-    onActionPopoverOpenChange?.(false);
-  }, [onActionPopoverOpenChange]);
+  useEffect(
+    () => () => {
+      onActionPopoverOpenChange?.(false);
+    },
+    [onActionPopoverOpenChange],
+  );
 
-  const setActionPopoverOpen = (
-    popover: TextActionActionPopoverKey,
-    nextOpen: boolean,
-  ) => {
+  const setActionPopoverOpen = (popover: TextActionActionPopoverKey, nextOpen: boolean) => {
     setActivePopover((currentPopover) => {
       if (nextOpen) return popover;
       if (currentPopover !== popover) return currentPopover;
@@ -1405,7 +1403,11 @@ function TextActionAiPane({
           <>
             <div className="flex h-7 items-center px-2 text-[12px] text-token-text-secondary">
               <span className="min-w-0 flex-1 truncate">Skills</span>
-              <TextActionDisabledButton label="Skills" className="size-7 text-token-text-secondary" mock>
+              <TextActionDisabledButton
+                label="Skills"
+                className="size-7 text-token-text-secondary"
+                mock
+              >
                 <TextActionSlidersIcon />
               </TextActionDisabledButton>
             </div>
@@ -1488,18 +1490,24 @@ export function NfmTextActionMenuSurface({
   const actionPopoverCloseFrameRef = useRef<number | null>(null);
   const selectionHoldActive = toolbarFocusWithin || actionPopoverOpen;
 
-  useEffect(() => () => {
-    if (actionPopoverCloseFrameRef.current === null) return;
-    cancelAnimationFrame(actionPopoverCloseFrameRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (actionPopoverCloseFrameRef.current === null) return;
+      cancelAnimationFrame(actionPopoverCloseFrameRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     onSelectionHoldChange?.(selectionHoldActive);
   }, [onSelectionHoldChange, selectionHoldActive]);
 
-  useEffect(() => () => {
-    onSelectionHoldChange?.(false);
-  }, [onSelectionHoldChange]);
+  useEffect(
+    () => () => {
+      onSelectionHoldChange?.(false);
+    },
+    [onSelectionHoldChange],
+  );
 
   const handleToolbarFocusCapture = () => {
     setToolbarFocusWithin(true);
@@ -1632,7 +1640,11 @@ export function NfmTextActionMenuSurface({
           <>
             <TextActionDivider />
             <div className="flex items-center">
-              <TextActionDisabledButton label="Write a comment" className="min-w-0 flex-1 justify-start gap-2 px-1.5" mock>
+              <TextActionDisabledButton
+                label="Write a comment"
+                className="min-w-0 flex-1 justify-start gap-2 px-1.5"
+                mock
+              >
                 <TextActionCommentIcon />
                 <span className="truncate">Comment</span>
                 <TextActionMockBadge reason="Mock UI only. Not available in Nodex yet." />
@@ -1682,23 +1694,20 @@ export function NfmTextActionMenu() {
   const [selectionHoldActive, setSelectionHoldActive] = useState(false);
   const snapshot = useEditorState({
     editor,
-    selector: ({ editor }) => createTextActionMenuSnapshot(
-      editor as unknown as TextActionSnapshotEditor,
-    ),
+    selector: ({ editor }) =>
+      createTextActionMenuSnapshot(editor as unknown as TextActionSnapshotEditor),
   });
-  useNfmShowSelection(
-    snapshot.eligible && selectionHoldActive,
-    NFM_TEXT_ACTION_MENU_SELECTION_KEY,
-  );
+  useNfmShowSelection(snapshot.eligible && selectionHoldActive, NFM_TEXT_ACTION_MENU_SELECTION_KEY);
 
   const nodexRows = useMemo(
-    () => resolveNodexTextActionRows({
-      currentBlockId: snapshot.currentBlockId,
-      currentBlockType: snapshot.currentBlockType,
-      canSendBlocks: runtime.canSendBlocks && Boolean(runtime.onMoveBlocksToDestination),
-      canSendToThread: runtime.canSendBlocks && Boolean(runtime.onSendBlocksToThread),
-      hasConvertDividerToThreadSection: Boolean(runtime.onConvertDividerToThreadSection),
-    }),
+    () =>
+      resolveNodexTextActionRows({
+        currentBlockId: snapshot.currentBlockId,
+        currentBlockType: snapshot.currentBlockType,
+        canSendBlocks: runtime.canSendBlocks && Boolean(runtime.onMoveBlocksToDestination),
+        canSendToThread: runtime.canSendBlocks && Boolean(runtime.onSendBlocksToThread),
+        hasConvertDividerToThreadSection: Boolean(runtime.onConvertDividerToThreadSection),
+      }),
     [
       runtime.canSendBlocks,
       runtime.onConvertDividerToThreadSection,
@@ -1714,9 +1723,7 @@ export function NfmTextActionMenu() {
   }
 
   const selectBlockType = (item: TextActionBlockTypeItem) => {
-    const selectedBlocks = selectCurrentBlocks(
-      editor as unknown as TextActionSnapshotEditor,
-    );
+    const selectedBlocks = selectCurrentBlocks(editor as unknown as TextActionSnapshotEditor);
 
     applyTextActionBlockType(
       editor as TextActionEditorAdapter,
@@ -1750,14 +1757,10 @@ export function NfmTextActionMenu() {
   };
 
   const clearFormat = () => {
-    applyTextActionClearFormat(
-      editor as TextActionEditorAdapter,
-      TEXT_ACTION_BASIC_STYLES,
-      {
-        canUseTextColor: snapshot.canUseTextColor,
-        canUseBackgroundColor: snapshot.canUseBackgroundColor,
-      },
-    );
+    applyTextActionClearFormat(editor as TextActionEditorAdapter, TEXT_ACTION_BASIC_STYLES, {
+      canUseTextColor: snapshot.canUseTextColor,
+      canUseBackgroundColor: snapshot.canUseBackgroundColor,
+    });
   };
 
   const openBlockActions = (fallbackAnchorRect?: NfmSideMenuRect) => {
@@ -1777,7 +1780,6 @@ export function NfmTextActionMenu() {
       runtime.onConvertDividerToThreadSection?.(snapshot.currentBlockId);
       return;
     }
-
   };
 
   const handleMoveBlocksToDestination = async (destination: NfmMoveToDestination) => {

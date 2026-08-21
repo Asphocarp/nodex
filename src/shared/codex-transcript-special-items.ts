@@ -16,23 +16,39 @@ import { extractCodexThreadSubagentMetadata } from "./codex-subagent-metadata";
 import { createGeneratedCodexSchema } from "./generated-codex-schema";
 import { CodexUnknownRecordSchema } from "./schemas/codex";
 
-const NullableStringSchema = z.string().nullable().optional().catch(null).transform((value) => value ?? null);
-const NullableFiniteNumberSchema = z.number().finite().nullable().optional().catch(null).transform((value) => value ?? null);
+const NullableStringSchema = z
+  .string()
+  .nullable()
+  .optional()
+  .catch(null)
+  .transform((value) => value ?? null);
+const NullableFiniteNumberSchema = z
+  .number()
+  .finite()
+  .nullable()
+  .optional()
+  .catch(null)
+  .transform((value) => value ?? null);
 
 export const AUTO_REVIEW_INTERRUPTION_WARNING_PREFIX =
   "Automatic approval review rejected too many approval requests for this turn";
 
-const CodexAutomaticApprovalReviewSchema =
-  createGeneratedCodexSchema<GuardianApprovalReview>(guardianApprovalReviewJsonSchema);
+const CodexAutomaticApprovalReviewSchema = createGeneratedCodexSchema<GuardianApprovalReview>(
+  guardianApprovalReviewJsonSchema,
+);
 const CodexMultiAgentActionNameSchema =
   createGeneratedCodexSchema<CollabAgentTool>(collabAgentToolJsonSchema);
-const CodexMultiAgentActionStatusSchema =
-  createGeneratedCodexSchema<CollabAgentToolCallStatus>(collabAgentToolCallStatusJsonSchema);
-const CodexMultiAgentAgentStateSchema =
-  createGeneratedCodexSchema<CollabAgentState>(collabAgentStateJsonSchema);
+const CodexMultiAgentActionStatusSchema = createGeneratedCodexSchema<CollabAgentToolCallStatus>(
+  collabAgentToolCallStatusJsonSchema,
+);
+const CodexMultiAgentAgentStateSchema = createGeneratedCodexSchema<CollabAgentState>(
+  collabAgentStateJsonSchema,
+);
 
 export type CodexAutomaticApprovalReviewStatus = GuardianApprovalReview["status"];
-export type CodexAutomaticApprovalReviewRiskLevel = NonNullable<GuardianApprovalReview["riskLevel"]>;
+export type CodexAutomaticApprovalReviewRiskLevel = NonNullable<
+  GuardianApprovalReview["riskLevel"]
+>;
 
 export type CodexAutomaticApprovalReviewPayload = GuardianApprovalReview & {
   targetItemId: string | null;
@@ -72,26 +88,28 @@ export interface CodexMultiAgentActionPayload {
   agentsStates: Record<string, CodexMultiAgentAgentState>;
 }
 
-const CodexAutomaticApprovalReviewRecordSchema = CodexUnknownRecordSchema.transform((value, ctx) => {
-  const review = CodexAutomaticApprovalReviewSchema.safeParse({
-    status: value.status,
-    riskLevel: value.riskLevel ?? null,
-    userAuthorization: value.userAuthorization ?? null,
-    rationale: value.rationale ?? null,
-  });
-  if (!review.success) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Invalid automatic approval review",
+const CodexAutomaticApprovalReviewRecordSchema = CodexUnknownRecordSchema.transform(
+  (value, ctx) => {
+    const review = CodexAutomaticApprovalReviewSchema.safeParse({
+      status: value.status,
+      riskLevel: value.riskLevel ?? null,
+      userAuthorization: value.userAuthorization ?? null,
+      rationale: value.rationale ?? null,
     });
-    return z.NEVER;
-  }
+    if (!review.success) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Invalid automatic approval review",
+      });
+      return z.NEVER;
+    }
 
-  return {
-    ...review.data,
-    riskScore: NullableFiniteNumberSchema.parse(value.riskScore),
-  };
-});
+    return {
+      ...review.data,
+      riskScore: NullableFiniteNumberSchema.parse(value.riskScore),
+    };
+  },
+);
 
 const CodexReceiverThreadSchema = CodexUnknownRecordSchema.transform((value, ctx) => {
   const threadId = z.string().safeParse(value.threadId);
@@ -108,14 +126,14 @@ const CodexReceiverThreadSchema = CodexUnknownRecordSchema.transform((value, ctx
   const displayName = thread.success ? NullableStringSchema.parse(thread.data.displayName) : null;
   const name = thread.success ? NullableStringSchema.parse(thread.data.name) : null;
   const nickname = thread.success
-    ? NullableStringSchema.parse(thread.data.nickname)
-      ?? NullableStringSchema.parse(thread.data.agentNickname)
-      ?? subagentMetadata?.agentNickname
-      ?? displayName
-      ?? name
+    ? (NullableStringSchema.parse(thread.data.nickname) ??
+      NullableStringSchema.parse(thread.data.agentNickname) ??
+      subagentMetadata?.agentNickname ??
+      displayName ??
+      name)
     : null;
   const agentRole = thread.success
-    ? NullableStringSchema.parse(thread.data.agentRole) ?? subagentMetadata?.agentRole ?? null
+    ? (NullableStringSchema.parse(thread.data.agentRole) ?? subagentMetadata?.agentRole ?? null)
     : null;
 
   return {
@@ -142,12 +160,15 @@ const CodexReceiverThreadsSchema = z.array(z.unknown()).transform((value) =>
 );
 
 const CodexAgentsStatesSchema = CodexUnknownRecordSchema.transform((value) =>
-  Object.entries(value).reduce<Record<string, CodexMultiAgentAgentState>>((acc, [threadId, rawState]) => {
-    const state = CodexMultiAgentAgentStateSchema.safeParse(rawState);
-    if (!state.success) return acc;
-    acc[threadId] = state.data;
-    return acc;
-  }, {}),
+  Object.entries(value).reduce<Record<string, CodexMultiAgentAgentState>>(
+    (acc, [threadId, rawState]) => {
+      const state = CodexMultiAgentAgentStateSchema.safeParse(rawState);
+      if (!state.success) return acc;
+      acc[threadId] = state.data;
+      return acc;
+    },
+    {},
+  ),
 );
 
 const CodexMultiAgentActionRecordSchema = CodexUnknownRecordSchema.transform((value, ctx) => {
@@ -205,9 +226,12 @@ export function normalizeAutomaticApprovalReviewPayload(
   if (!normalizedReview) return null;
 
   return {
-    targetItemId: NullableStringSchema.parse(candidate.data.targetItemId) ?? fallbackTargetItemId ?? null,
+    targetItemId:
+      NullableStringSchema.parse(candidate.data.targetItemId) ?? fallbackTargetItemId ?? null,
     ...normalizedReview,
-    action: Object.prototype.hasOwnProperty.call(candidate.data, "action") ? candidate.data.action : null,
+    action: Object.prototype.hasOwnProperty.call(candidate.data, "action")
+      ? candidate.data.action
+      : null,
   };
 }
 
@@ -233,7 +257,8 @@ export function buildAutomaticApprovalReviewTitle(
 ): string {
   if (review.status === "inProgress") return "Auto-reviewing";
   if (review.status === "approved") return "Auto-review approved";
-  if (review.status === "denied" && review.riskLevel === "high") return "Auto-review denied high risk";
+  if (review.status === "denied" && review.riskLevel === "high")
+    return "Auto-review denied high risk";
   if (review.status === "denied") return "Auto-review denied";
   if (review.status === "timedOut") return "Auto-review timed out";
   return "Auto-review stopped";
@@ -283,8 +308,12 @@ export function buildAutomaticApprovalReviewActionSummary(action: unknown): stri
   }
 
   if (type === "mcpToolCall") {
-    const toolName = readNonEmptyString(candidate.data.toolName) ?? readNonEmptyString(candidate.data.toolTitle) ?? "tool";
-    const serverName = readNonEmptyString(candidate.data.connectorName) ?? readNonEmptyString(candidate.data.server);
+    const toolName =
+      readNonEmptyString(candidate.data.toolName) ??
+      readNonEmptyString(candidate.data.toolTitle) ??
+      "tool";
+    const serverName =
+      readNonEmptyString(candidate.data.connectorName) ?? readNonEmptyString(candidate.data.server);
     return serverName ? `MCP ${toolName} on ${serverName}` : `MCP ${toolName}`;
   }
 
@@ -302,7 +331,9 @@ export function shouldShowAutoReviewInterruptionWarning(
   return notification.message.startsWith(AUTO_REVIEW_INTERRUPTION_WARNING_PREFIX);
 }
 
-export function normalizeMultiAgentActionPayload(rawItem: unknown): CodexMultiAgentActionPayload | null {
+export function normalizeMultiAgentActionPayload(
+  rawItem: unknown,
+): CodexMultiAgentActionPayload | null {
   const parsed = CodexMultiAgentActionRecordSchema.safeParse(rawItem);
   return parsed.success ? parsed.data : null;
 }

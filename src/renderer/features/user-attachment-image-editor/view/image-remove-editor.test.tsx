@@ -25,10 +25,8 @@ describe("ImageRemoveEditor", () => {
       stroke: vi.fn(),
       strokeStyle: "",
     } as unknown as CanvasRenderingContext2D;
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext")
-      .mockImplementation(() => context);
-    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL")
-      .mockReturnValue(MASK_SRC);
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(() => context);
+    vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(MASK_SRC);
     const onSubmit = vi.fn();
     const view = render(
       <div className="h-[600px] w-[700px]">

@@ -73,7 +73,9 @@ export type CodexAppServerMessageParseResult =
   | { readonly success: false; readonly error: string };
 
 const JsonRpcMessageSchema = createGeneratedCodexSchema<JsonRpcMessage>(jsonRpcMessageJsonSchema);
-const ServerNotificationSchema = createGeneratedCodexSchema<ServerNotification>(serverNotificationJsonSchema);
+const ServerNotificationSchema = createGeneratedCodexSchema<ServerNotification>(
+  serverNotificationJsonSchema,
+);
 const ServerRequestSchema = createGeneratedCodexSchema<ServerRequest>(serverRequestJsonSchema);
 
 const RequestIdSchema = z.union([z.string(), z.number()]);
@@ -85,10 +87,12 @@ const PrivateServerRequestSchema = z.discriminatedUnion("method", [
       threadId: z.string(),
       turnId: z.string(),
       question: z.string(),
-      options: z.array(z.object({
-        label: z.string(),
-        description: z.string().nullable().optional(),
-      })),
+      options: z.array(
+        z.object({
+          label: z.string(),
+          description: z.string().nullable().optional(),
+        }),
+      ),
       allowMultiple: z.boolean().optional(),
       submitLabel: z.string().nullable().optional(),
       skipLabel: z.string().nullable().optional(),
@@ -111,13 +115,15 @@ const PrivateServerRequestSchema = z.discriminatedUnion("method", [
       planContent: z.string(),
     }),
   }),
-  z.object({
-    id: RequestIdSchema,
-    method: z.literal("inbox-items-create"),
-    params: z.unknown(),
-  }).refine((request) => Object.hasOwn(request, "params"), {
-    message: "inbox-items-create requires params",
-  }),
+  z
+    .object({
+      id: RequestIdSchema,
+      method: z.literal("inbox-items-create"),
+      params: z.unknown(),
+    })
+    .refine((request) => Object.hasOwn(request, "params"), {
+      message: "inbox-items-create requires params",
+    }),
 ]) satisfies z.ZodType<CodexPrivateServerRequest>;
 
 const privateServerRequestMethods = new Set<CodexPrivateServerRequest["method"]>([
@@ -181,7 +187,10 @@ export function parseCodexAppServerMessage(value: unknown): CodexAppServerMessag
       return { success: true, data: { kind: "request", request: privateRequest.data } };
     }
 
-    if (generatedServerRequestMethods.has(method) || privateServerRequestMethods.has(method as CodexPrivateServerRequest["method"])) {
+    if (
+      generatedServerRequestMethods.has(method) ||
+      privateServerRequestMethods.has(method as CodexPrivateServerRequest["method"])
+    ) {
       return invalid(`Invalid params for Codex server request '${method}'.`);
     }
 

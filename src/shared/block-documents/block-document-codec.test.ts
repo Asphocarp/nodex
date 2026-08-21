@@ -9,9 +9,9 @@ import {
 
 const FULL_NFM_FIXTURE = [
   "# Heading",
-  "Paragraph **bold** with <agent-config mode=\"plan\" model=\"gpt-5.5\" reasoning=\"high\" /> and <mention-thread uuid=\"thread-1\" /> and <mention-date start=\"2026-07-11\" format=\"relative\" />.",
+  'Paragraph **bold** with <agent-config mode="plan" model="gpt-5.5" reasoning="high" /> and <mention-thread uuid="thread-1" /> and <mention-date start="2026-07-11" format="relative" />.',
   "- List",
-  "\tNested <attachment kind=\"file\" mode=\"materialized\" source=\"nodex://assets/demo.txt\" name=\"demo.txt\" mime=\"text/plain\" bytes=\"12\" />",
+  '\tNested <attachment kind="file" mode="materialized" source="nodex://assets/demo.txt" name="demo.txt" mime="text/plain" bytes="12" />',
   "3. Ordered",
   "- [x] Checked",
   "▶ Collapsed toggle",
@@ -66,31 +66,22 @@ describe("PageDocumentCodec", () => {
     });
 
     expect(createBlockDocumentNfmContentParitySignature(nfm)).toBe(
-      [
-        "▶ Expanded toggle",
-        "\tExpanded child",
-        "▶# Expanded heading",
-        "\tHeading child",
-      ].join("\n"),
+      ["▶ Expanded toggle", "\tExpanded child", "▶# Expanded heading", "\tHeading child"].join(
+        "\n",
+      ),
     );
-    expect(genesis.materialization.nfm).toBe(
-      createBlockDocumentNfmContentParitySignature(nfm),
-    );
+    expect(genesis.materialization.nfm).toBe(createBlockDocumentNfmContentParitySignature(nfm));
   });
 
   test("normalizes owning Page identities only for legacy content parity", () => {
     expect(createBlockDocumentNfmContentParitySignature("<page />")).toBe(
       '<page uuid="nfm-parity-1" />',
     );
+    expect(createBlockDocumentNfmContentParitySignature('<page uuid="exported-card" />')).toBe(
+      '<page uuid="nfm-parity-1" />',
+    );
     expect(
-      createBlockDocumentNfmContentParitySignature(
-        '<page uuid="exported-card" />',
-      ),
-    ).toBe('<page uuid="nfm-parity-1" />');
-    expect(
-      createBlockDocumentNfmContentParitySignature(
-        '<page-ref url="nodex://pages/target-card" />',
-      ),
+      createBlockDocumentNfmContentParitySignature('<page-ref url="nodex://pages/target-card" />'),
     ).toBe('<page-ref url="nodex://pages/target-card" />');
   });
 
@@ -111,22 +102,14 @@ describe("PageDocumentCodec", () => {
     });
     expect(replay.materialization.nfm).toBe(genesis.materialization.nfm);
     expect(flattenIds(genesis.materialization.blockTree).length).toBe(nextId);
-    expect(new Set(flattenIds(genesis.materialization.blockTree)).size).toBe(
-      nextId,
-    );
+    expect(new Set(flattenIds(genesis.materialization.blockTree)).size).toBe(nextId);
     expect(genesis.materialization.references.length).toBe(6);
-    expect(
-      genesis.materialization.references.map((reference) => reference.kind).join(","),
-    ).toBe(
+    expect(genesis.materialization.references.map((reference) => reference.kind).join(",")).toBe(
       "thread,page,page,legacy_database_query,database_view,legacy_card_projection",
     );
     expect(genesis.materialization.assetRefs.length).toBe(2);
-    expect(genesis.materialization.assetRefs[0]?.managedFileName).toBe(
-      "demo.txt",
-    );
-    expect(genesis.materialization.assetRefs[1]?.managedFileName).toBe(
-      "image.png",
-    );
+    expect(genesis.materialization.assetRefs[0]?.managedFileName).toBe("demo.txt");
+    expect(genesis.materialization.assetRefs[1]?.managedFileName).toBe("image.png");
     expect(genesis.materialization.plainText.includes("demo.txt")).toBe(true);
     expect(genesis.materialization.plainText.includes("gpt-5.5")).toBe(true);
   });
@@ -155,15 +138,11 @@ describe("PageDocumentCodec", () => {
       title: "Pure read",
       nfm: "Parent\n\tChild",
     });
-    const stateBefore = Array.from(
-      Y.encodeStateAsUpdate(genesis.document),
-    ).join(",");
+    const stateBefore = Array.from(Y.encodeStateAsUpdate(genesis.document)).join(",");
 
     materializePageDocument(genesis.document);
 
-    expect(Array.from(Y.encodeStateAsUpdate(genesis.document)).join(",")).toBe(
-      stateBefore,
-    );
+    expect(Array.from(Y.encodeStateAsUpdate(genesis.document)).join(",")).toBe(stateBefore);
   });
 
   test("creates one authority-owned editable paragraph for blank NFM", () => {
@@ -216,5 +195,4 @@ describe("PageDocumentCodec", () => {
     expect(pending.materialization.assetRefs).toEqual([]);
     pending.document.destroy();
   });
-
 });

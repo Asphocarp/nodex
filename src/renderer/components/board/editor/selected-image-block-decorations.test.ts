@@ -88,8 +88,6 @@ describe("selected image block decorations", () => {
       { empty: false, from: 1, to: 30 },
     );
 
-    expect(JSON.stringify(ranges)).toBe(
-      JSON.stringify([{ from: 11, to: 21 }]),
-    );
+    expect(JSON.stringify(ranges)).toBe(JSON.stringify([{ from: 11, to: 21 }]));
   });
 });

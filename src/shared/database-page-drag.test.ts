@@ -19,11 +19,13 @@ import { upgradeDatabaseViewConfigV2 } from "./database-view-presentation";
 
 const timestamp = "2026-07-16T00:00:00.000Z";
 
-const querySnapshot = (input: {
-  readonly status?: string;
-  readonly manual?: boolean;
-  readonly emptySort?: boolean;
-} = {}): DatabaseModuleReadSnapshotV2 => {
+const querySnapshot = (
+  input: {
+    readonly status?: string;
+    readonly manual?: boolean;
+    readonly emptySort?: boolean;
+  } = {},
+): DatabaseModuleReadSnapshotV2 => {
   const database = {
     databaseId: parseDatabaseId("database-1"),
     libraryId: "library-1",
@@ -100,16 +102,20 @@ const querySnapshot = (input: {
       sort: input.emptySort
         ? []
         : input.manual === false
-          ? [{
-            field: { kind: "property" as const, propertyId: "priority" },
-            direction: "asc" as const,
-            nulls: "last" as const,
-          }]
-          : [{
-            field: { kind: "manual" as const },
-            direction: "asc" as const,
-            nulls: "last" as const,
-          }],
+          ? [
+              {
+                field: { kind: "property" as const, propertyId: "priority" },
+                direction: "asc" as const,
+                nulls: "last" as const,
+              },
+            ]
+          : [
+              {
+                field: { kind: "manual" as const },
+                direction: "asc" as const,
+                nulls: "last" as const,
+              },
+            ],
       group: { propertyId: "status" },
       display: { propertyIds: [], showTitle: true },
     }),
@@ -208,13 +214,15 @@ describe("Database Page drag compiler", () => {
       dataSourceId: "source-1",
       viewId: "view-1",
     });
-    expect(compiled.operations).toEqual([{
-      kind: "position_page",
-      viewId: "view-1",
-      pageId: "page-b",
-      expectedPositionRevision: 23,
-      beforePageId: "page-a",
-    }]);
+    expect(compiled.operations).toEqual([
+      {
+        kind: "position_page",
+        viewId: "view-1",
+        pageId: "page-b",
+        expectedPositionRevision: 23,
+        beforePageId: "page-a",
+      },
+    ]);
   });
 
   test("uses intrinsic Page order when the View has no explicit sort", () => {
@@ -228,13 +236,15 @@ describe("Database Page drag compiler", () => {
       snapshot: querySnapshot({ emptySort: true }),
     });
 
-    expect(compiled.operations).toEqual([{
-      kind: "position_page",
-      viewId: "view-1",
-      pageId: "page-b",
-      expectedPositionRevision: 23,
-      beforePageId: "page-a",
-    }]);
+    expect(compiled.operations).toEqual([
+      {
+        kind: "position_page",
+        viewId: "view-1",
+        pageId: "page-b",
+        expectedPositionRevision: 23,
+        beforePageId: "page-a",
+      },
+    ]);
   });
 
   test("writes sorted Property values before their fractional tie-break", () => {
@@ -255,11 +265,13 @@ describe("Database Page drag compiler", () => {
     ]);
     const values = compiled.operations[0];
     if (values?.kind !== "edit_property_values") throw new Error("Missing value run");
-    expect(values.edits.map((value) => ({
-      pageId: value.pageId,
-      dataSourceId: value.dataSourceId,
-      propertyId: value.propertyId,
-    }))).toEqual([
+    expect(
+      values.edits.map((value) => ({
+        pageId: value.pageId,
+        dataSourceId: value.dataSourceId,
+        propertyId: value.propertyId,
+      })),
+    ).toEqual([
       {
         pageId: "page-a",
         dataSourceId: "source-1",
@@ -293,14 +305,8 @@ describe("Database Page drag compiler", () => {
     if (position?.kind !== "position_pages") {
       throw new Error("Missing Page position run");
     }
-    expect(position.pages.map((page) => page.pageId)).toEqual([
-      "page-b",
-      "page-a",
-    ]);
-    expect(position.pages.map((page) => page.expectedPositionRevision)).toEqual([
-      23,
-      22,
-    ]);
+    expect(position.pages.map((page) => page.pageId)).toEqual(["page-b", "page-a"]);
+    expect(position.pages.map((page) => page.expectedPositionRevision)).toEqual([23, 22]);
     expect(position.beforePageId).toBe("page-target");
   });
 

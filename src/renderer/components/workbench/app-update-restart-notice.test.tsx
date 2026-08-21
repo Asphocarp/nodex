@@ -66,8 +66,8 @@ describe("AppUpdateRestartNotice", () => {
           buildDefaultChannel: "stable",
           channelChangeAllowed: true,
         }}
-        onDismiss={() => { }}
-        onRestart={() => { }}
+        onDismiss={() => {}}
+        onRestart={() => {}}
       />,
     );
 

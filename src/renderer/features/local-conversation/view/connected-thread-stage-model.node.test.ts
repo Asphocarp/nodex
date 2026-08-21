@@ -33,10 +33,12 @@ const fallbackInput = {
 
 describe("resolveEffectiveThreadStageSettings", () => {
   test("prefers active conversation settings over shell fallbacks", () => {
-    expect(resolveEffectiveThreadStageSettings({
-      ...fallbackInput,
-      activeThreadId: "thread_1",
-    })).toEqual({
+    expect(
+      resolveEffectiveThreadStageSettings({
+        ...fallbackInput,
+        activeThreadId: "thread_1",
+      }),
+    ).toEqual({
       selectedCollaborationMode: "plan",
       selectedModel: "gpt-thread",
       selectedReasoningEffort: "medium",
@@ -44,10 +46,12 @@ describe("resolveEffectiveThreadStageSettings", () => {
   });
 
   test("uses shell fallbacks for new-thread drafts", () => {
-    expect(resolveEffectiveThreadStageSettings({
-      ...fallbackInput,
-      activeThreadId: null,
-    })).toEqual({
+    expect(
+      resolveEffectiveThreadStageSettings({
+        ...fallbackInput,
+        activeThreadId: null,
+      }),
+    ).toEqual({
       selectedCollaborationMode: "default",
       selectedModel: "gpt-draft",
       selectedReasoningEffort: "high",
@@ -63,12 +67,14 @@ describe("resolveChildConversationIds", () => {
       role: "backgroundChild",
     });
 
-    expect(resolveChildConversationIds("thread_parent", [
-      membership(" thread_child "),
-      membership("thread_child"),
-      membership("thread_parent"),
-      membership("  "),
-      membership("thread_other"),
-    ])).toStrictEqual(["thread_child", "thread_other"]);
+    expect(
+      resolveChildConversationIds("thread_parent", [
+        membership(" thread_child "),
+        membership("thread_child"),
+        membership("thread_parent"),
+        membership("  "),
+        membership("thread_other"),
+      ]),
+    ).toStrictEqual(["thread_child", "thread_other"]);
   });
 });

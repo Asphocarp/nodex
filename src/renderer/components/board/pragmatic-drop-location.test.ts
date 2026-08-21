@@ -54,31 +54,34 @@ const board: BoardSummary = {
 };
 
 describe("pragmatic drop location", () => {
-  const createSurface = () => ({
-    querySelectorAll: () => [
-      {
-        dataset: { boardUuidV7: "a" },
-        getBoundingClientRect: () => ({ top: 100, bottom: 140 }),
-      },
-      {
-        dataset: { boardUuidV7: "b" },
-        getBoundingClientRect: () => ({ top: 150, bottom: 190 }),
-      },
-    ],
-  } as unknown as HTMLElement);
+  const createSurface = () =>
+    ({
+      querySelectorAll: () => [
+        {
+          dataset: { boardUuidV7: "a" },
+          getBoundingClientRect: () => ({ top: 100, bottom: 140 }),
+        },
+        {
+          dataset: { boardUuidV7: "b" },
+          getBoundingClientRect: () => ({ top: 150, bottom: 190 }),
+        },
+      ],
+    }) as unknown as HTMLElement;
 
   test("uses pointer position to resolve the honest slot among non-dragged cards", () => {
     const surface = createSurface();
 
     const result = resolveBoardDropLocation({
       visibleBoard: board,
-      dropTargets: [{
-        data: buildBoardCardDropTargetData({
-          instanceId,
-          pageId: "b",
-          columnId: "build",
-        }),
-      }],
+      dropTargets: [
+        {
+          data: buildBoardCardDropTargetData({
+            instanceId,
+            pageId: "b",
+            columnId: "build",
+          }),
+        },
+      ],
       draggedPageIds: ["a"],
       pointerY: 151,
       resolveColumnSurface: () => surface,
@@ -93,25 +96,29 @@ describe("pragmatic drop location", () => {
 
     const overCard = resolveBoardDropLocation({
       visibleBoard: board,
-      dropTargets: [{
-        data: buildBoardCardDropTargetData({
-          instanceId,
-          pageId: "a",
-          columnId: "build",
-        }),
-      }],
+      dropTargets: [
+        {
+          data: buildBoardCardDropTargetData({
+            instanceId,
+            pageId: "a",
+            columnId: "build",
+          }),
+        },
+      ],
       draggedPageIds: ["b"],
       pointerY: 139,
       resolveColumnSurface: () => surface,
     });
     const overGap = resolveBoardDropLocation({
       visibleBoard: board,
-      dropTargets: [{
-        data: buildBoardColumnDropTargetData({
-          instanceId,
-          columnId: "build",
-        }),
-      }],
+      dropTargets: [
+        {
+          data: buildBoardColumnDropTargetData({
+            instanceId,
+            columnId: "build",
+          }),
+        },
+      ],
       draggedPageIds: ["b"],
       pointerY: 145,
       resolveColumnSurface: () => surface,
@@ -124,13 +131,15 @@ describe("pragmatic drop location", () => {
   test("ignores card targets that are already part of the dragged group", () => {
     const result = resolveBoardDropLocation({
       visibleBoard: board,
-      dropTargets: [{
-        data: buildBoardCardDropTargetData({
-          instanceId,
-          pageId: "a",
-          columnId: "build",
-        }),
-      }],
+      dropTargets: [
+        {
+          data: buildBoardCardDropTargetData({
+            instanceId,
+            pageId: "a",
+            columnId: "build",
+          }),
+        },
+      ],
       draggedPageIds: ["a"],
       pointerY: 110,
       resolveColumnSurface: () => null,
@@ -185,12 +194,14 @@ describe("pragmatic drop location", () => {
 
     const result = resolveBoardDropLocation({
       visibleBoard: board,
-      dropTargets: [{
-        data: buildBoardColumnDropTargetData({
-          instanceId,
-          columnId: "build",
-        }),
-      }],
+      dropTargets: [
+        {
+          data: buildBoardColumnDropTargetData({
+            instanceId,
+            columnId: "build",
+          }),
+        },
+      ],
       draggedPageIds: ["x"],
       pointerY: 145,
       resolveColumnSurface: () => surface,

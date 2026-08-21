@@ -12,9 +12,10 @@ function getAttachmentSizeLabel(props: Pick<AttachmentTooltipProps, "kind" | "by
   return formatAttachmentBytes(props.bytes);
 }
 
-export function getAttachmentTooltipLines(
-  props: AttachmentTooltipProps,
-): { primary: string; secondary: string } {
+export function getAttachmentTooltipLines(props: AttachmentTooltipProps): {
+  primary: string;
+  secondary: string;
+} {
   const sizeLabel = getAttachmentSizeLabel(props);
 
   if (props.mode === "link") {

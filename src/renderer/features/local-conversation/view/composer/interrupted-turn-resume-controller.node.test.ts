@@ -27,22 +27,30 @@ function buildModel(overrides: Partial<ThreadFooterModel> = {}): ThreadFooterMod
 
 describe("interrupted turn resume controller", () => {
   test("allows only an idle interrupted conversation without an active goal", () => {
-    expect(isInterruptedTurnResumeEligible({
-      model: buildModel(),
-      hasResumeAction: true,
-    })).toBe(true);
-    expect(isInterruptedTurnResumeEligible({
-      model: buildModel({ isThreadRunning: true }),
-      hasResumeAction: true,
-    })).toBe(false);
-    expect(isInterruptedTurnResumeEligible({
-      model: buildModel({ conversation: null }),
-      hasResumeAction: true,
-    })).toBe(false);
-    expect(isInterruptedTurnResumeEligible({
-      model: buildModel(),
-      hasResumeAction: false,
-    })).toBe(false);
+    expect(
+      isInterruptedTurnResumeEligible({
+        model: buildModel(),
+        hasResumeAction: true,
+      }),
+    ).toBe(true);
+    expect(
+      isInterruptedTurnResumeEligible({
+        model: buildModel({ isThreadRunning: true }),
+        hasResumeAction: true,
+      }),
+    ).toBe(false);
+    expect(
+      isInterruptedTurnResumeEligible({
+        model: buildModel({ conversation: null }),
+        hasResumeAction: true,
+      }),
+    ).toBe(false);
+    expect(
+      isInterruptedTurnResumeEligible({
+        model: buildModel(),
+        hasResumeAction: false,
+      }),
+    ).toBe(false);
   });
 
   test("admits one attempt until its release completes", () => {

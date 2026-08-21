@@ -47,10 +47,12 @@ export function LoadingResultsShimmer({
           data-loading-results-line={index}
           data-size={size}
           key={index}
-          style={{
-            width: `${Math.max(1, Math.min(100, width))}%`,
-            "--loading-results-shimmer-delay": `${-index * LOADING_RESULTS_STAGGER_MS}ms`,
-          } as LoadingResultsStyle}
+          style={
+            {
+              width: `${Math.max(1, Math.min(100, width))}%`,
+              "--loading-results-shimmer-delay": `${-index * LOADING_RESULTS_STAGGER_MS}ms`,
+            } as LoadingResultsStyle
+          }
         />
       ))}
     </div>

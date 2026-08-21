@@ -6,11 +6,7 @@ import { promisify } from "node:util";
 import type { BrowserUsePeerAuthorizationMode } from "../../shared/browser-use-host-capability";
 import { BrowserUseNativePipeServer } from "../browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../browser-use/browser-use-peer-authorizer";
-import {
-  isMacOSVersionAtLeast,
-  loadSkyNativeAddon,
-  type SkyNativeAddon,
-} from "../sky-native";
+import { isMacOSVersionAtLeast, loadSkyNativeAddon, type SkyNativeAddon } from "../sky-native";
 import type { BrowserRuntimeAvailability } from "./browser-runtime-bundle";
 import {
   type ComputerUseRuntimeConfigInput,
@@ -20,11 +16,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const COMPUTER_USE_APP_NAME = "Codex Computer Use.app";
-const COMPUTER_USE_SERVICE_RELATIVE_PATH = path.join(
-  "Contents",
-  "MacOS",
-  "SkyComputerUseService",
-);
+const COMPUTER_USE_SERVICE_RELATIVE_PATH = path.join("Contents", "MacOS", "SkyComputerUseService");
 const MATERIALIZATION_KEY_FILENAME = ".materialization-key";
 
 type ComputerUseRuntimeUnavailableReason =
@@ -39,16 +31,16 @@ type ComputerUseRuntimeUnavailableReason =
 
 export type ComputerUseRuntimeResult =
   | {
-    appPath: string;
-    hostServicesPipePath: string;
-    serviceExecutablePath: string;
-    status: "available";
-  }
+      appPath: string;
+      hostServicesPipePath: string;
+      serviceExecutablePath: string;
+      status: "available";
+    }
   | {
-    message: string;
-    reason: ComputerUseRuntimeUnavailableReason;
-    status: "unavailable";
-  };
+      message: string;
+      reason: ComputerUseRuntimeUnavailableReason;
+      status: "unavailable";
+    };
 
 type ComputerUseAppVerifier = (input: {
   appPath: string;
@@ -99,8 +91,7 @@ async function readSigningTeamId(codePath: string): Promise<string | null> {
     "--verbose=4",
     codePath,
   ]);
-  return /^TeamIdentifier=(.+)$/mu.exec(`${stdout}\n${stderr}`)?.[1]?.trim()
-    ?? null;
+  return /^TeamIdentifier=(.+)$/mu.exec(`${stdout}\n${stderr}`)?.[1]?.trim() ?? null;
 }
 
 async function defaultVerifyApp(input: {
@@ -109,16 +100,11 @@ async function defaultVerifyApp(input: {
   serviceExecutablePath: string;
   signingTeamId: string;
 }): Promise<void> {
-  await execFileAsync("/usr/bin/codesign", [
-    "--verify",
-    "--deep",
-    "--strict",
-    input.appPath,
-  ]);
-  if (await readBundleIdentifier(input.appPath) !== input.bundleIdentifier) {
+  await execFileAsync("/usr/bin/codesign", ["--verify", "--deep", "--strict", input.appPath]);
+  if ((await readBundleIdentifier(input.appPath)) !== input.bundleIdentifier) {
     throw new Error("Computer Use helper bundle identifier is invalid");
   }
-  if (await readSigningTeamId(input.serviceExecutablePath) !== input.signingTeamId) {
+  if ((await readSigningTeamId(input.serviceExecutablePath)) !== input.signingTeamId) {
     throw new Error("Computer Use helper signing team is invalid");
   }
   const stats = await fs.lstat(input.serviceExecutablePath);
@@ -163,15 +149,9 @@ export class ComputerUseAppMaterializer {
     appPath: string;
     serviceExecutablePath: string;
   }> {
-    const parentPath = path.join(
-      path.resolve(this.options.runtimeStateHome),
-      "computer-use",
-    );
+    const parentPath = path.join(path.resolve(this.options.runtimeStateHome), "computer-use");
     const appPath = path.join(parentPath, COMPUTER_USE_APP_NAME);
-    const serviceExecutablePath = path.join(
-      appPath,
-      COMPUTER_USE_SERVICE_RELATIVE_PATH,
-    );
+    const serviceExecutablePath = path.join(appPath, COMPUTER_USE_SERVICE_RELATIVE_PATH);
     const key = JSON.stringify({
       bundleIdentifier: this.options.bundleIdentifier,
       desktopBuild: this.options.desktopBuild,
@@ -193,16 +173,10 @@ export class ComputerUseAppMaterializer {
     }
 
     await fs.mkdir(parentPath, { recursive: true });
-    const stagingPath = path.join(
-      parentPath,
-      `.staging-${randomUUID()}.app`,
-    );
+    const stagingPath = path.join(parentPath, `.staging-${randomUUID()}.app`);
     try {
       await this.copyApp(this.options.sourceAppPath, stagingPath);
-      const stagingServicePath = path.join(
-        stagingPath,
-        COMPUTER_USE_SERVICE_RELATIVE_PATH,
-      );
+      const stagingServicePath = path.join(stagingPath, COMPUTER_USE_SERVICE_RELATIVE_PATH);
       await this.verifyApp({
         appPath: stagingPath,
         bundleIdentifier: this.options.bundleIdentifier,
@@ -271,13 +245,9 @@ export class ComputerUseServiceManager {
   constructor(options: ComputerUseServiceManagerOptions) {
     this.addon = options.addon;
     this.isProcessAlive = options.isProcessAlive ?? isLiveProcess;
-    this.serviceExecutablePath = canonicalExecutablePath(
-      options.serviceExecutablePath,
-    );
-    this.terminateManagedProcessOnDispose =
-      options.terminateManagedProcessOnDispose ?? false;
-    this.terminateProcess = options.terminateProcess
-      ?? ((pid) => process.kill(pid, "SIGTERM"));
+    this.serviceExecutablePath = canonicalExecutablePath(options.serviceExecutablePath);
+    this.terminateManagedProcessOnDispose = options.terminateManagedProcessOnDispose ?? false;
+    this.terminateProcess = options.terminateProcess ?? ((pid) => process.kill(pid, "SIGTERM"));
   }
 
   async ensureRunning(): Promise<{ pid: number }> {
@@ -292,19 +262,18 @@ export class ComputerUseServiceManager {
   }
 
   dispose(): void {
-    if (
-      this.terminateManagedProcessOnDispose
-      && this.isManagedProcessValid()
-    ) {
+    if (this.terminateManagedProcessOnDispose && this.isManagedProcessValid()) {
       this.terminateProcess(this.managedPid!);
     }
     this.managedPid = null;
   }
 
   private isManagedProcessValid(): boolean {
-    return this.managedPid !== null
-      && this.isProcessAlive(this.managedPid)
-      && this.matchesExecutable(this.managedPid);
+    return (
+      this.managedPid !== null &&
+      this.isProcessAlive(this.managedPid) &&
+      this.matchesExecutable(this.managedPid)
+    );
   }
 
   private matchesExecutable(pid: number): boolean {
@@ -320,9 +289,7 @@ export class ComputerUseServiceManager {
 
   private async spawnAndValidate(): Promise<number> {
     this.managedPid = null;
-    const pid = await this.addon.spawnComputerUseService(
-      this.serviceExecutablePath,
-    );
+    const pid = await this.addon.spawnComputerUseService(this.serviceExecutablePath);
     if (!Number.isSafeInteger(pid) || pid === null || pid <= 0) {
       throw new Error("Computer Use native host did not return a valid process ID");
     }
@@ -358,9 +325,7 @@ type ComputerUseRuntimeCoordinatorOptions = {
   runtimeStateHome: string;
   serviceManager?: Pick<ComputerUseServiceManager, "dispose" | "ensureRunning">;
   terminateManagedServiceOnDispose?: boolean;
-  writeRuntimeConfig?: (
-    input: ComputerUseRuntimeConfigWriteInput,
-  ) => Promise<string>;
+  writeRuntimeConfig?: (input: ComputerUseRuntimeConfigWriteInput) => Promise<string>;
 };
 
 type ComputerUseHostServicesServer = {
@@ -374,10 +339,8 @@ export class ComputerUseRuntimeCoordinator {
   private result: ComputerUseRuntimeResult | null = null;
   private startInFlight: Promise<ComputerUseRuntimeResult> | null = null;
   private nativePipeServer: ComputerUseHostServicesServer | null = null;
-  private serviceManager: Pick<
-    ComputerUseServiceManager,
-    "dispose" | "ensureRunning"
-  > | null = null;
+  private serviceManager: Pick<ComputerUseServiceManager, "dispose" | "ensureRunning"> | null =
+    null;
 
   constructor(options: ComputerUseRuntimeCoordinatorOptions) {
     this.options = options;
@@ -390,12 +353,14 @@ export class ComputerUseRuntimeCoordinator {
   async ensureReady(): Promise<ComputerUseRuntimeResult> {
     if (this.result?.status === "available") return this.result;
     if (this.startInFlight) return await this.startInFlight;
-    const operation = this.start().then((result) => {
-      this.result = result;
-      return result;
-    }).finally(() => {
-      if (this.startInFlight === operation) this.startInFlight = null;
-    });
+    const operation = this.start()
+      .then((result) => {
+        this.result = result;
+        return result;
+      })
+      .finally(() => {
+        if (this.startInFlight === operation) this.startInFlight = null;
+      });
     this.startInFlight = operation;
     return await operation;
   }
@@ -433,10 +398,7 @@ export class ComputerUseRuntimeCoordinator {
         status: "unavailable",
       };
     }
-    if (!isMacOSVersionAtLeast(
-      capability.minimumMacOSVersion,
-      this.options.macOSRelease,
-    )) {
+    if (!isMacOSVersionAtLeast(capability.minimumMacOSVersion, this.options.macOSRelease)) {
       return {
         message: `Computer Use requires macOS ${capability.minimumMacOSVersion} or later`,
         reason: "macos-version-unsupported",
@@ -453,9 +415,9 @@ export class ComputerUseRuntimeCoordinator {
     }
     const addon = (this.options.loadAddon ?? (() => loadSkyNativeAddon()))();
     if (
-      !addon
-      || typeof addon.spawnComputerUseService !== "function"
-      || typeof addon.computerUseServiceProcessMatchesExecutablePath !== "function"
+      !addon ||
+      typeof addon.spawnComputerUseService !== "function" ||
+      typeof addon.computerUseServiceProcessMatchesExecutablePath !== "function"
     ) {
       return {
         message: "Computer Use native host is unavailable",
@@ -474,8 +436,8 @@ export class ComputerUseRuntimeCoordinator {
     let helper: { appPath: string; serviceExecutablePath: string };
     try {
       helper = await (
-        this.options.appMaterializer
-        ?? new ComputerUseAppMaterializer({
+        this.options.appMaterializer ??
+        new ComputerUseAppMaterializer({
           bundleIdentifier: capability.appBundleIdentifier,
           desktopBuild: runtime.bundle.manifest.desktopBuild,
           runtimeStateHome: this.options.runtimeStateHome,
@@ -491,40 +453,36 @@ export class ComputerUseRuntimeCoordinator {
       };
     }
 
-    const serviceManager = this.options.serviceManager
-      ?? new ComputerUseServiceManager({
+    const serviceManager =
+      this.options.serviceManager ??
+      new ComputerUseServiceManager({
         addon,
         serviceExecutablePath: helper.serviceExecutablePath,
-        terminateManagedProcessOnDispose:
-          this.options.terminateManagedServiceOnDispose,
+        terminateManagedProcessOnDispose: this.options.terminateManagedServiceOnDispose,
       });
-    const peerAuthorizationMode = this.options.peerAuthorizationMode
-      ?? "development";
+    const peerAuthorizationMode = this.options.peerAuthorizationMode ?? "development";
     const handler = async (method: string, params: unknown): Promise<unknown> => {
       if (method !== "ensureService") {
         throw new Error(`Unsupported host-services method: ${method}`);
       }
-      const service = params && typeof params === "object"
-        ? Reflect.get(params, "service")
-        : null;
+      const service = params && typeof params === "object" ? Reflect.get(params, "service") : null;
       if (service !== "computer-use") {
         throw new Error("Unsupported host service");
       }
       await serviceManager.ensureRunning();
       return {};
     };
-    const createServer = this.options.createNativePipeServer
-      ?? ((requestHandler, mode, addonPath) => new BrowserUseNativePipeServer({
-        handler: async (request) => await requestHandler(
-          request.method,
-          request.params,
-        ),
-        nativePipeDirectory: path.join("/tmp", "nodex-host-services"),
-        socketPeerAuthorizer: createBrowserUsePeerAuthorizer({
-          addonPath,
-          mode,
-        }),
-      }));
+    const createServer =
+      this.options.createNativePipeServer ??
+      ((requestHandler, mode, addonPath) =>
+        new BrowserUseNativePipeServer({
+          handler: async (request) => await requestHandler(request.method, request.params),
+          nativePipeDirectory: path.join("/tmp", "nodex-host-services"),
+          socketPeerAuthorizer: createBrowserUsePeerAuthorizer({
+            addonPath,
+            mode,
+          }),
+        }));
     const server = createServer(
       handler,
       peerAuthorizationMode,

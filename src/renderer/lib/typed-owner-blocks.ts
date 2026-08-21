@@ -1,8 +1,4 @@
-export const TYPED_OWNER_BLOCK_TYPES = [
-  "page",
-  "database",
-  "canvas",
-] as const;
+export const TYPED_OWNER_BLOCK_TYPES = ["page", "database", "canvas"] as const;
 
 export type TypedOwnerBlockType = (typeof TYPED_OWNER_BLOCK_TYPES)[number];
 
@@ -92,10 +88,7 @@ export const OWNER_OPERATION_MATRIX = {
     replace: "generic_document",
     reclassify: "generic_document",
   },
-} as const satisfies Record<
-  OwnerBlockKind,
-  Record<OwnerOperation, OwnerOperationRoute>
->;
+} as const satisfies Record<OwnerBlockKind, Record<OwnerOperation, OwnerOperationRoute>>;
 
 export const ownerBlockKind = (type: unknown): OwnerBlockKind => {
   if (type === "page") return "page";
@@ -113,11 +106,14 @@ export const ownerOperationRoute = (
 export type OwnerSelectionDecision<T extends TypedOwnerBlockLike> =
   | { readonly kind: "generic" }
   | {
-    readonly kind: "typed";
-    readonly block: T;
-    readonly route: Exclude<OwnerOperationRoute, "generic_document" | "forbidden">;
-  }
-  | { readonly kind: "forbidden"; readonly reason: "nested_owner" | "mixed_selection" | "unsupported" };
+      readonly kind: "typed";
+      readonly block: T;
+      readonly route: Exclude<OwnerOperationRoute, "generic_document" | "forbidden">;
+    }
+  | {
+      readonly kind: "forbidden";
+      readonly reason: "nested_owner" | "mixed_selection" | "unsupported";
+    };
 
 export const resolveOwnerSelectionOperation = <T extends TypedOwnerBlockLike>(
   blocks: readonly T[],
@@ -140,27 +136,21 @@ export const resolveOwnerSelectionOperation = <T extends TypedOwnerBlockLike>(
   return { kind: "typed", block, route };
 };
 
-export const isTypedOwnerBlockType = (
-  type: unknown,
-): type is TypedOwnerBlockType =>
-  typeof type === "string"
-  && (TYPED_OWNER_BLOCK_TYPES as readonly string[]).includes(type);
+export const isTypedOwnerBlockType = (type: unknown): type is TypedOwnerBlockType =>
+  typeof type === "string" && (TYPED_OWNER_BLOCK_TYPES as readonly string[]).includes(type);
 
-export const hasTypedOwnerBlock = (
-  blocks: readonly TypedOwnerBlockLike[],
-): boolean => blocks.some((block) =>
-  isTypedOwnerBlockType(block.type)
-  || hasTypedOwnerBlock(block.children ?? []));
+export const hasTypedOwnerBlock = (blocks: readonly TypedOwnerBlockLike[]): boolean =>
+  blocks.some(
+    (block) => isTypedOwnerBlockType(block.type) || hasTypedOwnerBlock(block.children ?? []),
+  );
 
-export const hasNestedTypedOwnerBlock = (
-  blocks: readonly TypedOwnerBlockLike[],
-): boolean => blocks.some((block) =>
-  !isTypedOwnerBlockType(block.type)
-  && hasTypedOwnerBlock(block.children ?? []));
+export const hasNestedTypedOwnerBlock = (blocks: readonly TypedOwnerBlockLike[]): boolean =>
+  blocks.some(
+    (block) => !isTypedOwnerBlockType(block.type) && hasTypedOwnerBlock(block.children ?? []),
+  );
 
 export const hasTypedOwnerType = (types: readonly unknown[]): boolean =>
   types.some(isTypedOwnerBlockType);
 
-export const typedOwnerBlocks = <T extends TypedOwnerBlockLike>(
-  blocks: readonly T[],
-): T[] => blocks.filter((block) => isTypedOwnerBlockType(block.type));
+export const typedOwnerBlocks = <T extends TypedOwnerBlockLike>(blocks: readonly T[]): T[] =>
+  blocks.filter((block) => isTypedOwnerBlockType(block.type));

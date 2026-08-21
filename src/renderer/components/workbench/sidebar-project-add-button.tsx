@@ -8,7 +8,8 @@ import { ProjectCreateDialog } from "./project-edit-dialog";
 
 export type SidebarCreateProjectHandler = (input: ProjectCreateInput) => Promise<Project | null>;
 
-const CODEX_PROJECT_ADD_BUTTON_CLASS = "outline-hidden cursor-interaction relative isolate h-6 w-6 overflow-visible rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
+const CODEX_PROJECT_ADD_BUTTON_CLASS =
+  "outline-hidden cursor-interaction relative isolate h-6 w-6 overflow-visible rounded-md !p-1 text-token-foreground opacity-75 hover:opacity-100";
 
 export function SidebarProjectAddButton({
   onCreateProject,
@@ -35,10 +36,7 @@ export function SidebarProjectAddButton({
   const openProjectCreateDialogFromEffect = useEffectEvent(openProjectCreateDialog);
 
   useEffect(() => {
-    if (
-      openDialogTick === undefined
-      || openDialogTick === lastOpenDialogTickRef.current
-    ) return;
+    if (openDialogTick === undefined || openDialogTick === lastOpenDialogTickRef.current) return;
     lastOpenDialogTickRef.current = openDialogTick;
     openProjectCreateDialogFromEffect();
   }, [openDialogTick]);

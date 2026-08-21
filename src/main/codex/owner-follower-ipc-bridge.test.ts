@@ -131,7 +131,10 @@ function createManualTimers() {
   };
 }
 
-function readRendererRequest(target: FakeWebContents, index: number): {
+function readRendererRequest(
+  target: FakeWebContents,
+  index: number,
+): {
   method: string;
   params: unknown;
   requestId: string;
@@ -245,11 +248,13 @@ describe("owner/follower IPC bridge", () => {
     expect((roleRequest.params as { conversationId?: string }).conversationId).toBe("thread-1");
     expect(String(follower.sent.length)).toBe("0");
 
-    expect(router.handleResponse(owner, {
-      type: "success",
-      requestId: roleRequest.requestId,
-      result: "owner",
-    })).toBe(true);
+    expect(
+      router.handleResponse(owner, {
+        type: "success",
+        requestId: roleRequest.requestId,
+        result: "owner",
+      }),
+    ).toBe(true);
     await flushPromises();
 
     const actionRequest = readRendererRequest(owner, 1);
@@ -257,13 +262,15 @@ describe("owner/follower IPC bridge", () => {
     expect((actionRequest.params as { type?: string }).type).toBe("interruptTurn");
     expect((actionRequest.params as { threadId?: string }).threadId).toBe("thread-1");
 
-    expect(router.handleResponse(owner, {
-      type: "success",
-      requestId: actionRequest.requestId,
-      result: { ok: true },
-    })).toBe(true);
+    expect(
+      router.handleResponse(owner, {
+        type: "success",
+        requestId: actionRequest.requestId,
+        result: { ok: true },
+      }),
+    ).toBe(true);
 
-    const result = await resultPromise as { ok?: boolean };
+    const result = (await resultPromise) as { ok?: boolean };
     expect(result.ok).toBe(true);
     expect(router.getPendingRequestCount()).toBe(0);
     expect(timers.size).toBe(0);
@@ -282,18 +289,15 @@ describe("owner/follower IPC bridge", () => {
     service.setOwner("thread-1", ownerRegistration.clientId);
     owner.destroy();
 
-    const message = await readRejectionMessage(runThreadFollowerActionThroughOwner(
-      service,
-      router,
-      followerRegistration.clientId,
-      {
+    const message = await readRejectionMessage(
+      runThreadFollowerActionThroughOwner(service, router, followerRegistration.clientId, {
         conversationId: "thread-1",
         action: {
           type: "loadCompleteHistory",
           threadId: "thread-1",
         },
-      },
-    ));
+      }),
+    );
 
     expect(message.includes("no-client-found")).toBe(true);
     expect(message.includes("thread-1")).toBe(true);
@@ -308,19 +312,16 @@ describe("owner/follower IPC bridge", () => {
     const follower = new FakeWebContents(32);
     const followerRegistration = router.register(follower);
 
-    const message = await readRejectionMessage(runThreadFollowerActionThroughOwner(
-      service,
-      router,
-      followerRegistration.clientId,
-      {
+    const message = await readRejectionMessage(
+      runThreadFollowerActionThroughOwner(service, router, followerRegistration.clientId, {
         conversationId: "thread-missing-owner",
         action: {
           type: "startTurn",
           threadId: "thread-missing-owner",
           prompt: "Continue",
         },
-      },
-    ));
+      }),
+    );
 
     expect(message.includes("no-client-found")).toBe(true);
     expect(message.includes("thread-missing-owner")).toBe(true);

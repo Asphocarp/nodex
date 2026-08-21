@@ -1,7 +1,4 @@
-import type {
-  DatabaseJsonValue,
-  DatabasePropertyValueType,
-} from "../../shared/database-kernel";
+import type { DatabaseJsonValue, DatabasePropertyValueType } from "../../shared/database-kernel";
 import type {
   DataSourcePageValueV2,
   DataSourcePropertyRecordV2,
@@ -126,9 +123,7 @@ const invalidValueReason = (
         : "Expected an ISO date and time";
     }
     case "relation":
-      return readRelationValuePreview(value)
-        ? null
-        : "Expected a Relation preview";
+      return readRelationValuePreview(value) ? null : "Expected a Relation preview";
   }
 };
 
@@ -156,9 +151,7 @@ const findBuiltInProperty = (
   properties: readonly PageStageDataSourceProperty[],
   propertyId: BuiltInDataSourcePropertyRole,
 ): PageStageDataSourceProperty | null =>
-  properties.find((item) =>
-    matchBuiltInDataSourceProperty(item.property) === propertyId
-  ) ?? null;
+  properties.find((item) => matchBuiltInDataSourceProperty(item.property) === propertyId) ?? null;
 
 const scalarSemantic = <Value extends string>(
   item: PageStageDataSourceProperty | null,
@@ -167,9 +160,7 @@ const scalarSemantic = <Value extends string>(
   if (!item) return null;
   return {
     item,
-    value: typeof item.value === "string" && isValue(item.value)
-      ? item.value
-      : null,
+    value: typeof item.value === "string" && isValue(item.value) ? item.value : null,
   };
 };
 
@@ -179,9 +170,8 @@ const dateSemantic = (
   if (!item) return null;
   if (item.error) return { item, value: null };
   if (typeof item.value !== "string") return { item, value: null };
-  const parsed = item.property.valueType === "date"
-    ? parseIsoDateToLocalDate(item.value)
-    : new Date(item.value);
+  const parsed =
+    item.property.valueType === "date" ? parseIsoDateToLocalDate(item.value) : new Date(item.value);
   if (!parsed) return { item, value: null };
   return { item, value: Number.isNaN(parsed.getTime()) ? null : parsed };
 };
@@ -189,14 +179,8 @@ const dateSemantic = (
 export const readPageStageSemanticProperties = (
   properties: readonly PageStageDataSourceProperty[],
 ): PageStageSemanticProperties => {
-  const status = scalarSemantic(
-    findBuiltInProperty(properties, "status"),
-    isWorkflowStatus,
-  );
-  const priority = scalarSemantic(
-    findBuiltInProperty(properties, "priority"),
-    isPriority,
-  );
+  const status = scalarSemantic(findBuiltInProperty(properties, "status"), isWorkflowStatus);
+  const priority = scalarSemantic(findBuiltInProperty(properties, "priority"), isPriority);
   const estimate = scalarSemantic(
     findBuiltInProperty(properties, "estimate"),
     (value): value is Estimate => ESTIMATES.has(value as Estimate),
@@ -205,9 +189,10 @@ export const readPageStageSemanticProperties = (
   const tags = tagsItem
     ? {
         item: tagsItem,
-        value: !tagsItem.error && Array.isArray(tagsItem.value)
-          ? tagsItem.value.filter((entry): entry is string => typeof entry === "string")
-          : null,
+        value:
+          !tagsItem.error && Array.isArray(tagsItem.value)
+            ? tagsItem.value.filter((entry): entry is string => typeof entry === "string")
+            : null,
       }
     : null;
   const assigneeItem = findBuiltInProperty(properties, "assignee");
@@ -223,12 +208,8 @@ export const readPageStageSemanticProperties = (
     estimate,
     tags,
     dueDate: dateSemantic(findBuiltInProperty(properties, "due_date")),
-    scheduledStart: dateSemantic(
-      findBuiltInProperty(properties, "scheduled_start"),
-    ),
-    scheduledEnd: dateSemantic(
-      findBuiltInProperty(properties, "scheduled_end"),
-    ),
+    scheduledStart: dateSemantic(findBuiltInProperty(properties, "scheduled_start")),
+    scheduledEnd: dateSemantic(findBuiltInProperty(properties, "scheduled_end")),
     assignee,
   };
 };
@@ -237,23 +218,22 @@ export const readPageDetailWorkflowStatus = (
   detail: PageDetail | LibraryPageDetail | null,
 ): WorkflowStatus | null => {
   if (!detail) return null;
-  return readPageStageSemanticProperties(
-    buildPageStageDataSourceProperties(detail),
-  ).status?.value ?? null;
+  return (
+    readPageStageSemanticProperties(buildPageStageDataSourceProperties(detail)).status?.value ??
+    null
+  );
 };
 
-export const isPageStagePrimaryProperty = (
-  property: PageStageDataSourceProperty,
-): boolean => PAGE_STAGE_PRIMARY_PROPERTY_IDS.some(
-  (propertyId) => matchBuiltInDataSourceProperty(property.property) === propertyId,
-);
+export const isPageStagePrimaryProperty = (property: PageStageDataSourceProperty): boolean =>
+  PAGE_STAGE_PRIMARY_PROPERTY_IDS.some(
+    (propertyId) => matchBuiltInDataSourceProperty(property.property) === propertyId,
+  );
 
-export const hasPageStageScheduleCapability = (
-  semantic: PageStageSemanticProperties,
-): boolean => semantic.scheduledStart !== null
-  && semantic.scheduledEnd !== null
-  && semantic.scheduledStart.item.error === null
-  && semantic.scheduledEnd.item.error === null;
+export const hasPageStageScheduleCapability = (semantic: PageStageSemanticProperties): boolean =>
+  semantic.scheduledStart !== null &&
+  semantic.scheduledEnd !== null &&
+  semantic.scheduledStart.item.error === null &&
+  semantic.scheduledEnd.item.error === null;
 
 export const pageStageSemanticValues = (
   semantic: PageStageSemanticProperties,
@@ -263,12 +243,8 @@ export const pageStageSemanticValues = (
   ...(semantic.estimate?.value ? { estimate: semantic.estimate.value } : {}),
   ...(semantic.tags?.value ? { tags: semantic.tags.value } : {}),
   ...(semantic.dueDate?.value ? { dueDate: semantic.dueDate.value } : {}),
-  ...(semantic.scheduledStart?.value
-    ? { scheduledStart: semantic.scheduledStart.value }
-    : {}),
-  ...(semantic.scheduledEnd?.value
-    ? { scheduledEnd: semantic.scheduledEnd.value }
-    : {}),
+  ...(semantic.scheduledStart?.value ? { scheduledStart: semantic.scheduledStart.value } : {}),
+  ...(semantic.scheduledEnd?.value ? { scheduledEnd: semantic.scheduledEnd.value } : {}),
   ...(semantic.assignee?.value ? { assignee: semantic.assignee.value } : {}),
 });
 
@@ -280,18 +256,21 @@ export const pageStageSectionProperties = (
   return properties.filter((property) => {
     if (isPageStagePrimaryProperty(property)) return false;
     if (!ownsSchedulePair) return true;
-    return property.property.propertyId !== "scheduled_start"
-      && property.property.propertyId !== "scheduled_end";
+    return (
+      property.property.propertyId !== "scheduled_start" &&
+      property.property.propertyId !== "scheduled_end"
+    );
   });
 };
 
 export const pageStageValueRecord = (
   item: PageStageDataSourceProperty,
-): DataSourcePageValueV2 | undefined => item.valueRevision === 0
-  ? undefined
-  : {
-      propertyId: item.property.propertyId,
-      valueType: item.property.valueType,
-      value: item.value,
-      revision: item.valueRevision,
-    };
+): DataSourcePageValueV2 | undefined =>
+  item.valueRevision === 0
+    ? undefined
+    : {
+        propertyId: item.property.propertyId,
+        valueType: item.property.valueType,
+        value: item.value,
+        revision: item.valueRevision,
+      };

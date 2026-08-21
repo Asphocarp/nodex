@@ -13,7 +13,7 @@ const storageMap = new Map<string, string>();
 
 const mockStorage = {
   getItem(key: string): string | null {
-    return storageMap.has(key) ? storageMap.get(key) ?? null : null;
+    return storageMap.has(key) ? (storageMap.get(key) ?? null) : null;
   },
   setItem(key: string, value: string): void {
     storageMap.set(key, value);
@@ -62,7 +62,9 @@ describe("codex-service-tier-settings", () => {
     expect(toServiceTierReportingValue(null)).toBe("standard");
     expect(toServiceTierReportingValue("fast")).toBe("fast");
     expect(JSON.stringify(buildCodexServiceTierRequestOverride(null))).toBe(JSON.stringify({}));
-    expect(JSON.stringify(buildCodexServiceTierRequestOverride("fast"))).toBe(JSON.stringify({ serviceTier: "fast" }));
+    expect(JSON.stringify(buildCodexServiceTierRequestOverride("fast"))).toBe(
+      JSON.stringify({ serviceTier: "fast" }),
+    );
 
     expect(resolveCodexRequestServiceTier(undefined, "fast")).toBe("fast");
     expect(resolveCodexRequestServiceTier({}, "fast")).toBe("fast");

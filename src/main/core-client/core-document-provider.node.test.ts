@@ -39,9 +39,7 @@ const spawnCore = (nodexHome: string): ChildProcessWithoutNullStreams => {
   return child;
 };
 
-const readDescriptor = (
-  child: ChildProcessWithoutNullStreams,
-): Promise<CoreRuntimeDescriptor> =>
+const readDescriptor = (child: ChildProcessWithoutNullStreams): Promise<CoreRuntimeDescriptor> =>
   new Promise((resolve, reject) => {
     const lines = createInterface({ input: child.stdout });
     const timeout = setTimeout(() => {
@@ -60,9 +58,7 @@ const readDescriptor = (
     });
   });
 
-const spawnSeededCore = async (
-  nodexHome: string,
-): Promise<ChildProcessWithoutNullStreams> => {
+const spawnSeededCore = async (nodexHome: string): Promise<ChildProcessWithoutNullStreams> => {
   const child = spawnCore(nodexHome);
   await readDescriptor(child);
   const rootClient = await CoreClient.connect({
@@ -119,17 +115,12 @@ const spawnSeededCore = async (
   return child;
 };
 
-const waitForExit = (
-  child: ChildProcessWithoutNullStreams,
-): Promise<number | null> => {
+const waitForExit = (child: ChildProcessWithoutNullStreams): Promise<number | null> => {
   if (child.exitCode !== null) return Promise.resolve(child.exitCode);
   return new Promise((resolve) => child.once("exit", resolve));
 };
 
-const waitUntil = async (
-  predicate: () => boolean,
-  message: string,
-): Promise<void> => {
+const waitUntil = async (predicate: () => boolean, message: string): Promise<void> => {
   for (let attempt = 0; attempt < 500; attempt += 1) {
     if (predicate()) return;
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
@@ -213,10 +204,12 @@ describe("Rust Core renderer Document adapter", () => {
           actor_project_id: PROJECT_ID,
           library_id: host.handshake.library_id,
           store_epoch: host.handshake.store_epoch,
-          grants: [{
-            root: { kind: "page" as const, page_id: PAGE_ID },
-            access: "read_write" as const,
-          }],
+          grants: [
+            {
+              root: { kind: "page" as const, page_id: PAGE_ID },
+              access: "read_write" as const,
+            },
+          ],
         },
       };
       const operationId = "agent-prepared-body";
@@ -225,12 +218,14 @@ describe("Rust Core renderer Document adapter", () => {
         generation: 1,
         expected_head_seq: 2,
         allow_deleting_owned_blocks: false,
-        commands: [{
-          kind: "patch_body" as const,
-          old_fragment: "Base body",
-          new_fragment: "Prepared body",
-          expected_matches: 1,
-        }],
+        commands: [
+          {
+            kind: "patch_body" as const,
+            old_fragment: "Base body",
+            new_fragment: "Prepared body",
+            expected_matches: 1,
+          },
+        ],
       };
       const preflight = await host.documentRead("agent:prepared", {
         kind: "prepare_agent_semantic_mutation",
@@ -269,8 +264,8 @@ describe("Rust Core renderer Document adapter", () => {
           },
         }),
       ).rejects.toSatisfy(
-        (error: unknown) => error instanceof CoreModuleResponseError
-          && error.coreError.code === "revision_conflict",
+        (error: unknown) =>
+          error instanceof CoreModuleResponseError && error.coreError.code === "revision_conflict",
       );
       const committed = await host.documentApply({
         operationId,
@@ -334,11 +329,13 @@ describe("Rust Core renderer Document adapter", () => {
         generation: 1,
         expected_head_seq: 3,
         allow_deleting_owned_blocks: false,
-        commands: [{
-          kind: "insert_body" as const,
-          anchor: { kind: "end" as const, parent_block_id: null },
-          nested_markdown: "Inserted through prepared Core",
-        }],
+        commands: [
+          {
+            kind: "insert_body" as const,
+            anchor: { kind: "end" as const, parent_block_id: null },
+            nested_markdown: "Inserted through prepared Core",
+          },
+        ],
       };
       const insertPreflight = await host.documentRead("agent:prepared", {
         kind: "prepare_agent_semantic_mutation",
@@ -358,8 +355,9 @@ describe("Rust Core renderer Document adapter", () => {
           deleted_roots: [],
         },
       });
-      expect(insertPreflight.value.preparation.preview_markdown)
-        .toContain("Inserted through prepared Core");
+      expect(insertPreflight.value.preparation.preview_markdown).toContain(
+        "Inserted through prepared Core",
+      );
       const insertCommitted = await host.documentApply({
         operationId: insertOperationId,
         clientSessionId: "agent:prepared",
@@ -401,20 +399,22 @@ describe("Rust Core renderer Document adapter", () => {
         generation: 1,
         expected_head_seq: 4,
         allow_deleting_owned_blocks: false,
-        commands: [{
-          kind: "insert_block" as const,
-          anchor: { kind: "end" as const, parent_block_id: null },
-          block: {
-            local_id: "stable-root",
-            block_type: "paragraph",
-            props: {},
-            content: {
-              kind: "value" as const,
-              value: [{ type: "text", text: "Stable root", styles: {} }],
+        commands: [
+          {
+            kind: "insert_block" as const,
+            anchor: { kind: "end" as const, parent_block_id: null },
+            block: {
+              local_id: "stable-root",
+              block_type: "paragraph",
+              props: {},
+              content: {
+                kind: "value" as const,
+                value: [{ type: "text", text: "Stable root", styles: {} }],
+              },
+              children: [],
             },
-            children: [],
           },
-        }],
+        ],
       };
       const stablePreflight = await host.documentRead("agent:prepared", {
         kind: "prepare_agent_semantic_mutation",
@@ -448,10 +448,12 @@ describe("Rust Core renderer Document adapter", () => {
         target_block_id: PAGE_ID,
         prepare_title: true,
         prepare_body: true,
-        block_guards: [{
-          block_id: stableRootId as string,
-          kind: "update",
-        }],
+        block_guards: [
+          {
+            block_id: stableRootId as string,
+            kind: "update",
+          },
+        ],
         max_depth: 512,
         cursor: null,
         limit: 100,
@@ -478,17 +480,19 @@ describe("Rust Core renderer Document adapter", () => {
         generation: 1,
         expected_head_seq: 5,
         allow_deleting_owned_blocks: false,
-        commands: [{
-          kind: "update_block" as const,
-          block_id: stableRootId as string,
-          expected_etag: guarded?.etag as string,
-          patch: {
-            block_type: null,
-            props: { textAlignment: "center" },
-            content: { kind: "absent" as const },
-            unset_content: false,
+        commands: [
+          {
+            kind: "update_block" as const,
+            block_id: stableRootId as string,
+            expected_etag: guarded?.etag as string,
+            patch: {
+              block_type: null,
+              props: { textAlignment: "center" },
+              content: { kind: "absent" as const },
+              unset_content: false,
+            },
           },
-        }],
+        ],
       };
       const stableUpdatePreflight = await host.documentRead("agent:prepared", {
         kind: "prepare_agent_semantic_mutation",
@@ -559,11 +563,13 @@ describe("Rust Core renderer Document adapter", () => {
           document_id: DOCUMENT_ID,
           generation: 1,
           expected_head_seq: 2,
-          commands: [{
-            kind: "patch_body",
-            old_fragment: "Base body",
-            new_fragment: "Rust body",
-          }],
+          commands: [
+            {
+              kind: "patch_body",
+              old_fragment: "Base body",
+              new_fragment: "Rust body",
+            },
+          ],
         },
       });
       await Promise.all([provider.flush(), semantic]);
@@ -583,11 +589,13 @@ describe("Rust Core renderer Document adapter", () => {
           document_id: DOCUMENT_ID,
           generation: 1,
           expected_head_seq: 4,
-          commands: [{
-            kind: "patch_body",
-            old_fragment: "Rust body",
-            new_fragment: "Replayed body",
-          }],
+          commands: [
+            {
+              kind: "patch_body",
+              old_fragment: "Rust body",
+              new_fragment: "Replayed body",
+            },
+          ],
         },
       });
       expect(disconnected.receipt.duplicate).toBe(false);
@@ -609,11 +617,13 @@ describe("Rust Core renderer Document adapter", () => {
           document_id: DOCUMENT_ID,
           generation: 1,
           expected_head_seq: 4,
-          commands: [{
-            kind: "patch_body",
-            old_fragment: "Rust body",
-            new_fragment: "Replayed body",
-          }],
+          commands: [
+            {
+              kind: "patch_body",
+              old_fragment: "Rust body",
+              new_fragment: "Replayed body",
+            },
+          ],
         },
       });
       expect(retry.receipt.duplicate).toBe(true);
@@ -702,10 +712,7 @@ const materialized = (document: Y.Doc) =>
     schemaVersion: 2,
   }).materialization;
 
-const awarenessName = (
-  provider: NodexYProvider,
-  clientId: number,
-): string | undefined => {
+const awarenessName = (provider: NodexYProvider, clientId: number): string | undefined => {
   const state = provider.awareness.getStates().get(clientId);
   if (typeof state !== "object" || state === null || !("user" in state)) {
     return undefined;

@@ -2,11 +2,17 @@ import { arch, platform } from "node:process";
 import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 
 export const CHATGPT_DESKTOP_ORIGINATOR = "Codex Desktop";
-export type ChatGptDesktopRequestHeaders = Headers | Record<string, string> | Array<[string, string]>;
+export type ChatGptDesktopRequestHeaders =
+  | Headers
+  | Record<string, string>
+  | Array<[string, string]>;
 export type ChatGptDesktopRequestBody = string | ArrayBuffer | Uint8Array;
 
 export interface ChatGptDesktopRequestDependencies {
-  readAuthStatus: (input: { includeToken: boolean; refreshToken: boolean }) => Promise<GetAuthStatusResponse>;
+  readAuthStatus: (input: {
+    includeToken: boolean;
+    refreshToken: boolean;
+  }) => Promise<GetAuthStatusResponse>;
   fetchImpl: (input: string, init: RequestInit) => Promise<Response>;
   getAppVersion: () => string;
 }
@@ -27,8 +33,7 @@ function isChatGptAuthMethod(value: string | null | undefined): boolean {
 }
 
 function resolveMissingAuthErrorMessage(input: ChatGptDesktopRequestInput): string {
-  return input.missingAuthErrorMessage
-    ?? `Sign in to ChatGPT in Codex Desktop to ${input.action}.`;
+  return input.missingAuthErrorMessage ?? `Sign in to ChatGPT in Codex Desktop to ${input.action}.`;
 }
 
 function resolveRequestUrl(baseUrl: string, path: string): string {
@@ -47,7 +52,9 @@ export function extractChatGptAccountIdFromAuthToken(token: string): string | nu
   }
 
   try {
-    const payload = JSON.parse(Buffer.from(segments[1] ?? "", "base64url").toString("utf8")) as Record<string, unknown>;
+    const payload = JSON.parse(
+      Buffer.from(segments[1] ?? "", "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
     const auth = payload["https://api.openai.com/auth"];
     if (typeof auth !== "object" || auth === null) {
       return null;
@@ -137,10 +144,14 @@ async function performRequest(
   const prepared = prepareChatGptDesktopBody(input);
   return await deps.fetchImpl(url, {
     method: input.method,
-    headers: buildHeaders(authToken, {
-      ...input,
-      headers: prepared.headers,
-    }, deps.getAppVersion),
+    headers: buildHeaders(
+      authToken,
+      {
+        ...input,
+        headers: prepared.headers,
+      },
+      deps.getAppVersion,
+    ),
     body: toFetchBody(prepared.body),
   });
 }

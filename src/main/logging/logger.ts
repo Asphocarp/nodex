@@ -69,11 +69,12 @@ interface BackendLogFile {
 }
 
 const LOG_FILE_PATTERN = /^backend-(\d{4}-\d{2}-\d{2})(?:-(\d+))?\.log$/;
-const SENSITIVE_FIELD_PATTERN = /(?:pass(word)?|secret|token|api[-_]?key|authorization|cookie|session|credential)/i;
+const SENSITIVE_FIELD_PATTERN =
+  /(?:pass(word)?|secret|token|api[-_]?key|authorization|cookie|session|credential)/i;
 const IS_TEST_RUNTIME =
-  process.env.NODE_ENV === "test"
-  || process.env.BUN_ENV === "test"
-  || process.argv.some((value) => value.toLowerCase().includes("test"));
+  process.env.NODE_ENV === "test" ||
+  process.env.BUN_ENV === "test" ||
+  process.argv.some((value) => value.toLowerCase().includes("test"));
 const IS_PACKAGED_RUNTIME = parseBooleanEnv(process.env.NODEX_INTERNAL_APP_PACKAGED, false);
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const DEFAULT_MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -84,8 +85,10 @@ const DEFAULT_STREAM_HIGH_WATER_MARK_BYTES = 1024 * 1024;
 function parseBooleanEnv(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined) return fallback;
   const normalized = value.trim().toLowerCase();
-  if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off") return false;
-  if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on") return true;
+  if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "off")
+    return false;
+  if (normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on")
+    return true;
   return fallback;
 }
 
@@ -138,7 +141,9 @@ function createLoggerConfig(): LoggerConfig {
     ),
     flushTimeoutMs: parseIntegerEnv(process.env.NODEX_LOG_FLUSH_TIMEOUT_MS, 2_000, 100),
     logDir: configuredLogDir
-      ? (path.isAbsolute(configuredLogDir) ? configuredLogDir : path.resolve(process.cwd(), configuredLogDir))
+      ? path.isAbsolute(configuredLogDir)
+        ? configuredLogDir
+        : path.resolve(process.cwd(), configuredLogDir)
       : defaultLogDir,
   };
 }
@@ -166,12 +171,23 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return prototype === Object.prototype || prototype === null;
 }
 
-function serializeError(error: Error, context: SerializationContext, depth: number): Record<string, unknown> {
+function serializeError(
+  error: Error,
+  context: SerializationContext,
+  depth: number,
+): Record<string, unknown> {
   return {
     name: error.name,
     message: truncateString(error.message, context.config.maxStringLength),
-    stack: error.stack ? truncateString(error.stack, context.config.maxStringLength * 2) : undefined,
-    cause: serializeValue((error as Error & { cause?: unknown }).cause, context, depth + 1, "cause"),
+    stack: error.stack
+      ? truncateString(error.stack, context.config.maxStringLength * 2)
+      : undefined,
+    cause: serializeValue(
+      (error as Error & { cause?: unknown }).cause,
+      context,
+      depth + 1,
+      "cause",
+    ),
   };
 }
 
@@ -325,14 +341,14 @@ class RotatingJsonlLogWriter {
 
   private makeQueueRoom(incoming: QueuedLogLine): boolean {
     const fits = () =>
-      this.queue.length < this.config.maxQueueEntries
-      && this.queuedBytes + incoming.bytes <= this.config.maxQueueBytes;
+      this.queue.length < this.config.maxQueueEntries &&
+      this.queuedBytes + incoming.bytes <= this.config.maxQueueBytes;
     if (fits()) return true;
     if (incoming.level !== "warn" && incoming.level !== "error") return false;
 
     while (!fits()) {
-      const evictIndex = this.queue.findIndex((item) =>
-        logPriority(item.level) < logPriority(incoming.level)
+      const evictIndex = this.queue.findIndex(
+        (item) => logPriority(item.level) < logPriority(incoming.level),
       );
       if (evictIndex < 0) return false;
       const [evicted] = this.queue.splice(evictIndex, 1);
@@ -424,9 +440,9 @@ class RotatingJsonlLogWriter {
     const date = resolveLogDate();
     const dateChanged = this.activeDate !== null && this.activeDate !== date;
     const segmentFull =
-      this.stream !== null
-      && this.activeFileBytes > 0
-      && this.activeFileBytes + incomingBytes > this.config.maxFileBytes;
+      this.stream !== null &&
+      this.activeFileBytes > 0 &&
+      this.activeFileBytes + incomingBytes > this.config.maxFileBytes;
 
     if (dateChanged) {
       await this.closeActiveStream();
@@ -489,8 +505,9 @@ class RotatingJsonlLogWriter {
         }
       }
 
-      files = readBackendLogFiles(this.config.logDir)
-        .sort((left, right) => left.mtimeMs - right.mtimeMs || left.name.localeCompare(right.name));
+      files = readBackendLogFiles(this.config.logDir).sort(
+        (left, right) => left.mtimeMs - right.mtimeMs || left.name.localeCompare(right.name),
+      );
       let totalBytes = files.reduce((total, file) => total + file.size, 0);
       const targetBytes = Math.max(0, this.config.maxTotalBytes - this.config.maxFileBytes);
 
@@ -626,13 +643,11 @@ class BackendLoggerImpl implements BackendLogger {
 
   private log(level: ActiveLogLevelName, message: string, fields?: object): void {
     const writeConsole =
-      this.config.consoleEnabled
-      && isLogLevelEnabled(level, this.config.consoleLevel);
-    const writeFile =
-      this.config.fileEnabled
-      && isLogLevelEnabled(level, this.config.fileLevel);
-    const notifyObservers = Array.from(this.observers)
-      .some((subscription) => isLogLevelEnabled(level, subscription.level));
+      this.config.consoleEnabled && isLogLevelEnabled(level, this.config.consoleLevel);
+    const writeFile = this.config.fileEnabled && isLogLevelEnabled(level, this.config.fileLevel);
+    const notifyObservers = Array.from(this.observers).some((subscription) =>
+      isLogLevelEnabled(level, subscription.level),
+    );
     if (!writeConsole && !writeFile && !notifyObservers) return;
 
     let entry: BackendLogEntry;
@@ -669,11 +684,7 @@ class BackendLoggerImpl implements BackendLogger {
     }
   }
 
-  private buildEntry(
-    level: ActiveLogLevelName,
-    message: string,
-    fields?: object,
-  ): BackendLogEntry {
+  private buildEntry(level: ActiveLogLevelName, message: string, fields?: object): BackendLogEntry {
     const context: SerializationContext = {
       config: this.config,
       seen: new WeakSet<object>(),

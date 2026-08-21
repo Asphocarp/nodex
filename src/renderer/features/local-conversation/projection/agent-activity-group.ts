@@ -9,9 +9,7 @@ import {
   resolveCodexPatchSuccess,
   summarizeCodexUnifiedDiff,
 } from "../../../../shared/codex-file-change";
-import {
-  normalizeAutomaticApprovalReviewPayload,
-} from "../../../../shared/codex-transcript-special-items";
+import { normalizeAutomaticApprovalReviewPayload } from "../../../../shared/codex-transcript-special-items";
 import { resolveCodexMcpVisualSource } from "../../../../shared/codex-mcp-tool-call";
 import { isCodexWebSearchActivityInProgress } from "../../../../shared/codex-web-search";
 import {
@@ -44,9 +42,7 @@ import {
   type ThreadAgentActivitySummaryFacts,
   type ThreadAgentActivitySummaryFact,
 } from "./agent-activity-v2-summary";
-import {
-  resolveThreadVisualizationCommandKind,
-} from "./agent-activity-v2";
+import { resolveThreadVisualizationCommandKind } from "./agent-activity-v2";
 import type {
   ThreadAgentActivityGroupBlockModel,
   ThreadAgentActivityGroupActiveSummary,
@@ -62,20 +58,29 @@ import type {
 type CommandExecutionBlock = ThreadTranscriptBlockModel & { type: "exec" };
 
 type AutomaticApprovalReviewFailure = ThreadAgentActivityApprovalFailure;
-type McpToolCallSummarySource = Omit<ThreadAgentActivityGroupMcpSourceStats, "count" | "runningCount">;
+type McpToolCallSummarySource = Omit<
+  ThreadAgentActivityGroupMcpSourceStats,
+  "count" | "runningCount"
+>;
 export type AgentActivityGroupSummaryFact = ThreadAgentActivitySummaryFact;
 
-function isTranscriptBlock(block: ThreadAgentItemModel | ThreadAgentEntryModel): block is ThreadTranscriptBlockModel {
+function isTranscriptBlock(
+  block: ThreadAgentItemModel | ThreadAgentEntryModel,
+): block is ThreadTranscriptBlockModel {
   return "entry" in block;
 }
 
-function isExplorationCommandBlock(block: ThreadTranscriptBlockModel): block is CommandExecutionBlock {
+function isExplorationCommandBlock(
+  block: ThreadTranscriptBlockModel,
+): block is CommandExecutionBlock {
   if (block.type !== "exec") return false;
   const commandActions = extractCommandActions(block.entry);
   return commandActions.length > 0 && commandActions.every(isExplorationAction);
 }
 
-function buildSearchableTextFromActivityEntries(entries: ThreadAgentActivityGroupEntryModel[]): string {
+function buildSearchableTextFromActivityEntries(
+  entries: ThreadAgentActivityGroupEntryModel[],
+): string {
   return entries
     .map((entry) => entry.searchableText)
     .map((segment) => segment.trim())
@@ -112,12 +117,14 @@ function getTrimmedRecordString(value: unknown, key: string): string | null {
 
 function resolveWebSearchSummaryDetail(entry: CodexConversationItem): string {
   const rawItem = asRecord(entry.rawItem);
-  const action = rawItem && Object.prototype.hasOwnProperty.call(rawItem, "action")
-    ? rawItem.action
-    : entry.toolCall?.result;
-  const fallbackQuery = getTrimmedRecordString(entry.toolCall?.args, "query")
-    ?? getTrimmedRecordString(rawItem, "query")
-    ?? "";
+  const action =
+    rawItem && Object.prototype.hasOwnProperty.call(rawItem, "action")
+      ? rawItem.action
+      : entry.toolCall?.result;
+  const fallbackQuery =
+    getTrimmedRecordString(entry.toolCall?.args, "query") ??
+    getTrimmedRecordString(rawItem, "query") ??
+    "";
   return describeWebSearchAction(action, fallbackQuery).trim();
 }
 
@@ -125,16 +132,22 @@ function formatActivePath(path: string | null | undefined): string {
   return normalizeExplorationPath(path)?.replace(/^\/+/, "") ?? path?.trim() ?? "";
 }
 
-function formatReadActiveSummary(action: Extract<CodexCommandAction, { type: "read" }>, cwd: string | null): string {
+function formatReadActiveSummary(
+  action: Extract<CodexCommandAction, { type: "read" }>,
+  cwd: string | null,
+): string {
   const resolvedPath = resolveExplorationPath(action.path || action.name, cwd);
   const skillPathInfo = resolveExplorationSkillPathInfo(resolvedPath);
-  if (skillPathInfo?.isSkillDefinitionFile === true) return `Reading ${skillPathInfo.skillName} skill`;
+  if (skillPathInfo?.isSkillDefinitionFile === true)
+    return `Reading ${skillPathInfo.skillName} skill`;
 
   const target = formatActivePath(action.path || action.name);
   return target.length > 0 ? `Reading ${target}` : "Reading";
 }
 
-function formatSearchActiveSummary(action: Extract<CodexCommandAction, { type: "search" }>): string {
+function formatSearchActiveSummary(
+  action: Extract<CodexCommandAction, { type: "search" }>,
+): string {
   const folder = formatActivePath(action.path);
   if (folder.length > 0) return `Searching files in ${folder} folder`;
 
@@ -143,12 +156,17 @@ function formatSearchActiveSummary(action: Extract<CodexCommandAction, { type: "
   return "Searching files";
 }
 
-function formatListFilesActiveSummary(action: Extract<CodexCommandAction, { type: "listFiles" }>): string {
+function formatListFilesActiveSummary(
+  action: Extract<CodexCommandAction, { type: "listFiles" }>,
+): string {
   const folder = formatActivePath(action.path);
   return folder.length > 0 ? `Listing files in ${folder} folder` : "Listing files";
 }
 
-function formatExplorationActiveSummary(action: CodexCommandAction, cwd: string | null): string | null {
+function formatExplorationActiveSummary(
+  action: CodexCommandAction,
+  cwd: string | null,
+): string | null {
   if (action.type === "read") return formatReadActiveSummary(action, cwd);
   if (action.type === "search") return formatSearchActiveSummary(action);
   if (action.type === "listFiles") return formatListFilesActiveSummary(action);
@@ -425,29 +443,41 @@ function resolveAgentEntryBlockRenderKey(block: ThreadAgentEntryModel, index: nu
 export function resolveAgentRenderUnitKey(unit: ThreadAgentRenderUnit, index: number): string {
   if (unit.kind === "agentActivityGroup") {
     const seed = unit.block.entries[0];
-    const seedKey = seed?.renderKey ?? (seed ? resolveAgentEntryBlockRenderKey(seed, index) : `unknown-${index}`);
+    const seedKey =
+      seed?.renderKey ?? (seed ? resolveAgentEntryBlockRenderKey(seed, index) : `unknown-${index}`);
     return `agent-activity-group:${seedKey}:${index}`;
   }
   return resolveAgentEntryBlockRenderKey(unit.block, index);
 }
 
-function withRenderKey<TBlock extends ThreadAgentEntryModel>(block: TBlock, renderKey: string): TBlock {
+function withRenderKey<TBlock extends ThreadAgentEntryModel>(
+  block: TBlock,
+  renderKey: string,
+): TBlock {
   return {
     ...block,
     renderKey,
   };
 }
 
-export function materializeAgentRenderUnits(units: ThreadAgentRenderUnit[]): ThreadAgentEntryModel[] {
-  return units.map((unit, index) => unit.block.renderKey
-    ? unit.block
-    : withRenderKey(unit.block, resolveAgentRenderUnitKey(unit, index)));
+export function materializeAgentRenderUnits(
+  units: ThreadAgentRenderUnit[],
+): ThreadAgentEntryModel[] {
+  return units.map((unit, index) =>
+    unit.block.renderKey
+      ? unit.block
+      : withRenderKey(unit.block, resolveAgentRenderUnitKey(unit, index)),
+  );
 }
 
-function mergeActivityStatus(entries: ThreadAgentActivityGroupEntryModel[]): CodexConversationItem["status"] {
+function mergeActivityStatus(
+  entries: ThreadAgentActivityGroupEntryModel[],
+): CodexConversationItem["status"] {
   const statuses = entries
     .map((entry) => entry.status)
-    .filter((status): status is NonNullable<CodexConversationItem["status"]> => status !== undefined);
+    .filter(
+      (status): status is NonNullable<CodexConversationItem["status"]> => status !== undefined,
+    );
   if (statuses.length === 0) return undefined;
   if (statuses.includes("inProgress")) return "inProgress";
   if (statuses.includes("failed")) return "failed";
@@ -464,7 +494,8 @@ function buildExplorationSummaryFact(
   const runningReadPaths = new Set<string>();
   const loadedToolPaths = new Set<string>();
   const runningLoadedToolPaths = new Set<string>();
-  const automaticApprovalReviewFailures = buildAutomaticApprovalReviewFailures(automaticApprovalReviews);
+  const automaticApprovalReviewFailures =
+    buildAutomaticApprovalReviewFailures(automaticApprovalReviews);
   let searchCount = 0;
   let runningSearchCount = 0;
   let listCount = 0;
@@ -526,7 +557,8 @@ function buildAutomaticApprovalReviewFailures(
   for (const review of reviews) {
     const reviewStatus = getAutomaticApprovalReviewStatus(review) ?? review.status;
     if (reviewStatus !== "denied" && reviewStatus !== "timedOut") continue;
-    const reviewId = (resolveConversationItemKeyId(review) ?? review.itemId) || review.entryId || review.type;
+    const reviewId =
+      (resolveConversationItemKeyId(review) ?? review.itemId) || review.entryId || review.type;
     failures.push({
       id: reviewId,
       status: reviewStatus,
@@ -535,10 +567,10 @@ function buildAutomaticApprovalReviewFailures(
   return failures;
 }
 
-function buildPatchSummaryFact(
-  entry: ThreadTranscriptBlockModel,
-): AgentActivityGroupSummaryFact {
-  const automaticApprovalReviewFailures = buildAutomaticApprovalReviewFailures(entry.automaticApprovalReviews ?? []);
+function buildPatchSummaryFact(entry: ThreadTranscriptBlockModel): AgentActivityGroupSummaryFact {
+  const automaticApprovalReviewFailures = buildAutomaticApprovalReviewFailures(
+    entry.automaticApprovalReviews ?? [],
+  );
   const changes = getCodexFileChangeEntries(entry.entry.fileChange?.changes);
   const createdPaths = new Set<string>();
   const runningCreatedPaths = new Set<string>();
@@ -578,19 +610,20 @@ function buildPatchSummaryFact(
   }
 
   const visualizationActivities = entry.entry.fileChange?.visualizationActivities;
-  const visualizationActivity = visualizationActivities != null
-    && visualizationActivities.length > 0
-    && entry.status !== "failed"
-    && entry.status !== "declined"
-    && entry.status !== "interrupted"
-    ? {
-        activities: visualizationActivities.flatMap((activity) => {
-          const path = normalizeExplorationPath(activity.path);
-          return path == null ? [] : [{ path, kind: activity.kind }];
-        }),
-        isInProgress: entry.status === "inProgress",
-      }
-    : undefined;
+  const visualizationActivity =
+    visualizationActivities != null &&
+    visualizationActivities.length > 0 &&
+    entry.status !== "failed" &&
+    entry.status !== "declined" &&
+    entry.status !== "interrupted"
+      ? {
+          activities: visualizationActivities.flatMap((activity) => {
+            const path = normalizeExplorationPath(activity.path);
+            return path == null ? [] : [{ path, kind: activity.kind }];
+          }),
+          isInProgress: entry.status === "inProgress",
+        }
+      : undefined;
 
   return {
     type: "patch",
@@ -637,7 +670,9 @@ export function buildAgentActivityGroupSummaryFact(
     }
     const isInProgress = entry.status === "inProgress";
     const command = resolveConversationCommandText(entry.entry);
-    const automaticApprovalReviewFailures = buildAutomaticApprovalReviewFailures(entry.automaticApprovalReviews ?? []);
+    const automaticApprovalReviewFailures = buildAutomaticApprovalReviewFailures(
+      entry.automaticApprovalReviews ?? [],
+    );
     return {
       type: "exec",
       isInProgress,
@@ -653,10 +688,14 @@ export function buildAgentActivityGroupSummaryFact(
   }
   if (entry.type === "automaticApprovalReview") {
     const [failure] = buildAutomaticApprovalReviewFailures([entry.entry]);
-    return failure ? { type: "automaticApprovalReview", id: failure.id, status: failure.status } : { type: "other" };
+    return failure
+      ? { type: "automaticApprovalReview", id: failure.id, status: failure.status }
+      : { type: "other" };
   }
   if (entry.type === "mcpToolCall") {
-    const automaticApprovalReviewFailures = buildAutomaticApprovalReviewFailures(entry.automaticApprovalReviews ?? []);
+    const automaticApprovalReviewFailures = buildAutomaticApprovalReviewFailures(
+      entry.automaticApprovalReviews ?? [],
+    );
     return {
       type: "mcpToolCall",
       isInProgress: entry.entry.mcpToolCall?.completed === false,
@@ -785,27 +824,34 @@ export function buildV2AgentActivityGroupBlock(
     if (entry.type !== "mcpToolCall" || entry.entry.mcpToolCall == null) return [];
     const source = resolveMcpToolCallSummarySource(entry.entry, resolvedApps);
     const payload = entry.entry.mcpToolCall;
-    return [{
-      item: entry,
-      sourceKey: source?.key ?? null,
-      server: payload.invocation.server,
-      visuallyIdentified: source?.logoUrl != null
-        || source?.logoUrlDark != null
-        || source?.nativeAppReference != null
-        || (payload.mcpAppResourceUri != null && payload.pluginId != null),
-    }];
+    return [
+      {
+        item: entry,
+        sourceKey: source?.key ?? null,
+        server: payload.invocation.server,
+        visuallyIdentified:
+          source?.logoUrl != null ||
+          source?.logoUrlDark != null ||
+          source?.nativeAppReference != null ||
+          (payload.mcpAppResourceUri != null && payload.pluginId != null),
+      },
+    ];
   });
   const orderedMcpSources = orderThreadAgentActivityMcpSources(
     facts.mcpToolCallSources,
     mcpItemEvidence,
   );
   const dynamicParts = buildThreadAgentActivityDynamicCompletedParts(
-    entries.flatMap((entry) => entry.type === "dynamicToolCall"
-      ? [{
-          item: entry,
-          key: buildDynamicToolCallSummaryPartKey(entry.entry.dynamicToolCall),
-        }]
-      : []),
+    entries.flatMap((entry) =>
+      entry.type === "dynamicToolCall"
+        ? [
+            {
+              item: entry,
+              key: buildDynamicToolCallSummaryPartKey(entry.entry.dynamicToolCall),
+            },
+          ]
+        : [],
+    ),
   );
   const completedParts = buildThreadAgentActivityCompletedSummaryParts(facts, {
     orderedMcpSources,
@@ -887,17 +933,14 @@ export function attachAutomaticApprovalReviewsToToolTargets(
       continue;
     }
     const targetKey = resolveAutomaticApprovalTargetKey(entry);
-    const reviews = targetKey ? reviewsByTarget.get(targetKey) ?? [] : [];
+    const reviews = targetKey ? (reviewsByTarget.get(targetKey) ?? []) : [];
     if (reviews.length === 0) {
       attachedEntries.push(entry);
       continue;
     }
     attachedEntries.push({
       ...entry,
-      automaticApprovalReviews: [
-        ...(entry.automaticApprovalReviews ?? []),
-        ...reviews,
-      ],
+      automaticApprovalReviews: [...(entry.automaticApprovalReviews ?? []), ...reviews],
     });
   }
 

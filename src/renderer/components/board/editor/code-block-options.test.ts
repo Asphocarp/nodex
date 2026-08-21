@@ -2,9 +2,7 @@ import { describe, expect, test } from "vitest";
 import { editorCodeBlockOptions } from "./code-block-options";
 
 const shikiParserSymbol = Symbol.for("blocknote.shikiParser");
-const shikiHighlighterPromiseSymbol = Symbol.for(
-  "blocknote.shikiHighlighterPromise",
-);
+const shikiHighlighterPromiseSymbol = Symbol.for("blocknote.shikiHighlighterPromise");
 
 type GlobalThisWithBlockNoteShiki = typeof globalThis & {
   [shikiParserSymbol]?: unknown;
@@ -29,11 +27,9 @@ describe("editorCodeBlockOptions", () => {
       const highlighter = await createHighlighter();
       await highlighter.loadLanguage("ts");
 
-      const parser = (globalThis as GlobalThisWithBlockNoteShiki)[
-        shikiParserSymbol
-      ];
+      const parser = (globalThis as GlobalThisWithBlockNoteShiki)[shikiParserSymbol];
 
-      expect((typeof parser === "function")).toBe(true);
+      expect(typeof parser === "function").toBe(true);
       if (typeof parser !== "function") return;
 
       const content = "const answer = 42";

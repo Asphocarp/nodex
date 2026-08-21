@@ -14,9 +14,7 @@ function authStatus(token: string): GetAuthStatusResponse {
   };
 }
 
-function createService(
-  overrides: Partial<SiteStatusPolicyServiceDependencies> = {},
-): {
+function createService(overrides: Partial<SiteStatusPolicyServiceDependencies> = {}): {
   service: BrowserUseSiteStatusPolicyService;
   logger: { warn: ReturnType<typeof vi.fn> };
 } {
@@ -25,11 +23,15 @@ function createService(
   };
   const deps: SiteStatusPolicyServiceDependencies = {
     apiBaseUrl: "https://chatgpt.com/backend-api",
-    fetchImpl: async () => new Response(JSON.stringify({
-      feature_status: {
-        agent: false,
-      },
-    }), { status: 200 }),
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify({
+          feature_status: {
+            agent: false,
+          },
+        }),
+        { status: 200 },
+      ),
     getAppVersion: () => "0.1.8",
     logger,
     readAuthStatus: async () => authStatus("test-token"),
@@ -57,12 +59,15 @@ describe("Browser Use site status policy", () => {
     const requestedUrls: string[] = [];
     const fetchImpl = vi.fn(async (url: string) => {
       requestedUrls.push(url);
-      return new Response(JSON.stringify({
-        feature_status: {
-          agent: true,
-          page_content: false,
-        },
-      }), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          feature_status: {
+            agent: true,
+            page_content: false,
+          },
+        }),
+        { status: 200 },
+      );
     });
     const { service } = createService({
       fetchImpl,
@@ -84,9 +89,9 @@ describe("Browser Use site status policy", () => {
     );
 
     nowMs += BROWSER_USE_SITE_STATUS_CACHE_TTL_MS;
-    await expect(
-      service.isCommentModeBlocked("https://example.com/after-expiry"),
-    ).resolves.toBe(true);
+    await expect(service.isCommentModeBlocked("https://example.com/after-expiry")).resolves.toBe(
+      true,
+    );
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
@@ -94,9 +99,12 @@ describe("Browser Use site status policy", () => {
     let resolveResponse: (response: Response) => void = () => {
       throw new Error("Fetch did not start");
     };
-    const fetchImpl = vi.fn(() => new Promise<Response>((resolve) => {
-      resolveResponse = resolve;
-    }));
+    const fetchImpl = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
+        }),
+    );
     const { service } = createService({ fetchImpl });
 
     const first = service.isCommentModeBlocked("https://example.com/first");
@@ -105,11 +113,16 @@ describe("Browser Use site status policy", () => {
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
 
-    resolveResponse(new Response(JSON.stringify({
-      feature_status: {
-        agent: true,
-      },
-    }), { status: 200 }));
+    resolveResponse(
+      new Response(
+        JSON.stringify({
+          feature_status: {
+            agent: true,
+          },
+        }),
+        { status: 200 },
+      ),
+    );
 
     await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
   });
@@ -122,11 +135,14 @@ describe("Browser Use site status policy", () => {
       if (authorizations.length === 1) {
         return new Response("unauthorized", { status: 401 });
       }
-      return new Response(JSON.stringify({
-        feature_status: {
-          agent: true,
-        },
-      }), { status: 200 });
+      return new Response(
+        JSON.stringify({
+          feature_status: {
+            agent: true,
+          },
+        }),
+        { status: 200 },
+      );
     });
     const { service } = createService({
       fetchImpl,
@@ -136,31 +152,32 @@ describe("Browser Use site status policy", () => {
       },
     });
 
-    await expect(
-      service.isCommentModeBlocked("https://example.com"),
-    ).resolves.toBe(true);
+    await expect(service.isCommentModeBlocked("https://example.com")).resolves.toBe(true);
     expect(refreshFlags).toEqual([false, true]);
-    expect(authorizations).toEqual([
-      "Bearer stale-token",
-      "Bearer fresh-token",
-    ]);
+    expect(authorizations).toEqual(["Bearer stale-token", "Bearer fresh-token"]);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
   test("only blocks strict agent true and does not cache failures", async () => {
     const responses = [
-      new Response(JSON.stringify({
-        feature_status: {
-          agent: false,
-        },
-      }), { status: 200 }),
+      new Response(
+        JSON.stringify({
+          feature_status: {
+            agent: false,
+          },
+        }),
+        { status: 200 },
+      ),
       new Response("not-json", { status: 200 }),
       new Response("server-error", { status: 500 }),
-      new Response(JSON.stringify({
-        feature_status: {
-          agent: true,
-        },
-      }), { status: 200 }),
+      new Response(
+        JSON.stringify({
+          feature_status: {
+            agent: true,
+          },
+        }),
+        { status: 200 },
+      ),
     ];
     const fetchImpl = vi.fn(async () => {
       const response = responses.shift();

@@ -19,14 +19,16 @@ describe("intelligence selector trigger geometry", () => {
     });
 
     expect(expandedContentWidth).toBe(
-      INTELLIGENCE_SELECTOR_MENU_WIDTH_PX
-        - triggerChromeWidth
-        - INTELLIGENCE_SELECTOR_FAST_SLOT_WIDTH_PX,
+      INTELLIGENCE_SELECTOR_MENU_WIDTH_PX -
+        triggerChromeWidth -
+        INTELLIGENCE_SELECTOR_FAST_SLOT_WIDTH_PX,
     );
-    expect(resolveIntelligenceSelectorAlignOffset({
-      expandedContentWidth,
-      triggerChromeWidth,
-    })).toBe(-1);
+    expect(
+      resolveIntelligenceSelectorAlignOffset({
+        expandedContentWidth,
+        triggerChromeWidth,
+      }),
+    ).toBe(-1);
   });
 
   test("keeps enough room for the widest label candidate", () => {
@@ -37,25 +39,33 @@ describe("intelligence selector trigger geometry", () => {
     });
 
     expect(expandedContentWidth).toBe(181);
-    expect(resolveIntelligenceSelectorAlignOffset({
-      expandedContentWidth,
-      triggerChromeWidth,
-    })).toBe(4.5);
+    expect(
+      resolveIntelligenceSelectorAlignOffset({
+        expandedContentWidth,
+        triggerChromeWidth,
+      }),
+    ).toBe(4.5);
   });
 
   test("leaves intrinsic sizing in place until both DOM measurements exist", () => {
-    expect(resolveIntelligenceSelectorExpandedContentWidth({
-      maxLabelWidth: null,
-      triggerChromeWidth: 36,
-    })).toBeUndefined();
-    expect(resolveIntelligenceSelectorExpandedContentWidth({
-      maxLabelWidth: 181,
-      triggerChromeWidth: null,
-    })).toBeUndefined();
-    expect(resolveIntelligenceSelectorAlignOffset({
-      expandedContentWidth: undefined,
-      triggerChromeWidth: 36,
-    })).toBeUndefined();
+    expect(
+      resolveIntelligenceSelectorExpandedContentWidth({
+        maxLabelWidth: null,
+        triggerChromeWidth: 36,
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveIntelligenceSelectorExpandedContentWidth({
+        maxLabelWidth: 181,
+        triggerChromeWidth: null,
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveIntelligenceSelectorAlignOffset({
+        expandedContentWidth: undefined,
+        triggerChromeWidth: 36,
+      }),
+    ).toBeUndefined();
   });
 
   test("disables geometry transitions when reduced motion is configured", () => {

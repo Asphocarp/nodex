@@ -2,10 +2,7 @@ import { fireEvent } from "@testing-library/react";
 import { act } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_PROJECT_APPEARANCE } from "../../../shared/project-appearance";
-import {
-  NodexHoverCard,
-  NodexHoverCardProvider,
-} from "@/components/ui/hover-card";
+import { NodexHoverCard, NodexHoverCardProvider } from "@/components/ui/hover-card";
 import { render, settleAsyncRender } from "@/test/dom";
 import type { Project } from "@/lib/types";
 import { ProjectHoverCard } from "./project-hover-card";
@@ -119,7 +116,7 @@ describe("ProjectHoverCard", () => {
         <NodexHoverCard
           ariaLabel="Project details"
           defaultOpen
-          hoverCardContent={(
+          hoverCardContent={
             <ProjectHoverCard
               project={PROJECT}
               activity={undefined}
@@ -130,7 +127,7 @@ describe("ProjectHoverCard", () => {
               onOpenSource={vi.fn()}
               onEdit={vi.fn()}
             />
-          )}
+          }
         >
           <button type="button">Project row</button>
         </NodexHoverCard>
@@ -138,9 +135,11 @@ describe("ProjectHoverCard", () => {
     );
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", {
-        name: "Change marker for Nodex",
-      }));
+      fireEvent.click(
+        view.getByRole("button", {
+          name: "Change marker for Nodex",
+        }),
+      );
       await settleAsyncRender();
     });
     const picker = view.getByRole("dialog", {
@@ -152,9 +151,11 @@ describe("ProjectHoverCard", () => {
       fireEvent.keyDown(picker, { key: "Escape" });
       await settleAsyncRender();
     });
-    expect(view.queryByRole("dialog", {
-      name: "Project marker for Nodex",
-    })).toBeNull();
+    expect(
+      view.queryByRole("dialog", {
+        name: "Project marker for Nodex",
+      }),
+    ).toBeNull();
     const outer = view.getByRole("dialog", { name: "Project details" });
 
     await act(async () => {
@@ -162,9 +163,7 @@ describe("ProjectHoverCard", () => {
       await settleAsyncRender();
     });
     expect(view.queryByRole("dialog", { name: "Project details" })).toBeNull();
-    expect(document.activeElement).toBe(
-      view.getByRole("button", { name: "Project row" }),
-    );
+    expect(document.activeElement).toBe(view.getByRole("button", { name: "Project row" }));
   });
 
   it("keeps the outer card open when Done closes the nested picker", async () => {
@@ -173,7 +172,7 @@ describe("ProjectHoverCard", () => {
         <NodexHoverCard
           ariaLabel="Project details"
           defaultOpen
-          hoverCardContent={(
+          hoverCardContent={
             <ProjectHoverCard
               project={PROJECT}
               activity={null}
@@ -184,7 +183,7 @@ describe("ProjectHoverCard", () => {
               onOpenSource={vi.fn()}
               onEdit={vi.fn()}
             />
-          )}
+          }
         >
           <button type="button">Project row</button>
         </NodexHoverCard>
@@ -192,17 +191,21 @@ describe("ProjectHoverCard", () => {
     );
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", {
-        name: "Change marker for Nodex",
-      }));
+      fireEvent.click(
+        view.getByRole("button", {
+          name: "Change marker for Nodex",
+        }),
+      );
       await settleAsyncRender();
       fireEvent.click(view.getByRole("button", { name: "Done" }));
       await settleAsyncRender();
     });
 
-    expect(view.queryByRole("dialog", {
-      name: "Project marker for Nodex",
-    })).toBeNull();
+    expect(
+      view.queryByRole("dialog", {
+        name: "Project marker for Nodex",
+      }),
+    ).toBeNull();
     expect(view.getByRole("dialog", { name: "Project details" })).toBeTruthy();
   });
 });

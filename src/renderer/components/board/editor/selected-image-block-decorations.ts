@@ -21,11 +21,7 @@ interface NodeLike {
 }
 
 interface DocLike {
-  nodesBetween: (
-    from: number,
-    to: number,
-    callback: (node: NodeLike, pos: number) => void,
-  ) => void;
+  nodesBetween: (from: number, to: number, callback: (node: NodeLike, pos: number) => void) => void;
 }
 
 interface DecorationRange {
@@ -68,10 +64,7 @@ export function collectSelectedImageBlockDecorationRanges(
   return ranges;
 }
 
-function buildSelectedImageDecorationSet(
-  doc: DocLike,
-  selection: SelectionLike,
-): DecorationSet {
+function buildSelectedImageDecorationSet(doc: DocLike, selection: SelectionLike): DecorationSet {
   const ranges = collectSelectedImageBlockDecorationRanges(doc, selection);
   if (ranges.length === 0) return DecorationSet.empty;
 

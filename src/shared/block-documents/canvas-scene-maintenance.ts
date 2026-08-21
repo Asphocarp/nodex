@@ -1,10 +1,6 @@
 import type { CanvasSceneMutationError } from "./canvas-scene-sync";
 import type { LocalCommitCommandSuccess } from "../local-commit-delivery";
-import {
-  parseContentAccessContext,
-  type ContentAccessContext,
-} from "../content-access-context";
-
+import { parseContentAccessContext, type ContentAccessContext } from "../content-access-context";
 
 export interface CanvasSceneCompactionReadRequest {
   readonly accessContext: ContentAccessContext;
@@ -12,8 +8,7 @@ export interface CanvasSceneCompactionReadRequest {
   readonly clientSessionId: string;
 }
 
-export interface CanvasSceneCompactionRequest
-  extends CanvasSceneCompactionReadRequest {
+export interface CanvasSceneCompactionRequest extends CanvasSceneCompactionReadRequest {
   readonly mutationId: string;
   readonly trigger: "automatic_idle";
 }
@@ -56,16 +51,10 @@ export type CanvasSceneCompactionReadCommandResult =
   | { readonly ok: true; readonly value: CanvasSceneCompactionStats }
   | { readonly ok: false; readonly error: CanvasSceneMutationError };
 
-const isRecord = (
-  value: unknown,
-): value is Readonly<Record<string, unknown>> =>
+const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const safeInteger = (
-  value: unknown,
-  field: string,
-  minimum: number,
-): number => {
+const safeInteger = (value: unknown, field: string, minimum: number): number => {
   if (typeof value === "number" && Number.isSafeInteger(value) && value >= minimum) {
     return value;
   }
@@ -74,10 +63,10 @@ const safeInteger = (
 
 const identity = (value: unknown, field: string): string => {
   if (
-    typeof value === "string"
-    && value.length > 0
-    && value.length <= 512
-    && value.trim() === value
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 512 &&
+    value.trim() === value
   ) {
     return value;
   }
@@ -89,9 +78,7 @@ const hash = (value: unknown, field: string): string => {
   throw new Error(`${field} must be a lowercase SHA-256`);
 };
 
-export const parseCanvasSceneCompactionStats = (
-  value: unknown,
-): CanvasSceneCompactionStats => {
+export const parseCanvasSceneCompactionStats = (value: unknown): CanvasSceneCompactionStats => {
   if (!isRecord(value)) throw new Error("Canvas compaction stats must be an object");
   if (typeof value.eligible !== "boolean") {
     throw new Error("eligible must be boolean");
@@ -107,20 +94,15 @@ export const parseCanvasSceneCompactionStats = (
   };
 };
 
-export const parseCanvasSceneCompactionResult = (
-  value: unknown,
-): CanvasSceneCompactionResult => {
+export const parseCanvasSceneCompactionResult = (value: unknown): CanvasSceneCompactionResult => {
   if (!isRecord(value)) throw new Error("Canvas compaction result must be an object");
   if (
-    value.kind !== "tombstone_compaction"
-    || (value.outcome !== "committed" && value.outcome !== "no_change")
-    || typeof value.duplicate !== "boolean"
-    || typeof value.committedAt !== "string"
-    || value.committedAt.length === 0
-    || (
-      value.checkpointVersionId !== null
-      && typeof value.checkpointVersionId !== "string"
-    )
+    value.kind !== "tombstone_compaction" ||
+    (value.outcome !== "committed" && value.outcome !== "no_change") ||
+    typeof value.duplicate !== "boolean" ||
+    typeof value.committedAt !== "string" ||
+    value.committedAt.length === 0 ||
+    (value.checkpointVersionId !== null && typeof value.checkpointVersionId !== "string")
   ) {
     throw new Error("Canvas compaction result metadata is invalid");
   }
@@ -131,43 +113,31 @@ export const parseCanvasSceneCompactionResult = (
     accessContext: parseContentAccessContext(value.accessContext),
     documentId: identity(value.documentId, "documentId"),
     storeEpoch: identity(value.storeEpoch, "storeEpoch"),
-    previousGeneration: safeInteger(
-      value.previousGeneration,
-      "previousGeneration",
-      1,
-    ),
+    previousGeneration: safeInteger(value.previousGeneration, "previousGeneration", 1),
     previousHeadSeq: safeInteger(value.previousHeadSeq, "previousHeadSeq", 0),
     generation: safeInteger(value.generation, "generation", 1),
     headSeq: safeInteger(value.headSeq, "headSeq", 0),
     duplicate: value.duplicate,
     outcome: value.outcome,
     sceneHash: hash(value.sceneHash, "sceneHash"),
-    removedTombstoneCount: safeInteger(
-      value.removedTombstoneCount,
-      "removedTombstoneCount",
-      0,
-    ),
-    removedTombstoneBytes: safeInteger(
-      value.removedTombstoneBytes,
-      "removedTombstoneBytes",
-      0,
-    ),
+    removedTombstoneCount: safeInteger(value.removedTombstoneCount, "removedTombstoneCount", 0),
+    removedTombstoneBytes: safeInteger(value.removedTombstoneBytes, "removedTombstoneBytes", 0),
     checkpointVersionId: value.checkpointVersionId,
     committedAt: value.committedAt,
   };
   const validCommitted =
-    result.outcome === "committed"
-    && result.generation === result.previousGeneration + 1
-    && result.headSeq === 1
-    && result.removedTombstoneCount > 0
-    && result.checkpointVersionId !== null;
+    result.outcome === "committed" &&
+    result.generation === result.previousGeneration + 1 &&
+    result.headSeq === 1 &&
+    result.removedTombstoneCount > 0 &&
+    result.checkpointVersionId !== null;
   const validNoChange =
-    result.outcome === "no_change"
-    && result.generation === result.previousGeneration
-    && result.headSeq === result.previousHeadSeq
-    && result.removedTombstoneCount === 0
-    && result.removedTombstoneBytes === 0
-    && result.checkpointVersionId === null;
+    result.outcome === "no_change" &&
+    result.generation === result.previousGeneration &&
+    result.headSeq === result.previousHeadSeq &&
+    result.removedTombstoneCount === 0 &&
+    result.removedTombstoneBytes === 0 &&
+    result.checkpointVersionId === null;
   if (!validCommitted && !validNoChange) {
     throw new Error("Canvas compaction result coordinates are inconsistent");
   }

@@ -31,9 +31,7 @@ export function buildAppShellTabListWidth({
   return `clamp(${minimumWidthPx}px, calc(100% - ${normalizedTrailingWidthPx}px), ${maximumWidthPx}px)`;
 }
 
-export function buildAppShellTabFlexSizing(
-  lockedWidthPx: number | null,
-): AppShellTabFlexSizing {
+export function buildAppShellTabFlexSizing(lockedWidthPx: number | null): AppShellTabFlexSizing {
   const normalizedLockedWidthPx = normalizePositiveWidth(lockedWidthPx);
   if (normalizedLockedWidthPx === null) {
     return {

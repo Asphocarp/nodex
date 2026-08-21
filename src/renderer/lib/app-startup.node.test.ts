@@ -13,13 +13,15 @@ describe("app startup helpers", () => {
   });
 
   test("renders real Core migration progress", () => {
-    expect(getStartupStatus({
-      phase: "migrating",
-      fromVersion: 104,
-      toVersion: 107,
-      completed: 67,
-      total: 100,
-    })).toBe("Updating local data… 67%");
+    expect(
+      getStartupStatus({
+        phase: "migrating",
+        fromVersion: 104,
+        toVersion: 107,
+        completed: 67,
+        total: 100,
+      }),
+    ).toBe("Updating local data… 67%");
   });
 
   test("stops claiming migration after the Core store is ready", () => {

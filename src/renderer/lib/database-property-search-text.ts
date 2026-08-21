@@ -27,7 +27,7 @@ export const databasePropertyValueSearchText = (
   const labelsById = new Map(
     (context.options ?? []).map((option) => [option.id, option.name] as const),
   );
-  return [...new Set([...selectedIds].map((optionId) =>
-    labelsById.get(optionId) ?? "Unknown option"
-  ))].join(" ");
+  return [
+    ...new Set([...selectedIds].map((optionId) => labelsById.get(optionId) ?? "Unknown option")),
+  ].join(" ");
 };

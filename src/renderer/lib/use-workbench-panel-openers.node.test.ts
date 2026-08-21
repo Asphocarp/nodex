@@ -1,8 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  normalizeUserAttachmentImageEditorOptions,
-} from "@/features/user-attachment-image-editor";
+import { normalizeUserAttachmentImageEditorOptions } from "@/features/user-attachment-image-editor";
 import type { WorkbenchSessionRenderProjection } from "./workbench-session-presentation";
 import {
   consumeImagePanelAutoExpansion,
@@ -59,10 +57,8 @@ describe("findCanvasStageTab", () => {
   test("deduplicates the same public Canvas identity across panel leaves", () => {
     const session = makeSession();
 
-    expect(findCanvasStageTab(session, "project-1", "canvas-1")?.id)
-      .toBe("canvas-a");
-    expect(findCanvasStageTab(session, "project-1", "canvas-2")?.id)
-      .toBe("canvas-b");
+    expect(findCanvasStageTab(session, "project-1", "canvas-1")?.id).toBe("canvas-a");
+    expect(findCanvasStageTab(session, "project-1", "canvas-2")?.id).toBe("canvas-b");
     expect(findCanvasStageTab(session, "project-2", "canvas-1")).toBeNull();
   });
 });
@@ -118,10 +114,7 @@ describe("image editor panel opening", () => {
       options: imageOptions(),
     });
 
-    expect(removeImageEditorPreviewsFromLeaf(
-      [first, sibling],
-      "right-leaf",
-    )).toEqual([sibling]);
+    expect(removeImageEditorPreviewsFromLeaf([first, sibling], "right-leaf")).toEqual([sibling]);
   });
 
   test("persists the first expansion once and tolerates storage failure", () => {
@@ -134,14 +127,15 @@ describe("image editor panel opening", () => {
     };
 
     expect(consumeImagePanelAutoExpansion(storage)).toBe(true);
-    expect(values.get(IMAGE_SIDE_PANEL_AUTO_EXPANDED_STORAGE_KEY))
-      .toBe("true");
+    expect(values.get(IMAGE_SIDE_PANEL_AUTO_EXPANDED_STORAGE_KEY)).toBe("true");
     expect(consumeImagePanelAutoExpansion(storage)).toBe(false);
-    expect(consumeImagePanelAutoExpansion({
-      getItem: () => {
-        throw new Error("unavailable");
-      },
-      setItem: () => undefined,
-    })).toBe(true);
+    expect(
+      consumeImagePanelAutoExpansion({
+        getItem: () => {
+          throw new Error("unavailable");
+        },
+        setItem: () => undefined,
+      }),
+    ).toBe(true);
   });
 });

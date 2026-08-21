@@ -1,8 +1,4 @@
-import {
-  getElementFromTarget,
-  hasClosest,
-  resolveDraggedBlockIds,
-} from "./drag-source-resolver";
+import { getElementFromTarget, hasClosest, resolveDraggedBlockIds } from "./drag-source-resolver";
 import { finalizeSideMenuBlockDrag } from "./side-menu-drag-lifecycle";
 
 // ---------- Minimal editor interface (same pattern as toggle-shortcut.ts) ----------
@@ -28,11 +24,7 @@ interface EditorForToggleDrop {
   getSelection(): { blocks: Block[] } | undefined;
   getParentBlock(id: string): Block | undefined;
   removeBlocks(ids: string[]): void;
-  insertBlocks(
-    blocks: unknown[],
-    refId: string,
-    placement: "before" | "after",
-  ): void;
+  insertBlocks(blocks: unknown[], refId: string, placement: "before" | "after"): void;
   replaceBlocks(toRemove: string[], replacements: unknown[]): void;
   transact<T>(fn: () => T): T;
 }
@@ -62,9 +54,7 @@ function getClosestBlockOuter(target: EventTarget | null): HTMLElement | null {
   return el.closest<HTMLElement>(".bn-block-outer");
 }
 
-export function findToggleOuterFromTarget(
-  target: EventTarget | null,
-): HTMLElement | null {
+export function findToggleOuterFromTarget(target: EventTarget | null): HTMLElement | null {
   const el = getElementFromTarget(target);
   if (!el) return null;
 
@@ -100,17 +90,10 @@ export function findToggleOuterFromTarget(
   return blockOuter;
 }
 
-function isPointInsideElement(
-  el: HTMLElement,
-  clientX: number,
-  clientY: number,
-): boolean {
+function isPointInsideElement(el: HTMLElement, clientX: number, clientY: number): boolean {
   const rect = el.getBoundingClientRect();
   return (
-    clientX >= rect.left
-    && clientX <= rect.right
-    && clientY >= rect.top
-    && clientY <= rect.bottom
+    clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
   );
 }
 
@@ -128,10 +111,10 @@ function isPointInToggleHeaderBand(
   const sideMenuAllowancePx = 56;
 
   return (
-    clientY >= rect.top + TOGGLE_DROP_EDGE_INSET_PX
-    && clientY <= rect.bottom - TOGGLE_DROP_EDGE_INSET_PX
-    && clientX >= rect.left - sideMenuAllowancePx
-    && clientX <= rect.right
+    clientY >= rect.top + TOGGLE_DROP_EDGE_INSET_PX &&
+    clientY <= rect.bottom - TOGGLE_DROP_EDGE_INSET_PX &&
+    clientX >= rect.left - sideMenuAllowancePx &&
+    clientX <= rect.right
   );
 }
 
@@ -173,11 +156,7 @@ export function findToggleOuterFromPoint(
 }
 
 function getBlockIdFromOuter(outerEl: HTMLElement): string | null {
-  return (
-    outerEl.querySelector<HTMLElement>(".bn-block[data-id]")?.getAttribute(
-      "data-id",
-    ) ?? null
-  );
+  return outerEl.querySelector<HTMLElement>(".bn-block[data-id]")?.getAttribute("data-id") ?? null;
 }
 
 function isToggleCollapsed(outerEl: HTMLElement): boolean {
@@ -249,12 +228,15 @@ function moveBlocksIntoToggle(
       const lastChild = updated.children[updated.children.length - 1];
       editor.insertBlocks(draggedBlocks, lastChild.id, "after");
     } else {
-      editor.replaceBlocks([toggleBlockId], [
-        {
-          ...updated,
-          children: draggedBlocks,
-        },
-      ]);
+      editor.replaceBlocks(
+        [toggleBlockId],
+        [
+          {
+            ...updated,
+            children: draggedBlocks,
+          },
+        ],
+      );
     }
   });
 
@@ -331,10 +313,7 @@ function setDropTarget(
   }
 }
 
-function clearAllCues(
-  container: HTMLElement,
-  current: ActiveDropCue | null,
-): null {
+function clearAllCues(container: HTMLElement, current: ActiveDropCue | null): null {
   removeDropCue(current);
   container.removeAttribute("data-toggle-drop-active");
   return null;
@@ -359,9 +338,10 @@ function isToggleDropDebugEnabled(): boolean {
 function getEventTargetSummary(target: EventTarget | null): string {
   const el = getElementFromTarget(target);
   if (!el) return "none";
-  const className = typeof (el as { className?: unknown }).className === "string"
-    ? (el as { className: string }).className
-    : "";
+  const className =
+    typeof (el as { className?: unknown }).className === "string"
+      ? (el as { className: string }).className
+      : "";
   return `${el.tagName.toLowerCase()}${className ? `.${className}` : ""}`;
 }
 
@@ -375,10 +355,7 @@ function debugToggleDrop(event: string, details: Record<string, unknown>): void 
  * re-resolve it from the blockId.  Returns the (possibly updated) cue,
  * or null if the block no longer exists / is no longer a collapsed toggle.
  */
-function revalidateActiveTarget(
-  container: HTMLElement,
-  cue: ActiveDropCue,
-): ActiveDropCue | null {
+function revalidateActiveTarget(container: HTMLElement, cue: ActiveDropCue): ActiveDropCue | null {
   if (cue.outerEl.isConnected) return cue;
 
   const blockEl = container.querySelector<HTMLElement>(
@@ -422,10 +399,7 @@ export function isSyntheticDnDEvent(event: DragEvent): boolean {
 
 // ---------- Main setup ----------
 
-export function setupToggleDrop(
-  container: HTMLElement,
-  editor: EditorForToggleDrop,
-): () => void {
+export function setupToggleDrop(container: HTMLElement, editor: EditorForToggleDrop): () => void {
   let dragActive = false;
   let dragSourceResolved = false;
   let draggedBlockIds: string[] = [];

@@ -13,8 +13,9 @@ function getPathExtension(path: string): string {
 
 function isPendingGeneratedImage(item: CodexConversationItem): boolean {
   if (item.generatedImage?.src !== null) return false;
-  return item.generatedImage.status === "in_progress"
-    || item.generatedImage.status === "inProgress";
+  return (
+    item.generatedImage.status === "in_progress" || item.generatedImage.status === "inProgress"
+  );
 }
 
 /** Exact `US`: presentation outputs suppress completed images, not pending work. */

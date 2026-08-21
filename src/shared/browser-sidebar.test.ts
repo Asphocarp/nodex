@@ -15,18 +15,33 @@ const identity: BrowserSidebarTabIdentity = {
 describe("matchesBrowserSidebarTabIdentity", () => {
   test("requires conversation, Window Session scope, and Browser tab to match", () => {
     expect(matchesBrowserSidebarTabIdentity(identity, identity)).toBe(true);
-    expect(matchesBrowserSidebarTabIdentity({
-      ...identity,
-      browserConversationId: "conversation-2",
-    }, identity)).toBe(false);
-    expect(matchesBrowserSidebarTabIdentity({
-      ...identity,
-      browserViewScopeId: "window-session-2",
-    }, identity)).toBe(false);
-    expect(matchesBrowserSidebarTabIdentity({
-      ...identity,
-      browserTabId: "browser-tab-2",
-    }, identity)).toBe(false);
+    expect(
+      matchesBrowserSidebarTabIdentity(
+        {
+          ...identity,
+          browserConversationId: "conversation-2",
+        },
+        identity,
+      ),
+    ).toBe(false);
+    expect(
+      matchesBrowserSidebarTabIdentity(
+        {
+          ...identity,
+          browserViewScopeId: "window-session-2",
+        },
+        identity,
+      ),
+    ).toBe(false);
+    expect(
+      matchesBrowserSidebarTabIdentity(
+        {
+          ...identity,
+          browserTabId: "browser-tab-2",
+        },
+        identity,
+      ),
+    ).toBe(false);
     expect(matchesBrowserSidebarTabIdentity(undefined, identity)).toBe(false);
   });
 });
@@ -47,11 +62,13 @@ describe("Browser host route partition", () => {
   });
 
   test("rejects missing or malformed host generations", () => {
-    expect(parseBrowserSidebarHostRoutePartition(
-      makeBrowserSidebarRoutePartition(identity),
-    )).toBeNull();
-    expect(parseBrowserSidebarHostRoutePartition(
-      `${makeBrowserSidebarRoutePartition(identity)}:host:renderer:0:1`,
-    )).toBeNull();
+    expect(
+      parseBrowserSidebarHostRoutePartition(makeBrowserSidebarRoutePartition(identity)),
+    ).toBeNull();
+    expect(
+      parseBrowserSidebarHostRoutePartition(
+        `${makeBrowserSidebarRoutePartition(identity)}:host:renderer:0:1`,
+      ),
+    ).toBeNull();
   });
 });

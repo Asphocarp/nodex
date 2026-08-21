@@ -6,11 +6,13 @@ const documents = [
     id: "card-1",
     identity: "card-1",
     title: "Dynamic tool protocol",
-    properties: [{
-      propertyId: "priority",
-      propertyName: "Priority",
-      text: "High priority",
-    }],
+    properties: [
+      {
+        propertyId: "priority",
+        propertyName: "Priority",
+        text: "High priority",
+      },
+    ],
   },
   {
     id: "card-2",
@@ -26,14 +28,15 @@ describe("searchPageMetadata", () => {
     const hit = hits.find((candidate) => candidate.id === "card-1");
 
     expect(hit ? [...hit.matchedTerms].sort() : null).toEqual(["dynamc", "high"]);
-    expect(hit?.evidence.some((item) =>
-      item.source === "title" && item.quality === "fuzzy",
-    )).toBe(true);
-    expect(hit?.evidence.some((item) =>
-      item.source === "property"
-      && item.propertyId === "priority"
-      && item.quality === "exact",
-    )).toBe(true);
+    expect(hit?.evidence.some((item) => item.source === "title" && item.quality === "fuzzy")).toBe(
+      true,
+    );
+    expect(
+      hit?.evidence.some(
+        (item) =>
+          item.source === "property" && item.propertyId === "priority" && item.quality === "exact",
+      ),
+    ).toBe(true);
   });
 
   test("does not fuzzy match terms of three characters or fewer", () => {
@@ -50,23 +53,30 @@ describe("searchPageMetadata", () => {
   });
 
   test("attributes fuzzy evidence to the property that actually matched", () => {
-    const hits = searchPageMetadata([{
-      id: "card-3",
-      identity: "card-3",
-      title: "Release",
-      properties: [
-        { propertyId: "owner", propertyName: "Owner", text: "Ada" },
-        { propertyId: "status", propertyName: "Status", text: "Completed" },
+    const hits = searchPageMetadata(
+      [
+        {
+          id: "card-3",
+          identity: "card-3",
+          title: "Release",
+          properties: [
+            { propertyId: "owner", propertyName: "Owner", text: "Ada" },
+            { propertyId: "status", propertyName: "Status", text: "Completed" },
+          ],
+        },
       ],
-    }], "completd");
+      "completd",
+    );
 
-    expect(hits[0]?.evidence).toEqual([{
-      term: "completd",
-      source: "property",
-      quality: "fuzzy",
-      propertyId: "status",
-      propertyName: "Status",
-      excerpt: "Completed",
-    }]);
+    expect(hits[0]?.evidence).toEqual([
+      {
+        term: "completd",
+        source: "property",
+        quality: "fuzzy",
+        propertyId: "status",
+        propertyName: "Status",
+        excerpt: "Completed",
+      },
+    ]);
   });
 });

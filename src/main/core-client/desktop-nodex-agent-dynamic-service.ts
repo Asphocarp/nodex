@@ -29,10 +29,7 @@ export interface DesktopNodexAgentDynamicServiceInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
   readonly projectWorkspace: DesktopProjectWorkspacePort;
   readonly databaseModule: DesktopDatabaseModuleBridge;
-  readonly documentSync: Pick<
-    DesktopDocumentSyncPort,
-    "executeNodexAgentMutation"
-  >;
+  readonly documentSync: Pick<DesktopDocumentSyncPort, "executeNodexAgentMutation">;
 }
 
 const nativeDuplicatePageFailure = (
@@ -137,11 +134,12 @@ async function readNativeContext(
     return {
       ok: false,
       error: {
-        code: database.error.code === "authorization_denied"
-          ? "authorization_denied"
-          : database.error.code === "resource_not_found"
-            ? "not_found"
-            : "internal_error",
+        code:
+          database.error.code === "authorization_denied"
+            ? "authorization_denied"
+            : database.error.code === "resource_not_found"
+              ? "not_found"
+              : "internal_error",
         message: database.error.message,
         retryable: database.error.retryable,
         recovery: "none",
@@ -163,31 +161,31 @@ async function readNativeContext(
   }
 
   const databaseDescriptor =
-    database?.ok && database.value.value.kind === "database"
-      ? database.value.value.value
-      : null;
+    database?.ok && database.value.value.kind === "database" ? database.value.value.value : null;
   const databases = databaseDescriptor
-    ? [{
-        databaseId: databaseDescriptor.database.databaseId,
-        name: databaseDescriptor.database.name,
-        isBound: databaseDescriptor.database.databaseId === project.databaseId,
-        dataSources: databaseDescriptor.dataSources
-          .filter((source) => source.lifecycle === "active")
-          .map((source) => ({
-            dataSourceId: source.dataSourceId,
-            name: source.name,
-            schemaRevision: source.schemaRevision,
-          })),
-        views: databaseDescriptor.views
-          .filter((view) => view.lifecycle === "active")
-          .map((view) => ({
-            viewId: view.viewId,
-            dataSourceId: view.dataSourceId,
-            name: view.name,
-            defaultLayout: view.defaultLayout,
-            isDefault: view.isDefault,
-          })),
-      }]
+    ? [
+        {
+          databaseId: databaseDescriptor.database.databaseId,
+          name: databaseDescriptor.database.name,
+          isBound: databaseDescriptor.database.databaseId === project.databaseId,
+          dataSources: databaseDescriptor.dataSources
+            .filter((source) => source.lifecycle === "active")
+            .map((source) => ({
+              dataSourceId: source.dataSourceId,
+              name: source.name,
+              schemaRevision: source.schemaRevision,
+            })),
+          views: databaseDescriptor.views
+            .filter((view) => view.lifecycle === "active")
+            .map((view) => ({
+              viewId: view.viewId,
+              dataSourceId: view.dataSourceId,
+              name: view.name,
+              defaultLayout: view.defaultLayout,
+              isDefault: view.isDefault,
+            })),
+        },
+      ]
     : undefined;
 
   return {
@@ -204,9 +202,7 @@ async function readNativeContext(
         },
         access: {
           read: request.access.read,
-          write: project.lifecycle === "active"
-            ? request.access.write
-            : "unavailable",
+          write: project.lifecycle === "active" ? request.access.write : "unavailable",
           domains: request.access.read === "allowed" ? ["page", "database"] : [],
         },
         ...(databases ? { databases } : {}),
@@ -231,9 +227,7 @@ export function createDesktopNodexAgentV3DynamicService(
     nativePageUpdates ??= new NativeNodexAgentPageUpdateRuntime(runtime);
     return nativePageUpdates;
   };
-  const pageCopiesFor = (
-    runtime: DesktopDataAuthorityRuntime,
-  ): NativeNodexAgentPageCopyRuntime => {
+  const pageCopiesFor = (runtime: DesktopDataAuthorityRuntime): NativeNodexAgentPageCopyRuntime => {
     nativePageCopies ??= new NativeNodexAgentPageCopyRuntime(runtime);
     return nativePageCopies;
   };
@@ -243,26 +237,21 @@ export function createDesktopNodexAgentV3DynamicService(
     nativePageCreates ??= new NativeNodexAgentPageCreateRuntime(runtime);
     return nativePageCreates;
   };
-  const pageMovesFor = (
-    runtime: DesktopDataAuthorityRuntime,
-  ): NativeNodexAgentPageMoveRuntime => {
+  const pageMovesFor = (runtime: DesktopDataAuthorityRuntime): NativeNodexAgentPageMoveRuntime => {
     nativePageMoves ??= new NativeNodexAgentPageMoveRuntime(runtime);
     return nativePageMoves;
   };
   const writer: NodexAgentV3Writer = {
     readNodexAgentV3Tool: async (request) => {
       const runtime = await input.authority;
-      const result = request.tool === "get_context"
-        ? await readNativeContext(
-            request,
-            input.projectWorkspace,
-            input.databaseModule,
-          )
-        : request.tool === "fetch"
-          ? await readNativeFetch(request, runtime)
-        : request.tool === "search"
-          ? await readNativeSearch(request, runtime)
-          : await readNativeDatabaseQuery(request, runtime);
+      const result =
+        request.tool === "get_context"
+          ? await readNativeContext(request, input.projectWorkspace, input.databaseModule)
+          : request.tool === "fetch"
+            ? await readNativeFetch(request, runtime)
+            : request.tool === "search"
+              ? await readNativeSearch(request, runtime)
+              : await readNativeDatabaseQuery(request, runtime);
       return envelope(result, request.callId ?? `nodex-agent:${request.tool}`);
     },
     prepareNodexAgentPageUpdate: async (request) => {
@@ -298,10 +287,7 @@ export function createDesktopNodexAgentV3DynamicService(
       return await input.documentSync.executeNodexAgentMutation({
         projectId: command.projectId,
         storeEpoch: command.storeEpoch,
-        execute: async () => await pageCreatesFor(runtime).execute(
-          command,
-          documentHeads,
-        ),
+        execute: async () => await pageCreatesFor(runtime).execute(command, documentHeads),
         failure: nativeCreatePagesFailure,
         operationLabel: "Agent Page creation",
         conflictMessage: "A target Page Document changed while preparing Page creation",

@@ -87,9 +87,9 @@ function buildLargeMixedGroup(): ThreadAgentActivityGroupBlockModel {
     { base: THREAD_TOOL_CALL_STORY_ITEMS.mcp, type: "mcpToolCall" },
     { base: THREAD_TOOL_CALL_STORY_ITEMS.command, type: "exec" },
   ] as const;
-  const entries = Array.from({ length: LARGE_MIXED_GROUP_CYCLES }, (_, cycle) => (
-    families.map(({ base, type }) => buildActivityEntry(base, type, `${type}-${cycle}`))
-  )).flat();
+  const entries = Array.from({ length: LARGE_MIXED_GROUP_CYCLES }, (_, cycle) =>
+    families.map(({ base, type }) => buildActivityEntry(base, type, `${type}-${cycle}`)),
+  ).flat();
 
   return buildV2AgentActivityGroupBlock(entries, "agent-activity-performance", {
     bodyEntries: entries,
@@ -120,10 +120,7 @@ function buildStreamingUpdate(
   if (!isThreadClassifiableActivityItem(activeEntry)) {
     throw new Error("The performance activity fixture must end in a classifiable tool item.");
   }
-  const entries = [
-    ...block.entries.slice(0, -1),
-    activeEntry,
-  ];
+  const entries = [...block.entries.slice(0, -1), activeEntry];
   return buildV2AgentActivityGroupBlock(entries, "agent-activity-performance", {
     bodyEntries: entries,
     canExpand: true,
@@ -288,8 +285,9 @@ describe("ThreadAgentActivityGroupBlock Chromium behavior", () => {
     for (let index = 0; index < rowWrappersBeforeStream.length - 1; index += 1) {
       expect(rowWrappersAfterStream[index]).toBe(rowWrappersBeforeStream[index]);
     }
-    expect(countGroupRows(view.getByTestId("agent-activity-group-body")))
-      .toBe(expandedStreamingBlock.entries.length);
+    expect(countGroupRows(view.getByTestId("agent-activity-group-body"))).toBe(
+      expandedStreamingBlock.entries.length,
+    );
 
     stage = "close";
     await act(async () => {

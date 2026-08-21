@@ -6,20 +6,26 @@ import {
 
 describe("Codex user-input auto-resolution IPC validation", () => {
   test("accepts trimmed conversation identities and strict scalar request ids", () => {
-    expect(parseCodexUserInputAutoResolutionActivityInput({
-      conversationId: " thread-1 ",
-    })).toBe("thread-1");
-    expect(parseCodexUserInputAutoResolutionTarget({
-      conversationId: " thread-1 ",
-      requestId: 0,
-    })).toEqual({
+    expect(
+      parseCodexUserInputAutoResolutionActivityInput({
+        conversationId: " thread-1 ",
+      }),
+    ).toBe("thread-1");
+    expect(
+      parseCodexUserInputAutoResolutionTarget({
+        conversationId: " thread-1 ",
+        requestId: 0,
+      }),
+    ).toEqual({
       conversationId: "thread-1",
       requestId: 0,
     });
-    expect(parseCodexUserInputAutoResolutionTarget({
-      conversationId: "thread-1",
-      requestId: "",
-    })).toEqual({
+    expect(
+      parseCodexUserInputAutoResolutionTarget({
+        conversationId: "thread-1",
+        requestId: "",
+      }),
+    ).toEqual({
       conversationId: "thread-1",
       requestId: "",
     });

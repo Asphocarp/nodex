@@ -12,9 +12,7 @@ import {
 } from "./composer-image-attachment-model";
 
 type SetComposerImageAttachments = (
-  update: (
-    current: readonly ComposerImageAttachment[],
-  ) => readonly ComposerImageAttachment[],
+  update: (current: readonly ComposerImageAttachment[]) => readonly ComposerImageAttachment[],
 ) => void;
 
 export const COMPOSER_IMAGE_INPUT_UNSUPPORTED_MESSAGE =
@@ -102,26 +100,25 @@ function inferPickedMimeType(file: ComposerPickedFile): string {
   return dataMime ?? "image/png";
 }
 
-function resolveFileAttachmentName(
-  file: File,
-  id: string,
-  origin: "paste" | "drop",
-): string {
+function resolveFileAttachmentName(file: File, id: string, origin: "paste" | "drop"): string {
   const filename = file.name.trim();
   if (filename) return filename;
-  const mimeType = resolveComposerImageMimeType({
-    filename,
-    mimeType: file.type,
-  }) ?? "image/png";
-  const extension = mimeType === "image/jpeg" || mimeType === "image/jpg"
-    ? "jpg"
-    : mimeType === "image/x-png"
-      ? "png"
-      : mimeType.slice("image/".length);
-  const idSuffix = id
-    .replace(/^image[_-]?/iu, "")
-    .replace(/[^a-z0-9]/giu, "")
-    .slice(0, 8) || "image";
+  const mimeType =
+    resolveComposerImageMimeType({
+      filename,
+      mimeType: file.type,
+    }) ?? "image/png";
+  const extension =
+    mimeType === "image/jpeg" || mimeType === "image/jpg"
+      ? "jpg"
+      : mimeType === "image/x-png"
+        ? "png"
+        : mimeType.slice("image/".length);
+  const idSuffix =
+    id
+      .replace(/^image[_-]?/iu, "")
+      .replace(/[^a-z0-9]/giu, "")
+      .slice(0, 8) || "image";
   return `${origin === "paste" ? "pasted-image" : "image"}-${idSuffix}.${extension}`;
 }
 
@@ -157,9 +154,9 @@ export function useComposerImageAttachments(input: {
   }, [input.scopeKey]);
 
   const isCurrent = (generation: number, scopeKey: string | undefined): boolean =>
-    mountedRef.current
-    && generationRef.current === generation
-    && latestRef.current.scopeKey === scopeKey;
+    mountedRef.current &&
+    generationRef.current === generation &&
+    latestRef.current.scopeKey === scopeKey;
 
   const patchMaterialization = (
     id: string,
@@ -168,20 +165,19 @@ export function useComposerImageAttachments(input: {
     result: ComposerImageAttachmentMaterialization | null,
   ) => {
     if (!isCurrent(generation, scopeKey)) return;
-    latestRef.current.setAttachments((current) => current.map((attachment) => {
-      if (attachment.id !== id || attachment.generation !== generation) return attachment;
-      return {
-        ...attachment,
-        materialization: result,
-        materializationStatus: result ? "ready" : "failed",
-      };
-    }));
+    latestRef.current.setAttachments((current) =>
+      current.map((attachment) => {
+        if (attachment.id !== id || attachment.generation !== generation) return attachment;
+        return {
+          ...attachment,
+          materialization: result,
+          materializationStatus: result ? "ready" : "failed",
+        };
+      }),
+    );
   };
 
-  const addFiles = async (
-    files: readonly File[],
-    origin: "paste" | "drop",
-  ): Promise<void> => {
+  const addFiles = async (files: readonly File[], origin: "paste" | "drop"): Promise<void> => {
     const supportedFiles = files.filter(isSupportedComposerImageFile);
     if (supportedFiles.length === 0) return;
     if (!latestRef.current.enabled) {
@@ -194,13 +190,15 @@ export function useComposerImageAttachments(input: {
     const operations = supportedFiles.map((file) => {
       const id = adaptersRef.current.createId();
       const filename = resolveFileAttachmentName(file, id, origin);
-      const mimeType = resolveComposerImageMimeType({
-        filename,
-        mimeType: file.type,
-      }) ?? "image/png";
+      const mimeType =
+        resolveComposerImageMimeType({
+          filename,
+          mimeType: file.type,
+        }) ?? "image/png";
       let materialization: ComposerImageAttachmentMaterialization | null = null;
       let materializationStatus: ComposerImageAttachment["materializationStatus"] = "pending";
-      const materializationPromise = adaptersRef.current.materializeFile(file, origin)
+      const materializationPromise = adaptersRef.current
+        .materializeFile(file, origin)
         .then((result) => {
           materialization = result;
           materializationStatus = "ready";
@@ -210,7 +208,8 @@ export function useComposerImageAttachments(input: {
           materializationStatus = "failed";
           patchMaterialization(id, generation, scopeKey, null);
         });
-      const readPromise = adaptersRef.current.readFileAsDataUrl(file)
+      const readPromise = adaptersRef.current
+        .readFileAsDataUrl(file)
         .then((src) => ({ filename, id, mimeType, src }))
         .catch((error: unknown) => {
           latestRef.current.onError(
@@ -230,17 +229,19 @@ export function useComposerImageAttachments(input: {
       const next = readResults.flatMap((result, index): ComposerImageAttachment[] => {
         if (!result) return [];
         const state = operations[index]?.readMaterialization();
-        return [{
-          id: result.id,
-          filename: result.filename,
-          mimeType: result.mimeType,
-          src: result.src,
-          origin,
-          materialization: state?.materialization ?? null,
-          materializationStatus: state?.materializationStatus ?? "pending",
-          uploadStatus: "idle",
-          generation,
-        }];
+        return [
+          {
+            id: result.id,
+            filename: result.filename,
+            mimeType: result.mimeType,
+            src: result.src,
+            origin,
+            materialization: state?.materialization ?? null,
+            materializationStatus: state?.materializationStatus ?? "pending",
+            uploadStatus: "idle",
+            generation,
+          },
+        ];
       });
       if (next.length > 0) {
         latestRef.current.setAttachments((current) => [...current, ...next]);
@@ -275,14 +276,16 @@ export function useComposerImageAttachments(input: {
   const addPickedFiles = (files: readonly ComposerPickedFile[]) => {
     const images = files.flatMap((file): ResolvedComposerImageInput[] => {
       if (!file.imageDataUrl) return [];
-      return [{
-        filename: getPickedFilename(file),
-        mimeType: inferPickedMimeType(file),
-        src: file.imageDataUrl,
-        origin: "picker",
-        localPath: file.path,
-        hostId: DEFAULT_CODEX_HOST_ID,
-      }];
+      return [
+        {
+          filename: getPickedFilename(file),
+          mimeType: inferPickedMimeType(file),
+          src: file.imageDataUrl,
+          origin: "picker",
+          localPath: file.path,
+          hostId: DEFAULT_CODEX_HOST_ID,
+        },
+      ];
     });
     addResolvedImages(images);
   };
@@ -306,9 +309,10 @@ export function useComposerImageAttachments(input: {
     });
     latestRef.current.setAttachments((current) => [
       ...current.filter((attachment) => attachment.origin !== origin),
-      ...next.filter((attachment) => !current.some(
-        (existing) => existing.origin !== origin && existing.id === attachment.id,
-      )),
+      ...next.filter(
+        (attachment) =>
+          !current.some((existing) => existing.origin !== origin && existing.id === attachment.id),
+      ),
     ]);
   };
 
@@ -318,9 +322,9 @@ export function useComposerImageAttachments(input: {
     addResolvedImages,
     syncResolvedImages,
     remove: (id: string) => {
-      latestRef.current.setAttachments((current) => current.filter(
-        (attachment) => attachment.id !== id,
-      ));
+      latestRef.current.setAttachments((current) =>
+        current.filter((attachment) => attachment.id !== id),
+      );
       latestRef.current.onRemove?.(id);
     },
     clear: () => {

@@ -2,10 +2,7 @@ import { act, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, test } from "vitest";
 import { NodexTooltipProvider as TooltipProvider } from "@/components/ui/tooltip";
 import { clearPersistedAtomStoreForTests } from "@/lib/persisted-atom-store";
-import type {
-  CodexCanonicalSetupCodexStepResponse,
-  CodexSetupCodexStepRequest,
-} from "@/lib/types";
+import type { CodexCanonicalSetupCodexStepResponse, CodexSetupCodexStepRequest } from "@/lib/types";
 import { render, renderWithMaitai, settleAsyncRender } from "@/test/dom";
 import type { CodexSetupContextSource } from "../../../setup-codex-context-sources";
 import {
@@ -52,11 +49,15 @@ describe("CodexSetupCodexStepRequestCard", () => {
       await settleAsyncRender();
     });
 
-    expect(JSON.stringify(responses)).toBe(JSON.stringify([{
-      step: "role",
-      action: "submit",
-      selectedRoles: ["engineering"],
-    }]));
+    expect(JSON.stringify(responses)).toBe(
+      JSON.stringify([
+        {
+          step: "role",
+          action: "submit",
+          selectedRoles: ["engineering"],
+        },
+      ]),
+    );
   });
 
   test("builds the exact first_task wrapper from persisted role suggestions", async () => {
@@ -97,11 +98,15 @@ describe("CodexSetupCodexStepRequestCard", () => {
       await settleAsyncRender();
     });
 
-    expect(JSON.stringify(responses)).toBe(JSON.stringify([{
-      step: "task",
-      action: "submit",
-      answers: { first_task: { answers: ["Debug an issue"] } },
-    }]));
+    expect(JSON.stringify(responses)).toBe(
+      JSON.stringify([
+        {
+          step: "task",
+          action: "submit",
+          answers: { first_task: { answers: ["Debug an issue"] } },
+        },
+      ]),
+    );
   });
 
   test("dedupes selected and connected context sources while clearing skip", async () => {
@@ -129,7 +134,7 @@ describe("CodexSetupCodexStepRequestCard", () => {
         request={request("context")}
         recommendedSources={recommendedSources}
         browseSources={recommendedSources}
-        onConnectSource={() => { }}
+        onConnectSource={() => {}}
         onRespond={async (_requestId, response) => {
           responses.push(response);
         }}
@@ -150,9 +155,11 @@ describe("CodexSetupCodexStepRequestCard", () => {
       await settleAsyncRender();
     });
 
-    expect(JSON.stringify(responses)).toBe(JSON.stringify([
-      { step: "context", action: "continue", selectedSources: ["notion", "slack"] },
-      { step: "context", action: "skip", selectedSources: [] },
-    ]));
+    expect(JSON.stringify(responses)).toBe(
+      JSON.stringify([
+        { step: "context", action: "continue", selectedSources: ["notion", "slack"] },
+        { step: "context", action: "skip", selectedSources: [] },
+      ]),
+    );
   });
 });

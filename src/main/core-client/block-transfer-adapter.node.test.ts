@@ -1,8 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import {
-  type BlockTransferIntent,
-} from "../../shared/block-transfer";
+import { type BlockTransferIntent } from "../../shared/block-transfer";
 import { createCoreBlockTransferAdapter } from "./block-transfer-adapter";
 import { FakeCoreClient } from "./testing/fake-core-client";
 import type { LibraryApplyResult } from "./types";
@@ -42,23 +40,26 @@ const coreResult = () => ({
     "block:root": { kind: "document" as const, document_id: "document:target" },
   },
   final_location_revisions: { "block:root": 2 },
-  document_commits: [{
-    document_id: "document:source",
-    generation: 1,
-    base_head_seq: 3,
-    head_seq: 4,
-    update_id: "update:source",
-    update: [1, 2, 3],
-    state_vector: [4, 5],
-  }, {
-    document_id: "document:target",
-    generation: 2,
-    base_head_seq: 7,
-    head_seq: 8,
-    update_id: "update:target",
-    update: [6, 7],
-    state_vector: [8, 9],
-  }],
+  document_commits: [
+    {
+      document_id: "document:source",
+      generation: 1,
+      base_head_seq: 3,
+      head_seq: 4,
+      update_id: "update:source",
+      update: [1, 2, 3],
+      state_vector: [4, 5],
+    },
+    {
+      document_id: "document:target",
+      generation: 2,
+      base_head_seq: 7,
+      head_seq: 8,
+      update_id: "update:target",
+      update: [6, 7],
+      state_vector: [8, 9],
+    },
+  ],
   affected_database_ids: [],
   page_keys: {},
   page_etags: {},
@@ -144,17 +145,21 @@ describe("Core Block Transfer Adapter", () => {
           viewId: "view:target",
           presentationOverride: {
             layout: "board",
-            sort: [{
-              field: { kind: "property", propertyId: "priority" },
-              direction: "asc",
-              nulls: "last",
-            }],
+            sort: [
+              {
+                field: { kind: "property", propertyId: "priority" },
+                direction: "asc",
+                nulls: "last",
+              },
+            ],
           },
           groupKey: "ship",
-          sortedPropertyValues: [{
-            propertyId: "priority",
-            value: "p3-low",
-          }],
+          sortedPropertyValues: [
+            {
+              propertyId: "priority",
+              value: "p3-low",
+            },
+          ],
         },
       },
     };
@@ -163,18 +168,20 @@ describe("Core Block Transfer Adapter", () => {
       mode: "copy" as const,
       result_root_block_ids: ["page:wrapper"],
       copied_block_ids: { "block:root": "block:copy" },
-      transformation_evidence: [{
-        sourceBlockId: "block:root",
-        resultPageId: "page:wrapper",
-        kind: "wrap" as const,
-        sourceBlockType: "checkListItem",
-        semanticTitleHash: "b".repeat(64),
-        consumedPropertyKeys: [],
-        wrapperReason: "type_requires_wrapper" as const,
-        bodyRootBlockIds: ["block:copy"],
-        sourceToResultBlockIds: { "block:root": "block:copy" },
-        promotion: { kind: "not_requested" as const },
-      }],
+      transformation_evidence: [
+        {
+          sourceBlockId: "block:root",
+          resultPageId: "page:wrapper",
+          kind: "wrap" as const,
+          sourceBlockType: "checkListItem",
+          semanticTitleHash: "b".repeat(64),
+          consumedPropertyKeys: [],
+          wrapperReason: "type_requires_wrapper" as const,
+          bodyRootBlockIds: ["block:copy"],
+          sourceToResultBlockIds: { "block:root": "block:copy" },
+          promotion: { kind: "not_requested" as const },
+        },
+      ],
       final_locations: {
         "page:wrapper": {
           kind: "data_source" as const,
@@ -213,11 +220,13 @@ describe("Core Block Transfer Adapter", () => {
           },
         },
         affectedDatabaseBlockIds: ["database:target"],
-        transformationEvidence: [{
-          resultPageId: "page:wrapper",
-          kind: "wrap",
-          wrapperReason: "type_requires_wrapper",
-        }],
+        transformationEvidence: [
+          {
+            resultPageId: "page:wrapper",
+            kind: "wrap",
+            wrapperReason: "type_requires_wrapper",
+          },
+        ],
       },
     });
     expect(client.applies[0]?.intent).toMatchObject({
@@ -230,17 +239,21 @@ describe("Core Block Transfer Adapter", () => {
             view_id: "view:target",
             presentation_override: {
               layout: "board",
-              sort: [{
-                field: { kind: "property", property_id: "priority" },
-                direction: "asc",
-                nulls: "last",
-              }],
+              sort: [
+                {
+                  field: { kind: "property", property_id: "priority" },
+                  direction: "asc",
+                  nulls: "last",
+                },
+              ],
             },
             group_key: "ship",
-            sorted_property_values: [{
-              property_id: "priority",
-              value: "p3-low",
-            }],
+            sorted_property_values: [
+              {
+                property_id: "priority",
+                value: "p3-low",
+              },
+            ],
           },
         },
       },
@@ -375,10 +388,12 @@ describe("Core Block Transfer Adapter", () => {
     const client = new FakeCoreClient();
     const adapter = createCoreBlockTransferAdapter({ client, ...identity });
 
-    await expect(adapter.commit({
-      ...intent,
-      projectId: "project:other",
-    })).resolves.toMatchObject({
+    await expect(
+      adapter.commit({
+        ...intent,
+        projectId: "project:other",
+      }),
+    ).resolves.toMatchObject({
       ok: false,
       error: { code: "invalid_transfer_request" },
     });

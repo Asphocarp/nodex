@@ -1,19 +1,13 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
 
-import {
-  parseDatabaseId,
-  parseDatabaseViewId,
-} from "../../../shared/database-identities";
+import { parseDatabaseId, parseDatabaseViewId } from "../../../shared/database-identities";
 import type {
   LibraryCanvasNavigationNode,
   LibraryDatabaseNavigationNode,
   LibraryPageNavigationNode,
 } from "../../../shared/library-module";
-import {
-  SidebarPagesSection,
-  type SidebarPagesDataSource,
-} from "./sidebar-pages-section";
+import { SidebarPagesSection, type SidebarPagesDataSource } from "./sidebar-pages-section";
 
 const updatedAt = "2026-08-03T08:00:00.000Z";
 
@@ -57,18 +51,18 @@ type StandaloneRoot =
   | LibraryDatabaseNavigationNode
   | LibraryCanvasNavigationNode;
 
-const makeDataSource = (
-  items: readonly StandaloneRoot[],
-): SidebarPagesDataSource => ({
+const makeDataSource = (items: readonly StandaloneRoot[]): SidebarPagesDataSource => ({
   useStandaloneRoots: () => ({
     data: {
-      pages: [{
-        kind: "standalone_roots",
-        items,
-        nextCursor: null,
-        hasMore: false,
-        total: items.length,
-      }],
+      pages: [
+        {
+          kind: "standalone_roots",
+          items,
+          nextCursor: null,
+          hasMore: false,
+          total: items.length,
+        },
+      ],
     },
     isPending: false,
     isError: false,
@@ -108,14 +102,7 @@ export const MixedStandaloneRoots: Story = {};
 export const Paginated: Story = {
   args: {
     activeRoot: null,
-    dataSource: makeDataSource([
-      page(1),
-      page(2),
-      page(3),
-      page(4),
-      page(5),
-      page(6),
-    ]),
+    dataSource: makeDataSource([page(1), page(2), page(3), page(4), page(5), page(6)]),
   },
 };
 

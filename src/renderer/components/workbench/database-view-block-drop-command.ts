@@ -30,9 +30,7 @@ export interface CommitDatabaseViewBlockDropInput {
   readonly altKey: boolean;
   readonly shiftKey: boolean;
   readonly mutationHistory: DatabaseViewMutationHistory;
-  readonly onCommitted?: (
-    cursor?: DatabaseViewBlockDropCommitCursor,
-  ) => Promise<void> | void;
+  readonly onCommitted?: (cursor?: DatabaseViewBlockDropCommitCursor) => Promise<void> | void;
 }
 
 /** One renderer command for Board/List Block promotion; Core owns final meaning. */
@@ -46,10 +44,7 @@ export const commitDatabaseViewBlockDrop = async (
     return false;
   }
   const projectId = input.projectId;
-  if (
-    payload.projectId !== projectId
-    || payload.storeEpoch !== input.storeEpoch
-  ) {
+  if (payload.projectId !== projectId || payload.storeEpoch !== input.storeEpoch) {
     toast.danger("Block transfer belongs to another Project or store generation.");
     return false;
   }
@@ -61,8 +56,9 @@ export const commitDatabaseViewBlockDrop = async (
     toast.info("Database blocks can only move through a typed Database action.");
     return false;
   }
-  const sourceParticipant =
-    resolveBlockDocumentStructuralMutationParticipant(payload.sourceSurfaceId);
+  const sourceParticipant = resolveBlockDocumentStructuralMutationParticipant(
+    payload.sourceSurfaceId,
+  );
   if (!sourceParticipant) {
     toast.danger("The dragged Page editor changed; start the drag again.");
     return false;
@@ -72,9 +68,7 @@ export const commitDatabaseViewBlockDrop = async (
     sourceHead = await sourceParticipant.prepareAndFence();
   } catch (error) {
     toast.danger(
-      error instanceof Error
-        ? error.message
-        : "The dragged Page could not prepare for transfer.",
+      error instanceof Error ? error.message : "The dragged Page could not prepare for transfer.",
     );
     return false;
   }
@@ -96,11 +90,13 @@ export const commitDatabaseViewBlockDrop = async (
         preferenceEnabled: readTaskShorthandPagePromotionEnabled(),
         shiftKey: input.shiftKey,
       }),
-      causalDependencies: [{
-        documentId: sourceHead.documentId,
-        generation: sourceHead.generation,
-        expectedHeadSeq: sourceHead.expectedHeadSeq,
-      }],
+      causalDependencies: [
+        {
+          documentId: sourceHead.documentId,
+          generation: sourceHead.generation,
+          expectedHeadSeq: sourceHead.expectedHeadSeq,
+        },
+      ],
     }),
   );
   if (!result.ok) {
@@ -119,14 +115,15 @@ export const commitDatabaseViewBlockDrop = async (
           onClick: () => {
             void input.mutationHistory.undoLast({
               listMove: async () => false,
-              blockTransfer: async (token) => await undoDatabaseViewBlockTransfer({
-                projectId,
-                storeEpoch: input.storeEpoch,
-                token,
-                onCommitted: input.onCommitted
-                  ? async () => await input.onCommitted?.()
-                  : undefined,
-              }),
+              blockTransfer: async (token) =>
+                await undoDatabaseViewBlockTransfer({
+                  projectId,
+                  storeEpoch: input.storeEpoch,
+                  token,
+                  onCommitted: input.onCommitted
+                    ? async () => await input.onCommitted?.()
+                    : undefined,
+                }),
             });
             return false;
           },
@@ -138,15 +135,16 @@ export const commitDatabaseViewBlockDrop = async (
   } else {
     toast.success(feedbackMessage, feedbackOptions);
   }
-  const cursor = result.localCommit.status === "committed"
-    ? {
-        storeEpoch: result.localCommit.commit.store_epoch,
-        commitSeq: result.localCommit.commit.commit_seq,
-      }
-    : {
-        storeEpoch: result.localCommit.observed.store_epoch,
-        commitSeq: result.localCommit.observed.commit_head,
-      };
+  const cursor =
+    result.localCommit.status === "committed"
+      ? {
+          storeEpoch: result.localCommit.commit.store_epoch,
+          commitSeq: result.localCommit.commit.commit_seq,
+        }
+      : {
+          storeEpoch: result.localCommit.observed.store_epoch,
+          commitSeq: result.localCommit.observed.commit_head,
+        };
   await input.onCommitted?.(cursor);
   return true;
 };

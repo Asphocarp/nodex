@@ -1,10 +1,6 @@
 import type { MentionSuggestionMatch } from "../nfm/mention-suggestion-model";
 import type { CommandPaletteHighlightSegment } from "../command-palette-highlight";
-import type {
-  PageReferenceCandidate,
-  PageReferenceIntent,
-  PageReferenceSelection,
-} from "./types";
+import type { PageReferenceCandidate, PageReferenceIntent, PageReferenceSelection } from "./types";
 
 export interface PageReferenceCandidatePresentation {
   readonly candidate: PageReferenceCandidate;
@@ -25,9 +21,7 @@ const toSegments = (
   return parts.map((part) => ({ text: part.text, highlight: part.highlighted }));
 };
 
-function classifyPageCandidateMatch(
-  candidate: PageReferenceCandidate,
-): MentionSuggestionMatch {
+function classifyPageCandidateMatch(candidate: PageReferenceCandidate): MentionSuggestionMatch {
   if (candidate.matchSource === "recent" || candidate.matches.length === 0) return "recent";
   const strongest = candidate.matches[0];
   if (strongest.source === "page_key") return "page_key";
@@ -49,10 +43,7 @@ export function presentPageReferenceCandidates(
     const title = normalizeCandidateText(candidate.title || "Untitled");
     const titleLocation = `${title}\u0000${normalizeCandidateText(candidate.locationLabel)}`;
     titleCounts.set(title, (titleCounts.get(title) ?? 0) + 1);
-    titleLocationCounts.set(
-      titleLocation,
-      (titleLocationCounts.get(titleLocation) ?? 0) + 1,
-    );
+    titleLocationCounts.set(titleLocation, (titleLocationCounts.get(titleLocation) ?? 0) + 1);
   }
 
   return candidates.map((candidate) => {
@@ -86,10 +77,9 @@ export function presentPageReferenceCandidates(
 
     const titleLocation = `${normalizedTitle}\u0000${normalizeCandidateText(candidate.locationLabel)}`;
     const sameLocation = (titleLocationCounts.get(titleLocation) ?? 0) > 1;
-    const detail = [
-      candidate.locationLabel,
-      sameLocation ? candidate.pageKey : null,
-    ].filter(Boolean).join(" · ");
+    const detail = [candidate.locationLabel, sameLocation ? candidate.pageKey : null]
+      .filter(Boolean)
+      .join(" · ");
     return {
       candidate,
       match,

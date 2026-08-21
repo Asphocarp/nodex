@@ -63,7 +63,8 @@ function ScheduledAutomationRunUpdateHarness() {
 
   return (
     <div data-testid="counts">
-      {automations.data?.length ?? -1}:{inbox.data?.items.length ?? -1}:{sidebar.snapshot.revision ?? 0}
+      {automations.data?.length ?? -1}:{inbox.data?.items.length ?? -1}:
+      {sidebar.snapshot.revision ?? 0}
     </div>
   );
 }

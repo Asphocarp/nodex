@@ -6,10 +6,7 @@ import {
   resolveCodexTranscriptTextIdentityKey,
 } from "./codex-transcript-identity";
 import { mergeOrderedStringIds } from "./codex-turn-order";
-import type {
-  CodexTranscriptEntry,
-  CodexTurnSummary,
-} from "./types";
+import type { CodexTranscriptEntry, CodexTurnSummary } from "./types";
 import { buildCodexTurnOccurrenceKey } from "./codex-turn-identity";
 
 export function mergeCodexTurnSummary(
@@ -21,14 +18,15 @@ export function mergeCodexTurnSummary(
     ...incoming,
     errorMessage: incoming.errorMessage ?? existing.errorMessage,
     turnStartedAtMs: incoming.turnStartedAtMs ?? existing.turnStartedAtMs,
-    firstTurnWorkItemStartedAtMs: incoming.firstTurnWorkItemStartedAtMs ?? existing.firstTurnWorkItemStartedAtMs,
-    finalAssistantStartedAtMs: incoming.finalAssistantStartedAtMs ?? existing.finalAssistantStartedAtMs,
+    firstTurnWorkItemStartedAtMs:
+      incoming.firstTurnWorkItemStartedAtMs ?? existing.firstTurnWorkItemStartedAtMs,
+    finalAssistantStartedAtMs:
+      incoming.finalAssistantStartedAtMs ?? existing.finalAssistantStartedAtMs,
     startedAt: incoming.startedAt ?? existing.startedAt,
     completedAt: incoming.completedAt ?? existing.completedAt,
     durationMs: incoming.durationMs ?? existing.durationMs,
     commandExecutionStartedAtMsById:
-      existing.commandExecutionStartedAtMsById
-      ?? incoming.commandExecutionStartedAtMsById,
+      existing.commandExecutionStartedAtMsById ?? incoming.commandExecutionStartedAtMsById,
     itemIds: mergeOrderedStringIds(existing.itemIds, incoming.itemIds),
     interruptedCommandExecutionItemIds: mergeOrderedStringIds(
       existing.interruptedCommandExecutionItemIds ?? [],
@@ -45,10 +43,12 @@ export function mergeCodexTurnSummaries(
   if (cachedTurns.length === 0) return incomingTurns;
   if (incomingTurns.length === 0) return cachedTurns;
 
-  const cachedByTurnId = new Map(cachedTurns.map((turn, turnIndex) => [
-    buildCodexTurnOccurrenceKey(turn.turnId, turnIndex),
-    turn,
-  ]));
+  const cachedByTurnId = new Map(
+    cachedTurns.map((turn, turnIndex) => [
+      buildCodexTurnOccurrenceKey(turn.turnId, turnIndex),
+      turn,
+    ]),
+  );
   const seen = new Set<string>();
 
   const merged = incomingTurns.map((turn, turnIndex) => {
@@ -69,18 +69,22 @@ export function mergeCodexTurnSummaries(
 
 function normalizeTranscriptSequence(entries: CodexTranscriptEntry[]): CodexTranscriptEntry[] {
   return [...entries]
-    .sort((left, right) =>
-      (left.sequence ?? 0) - (right.sequence ?? 0) ||
-      left.createdAt - right.createdAt ||
-      left.updatedAt - right.updatedAt ||
-      (left.entryId ?? left.itemId).localeCompare(right.entryId ?? right.itemId))
+    .sort(
+      (left, right) =>
+        (left.sequence ?? 0) - (right.sequence ?? 0) ||
+        left.createdAt - right.createdAt ||
+        left.updatedAt - right.updatedAt ||
+        (left.entryId ?? left.itemId).localeCompare(right.entryId ?? right.itemId),
+    )
     .map((entry, index) => ({
       ...entry,
       sequence: index,
     }));
 }
 
-export function dedupeCodexTranscriptEntries(entries: CodexTranscriptEntry[]): CodexTranscriptEntry[] {
+export function dedupeCodexTranscriptEntries(
+  entries: CodexTranscriptEntry[],
+): CodexTranscriptEntry[] {
   if (entries.length < 2) return normalizeTranscriptSequence(entries);
 
   const dedupedByPrimaryKey = new Map<string, CodexTranscriptEntry>();
@@ -119,11 +123,9 @@ export function dedupeCodexTranscriptEntries(entries: CodexTranscriptEntry[]): C
 
     const textKey = resolveCodexTranscriptTextIdentityKey(entry);
     const fallbackPrimaryKey = textKey
-      ? (
-          isSyntheticCodexTranscriptEntryId(entry.entryId ?? entry.itemId)
-            ? nonSyntheticByTextKey.get(textKey)
-            : syntheticByTextKey.get(textKey)
-        )
+      ? isSyntheticCodexTranscriptEntryId(entry.entryId ?? entry.itemId)
+        ? nonSyntheticByTextKey.get(textKey)
+        : syntheticByTextKey.get(textKey)
       : undefined;
 
     if (!fallbackPrimaryKey) {
@@ -140,9 +142,12 @@ export function dedupeCodexTranscriptEntries(entries: CodexTranscriptEntry[]): C
     }
 
     const merged = mergeCodexTranscriptEntry(fallback, entry);
-    const fallbackIsSynthetic = isSyntheticCodexTranscriptEntryId(fallback.entryId ?? fallback.itemId);
+    const fallbackIsSynthetic = isSyntheticCodexTranscriptEntryId(
+      fallback.entryId ?? fallback.itemId,
+    );
     const incomingIsSynthetic = isSyntheticCodexTranscriptEntryId(entry.entryId ?? entry.itemId);
-    const keepPrimaryKey = fallbackIsSynthetic && !incomingIsSynthetic ? primaryKey : fallbackPrimaryKey;
+    const keepPrimaryKey =
+      fallbackIsSynthetic && !incomingIsSynthetic ? primaryKey : fallbackPrimaryKey;
 
     if (keepPrimaryKey !== fallbackPrimaryKey) {
       dedupedByPrimaryKey.delete(fallbackPrimaryKey);
@@ -159,7 +164,9 @@ export function upsertCodexTranscriptEntry(
   transcript: CodexTranscriptEntry[],
   entry: CodexTranscriptEntry,
 ): CodexTranscriptEntry[] {
-  const existingIndex = transcript.findIndex((candidate) => canMergeSyntheticTranscriptDuplicate(candidate, entry));
+  const existingIndex = transcript.findIndex((candidate) =>
+    canMergeSyntheticTranscriptDuplicate(candidate, entry),
+  );
   if (existingIndex < 0) {
     return dedupeCodexTranscriptEntries([...transcript, entry]);
   }

@@ -59,7 +59,7 @@ export async function copyConversationMarkdown({
       const conversation = readLocalConversation(conversationId);
       if (!conversation) return null;
       const parentTurns = parentConversationId
-        ? readLocalConversation(parentConversationId)?.turns ?? []
+        ? (readLocalConversation(parentConversationId)?.turns ?? [])
         : [];
       const turns = selectVisibleConversationTurnEntries({ conversation, parentTurns });
       if (turns.length === 0) return null;

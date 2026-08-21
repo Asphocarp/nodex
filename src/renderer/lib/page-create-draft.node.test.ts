@@ -76,14 +76,16 @@ describe("Page create draft", () => {
   test("rejects an empty title and a tag selection that lost its option authority", () => {
     const draft = createPageCreateDescriptionDraft("request-2");
 
-    expect(() => buildPageCreateInput({
-      title: "   ",
-      descriptionDraft: draft,
-      priority: null,
-      estimate: null,
-      selectedTagIds: [],
-      tagOptions: [],
-    })).toThrow("Page title is required");
+    expect(() =>
+      buildPageCreateInput({
+        title: "   ",
+        descriptionDraft: draft,
+        priority: null,
+        estimate: null,
+        selectedTagIds: [],
+        tagOptions: [],
+      }),
+    ).toThrow("Page title is required");
     expect(() => resolvePageCreateTagNames(["missing"], [])).toThrow(
       "A selected tag is no longer available",
     );
@@ -121,25 +123,29 @@ describe("Page create draft", () => {
       expanded: true,
     });
     expect(restored.documentId).not.toBe(first.documentId);
-    expect(buildPageCreateInput({
-      title: snapshot.title,
-      descriptionDraft: restored,
-      priority: snapshot.priority,
-      estimate: snapshot.estimate,
-      selectedTagIds: [],
-      tagOptions: [],
-    }).description).toBe("Recover this body");
+    expect(
+      buildPageCreateInput({
+        title: snapshot.title,
+        descriptionDraft: restored,
+        priority: snapshot.priority,
+        estimate: snapshot.estimate,
+        selectedTagIds: [],
+        tagOptions: [],
+      }).description,
+    ).toBe("Recover this body");
     expect(pageCreateDraftSnapshotsEqual(snapshot, { ...snapshot })).toBe(true);
-    expect(pageCreateDraftSnapshotsEqual(
-      createEmptyPageCreateDraftSnapshot("build", {
-        priority: "p1-high",
-        estimate: "m",
-        tagNames: ["UI"],
-        createMore: true,
-        expanded: true,
-      }),
-      snapshot,
-    )).toBe(false);
+    expect(
+      pageCreateDraftSnapshotsEqual(
+        createEmptyPageCreateDraftSnapshot("build", {
+          priority: "p1-high",
+          estimate: "m",
+          tagNames: ["UI"],
+          createMore: true,
+          expanded: true,
+        }),
+        snapshot,
+      ),
+    ).toBe(false);
     first.document.destroy();
     restored.document.destroy();
   });
@@ -147,17 +153,19 @@ describe("Page create draft", () => {
   test("keeps draft recovery closable after a selected tag loses authority", () => {
     const draft = createPageCreateDescriptionDraft("request-stale-tag");
 
-    expect(capturePageCreateDraftSnapshot({
-      title: "Recover the remaining draft",
-      descriptionDraft: draft,
-      status: "triage",
-      priority: null,
-      estimate: null,
-      selectedTagIds: ["removed-tag"],
-      tagOptions: [],
-      createMore: false,
-      expanded: false,
-    }).tagNames).toEqual([]);
+    expect(
+      capturePageCreateDraftSnapshot({
+        title: "Recover the remaining draft",
+        descriptionDraft: draft,
+        status: "triage",
+        priority: null,
+        estimate: null,
+        selectedTagIds: ["removed-tag"],
+        tagOptions: [],
+        createMore: false,
+        expanded: false,
+      }).tagNames,
+    ).toEqual([]);
     draft.document.destroy();
   });
 });

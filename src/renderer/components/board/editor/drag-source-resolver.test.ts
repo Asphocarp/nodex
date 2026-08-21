@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  getElementFromTarget,
-  resolveDraggedBlockIds,
-} from "./drag-source-resolver";
+import { getElementFromTarget, resolveDraggedBlockIds } from "./drag-source-resolver";
 
 describe("drag source resolver", () => {
   test("prefers ProseMirror multi-node selection IDs", () => {

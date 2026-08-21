@@ -62,9 +62,7 @@ describe("PortableRichText", () => {
     ]);
 
     expect(portableRichTextPlainText(plain)).toBe(portableRichTextPlainText(bold));
-    expect(portableRichTextSemanticSource(plain)).not.toBe(
-      portableRichTextSemanticSource(bold),
-    );
+    expect(portableRichTextSemanticSource(plain)).not.toBe(portableRichTextSemanticSource(bold));
   });
 
   test("converges after concurrent rich edits and duplicate update exchange", () => {
@@ -91,13 +89,9 @@ describe("PortableRichText", () => {
 
   test("rejects unknown attributes, untyped atoms, and unsupported inline objects", () => {
     expect(() =>
-      portableRichTextFromYTextDelta([
-        { insert: "unsafe", attributes: { mystery: true } },
-      ]),
+      portableRichTextFromYTextDelta([{ insert: "unsafe", attributes: { mystery: true } }]),
     ).toThrow(/mystery/);
-    expect(() => portableRichTextFromYTextDelta([{ insert: "\uFFFC" }])).toThrow(
-      /untyped atom/,
-    );
+    expect(() => portableRichTextFromYTextDelta([{ insert: "\uFFFC" }])).toThrow(/untyped atom/);
     expect(() =>
       canonicalizePortableRichText([
         {
@@ -113,9 +107,7 @@ describe("PortableRichText", () => {
 
   test("enforces title length, segment, style, and date boundaries", () => {
     expect(plainTextToPortableRichText("x".repeat(2_000))).toHaveLength(1);
-    expect(() => plainTextToPortableRichText("x".repeat(2_001))).toThrow(
-      /exceeds 2000/,
-    );
+    expect(() => plainTextToPortableRichText("x".repeat(2_001))).toThrow(/exceeds 2000/);
     expect(() =>
       canonicalizePortableRichText(
         Array.from({ length: MAX_PORTABLE_RICH_TEXT_SEGMENTS + 1 }, () => ({
@@ -124,14 +116,10 @@ describe("PortableRichText", () => {
       ),
     ).toThrow(/too many segments/);
     expect(() =>
-      canonicalizePortableRichText([
-        { type: "text", text: "bad", styles: { blinking: true } },
-      ]),
+      canonicalizePortableRichText([{ type: "text", text: "bad", styles: { blinking: true } }]),
     ).toThrow(/blinking/);
     expect(() =>
-      canonicalizePortableRichText([
-        { type: "dateMention", start: "not-a-date" },
-      ]),
+      canonicalizePortableRichText([{ type: "dateMention", start: "not-a-date" }]),
     ).toThrow(/valid date mention/);
   });
 });

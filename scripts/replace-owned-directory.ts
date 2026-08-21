@@ -1,10 +1,4 @@
-import {
-  existsSync,
-  lstatSync,
-  mkdtempSync,
-  renameSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, lstatSync, mkdtempSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 const assertRealDirectory = (directory: string, label: string): void => {

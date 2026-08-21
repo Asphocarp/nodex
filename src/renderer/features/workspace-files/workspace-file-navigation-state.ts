@@ -1,8 +1,4 @@
-import {
-  appScope,
-  scopedAtom,
-  scopedAtomFamily,
-} from "@/lib/maitai";
+import { appScope, scopedAtom, scopedAtomFamily } from "@/lib/maitai";
 
 export interface WorkspaceFileNavigationKey {
   readonly hostId: "local";
@@ -34,19 +30,16 @@ export function normalizeWorkspaceFileNavigationKey(
   };
 }
 
-export const EMPTY_WORKSPACE_FILE_NAVIGATION_STATE: WorkspaceFileNavigationState =
-  Object.freeze({
-    expandedPaths: Object.freeze([""]),
-    selectedPath: null,
-    searchQuery: "",
-    scrollTop: 0,
-  });
+export const EMPTY_WORKSPACE_FILE_NAVIGATION_STATE: WorkspaceFileNavigationState = Object.freeze({
+  expandedPaths: Object.freeze([""]),
+  selectedPath: null,
+  searchQuery: "",
+  scrollTop: 0,
+});
 
 function normalizeNavigationPath(path: string): string | null {
   const segments: string[] = [];
-  for (const segment of path
-    .replace(/\\/g, "/")
-    .split("/")) {
+  for (const segment of path.replace(/\\/g, "/").split("/")) {
     if (!segment || segment === ".") continue;
     if (segment === "..") {
       if (segments.length === 0) return null;
@@ -71,29 +64,22 @@ function normalizedUniquePaths(paths: readonly string[]): readonly string[] {
   return result;
 }
 
-function equalStringArrays(
-  left: readonly string[],
-  right: readonly string[],
-): boolean {
-  return left.length === right.length
-    && left.every((value, index) => value === right[index]);
+function equalStringArrays(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
 export function normalizeWorkspaceFileNavigationState(
   state: WorkspaceFileNavigationState,
 ): WorkspaceFileNavigationState {
   const expandedPaths = normalizedUniquePaths(state.expandedPaths);
-  const selectedPath = state.selectedPath === null
-    ? null
-    : normalizeNavigationPath(state.selectedPath);
-  const scrollTop = Number.isFinite(state.scrollTop)
-    ? Math.max(0, state.scrollTop)
-    : 0;
+  const selectedPath =
+    state.selectedPath === null ? null : normalizeNavigationPath(state.selectedPath);
+  const scrollTop = Number.isFinite(state.scrollTop) ? Math.max(0, state.scrollTop) : 0;
 
   if (
-    equalStringArrays(state.expandedPaths, expandedPaths)
-    && state.selectedPath === selectedPath
-    && state.scrollTop === scrollTop
+    equalStringArrays(state.expandedPaths, expandedPaths) &&
+    state.selectedPath === selectedPath &&
+    state.scrollTop === scrollTop
   ) {
     return state;
   }
@@ -125,14 +111,11 @@ export function selectWorkspaceFileNavigationPath(
   for (let index = 1; index < segments.length; index += 1) {
     ancestors.push(segments.slice(0, index).join("/"));
   }
-  const expandedPaths = normalizedUniquePaths([
-    ...state.expandedPaths,
-    ...ancestors,
-  ]);
+  const expandedPaths = normalizedUniquePaths([...state.expandedPaths, ...ancestors]);
 
   if (
-    state.selectedPath === normalizedSelectedPath
-    && equalStringArrays(state.expandedPaths, expandedPaths)
+    state.selectedPath === normalizedSelectedPath &&
+    equalStringArrays(state.expandedPaths, expandedPaths)
   ) {
     return state;
   }
@@ -167,9 +150,8 @@ export const workspaceFileNavigationStateFamily = scopedAtomFamily({
   scope: appScope,
   debugLabel: "workspace-file-navigation-state",
   key: normalizeWorkspaceFileNavigationKey,
-  create: () => scopedAtom<WorkspaceFileNavigationState>(
-    appScope,
-    EMPTY_WORKSPACE_FILE_NAVIGATION_STATE,
-    { debugLabel: "navigation" },
-  ),
+  create: () =>
+    scopedAtom<WorkspaceFileNavigationState>(appScope, EMPTY_WORKSPACE_FILE_NAVIGATION_STATE, {
+      debugLabel: "navigation",
+    }),
 });

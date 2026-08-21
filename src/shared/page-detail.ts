@@ -8,10 +8,7 @@ import type {
   DataSourcePropertyRecordV2,
   DataSourceRecordV2,
 } from "./database-module-v2";
-import {
-  parseAuthorizedReadStamp,
-  type AuthorizedReadStamp,
-} from "./authorized-read-stamp";
+import { parseAuthorizedReadStamp, type AuthorizedReadStamp } from "./authorized-read-stamp";
 import {
   parseDatabaseId,
   parseDatabaseViewId,
@@ -20,7 +17,6 @@ import {
 } from "./database-identities";
 import type { DatabasePropertyValueType } from "./database-kernel";
 import { parsePage, type Page } from "./page";
-
 
 export interface PageIntrinsicProperty {
   readonly key: string;
@@ -111,11 +107,7 @@ const identity = (value: unknown, label: string): string => {
   throw new PageDetailContractError(`${label} must be a canonical identity`);
 };
 
-const scopedIdentity = <T>(
-  value: unknown,
-  label: string,
-  parser: (candidate: unknown) => T,
-): T => {
+const scopedIdentity = <T>(value: unknown, label: string, parser: (candidate: unknown) => T): T => {
   try {
     return parser(value);
   } catch (error) {
@@ -140,16 +132,8 @@ const exactKeys = (
   }
 };
 
-const boundedText = (
-  value: unknown,
-  label: string,
-  allowEmpty = false,
-): string => {
-  if (
-    typeof value === "string" &&
-    value.length <= 1_000_000 &&
-    (allowEmpty || value.length > 0)
-  ) {
+const boundedText = (value: unknown, label: string, allowEmpty = false): string => {
+  if (typeof value === "string" && value.length <= 1_000_000 && (allowEmpty || value.length > 0)) {
     return value;
   }
   throw new PageDetailContractError(`${label} must be a bounded string`);
@@ -162,14 +146,9 @@ const revision = (value: unknown, label: string): number => {
   throw new PageDetailContractError(`${label} must be a non-negative revision`);
 };
 
-const portableJson = (
-  value: unknown,
-  label: string,
-): BlockPropertyJsonValue => {
+const portableJson = (value: unknown, label: string): BlockPropertyJsonValue => {
   try {
-    return JSON.parse(
-      stableStringifyBlockPropertyJson(value),
-    ) as BlockPropertyJsonValue;
+    return JSON.parse(stableStringifyBlockPropertyJson(value)) as BlockPropertyJsonValue;
   } catch (error) {
     throw new PageDetailContractError(`${label} must be bounded portable JSON`, {
       cause: error,
@@ -177,10 +156,7 @@ const portableJson = (
   }
 };
 
-const valueType = (
-  value: unknown,
-  label: string,
-): DatabasePropertyValueType => {
+const valueType = (value: unknown, label: string): DatabasePropertyValueType => {
   if (
     value === "text" ||
     value === "number" ||
@@ -196,10 +172,7 @@ const valueType = (
   throw new PageDetailContractError(`${label} is unsupported`);
 };
 
-const parseDatabase = (
-  value: unknown,
-  libraryId: string,
-): DatabaseContainerRecordV2 => {
+const parseDatabase = (value: unknown, libraryId: string): DatabaseContainerRecordV2 => {
   if (!isRecord(value)) {
     throw new PageDetailContractError("pageDetail.database must be an object");
   }
@@ -214,44 +187,28 @@ const parseDatabase = (
     "createdAt",
     "updatedAt",
   ]);
-  const databaseLibraryId = identity(
-    value.libraryId,
-    "pageDetail.database.libraryId",
-  );
+  const databaseLibraryId = identity(value.libraryId, "pageDetail.database.libraryId");
   if (databaseLibraryId !== libraryId) {
-    throw new PageDetailContractError(
-      "Page Detail Database belongs to another Library",
-    );
+    throw new PageDetailContractError("Page Detail Database belongs to another Library");
   }
   if (value.lifecycle !== "active" && value.lifecycle !== "archived") {
-    throw new PageDetailContractError(
-      "pageDetail.database.lifecycle is invalid",
-    );
+    throw new PageDetailContractError("pageDetail.database.lifecycle is invalid");
   }
   return {
-    databaseId: scopedIdentity(
-      value.databaseId,
-      "pageDetail.database.databaseId",
-      parseDatabaseId,
-    ),
+    databaseId: scopedIdentity(value.databaseId, "pageDetail.database.databaseId", parseDatabaseId),
     libraryId: databaseLibraryId,
     name: boundedText(value.name, "pageDetail.database.name"),
     lifecycle: value.lifecycle,
-    defaultViewId: value.defaultViewId === null
-      ? null
-      : scopedIdentity(
-          value.defaultViewId,
-          "pageDetail.database.defaultViewId",
-          parseDatabaseViewId,
-        ),
-    accessRevision: revision(
-      value.accessRevision,
-      "pageDetail.database.accessRevision",
-    ),
-    metadataRevision: revision(
-      value.metadataRevision,
-      "pageDetail.database.metadataRevision",
-    ),
+    defaultViewId:
+      value.defaultViewId === null
+        ? null
+        : scopedIdentity(
+            value.defaultViewId,
+            "pageDetail.database.defaultViewId",
+            parseDatabaseViewId,
+          ),
+    accessRevision: revision(value.accessRevision, "pageDetail.database.accessRevision"),
+    metadataRevision: revision(value.metadataRevision, "pageDetail.database.metadataRevision"),
     createdAt: boundedText(value.createdAt, "pageDetail.database.createdAt"),
     updatedAt: boundedText(value.updatedAt, "pageDetail.database.updatedAt"),
   };
@@ -277,24 +234,17 @@ const parseDataSource = (
     "createdAt",
     "updatedAt",
   ]);
-  const sourceLibraryId = identity(
-    value.libraryId,
-    "pageDetail.dataSource.libraryId",
-  );
+  const sourceLibraryId = identity(value.libraryId, "pageDetail.dataSource.libraryId");
   const homeDatabaseId = scopedIdentity(
     value.homeDatabaseId,
     "pageDetail.dataSource.homeDatabaseId",
     parseDatabaseId,
   );
   if (sourceLibraryId !== libraryId || homeDatabaseId !== databaseId) {
-    throw new PageDetailContractError(
-      "Page Detail Data Source ownership coordinates diverge",
-    );
+    throw new PageDetailContractError("Page Detail Data Source ownership coordinates diverge");
   }
   if (value.lifecycle !== "active" && value.lifecycle !== "archived") {
-    throw new PageDetailContractError(
-      "pageDetail.dataSource.lifecycle is invalid",
-    );
+    throw new PageDetailContractError("pageDetail.dataSource.lifecycle is invalid");
   }
   return {
     dataSourceId: scopedIdentity(
@@ -306,10 +256,7 @@ const parseDataSource = (
     homeDatabaseId,
     name: boundedText(value.name, "pageDetail.dataSource.name"),
     schemaKey: identity(value.schemaKey, "pageDetail.dataSource.schemaKey"),
-    schemaRevision: revision(
-      value.schemaRevision,
-      "pageDetail.dataSource.schemaRevision",
-    ),
+    schemaRevision: revision(value.schemaRevision, "pageDetail.dataSource.schemaRevision"),
     lifecycle: value.lifecycle,
     rankKey: identity(value.rankKey, "pageDetail.dataSource.rankKey"),
     createdAt: boundedText(value.createdAt, "pageDetail.dataSource.createdAt"),
@@ -347,9 +294,7 @@ const parseProperty = (
     parseDataSourceId,
   );
   if (propertyDataSourceId !== dataSourceId || value.lifecycle !== "active") {
-    throw new PageDetailContractError(
-      `${label} is not an active property of the Page Data Source`,
-    );
+    throw new PageDetailContractError(`${label} is not an active property of the Page Data Source`);
   }
   const propertyValueType = valueType(value.valueType, `${label}.valueType`);
   const schema = portableJson(value.schema, `${label}.schema`);
@@ -362,16 +307,10 @@ const parseProperty = (
     throw new PageDetailContractError(`${label}.config must be an object`);
   }
   if (Object.keys(rawConfig).length > 0) {
-    throw new PageDetailContractError(
-      `${label}.config must not inline an option registry`,
-    );
+    throw new PageDetailContractError(`${label}.config must not inline an option registry`);
   }
   return {
-    propertyId: scopedIdentity(
-      value.propertyId,
-      `${label}.propertyId`,
-      parseDataSourcePropertyId,
-    ),
+    propertyId: scopedIdentity(value.propertyId, `${label}.propertyId`, parseDataSourcePropertyId),
     dataSourceId: propertyDataSourceId,
     name: boundedText(value.name, `${label}.name`),
     schema: schema as DataSourcePropertyRecordV2["schema"],
@@ -394,9 +333,7 @@ const parseValues = (
   if (!isRecord(value)) {
     throw new PageDetailContractError("pageDetail.values must be an object");
   }
-  const propertiesById = new Map(
-    properties.map((property) => [property.propertyId, property]),
-  );
+  const propertiesById = new Map(properties.map((property) => [property.propertyId, property]));
   const result: Record<string, DataSourcePageValueV2> = {};
   for (const [propertyId, raw] of Object.entries(value)) {
     const parsedPropertyId = scopedIdentity(
@@ -406,9 +343,7 @@ const parseValues = (
     );
     const property = propertiesById.get(parsedPropertyId);
     if (!property || !isRecord(raw)) {
-      throw new PageDetailContractError(
-        `pageDetail.values.${propertyId} has no matching property`,
-      );
+      throw new PageDetailContractError(`pageDetail.values.${propertyId} has no matching property`);
     }
     exactKeys(raw, `pageDetail.values.${propertyId}`, [
       "propertyId",
@@ -417,23 +352,16 @@ const parseValues = (
       "revision",
     ]);
     if (
-      identity(raw.propertyId, `pageDetail.values.${propertyId}.propertyId`) !==
-        propertyId ||
-      valueType(raw.valueType, `pageDetail.values.${propertyId}.valueType`) !==
-        property.valueType
+      identity(raw.propertyId, `pageDetail.values.${propertyId}.propertyId`) !== propertyId ||
+      valueType(raw.valueType, `pageDetail.values.${propertyId}.valueType`) !== property.valueType
     ) {
-      throw new PageDetailContractError(
-        `pageDetail.values.${propertyId} diverges from its schema`,
-      );
+      throw new PageDetailContractError(`pageDetail.values.${propertyId} diverges from its schema`);
     }
     result[propertyId] = {
       propertyId: parsedPropertyId,
       valueType: property.valueType,
       value: portableJson(raw.value, `pageDetail.values.${propertyId}.value`),
-      revision: revision(
-        raw.revision,
-        `pageDetail.values.${propertyId}.revision`,
-      ),
+      revision: revision(raw.revision, `pageDetail.values.${propertyId}.revision`),
     };
   }
   return result;
@@ -466,9 +394,7 @@ const parseDataSourceContext = (
     "values",
   ]);
   if (!isRecord(value.membership) || !Array.isArray(value.properties)) {
-    throw new PageDetailContractError(
-      "Page Detail Data Source membership payload is invalid",
-    );
+    throw new PageDetailContractError("Page Detail Data Source membership payload is invalid");
   }
   exactKeys(value.membership, "pageDetail.membership", [
     "membershipId",
@@ -480,55 +406,33 @@ const parseDataSourceContext = (
     value.membership.dataSourceId,
     "pageDetail.membership.dataSourceId",
   );
-  if (
-    page.parent.kind !== "data_source" ||
-    page.parent.dataSourceId !== membershipDataSourceId
-  ) {
-    throw new PageDetailContractError(
-      "Page parent and Data Source membership diverge",
-    );
+  if (page.parent.kind !== "data_source" || page.parent.dataSourceId !== membershipDataSourceId) {
+    throw new PageDetailContractError("Page parent and Data Source membership diverge");
   }
   const database = parseDatabase(value.database, libraryId);
-  const dataSource = parseDataSource(
-    value.dataSource,
-    libraryId,
-    database.databaseId,
-  );
+  const dataSource = parseDataSource(value.dataSource, libraryId, database.databaseId);
   if (dataSource.dataSourceId !== membershipDataSourceId) {
-    throw new PageDetailContractError(
-      "Page membership and Data Source identity diverge",
-    );
+    throw new PageDetailContractError("Page membership and Data Source identity diverge");
   }
   const properties = value.properties.map((property, index) =>
     parseProperty(property, index, dataSource.dataSourceId),
   );
-  if (
-    new Set(properties.map((property) => property.propertyId)).size !==
-      properties.length
-  ) {
+  if (new Set(properties.map((property) => property.propertyId)).size !== properties.length) {
     throw new PageDetailContractError(
       "Page Detail properties must have unique identities and keys",
     );
   }
   return {
     kind: "member",
-    pageKey: value.pageKey === undefined || value.pageKey === null
-      ? null
-      : boundedText(value.pageKey, "pageDetail.dataSourceContext.pageKey"),
+    pageKey:
+      value.pageKey === undefined || value.pageKey === null
+        ? null
+        : boundedText(value.pageKey, "pageDetail.dataSourceContext.pageKey"),
     membership: {
-      membershipId: identity(
-        value.membership.membershipId,
-        "pageDetail.membership.membershipId",
-      ),
+      membershipId: identity(value.membership.membershipId, "pageDetail.membership.membershipId"),
       dataSourceId: membershipDataSourceId,
-      revision: revision(
-        value.membership.revision,
-        "pageDetail.membership.revision",
-      ),
-      createdAt: boundedText(
-        value.membership.createdAt,
-        "pageDetail.membership.createdAt",
-      ),
+      revision: revision(value.membership.revision, "pageDetail.membership.revision"),
+      createdAt: boundedText(value.membership.createdAt, "pageDetail.membership.createdAt"),
     },
     database,
     dataSource,
@@ -547,11 +451,7 @@ const parsePageDetailBody = (
   ) {
     throw new PageDetailContractError("Page Detail payload is invalid");
   }
-  exactKeys(detail.document, "pageDetail.document", [
-    "readiness",
-    "schemaKey",
-    "schemaVersion",
-  ]);
+  exactKeys(detail.document, "pageDetail.document", ["readiness", "schemaKey", "schemaVersion"]);
   const page = parsePage(detail.page);
   const libraryId = identity(detail.libraryId, "pageDetail.libraryId");
   const storeEpoch = identity(detail.storeEpoch, "pageDetail.storeEpoch");
@@ -565,20 +465,11 @@ const parsePageDetailBody = (
   ) {
     throw new PageDetailContractError("Page Detail readiness is invalid");
   }
-  const documentReadiness = detail.document.readiness as
-    | "pending_genesis"
-    | "ready"
-    | "failed";
+  const documentReadiness = detail.document.readiness as "pending_genesis" | "ready" | "failed";
   const document = {
     readiness: documentReadiness,
-    schemaKey: identity(
-      detail.document.schemaKey,
-      "pageDetail.document.schemaKey",
-    ),
-    schemaVersion: revision(
-      detail.document.schemaVersion,
-      "pageDetail.document.schemaVersion",
-    ),
+    schemaKey: identity(detail.document.schemaKey, "pageDetail.document.schemaKey"),
+    schemaVersion: revision(detail.document.schemaVersion, "pageDetail.document.schemaVersion"),
   };
   const commitSeq = revision(detail.commitSeq, "pageDetail.commitSeq");
   const authorization = parseAuthorizedReadStamp(detail.authorization, libraryId);
@@ -593,9 +484,7 @@ const parsePageDetailBody = (
   const intrinsicProperties: PageIntrinsicProperty[] = [];
   for (const [index, property] of detail.intrinsicProperties.entries()) {
     if (!isRecord(property)) {
-      throw new PageDetailContractError(
-        `pageDetail.intrinsicProperties[${index}] is invalid`,
-      );
+      throw new PageDetailContractError(`pageDetail.intrinsicProperties[${index}] is invalid`);
     }
     const label = `pageDetail.intrinsicProperties[${index}]`;
     exactKeys(property, label, ["key", "valueType", "value", "revision"]);
@@ -628,12 +517,9 @@ const parsePageDetailBody = (
     });
   }
   if (
-    new Set(intrinsicProperties.map((property) => property.key)).size !==
-    intrinsicProperties.length
+    new Set(intrinsicProperties.map((property) => property.key)).size !== intrinsicProperties.length
   ) {
-    throw new PageDetailContractError(
-      "Page Detail intrinsic property keys must be unique",
-    );
+    throw new PageDetailContractError("Page Detail intrinsic property keys must be unique");
   }
   return {
     libraryId,
@@ -643,11 +529,7 @@ const parsePageDetailBody = (
     page,
     document,
     intrinsicProperties,
-    dataSourceContext: parseDataSourceContext(
-      detail.dataSourceContext,
-      page,
-      libraryId,
-    ),
+    dataSourceContext: parseDataSourceContext(detail.dataSourceContext, page, libraryId),
   };
 };
 
@@ -667,11 +549,7 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
   }
   if (value.ok === false && isRecord(value.error)) {
     exactKeys(value, "pageDetailResult", ["ok", "error"]);
-    exactKeys(value.error, "pageDetailResult.error", [
-      "code",
-      "message",
-      "retryable",
-    ]);
+    exactKeys(value.error, "pageDetailResult.error", ["code", "message", "retryable"]);
     const code = value.error.code;
     if (
       typeof code !== "string" ||
@@ -716,9 +594,7 @@ export const parsePageDetailResult = (value: unknown): PageDetailResult => {
   };
 };
 
-export const parseLibraryPageDetailResult = (
-  value: unknown,
-): LibraryPageDetailResult => {
+export const parseLibraryPageDetailResult = (value: unknown): LibraryPageDetailResult => {
   if (!isRecord(value)) {
     throw new PageDetailContractError("Library Page Detail result is invalid");
   }

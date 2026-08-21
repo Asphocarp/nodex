@@ -151,9 +151,7 @@ const CODEX_RUNTIME_DOCUMENT_STYLE = {
   "--cursor-interaction": "pointer",
 } as const;
 
-export function getCodexThemeVariantStyle(
-  variant: ThemeVariant,
-): Record<string, string> {
+export function getCodexThemeVariantStyle(variant: ThemeVariant): Record<string, string> {
   const base = DEFAULT_THEMES[variant];
   const prepared = prepareTheme(base, variant);
   const derived = variant === "light" ? deriveLightTheme(prepared) : deriveDarkTheme(prepared);
@@ -200,8 +198,14 @@ export function getCodexThemeVariantStyle(
     "--color-border-light": derived.borderLight,
     "--color-decoration-added": prepared.theme.semanticColors.diffAdded,
     "--color-decoration-deleted": prepared.theme.semanticColors.diffRemoved,
-    "--color-editor-added": toRgba(parseHex(prepared.theme.semanticColors.diffAdded), variant === "light" ? 0.15 : 0.23),
-    "--color-editor-deleted": toRgba(parseHex(prepared.theme.semanticColors.diffRemoved), variant === "light" ? 0.15 : 0.23),
+    "--color-editor-added": toRgba(
+      parseHex(prepared.theme.semanticColors.diffAdded),
+      variant === "light" ? 0.15 : 0.23,
+    ),
+    "--color-editor-deleted": toRgba(
+      parseHex(prepared.theme.semanticColors.diffRemoved),
+      variant === "light" ? 0.15 : 0.23,
+    ),
     "--color-icon-accent": derived.iconAccent,
     "--color-icon-error": prepared.theme.accentColors.red,
     "--color-icon-primary": derived.iconPrimary,
@@ -244,7 +248,8 @@ function prepareTheme(theme: BaseTheme, variant: ThemeVariant): PreparedTheme {
   return {
     accent: parseHex(theme.accent),
     contrast: normalizedContrast,
-    editorBackground: variant === "light" ? mixRgb(surface, WHITE, 0.12) : mixRgb(surface, ink, 0.07),
+    editorBackground:
+      variant === "light" ? mixRgb(surface, WHITE, 0.12) : mixRgb(surface, ink, 0.07),
     ink,
     surface,
     surfaceUnder: computeSurfaceUnder(theme, surface, ink, variant),
@@ -406,10 +411,7 @@ function mixChannel(from: number, to: number, amount: number): number {
 }
 
 function normalizeAlpha(alpha: number): string {
-  return Math.min(1, Math.max(0, alpha))
-    .toFixed(3)
-    .replace(/0+$/, "")
-    .replace(/\.$/, "");
+  return Math.min(1, Math.max(0, alpha)).toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
 function toHex(color: Rgb): string {

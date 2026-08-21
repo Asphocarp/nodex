@@ -45,11 +45,12 @@ export function NodexTooltipProvider({
 }
 
 export interface NodexTooltipProps
-  extends Omit<ComponentPropsWithoutRef<typeof RadixTooltip.Content>, "content">,
-  Pick<
-    ComponentPropsWithoutRef<typeof RadixTooltip.Root>,
-    "open" | "defaultOpen" | "onOpenChange" | "delayDuration"
-  > {
+  extends
+    Omit<ComponentPropsWithoutRef<typeof RadixTooltip.Content>, "content">,
+    Pick<
+      ComponentPropsWithoutRef<typeof RadixTooltip.Root>,
+      "open" | "defaultOpen" | "onOpenChange" | "delayDuration"
+    > {
   children: ReactNode;
   tooltipContent: ReactNode;
   shortcutLabel?: string;
@@ -101,15 +102,9 @@ export function NodexTooltip({
       }
     };
 
-    window.addEventListener(
-      NODEX_FLOATING_SURFACE_DISMISS_EVENT,
-      handleDismiss,
-    );
+    window.addEventListener(NODEX_FLOATING_SURFACE_DISMISS_EVENT, handleDismiss);
     return () => {
-      window.removeEventListener(
-        NODEX_FLOATING_SURFACE_DISMISS_EVENT,
-        handleDismiss,
-      );
+      window.removeEventListener(NODEX_FLOATING_SURFACE_DISMISS_EVENT, handleDismiss);
     };
   }, [isControlled, onOpenChange, open, uncontrolledOpen]);
 
@@ -118,9 +113,9 @@ export function NodexTooltip({
   const resolvedOpen = isControlled ? open : uncontrolledOpen;
   const resolvedDelay = delayOpen ? 250 : delayDuration;
   const richSurface = surface === "rich";
-  const shortcut = shortcutLabel
-    ? <ShortcutKeycaps keys={[shortcutLabel]} density="compact" />
-    : null;
+  const shortcut = shortcutLabel ? (
+    <ShortcutKeycaps keys={[shortcutLabel]} density="compact" />
+  ) : null;
 
   return (
     <RadixTooltip.Root
@@ -135,9 +130,7 @@ export function NodexTooltip({
     >
       <RadixTooltip.Trigger
         asChild={triggerAsChild}
-        ref={
-          triggerRef as ComponentPropsWithRef<typeof RadixTooltip.Trigger>["ref"]
-        }
+        ref={triggerRef as ComponentPropsWithRef<typeof RadixTooltip.Trigger>["ref"]}
       >
         {children}
       </RadixTooltip.Trigger>
@@ -176,17 +169,12 @@ export function NodexTooltip({
           {...props}
         >
           {richSurface ? (
-            <NodexFloatingSurfaceBody
-              className={tooltipBodyClassName}
-              shortcut={shortcut}
-            >
+            <NodexFloatingSurfaceBody className={tooltipBodyClassName} shortcut={shortcut}>
               {tooltipContent}
             </NodexFloatingSurfaceBody>
           ) : (
             <div className="flex items-center gap-2">
-              <div className={cn("min-w-0", tooltipBodyClassName)}>
-                {tooltipContent}
-              </div>
+              <div className={cn("min-w-0", tooltipBodyClassName)}>{tooltipContent}</div>
               {shortcut ? <span>{shortcut}</span> : null}
             </div>
           )}

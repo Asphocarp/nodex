@@ -24,9 +24,7 @@ export function nfmToBlockNoteWithIds(
   return convertNfmToBlockNoteWithIds(blocks, allocateBlockId);
 }
 
-export function blockNoteToNfm(
-  blocks: readonly LegacyBlockNoteBlock[],
-): NfmBlock[] {
+export function blockNoteToNfm(blocks: readonly LegacyBlockNoteBlock[]): NfmBlock[] {
   return convertBlockNoteToNfm(blocks);
 }
 
@@ -84,8 +82,7 @@ function applyToggleStatesToNfm(
 ): void {
   for (const block of blocks) {
     const isToggle =
-      block.type === "toggle" ||
-      (block.type === "heading" && block.isToggleable === true);
+      block.type === "toggle" || (block.type === "heading" && block.isToggleable === true);
 
     if (isToggle && counter.index < states.length) {
       if (states[counter.index]) {

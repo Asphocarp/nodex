@@ -44,10 +44,7 @@ function getPrimaryWorkspaceRoot(project: Project): string {
 }
 
 function createEmptyEnvironment(project: Project): WorktreeEnvironmentDefinition {
-  const workspaceName = getPrimaryWorkspaceRoot(project)
-    .split(/[\\/]/)
-    .filter(Boolean)
-    .at(-1);
+  const workspaceName = getPrimaryWorkspaceRoot(project).split(/[\\/]/).filter(Boolean).at(-1);
   return {
     version: 1,
     name: workspaceName?.trim() || project.name.trim() || "local",
@@ -84,7 +81,9 @@ function WorkspaceProjectEnvironmentGroup({
             className="icon-sm shrink-0 text-token-text-secondary"
           />
           <div className="flex min-w-0 flex-col gap-0.5">
-            <span className="truncate text-sm font-medium text-token-text-primary">{project.name}</span>
+            <span className="truncate text-sm font-medium text-token-text-primary">
+              {project.name}
+            </span>
             <span className="truncate text-xs text-token-text-secondary">
               {getPrimaryWorkspaceRoot(project)}
             </span>
@@ -119,13 +118,18 @@ function WorkspaceProjectEnvironmentGroup({
               onClick={() => onSelect(project.id, config.configPath)}
             >
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <span className={config.state === "success"
-                  ? "truncate text-sm text-token-text-primary"
-                  : "truncate text-sm text-token-error-foreground"}
+                <span
+                  className={
+                    config.state === "success"
+                      ? "truncate text-sm text-token-text-primary"
+                      : "truncate text-sm text-token-error-foreground"
+                  }
                 >
                   {environmentLabel(config)}
                 </span>
-                <span className="truncate text-xs text-token-text-secondary">{config.fileName}</span>
+                <span className="truncate text-xs text-token-text-secondary">
+                  {config.fileName}
+                </span>
               </div>
               <ChevronRightIcon className="icon-xs shrink-0 text-token-text-secondary" />
             </button>
@@ -148,7 +152,10 @@ function EnvironmentBreadcrumb({
   onSummary: () => void;
 }) {
   return (
-    <nav className="flex min-w-0 items-center gap-1.5 text-sm text-token-text-secondary" aria-label="Environment breadcrumb">
+    <nav
+      className="flex min-w-0 items-center gap-1.5 text-sm text-token-text-secondary"
+      aria-label="Environment breadcrumb"
+    >
       <button
         type="button"
         className="rounded-md outline-hidden hover:text-token-text-primary focus-visible:ring-2 focus-visible:ring-token-focus"
@@ -215,18 +222,16 @@ export function LocalEnvironmentsSettingsPage({
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedConfigPath, setSelectedConfigPath] = useState<string | null>(null);
   const [initializedContext, setInitializedContext] = useState<string | null>(null);
-  const selectedProject = workspaceProjects.find((project) => project.id === selectedProjectId) ?? null;
-  const snapshotQuery = useLocalEnvironmentSnapshot(
-    selectedProjectId ?? "",
-    selectedConfigPath,
-    { enabled: mode !== "workspace" && Boolean(selectedProjectId) },
-  );
+  const selectedProject =
+    workspaceProjects.find((project) => project.id === selectedProjectId) ?? null;
+  const snapshotQuery = useLocalEnvironmentSnapshot(selectedProjectId ?? "", selectedConfigPath, {
+    enabled: mode !== "workspace" && Boolean(selectedProjectId),
+  });
   const saveMutation = useSaveLocalEnvironmentConfigMutation();
 
   useEffect(() => {
     if (!open || !active) return;
-    const targetProjectId = initialProjectId
-      ?? (initialConfigPath ? activeProjectId : null);
+    const targetProjectId = initialProjectId ?? (initialConfigPath ? activeProjectId : null);
     const validProjectId = workspaceProjects.some((project) => project.id === targetProjectId)
       ? targetProjectId
       : null;
@@ -291,48 +296,52 @@ export function LocalEnvironmentsSettingsPage({
 
   const snapshot = snapshotQuery.data;
   const canEdit = Boolean(
-    snapshot
-    && !snapshot.readErrorMessage
-    && !snapshot.tooLargeMessage
-    && (snapshot.environment || snapshot.revision),
+    snapshot &&
+    !snapshot.readErrorMessage &&
+    !snapshot.tooLargeMessage &&
+    (snapshot.environment || snapshot.revision),
   );
-  const title = mode === "workspace"
-    ? "Environments"
-    : mode === "edit"
-      ? "Edit local environment"
-      : snapshot?.environment?.name || selectedProject?.name || "Local environment";
-  const subtitle = mode === "workspace" ? (
-    <>
-      Local environments tell Nodex how to set up worktrees for a project. {" "}
-      <a
-        href="https://developers.openai.com/codex/app/local-environments"
-        target="_blank"
-        rel="noreferrer"
-        className="text-token-text-link-foreground hover:underline"
+  const title =
+    mode === "workspace"
+      ? "Environments"
+      : mode === "edit"
+        ? "Edit local environment"
+        : snapshot?.environment?.name || selectedProject?.name || "Local environment";
+  const subtitle =
+    mode === "workspace" ? (
+      <>
+        Local environments tell Nodex how to set up worktrees for a project.{" "}
+        <a
+          href="https://developers.openai.com/codex/app/local-environments"
+          target="_blank"
+          rel="noreferrer"
+          className="text-token-text-link-foreground hover:underline"
+        >
+          Learn more.
+        </a>
+      </>
+    ) : undefined;
+  const backSlot =
+    mode !== "workspace" && selectedProject ? (
+      <EnvironmentBreadcrumb
+        projectName={selectedProject.name}
+        mode={mode}
+        onWorkspace={openWorkspace}
+        onSummary={openSummary}
+      />
+    ) : undefined;
+  const action =
+    mode === "summary" && canEdit ? (
+      <NodexButton
+        size="composer"
+        variant="secondary"
+        aria-label="Edit local environment"
+        onClick={() => setMode("edit")}
       >
-        Learn more.
-      </a>
-    </>
-  ) : undefined;
-  const backSlot = mode !== "workspace" && selectedProject ? (
-    <EnvironmentBreadcrumb
-      projectName={selectedProject.name}
-      mode={mode}
-      onWorkspace={openWorkspace}
-      onSummary={openSummary}
-    />
-  ) : undefined;
-  const action = mode === "summary" && canEdit ? (
-    <NodexButton
-      size="composer"
-      variant="secondary"
-      aria-label="Edit local environment"
-      onClick={() => setMode("edit")}
-    >
-      <Pencil className="icon-xs" />
-      Edit
-    </NodexButton>
-  ) : undefined;
+        <Pencil className="icon-xs" />
+        Edit
+      </NodexButton>
+    ) : undefined;
 
   let content: ReactNode;
   if (mode === "workspace") {
@@ -377,7 +386,9 @@ export function LocalEnvironmentsSettingsPage({
     content = (
       <div className="flex flex-col items-start gap-3">
         <p className="text-sm text-token-error-foreground">Could not load local environment.</p>
-        <NodexButton size="composer" onClick={() => void snapshotQuery.refetch()}>Retry</NodexButton>
+        <NodexButton size="composer" onClick={() => void snapshotQuery.refetch()}>
+          Retry
+        </NodexButton>
       </div>
     );
   } else if (mode === "edit") {
@@ -387,12 +398,14 @@ export function LocalEnvironmentsSettingsPage({
         key={`${snapshot.projectId}:${snapshot.configPath}:${snapshot.revision ?? "new"}`}
         environment={environment}
         parseErrorMessage={snapshot.parseErrorMessage}
-        onSave={(nextEnvironment) => saveMutation.mutateAsync({
-          projectId: snapshot.projectId,
-          configPath: snapshot.configPath,
-          expectedRevision: snapshot.revision,
-          environment: nextEnvironment,
-        })}
+        onSave={(nextEnvironment) =>
+          saveMutation.mutateAsync({
+            projectId: snapshot.projectId,
+            configPath: snapshot.configPath,
+            expectedRevision: snapshot.revision,
+            environment: nextEnvironment,
+          })
+        }
         onSaved={async () => {
           const refreshed = await snapshotQuery.refetch();
           if (refreshed.isError) throw refreshed.error;
@@ -412,10 +425,10 @@ export function LocalEnvironmentsSettingsPage({
       <div className="flex flex-col gap-2 rounded-lg border-[0.5px] border-token-border px-3 py-3">
         <p className="text-sm font-medium text-token-text-primary">Environment needs attention</p>
         <p className="text-sm text-token-text-secondary">
-          {snapshot.tooLargeMessage
-            ?? snapshot.readErrorMessage
-            ?? snapshot.parseErrorMessage
-            ?? "The environment file could not be read."}
+          {snapshot.tooLargeMessage ??
+            snapshot.readErrorMessage ??
+            snapshot.parseErrorMessage ??
+            "The environment file could not be read."}
         </p>
       </div>
     );

@@ -66,10 +66,7 @@ export class WorktreeRepository {
   #watcherStart: Promise<void> | null = null;
   #disposed = false;
 
-  constructor(
-    identity: GitReviewRepositoryPaths & { hostId: "local" },
-    runner: GitCommandRunner,
-  ) {
+  constructor(identity: GitReviewRepositoryPaths & { hostId: "local" }, runner: GitCommandRunner) {
     this.identity = identity;
     this.#runner = runner;
     this.untrackedPaths = new UntrackedPathCache(this);
@@ -79,10 +76,7 @@ export class WorktreeRepository {
     return this.#generation;
   }
 
-  runGit(
-    args: readonly string[],
-    options?: GitCommandOptions,
-  ): Promise<GitCommandResult> {
+  runGit(args: readonly string[], options?: GitCommandOptions): Promise<GitCommandResult> {
     return this.#runner.run(this.identity, args, options);
   }
 
@@ -106,9 +100,7 @@ export class WorktreeRepository {
         }
         const filterNames = new Set<string>();
         for (const line of result.stdout.split(/\r?\n/)) {
-          const match = /^filter\.(.+)\.(?:clean|smudge|process|required)$/.exec(
-            line.trim(),
-          );
+          const match = /^filter\.(.+)\.(?:clean|smudge|process|required)$/.exec(line.trim());
           if (match?.[1]) filterNames.add(match[1]);
         }
         return [
@@ -140,9 +132,7 @@ export class WorktreeRepository {
     if (!shared) {
       const cached = this.#queryClient.getQueryData(input.key);
       recordGitQueryCacheOutcome(
-        cached !== undefined && (input.staleTime ?? Infinity) === Infinity
-          ? "hit"
-          : "miss",
+        cached !== undefined && (input.staleTime ?? Infinity) === Infinity ? "hit" : "miss",
       );
       const controller = new AbortController();
       const generation = this.#generation;
@@ -165,20 +155,20 @@ export class WorktreeRepository {
         promise,
       };
       this.#sharedRuns.set(cacheKey, shared);
-      void promise.finally(() => {
-        if (this.#sharedRuns.get(cacheKey) === shared) {
-          this.#sharedRuns.delete(cacheKey);
-        }
-      }).catch(() => undefined);
+      void promise
+        .finally(() => {
+          if (this.#sharedRuns.get(cacheKey) === shared) {
+            this.#sharedRuns.delete(cacheKey);
+          }
+        })
+        .catch(() => undefined);
     }
     const consumer = Symbol(cacheKey);
     shared.consumers.add(consumer);
     return this.#waitForSharedRun(shared, consumer, input.signal);
   }
 
-  advanceGeneration(
-    options: { invalidateUntracked?: boolean } = {},
-  ): number {
+  advanceGeneration(options: { invalidateUntracked?: boolean } = {}): number {
     if (this.#disposed) return this.#generation;
     this.#generation += 1;
     this.#snapshotController.abort();
@@ -196,8 +186,10 @@ export class WorktreeRepository {
     this.#queryClient.removeQueries({
       predicate: (query) => {
         const meta = query.meta as GitReadQueryMeta | undefined;
-        return query.getObserversCount() === 0
-          && (meta?.gitReadGeneration ?? this.#generation) < this.#generation;
+        return (
+          query.getObserversCount() === 0 &&
+          (meta?.gitReadGeneration ?? this.#generation) < this.#generation
+        );
       },
     });
     return this.#generation;
@@ -292,17 +284,11 @@ export class WorktreeRepository {
         commonDir: this.identity.commonDir,
         headPath: path.join(this.identity.gitDir, "HEAD"),
         indexPath: path.join(this.identity.gitDir, "index"),
-        syncedBranchPath: path.join(
-          this.identity.gitDir,
-          "codex-synced-branch.json",
-        ),
+        syncedBranchPath: path.join(this.identity.gitDir, "codex-synced-branch.json"),
       },
       host: localFileWatchHost,
       onChange: async (event) => {
-        await this.invalidateGitReadCachesForRepoChange(
-          event.changeType,
-          event.changedPaths,
-        );
+        await this.invalidateGitReadCachesForRepoChange(event.changeType, event.changedPaths);
       },
       onRequiresRecoveryChanged: (requiresRecovery) => {
         for (const member of this.#watchMembers) {

@@ -4,10 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, test } from "vitest";
-import {
-  _electron as electron,
-  type ElectronApplication,
-} from "playwright";
+import { _electron as electron, type ElectronApplication } from "playwright";
 
 interface BrowserPlatformFixture {
   createGuest(id: string, url: string): Promise<number>;
@@ -16,9 +13,7 @@ interface BrowserPlatformFixture {
   remove(id: string): void;
 }
 
-const fixtureMain = path.resolve(
-  "tests/fixtures/browser-platform/electron-main.cjs",
-);
+const fixtureMain = path.resolve("tests/fixtures/browser-platform/electron-main.cjs");
 const temporaryDirectories: string[] = [];
 
 async function listen(server: Server): Promise<number> {
@@ -51,25 +46,20 @@ describe("Browser Platform Electron substrate", () => {
   test("shares one Profile while isolating, governing, restoring, emulating, and destroying guests", async () => {
     expect(process.versions.electron).toBeTruthy();
     const server = createServer((request, response) => {
-      const pathname = new URL(
-        request.url ?? "/",
-        "http://127.0.0.1",
-      ).pathname;
+      const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
       response.writeHead(200, {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "no-store",
       });
       response.end(
-        `<!doctype html><html><body><h1>${pathname}</h1>`
-        + `<script>window.fixturePath=${JSON.stringify(pathname)}</script>`
-        + "</body></html>",
+        `<!doctype html><html><body><h1>${pathname}</h1>` +
+          `<script>window.fixturePath=${JSON.stringify(pathname)}</script>` +
+          "</body></html>",
       );
     });
     const port = await listen(server);
     const origin = `http://127.0.0.1:${port}`;
-    const userData = mkdtempSync(
-      path.join(tmpdir(), "nodex-browser-platform-integration-"),
-    );
+    const userData = mkdtempSync(path.join(tmpdir(), "nodex-browser-platform-integration-"));
     temporaryDirectories.push(userData);
     let application: ElectronApplication | null = null;
     try {
@@ -113,43 +103,49 @@ describe("Browser Platform Electron substrate", () => {
           "document.cookie = 'shared_profile_cookie=ready; SameSite=Lax'; document.cookie",
         );
       });
-      await expect(page.evaluate(async () => {
-        const fixture = (
-          window as unknown as {
-            browserPlatformFixture: BrowserPlatformFixture;
-          }
-        ).browserPlatformFixture;
-        return await fixture.execute("second", "document.cookie");
-      })).resolves.toContain("shared_profile_cookie=ready");
+      await expect(
+        page.evaluate(async () => {
+          const fixture = (
+            window as unknown as {
+              browserPlatformFixture: BrowserPlatformFixture;
+            }
+          ).browserPlatformFixture;
+          return await fixture.execute("second", "document.cookie");
+        }),
+      ).resolves.toContain("shared_profile_cookie=ready");
 
-      await expect(page.evaluate(async () => {
-        const fixture = (
-          window as unknown as {
-            browserPlatformFixture: BrowserPlatformFixture;
-          }
-        ).browserPlatformFixture;
-        return await fixture.execute("first", `({
+      await expect(
+        page.evaluate(async () => {
+          const fixture = (
+            window as unknown as {
+              browserPlatformFixture: BrowserPlatformFixture;
+            }
+          ).browserPlatformFixture;
+          return await fixture.execute(
+            "first",
+            `({
           process: typeof globalThis.process,
           require: typeof globalThis.require,
           electron: typeof globalThis.ipcRenderer,
-        })`);
-      })).resolves.toEqual({
+        })`,
+          );
+        }),
+      ).resolves.toEqual({
         process: "undefined",
         require: "undefined",
         electron: "undefined",
       });
 
-      await expect(page.evaluate(async () => {
-        const fixture = (
-          window as unknown as {
-            browserPlatformFixture: BrowserPlatformFixture;
-          }
-        ).browserPlatformFixture;
-        return await fixture.execute(
-          "first",
-          "Notification.requestPermission()",
-        );
-      })).resolves.toBe("denied");
+      await expect(
+        page.evaluate(async () => {
+          const fixture = (
+            window as unknown as {
+              browserPlatformFixture: BrowserPlatformFixture;
+            }
+          ).browserPlatformFixture;
+          return await fixture.execute("first", "Notification.requestPermission()");
+        }),
+      ).resolves.toBe("denied");
 
       const windowCountBeforePopup = await application.evaluate(
         ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
@@ -160,14 +156,11 @@ describe("Browser Platform Electron substrate", () => {
             browserPlatformFixture: BrowserPlatformFixture;
           }
         ).browserPlatformFixture;
-        await fixture.execute(
-          "first",
-          "window.open('/popup', '_blank') === null",
-        );
+        await fixture.execute("first", "window.open('/popup', '_blank') === null");
       });
-      await expect(application.evaluate(
-        ({ BrowserWindow }) => BrowserWindow.getAllWindows().length,
-      )).resolves.toBe(windowCountBeforePopup);
+      await expect(
+        application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
+      ).resolves.toBe(windowCountBeforePopup);
 
       const emulatedViewport = await application.evaluate(
         async ({ webContents }, input) => {
@@ -184,9 +177,7 @@ describe("Browser Platform Electron substrate", () => {
             "({ width: window.innerWidth, height: window.innerHeight })",
             false,
           );
-          await guest.debugger.sendCommand(
-            "Emulation.clearDeviceMetricsOverride",
-          );
+          await guest.debugger.sendCommand("Emulation.clearDeviceMetricsOverride");
           guest.debugger.detach();
           return viewport;
         },
@@ -222,10 +213,8 @@ describe("Browser Platform Electron substrate", () => {
               index,
             });
             return {
-              activeIndex:
-                restoredView.webContents.navigationHistory.getActiveIndex(),
-              entryCount:
-                restoredView.webContents.navigationHistory.getAllEntries().length,
+              activeIndex: restoredView.webContents.navigationHistory.getActiveIndex(),
+              entryCount: restoredView.webContents.navigationHistory.getAllEntries().length,
               url: restoredView.webContents.getURL(),
             };
           } finally {
@@ -235,9 +224,7 @@ describe("Browser Platform Electron substrate", () => {
         { guestId: firstGuestId },
       );
       expect(historyRoundTrip.entryCount).toBeGreaterThanOrEqual(2);
-      expect(historyRoundTrip.activeIndex).toBe(
-        historyRoundTrip.entryCount - 1,
-      );
+      expect(historyRoundTrip.activeIndex).toBe(historyRoundTrip.entryCount - 1);
       expect(historyRoundTrip.url).toBe(`${origin}/third`);
 
       await page.evaluate(() => {
@@ -247,22 +234,21 @@ describe("Browser Platform Electron substrate", () => {
           }
         ).browserPlatformFixture.remove("first");
       });
-      await expect.poll(
-        async () => await application?.evaluate(
-          ({ webContents }, guestId) => {
-            const guest = webContents.fromId(guestId);
-            return !guest || guest.isDestroyed();
-          },
-          firstGuestId,
-        ),
-      ).toBe(true);
-      await expect(application.evaluate(
-        ({ webContents }, guestId) => {
+      await expect
+        .poll(
+          async () =>
+            await application?.evaluate(({ webContents }, guestId) => {
+              const guest = webContents.fromId(guestId);
+              return !guest || guest.isDestroyed();
+            }, firstGuestId),
+        )
+        .toBe(true);
+      await expect(
+        application.evaluate(({ webContents }, guestId) => {
           const guest = webContents.fromId(guestId);
           return guest?.session.getStoragePath() ?? null;
-        },
-        secondGuestId,
-      )).resolves.toContain("Partitions/nodex-browser-integration");
+        }, secondGuestId),
+      ).resolves.toContain("Partitions/nodex-browser-integration");
     } finally {
       if (application) await stopApplication(application);
       await closeServer(server);

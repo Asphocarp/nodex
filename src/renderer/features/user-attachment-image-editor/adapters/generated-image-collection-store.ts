@@ -58,21 +58,19 @@ const canonicalGroupRegistrationsByThreadId = new Map<
   Map<symbol, Registration<readonly GeneratedImageLiveGroupInput[]>>
 >();
 const snapshotsByThreadId = new Map<string, GeneratedImageLiveCollectionSnapshot>();
-const optimisticEditsByThreadId = new Map<
-  string,
-  Map<string, OptimisticGeneratedImageEdit>
->();
+const optimisticEditsByThreadId = new Map<string, Map<string, OptimisticGeneratedImageEdit>>();
 const listeners = new Set<() => void>();
 let registrationOrder = 0;
 
-function resolveGroupStartedAt(
-  turn: CodexConversationSnapshot["turns"][number],
-): number | null {
-  return turn.turnStartedAtMs
-    ?? turn.startedAt
-    ?? turn.items.reduce<number | null>((earliest, item) => (
-      earliest === null ? item.createdAt : Math.min(earliest, item.createdAt)
-    ), null);
+function resolveGroupStartedAt(turn: CodexConversationSnapshot["turns"][number]): number | null {
+  return (
+    turn.turnStartedAtMs ??
+    turn.startedAt ??
+    turn.items.reduce<number | null>(
+      (earliest, item) => (earliest === null ? item.createdAt : Math.min(earliest, item.createdAt)),
+      null,
+    )
+  );
 }
 
 /** Projects every loaded turn, including virtualized history, into Canvas groups. */
@@ -91,38 +89,40 @@ export function projectGeneratedImageCanonicalGroups(
     if (!output.shouldRender) return [];
     const id = `${buildCodexTurnOccurrenceKey(turn.turnId, turnIndex)}:generated-image-gallery`;
     const turnStartedAtMs = resolveGroupStartedAt(turn);
-    return [{
-      id,
-      images: output.visibleCompletedItems.flatMap((item) => {
-        const src = item.generatedImage?.src;
-        if (!src) return [];
-        imageNumber += 1;
-        const alt = `Generated image ${imageNumber}`;
-        return [{
-          id: item.itemId,
-          alt,
-          attachmentId: item.itemId.startsWith("image-playground:")
-            ? item.itemId
-            : `image-playground:${item.itemId}`,
-          attachmentSrc: src,
-          downloadSrc: src,
-          generatedOrdinal: imageNumber,
-          groupId: id,
-          previewSrc: src,
-          referrerPolicy: "no-referrer" as const,
-          source: "generated" as const,
-          src,
-          status: "ready" as const,
-          tabTitle: conversationTitle
-            ? `${conversationTitle} - ${alt}`
-            : alt,
-          turnId: turn.turnId ?? undefined,
-          turnStartedAtMs: turnStartedAtMs ?? undefined,
-        }];
-      }),
-      pendingImageCount: output.pendingImageCount,
-      turnStartedAtMs,
-    }];
+    return [
+      {
+        id,
+        images: output.visibleCompletedItems.flatMap((item) => {
+          const src = item.generatedImage?.src;
+          if (!src) return [];
+          imageNumber += 1;
+          const alt = `Generated image ${imageNumber}`;
+          return [
+            {
+              id: item.itemId,
+              alt,
+              attachmentId: item.itemId.startsWith("image-playground:")
+                ? item.itemId
+                : `image-playground:${item.itemId}`,
+              attachmentSrc: src,
+              downloadSrc: src,
+              generatedOrdinal: imageNumber,
+              groupId: id,
+              previewSrc: src,
+              referrerPolicy: "no-referrer" as const,
+              source: "generated" as const,
+              src,
+              status: "ready" as const,
+              tabTitle: conversationTitle ? `${conversationTitle} - ${alt}` : alt,
+              turnId: turn.turnId ?? undefined,
+              turnStartedAtMs: turnStartedAtMs ?? undefined,
+            },
+          ];
+        }),
+        pendingImageCount: output.pendingImageCount,
+        turnStartedAtMs,
+      },
+    ];
   });
 }
 
@@ -130,29 +130,36 @@ export function areGeneratedImageLiveGroupsEqual(
   left: readonly GeneratedImageLiveGroupInput[],
   right: readonly GeneratedImageLiveGroupInput[],
 ): boolean {
-  return left.length === right.length && left.every((group, index) => {
-    const candidate = right[index];
-    return candidate !== undefined
-      && group.id === candidate.id
-      && group.pendingImageCount === candidate.pendingImageCount
-      && group.turnStartedAtMs === candidate.turnStartedAtMs
-      && group.images.length === candidate.images.length
-      && group.images.every((image, imageIndex) => {
-        const other = candidate.images[imageIndex];
-          return other !== undefined
-          && image.id === other.id
-          && image.alt === other.alt
-          && image.attachmentSrc === other.attachmentSrc
-          && image.downloadSrc === other.downloadSrc
-          && image.error === other.error
-          && image.generatedOrdinal === other.generatedOrdinal
-          && image.loading === other.loading
-          && image.previewSrc === other.previewSrc
-          && image.src === other.src
-          && image.status === other.status
-          && image.tabTitle === other.tabTitle;
-      });
-  });
+  return (
+    left.length === right.length &&
+    left.every((group, index) => {
+      const candidate = right[index];
+      return (
+        candidate !== undefined &&
+        group.id === candidate.id &&
+        group.pendingImageCount === candidate.pendingImageCount &&
+        group.turnStartedAtMs === candidate.turnStartedAtMs &&
+        group.images.length === candidate.images.length &&
+        group.images.every((image, imageIndex) => {
+          const other = candidate.images[imageIndex];
+          return (
+            other !== undefined &&
+            image.id === other.id &&
+            image.alt === other.alt &&
+            image.attachmentSrc === other.attachmentSrc &&
+            image.downloadSrc === other.downloadSrc &&
+            image.error === other.error &&
+            image.generatedOrdinal === other.generatedOrdinal &&
+            image.loading === other.loading &&
+            image.previewSrc === other.previewSrc &&
+            image.src === other.src &&
+            image.status === other.status &&
+            image.tabTitle === other.tabTitle
+          );
+        })
+      );
+    })
+  );
 }
 
 function notify(): void {
@@ -169,11 +176,8 @@ function latestRegistration<T>(
   return latest?.value ?? null;
 }
 
-function resolveCanonicalGroups(
-  threadId: string,
-): readonly GeneratedImageLiveGroupInput[] {
-  return latestRegistration(canonicalGroupRegistrationsByThreadId.get(threadId))
-    ?? [];
+function resolveCanonicalGroups(threadId: string): readonly GeneratedImageLiveGroupInput[] {
+  return latestRegistration(canonicalGroupRegistrationsByThreadId.get(threadId)) ?? [];
 }
 
 function mergeMountedGroupWithCanonical(
@@ -181,9 +185,7 @@ function mergeMountedGroupWithCanonical(
   canonical: GeneratedImageLiveGroupInput | undefined,
 ): GeneratedImageLiveGroupInput {
   if (!canonical) return mounted;
-  const canonicalImagesById = new Map(
-    canonical.images.map((image) => [image.id, image]),
-  );
+  const canonicalImagesById = new Map(canonical.images.map((image) => [image.id, image]));
   return {
     ...mounted,
     images: mounted.images.map((image) => {
@@ -207,17 +209,17 @@ function reconcileOptimisticEdits(
   const claimedReplacementIds = new Set<string>();
   for (const edit of edits.values()) {
     const liveTail = groups.at(-1);
-    const positionalReplacement = liveTail?.id === edit.liveTailGroupId
-      ? liveTail.images[edit.liveTailImageCount]
-      : liveTail?.images.at(-1);
-    const replacement = (
-      positionalReplacement?.status === "ready"
-      && positionalReplacement.loading !== true
-      && !edit.baselineReadyImageIds.has(positionalReplacement.id)
-      && !claimedReplacementIds.has(positionalReplacement.id)
-    )
-      ? positionalReplacement
-      : undefined;
+    const positionalReplacement =
+      liveTail?.id === edit.liveTailGroupId
+        ? liveTail.images[edit.liveTailImageCount]
+        : liveTail?.images.at(-1);
+    const replacement =
+      positionalReplacement?.status === "ready" &&
+      positionalReplacement.loading !== true &&
+      !edit.baselineReadyImageIds.has(positionalReplacement.id) &&
+      !claimedReplacementIds.has(positionalReplacement.id)
+        ? positionalReplacement
+        : undefined;
     if (!replacement) continue;
     claimedReplacementIds.add(replacement.id);
     edits.delete(edit.id);
@@ -226,22 +228,22 @@ function reconcileOptimisticEdits(
   return [...edits.values()];
 }
 
-function makeOptimisticGroup(
-  edit: OptimisticGeneratedImageEdit,
-): GeneratedImageLiveGroupInput {
+function makeOptimisticGroup(edit: OptimisticGeneratedImageEdit): GeneratedImageLiveGroupInput {
   return {
     id: edit.id,
-    images: [{
-      id: edit.id,
-      alt: "Generating image…",
-      attachmentSrc: "",
-      generatedOrdinal: 0,
-      groupId: edit.id,
-      loading: true,
-      source: "generated",
-      src: "",
-      status: "loading",
-    }],
+    images: [
+      {
+        id: edit.id,
+        alt: "Generating image…",
+        attachmentSrc: "",
+        generatedOrdinal: 0,
+        groupId: edit.id,
+        loading: true,
+        source: "generated",
+        src: "",
+        status: "loading",
+      },
+    ],
     pendingImageCount: 0,
     turnStartedAtMs: null,
   };
@@ -251,36 +253,23 @@ function orderMergedGroups(
   groups: readonly GeneratedImageLiveGroupInput[],
   canonicalGroups: readonly GeneratedImageLiveGroupInput[],
 ): readonly GeneratedImageLiveGroupInput[] {
-  const canonicalIndex = new Map(
-    canonicalGroups.map((group, index) => [group.id, index]),
-  );
+  const canonicalIndex = new Map(canonicalGroups.map((group, index) => [group.id, index]));
   return groups
     .map((group, insertionIndex) => ({ group, insertionIndex }))
     .sort((left, right) => {
-      const leftOptimistic = left.group.id.startsWith(
-        OPTIMISTIC_IMAGE_EDIT_PREFIX,
-      );
-      const rightOptimistic = right.group.id.startsWith(
-        OPTIMISTIC_IMAGE_EDIT_PREFIX,
-      );
+      const leftOptimistic = left.group.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX);
+      const rightOptimistic = right.group.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX);
       if (leftOptimistic !== rightOptimistic) return leftOptimistic ? 1 : -1;
 
       const leftCanonicalIndex = canonicalIndex.get(left.group.id);
       const rightCanonicalIndex = canonicalIndex.get(right.group.id);
-      if (
-        leftCanonicalIndex !== undefined
-        && rightCanonicalIndex !== undefined
-      ) {
+      if (leftCanonicalIndex !== undefined && rightCanonicalIndex !== undefined) {
         return leftCanonicalIndex - rightCanonicalIndex;
       }
 
       const leftStartedAt = left.group.turnStartedAtMs;
       const rightStartedAt = right.group.turnStartedAtMs;
-      if (
-        leftStartedAt !== null
-        && rightStartedAt !== null
-        && leftStartedAt !== rightStartedAt
-      ) {
+      if (leftStartedAt !== null && rightStartedAt !== null && leftStartedAt !== rightStartedAt) {
         return leftStartedAt - rightStartedAt;
       }
       return left.insertionIndex - right.insertionIndex;
@@ -291,9 +280,7 @@ function orderMergedGroups(
 function rebuild(threadId: string): void {
   const previous = snapshotsByThreadId.get(threadId) ?? EMPTY_SNAPSHOT;
   const canonicalGroups = resolveCanonicalGroups(threadId);
-  const canonicalGroupsById = new Map(
-    canonicalGroups.map((group) => [group.id, group]),
-  );
+  const canonicalGroupsById = new Map(canonicalGroups.map((group) => [group.id, group]));
   const groupsById = new Map(canonicalGroupsById);
   const mountedGroups = mountedGroupRegistrationsByThreadId.get(threadId);
   for (const [groupId, registrations] of mountedGroups ?? []) {
@@ -304,14 +291,8 @@ function rebuild(threadId: string): void {
       mergeMountedGroupWithCanonical(mounted, canonicalGroupsById.get(groupId)),
     );
   }
-  const orderedConcreteGroups = orderMergedGroups(
-    [...groupsById.values()],
-    canonicalGroups,
-  );
-  const optimisticEdits = reconcileOptimisticEdits(
-    threadId,
-    orderedConcreteGroups,
-  );
+  const orderedConcreteGroups = orderMergedGroups([...groupsById.values()], canonicalGroups);
+  const optimisticEdits = reconcileOptimisticEdits(threadId, orderedConcreteGroups);
   for (const edit of optimisticEdits) {
     groupsById.set(edit.id, makeOptimisticGroup(edit));
   }
@@ -319,10 +300,7 @@ function rebuild(threadId: string): void {
     snapshotsByThreadId.delete(threadId);
     return;
   }
-  const groups = orderMergedGroups(
-    [...groupsById.values()],
-    canonicalGroups,
-  );
+  const groups = orderMergedGroups([...groupsById.values()], canonicalGroups);
   let ordinal = 0;
   const normalizedGroups = groups.map((group) => {
     const images = group.images.map((image) => ({
@@ -346,11 +324,14 @@ function rebuild(threadId: string): void {
     return Object.freeze({ ...group, images: Object.freeze([...images, ...pending]) });
   });
   const images = normalizedGroups.flatMap((group) => group.images);
-  snapshotsByThreadId.set(threadId, Object.freeze({
-    groups: Object.freeze(normalizedGroups),
-    images: Object.freeze(images),
-    revision: previous.revision + 1,
-  }));
+  snapshotsByThreadId.set(
+    threadId,
+    Object.freeze({
+      groups: Object.freeze(normalizedGroups),
+      images: Object.freeze(images),
+      revision: previous.revision + 1,
+    }),
+  );
 }
 
 export function replaceGeneratedImageLiveGroup(
@@ -359,8 +340,7 @@ export function replaceGeneratedImageLiveGroup(
 ): () => void {
   const normalizedThreadId = threadId.trim();
   if (!normalizedThreadId) return () => {};
-  const groups = mountedGroupRegistrationsByThreadId.get(normalizedThreadId)
-    ?? new Map();
+  const groups = mountedGroupRegistrationsByThreadId.get(normalizedThreadId) ?? new Map();
   const registrations = groups.get(group.id) ?? new Map();
   const token = Symbol(group.id);
   groups.set(group.id, registrations);
@@ -372,9 +352,7 @@ export function replaceGeneratedImageLiveGroup(
   rebuild(normalizedThreadId);
   notify();
   return () => {
-    const currentGroups = mountedGroupRegistrationsByThreadId.get(
-      normalizedThreadId,
-    );
+    const currentGroups = mountedGroupRegistrationsByThreadId.get(normalizedThreadId);
     const currentRegistrations = currentGroups?.get(group.id);
     currentRegistrations?.delete(token);
     if (currentRegistrations?.size === 0) currentGroups?.delete(group.id);
@@ -393,9 +371,7 @@ export function replaceGeneratedImageCanonicalGroups(
 ): () => void {
   const normalizedThreadId = threadId.trim();
   if (!normalizedThreadId) return () => {};
-  const registrations = canonicalGroupRegistrationsByThreadId.get(
-    normalizedThreadId,
-  ) ?? new Map();
+  const registrations = canonicalGroupRegistrationsByThreadId.get(normalizedThreadId) ?? new Map();
   const token = Symbol(normalizedThreadId);
   canonicalGroupRegistrationsByThreadId.set(normalizedThreadId, registrations);
   registrations.set(token, {
@@ -405,9 +381,7 @@ export function replaceGeneratedImageCanonicalGroups(
   rebuild(normalizedThreadId);
   notify();
   return () => {
-    const current = canonicalGroupRegistrationsByThreadId.get(
-      normalizedThreadId,
-    );
+    const current = canonicalGroupRegistrationsByThreadId.get(normalizedThreadId);
     current?.delete(token);
     if (current?.size === 0) {
       canonicalGroupRegistrationsByThreadId.delete(normalizedThreadId);
@@ -423,9 +397,7 @@ export function getGeneratedImageLiveCollectionSnapshot(
   return snapshotsByThreadId.get(threadId.trim()) ?? EMPTY_SNAPSHOT;
 }
 
-export function subscribeGeneratedImageLiveCollections(
-  listener: () => void,
-): () => void {
+export function subscribeGeneratedImageLiveCollections(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
@@ -439,17 +411,13 @@ export function beginOptimisticGeneratedImageEdit(
   const createdAtMs = Date.now();
   const id = `${OPTIMISTIC_IMAGE_EDIT_PREFIX}${crypto.randomUUID()}`;
   const baselineReadyImageIds = new Set(
-    getGeneratedImageLiveCollectionSnapshot(normalizedThreadId).images.flatMap(
-      (image) => image.status === "ready" && image.loading !== true
-        ? [image.id]
-        : [],
+    getGeneratedImageLiveCollectionSnapshot(normalizedThreadId).images.flatMap((image) =>
+      image.status === "ready" && image.loading !== true ? [image.id] : [],
     ),
   );
-  const liveTail = getGeneratedImageLiveCollectionSnapshot(
-    normalizedThreadId,
-  ).groups.findLast((group) => (
-    !group.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX)
-  ));
+  const liveTail = getGeneratedImageLiveCollectionSnapshot(normalizedThreadId).groups.findLast(
+    (group) => !group.id.startsWith(OPTIMISTIC_IMAGE_EDIT_PREFIX),
+  );
   const edits = optimisticEditsByThreadId.get(normalizedThreadId) ?? new Map();
   optimisticEditsByThreadId.set(normalizedThreadId, edits);
   edits.set(id, {

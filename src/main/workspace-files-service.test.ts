@@ -1,14 +1,5 @@
 import { afterEach, describe, expect, test } from "vitest";
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  rm,
-  stat,
-  symlink,
-  utimes,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -101,8 +92,9 @@ describe("workspace-files-service directory browsing", () => {
     "rejects invalid directory coordinate %s",
     async (directoryPath) => {
       const root = await makeTempWorkspace();
-      await expect(listWorkspaceDirectoryEntries({ workspaceRoot: root, directoryPath }))
-        .rejects.toThrow(/relative to workspaceRoot|within workspaceRoot/);
+      await expect(
+        listWorkspaceDirectoryEntries({ workspaceRoot: root, directoryPath }),
+      ).rejects.toThrow(/relative to workspaceRoot|within workspaceRoot/);
     },
   );
 });
@@ -116,7 +108,11 @@ describe("workspace-files-service workspace search", () => {
     await mkdir(join(root, "node_modules", "fixture"), { recursive: true });
     await writeFile(join(root, "src", "nested", "needle.ts"), "export {};\n", "utf8");
     await writeFile(join(root, ".hidden", "needle.env"), "SAFE=yes\n", "utf8");
-    await writeFile(join(root, "node_modules", "fixture", "needle.js"), "module.exports = {};\n", "utf8");
+    await writeFile(
+      join(root, "node_modules", "fixture", "needle.js"),
+      "module.exports = {};\n",
+      "utf8",
+    );
     await writeFile(join(outsideRoot, "needle-secret.txt"), "outside", "utf8");
     await symlink(outsideRoot, join(root, "escape"), "dir");
 
@@ -142,8 +138,11 @@ describe("workspace-files-service workspace search", () => {
 
   test("reports bounded traversal and result truncation deterministically", async () => {
     const root = await makeTempWorkspace();
-    await Promise.all(Array.from({ length: 8 }, (_, index) =>
-      writeFile(join(root, `match-${index}.txt`), `${index}`, "utf8")));
+    await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        writeFile(join(root, `match-${index}.txt`), `${index}`, "utf8"),
+      ),
+    );
 
     const resultLimited = await searchWorkspaceFiles({
       workspaceRoot: root,
@@ -244,11 +243,13 @@ describe("workspace-files-service exact file resources", () => {
     expect(conflict).toEqual({ outcome: "conflict", mtimeMs: currentMtimeMs });
     expect(saved.outcome).toBe("saved");
     expect(await readFile(filePath, "utf8")).toBe("saved");
-    await expect(writeWorkspaceFile({
-      path: join(root, "missing", "file.txt"),
-      content: "no implicit mkdir",
-      expectedMtimeMs: null,
-    })).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      writeWorkspaceFile({
+        path: join(root, "missing", "file.txt"),
+        content: "no implicit mkdir",
+        expectedMtimeMs: null,
+      }),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   test("creates a missing file only with a null modification-time expectation", async () => {
@@ -270,5 +271,4 @@ describe("workspace-files-service exact file resources", () => {
     expect(saved.outcome).toBe("saved");
     expect(await readFile(filePath, "utf8")).toBe("created");
   });
-
 });

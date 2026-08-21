@@ -1,7 +1,4 @@
-import {
-  buildPageDeepLink,
-  parsePageDeepLink,
-} from "../../shared/nodex-deeplink";
+import { buildPageDeepLink, parsePageDeepLink } from "../../shared/nodex-deeplink";
 
 export type PageDeepLinkPasteIntent =
   | { readonly kind: "link"; readonly href: string; readonly pageId: string }

@@ -1,9 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { ThreadComposerShellBackgroundAgentRowModel } from "../../thread-stage-types";
-import {
-  SubagentsPanelDetailHeader,
-  SubagentsPanelOverviewContent,
-} from "./subagents-panel";
+import { SubagentsPanelDetailHeader, SubagentsPanelOverviewContent } from "./subagents-panel";
 
 const now = Date.now();
 
@@ -107,7 +104,8 @@ export const SelectedReadOnlyDetailHeader: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The selected subagent route places this header above a read-only transcript and intentionally renders no composer.",
+        story:
+          "The selected subagent route places this header above a read-only transcript and intentionally renders no composer.",
       },
     },
   },

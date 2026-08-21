@@ -28,9 +28,7 @@ import type {
   DatabasePropertyOption,
   DatabaseViewField,
 } from "../../../../shared/database-kernel";
-import type {
-  DataSourcePropertyRecordV2,
-} from "../../../../shared/database-module-v2";
+import type { DataSourcePropertyRecordV2 } from "../../../../shared/database-module-v2";
 import type { DatabaseViewPageMenuSession } from "../database-view-page-context-menu";
 import type { DatabaseViewPageActionPort } from "../database-view-page-actions";
 import type { DatabaseViewPageOpenHandler } from "../database-view-page-open";
@@ -70,11 +68,7 @@ export interface DatabaseBoardCardProps {
   readonly mutationErrors: ReadonlyMap<string, string>;
   readonly onOpenPage: DatabaseViewPageOpenHandler;
   readonly pageActionPort?: DatabaseViewPageActionPort;
-  readonly onSetValue: (
-    pageId: string,
-    propertyId: string,
-    value: DatabaseJsonValue,
-  ) => void;
+  readonly onSetValue: (pageId: string, propertyId: string, value: DatabaseJsonValue) => void;
   readonly onSetStructuralValue: (
     pageId: string,
     propertyId: string,
@@ -120,16 +114,10 @@ export interface DatabaseBoardCardProps {
   readonly onRequestOptions: (property: DataSourcePropertyRecordV2) => void;
   readonly onRequestMoreOptions: (property: DataSourcePropertyRecordV2) => void;
   readonly optionRegistries: Readonly<Record<string, readonly DatabasePropertyOption[]>>;
-  readonly optionRegistryStates: Readonly<Record<
-    string,
-    DataSourcePropertyOptionRegistryState
-  >>;
+  readonly optionRegistryStates: Readonly<Record<string, DataSourcePropertyOptionRegistryState>>;
   readonly optionRegistryHasMore: Readonly<Record<string, boolean>>;
   readonly optionRegistryLoadingMore: Readonly<Record<string, boolean>>;
-  readonly onMove: (
-    pageId: string,
-    direction: "up" | "down" | "top" | "bottom",
-  ) => void;
+  readonly onMove: (pageId: string, direction: "up" | "down" | "top" | "bottom") => void;
   readonly highlighted: boolean;
   readonly presented: boolean;
   readonly selected: boolean;
@@ -151,37 +139,36 @@ const createDatabaseBoardPropertyEditorBinding = (
   property: DataSourcePropertyRecordV2,
 ): DataSourcePropertyEditorBinding => {
   const current = authority.values[property.propertyId];
-  const structural = property.propertyId === props.groupPropertyId
-    || property.propertyId === props.subgroupPropertyId;
+  const structural =
+    property.propertyId === props.groupPropertyId ||
+    property.propertyId === props.subgroupPropertyId;
   return {
     property,
     value: current?.value,
     revision: current?.revision ?? 0,
     disabled: props.model.readOnlyReason !== null,
     pending:
-      props.pendingMutationKeys.has(`value:${props.row.pageId}:${property.propertyId}`)
-      || props.pendingMutationKeys.has(`property:${property.propertyId}`),
-    error: props.mutationErrors.get(
-      `value:${props.row.pageId}:${property.propertyId}`,
-    ),
-    options: props.optionRegistries[property.propertyId]
-      ?? readDatabasePropertyOptions(property),
+      props.pendingMutationKeys.has(`value:${props.row.pageId}:${property.propertyId}`) ||
+      props.pendingMutationKeys.has(`property:${property.propertyId}`),
+    error: props.mutationErrors.get(`value:${props.row.pageId}:${property.propertyId}`),
+    options: props.optionRegistries[property.propertyId] ?? readDatabasePropertyOptions(property),
     optionRegistryState: props.optionRegistryStates[property.propertyId] ?? "ready",
     optionRegistryHasMore: props.optionRegistryHasMore[property.propertyId] ?? false,
-    optionRegistryLoadingMore:
-      props.optionRegistryLoadingMore[property.propertyId] ?? false,
+    optionRegistryLoadingMore: props.optionRegistryLoadingMore[property.propertyId] ?? false,
     onRequestOptions: () => props.onRequestOptions(property),
     onRequestMoreOptions: () => props.onRequestMoreOptions(property),
-    relationCandidates: property.valueType === "relation"
-      ? props.model.query.rows.map((candidate) => ({
-          pageId: candidate.page.pageId,
-          title: candidate.page.title,
-        }))
-      : undefined,
+    relationCandidates:
+      property.valueType === "relation"
+        ? props.model.query.rows.map((candidate) => ({
+            pageId: candidate.page.pageId,
+            title: candidate.page.title,
+          }))
+        : undefined,
     relationSourcePageId: props.row.pageId,
-    onChange: (value) => structural
-      ? props.onSetStructuralValue(props.row.pageId, property.propertyId, value)
-      : props.onSetValue(props.row.pageId, property.propertyId, value),
+    onChange: (value) =>
+      structural
+        ? props.onSetStructuralValue(props.row.pageId, property.propertyId, value)
+        : props.onSetValue(props.row.pageId, property.propertyId, value),
     onCreateOption: (option) => props.onCreateOption(props.row.pageId, property, option),
     onPatchOptions: (delta) => {
       if (!structural) {
@@ -196,21 +183,15 @@ const createDatabaseBoardPropertyEditorBinding = (
       for (const optionId of delta.addOptionIds) next.add(optionId);
       props.onSetStructuralValue(props.row.pageId, property.propertyId, [...next]);
     },
-    onPatchRelation: (delta) =>
-      props.onPatchRelation(props.row.pageId, property.propertyId, delta),
+    onPatchRelation: (delta) => props.onPatchRelation(props.row.pageId, property.propertyId, delta),
     onReplaceOneRelation: (targetPageId) =>
       props.onReplaceOneRelation(props.row.pageId, property, targetPageId),
     onLoadRelationTargets: (after) =>
       props.onLoadRelationTargets(props.row.pageId, property.propertyId, after),
     onSearchRelationCandidates: (query, after) =>
       props.onSearchRelationCandidates(property, query, after),
-    onLoadRelationTargetDescriptor: () =>
-      props.onLoadRelationTargetDescriptor(property),
-    onOpenRelationPage: (pageId, title) => props.onOpenPage(
-      pageId,
-      title,
-      "preview",
-    ),
+    onLoadRelationTargetDescriptor: () => props.onLoadRelationTargetDescriptor(property),
+    onOpenRelationPage: (pageId, title) => props.onOpenPage(pageId, title, "preview"),
     onRelationValueStale: props.onRelationValueStale,
   };
 };
@@ -243,15 +224,11 @@ export const createDatabaseBoardPageMenuSession = (
       property,
       disabled: props.model.readOnlyReason !== null,
       pending:
-        props.pendingMutationKeys.has(
-          `value:${props.row.pageId}:${property.propertyId}`,
-        )
-        || props.pendingMutationKeys.has(`property:${property.propertyId}`),
+        props.pendingMutationKeys.has(`value:${props.row.pageId}:${property.propertyId}`) ||
+        props.pendingMutationKeys.has(`property:${property.propertyId}`),
     })),
     resolveBinding(propertyId) {
-      const property = activeProperties.find(
-        (candidate) => candidate.propertyId === propertyId,
-      );
+      const property = activeProperties.find((candidate) => candidate.propertyId === propertyId);
       if (!property) throw new Error(`Unknown Board Property: ${propertyId}`);
       return createDatabaseBoardPropertyEditorBinding(props, authority, property);
     },
@@ -260,9 +237,8 @@ export const createDatabaseBoardPageMenuSession = (
     page: {
       libraryId: props.model.libraryId,
       accessContext: props.model.accessContext,
-      projectId: props.model.accessContext.kind === "project"
-        ? props.model.accessContext.projectId
-        : null,
+      projectId:
+        props.model.accessContext.kind === "project" ? props.model.accessContext.projectId : null,
       pageId: props.row.pageId,
       pageKey: props.row.pageKey,
       titleSnapshot: props.row.title,
@@ -280,34 +256,32 @@ export const createDatabaseBoardPageMenuSession = (
 /** The one Card composition used by every legal Board grouping. */
 export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
   const {
-  model,
-  row,
-  trailingFields,
-  groupPropertyId,
-  subgroupPropertyId,
-  showPageKey,
-  showDescription,
-  mutationErrors,
-  onOpenPage,
-  highlighted,
-  presented,
-  selected,
-  onHighlight,
-  onToggleSelection,
-  draggable,
-  pragmaticDragData,
-  dragging,
-  onDragStartPage,
-  onDragEndPage,
+    model,
+    row,
+    trailingFields,
+    groupPropertyId,
+    subgroupPropertyId,
+    showPageKey,
+    showDescription,
+    mutationErrors,
+    onOpenPage,
+    highlighted,
+    presented,
+    selected,
+    onHighlight,
+    onToggleSelection,
+    draggable,
+    pragmaticDragData,
+    dragging,
+    onDragStartPage,
+    onDragEndPage,
   } = props;
   const { setElementRef: cardRef, previewPortal } = useDatabaseViewPageDragSource(
     draggable ? pragmaticDragData : null,
     { nativePreview: "portal" },
   );
   const title = usePresentedPageTitle(row.pageId, row.title, model.libraryId);
-  const authority = model.query.rows.find(
-    (candidate) => candidate.page.pageId === row.pageId,
-  );
+  const authority = model.query.rows.find((candidate) => candidate.page.pageId === row.pageId);
   if (!authority) return null;
   const description = row.preview.trim();
   const footerSlots = projectDatabaseBoardCardFooter({
@@ -335,15 +309,17 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
   const handleCardClick = (event: ReactMouseEvent<HTMLElement>): void => {
     if (event.defaultPrevented) return;
     if (
-      typeof Node === "undefined"
-      || !(event.target instanceof Node)
-      || !event.currentTarget.contains(event.target)
-    ) return;
+      typeof Node === "undefined" ||
+      !(event.target instanceof Node) ||
+      !event.currentTarget.contains(event.target)
+    )
+      return;
     if (
-      typeof Element !== "undefined"
-      && event.target instanceof Element
-      && event.target.closest(DATABASE_BOARD_CARD_INTERACTIVE_SELECTOR)
-    ) return;
+      typeof Element !== "undefined" &&
+      event.target instanceof Element &&
+      event.target.closest(DATABASE_BOARD_CARD_INTERACTIVE_SELECTOR)
+    )
+      return;
     if (event.shiftKey) {
       event.preventDefault();
       onToggleSelection(row.pageId);
@@ -351,21 +327,21 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
     }
     onOpenPage(row.pageId, title, "preview");
   };
-  const handleCardDoubleClick = (
-    event: ReactMouseEvent<HTMLElement>,
-  ): void => {
+  const handleCardDoubleClick = (event: ReactMouseEvent<HTMLElement>): void => {
     if (event.defaultPrevented || event.shiftKey) return;
     if (
-      typeof Node === "undefined"
-      || !(event.target instanceof Node)
-      || !event.currentTarget.contains(event.target)
-    ) return;
+      typeof Node === "undefined" ||
+      !(event.target instanceof Node) ||
+      !event.currentTarget.contains(event.target)
+    )
+      return;
     if (
-      typeof Element !== "undefined"
-      && event.target instanceof Element
-      && event.target.closest(DATABASE_BOARD_CARD_INTERACTIVE_SELECTOR)
-      && !event.target.closest("[data-database-view-page-open]")
-    ) return;
+      typeof Element !== "undefined" &&
+      event.target instanceof Element &&
+      event.target.closest(DATABASE_BOARD_CARD_INTERACTIVE_SELECTOR) &&
+      !event.target.closest("[data-database-view-page-open]")
+    )
+      return;
     onOpenPage(row.pageId, title, "durable");
   };
   const renderCard = (previewRect: DOMRect | null) => (
@@ -395,25 +371,25 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
         !previewRect && selected && "bg-[color-mix(in_srgb,var(--accent-blue)_6%,var(--card))]",
         !previewRect && dragging && "opacity-45",
       )}
-      style={previewRect
-        ? {
-            boxShadow: previewShadow,
-            minHeight: previewRect.height,
-            pointerEvents: "none",
-            width: previewRect.width,
-          }
-        : { boxShadow: `${elevationShadow}, ${ringShadow}` }}
+      style={
+        previewRect
+          ? {
+              boxShadow: previewShadow,
+              minHeight: previewRect.height,
+              pointerEvents: "none",
+              width: previewRect.width,
+            }
+          : { boxShadow: `${elevationShadow}, ${ringShadow}` }
+      }
     >
       {!previewRect && presented ? <PagePresenceRail /> : null}
-      <BoardPageKey
-        pageKey={row.pageKey}
-        showPageKey={showPageKey}
-        className="mx-2 mb-0.5 pt-2"
-      />
-      <div className={cn(
-        "flex min-h-7 min-w-0 items-start gap-1 px-2 pb-1",
-        showPageKey && row.pageKey ? "pt-0" : "pt-2",
-      )}>
+      <BoardPageKey pageKey={row.pageKey} showPageKey={showPageKey} className="mx-2 mb-0.5 pt-2" />
+      <div
+        className={cn(
+          "flex min-h-7 min-w-0 items-start gap-1 px-2 pb-1",
+          showPageKey && row.pageKey ? "pt-0" : "pt-2",
+        )}
+      >
         <button
           type="button"
           data-database-view-page-open="true"
@@ -434,20 +410,25 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
         </p>
       ) : null}
       {footerSlots.length > 0 ? (
-        <div className={cn(
-          "mx-2 min-w-0 pb-2",
-          "[--database-property-chip-border:var(--color-token-border)]",
-          "[--database-property-chip-background:var(--card)]",
-          "[--database-property-chip-hover-background:color-mix(in_srgb,var(--color-token-foreground)_5%,var(--card))]",
-          "[--database-property-chip-hover-border:var(--color-token-border-heavy)]",
-          "[--database-property-chip-hover-text:var(--color-token-text-primary)]",
-          "[--database-property-chip-surface:var(--card)]",
-          "[--database-property-icon-muted:var(--color-token-description-foreground)]",
-          "[--database-property-chip-text:var(--color-token-text-secondary)]",
-          "[--database-property-chip-focus:var(--color-token-focus-border)]",
-        )}>
+        <div
+          className={cn(
+            "mx-2 min-w-0 pb-2",
+            "[--database-property-chip-border:var(--color-token-border)]",
+            "[--database-property-chip-background:var(--card)]",
+            "[--database-property-chip-hover-background:color-mix(in_srgb,var(--color-token-foreground)_5%,var(--card))]",
+            "[--database-property-chip-hover-border:var(--color-token-border-heavy)]",
+            "[--database-property-chip-hover-text:var(--color-token-text-primary)]",
+            "[--database-property-chip-surface:var(--card)]",
+            "[--database-property-icon-muted:var(--color-token-description-foreground)]",
+            "[--database-property-chip-text:var(--color-token-text-secondary)]",
+            "[--database-property-chip-focus:var(--color-token-focus-border)]",
+          )}
+        >
           {propertySlots.length > 0 ? (
-            <div data-database-board-property-row="true" className="flex min-w-0 flex-wrap items-center gap-1">
+            <div
+              data-database-board-property-row="true"
+              className="flex min-w-0 flex-wrap items-center gap-1"
+            >
               {propertySlots.map((slot) => {
                 const binding = propertyBinding(slot.property);
                 return (
@@ -468,10 +449,13 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
             </div>
           ) : null}
           {metadataSlots.length > 0 ? (
-            <div className={cn(
-              "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1",
-              propertySlots.length > 0 && "mt-1",
-            )} data-database-board-metadata-row="true">
+            <div
+              className={cn(
+                "flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1",
+                propertySlots.length > 0 && "mt-1",
+              )}
+              data-database-board-metadata-row="true"
+            >
               {metadataSlots.map((slot) => (
                 <span
                   key={`intrinsic:${slot.field}`}

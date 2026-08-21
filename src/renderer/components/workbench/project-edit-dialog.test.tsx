@@ -14,7 +14,7 @@ import {
 } from "./project-edit-dialog";
 
 vi.mock("@/lib/api", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@/lib/api")>(),
+  ...(await importOriginal<typeof import("@/lib/api")>()),
   invoke: async () => [],
 }));
 
@@ -42,14 +42,11 @@ const PROJECT: Project = {
 let queryClient: QueryClient;
 
 const previewPrefix: DatabasePageKeyAuthority["previewPrefix"] = async (input) => {
-  const prefix = input.requestedPrefix
-    ?? (input.nameHint.trim().toUpperCase().slice(0, 3) || "NX");
+  const prefix = input.requestedPrefix ?? (input.nameHint.trim().toUpperCase().slice(0, 3) || "NX");
   const nextNumber = input.projectId ? 8 : 1;
   return {
     prefix,
-    availability: input.projectId && input.requestedPrefix === "BET"
-      ? "current"
-      : "available",
+    availability: input.projectId && input.requestedPrefix === "BET" ? "current" : "available",
     alternativePrefix: null,
     nextNumber,
     exampleKeys: [`${prefix}-${nextNumber}`, `${prefix}-${nextNumber + 1}`],
@@ -83,16 +80,18 @@ function renderEditDialog(
   onSubmit: (input: ProjectDialogSubmitInput) => Promise<void>,
   pageKeyAuthority = defaultPageKeyAuthority(),
 ) {
-  return render(withQueryClient(
-    <NodexTooltipProvider>
-      <ProjectEditDialog
-        project={PROJECT}
-        onClose={() => undefined}
-        onSubmit={onSubmit}
-        pageKeyAuthority={pageKeyAuthority}
-      />
-    </NodexTooltipProvider>,
-  ));
+  return render(
+    withQueryClient(
+      <NodexTooltipProvider>
+        <ProjectEditDialog
+          project={PROJECT}
+          onClose={() => undefined}
+          onSubmit={onSubmit}
+          pageKeyAuthority={pageKeyAuthority}
+        />
+      </NodexTooltipProvider>,
+    ),
+  );
 }
 
 describe("ProjectEditDialog", () => {
@@ -136,9 +135,11 @@ describe("ProjectEditDialog", () => {
       fireEvent.click(view.getByRole("button", { name: "Change marker for Beta" }));
       await Promise.resolve();
     });
-    const editorDialog = view.getByRole("heading", {
-      name: "Edit project",
-    }).closest('[role="dialog"]');
+    const editorDialog = view
+      .getByRole("heading", {
+        name: "Edit project",
+      })
+      .closest('[role="dialog"]');
     const pickerDialog = view.getByRole("dialog", {
       name: "Project marker for Beta",
     });
@@ -158,35 +159,41 @@ describe("ProjectEditDialog", () => {
     });
 
     await waitFor(() => {
-      expect(submitted).toEqual([{
-        appearance: {
-          color: "red",
-          marker: { kind: "icon", icon: "terminal" },
+      expect(submitted).toEqual([
+        {
+          appearance: {
+            color: "red",
+            marker: { kind: "icon", icon: "terminal" },
+          },
+          name: "Beta",
+          sources: ["/repo/beta", "/repo/beta-docs"],
         },
-        name: "Beta",
-        sources: ["/repo/beta", "/repo/beta-docs"],
-      }]);
+      ]);
     });
   });
 
   test("Cancel discards a staged marker without submitting", async () => {
     const onClose = vi.fn();
     const onSubmit = vi.fn(async () => undefined);
-    const view = render(withQueryClient(
-      <NodexTooltipProvider>
-        <ProjectEditDialog
-          project={PROJECT}
-          onClose={onClose}
-          onSubmit={onSubmit}
-          pageKeyAuthority={defaultPageKeyAuthority()}
-        />
-      </NodexTooltipProvider>,
-    ));
+    const view = render(
+      withQueryClient(
+        <NodexTooltipProvider>
+          <ProjectEditDialog
+            project={PROJECT}
+            onClose={onClose}
+            onSubmit={onSubmit}
+            pageKeyAuthority={defaultPageKeyAuthority()}
+          />
+        </NodexTooltipProvider>,
+      ),
+    );
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", {
-        name: "Change marker for Beta",
-      }));
+      fireEvent.click(
+        view.getByRole("button", {
+          name: "Change marker for Beta",
+        }),
+      );
       await Promise.resolve();
     });
     await act(async () => {
@@ -208,9 +215,11 @@ describe("ProjectEditDialog", () => {
     });
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", {
-        name: "Change marker for Beta",
-      }));
+      fireEvent.click(
+        view.getByRole("button", {
+          name: "Change marker for Beta",
+        }),
+      );
       await Promise.resolve();
     });
     await act(async () => {
@@ -228,20 +237,28 @@ describe("ProjectEditDialog", () => {
 
     await waitFor(() => {
       expect(view.getByRole("heading", { name: "Edit project" })).toBeTruthy();
-      expect(view.getByRole("button", {
-        name: "Change marker for Beta",
-      })).toBeTruthy();
+      expect(
+        view.getByRole("button", {
+          name: "Change marker for Beta",
+        }),
+      ).toBeTruthy();
     });
 
     await act(async () => {
-      fireEvent.click(view.getByRole("button", {
-        name: "Change marker for Beta",
-      }));
+      fireEvent.click(
+        view.getByRole("button", {
+          name: "Change marker for Beta",
+        }),
+      );
       await Promise.resolve();
     });
-    expect(view.getByRole("button", {
-      name: "Use Red",
-    }).getAttribute("aria-pressed")).toBe("true");
+    expect(
+      view
+        .getByRole("button", {
+          name: "Use Red",
+        })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
   });
 
   test("removing a folder drops it from the saved sources", async () => {
@@ -295,8 +312,7 @@ describe("ProjectEditDialog", () => {
       expect(view.getByText(/7 Pages will use prefix RND/i)).toBeTruthy();
       expect(view.getByText(/keep working and remain reserved/i)).toBeTruthy();
       expect(view.getByText("RND-8 is available")).toBeTruthy();
-      expect(view.getByRole("button", { name: "Save" }).hasAttribute("disabled"))
-        .toBe(false);
+      expect(view.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false);
     });
     await act(async () => {
       fireEvent.click(view.getByRole("button", { name: "Save" }));
@@ -364,16 +380,18 @@ describe("ProjectEditDialog", () => {
 
   test("creates a Project without exposing or submitting Page-key settings", async () => {
     const submitted: ProjectDialogSubmitInput[] = [];
-    const view = render(withQueryClient(
-      <NodexTooltipProvider>
-        <ProjectCreateDialog
-          onClose={() => undefined}
-          onCreate={async (input) => {
-            submitted.push(input);
-          }}
-        />
-      </NodexTooltipProvider>,
-    ));
+    const view = render(
+      withQueryClient(
+        <NodexTooltipProvider>
+          <ProjectCreateDialog
+            onClose={() => undefined}
+            onCreate={async (input) => {
+              submitted.push(input);
+            }}
+          />
+        </NodexTooltipProvider>,
+      ),
+    );
 
     await act(async () => {
       fireEvent.change(view.getByRole("textbox", { name: "Project name" }), {
@@ -390,11 +408,13 @@ describe("ProjectEditDialog", () => {
     });
 
     await waitFor(() => {
-      expect(submitted).toEqual([{
-        appearance: DEFAULT_PROJECT_APPEARANCE,
-        name: "Lab",
-        sources: [],
-      }]);
+      expect(submitted).toEqual([
+        {
+          appearance: DEFAULT_PROJECT_APPEARANCE,
+          name: "Lab",
+          sources: [],
+        },
+      ]);
     });
   });
 
@@ -424,9 +444,9 @@ describe("ProjectEditDialog", () => {
 
     await waitFor(() => {
       expect(view.queryByRole("heading", { name: "Remove Beta?" })).toBe(null);
-      expect(
-        (view.getByRole("textbox", { name: "Project name" }) as HTMLInputElement).value,
-      ).toBe("Gamma");
+      expect((view.getByRole("textbox", { name: "Project name" }) as HTMLInputElement).value).toBe(
+        "Gamma",
+      );
     });
   });
 });

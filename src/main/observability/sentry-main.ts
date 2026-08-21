@@ -48,9 +48,11 @@ async function loadDefaultAdapter(): Promise<MainSentryAdapter> {
 }
 
 function isTestRuntime(): boolean {
-  return process.env.NODE_ENV === "test"
-    || process.env.BUN_ENV === "test"
-    || process.argv.some((value) => value.toLowerCase().includes("test"));
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.env.BUN_ENV === "test" ||
+    process.argv.some((value) => value.toLowerCase().includes("test"))
+  );
 }
 
 function shouldInitialize(settings: DiagnosticsSettings): boolean {
@@ -86,7 +88,7 @@ export async function initializeMainSentry(input: InitializeMainSentryInput): Pr
   if (activeAdapter) return true;
   if (!shouldInitialize(input.settings)) return false;
 
-  const adapter = input.adapter ?? await loadDefaultAdapter();
+  const adapter = input.adapter ?? (await loadDefaultAdapter());
   adapter.init({
     dsn: input.settings.dsn,
     environment: input.settings.environment,

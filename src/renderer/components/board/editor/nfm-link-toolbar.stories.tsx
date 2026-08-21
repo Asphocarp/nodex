@@ -91,7 +91,8 @@ const meta = {
     layout: "fullscreen",
     docs: {
       description: {
-        component: "Compact NFM link toolbar with ChatGPT-style actions and a same-size URL-only edit toolbar.",
+        component:
+          "Compact NFM link toolbar with ChatGPT-style actions and a same-size URL-only edit toolbar.",
       },
     },
   },
@@ -138,7 +139,8 @@ export const CreateLinkDialogOpen: Story = {
       <div className="min-h-screen bg-(--background) p-8">
         <div className="mx-auto flex max-w-3xl flex-col gap-4 rounded-[24px] border border-(--border) bg-(--background) p-6 shadow-[0_18px_48px_rgba(0,0,0,0.14)]">
           <p className="max-w-xl text-sm text-(--foreground-secondary)">
-            Compact formatting-toolbar create-link popover using the same Nodex tokenized surface language as the hover-link editor.
+            Compact formatting-toolbar create-link popover using the same Nodex tokenized surface
+            language as the hover-link editor.
           </p>
           <div className="rounded-[18px] border border-(--border) bg-(--background-secondary) p-6">
             <NfmCreateLinkDialogSurface

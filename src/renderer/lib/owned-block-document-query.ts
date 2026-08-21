@@ -19,66 +19,50 @@ import {
 } from "./resource-authority-query-cache";
 
 const resolveOwnedDocumentAuthority = (_queryKey: readonly unknown[], data: unknown) => {
-  const authorization = (data as {
-    readonly authorization?: AuthorizedReadStamp | null;
-  } | null)?.authorization;
+  const authorization = (
+    data as {
+      readonly authorization?: AuthorizedReadStamp | null;
+    } | null
+  )?.authorization;
   return authorization ? { authorizations: [authorization] } : null;
 };
 
-const ownedDocumentAuthorityMeta = resourceAuthorityQueryMeta(
-  resolveOwnedDocumentAuthority,
-);
+const ownedDocumentAuthorityMeta = resourceAuthorityQueryMeta(resolveOwnedDocumentAuthority);
 
 export interface OwnedBlockDocumentQueryDependencies {
   readonly fetchDescriptor?: OwnedDocumentDescriptorFetcher;
 }
 
-const defaultFetcher: OwnedDocumentDescriptorFetcher = (
-  accessContext,
-  ownerBlockId,
-  signal,
-) =>
-  prepareOwnedBlockDocumentForContentAccess(accessContext, ownerBlockId).then(
-    (result) => {
-      if (signal?.aborted) throw signal.reason;
-      return unwrapOwnedBlockDocumentPreparationResult(result);
-    },
-  );
+const defaultFetcher: OwnedDocumentDescriptorFetcher = (accessContext, ownerBlockId, signal) =>
+  prepareOwnedBlockDocumentForContentAccess(accessContext, ownerBlockId).then((result) => {
+    if (signal?.aborted) throw signal.reason;
+    return unwrapOwnedBlockDocumentPreparationResult(result);
+  });
 
 const retryOwnedDocumentRead = (failureCount: number, error: unknown): boolean =>
-  failureCount < 2
-  && error instanceof Error
-  && "retryable" in error
-  && error.retryable === true;
+  failureCount < 2 && error instanceof Error && "retryable" in error && error.retryable === true;
 
-const ownedDocumentRetryDelay = (attemptIndex: number): number =>
-  attemptIndex === 0 ? 250 : 750;
+const ownedDocumentRetryDelay = (attemptIndex: number): number => (attemptIndex === 0 ? 250 : 750);
 
 const makeOwnedBlockDocumentQueryFn =
-  (
-    request: OwnedBlockDocumentRequest,
-    fetcher: OwnedDocumentDescriptorFetcher,
-  ) =>
-  async ({ signal }: { readonly signal: AbortSignal }) => admitResourceAuthorityQuery(
-    await fetchOwnedBlockDocumentDescriptor(
-      request,
-      (accessContext, ownerBlockId) => fetcher(accessContext, ownerBlockId, signal),
-    ),
-    resolveOwnedDocumentAuthority,
-  );
+  (request: OwnedBlockDocumentRequest, fetcher: OwnedDocumentDescriptorFetcher) =>
+  async ({ signal }: { readonly signal: AbortSignal }) =>
+    admitResourceAuthorityQuery(
+      await fetchOwnedBlockDocumentDescriptor(request, (accessContext, ownerBlockId) =>
+        fetcher(accessContext, ownerBlockId, signal),
+      ),
+      resolveOwnedDocumentAuthority,
+    );
 
 const makeRegisteredOwnedBlockDocumentQueryFn =
-  (
-    request: OwnedBlockDocumentRequest,
-    fetcher: OwnedDocumentDescriptorFetcher,
-  ) =>
-  async ({ signal }: { readonly signal: AbortSignal }) => admitResourceAuthorityQuery(
-    await fetchRegisteredOwnedBlockDocumentDescriptor(
-      request,
-      (accessContext, ownerBlockId) => fetcher(accessContext, ownerBlockId, signal),
-    ),
-    resolveOwnedDocumentAuthority,
-  );
+  (request: OwnedBlockDocumentRequest, fetcher: OwnedDocumentDescriptorFetcher) =>
+  async ({ signal }: { readonly signal: AbortSignal }) =>
+    admitResourceAuthorityQuery(
+      await fetchRegisteredOwnedBlockDocumentDescriptor(request, (accessContext, ownerBlockId) =>
+        fetcher(accessContext, ownerBlockId, signal),
+      ),
+      resolveOwnedDocumentAuthority,
+    );
 
 export const ownedBlockDocumentQueryOptions = (
   request: OwnedBlockDocumentRequest,
@@ -86,10 +70,7 @@ export const ownedBlockDocumentQueryOptions = (
 ) => {
   const fetcher = dependencies.fetchDescriptor ?? defaultFetcher;
   return queryOptions({
-    queryKey: queryKeys.blockDocuments.owned(
-      request.accessContext,
-      request.ownerBlockId,
-    ),
+    queryKey: queryKeys.blockDocuments.owned(request.accessContext, request.ownerBlockId),
     queryFn: makeOwnedBlockDocumentQueryFn(request, fetcher),
     retry: retryOwnedDocumentRead,
     retryDelay: ownedDocumentRetryDelay,
@@ -103,10 +84,7 @@ export const registeredOwnedBlockDocumentQueryOptions = (
 ) => {
   const fetcher = dependencies.fetchDescriptor ?? defaultFetcher;
   return queryOptions({
-    queryKey: queryKeys.blockDocuments.owned(
-      request.accessContext,
-      request.ownerBlockId,
-    ),
+    queryKey: queryKeys.blockDocuments.owned(request.accessContext, request.ownerBlockId),
     queryFn: makeRegisteredOwnedBlockDocumentQueryFn(request, fetcher),
     retry: retryOwnedDocumentRead,
     retryDelay: ownedDocumentRetryDelay,
@@ -146,9 +124,7 @@ export const useRegisteredOwnedBlockDocument = (
   request: OwnedBlockDocumentRequest,
   dependencies: OwnedBlockDocumentQueryDependencies = {},
 ): RegisteredOwnedBlockDocumentModel => {
-  const query = useQuery(
-    registeredOwnedBlockDocumentQueryOptions(request, dependencies),
-  );
+  const query = useQuery(registeredOwnedBlockDocumentQueryOptions(request, dependencies));
   if (query.status === "pending") {
     if (query.failureReason) {
       return makeRegisteredOwnedBlockDocumentModel(request, {

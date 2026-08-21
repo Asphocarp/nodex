@@ -84,7 +84,9 @@ function requireGitHubRepository(value: unknown, label: string): string {
 
 function isSafeRelativePath(value: string): boolean {
   if (value.startsWith("/") || value.includes("\\")) return false;
-  return value.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+  return value
+    .split("/")
+    .every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 
 function requireRelativePath(value: unknown, label: string): string {
@@ -113,7 +115,9 @@ function parseAsset(
   }
   const expectedUrl = `https://github.com/${release.repository}/releases/download/${release.tag}/${assetName}`;
   if (url !== expectedUrl) {
-    throw new Error(`Open Interpreter release lock ${label}.url does not match its artifact release`);
+    throw new Error(
+      `Open Interpreter release lock ${label}.url does not match its artifact release`,
+    );
   }
   return {
     archiveSha256: requireSha256(value.archiveSha256, `${label}.archiveSha256`),
@@ -144,9 +148,9 @@ export function parseOpenInterpreterReleaseLock(value: unknown): OpenInterpreter
   if (!Array.isArray(value.requiredArtifacts) || value.requiredArtifacts.length === 0) {
     throw new Error("Invalid Open Interpreter release lock requiredArtifacts");
   }
-  const requiredArtifacts = value.requiredArtifacts.map((entry, index) => (
-    requireRelativePath(entry, `requiredArtifacts[${index}]`)
-  ));
+  const requiredArtifacts = value.requiredArtifacts.map((entry, index) =>
+    requireRelativePath(entry, `requiredArtifacts[${index}]`),
+  );
   if (new Set(requiredArtifacts).size !== requiredArtifacts.length) {
     throw new Error("Open Interpreter release lock contains duplicate requiredArtifacts");
   }
@@ -176,7 +180,9 @@ export function parseOpenInterpreterReleaseLock(value: unknown): OpenInterpreter
       `source.patches[${index}].artifactPath`,
     );
     if (!artifactPath.startsWith("third-party/open-interpreter/patches/")) {
-      throw new Error(`Invalid Open Interpreter release lock source.patches[${index}].artifactPath`);
+      throw new Error(
+        `Invalid Open Interpreter release lock source.patches[${index}].artifactPath`,
+      );
     }
     return {
       artifactPath,
@@ -185,8 +191,8 @@ export function parseOpenInterpreterReleaseLock(value: unknown): OpenInterpreter
     };
   });
   if (
-    new Set(patches.map((entry) => entry.artifactPath)).size !== patches.length
-    || new Set(patches.map((entry) => entry.sourcePath)).size !== patches.length
+    new Set(patches.map((entry) => entry.artifactPath)).size !== patches.length ||
+    new Set(patches.map((entry) => entry.sourcePath)).size !== patches.length
   ) {
     throw new Error("Open Interpreter release lock contains duplicate source patches");
   }
@@ -196,9 +202,17 @@ export function parseOpenInterpreterReleaseLock(value: unknown): OpenInterpreter
   if (runtimeVersion !== packageVersion) {
     throw new Error("Open Interpreter release lock runtime and package versions differ");
   }
-  const entrypoint = requireRelativePath(value.packageManifest.entrypoint, "packageManifest.entrypoint");
-  if (!requiredArtifacts.includes(entrypoint) || !requiredArtifacts.includes("codex-package.json")) {
-    throw new Error("Open Interpreter release lock requiredArtifacts omit the package manifest or entrypoint");
+  const entrypoint = requireRelativePath(
+    value.packageManifest.entrypoint,
+    "packageManifest.entrypoint",
+  );
+  if (
+    !requiredArtifacts.includes(entrypoint) ||
+    !requiredArtifacts.includes("codex-package.json")
+  ) {
+    throw new Error(
+      "Open Interpreter release lock requiredArtifacts omit the package manifest or entrypoint",
+    );
   }
 
   return {
@@ -206,7 +220,10 @@ export function parseOpenInterpreterReleaseLock(value: unknown): OpenInterpreter
       "darwin-arm64": parseAsset(value.assets["darwin-arm64"], "assets.darwin-arm64", release),
       "darwin-x64": parseAsset(value.assets["darwin-x64"], "assets.darwin-x64", release),
     },
-    codexCompatibilityVersion: requireString(value.codexCompatibilityVersion, "codexCompatibilityVersion"),
+    codexCompatibilityVersion: requireString(
+      value.codexCompatibilityVersion,
+      "codexCompatibilityVersion",
+    ),
     notices: {
       licensePath: requireRelativePath(value.notices.licensePath, "notices.licensePath"),
       licenseSha256: requireSha256(value.notices.licenseSha256, "notices.licenseSha256"),
@@ -217,7 +234,10 @@ export function parseOpenInterpreterReleaseLock(value: unknown): OpenInterpreter
       entrypoint,
       layoutVersion: value.packageManifest.layoutVersion as number,
       pathDir: requireRelativePath(value.packageManifest.pathDir, "packageManifest.pathDir"),
-      resourcesDir: requireRelativePath(value.packageManifest.resourcesDir, "packageManifest.resourcesDir"),
+      resourcesDir: requireRelativePath(
+        value.packageManifest.resourcesDir,
+        "packageManifest.resourcesDir",
+      ),
       variant: value.packageManifest.variant,
       version: packageVersion,
     },

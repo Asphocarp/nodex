@@ -52,14 +52,16 @@ describe("useImageEditSubmission", () => {
       status: "failed",
       reason: "transport",
     });
-    const hook = renderHook(() => useImageEditSubmission({
-      composerTarget: {
-        channelId: "thread-scope:session-1::root",
-        placement: "root",
-      },
-      projectId: null,
-      threadId: null,
-    }));
+    const hook = renderHook(() =>
+      useImageEditSubmission({
+        composerTarget: {
+          channelId: "thread-scope:session-1::root",
+          placement: "root",
+        },
+        projectId: null,
+        threadId: null,
+      }),
+    );
     let submitted = true;
 
     await act(async () => {

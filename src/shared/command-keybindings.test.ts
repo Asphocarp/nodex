@@ -21,7 +21,10 @@ import {
   type KeyboardShortcutEventLike,
 } from "./command-keybindings";
 
-function keyboardEvent(key: string, overrides: Partial<KeyboardShortcutEventLike> = {}): KeyboardShortcutEventLike {
+function keyboardEvent(
+  key: string,
+  overrides: Partial<KeyboardShortcutEventLike> = {},
+): KeyboardShortcutEventLike {
   return {
     key,
     code: overrides.code ?? "",
@@ -43,28 +46,55 @@ describe("command keybindings", () => {
 
   test("projects command shortcuts for visible and assistive labels", () => {
     const defaultState = createCommandKeymapState({}, "macOS");
-    const customState = createCommandKeymapState({
-      openModelPicker: ["CmdOrCtrl+Alt+M"],
-    }, "macOS");
-    const unassignedState = createCommandKeymapState({
-      openModelPicker: [],
-    }, "macOS");
+    const customState = createCommandKeymapState(
+      {
+        openModelPicker: ["CmdOrCtrl+Alt+M"],
+      },
+      "macOS",
+    );
+    const unassignedState = createCommandKeymapState(
+      {
+        openModelPicker: [],
+      },
+      "macOS",
+    );
 
-    expect(resolveCommandShortcutPresentation(defaultState, "openModelPicker"))
-      .toEqual({ label: "⌃⇧M", ariaKeyShortcuts: "Control+Shift+M" });
-    expect(resolveCommandShortcutPresentation(customState, "openModelPicker"))
-      .toEqual({ label: "⌘⌥M", ariaKeyShortcuts: "Meta+Alt+M" });
-    expect(resolveCommandShortcutPresentation(unassignedState, "openModelPicker"))
-      .toBeNull();
+    expect(resolveCommandShortcutPresentation(defaultState, "openModelPicker")).toEqual({
+      label: "⌃⇧M",
+      ariaKeyShortcuts: "Control+Shift+M",
+    });
+    expect(resolveCommandShortcutPresentation(customState, "openModelPicker")).toEqual({
+      label: "⌘⌥M",
+      ariaKeyShortcuts: "Meta+Alt+M",
+    });
+    expect(resolveCommandShortcutPresentation(unassignedState, "openModelPicker")).toBeNull();
   });
 
   test("matches CmdOrCtrl keyboard events by platform", () => {
     const macState = createCommandKeymapState({}, "macOS");
     const windowsState = createCommandKeymapState({}, "windows");
 
-    expect(matchesKeyboardEventToCommand(keyboardEvent("b", { metaKey: true }), macState, "toggleSidebar")).toBe(true);
-    expect(matchesKeyboardEventToCommand(keyboardEvent("b", { ctrlKey: true }), windowsState, "toggleSidebar")).toBe(true);
-    expect(matchesKeyboardEventToCommand(keyboardEvent("b", { ctrlKey: true }), macState, "toggleSidebar")).toBe(false);
+    expect(
+      matchesKeyboardEventToCommand(
+        keyboardEvent("b", { metaKey: true }),
+        macState,
+        "toggleSidebar",
+      ),
+    ).toBe(true);
+    expect(
+      matchesKeyboardEventToCommand(
+        keyboardEvent("b", { ctrlKey: true }),
+        windowsState,
+        "toggleSidebar",
+      ),
+    ).toBe(true);
+    expect(
+      matchesKeyboardEventToCommand(
+        keyboardEvent("b", { ctrlKey: true }),
+        macState,
+        "toggleSidebar",
+      ),
+    ).toBe(false);
   });
 
   test("does not restore fallback labels for explicitly unassigned commands", () => {
@@ -72,29 +102,45 @@ describe("command keybindings", () => {
     const runtimeFallback = resolveRuntimePlatform() === "macOS" ? "⌘J" : "Ctrl+J";
 
     expect(formatCommandShortcutLabel(state, "toggleBottomPanel", "CmdOrCtrl+J")).toBeUndefined();
-    expect(formatCommandShortcutLabel(undefined, "toggleBottomPanel", "CmdOrCtrl+J")).toBe(runtimeFallback);
+    expect(formatCommandShortcutLabel(undefined, "toggleBottomPanel", "CmdOrCtrl+J")).toBe(
+      runtimeFallback,
+    );
   });
 
   test("keeps close-tab and close-window defaults distinct", () => {
     const macState = createCommandKeymapState({}, "macOS");
 
-    expect(getPrimaryCommandAccelerator(macState, PREVIOUS_PANEL_TAB_COMMAND_ID))
-      .toBe("CmdOrCtrl+Shift+[");
-    expect(getPrimaryCommandAccelerator(macState, NEXT_PANEL_TAB_COMMAND_ID))
-      .toBe("CmdOrCtrl+Shift+]");
-    expect(toElectronAccelerator(
-      getPrimaryCommandAccelerator(macState, NEXT_PANEL_TAB_COMMAND_ID),
-    )).toBe("CommandOrControl+Shift+]");
+    expect(getPrimaryCommandAccelerator(macState, PREVIOUS_PANEL_TAB_COMMAND_ID)).toBe(
+      "CmdOrCtrl+Shift+[",
+    );
+    expect(getPrimaryCommandAccelerator(macState, NEXT_PANEL_TAB_COMMAND_ID)).toBe(
+      "CmdOrCtrl+Shift+]",
+    );
+    expect(
+      toElectronAccelerator(getPrimaryCommandAccelerator(macState, NEXT_PANEL_TAB_COMMAND_ID)),
+    ).toBe("CommandOrControl+Shift+]");
     expect(getPrimaryCommandAccelerator(macState, "closeTab")).toBe("CmdOrCtrl+W");
     expect(getPrimaryCommandAccelerator(macState, "closeWindow")).toBe("CmdOrCtrl+Shift+W");
-    expect(toElectronAccelerator(getPrimaryCommandAccelerator(macState, "closeWindow"))).toBe("CommandOrControl+Shift+W");
+    expect(toElectronAccelerator(getPrimaryCommandAccelerator(macState, "closeWindow"))).toBe(
+      "CommandOrControl+Shift+W",
+    );
     expect(formatAcceleratorLabel("CmdOrCtrl+Shift+W", "macOS")).toBe("⌘⇧W");
-    expect(matchesKeyboardEventToCommand(keyboardEvent("w", { metaKey: true }), macState, "closeWindow")).toBe(false);
-    expect(matchesKeyboardEventToCommand(keyboardEvent("w", { metaKey: true, shiftKey: true }), macState, "closeWindow")).toBe(true);
+    expect(
+      matchesKeyboardEventToCommand(keyboardEvent("w", { metaKey: true }), macState, "closeWindow"),
+    ).toBe(false);
+    expect(
+      matchesKeyboardEventToCommand(
+        keyboardEvent("w", { metaKey: true, shiftKey: true }),
+        macState,
+        "closeWindow",
+      ),
+    ).toBe(true);
   });
 
   test("captures keyboard events and mouse navigation bindings", () => {
-    expect(keyboardEventToAccelerator(keyboardEvent("A", { metaKey: true, shiftKey: true }), "macOS")).toBe("CmdOrCtrl+Shift+A");
+    expect(
+      keyboardEventToAccelerator(keyboardEvent("A", { metaKey: true, shiftKey: true }), "macOS"),
+    ).toBe("CmdOrCtrl+Shift+A");
 
     const state = createCommandKeymapState({}, "macOS");
     expect(matchesMouseEventToCommand({ button: 3 }, state, "navigateBack")).toBe(true);
@@ -102,25 +148,51 @@ describe("command keybindings", () => {
   });
 
   test("applies set append remove and reset update shapes", () => {
-    const setOverrides = applyCommandKeybindingUpdate({}, "openThreadInNewWindow", {
-      type: "set",
-      keybinding: { key: "CmdOrCtrl+Alt+W" },
-    }, "macOS");
-    expect(JSON.stringify(setOverrides)).toBe(JSON.stringify({ openThreadInNewWindow: ["CmdOrCtrl+Alt+W"] }));
+    const setOverrides = applyCommandKeybindingUpdate(
+      {},
+      "openThreadInNewWindow",
+      {
+        type: "set",
+        keybinding: { key: "CmdOrCtrl+Alt+W" },
+      },
+      "macOS",
+    );
+    expect(JSON.stringify(setOverrides)).toBe(
+      JSON.stringify({ openThreadInNewWindow: ["CmdOrCtrl+Alt+W"] }),
+    );
 
-    const appendOverrides = applyCommandKeybindingUpdate({}, "newThread", {
-      type: "append",
-      keybinding: { key: "CmdOrCtrl+Alt+Shift+N" },
-    }, "macOS");
-    expect(JSON.stringify(appendOverrides.newThread)).toBe(JSON.stringify(["CmdOrCtrl+N", "CmdOrCtrl+Shift+O", "CmdOrCtrl+Alt+Shift+N"]));
+    const appendOverrides = applyCommandKeybindingUpdate(
+      {},
+      "newThread",
+      {
+        type: "append",
+        keybinding: { key: "CmdOrCtrl+Alt+Shift+N" },
+      },
+      "macOS",
+    );
+    expect(JSON.stringify(appendOverrides.newThread)).toBe(
+      JSON.stringify(["CmdOrCtrl+N", "CmdOrCtrl+Shift+O", "CmdOrCtrl+Alt+Shift+N"]),
+    );
 
-    const removeOverrides = applyCommandKeybindingUpdate(appendOverrides, "newThread", {
-      type: "remove",
-      keybinding: { key: "CmdOrCtrl+N" },
-    }, "macOS");
-    expect(JSON.stringify(removeOverrides.newThread)).toBe(JSON.stringify(["CmdOrCtrl+Shift+O", "CmdOrCtrl+Alt+Shift+N"]));
+    const removeOverrides = applyCommandKeybindingUpdate(
+      appendOverrides,
+      "newThread",
+      {
+        type: "remove",
+        keybinding: { key: "CmdOrCtrl+N" },
+      },
+      "macOS",
+    );
+    expect(JSON.stringify(removeOverrides.newThread)).toBe(
+      JSON.stringify(["CmdOrCtrl+Shift+O", "CmdOrCtrl+Alt+Shift+N"]),
+    );
 
-    const resetOverrides = applyCommandKeybindingUpdate(removeOverrides, "newThread", { type: "reset" }, "macOS");
+    const resetOverrides = applyCommandKeybindingUpdate(
+      removeOverrides,
+      "newThread",
+      { type: "reset" },
+      "macOS",
+    );
     expect(Object.prototype.hasOwnProperty.call(resetOverrides, "newThread")).toBe(false);
   });
 
@@ -131,10 +203,15 @@ describe("command keybindings", () => {
 
     let threw = false;
     try {
-      applyCommandKeybindingUpdate({}, "renameThread", {
-        type: "set",
-        keybinding: { key: "CmdOrCtrl+B" },
-      }, "macOS");
+      applyCommandKeybindingUpdate(
+        {},
+        "renameThread",
+        {
+          type: "set",
+          keybinding: { key: "CmdOrCtrl+B" },
+        },
+        "macOS",
+      );
     } catch {
       threw = true;
     }
@@ -157,10 +234,7 @@ describe("command keybindings", () => {
     const state = createCommandKeymapState({}, "macOS");
     const entry = state.entries.find((candidate) => candidate.id === "createPage");
 
-    expect(entry?.keybindings).toEqual([
-      { key: "C" },
-      { key: "CmdOrCtrl+Shift+C" },
-    ]);
+    expect(entry?.keybindings).toEqual([{ key: "C" }, { key: "CmdOrCtrl+Shift+C" }]);
     expect(entry?.allowsMultiple).toBe(true);
     expect(getPrimaryCommandAccelerator(state, "createPage")).toBe("C");
     expect(formatCommandShortcutLabel(state, "createPage")).toBe("C");
@@ -177,12 +251,9 @@ describe("command keybindings", () => {
     expect(first.kind).toBe("pending");
     if (first.kind !== "pending") return;
 
-    const second = matchKeyboardShortcutSequence(
-      keyboardEvent("p"),
-      state,
-      first.state,
-      { now: 200 },
-    );
+    const second = matchKeyboardShortcutSequence(keyboardEvent("p"), state, first.state, {
+      now: 200,
+    });
     expect(second.kind).toBe("matched");
     expect(second.kind === "matched" ? second.commandId : null).toBe("goToPages");
   });

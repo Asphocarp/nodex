@@ -142,7 +142,11 @@ export function NfmCompactLinkToolbar({
             event.stopPropagation();
             onCopyLink();
           }}
-          className={cn(NFM_LINK_TOOLBAR_BUTTON_CLASS, "text-token-text-primary", isCopied && "bg-token-foreground/10")}
+          className={cn(
+            NFM_LINK_TOOLBAR_BUTTON_CLASS,
+            "text-token-text-primary",
+            isCopied && "bg-token-foreground/10",
+          )}
         >
           {isCopied ? (
             <NfmLinkToolbarApplyIcon className="size-4 text-token-text-primary" />
@@ -195,75 +199,68 @@ export interface NfmCreateLinkDialogSurfaceProps {
   onSecondaryAction?: () => void;
 }
 
-export const NfmLinkEditToolbarSurface = forwardRef<
-  HTMLDivElement,
-  NfmLinkEditToolbarSurfaceProps
->(function NfmLinkEditToolbarSurface(
-  {
-    urlPlaceholder,
-    urlValue,
-    onUrlChange,
-    onUrlKeyDown,
-    onApply,
-  },
-  ref,
-) {
-  const handleSurfacePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    event.stopPropagation();
-  };
-  const handleActionPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-  };
+export const NfmLinkEditToolbarSurface = forwardRef<HTMLDivElement, NfmLinkEditToolbarSurfaceProps>(
+  function NfmLinkEditToolbarSurface(
+    { urlPlaceholder, urlValue, onUrlChange, onUrlKeyDown, onApply },
+    ref,
+  ) {
+    const handleSurfacePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+      event.stopPropagation();
+    };
+    const handleActionPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+    };
 
-  return (
-    <div
-      ref={ref}
-      role="toolbar"
-      aria-orientation="horizontal"
-      aria-label="Edit link"
-      data-testid="nfm-link-edit-toolbar"
-      contentEditable={false}
-      tabIndex={-1}
-      onPointerDown={handleSurfacePointerDown}
-      className={cn(NFM_LINK_TOOLBAR_CLASS, "max-w-[calc(100vw-24px)]")}
-    >
-      <div className="flex min-w-0 flex-1">
-        <div className="relative min-w-0 flex-1">
-          <input
-            autoFocus
-            autoComplete="off"
-            type="text"
-            aria-label={urlPlaceholder}
-            value={urlValue}
-            placeholder={urlPlaceholder}
-            onChange={(event) => {
-              onUrlChange(event.currentTarget.value);
-            }}
-            onKeyDown={onUrlKeyDown}
-            className="relative m-[-1px] w-full min-w-[300px] rounded-[10px] border-transparent bg-token-bg-primary px-2.5 py-2 pe-9 text-sm text-token-text-primary outline-hidden placeholder:text-token-text-tertiary focus:outline-hidden focus:ring-0 dark:bg-transparent"
-          />
-          <div className="absolute end-1.5 top-1/2 flex -translate-y-1/2 items-center justify-center">
-            <button
-              type="button"
-              contentEditable={false}
-              aria-label="Apply link"
-              onPointerDown={handleActionPointerDown}
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onApply();
+    return (
+      <div
+        ref={ref}
+        role="toolbar"
+        aria-orientation="horizontal"
+        aria-label="Edit link"
+        data-testid="nfm-link-edit-toolbar"
+        contentEditable={false}
+        tabIndex={-1}
+        onPointerDown={handleSurfacePointerDown}
+        className={cn(NFM_LINK_TOOLBAR_CLASS, "max-w-[calc(100vw-24px)]")}
+      >
+        <div className="flex min-w-0 flex-1">
+          <div className="relative min-w-0 flex-1">
+            <input
+              autoFocus
+              autoComplete="off"
+              type="text"
+              aria-label={urlPlaceholder}
+              value={urlValue}
+              placeholder={urlPlaceholder}
+              onChange={(event) => {
+                onUrlChange(event.currentTarget.value);
               }}
-              className="inline-flex size-5 items-center justify-center rounded-full border-0 bg-token-foreground p-0 text-token-dropdown-background outline-hidden hover:bg-token-foreground/80 focus-visible:bg-token-foreground/80"
-            >
-              <NfmLinkToolbarApplyIcon className="size-3" />
-            </button>
+              onKeyDown={onUrlKeyDown}
+              className="relative m-[-1px] w-full min-w-[300px] rounded-[10px] border-transparent bg-token-bg-primary px-2.5 py-2 pe-9 text-sm text-token-text-primary outline-hidden placeholder:text-token-text-tertiary focus:outline-hidden focus:ring-0 dark:bg-transparent"
+            />
+            <div className="absolute end-1.5 top-1/2 flex -translate-y-1/2 items-center justify-center">
+              <button
+                type="button"
+                contentEditable={false}
+                aria-label="Apply link"
+                onPointerDown={handleActionPointerDown}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onApply();
+                }}
+                className="inline-flex size-5 items-center justify-center rounded-full border-0 bg-token-foreground p-0 text-token-dropdown-background outline-hidden hover:bg-token-foreground/80 focus-visible:bg-token-foreground/80"
+              >
+                <NfmLinkToolbarApplyIcon className="size-3" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
-});
+    );
+  },
+);
 
 export const NfmCreateLinkDialogSurface = forwardRef<
   HTMLDivElement,
@@ -298,7 +295,9 @@ export const NfmCreateLinkDialogSurface = forwardRef<
     >
       <div className="flex flex-col gap-2.5 px-3 py-3">
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] leading-4 font-medium text-token-text-secondary">{urlLabel}</span>
+          <span className="text-[11px] leading-4 font-medium text-token-text-secondary">
+            {urlLabel}
+          </span>
           <div className="relative flex w-full items-center rounded-md border-[0.5px] border-token-border bg-token-input-background shadow-[inset_0_0_0_0.5px_color-mix(in_srgb,var(--color-token-foreground)_2%,transparent)] focus-within:border-token-focus-border focus-within:ring-1 focus-within:ring-token-focus-border">
             <input
               autoFocus

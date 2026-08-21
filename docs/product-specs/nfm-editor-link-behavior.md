@@ -10,12 +10,14 @@ It is the detailed source of truth for manual link creation, editing, stored lin
 ## Scope
 
 Included:
+
 - Manual link creation from the formatting toolbar
 - Manual link editing from the hovered/selected link toolbar
 - Submit-time trimming and exact-preservation rules
 - Stored link-mark behavior as it relates to NFM round-trip persistence
 
 Not included:
+
 - Automatic link recognition while typing or pasting
 - Attachment-chip `Keep as link` behavior
 - Transcript markdown link behavior outside the editor
@@ -35,6 +37,7 @@ The NFM editor has 2 different link paths:
 This document is only about the second path.
 
 Manual link creation and editing happen through the BlockNote-based editor UI:
+
 - the formatting toolbar `Create link` flow
 - the link toolbar shown for an existing selected/hovered link
 
@@ -44,6 +47,7 @@ Both flows now also use Nodex-owned surfaces instead of BlockNote's default form
 ## Inline Link Visual Treatment
 
 Ordinary links inside the editor use the shared interactive link treatment:
+
 - a medium-weight blue foreground blended from the link and editor text tokens
 - normal inline flow with no extra horizontal padding
 - no underline at rest
@@ -67,6 +71,7 @@ Both states use an opaque floating surface so editor content never shows through
 The toolbar uses the same light and dark outline shadow geometry as Notion's link toolbar. `Copy` and `Open` are icon-only actions; their tooltips and accessible names remain available.
 
 The toolbar is intentionally concise:
+
 - a truncated, non-interactive URL preview identifies the stored target
 - `Edit` and `Clear` are icon-only actions
 - `Copy` copies the stored raw `href` exactly as authored and flips to the shared `Copied` checkmark feedback state on success
@@ -81,18 +86,21 @@ This affordance change is visual and interaction-level only; it does not change 
 ## Behavior Model
 
 When the user confirms a manual link create/edit action, the editor:
+
 - reads the URL field exactly as typed
 - trims surrounding whitespace
 - preserves the remaining value exactly as entered
 - writes that final `href` into the BlockNote/Tiptap link mark
 
 This is intentionally narrower than autolink behavior:
+
 - autolink decides whether plain text should become a link automatically
 - manual link editing decides how the submitted link target should be stored
 
 ## Submit-Time URL Rules
 
 The editor applies exactly one transformation at submit time:
+
 - trim surrounding whitespace from the URL field
 
 After trimming, the editor preserves the submitted value exactly as entered.
@@ -125,6 +133,7 @@ The current implementation treats empty submit as a no-op for link creation/edit
 Absolute local paths are a first-class manual-link input in the editor.
 
 This includes:
+
 - absolute Unix-style paths such as `/Users/asc/repo/abc`
 - absolute Windows paths such as `C:\repo\abc`
 - `file://` URLs such as `file:///Users/asc/repo/abc`
@@ -154,6 +163,7 @@ This is a product behavior requirement, not just an implementation detail, becau
 ## Relative Link Preservation
 
 The editor preserves relative/manual-reference forms as entered, including:
+
 - `./foo`
 - `../foo`
 - `folder/abc/file`
@@ -206,6 +216,7 @@ Storage and opening are intentionally separate.
 When the user clicks a stored manual link in the NFM editor or read-only NFM rendering, Nodex classifies the preserved stored `href` at open time instead of relying on browser-relative navigation.
 
 Open-time rules:
+
 - explicit safe protocol values such as `https://`, `http://`, `mailto:`, `tel:`, and `file://` open according to that protocol
 - bare domain-like values such as `example.com` and `www.example.com/docs` open as `https://...` at click time only; the stored `href` stays unchanged
 - absolute local paths and `file://` URLs open through the desktop local-file open path
@@ -238,11 +249,13 @@ Open-time behavior: do not navigate; show unresolved-file tooltip instead
 Manual link behavior and autolink behavior intentionally differ.
 
 Autolink:
+
 - is conservative
 - tries to avoid false positives for repo paths and filenames
 - may leave many path-like values as plain text
 
 Manual link editing:
+
 - assumes explicit user intent
 - preserves the submitted value exactly after trimming
 - allows local file paths
@@ -251,6 +264,7 @@ Manual link editing:
 - classifies preserved values only when the user clicks them
 
 So a value may:
+
 - stay plain text when merely typed into the editor
 - but still be accepted unchanged when the user explicitly enters it into the link dialog
 
@@ -291,6 +305,7 @@ Correct current result:
 ## Design Rationale
 
 Nodex notes frequently include:
+
 - local repository paths
 - file references
 - relative references between note sections
@@ -299,6 +314,7 @@ Nodex notes frequently include:
 The editor therefore needs a manual-link model that respects technical author intent instead of assuming every non-protocol value is a website.
 
 The intended behavior is:
+
 - explicit user-entered local paths should stay local paths
 - relative references should stay relative references
 - slash-separated relative file paths should stay exactly as entered
@@ -308,6 +324,7 @@ The intended behavior is:
 ## Implementation Notes
 
 Current implementation shape:
+
 - upstream BlockNote/Tiptap link marks still own the stored link mark type
 - Nodex overrides the default BlockNote create/edit link UI submit path
 - the custom submit normalizer trims only and otherwise preserves the user-entered `href` before NFM serialization

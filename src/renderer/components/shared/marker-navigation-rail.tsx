@@ -39,7 +39,7 @@ export function escapeMarkerNavigationAttributeSelectorValue(value: string): str
     return CSS.escape(value);
   }
 
-  return value.replace(/\\/g, "\\\\").replace(/"/g, "\\\"");
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 export function nextMarkerNavigationAnimationFrame(): Promise<void> {
@@ -63,11 +63,7 @@ export function resolveMarkerNavigationCurrentRangeIds<TItem extends MarkerNavig
     }
   }
 
-  return new Set(
-    items
-      .slice(firstVisibleIndex, lastVisibleIndex + 1)
-      .map((item) => item.id),
-  );
+  return new Set(items.slice(firstVisibleIndex, lastVisibleIndex + 1).map((item) => item.id));
 }
 
 export function collectMarkerNavigationObservationTargets({
@@ -91,13 +87,8 @@ export function collectMarkerNavigationObservationTargets({
     const itemId = readItemId(target);
     if (!itemId || !itemIds.has(itemId)) continue;
 
-    const container = containerSelector
-      ? target.closest<HTMLElement>(containerSelector)
-      : null;
-    const observedElement =
-      container && !usedContainers.has(container)
-        ? container
-        : target;
+    const container = containerSelector ? target.closest<HTMLElement>(containerSelector) : null;
+    const observedElement = container && !usedContainers.has(container) ? container : target;
 
     if (observedElement === container) {
       usedContainers.add(container);
@@ -116,12 +107,10 @@ export function markerNavigationMutationsIncludeContainer(
   containerSelector: string,
 ): boolean {
   return records.some((record) =>
-    [...record.addedNodes, ...record.removedNodes].some((node) =>
-      node instanceof HTMLElement
-      && (
-        node.matches(containerSelector)
-        || node.querySelector(containerSelector) !== null
-      )
+    [...record.addedNodes, ...record.removedNodes].some(
+      (node) =>
+        node instanceof HTMLElement &&
+        (node.matches(containerSelector) || node.querySelector(containerSelector) !== null),
     ),
   );
 }
@@ -157,17 +146,17 @@ export function hasEnoughMarkerNavigationSideSpace({
 }): boolean {
   const scrollRect = scrollElement.getBoundingClientRect();
   const contentRect = contentElement.getBoundingClientRect();
-  const scale = scrollElement.offsetWidth > 0
-    ? scrollRect.width / scrollElement.offsetWidth
-    : 1;
-  const sideSpace = side === "left"
-    ? contentRect.left - scrollRect.left
-    : scrollRect.right - contentRect.right;
+  const scale = scrollElement.offsetWidth > 0 ? scrollRect.width / scrollElement.offsetWidth : 1;
+  const sideSpace =
+    side === "left" ? contentRect.left - scrollRect.left : scrollRect.right - contentRect.right;
   const normalizedSideSpace = sideSpace / (scale > 0 ? scale : 1);
   return normalizedSideSpace >= MARKER_NAVIGATION_MIN_SIDE_SPACE_PX;
 }
 
-export function sameMarkerNavigationSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+export function sameMarkerNavigationSet(
+  left: ReadonlySet<string>,
+  right: ReadonlySet<string>,
+): boolean {
   if (left.size !== right.size) return false;
   for (const value of left) {
     if (!right.has(value)) return false;
@@ -274,8 +263,8 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
   const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
   const suppressNextClickRef = useRef(false);
   const isScrubbingRef = useRef(false);
-  const [currentItemIds, setCurrentItemIds] = useState<Set<string>>(() =>
-    new Set(items.length > 0 ? [items[items.length - 1]?.id ?? ""] : []),
+  const [currentItemIds, setCurrentItemIds] = useState<Set<string>>(
+    () => new Set(items.length > 0 ? [items[items.length - 1]?.id ?? ""] : []),
   );
   const [scrubTargetId, setScrubTargetId] = useState<string | null>(null);
   const [isScrubbing, setIsScrubbing] = useState(false);
@@ -287,10 +276,7 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
 
   const lastItemId = items[items.length - 1]?.id ?? null;
   const itemIds = useMemo(() => new Set(items.map((item) => item.id)), [items]);
-  const itemsById = useMemo(
-    () => new Map(items.map((item) => [item.id, item] as const)),
-    [items],
-  );
+  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item] as const)), [items]);
   const itemIdsKey = useMemo(() => items.map((item) => item.id).join("\n"), [items]);
 
   useEffect(() => {
@@ -310,7 +296,7 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
 
   useEffect(() => {
     if (!scrollElement || !contentElement || !portalTarget) {
-      setCanRender((current) => current ? false : current);
+      setCanRender((current) => (current ? false : current));
       return undefined;
     }
 
@@ -324,20 +310,18 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
           contentElement,
           side,
         });
-        setCanRender((current) => current === nextCanRender ? current : nextCanRender);
+        setCanRender((current) => (current === nextCanRender ? current : nextCanRender));
         ensureMarkerNavigationRowVisible(listRef.current, currentPrimaryItemId);
       });
     };
 
-    const resizeObserver = typeof ResizeObserver === "undefined"
-      ? null
-      : new ResizeObserver(syncLayoutState);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(syncLayoutState);
     resizeObserver?.observe(scrollElement);
     resizeObserver?.observe(contentElement);
 
-    const mutationObserver = typeof MutationObserver === "undefined"
-      ? null
-      : new MutationObserver(syncLayoutState);
+    const mutationObserver =
+      typeof MutationObserver === "undefined" ? null : new MutationObserver(syncLayoutState);
     mutationObserver?.observe(scrollElement.firstElementChild ?? scrollElement, {
       attributes: true,
       attributeFilter: ["style"],
@@ -356,16 +340,14 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
   }, [contentElement, currentPrimaryItemId, portalTarget, scrollElement, side]);
 
   const revealItem = useCallback(
-    async (
-      item: TItem,
-      mode: MarkerNavigationRevealMode,
-    ) => {
+    async (item: TItem, mode: MarkerNavigationRevealMode) => {
       if (!scrollElement) return;
 
       const behavior: ScrollBehavior = mode === "instant" || reducedMotion ? "auto" : "smooth";
       let targetElement = findTarget(scrollElement, item);
       if (!targetElement) {
-        targetElement = await onRevealMissingItem?.(item, mode) ?? findTarget(scrollElement, item);
+        targetElement =
+          (await onRevealMissingItem?.(item, mode)) ?? findTarget(scrollElement, item);
       }
       if (!targetElement) return;
 
@@ -395,7 +377,9 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
     const syncCurrentRange = () => {
       const rangeIds = resolveMarkerNavigationCurrentRangeIds(items, visibleIds);
       if (!rangeIds) return;
-      setCurrentItemIds((current) => sameMarkerNavigationSet(current, rangeIds) ? current : rangeIds);
+      setCurrentItemIds((current) =>
+        sameMarkerNavigationSet(current, rangeIds) ? current : rangeIds,
+      );
     };
 
     const observer = new IntersectionObserver(
@@ -447,13 +431,14 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
     };
 
     registerTargets();
-    const mutationObserver = typeof MutationObserver === "undefined"
-      ? null
-      : new MutationObserver((records) => {
-        if (mutationsIncludeObservationTargets(records)) {
-          registerTargets();
-        }
-      });
+    const mutationObserver =
+      typeof MutationObserver === "undefined"
+        ? null
+        : new MutationObserver((records) => {
+            if (mutationsIncludeObservationTargets(records)) {
+              registerTargets();
+            }
+          });
     mutationObserver?.observe(scrollElement, { childList: true, subtree: true });
 
     return () => {
@@ -514,49 +499,58 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
     setScrubTargetId(null);
   }, []);
 
-  const handlePointerDown = useCallback((item: TItem, event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (!event.isPrimary || event.button !== 0) return;
-    pointerIdRef.current = event.pointerId;
-    pointerStartRef.current = { x: event.clientX, y: event.clientY };
-    suppressNextClickRef.current = false;
-    isScrubbingRef.current = false;
-    setScrubTargetId(item.id);
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-  }, []);
-
-  const handlePointerMove = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (pointerIdRef.current !== event.pointerId) return;
-    const start = pointerStartRef.current;
-    if (!start) return;
-
-    if (!isScrubbing) {
-      const delta = Math.abs(event.clientY - start.y) + Math.abs(event.clientX - start.x);
-      if (delta < 2) return;
-      isScrubbingRef.current = true;
-      setIsScrubbing(true);
-    }
-
-    const row = resolveRowFromPoint(event);
-    const id = row?.getAttribute("data-marker-navigation-item-id") ?? null;
-    if (!id || id === scrubTargetId) return;
-
-    const item = itemsById.get(id);
-    if (!item) return;
-    setScrubTargetId(id);
-    void revealItem(item, "instant");
-  }, [isScrubbing, itemsById, revealItem, resolveRowFromPoint, scrubTargetId]);
-
-  const handleClick = useCallback((item: TItem, event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (suppressNextClickRef.current) {
+  const handlePointerDown = useCallback(
+    (item: TItem, event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (!event.isPrimary || event.button !== 0) return;
+      pointerIdRef.current = event.pointerId;
+      pointerStartRef.current = { x: event.clientX, y: event.clientY };
       suppressNextClickRef.current = false;
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
+      isScrubbingRef.current = false;
+      setScrubTargetId(item.id);
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+    },
+    [],
+  );
 
-    onClickItem?.(item);
-    void revealItem(item, "smooth");
-  }, [onClickItem, revealItem]);
+  const handlePointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (pointerIdRef.current !== event.pointerId) return;
+      const start = pointerStartRef.current;
+      if (!start) return;
+
+      if (!isScrubbing) {
+        const delta = Math.abs(event.clientY - start.y) + Math.abs(event.clientX - start.x);
+        if (delta < 2) return;
+        isScrubbingRef.current = true;
+        setIsScrubbing(true);
+      }
+
+      const row = resolveRowFromPoint(event);
+      const id = row?.getAttribute("data-marker-navigation-item-id") ?? null;
+      if (!id || id === scrubTargetId) return;
+
+      const item = itemsById.get(id);
+      if (!item) return;
+      setScrubTargetId(id);
+      void revealItem(item, "instant");
+    },
+    [isScrubbing, itemsById, revealItem, resolveRowFromPoint, scrubTargetId],
+  );
+
+  const handleClick = useCallback(
+    (item: TItem, event: ReactMouseEvent<HTMLButtonElement>) => {
+      if (suppressNextClickRef.current) {
+        suppressNextClickRef.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+
+      onClickItem?.(item);
+      void revealItem(item, "smooth");
+    },
+    [onClickItem, revealItem],
+  );
 
   if (!canRender || !portalTarget || items.length === 0) return null;
 
@@ -622,7 +616,8 @@ export function MarkerNavigationRail<TItem extends MarkerNavigationItem>({
                       "marker-navigation-marker block h-0.5 rounded-full bg-token-description-foreground opacity-40",
                       markerClassName,
                       "group-focus-visible/navigation-row:bg-token-foreground group-focus-visible/navigation-row:opacity-100",
-                      scrubTargetId === null && "group-hover/navigation-row:bg-token-foreground group-hover/navigation-row:opacity-100",
+                      scrubTargetId === null &&
+                        "group-hover/navigation-row:bg-token-foreground group-hover/navigation-row:opacity-100",
                       isCurrent && !isScrubTarget && "bg-token-foreground opacity-60",
                       isScrubTarget && "bg-token-foreground opacity-100",
                     )}

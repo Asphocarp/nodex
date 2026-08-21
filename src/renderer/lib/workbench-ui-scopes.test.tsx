@@ -74,26 +74,29 @@ describe("Workbench Maitai scopes", () => {
   test("keeps client identity stable when a server thread attaches", () => {
     const registry = createThreadScopeIdentityRegistry();
     expect(registry.resolve({ clientThreadId: "pending-1" })).toBe("client:pending-1");
-    expect(registry.resolve({
-      projectSessionId: "session-1",
-      clientThreadId: "pending-1",
-      threadId: "thread-1",
-    })).toBe("client:pending-1");
+    expect(
+      registry.resolve({
+        projectSessionId: "session-1",
+        clientThreadId: "pending-1",
+        threadId: "thread-1",
+      }),
+    ).toBe("client:pending-1");
     expect(registry.resolve({ projectSessionId: "session-1" })).toBe("client:pending-1");
-    expect(registry.resolve({ threadId: "thread-1", projectSessionId: "session-1" }))
-      .toBe("client:pending-1");
+    expect(registry.resolve({ threadId: "thread-1", projectSessionId: "session-1" })).toBe(
+      "client:pending-1",
+    );
   });
 
   test("promotes a Project draft through Session and Thread identities", () => {
     const registry = createThreadScopeIdentityRegistry();
-    expect(resolveProjectDraftThreadScopeDescriptor(registry, "draft-1").stableKey)
-      .toBe("draft:draft-1");
+    expect(resolveProjectDraftThreadScopeDescriptor(registry, "draft-1").stableKey).toBe(
+      "draft:draft-1",
+    );
     registry.register("draft:draft-1", {
       draftId: "draft-1",
       projectSessionId: "session-1",
     });
-    expect(registry.resolve({ projectSessionId: "session-1" }))
-      .toBe("draft:draft-1");
+    expect(registry.resolve({ projectSessionId: "session-1" })).toBe("draft:draft-1");
     registry.register("draft:draft-1", {
       projectSessionId: "session-1",
       clientThreadId: "client-1",
@@ -104,12 +107,15 @@ describe("Workbench Maitai scopes", () => {
 
   test("direct, duplicate, and stale attachment metadata preserve one session identity", () => {
     const registry = createThreadScopeIdentityRegistry();
-    expect(registry.resolve({ projectSessionId: "session-1", threadId: "thread-1" }))
-      .toBe("session:session-1");
-    expect(registry.resolve({ projectSessionId: "session-1", threadId: "thread-1" }))
-      .toBe("session:session-1");
-    expect(registry.resolve({ projectSessionId: "session-1", threadId: "thread-stale" }))
-      .toBe("session:session-1");
+    expect(registry.resolve({ projectSessionId: "session-1", threadId: "thread-1" })).toBe(
+      "session:session-1",
+    );
+    expect(registry.resolve({ projectSessionId: "session-1", threadId: "thread-1" })).toBe(
+      "session:session-1",
+    );
+    expect(registry.resolve({ projectSessionId: "session-1", threadId: "thread-stale" })).toBe(
+      "session:session-1",
+    );
     expect(registry.resolve({ threadId: "thread-stale" })).toBe("session:session-1");
   });
 
@@ -117,10 +123,12 @@ describe("Workbench Maitai scopes", () => {
     const registry = createThreadScopeIdentityRegistry();
     registry.resolve({ projectSessionId: "session-1" });
     registry.resolve({ clientThreadId: "pending-1" });
-    expect(() => registry.resolve({
-      projectSessionId: "session-1",
-      clientThreadId: "pending-1",
-    })).toThrow(IdentityPromotionConflict);
+    expect(() =>
+      registry.resolve({
+        projectSessionId: "session-1",
+        clientThreadId: "pending-1",
+      }),
+    ).toThrow(IdentityPromotionConflict);
   });
 
   test("allocates pending work from its immutable client identity", () => {
@@ -138,11 +146,7 @@ describe("Workbench Maitai scopes", () => {
     const registry = createThreadScopeIdentityRegistry();
     registry.resolve({ projectSessionId: "session-1" });
 
-    expect(resolvePendingThreadScopeDescriptor(
-      registry,
-      "client-1",
-      "session-1",
-    )).toMatchObject({
+    expect(resolvePendingThreadScopeDescriptor(registry, "client-1", "session-1")).toMatchObject({
       stableKey: "session:session-1",
       projectSessionId: "session-1",
       clientThreadId: "client-1",
@@ -178,10 +182,7 @@ describe("Workbench Maitai scopes", () => {
 
   test("promotes an existing Session before the pending route resolves the client id", () => {
     const registry = createThreadScopeIdentityRegistry();
-    const source = resolveProjectSessionThreadScopeDescriptor(
-      registry,
-      projectSession(),
-    );
+    const source = resolveProjectSessionThreadScopeDescriptor(registry, projectSession());
     const promoted = promoteThreadScopeToPending(registry, source, " client-1 ");
     const pending = resolvePendingThreadScopeDescriptor(registry, "client-1");
     const attached = resolveProjectSessionThreadScopeDescriptor(
@@ -201,43 +202,39 @@ describe("Workbench Maitai scopes", () => {
 
   test("uses the actual target Session when a pending start changes Project", () => {
     const registry = createThreadScopeIdentityRegistry();
-    const source = resolveProjectSessionThreadScopeDescriptor(
-      registry,
-      projectSession(),
-    );
+    const source = resolveProjectSessionThreadScopeDescriptor(registry, projectSession());
 
-    const pending = promoteThreadScopeToPending(
-      registry,
-      source,
-      "client-2",
-      "session-2",
-    );
+    const pending = promoteThreadScopeToPending(registry, source, "client-2", "session-2");
 
     expect(pending).toMatchObject({
       stableKey: "client:client-2",
       projectSessionId: "session-2",
       clientThreadId: "client-2",
     });
-    expect(registry.resolve({ projectSessionId: "session-2" }))
-      .toBe("client:client-2");
-    expect(registry.resolve({ projectSessionId: "session-1" }))
-      .toBe("session:session-1");
+    expect(registry.resolve({ projectSessionId: "session-2" })).toBe("client:client-2");
+    expect(registry.resolve({ projectSessionId: "session-1" })).toBe("session:session-1");
   });
 
   test("keeps composer entry identity stable while carrying focus signals", () => {
-    expect(resolveComposerScopeIdentity({ kind: "new-conversation" }).identity)
-      .toBe("new-conversation");
-    expect(resolveComposerScopeIdentity({ kind: "panel-new-conversation" }).identity)
-      .toBe("panel-new-conversation");
-    expect(resolveComposerScopeIdentity({
-      kind: "preview",
-      attachmentIdentity: "page-1",
-    }).identity).toBe("preview:page-1");
-    expect(resolveComposerScopeIdentity({
-      kind: "task",
-      stableIdentity: "session-1",
-      focusComposerNonce: 3,
-    })).toEqual({
+    expect(resolveComposerScopeIdentity({ kind: "new-conversation" }).identity).toBe(
+      "new-conversation",
+    );
+    expect(resolveComposerScopeIdentity({ kind: "panel-new-conversation" }).identity).toBe(
+      "panel-new-conversation",
+    );
+    expect(
+      resolveComposerScopeIdentity({
+        kind: "preview",
+        attachmentIdentity: "page-1",
+      }).identity,
+    ).toBe("preview:page-1");
+    expect(
+      resolveComposerScopeIdentity({
+        kind: "task",
+        stableIdentity: "session-1",
+        focusComposerNonce: 3,
+      }),
+    ).toEqual({
       identity: "task:session-1",
       focusComposerNonce: 3,
     });
@@ -279,22 +276,26 @@ describe("Workbench Maitai scopes", () => {
     const view = render(tree(pending));
     handles[0]?.set(composerSignal, "authored draft");
     const firstConcrete = handles[0]?.resolve(composerSignal);
-    view.rerender(tree({
-      ...pending,
-      phase: "attached",
-      projectSessionId: "session-1",
-      threadId: "thread-1",
-    }));
+    view.rerender(
+      tree({
+        ...pending,
+        phase: "attached",
+        projectSessionId: "session-1",
+        threadId: "thread-1",
+      }),
+    );
     expect(handles.at(-1)?.resolve(composerSignal)).toBe(firstConcrete);
     expect(handles.at(-1)?.get(composerSignal)).toBe("authored draft");
 
     view.unmount();
-    render(tree({
-      ...pending,
-      phase: "attached",
-      projectSessionId: "session-1",
-      threadId: "thread-1",
-    }));
+    render(
+      tree({
+        ...pending,
+        phase: "attached",
+        projectSessionId: "session-1",
+        threadId: "thread-1",
+      }),
+    );
     expect(handles.at(-1)?.get(composerSignal)).toBe("authored draft");
   });
 
@@ -310,7 +311,9 @@ describe("Workbench Maitai scopes", () => {
               route={{ routeKey: "/thread", kind: "thread" }}
               selected={selected === "a"}
             >
-              <AppShellHeaderContentRegistrar content={<h1 data-testid="thread-stage-title">A</h1>} />
+              <AppShellHeaderContentRegistrar
+                content={<h1 data-testid="thread-stage-title">A</h1>}
+              />
             </WorkbenchSessionScopePath>
           ) : null}
           <WorkbenchSessionScopePath
@@ -324,13 +327,21 @@ describe("Workbench Maitai scopes", () => {
       </StrictMode>
     );
     const view = render(tree("a"));
-    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual(["A"]);
+    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual([
+      "A",
+    ]);
     view.rerender(tree("b"));
-    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual(["B"]);
+    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual([
+      "B",
+    ]);
     view.rerender(tree("b", false));
-    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual(["B"]);
+    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual([
+      "B",
+    ]);
     view.rerender(tree("a"));
-    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual(["A"]);
+    expect(view.getAllByTestId("thread-stage-title").map((node) => node.textContent)).toEqual([
+      "A",
+    ]);
   });
 
   test("session descriptor updates do not republish an unchanged route owner", () => {
@@ -355,8 +366,9 @@ describe("Workbench Maitai scopes", () => {
     view.rerender(tree(1));
 
     const routeOwnerWrites = setAtom.mock.calls.filter(([atom]) =>
-      (atom as { readonly debugLabel?: string }).debugLabel
-        ?.endsWith("/selected-route-scope-handle"),
+      (atom as { readonly debugLabel?: string }).debugLabel?.endsWith(
+        "/selected-route-scope-handle",
+      ),
     );
     expect(routeOwnerWrites).toHaveLength(0);
     expect(view.getByTestId("stable-thread-stage-title").textContent).toBe("A");

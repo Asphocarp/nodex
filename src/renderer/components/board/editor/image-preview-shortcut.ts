@@ -21,10 +21,7 @@ export interface FocusedImagePreview {
   alt: string;
 }
 
-function readStringProp(
-  props: Record<string, unknown> | undefined,
-  key: string,
-): string {
+function readStringProp(props: Record<string, unknown> | undefined, key: string): string {
   const value = props?.[key];
   return typeof value === "string" ? value : "";
 }

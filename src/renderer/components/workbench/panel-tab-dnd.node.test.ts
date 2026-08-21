@@ -55,36 +55,54 @@ describe("panel tab drag and drop helpers", () => {
   });
 
   test("normalizes same-leaf insertion after removing the dragged tab", () => {
-    expect(resolveSameLeafInsertionIndex({
-      tabIds: ["one", "two", "three"],
-      sourceTabId: "one",
-      targetIndex: 3,
-    })).toBe(2);
-    expect(resolveSameLeafInsertionIndex({
-      tabIds: ["one", "two", "three"],
-      sourceTabId: "three",
-      targetIndex: 0,
-    })).toBe(0);
-    expect(resolveSameLeafInsertionIndex({
-      tabIds: ["one", "two", "three"],
-      sourceTabId: "two",
-      targetIndex: 1,
-    })).toBe(null);
-    expect(resolveSameLeafInsertionIndex({
-      tabIds: ["one", "two", "three"],
-      sourceTabId: "two",
-      targetIndex: 2,
-    })).toBe(null);
+    expect(
+      resolveSameLeafInsertionIndex({
+        tabIds: ["one", "two", "three"],
+        sourceTabId: "one",
+        targetIndex: 3,
+      }),
+    ).toBe(2);
+    expect(
+      resolveSameLeafInsertionIndex({
+        tabIds: ["one", "two", "three"],
+        sourceTabId: "three",
+        targetIndex: 0,
+      }),
+    ).toBe(0);
+    expect(
+      resolveSameLeafInsertionIndex({
+        tabIds: ["one", "two", "three"],
+        sourceTabId: "two",
+        targetIndex: 1,
+      }),
+    ).toBe(null);
+    expect(
+      resolveSameLeafInsertionIndex({
+        tabIds: ["one", "two", "three"],
+        sourceTabId: "two",
+        targetIndex: 2,
+      }),
+    ).toBe(null);
   });
 
   test("uses VSCode-style ten percent body edge zones", () => {
     const rect = { left: 100, top: 50, width: 300, height: 200 };
 
-    expect(resolvePanelGroupBodyDropZone({ pointerClientX: 120, pointerClientY: 130, rect })).toBe("left");
-    expect(resolvePanelGroupBodyDropZone({ pointerClientX: 380, pointerClientY: 130, rect })).toBe("right");
-    expect(resolvePanelGroupBodyDropZone({ pointerClientX: 250, pointerClientY: 65, rect })).toBe("up");
-    expect(resolvePanelGroupBodyDropZone({ pointerClientX: 250, pointerClientY: 235, rect })).toBe("down");
-    expect(resolvePanelGroupBodyDropZone({ pointerClientX: 250, pointerClientY: 130, rect })).toBe("center");
+    expect(resolvePanelGroupBodyDropZone({ pointerClientX: 120, pointerClientY: 130, rect })).toBe(
+      "left",
+    );
+    expect(resolvePanelGroupBodyDropZone({ pointerClientX: 380, pointerClientY: 130, rect })).toBe(
+      "right",
+    );
+    expect(resolvePanelGroupBodyDropZone({ pointerClientX: 250, pointerClientY: 65, rect })).toBe(
+      "up",
+    );
+    expect(resolvePanelGroupBodyDropZone({ pointerClientX: 250, pointerClientY: 235, rect })).toBe(
+      "down",
+    );
+    expect(resolvePanelGroupBodyDropZone({ pointerClientX: 250, pointerClientY: 130, rect })).toBe(
+      "center",
+    );
   });
 
   test("classifies tab-row drops as reorder or move and body edges as split", () => {

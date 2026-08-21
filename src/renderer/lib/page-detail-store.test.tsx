@@ -109,22 +109,27 @@ const pageEvent = (
       // Page Document effects carry routing coordinates for every relational
       // projection that contains the Page. Those coordinates are not shared
       // Page Detail dependencies: the exact Page effect scope is authoritative.
-      database_ids: relationalPage?.dataSourceContext.kind === "member"
-        ? [relationalPage.dataSourceContext.database.databaseId]
-        : [],
-      data_source_ids: relationalPage?.dataSourceContext.kind === "member"
-        ? [relationalPage.dataSourceContext.dataSource.dataSourceId]
-        : [],
-      view_ids: relationalPage?.dataSourceContext.kind === "member"
-        && relationalPage.dataSourceContext.database.defaultViewId
-        ? [relationalPage.dataSourceContext.database.defaultViewId]
-        : [],
-      document_heads: [{
-        page_id: pageId,
-        document_id: pageId === "page-1" ? "document-1" : `document:${pageId}`,
-        generation: 1,
-        head_seq: headSeq,
-      }],
+      database_ids:
+        relationalPage?.dataSourceContext.kind === "member"
+          ? [relationalPage.dataSourceContext.database.databaseId]
+          : [],
+      data_source_ids:
+        relationalPage?.dataSourceContext.kind === "member"
+          ? [relationalPage.dataSourceContext.dataSource.dataSourceId]
+          : [],
+      view_ids:
+        relationalPage?.dataSourceContext.kind === "member" &&
+        relationalPage.dataSourceContext.database.defaultViewId
+          ? [relationalPage.dataSourceContext.database.defaultViewId]
+          : [],
+      document_heads: [
+        {
+          page_id: pageId,
+          document_id: pageId === "page-1" ? "document-1" : `document:${pageId}`,
+          generation: 1,
+          head_seq: headSeq,
+        },
+      ],
     },
     effect: {
       scope: {
@@ -146,10 +151,7 @@ const pageEvent = (
   },
 });
 
-const databaseViewEvent = (
-  page: PageDetail,
-  commitSeq: number,
-): ProjectionStreamMessage => {
+const databaseViewEvent = (page: PageDetail, commitSeq: number): ProjectionStreamMessage => {
   if (page.dataSourceContext.kind !== "member") {
     throw new Error("Expected member Page Detail fixture");
   }
@@ -203,11 +205,7 @@ const databaseViewEvent = (
   };
 };
 
-const memberDetail = (
-  pageId: string,
-  title: string,
-  commitSeq: number,
-): PageDetail => {
+const memberDetail = (pageId: string, title: string, commitSeq: number): PageDetail => {
   const page = buildPageStageStoryPage({
     runInTarget: "localProject",
     existingWorktree: false,
@@ -236,9 +234,7 @@ const memberDetail = (
   };
 };
 
-const pageRevocation = (
-  commitSeq: number,
-): ResourceRevocationDeliveryMessage => ({
+const pageRevocation = (commitSeq: number): ResourceRevocationDeliveryMessage => ({
   version: 1,
   kind: "revocation",
   scope: {
@@ -368,10 +364,9 @@ describe("Page Detail store realtime convergence", () => {
     mocks.readPageDetail
       .mockResolvedValueOnce({ ok: true, value: detail("Before", 1) })
       .mockResolvedValueOnce({ ok: true, value: detail("After", 2) });
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Before"));
 
     await act(async () => {
@@ -393,10 +388,9 @@ describe("Page Detail store realtime convergence", () => {
     mocks.readPageDetail
       .mockReturnValueOnce(firstRead.promise)
       .mockResolvedValueOnce({ ok: true, value: detail("Latest", 2) });
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
 
     await act(async () => {
       publish(pageEvent("page-1", 2));
@@ -405,12 +399,7 @@ describe("Page Detail store realtime convergence", () => {
     });
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Latest"));
     expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
-    expect(mocks.readPageDetail).toHaveBeenNthCalledWith(
-      2,
-      "project-1",
-      "page-1",
-      2,
-    );
+    expect(mocks.readPageDetail).toHaveBeenNthCalledWith(2, "project-1", "page-1", 2);
   });
 
   test("rereads when admission rejects an unknown dynamic root change", async () => {
@@ -418,10 +407,9 @@ describe("Page Detail store realtime convergence", () => {
     mocks.readPageDetail
       .mockReturnValueOnce(firstRead.promise)
       .mockResolvedValueOnce({ ok: true, value: detail("Latest", 2) });
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current.loading).toBe(true));
 
     rendererAuthorityFreshnessIndex.admitVisibility({
@@ -458,21 +446,15 @@ describe("Page Detail store realtime convergence", () => {
 
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Latest"));
     expect(mocks.readPageDetail).toHaveBeenCalledTimes(2);
-    expect(mocks.readPageDetail).toHaveBeenNthCalledWith(
-      2,
-      "project-1",
-      "page-1",
-      2,
-    );
+    expect(mocks.readPageDetail).toHaveBeenNthCalledWith(2, "project-1", "page-1", 2);
   });
 
   test("does not refetch when the initial checkpoint is covered by an in-flight read", async () => {
     const firstRead = deferred<{ ok: true; value: PageDetail }>();
     mocks.readPageDetail.mockReturnValueOnce(firstRead.promise);
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
 
     await act(async () => {
       publish({
@@ -500,10 +482,9 @@ describe("Page Detail store realtime convergence", () => {
     mocks.readPageDetail
       .mockReturnValueOnce(firstRead.promise)
       .mockResolvedValueOnce({ ok: true, value: detail("Latest", 2) });
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
 
     await act(async () => {
       publish({
@@ -529,10 +510,9 @@ describe("Page Detail store realtime convergence", () => {
   test("does not reread when an in-flight canonical snapshot covers the impact", async () => {
     const firstRead = deferred<{ ok: true; value: PageDetail }>();
     mocks.readPageDetail.mockReturnValueOnce(firstRead.promise);
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
 
     await act(async () => {
       publish(pageEvent("page-1", 2));
@@ -553,10 +533,9 @@ describe("Page Detail store realtime convergence", () => {
         ok: true,
         value: detail("Restored Store", 1, "epoch-2"),
       });
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
     await waitFor(() => {
       expect(result.current.detail?.page.title).toBe("Before restore");
     });
@@ -578,10 +557,9 @@ describe("Page Detail store realtime convergence", () => {
         error: { code: "page_not_found", message: "Page not found" },
       })
       .mockResolvedValueOnce({ ok: true, value: detail("Restored", 2) });
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current.error).toBe("Page not found"));
 
     await act(async () => {
@@ -596,10 +574,9 @@ describe("Page Detail store realtime convergence", () => {
   test("evicts a revoked Page immediately and fences an older in-flight read", async () => {
     const staleRead = deferred<{ ok: true; value: PageDetail }>();
     mocks.readPageDetail.mockReturnValueOnce(staleRead.promise);
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
 
     await waitFor(() => expect(result.current.loading).toBe(true));
     await act(async () => {
@@ -634,10 +611,9 @@ describe("Page Detail store realtime convergence", () => {
         ]),
       })
       .mockResolvedValueOnce({ ok: true, value: detail("Still readable", 2) });
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Before"));
     await act(async () => {
       rendererAuthorityFreshnessIndex.admitVisibility({
@@ -670,10 +646,9 @@ describe("Page Detail store realtime convergence", () => {
         ]),
       })
       .mockRejectedValueOnce(new Error("canonical read unavailable"));
-    const { result } = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const { result } = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
     await waitFor(() => expect(result.current.detail?.page.title).toBe("Before"));
     await act(async () => {
       rendererAuthorityFreshnessIndex.admitVisibility({
@@ -711,10 +686,9 @@ describe("Page Detail store realtime convergence", () => {
     unmount();
     expect(getPageDetail("project-1", "page-1")?.page.title).toBe("Open");
 
-    const remounted = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-1"),
-      { wrapper },
-    );
+    const remounted = renderHook(() => usePageDetail("library-1", "project-1", "page-1"), {
+      wrapper,
+    });
     expect(remounted.result.current.detail?.page.title).toBe("Open");
     expect(mocks.readPageDetail).toHaveBeenCalledTimes(1);
     remounted.unmount();
@@ -741,24 +715,21 @@ describe("Page Detail store realtime convergence", () => {
         value: pageCEdited,
       });
 
-    const mountedA = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-a"),
-      { wrapper },
-    );
+    const mountedA = renderHook(() => usePageDetail("library-1", "project-1", "page-a"), {
+      wrapper,
+    });
     await waitFor(() => expect(mountedA.result.current.detail?.page.title).toBe("Page A"));
     mountedA.unmount();
 
-    const mountedB = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-b"),
-      { wrapper },
-    );
+    const mountedB = renderHook(() => usePageDetail("library-1", "project-1", "page-b"), {
+      wrapper,
+    });
     await waitFor(() => expect(mountedB.result.current.detail?.page.title).toBe("Page B"));
     mountedB.unmount();
 
-    const mountedC = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-c"),
-      { wrapper },
-    );
+    const mountedC = renderHook(() => usePageDetail("library-1", "project-1", "page-c"), {
+      wrapper,
+    });
     await waitFor(() => expect(mountedC.result.current.detail?.page.title).toBe("Page C"));
 
     await act(async () => {
@@ -770,10 +741,9 @@ describe("Page Detail store realtime convergence", () => {
       expect(mountedC.result.current.detail?.page.title).toBe("Page C edited");
     });
 
-    const remountedA = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-a"),
-      { wrapper },
-    );
+    const remountedA = renderHook(() => usePageDetail("library-1", "project-1", "page-a"), {
+      wrapper,
+    });
     expect(remountedA.result.current).toMatchObject({
       detail: { page: { title: "Page A" } },
       loading: false,
@@ -782,10 +752,9 @@ describe("Page Detail store realtime convergence", () => {
     expect(mocks.readPageDetail).toHaveBeenCalledTimes(4);
     remountedA.unmount();
 
-    const remountedB = renderHook(
-      () => usePageDetail("library-1", "project-1", "page-b"),
-      { wrapper },
-    );
+    const remountedB = renderHook(() => usePageDetail("library-1", "project-1", "page-b"), {
+      wrapper,
+    });
     expect(remountedB.result.current).toMatchObject({
       detail: { page: { title: "Page B" } },
       loading: false,

@@ -1,10 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import type { DatabasePropertyOption } from "../../../shared/database-kernel";
 import { createCustomOptionId } from "../../../shared/database-identities";
 import { MAX_PAGE_TITLE_LENGTH } from "../../../shared/page-limits";
@@ -48,12 +42,7 @@ import { createBoardPage } from "@/lib/board-page-create-command";
 import { BOARD_PRIORITY_OPTIONS } from "@/lib/board-options";
 import { StatusIcon } from "@/lib/status-presentation";
 import { defaultDataSourcePropertyOptionColor } from "@/lib/data-source-property-options";
-import {
-  estimateOptions,
-  type Estimate,
-  type Priority,
-  type WorkflowStatus,
-} from "@/lib/types";
+import { estimateOptions, type Estimate, type Priority, type WorkflowStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { appScope, useScopeHandle } from "@/lib/maitai";
 import type { ModalCloseProps } from "@/lib/modal-registry";
@@ -71,16 +60,17 @@ interface PageCreateDialogPropsBase extends ModalCloseProps {
   readonly expandRequestId?: string;
 }
 
-export type PageCreateDialogProps = PageCreateDialogPropsBase & (
-  | {
-      readonly restoredSnapshot: PageCreateDraftSnapshot;
-      readonly seed?: never;
-    }
-  | {
-      readonly restoredSnapshot?: undefined;
-      readonly seed?: PageCreateSeed;
-    }
-);
+export type PageCreateDialogProps = PageCreateDialogPropsBase &
+  (
+    | {
+        readonly restoredSnapshot: PageCreateDraftSnapshot;
+        readonly seed?: never;
+      }
+    | {
+        readonly restoredSnapshot?: undefined;
+        readonly seed?: PageCreateSeed;
+      }
+  );
 
 const formatError = (cause: unknown): string => {
   if (cause instanceof Error && cause.message.trim()) return cause.message;
@@ -111,16 +101,16 @@ const INITIAL_PAGE_CREATE_NESTED_SURFACES: Record<PageCreateNestedSurface, boole
   tags: false,
 };
 
-const PAGE_CREATE_PRIORITY_OPTIONS: readonly DatabasePropertyOption[] =
-  BOARD_PRIORITY_OPTIONS.map((option) => ({
+const PAGE_CREATE_PRIORITY_OPTIONS: readonly DatabasePropertyOption[] = BOARD_PRIORITY_OPTIONS.map(
+  (option) => ({
     id: option.value,
     name: option.label,
-  }));
+  }),
+);
 
-const PAGE_CREATE_ESTIMATE_OPTIONS: readonly DatabasePropertyOption[] =
-  estimateOptions.flatMap((option) => option.value === "none"
-    ? []
-    : [{ id: option.value, name: option.label }]);
+const PAGE_CREATE_ESTIMATE_OPTIONS: readonly DatabasePropertyOption[] = estimateOptions.flatMap(
+  (option) => (option.value === "none" ? [] : [{ id: option.value, name: option.label }]),
+);
 
 function PageCreateDialogContent({
   requestId,
@@ -138,7 +128,7 @@ function PageCreateDialogContent({
   const pendingRef = useRef(false);
   const restoredTagOptionsRef = useRef(createRestoredTagOptions(restoredSnapshot));
   const initialStatus = target.columns.some((column) => column.id === restoredSnapshot?.status)
-    ? restoredSnapshot?.status ?? origin.columnId
+    ? (restoredSnapshot?.status ?? origin.columnId)
     : origin.columnId;
   const [title, setTitle] = useState(restoredSnapshot?.title ?? seed?.title ?? "");
   const [status, setStatus] = useState<WorkflowStatus>(initialStatus);
@@ -150,30 +140,19 @@ function PageCreateDialogContent({
   const [selectedTagIds, setSelectedTagIds] = useState<readonly string[]>(
     restoredTagOptionsRef.current.map((option) => option.id),
   );
-  const [descriptionDraft, setDescriptionDraft] = useState<PageCreateDescriptionDraft>(
-    () => createPageCreateDescriptionDraft(
-      requestId,
-      0,
-      restoredSnapshot?.descriptionNfm ?? "",
-    ),
+  const [descriptionDraft, setDescriptionDraft] = useState<PageCreateDescriptionDraft>(() =>
+    createPageCreateDescriptionDraft(requestId, 0, restoredSnapshot?.descriptionNfm ?? ""),
   );
   const [createMore, setCreateMore] = useState(restoredSnapshot?.createMore ?? false);
-  const [expanded, setExpanded] = useState(
-    restoredSnapshot?.expanded ?? initialExpanded,
-  );
+  const [expanded, setExpanded] = useState(restoredSnapshot?.expanded ?? initialExpanded);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [nestedSurfaces, setNestedSurfaces] = useState(
-    INITIAL_PAGE_CREATE_NESTED_SURFACES,
-  );
+  const [nestedSurfaces, setNestedSurfaces] = useState(INITIAL_PAGE_CREATE_NESTED_SURFACES);
   useEffect(() => {
     if (expandRequestId) setExpanded(true);
   }, [expandRequestId]);
   const nestedSurfaceOpen = Object.values(nestedSurfaces).some(Boolean);
-  const setNestedSurfaceOpen = (
-    surface: PageCreateNestedSurface,
-    open: boolean,
-  ) => {
+  const setNestedSurfaceOpen = (surface: PageCreateNestedSurface, open: boolean) => {
     setNestedSurfaces((current) => {
       if (current[surface] === open) return current;
       return { ...current, [surface]: open };
@@ -187,30 +166,33 @@ function PageCreateDialogContent({
   });
   const tagsProperty = capabilities.tagsProperty;
   const persistedTagOptions = tagsProperty
-    ? optionRegistries.options[tagsProperty.propertyId] ?? []
+    ? (optionRegistries.options[tagsProperty.propertyId] ?? [])
     : [];
   const tagOptions = [...persistedTagOptions, ...draftTagOptions];
   const statusOptions: readonly DatabasePropertyOption[] = target.columns.map((column) => ({
     id: column.id,
     name: column.name,
   }));
-  const baselineRef = useRef<PageCreateDraftSnapshot>(restoredSnapshot
-    ? { ...restoredSnapshot, status: initialStatus }
-    : createEmptyPageCreateDraftSnapshot(initialStatus));
+  const baselineRef = useRef<PageCreateDraftSnapshot>(
+    restoredSnapshot
+      ? { ...restoredSnapshot, status: initialStatus }
+      : createEmptyPageCreateDraftSnapshot(initialStatus),
+  );
 
   useEffect(() => () => descriptionDraft.document.destroy(), [descriptionDraft]);
 
-  const captureSnapshot = (): PageCreateDraftSnapshot => capturePageCreateDraftSnapshot({
-    title,
-    descriptionDraft,
-    status,
-    priority,
-    estimate,
-    selectedTagIds,
-    tagOptions,
-    createMore,
-    expanded,
-  });
+  const captureSnapshot = (): PageCreateDraftSnapshot =>
+    capturePageCreateDraftSnapshot({
+      title,
+      descriptionDraft,
+      status,
+      priority,
+      estimate,
+      selectedTagIds,
+      tagOptions,
+      createMore,
+      expanded,
+    });
 
   const closeAndRestoreFocus = (createdPageId?: string) => {
     if (pendingRef.current) return;
@@ -238,11 +220,12 @@ function PageCreateDialogContent({
       duration: 10_000,
       action: {
         label: "Restore",
-        onClick: () => restorePageCreateDraft(appHandle, {
-          target,
-          origin,
-          snapshot,
-        }),
+        onClick: () =>
+          restorePageCreateDraft(appHandle, {
+            target,
+            origin,
+            snapshot,
+          }),
       },
     });
   };
@@ -258,10 +241,9 @@ function PageCreateDialogContent({
     baselineRef.current = nextBaseline;
     setTitle("");
     setError(null);
-    setDescriptionDraft((current) => createPageCreateDescriptionDraft(
-      requestId,
-      current.generation + 1,
-    ));
+    setDescriptionDraft((current) =>
+      createPageCreateDescriptionDraft(requestId, current.generation + 1),
+    );
     requestAnimationFrame(() => titleInputRef.current?.focus());
   };
 
@@ -341,9 +323,7 @@ function PageCreateDialogContent({
         style={{
           width: `min(${layout.width}px, calc(100vw - 24px))`,
           top: `calc(36px + ${layout.topViewportPercent}vh)`,
-          height: layout.fillsAvailableHeight
-            ? "calc(100vh - 36px - 12vh)"
-            : undefined,
+          height: layout.fillsAvailableHeight ? "calc(100vh - 36px - 12vh)" : undefined,
         }}
         className="left-1/2 -translate-x-1/2 translate-y-0 max-w-[calc(100vw-24px)] rounded-[22px] transition-[top,width] duration-150 ease-out motion-reduce:transition-none"
         onOpenAutoFocus={(event) => {
@@ -394,9 +374,11 @@ function PageCreateDialogContent({
                 onClick={() => setExpanded((current) => !current)}
                 className="grid size-7 place-items-center rounded-full text-token-description-foreground outline-none hover:bg-token-foreground/5 hover:text-token-foreground focus-visible:ring-2 focus-visible:ring-token-focus disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {expanded
-                  ? <ExpandPanelIcon className="icon-xs" />
-                  : <RestorePanelIcon className="icon-xs" />}
+                {expanded ? (
+                  <ExpandPanelIcon className="icon-xs" />
+                ) : (
+                  <RestorePanelIcon className="icon-xs" />
+                )}
               </button>
               <NodexDialogClose asChild>
                 <button
@@ -411,10 +393,7 @@ function PageCreateDialogContent({
             </div>
           </header>
 
-          <div className={cn(
-            "mx-4 flex min-h-0 flex-col",
-            expanded ? "flex-1" : "",
-          )}>
+          <div className={cn("mx-4 flex min-h-0 flex-col", expanded ? "flex-1" : "")}>
             <label htmlFor={`page-create-title-${requestId}`} className="sr-only">
               Page title
             </label>
@@ -427,17 +406,21 @@ function PageCreateDialogContent({
               onChange={(event) => setTitle(event.target.value)}
               onKeyDown={(event) => {
                 if (event.nativeEvent.isComposing) return;
-                if (event.key !== "Enter" || event.metaKey || event.ctrlKey || event.shiftKey) return;
+                if (event.key !== "Enter" || event.metaKey || event.ctrlKey || event.shiftKey)
+                  return;
                 event.preventDefault();
                 descriptionNavigationRef.current?.focus();
               }}
               placeholder="Page title"
               className="w-full shrink-0 bg-transparent px-1 py-0 text-[18px]/[28.8px] font-semibold tracking-[-0.1px] text-token-foreground outline-none placeholder:text-token-description-foreground/65 disabled:opacity-60"
             />
-            <div className={cn(
-              "min-h-[79px] overflow-y-auto px-1 pb-3 pt-1.5 text-[15px]/6 font-normal",
-              expanded ? "flex-1" : "max-h-[min(360px,38vh)]",
-            )} style={{ minHeight: layout.minimumWritingHeight }}>
+            <div
+              className={cn(
+                "min-h-[79px] overflow-y-auto px-1 pb-3 pt-1.5 text-[15px]/6 font-normal",
+                expanded ? "flex-1" : "max-h-[min(360px,38vh)]",
+              )}
+              style={{ minHeight: layout.minimumWritingHeight }}
+            >
               <PageCreateDescriptionEditor
                 draft={descriptionDraft}
                 navigationRef={descriptionNavigationRef}
@@ -483,9 +466,9 @@ function PageCreateDialogContent({
                 selectedId={priority}
                 disabled={saving}
                 presentation="chip"
-                triggerPrefix={(
+                triggerPrefix={
                   <PriorityIcon className="icon-xs shrink-0 text-token-description-foreground" />
-                )}
+                }
                 searchPlaceholder="Change priority…"
                 searchLeading={null}
                 contentClassName="w-[min(220px,calc(100vw-16px))]"
@@ -510,9 +493,9 @@ function PageCreateDialogContent({
                 selectedId={estimate}
                 disabled={saving}
                 presentation="chip"
-                triggerPrefix={(
+                triggerPrefix={
                   <EstimateIcon className="icon-xs shrink-0 text-token-description-foreground" />
-                )}
+                }
                 searchPlaceholder="Change estimate…"
                 searchLeading={null}
                 contentClassName="w-[min(220px,calc(100vw-16px))]"
@@ -533,7 +516,9 @@ function PageCreateDialogContent({
                 label="Tags"
                 mode="multiple"
                 presentation="chip"
-                triggerPrefix={<TagIcon className="icon-xs shrink-0 text-token-description-foreground" />}
+                triggerPrefix={
+                  <TagIcon className="icon-xs shrink-0 text-token-description-foreground" />
+                }
                 options={tagOptions}
                 selectedIds={selectedTagIds}
                 disabled={saving}

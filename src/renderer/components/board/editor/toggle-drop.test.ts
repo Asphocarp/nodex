@@ -27,9 +27,8 @@ function createTarget({
   headerRect?: { top: number; bottom: number; left: number; right: number };
 }): { target: Closable; outer: ToggleOuterMock } {
   const wrapper = {
-    getAttribute: (name: string) => (name === "data-show-children"
-      ? (collapsed ? "false" : "true")
-      : null),
+    getAttribute: (name: string) =>
+      name === "data-show-children" ? (collapsed ? "false" : "true") : null,
     closest: (selector: string) => (selector === ".bn-block-content" ? blockContent : null),
   };
 

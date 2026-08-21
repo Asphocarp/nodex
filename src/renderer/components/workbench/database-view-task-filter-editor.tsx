@@ -20,8 +20,7 @@ interface DatabaseViewTaskFilterEditorProps {
   readonly onChange: (state: DatabaseTaskFilterState) => void;
 }
 
-const ROW_LABEL =
-  "w-18 shrink-0 pt-1 text-xs text-token-description-foreground select-none";
+const ROW_LABEL = "w-18 shrink-0 pt-1 text-xs text-token-description-foreground select-none";
 const CHIP_CLASS = cn(
   "h-6 rounded-md px-2 text-xs font-medium",
   "text-token-description-foreground hover:bg-token-foreground/5 hover:text-token-foreground",
@@ -58,15 +57,17 @@ export function DatabaseViewTaskFilterEditor({
   const updateGroup = (
     groupIndex: number,
     update: (group: DatabaseTaskFilterGroup) => DatabaseTaskFilterGroup,
-  ) => onChange({
-    groups: state.groups.map((group, index) =>
-      index === groupIndex ? update(group) : group),
-  });
-  const removeGroup = (groupIndex: number) => onChange({
-    groups: state.groups.length <= 1
-      ? [createDefaultDatabaseTaskFilterGroup(capabilities)]
-      : state.groups.filter((_, index) => index !== groupIndex),
-  });
+  ) =>
+    onChange({
+      groups: state.groups.map((group, index) => (index === groupIndex ? update(group) : group)),
+    });
+  const removeGroup = (groupIndex: number) =>
+    onChange({
+      groups:
+        state.groups.length <= 1
+          ? [createDefaultDatabaseTaskFilterGroup(capabilities)]
+          : state.groups.filter((_, index) => index !== groupIndex),
+    });
 
   return (
     <>
@@ -79,12 +80,11 @@ export function DatabaseViewTaskFilterEditor({
           variant="ghost"
           disabled={disabled}
           className="ml-auto"
-          onClick={() => onChange({
-            groups: [
-              ...state.groups,
-              createDefaultDatabaseTaskFilterGroup(capabilities),
-            ],
-          })}
+          onClick={() =>
+            onChange({
+              groups: [...state.groups, createDefaultDatabaseTaskFilterGroup(capabilities)],
+            })
+          }
         >
           <PlusIcon /> Group
         </NodexButton>
@@ -124,13 +124,18 @@ export function DatabaseViewTaskFilterEditor({
                         aria-pressed={selected}
                         disabled={disabled}
                         className={cn(CHIP_CLASS, selected && CHIP_ACTIVE_CLASS)}
-                        onClick={() => updateGroup(groupIndex, (current) =>
-                          updateChoice(current, "status", (value) => ({
-                            selectedOptionIds: value.selectedOptionIds.includes(option.id)
-                              ? value.selectedOptionIds.filter((candidate) => candidate !== option.id)
-                              : [...value.selectedOptionIds, option.id],
-                            includeEmpty: false,
-                          })))}
+                        onClick={() =>
+                          updateGroup(groupIndex, (current) =>
+                            updateChoice(current, "status", (value) => ({
+                              selectedOptionIds: value.selectedOptionIds.includes(option.id)
+                                ? value.selectedOptionIds.filter(
+                                    (candidate) => candidate !== option.id,
+                                  )
+                                : [...value.selectedOptionIds, option.id],
+                              includeEmpty: false,
+                            })),
+                          )
+                        }
                       >
                         {option.name}
                       </NodexButton>
@@ -154,13 +159,18 @@ export function DatabaseViewTaskFilterEditor({
                         aria-pressed={selected}
                         disabled={disabled}
                         className={cn(CHIP_CLASS, selected && CHIP_ACTIVE_CLASS)}
-                        onClick={() => updateGroup(groupIndex, (current) =>
-                          updateChoice(current, "priority", (value) => ({
-                            ...value,
-                            selectedOptionIds: value.selectedOptionIds.includes(option.id)
-                              ? value.selectedOptionIds.filter((candidate) => candidate !== option.id)
-                              : [...value.selectedOptionIds, option.id],
-                          })))}
+                        onClick={() =>
+                          updateGroup(groupIndex, (current) =>
+                            updateChoice(current, "priority", (value) => ({
+                              ...value,
+                              selectedOptionIds: value.selectedOptionIds.includes(option.id)
+                                ? value.selectedOptionIds.filter(
+                                    (candidate) => candidate !== option.id,
+                                  )
+                                : [...value.selectedOptionIds, option.id],
+                            })),
+                          )
+                        }
                       >
                         {option.name}
                       </NodexButton>
@@ -173,11 +183,14 @@ export function DatabaseViewTaskFilterEditor({
                     aria-pressed={group.priority.includeEmpty}
                     disabled={disabled}
                     className={cn(CHIP_CLASS, group.priority.includeEmpty && CHIP_ACTIVE_CLASS)}
-                    onClick={() => updateGroup(groupIndex, (current) =>
-                      updateChoice(current, "priority", (value) => ({
-                        ...value,
-                        includeEmpty: !value.includeEmpty,
-                      })))}
+                    onClick={() =>
+                      updateGroup(groupIndex, (current) =>
+                        updateChoice(current, "priority", (value) => ({
+                          ...value,
+                          includeEmpty: !value.includeEmpty,
+                        })),
+                      )
+                    }
                   >
                     Empty
                   </NodexButton>
@@ -192,7 +205,9 @@ export function DatabaseViewTaskFilterEditor({
                   <DatabaseViewSelect
                     ariaLabel={`Tag filter mode ${groupIndex + 1}`}
                     value={group.tags.mode}
-                    valueLabel={group.tags.mode === "any" ? "Any" : group.tags.mode === "all" ? "All" : "None"}
+                    valueLabel={
+                      group.tags.mode === "any" ? "Any" : group.tags.mode === "all" ? "All" : "None"
+                    }
                     options={[
                       { value: "any", label: "Any" },
                       { value: "all", label: "All" },
@@ -200,38 +215,48 @@ export function DatabaseViewTaskFilterEditor({
                     ]}
                     disabled={disabled}
                     className="w-18"
-                    onValueChange={(mode) => updateGroup(groupIndex, (current) =>
-                      updateTags(current, (value) => ({
-                        ...value,
-                        mode: mode as DatabaseTaskTagMode,
-                      })))}
+                    onValueChange={(mode) =>
+                      updateGroup(groupIndex, (current) =>
+                        updateTags(current, (value) => ({
+                          ...value,
+                          mode: mode as DatabaseTaskTagMode,
+                        })),
+                      )
+                    }
                   />
                   {capabilities.tags.options.length === 0 ? (
                     <span className="pt-1 text-xs italic text-token-description-foreground">
                       No tags in project
                     </span>
-                  ) : capabilities.tags.options.map((option) => {
-                    const selected = group.tags?.selectedOptionIds.includes(option.id) ?? false;
-                    return (
-                      <NodexButton
-                        key={option.id}
-                        size="xs"
-                        variant="ghost"
-                        aria-pressed={selected}
-                        disabled={disabled}
-                        className={cn(CHIP_CLASS, selected && CHIP_ACTIVE_CLASS)}
-                        onClick={() => updateGroup(groupIndex, (current) =>
-                          updateTags(current, (value) => ({
-                            ...value,
-                            selectedOptionIds: value.selectedOptionIds.includes(option.id)
-                              ? value.selectedOptionIds.filter((candidate) => candidate !== option.id)
-                              : [...value.selectedOptionIds, option.id],
-                          })))}
-                      >
-                        {option.name}
-                      </NodexButton>
-                    );
-                  })}
+                  ) : (
+                    capabilities.tags.options.map((option) => {
+                      const selected = group.tags?.selectedOptionIds.includes(option.id) ?? false;
+                      return (
+                        <NodexButton
+                          key={option.id}
+                          size="xs"
+                          variant="ghost"
+                          aria-pressed={selected}
+                          disabled={disabled}
+                          className={cn(CHIP_CLASS, selected && CHIP_ACTIVE_CLASS)}
+                          onClick={() =>
+                            updateGroup(groupIndex, (current) =>
+                              updateTags(current, (value) => ({
+                                ...value,
+                                selectedOptionIds: value.selectedOptionIds.includes(option.id)
+                                  ? value.selectedOptionIds.filter(
+                                      (candidate) => candidate !== option.id,
+                                    )
+                                  : [...value.selectedOptionIds, option.id],
+                              })),
+                            )
+                          }
+                        >
+                          {option.name}
+                        </NodexButton>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             ) : null}

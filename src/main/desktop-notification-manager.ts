@@ -22,7 +22,9 @@ interface DesktopNotificationInstance {
 
 export interface DesktopNotificationManagerOptions {
   isSupported?: () => boolean;
-  createNotification?: (input: Electron.NotificationConstructorOptions) => DesktopNotificationInstance;
+  createNotification?: (
+    input: Electron.NotificationConstructorOptions,
+  ) => DesktopNotificationInstance;
   platform?: NodeJS.Platform;
   logger?: Pick<Console, "warn">;
 }
@@ -103,13 +105,11 @@ export class DesktopNotificationManager {
 
     const actions = (notification.actions ?? []).slice(0, MAX_ACTIONS);
     const hasReply =
-      notification.kind === "turn-complete"
-      && typeof notification.replyPlaceholder === "string"
-      && notification.replyPlaceholder.trim().length > 0;
+      notification.kind === "turn-complete" &&
+      typeof notification.replyPlaceholder === "string" &&
+      notification.replyPlaceholder.trim().length > 0;
     const timeoutType =
-      notification.kind === "permission" || notification.kind === "question"
-        ? "never"
-        : undefined;
+      notification.kind === "permission" || notification.kind === "question" ? "never" : undefined;
 
     const occurrenceId = notification.occurrenceId ?? notification.id;
     this.removeNotification(occurrenceId, true);

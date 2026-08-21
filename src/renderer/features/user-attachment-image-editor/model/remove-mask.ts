@@ -21,40 +21,28 @@ const EMPTY_REMOVE_HISTORY: RemoveHistory = Object.freeze({
 
 function normalizeBrushSize(brushSize: number): number {
   if (!Number.isFinite(brushSize)) return IMAGE_REMOVE_BRUSH_DEFAULT;
-  return Math.min(
-    IMAGE_REMOVE_BRUSH_MAX,
-    Math.max(IMAGE_REMOVE_BRUSH_MIN, brushSize),
-  );
+  return Math.min(IMAGE_REMOVE_BRUSH_MAX, Math.max(IMAGE_REMOVE_BRUSH_MIN, brushSize));
 }
 
 export function createRemoveHistory(): RemoveHistory {
   return EMPTY_REMOVE_HISTORY;
 }
 
-export function createRemoveStroke(args: {
-  brushSize: number;
-  point: ImagePoint;
-}): RemoveStroke {
+export function createRemoveStroke(args: { brushSize: number; point: ImagePoint }): RemoveStroke {
   return {
     brushSize: normalizeBrushSize(args.brushSize),
     points: [args.point],
   };
 }
 
-export function appendRemoveStrokePoint(
-  stroke: RemoveStroke,
-  point: ImagePoint,
-): RemoveStroke {
+export function appendRemoveStrokePoint(stroke: RemoveStroke, point: ImagePoint): RemoveStroke {
   return {
     ...stroke,
     points: [...stroke.points, point],
   };
 }
 
-export function commitRemoveStroke(
-  history: RemoveHistory,
-  stroke: RemoveStroke,
-): RemoveHistory {
+export function commitRemoveStroke(history: RemoveHistory, stroke: RemoveStroke): RemoveHistory {
   if (stroke.points.length === 0) return history;
 
   return {
@@ -108,22 +96,14 @@ export function computeRemoveBrushCssPixels(args: {
   naturalImageSize: ImageSize | null | undefined;
 }): number {
   if (!isValidImageSize(args.naturalImageSize)) return 0;
-  if (
-    !Number.isFinite(args.displayedImageWidth) ||
-    args.displayedImageWidth <= 0
-  )
-    return 0;
+  if (!Number.isFinite(args.displayedImageWidth) || args.displayedImageWidth <= 0) return 0;
 
   return (
-    (computeRemoveBrushNaturalPixels(args) * args.displayedImageWidth) /
-    args.naturalImageSize.width
+    (computeRemoveBrushNaturalPixels(args) * args.displayedImageWidth) / args.naturalImageSize.width
   );
 }
 
-function toNaturalPoint(
-  point: ImagePoint,
-  naturalImageSize: ImageSize,
-): ImagePoint {
+function toNaturalPoint(point: ImagePoint, naturalImageSize: ImageSize): ImagePoint {
   return {
     x: point.x * naturalImageSize.width,
     y: point.y * naturalImageSize.height,
@@ -175,9 +155,7 @@ export function buildRemoveMaskDrawingPlan(args: {
 
   return {
     background: "black",
-    commands: args.strokes.flatMap((stroke) =>
-      buildStrokeCommands(stroke, naturalImageSize),
-    ),
+    commands: args.strokes.flatMap((stroke) => buildStrokeCommands(stroke, naturalImageSize)),
     height: naturalImageSize.height,
     mimeType: "image/png",
     strokeColor: "white",

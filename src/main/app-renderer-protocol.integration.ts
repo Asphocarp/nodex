@@ -1,16 +1,8 @@
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { build } from "esbuild";
-import {
-  _electron as electron,
-  type ElectronApplication,
-} from "playwright";
+import { _electron as electron, type ElectronApplication } from "playwright";
 import { afterEach, describe, expect, test } from "vitest";
 import { APP_RENDERER_URL } from "../shared/app-renderer-policy";
 
@@ -24,9 +16,7 @@ afterEach(() => {
 
 describe("production app renderer origin", () => {
   test("loads as a secure context with Web Crypto", async () => {
-    const outputDirectory = mkdtempSync(
-      path.join(tmpdir(), "nodex-app-origin-integration-"),
-    );
+    const outputDirectory = mkdtempSync(path.join(tmpdir(), "nodex-app-origin-integration-"));
     temporaryDirectories.push(outputDirectory);
     await build({
       bundle: true,
@@ -59,12 +49,14 @@ describe("production app renderer origin", () => {
       });
       const page = await application.firstWindow();
       await expect.poll(() => page.url()).toBe(APP_RENDERER_URL);
-      await expect(page.evaluate(() => ({
-        origin: location.origin,
-        randomUuidType: typeof crypto.randomUUID,
-        secure: isSecureContext,
-        subtleType: typeof crypto.subtle,
-      }))).resolves.toEqual({
+      await expect(
+        page.evaluate(() => ({
+          origin: location.origin,
+          randomUuidType: typeof crypto.randomUUID,
+          secure: isSecureContext,
+          subtleType: typeof crypto.subtle,
+        })),
+      ).resolves.toEqual({
         origin: "app://-",
         randomUuidType: "function",
         secure: true,

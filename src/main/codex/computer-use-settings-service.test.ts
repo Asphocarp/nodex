@@ -56,7 +56,9 @@ describe("ComputerUseSettingsService", () => {
     const service = new ComputerUseSettingsService({
       alwaysHidePictureInPicture: {
         get: () => alwaysHide,
-        set: (value) => { alwaysHide = value; },
+        set: (value) => {
+          alwaysHide = value;
+        },
       },
       exec: exec as never,
       getRuntimeResult: () => ({
@@ -101,10 +103,12 @@ describe("ComputerUseSettingsService", () => {
 
     expect(snapshot).toEqual({
       alwaysHidePictureInPicture: true,
-      approvedApps: [{
-        bundleIdentifier: "com.apple.Safari",
-        displayName: "com.apple.Safari",
-      }],
+      approvedApps: [
+        {
+          bundleIdentifier: "com.apple.Safari",
+          displayName: "com.apple.Safari",
+        },
+      ],
       approvedMessageThreads: [
         { chatGuid: "guid1", displayName: "Alice" },
         { chatGuid: "guid2", displayName: "Work" },
@@ -134,7 +138,9 @@ describe("ComputerUseSettingsService", () => {
     const service = new ComputerUseSettingsService({
       alwaysHidePictureInPicture: {
         get: () => alwaysHide,
-        set: (value) => { alwaysHide = value; },
+        set: (value) => {
+          alwaysHide = value;
+        },
       },
       exec: exec as never,
       getRuntimeResult: () => ({
@@ -181,19 +187,21 @@ describe("ComputerUseSettingsService", () => {
     await service.setSoundMode("off");
     await service.setLockedUseEnabled(false);
 
-    expect(JSON.parse(readFileSync(
-      path.join(settingsDirectory, "ComputerUseAppApprovals.json"),
-      "utf8",
-    ))).toEqual({ approvedBundleIdentifiers: ["two"] });
-    expect(JSON.parse(readFileSync(
-      path.join(settingsDirectory, "MessagesSendApprovals.json"),
-      "utf8",
-    ))).toEqual({ approvedChats: { second: "Second" } });
+    expect(
+      JSON.parse(
+        readFileSync(path.join(settingsDirectory, "ComputerUseAppApprovals.json"), "utf8"),
+      ),
+    ).toEqual({ approvedBundleIdentifiers: ["two"] });
+    expect(
+      JSON.parse(readFileSync(path.join(settingsDirectory, "MessagesSendApprovals.json"), "utf8")),
+    ).toEqual({ approvedChats: { second: "Second" } });
     expect(alwaysHide).toBe(true);
-    expect(exec).toHaveBeenCalledWith(
-      "/usr/bin/defaults",
-      ["write", "com.openai.sky.CUAService", "computerUseSoundMode", "off"],
-    );
+    expect(exec).toHaveBeenCalledWith("/usr/bin/defaults", [
+      "write",
+      "com.openai.sky.CUAService",
+      "computerUseSoundMode",
+      "off",
+    ]);
     expect(exec).toHaveBeenCalledWith(
       path.join(
         "/canonical/Codex Computer Use.app",
@@ -233,10 +241,7 @@ describe("ComputerUseSettingsService", () => {
     const homeDirectory = createTemporaryHome();
     const settingsDirectory = approvalsDirectory(homeDirectory);
     mkdirSync(settingsDirectory, { recursive: true });
-    const approvalsPath = path.join(
-      settingsDirectory,
-      "ComputerUseAppApprovals.json",
-    );
+    const approvalsPath = path.join(settingsDirectory, "ComputerUseAppApprovals.json");
     writeFileSync(
       approvalsPath,
       JSON.stringify({ approvedBundleIdentifiers: ["one", "two", "three"] }),
@@ -250,10 +255,7 @@ describe("ComputerUseSettingsService", () => {
       readConfigRequirements: async () => ({ requirements: null }),
     });
 
-    await Promise.all([
-      service.removeAppApproval("one"),
-      service.removeAppApproval("two"),
-    ]);
+    await Promise.all([service.removeAppApproval("one"), service.removeAppApproval("two")]);
 
     expect(JSON.parse(readFileSync(approvalsPath, "utf8"))).toEqual({
       approvedBundleIdentifiers: ["three"],

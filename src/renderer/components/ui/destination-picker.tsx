@@ -71,12 +71,7 @@ export function NodexDestinationPicker({
         />
       </div>
       <div className="notion-scroller vertical h-[374px] min-h-0 overflow-y-auto pb-3">
-        <div
-          id={listboxId}
-          role="listbox"
-          aria-labelledby={inputId}
-          aria-busy={busy}
-        >
+        <div id={listboxId} role="listbox" aria-labelledby={inputId} aria-busy={busy}>
           {children}
         </div>
       </div>

@@ -12,13 +12,17 @@ describe("CodexShimmerText", () => {
     const { container } = render(<CodexShimmerText active={false}>Static</CodexShimmerText>);
 
     expect(textContent(container)).toBe("Static");
-    expect(container.querySelector("[data-codex-shimmer]")?.getAttribute("data-codex-shimmer")).toBe("static");
+    expect(
+      container.querySelector("[data-codex-shimmer]")?.getAttribute("data-codex-shimmer"),
+    ).toBe("static");
   });
 
   test("uses the Codex cadenced shimmer DOM when active", () => {
     const { container } = render(<CodexShimmerText>Loading</CodexShimmerText>);
 
-    expect(container.querySelector("[data-codex-shimmer='cadenced']")?.firstChild?.textContent ?? "").toBe("Loading");
+    expect(
+      container.querySelector("[data-codex-shimmer='cadenced']")?.firstChild?.textContent ?? "",
+    ).toBe("Loading");
     expect(Boolean(container.querySelector("[data-codex-shimmer-sweep='true']"))).toBe(true);
   });
 
@@ -35,7 +39,9 @@ describe("CodexShimmerText", () => {
   test("renders the optional cadenced shimmer overlay", () => {
     const { container } = render(<CodexShimmerText variant="cadenced">Loading</CodexShimmerText>);
 
-    expect(container.querySelector("[data-codex-shimmer]")?.getAttribute("data-codex-shimmer")).toBe("cadenced");
+    expect(
+      container.querySelector("[data-codex-shimmer]")?.getAttribute("data-codex-shimmer"),
+    ).toBe("cadenced");
     expect(Boolean(container.querySelector("[data-codex-shimmer-sweep='true']"))).toBe(true);
   });
 
@@ -47,7 +53,9 @@ describe("CodexShimmerText", () => {
     );
 
     expect(textContent(container)).toBe("Nested activity");
-    expect(container.querySelector("[data-codex-shimmer]")?.getAttribute("data-codex-shimmer")).toBe("static");
+    expect(
+      container.querySelector("[data-codex-shimmer]")?.getAttribute("data-codex-shimmer"),
+    ).toBe("static");
     expect(container.querySelector("[data-codex-shimmer-sweep]")).toBe(null);
   });
 

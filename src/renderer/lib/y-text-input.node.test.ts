@@ -8,9 +8,7 @@ import {
   reconcileYTextInputValues,
 } from "./y-text-input";
 
-const createTitle = (
-  value: string,
-): { readonly doc: Y.Doc; readonly text: Y.Text } => {
+const createTitle = (value: string): { readonly doc: Y.Doc; readonly text: Y.Text } => {
   const doc = new Y.Doc();
   const text = doc.getText("title");
   if (value.length > 0) text.insert(0, value);

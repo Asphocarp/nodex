@@ -105,9 +105,7 @@ describe("WorkbenchSessionView", () => {
       },
     });
     expect(migrated.panels).toEqual(beforePanel);
-    expect(
-      WorkbenchSessionViewSnapshotSchema.parse(migrated),
-    ).toEqual(migrated);
+    expect(WorkbenchSessionViewSnapshotSchema.parse(migrated)).toEqual(migrated);
   });
 
   test("removes the v3 synthetic Database layout from tab identity", () => {
@@ -153,20 +151,22 @@ describe("WorkbenchSessionView", () => {
     });
 
     expect(WorkbenchSessionViewSnapshotSchema.parse(valid)).toEqual(valid);
-    expect(() => WorkbenchSessionViewSnapshotSchema.parse({
-      ...valid,
-      tabsById: {
-        ...valid.tabsById,
-        "canvas-tab": {
-          ...valid.tabsById["canvas-tab"],
-          config: {
-            projectId: "project-1",
-            canvasBlockId: "canvas-1",
-            documentId: "private-document-id",
+    expect(() =>
+      WorkbenchSessionViewSnapshotSchema.parse({
+        ...valid,
+        tabsById: {
+          ...valid.tabsById,
+          "canvas-tab": {
+            ...valid.tabsById["canvas-tab"],
+            config: {
+              projectId: "project-1",
+              canvasBlockId: "canvas-1",
+              documentId: "private-document-id",
+            },
           },
         },
-      },
-    })).toThrow();
+      }),
+    ).toThrow();
   });
 
   test("materializes one initial Database view as a local right-panel tab", () => {
@@ -357,24 +357,27 @@ describe("WorkbenchSessionView", () => {
     const clonedTabs = Object.values(clone.tabsById);
 
     expect(Object.keys(clone.tabsById)).not.toEqual(Object.keys(source.tabsById));
-    expect(clonedTabs.find((tab) => tab.kind === "db_view")?.config)
-      .toMatchObject({ databaseViewId: "view-1" });
-    expect(clonedTabs.find((tab) => tab.kind === "terminal")?.config)
-      .toEqual({ terminalSessionId: "pty-1" });
-    expect(clonedTabs.find((tab) => tab.kind === "browser")?.config)
-      .toMatchObject({
-        url: "https://example.com",
-        deviceToolbarState: {
-          toolbarState: {
-            isEnabled: true,
-            presetId: "iphone-15-pro-max",
-          },
+    expect(clonedTabs.find((tab) => tab.kind === "db_view")?.config).toMatchObject({
+      databaseViewId: "view-1",
+    });
+    expect(clonedTabs.find((tab) => tab.kind === "terminal")?.config).toEqual({
+      terminalSessionId: "pty-1",
+    });
+    expect(clonedTabs.find((tab) => tab.kind === "browser")?.config).toMatchObject({
+      url: "https://example.com",
+      deviceToolbarState: {
+        toolbarState: {
+          isEnabled: true,
+          presetId: "iphone-15-pro-max",
         },
-      });
-    expect(clonedTabs.find((tab) => tab.kind === "browser")?.config)
-      .not.toMatchObject({ browserTabId: "browser-runtime" });
-    expect(clonedTabs.find((tab) => tab.kind === "browser")?.config)
-      .not.toMatchObject({ browserStorageId: "browser:storage-source" });
+      },
+    });
+    expect(clonedTabs.find((tab) => tab.kind === "browser")?.config).not.toMatchObject({
+      browserTabId: "browser-runtime",
+    });
+    expect(clonedTabs.find((tab) => tab.kind === "browser")?.config).not.toMatchObject({
+      browserStorageId: "browser:storage-source",
+    });
   });
 
   test("two windows over one shared Session diverge without changing the other", () => {
@@ -391,22 +394,26 @@ describe("WorkbenchSessionView", () => {
 
     expect(changedA.sessionId).toBe(windowB.sessionViewsBySessionId["session-1"]?.sessionId);
     expect(JSON.stringify(windowB)).toBe(beforeB);
-    expect(Object.values(changedA.tabsById).some((tab) =>
-      tab.kind === "page_stage" && tab.config.pageId === "shared-page"
-    )).toBe(true);
+    expect(
+      Object.values(changedA.tabsById).some(
+        (tab) => tab.kind === "page_stage" && tab.config.pageId === "shared-page",
+      ),
+    ).toBe(true);
   });
 
   test("rejects mismatched discriminated configs", () => {
     const view = materializedView();
     const tabId = Object.keys(view.tabsById)[0]!;
-    expect(() => WorkbenchSessionViewSnapshotSchema.parse({
-      ...view,
-      tabsById: {
-        [tabId]: {
-          ...view.tabsById[tabId],
-          kind: "terminal",
+    expect(() =>
+      WorkbenchSessionViewSnapshotSchema.parse({
+        ...view,
+        tabsById: {
+          [tabId]: {
+            ...view.tabsById[tabId],
+            kind: "terminal",
+          },
         },
-      },
-    })).toThrow();
+      }),
+    ).toThrow();
   });
 });

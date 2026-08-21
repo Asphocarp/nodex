@@ -49,8 +49,9 @@ describe("Canvas scene sync contract", () => {
       expected: { kind: "absent" },
       value: { kind: "value", value: 20 },
     });
-    expect(JSON.parse(encodeCanonicalCanvasSceneMutationRequest(canonical)))
-      .toMatchObject({ mutationId: "mutation-1" });
+    expect(JSON.parse(encodeCanonicalCanvasSceneMutationRequest(canonical))).toMatchObject({
+      mutationId: "mutation-1",
+    });
   });
 
   test("canonical request encoding is independent of input object key order", () => {
@@ -69,12 +70,13 @@ describe("Canvas scene sync contract", () => {
     );
     const intent = canonicalizeCanvasSceneMutationIntent(rawIntent);
 
-    expect(encodeCanonicalCanvasSceneMutationIntent(intent))
-      .not.toContain("clientSessionId");
-    expect(canonicalizeCanvasSceneMutationRequest({
-      ...intent,
-      clientSessionId: "replacement-window",
-    })).toMatchObject({
+    expect(encodeCanonicalCanvasSceneMutationIntent(intent)).not.toContain("clientSessionId");
+    expect(
+      canonicalizeCanvasSceneMutationRequest({
+        ...intent,
+        clientSessionId: "replacement-window",
+      }),
+    ).toMatchObject({
       mutationId: intent.mutationId,
       clientSessionId: "replacement-window",
     });

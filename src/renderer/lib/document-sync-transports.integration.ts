@@ -10,9 +10,7 @@ import type {
   DocumentSyncResponse,
   DocumentSyncSubscribeRequest,
 } from "../../shared/block-documents/document-sync";
-import {
-  type DocumentSyncClientTarget,
-} from "../../main/document-sync-transport";
+import { type DocumentSyncClientTarget } from "../../main/document-sync-transport";
 import type {
   DesktopDocumentSyncPort,
   DesktopDocumentSyncScope,
@@ -73,9 +71,7 @@ class MemoryDurableBackend {
   };
 
   applyDocumentMutation = async () => {
-    throw new Error(
-      "Document mutation is not exercised by this sync transport test",
-    );
+    throw new Error("Document mutation is not exercised by this sync transport test");
   };
 
   destroy(): void {
@@ -121,17 +117,13 @@ class MemoryDocumentRealtime implements MemoryRealtimePort {
   sync: MemoryRealtimePort["sync"] = async (_scope, _target, request) =>
     await this.backend.sync(request);
 
-  applyUpdate: MemoryRealtimePort["applyUpdate"] = async (
-    scope,
-    _target,
-    request,
-  ) => {
+  applyUpdate: MemoryRealtimePort["applyUpdate"] = async (scope, _target, request) => {
     const result = await this.backend.applyUpdate(request);
     if (!result.ok || result.value.duplicate) return result;
     for (const subscription of this.subscriptions.values()) {
       if (
-        JSON.stringify(subscription.scope) !== JSON.stringify(scope)
-        || subscription.request.documentId !== request.documentId
+        JSON.stringify(subscription.scope) !== JSON.stringify(scope) ||
+        subscription.request.documentId !== request.documentId
       ) {
         continue;
       }
@@ -156,8 +148,8 @@ class MemoryDocumentRealtime implements MemoryRealtimePort {
   ) => {
     for (const subscription of this.subscriptions.values()) {
       if (
-        JSON.stringify(subscription.scope) !== JSON.stringify(scope)
-        || subscription.request.documentId !== request.documentId
+        JSON.stringify(subscription.scope) !== JSON.stringify(scope) ||
+        subscription.request.documentId !== request.documentId
       ) {
         continue;
       }
@@ -220,7 +212,10 @@ class FakeElectronTarget extends EventEmitter implements DocumentSyncClientTarge
   private destroyed = false;
   readonly bridgeListeners = new Map<string, Set<(...args: unknown[]) => void>>();
 
-  constructor(readonly id: number, private readonly realtime: MemoryDocumentRealtime) {
+  constructor(
+    readonly id: number,
+    private readonly realtime: MemoryDocumentRealtime,
+  ) {
     super();
   }
 
@@ -245,11 +240,7 @@ class FakeElectronTarget extends EventEmitter implements DocumentSyncClientTarge
       return this.realtime.sync(scope, this, request);
     }
     if (channel === "document-sync:apply") {
-      return this.realtime.applyUpdate(
-        scope,
-        this,
-        request as unknown as DocumentSyncApplyRequest,
-      );
+      return this.realtime.applyUpdate(scope, this, request as unknown as DocumentSyncApplyRequest);
     }
     if (channel === "document-sync:awareness:publish") {
       return this.realtime.publishAwareness(scope, this, request as never);
@@ -302,9 +293,7 @@ const runConcurrentEdit = async (
     firstDocument.getText("title").insert(0, "A");
     secondDocument.getText("title").insert(0, "B");
     await Promise.all([first.flush(), second.flush()]);
-    await waitUntil(
-      () => first.getStatus().headSeq === 2 && second.getStatus().headSeq === 2,
-    );
+    await waitUntil(() => first.getStatus().headSeq === 2 && second.getStatus().headSeq === 2);
     return {
       merged: firstDocument.getText("title").toString(),
       first: firstDocument.getText("title").toString(),
@@ -322,16 +311,10 @@ describe("Document sync renderer IPC", () => {
   test("converges two independent Electron IPC provider surfaces", async () => {
     const backend = new MemoryDurableBackend();
     const realtime = new MemoryDocumentRealtime(backend);
-    const targets = [
-      new FakeElectronTarget(1, realtime),
-      new FakeElectronTarget(2, realtime),
-    ];
+    const targets = [new FakeElectronTarget(1, realtime), new FakeElectronTarget(2, realtime)];
     try {
       const result = await runConcurrentEdit((index) =>
-        createElectronDocumentSyncAdapter(
-          targets[index - 1]!.asBridge(),
-          "project-1",
-        ),
+        createElectronDocumentSyncAdapter(targets[index - 1]!.asBridge(), "project-1"),
       );
       expect(result.first).toBe(result.merged);
       expect(result.second).toBe(result.merged);
@@ -342,5 +325,4 @@ describe("Document sync renderer IPC", () => {
       backend.destroy();
     }
   });
-
 });

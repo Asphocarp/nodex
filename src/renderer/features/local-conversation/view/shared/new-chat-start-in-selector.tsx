@@ -1,9 +1,6 @@
 import { CloudOff } from "@/components/shared/icons/generic-icons";
 import { type ReactElement, type ReactNode } from "react";
-import {
-  LocalStatusIcon,
-  WorktreeStatusIcon,
-} from "@/components/shared/icons";
+import { LocalStatusIcon, WorktreeStatusIcon } from "@/components/shared/icons";
 import {
   NodexDropdownButtonTrigger,
   NodexDropdownItem,
@@ -72,34 +69,29 @@ export function NewChatStartInSelector({
   const triggerIconKey = getNewChatStartInTriggerIconKey(model.target.runInTarget);
   const triggerLabel = getNewChatStartInTriggerLabel(model.target.runInTarget);
   const repositoryName = model.repositoryName?.trim() || null;
-  const additionalSourceFolderCount = Math.max(
-    0,
-    model.additionalSourceFolderCount ?? 0,
+  const additionalSourceFolderCount = Math.max(0, model.additionalSourceFolderCount ?? 0);
+  const triggerButton = renderTrigger ? (
+    renderTrigger({
+      triggerLabel,
+      iconKey: triggerIconKey,
+      title: "Select where to run the task",
+      disabled: selectorDisabled,
+    })
+  ) : (
+    <NodexDropdownButtonTrigger
+      size="sm"
+      shape="pill"
+      muted
+      chrome="transparent"
+      disabled={selectorDisabled}
+      aria-label="Start in"
+      data-new-chat-start-in-trigger="true"
+      className="max-w-full px-1.5 text-token-text-tertiary hover:text-token-foreground"
+    >
+      <StartInIcon iconKey={triggerIconKey} />
+      <span className="max-w-40 truncate whitespace-nowrap text-left">{triggerLabel}</span>
+    </NodexDropdownButtonTrigger>
   );
-  const triggerButton = renderTrigger
-    ? renderTrigger({
-        triggerLabel,
-        iconKey: triggerIconKey,
-        title: "Select where to run the task",
-        disabled: selectorDisabled,
-      })
-    : (
-      <NodexDropdownButtonTrigger
-        size="sm"
-        shape="pill"
-        muted
-        chrome="transparent"
-        disabled={selectorDisabled}
-        aria-label="Start in"
-        data-new-chat-start-in-trigger="true"
-        className="max-w-full px-1.5 text-token-text-tertiary hover:text-token-foreground"
-      >
-        <StartInIcon iconKey={triggerIconKey} />
-        <span className="max-w-40 truncate whitespace-nowrap text-left">
-          {triggerLabel}
-        </span>
-      </NodexDropdownButtonTrigger>
-    );
 
   const menu = (
     <NodexDropdownMenu
@@ -118,24 +110,28 @@ export function NewChatStartInSelector({
       {options.map((option) => {
         const isWorktree = option.value === "newWorktree";
         const hasAdditionalSources = isWorktree && additionalSourceFolderCount > 0;
-        const label = hasAdditionalSources && repositoryName
-          ? `New worktree · ${repositoryName}`
-          : option.label;
+        const label =
+          hasAdditionalSources && repositoryName
+            ? `New worktree · ${repositoryName}`
+            : option.label;
         const subText = hasAdditionalSources
           ? `Work locally in ${additionalSourceFolderCount} other ${additionalSourceFolderCount === 1 ? "folder" : "folders"}`
           : null;
-        const worktreeTooltip = isWorktree && repositoryName
-          ? [
-              `Create a copy of ${repositoryName} to work in parallel.`,
-              hasAdditionalSources
-                ? "Other project source folders will be accessed directly."
-                : null,
-            ].filter(Boolean).join(" ")
-          : null;
+        const worktreeTooltip =
+          isWorktree && repositoryName
+            ? [
+                `Create a copy of ${repositoryName} to work in parallel.`,
+                hasAdditionalSources
+                  ? "Other project source folders will be accessed directly."
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" ")
+            : null;
         return (
           <NodexDropdownItem
             key={option.value}
-            leftSlot={(
+            leftSlot={
               <StartInIcon
                 iconKey={option.iconKey}
                 className={cn(
@@ -143,7 +139,7 @@ export function NewChatStartInSelector({
                   hasAdditionalSources && "icon-sm self-start",
                 )}
               />
-            )}
+            }
             rightSlot={option.selected ? <NodexDropdownSelectedIcon /> : null}
             disabled={option.disabled}
             tooltipText={option.tooltipText ?? worktreeTooltip}
@@ -173,9 +169,7 @@ export function NewChatStartInSelector({
 
   return (
     <NodexTooltip tooltipContent={tooltipContent} side="bottom">
-      <div className="inline-flex w-fit max-w-full">
-        {menu}
-      </div>
+      <div className="inline-flex w-fit max-w-full">{menu}</div>
     </NodexTooltip>
   );
 }

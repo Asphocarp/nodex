@@ -23,10 +23,7 @@ import {
   type CanvasSceneSyncRequest,
   type CanvasSceneSyncResponse,
 } from "./canvas-scene-sync";
-import {
-  canonicalStringifyCanvasScene,
-  parsePortableCanvasScene,
-} from "./canvas-scene";
+import { canonicalStringifyCanvasScene, parsePortableCanvasScene } from "./canvas-scene";
 import {
   decodeDocumentHttpEnvelope,
   documentBytesFromBase64,
@@ -34,14 +31,11 @@ import {
   encodeDocumentHttpEnvelope,
   DocumentHttpWireError,
 } from "./http-wire";
-import {
-  parseAuthorizedDeliveryPacket as parseAuthorizedDeliveryPacketValue,
-} from "../authorized-delivery-packet";
+import { parseAuthorizedDeliveryPacket as parseAuthorizedDeliveryPacketValue } from "../authorized-delivery-packet";
 import type { components } from "@nodex/core-protocol";
 import { parseAuthorizedReadStamp } from "../authorized-read-stamp";
 
-export const DOCUMENT_HTTP_CONTENT_TYPE =
-  "application/vnd.nodex.document-sync.v3+octet-stream";
+export const DOCUMENT_HTTP_CONTENT_TYPE = "application/vnd.nodex.document-sync.v3+octet-stream";
 const DOCUMENT_SYNC_ERROR_CODES = new Set<DocumentSyncCommandError["code"]>([
   "transport_unavailable",
   "request_cancelled",
@@ -222,10 +216,7 @@ const readEventVersion = (record: Readonly<Record<string, unknown>>): 1 => {
   throw new DocumentHttpWireError("Unsupported Document event contract version");
 };
 
-const readString = (
-  record: Readonly<Record<string, unknown>>,
-  key: string,
-): string => {
+const readString = (record: Readonly<Record<string, unknown>>, key: string): string => {
   const value = record[key];
   if (typeof value === "string" && value.length > 0 && value === value.trim()) {
     return value;
@@ -247,11 +238,7 @@ const readInteger = (
   minimum: number,
 ): number => {
   const value = record[key];
-  if (
-    typeof value === "number" &&
-    Number.isInteger(value) &&
-    value >= minimum
-  ) {
+  if (typeof value === "number" && Number.isInteger(value) && value >= minimum) {
     return value;
   }
   throw new DocumentHttpWireError(`${key} must be an integer >= ${minimum}`);
@@ -266,10 +253,7 @@ const readOptionalInteger = (
   return readInteger(record, key, minimum);
 };
 
-const readHash = (
-  record: Readonly<Record<string, unknown>>,
-  key: string,
-): string => {
+const readHash = (record: Readonly<Record<string, unknown>>, key: string): string => {
   const value = record[key];
   if (typeof value === "string" && /^[a-f0-9]{64}$/u.test(value)) return value;
   throw new DocumentHttpWireError(`${key} must be a lowercase SHA-256 hash`);
@@ -283,10 +267,7 @@ const readOptionalHash = (
   return readHash(record, key);
 };
 
-const readBoolean = (
-  record: Readonly<Record<string, unknown>>,
-  key: string,
-): boolean => {
+const readBoolean = (record: Readonly<Record<string, unknown>>, key: string): boolean => {
   const value = record[key];
   if (typeof value === "boolean") return value;
   throw new DocumentHttpWireError(`${key} must be a boolean`);
@@ -304,9 +285,7 @@ const readEnum = <Value extends string>(
   throw new DocumentHttpWireError(`${key} has an unsupported value`);
 };
 
-const readTouchedBlockIds = (
-  record: Readonly<Record<string, unknown>>,
-): readonly string[] => {
+const readTouchedBlockIds = (record: Readonly<Record<string, unknown>>): readonly string[] => {
   const value = record.touchedBlockIds;
   if (!Array.isArray(value) || value.length > MAX_DOCUMENT_TOUCHED_BLOCK_IDS) {
     throw new DocumentHttpWireError("touchedBlockIds is invalid or too large");
@@ -329,10 +308,7 @@ const readTouchedBlockIds = (
 };
 
 const assertRouteDocument = (routeDocumentId: string): string => {
-  if (
-    routeDocumentId.length > 0 &&
-    routeDocumentId === routeDocumentId.trim()
-  ) {
+  if (routeDocumentId.length > 0 && routeDocumentId === routeDocumentId.trim()) {
     return routeDocumentId;
   }
   throw new DocumentHttpWireError("route documentId must be non-empty");
@@ -340,11 +316,7 @@ const assertRouteDocument = (routeDocumentId: string): string => {
 
 const parseSyncRequestMetadata = (value: unknown): SyncRequestMetadata => {
   const record = readRecord(value);
-  assertExactKeys(
-    record,
-    ["version", "engine", "clientSessionId"],
-    "Yjs sync request",
-  );
+  assertExactKeys(record, ["version", "engine", "clientSessionId"], "Yjs sync request");
   if (record.engine !== "yjs") {
     throw new DocumentHttpWireError("Yjs sync request has the wrong engine");
   }
@@ -359,15 +331,7 @@ const parseSyncResponseMetadata = (value: unknown): SyncResponseMetadata => {
   const record = readRecord(value);
   assertExactKeys(
     record,
-    [
-      "version",
-      "engine",
-      "documentId",
-      "storeEpoch",
-      "generation",
-      "headSeq",
-      "stateVector",
-    ],
+    ["version", "engine", "documentId", "storeEpoch", "generation", "headSeq", "stateVector"],
     "Yjs sync response",
   );
   if (record.engine !== "yjs") {
@@ -453,11 +417,7 @@ const parseCommitIdentity = (value: unknown): CommitIdentity => {
 
 const parseStoreObservation = (value: unknown): StoreObservation => {
   const record = readRecord(value);
-  assertExactKeys(
-    record,
-    ["store_epoch", "commit_head"],
-    "Document update store observation",
-  );
+  assertExactKeys(record, ["store_epoch", "commit_head"], "Document update store observation");
   return {
     store_epoch: readString(record, "store_epoch"),
     commit_head: readInteger(record, "commit_head", 0),
@@ -472,9 +432,7 @@ const parseAuthorizedDeliveryPacket = (value: unknown): AuthorizedDeliveryPacket
   }
 };
 
-const parseAwarenessRequestMetadata = (
-  value: unknown,
-): AwarenessRequestMetadata => {
+const parseAwarenessRequestMetadata = (value: unknown): AwarenessRequestMetadata => {
   const record = readRecord(value);
   if (record.engine !== "yjs") {
     throw new DocumentHttpWireError("Yjs Awareness request has the wrong engine");
@@ -488,9 +446,7 @@ const parseAwarenessRequestMetadata = (
   };
 };
 
-const parseCanvasSyncRequestMetadata = (
-  value: unknown,
-): CanvasSyncRequestMetadata => {
+const parseCanvasSyncRequestMetadata = (value: unknown): CanvasSyncRequestMetadata => {
   const record = readRecord(value);
   const allowed = [
     "version",
@@ -523,9 +479,7 @@ const parseCanvasSyncRequestMetadata = (
   };
 };
 
-const parseCanvasSyncResponseMetadata = (
-  value: unknown,
-): CanvasSyncResponseMetadata => {
+const parseCanvasSyncResponseMetadata = (value: unknown): CanvasSyncResponseMetadata => {
   const record = readRecord(value);
   if (record.engine !== "canvas_scene") {
     throw new DocumentHttpWireError("Canvas sync response has the wrong engine");
@@ -562,20 +516,14 @@ const parseCanvasSyncResponseMetadata = (
   };
 };
 
-const parseOwnedDocumentSyncEngine = (
-  value: unknown,
-): EncodedOwnedDocumentSyncEngine => {
+const parseOwnedDocumentSyncEngine = (value: unknown): EncodedOwnedDocumentSyncEngine => {
   const record = readRecord(value);
   const kind = readEnum(record, "kind", ["yjs", "canvas_scene"] as const);
   if (kind === "canvas_scene") {
     assertExactKeys(record, ["kind"], "Canvas scene sync descriptor");
     return { kind };
   }
-  assertExactKeys(
-    record,
-    ["kind", "stateVector"],
-    "Yjs sync descriptor",
-  );
+  assertExactKeys(record, ["kind", "stateVector"], "Yjs sync descriptor");
   const stateVector = record.stateVector;
   if (typeof stateVector !== "string") {
     throw new DocumentHttpWireError("stateVector must be base64 text");
@@ -583,30 +531,20 @@ const parseOwnedDocumentSyncEngine = (
   return { kind, stateVector };
 };
 
-const parseOwnedDocumentAccessContext = (
-  value: unknown,
-): ContentAccessContext => {
+const parseOwnedDocumentAccessContext = (value: unknown): ContentAccessContext => {
   const record = readRecord(value);
   if (record.kind === "library") {
     assertExactKeys(record, ["kind"], "Owned Document access context");
     return { kind: "library" };
   }
   if (record.kind === "project") {
-    assertExactKeys(
-      record,
-      ["kind", "projectId"],
-      "Owned Document access context",
-    );
+    assertExactKeys(record, ["kind", "projectId"], "Owned Document access context");
     return { kind: "project", projectId: readString(record, "projectId") };
   }
-  throw new DocumentHttpWireError(
-    "Owned Document access context has an unsupported kind",
-  );
+  throw new DocumentHttpWireError("Owned Document access context has an unsupported kind");
 };
 
-const parseOwnedDocumentDescriptor = (
-  value: unknown,
-): EncodedOwnedDocumentDescriptor => {
+const parseOwnedDocumentDescriptor = (value: unknown): EncodedOwnedDocumentDescriptor => {
   const record = readRecord(value);
   assertExactKeys(
     record,
@@ -630,9 +568,7 @@ const parseOwnedDocumentDescriptor = (
     "Owned Document descriptor",
   );
   if (record.version !== 3) {
-    throw new DocumentHttpWireError(
-      "Unsupported Owned Document descriptor version",
-    );
+    throw new DocumentHttpWireError("Unsupported Owned Document descriptor version");
   }
   return {
     version: 3,
@@ -640,32 +576,21 @@ const parseOwnedDocumentDescriptor = (
     accessContext: parseOwnedDocumentAccessContext(record.accessContext),
     ownerBlockId: readString(record, "ownerBlockId"),
     ownerType: readString(record, "ownerType"),
-    ownerLifecycle: readEnum(record, "ownerLifecycle", [
-      "active",
-      "archived",
-      "deleted",
-    ] as const),
+    ownerLifecycle: readEnum(record, "ownerLifecycle", ["active", "archived", "deleted"] as const),
     documentId: readString(record, "documentId"),
     storeEpoch: readString(record, "storeEpoch"),
     generation: readInteger(record, "generation", 1),
     headSeq: readInteger(record, "headSeq", 0),
     schemaKey: readString(record, "schemaKey"),
     schemaVersion: readInteger(record, "schemaVersion", 1),
-    readiness: readEnum(record, "readiness", [
-      "pending_genesis",
-      "ready",
-      "failed",
-    ] as const),
-    authorization: record.authorization === null
-      ? null
-      : parseAuthorizedReadStamp(record.authorization),
+    readiness: readEnum(record, "readiness", ["pending_genesis", "ready", "failed"] as const),
+    authorization:
+      record.authorization === null ? null : parseAuthorizedReadStamp(record.authorization),
     sync: parseOwnedDocumentSyncEngine(record.sync),
   };
 };
 
-export const encodeOwnedDocumentDescriptorHttp = (
-  descriptor: OwnedDocumentDescriptor,
-): string => {
+export const encodeOwnedDocumentDescriptorHttp = (descriptor: OwnedDocumentDescriptor): string => {
   const sync: EncodedOwnedDocumentSyncEngine =
     descriptor.sync.kind === "yjs"
       ? {
@@ -692,28 +617,26 @@ export const encodeOwnedDocumentDescriptorHttp = (
   } satisfies EncodedOwnedDocumentDescriptor);
 };
 
-export const decodeOwnedDocumentDescriptorHttp = (
-  serialized: string,
-): OwnedDocumentDescriptor => {
+export const decodeOwnedDocumentDescriptorHttp = (serialized: string): OwnedDocumentDescriptor => {
   let decoded: unknown;
   try {
     decoded = JSON.parse(serialized) as unknown;
   } catch (error) {
-    throw new DocumentHttpWireError(
-      "Owned Document descriptor is not valid JSON",
-      { cause: error },
-    );
+    throw new DocumentHttpWireError("Owned Document descriptor is not valid JSON", {
+      cause: error,
+    });
   }
   const descriptor = parseOwnedDocumentDescriptor(decoded);
-  const sync = descriptor.sync.kind === "yjs"
-    ? {
-        kind: "yjs" as const,
-        stateVector: documentBytesFromBase64(
-          descriptor.sync.stateVector,
-          MAX_PAGE_DOCUMENT_STATE_BYTES,
-        ),
-      }
-    : { kind: "canvas_scene" as const };
+  const sync =
+    descriptor.sync.kind === "yjs"
+      ? {
+          kind: "yjs" as const,
+          stateVector: documentBytesFromBase64(
+            descriptor.sync.stateVector,
+            MAX_PAGE_DOCUMENT_STATE_BYTES,
+          ),
+        }
+      : { kind: "canvas_scene" as const };
   return {
     libraryId: descriptor.libraryId,
     accessContext: descriptor.accessContext,
@@ -741,16 +664,12 @@ export const decodeLibraryAccessedDocumentDescriptorHttp = (
 ): LibraryAccessedDocumentDescriptor => {
   const descriptor = decodeOwnedDocumentDescriptorHttp(serialized);
   if (descriptor.accessContext.kind !== "library") {
-    throw new DocumentHttpWireError(
-      "Library-accessed Document context must be library",
-    );
+    throw new DocumentHttpWireError("Library-accessed Document context must be library");
   }
   return { ...descriptor, accessContext: descriptor.accessContext };
 };
 
-export const encodeDocumentSyncHttpRequest = (
-  request: DocumentSyncRequest,
-): Uint8Array =>
+export const encodeDocumentSyncHttpRequest = (request: DocumentSyncRequest): Uint8Array =>
   encodeDocumentHttpEnvelope<SyncRequestMetadata>(
     { version: 3, engine: "yjs", clientSessionId: request.clientSessionId },
     request.stateVector,
@@ -772,9 +691,7 @@ export const decodeDocumentSyncHttpRequest = (
   };
 };
 
-export const encodeDocumentSyncHttpResponse = (
-  response: DocumentSyncResponse,
-): Uint8Array =>
+export const encodeDocumentSyncHttpResponse = (response: DocumentSyncResponse): Uint8Array =>
   encodeDocumentHttpEnvelope<SyncResponseMetadata>(
     {
       version: 3,
@@ -788,9 +705,7 @@ export const encodeDocumentSyncHttpResponse = (
     response.update,
   );
 
-export const decodeDocumentSyncHttpResponse = (
-  bytes: Uint8Array,
-): DocumentSyncResponse => {
+export const decodeDocumentSyncHttpResponse = (bytes: Uint8Array): DocumentSyncResponse => {
   const envelope = decodeDocumentHttpEnvelope(
     bytes,
     parseSyncResponseMetadata,
@@ -809,9 +724,7 @@ export const decodeDocumentSyncHttpResponse = (
   };
 };
 
-export const encodeCanvasSceneSyncHttpRequest = (
-  request: CanvasSceneSyncRequest,
-): Uint8Array =>
+export const encodeCanvasSceneSyncHttpRequest = (request: CanvasSceneSyncRequest): Uint8Array =>
   encodeDocumentHttpEnvelope<CanvasSyncRequestMetadata>(
     {
       version: 3,
@@ -824,12 +737,8 @@ export const encodeCanvasSceneSyncHttpRequest = (
       ...(request.knownGeneration === undefined
         ? {}
         : { knownGeneration: request.knownGeneration }),
-      ...(request.knownHeadSeq === undefined
-        ? {}
-        : { knownHeadSeq: request.knownHeadSeq }),
-      ...(request.knownSceneHash === undefined
-        ? {}
-        : { knownSceneHash: request.knownSceneHash }),
+      ...(request.knownHeadSeq === undefined ? {} : { knownHeadSeq: request.knownHeadSeq }),
+      ...(request.knownSceneHash === undefined ? {} : { knownSceneHash: request.knownSceneHash }),
     },
     new Uint8Array(),
   );
@@ -839,11 +748,7 @@ export const decodeCanvasSceneSyncHttpRequest = (
   accessContext: ContentAccessContext,
   bytes: Uint8Array,
 ): CanvasSceneSyncRequest => {
-  const envelope = decodeDocumentHttpEnvelope(
-    bytes,
-    parseCanvasSyncRequestMetadata,
-    0,
-  );
+  const envelope = decodeDocumentHttpEnvelope(bytes, parseCanvasSyncRequestMetadata, 0);
   return {
     syncRequestId: envelope.metadata.syncRequestId,
     accessContext,
@@ -894,9 +799,7 @@ export const encodeCanvasSceneSyncHttpResponse = (
   );
 };
 
-export const decodeCanvasSceneSyncHttpResponse = (
-  bytes: Uint8Array,
-): CanvasSceneSyncResponse => {
+export const decodeCanvasSceneSyncHttpResponse = (bytes: Uint8Array): CanvasSceneSyncResponse => {
   const envelope = decodeDocumentHttpEnvelope(
     bytes,
     parseCanvasSyncResponseMetadata,
@@ -914,36 +817,27 @@ export const decodeCanvasSceneSyncHttpResponse = (
   };
   if (envelope.metadata.kind === "up_to_date") {
     if (envelope.payload.byteLength !== 0) {
-      throw new DocumentHttpWireError(
-        "Canvas up-to-date response must have an empty payload",
-      );
+      throw new DocumentHttpWireError("Canvas up-to-date response must have an empty payload");
     }
     return { kind: "up_to_date", ...common };
   }
   if (envelope.payload.byteLength === 0) {
-    throw new DocumentHttpWireError(
-      "Canvas snapshot response must have a payload",
-    );
+    throw new DocumentHttpWireError("Canvas snapshot response must have a payload");
   }
   let parsed: unknown;
   try {
-    const serialized = new TextDecoder("utf-8", { fatal: true }).decode(
-      envelope.payload,
-    );
+    const serialized = new TextDecoder("utf-8", { fatal: true }).decode(envelope.payload);
     parsed = JSON.parse(serialized) as unknown;
   } catch (error) {
-    throw new DocumentHttpWireError(
-      "Canvas snapshot payload is not valid UTF-8 JSON",
-      { cause: error },
-    );
+    throw new DocumentHttpWireError("Canvas snapshot payload is not valid UTF-8 JSON", {
+      cause: error,
+    });
   }
   const scene = parsePortableCanvasScene(parsed);
   return { kind: "snapshot", ...common, scene };
 };
 
-export const encodeDocumentApplyHttpRequest = (
-  request: DocumentSyncApplyRequest,
-): Uint8Array =>
+export const encodeDocumentApplyHttpRequest = (request: DocumentSyncApplyRequest): Uint8Array =>
   encodeDocumentHttpEnvelope<ApplyRequestMetadata>(
     {
       version: 3,
@@ -979,9 +873,7 @@ export const decodeDocumentApplyHttpRequest = (
   };
 };
 
-export const encodeDocumentApplyHttpAck = (
-  ack: DocumentSyncApplyAck,
-): Uint8Array =>
+export const encodeDocumentApplyHttpAck = (ack: DocumentSyncApplyAck): Uint8Array =>
   encodeDocumentHttpEnvelope<ApplyAckMetadata>(
     {
       version: 3,
@@ -1004,9 +896,7 @@ export const encodeDocumentApplyHttpAck = (
     ack.stateVector,
   );
 
-export const decodeDocumentApplyHttpAck = (
-  bytes: Uint8Array,
-): DocumentSyncApplyAck => {
+export const decodeDocumentApplyHttpAck = (bytes: Uint8Array): DocumentSyncApplyAck => {
   const envelope = decodeDocumentHttpEnvelope(
     bytes,
     parseApplyAckMetadata,
@@ -1027,9 +917,7 @@ export const decodeDocumentApplyHttpAck = (
         ...common,
         status: "committed",
         commit: envelope.metadata.commit,
-        ...(envelope.metadata.delivery
-          ? { delivery: envelope.metadata.delivery }
-          : {}),
+        ...(envelope.metadata.delivery ? { delivery: envelope.metadata.delivery } : {}),
       }
     : {
         ...common,
@@ -1070,9 +958,7 @@ export const decodeDocumentAwarenessHttpRequest = (
   };
 };
 
-export const encodeDocumentRealtimeSseEvent = (
-  event: DocumentSyncRealtimeEvent,
-): string => {
+export const encodeDocumentRealtimeSseEvent = (event: DocumentSyncRealtimeEvent): string => {
   const encoded: EncodedRealtimeEvent =
     event.kind === "connection"
       ? { version: 1, ...event }
@@ -1086,9 +972,7 @@ export const encodeDocumentRealtimeSseEvent = (
   return JSON.stringify(encoded);
 };
 
-export const decodeDocumentRealtimeSseEvent = (
-  serialized: string,
-): DocumentSyncRealtimeEvent => {
+export const decodeDocumentRealtimeSseEvent = (serialized: string): DocumentSyncRealtimeEvent => {
   let value: unknown;
   try {
     value = JSON.parse(serialized);
@@ -1141,10 +1025,7 @@ export const decodeDocumentRealtimeSseEvent = (
       headSeq,
       updateId: readString(record, "updateId"),
       clientSessionId: readString(record, "clientSessionId"),
-      update: documentBytesFromBase64(
-        readString(record, "update"),
-        MAX_PAGE_DOCUMENT_UPDATE_BYTES,
-      ),
+      update: documentBytesFromBase64(readString(record, "update"), MAX_PAGE_DOCUMENT_UPDATE_BYTES),
     };
   }
   if (kind === "resync-required") {
@@ -1168,18 +1049,13 @@ export const decodeDocumentRealtimeSseEvent = (
       reason,
     };
   }
-  throw new DocumentHttpWireError(
-    `Unsupported Document SSE event kind: ${kind}`,
-  );
+  throw new DocumentHttpWireError(`Unsupported Document SSE event kind: ${kind}`);
 };
 
-export const encodeDocumentHttpError = (
-  error: DocumentSyncCommandError,
-): string => JSON.stringify({ ok: false, error });
+export const encodeDocumentHttpError = (error: DocumentSyncCommandError): string =>
+  JSON.stringify({ ok: false, error });
 
-export const decodeDocumentHttpError = (
-  serialized: string,
-): DocumentSyncCommandError => {
+export const decodeDocumentHttpError = (serialized: string): DocumentSyncCommandError => {
   let value: unknown;
   try {
     value = JSON.parse(serialized);

@@ -72,7 +72,8 @@ const meta = {
     layout: "centered",
     docs: {
       description: {
-        component: "Focused coverage for editable NFM agent config chips rendered from the canonical `<agent-config />` inline element.",
+        component:
+          "Focused coverage for editable NFM agent config chips rendered from the canonical `<agent-config />` inline element.",
       },
     },
   },

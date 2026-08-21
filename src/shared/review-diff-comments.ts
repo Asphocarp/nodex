@@ -7,19 +7,28 @@ import type {
 export const REVIEW_DIFF_COMMENTS_ADDITIONAL_CONTEXT_KEY = "review-diff-comments";
 export const REVIEW_DIFF_COMMENT_DRAFTS_STORAGE_KEY = "diff_comment_drafts";
 
-export function mapReviewDiffAnnotationSideToPositionSide(side: ReviewDiffAnnotationSide): ReviewDiffCommentPositionSide {
+export function mapReviewDiffAnnotationSideToPositionSide(
+  side: ReviewDiffAnnotationSide,
+): ReviewDiffCommentPositionSide {
   return side === "deletions" ? "left" : "right";
 }
 
-export function mapReviewDiffPositionSideToAnnotationSide(side: ReviewDiffCommentPositionSide): ReviewDiffAnnotationSide {
+export function mapReviewDiffPositionSideToAnnotationSide(
+  side: ReviewDiffCommentPositionSide,
+): ReviewDiffAnnotationSide {
   return side === "left" ? "deletions" : "additions";
 }
 
-export function getReviewDiffLinePrefix(side: ReviewDiffAnnotationSide | ReviewDiffCommentPositionSide): "L" | "R" {
+export function getReviewDiffLinePrefix(
+  side: ReviewDiffAnnotationSide | ReviewDiffCommentPositionSide,
+): "L" | "R" {
   return side === "deletions" || side === "left" ? "L" : "R";
 }
 
-export function buildReviewDiffAnnotationKey(side: ReviewDiffAnnotationSide, lineNumber: number): string {
+export function buildReviewDiffAnnotationKey(
+  side: ReviewDiffAnnotationSide,
+  lineNumber: number,
+): string {
   return `${side}:${lineNumber}`;
 }
 
@@ -37,7 +46,10 @@ export function formatReviewDiffCommentLineLabel(input: {
   startLine?: number;
 }): string {
   const end = formatReviewDiffLineReference({ side: input.side, line: input.line });
-  if (!input.startLine || input.startLine === input.line && (!input.startSide || input.startSide === input.side)) {
+  if (
+    !input.startLine ||
+    (input.startLine === input.line && (!input.startSide || input.startSide === input.side))
+  ) {
     return `Comment on line ${end}`;
   }
 
@@ -153,4 +165,3 @@ export function captureReviewDiffLocalHunkFromPatch(input: {
 
   return flushContainsLine(lines.length);
 }
-

@@ -82,18 +82,22 @@ import { fetchBrowserImage } from "./browser/browser-image-attachment";
 import { saveUploadedImage } from "./local-store/assets";
 import { BrowserLocalServerThumbnailService } from "./browser/browser-local-server-thumbnail";
 
-type BrowserUseCommand = Extract<BrowserSidebarCommand, {
-  type:
-    | "browser-use-upsert-tab"
-    | "browser-use-release-tab"
-    | "browser-use-resolve-presentation"
-    | "browser-use-set-active-tab"
-    | "browser-use-set-cursor"
-    | "browser-use-set-viewport"
-    | "browser-use-set-capture-surface";
-}>;
+type BrowserUseCommand = Extract<
+  BrowserSidebarCommand,
+  {
+    type:
+      | "browser-use-upsert-tab"
+      | "browser-use-release-tab"
+      | "browser-use-resolve-presentation"
+      | "browser-use-set-active-tab"
+      | "browser-use-set-cursor"
+      | "browser-use-set-viewport"
+      | "browser-use-set-capture-surface";
+  }
+>;
 
-export type BrowserWebContentsLike = Pick<WebContents,
+export type BrowserWebContentsLike = Pick<
+  WebContents,
   | "id"
   | "canGoBack"
   | "canGoForward"
@@ -117,16 +121,13 @@ export type BrowserWebContentsLike = Pick<WebContents,
 > & {
   debugger?: BrowserPageEmulationTarget["debugger"] & {
     detach?(): void;
-    on?(
-      eventName: string,
-      listener: (...args: unknown[]) => void,
-    ): unknown;
-    removeListener?(
-      eventName: string,
-      listener: (...args: unknown[]) => void,
-    ): unknown;
+    on?(eventName: string, listener: (...args: unknown[]) => void): unknown;
+    removeListener?(eventName: string, listener: (...args: unknown[]) => void): unknown;
   };
-  findInPage?: (text: string, options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean }) => number;
+  findInPage?: (
+    text: string,
+    options?: { forward?: boolean; findNext?: boolean; matchCase?: boolean },
+  ) => number;
   isCurrentlyAudible?: () => boolean;
   navigationHistory?: {
     clear?(): void;
@@ -173,17 +174,12 @@ interface BrowserSidebarServiceDeps {
   ) => void;
   electron?: BrowserSidebarElectronDeps;
   logger?: Pick<BackendLogger, "debug" | "info" | "warn">;
-  localServerThumbnailService?: Pick<
-    BrowserLocalServerThumbnailService,
-    "get" | "invalidate"
-  >;
+  localServerThumbnailService?: Pick<BrowserLocalServerThumbnailService, "get" | "invalidate">;
   pageStore?: BrowserPageSnapshotStore;
   historyStore?: BrowserHistoryStore;
   runtimeRegistry?: BrowserRuntimeRegistry;
   siteStatusPolicy?: SiteStatusPolicyService;
-  resolveProjectIdForSession?: (
-    sessionId: string,
-  ) => Promise<string | null>;
+  resolveProjectIdForSession?: (sessionId: string) => Promise<string | null>;
   saveBrowserImage?: typeof saveUploadedImage;
 }
 
@@ -200,9 +196,7 @@ interface BrowserUseCapturedRoute {
   projectId: string | null;
 }
 
-type BrowserUseRouteCaptureHandler = (
-  route: BrowserUseCapturedRoute,
-) => Promise<void>;
+type BrowserUseRouteCaptureHandler = (route: BrowserUseCapturedRoute) => Promise<void>;
 
 interface PendingBrowserUsePresentation {
   request: BrowserUsePresentationRequest;
@@ -218,9 +212,7 @@ const DEFAULT_VIEWPORT: BrowserSidebarViewport = {
   presetId: "responsive",
 };
 
-function browserIdentity(
-  input: BrowserSidebarTabIdentity,
-): BrowserSidebarTabIdentity {
+function browserIdentity(input: BrowserSidebarTabIdentity): BrowserSidebarTabIdentity {
   return {
     browserConversationId: input.browserConversationId,
     browserViewScopeId: input.browserViewScopeId,
@@ -229,10 +221,7 @@ function browserIdentity(
 }
 
 function browserConversationScopeKey(
-  input: Pick<
-    BrowserSidebarTabIdentity,
-    "browserConversationId" | "browserViewScopeId"
-  >,
+  input: Pick<BrowserSidebarTabIdentity, "browserConversationId" | "browserViewScopeId">,
 ): string {
   return makeBrowserSidebarConversationScopeKey(input);
 }
@@ -264,9 +253,10 @@ function updateDeviceToolbarState(
 ): BrowserSidebarTabSnapshot["deviceToolbarState"] {
   const viewport = input.viewport;
   return {
-    responsiveViewportSize: viewport?.presetId === "responsive"
-      ? { width: viewport.width, height: viewport.height }
-      : current.responsiveViewportSize,
+    responsiveViewportSize:
+      viewport?.presetId === "responsive"
+        ? { width: viewport.width, height: viewport.height }
+        : current.responsiveViewportSize,
     toolbarState: {
       ...current.toolbarState,
       ...(input.isEnabled === undefined ? {} : { isEnabled: input.isEnabled }),
@@ -288,12 +278,9 @@ function viewportFromDeviceToolbarState(
   const toolbar = deviceToolbarState.toolbarState;
   const responsive = deviceToolbarState.responsiveViewportSize;
   return {
-    width: toolbar.presetId === "responsive"
-      ? responsive?.width ?? toolbar.width
-      : toolbar.width,
-    height: toolbar.presetId === "responsive"
-      ? responsive?.height ?? toolbar.height
-      : toolbar.height,
+    width: toolbar.presetId === "responsive" ? (responsive?.width ?? toolbar.width) : toolbar.width,
+    height:
+      toolbar.presetId === "responsive" ? (responsive?.height ?? toolbar.height) : toolbar.height,
     presetId: toolbar.presetId,
     zoomPercent,
   };
@@ -316,24 +303,24 @@ function isBrowserContextMenuParams(
   value: BrowserContextMenuParams | undefined,
 ): value is BrowserContextMenuParams {
   return Boolean(
-    value
-    && Number.isFinite(value.x)
-    && Number.isFinite(value.y)
-    && typeof value.linkURL === "string"
-    && value.linkURL.length <= 16_384
-    && typeof value.srcURL === "string"
-    && value.srcURL.length <= 16_384
-    && BROWSER_CONTEXT_MENU_MEDIA_TYPES.has(value.mediaType)
-    && typeof value.hasImageContents === "boolean"
-    && typeof value.isEditable === "boolean"
-    && typeof value.selectionText === "string"
-    && value.selectionText.length <= 8_192
-    && typeof value.formControlType === "string"
-    && typeof value.editFlags === "object"
-    && value.editFlags !== null
-    && typeof value.editFlags.canCopy === "boolean"
-    && typeof value.editFlags.canCut === "boolean"
-    && typeof value.editFlags.canPaste === "boolean",
+    value &&
+    Number.isFinite(value.x) &&
+    Number.isFinite(value.y) &&
+    typeof value.linkURL === "string" &&
+    value.linkURL.length <= 16_384 &&
+    typeof value.srcURL === "string" &&
+    value.srcURL.length <= 16_384 &&
+    BROWSER_CONTEXT_MENU_MEDIA_TYPES.has(value.mediaType) &&
+    typeof value.hasImageContents === "boolean" &&
+    typeof value.isEditable === "boolean" &&
+    typeof value.selectionText === "string" &&
+    value.selectionText.length <= 8_192 &&
+    typeof value.formControlType === "string" &&
+    typeof value.editFlags === "object" &&
+    value.editFlags !== null &&
+    typeof value.editFlags.canCopy === "boolean" &&
+    typeof value.editFlags.canCut === "boolean" &&
+    typeof value.editFlags.canPaste === "boolean",
   );
 }
 
@@ -344,13 +331,15 @@ interface BrowserSidebarServiceEvents {
   browserUseViewport: [BrowserSidebarBrowserUseViewportEvent];
   browserUseCaptureSurface: [BrowserSidebarBrowserUseCaptureSurfaceEvent];
   browserUseCursor: [BrowserUseCursorState];
-  browserUseCursorArrived: [{
-    browserConversationId: string;
-    browserViewScopeId: string;
-    browserTabId: string;
-    moveSequence: number;
-    ownerWebContentsId: number | null;
-  }];
+  browserUseCursorArrived: [
+    {
+      browserConversationId: string;
+      browserViewScopeId: string;
+      browserTabId: string;
+      moveSequence: number;
+      ownerWebContentsId: number | null;
+    },
+  ];
   pageReleased: [BrowserSidebarTabIdentity];
   pageClosed: [BrowserUsePageClosedEvent];
   browserUsePresentationRequest: [BrowserUsePresentationRequest];
@@ -358,9 +347,11 @@ interface BrowserSidebarServiceEvents {
   openNewTab: [BrowserSidebarOpenNewTabRequest];
   webviewAttached: [BrowserSidebarWebviewAttached];
   destroyWebview: [BrowserSidebarDestroyWebviewRequest];
-  browserUseOwnerReleased: [{
-    ownerWebContentsId: number;
-  }];
+  browserUseOwnerReleased: [
+    {
+      ownerWebContentsId: number;
+    },
+  ];
   imageDragState: [BrowserSidebarImageDragStateEvent];
 }
 
@@ -399,14 +390,10 @@ interface ActiveBrowserImageDrag extends BrowserSidebarTabIdentity {
 export class BrowserSidebarService extends EventEmitter {
   private readonly tabs = new Map<string, BrowserSidebarTabSnapshot>();
   private readonly webContentsTabIds = new Map<number, string>();
-  private readonly attachedWebviewOwnership =
-    new Map<number, AttachedBrowserWebviewOwnership>();
-  private readonly activeImageDragsByOwnerWebContentsId =
-    new Map<number, ActiveBrowserImageDrag>();
-  private readonly preparedPagesByStorageId =
-    new Map<string, BrowserSerializedPage>();
-  private readonly earlyPageRestoresByGuest =
-    new Map<number, Promise<BrowserSidebarTabSnapshot>>();
+  private readonly attachedWebviewOwnership = new Map<number, AttachedBrowserWebviewOwnership>();
+  private readonly activeImageDragsByOwnerWebContentsId = new Map<number, ActiveBrowserImageDrag>();
+  private readonly preparedPagesByStorageId = new Map<string, BrowserSerializedPage>();
+  private readonly earlyPageRestoresByGuest = new Map<number, Promise<BrowserSidebarTabSnapshot>>();
   private readonly webContentsDisposers = new Map<number, () => void>();
   private readonly pendingTeardowns = new Map<string, PendingWebviewTeardown>();
   private readonly localServersByProject = new Map<string, LocalServerProjectState>();
@@ -415,11 +402,16 @@ export class BrowserSidebarService extends EventEmitter {
     string,
     BrowserSidebarTabSnapshot["deviceToolbarState"]
   >();
-  private readonly themeVariantsByViewScope =
-    new Map<string, BrowserSidebarThemeVariant>();
+  private readonly themeVariantsByViewScope = new Map<string, BrowserSidebarThemeVariant>();
   private readonly transferredBrowserTabIdsByConversationScope = new Map<string, string[]>();
-  private readonly browserUseViewportSizes = new Map<string, BrowserSidebarBrowserUseViewportEvent>();
-  private readonly browserUseCaptureSurfaces = new Map<string, BrowserSidebarBrowserUseCaptureSurfaceEvent>();
+  private readonly browserUseViewportSizes = new Map<
+    string,
+    BrowserSidebarBrowserUseViewportEvent
+  >();
+  private readonly browserUseCaptureSurfaces = new Map<
+    string,
+    BrowserSidebarBrowserUseCaptureSurfaceEvent
+  >();
   private readonly electron: BrowserSidebarElectronDeps;
   private readonly contextMenuPresenter: (
     template: MenuItemConstructorOptions[],
@@ -431,22 +423,20 @@ export class BrowserSidebarService extends EventEmitter {
     "get" | "invalidate"
   >;
   private readonly browserUseActiveTabIdsByConversationScope = new Map<string, string>();
-  private readonly browserUseCapturedRoutesByViewScope =
-    new Map<string, BrowserUseCapturedRoute>();
-  private readonly pendingBrowserUsePresentations =
-    new Map<string, PendingBrowserUsePresentation>();
+  private readonly browserUseCapturedRoutesByViewScope = new Map<string, BrowserUseCapturedRoute>();
+  private readonly pendingBrowserUsePresentations = new Map<
+    string,
+    PendingBrowserUsePresentation
+  >();
   private readonly browserUseCursors = new Map<string, BrowserUseCursorState>();
   private readonly invalidatedPageStorageIds = new Set<string>();
-  private readonly pageEmulationController =
-    new BrowserPageEmulationController();
+  private readonly pageEmulationController = new BrowserPageEmulationController();
   private readonly runtimeRegistry: BrowserRuntimeRegistry;
   private readonly saveBrowserImage: typeof saveUploadedImage;
   private pageStore: BrowserPageSnapshotStore | null;
   private historyStore: BrowserHistoryStore | null;
   private siteStatusPolicy: SiteStatusPolicyService | null;
-  private resolveProjectIdForSession:
-    | ((sessionId: string) => Promise<string | null>)
-    | null;
+  private resolveProjectIdForSession: ((sessionId: string) => Promise<string | null>) | null;
   private browserUseRouteCaptureHandler: BrowserUseRouteCaptureHandler | null = null;
   private teardownSequence = 0;
 
@@ -460,18 +450,16 @@ export class BrowserSidebarService extends EventEmitter {
         fromId: (id) => webContents.fromId(id) ?? null,
       },
     };
-    this.contextMenuPresenter = deps.contextMenuPresenter
-      ?? ((template, ownerWebContentsId) => {
+    this.contextMenuPresenter =
+      deps.contextMenuPresenter ??
+      ((template, ownerWebContentsId) => {
         const owner = webContents.fromId(ownerWebContentsId);
         const window = owner ? BrowserWindow.fromWebContents(owner) : null;
-        Menu.buildFromTemplate(template).popup(
-          window ? { window } : {},
-        );
+        Menu.buildFromTemplate(template).popup(window ? { window } : {});
       });
     this.logger = deps.logger ?? getLogger({ subsystem: "browser-sidebar" });
     this.localServerThumbnailService =
-      deps.localServerThumbnailService
-      ?? new BrowserLocalServerThumbnailService();
+      deps.localServerThumbnailService ?? new BrowserLocalServerThumbnailService();
     this.pageStore = deps.pageStore ?? null;
     this.historyStore = deps.historyStore ?? null;
     this.siteStatusPolicy = deps.siteStatusPolicy ?? null;
@@ -492,9 +480,7 @@ export class BrowserSidebarService extends EventEmitter {
     this.siteStatusPolicy = siteStatusPolicy;
   }
 
-  setBrowserUseRouteCaptureHandler(
-    handler: BrowserUseRouteCaptureHandler | null,
-  ): void {
+  setBrowserUseRouteCaptureHandler(handler: BrowserUseRouteCaptureHandler | null): void {
     this.browserUseRouteCaptureHandler = handler;
   }
 
@@ -504,9 +490,7 @@ export class BrowserSidebarService extends EventEmitter {
     codexSessionId: string;
     projectId: string | null;
   }): Promise<void> {
-    const captured = this.browserUseCapturedRoutesByViewScope.get(
-      input.browserViewScopeId,
-    );
+    const captured = this.browserUseCapturedRoutesByViewScope.get(input.browserViewScopeId);
     if (!captured) {
       throw new Error("Browser Use route is unavailable");
     }
@@ -519,30 +503,28 @@ export class BrowserSidebarService extends EventEmitter {
       projectId: input.projectId,
     };
     await this.captureBrowserUseRoute(promoted);
-    this.browserUseCapturedRoutesByViewScope.set(
-      promoted.browserViewScopeId,
-      promoted,
-    );
+    this.browserUseCapturedRoutesByViewScope.set(promoted.browserViewScopeId, promoted);
   }
 
-  async listHistory(input: {
-    query?: string;
-    limit?: number;
-  } = {}) {
-    return await this.historyStore?.list(input) ?? {
-      entries: [],
-      updatedAt: Date.now(),
-    };
+  async listHistory(
+    input: {
+      query?: string;
+      limit?: number;
+    } = {},
+  ) {
+    return (
+      (await this.historyStore?.list(input)) ?? {
+        entries: [],
+        updatedAt: Date.now(),
+      }
+    );
   }
 
   async deleteHistoryEntry(id: string): Promise<void> {
     await this.historyStore?.delete(id);
   }
 
-  authorizeWebviewAttachment(
-    ownerWebContentsId: number,
-    route: BrowserSidebarHostRouteIdentity,
-  ) {
+  authorizeWebviewAttachment(ownerWebContentsId: number, route: BrowserSidebarHostRouteIdentity) {
     return this.runtimeRegistry.authorizeAttachment(ownerWebContentsId, route);
   }
 
@@ -607,9 +589,7 @@ export class BrowserSidebarService extends EventEmitter {
     return { tabs: [...this.tabs.values()] };
   }
 
-  getTabSnapshot(
-    identity: BrowserSidebarTabIdentity,
-  ): BrowserSidebarTabSnapshot | null {
+  getTabSnapshot(identity: BrowserSidebarTabIdentity): BrowserSidebarTabSnapshot | null {
     return this.tabs.get(browserTabKey(identity)) ?? null;
   }
 
@@ -623,9 +603,7 @@ export class BrowserSidebarService extends EventEmitter {
         this.pendingBrowserUsePresentations.delete(key);
         continue;
       }
-      if (
-        pending.request.browserViewScopeId === browserViewScopeId
-      ) {
+      if (pending.request.browserViewScopeId === browserViewScopeId) {
         requests.push(pending.request);
       }
     }
@@ -636,15 +614,14 @@ export class BrowserSidebarService extends EventEmitter {
     browserConversationId: string,
     browserViewScopeId: string,
   ): BrowserSidebarTabSnapshot[] {
-    return [...this.tabs.values()].filter((tab) =>
-      tab.browserConversationId === browserConversationId
-      && tab.browserViewScopeId === browserViewScopeId
+    return [...this.tabs.values()].filter(
+      (tab) =>
+        tab.browserConversationId === browserConversationId &&
+        tab.browserViewScopeId === browserViewScopeId,
     );
   }
 
-  getWebContentsForTab(
-    identity: BrowserSidebarTabIdentity,
-  ): BrowserWebContentsLike | null {
+  getWebContentsForTab(identity: BrowserSidebarTabIdentity): BrowserWebContentsLike | null {
     const snapshot = this.tabs.get(browserTabKey(identity));
     return snapshot ? this.getAttachedWebContents(snapshot) : null;
   }
@@ -706,19 +683,15 @@ export class BrowserSidebarService extends EventEmitter {
     this.setActiveBrowserUseTab(identity, browserTabId);
     if (this.isBrowserVisibleForBrowserUse(route, browserTabId)) return;
 
-    const capturedRoute = this.browserUseCapturedRoutesByViewScope.get(
-      route.browserViewScopeId,
-    );
+    const capturedRoute = this.browserUseCapturedRoutesByViewScope.get(route.browserViewScopeId);
     const request: BrowserUsePresentationRequest = {
       ...identity,
       requestId: randomUUID(),
       codexSessionId: route.codexSessionId,
       projectId: route.projectId,
       visible: true,
-      transition: capturedRoute?.browserConversationId
-          === route.browserConversationId
-        ? "default"
-        : "none",
+      transition:
+        capturedRoute?.browserConversationId === route.browserConversationId ? "default" : "none",
       source: "browser-use",
     };
     this.pendingBrowserUsePresentations.set(key, {
@@ -734,28 +707,22 @@ export class BrowserSidebarService extends EventEmitter {
     this.emit("browserUsePresentationRequest", request);
   }
 
-  isBrowserVisibleForBrowserUse(
-    route: BrowserUseCapturedRoute,
-    browserTabId: string,
-  ): boolean {
+  isBrowserVisibleForBrowserUse(route: BrowserUseCapturedRoute, browserTabId: string): boolean {
     const identity = {
       browserConversationId: route.browserConversationId,
       browserViewScopeId: route.browserViewScopeId,
       browserTabId,
     };
-    const capturedRoute = this.browserUseCapturedRoutesByViewScope.get(
-      route.browserViewScopeId,
-    );
+    const capturedRoute = this.browserUseCapturedRoutesByViewScope.get(route.browserViewScopeId);
     if (
-      capturedRoute?.browserConversationId !== route.browserConversationId
-      || capturedRoute.codexSessionId !== route.codexSessionId
+      capturedRoute?.browserConversationId !== route.browserConversationId ||
+      capturedRoute.codexSessionId !== route.codexSessionId
     ) {
       return false;
     }
     if (
-      this.browserUseActiveTabIdsByConversationScope.get(
-        browserConversationScopeKey(identity),
-      ) !== browserTabId
+      this.browserUseActiveTabIdsByConversationScope.get(browserConversationScopeKey(identity)) !==
+      browserTabId
     ) {
       return false;
     }
@@ -775,9 +742,7 @@ export class BrowserSidebarService extends EventEmitter {
     return snapshot?.presented === true && snapshot.visible === true;
   }
 
-  resolveBrowserUsePresentation(
-    result: BrowserUsePresentationResult,
-  ): void {
+  resolveBrowserUsePresentation(result: BrowserUsePresentationResult): void {
     const key = browserTabKey(result);
     const pending = this.pendingBrowserUsePresentations.get(key);
     if (!pending || pending.request.requestId !== result.requestId) return;
@@ -809,18 +774,14 @@ export class BrowserSidebarService extends EventEmitter {
     return isPresented && cursor.visible;
   }
 
-  setBrowserUseViewport(
-    event: BrowserSidebarBrowserUseViewportEvent,
-  ): void {
+  setBrowserUseViewport(event: BrowserSidebarBrowserUseViewportEvent): void {
     this.handleBrowserUseCommand({
       type: "browser-use-set-viewport",
       event,
     });
   }
 
-  setBrowserUseCaptureSurface(
-    event: BrowserSidebarBrowserUseCaptureSurfaceEvent,
-  ): void {
+  setBrowserUseCaptureSurface(event: BrowserSidebarBrowserUseCaptureSurfaceEvent): void {
     this.handleBrowserUseCommand({
       type: "browser-use-set-capture-surface",
       event,
@@ -837,10 +798,10 @@ export class BrowserSidebarService extends EventEmitter {
   releaseBrowserUseDebugger(contents: BrowserWebContentsLike): void {
     const debuggerPort = contents.debugger;
     if (
-      !debuggerPort
-      || contents.isDestroyed()
-      || !debuggerPort.isAttached()
-      || this.pageEmulationController.isDebuggerRetained(contents)
+      !debuggerPort ||
+      contents.isDestroyed() ||
+      !debuggerPort.isAttached() ||
+      this.pageEmulationController.isDebuggerRetained(contents)
     ) {
       return;
     }
@@ -851,9 +812,7 @@ export class BrowserSidebarService extends EventEmitter {
     }
   }
 
-  getIdentityForWebContents(
-    webContentsId: number,
-  ): BrowserSidebarTabIdentity | null {
+  getIdentityForWebContents(webContentsId: number): BrowserSidebarTabIdentity | null {
     const tabKey = this.webContentsTabIds.get(webContentsId);
     const tab = tabKey ? this.tabs.get(tabKey) : null;
     if (tab) return browserIdentity(tab);
@@ -862,14 +821,10 @@ export class BrowserSidebarService extends EventEmitter {
   }
 
   getOwnerWebContentsIdForGuest(webContentsId: number): number | null {
-    return this.attachedWebviewOwnership.get(webContentsId)?.ownerWebContentsId
-      ?? null;
+    return this.attachedWebviewOwnership.get(webContentsId)?.ownerWebContentsId ?? null;
   }
 
-  startBrowserImageDrag(
-    guestWebContentsId: number,
-    sourceUrl: string,
-  ): boolean {
+  startBrowserImageDrag(guestWebContentsId: number, sourceUrl: string): boolean {
     const ownership = this.attachedWebviewOwnership.get(guestWebContentsId);
     if (!ownership || sourceUrl.length === 0 || sourceUrl.length > 16_384) {
       return false;
@@ -887,10 +842,7 @@ export class BrowserSidebarService extends EventEmitter {
       sourceUrl,
     };
     this.clearBrowserImageDrag(ownership.ownerWebContentsId);
-    this.activeImageDragsByOwnerWebContentsId.set(
-      ownership.ownerWebContentsId,
-      active,
-    );
+    this.activeImageDragsByOwnerWebContentsId.set(ownership.ownerWebContentsId, active);
     this.emit("imageDragState", {
       ...browserIdentity(active),
       isActive: true,
@@ -901,9 +853,7 @@ export class BrowserSidebarService extends EventEmitter {
   endBrowserImageDrag(guestWebContentsId: number): void {
     const ownership = this.attachedWebviewOwnership.get(guestWebContentsId);
     if (!ownership) return;
-    const active = this.activeImageDragsByOwnerWebContentsId.get(
-      ownership.ownerWebContentsId,
-    );
+    const active = this.activeImageDragsByOwnerWebContentsId.get(ownership.ownerWebContentsId);
     if (active?.guestWebContentsId !== guestWebContentsId) return;
     this.clearBrowserImageDrag(ownership.ownerWebContentsId);
   }
@@ -913,10 +863,7 @@ export class BrowserSidebarService extends EventEmitter {
     return Boolean(tab && !tab.released);
   }
 
-  setDownloadActive(
-    identity: BrowserSidebarTabIdentity,
-    activeDownload: boolean,
-  ): void {
+  setDownloadActive(identity: BrowserSidebarTabIdentity, activeDownload: boolean): void {
     const key = browserTabKey(identity);
     if (this.tabs.get(key)?.activeDownload === activeDownload) return;
     if (!this.tabs.has(key)) return;
@@ -936,9 +883,9 @@ export class BrowserSidebarService extends EventEmitter {
     };
     for (const tab of this.browserUseTabs.values()) {
       if (
-        tab.browserConversationId !== browserConversationId
-        || tab.browserViewScopeId !== browserViewScopeId
-        || tab.released
+        tab.browserConversationId !== browserConversationId ||
+        tab.browserViewScopeId !== browserViewScopeId ||
+        tab.released
       ) {
         continue;
       }
@@ -946,8 +893,8 @@ export class BrowserSidebarService extends EventEmitter {
     }
     for (const tab of this.tabs.values()) {
       if (
-        tab.browserConversationId !== browserConversationId
-        || tab.browserViewScopeId !== browserViewScopeId
+        tab.browserConversationId !== browserConversationId ||
+        tab.browserViewScopeId !== browserViewScopeId
       ) {
         continue;
       }
@@ -984,28 +931,21 @@ export class BrowserSidebarService extends EventEmitter {
     this.deviceToolbarStates.delete(key);
     this.pendingBrowserUsePresentations.delete(key);
     if (
-      this.browserUseActiveTabIdsByConversationScope.get(
-        browserConversationScopeKey(identity),
-      )
-      === identity.browserTabId
+      this.browserUseActiveTabIdsByConversationScope.get(browserConversationScopeKey(identity)) ===
+      identity.browserTabId
     ) {
-      this.browserUseActiveTabIdsByConversationScope.delete(
-        browserConversationScopeKey(identity),
-      );
+      this.browserUseActiveTabIdsByConversationScope.delete(browserConversationScopeKey(identity));
     }
 
     const conversationScopeKey = browserConversationScopeKey(identity);
     const transferredIds =
       this.transferredBrowserTabIdsByConversationScope.get(conversationScopeKey);
     if (transferredIds) {
-      const remainingIds = transferredIds.filter((browserTabId) =>
-        browserTabId !== identity.browserTabId
+      const remainingIds = transferredIds.filter(
+        (browserTabId) => browserTabId !== identity.browserTabId,
       );
       if (remainingIds.length > 0) {
-        this.transferredBrowserTabIdsByConversationScope.set(
-          conversationScopeKey,
-          remainingIds,
-        );
+        this.transferredBrowserTabIdsByConversationScope.set(conversationScopeKey, remainingIds);
       } else {
         this.transferredBrowserTabIdsByConversationScope.delete(conversationScopeKey);
       }
@@ -1020,15 +960,12 @@ export class BrowserSidebarService extends EventEmitter {
     }
   }
 
-  closeBrowserTabAcrossScopes(
-    browserConversationId: string,
-    browserTabId: string,
-  ): void {
+  closeBrowserTabAcrossScopes(browserConversationId: string, browserTabId: string): void {
     const identities = new Map<string, BrowserSidebarTabIdentity>();
     const collect = (identity: BrowserSidebarTabIdentity): void => {
       if (
-        identity.browserConversationId !== browserConversationId
-        || identity.browserTabId !== browserTabId
+        identity.browserConversationId !== browserConversationId ||
+        identity.browserTabId !== browserTabId
       ) {
         return;
       }
@@ -1084,8 +1021,9 @@ export class BrowserSidebarService extends EventEmitter {
   getDeviceToolbarTabState(
     identity: BrowserSidebarTabIdentity,
   ): BrowserSidebarTabSnapshot["deviceToolbarState"] {
-    return this.deviceToolbarStates.get(browserTabKey(identity))
-      ?? makeDefaultDeviceToolbarState(false);
+    return (
+      this.deviceToolbarStates.get(browserTabKey(identity)) ?? makeDefaultDeviceToolbarState(false)
+    );
   }
 
   primeTransferredBrowserTabId(
@@ -1106,16 +1044,14 @@ export class BrowserSidebarService extends EventEmitter {
   openClonedBrowserTab(
     input: Omit<BrowserSidebarClonedTabInput, "deviceToolbarState">,
   ): BrowserSidebarTabSnapshot {
-    const transferredIds = this.transferredBrowserTabIdsByConversationScope.get(
-      browserConversationScopeKey(input),
-    ) ?? [];
-    const defaultBrowserTabId = makeDefaultBrowserSidebarTabId(
-      input.browserConversationId,
-    );
-    const browserTabId = input.browserTabId === defaultBrowserTabId
-      || transferredIds.includes(input.browserTabId)
-      ? input.browserTabId
-      : defaultBrowserTabId;
+    const transferredIds =
+      this.transferredBrowserTabIdsByConversationScope.get(browserConversationScopeKey(input)) ??
+      [];
+    const defaultBrowserTabId = makeDefaultBrowserSidebarTabId(input.browserConversationId);
+    const browserTabId =
+      input.browserTabId === defaultBrowserTabId || transferredIds.includes(input.browserTabId)
+        ? input.browserTabId
+        : defaultBrowserTabId;
     const identity = {
       browserConversationId: input.browserConversationId,
       browserViewScopeId: input.browserViewScopeId,
@@ -1124,9 +1060,7 @@ export class BrowserSidebarService extends EventEmitter {
     const key = browserTabKey(identity);
     const existing = this.tabs.get(key);
     const requestedUrl = normalizeBrowserNavigationUrl(input.initialUrl);
-    const url = isAllowedBrowserNavigationUrl(requestedUrl)
-      ? requestedUrl
-      : "about:blank";
+    const url = isAllowedBrowserNavigationUrl(requestedUrl) ? requestedUrl : "about:blank";
     const deviceToolbarState = this.getDeviceToolbarTabState(identity);
     const viewport = viewportFromDeviceToolbarState(
       deviceToolbarState,
@@ -1135,8 +1069,7 @@ export class BrowserSidebarService extends EventEmitter {
     const snapshot = this.upsertTab({
       ...(existing ?? {
         ...identity,
-        browserStorageId: input.browserStorageId
-          ?? `browser:legacy:${browserTabId}`,
+        browserStorageId: input.browserStorageId ?? `browser:legacy:${browserTabId}`,
         webContentsId: null,
         mountGeneration: 0,
         title: "New tab",
@@ -1162,9 +1095,7 @@ export class BrowserSidebarService extends EventEmitter {
       projectId: input.projectId,
       url,
       pendingUrl: input.initialUrl === undefined ? undefined : url,
-      errorMessage: url === requestedUrl
-        ? undefined
-        : "Blocked an unsupported Browser URL",
+      errorMessage: url === requestedUrl ? undefined : "Blocked an unsupported Browser URL",
       deviceToolbarVisible: deviceToolbarState.toolbarState.isEnabled,
       viewport,
       deviceToolbarState,
@@ -1184,10 +1115,7 @@ export class BrowserSidebarService extends EventEmitter {
     if (!existing) return;
     this.updateTab(key, {
       deviceToolbarVisible: deviceToolbarState.toolbarState.isEnabled,
-      viewport: viewportFromDeviceToolbarState(
-        deviceToolbarState,
-        existing.zoomPercent,
-      ),
+      viewport: viewportFromDeviceToolbarState(deviceToolbarState, existing.zoomPercent),
       deviceToolbarState,
     });
   }
@@ -1275,16 +1203,14 @@ export class BrowserSidebarService extends EventEmitter {
     guestWebContentsId: number,
   ): void {
     const contents = this.electron.webContents.fromId(guestWebContentsId);
-    const preparedPage = this.preparedPagesByStorageId.get(
-      route.browserStorageId,
-    );
+    const preparedPage = this.preparedPagesByStorageId.get(route.browserStorageId);
     const key = browserTabKey(route);
     if (
-      !contents
-      || contents.isDestroyed()
-      || !preparedPage
-      || this.tabs.get(key)?.browserStorageId !== route.browserStorageId
-      || this.earlyPageRestoresByGuest.has(guestWebContentsId)
+      !contents ||
+      contents.isDestroyed() ||
+      !preparedPage ||
+      this.tabs.get(key)?.browserStorageId !== route.browserStorageId ||
+      this.earlyPageRestoresByGuest.has(guestWebContentsId)
     ) {
       return;
     }
@@ -1304,9 +1230,9 @@ export class BrowserSidebarService extends EventEmitter {
   ): boolean {
     const snapshot = this.tabs.get(browserTabKey(identity));
     return (
-      snapshot !== undefined
-      && snapshot.browserStorageId !== undefined
-      && snapshot.browserStorageId === browserStorageId
+      snapshot !== undefined &&
+      snapshot.browserStorageId !== undefined &&
+      snapshot.browserStorageId === browserStorageId
     );
   }
 
@@ -1317,18 +1243,12 @@ export class BrowserSidebarService extends EventEmitter {
         return { ok: true };
       }
       if (kind === "history") {
-        await Promise.all([
-          this.pageStore?.clear(),
-          this.historyStore?.clear(),
-        ]);
+        await Promise.all([this.pageStore?.clear(), this.historyStore?.clear()]);
         for (const tab of this.tabs.values()) {
           const contents = this.getAttachedWebContents(tab);
           if (!contents || contents.isDestroyed()) continue;
           contents.navigationHistory?.clear?.();
-          void this.persistPageSnapshotForWebContents(
-            tab.webContentsId ?? -1,
-            contents,
-          );
+          void this.persistPageSnapshotForWebContents(tab.webContentsId ?? -1, contents);
         }
         return { ok: true };
       }
@@ -1366,8 +1286,8 @@ export class BrowserSidebarService extends EventEmitter {
     ownerWebContentsId?: number,
   ): Promise<BrowserSidebarCommandResult> {
     if (
-      ownerWebContentsId !== undefined
-      && !this.isRegisteredWebviewOwner(event, ownerWebContentsId)
+      ownerWebContentsId !== undefined &&
+      !this.isRegisteredWebviewOwner(event, ownerWebContentsId)
     ) {
       this.logger.warn("Rejected unowned Browser webview registration", {
         ...browserIdentity(event),
@@ -1394,23 +1314,17 @@ export class BrowserSidebarService extends EventEmitter {
         contents,
         this.themeVariantsByViewScope.get(event.browserViewScopeId) ?? "light",
       );
-      const earlyRestore = this.earlyPageRestoresByGuest.get(
-        event.webContentsId,
-      );
+      const earlyRestore = this.earlyPageRestoresByGuest.get(event.webContentsId);
       snapshot = alreadyLive
         ? this.updateTab(key, {
-            lifecycleState: attachedSnapshot.presented
-              ? "live-attached"
-              : "live-detached",
+            lifecycleState: attachedSnapshot.presented ? "live-attached" : "live-detached",
             restoreResult: "already-live",
           })
         : earlyRestore
           ? await earlyRestore.then((restored) => {
               const attached = this.tabs.get(key) ?? restored;
               return this.updateTab(key, {
-                lifecycleState: attached.presented
-                  ? "live-attached"
-                  : "live-detached",
+                lifecycleState: attached.presented ? "live-attached" : "live-detached",
               });
             })
           : await this.restoreSavedPage(key, contents);
@@ -1432,15 +1346,17 @@ export class BrowserSidebarService extends EventEmitter {
     return { ok: true, snapshot };
   }
 
-  async handleWebviewDestroyed(event: BrowserSidebarWebviewDestroyed): Promise<BrowserSidebarCommandResult> {
+  async handleWebviewDestroyed(
+    event: BrowserSidebarWebviewDestroyed,
+  ): Promise<BrowserSidebarCommandResult> {
     const key = browserTabKey(event);
     const current = this.tabs.get(key);
     const pending = this.pendingTeardowns.get(key);
     if (
-      !pending
-      || pending.teardownId !== event.teardownId
-      || pending.mountGeneration !== event.mountGeneration
-      || pending.reason !== event.reason
+      !pending ||
+      pending.teardownId !== event.teardownId ||
+      pending.mountGeneration !== event.mountGeneration ||
+      pending.reason !== event.reason
     ) {
       this.logger.debug("Ignored stale browser webview destroyed ack", {
         ...browserIdentity(event),
@@ -1478,11 +1394,7 @@ export class BrowserSidebarService extends EventEmitter {
       this.runtimeRegistry.releaseGuest(event.webContentsId);
       this.earlyPageRestoresByGuest.delete(event.webContentsId);
     }
-    if (
-      event.reason === "closed"
-      || event.reason === "reset"
-      || event.reason === "suspend"
-    ) {
+    if (event.reason === "closed" || event.reason === "reset" || event.reason === "suspend") {
       this.runtimeRegistry.releaseHost(event);
     }
     if (event.webContentsId !== undefined) {
@@ -1505,10 +1417,7 @@ export class BrowserSidebarService extends EventEmitter {
       if (!context.browserViewScopeId) {
         return { ok: false, message: "Browser view scope is unavailable" };
       }
-      this.setThemeVariantForViewScope(
-        context.browserViewScopeId,
-        command.themeVariant,
-      );
+      this.setThemeVariantForViewScope(context.browserViewScopeId, command.themeVariant);
       return { ok: true };
     }
 
@@ -1532,27 +1441,15 @@ export class BrowserSidebarService extends EventEmitter {
       if (context.ownerWebContentsId === undefined) {
         return { ok: false, message: "Browser host owner is unavailable" };
       }
-      if (
-        !this.isRegisteredBrowserStorage(
-          command,
-          command.browserStorageId,
-        )
-      ) {
+      if (!this.isRegisteredBrowserStorage(command, command.browserStorageId)) {
         return {
           ok: false,
-          message:
-            "Browser host registration failed: storage-identity-mismatch",
+          message: "Browser host registration failed: storage-identity-mismatch",
         };
       }
-      const result = this.runtimeRegistry.registerHost(
-        context.ownerWebContentsId,
-        command,
-      );
+      const result = this.runtimeRegistry.registerHost(context.ownerWebContentsId, command);
       if (result.ok) {
-        this.setThemeVariantForViewScope(
-          command.browserViewScopeId,
-          command.themeVariant,
-        );
+        this.setThemeVariantForViewScope(command.browserViewScopeId, command.themeVariant);
         return { ok: true };
       }
       return {
@@ -1570,33 +1467,22 @@ export class BrowserSidebarService extends EventEmitter {
       if (context.ownerWebContentsId === undefined) {
         return { ok: false, message: "Browser host owner is unavailable" };
       }
-      const hostMatch = this.runtimeRegistry.matchHost(
-        context.ownerWebContentsId,
-        command,
-      );
-      if (
-        !hostMatch.ok
-        || hostMatch.registration.hostKind !== command.hostKind
-      ) {
+      const hostMatch = this.runtimeRegistry.matchHost(context.ownerWebContentsId, command);
+      if (!hostMatch.ok || hostMatch.registration.hostKind !== command.hostKind) {
         return { ok: true, snapshot: current };
       }
       const hasLiveGuest = current.webContentsId !== null;
       const snapshot = this.updateTab(key, {
         presented: command.presented,
         visible: command.visible,
-        lastSelectedAt: command.presented
-          ? Date.now()
-          : current.lastSelectedAt,
+        lastSelectedAt: command.presented ? Date.now() : current.lastSelectedAt,
         lifecycleState: hasLiveGuest
           ? command.presented
             ? "live-attached"
             : "live-detached"
           : current.lifecycleState,
       });
-      this.setThemeVariantForViewScope(
-        command.browserViewScopeId,
-        command.themeVariant,
-      );
+      this.setThemeVariantForViewScope(command.browserViewScopeId, command.themeVariant);
       if (command.presented && command.visible) {
         this.pendingBrowserUsePresentations.delete(key);
       }
@@ -1619,10 +1505,7 @@ export class BrowserSidebarService extends EventEmitter {
       } catch (error) {
         return { ok: false, message: readBoundedErrorMessage(error) };
       }
-      this.browserUseCapturedRoutesByViewScope.set(
-        command.browserViewScopeId,
-        route,
-      );
+      this.browserUseCapturedRoutesByViewScope.set(command.browserViewScopeId, route);
       return { ok: true };
     }
 
@@ -1632,9 +1515,9 @@ export class BrowserSidebarService extends EventEmitter {
       if (existing) {
         const requestedBrowserStorageId = command.browserStorageId?.trim();
         if (
-          requestedBrowserStorageId
-          && existing.browserStorageId
-          && requestedBrowserStorageId !== existing.browserStorageId
+          requestedBrowserStorageId &&
+          existing.browserStorageId &&
+          requestedBrowserStorageId !== existing.browserStorageId
         ) {
           if (!this.canAdoptProvisionalBrowserStorage(existing)) {
             return {
@@ -1662,28 +1545,23 @@ export class BrowserSidebarService extends EventEmitter {
         });
         return { ok: true, snapshot };
       }
-      const deviceToolbarVisible = command.deviceToolbarState?.toolbarState.isEnabled
-        ?? command.deviceToolbarVisible === true;
-      const deviceToolbarState = command.deviceToolbarState
-        ?? this.deviceToolbarStates.get(key)
-        ?? makeDefaultDeviceToolbarState(deviceToolbarVisible);
+      const deviceToolbarVisible =
+        command.deviceToolbarState?.toolbarState.isEnabled ?? command.deviceToolbarVisible === true;
+      const deviceToolbarState =
+        command.deviceToolbarState ??
+        this.deviceToolbarStates.get(key) ??
+        makeDefaultDeviceToolbarState(deviceToolbarVisible);
       this.deviceToolbarStates.set(key, deviceToolbarState);
       const viewport = viewportFromDeviceToolbarState(deviceToolbarState, 100);
-      const browserStorageId = command.browserStorageId
-        ?? `browser:legacy:${command.browserTabId}`;
+      const browserStorageId = command.browserStorageId ?? `browser:legacy:${command.browserTabId}`;
       this.invalidatedPageStorageIds.delete(browserStorageId);
-      const savedPage = await this.readSavedPage(
-        browserStorageId,
-        browserIdentity(command),
-      );
+      const savedPage = await this.readSavedPage(browserStorageId, browserIdentity(command));
       if (savedPage) {
         this.preparedPagesByStorageId.set(browserStorageId, savedPage);
       } else {
         this.preparedPagesByStorageId.delete(browserStorageId);
       }
-      const requestedInitialUrl = normalizeBrowserNavigationUrl(
-        command.initialUrl,
-      );
+      const requestedInitialUrl = normalizeBrowserNavigationUrl(command.initialUrl);
       const fallbackInitialUrl = isAllowedBrowserNavigationUrl(requestedInitialUrl)
         ? requestedInitialUrl
         : "about:blank";
@@ -1717,9 +1595,10 @@ export class BrowserSidebarService extends EventEmitter {
         activeDownload: false,
         lifecycleState: "cold",
         restoreResult: savedPage ? "snapshot-ready" : "missing",
-        errorMessage: fallbackInitialUrl === requestedInitialUrl
-          ? undefined
-          : "Blocked an unsupported Browser URL",
+        errorMessage:
+          fallbackInitialUrl === requestedInitialUrl
+            ? undefined
+            : "Blocked an unsupported Browser URL",
         updatedAt: Date.now(),
       });
       this.emitState();
@@ -1766,11 +1645,7 @@ export class BrowserSidebarService extends EventEmitter {
 
     if (command.type === "open-external") {
       let url = command.url;
-      if (
-        url === undefined
-        && "browserConversationId" in command
-        && "browserTabId" in command
-      ) {
+      if (url === undefined && "browserConversationId" in command && "browserTabId" in command) {
         url = this.tabs.get(browserTabKey(command))?.url;
       }
       if (isBlankBrowserUrl(url)) return { ok: false, message: "Browser tab has no page URL" };
@@ -1873,11 +1748,7 @@ export class BrowserSidebarService extends EventEmitter {
         deviceToolbarState,
       });
       const contents = this.getAttachedWebContents(snapshot);
-      if (
-        snapshot.deviceToolbarVisible
-        && contents
-        && !contents.isDestroyed()
-      ) {
+      if (snapshot.deviceToolbarVisible && contents && !contents.isDestroyed()) {
         void this.syncDeviceEmulation(snapshot, contents);
       }
       this.syncBrowserUseViewport(command, command.viewport);
@@ -1886,9 +1757,9 @@ export class BrowserSidebarService extends EventEmitter {
 
     if (command.type === "set-interaction-mode") {
       if (
-        command.mode === "comment"
-        && this.siteStatusPolicy
-        && await this.siteStatusPolicy.isCommentModeBlocked(tab.url)
+        command.mode === "comment" &&
+        this.siteStatusPolicy &&
+        (await this.siteStatusPolicy.isCommentModeBlocked(tab.url))
       ) {
         return {
           ok: false,
@@ -1900,10 +1771,7 @@ export class BrowserSidebarService extends EventEmitter {
     }
 
     if (command.type === "quick-annotate") {
-      if (
-        this.siteStatusPolicy
-        && await this.siteStatusPolicy.isCommentModeBlocked(tab.url)
-      ) {
+      if (this.siteStatusPolicy && (await this.siteStatusPolicy.isCommentModeBlocked(tab.url))) {
         return {
           ok: false,
           message: "Comment mode is unavailable for this site.",
@@ -1935,7 +1803,9 @@ export class BrowserSidebarService extends EventEmitter {
     if (command.type === "close-find") {
       const contents = this.getAttachedWebContents(tab);
       contents?.stopFindInPage?.("clearSelection");
-      const snapshot = this.updateTab(key, { findState: { ...DEFAULT_BROWSER_SIDEBAR_FIND_STATE } });
+      const snapshot = this.updateTab(key, {
+        findState: { ...DEFAULT_BROWSER_SIDEBAR_FIND_STATE },
+      });
       return { ok: true, snapshot };
     }
 
@@ -1943,7 +1813,11 @@ export class BrowserSidebarService extends EventEmitter {
       const contents = this.getAttachedWebContents(tab);
       const query = command.query;
       if (query.trim().length > 0) {
-        contents?.findInPage?.(query, { forward: true, findNext: false, matchCase: command.caseSensitive === true });
+        contents?.findInPage?.(query, {
+          forward: true,
+          findNext: false,
+          matchCase: command.caseSensitive === true,
+        });
       } else {
         contents?.stopFindInPage?.("clearSelection");
       }
@@ -1977,20 +1851,19 @@ export class BrowserSidebarService extends EventEmitter {
     }
 
     const contents = this.getAttachedWebContents(tab);
-    if (!contents || contents.isDestroyed()) return { ok: false, message: "Browser webview is not attached" };
+    if (!contents || contents.isDestroyed())
+      return { ok: false, message: "Browser webview is not attached" };
 
     if (command.type === "attach-dragged-image") {
       const ownerWebContentsId = context.ownerWebContentsId;
       if (ownerWebContentsId === undefined) {
         return { ok: false, message: "Browser renderer owner is unavailable" };
       }
-      const active = this.activeImageDragsByOwnerWebContentsId.get(
-        ownerWebContentsId,
-      );
+      const active = this.activeImageDragsByOwnerWebContentsId.get(ownerWebContentsId);
       if (
-        !active
-        || browserTabKey(active) !== key
-        || active.guestWebContentsId !== tab.webContentsId
+        !active ||
+        browserTabKey(active) !== key ||
+        active.guestWebContentsId !== tab.webContentsId
       ) {
         return {
           ok: false,
@@ -2043,12 +1916,14 @@ export class BrowserSidebarService extends EventEmitter {
       }
       return await new Promise<BrowserSidebarCommandResult>((resolve) => {
         contents.print?.({ printBackground: true }, (success, failureReason) => {
-          resolve(success
-            ? { ok: true }
-            : {
-                ok: false,
-                message: failureReason || "Printing failed",
-              });
+          resolve(
+            success
+              ? { ok: true }
+              : {
+                  ok: false,
+                  message: failureReason || "Printing failed",
+                },
+          );
         });
       });
     }
@@ -2057,14 +1932,12 @@ export class BrowserSidebarService extends EventEmitter {
   }
 
   observePtyData(terminalSessionId: string, data: string): void {
-    void this.observePtyDataWithProjectSession(terminalSessionId, data).catch(
-      (error) => {
-        this.logger.warn("Failed to resolve terminal Project Session", {
-          terminalSessionId,
-          error,
-        });
-      },
-    );
+    void this.observePtyDataWithProjectSession(terminalSessionId, data).catch((error) => {
+      this.logger.warn("Failed to resolve terminal Project Session", {
+        terminalSessionId,
+        error,
+      });
+    });
   }
 
   private async observePtyDataWithProjectSession(
@@ -2073,7 +1946,7 @@ export class BrowserSidebarService extends EventEmitter {
   ): Promise<void> {
     const sessionId = parseProjectSessionIdFromTerminalId(terminalSessionId);
     if (!sessionId) return;
-    const projectId = await this.resolveProjectIdForSession?.(sessionId) ?? null;
+    const projectId = (await this.resolveProjectIdForSession?.(sessionId)) ?? null;
     if (projectId === null) return;
 
     const matches = data.match(LOCAL_SERVER_URL_PATTERN);
@@ -2108,9 +1981,10 @@ export class BrowserSidebarService extends EventEmitter {
         lastSeenAt: now,
         hidden: state.hiddenRouteIds.has(routeId),
       };
-      const nextRoutes = routeIndex >= 0
-        ? routes.map((item, index) => index === routeIndex ? route : item)
-        : [...routes, route];
+      const nextRoutes =
+        routeIndex >= 0
+          ? routes.map((item, index) => (index === routeIndex ? route : item))
+          : [...routes, route];
 
       state.servers.set(serverId, {
         id: serverId,
@@ -2143,8 +2017,7 @@ export class BrowserSidebarService extends EventEmitter {
     const identity = browserIdentity(ownership.identity);
     const annotationScale = Math.max(tab.zoomPercent / 100, 0.01);
     const template = buildBrowserContextMenuTemplate({
-      canAnnotate:
-        this.siteStatusPolicy?.cachedCommentModeBlocked(tab.url) !== true,
+      canAnnotate: this.siteStatusPolicy?.cachedCommentModeBlocked(tab.url) !== true,
       canGoBack: contents.canGoBack(),
       canGoForward: contents.canGoForward(),
       canReload: tab.hasBrowserPage || tab.failure !== undefined,
@@ -2161,12 +2034,7 @@ export class BrowserSidebarService extends EventEmitter {
           });
         },
         attachImage: (sourceUrl) => {
-          void this.attachContextMenuImage(
-            webContentsId,
-            contents,
-            tab,
-            sourceUrl,
-          );
+          void this.attachContextMenuImage(webContentsId, contents, tab, sourceUrl);
         },
         back: () => {
           if (!contents.isDestroyed() && contents.canGoBack()) contents.goBack();
@@ -2210,9 +2078,7 @@ export class BrowserSidebarService extends EventEmitter {
   }
 
   private clearBrowserImageDrag(ownerWebContentsId: number): void {
-    const active = this.activeImageDragsByOwnerWebContentsId.get(
-      ownerWebContentsId,
-    );
+    const active = this.activeImageDragsByOwnerWebContentsId.get(ownerWebContentsId);
     if (!active) return;
     this.activeImageDragsByOwnerWebContentsId.delete(ownerWebContentsId);
     this.emit("imageDragState", {
@@ -2235,8 +2101,8 @@ export class BrowserSidebarService extends EventEmitter {
         sourceUrl,
       });
       if (
-        contents.isDestroyed()
-        || this.webContentsTabIds.get(webContentsId) !== browserTabKey(tab)
+        contents.isDestroyed() ||
+        this.webContentsTabIds.get(webContentsId) !== browserTabKey(tab)
       ) {
         return {
           ok: false,
@@ -2328,13 +2194,18 @@ export class BrowserSidebarService extends EventEmitter {
 
     this.logger.info("Browser navigate start", { ...browserIdentity(tab), hasUrl: url.length > 0 });
     void Promise.resolve(contents.loadURL(url))
-      .then(() => this.refreshSnapshotFromWebContents(key, contents, {
-        isWaitingForResponse: false,
-        pendingUrl: undefined,
-      }))
+      .then(() =>
+        this.refreshSnapshotFromWebContents(key, contents, {
+          isWaitingForResponse: false,
+          pendingUrl: undefined,
+        }),
+      )
       .catch((error) => {
         if (isNavigationAbortError(error)) {
-          this.logger.debug("Browser navigate aborted", { ...browserIdentity(tab), hasUrl: url.length > 0 });
+          this.logger.debug("Browser navigate aborted", {
+            ...browserIdentity(tab),
+            hasUrl: url.length > 0,
+          });
           return;
         }
         this.logger.warn("Browser navigate failed", {
@@ -2359,10 +2230,9 @@ export class BrowserSidebarService extends EventEmitter {
 
   private updateTab(
     key: string,
-    patch: Partial<Omit<
-      BrowserSidebarTabSnapshot,
-      "browserConversationId" | "browserTabId" | "updatedAt"
-    >>,
+    patch: Partial<
+      Omit<BrowserSidebarTabSnapshot, "browserConversationId" | "browserTabId" | "updatedAt">
+    >,
   ): BrowserSidebarTabSnapshot {
     const current = this.tabs.get(key);
     if (!current) throw new Error("Browser tab is not registered");
@@ -2410,17 +2280,13 @@ export class BrowserSidebarService extends EventEmitter {
       return false;
     }
     return (
-      ownership.identity.browserConversationId === event.browserConversationId
-      && ownership.identity.browserViewScopeId === event.browserViewScopeId
-      && ownership.identity.browserTabId === event.browserTabId
-      && ownership.browserStorageId === event.browserStorageId
-      && (
-        ownership.rendererInstanceId === undefined
-        || (
-          ownership.rendererInstanceId === event.rendererInstanceId
-          && ownership.hostGeneration === event.hostGeneration
-        )
-      )
+      ownership.identity.browserConversationId === event.browserConversationId &&
+      ownership.identity.browserViewScopeId === event.browserViewScopeId &&
+      ownership.identity.browserTabId === event.browserTabId &&
+      ownership.browserStorageId === event.browserStorageId &&
+      (ownership.rendererInstanceId === undefined ||
+        (ownership.rendererInstanceId === event.rendererInstanceId &&
+          ownership.hostGeneration === event.hostGeneration))
     );
   }
 
@@ -2451,17 +2317,12 @@ export class BrowserSidebarService extends EventEmitter {
       mountGeneration: event.mountGeneration,
       url: isBlankBrowserUrl(current.url) ? initialUrl : current.url,
       title: event.title?.trim() || current.title,
-      errorMessage: initialUrl === requestedInitialUrl
-        ? undefined
-        : "Blocked an unsupported Browser URL",
+      errorMessage:
+        initialUrl === requestedInitialUrl ? undefined : "Blocked an unsupported Browser URL",
       presented: event.hostKind === "panel",
       visible: event.hostKind === "panel",
-      lastSelectedAt: event.hostKind === "panel"
-        ? Date.now()
-        : current.lastSelectedAt,
-      lifecycleState: event.hostKind === "panel"
-        ? "live-attached"
-        : "live-detached",
+      lastSelectedAt: event.hostKind === "panel" ? Date.now() : current.lastSelectedAt,
+      lifecycleState: event.hostKind === "panel" ? "live-attached" : "live-detached",
     });
     this.logger.info("Browser webview attached", {
       ...browserIdentity(event),
@@ -2475,7 +2336,8 @@ export class BrowserSidebarService extends EventEmitter {
   private detachWebview(tabId: string, webContentsId?: number): void {
     const current = this.tabs.get(tabId);
     if (!current) return;
-    const detachedWebContentsId = typeof webContentsId === "number" ? webContentsId : current.webContentsId;
+    const detachedWebContentsId =
+      typeof webContentsId === "number" ? webContentsId : current.webContentsId;
     if (detachedWebContentsId !== null && detachedWebContentsId !== undefined) {
       this.webContentsTabIds.delete(detachedWebContentsId);
       this.disposeWebContentsListeners(detachedWebContentsId);
@@ -2485,25 +2347,27 @@ export class BrowserSidebarService extends EventEmitter {
       isLoading: false,
       isWaitingForResponse: false,
       pendingUrl: undefined,
-      lifecycleState: current.lifecycleState === "closing"
-        ? "closed"
-        : current.lifecycleState === "suspending"
-          ? "suspended"
-          : "live-detached",
+      lifecycleState:
+        current.lifecycleState === "closing"
+          ? "closed"
+          : current.lifecycleState === "suspending"
+            ? "suspended"
+            : "live-detached",
     });
   }
 
-  private ensureWebContentsListeners(tabId: string, webContentsId: number, contents: BrowserWebContentsLike): void {
+  private ensureWebContentsListeners(
+    tabId: string,
+    webContentsId: number,
+    contents: BrowserWebContentsLike,
+  ): void {
     if (this.webContentsDisposers.has(webContentsId)) return;
 
     contents.setWindowOpenHandler(({ url: targetUrl, disposition }) => {
       const ownership = this.attachedWebviewOwnership.get(webContentsId);
       const canOpenAsBrowserTab =
-        isAllowedBrowserNavigationUrl(targetUrl)
-        && (
-          targetUrl === "about:blank"
-          || ["http:", "https:"].includes(new URL(targetUrl).protocol)
-        );
+        isAllowedBrowserNavigationUrl(targetUrl) &&
+        (targetUrl === "about:blank" || ["http:", "https:"].includes(new URL(targetUrl).protocol));
       if (ownership && canOpenAsBrowserTab) {
         this.emit("openNewTab", {
           ...browserIdentity(ownership.identity),
@@ -2620,14 +2484,17 @@ export class BrowserSidebarService extends EventEmitter {
       if (!result) return;
       this.updateTabForWebContents(webContentsId, contents, {
         findState: {
-          ...(this.tabs.get(this.webContentsTabIds.get(webContentsId) ?? "")?.findState ?? DEFAULT_BROWSER_SIDEBAR_FIND_STATE),
+          ...(this.tabs.get(this.webContentsTabIds.get(webContentsId) ?? "")?.findState ??
+            DEFAULT_BROWSER_SIDEBAR_FIND_STATE),
           activeMatchOrdinal: result.activeMatchOrdinal,
           matchCount: result.matches,
         },
       });
     });
     add("did-fail-load", (...args) => this.handleLoadFailure(webContentsId, contents, args));
-    add("did-fail-provisional-load", (...args) => this.handleLoadFailure(webContentsId, contents, args));
+    add("did-fail-provisional-load", (...args) =>
+      this.handleLoadFailure(webContentsId, contents, args),
+    );
     add("render-process-gone", (...args) => {
       const tabKey = this.webContentsTabIds.get(webContentsId);
       const tab = tabKey ? this.tabs.get(tabKey) : null;
@@ -2687,10 +2554,9 @@ export class BrowserSidebarService extends EventEmitter {
   private updateTabForWebContents(
     webContentsId: number,
     contents: BrowserWebContentsLike,
-    patch: Partial<Omit<
-      BrowserSidebarTabSnapshot,
-      "browserConversationId" | "browserTabId" | "updatedAt"
-    >>,
+    patch: Partial<
+      Omit<BrowserSidebarTabSnapshot, "browserConversationId" | "browserTabId" | "updatedAt">
+    >,
   ): BrowserSidebarTabSnapshot | null {
     const tabId = this.webContentsTabIds.get(webContentsId);
     if (!tabId) return null;
@@ -2700,21 +2566,19 @@ export class BrowserSidebarService extends EventEmitter {
   private refreshSnapshotFromWebContents(
     tabId: string,
     contents: BrowserWebContentsLike,
-    patch: Partial<Omit<
-      BrowserSidebarTabSnapshot,
-      "browserConversationId" | "browserTabId" | "updatedAt"
-    >> = {},
+    patch: Partial<
+      Omit<BrowserSidebarTabSnapshot, "browserConversationId" | "browserTabId" | "updatedAt">
+    > = {},
   ): BrowserSidebarTabSnapshot | null {
     const current = this.tabs.get(tabId);
     if (!current) return null;
     if (contents.isDestroyed()) return current;
 
-    const url = typeof patch.url === "string"
-      ? patch.url
-      : contents.getURL() || current.url;
-    const title = typeof patch.title === "string"
-      ? patch.title
-      : contents.getTitle() || current.title || "New tab";
+    const url = typeof patch.url === "string" ? patch.url : contents.getURL() || current.url;
+    const title =
+      typeof patch.title === "string"
+        ? patch.title
+        : contents.getTitle() || current.title || "New tab";
 
     return this.updateTab(tabId, {
       url: normalizeBrowserNavigationUrl(url),
@@ -2726,7 +2590,11 @@ export class BrowserSidebarService extends EventEmitter {
     });
   }
 
-  private handleLoadFailure(webContentsId: number, contents: BrowserWebContentsLike, args: unknown[]): void {
+  private handleLoadFailure(
+    webContentsId: number,
+    contents: BrowserWebContentsLike,
+    args: unknown[],
+  ): void {
     const errorCode = readErrorCodeFromEventArgs(args);
     const url = readUrlFromEventArgs(args, contents.getURL());
     if (errorCode === -3) {
@@ -2744,11 +2612,7 @@ export class BrowserSidebarService extends EventEmitter {
       isLoading: false,
       isWaitingForResponse: false,
       pendingUrl: undefined,
-      failure: classifyBrowserPageFailure(
-        errorCode,
-        url,
-        readErrorDescriptionFromEventArgs(args),
-      ),
+      failure: classifyBrowserPageFailure(errorCode, url, readErrorDescriptionFromEventArgs(args)),
       errorMessage: readErrorDescriptionFromEventArgs(args) ?? "Failed to load page",
     });
     this.logger.warn("Browser load failed", { webContentsId, errorCode, hasUrl: url.length > 0 });
@@ -2759,10 +2623,7 @@ export class BrowserSidebarService extends EventEmitter {
     contents: BrowserWebContentsLike,
   ): Promise<void> {
     const result = tab.deviceToolbarVisible
-      ? await this.pageEmulationController.syncDeviceMetrics(
-          contents,
-          tab.viewport,
-        )
+      ? await this.pageEmulationController.syncDeviceMetrics(contents, tab.viewport)
       : await this.pageEmulationController.clearDeviceMetrics(contents);
     if (result.ok || result.reason === "debugger-unavailable") return;
     this.logger.warn("Browser device emulation could not be synchronized", {
@@ -2776,10 +2637,7 @@ export class BrowserSidebarService extends EventEmitter {
     contents: BrowserWebContentsLike,
     themeVariant: BrowserSidebarThemeVariant,
   ): Promise<void> {
-    const result = await this.pageEmulationController.syncColorScheme(
-      contents,
-      themeVariant,
-    );
+    const result = await this.pageEmulationController.syncColorScheme(contents, themeVariant);
     const context = {
       ...browserIdentity(identity),
       themeVariant,
@@ -2799,8 +2657,7 @@ export class BrowserSidebarService extends EventEmitter {
     browserViewScopeId: string,
     themeVariant: BrowserSidebarThemeVariant,
   ): void {
-    const previousThemeVariant =
-      this.themeVariantsByViewScope.get(browserViewScopeId);
+    const previousThemeVariant = this.themeVariantsByViewScope.get(browserViewScopeId);
     this.themeVariantsByViewScope.set(browserViewScopeId, themeVariant);
     if (previousThemeVariant === themeVariant) return;
 
@@ -2829,13 +2686,12 @@ export class BrowserSidebarService extends EventEmitter {
     }
     if (!page) return null;
     const hasMatchingIdentity =
-      page.identity.browserConversationId === identity.browserConversationId
-      && page.identity.browserViewScopeId === identity.browserViewScopeId
-      && page.identity.browserTabId === identity.browserTabId;
-    const hasSafeNavigation = isAllowedBrowserNavigationUrl(page.url)
-      && page.navigation.entries.every((entry) =>
-        isAllowedBrowserNavigationUrl(entry.url)
-      );
+      page.identity.browserConversationId === identity.browserConversationId &&
+      page.identity.browserViewScopeId === identity.browserViewScopeId &&
+      page.identity.browserTabId === identity.browserTabId;
+    const hasSafeNavigation =
+      isAllowedBrowserNavigationUrl(page.url) &&
+      page.navigation.entries.every((entry) => isAllowedBrowserNavigationUrl(entry.url));
     if (hasMatchingIdentity && hasSafeNavigation) return page;
 
     this.invalidatedPageStorageIds.add(browserStorageId);
@@ -2850,13 +2706,11 @@ export class BrowserSidebarService extends EventEmitter {
     return null;
   }
 
-  private canAdoptProvisionalBrowserStorage(
-    tab: BrowserSidebarTabSnapshot,
-  ): boolean {
+  private canAdoptProvisionalBrowserStorage(tab: BrowserSidebarTabSnapshot): boolean {
     return (
-      tab.browserStorageId === `browser:legacy:${tab.browserTabId}`
-      && tab.webContentsId === null
-      && tab.lifecycleState === "cold"
+      tab.browserStorageId === `browser:legacy:${tab.browserTabId}` &&
+      tab.webContentsId === null &&
+      tab.lifecycleState === "cold"
     );
   }
 
@@ -2875,10 +2729,7 @@ export class BrowserSidebarService extends EventEmitter {
     let savedPage = await this.readSavedPage(browserStorageId, tab);
     if (!savedPage && this.pageStore) {
       try {
-        await this.pageStore.reassociate(
-          previousBrowserStorageId,
-          browserStorageId,
-        );
+        await this.pageStore.reassociate(previousBrowserStorageId, browserStorageId);
         savedPage = await this.readSavedPage(browserStorageId, tab);
       } catch (error) {
         this.logger.warn("Failed to migrate provisional Browser page storage", {
@@ -2888,8 +2739,7 @@ export class BrowserSidebarService extends EventEmitter {
       }
     }
 
-    const preparedPage = savedPage
-      ?? this.preparedPagesByStorageId.get(previousBrowserStorageId);
+    const preparedPage = savedPage ?? this.preparedPagesByStorageId.get(previousBrowserStorageId);
     this.preparedPagesByStorageId.delete(previousBrowserStorageId);
     if (preparedPage) {
       this.preparedPagesByStorageId.set(browserStorageId, {
@@ -2937,8 +2787,7 @@ export class BrowserSidebarService extends EventEmitter {
       });
     }
 
-    const page = preparedPage
-      ?? await this.readSavedPage(browserStorageId, current);
+    const page = preparedPage ?? (await this.readSavedPage(browserStorageId, current));
     if (!page) {
       return this.updateTab(tabId, {
         lifecycleState: current.presented ? "live-attached" : "live-detached",
@@ -2955,15 +2804,17 @@ export class BrowserSidebarService extends EventEmitter {
         entries: page.navigation.entries,
         index: page.navigation.currentIndex,
       });
-      return this.refreshSnapshotFromWebContents(tabId, contents, {
-        url: page.url,
-        title: page.title,
-        faviconUrl: page.faviconUrl,
-        lifecycleState: current.presented ? "live-attached" : "live-detached",
-        restoreResult: "snapshot-ready",
-        errorMessage: undefined,
-        failure: undefined,
-      }) ?? current;
+      return (
+        this.refreshSnapshotFromWebContents(tabId, contents, {
+          url: page.url,
+          title: page.title,
+          faviconUrl: page.faviconUrl,
+          lifecycleState: current.presented ? "live-attached" : "live-detached",
+          restoreResult: "snapshot-ready",
+          errorMessage: undefined,
+          failure: undefined,
+        }) ?? current
+      );
     } catch (error) {
       this.invalidatedPageStorageIds.add(browserStorageId);
       try {
@@ -3018,19 +2869,19 @@ export class BrowserSidebarService extends EventEmitter {
       return;
     }
     if (
-      entries.length === 0
-      || currentIndex < 0
-      || currentIndex >= entries.length
-      || entries.some((entry) => !isAllowedBrowserNavigationUrl(entry.url))
+      entries.length === 0 ||
+      currentIndex < 0 ||
+      currentIndex >= entries.length ||
+      entries.some((entry) => !isAllowedBrowserNavigationUrl(entry.url))
     ) {
       return;
     }
 
     const latest = this.tabs.get(tabId);
     if (
-      !latest
-      || latest.browserStorageId !== browserStorageId
-      || this.invalidatedPageStorageIds.has(browserStorageId)
+      !latest ||
+      latest.browserStorageId !== browserStorageId ||
+      this.invalidatedPageStorageIds.has(browserStorageId)
     ) {
       return;
     }
@@ -3062,20 +2913,19 @@ export class BrowserSidebarService extends EventEmitter {
       .filter(([, tab]) => tab.browserViewScopeId === browserViewScopeId)
       .map(([key, tab]) => {
         const browserUseTab = this.browserUseTabs.get(key);
-        const browserUseActive = browserUseTab !== undefined
-          && !browserUseTab.released;
+        const browserUseActive = browserUseTab !== undefined && !browserUseTab.released;
         return {
           ...browserIdentity(tab),
           activeDownload: tab.activeDownload === true,
           audible: tab.audible === true,
           browserUseActive,
           captureActive:
-            browserUseTab?.captureActive === true
-            || Boolean(this.browserUseCaptureSurfaces.get(key)?.surfaceSize),
+            browserUseTab?.captureActive === true ||
+            Boolean(this.browserUseCaptureSurfaces.get(key)?.surfaceSize),
           isLoading: tab.isLoading,
           lastSelectedAt: tab.lastSelectedAt ?? 0,
-          lifecycleState: tab.lifecycleState
-            ?? (tab.webContentsId === null ? "cold" : "live-detached"),
+          lifecycleState:
+            tab.lifecycleState ?? (tab.webContentsId === null ? "cold" : "live-detached"),
           mediaActive: tab.mediaActive === true,
           presented: tab.presented === true,
           updatedAt: tab.updatedAt,
@@ -3089,10 +2939,10 @@ export class BrowserSidebarService extends EventEmitter {
   private async suspendBrowserTab(tabId: string): Promise<void> {
     const tab = this.tabs.get(tabId);
     if (
-      !tab
-      || tab.lifecycleState !== "live-detached"
-      || tab.webContentsId === null
-      || this.pendingTeardowns.has(tabId)
+      !tab ||
+      tab.lifecycleState !== "live-detached" ||
+      tab.webContentsId === null ||
+      this.pendingTeardowns.has(tabId)
     ) {
       return;
     }
@@ -3101,9 +2951,9 @@ export class BrowserSidebarService extends EventEmitter {
     await this.persistPageSnapshotForWebContents(tab.webContentsId, contents);
     const current = this.tabs.get(tabId);
     if (
-      !current
-      || current.webContentsId !== tab.webContentsId
-      || current.lifecycleState !== "live-detached"
+      !current ||
+      current.webContentsId !== tab.webContentsId ||
+      current.lifecycleState !== "live-detached"
     ) {
       return;
     }
@@ -3111,7 +2961,10 @@ export class BrowserSidebarService extends EventEmitter {
     this.requestDestroyWebview(tabId, "suspend");
   }
 
-  private requestDestroyWebview(tabId: string, reason: BrowserSidebarDestroyWebviewRequest["reason"]): void {
+  private requestDestroyWebview(
+    tabId: string,
+    reason: BrowserSidebarDestroyWebviewRequest["reason"],
+  ): void {
     const tab = this.tabs.get(tabId);
     if (!tab || tab.webContentsId === null) return;
 
@@ -3164,7 +3017,9 @@ export class BrowserSidebarService extends EventEmitter {
     state.updatedAt = Date.now();
   }
 
-  private toLocalServersSnapshot(state: LocalServerProjectState): BrowserSidebarLocalServersSnapshot {
+  private toLocalServersSnapshot(
+    state: LocalServerProjectState,
+  ): BrowserSidebarLocalServersSnapshot {
     const servers = [...state.servers.values()]
       .map((server) => ({
         ...server,
@@ -3204,10 +3059,12 @@ export class BrowserSidebarService extends EventEmitter {
     state.isLoading = true;
     this.emitLocalServers(projectId);
 
-    const probed = await Promise.all(servers.map(async (server) => ({
-      id: server.id,
-      online: await probeLocalServer(server.origin),
-    })));
+    const probed = await Promise.all(
+      servers.map(async (server) => ({
+        id: server.id,
+        online: await probeLocalServer(server.origin),
+      })),
+    );
     if (this.localServersByProject.get(projectId) !== state) return;
     for (const result of probed) {
       const server = state.servers.get(result.id);
@@ -3227,9 +3084,7 @@ export class BrowserSidebarService extends EventEmitter {
     this.emit("browserUseState", this.getBrowserUseStateSnapshot());
   }
 
-  private async captureBrowserUseRoute(
-    route: BrowserUseCapturedRoute,
-  ): Promise<void> {
+  private async captureBrowserUseRoute(route: BrowserUseCapturedRoute): Promise<void> {
     await this.browserUseRouteCaptureHandler?.(route);
   }
 
@@ -3270,8 +3125,8 @@ export class BrowserSidebarService extends EventEmitter {
       this.pendingBrowserUsePresentations.delete(key);
       const conversationScopeKey = browserConversationScopeKey(command);
       if (
-        this.browserUseActiveTabIdsByConversationScope.get(conversationScopeKey)
-        === command.browserTabId
+        this.browserUseActiveTabIdsByConversationScope.get(conversationScopeKey) ===
+        command.browserTabId
       ) {
         this.browserUseActiveTabIdsByConversationScope.delete(conversationScopeKey);
       }
@@ -3334,9 +3189,10 @@ export class BrowserSidebarService extends EventEmitter {
     });
     const event: BrowserSidebarBrowserUseViewportEvent = {
       ...browserIdentity(identity),
-      viewportSize: viewport.width > 0 && viewport.height > 0
-        ? { width: viewport.width, height: viewport.height }
-        : null,
+      viewportSize:
+        viewport.width > 0 && viewport.height > 0
+          ? { width: viewport.width, height: viewport.height }
+          : null,
     };
     this.browserUseViewportSizes.set(key, event);
     this.emit("browserUseViewport", event);
@@ -3353,15 +3209,17 @@ function stepZoomPercent(current: number, delta: number): number {
   const clamped = clampZoomPercent(current);
   if (delta === 0) return clamped;
   if (delta > 0) {
-    return BROWSER_SIDEBAR_ZOOM_OPTIONS.find((option) => option > clamped)
-      ?? BROWSER_SIDEBAR_ZOOM_OPTIONS.at(-1)
-      ?? clamped;
+    return (
+      BROWSER_SIDEBAR_ZOOM_OPTIONS.find((option) => option > clamped) ??
+      BROWSER_SIDEBAR_ZOOM_OPTIONS.at(-1) ??
+      clamped
+    );
   }
-  return [...BROWSER_SIDEBAR_ZOOM_OPTIONS]
-    .reverse()
-    .find((option) => option < clamped)
-    ?? BROWSER_SIDEBAR_ZOOM_OPTIONS[0]
-    ?? clamped;
+  return (
+    [...BROWSER_SIDEBAR_ZOOM_OPTIONS].reverse().find((option) => option < clamped) ??
+    BROWSER_SIDEBAR_ZOOM_OPTIONS[0] ??
+    clamped
+  );
 }
 
 function deriveBrowserSnapshot(snapshot: BrowserSidebarTabSnapshot): BrowserSidebarTabSnapshot {
@@ -3384,20 +3242,24 @@ function parseProjectSessionIdFromTerminalId(terminalSessionId: string): string 
 }
 
 function isLocalServerUrl(url: URL): boolean {
-  return url.hostname === "localhost"
-    || url.hostname === "127.0.0.1"
-    || url.hostname === "::1"
-    || url.hostname === "[::1]";
+  return (
+    url.hostname === "localhost" ||
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "::1" ||
+    url.hostname === "[::1]"
+  );
 }
 
 function isBrowserUseCommand(command: BrowserSidebarCommand): command is BrowserUseCommand {
-  return command.type === "browser-use-upsert-tab"
-    || command.type === "browser-use-release-tab"
-    || command.type === "browser-use-set-active-tab"
-    || command.type === "browser-use-resolve-presentation"
-    || command.type === "browser-use-set-cursor"
-    || command.type === "browser-use-set-viewport"
-    || command.type === "browser-use-set-capture-surface";
+  return (
+    command.type === "browser-use-upsert-tab" ||
+    command.type === "browser-use-release-tab" ||
+    command.type === "browser-use-set-active-tab" ||
+    command.type === "browser-use-resolve-presentation" ||
+    command.type === "browser-use-set-cursor" ||
+    command.type === "browser-use-set-viewport" ||
+    command.type === "browser-use-set-capture-surface"
+  );
 }
 
 function readLocalServerOrigin(rawUrl: string): string {
@@ -3448,7 +3310,12 @@ function isNavigationAbortError(error: unknown): boolean {
 function readUrlFromEventArgs(args: unknown[], fallback: string): string {
   for (const arg of args) {
     if (typeof arg !== "string") continue;
-    if (arg.startsWith("http:") || arg.startsWith("https:") || arg.startsWith("file:") || arg.startsWith("about:")) {
+    if (
+      arg.startsWith("http:") ||
+      arg.startsWith("https:") ||
+      arg.startsWith("file:") ||
+      arg.startsWith("about:")
+    ) {
       return arg;
     }
   }
@@ -3481,7 +3348,13 @@ function readErrorCodeFromEventArgs(args: unknown[]): number | null {
 function readErrorDescriptionFromEventArgs(args: unknown[]): string | undefined {
   for (const arg of args) {
     if (typeof arg !== "string") continue;
-    if (arg.startsWith("http:") || arg.startsWith("https:") || arg.startsWith("file:") || arg.startsWith("about:")) continue;
+    if (
+      arg.startsWith("http:") ||
+      arg.startsWith("https:") ||
+      arg.startsWith("file:") ||
+      arg.startsWith("about:")
+    )
+      continue;
     if (arg.trim().length > 0) return arg.trim();
   }
   return undefined;
@@ -3506,10 +3379,7 @@ function classifyBrowserPageFailure(
   if (code === -118 || normalizedDescription.includes("timed_out")) {
     return { kind: "timeout", failedUrl, code };
   }
-  if (
-    (code <= -200 && code >= -299)
-    || normalizedDescription.includes("cert_")
-  ) {
+  if ((code <= -200 && code >= -299) || normalizedDescription.includes("cert_")) {
     return { kind: "certificate", failedUrl, code };
   }
   return {
@@ -3528,12 +3398,15 @@ function readBoundedErrorMessage(error: unknown): string {
     .slice(0, 512);
 }
 
-function readFoundInPageResult(args: unknown[]): { activeMatchOrdinal: number | null; matches: number | null } | null {
+function readFoundInPageResult(
+  args: unknown[],
+): { activeMatchOrdinal: number | null; matches: number | null } | null {
   for (const arg of args) {
     if (!arg || typeof arg !== "object") continue;
     const record = arg as { activeMatchOrdinal?: unknown; matches?: unknown };
     return {
-      activeMatchOrdinal: typeof record.activeMatchOrdinal === "number" ? record.activeMatchOrdinal : null,
+      activeMatchOrdinal:
+        typeof record.activeMatchOrdinal === "number" ? record.activeMatchOrdinal : null,
       matches: typeof record.matches === "number" ? record.matches : null,
     };
   }
@@ -3563,14 +3436,19 @@ export function broadcastBrowserSidebarEvent<EventName extends keyof BrowserSide
   eventName: EventName,
   payload: BrowserSidebarServiceEvents[EventName][0],
 ): void {
-  safeBroadcastToWindows(BrowserWindow.getAllWindows(), resolveBrowserSidebarIpcEventName(eventName), [payload]);
+  safeBroadcastToWindows(
+    BrowserWindow.getAllWindows(),
+    resolveBrowserSidebarIpcEventName(eventName),
+    [payload],
+  );
 }
 
 function resolveBrowserSidebarIpcEventName(eventName: keyof BrowserSidebarServiceEvents): string {
   if (eventName === "localServers") return "browser-sidebar-local-servers";
   if (eventName === "browserUseState") return "browser-sidebar-browser-use-state";
   if (eventName === "browserUseViewport") return "browser-sidebar-browser-use-viewport";
-  if (eventName === "browserUseCaptureSurface") return "browser-sidebar-browser-use-capture-surface";
+  if (eventName === "browserUseCaptureSurface")
+    return "browser-sidebar-browser-use-capture-surface";
   if (eventName === "browserUseCursor") return "browser-sidebar-browser-use-cursor-state";
   if (eventName === "pageReleased") return "browser-sidebar-browser-use-page-released";
   if (eventName === "pageClosed") return "browser-sidebar-browser-use-page-closed";

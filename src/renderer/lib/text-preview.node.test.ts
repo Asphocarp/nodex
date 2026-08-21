@@ -16,9 +16,11 @@ describe("buildTextPreview", () => {
     expect(preview.text).toMatch(/z+$/);
     if (preview.kind !== "omitted") throw new Error("Expected omitted preview");
     expect(preview.text).toContain(preview.omittedCharacters.toLocaleString("en-US"));
-    expect(preview.omittedCharacters).toBe(source.length - (
-      preview.text.length - `\n… ${preview.omittedCharacters.toLocaleString("en-US")} characters omitted …\n`.length
-    ));
+    expect(preview.omittedCharacters).toBe(
+      source.length -
+        (preview.text.length -
+          `\n… ${preview.omittedCharacters.toLocaleString("en-US")} characters omitted …\n`.length),
+    );
   });
 
   test("never exceeds a very small requested budget", () => {

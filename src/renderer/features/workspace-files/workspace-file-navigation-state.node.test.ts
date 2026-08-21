@@ -10,44 +10,56 @@ import {
 
 describe("workspace file navigation state", () => {
   test("canonicalizes workspace-root keys without erasing filesystem roots", () => {
-    expect(normalizeWorkspaceFileNavigationKey({
-      hostId: "local",
-      includeHidden: true,
-      workspaceRoot: "C:\\repo\\nodex\\",
-    })).toEqual({
+    expect(
+      normalizeWorkspaceFileNavigationKey({
+        hostId: "local",
+        includeHidden: true,
+        workspaceRoot: "C:\\repo\\nodex\\",
+      }),
+    ).toEqual({
       hostId: "local",
       includeHidden: true,
       workspaceRoot: "C:/repo/nodex",
     });
-    expect(normalizeWorkspaceFileNavigationKey({
-      hostId: "local",
-      includeHidden: true,
-      workspaceRoot: "/",
-    }).workspaceRoot).toBe("/");
-    expect(normalizeWorkspaceFileNavigationKey({
-      hostId: "local",
-      includeHidden: true,
-      workspaceRoot: "C:\\",
-    }).workspaceRoot).toBe("C:/");
+    expect(
+      normalizeWorkspaceFileNavigationKey({
+        hostId: "local",
+        includeHidden: true,
+        workspaceRoot: "/",
+      }).workspaceRoot,
+    ).toBe("/");
+    expect(
+      normalizeWorkspaceFileNavigationKey({
+        hostId: "local",
+        includeHidden: true,
+        workspaceRoot: "C:\\",
+      }).workspaceRoot,
+    ).toBe("C:/");
 
-    expect(workspaceFileNavigationStateFamily({
-      hostId: "local",
-      includeHidden: true,
-      workspaceRoot: "C:\\repo\\nodex\\",
-    })).toBe(workspaceFileNavigationStateFamily({
-      hostId: "local",
-      includeHidden: true,
-      workspaceRoot: "C:/repo/nodex",
-    }));
+    expect(
+      workspaceFileNavigationStateFamily({
+        hostId: "local",
+        includeHidden: true,
+        workspaceRoot: "C:\\repo\\nodex\\",
+      }),
+    ).toBe(
+      workspaceFileNavigationStateFamily({
+        hostId: "local",
+        includeHidden: true,
+        workspaceRoot: "C:/repo/nodex",
+      }),
+    );
   });
 
   test("normalizes paths, duplicates, and invalid scroll offsets", () => {
-    expect(normalizeWorkspaceFileNavigationState({
-      expandedPaths: ["", "src/", "src", "\\src\\components\\"],
-      selectedPath: "\\src\\index.ts",
-      searchQuery: "index",
-      scrollTop: Number.NaN,
-    })).toEqual({
+    expect(
+      normalizeWorkspaceFileNavigationState({
+        expandedPaths: ["", "src/", "src", "\\src\\components\\"],
+        selectedPath: "\\src\\index.ts",
+        searchQuery: "index",
+        scrollTop: Number.NaN,
+      }),
+    ).toEqual({
       expandedPaths: ["", "src", "src/components"],
       selectedPath: "src/index.ts",
       searchQuery: "index",
@@ -56,32 +68,30 @@ describe("workspace file navigation state", () => {
   });
 
   test("rejects root-escaping paths and resolves contained parent segments", () => {
-    expect(normalizeWorkspaceFileNavigationState({
-      expandedPaths: [
-        "",
-        "../outside",
-        "src/../../outside",
-        "src/../docs",
-      ],
-      selectedPath: "../outside.ts",
-      searchQuery: "",
-      scrollTop: 0,
-    })).toEqual({
+    expect(
+      normalizeWorkspaceFileNavigationState({
+        expandedPaths: ["", "../outside", "src/../../outside", "src/../docs"],
+        selectedPath: "../outside.ts",
+        searchQuery: "",
+        scrollTop: 0,
+      }),
+    ).toEqual({
       expandedPaths: ["", "docs"],
       selectedPath: null,
       searchQuery: "",
       scrollTop: 0,
     });
 
-    expect(selectWorkspaceFileNavigationPath(
-      EMPTY_WORKSPACE_FILE_NAVIGATION_STATE,
-      "../outside.ts",
-    )).toBe(EMPTY_WORKSPACE_FILE_NAVIGATION_STATE);
-    expect(updateWorkspaceFileNavigationExpansion(
-      EMPTY_WORKSPACE_FILE_NAVIGATION_STATE,
-      "../outside",
-      true,
-    )).toBe(EMPTY_WORKSPACE_FILE_NAVIGATION_STATE);
+    expect(
+      selectWorkspaceFileNavigationPath(EMPTY_WORKSPACE_FILE_NAVIGATION_STATE, "../outside.ts"),
+    ).toBe(EMPTY_WORKSPACE_FILE_NAVIGATION_STATE);
+    expect(
+      updateWorkspaceFileNavigationExpansion(
+        EMPTY_WORKSPACE_FILE_NAVIGATION_STATE,
+        "../outside",
+        true,
+      ),
+    ).toBe(EMPTY_WORKSPACE_FILE_NAVIGATION_STATE);
   });
 
   test("merges selected-file ancestors without collapsing unrelated branches", () => {
@@ -89,18 +99,9 @@ describe("workspace file navigation state", () => {
       ...EMPTY_WORKSPACE_FILE_NAVIGATION_STATE,
       expandedPaths: ["", "docs", "packages/other"],
     };
-    expect(selectWorkspaceFileNavigationPath(
-      state,
-      "src/components/button.tsx",
-    )).toEqual({
+    expect(selectWorkspaceFileNavigationPath(state, "src/components/button.tsx")).toEqual({
       ...state,
-      expandedPaths: [
-        "",
-        "docs",
-        "packages/other",
-        "src",
-        "src/components",
-      ],
+      expandedPaths: ["", "docs", "packages/other", "src", "src/components"],
       selectedPath: "src/components/button.tsx",
     });
   });
@@ -119,9 +120,10 @@ describe("workspace file navigation state", () => {
       EMPTY_WORKSPACE_FILE_NAVIGATION_STATE,
       "src/index.ts",
     );
-    expect(updateWorkspaceFileNavigationExpansion(state, "src", false).expandedPaths)
-      .toEqual([""]);
-    expect(updateWorkspaceFileNavigationExpansion(state, "", false).expandedPaths)
-      .toEqual(["", "src"]);
+    expect(updateWorkspaceFileNavigationExpansion(state, "src", false).expandedPaths).toEqual([""]);
+    expect(updateWorkspaceFileNavigationExpansion(state, "", false).expandedPaths).toEqual([
+      "",
+      "src",
+    ]);
   });
 });

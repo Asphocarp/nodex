@@ -1,9 +1,4 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  type ReactNode,
-} from "react";
+import { useCallback, useLayoutEffect, useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 export type ComposerAdaptiveLayout = "single-line" | "multiline";
@@ -32,9 +27,9 @@ export function resolveComposerAdaptiveLayout({
     return "multiline";
   }
   if (
-    promptIntrinsicWidthPx !== null
-    && compactInputWidthPx !== null
-    && promptIntrinsicWidthPx > compactInputWidthPx + COMPOSER_FIT_TOLERANCE_PX
+    promptIntrinsicWidthPx !== null &&
+    compactInputWidthPx !== null &&
+    promptIntrinsicWidthPx > compactInputWidthPx + COMPOSER_FIT_TOLERANCE_PX
   ) {
     return "multiline";
   }
@@ -46,18 +41,11 @@ interface ComposerInputProps {
   layout: ComposerAdaptiveLayout;
 }
 
-export function ComposerInput({
-  children,
-  layout,
-}: ComposerInputProps) {
+export function ComposerInput({ children, layout }: ComposerInputProps) {
   return (
     <div
       data-composer-input="true"
-      className={
-        layout === "single-line"
-          ? "min-w-0"
-          : "mb-1 flex-grow overflow-y-auto px-3"
-      }
+      className={layout === "single-line" ? "min-w-0" : "mb-1 flex-grow overflow-y-auto px-3"}
     >
       {children}
     </div>
@@ -116,17 +104,13 @@ export function ComposerAdaptiveFooter({
     const previousControlsWidthPx = multilineControlsWidthPxRef.current;
     multilineControlsWidthPxRef.current = multilineControlsWidthPx;
     if (
-      previousControlsWidthPx !== null
-      && Math.abs(previousControlsWidthPx - multilineControlsWidthPx)
-        > COMPOSER_FIT_TOLERANCE_PX
+      previousControlsWidthPx !== null &&
+      Math.abs(previousControlsWidthPx - multilineControlsWidthPx) > COMPOSER_FIT_TOLERANCE_PX
     ) {
       onCompactInputWidthChange(null);
       return;
     }
-    onCompactInputWidthChange(Math.max(
-      0,
-      footerWidthPx - compactChromeWidthPx,
-    ));
+    onCompactInputWidthChange(Math.max(0, footerWidthPx - compactChromeWidthPx));
   }, [multiline, onCompactInputWidthChange]);
 
   useLayoutEffect(() => {
@@ -147,12 +131,7 @@ export function ComposerAdaptiveFooter({
     }
 
     const observer = new ResizeObserver(measureCompactInputWidth);
-    const elements = [
-      footerRef.current,
-      leadingRef.current,
-      inputRef.current,
-      trailingRef.current,
-    ];
+    const elements = [footerRef.current, leadingRef.current, inputRef.current, trailingRef.current];
     for (const element of elements) {
       if (element) observer.observe(element);
     }
@@ -178,10 +157,7 @@ export function ComposerAdaptiveFooter({
         ref={leadingRef}
         data-composer-footer-leading="true"
         data-composer-footer-row={row}
-        className={cn(
-          "min-w-0",
-          multiline && "col-start-1 row-start-2",
-        )}
+        className={cn("min-w-0", multiline && "col-start-1 row-start-2")}
       >
         {leadingControls}
       </div>
@@ -189,10 +165,7 @@ export function ComposerAdaptiveFooter({
         ref={inputRef}
         data-composer-input-slot="true"
         data-composer-footer-row={multiline ? "prompt" : row}
-        className={cn(
-          "min-w-0",
-          multiline && "col-span-full row-start-1 -mx-2",
-        )}
+        className={cn("min-w-0", multiline && "col-span-full row-start-1 -mx-2")}
       >
         {input}
       </div>
@@ -200,10 +173,7 @@ export function ComposerAdaptiveFooter({
         ref={trailingRef}
         data-composer-footer-trailing="true"
         data-composer-footer-row={row}
-        className={cn(
-          "min-w-0",
-          multiline && "col-start-3 row-start-2",
-        )}
+        className={cn("min-w-0", multiline && "col-start-3 row-start-2")}
       >
         {trailingControls}
       </div>

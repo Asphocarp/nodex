@@ -45,11 +45,7 @@ const makeRoot = (): string => {
   return root;
 };
 
-const writeArtifact = (
-  root: string,
-  version: string,
-  marker = "default",
-): string => {
+const writeArtifact = (root: string, version: string, marker = "default"): string => {
   const artifact = path.join(root, `artifact-${version}-${marker}`);
   const files = new Map(
     skillFiles.map((relativePath) => [
@@ -78,21 +74,29 @@ const writeArtifact = (
   fs.writeFileSync(path.join(artifact, "LICENSE"), "MIT\n");
   fs.writeFileSync(
     path.join(artifact, "release-manifest.json"),
-    `${JSON.stringify({
-      schemaVersion: 1,
-      distribution: "NodexApp/skills",
-      product: { name: "Nodex", releaseVersion: version },
-      source: { repository: sourceRepository, ref: `v${version}` },
-      agentInterface: { minimumRevision: 1, maximumRevision: 1 },
-      skills: [{
-        name: "nodex",
-        path: "skills/nodex",
-        treeSha256,
-        fileCount: files.size,
-        totalBytes: [...files.values()]
-          .reduce((total, contents) => total + contents.byteLength, 0),
-      }],
-    }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        schemaVersion: 1,
+        distribution: "NodexApp/skills",
+        product: { name: "Nodex", releaseVersion: version },
+        source: { repository: sourceRepository, ref: `v${version}` },
+        agentInterface: { minimumRevision: 1, maximumRevision: 1 },
+        skills: [
+          {
+            name: "nodex",
+            path: "skills/nodex",
+            treeSha256,
+            fileCount: files.size,
+            totalBytes: [...files.values()].reduce(
+              (total, contents) => total + contents.byteLength,
+              0,
+            ),
+          },
+        ],
+      },
+      null,
+      2,
+    )}\n`,
   );
   return artifact;
 };
@@ -103,10 +107,7 @@ const makeRemote = (root: string): string => {
   const seed = path.join(root, "seed");
   git(root, ["clone", remote, seed]);
   fs.mkdirSync(path.join(seed, ".github/workflows"), { recursive: true });
-  fs.writeFileSync(
-    path.join(seed, ".github/workflows/keep.yml"),
-    "name: preserve-me\n",
-  );
+  fs.writeFileSync(path.join(seed, ".github/workflows/keep.yml"), "name: preserve-me\n");
   git(seed, ["add", ".github/workflows/keep.yml"]);
   git(seed, ["commit", "-m", "chore: seed mirror automation"]);
   git(seed, ["push", "origin", "main"]);
@@ -163,9 +164,7 @@ describe("official Agent Skills publisher", () => {
 
   test("falls back to the GitHub CLI token when the legacy token is blank", () => {
     expect(resolveGithubToken(" \n", " github-cli-token ")).toBe("github-cli-token");
-    expect(resolveGithubToken(" legacy-token ", "github-cli-token")).toBe(
-      "legacy-token",
-    );
+    expect(resolveGithubToken(" legacy-token ", "github-cli-token")).toBe("legacy-token");
   });
 
   test("publishes managed paths atomically and preserves mirror automation", () => {
@@ -177,14 +176,12 @@ describe("official Agent Skills publisher", () => {
     const checkout = cloneRemote(root, remote, "published");
 
     expect(result.status).toBe("published");
-    expect(fs.readFileSync(
-      path.join(checkout, ".github/workflows/keep.yml"),
-      "utf8",
-    )).toBe("name: preserve-me\n");
-    expect(fs.readFileSync(
-      path.join(checkout, "skills/nodex/SKILL.md"),
-      "utf8",
-    )).toContain("default");
+    expect(fs.readFileSync(path.join(checkout, ".github/workflows/keep.yml"), "utf8")).toBe(
+      "name: preserve-me\n",
+    );
+    expect(fs.readFileSync(path.join(checkout, "skills/nodex/SKILL.md"), "utf8")).toContain(
+      "default",
+    );
     expect(git(checkout, ["tag", "-l", "v1.2.3"])).toBe("v1.2.3");
     expect(git(checkout, ["cat-file", "-t", "refs/tags/v1.2.3"])).toBe("tag");
     const commitBody = git(checkout, ["log", "-1", "--format=%B"]);
@@ -209,16 +206,12 @@ describe("official Agent Skills publisher", () => {
     const remote = makeRemote(root);
     publish(writeArtifact(root, "2.0.0"), remote, "2.0.0");
 
-    expect(() => publish(
-      writeArtifact(root, "2.0.0", "different"),
-      remote,
-      "2.0.0",
-    )).toThrow("different official Agent Skills");
-    expect(() => publish(
-      writeArtifact(root, "1.9.9"),
-      remote,
-      "1.9.9",
-    )).toThrow("Refusing to roll back");
+    expect(() => publish(writeArtifact(root, "2.0.0", "different"), remote, "2.0.0")).toThrow(
+      "different official Agent Skills",
+    );
+    expect(() => publish(writeArtifact(root, "1.9.9"), remote, "1.9.9")).toThrow(
+      "Refusing to roll back",
+    );
   });
 
   test("fails the atomic push when remote main advances concurrently", () => {
@@ -226,31 +219,25 @@ describe("official Agent Skills publisher", () => {
     const remote = makeRemote(root);
     const artifact = writeArtifact(root, "1.0.0");
 
-    expect(() => publish(artifact, remote, "1.0.0", {
-      beforePush: () => {
-        const racer = cloneRemote(root, remote, "racer");
-        fs.writeFileSync(path.join(racer, "race.txt"), "advanced\n");
-        git(racer, ["add", "race.txt"]);
-        git(racer, ["commit", "-m", "chore: advance mirror"]);
-        git(racer, ["push", "origin", "main"]);
-      },
-    })).toThrow("git push failed");
-    expect(git(
-      root,
-      ["--git-dir", remote, "tag", "-l", "v1.0.0"],
-    )).toBe("");
+    expect(() =>
+      publish(artifact, remote, "1.0.0", {
+        beforePush: () => {
+          const racer = cloneRemote(root, remote, "racer");
+          fs.writeFileSync(path.join(racer, "race.txt"), "advanced\n");
+          git(racer, ["add", "race.txt"]);
+          git(racer, ["commit", "-m", "chore: advance mirror"]);
+          git(racer, ["push", "origin", "main"]);
+        },
+      }),
+    ).toThrow("git push failed");
+    expect(git(root, ["--git-dir", remote, "tag", "-l", "v1.0.0"])).toBe("");
   });
 
   test("keeps credentials out of results, remotes, and commits", () => {
     const root = makeRoot();
     const remote = makeRemote(root);
     const secret = "github_pat_secret-sentinel";
-    const result = publish(
-      writeArtifact(root, "1.0.0"),
-      remote,
-      "1.0.0",
-      { token: secret },
-    );
+    const result = publish(writeArtifact(root, "1.0.0"), remote, "1.0.0", { token: secret });
     const checkout = cloneRemote(root, remote, "credential-check");
     const evidence = [
       JSON.stringify(result),
@@ -268,9 +255,7 @@ describe("official Agent Skills publisher", () => {
     fs.writeFileSync(path.join(artifact, "unknown.txt"), "not allowlisted\n");
     const before = git(root, ["--git-dir", remote, "rev-parse", "main"]);
 
-    expect(() => publish(artifact, remote, "1.0.0")).toThrow(
-      "unknown file",
-    );
+    expect(() => publish(artifact, remote, "1.0.0")).toThrow("unknown file");
     expect(git(root, ["--git-dir", remote, "rev-parse", "main"])).toBe(before);
     expect(git(root, ["--git-dir", remote, "tag", "-l"])).toBe("");
   });
@@ -282,15 +267,17 @@ describe("official Agent Skills publisher", () => {
     const artifact = inspectOfficialAgentSkillsArtifact(artifactDirectory);
     const before = git(root, ["--git-dir", remote, "rev-parse", "main"]);
 
-    expect(() => publishOfficialAgentSkills({
-      artifactDirectory,
-      expectedManifestSha256: artifact.manifestSha256,
-      expectedSourceRef: "v1.0.0",
-      expectedSourceRepository: sourceRepository,
-      expectedTreeSha256: "f".repeat(64),
-      expectedVersion: "1.0.0",
-      remoteUrl: remote,
-    })).toThrow("verified Release Bundle identity");
+    expect(() =>
+      publishOfficialAgentSkills({
+        artifactDirectory,
+        expectedManifestSha256: artifact.manifestSha256,
+        expectedSourceRef: "v1.0.0",
+        expectedSourceRepository: sourceRepository,
+        expectedTreeSha256: "f".repeat(64),
+        expectedVersion: "1.0.0",
+        remoteUrl: remote,
+      }),
+    ).toThrow("verified Release Bundle identity");
     expect(git(root, ["--git-dir", remote, "rev-parse", "main"])).toBe(before);
   });
 });

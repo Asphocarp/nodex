@@ -1,12 +1,6 @@
 import { cn } from "@/lib/utils";
 
-export function DropIndicator({
-  className,
-  label,
-}: {
-  className?: string;
-  label?: string;
-}) {
+export function DropIndicator({ className, label }: { className?: string; label?: string }) {
   return (
     <div
       data-board-drop-indicator="true"

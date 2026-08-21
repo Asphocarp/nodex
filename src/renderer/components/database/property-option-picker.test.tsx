@@ -1,11 +1,7 @@
 import { fireEvent, waitFor } from "@testing-library/react";
 import { act } from "react";
 import { describe, expect, test, vi } from "vitest";
-import {
-  NodexDialog,
-  NodexDialogContent,
-  NodexDialogTitle,
-} from "@/components/ui/dialog";
+import { NodexDialog, NodexDialogContent, NodexDialogTitle } from "@/components/ui/dialog";
 import { render } from "@/test/dom";
 import { PropertyOptionPicker } from "./property-option-picker";
 
@@ -60,9 +56,9 @@ describe("PropertyOptionPicker", () => {
       fireEvent.click(view.getByRole("button", { name: "Edit Tags" }));
       await Promise.resolve();
     });
-    const dialog = view.getByRole("heading", { name: "Property dialog" }).closest(
-      '[role="dialog"]',
-    );
+    const dialog = view
+      .getByRole("heading", { name: "Property dialog" })
+      .closest('[role="dialog"]');
     expect(dialog).not.toBeNull();
     const input = view.getByRole("combobox", { name: "Search Tags options" });
     expect(dialog?.contains(input)).toBe(false);
@@ -234,9 +230,13 @@ describe("PropertyOptionPicker", () => {
     expect(onChange).toHaveBeenCalledWith(["one"]);
 
     view.rerender(<PropertyOptionPicker {...props} selectedIds={["one"]} pending />);
-    expect((view.getByRole("combobox", {
-      name: "Search Tags options",
-    }) as HTMLInputElement).disabled).toBe(true);
+    expect(
+      (
+        view.getByRole("combobox", {
+          name: "Search Tags options",
+        }) as HTMLInputElement
+      ).disabled,
+    ).toBe(true);
     view.rerender(<PropertyOptionPicker {...props} selectedIds={["one"]} />);
     await act(async () => {
       fireEvent.click(view.getByRole("option", { name: "Ready" }));
@@ -406,8 +406,7 @@ describe("PropertyOptionPicker", () => {
       fireEvent.click(view.getByRole("button", { name: "Edit Status" }));
       await Promise.resolve();
     });
-    expect(view.getByRole("button", { name: "Couldn’t load options. Retry" }))
-      .toBeTruthy();
+    expect(view.getByRole("button", { name: "Couldn’t load options. Retry" })).toBeTruthy();
     await act(async () => {
       fireEvent.click(view.getByRole("option", { name: "Ready" }));
       await Promise.resolve();

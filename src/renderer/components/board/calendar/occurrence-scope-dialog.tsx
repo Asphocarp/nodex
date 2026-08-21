@@ -47,9 +47,10 @@ export function OccurrenceScopeDialog({
           <DialogHeader>
             <DialogTitle>Apply recurring schedule change</DialogTitle>
             <DialogDescription>
-              Choose how to apply the new time range for
-              {" "}
-              <span className="font-medium wrap-break-word text-(--foreground)">{title || "this recurring page"}</span>
+              Choose how to apply the new time range for{" "}
+              <span className="font-medium wrap-break-word text-(--foreground)">
+                {title || "this recurring page"}
+              </span>
               .
             </DialogDescription>
           </DialogHeader>
@@ -57,14 +58,10 @@ export function OccurrenceScopeDialog({
           <DialogBody>
             <div className="rounded-md border border-(--border) bg-(--card) p-3 text-sm">
               <p className="text-(--foreground-secondary)">
-                From:
-                {" "}
-                <span className="text-(--foreground)">{fromLabel}</span>
+                From: <span className="text-(--foreground)">{fromLabel}</span>
               </p>
               <p className="mt-1 text-(--foreground-secondary)">
-                To:
-                {" "}
-                <span className="text-(--foreground)">{toLabel}</span>
+                To: <span className="text-(--foreground)">{toLabel}</span>
               </p>
             </div>
           </DialogBody>

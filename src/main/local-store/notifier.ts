@@ -3,17 +3,22 @@ import type { DatabasePageSummary } from "../../shared/types";
 import type { ProjectSessionsChangeEvent } from "../../shared/ipc-api";
 import type { DatabaseChangeEvent } from "../../shared/database-events";
 import type { PageOwnershipPathsChangedEvent } from "../../shared/page-ownership-path-events";
-import {
-  parseDatabaseId,
-  parseDatabaseViewId,
-} from "../../shared/database-identities";
+import { parseDatabaseId, parseDatabaseViewId } from "../../shared/database-identities";
 import {
   LIBRARY_NAVIGATION_EVENT_VERSION,
   type LibraryNavigationChangedEvent,
 } from "../../shared/library-events";
 import { recordDevRuntimeMetricCounter } from "../dev-runtime-metrics";
 
-export type ChangeType = "create" | "update" | "delete" | "move" | "undo" | "redo" | "revert" | "restore";
+export type ChangeType =
+  | "create"
+  | "update"
+  | "delete"
+  | "move"
+  | "undo"
+  | "redo"
+  | "revert"
+  | "restore";
 export type ProjectChangeType =
   | "create"
   | "update"
@@ -73,14 +78,13 @@ export class DatabaseNotifier extends EventEmitter {
   notifyDatabaseChanged(event: DatabaseChangeEvent): void {
     this.emit("database-changed", event);
     if (
-      !event.libraryId
-      || (
-        event.affectedDatabaseIds.length === 0
-        && (event.affectedDataSourceIds?.length ?? 0) === 0
-        && (event.affectedPageIds?.length ?? 0) === 0
-        && (event.affectedViewIds?.length ?? 0) === 0
-      )
-    ) return;
+      !event.libraryId ||
+      (event.affectedDatabaseIds.length === 0 &&
+        (event.affectedDataSourceIds?.length ?? 0) === 0 &&
+        (event.affectedPageIds?.length ?? 0) === 0 &&
+        (event.affectedViewIds?.length ?? 0) === 0)
+    )
+      return;
     this.notifyLibraryNavigationChanged({
       version: LIBRARY_NAVIGATION_EVENT_VERSION,
       libraryId: event.libraryId,
@@ -112,21 +116,26 @@ export class DatabaseNotifier extends EventEmitter {
 
   notifyProjectSessionInvalidation(event: ProjectSessionsChangeEvent): void {
     const scopeKey = event.summaryScopes
-      .map((scope) => scope.kind === "project" ? scope.projectId : scope.kind)
+      .map((scope) => (scope.kind === "project" ? scope.projectId : scope.kind))
       .join(",");
-    recordDevRuntimeMetricCounter("project_sessions_changed.burst_window", {
-      scopeKey,
-      changeType: event.changeType,
-      detailScope: event.detailInvalidation.kind,
-      detailCount: event.detailInvalidation.kind === "sessions"
-        ? event.detailInvalidation.sessionIds.length
-        : 0,
-    }, {
-      groupBy: ["scopeKey", "changeType"],
-      windowMs: 1_000,
-      burstThreshold: 20,
-      burstMetric: "project_sessions_changed.burst",
-    });
+    recordDevRuntimeMetricCounter(
+      "project_sessions_changed.burst_window",
+      {
+        scopeKey,
+        changeType: event.changeType,
+        detailScope: event.detailInvalidation.kind,
+        detailCount:
+          event.detailInvalidation.kind === "sessions"
+            ? event.detailInvalidation.sessionIds.length
+            : 0,
+      },
+      {
+        groupBy: ["scopeKey", "changeType"],
+        windowMs: 1_000,
+        burstThreshold: 20,
+        burstMetric: "project_sessions_changed.burst",
+      },
+    );
     this.emit("project-sessions-changed", event);
   }
 }

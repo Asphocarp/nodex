@@ -33,8 +33,7 @@ export interface BoardColumnDropTargetData extends Record<string | symbol, unkno
   columnId: WorkflowStatus;
 }
 
-export interface BoardCardEditorTransferTargetData
-  extends Record<string | symbol, unknown> {
+export interface BoardCardEditorTransferTargetData extends Record<string | symbol, unknown> {
   type: "board-card-editor-transfer";
 }
 
@@ -102,15 +101,17 @@ export function buildBoardCardEditorTransferTargetData(): BoardCardEditorTransfe
 export function isBoardCardDragData(value: unknown): value is BoardCardDragData {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<BoardCardDragData>;
-  return candidate.type === "board-card"
-    && typeof candidate.projectId === "string"
-    && typeof candidate.databaseBlockId === "string"
-    && typeof candidate.dataSourceId === "string"
-    && typeof candidate.storeEpoch === "string"
-    && typeof candidate.sourcePageId === "string"
-    && typeof candidate.sourceColumnId === "string"
-    && typeof candidate.instanceId === "symbol"
-    && Array.isArray(candidate.dragItems);
+  return (
+    candidate.type === "board-card" &&
+    typeof candidate.projectId === "string" &&
+    typeof candidate.databaseBlockId === "string" &&
+    typeof candidate.dataSourceId === "string" &&
+    typeof candidate.storeEpoch === "string" &&
+    typeof candidate.sourcePageId === "string" &&
+    typeof candidate.sourceColumnId === "string" &&
+    typeof candidate.instanceId === "symbol" &&
+    Array.isArray(candidate.dragItems)
+  );
 }
 
 export function canDropOnBoardCard(args: {
@@ -129,31 +130,32 @@ export function canDropOnBoardCard(args: {
   return !args.source.dragItems.some((entry) => entry.card.id === args.targetPageId);
 }
 
-export function isBoardCardDropTargetData(
-  value: unknown,
-): value is BoardCardDropTargetData {
+export function isBoardCardDropTargetData(value: unknown): value is BoardCardDropTargetData {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<BoardCardDropTargetData>;
-  return candidate.type === "board-card"
-    && typeof candidate.pageId === "string"
-    && typeof candidate.columnId === "string"
-    && typeof candidate.instanceId === "symbol";
+  return (
+    candidate.type === "board-card" &&
+    typeof candidate.pageId === "string" &&
+    typeof candidate.columnId === "string" &&
+    typeof candidate.instanceId === "symbol"
+  );
 }
 
-export function isBoardColumnDropTargetData(
-  value: unknown,
-): value is BoardColumnDropTargetData {
+export function isBoardColumnDropTargetData(value: unknown): value is BoardColumnDropTargetData {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<BoardColumnDropTargetData>;
-  return candidate.type === "board-column"
-    && typeof candidate.columnId === "string"
-    && typeof candidate.instanceId === "symbol";
+  return (
+    candidate.type === "board-column" &&
+    typeof candidate.columnId === "string" &&
+    typeof candidate.instanceId === "symbol"
+  );
 }
 
 export function isBoardCardEditorTransferTargetData(
   value: unknown,
 ): value is BoardCardEditorTransferTargetData {
   if (!value || typeof value !== "object") return false;
-  return (value as Partial<BoardCardEditorTransferTargetData>).type
-    === "board-card-editor-transfer";
+  return (
+    (value as Partial<BoardCardEditorTransferTargetData>).type === "board-card-editor-transfer"
+  );
 }

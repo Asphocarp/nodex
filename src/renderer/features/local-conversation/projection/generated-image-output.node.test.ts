@@ -2,11 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { CodexConversationItem } from "../../../lib/types";
 import { resolveGeneratedImageOutputState } from "./generated-image-output";
 
-function generatedImage(
-  id: string,
-  src: string | null,
-  status: string,
-): CodexConversationItem {
+function generatedImage(id: string, src: string | null, status: string): CodexConversationItem {
   return {
     threadId: "thread-1",
     turnId: "turn-1",

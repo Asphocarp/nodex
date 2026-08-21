@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  normalizeReducedMotionPreference,
-  resolveReducedMotionPreference,
-} from "./reduced-motion";
+import { normalizeReducedMotionPreference, resolveReducedMotionPreference } from "./reduced-motion";
 
 describe("reduced motion preference", () => {
   test("normalizes persisted values", () => {

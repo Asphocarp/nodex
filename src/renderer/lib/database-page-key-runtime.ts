@@ -10,11 +10,7 @@ import {
   type LibraryDatabaseModuleReadResultV2,
 } from "../../shared/database-module-v2";
 import { parseDatabaseId } from "../../shared/database-identities";
-import {
-  applyDatabaseModule,
-  readDatabaseModule,
-  readLibraryDatabaseModule,
-} from "./api";
+import { applyDatabaseModule, readDatabaseModule, readLibraryDatabaseModule } from "./api";
 
 export interface DatabasePageKeyNamespaceAuthority {
   readonly namespace: DatabasePageKeyNamespaceV2;
@@ -51,16 +47,16 @@ export class DatabasePageKeyRuntimeError extends Error {
 }
 
 const defaultDependencies: DatabasePageKeyRuntimeDependencies = {
-  readProject: async (projectId, request) =>
-    await readDatabaseModule(projectId, request),
+  readProject: async (projectId, request) => await readDatabaseModule(projectId, request),
   readLibrary: async (request) => await readLibraryDatabaseModule(request),
-  applyProject: async (projectId, request) =>
-    await applyDatabaseModule(projectId, request),
+  applyProject: async (projectId, request) => await applyDatabaseModule(projectId, request),
 };
 
-const unwrapRead = <Snapshot extends {
-  readonly value: { readonly kind: string };
-}>(
+const unwrapRead = <
+  Snapshot extends {
+    readonly value: { readonly kind: string };
+  },
+>(
   result:
     | { readonly ok: true; readonly value: Snapshot }
     | { readonly ok: false; readonly error: DatabaseModuleErrorV2 },
@@ -81,24 +77,25 @@ export async function previewDatabasePageKeyPrefix(
   const read = {
     target: {
       kind: "page_key_namespace" as const,
-      ...(input.databaseId === undefined
-        ? {}
-        : { databaseId: parseDatabaseId(input.databaseId) }),
+      ...(input.databaseId === undefined ? {} : { databaseId: parseDatabaseId(input.databaseId) }),
     },
     mode: "page_key_prefix_preview" as const,
     nameHint: input.nameHint,
-    ...(input.requestedPrefix === undefined
-      ? {}
-      : { requestedPrefix: input.requestedPrefix }),
+    ...(input.requestedPrefix === undefined ? {} : { requestedPrefix: input.requestedPrefix }),
   };
-  const snapshot = input.projectId === undefined
-    ? unwrapRead(await dependencies.readLibrary({
-        read,
-      }))
-    : unwrapRead(await dependencies.readProject(input.projectId, {
-        projectId: input.projectId,
-        read,
-      }));
+  const snapshot =
+    input.projectId === undefined
+      ? unwrapRead(
+          await dependencies.readLibrary({
+            read,
+          }),
+        )
+      : unwrapRead(
+          await dependencies.readProject(input.projectId, {
+            projectId: input.projectId,
+            read,
+          }),
+        );
   if (snapshot.value.kind === "page_key_prefix_preview") {
     return snapshot.value.value;
   }
@@ -109,16 +106,18 @@ export async function readDatabasePageKeyNamespace(
   input: { readonly projectId: string; readonly databaseId: string },
   dependencies: DatabasePageKeyRuntimeDependencies = defaultDependencies,
 ): Promise<DatabasePageKeyNamespaceAuthority> {
-  const snapshot = unwrapRead(await dependencies.readProject(input.projectId, {
-    projectId: input.projectId,
-    read: {
-      target: {
-        kind: "database",
-        databaseId: parseDatabaseId(input.databaseId),
+  const snapshot = unwrapRead(
+    await dependencies.readProject(input.projectId, {
+      projectId: input.projectId,
+      read: {
+        target: {
+          kind: "database",
+          databaseId: parseDatabaseId(input.databaseId),
+        },
+        mode: "page_key_namespace",
       },
-      mode: "page_key_namespace",
-    },
-  }));
+    }),
+  );
   if (snapshot.value.kind === "page_key_namespace") {
     return {
       namespace: snapshot.value.value,
@@ -144,12 +143,14 @@ export async function renameDatabasePageKeyPrefix(
     projectId: input.projectId,
     storeEpoch: input.storeEpoch,
     actor: { kind: "renderer_project_settings" },
-    operations: [{
-      kind: "rename_page_key_prefix",
-      databaseId: parseDatabaseId(input.databaseId),
-      expectedRevision: input.expectedRevision,
-      prefix: input.prefix,
-    }],
+    operations: [
+      {
+        kind: "rename_page_key_prefix",
+        databaseId: parseDatabaseId(input.databaseId),
+        expectedRevision: input.expectedRevision,
+        prefix: input.prefix,
+      },
+    ],
   });
   if (!result.ok) throw new DatabasePageKeyRuntimeError(result.error);
 }

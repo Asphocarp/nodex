@@ -4,11 +4,7 @@ import type { WorkbenchAgentDockState } from "../../shared/workbench-scene";
 import { sortProjectSessionSummariesForSidebar } from "./project-session-query-cache";
 
 export type ProjectAgentDockAttention = "none" | "activity" | "request";
-export type ProjectAgentDockChatIndicator =
-  | "idle"
-  | "running"
-  | "unread"
-  | "needs-attention";
+export type ProjectAgentDockChatIndicator = "idle" | "running" | "unread" | "needs-attention";
 
 export interface ProjectAgentDockTargetRow {
   readonly id: string;
@@ -60,19 +56,13 @@ export function resolveProjectAgentDockPendingWorktree(
 
   let latest: ProjectAgentDockPendingWorktreeEntry | null = null;
   for (const entry of entries) {
-    if (
-      entry.launchMode !== "start-conversation"
-      || entry.projectSessionId !== projectSessionId
-    ) {
+    if (entry.launchMode !== "start-conversation" || entry.projectSessionId !== projectSessionId) {
       continue;
     }
     if (
-      latest === null
-      || entry.createdAt > latest.createdAt
-      || (
-        entry.createdAt === latest.createdAt
-        && entry.attempt > latest.attempt
-      )
+      latest === null ||
+      entry.createdAt > latest.createdAt ||
+      (entry.createdAt === latest.createdAt && entry.attempt > latest.attempt)
     ) {
       latest = entry;
     }
@@ -83,35 +73,33 @@ export function resolveProjectAgentDockPendingWorktree(
 export function buildProjectAgentDockPendingWorktreeModel(
   entry: ProjectAgentDockPendingWorktreeEntry,
 ): ProjectAgentDockPendingWorktreeModel {
-  const statusLabel = entry.phase === "queued"
-    ? "Queued…"
-    : entry.phase === "creating"
-      ? "Creating worktree…"
-      : entry.phase === "setting-up"
-        ? "Running setup…"
-        : entry.phase === "worktree-ready"
-          ? "Starting chat…"
-          : "Setup failed";
+  const statusLabel =
+    entry.phase === "queued"
+      ? "Queued…"
+      : entry.phase === "creating"
+        ? "Creating worktree…"
+        : entry.phase === "setting-up"
+          ? "Running setup…"
+          : entry.phase === "worktree-ready"
+            ? "Starting chat…"
+            : "Setup failed";
   return {
     clientThreadId: entry.clientThreadId,
     statusLabel,
-    composerBlockedReason: entry.phase === "failed"
-      ? "Resolve the failed worktree setup before starting this chat again"
-      : "Worktree setup is already in progress",
-    attention: entry.phase === "failed" || entry.needsAttention
-      ? "request"
-      : "activity",
+    composerBlockedReason:
+      entry.phase === "failed"
+        ? "Resolve the failed worktree setup before starting this chat again"
+        : "Worktree setup is already in progress",
+    attention: entry.phase === "failed" || entry.needsAttention ? "request" : "activity",
   };
 }
 
-function indicatorForSession(
-  session: ProjectSessionSummary,
-): ProjectAgentDockChatIndicator {
+function indicatorForSession(session: ProjectSessionSummary): ProjectAgentDockChatIndicator {
   const flags = session.thread?.statusActiveFlags ?? [];
   if (
-    session.thread?.statusType === "systemError"
-    || flags.includes("waitingOnApproval")
-    || flags.includes("waitingOnUserInput")
+    session.thread?.statusType === "systemError" ||
+    flags.includes("waitingOnApproval") ||
+    flags.includes("waitingOnUserInput")
   ) {
     return "needs-attention";
   }
@@ -175,60 +163,59 @@ export function buildProjectAgentDockModel({
   readonly hasMore: boolean;
   readonly query: string;
 }): ProjectAgentDockModel {
-  const selectedSessionId = dock.binding.kind === "session"
-    ? dock.binding.sessionId
-    : null;
-  const inScope = summaries.filter((session) =>
-    session.projectId === projectId && !session.archived
+  const selectedSessionId = dock.binding.kind === "session" ? dock.binding.sessionId : null;
+  const inScope = summaries.filter(
+    (session) => session.projectId === projectId && !session.archived,
   );
-  const selectedExact = exactSelectedSession?.projectId === projectId
-    && !exactSelectedSession.archived
-    ? exactSelectedSession
-    : null;
-  const withExact = selectedExact
-    && !inScope.some((session) => session.id === selectedExact.id)
-    ? [...inScope, selectedExact]
-    : inScope;
+  const selectedExact =
+    exactSelectedSession?.projectId === projectId && !exactSelectedSession.archived
+      ? exactSelectedSession
+      : null;
+  const withExact =
+    selectedExact && !inScope.some((session) => session.id === selectedExact.id)
+      ? [...inScope, selectedExact]
+      : inScope;
   const normalizedQuery = normalizeSearch(query);
   const sessionRows = sortProjectSessionSummariesForSidebar(withExact)
     .map((session) => sessionRow(session, selectedSessionId))
     .filter((row) => {
       if (!normalizedQuery) return true;
-      return normalizeSearch([
-        row.label,
-        row.preview ?? "",
-      ].join(" ")).includes(normalizedQuery);
+      return normalizeSearch([row.label, row.preview ?? ""].join(" ")).includes(normalizedQuery);
     });
   const newRow = newChatRow(dock.binding.kind === "new");
-  const trigger = dock.binding.kind === "new"
-    ? newRow
-    : sessionRows.find((row) => row.sessionId === selectedSessionId)
-      ?? {
-        ...sessionRow({
-          id: selectedSessionId ?? "unavailable",
-          projectId,
-          noThreadFallbackTitle: "Chat unavailable",
-          displayTitle: "Chat unavailable",
-          order: Number.MAX_SAFE_INTEGER,
-          pinned: false,
-          pinnedOrder: null,
-          archived: false,
-          archivedAt: null,
-          unread: false,
-          thread: null,
-          createdAt: "",
-          updatedAt: "",
-        }, selectedSessionId),
-        indicator: "needs-attention",
-        attention: "request",
-      };
-  const collectionMessage = collectionState.kind === "loading"
-    ? "Loading chats…"
-    : collectionState.kind === "error"
-      ? collectionState.message
-      : collectionState.kind === "ready"
-        ? collectionState.refreshError
-        : null;
+  const trigger =
+    dock.binding.kind === "new"
+      ? newRow
+      : (sessionRows.find((row) => row.sessionId === selectedSessionId) ?? {
+          ...sessionRow(
+            {
+              id: selectedSessionId ?? "unavailable",
+              projectId,
+              noThreadFallbackTitle: "Chat unavailable",
+              displayTitle: "Chat unavailable",
+              order: Number.MAX_SAFE_INTEGER,
+              pinned: false,
+              pinnedOrder: null,
+              archived: false,
+              archivedAt: null,
+              unread: false,
+              thread: null,
+              createdAt: "",
+              updatedAt: "",
+            },
+            selectedSessionId,
+          ),
+          indicator: "needs-attention",
+          attention: "request",
+        });
+  const collectionMessage =
+    collectionState.kind === "loading"
+      ? "Loading chats…"
+      : collectionState.kind === "error"
+        ? collectionState.message
+        : collectionState.kind === "ready"
+          ? collectionState.refreshError
+          : null;
 
   return {
     trigger,

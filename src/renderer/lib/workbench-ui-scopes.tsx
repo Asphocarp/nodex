@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useRef,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { useCallback, useLayoutEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import type { ProjectSession } from "../../shared/types";
 import {
   ScopeProvider,
@@ -17,10 +11,7 @@ import {
   type ScopeHandle,
 } from "./maitai";
 
-export type ThreadScopeStableKey =
-  | `draft:${string}`
-  | `session:${string}`
-  | `client:${string}`;
+export type ThreadScopeStableKey = `draft:${string}` | `session:${string}` | `client:${string}`;
 
 export interface ThreadScopeDescriptor {
   readonly stableKey: ThreadScopeStableKey;
@@ -32,12 +23,7 @@ export interface ThreadScopeDescriptor {
 
 export interface RouteScopeDescriptor {
   readonly routeKey: string;
-  readonly kind:
-    | "thread"
-    | "automations"
-    | "settings"
-    | "pages"
-    | "pending-worktree";
+  readonly kind: "thread" | "automations" | "settings" | "pages" | "pending-worktree";
 }
 
 export interface ComposerScopeDescriptor {
@@ -74,17 +60,13 @@ export const ComposerScope = defineScope({
   getKey: (descriptor: ComposerScopeDescriptor) => descriptor.identity,
 });
 
-const selectedRouteScopeHandleAtom = scopedAtom<ScopeHandle | null>(
-  appScope,
-  null,
-  { debugLabel: "selected-route-scope-handle" },
-);
+const selectedRouteScopeHandleAtom = scopedAtom<ScopeHandle | null>(appScope, null, {
+  debugLabel: "selected-route-scope-handle",
+});
 
-export const appShellHeaderContentAtom = scopedAtom<ReactNode>(
-  RouteScope,
-  null,
-  { debugLabel: "app-shell-header-content" },
-);
+export const appShellHeaderContentAtom = scopedAtom<ReactNode>(RouteScope, null, {
+  debugLabel: "app-shell-header-content",
+});
 
 export class IdentityPromotionConflict extends Error {
   constructor(readonly stableKeys: readonly ThreadScopeStableKey[]) {
@@ -118,12 +100,13 @@ export function createThreadScopeIdentityRegistry(): ThreadScopeIdentityRegistry
     readonly clientThreadId?: string | null;
     readonly threadId?: string | null;
     readonly draftId?: string | null;
-  }) => [
-    input.projectSessionId?.trim() ? `session:${input.projectSessionId.trim()}` : null,
-    input.clientThreadId?.trim() ? `client:${input.clientThreadId.trim()}` : null,
-    input.threadId?.trim() ? `thread:${input.threadId.trim()}` : null,
-    input.draftId?.trim() ? `draft:${input.draftId.trim()}` : null,
-  ].filter((value): value is string => value !== null);
+  }) =>
+    [
+      input.projectSessionId?.trim() ? `session:${input.projectSessionId.trim()}` : null,
+      input.clientThreadId?.trim() ? `client:${input.clientThreadId.trim()}` : null,
+      input.threadId?.trim() ? `thread:${input.threadId.trim()}` : null,
+      input.draftId?.trim() ? `draft:${input.draftId.trim()}` : null,
+    ].filter((value): value is string => value !== null);
 
   const register = (
     stableKey: ThreadScopeStableKey,
@@ -134,9 +117,7 @@ export function createThreadScopeIdentityRegistry(): ThreadScopeIdentityRegistry
       readonly draftId?: string | null;
     },
   ) => {
-    const known = new Set(
-      aliasKeys(input).flatMap((alias) => aliases.get(alias) ?? []),
-    );
+    const known = new Set(aliasKeys(input).flatMap((alias) => aliases.get(alias) ?? []));
     if (known.size > 0 && (!known.has(stableKey) || known.size > 1)) {
       throw new IdentityPromotionConflict([...known, stableKey]);
     }
@@ -145,9 +126,7 @@ export function createThreadScopeIdentityRegistry(): ThreadScopeIdentityRegistry
 
   return {
     resolve(input) {
-      const known = new Set(
-        aliasKeys(input).flatMap((alias) => aliases.get(alias) ?? []),
-      );
+      const known = new Set(aliasKeys(input).flatMap((alias) => aliases.get(alias) ?? []));
       if (known.size > 1) throw new IdentityPromotionConflict([...known]);
       const existing = known.values().next().value as ThreadScopeStableKey | undefined;
       if (existing) {
@@ -158,16 +137,14 @@ export function createThreadScopeIdentityRegistry(): ThreadScopeIdentityRegistry
       const projectSessionId = input.projectSessionId?.trim();
       const draftId = input.draftId?.trim();
       const stableKey = clientThreadId
-        ? `client:${clientThreadId}` as const
+        ? (`client:${clientThreadId}` as const)
         : projectSessionId
-          ? `session:${projectSessionId}` as const
+          ? (`session:${projectSessionId}` as const)
           : draftId
-            ? `draft:${draftId}` as const
+            ? (`draft:${draftId}` as const)
             : null;
       if (!stableKey) {
-        throw new Error(
-          "Thread scope identity requires a draft, session, or client thread id",
-        );
+        throw new Error("Thread scope identity requires a draft, session, or client thread id");
       }
       register(stableKey, input);
       return stableKey;
@@ -277,11 +254,12 @@ export function resolveComposerScopeIdentity(input: {
   readonly attachmentIdentity?: string | null;
   readonly focusComposerNonce?: number | null;
 }): ComposerScopeDescriptor {
-  const base = input.kind === "preview"
-    ? `preview:${input.attachmentIdentity?.trim() || "empty"}`
-    : input.kind === "task"
-      ? `task:${input.stableIdentity?.trim() || "unknown"}`
-      : input.kind;
+  const base =
+    input.kind === "preview"
+      ? `preview:${input.attachmentIdentity?.trim() || "empty"}`
+      : input.kind === "task"
+        ? `task:${input.stableIdentity?.trim() || "unknown"}`
+        : input.kind;
   return {
     identity: base,
     focusComposerNonce: input.focusComposerNonce ?? null,
@@ -321,7 +299,8 @@ export function AppShellHeaderContentRegistrar({ content }: { readonly content: 
 export function SelectedAppShellHeaderContent() {
   const selectedRoute = useScopedAtomValue(selectedRouteScopeHandleAtom);
   const subscribe = useCallback(
-    (listener: () => void) => selectedRoute?.sub(appShellHeaderContentAtom, listener) ?? (() => undefined),
+    (listener: () => void) =>
+      selectedRoute?.sub(appShellHeaderContentAtom, listener) ?? (() => undefined),
     [selectedRoute],
   );
   const getSnapshot = useCallback(
@@ -344,7 +323,7 @@ function SelectedRouteScopeRegistrar({ selected }: { readonly selected: boolean 
     if (!selected) return;
     setSelectedRoute(routeOwner);
     return () => {
-      setSelectedRoute((current) => current === routeOwner ? null : current);
+      setSelectedRoute((current) => (current === routeOwner ? null : current));
     };
   }, [routeOwner, selected, setSelectedRoute]);
   return null;

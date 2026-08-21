@@ -53,18 +53,14 @@ export interface CodexThreadNotificationCoordinatorOptions {
     onAction: (action: DesktopNotificationActionPayload) => void,
   ) => void;
   dismissNotification: (selector: DesktopNotificationHideSelector) => void;
-  dispatchAction: (
-    targetClientId: string,
-    action: DesktopNotificationActionInvocation,
-  ) => boolean;
+  dispatchAction: (targetClientId: string, action: DesktopNotificationActionInvocation) => boolean;
   focusTargetClient: (targetClientId: string) => void;
   logger?: Pick<Console, "debug" | "warn">;
 }
 
-function resolveNavigation(event: Exclude<
-  CodexThreadNotificationEvent,
-  { type: "request-resolved" }
->): {
+function resolveNavigation(
+  event: Exclude<CodexThreadNotificationEvent, { type: "request-resolved" }>,
+): {
   navigationPath: string;
   activateTabId: string | null;
 } {
@@ -91,11 +87,9 @@ export class CodexThreadNotificationCoordinator {
       options.source.addThreadNotificationListener((event) => {
         this.handleEvent(event);
       }),
-      options.source.addRendererConversationPresentedInForegroundListener(
-        (conversationId) => {
-          options.dismissNotification({ conversationId });
-        },
-      ),
+      options.source.addRendererConversationPresentedInForegroundListener((conversationId) => {
+        options.dismissNotification({ conversationId });
+      }),
     ];
   }
 
@@ -154,15 +148,13 @@ export class CodexThreadNotificationCoordinator {
       return;
     }
 
-    const enabled = event.type === "approval-requested"
-      ? settings.permissionsEnabled
-      : settings.questionsEnabled;
+    const enabled =
+      event.type === "approval-requested" ? settings.permissionsEnabled : settings.questionsEnabled;
     const decision = decideCodexRequestNotification(event.conversation, {
       enabled,
-      isConversationPresentedInForeground:
-        this.options.isConversationPresentedInForeground(
-          event.conversation.conversationId,
-        ),
+      isConversationPresentedInForeground: this.options.isConversationPresentedInForeground(
+        event.conversation.conversationId,
+      ),
     });
     if (decision.type === "suppress") {
       this.options.logger?.debug("[desktop-notifications] suppressed", {
@@ -209,13 +201,7 @@ export class CodexThreadNotificationCoordinator {
     event: Exclude<CodexThreadNotificationEvent, { type: "request-resolved" }>,
     copy: Pick<
       DesktopNotificationPayload,
-      | "id"
-      | "occurrenceId"
-      | "kind"
-      | "title"
-      | "body"
-      | "actions"
-      | "replyPlaceholder"
+      "id" | "occurrenceId" | "kind" | "title" | "body" | "actions" | "replyPlaceholder"
     >,
   ): void {
     const conversationId = event.conversation.conversationId;

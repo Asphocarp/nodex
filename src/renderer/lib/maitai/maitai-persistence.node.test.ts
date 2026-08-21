@@ -75,7 +75,7 @@ function createStringDefinition(sync: "cross-window" | "same-window" | "none" = 
     defaultValue: "",
     hydration: "eager",
     synchronization: sync,
-    decode: (value) => typeof value === "string" ? value : "",
+    decode: (value) => (typeof value === "string" ? value : ""),
   });
 }
 
@@ -146,9 +146,10 @@ describe("Maitai persisted atoms", () => {
     const resolveSnapshotRef: {
       current: ((snapshot: PersistedAtomSnapshot) => void) | null;
     } = { current: null };
-    transport.readSnapshot = () => new Promise((resolve) => {
-      resolveSnapshotRef.current = resolve;
-    });
+    transport.readSnapshot = () =>
+      new Promise((resolve) => {
+        resolveSnapshotRef.current = resolve;
+      });
     const store = createMaitaiStore();
     setMaitaiPersistenceTransport(store, transport);
     const definition = createStringDefinition();
@@ -172,10 +173,11 @@ describe("Maitai persisted atoms", () => {
   test("older acknowledgement cannot overwrite a newer pending write", async () => {
     const transport = new FakeTransport();
     const acknowledgements = new Map<string, (event: PersistedAtomEvent) => void>();
-    transport.mutate = (mutation) => new Promise((resolve) => {
-      transport.mutations.push(mutation);
-      acknowledgements.set(String(mutation.value), resolve);
-    });
+    transport.mutate = (mutation) =>
+      new Promise((resolve) => {
+        transport.mutations.push(mutation);
+        acknowledgements.set(String(mutation.value), resolve);
+      });
     const store = createMaitaiStore();
     setMaitaiPersistenceTransport(store, transport);
     const definition = createStringDefinition();
@@ -213,10 +215,11 @@ describe("Maitai persisted atoms", () => {
     const resolveMutationRef: {
       current: ((event: PersistedAtomEvent) => void) | null;
     } = { current: null };
-    transport.mutate = async (mutation) => new Promise((resolve) => {
-      transport.mutations.push(mutation);
-      resolveMutationRef.current = resolve;
-    });
+    transport.mutate = async (mutation) =>
+      new Promise((resolve) => {
+        transport.mutations.push(mutation);
+        resolveMutationRef.current = resolve;
+      });
     const store = createMaitaiStore();
     setMaitaiPersistenceTransport(store, transport);
     const definition = createStringDefinition();
@@ -242,10 +245,11 @@ describe("Maitai persisted atoms", () => {
   test("rebases a remote write that arrives between two local writes", async () => {
     const transport = new FakeTransport();
     const acknowledgements: Array<(event: PersistedAtomEvent) => void> = [];
-    transport.mutate = (mutation) => new Promise((resolve) => {
-      transport.mutations.push(mutation);
-      acknowledgements.push(resolve);
-    });
+    transport.mutate = (mutation) =>
+      new Promise((resolve) => {
+        transport.mutations.push(mutation);
+        acknowledgements.push(resolve);
+      });
     const store = createMaitaiStore();
     setMaitaiPersistenceTransport(store, transport);
     const definition = createStringDefinition();
@@ -277,7 +281,9 @@ describe("Maitai persisted atoms", () => {
 
   test("a reloaded renderer hydrates a main-persisted value before the original acknowledgement", async () => {
     const transport = new FakeTransport();
-    const resolveMutationRef: { current: ((event: PersistedAtomEvent) => void) | null } = { current: null };
+    const resolveMutationRef: { current: ((event: PersistedAtomEvent) => void) | null } = {
+      current: null,
+    };
     transport.mutate = (mutation) => {
       transport.mutations.push(mutation);
       transport.snapshot = {
@@ -370,7 +376,9 @@ describe("Maitai persisted atoms", () => {
 
   test("a failed older write cannot roll back a newer pending mutation", async () => {
     const transport = new FakeTransport();
-    const resolveSecondRef: { current: ((event: PersistedAtomEvent) => void) | null } = { current: null };
+    const resolveSecondRef: { current: ((event: PersistedAtomEvent) => void) | null } = {
+      current: null,
+    };
     let mutationIndex = 0;
     transport.mutate = (mutation) => {
       transport.mutations.push(mutation);

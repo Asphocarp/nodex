@@ -24,9 +24,7 @@ describe("Browser Use native-pipe framing", () => {
   });
 
   test("rejects oversized outgoing and incoming frames", () => {
-    expect(() => encodeBrowserUseNativePipeFrame("12345", 4)).toThrow(
-      "exceeds 4 bytes",
-    );
+    expect(() => encodeBrowserUseNativePipeFrame("12345", 4)).toThrow("exceeds 4 bytes");
 
     const oversizedHeader = Buffer.alloc(4);
     if (endianness() === "LE") {
@@ -40,13 +38,8 @@ describe("Browser Use native-pipe framing", () => {
 
   test("accepts the maximum payload and preserves unicode", () => {
     const message = "你好 Browser";
-    const encoded = encodeBrowserUseNativePipeFrame(
-      message,
-      Buffer.byteLength(message),
-    );
-    const decoder = new BrowserUseNativePipeFrameDecoder(
-      Buffer.byteLength(message),
-    );
+    const encoded = encodeBrowserUseNativePipeFrame(message, Buffer.byteLength(message));
+    const decoder = new BrowserUseNativePipeFrameDecoder(Buffer.byteLength(message));
     expect(decoder.push(encoded)).toEqual([message]);
   });
 });

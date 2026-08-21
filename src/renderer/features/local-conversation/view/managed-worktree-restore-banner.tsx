@@ -5,15 +5,10 @@ import { toast } from "@/components/ui/toast";
 import { invoke } from "@/lib/api";
 import type { ManagedWorktreeAvailability } from "@/lib/types";
 
-export const managedWorktreeAvailabilityQueryKey = (threadId: string) => [
-  "managed-worktree-availability",
-  threadId,
-] as const;
+export const managedWorktreeAvailabilityQueryKey = (threadId: string) =>
+  ["managed-worktree-availability", threadId] as const;
 
-export function useManagedWorktreeAvailability(
-  threadId: string | null,
-  enabled: boolean,
-) {
+export function useManagedWorktreeAvailability(threadId: string | null, enabled: boolean) {
   return useQuery({
     queryKey: managedWorktreeAvailabilityQueryKey(threadId ?? ""),
     queryFn: async () => await invoke("worktrees:thread:availability", threadId ?? ""),
@@ -36,26 +31,27 @@ export function ManagedWorktreeRestoreBanner({
 }) {
   if (availability.state === "not-managed" || availability.state === "available") return null;
 
-  const content = availability.state === "restorable"
+  const content =
+    availability.state === "restorable"
       ? {
           title: "Worktree cleaned up",
           body: "This chat's worktree was removed to save disk space",
-        action: "Restore worktree",
-        onAction: onRestore,
-      }
-    : availability.state === "gone"
-      ? {
-          title: "Current working directory missing",
-          body: "This chat's working directory no longer exists",
-          action: null,
-          onAction: undefined,
+          action: "Restore worktree",
+          onAction: onRestore,
         }
-      : {
-        title: "Couldn’t check worktree status",
-          body: "Retry to verify this chat's working directory",
-          action: "Retry",
-          onAction: onRetry,
-        };
+      : availability.state === "gone"
+        ? {
+            title: "Current working directory missing",
+            body: "This chat's working directory no longer exists",
+            action: null,
+            onAction: undefined,
+          }
+        : {
+            title: "Couldn’t check worktree status",
+            body: "Retry to verify this chat's working directory",
+            action: "Retry",
+            onAction: onRetry,
+          };
 
   return (
     <div
@@ -86,11 +82,7 @@ export function ManagedWorktreeRestoreBanner({
   );
 }
 
-export function ManagedWorktreeRestoreBannerContainer({
-  threadId,
-}: {
-  readonly threadId: string;
-}) {
+export function ManagedWorktreeRestoreBannerContainer({ threadId }: { readonly threadId: string }) {
   const queryClient = useQueryClient();
   const availability = useManagedWorktreeAvailability(threadId, true);
   const [restoring, setRestoring] = useState(false);
@@ -98,11 +90,12 @@ export function ManagedWorktreeRestoreBannerContainer({
     ? {
         state: "unavailable",
         reason: "inspection-failed",
-        message: availability.error instanceof Error
-          ? availability.error.message
-          : "Could not inspect the managed worktree",
+        message:
+          availability.error instanceof Error
+            ? availability.error.message
+            : "Could not inspect the managed worktree",
       }
-    : availability.data ?? { state: "available" };
+    : (availability.data ?? { state: "available" });
 
   return (
     <ManagedWorktreeRestoreBanner
@@ -121,9 +114,7 @@ export function ManagedWorktreeRestoreBannerContainer({
             toast.success("Worktree restored");
           })
           .catch(async (error: unknown) => {
-            const message = error instanceof Error
-              ? error.message
-              : "Unknown error";
+            const message = error instanceof Error ? error.message : "Unknown error";
             toast.danger(`Failed to restore worktree: ${message}`);
             await availability.refetch();
           })

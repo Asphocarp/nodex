@@ -2,10 +2,7 @@ import { beforeEach, describe, expect, test } from "vitest";
 import { act } from "@testing-library/react";
 import { useEffect, useRef, useState } from "react";
 import { renderWithMaitai, settleAsyncRender } from "@/test/dom";
-import {
-  clearPersistedAtomStoreForTests,
-  writeAtom,
-} from "@/lib/persisted-atom-store";
+import { clearPersistedAtomStoreForTests, writeAtom } from "@/lib/persisted-atom-store";
 import type {
   ComposerPromptEditorHandle,
   ComposerPromptEditorKeyboardEvent,
@@ -22,7 +19,10 @@ import {
 
 interface FakeComposerController {
   editor: ComposerPromptEditorHandle;
-  keyDown: (key: "ArrowUp" | "ArrowDown", options?: Partial<Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">>) => {
+  keyDown: (
+    key: "ArrowUp" | "ArrowDown",
+    options?: Partial<Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">>,
+  ) => {
     handled: boolean;
     prevented: boolean;
     stopped: boolean;
@@ -170,14 +170,18 @@ describe("composer prompt history helpers", () => {
     const state = ["first"];
     const nextState = appendPromptToHistoryState(state, GLOBAL_PROMPT_HISTORY_SCOPE, "second");
 
-    expect(JSON.stringify(readScopedPromptHistory(nextState, GLOBAL_PROMPT_HISTORY_SCOPE))).toBe("[\"first\",\"second\"]");
+    expect(JSON.stringify(readScopedPromptHistory(nextState, GLOBAL_PROMPT_HISTORY_SCOPE))).toBe(
+      '["first","second"]',
+    );
     expect(JSON.stringify(readScopedPromptHistory(nextState, "thread-1"))).toBe("[]");
   });
 
   test("migrates legacy array history when writing a non-global scope", () => {
     const nextState = appendPromptToHistoryState(["global prompt"], "thread-1", "thread prompt");
 
-    expect(JSON.stringify(nextState)).toBe("{\"global\":[\"global prompt\"],\"thread-1\":[\"thread prompt\"]}");
+    expect(JSON.stringify(nextState)).toBe(
+      '{"global":["global prompt"],"thread-1":["thread prompt"]}',
+    );
   });
 
   test("decodes the versioned persisted envelope", () => {
@@ -189,9 +193,7 @@ describe("composer prompt history helpers", () => {
       },
     });
 
-    expect(JSON.stringify(readScopedPromptHistory(state, "thread-1"))).toBe(
-      "[\"thread prompt\"]",
-    );
+    expect(JSON.stringify(readScopedPromptHistory(state, "thread-1"))).toBe('["thread prompt"]');
   });
 
   test("keeps keyed object history scoped per thread", () => {
@@ -201,8 +203,8 @@ describe("composer prompt history helpers", () => {
       "two",
     );
 
-    expect(JSON.stringify(readScopedPromptHistory(nextState, "thread-1"))).toBe("[\"one\",\"two\"]");
-    expect(JSON.stringify(readScopedPromptHistory(nextState, "thread-2"))).toBe("[\"other\"]");
+    expect(JSON.stringify(readScopedPromptHistory(nextState, "thread-1"))).toBe('["one","two"]');
+    expect(JSON.stringify(readScopedPromptHistory(nextState, "thread-2"))).toBe('["other"]');
   });
 
   test("skips blank prompts and keeps only the latest twenty entries", () => {
@@ -211,7 +213,10 @@ describe("composer prompt history helpers", () => {
     let state = unchanged;
 
     for (let index = 1; index <= 21; index += 1) {
-      state = appendPromptToHistoryState(state, "thread-1", `prompt ${index}`) as Record<string, string[]>;
+      state = appendPromptToHistoryState(state, "thread-1", `prompt ${index}`) as Record<
+        string,
+        string[]
+      >;
     }
 
     const history = readScopedPromptHistory(state, "thread-1");

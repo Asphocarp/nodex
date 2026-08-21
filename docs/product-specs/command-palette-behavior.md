@@ -1,6 +1,7 @@
 # Command Palette Behavior
 
 ## Intent
+
 The command palette is the global launcher for fast workbench navigation.
 It has explicit entry modes while keeping root search useful when users type a task title without switching modes first:
 
@@ -14,6 +15,7 @@ It has explicit entry modes while keeping root search useful when users type a t
 The palette is a transient overlay and does not become part of durable navigation history.
 
 ## Launch and Scope
+
 - `Cmd/Ctrl+K` opens the command palette from anywhere in the app in root command mode, including editable surfaces.
 - `Cmd/Ctrl+Shift+P` opens the same root command mode.
 - `Cmd/Ctrl+G` opens chats mode.
@@ -29,6 +31,7 @@ The palette is a transient overlay and does not become part of durable navigatio
 ## Modes
 
 ### Root Command Mode
+
 Root command mode is opened by `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P`.
 
 - Root mode always searches command/action rows.
@@ -49,6 +52,7 @@ Root command mode is opened by `Cmd/Ctrl+K` and `Cmd/Ctrl+Shift+P`.
 - `Toggle browser panel` and `Open Page Stage` are intentionally not part of the root command catalog.
 
 ### Chats Mode
+
 Chats mode is opened by `Cmd/Ctrl+G` or the root-mode `Search chats` row.
 
 - Chats mode shows chat rows only.
@@ -58,6 +62,7 @@ Chats mode is opened by `Cmd/Ctrl+G` or the root-mode `Search chats` row.
 - Chat metadata search is local and immediate. Transcript discovery and snippets come only from the bounded app-server search path described below.
 
 ### Page Mode
+
 Page mode is opened by `Cmd/Ctrl+P`, the sidebar `Search` row, or the root-mode `Search Pages` row.
 
 - Page mode shows Page rows only.
@@ -72,6 +77,7 @@ Page mode is opened by `Cmd/Ctrl+P`, the sidebar `Search` row, or the root-mode 
 - Palette Page filters persist across palette reopen and app reload, but the free-text query still clears on close.
 
 ### Files Mode
+
 Files mode is a reference-shell placeholder.
 
 - Files mode keeps the command-menu layout, input, loading, empty, and disabled-row states available for future file-search work.
@@ -80,6 +86,7 @@ Files mode is a reference-shell placeholder.
 ## Page Search Model
 
 ### Search fields
+
 Core Page search matches the following normalized fields:
 
 - title
@@ -91,6 +98,7 @@ Core Page search matches the following normalized fields:
 Normalization is Unicode NFKC normalization, lowercasing, and whitespace tokenization. A multi-term query requires every term to match somewhere on the same Page.
 
 ### Ranking
+
 One Rust search kernel, used natively by Core and as renderer WASM, produces metadata order and evidence. Complete Core search may add body evidence/results. Match classes are ordered by specificity:
 
 - current or historical Page key
@@ -108,6 +116,7 @@ Filter semantics:
 - tag identity includes Data Source, Property, and option IDs so equal labels from different schemas do not collapse
 
 ### Ordering
+
 For non-empty queries, Core sorts by:
 
 1. match specificity across all query terms
@@ -124,6 +133,7 @@ For empty queries, Core returns suggestions ordered by:
 4. stable Page identity
 
 ### Projection lifecycle
+
 - SQLite remains the durable source of Page metadata, Properties, body-search rows, and authorization roots.
 - Core may reuse a derived in-memory Page-search projection only while both Store epoch and commit head still match the read snapshot. The first read after a committed change rebuilds it before answering.
 - Core publishes a read-only metadata bootstrap fenced by Store epoch, commit head, and Project authorization scope. Library change events refresh affected Pages or replace the snapshot; an epoch/scope change revokes it before further synchronous reads.
@@ -134,6 +144,7 @@ For empty queries, Core returns suggestions ordered by:
 ## Page Result Presentation
 
 ### Primary line
+
 Each Page result renders:
 
 - canonical Project marker
@@ -143,6 +154,7 @@ Each Page result renders:
 If the query matched the title, Core returns the exact display-text segments to highlight inline rather than asking the renderer to reconstruct a match.
 
 ### Secondary match indicators
+
 If the query matched other fields, the result may render compact indicator chips from Core's typed evidence for:
 
 - `tag`
@@ -154,6 +166,7 @@ These chips render only for fields that actually matched.
 They are intentionally compact and subdued so they explain why a result appeared without overpowering the title.
 
 ### Description preview
+
 If the query matched body or Property text, the result renders a contextual preview below the subtitle:
 
 - excerpt is selected by Core from authoritative matched sources
@@ -172,6 +185,7 @@ In root mode, Page rows stay compact: metadata badges are omitted and a body exc
 Chat search indexes the local chat catalog in the renderer and treats app-server `thread/search` as a bounded supplement and discovery source.
 
 ### Indexed fields
+
 Chat metadata search indexes:
 
 - title
@@ -184,6 +198,7 @@ Chat metadata search indexes:
 The local index includes non-archived project-backed, projectless, and sessionless chats. The app-server supplement may add eligible root chats that are not local yet. Archived chats, side chats, ephemeral conversations, parent-linked subagents, and internal helper threads are excluded at the main-process boundary.
 
 ### Ranking
+
 Chat metadata search uses an in-memory MiniSearch index. It is intentionally not persisted in IndexedDB because chat metadata is small and already fetched on palette open.
 
 Field boosts are:
@@ -205,6 +220,7 @@ For empty queries, chat results preserve sidebar ordering: pinned rows first, th
 For non-empty queries, the best matched field orders results first (`title`, `preview`, `branch`, `project/cwd`, then id), followed by relevance and recency. Pickers may place active-Project results first without changing this shared match order.
 
 ### App-server search
+
 The renderer requests bounded chat search through `codex:threads:palette:search`, with a 200 ms debounce:
 
 - the request limit is capped at `60`
@@ -217,6 +233,7 @@ The renderer requests bounded chat search through `codex:threads:palette:search`
 - Nodex stores no transcript copy, FTS table, retry state, or backfill queue for this feature
 
 ### Chat Result Presentation
+
 Each chat result renders:
 
 - chat icon
@@ -227,6 +244,7 @@ Each chat result renders:
 Metadata matches highlight title, project/Chats context, cwd, branch, and preview characters inline without badge-like match chips. App-server snippets are normalized and highlighted against the current query in the renderer. CJK, emoji, and combining marks use one code-point coordinate system so highlighting never corrupts visible text.
 
 ## Command Search Model
+
 - Commands are matched only in root mode.
 - Command ranking remains lightweight and heuristic rather than MiniSearch-based.
 - Ranking considers exact/prefix/substring and fuzzy subsequence matches across title, subtitle, and keyword text, plus explicit command priority and active-state bonus.
@@ -234,6 +252,7 @@ Metadata matches highlight title, project/Chats context, cwd, branch, and previe
 - Result limits remain separate from Page limits.
 
 ## Keyboard Behavior
+
 - `ArrowDown` / `ArrowUp` moves selection and skips disabled commands.
 - `Home` / `End` jumps to the first or last visible result.
 - `Enter` executes the selected result.
@@ -241,6 +260,7 @@ Metadata matches highlight title, project/Chats context, cwd, branch, and previe
 - When the query is empty, standard dialog close behavior applies.
 
 ## Result Limits
+
 - root mode shows up to `100` matching command rows and up to `9` progressive chat rows; Pages appear only when the combined command, Chat, and status-row count is below the `7`-row discovery budget, then fill the remaining budget without a separate Page cap
 - chats mode shows up to `9` chat rows
 - page mode shows up to `12` Page rows
@@ -249,6 +269,7 @@ Metadata matches highlight title, project/Chats context, cwd, branch, and previe
 ## Execution Semantics
 
 ### Page results
+
 Executing a Page result:
 
 - closes the palette
@@ -256,12 +277,14 @@ Executing a Page result:
 - preserves the current DB-project selection if the Page belongs to another project
 
 ### Command results
+
 Executing a command result:
 
 - closes the palette
 - runs the associated shell/workbench action
 
 ### Chat Results
+
 Executing a chat result:
 
 - closes the palette
@@ -278,6 +301,7 @@ Supported actions currently include:
 - open settings and keyboard shortcut settings
 
 ## Non-Goals
+
 - full query DSL in Page mode
 - quoted phrase operators
 - inline search qualifiers or advanced query syntax

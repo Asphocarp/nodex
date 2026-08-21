@@ -19,21 +19,24 @@ describe("createNodexV3DynamicToolRegistry", () => {
       NODEX_APP_V6_TOOLS.map((tool) => [tool, unimplemented]),
     ) as unknown as NodexAgentV3ToolHandlers<null>;
     const registry = createNodexV3DynamicToolRegistry(handlers);
-    const catalog = registry.buildCatalog([{
-      namespace: NODEX_APP_TOOL_NAMESPACE,
-      toolsetRevision: NODEX_APP_V6_TOOLSET_REVISION,
-    }]);
+    const catalog = registry.buildCatalog([
+      {
+        namespace: NODEX_APP_TOOL_NAMESPACE,
+        toolsetRevision: NODEX_APP_V6_TOOLSET_REVISION,
+      },
+    ]);
     const namespace = catalog[0];
     expect(namespace?.type).toBe("namespace");
     if (!namespace || namespace.type !== "namespace") return;
 
     expect(namespace.description).toContain("Use one literal tab per child level");
     expect(namespace.description).not.toContain("NFM");
-    expect(namespace.tools.map((tool) => tool.name).sort()).toEqual(
-      [...NODEX_APP_V6_TOOLS].sort(),
-    );
-    expect(namespace.tools.filter((tool) => tool.deferLoading === false).map(
-      (tool) => tool.name,
-    ).sort()).toEqual(["fetch", "get_context", "search"]);
+    expect(namespace.tools.map((tool) => tool.name).sort()).toEqual([...NODEX_APP_V6_TOOLS].sort());
+    expect(
+      namespace.tools
+        .filter((tool) => tool.deferLoading === false)
+        .map((tool) => tool.name)
+        .sort(),
+    ).toEqual(["fetch", "get_context", "search"]);
   });
 });

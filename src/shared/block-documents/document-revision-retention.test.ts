@@ -22,9 +22,7 @@ describe("Document revision retention", () => {
         },
         {
           versionId: "hour-old",
-          createdAt: new Date(
-            Date.parse(ago(8 * day + 60_000)) - 1_000,
-          ).toISOString(),
+          createdAt: new Date(Date.parse(ago(8 * day + 60_000)) - 1_000).toISOString(),
           pinned: false,
         },
         { versionId: "day-new", createdAt: ago(31 * day), pinned: false },
@@ -45,31 +43,22 @@ describe("Document revision retention", () => {
       "day-new",
       "pinned",
     ]);
-    expect(plan.deletedVersionIds).toEqual([
-      "hour-old",
-      "day-old",
-      "expired",
-    ]);
+    expect(plan.deletedVersionIds).toEqual(["hour-old", "day-old", "expired"]);
   });
 
   test("caps only unpinned survivors", () => {
-    const candidates = Array.from(
-      { length: MAX_UNPINNED_DOCUMENT_REVISIONS + 20 },
-      (_, index) => ({
-        versionId: `auto-${index.toString().padStart(3, "0")}`,
-        createdAt: new Date(Date.parse(NOW) - index * 1_000).toISOString(),
-        pinned: false,
-      }),
-    );
+    const candidates = Array.from({ length: MAX_UNPINNED_DOCUMENT_REVISIONS + 20 }, (_, index) => ({
+      versionId: `auto-${index.toString().padStart(3, "0")}`,
+      createdAt: new Date(Date.parse(NOW) - index * 1_000).toISOString(),
+      pinned: false,
+    }));
     candidates.push({
       versionId: "named",
       createdAt: ago(1_000 * day),
       pinned: true,
     });
     const plan = planDocumentRevisionRetention(candidates, NOW);
-    expect(plan.retainedVersionIds).toHaveLength(
-      MAX_UNPINNED_DOCUMENT_REVISIONS + 1,
-    );
+    expect(plan.retainedVersionIds).toHaveLength(MAX_UNPINNED_DOCUMENT_REVISIONS + 1);
     expect(plan.retainedVersionIds).toContain("named");
     expect(plan.deletedVersionIds).toHaveLength(20);
   });

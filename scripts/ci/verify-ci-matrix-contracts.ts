@@ -12,7 +12,10 @@ import {
 const parseStringArray = (value: unknown, label: string): readonly string[] => {
   if (typeof value !== "string") throw new Error(`${label} must be a JSON string.`);
   const parsed: unknown = JSON.parse(value);
-  if (!Array.isArray(parsed) || !parsed.every((entry): entry is string => typeof entry === "string")) {
+  if (
+    !Array.isArray(parsed) ||
+    !parsed.every((entry): entry is string => typeof entry === "string")
+  ) {
     throw new Error(`${label} must contain a JSON string array.`);
   }
   return parsed;
@@ -35,7 +38,10 @@ const requireExactEntries = (
   expected: readonly string[],
   label: string,
 ): void => {
-  if (actual.length === expected.length && actual.every((entry, index) => entry === expected[index])) {
+  if (
+    actual.length === expected.length &&
+    actual.every((entry, index) => entry === expected[index])
+  ) {
     return;
   }
   throw new Error(
@@ -54,10 +60,7 @@ const requireFullGatePlan = (workflow: UnknownRecord, workflowName: string): voi
   try {
     parsed = JSON.parse(inputs.gate_plan_json) as unknown;
   } catch (cause) {
-    throw new Error(
-      `${workflowName} app-tests.gate_plan_json must contain valid JSON.`,
-      { cause },
-    );
+    throw new Error(`${workflowName} app-tests.gate_plan_json must contain valid JSON.`, { cause });
   }
   const plan = parseCiGatePlan(parsed);
   if (plan.testMode !== "full" || !plan.rustFull) {
@@ -85,11 +88,13 @@ export const verifyFullCiContracts = (
 export const verifyAppTestMatrixContracts = (workflow: UnknownRecord): void => {
   const jobs = requireRecord(workflow.jobs, "Application test workflow jobs");
   const testJob = requireRecord(jobs.test, "Application test matrix job");
-  const environment = testJob.env === undefined
-    ? {}
-    : requireRecord(testJob.env, "Application test matrix job environment");
-  const unsafeGlobalVariables = ["RUSTC_WRAPPER", "SCCACHE_GHA_ENABLED"]
-    .filter((name) => Object.hasOwn(environment, name));
+  const environment =
+    testJob.env === undefined
+      ? {}
+      : requireRecord(testJob.env, "Application test matrix job environment");
+  const unsafeGlobalVariables = ["RUSTC_WRAPPER", "SCCACHE_GHA_ENABLED"].filter((name) =>
+    Object.hasOwn(environment, name),
+  );
   if (unsafeGlobalVariables.length > 0) {
     throw new Error(
       `Application test matrix must scope Rust cache variables to Rust-bearing steps: ${unsafeGlobalVariables.join(", ")}.`,
@@ -97,7 +102,8 @@ export const verifyAppTestMatrixContracts = (workflow: UnknownRecord): void => {
   }
   if (!Array.isArray(testJob.steps)) return;
   const duplicatedBuildResources = testJob.steps.some((candidate) => {
-    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return false;
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate))
+      return false;
     const run = (candidate as UnknownRecord).run;
     return typeof run === "string" && /\bbuild-resources:prepare\b/u.test(run);
   });
@@ -138,10 +144,7 @@ const declaredNeeds = (value: unknown, label: string): ReadonlySet<string> => {
   throw new Error(`${label} needs must be a job id or array of job ids.`);
 };
 
-export const verifyDirectNeedsContracts = (
-  workflow: UnknownRecord,
-  workflowName: string,
-): void => {
+export const verifyDirectNeedsContracts = (workflow: UnknownRecord, workflowName: string): void => {
   const jobs = requireRecord(workflow.jobs, `${workflowName} jobs`);
   for (const [jobName, rawJob] of Object.entries(jobs)) {
     const job = requireRecord(rawJob, `${workflowName} ${jobName} job`);
@@ -156,20 +159,21 @@ export const verifyDirectNeedsContracts = (
 };
 
 const main = (): void => {
-  verifyFullCiContracts(readWorkflow(path.join(
-    repositoryRoot,
-    ".github/workflows/ci-nightly.yml",
-  )));
-  verifyFullCiContracts(readWorkflow(path.join(
-    repositoryRoot,
-    ".github/workflows/_certify-release-source.yml",
-  )), "Release certification");
-  verifyAppTestMatrixContracts(readWorkflow(path.join(
-    repositoryRoot,
-    ".github/workflows/_app-tests.yml",
-  )));
+  verifyFullCiContracts(
+    readWorkflow(path.join(repositoryRoot, ".github/workflows/ci-nightly.yml")),
+  );
+  verifyFullCiContracts(
+    readWorkflow(path.join(repositoryRoot, ".github/workflows/_certify-release-source.yml")),
+    "Release certification",
+  );
+  verifyAppTestMatrixContracts(
+    readWorkflow(path.join(repositoryRoot, ".github/workflows/_app-tests.yml")),
+  );
   for (const workflowPath of workflowFiles()) {
-    verifyDirectNeedsContracts(readWorkflow(workflowPath), path.relative(repositoryRoot, workflowPath));
+    verifyDirectNeedsContracts(
+      readWorkflow(workflowPath),
+      path.relative(repositoryRoot, workflowPath),
+    );
   }
   process.stdout.write("Verified CI matrix coverage and prerequisite isolation.\n");
 };

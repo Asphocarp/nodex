@@ -16,9 +16,7 @@ export type {
 } from "../../shared/codex-fork-browser-transfer";
 import { listWorkbenchPanelLeaves } from "../../shared/workbench-panel-layout";
 import type { ProjectSession } from "../../shared/types";
-import type {
-  WorkbenchPanelId,
-} from "../../shared/workbench-session-view";
+import type { WorkbenchPanelId } from "../../shared/workbench-session-view";
 import type {
   WorkbenchSceneSnapshot,
   WorkbenchSurfaceDescriptor,
@@ -27,17 +25,12 @@ import type { CodexForkSidePanelSnapshotAdapter } from "./codex-fork-side-panel-
 
 export interface CodexForkBrowserRuntime {
   getBrowserUseStateSnapshot(): BrowserSidebarBrowserUseStateSnapshot;
-  getConversationBrowserTabIds(
-    browserConversationId: string,
-    browserViewScopeId: string,
-  ): string[];
-  getDeviceToolbarTabState(
-    identity: {
-      browserConversationId: string;
-      browserViewScopeId: string;
-      browserTabId: string;
-    },
-  ): BrowserSidebarDeviceToolbarState;
+  getConversationBrowserTabIds(browserConversationId: string, browserViewScopeId: string): string[];
+  getDeviceToolbarTabState(identity: {
+    browserConversationId: string;
+    browserViewScopeId: string;
+    browserTabId: string;
+  }): BrowserSidebarDeviceToolbarState;
   getStateSnapshot(): BrowserSidebarStateSnapshot;
   openClonedBrowserTab(input: {
     browserConversationId: string;
@@ -83,11 +76,14 @@ function browserRuntimeSnapshot(
   browserViewScopeId: string,
   browserTabId: string,
 ) {
-  return state.tabs.find((tab) =>
-    tab.browserConversationId === browserConversationId
-    && tab.browserViewScopeId === browserViewScopeId
-    && tab.browserTabId === browserTabId
-  ) ?? null;
+  return (
+    state.tabs.find(
+      (tab) =>
+        tab.browserConversationId === browserConversationId &&
+        tab.browserViewScopeId === browserViewScopeId &&
+        tab.browserTabId === browserTabId,
+    ) ?? null
+  );
 }
 
 function browserUseSnapshot(
@@ -96,12 +92,15 @@ function browserUseSnapshot(
   browserViewScopeId: string,
   browserTabId: string,
 ) {
-  return state.tabs.find((tab) =>
-    tab.browserConversationId === browserConversationId
-    && tab.browserViewScopeId === browserViewScopeId
-    && tab.browserTabId === browserTabId
-    && !tab.released
-  ) ?? null;
+  return (
+    state.tabs.find(
+      (tab) =>
+        tab.browserConversationId === browserConversationId &&
+        tab.browserViewScopeId === browserViewScopeId &&
+        tab.browserTabId === browserTabId &&
+        !tab.released,
+    ) ?? null
+  );
 }
 
 function initialUrlForBrowser(
@@ -111,17 +110,13 @@ function initialUrlForBrowser(
   browserViewScopeId: string,
   browserTabId: string,
 ): string | null {
-  return browserRuntimeSnapshot(
-    browserState,
-    browserConversationId,
-    browserViewScopeId,
-    browserTabId,
-  )?.url ?? browserUseSnapshot(
-    browserUseState,
-    browserConversationId,
-    browserViewScopeId,
-    browserTabId,
-  )?.url ?? null;
+  return (
+    browserRuntimeSnapshot(browserState, browserConversationId, browserViewScopeId, browserTabId)
+      ?.url ??
+    browserUseSnapshot(browserUseState, browserConversationId, browserViewScopeId, browserTabId)
+      ?.url ??
+    null
+  );
 }
 
 function browserTabsInPanel(
@@ -131,10 +126,9 @@ function browserTabsInPanel(
   return listWorkbenchPanelLeaves(scene.panels[panel].layout)
     .flatMap((leaf) => leaf.tabIds)
     .map((surfaceId) => scene.panelSurfacesById[surfaceId])
-    .filter((
-      surface,
-    ): surface is Extract<WorkbenchSurfaceDescriptor, { kind: "browser" }> =>
-      surface?.kind === "browser"
+    .filter(
+      (surface): surface is Extract<WorkbenchSurfaceDescriptor, { kind: "browser" }> =>
+        surface?.kind === "browser",
     );
 }
 
@@ -147,27 +141,30 @@ function capturePanelDescriptors(input: {
   runtime: CodexForkBrowserRuntime;
   scene: WorkbenchSceneSnapshot;
 }): CodexForkBrowserTabDescriptor[] {
-  const activeTabId = listWorkbenchPanelLeaves(
-    input.scene.panels[input.panel].layout,
-  ).find((leaf) =>
-    leaf.id === input.scene.panels[input.panel].layout.activeLeafId
-  )?.activeTabId ?? null;
+  const activeTabId =
+    listWorkbenchPanelLeaves(input.scene.panels[input.panel].layout).find(
+      (leaf) => leaf.id === input.scene.panels[input.panel].layout.activeLeafId,
+    )?.activeTabId ?? null;
 
   return browserTabsInPanel(input.scene, input.panel).map((tab) => ({
     active: tab.id === activeTabId,
     browserTabId: tab.config.browserTabId,
-    deviceToolbarState: input.runtime.getDeviceToolbarTabState({
-      browserConversationId: input.browserConversationId,
-      browserViewScopeId: input.browserViewScopeId,
-      browserTabId: tab.config.browserTabId,
-    }) ?? DEFAULT_DEVICE_TOOLBAR_STATE,
-    initialUrl: initialUrlForBrowser(
-      input.browserState,
-      input.browserUseState,
-      input.browserConversationId,
-      input.browserViewScopeId,
-      tab.config.browserTabId,
-    ) ?? tab.config.url ?? null,
+    deviceToolbarState:
+      input.runtime.getDeviceToolbarTabState({
+        browserConversationId: input.browserConversationId,
+        browserViewScopeId: input.browserViewScopeId,
+        browserTabId: tab.config.browserTabId,
+      }) ?? DEFAULT_DEVICE_TOOLBAR_STATE,
+    initialUrl:
+      initialUrlForBrowser(
+        input.browserState,
+        input.browserUseState,
+        input.browserConversationId,
+        input.browserViewScopeId,
+        tab.config.browserTabId,
+      ) ??
+      tab.config.url ??
+      null,
     kind: "browser",
     panel: input.panel,
     tabId: tab.id,
@@ -201,11 +198,12 @@ function captureSceneSnapshot(
   });
   return {
     bottomPanelOpen: !context.scene.panels.bottom.collapsed,
-    focusArea: context.scene.lastFocusedPanelId === "bottom"
-      ? "bottom-panel"
-      : context.scene.lastFocusedPanelId === "right"
-        ? "right-panel"
-        : "main",
+    focusArea:
+      context.scene.lastFocusedPanelId === "bottom"
+        ? "bottom-panel"
+        : context.scene.lastFocusedPanelId === "right"
+          ? "right-panel"
+          : "main",
     rightPanelFullWidth: context.scene.panels.right.size.fullWidth === true,
     rightPanelOpen: !context.scene.panels.right.collapsed,
     sourceBrowserConversationId: browserConversationId,
@@ -233,7 +231,9 @@ function captureRuntimeFallback(
         browserConversationId,
         browserViewScopeId,
       })
-    ] ?? browserTabIds.at(-1) ?? null;
+    ] ??
+    browserTabIds.at(-1) ??
+    null;
   return {
     bottomPanelOpen: false,
     focusArea: "main",
@@ -244,11 +244,12 @@ function captureRuntimeFallback(
     tabs: browserTabIds.map((browserTabId) => ({
       active: browserTabId === rememberedBrowserTabId,
       browserTabId,
-      deviceToolbarState: runtime.getDeviceToolbarTabState({
-        browserConversationId,
-        browserViewScopeId,
-        browserTabId,
-      }) ?? DEFAULT_DEVICE_TOOLBAR_STATE,
+      deviceToolbarState:
+        runtime.getDeviceToolbarTabState({
+          browserConversationId,
+          browserViewScopeId,
+          browserTabId,
+        }) ?? DEFAULT_DEVICE_TOOLBAR_STATE,
       initialUrl: initialUrlForBrowser(
         browserState,
         browserUseState,
@@ -296,13 +297,12 @@ export function createCodexForkBrowserSnapshotAdapter(
 ): CodexForkSidePanelSnapshotAdapter<CodexForkBrowserSidePanelSnapshot> {
   return {
     async capture(sourceConversationId, sourceSceneContext) {
-      const browserConversationId = await dependencies.resolveBrowserConversationId(
-        sourceConversationId,
-      );
+      const browserConversationId =
+        await dependencies.resolveBrowserConversationId(sourceConversationId);
       if (
-        sourceSceneContext
-        && sourceSceneContext.scene.owner.kind === "session"
-        && sourceSceneContext.scene.owner.sessionId === browserConversationId
+        sourceSceneContext &&
+        sourceSceneContext.scene.owner.kind === "session" &&
+        sourceSceneContext.scene.owner.sessionId === browserConversationId
       ) {
         return captureSceneSnapshot(
           sourceSceneContext,
@@ -312,8 +312,7 @@ export function createCodexForkBrowserSnapshotAdapter(
       }
       return captureRuntimeFallback(
         browserConversationId,
-        sourceSceneContext?.browserViewScopeId
-          ?? `headless:${browserConversationId}`,
+        sourceSceneContext?.browserViewScopeId ?? `headless:${browserConversationId}`,
         dependencies.runtime,
       );
     },
@@ -321,16 +320,12 @@ export function createCodexForkBrowserSnapshotAdapter(
     async rebase(snapshot, input) {
       return rebaseSnapshot(
         snapshot,
-        await dependencies.resolveBrowserConversationId(
-          input.targetConversationId,
-        ),
+        await dependencies.resolveBrowserConversationId(input.targetConversationId),
       );
     },
 
     async apply(snapshot, input) {
-      const targetSession = await dependencies.getProjectSession(
-        input.targetProjectSessionId,
-      );
+      const targetSession = await dependencies.getProjectSession(input.targetProjectSessionId);
       if (!targetSession) {
         throw new Error("Target project session was not found");
       }
@@ -349,12 +344,7 @@ export function createCodexForkBrowserSnapshotAdapter(
             descriptor.browserTabId,
             index,
           ),
-          tabId: remintIdentity(
-            "fork-browser-view",
-            targetSession.id,
-            descriptor.tabId,
-            index,
-          ),
+          tabId: remintIdentity("fork-browser-view", targetSession.id, descriptor.tabId, index),
         })),
       };
 

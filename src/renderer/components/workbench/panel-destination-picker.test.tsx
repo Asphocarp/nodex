@@ -59,20 +59,30 @@ describe("PanelDestinationPickerSurface", () => {
       makeProject("other", "Other Project"),
     ];
     const boardMap = new Map<string, BoardSummary>([
-      ["current", {
-        columns: [{
-          id: "triage",
-          name: "Triage",
-          cards: [makePage("current-page", "CUR-13", "Current result", "triage")],
-        }],
-      }],
-      ["other", {
-        columns: [{
-          id: "build",
-          name: "Build",
-          cards: [makePage("other-page", "OTH-21", "Other result", "build")],
-        }],
-      }],
+      [
+        "current",
+        {
+          columns: [
+            {
+              id: "triage",
+              name: "Triage",
+              cards: [makePage("current-page", "CUR-13", "Current result", "triage")],
+            },
+          ],
+        },
+      ],
+      [
+        "other",
+        {
+          columns: [
+            {
+              id: "build",
+              name: "Build",
+              cards: [makePage("other-page", "OTH-21", "Other result", "build")],
+            },
+          ],
+        },
+      ],
     ]);
     const view = render(
       <TestQueryProvider>
@@ -97,7 +107,9 @@ describe("PanelDestinationPickerSurface", () => {
     expect(currentRow.textContent).toBe("Current result");
     expect(within(currentRow).getByTitle("Triage")).not.toBeNull();
 
-    const otherRow = within(otherSection).getByRole("option", { name: "Other resultOther Project" });
+    const otherRow = within(otherSection).getByRole("option", {
+      name: "Other resultOther Project",
+    });
     expect(otherRow.textContent).toBe("Other resultOther Project");
     expect(within(otherRow).getByTitle("Build")).not.toBeNull();
   });

@@ -13,9 +13,7 @@ function makeSession(id = "session-1"): ProjectSession {
   };
 }
 
-function makePort(
-  ensureDefaultDraft: ProjectAgentDockMaterializationPort["ensureDefaultDraft"],
-) {
+function makePort(ensureDefaultDraft: ProjectAgentDockMaterializationPort["ensureDefaultDraft"]) {
   return {
     ensureDefaultDraft,
   } satisfies ProjectAgentDockMaterializationPort;
@@ -40,26 +38,40 @@ describe("Project Agent Dock materializer", () => {
 
   test("leaves identity and binding untouched when Session creation fails", async () => {
     const materializer = createProjectAgentDockMaterializer();
-    const port = makePort(vi.fn(async () => {
-      throw new Error("create failed");
-    }));
+    const port = makePort(
+      vi.fn(async () => {
+        throw new Error("create failed");
+      }),
+    );
 
-    await expect(materializer.materialize({
-      projectId: "project-1",
-      draftId: "draft-1",
-    }, port)).rejects.toThrow("create failed");
+    await expect(
+      materializer.materialize(
+        {
+          projectId: "project-1",
+          draftId: "draft-1",
+        },
+        port,
+      ),
+    ).rejects.toThrow("create failed");
   });
 
   test("rejects a Session created outside the target Project", async () => {
     const materializer = createProjectAgentDockMaterializer();
-    const port = makePort(vi.fn(async () => ({
-      ...makeSession(),
-      projectId: "project-2",
-    })));
+    const port = makePort(
+      vi.fn(async () => ({
+        ...makeSession(),
+        projectId: "project-2",
+      })),
+    );
 
-    await expect(materializer.materialize({
-      projectId: "project-1",
-      draftId: "draft-1",
-    }, port)).rejects.toThrow("does not belong");
+    await expect(
+      materializer.materialize(
+        {
+          projectId: "project-1",
+          draftId: "draft-1",
+        },
+        port,
+      ),
+    ).rejects.toThrow("does not belong");
   });
 });

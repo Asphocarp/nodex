@@ -127,16 +127,11 @@ function LocalConversationTurnEntryComponent({
         planSidePanelState={planSidePanelState}
         turnDiffHoverPreviewDisabled={turnDiffHoverPreviewDisabled}
       />
-      <div
-        data-content-search-turn-key={entry.turnSearchKey}
-        data-virtualized-turn-content="true"
-      >
+      <div data-content-search-turn-key={entry.turnSearchKey} data-virtualized-turn-content="true">
         <ThreadTurn
           turn={turnModel}
           mcpApps={mcpApps ?? []}
-          agentBodyCollapsed={
-            persistedCollapsed ?? turnModel.defaultAgentBodyCollapsed
-          }
+          agentBodyCollapsed={persistedCollapsed ?? turnModel.defaultAgentBodyCollapsed}
           onAgentBodyCollapsedChange={(turnKey, collapsed) => {
             if (turnKey !== entry.turnKey) return;
             onSetCollapsed?.(collapsed);
@@ -167,33 +162,33 @@ function LocalConversationTurnEntryComponent({
 export const LocalConversationTurnEntry = memo(
   LocalConversationTurnEntryComponent,
   (left, right) =>
-    left.conversationId === right.conversationId
-    && left.childMemberships === right.childMemberships
-    && left.backgroundAgentRows === right.backgroundAgentRows
-    && left.entry.turn === right.entry.turn
-    && left.entry.requests === right.entry.requests
-    && left.entry.turnKey === right.entry.turnKey
-    && left.entry.turnSearchKey === right.entry.turnSearchKey
-    && left.entry.isMostRecentTurn === right.entry.isMostRecentTurn
-    && left.cwd === right.cwd
-    && left.persistedCollapsed === right.persistedCollapsed
-    && left.onSetCollapsed === right.onSetCollapsed
-    && left.canEditTurnUserPrefix === right.canEditTurnUserPrefix
-    && left.canForkTurn === right.canForkTurn
-    && left.projectWorkspacePath === right.projectWorkspacePath
-    && left.projectlessOutputDirectory === right.projectlessOutputDirectory
-    && left.threadCwd === right.threadCwd
-    && left.onEditLastTurnMessage === right.onEditLastTurnMessage
-    && left.onForkTurnMessage === right.onForkTurnMessage
-    && left.onOpenTurnDiffReview === right.onOpenTurnDiffReview
-    && left.onOpenTurnDiffFileInSidePanel === right.onOpenTurnDiffFileInSidePanel
-    && left.onOpenSideChat === right.onOpenSideChat
-    && left.onOpenThread === right.onOpenThread
-    && left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel
-    && left.onOpenPlanInSidePanel === right.onOpenPlanInSidePanel
-    && left.onClosePlanSidePanel === right.onClosePlanSidePanel
-    && left.planSidePanelState === right.planSidePanelState
-    && left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled
-    && left.onRendered === right.onRendered
-    && left.latestTurnFollowContentRef === right.latestTurnFollowContentRef,
+    left.conversationId === right.conversationId &&
+    left.childMemberships === right.childMemberships &&
+    left.backgroundAgentRows === right.backgroundAgentRows &&
+    left.entry.turn === right.entry.turn &&
+    left.entry.requests === right.entry.requests &&
+    left.entry.turnKey === right.entry.turnKey &&
+    left.entry.turnSearchKey === right.entry.turnSearchKey &&
+    left.entry.isMostRecentTurn === right.entry.isMostRecentTurn &&
+    left.cwd === right.cwd &&
+    left.persistedCollapsed === right.persistedCollapsed &&
+    left.onSetCollapsed === right.onSetCollapsed &&
+    left.canEditTurnUserPrefix === right.canEditTurnUserPrefix &&
+    left.canForkTurn === right.canForkTurn &&
+    left.projectWorkspacePath === right.projectWorkspacePath &&
+    left.projectlessOutputDirectory === right.projectlessOutputDirectory &&
+    left.threadCwd === right.threadCwd &&
+    left.onEditLastTurnMessage === right.onEditLastTurnMessage &&
+    left.onForkTurnMessage === right.onForkTurnMessage &&
+    left.onOpenTurnDiffReview === right.onOpenTurnDiffReview &&
+    left.onOpenTurnDiffFileInSidePanel === right.onOpenTurnDiffFileInSidePanel &&
+    left.onOpenSideChat === right.onOpenSideChat &&
+    left.onOpenThread === right.onOpenThread &&
+    left.onOpenMcpAppSidePanel === right.onOpenMcpAppSidePanel &&
+    left.onOpenPlanInSidePanel === right.onOpenPlanInSidePanel &&
+    left.onClosePlanSidePanel === right.onClosePlanSidePanel &&
+    left.planSidePanelState === right.planSidePanelState &&
+    left.turnDiffHoverPreviewDisabled === right.turnDiffHoverPreviewDisabled &&
+    left.onRendered === right.onRendered &&
+    left.latestTurnFollowContentRef === right.latestTurnFollowContentRef,
 );

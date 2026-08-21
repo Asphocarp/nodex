@@ -12,11 +12,7 @@ import {
 
 interface RightPanelComposerOverlayStoryProps {
   tabKind: "review" | "browser";
-  visibilityPolicy:
-    | "always"
-    | "controlled"
-    | "browser-auto"
-    | "controlled-browser-auto";
+  visibilityPolicy: "always" | "controlled" | "browser-auto" | "controlled-browser-auto";
   initiallyVisible: boolean;
   draft: "empty" | "long-line" | "multiline";
   bottomPanelOpen: boolean;
@@ -26,30 +22,30 @@ interface RightPanelComposerOverlayStoryProps {
 
 function buildActions(): ThreadStageActions {
   return {
-    onCollaborationModeChange: () => { },
-    onModelChange: () => { },
-    onReasoningEffortChange: () => { },
-    onPermissionModeChange: () => { },
-    onQueueingEnabledChange: () => { },
-    onSendPrompt: async () => { },
-    onSteerPrompt: async () => { },
-    onInterruptTurn: async () => { },
-    onRespondApproval: async () => { },
-    onRespondUserInput: async () => { },
-    onRespondMcpElicitation: async () => { },
-    onResolvePlanImplementationRequest: async () => { },
-    onEnqueueQueuedFollowUp: async () => { },
-    onRemoveQueuedFollowUp: async () => { },
-    onReorderQueuedFollowUps: async () => { },
-    onSendQueuedFollowUpNow: async () => { },
-    onEditQueuedFollowUp: async () => { },
-    onEditLastUserTurn: async () => { },
-    onForkFromTurn: async () => { },
-    onUnarchiveThread: async () => { },
-    onOpenTurnDiffReview: () => { },
-    onConsumeComposerIntent: () => { },
-    onOpenThread: () => { },
-    onCleanBackgroundTerminals: async () => { },
+    onCollaborationModeChange: () => {},
+    onModelChange: () => {},
+    onReasoningEffortChange: () => {},
+    onPermissionModeChange: () => {},
+    onQueueingEnabledChange: () => {},
+    onSendPrompt: async () => {},
+    onSteerPrompt: async () => {},
+    onInterruptTurn: async () => {},
+    onRespondApproval: async () => {},
+    onRespondUserInput: async () => {},
+    onRespondMcpElicitation: async () => {},
+    onResolvePlanImplementationRequest: async () => {},
+    onEnqueueQueuedFollowUp: async () => {},
+    onRemoveQueuedFollowUp: async () => {},
+    onReorderQueuedFollowUps: async () => {},
+    onSendQueuedFollowUpNow: async () => {},
+    onEditQueuedFollowUp: async () => {},
+    onEditLastUserTurn: async () => {},
+    onForkFromTurn: async () => {},
+    onUnarchiveThread: async () => {},
+    onOpenTurnDiffReview: () => {},
+    onConsumeComposerIntent: () => {},
+    onOpenThread: () => {},
+    onCleanBackgroundTerminals: async () => {},
   };
 }
 
@@ -62,11 +58,7 @@ function buildStoryFooterModel(running: boolean) {
     collapseAgentBody: false,
   };
   const scenario = buildThreadStageStoryScenario(controls);
-  return buildThreadStageStorySurfaceModels(
-    scenario,
-    controls,
-    scenario.runtime,
-  ).footerModel;
+  return buildThreadStageStorySurfaceModels(scenario, controls, scenario.runtime).footerModel;
 }
 
 function RightPanelComposerOverlayStory({
@@ -81,14 +73,15 @@ function RightPanelComposerOverlayStory({
   const [overlayHost, setOverlayHost] = useState<HTMLElement | null>(null);
   const [controlledVisible, setControlledVisible] = useState(initiallyVisible);
   const baseFooterModel = buildStoryFooterModel(running);
-  const draftPrompt = draft === "long-line"
-    ? "This single logical line is deliberately long enough to exceed the compact overlay row, so the shared composer promotes it into the normal prompt-above-controls layout without requiring an explicit newline."
-    : draft === "multiline"
-      ? Array.from(
-          { length: 24 },
-          (_, index) => `Multiline composer regression line ${index + 1}`,
-        ).join("\n")
-      : null;
+  const draftPrompt =
+    draft === "long-line"
+      ? "This single logical line is deliberately long enough to exceed the compact overlay row, so the shared composer promotes it into the normal prompt-above-controls layout without requiring an explicit newline."
+      : draft === "multiline"
+        ? Array.from(
+            { length: 24 },
+            (_, index) => `Multiline composer regression line ${index + 1}`,
+          ).join("\n")
+        : null;
   const footerModel = draftPrompt
     ? {
         ...baseFooterModel,
@@ -99,18 +92,19 @@ function RightPanelComposerOverlayStory({
       }
     : baseFooterModel;
   const title = tabKind === "review" ? "Review" : "Browser";
-  const bodyLabel = tabKind === "review"
-    ? "Diff and source scroll surface"
-    : "Browser viewport surface";
+  const bodyLabel =
+    tabKind === "review" ? "Diff and source scroll surface" : "Browser viewport surface";
 
   return (
     <TooltipProvider>
       <EnsureLocalConversationThreadScrollController>
         <div
           className="relative h-[760px] overflow-hidden rounded-xl border border-token-border bg-token-main-surface-primary text-token-foreground"
-          style={{
-            "--app-shell-bottom-panel-height": bottomPanelOpen ? "220px" : "0px",
-          } as CSSProperties}
+          style={
+            {
+              "--app-shell-bottom-panel-height": bottomPanelOpen ? "220px" : "0px",
+            } as CSSProperties
+          }
         >
           <div
             ref={setOverlayHost}
@@ -126,7 +120,9 @@ function RightPanelComposerOverlayStory({
             <div className="absolute inset-x-0 top-[var(--height-toolbar)] bottom-0 overflow-auto px-toolbar py-4 text-sm text-token-description-foreground">
               <div className="flex min-h-[960px] flex-col gap-2 rounded-lg border border-dashed border-token-border/70 bg-token-foreground/3 p-3">
                 <span>{bodyLabel}</span>
-                <span>The pane remains independently interactive beneath the floating composer.</span>
+                <span>
+                  The pane remains independently interactive beneath the floating composer.
+                </span>
               </div>
             </div>
           </div>
@@ -134,34 +130,35 @@ function RightPanelComposerOverlayStory({
             model={footerModel}
             actions={buildActions()}
             errorMessage={null}
-            onErrorMessage={() => { }}
+            onErrorMessage={() => {}}
             rightPanelComposerOverlay={{
               enabled: overlayHost !== null,
               target: overlayHost,
               compact: tabKind === "browser",
-              visibility: visibilityPolicy === "always"
-                ? { kind: "always" }
-                : visibilityPolicy === "controlled"
-                  ? {
-                      kind: "controlled",
-                      visible: controlledVisible,
-                      attention: running ? "activity" : "none",
-                      onVisibleChange: setControlledVisible,
-                    }
-                  : visibilityPolicy === "controlled-browser-auto"
+              visibility:
+                visibilityPolicy === "always"
+                  ? { kind: "always" }
+                  : visibilityPolicy === "controlled"
                     ? {
-                        kind: "controlled-browser-auto",
+                        kind: "controlled",
                         visible: controlledVisible,
                         attention: running ? "activity" : "none",
                         onVisibleChange: setControlledVisible,
-                        documentBottomKey: "story-browser",
-                        isAtDocumentBottom: atDocumentBottom,
                       }
-                  : {
-                      kind: "browser-auto",
-                      documentBottomKey: "story-browser",
-                      isAtDocumentBottom: atDocumentBottom,
-                    },
+                    : visibilityPolicy === "controlled-browser-auto"
+                      ? {
+                          kind: "controlled-browser-auto",
+                          visible: controlledVisible,
+                          attention: running ? "activity" : "none",
+                          onVisibleChange: setControlledVisible,
+                          documentBottomKey: "story-browser",
+                          isAtDocumentBottom: atDocumentBottom,
+                        }
+                      : {
+                          kind: "browser-auto",
+                          documentBottomKey: "story-browser",
+                          isAtDocumentBottom: atDocumentBottom,
+                        },
             }}
           />
           {bottomPanelOpen ? (
@@ -194,12 +191,7 @@ const meta = {
     },
     visibilityPolicy: {
       control: "inline-radio",
-      options: [
-        "always",
-        "controlled",
-        "browser-auto",
-        "controlled-browser-auto",
-      ],
+      options: ["always", "controlled", "browser-auto", "controlled-browser-auto"],
     },
     initiallyVisible: {
       control: false,
@@ -220,7 +212,8 @@ export const FullWidthReview: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The latest-turn preview starts after the user intro, keeps completed assistant actions visible, and holds the attachment-free composer to one 44px control row.",
+        story:
+          "The latest-turn preview starts after the user intro, keeps completed assistant actions visible, and holds the attachment-free composer to one 44px control row.",
       },
     },
   },
@@ -240,7 +233,8 @@ export const HiddenSessionDock: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A persisted hidden Session composer releases its pane reserve and leaves the shared reveal handle available.",
+        story:
+          "A persisted hidden Session composer releases its pane reserve and leaves the shared reveal handle available.",
       },
     },
   },
@@ -253,7 +247,8 @@ export const ControlledProjectDock: Story = {
   parameters: {
     docs: {
       description: {
-        story: "The Project Agent Dock uses externally persisted visibility, releases its pane reserve while hidden, and keeps a quiet restore handle.",
+        story:
+          "The Project Agent Dock uses externally persisted visibility, releases its pane reserve while hidden, and keeps a quiet restore handle.",
       },
     },
   },
@@ -266,7 +261,8 @@ export const FullWidthMultilineDraft: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A draft with explicit line breaks uses the prompt row as the only overflowing region while the control row stays fixed inside the composer surface.",
+        story:
+          "A draft with explicit line breaks uses the prompt row as the only overflowing region while the control row stays fixed inside the composer surface.",
       },
     },
   },
@@ -279,7 +275,8 @@ export const FullWidthVisuallyWrappedDraft: Story = {
   parameters: {
     docs: {
       description: {
-        story: "A single logical line that no longer fits beside the compact controls promotes into the same normal multiline composer used by a Session.",
+        story:
+          "A single logical line that no longer fits beside the compact controls promotes into the same normal multiline composer used by a Session.",
       },
     },
   },

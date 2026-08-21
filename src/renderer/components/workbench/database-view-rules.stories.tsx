@@ -27,19 +27,20 @@ const statusId = parseDataSourcePropertyId("status");
 const priorityId = parseDataSourcePropertyId("priority");
 const tagsId = parseDataSourcePropertyId("tags");
 
-const property = (
-  propertyId: typeof statusId,
-  name: string,
-): DataSourcePropertyRecordV2 => ({
+const property = (propertyId: typeof statusId, name: string): DataSourcePropertyRecordV2 => ({
   propertyId,
   dataSourceId,
   name,
   ...testPropertySemantics("select", 3),
   valueType: "select",
   config: {
-    options: name === "Status"
-      ? ["Triage", "Backlog", "In Progress"].map((label) => ({ id: label.toLowerCase().replaceAll(" ", "-"), name: label }))
-      : ["Urgent", "High", "Normal"].map((label) => ({ id: label.toLowerCase(), name: label })),
+    options:
+      name === "Status"
+        ? ["Triage", "Backlog", "In Progress"].map((label) => ({
+            id: label.toLowerCase().replaceAll(" ", "-"),
+            name: label,
+          }))
+        : ["Urgent", "High", "Normal"].map((label) => ({ id: label.toLowerCase(), name: label })),
   },
   rankKey: String(propertyId),
   lifecycle: "active",
@@ -71,17 +72,20 @@ const config: DatabaseViewConfigV4 = upgradeDatabaseViewConfigV2({
   filter: {
     kind: "group",
     operator: "and",
-    children: [{
-      kind: "clause",
-      propertyId: statusId,
-      operator: "not_equals",
-      value: "backlog",
-    }, {
-      kind: "clause",
-      propertyId: tagsId,
-      operator: "contains",
-      value: "o_AAAAAAAA",
-    }],
+    children: [
+      {
+        kind: "clause",
+        propertyId: statusId,
+        operator: "not_equals",
+        value: "backlog",
+      },
+      {
+        kind: "clause",
+        propertyId: tagsId,
+        operator: "contains",
+        value: "o_AAAAAAAA",
+      },
+    ],
   },
   sort: [{ field: { kind: "property", propertyId: priorityId }, direction: "desc", nulls: "last" }],
   group: { propertyId: statusId },

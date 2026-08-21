@@ -6,15 +6,8 @@ import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import "../../../globals.css";
-import {
-  NodexDropdownContent,
-  NodexDropdownItem,
-} from "@/components/ui/dropdown";
-import {
-  NodexPopover,
-  NodexPopoverAnchor,
-  NodexPopoverContent,
-} from "@/components/ui/popover";
+import { NodexDropdownContent, NodexDropdownItem } from "@/components/ui/dropdown";
+import { NodexPopover, NodexPopoverAnchor, NodexPopoverContent } from "@/components/ui/popover";
 import { NfmFormattingToolbarController } from "./nfm-formatting-toolbar-controller";
 import { NfmSideMenuOpenProvider } from "./nfm-side-menu";
 
@@ -104,17 +97,11 @@ describe("BlockNote view lifecycle in Chromium", () => {
       initialContent: [{ id: "block-1", type: "paragraph", content: "One" }],
     });
     const resolveExternalOwnership = vi.fn(() => true);
-    const dropCursorExtension = editor.getExtension(
-      DropCursorExtension,
-    ) as unknown as {
-      setExternalDragOwnershipResolver: (
-        resolver: (event: DragEvent) => boolean,
-      ) => () => void;
+    const dropCursorExtension = editor.getExtension(DropCursorExtension) as unknown as {
+      setExternalDragOwnershipResolver: (resolver: (event: DragEvent) => boolean) => () => void;
     };
     const releaseOwnership =
-      dropCursorExtension.setExternalDragOwnershipResolver(
-        resolveExternalOwnership,
-      );
+      dropCursorExtension.setExternalDragOwnershipResolver(resolveExternalOwnership);
     const view = render(
       <BlockNoteViewRaw
         editor={editor}
@@ -176,9 +163,7 @@ describe("BlockNote view lifecycle in Chromium", () => {
                   </NodexPopoverContent>
                 </NodexPopover>
                 <DropdownMenuPrimitive.Root open>
-                  <DropdownMenuPrimitive.Trigger>
-                    Nested menu
-                  </DropdownMenuPrimitive.Trigger>
+                  <DropdownMenuPrimitive.Trigger>Nested menu</DropdownMenuPrimitive.Trigger>
                   <DropdownMenuPrimitive.Portal>
                     <NodexDropdownContent data-testid="formatting-toolbar-nested-dropdown">
                       <NodexDropdownItem>Nested menu content</NodexDropdownItem>
@@ -272,9 +257,7 @@ describe("BlockNote view lifecycle in Chromium", () => {
       }).toEqual({ from: 3, to: 8 });
 
       await view.findByTestId("formatting-toolbar-exit-probe");
-      const openPopover = document.body.querySelector<HTMLElement>(
-        ".notion-text-action-menu",
-      );
+      const openPopover = document.body.querySelector<HTMLElement>(".notion-text-action-menu");
       if (!openPopover) throw new Error("Expected an open formatting toolbar popover.");
       const openProbe = view.getByTestId("formatting-toolbar-exit-probe");
       const openPosition = {
@@ -303,9 +286,7 @@ describe("BlockNote view lifecycle in Chromium", () => {
         await act(async () => {
           await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         });
-        const closingPopover = document.body.querySelector<HTMLElement>(
-          ".notion-text-action-menu",
-        );
+        const closingPopover = document.body.querySelector<HTMLElement>(".notion-text-action-menu");
         if (!closingPopover) break;
         expect(view.getByTestId("formatting-toolbar-exit-probe")).toBe(openProbe);
         expect(closingPopover.inert).toBe(true);
@@ -323,8 +304,12 @@ describe("BlockNote view lifecycle in Chromium", () => {
       expect(exitPositions.some((position) => Number(position.opacity) < 1)).toBe(true);
       expect(exitPositions.every((position) => position.left === openPosition.left)).toBe(true);
       expect(exitPositions.every((position) => position.top === openPosition.top)).toBe(true);
-      expect(exitPositions.every((position) => Math.abs(position.rectLeft - openRect.left) < 12)).toBe(true);
-      expect(exitPositions.every((position) => Math.abs(position.rectTop - openRect.top) < 12)).toBe(true);
+      expect(
+        exitPositions.every((position) => Math.abs(position.rectLeft - openRect.left) < 12),
+      ).toBe(true);
+      expect(
+        exitPositions.every((position) => Math.abs(position.rectTop - openRect.top) < 12),
+      ).toBe(true);
     } finally {
       view.unmount();
       editor._tiptapEditor.destroy();

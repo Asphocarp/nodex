@@ -18,10 +18,7 @@ export const CODEX_SETTINGS_SHELL_STYLE = {
 
 export type NodexSettingsNumberInputProps = Omit<ComponentProps<"input">, "type">;
 
-export function NodexSettingsNumberInput({
-  className,
-  ...props
-}: NodexSettingsNumberInputProps) {
+export function NodexSettingsNumberInput({ className, ...props }: NodexSettingsNumberInputProps) {
   return (
     <input
       {...props}
@@ -48,12 +45,7 @@ export interface NodexCheckboxProps {
 
 function NodexCheckboxCheckIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      className="h-[9px] w-2.5 shrink-0"
-      viewBox="0 0 10 8"
-      fill="none"
-    >
+    <svg aria-hidden="true" className="h-[9px] w-2.5 shrink-0" viewBox="0 0 10 8" fill="none">
       <path
         d="M3.46975 5.70757L1.88358 4.1225C1.65832 3.8974 1.29423 3.8974 1.06897 4.1225C0.843675 4.34765 0.843675 4.7116 1.06897 4.93674L3.0648 6.93117C3.29006 7.15628 3.65414 7.15628 3.8794 6.93117L8.93103 1.88306C9.15633 1.65792 9.15633 1.29397 8.93103 1.06883C8.70578 0.843736 8.34172 0.843724 8.11646 1.06879C8.11645 1.0688 8.11643 1.06882 8.11642 1.06883L3.46975 5.70757Z"
         strokeWidth="0.2"

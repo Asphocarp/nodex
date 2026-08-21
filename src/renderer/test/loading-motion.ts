@@ -24,9 +24,7 @@ function isElementTarget(value: unknown): value is Element {
   return "tagName" in value && "getAttribute" in value;
 }
 
-function readAnimationElement(
-  target: KeyframeEffect["target"],
-): Element | null {
+function readAnimationElement(target: KeyframeEffect["target"]): Element | null {
   if (target == null) return null;
   if ("element" in target && isElementTarget(target.element)) {
     return target.element;
@@ -45,10 +43,7 @@ function describeAnimationTarget(element: Element | null): string {
   return element.tagName.toLowerCase();
 }
 
-function isAnimationTargetHidden(
-  element: Element | null,
-  readStyle: StyleReader,
-): boolean {
+function isAnimationTargetHidden(element: Element | null, readStyle: StyleReader): boolean {
   for (let current = element; current; current = current.parentElement) {
     const style = readStyle(current);
     if (style.display === "none" || style.visibility === "hidden") return true;
@@ -59,19 +54,20 @@ function isAnimationTargetHidden(
 
 function readAnimatedProperties(keyframes: ComputedKeyframe[]): string[] {
   const metadata = new Set(["composite", "computedOffset", "easing", "offset"]);
-  return [...new Set(
-    keyframes.flatMap((keyframe) => Object.keys(keyframe))
-      .filter((property) => !metadata.has(property)),
-  )].sort();
+  return [
+    ...new Set(
+      keyframes
+        .flatMap((keyframe) => Object.keys(keyframe))
+        .filter((property) => !metadata.has(property)),
+    ),
+  ].sort();
 }
 
 function isKeyframeEffect(effect: AnimationEffect): effect is KeyframeEffect {
   return typeof (effect as Partial<KeyframeEffect>).getKeyframes === "function";
 }
 
-function normalizeDuration(
-  duration: ComputedEffectTiming["duration"],
-): number | "auto" {
+function normalizeDuration(duration: ComputedEffectTiming["duration"]): number | "auto" {
   if (typeof duration === "number") return duration;
   if (duration === "auto" || duration == null) return "auto";
   const parsed = Number(duration.toString());
@@ -89,9 +85,7 @@ export function normalizeLoadingAnimation(
 
   return {
     animatedProperties: readAnimatedProperties(effect.getKeyframes()),
-    currentTimeMs: typeof animation.currentTime === "number"
-      ? animation.currentTime
-      : null,
+    currentTimeMs: typeof animation.currentTime === "number" ? animation.currentTime : null,
     delayMs: timing.delay ?? 0,
     durationMs: normalizeDuration(timing.duration),
     hiddenByAncestor: isAnimationTargetHidden(target, readStyle),
@@ -103,7 +97,8 @@ export function normalizeLoadingAnimation(
 }
 
 export function readLoadingAnimations(root: Element): NormalizedLoadingAnimation[] {
-  return root.getAnimations({ subtree: true })
+  return root
+    .getAnimations({ subtree: true })
     .map((animation) => normalizeLoadingAnimation(animation))
     .filter((animation): animation is NormalizedLoadingAnimation => animation !== null);
 }

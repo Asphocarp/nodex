@@ -67,7 +67,9 @@ end
 }
 
 export function generateHomebrewCaskFromBundle(bundle: ReleaseBundleManifest): string {
-  const arm64 = bundle.assets.find((asset) => asset.role === "dmg" && asset.architecture === "arm64");
+  const arm64 = bundle.assets.find(
+    (asset) => asset.role === "dmg" && asset.architecture === "arm64",
+  );
   const x64 = bundle.assets.find((asset) => asset.role === "dmg" && asset.architecture === "x64");
   if (!arm64 || !x64) throw new Error("Release bundle does not contain both canonical DMGs.");
   return generateHomebrewCask({

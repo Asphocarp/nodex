@@ -53,11 +53,7 @@ import {
   NodexPopoverTitle,
   NodexPopoverTrigger,
 } from "./popover";
-import {
-  NodexSettingsPageSurface,
-  NodexSettingsRow,
-  NodexSettingsSection,
-} from "./settings";
+import { NodexSettingsPageSurface, NodexSettingsRow, NodexSettingsSection } from "./settings";
 import { NodexToastProvider, toast } from "./toast";
 import { NodexTooltip, NodexTooltipProvider } from "./tooltip";
 import { ShortcutKeycaps } from "./shortcut-keycaps";
@@ -86,11 +82,7 @@ function ShortcutKeycapsDemo() {
           <span className="text-sm">Current-color surface</span>
           <ShortcutKeycaps keys={["C"]} tone="current" />
         </div>
-        <NodexTooltip
-          defaultOpen
-          tooltipContent="Create Page"
-          shortcutLabel="C"
-        >
+        <NodexTooltip defaultOpen tooltipContent="Create Page" shortcutLabel="C">
           <NodexButton size="xs">Tooltip keycap</NodexButton>
         </NodexTooltip>
       </div>
@@ -129,11 +121,11 @@ function XsTriggerDropdownDemo() {
         value={value}
         onValueChange={setValue}
         contentWidth="xs"
-        triggerButton={(
+        triggerButton={
           <NodexDropdownButtonTrigger size="xs" className="min-w-18">
             {value === "auto" ? "Auto" : value === "high" ? "High" : "Low"}
           </NodexDropdownButtonTrigger>
-        )}
+        }
         options={[
           { value: "auto", label: "Auto" },
           { value: "high", label: "High" },
@@ -154,12 +146,12 @@ function CompactIconLabelTriggerDemo() {
         value={value}
         onValueChange={setValue}
         contentWidth="xs"
-        triggerButton={(
+        triggerButton={
           <NodexDropdownButtonTrigger size="xs">
             <EstimateIcon />
             <span>Estimate</span>
           </NodexDropdownButtonTrigger>
-        )}
+        }
         options={[
           { value: "estimate", label: "Estimate" },
           { value: "priority", label: "Priority" },
@@ -177,7 +169,7 @@ function IconOnlyDropdownDemo() {
       <NodexDropdownMenu
         open={true}
         contentWidth="icon"
-        triggerButton={(
+        triggerButton={
           <NodexDropdownButtonTrigger
             aria-label="Action icon"
             showChevron={false}
@@ -185,7 +177,7 @@ function IconOnlyDropdownDemo() {
           >
             <Sparkles className="size-4" />
           </NodexDropdownButtonTrigger>
-        )}
+        }
       >
         <NodexDropdownTitle>Action icon</NodexDropdownTitle>
         <NodexDropdownItem
@@ -213,11 +205,9 @@ function PanelActionIconDropdownDemo() {
       <NodexDropdownMenu
         open={true}
         contentWidth="menuWide"
-        triggerButton={(
-          <NodexDropdownButtonTrigger className="min-w-32">
-            Panel tab
-          </NodexDropdownButtonTrigger>
-        )}
+        triggerButton={
+          <NodexDropdownButtonTrigger className="min-w-32">Panel tab</NodexDropdownButtonTrigger>
+        }
       >
         <NodexDropdownItem
           leftSlot={<SidePanelFilesIcon className="icon-sm" />}
@@ -225,9 +215,7 @@ function PanelActionIconDropdownDemo() {
         >
           Files
         </NodexDropdownItem>
-        <NodexDropdownItem
-          leftSlot={<SidePanelSideChatIcon className="icon-sm" />}
-        >
+        <NodexDropdownItem leftSlot={<SidePanelSideChatIcon className="icon-sm" />}>
           Side chat
         </NodexDropdownItem>
         <NodexDropdownItem
@@ -242,14 +230,10 @@ function PanelActionIconDropdownDemo() {
         >
           Review
         </NodexDropdownItem>
-        <NodexDropdownItem
-          leftSlot={<DatabaseIcon className="icon-sm" />}
-        >
+        <NodexDropdownItem leftSlot={<DatabaseIcon className="icon-sm" />}>
           DB View
         </NodexDropdownItem>
-        <NodexDropdownItem
-          leftSlot={<BoardIcon className="icon-sm" />}
-        >
+        <NodexDropdownItem leftSlot={<BoardIcon className="icon-sm" />}>
           Page Stage
         </NodexDropdownItem>
       </NodexDropdownMenu>
@@ -262,28 +246,20 @@ function LibraryActionIconDropdownDemo() {
     <StorySurface>
       <NodexDropdownMenu
         open={true}
-        triggerButton={(
-          <NodexDropdownButtonTrigger className="min-w-32">
-            Library item
-          </NodexDropdownButtonTrigger>
-        )}
+        triggerButton={
+          <NodexDropdownButtonTrigger className="min-w-32">Library item</NodexDropdownButtonTrigger>
+        }
       >
         <NodexDropdownItem leftSlot={<PageIcon />}>Page</NodexDropdownItem>
         <NodexDropdownItem leftSlot={<DatabaseIcon />}>Database</NodexDropdownItem>
         <NodexDropdownSeparator />
         <NodexDropdownItem leftSlot={<MoveToIcon />}>Move to</NodexDropdownItem>
-        <NodexDropdownItem leftSlot={<ProjectAccessIcon />}>
-          Manage access
-        </NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<ProjectAccessIcon />}>Manage access</NodexDropdownItem>
         <NodexDropdownItem leftSlot={<OpenInIcon />}>Open in Project…</NodexDropdownItem>
-        <NodexDropdownItem leftSlot={<ArchiveIcon />}>
-          Archive
-        </NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<ArchiveIcon />}>Archive</NodexDropdownItem>
         <NodexDropdownItem leftSlot={<RefreshIcon />}>Restore</NodexDropdownItem>
         <NodexDropdownSeparator />
-        <NodexDropdownItem leftSlot={<ProjectRemovedIcon />}>
-          Removed projects…
-        </NodexDropdownItem>
+        <NodexDropdownItem leftSlot={<ProjectRemovedIcon />}>Removed projects…</NodexDropdownItem>
       </NodexDropdownMenu>
     </StorySurface>
   );
@@ -297,15 +273,17 @@ function LongLabelDropdownDemo() {
         value="workspace"
         onValueChange={() => {}}
         contentWidth="workspace"
-        triggerButton={(
+        triggerButton={
           <NodexDropdownButtonTrigger className="w-[22rem] justify-start">
-            A very long workspace label that should truncate cleanly without breaking the trigger chrome
+            A very long workspace label that should truncate cleanly without breaking the trigger
+            chrome
           </NodexDropdownButtonTrigger>
-        )}
+        }
         options={[
           {
             value: "workspace",
-            label: "A very long workspace label that should truncate cleanly without breaking the menu",
+            label:
+              "A very long workspace label that should truncate cleanly without breaking the menu",
             tooltipText: "/Users/asc/repo/nodex/design.local/codex-electron-app",
           },
           {
@@ -332,11 +310,11 @@ function SearchableDropdownDemo() {
         searchAriaLabel="Search projects"
         title="Project"
         contentWidth="panel"
-        triggerButton={(
+        triggerButton={
           <NodexDropdownButtonTrigger className="min-w-40">
             Searchable menu
           </NodexDropdownButtonTrigger>
-        )}
+        }
         options={[
           {
             value: "nodex",
@@ -362,22 +340,22 @@ function FlyoutSubmenuDropdownDemo() {
       <NodexDropdownMenu
         open={true}
         contentWidth="sm"
-        triggerButton={(
+        triggerButton={
           <NodexDropdownButtonTrigger showChevron={false} className="size-8 justify-center px-0">
             <Settings2 className="size-4" />
           </NodexDropdownButtonTrigger>
-        )}
+        }
       >
         <NodexDropdownFlyoutSubmenuItem
           label="Show"
           contentClassName="min-w-[180px]"
-          triggerContent={(
+          triggerContent={
             <div className="flex w-full items-center gap-2 text-sm">
               <ConfigStatusIcon className="size-4 shrink-0" />
               <span className="min-w-0 flex-1 truncate">Show</span>
               <span className="ml-auto shrink-0 text-xs text-token-description-foreground">10</span>
             </div>
-          )}
+          }
         >
           {["10", "25", "50"].map((limit) => (
             <NodexDropdownItem
@@ -440,15 +418,19 @@ function PopoverDemo() {
           </button>
         </NodexPopoverTrigger>
         <NodexPopoverContent className="w-72 gap-1 p-2">
-          <NodexPopoverTitle className="px-2 py-1 text-sm font-medium">
-            Projects
-          </NodexPopoverTitle>
+          <NodexPopoverTitle className="px-2 py-1 text-sm font-medium">Projects</NodexPopoverTitle>
           <div className="flex flex-col gap-1 px-1 pb-1">
-            <button type="button" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-token-list-hover-background">
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-token-list-hover-background"
+            >
               <span className="size-2.5 rounded-full bg-[var(--accent-blue)]" />
               Nodex
             </button>
-            <button type="button" className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-token-list-hover-background">
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-token-list-hover-background"
+            >
               <span className="size-2.5 rounded-full bg-[var(--accent-green)]" />
               Codex readable bundle
             </button>
@@ -459,11 +441,7 @@ function PopoverDemo() {
   );
 }
 
-function DialogDemo({
-  danger = false,
-}: {
-  danger?: boolean;
-}) {
+function DialogDemo({ danger = false }: { danger?: boolean }) {
   return (
     <StorySurface>
       <NodexDialog open={true}>
@@ -507,17 +485,18 @@ function SettingsDemo() {
           action={<NodexButton size="composer">Add project</NodexButton>}
         >
           <NodexSettingsSection title="Select a project">
-            <NodexSettingsRow
-              label="Nodex"
-              description="/Users/asc/repo/nodex"
-            >
-              <NodexButton variant="secondary" size="sm">Open</NodexButton>
+            <NodexSettingsRow label="Nodex" description="/Users/asc/repo/nodex">
+              <NodexButton variant="secondary" size="sm">
+                Open
+              </NodexButton>
             </NodexSettingsRow>
             <NodexSettingsRow
               label="Codex Electron bundle"
               description="/Users/asc/repo/devtools-codex"
             >
-              <NodexButton variant="ghost" size="sm">View</NodexButton>
+              <NodexButton variant="ghost" size="sm">
+                View
+              </NodexButton>
             </NodexSettingsRow>
           </NodexSettingsSection>
         </NodexSettingsPageSurface>
@@ -569,9 +548,7 @@ function ToastDemo() {
         <div className="flex items-start gap-3 p-3">
           <div className="mt-0.5 size-2.5 rounded-full bg-token-charts-red" />
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-token-foreground">
-              Git push failed
-            </div>
+            <div className="text-sm font-medium text-token-foreground">Git push failed</div>
             <div className="text-sm text-token-description-foreground">
               Non-fast-forward update rejected. Review the remote branch before retrying.
             </div>
@@ -591,9 +568,7 @@ function ToastDemo() {
   return (
     <NodexToastProvider>
       <StorySurface>
-        <div className="text-sm text-token-description-foreground">
-          Global toast stack preview
-        </div>
+        <div className="text-sm text-token-description-foreground">Global toast stack preview</div>
       </StorySurface>
     </NodexToastProvider>
   );

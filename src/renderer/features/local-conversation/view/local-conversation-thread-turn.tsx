@@ -2,10 +2,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { Fragment, type ReactNode } from "react";
 import { ChevronRightIcon } from "@/components/shared/icons";
 import { useResolvedReducedMotion } from "@/lib/use-reduced-motion";
-import type {
-  CodexConversationChildMembership,
-  ProtocolAppInfo,
-} from "../../../lib/types";
+import type { CodexConversationChildMembership, ProtocolAppInfo } from "../../../lib/types";
 import type { ReviewOpenIntent } from "@/features/review/model/review-view-state";
 import { cn } from "../../../lib/utils";
 import type {
@@ -58,8 +55,17 @@ interface ThreadTurnProps {
   projectlessOutputDirectory?: string | null;
   childMemberships?: readonly CodexConversationChildMembership[];
   threadCwd?: string | null;
-  onEditLastUserTurn?: (input: { threadId: string; turnId: string; message: string }) => void | Promise<void>;
-  onForkFromTurn?: (input: { threadId: string; turnId: string; message: string; isLatestTurn: boolean }) => void | Promise<void>;
+  onEditLastUserTurn?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+  }) => void | Promise<void>;
+  onForkFromTurn?: (input: {
+    threadId: string;
+    turnId: string;
+    message: string;
+    isLatestTurn: boolean;
+  }) => void | Promise<void>;
   onOpenTurnDiffReview?: (intent: ReviewOpenIntent) => void | Promise<void>;
   onOpenTurnDiffFileInSidePanel?: ThreadStageActions["onOpenTurnDiffFileInSidePanel"];
   onOpenSideChat?: ThreadStageActions["onOpenSideChat"];
@@ -95,8 +101,8 @@ function AgentBodyToggleRow({
   onToggle: () => void;
 }) {
   const label =
-    workedForLabel
-    ?? `${collapsedMessageCount} previous ${collapsedMessageCount === 1 ? "message" : "messages"}`;
+    workedForLabel ??
+    `${collapsedMessageCount} previous ${collapsedMessageCount === 1 ? "message" : "messages"}`;
 
   return (
     <div className="flex flex-col">
@@ -110,7 +116,12 @@ function AgentBodyToggleRow({
           <span>
             <span className="text-token-foreground/60">{label}</span>
           </span>
-          <ChevronRightIcon className={cn("icon-2xs text-token-foreground/40 transition-transform duration-basic", collapsed ? "rotate-0" : "rotate-90")} />
+          <ChevronRightIcon
+            className={cn(
+              "icon-2xs text-token-foreground/40 transition-transform duration-basic",
+              collapsed ? "rotate-0" : "rotate-90",
+            )}
+          />
         </button>
       </div>
       <div className="text-size-chat pt-1 text-token-text-secondary">
@@ -186,8 +197,8 @@ function ThreadTurnBody({
   latestTurnFollowContentRef,
 }: ThreadTurnProps & { agentBodyUnits: ThreadAgentRenderUnit[] }) {
   const agentBodyCollapsePresentation = projectAgentBodyCollapsePresentation(agentBodyUnits);
-  const shouldAllowAgentBodyCollapse = turn.hasRenderableAgentBodyUnits
-    && agentBodyCollapsePresentation.collapsibleUnits.length > 0;
+  const shouldAllowAgentBodyCollapse =
+    turn.hasRenderableAgentBodyUnits && agentBodyCollapsePresentation.collapsibleUnits.length > 0;
   const effectiveAgentBodyCollapsed = shouldAllowAgentBodyCollapse ? agentBodyCollapsed : false;
   const reducedMotion = useResolvedReducedMotion();
   const workedForEnterMotion = resolveCodexThreadWorkedForEnterMotion(reducedMotion);
@@ -226,10 +237,7 @@ function ThreadTurnBody({
     />
   );
 
-  const renderAgentUnit = (
-    unit: ThreadAgentRenderUnit,
-    compactUserMessageActions = false,
-  ) => (
+  const renderAgentUnit = (unit: ThreadAgentRenderUnit, compactUserMessageActions = false) => (
     <ThreadBlockRenderer
       block={unit.block}
       isLatestTurn={turn.isLatestTurn}
@@ -257,9 +265,7 @@ function ThreadTurnBody({
   return (
     <div>
       <div className="flex flex-col gap-0">
-        <div className="flex flex-col">
-          {renderSpacedBlocks(turn.leadingBlocks, renderBlock)}
-        </div>
+        <div className="flex flex-col">{renderSpacedBlocks(turn.leadingBlocks, renderBlock)}</div>
 
         {agentBodyUnits.length > 0 ? (
           <>
@@ -270,7 +276,9 @@ function ThreadTurnBody({
                   collapsedMessageCount={turn.collapsedMessageCount}
                   workedForLabel={workedForLabel}
                   collapsed={effectiveAgentBodyCollapsed}
-                  onToggle={() => onAgentBodyCollapsedChange(turn.turnKey, !effectiveAgentBodyCollapsed)}
+                  onToggle={() =>
+                    onAgentBodyCollapsedChange(turn.turnKey, !effectiveAgentBodyCollapsed)
+                  }
                 />
               ) : null}
               <AnimatePresence initial={false}>
@@ -284,33 +292,31 @@ function ThreadTurnBody({
                   >
                     {shouldAllowAgentBodyCollapse ? <ThreadGap /> : null}
                     <div className="flex flex-col gap-[var(--conversation-item-gap,16px)]">
-                      {renderAgentUnits(
-                        agentBodyCollapsePresentation.expandedUnits,
-                        (unit) => renderAgentUnit(unit),
+                      {renderAgentUnits(agentBodyCollapsePresentation.expandedUnits, (unit) =>
+                        renderAgentUnit(unit),
                       )}
                     </div>
                   </motion.div>
                 )}
               </AnimatePresence>
-              {effectiveAgentBodyCollapsed
-                && agentBodyCollapsePresentation.persistentUnits.length > 0 ? (
-                  <>
-                    <ThreadGap />
-                    <div className="flex flex-col gap-[var(--conversation-item-gap,16px)]">
-                      {renderAgentUnits(
-                        agentBodyCollapsePresentation.persistentUnits,
-                        (unit) => renderAgentUnit(unit, true),
-                      )}
-                    </div>
-                  </>
-                ) : null}
+              {effectiveAgentBodyCollapsed &&
+              agentBodyCollapsePresentation.persistentUnits.length > 0 ? (
+                <>
+                  <ThreadGap />
+                  <div className="flex flex-col gap-[var(--conversation-item-gap,16px)]">
+                    {renderAgentUnits(agentBodyCollapsePresentation.persistentUnits, (unit) =>
+                      renderAgentUnit(unit, true),
+                    )}
+                  </div>
+                </>
+              ) : null}
             </div>
           </>
         ) : null}
 
         {turn.trailingBlocks.length > 0 ? (
           <>
-            {(turn.leadingBlocks.length > 0 || agentBodyUnits.length > 0) ? <ThreadGap /> : null}
+            {turn.leadingBlocks.length > 0 || agentBodyUnits.length > 0 ? <ThreadGap /> : null}
             <div className="flex flex-col">
               {renderSpacedBlocks(turn.trailingBlocks, renderBlock)}
             </div>
@@ -319,9 +325,11 @@ function ThreadTurnBody({
 
         {turn.liveActivity.fallback.owner === "standalone" ? (
           <>
-            {(turn.leadingBlocks.length > 0
-              || agentBodyUnits.length > 0
-              || turn.trailingBlocks.length > 0) ? <ThreadGap /> : null}
+            {turn.leadingBlocks.length > 0 ||
+            agentBodyUnits.length > 0 ||
+            turn.trailingBlocks.length > 0 ? (
+              <ThreadGap />
+            ) : null}
             <ThreadLiveActivityFallbackForTurn turn={turn} />
           </>
         ) : null}

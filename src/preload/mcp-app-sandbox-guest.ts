@@ -16,18 +16,20 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function isMessagePort(value: unknown): value is MessagePort {
-  return typeof value === "object"
-    && value !== null
-    && typeof (value as MessagePort).postMessage === "function"
-    && typeof (value as MessagePort).start === "function";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as MessagePort).postMessage === "function" &&
+    typeof (value as MessagePort).start === "function"
+  );
 }
 
 window.addEventListener("message", (event) => {
   if (
-    initializationConsumed
-    || !source?.initId
-    || source.origin !== window.location.origin
-    || event.source !== window
+    initializationConsumed ||
+    !source?.initId ||
+    source.origin !== window.location.origin ||
+    event.source !== window
   ) {
     return;
   }
@@ -37,12 +39,9 @@ window.addEventListener("message", (event) => {
   const replyPort = data?.replyPort;
   if (data?.type !== "init" || !ports || !isMessagePort(replyPort)) return;
 
-  const allPortNames = [
-    ...MCP_APP_REQUIRED_GUEST_PORT_NAMES,
-    ...MCP_APP_OPTIONAL_GUEST_PORT_NAMES,
-  ];
-  const portNames = allPortNames.filter(
-    (name): name is McpAppGuestPortName => isMessagePort(ports[name]),
+  const allPortNames = [...MCP_APP_REQUIRED_GUEST_PORT_NAMES, ...MCP_APP_OPTIONAL_GUEST_PORT_NAMES];
+  const portNames = allPortNames.filter((name): name is McpAppGuestPortName =>
+    isMessagePort(ports[name]),
   );
   if (MCP_APP_REQUIRED_GUEST_PORT_NAMES.some((name) => !isMessagePort(ports[name]))) {
     return;

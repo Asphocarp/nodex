@@ -44,9 +44,7 @@ export interface ScenarioSeedPort {
     count: number,
   ): Promise<{ readonly commitSeq: number; readonly propertyCount: number }>;
   readPrimaryDataSourcePropertyCount(projectId: string): Promise<number>;
-  replaceOwnedDocument(
-    input: ScenarioDocumentReplacement,
-  ): Promise<{ readonly commitSeq: number }>;
+  replaceOwnedDocument(input: ScenarioDocumentReplacement): Promise<{ readonly commitSeq: number }>;
   readPage(
     projectId: string,
     pageId: string,
@@ -94,15 +92,15 @@ export const parseScenarioManifest = (value: unknown): ScenarioManifest => {
     throw new Error("Scenario manifest is invalid or unsupported");
   }
   if (
-    !isNonEmptyString(value.scenarioId)
-    || typeof value.scenarioRevision !== "number"
-    || !isNonEmptyString(value.projectId)
-    || !isNonEmptyString(value.databaseViewId)
-    || typeof value.minimumCommitSeq !== "number"
-    || value.minimumCommitSeq < 0
-    || !isNonEmptyString(value.materializedAt)
-    || !isRecord(value.pageIdsByKey)
-    || !Object.values(value.pageIdsByKey).every(isNonEmptyString)
+    !isNonEmptyString(value.scenarioId) ||
+    typeof value.scenarioRevision !== "number" ||
+    !isNonEmptyString(value.projectId) ||
+    !isNonEmptyString(value.databaseViewId) ||
+    typeof value.minimumCommitSeq !== "number" ||
+    value.minimumCommitSeq < 0 ||
+    !isNonEmptyString(value.materializedAt) ||
+    !isRecord(value.pageIdsByKey) ||
+    !Object.values(value.pageIdsByKey).every(isNonEmptyString)
   ) {
     throw new Error("Scenario manifest is invalid or unsupported");
   }
@@ -111,9 +109,9 @@ export const parseScenarioManifest = (value: unknown): ScenarioManifest => {
 
 export const parseScenarioFacts = (value: unknown): ScenarioFacts => {
   if (
-    !isRecord(value)
-    || !isNonEmptyString(value.scenarioId)
-    || typeof value.scenarioRevision !== "number"
+    !isRecord(value) ||
+    !isNonEmptyString(value.scenarioId) ||
+    typeof value.scenarioRevision !== "number"
   ) {
     throw new Error("Scenario facts are invalid");
   }

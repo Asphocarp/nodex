@@ -114,9 +114,8 @@ describe("Browser settings information architecture", () => {
       await Promise.resolve();
     });
 
-    expect(invokeMock).toHaveBeenCalledWith(
-      "browser-use-policy-update-modes",
-      { approvalMode: "neverAsk" },
-    );
+    expect(invokeMock).toHaveBeenCalledWith("browser-use-policy-update-modes", {
+      approvalMode: "neverAsk",
+    });
   });
 });

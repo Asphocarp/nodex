@@ -1,7 +1,4 @@
-import type {
-  DatabaseViewField,
-  DatabaseViewLayout,
-} from "../../shared/database-kernel";
+import type { DatabaseViewField, DatabaseViewLayout } from "../../shared/database-kernel";
 
 export type DatabaseIntrinsicField = Extract<
   DatabaseViewField,
@@ -37,27 +34,24 @@ const DATABASE_INTRINSIC_FIELDS = [
   },
 ] as const satisfies readonly DatabaseIntrinsicFieldDescriptor[];
 
-export const supportedDatabaseIntrinsicFields = (
-): readonly DatabaseIntrinsicField[] =>
+export const supportedDatabaseIntrinsicFields = (): readonly DatabaseIntrinsicField[] =>
   DATABASE_INTRINSIC_FIELDS.map(({ field }) => field);
 
 export const databaseIntrinsicFieldsForLayout = (
   layout: DatabaseViewLayout,
 ): readonly DatabaseIntrinsicFieldDescriptor[] =>
   DATABASE_INTRINSIC_FIELDS.filter(({ layouts }) =>
-    layouts.some((candidate) => candidate === layout)
+    layouts.some((candidate) => candidate === layout),
   );
 
 export const orderedDatabaseIdentityFields = (
   layout: DatabaseViewLayout,
   fields: readonly DatabaseViewField[],
 ): readonly DatabaseIntrinsicField[] => {
-  const visible = new Set(fields.flatMap((field) =>
-    field.kind === "intrinsic" ? [field.field] : []
-  ));
+  const visible = new Set(
+    fields.flatMap((field) => (field.kind === "intrinsic" ? [field.field] : [])),
+  );
   return databaseIntrinsicFieldsForLayout(layout).flatMap((descriptor) =>
-    descriptor.slot === "identity" && visible.has(descriptor.field)
-      ? [descriptor.field]
-      : []
+    descriptor.slot === "identity" && visible.has(descriptor.field) ? [descriptor.field] : [],
   );
 };

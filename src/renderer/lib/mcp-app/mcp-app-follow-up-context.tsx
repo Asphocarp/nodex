@@ -1,8 +1,4 @@
-import {
-  createContext,
-  type ReactNode,
-  useContext,
-} from "react";
+import { createContext, type ReactNode, useContext } from "react";
 import type { McpAppFollowUpMessage } from "./mcp-app-follow-up";
 
 export type McpAppFollowUpHandler = (message: McpAppFollowUpMessage) => Promise<void>;
@@ -16,11 +12,7 @@ export function McpAppFollowUpProvider({
   children: ReactNode;
   onSend: McpAppFollowUpHandler;
 }) {
-  return (
-    <McpAppFollowUpContext.Provider value={onSend}>
-      {children}
-    </McpAppFollowUpContext.Provider>
-  );
+  return <McpAppFollowUpContext.Provider value={onSend}>{children}</McpAppFollowUpContext.Provider>;
 }
 
 export function useMcpAppFollowUpHandler(): McpAppFollowUpHandler | null {

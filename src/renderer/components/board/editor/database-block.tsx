@@ -5,10 +5,7 @@ import { createReactBlockSpec } from "@blocknote/react";
 import { useBlockReferenceHostRuntime } from "@/components/block-documents/block-reference-runtime-context";
 import { useLibraryPath } from "@/lib/use-library-navigation";
 import { databaseBlockConfig } from "../../../../shared/block-documents/blocknote-schema-config";
-import {
-  parseDatabaseId,
-  type DatabaseId,
-} from "../../../../shared/database-identities";
+import { parseDatabaseId, type DatabaseId } from "../../../../shared/database-identities";
 
 export function DatabaseBlockSurface({
   title,
@@ -47,19 +44,12 @@ function DatabaseBlock({ databaseId }: { readonly databaseId: DatabaseId }) {
     <DatabaseBlockSurface
       title={title}
       loading={path.isPending}
-      {...(host?.openDatabase
-        ? { onOpen: () => host.openDatabase?.(databaseId) }
-        : {})}
+      {...(host?.openDatabase ? { onOpen: () => host.openDatabase?.(databaseId) } : {})}
     />
   );
 }
 
 /** An owning Database Container shell. It is distinct from a database View reference. */
-export const createDatabaseBlockSpec = createReactBlockSpec(
-  databaseBlockConfig,
-  {
-    render: ({ block }) => (
-      <DatabaseBlock databaseId={parseDatabaseId(block.id)} />
-    ),
-  },
-);
+export const createDatabaseBlockSpec = createReactBlockSpec(databaseBlockConfig, {
+  render: ({ block }) => <DatabaseBlock databaseId={parseDatabaseId(block.id)} />,
+});

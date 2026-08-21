@@ -32,7 +32,8 @@ export const HeadingInlineCode: Story = {
 
 export const MixedFormatting: Story = {
   args: {
-    content: "List item with `inline code`, *emphasis*, and ~~strikethrough~~.\n- Another `code sample` here.",
+    content:
+      "List item with `inline code`, *emphasis*, and ~~strikethrough~~.\n- Another `code sample` here.",
   },
 };
 
@@ -54,8 +55,7 @@ export const DateMentionInline: Story = {
 
 export const PageMentionInline: Story = {
   args: {
-    content:
-      'Continue in <mention-page url="nodex://pages/019-page-reference" /> after review.',
+    content: 'Continue in <mention-page url="nodex://pages/019-page-reference" /> after review.',
   },
 };
 
@@ -67,7 +67,8 @@ export const OrderedListNumbering: Story = {
 
 export const GfmTable: Story = {
   args: {
-    content: "| Name | Status | Score |\n| :--- | :---: | ---: |\n| Alpha | **Ready** | 10 |\n| Beta | Blocked | 2 |",
+    content:
+      "| Name | Status | Score |\n| :--- | :---: | ---: |\n| Alpha | **Ready** | 10 |\n| Beta | Blocked | 2 |",
   },
 };
 

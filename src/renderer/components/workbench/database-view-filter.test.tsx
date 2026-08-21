@@ -81,32 +81,32 @@ const model: DatabaseViewRenderModel = {
       createdAt: timestamp,
       updatedAt: timestamp,
     },
-    properties: [{
-      propertyId: statusPropertyId,
-      dataSourceId,
-      name: "Status",
-      ...testPropertySemantics("select", 2),
-      valueType: "select",
-      config: {
-        options: [
-          { id: "build", name: "Build" },
-          { id: "ship", name: "Ship" },
-        ],
+    properties: [
+      {
+        propertyId: statusPropertyId,
+        dataSourceId,
+        name: "Status",
+        ...testPropertySemantics("select", 2),
+        valueType: "select",
+        config: {
+          options: [
+            { id: "build", name: "Build" },
+            { id: "ship", name: "Ship" },
+          ],
+        },
+        rankKey: "a",
+        lifecycle: "active",
+        revision: 1,
+        createdAt: timestamp,
+        updatedAt: timestamp,
       },
-      rankKey: "a",
-      lifecycle: "active",
-      revision: 1,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    }],
+    ],
     rows: [],
   },
 };
 
 test("keeps filter edits as a draft until saving the shared View", async () => {
-  const commitOperations: typeof commitDatabaseViewOperations = vi.fn(
-    async () => null,
-  );
+  const commitOperations: typeof commitDatabaseViewOperations = vi.fn(async () => null);
   const onCommitted = vi.fn();
   const screen = render(
     <DatabaseViewFilter
@@ -137,12 +137,14 @@ test("keeps filter edits as a draft until saving the shared View", async () => {
   expect(operation.defaultLayout).toBe("board");
   expect(operation.config.filter).toMatchObject({
     kind: "group",
-    children: [{
-      kind: "clause",
-      propertyId: "status",
-      operator: "equals",
-      value: "build",
-    }],
+    children: [
+      {
+        kind: "clause",
+        propertyId: "status",
+        operator: "equals",
+        value: "build",
+      },
+    ],
   });
   expect(onCommitted).toHaveBeenCalledTimes(1);
 });

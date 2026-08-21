@@ -15,18 +15,13 @@ const nodexButtonVariants = cva(
   {
     variants: {
       variant: {
-        default:
-          "bg-token-foreground text-token-background hover:bg-token-foreground/90",
-        primary:
-          "bg-token-foreground text-token-background hover:bg-token-foreground/90",
-        secondary:
-          "bg-token-foreground/6 text-token-foreground hover:bg-token-foreground/10",
+        default: "bg-token-foreground text-token-background hover:bg-token-foreground/90",
+        primary: "bg-token-foreground text-token-background hover:bg-token-foreground/90",
+        secondary: "bg-token-foreground/6 text-token-foreground hover:bg-token-foreground/10",
         outline:
           "border border-token-border bg-token-main-surface-primary text-token-foreground hover:bg-token-list-hover-background",
-        ghost:
-          "text-token-foreground hover:bg-token-list-hover-background",
-        destructive:
-          "bg-token-error-background text-token-error-foreground hover:opacity-90",
+        ghost: "text-token-foreground hover:bg-token-list-hover-background",
+        destructive: "bg-token-error-background text-token-error-foreground hover:opacity-90",
         accentAction:
           "border border-transparent bg-token-charts-blue text-white hover:bg-token-charts-blue/90",
       },
@@ -50,8 +45,7 @@ const nodexButtonVariants = cva(
 );
 
 export interface NodexButtonProps
-  extends React.ComponentProps<"button">,
-  VariantProps<typeof nodexButtonVariants> {
+  extends React.ComponentProps<"button">, VariantProps<typeof nodexButtonVariants> {
   asChild?: boolean;
 }
 
@@ -170,8 +164,12 @@ export function NodexSwitch({
             "rounded-full border border-[color:var(--gray-0)] bg-[color:var(--gray-0)] shadow-sm transition-transform duration-200 ease-out",
             size === "compact" ? "size-3" : "size-4",
             checked
-              ? size === "compact" ? "translate-x-[9px]" : "translate-x-[14px]"
-              : size === "compact" ? "translate-x-px" : "translate-x-[2px]",
+              ? size === "compact"
+                ? "translate-x-[9px]"
+                : "translate-x-[14px]"
+              : size === "compact"
+                ? "translate-x-px"
+                : "translate-x-[2px]",
           )}
           data-state={checked ? "checked" : "unchecked"}
         />

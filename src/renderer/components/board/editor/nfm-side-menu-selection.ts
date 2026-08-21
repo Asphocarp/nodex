@@ -33,7 +33,9 @@ interface SideMenuSelectionApplyAdapter {
   ) => boolean;
 }
 
-export function getSideMenuSelectionBlockId(block: SideMenuSelectionBlock | undefined): string | null {
+export function getSideMenuSelectionBlockId(
+  block: SideMenuSelectionBlock | undefined,
+): string | null {
   return typeof block?.id === "string" && block.id.length > 0 ? block.id : null;
 }
 
@@ -56,11 +58,11 @@ function getSelectionNodeBlockId(node: SelectionNodeLike | undefined): string | 
 function getBlockSelectionIds(selection: EditorView["state"]["selection"]): string[] {
   const blockSelection = selection as EditorView["state"]["selection"] & BlockSelectionLike;
   if (Array.isArray(blockSelection.nodes)) {
-    return Array.from(new Set(
-      blockSelection.nodes
-        .map(getSelectionNodeBlockId)
-        .filter((id): id is string => id !== null),
-    ));
+    return Array.from(
+      new Set(
+        blockSelection.nodes.map(getSelectionNodeBlockId).filter((id): id is string => id !== null),
+      ),
+    );
   }
 
   const nodeId = getSelectionNodeBlockId(blockSelection.node);
@@ -173,8 +175,9 @@ export function createSideMenuSelectionIntent(
 ): SideMenuSelectionIntent {
   const clickedBlockId = getSideMenuSelectionBlockId(clickedBlock);
   const selectedBlocks = getSelectedBlocks(editor);
-  const selectionIncludesClickedBlock = clickedBlockId !== null
-    && selectedBlocks.some((block) => getSideMenuSelectionBlockId(block) === clickedBlockId);
+  const selectionIncludesClickedBlock =
+    clickedBlockId !== null &&
+    selectedBlocks.some((block) => getSideMenuSelectionBlockId(block) === clickedBlockId);
 
   if (selectionIncludesClickedBlock) {
     return {
@@ -191,10 +194,7 @@ export function createSideMenuSelectionIntent(
   };
 }
 
-function selectBlockRange(
-  editor: SideMenuSelectionEditor,
-  block: SideMenuSelectionBlock,
-): boolean {
+function selectBlockRange(editor: SideMenuSelectionEditor, block: SideMenuSelectionBlock): boolean {
   const blockId = getSideMenuSelectionBlockId(block);
   const view = editor.prosemirrorView;
   if (!blockId || !view) return false;
@@ -227,10 +227,7 @@ function normalizeBlockRangeAroundSelectionIds(
     const $from = doc.resolve(from);
     const $to = doc.resolve(to);
     const sharedDepth = $from.sharedDepth($to.pos);
-    const normalizedFrom = $from.posAtIndex(
-      $from.index(sharedDepth),
-      sharedDepth,
-    );
+    const normalizedFrom = $from.posAtIndex($from.index(sharedDepth), sharedDepth);
     const normalizedTo = $to.posAtIndex($to.indexAfter(sharedDepth), sharedDepth);
 
     if (normalizedFrom >= normalizedTo) return undefined;
@@ -276,11 +273,7 @@ function selectBlocksWithBlockRangeSelection(
   try {
     view.dispatch(
       view.state.tr.setSelection(
-        MultipleNodeSelection.create(
-          view.state.doc,
-          normalizedRange.from,
-          normalizedRange.to,
-        ),
+        MultipleNodeSelection.create(view.state.doc, normalizedRange.from, normalizedRange.to),
       ),
     );
     return true;

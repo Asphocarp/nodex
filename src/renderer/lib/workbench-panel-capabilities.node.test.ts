@@ -2,18 +2,17 @@ import { describe, expect, it } from "vitest";
 import { resolveWorkbenchPanelCapabilities } from "./workbench-panel-capabilities";
 
 describe("resolveWorkbenchPanelCapabilities", () => {
-  it("offers Review first for an attached projectless chat in the right panel",
-    () => {
-      const result = resolveWorkbenchPanelCapabilities({
-        panelId: "right",
-        hasSession: true,
-        projectId: null,
-        hasAttachedThread: true,
-        cwd: "/workspace",
-      });
-
-      expect(result.availableActionKinds).toEqual(["review", "side_chat", "browser", "terminal"]);
+  it("offers Review first for an attached projectless chat in the right panel", () => {
+    const result = resolveWorkbenchPanelCapabilities({
+      panelId: "right",
+      hasSession: true,
+      projectId: null,
+      hasAttachedThread: true,
+      cwd: "/workspace",
     });
+
+    expect(result.availableActionKinds).toEqual(["review", "side_chat", "browser", "terminal"]);
+  });
 
   it("offers side chat, browser, then terminal to attached projectless chats in the bottom panel", () => {
     const result = resolveWorkbenchPanelCapabilities({
@@ -107,12 +106,7 @@ describe("resolveWorkbenchPanelCapabilities", () => {
       "page_stage",
       "canvas_stage",
     ]);
-    expect(bottom.availableActionKinds).toEqual([
-      "terminal",
-      "browser",
-      "files",
-      "side_chat",
-    ]);
+    expect(bottom.availableActionKinds).toEqual(["terminal", "browser", "files", "side_chat"]);
   });
 
   it("hides an existing singleton without changing other actions", () => {

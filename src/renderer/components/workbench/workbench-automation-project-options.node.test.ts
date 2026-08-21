@@ -67,15 +67,21 @@ describe("workbench automation project options", () => {
       selectedRoots: [],
     });
 
-    expect(formatWorkbenchAutomationProjectTriggerLabel({ selectedRoots: [], options })).toBe("Select project");
-    expect(formatWorkbenchAutomationProjectTriggerLabel({
-      selectedRoots: ["/Users/asc/repo/nodex"],
-      options,
-    })).toBe("Nodex");
-    expect(formatWorkbenchAutomationProjectTriggerLabel({
-      selectedRoots: ["/Users/asc/repo/nodex", "/tmp/legacy"],
-      options,
-    })).toBe("2 projects");
+    expect(formatWorkbenchAutomationProjectTriggerLabel({ selectedRoots: [], options })).toBe(
+      "Select project",
+    );
+    expect(
+      formatWorkbenchAutomationProjectTriggerLabel({
+        selectedRoots: ["/Users/asc/repo/nodex"],
+        options,
+      }),
+    ).toBe("Nodex");
+    expect(
+      formatWorkbenchAutomationProjectTriggerLabel({
+        selectedRoots: ["/Users/asc/repo/nodex", "/tmp/legacy"],
+        options,
+      }),
+    ).toBe("2 projects");
   });
 
   test("toggles selected roots without duplicating cwd values", () => {
@@ -83,10 +89,9 @@ describe("workbench automation project options", () => {
       selectedRoots: ["/Users/asc/repo/nodex"],
       root: "/Users/asc/repo/devtools-codex",
     });
-    expect(JSON.stringify(selected)).toBe(JSON.stringify([
-      "/Users/asc/repo/nodex",
-      "/Users/asc/repo/devtools-codex",
-    ]));
+    expect(JSON.stringify(selected)).toBe(
+      JSON.stringify(["/Users/asc/repo/nodex", "/Users/asc/repo/devtools-codex"]),
+    );
 
     const nextSelected = toggleWorkbenchAutomationProjectRoot({
       selectedRoots: selected,
@@ -106,7 +111,11 @@ describe("workbench automation project options", () => {
       }),
     ];
 
-    expect(resolveWorkbenchAutomationProjectForRoot({ projects, root: "/repo/beta-extra" })?.id).toBe("beta");
-    expect(resolveWorkbenchAutomationProjectForRoot({ projects, root: "/repo/missing" })).toBe(null);
+    expect(
+      resolveWorkbenchAutomationProjectForRoot({ projects, root: "/repo/beta-extra" })?.id,
+    ).toBe("beta");
+    expect(resolveWorkbenchAutomationProjectForRoot({ projects, root: "/repo/missing" })).toBe(
+      null,
+    );
   });
 });

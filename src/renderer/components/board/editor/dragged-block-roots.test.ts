@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  resolveTopLevelDraggedBlocks,
-  type DraggableEditorBlock,
-} from "./dragged-block-roots";
+import { resolveTopLevelDraggedBlocks, type DraggableEditorBlock } from "./dragged-block-roots";
 
 describe("dragged Block roots", () => {
   test("does not duplicate a selected descendant", () => {

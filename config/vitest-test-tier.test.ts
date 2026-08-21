@@ -1,8 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  resolveVitestTestTier,
-  selectTieredTestFiles,
-} from "./vitest-test-tier";
+import { resolveVitestTestTier, selectTieredTestFiles } from "./vitest-test-tier";
 
 const testFiles = {
   defaultExclude: ["browser.test.ts"],
@@ -28,10 +25,15 @@ describe("Vitest test tiers", () => {
   });
 
   test("allows ordinary-suite deduplication without dropping a stress owner", () => {
-    expect(selectTieredTestFiles({
-      ...testFiles,
-      stressExclude: [],
-    }, "stress")).toEqual({
+    expect(
+      selectTieredTestFiles(
+        {
+          ...testFiles,
+          stressExclude: [],
+        },
+        "stress",
+      ),
+    ).toEqual({
       exclude: [],
       include: ["**/*.stress.test.ts"],
       isStress: true,

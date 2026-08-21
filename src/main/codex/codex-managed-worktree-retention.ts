@@ -1,9 +1,7 @@
 import { normalizeWorktreePathForIdentity } from "./codex-managed-worktree-effects";
 
 export const CODEX_OWNERLESS_WORKTREE_GRACE_MS = 60 * 60 * 1_000;
-export const CODEX_OWNER_METADATA_MIGRATION_CUTOFF_MS = Date.parse(
-  "2026-02-21T00:00:00.000Z",
-);
+export const CODEX_OWNER_METADATA_MIGRATION_CUTOFF_MS = Date.parse("2026-02-21T00:00:00.000Z");
 
 export type CodexManagedWorktreeProtectionReason =
   | "permanent"
@@ -48,8 +46,7 @@ export interface CodexManagedWorktreeRetentionPlanInput {
   readonly nowMs: number;
 }
 
-export interface CodexManagedWorktreeRetentionPlanItem
-  extends CodexManagedWorktreeRetentionRecord {
+export interface CodexManagedWorktreeRetentionPlanItem extends CodexManagedWorktreeRetentionRecord {
   readonly key: string;
   readonly ownerUpdatedAtMs: number | null;
   readonly protectionReasons: readonly CodexManagedWorktreeProtectionReason[];
@@ -96,8 +93,7 @@ function compareOwned(
   left: CodexManagedWorktreeRetentionPlanItem,
   right: CodexManagedWorktreeRetentionPlanItem,
 ): number {
-  return (left.ownerUpdatedAtMs ?? 0) - (right.ownerUpdatedAtMs ?? 0)
-    || comparePath(left, right);
+  return (left.ownerUpdatedAtMs ?? 0) - (right.ownerUpdatedAtMs ?? 0) || comparePath(left, right);
 }
 
 function emptySkipped(
@@ -139,9 +135,8 @@ export function planManagedWorktreeRetention(
   const items = input.records.map((record): CodexManagedWorktreeRetentionPlanItem => {
     const key = retentionKey(record.hostId, record.worktreeGitRoot);
     const reasons = new Set(pathReasons.get(key) ?? []);
-    const owner = record.ownerThreadId === null
-      ? null
-      : threadById.get(record.ownerThreadId) ?? null;
+    const owner =
+      record.ownerThreadId === null ? null : (threadById.get(record.ownerThreadId) ?? null);
     if (owner?.pinned) reasons.add("pinned");
     if (owner?.inProgress) reasons.add("in-progress");
     if (owner?.automationProtected) reasons.add("automation");
@@ -150,8 +145,8 @@ export function planManagedWorktreeRetention(
         reasons.add("young-ownerless");
       }
       if (
-        input.protectPreMigrationOwnerlessWorktrees
-        && record.createdAtMs < CODEX_OWNER_METADATA_MIGRATION_CUTOFF_MS
+        input.protectPreMigrationOwnerlessWorktrees &&
+        record.createdAtMs < CODEX_OWNER_METADATA_MIGRATION_CUTOFF_MS
       ) {
         reasons.add("pre-migration-ownerless");
       }
@@ -169,9 +164,10 @@ export function planManagedWorktreeRetention(
     ...eligible.filter((item) => item.ownerThreadId === null).sort(compareOwnerless),
     ...eligible.filter((item) => item.ownerThreadId !== null).sort(compareOwned),
   ];
-  const deleteCount = input.records.length <= input.keepCount
-    ? 0
-    : Math.max(0, orderedCandidates.length - input.keepCount);
+  const deleteCount =
+    input.records.length <= input.keepCount
+      ? 0
+      : Math.max(0, orderedCandidates.length - input.keepCount);
   const deleting = orderedCandidates.slice(0, deleteCount);
   const deletingKeys = new Set(deleting.map((item) => item.key));
   return {
@@ -215,9 +211,6 @@ export async function executeManagedWorktreeRetentionPlan(
       }
     }
   };
-  await Promise.all(Array.from(
-    { length: Math.min(concurrency, unique.length) },
-    worker,
-  ));
+  await Promise.all(Array.from({ length: Math.min(concurrency, unique.length) }, worker));
   return results;
 }

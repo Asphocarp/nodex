@@ -114,13 +114,14 @@ function buildMcpResultStoryItem(
     toolCall: base.toolCall
       ? {
           ...base.toolCall,
-          result: result?.type === "success"
-            ? {
-                type: "success",
-                content: result.content,
-                structuredContent: result.structuredContent,
-              }
-            : undefined,
+          result:
+            result?.type === "success"
+              ? {
+                  type: "success",
+                  content: result.content,
+                  structuredContent: result.structuredContent,
+                }
+              : undefined,
           error: result?.type === "error" ? result.error : undefined,
         }
       : base.toolCall,
@@ -135,13 +136,16 @@ function buildMcpResultStoryItem(
 }
 
 function buildLargeMcpTextResult(prefix: string): CodexMcpToolCallNormalizedResult {
-  const content = [{
-    type: "text" as const,
-    text: Array.from(
-      { length: 2_000 },
-      (_value, index) => `${prefix} ${index + 1}: exact connector output remains available without mounting the complete payload inline.`,
-    ).join("\n"),
-  }];
+  const content = [
+    {
+      type: "text" as const,
+      text: Array.from(
+        { length: 2_000 },
+        (_value, index) =>
+          `${prefix} ${index + 1}: exact connector output remains available without mounting the complete payload inline.`,
+      ).join("\n"),
+    },
+  ];
 
   return {
     type: "success",
@@ -190,34 +194,38 @@ const MCP_RARE_CONTENT_BLOCKS: CodexMcpToolCallContentBlock[] = [
   },
 ];
 
-const MCP_APP_INFO_STORY_APPS = normalizeCodexAppInfoLogos([{
-  id: "connector_docs",
-  name: "Docs",
-  description: null,
-  logoUrl: null,
-  logoUrlDark: null,
-  iconAssets: {
-    "256_square": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32' rx='7' fill='%230b57d0'/%3E%3Cpath d='M9 8h10l4 4v12H9z' fill='white'/%3E%3C/svg%3E",
-  },
-  iconDarkAssets: {
-    "256_square": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32' rx='7' fill='%238ab4f8'/%3E%3Cpath d='M9 8h10l4 4v12H9z' fill='%23101828'/%3E%3C/svg%3E",
-  },
-  distributionChannel: null,
-  branding: null,
-  appMetadata: null,
-  labels: null,
-  installUrl: null,
-  isAccessible: true,
-  isEnabled: true,
-  pluginDisplayNames: [],
-} satisfies ProtocolAppInfo]);
+const MCP_APP_INFO_STORY_APPS = normalizeCodexAppInfoLogos([
+  {
+    id: "connector_docs",
+    name: "Docs",
+    description: null,
+    logoUrl: null,
+    logoUrlDark: null,
+    iconAssets: {
+      "256_square":
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32' rx='7' fill='%230b57d0'/%3E%3Cpath d='M9 8h10l4 4v12H9z' fill='white'/%3E%3C/svg%3E",
+    },
+    iconDarkAssets: {
+      "256_square":
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32'%3E%3Crect width='32' height='32' rx='7' fill='%238ab4f8'/%3E%3Cpath d='M9 8h10l4 4v12H9z' fill='%23101828'/%3E%3C/svg%3E",
+    },
+    distributionChannel: null,
+    branding: null,
+    appMetadata: null,
+    labels: null,
+    installUrl: null,
+    isAccessible: true,
+    isEnabled: true,
+    pluginDisplayNames: [],
+  } satisfies ProtocolAppInfo,
+]);
 
-function buildStoryFileChangePayload(
-  changes: CodexFileChange[],
-  success: boolean | null = true,
-) {
+function buildStoryFileChangePayload(changes: CodexFileChange[], success: boolean | null = true) {
   return {
-    label: changes.length === 1 ? `${changes[0]?.type === "add" ? "Created" : changes[0]?.type === "delete" ? "Deleted" : "Edited"} ${changes[0]?.path}` : undefined,
+    label:
+      changes.length === 1
+        ? `${changes[0]?.type === "add" ? "Created" : changes[0]?.type === "delete" ? "Deleted" : "Edited"} ${changes[0]?.path}`
+        : undefined,
     changes: buildCodexFileChangeMap(changes),
     success,
   };
@@ -342,10 +350,7 @@ function ProjectedToolActivity({
     <ThreadMcpAppsProvider apps={[]}>
       <div ref={containerRef} className="flex flex-col gap-[var(--conversation-item-gap,16px)]">
         {model.agentBodyUnits.map((unit) => (
-          <div
-            key={unit.block.renderKey ?? unit.block.id}
-            {...unit.targetAttributes}
-          >
+          <div key={unit.block.renderKey ?? unit.block.id} {...unit.targetAttributes}>
             <ThreadBlockRenderer
               block={unit.block}
               isLatestTurn={model.isLatestTurn}
@@ -456,23 +461,29 @@ function ToolCallStory({
   );
 }
 
-function buildLivePatchProjectionFixture(lineCount: number): ThreadToolActivityProjectionFixtureResult {
+function buildLivePatchProjectionFixture(
+  lineCount: number,
+): ThreadToolActivityProjectionFixtureResult {
   const addedLines = Array.from(
     { length: lineCount },
     (_value, index) => `+Generated line ${index + 1}`,
   );
   return buildThreadToolActivityProjectionFixture({
     id: `live-patch-${lineCount}`,
-    rawItems: [{
-      type: "fileChange",
-      id: "tool-call-file-change-live-patch",
-      status: "inProgress",
-      changes: [{
-        path: "poem.md",
-        kind: { type: "add" },
-        diff: [`@@ -0,0 +1,${lineCount} @@`, ...addedLines].join("\n"),
-      }],
-    }],
+    rawItems: [
+      {
+        type: "fileChange",
+        id: "tool-call-file-change-live-patch",
+        status: "inProgress",
+        changes: [
+          {
+            path: "poem.md",
+            kind: { type: "add" },
+            diff: [`@@ -0,0 +1,${lineCount} @@`, ...addedLines].join("\n"),
+          },
+        ],
+      },
+    ],
     turnStatus: "inProgress",
     lifecycleStatusByItemId: {
       "tool-call-file-change-live-patch": "inProgress",
@@ -517,7 +528,9 @@ function AutoOpenMcpToolCall({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const toggle = containerRef.current?.querySelector<HTMLElement>('button[aria-expanded="false"]');
+    const toggle = containerRef.current?.querySelector<HTMLElement>(
+      'button[aria-expanded="false"]',
+    );
     if (!toggle) return;
     toggle.click();
   }, []);
@@ -551,13 +564,18 @@ function PartiallyVisibleScrollAnchorHarness({ item }: { item: CodexTranscriptEn
 
   return (
     <ConversationStorySurface>
-      <div ref={scrollRef} className="max-h-96 overflow-y-auto rounded-2xl border border-token-border bg-token-main-surface-primary/40 p-4">
+      <div
+        ref={scrollRef}
+        className="max-h-96 overflow-y-auto rounded-2xl border border-token-border bg-token-main-surface-primary/40 p-4"
+      >
         <div className="space-y-3">
           <div className="rounded-xl bg-token-foreground/4 px-4 py-3 text-token-description-foreground">
-            Scroll position is pre-set so the command card header remains visible while earlier transcript rows sit above the viewport.
+            Scroll position is pre-set so the command card header remains visible while earlier
+            transcript rows sit above the viewport.
           </div>
           <div className="rounded-xl bg-token-foreground/4 px-4 py-3 text-token-description-foreground">
-            Expanding and collapsing the tool body should not shift the visible header or drag the surrounding thread position.
+            Expanding and collapsing the tool body should not shift the visible header or drag the
+            surrounding thread position.
           </div>
           <ToolComponent
             item={item}
@@ -565,7 +583,8 @@ function PartiallyVisibleScrollAnchorHarness({ item }: { item: CodexTranscriptEn
             threadCwd="/workspace/nodex"
           />
           <div className="rounded-xl bg-token-foreground/4 px-4 py-3 text-token-description-foreground">
-            Additional transcript rows below the command card keep the scroll container tall enough to reproduce the anchoring edge case.
+            Additional transcript rows below the command card keep the scroll container tall enough
+            to reproduce the anchoring edge case.
           </div>
           <div className="rounded-xl bg-token-foreground/4 px-4 py-3 text-token-description-foreground">
             The transcript should stay visually stable while nested tool accordions remeasure.
@@ -640,11 +659,14 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 function DynamicToolQueryStoryProvider({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-    },
-  }));
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+        },
+      }),
+  );
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
 
@@ -777,7 +799,8 @@ export const CommandExecutionScrollAnchorHarness: Story = {
                 Earlier transcript content above the embedded shell card.
               </div>
               <div className="rounded-xl bg-token-foreground/4 px-4 py-3 text-token-description-foreground">
-                Use this harness to verify that expanding the tool body does not drag the visible header position.
+                Use this harness to verify that expanding the tool body does not drag the visible
+                header position.
               </div>
               <ToolComponent
                 item={item}
@@ -886,7 +909,10 @@ export const CommandExecutionTruncatedOutput: Story = {
         command: "bun test",
         aggregatedOutput: [
           "[output truncated]",
-          ...Array.from({ length: 32 }, (_, index) => `line ${String(index + 1).padStart(2, "0")}  pass`),
+          ...Array.from(
+            { length: 32 },
+            (_, index) => `line ${String(index + 1).padStart(2, "0")}  pass`,
+          ),
         ].join("\n"),
         exitCode: 0,
       }}
@@ -942,10 +968,12 @@ export const FileChangeVisualizationOnly: Story = {
         status: "inProgress",
         fileChange: {
           changes: {},
-          visualizationActivities: [{
-            path: "/workspace/nodex/.codex/visualizations/thread/chart.html",
-            kind: "create",
-          }],
+          visualizationActivities: [
+            {
+              path: "/workspace/nodex/.codex/visualizations/thread/chart.html",
+              kind: "create",
+            },
+          ],
           success: null,
         },
       }}
@@ -974,15 +1002,17 @@ export const FileChangeRepeatedSamePathAgentActivity: Story = {
       type: "fileChange" as const,
       id: `tool-call-file-change-same-path-${index + 1}`,
       status: "completed" as const,
-      changes: [{
-        path: "src/repeated.ts",
-        kind: { type: "update" as const, move_path: null },
-        diff: [
-          "@@ -1 +1 @@",
-          `-export const revision = ${index};`,
-          `+export const revision = ${index + 1};`,
-        ].join("\n"),
-      }],
+      changes: [
+        {
+          path: "src/repeated.ts",
+          kind: { type: "update" as const, move_path: null },
+          diff: [
+            "@@ -1 +1 @@",
+            `-export const revision = ${index};`,
+            `+export const revision = ${index + 1};`,
+          ].join("\n"),
+        },
+      ],
     }));
     const lifecycleStatusByItemId = Object.fromEntries(
       rawItems.map((item) => [item.id, "completed" as const]),
@@ -1016,16 +1046,18 @@ export const FileChangePendingApproval: Story = {
         id: "tool-call-file-change-pending-approval",
         status: "inProgress",
         approvalRequestId: "approval-file-change-story",
-        changes: [{
-          path: "src/pending.ts",
-          type: "update",
-          movePath: null,
-          unifiedDiff: [
-            "@@ -1 +1 @@",
-            "-export const permission = 'old';",
-            "+export const permission = 'pending';",
-          ].join("\n"),
-        }],
+        changes: [
+          {
+            path: "src/pending.ts",
+            type: "update",
+            movePath: null,
+            unifiedDiff: [
+              "@@ -1 +1 @@",
+              "-export const permission = 'old';",
+              "+export const permission = 'pending';",
+            ].join("\n"),
+          },
+        ],
       })}
       title="File Change Pending Approval"
       description="Pending file-change approvals omit the action word in the row header and use the short diff frame height."
@@ -1043,21 +1075,13 @@ export const FileChangeMultiFile: Story = {
             path: "src/one.ts",
             type: "update",
             movePath: null,
-            unifiedDiff: [
-              "@@ -1 +1 @@",
-              "-console.log('one');",
-              "+console.log('ONE');",
-            ].join("\n"),
+            unifiedDiff: ["@@ -1 +1 @@", "-console.log('one');", "+console.log('ONE');"].join("\n"),
           },
           {
             path: "src/two.ts",
             type: "update",
             movePath: null,
-            unifiedDiff: [
-              "@@ -1 +1 @@",
-              "-console.log('two');",
-              "+console.log('TWO');",
-            ].join("\n"),
+            unifiedDiff: ["@@ -1 +1 @@", "-console.log('two');", "+console.log('TWO');"].join("\n"),
           },
         ];
 
@@ -1114,16 +1138,18 @@ export const FileChangeStoppedUpdate: Story = {
       item={buildStoryFileChangeItem({
         id: "tool-call-file-change-stopped-update",
         status: "inProgress",
-        changes: [{
-          path: "src/stopped-update.ts",
-          type: "update",
-          movePath: null,
-          unifiedDiff: [
-            "@@ -1 +1 @@",
-            "-export const stopped = false;",
-            "+export const stopped = true;",
-          ].join("\n"),
-        }],
+        changes: [
+          {
+            path: "src/stopped-update.ts",
+            type: "update",
+            movePath: null,
+            unifiedDiff: [
+              "@@ -1 +1 @@",
+              "-export const stopped = false;",
+              "+export const stopped = true;",
+            ].join("\n"),
+          },
+        ],
       })}
       title="File Change Stopped Update"
       description="Interrupted update rows use stopped editing copy while preserving the ordinary expanded diff body."
@@ -1139,11 +1165,13 @@ export const FileChangeStoppedDelete: Story = {
       item={buildStoryFileChangeItem({
         id: "tool-call-file-change-stopped-delete",
         status: "inProgress",
-        changes: [{
-          path: "src/stopped-delete.ts",
-          type: "delete",
-          content: "export const removed = true;\n",
-        }],
+        changes: [
+          {
+            path: "src/stopped-delete.ts",
+            type: "delete",
+            content: "export const removed = true;\n",
+          },
+        ],
       })}
       title="File Change Stopped Delete"
       description="Interrupted delete rows use stopped deleting copy and keep the semantic delete fallback body available when expanded."
@@ -1191,16 +1219,18 @@ export const FileChangeAutoReviewStates: Story = {
     <ToolCallStory
       item={buildStoryFileChangeItem({
         id: "tool-call-file-change-auto-review-states",
-        changes: [{
-          path: "src/auto-review.ts",
-          type: "update",
-          movePath: null,
-          unifiedDiff: [
-            "@@ -1 +1 @@",
-            "-export const autoReview = 'old';",
-            "+export const autoReview = 'new';",
-          ].join("\n"),
-        }],
+        changes: [
+          {
+            path: "src/auto-review.ts",
+            type: "update",
+            movePath: null,
+            unifiedDiff: [
+              "@@ -1 +1 @@",
+              "-export const autoReview = 'old';",
+              "+export const autoReview = 'new';",
+            ].join("\n"),
+          },
+        ],
       })}
       title="File Change Auto Review States"
       description="Attached auto-review rows use the shared compact Auto-review wording for approved, high-risk denied, and timed-out reviews."
@@ -1251,29 +1281,31 @@ export const FileChangeStoppedAutoReview: Story = {
       description="Interrupted turns render stopped patch copy while attached automatic approval reviews stay inside the patch row."
       autoOpen
       isTurnCancelled
-      automaticApprovalReviews={[{
-        threadId: "thread_tool_story",
-        turnId: "turn_tool_story",
-        itemId: "automatic-approval-review:story",
-        entryId: "automatic-approval-review:story",
-        type: "automaticApprovalReview",
-        kind: "systemEvent",
-        semanticKind: "automaticApprovalReview",
-        status: "completed",
-        markdownText: "This generated edit touched a protected file.",
-        rawItem: {
-          targetItemId: "tool-call-file-change-stopped-auto-review",
-          review: {
-            status: "denied",
-            riskLevel: "high",
-            userAuthorization: "unknown",
-            rationale: "This generated edit touched a protected file.",
+      automaticApprovalReviews={[
+        {
+          threadId: "thread_tool_story",
+          turnId: "turn_tool_story",
+          itemId: "automatic-approval-review:story",
+          entryId: "automatic-approval-review:story",
+          type: "automaticApprovalReview",
+          kind: "systemEvent",
+          semanticKind: "automaticApprovalReview",
+          status: "completed",
+          markdownText: "This generated edit touched a protected file.",
+          rawItem: {
+            targetItemId: "tool-call-file-change-stopped-auto-review",
+            review: {
+              status: "denied",
+              riskLevel: "high",
+              userAuthorization: "unknown",
+              rationale: "This generated edit touched a protected file.",
+            },
+            action: null,
           },
-          action: null,
+          createdAt: 1,
+          updatedAt: 1,
         },
-        createdAt: 1,
-        updatedAt: 1,
-      }]}
+      ]}
     />
   ),
 };
@@ -1308,12 +1340,18 @@ export const TurnDiffWithRevert: Story = {
           item={{
             ...THREAD_TOOL_CALL_STORY_ITEMS.turnDiff,
             rawItem: {
-              ...(typeof THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem === "object" && THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem !== null
+              ...(typeof THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem === "object" &&
+              THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem !== null
                 ? THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem
                 : {}),
               type: "turn-diff",
               cwd: "/workspace/nodex",
-              unifiedDiff: (THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem as { unifiedDiff?: string } | undefined)?.unifiedDiff ?? "",
+              unifiedDiff:
+                (
+                  THREAD_TOOL_CALL_STORY_ITEMS.turnDiff.rawItem as
+                    | { unifiedDiff?: string }
+                    | undefined
+                )?.unifiedDiff ?? "",
               showRevertButton: true,
             },
           }}
@@ -1355,7 +1393,10 @@ export const TurnDiffSingleFile: Story = {
     >
       <ConversationStorySurface>
         <TurnDiffSurface
-          item={buildTurnDiffItem("turn-diff-single-file", buildStoryDiffFile("src/renderer/single-file.tsx", 4, 2))}
+          item={buildTurnDiffItem(
+            "turn-diff-single-file",
+            buildStoryDiffFile("src/renderer/single-file.tsx", 4, 2),
+          )}
           isInProgress={false}
           projectWorkspacePath="/workspace/nodex"
           threadCwd="/workspace/nodex"
@@ -1374,14 +1415,20 @@ export const TurnDiffLargeDiffFallback: Story = {
     >
       <ConversationStorySurface>
         <TurnDiffSurface
-          item={buildTurnDiffItem("turn-diff-large", [
-            "diff --git a/src/large.ts b/src/large.ts",
-            "--- a/src/large.ts",
-            "+++ b/src/large.ts",
-            "@@ -1,5200 +1,5200 @@",
-            ...Array.from({ length: 5201 }, (_, index) => `+export const value${index} = ${index};`),
-            buildStoryDiffFile("src/small.ts", 2, 1),
-          ].join("\n"))}
+          item={buildTurnDiffItem(
+            "turn-diff-large",
+            [
+              "diff --git a/src/large.ts b/src/large.ts",
+              "--- a/src/large.ts",
+              "+++ b/src/large.ts",
+              "@@ -1,5200 +1,5200 @@",
+              ...Array.from(
+                { length: 5201 },
+                (_, index) => `+export const value${index} = ${index};`,
+              ),
+              buildStoryDiffFile("src/small.ts", 2, 1),
+            ].join("\n"),
+          )}
           isInProgress={false}
           projectWorkspacePath="/workspace/nodex"
           threadCwd="/workspace/nodex"
@@ -1480,7 +1527,9 @@ export const ToolCallIconography: Story = {
             "connector",
           ].map((icon) => (
             <div key={icon} className="flex items-center gap-2">
-              <ToolActivityIcon descriptor={semanticToolIcon(icon as Parameters<typeof semanticToolIcon>[0])} />
+              <ToolActivityIcon
+                descriptor={semanticToolIcon(icon as Parameters<typeof semanticToolIcon>[0])}
+              />
               <span>{icon}</span>
             </div>
           ))}
@@ -1568,7 +1617,10 @@ export const McpChromeBrowserSource: Story = {
       description="Chrome browser-use activity uses the exact embedded source identity asset while remaining distinct from native Chrome computer use."
     >
       <McpToolCall
-        item={buildMcpSourceStoryItem("mcp-chrome-browser-source", { kind: "browserUse", backend: "chrome" })}
+        item={buildMcpSourceStoryItem("mcp-chrome-browser-source", {
+          kind: "browserUse",
+          backend: "chrome",
+        })}
       />
     </StorySurface>
   ),
@@ -1888,7 +1940,7 @@ function buildReadThreadDynamicStoryItem(): CodexTranscriptEntry {
       toolName: "read_thread",
       server: "codex_app",
       args: { threadId: "thread-story", turnLimit: 2 },
-      result: [{ type: "inputText", text: "{\"schemaVersion\":1}" }],
+      result: [{ type: "inputText", text: '{"schemaVersion":1}' }],
     },
     dynamicToolCall: {
       callId: "dynamic-read-thread",
@@ -1896,15 +1948,17 @@ function buildReadThreadDynamicStoryItem(): CodexTranscriptEntry {
       tool: "read_thread",
       arguments: { threadId: "thread-story", turnLimit: 2 },
       status: "completed",
-      contentItems: [{
-        type: "inputText",
-        text: JSON.stringify({
-          schemaVersion: 1,
-          thread: { id: "thread-story", title: "Parity research", cwd: "/workspace/nodex" },
-          page: { order: "newest_first", limit: 2, nextCursor: null, hasMore: false },
-          turns: [],
-        }),
-      }],
+      contentItems: [
+        {
+          type: "inputText",
+          text: JSON.stringify({
+            schemaVersion: 1,
+            thread: { id: "thread-story", title: "Parity research", cwd: "/workspace/nodex" },
+            page: { order: "newest_first", limit: 2, nextCursor: null, hasMore: false },
+            turns: [],
+          }),
+        },
+      ],
       success: true,
       durationMs: 18,
       completed: true,
@@ -1983,10 +2037,13 @@ function buildGenericDynamicStoryItem(input: {
 }
 
 function buildDynamicAudioStoryItem(): CodexTranscriptEntry {
-  const contentItems = [{
-    type: "inputAudio" as const,
-    audioUrl: "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
-  }];
+  const contentItems = [
+    {
+      type: "inputAudio" as const,
+      audioUrl:
+        "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=",
+    },
+  ];
   const item = buildGenericDynamicStoryItem({
     id: "fallback-audio-output",
     namespace: "example_connector",
@@ -2024,73 +2081,102 @@ export const CodexAppMetaThreadTools: Story = {
     >
       <ConversationStorySurface>
         <div className="flex flex-col gap-1">
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "create-active",
-            tool: "create_thread",
-            completed: false,
-            args: { prompt: "Background follow-up", target: { type: "projectless" } },
-          })} />
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "create-completed",
-            tool: "create_thread",
-            completed: true,
-            args: { prompt: "Background follow-up", target: { type: "projectless" } },
-            contentText: "{\"threadId\":\"thread-created\"}",
-          })} />
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "create-worktree",
-            tool: "create_thread",
-            completed: true,
-            args: {
-              prompt: "Worktree follow-up",
-              target: { type: "project", projectId: "project-1", environment: { type: "worktree" } },
-            },
-            contentText: "{\"clientThreadId\":\"client-new-thread:11111111-1111-4111-8111-111111111111\"}",
-          })} />
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "fork-worktree",
-            tool: "fork_thread",
-            completed: false,
-            args: { environment: { type: "worktree" } },
-          })} />
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "list-threads",
-            tool: "list_threads",
-            completed: false,
-          })} />
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "read-thread",
-            tool: "read_thread",
-            completed: true,
-            args: { threadId: "thread-story" },
-          })} onOpenThread={() => {}} />
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "send-thread",
-            tool: "send_message_to_thread",
-            completed: true,
-            args: { threadId: "thread-story" },
-          })} onOpenThread={() => {}} />
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "handoff-status",
-            tool: "get_handoff_status",
-            completed: true,
-            args: { operationId: "handoff-1" },
-          })} />
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "pin-thread",
-            tool: "set_thread_pinned",
-            completed: true,
-          })} />
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "archive-thread",
-            tool: "set_thread_archived",
-            completed: false,
-          })} />
-          <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-            id: "title-thread",
-            tool: "set_thread_title",
-            completed: true,
-          })} />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "create-active",
+              tool: "create_thread",
+              completed: false,
+              args: { prompt: "Background follow-up", target: { type: "projectless" } },
+            })}
+          />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "create-completed",
+              tool: "create_thread",
+              completed: true,
+              args: { prompt: "Background follow-up", target: { type: "projectless" } },
+              contentText: '{"threadId":"thread-created"}',
+            })}
+          />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "create-worktree",
+              tool: "create_thread",
+              completed: true,
+              args: {
+                prompt: "Worktree follow-up",
+                target: {
+                  type: "project",
+                  projectId: "project-1",
+                  environment: { type: "worktree" },
+                },
+              },
+              contentText:
+                '{"clientThreadId":"client-new-thread:11111111-1111-4111-8111-111111111111"}',
+            })}
+          />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "fork-worktree",
+              tool: "fork_thread",
+              completed: false,
+              args: { environment: { type: "worktree" } },
+            })}
+          />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "list-threads",
+              tool: "list_threads",
+              completed: false,
+            })}
+          />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "read-thread",
+              tool: "read_thread",
+              completed: true,
+              args: { threadId: "thread-story" },
+            })}
+            onOpenThread={() => {}}
+          />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "send-thread",
+              tool: "send_message_to_thread",
+              completed: true,
+              args: { threadId: "thread-story" },
+            })}
+            onOpenThread={() => {}}
+          />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "handoff-status",
+              tool: "get_handoff_status",
+              completed: true,
+              args: { operationId: "handoff-1" },
+            })}
+          />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "pin-thread",
+              tool: "set_thread_pinned",
+              completed: true,
+            })}
+          />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "archive-thread",
+              tool: "set_thread_archived",
+              completed: false,
+            })}
+          />
+          <DynamicToolCall
+            item={buildCodexAppMetaDynamicStoryItem({
+              id: "title-thread",
+              tool: "set_thread_title",
+              completed: true,
+            })}
+          />
         </div>
       </ConversationStorySurface>
     </StorySurface>
@@ -2105,48 +2191,68 @@ export const DynamicToolRegistryRenderers: Story = {
     >
       <ConversationStorySurface>
         <div className="flex flex-col gap-1">
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "settings-read-active",
-            namespace: "codex_app",
-            tool: "read_settings",
-            completed: false,
-          })} />
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "settings-write-completed",
-            namespace: "codex_app",
-            tool: "write_settings",
-            completed: true,
-          })} />
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "chrome-tab-context-active",
-            namespace: "chrome_extension",
-            tool: "get_tab_context",
-            completed: false,
-            args: { tabId: 8 },
-          })} />
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "chrome-tab-context-invalid",
-            namespace: "chrome_extension",
-            tool: "get_tab_context",
-            completed: true,
-            args: { tabId: -1 },
-          })} />
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "handoff-running-steps",
-            namespace: "codex_app",
-            tool: "handoff_thread",
-            completed: true,
-            args: { threadId: "thread-story" },
-            contentText: JSON.stringify({
-              destinationHostDisplayName: "Local",
-              operationId: "handoff-running-steps",
-              status: "running",
-              steps: [
-                { id: "resolve-thread", label: "Resolve thread", status: "success", message: null },
-                { id: "handoff", label: "Move thread", status: "running", message: "Preparing thread handoff." },
-              ],
-            }),
-          })} />
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "settings-read-active",
+              namespace: "codex_app",
+              tool: "read_settings",
+              completed: false,
+            })}
+          />
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "settings-write-completed",
+              namespace: "codex_app",
+              tool: "write_settings",
+              completed: true,
+            })}
+          />
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "chrome-tab-context-active",
+              namespace: "chrome_extension",
+              tool: "get_tab_context",
+              completed: false,
+              args: { tabId: 8 },
+            })}
+          />
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "chrome-tab-context-invalid",
+              namespace: "chrome_extension",
+              tool: "get_tab_context",
+              completed: true,
+              args: { tabId: -1 },
+            })}
+          />
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "handoff-running-steps",
+              namespace: "codex_app",
+              tool: "handoff_thread",
+              completed: true,
+              args: { threadId: "thread-story" },
+              contentText: JSON.stringify({
+                destinationHostDisplayName: "Local",
+                operationId: "handoff-running-steps",
+                status: "running",
+                steps: [
+                  {
+                    id: "resolve-thread",
+                    label: "Resolve thread",
+                    status: "success",
+                    message: null,
+                  },
+                  {
+                    id: "handoff",
+                    label: "Move thread",
+                    status: "running",
+                    message: "Preparing thread handoff.",
+                  },
+                ],
+              }),
+            })}
+          />
         </div>
       </ConversationStorySurface>
     </StorySurface>
@@ -2167,7 +2273,12 @@ const HANDOFF_STORY_STATES = [
     status: "running",
     steps: [
       { id: "resolve-thread", label: "Resolve task", status: "success", message: null },
-      { id: "prepare", label: "Prepare destination", status: "running", message: "Transferring worktree state." },
+      {
+        id: "prepare",
+        label: "Prepare destination",
+        status: "running",
+        message: "Transferring worktree state.",
+      },
       { id: "commit", label: "Commit task location", status: "queued", message: null },
     ],
   },
@@ -2186,7 +2297,12 @@ const HANDOFF_STORY_STATES = [
     steps: [
       { id: "resolve-thread", label: "Resolve task", status: "success", message: null },
       { id: "commit", label: "Commit task location", status: "success", message: null },
-      { id: "cleanup", label: "Clean up source", status: "warning", message: "Cleanup can be retried." },
+      {
+        id: "cleanup",
+        label: "Clean up source",
+        status: "warning",
+        message: "Cleanup can be retried.",
+      },
     ],
   },
   {
@@ -2194,7 +2310,12 @@ const HANDOFF_STORY_STATES = [
     status: "error",
     steps: [
       { id: "resolve-thread", label: "Resolve task", status: "success", message: null },
-      { id: "prepare", label: "Prepare destination", status: "error", message: "Destination is offline." },
+      {
+        id: "prepare",
+        label: "Prepare destination",
+        status: "error",
+        message: "Destination is offline.",
+      },
       { id: "commit", label: "Commit task location", status: "queued", message: null },
     ],
   },
@@ -2241,29 +2362,35 @@ export const DynamicToolCallFallbackRows: Story = {
     >
       <ConversationStorySurface>
         <div className="flex flex-col gap-1">
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "fallback-load-workspace-dependencies",
-            namespace: "codex_app",
-            tool: "load_workspace_dependencies",
-            completed: true,
-            args: { includeLibraries: true },
-            contentText: "{\"node\":\"/tmp/node\"}",
-          })} />
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "fallback-automation-update",
-            namespace: "codex_app",
-            tool: "automation_update",
-            completed: false,
-            args: { action: "install" },
-          })} />
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "fallback-external-tool",
-            namespace: "example_connector",
-            tool: "inspect_project_graph",
-            completed: true,
-            args: { depth: 2 },
-            contentText: "done",
-          })} />
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "fallback-load-workspace-dependencies",
+              namespace: "codex_app",
+              tool: "load_workspace_dependencies",
+              completed: true,
+              args: { includeLibraries: true },
+              contentText: '{"node":"/tmp/node"}',
+            })}
+          />
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "fallback-automation-update",
+              namespace: "codex_app",
+              tool: "automation_update",
+              completed: false,
+              args: { action: "install" },
+            })}
+          />
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "fallback-external-tool",
+              namespace: "example_connector",
+              tool: "inspect_project_graph",
+              completed: true,
+              args: { depth: 2 },
+              contentText: "done",
+            })}
+          />
           <DynamicToolCall item={buildDynamicAudioStoryItem()} />
         </div>
       </ConversationStorySurface>
@@ -2279,79 +2406,89 @@ export const NodexDynamicToolCalls: Story = {
     >
       <ConversationStorySurface>
         <div className="flex flex-col gap-3">
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "nodex-search",
-            namespace: "nodex_app",
-            tool: "search",
-            completed: true,
-            args: { query: "migrtion", target: "pages", scope: { kind: "project" } },
-            contentText: JSON.stringify({
-              schemaVersion: 1,
-              data: {
-                target: "pages",
-                results: [
-                  { kind: "page", blockId: "card-1", title: "Migration plan" },
-                  { kind: "page", blockId: "card-2", title: "Migration checklist" },
-                ],
-              },
-            }),
-          })} />
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "nodex-create-cards",
-            namespace: "nodex_app",
-            tool: "create_pages",
-            completed: true,
-            args: {
-              destination: { kind: "library" },
-              pages: [{
-                title: "Migration plan",
-                markdown: "# Migration plan\n\n## Checklist\n- [ ] Back up data",
-              }],
-            },
-            contentText: JSON.stringify({
-              data: {
-                pages: [{
-                  pageId: "card-migration-plan",
-                  location: { kind: "library", libraryId: "library-story" },
-                  bodyBlocksCreated: 3,
-                }],
-                created: 1,
-              },
-            }),
-          })} />
-          <DynamicToolCall item={buildGenericDynamicStoryItem({
-            id: "nodex-update-card",
-            namespace: "nodex_app",
-            tool: "update_page",
-            completed: true,
-            args: {
-              pageId: "card-migration-plan",
-              body: {
-                kind: "patch",
-                patches: [
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "nodex-search",
+              namespace: "nodex_app",
+              tool: "search",
+              completed: true,
+              args: { query: "migrtion", target: "pages", scope: { kind: "project" } },
+              contentText: JSON.stringify({
+                schemaVersion: 1,
+                data: {
+                  target: "pages",
+                  results: [
+                    { kind: "page", blockId: "card-1", title: "Migration plan" },
+                    { kind: "page", blockId: "card-2", title: "Migration checklist" },
+                  ],
+                },
+              }),
+            })}
+          />
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "nodex-create-cards",
+              namespace: "nodex_app",
+              tool: "create_pages",
+              completed: true,
+              args: {
+                destination: { kind: "library" },
+                pages: [
                   {
-                    oldMarkdown: "## Draft\n- [ ] Back up data",
-                    newMarkdown: "## Ready\n- [x] Back up data",
-                  },
-                  {
-                    oldMarkdown: "Owner: TBD",
-                    newMarkdown: "Owner: Ada",
+                    title: "Migration plan",
+                    markdown: "# Migration plan\n\n## Checklist\n- [ ] Back up data",
                   },
                 ],
               },
-            },
-            contentText: JSON.stringify({
-              data: {
+              contentText: JSON.stringify({
+                data: {
+                  pages: [
+                    {
+                      pageId: "card-migration-plan",
+                      location: { kind: "library", libraryId: "library-story" },
+                      bodyBlocksCreated: 3,
+                    },
+                  ],
+                  created: 1,
+                },
+              }),
+            })}
+          />
+          <DynamicToolCall
+            item={buildGenericDynamicStoryItem({
+              id: "nodex-update-card",
+              namespace: "nodex_app",
+              tool: "update_page",
+              completed: true,
+              args: {
                 pageId: "card-migration-plan",
-                effects: {
-                  created: 0,
-                  updated: 3,
-                  moved: 0,
-                  deleted: 0,
+                body: {
+                  kind: "patch",
+                  patches: [
+                    {
+                      oldMarkdown: "## Draft\n- [ ] Back up data",
+                      newMarkdown: "## Ready\n- [x] Back up data",
+                    },
+                    {
+                      oldMarkdown: "Owner: TBD",
+                      newMarkdown: "Owner: Ada",
+                    },
+                  ],
                 },
               },
-            }),
-          })} />
+              contentText: JSON.stringify({
+                data: {
+                  pageId: "card-migration-plan",
+                  effects: {
+                    created: 0,
+                    updated: 3,
+                    moved: 0,
+                    deleted: 0,
+                  },
+                },
+              }),
+            })}
+          />
         </div>
       </ConversationStorySurface>
     </StorySurface>
@@ -2367,43 +2504,47 @@ export const DynamicToolCallAutomationUpdatePages: Story = {
       <ConversationStorySurface>
         <DynamicToolQueryStoryProvider>
           <div className="flex flex-col gap-2">
-            <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-              id: "automation-suggested-create",
-              tool: "automation_update",
-              completed: true,
-              args: {
-                mode: "suggested_create",
-                kind: "cron",
-                status: "ACTIVE",
-                name: "Review release notes",
-                prompt: "Review release notes and summarize risks.",
-                rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
-                cwds: "/Users/asc/repo/nodex",
-                executionEnvironment: "worktree",
-                localEnvironmentConfigPath: null,
-                model: "gpt-5-codex",
-                reasoningEffort: "medium",
-              },
-            })} />
-            <DynamicToolCall item={buildCodexAppMetaDynamicStoryItem({
-              id: "automation-suggested-update",
-              tool: "automation_update",
-              completed: true,
-              args: {
-                mode: "suggested_update",
-                id: "automation-standup",
-                kind: "cron",
-                status: "ACTIVE",
-                name: "Morning standup",
-                prompt: "Summarize overnight changes and blockers.",
-                rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0",
-                cwds: ["/Users/asc/repo/nodex"],
-                executionEnvironment: "worktree",
-                localEnvironmentConfigPath: null,
-                model: "gpt-5-codex",
-                reasoningEffort: "medium",
-              },
-            })} />
+            <DynamicToolCall
+              item={buildCodexAppMetaDynamicStoryItem({
+                id: "automation-suggested-create",
+                tool: "automation_update",
+                completed: true,
+                args: {
+                  mode: "suggested_create",
+                  kind: "cron",
+                  status: "ACTIVE",
+                  name: "Review release notes",
+                  prompt: "Review release notes and summarize risks.",
+                  rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0",
+                  cwds: "/Users/asc/repo/nodex",
+                  executionEnvironment: "worktree",
+                  localEnvironmentConfigPath: null,
+                  model: "gpt-5-codex",
+                  reasoningEffort: "medium",
+                },
+              })}
+            />
+            <DynamicToolCall
+              item={buildCodexAppMetaDynamicStoryItem({
+                id: "automation-suggested-update",
+                tool: "automation_update",
+                completed: true,
+                args: {
+                  mode: "suggested_update",
+                  id: "automation-standup",
+                  kind: "cron",
+                  status: "ACTIVE",
+                  name: "Morning standup",
+                  prompt: "Summarize overnight changes and blockers.",
+                  rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0",
+                  cwds: ["/Users/asc/repo/nodex"],
+                  executionEnvironment: "worktree",
+                  localEnvironmentConfigPath: null,
+                  model: "gpt-5-codex",
+                  reasoningEffort: "medium",
+                },
+              })}
+            />
             <DynamicToolCall
               item={buildCodexAppMetaDynamicStoryItem({
                 id: "automation-created",
@@ -2422,7 +2563,7 @@ export const DynamicToolCallAutomationUpdatePages: Story = {
                   model: "gpt-5-codex",
                   reasoningEffort: "medium",
                 },
-                contentText: "{\"automationId\":\"automation-release\",\"mode\":\"create\"}",
+                contentText: '{"automationId":"automation-release","mode":"create"}',
               })}
               onOpenSummaryScheduledAutomation={() => undefined}
             />
@@ -2433,21 +2574,13 @@ export const DynamicToolCallAutomationUpdatePages: Story = {
   ),
 };
 
-function CrossThemeLeafMatrixRow({
-  children,
-  family,
-}: {
-  children: ReactNode;
-  family: string;
-}) {
+function CrossThemeLeafMatrixRow({ children, family }: { children: ReactNode; family: string }) {
   return (
     <section
       className="border-t-[0.5px] border-token-border py-3 first:border-t-0"
       data-cross-theme-leaf-family={family}
     >
-      <div className="mb-1.5 text-xs font-medium text-token-description-foreground">
-        {family}
-      </div>
+      <div className="mb-1.5 text-xs font-medium text-token-description-foreground">{family}</div>
       {children}
     </section>
   );
@@ -2503,7 +2636,8 @@ function CrossThemeLeafBodyMatrix() {
         <header className="mb-2">
           <h1 className="text-sm font-medium">Tool activity leaf-body matrix</h1>
           <p className="mt-0.5 text-xs text-token-description-foreground">
-            Switch the Storybook theme between Light and Dark to review the core groupable families on the production renderer.
+            Switch the Storybook theme between Light and Dark to review the core groupable families
+            on the production renderer.
           </p>
         </header>
 

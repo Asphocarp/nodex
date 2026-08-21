@@ -1,72 +1,40 @@
-import type {
-  Dispatch,
-  SetStateAction,
-} from "react";
-import {
-  copyConversationMarkdown,
-} from "@/features/local-conversation/copy-conversation-markdown";
-import type {
-  useWorkbenchPanelCommandRouter,
-} from "@/lib/use-workbench-panel-command-router";
-import type {
-  useWorkbenchPanelOpeners,
-} from "@/lib/use-workbench-panel-openers";
-import type {
-  useWorkbenchSessionCommands,
-} from "@/lib/use-workbench-session-commands";
-import type {
-  WorkbenchSessionRenderProjection,
-} from "@/lib/workbench-session-presentation";
-import type {
-  Project,
-} from "@/lib/types";
-import type {
-  RecentPageSession,
-} from "@/lib/use-workbench-profile-preferences";
-import type {
-  WorkbenchNavigationDirection,
-} from "../../../shared/window-navigation";
+import type { Dispatch, SetStateAction } from "react";
+import { copyConversationMarkdown } from "@/features/local-conversation/copy-conversation-markdown";
+import type { useWorkbenchPanelCommandRouter } from "@/lib/use-workbench-panel-command-router";
+import type { useWorkbenchPanelOpeners } from "@/lib/use-workbench-panel-openers";
+import type { useWorkbenchSessionCommands } from "@/lib/use-workbench-session-commands";
+import type { WorkbenchSessionRenderProjection } from "@/lib/workbench-session-presentation";
+import type { Project } from "@/lib/types";
+import type { RecentPageSession } from "@/lib/use-workbench-profile-preferences";
+import type { WorkbenchNavigationDirection } from "../../../shared/window-navigation";
 import {
   CREATE_PAGE_COMMAND_ID,
   TOGGLE_BOTTOM_PANEL_COMMAND_ID,
   type WorkbenchCommandInvocation,
 } from "../../../shared/workbench-commands";
-import type {
-  CommandKeymapState,
-} from "../../../shared/command-keybindings";
-import type {
-  CommandMenuMode,
-} from "@/lib/command-palette";
+import type { CommandKeymapState } from "../../../shared/command-keybindings";
+import type { CommandMenuMode } from "@/lib/command-palette";
 import type {
   CommandPaletteShellCommandContext,
   CommandPaletteShellCommandHandlers,
 } from "@/lib/command-palette-commands";
-import type {
-  useWorkbenchSidebarController,
-} from "./use-workbench-sidebar-controller";
+import type { useWorkbenchSidebarController } from "./use-workbench-sidebar-controller";
 import { CommandPalette } from "./command-palette";
 import { usePageCreateTargetResolution } from "@/lib/page-create-target-registry";
 
 type ProjectSession = WorkbenchSessionRenderProjection;
 type SessionCommands = Pick<
   ReturnType<typeof useWorkbenchSessionCommands>,
-  | "openAttachedThreadSession"
-  | "requestContentSearchOpen"
-  | "startNewChatInProject"
+  "openAttachedThreadSession" | "requestContentSearchOpen" | "startNewChatInProject"
 >;
 type PanelCommands = Pick<
   ReturnType<typeof useWorkbenchPanelCommandRouter>,
   "dispatchPanelAction" | "resolveActivePanelCapabilities"
 >;
-type PanelOpeners = Pick<
-  ReturnType<typeof useWorkbenchPanelOpeners>,
-  "openPageTab"
->;
+type PanelOpeners = Pick<ReturnType<typeof useWorkbenchPanelOpeners>, "openPageTab">;
 type SidebarCommands = Pick<
   ReturnType<typeof useWorkbenchSidebarController>,
-  | "archiveSession"
-  | "openRenameSessionDialog"
-  | "toggleSessionPin"
+  "archiveSession" | "openRenameSessionDialog" | "toggleSessionPin"
 >;
 
 interface WorkbenchCommandPaletteHostProps {
@@ -89,21 +57,15 @@ interface WorkbenchCommandPaletteHostProps {
   readonly panelOpeners: PanelOpeners;
   readonly sidebarCommands: SidebarCommands;
   readonly setOpen: Dispatch<SetStateAction<boolean>>;
-  readonly executeNavigation: (
-    direction: WorkbenchNavigationDirection,
-  ) => void;
-  readonly executeWorkbenchCommand: (
-    invocation: WorkbenchCommandInvocation,
-  ) => void;
+  readonly executeNavigation: (direction: WorkbenchNavigationDirection) => void;
+  readonly executeWorkbenchCommand: (invocation: WorkbenchCommandInvocation) => void;
   readonly toggleSidebar: () => void;
   readonly toggleSidePanel: () => void;
   readonly openAutomations: () => void;
   readonly openProcessManager: () => void;
   readonly openSettings: () => void;
   readonly openKeyboardShortcuts: () => void;
-  readonly onOpenSessionInNewWindow?: (
-    session: ProjectSession,
-  ) => Promise<void>;
+  readonly onOpenSessionInNewWindow?: (session: ProjectSession) => Promise<void>;
 }
 
 export function WorkbenchCommandPaletteHost({
@@ -132,29 +94,25 @@ export function WorkbenchCommandPaletteHost({
   openKeyboardShortcuts,
   onOpenSessionInNewWindow,
 }: WorkbenchCommandPaletteHostProps) {
-  const pageCreateTargetResolution = usePageCreateTargetResolution(
-    activeProjectId,
-  );
-  const panelCapabilities =
-    panelCommands.resolveActivePanelCapabilities("right");
-  const commandContext: Omit<
-    CommandPaletteShellCommandContext,
-    "isMac" | "showMockCommands"
-  > = {
+  const pageCreateTargetResolution = usePageCreateTargetResolution(activeProjectId);
+  const panelCapabilities = panelCommands.resolveActivePanelCapabilities("right");
+  const commandContext: Omit<CommandPaletteShellCommandContext, "isMac" | "showMockCommands"> = {
     canGoBack: canNavigateBack,
     canGoForward: canNavigateForward,
     canStartNewChat: true,
     canStartNewChatInProject: Boolean(activeProjectId),
-    pageCreateUnavailableReason: pageCreateTargetResolution.status === "unavailable"
-      ? pageCreateTargetResolution.reason
-      : null,
+    pageCreateUnavailableReason:
+      pageCreateTargetResolution.status === "unavailable"
+        ? pageCreateTargetResolution.reason
+        : null,
     hasActiveSession: Boolean(activeSession),
     activeSessionPinned: activeSession?.pinned ?? false,
     hasAttachedThread: Boolean(activeSession?.thread),
     panelActionAvailability: Object.fromEntries(
-      Object.entries(panelCapabilities.actions).map(
-        ([kind, capability]) => [kind, capability.available],
-      ),
+      Object.entries(panelCapabilities.actions).map(([kind, capability]) => [
+        kind,
+        capability.available,
+      ]),
     ) as CommandPaletteShellCommandContext["panelActionAvailability"],
     canOpenSessionInNewWindow,
     commandKeymapState,
@@ -190,8 +148,7 @@ export function WorkbenchCommandPaletteHost({
       if (!activeSession?.thread) return;
       void copyConversationMarkdown({
         conversationId: activeSession.thread.threadId,
-        parentConversationId:
-          activeSession.thread.parentThreadId ?? null,
+        parentConversationId: activeSession.thread.parentThreadId ?? null,
         title: activeSession.displayTitle,
       });
     },
@@ -212,22 +169,13 @@ export function WorkbenchCommandPaletteHost({
       });
     },
     toggleFileTreePanel: () => {
-      void panelCommands.dispatchPanelAction(
-        "files",
-        { panelId: "right" },
-      );
+      void panelCommands.dispatchPanelAction("files", { panelId: "right" });
     },
     openBrowserTab: () => {
-      void panelCommands.dispatchPanelAction(
-        "browser",
-        { panelId: "right" },
-      );
+      void panelCommands.dispatchPanelAction("browser", { panelId: "right" });
     },
     openReviewTab: () => {
-      void panelCommands.dispatchPanelAction(
-        "review",
-        { panelId: "right" },
-      );
+      void panelCommands.dispatchPanelAction("review", { panelId: "right" });
     },
     toggleTerminal: () => {
       void panelCommands.dispatchPanelAction("terminal", {
@@ -236,22 +184,14 @@ export function WorkbenchCommandPaletteHost({
       });
     },
     openDbViewTab: () => {
-      void panelCommands.dispatchPanelAction(
-        "db_view",
-        { panelId: "right" },
-      );
+      void panelCommands.dispatchPanelAction("db_view", { panelId: "right" });
     },
     openSideChat: () => {
-      void panelCommands.dispatchPanelAction(
-        "side_chat",
-        { panelId: "right" },
-      );
+      void panelCommands.dispatchPanelAction("side_chat", { panelId: "right" });
     },
     findInThread: () => {
       setOpen(false);
-      sessionCommands.requestContentSearchOpen(
-        "command_palette",
-      );
+      sessionCommands.requestContentSearchOpen("command_palette");
     },
     manageTasks: openAutomations,
     openProcessManager,
@@ -272,11 +212,7 @@ export function WorkbenchCommandPaletteHost({
       commandHandlers={commandHandlers}
       onOpenChange={setOpen}
       onOpenPage={(projectId, pageId, titleSnapshot) => {
-        void panelOpeners.openPageTab(
-          projectId,
-          pageId,
-          titleSnapshot,
-        );
+        void panelOpeners.openPageTab(projectId, pageId, titleSnapshot);
       }}
       onOpenThread={sessionCommands.openAttachedThreadSession}
     />

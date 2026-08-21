@@ -18,9 +18,7 @@ export interface WindowSessionBounds {
   mode: "normal" | "maximized" | "fullscreen";
 }
 
-export type WindowSessionLifecycle =
-  | { state: "open" }
-  | { state: "closed"; closedAt: string };
+export type WindowSessionLifecycle = { state: "open" } | { state: "closed"; closedAt: string };
 
 export interface WindowSessionRecord {
   id: string;

@@ -46,8 +46,7 @@ function pendingWorktreeFor(
     return {
       clientThreadId: "client-1",
       statusLabel: "Setup failed",
-      composerBlockedReason:
-        "Resolve the failed worktree setup before starting this chat again",
+      composerBlockedReason: "Resolve the failed worktree setup before starting this chat again",
       attention: "request",
     };
   }

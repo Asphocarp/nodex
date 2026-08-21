@@ -18,10 +18,7 @@ const listeners = new Set<() => void>();
 let stopSubscription: (() => void) | null = null;
 let hydrationPromise: Promise<void> | null = null;
 
-function buildKey(
-  conversationId: string,
-  requestId: CodexProtocolRequestId,
-): string {
+function buildKey(conversationId: string, requestId: CodexProtocolRequestId): string {
   return `${conversationId}:${buildCodexCanonicalRequestIdentityKey(requestId)}`;
 }
 
@@ -31,10 +28,7 @@ function notify(): void {
 
 function applyChange(change: CodexUserInputAutoResolutionChange): void {
   if (change.type === "updated") {
-    entries.set(
-      buildKey(change.entry.conversationId, change.entry.requestId),
-      change.entry,
-    );
+    entries.set(buildKey(change.entry.conversationId, change.entry.requestId), change.entry);
     notify();
     return;
   }
@@ -48,9 +42,10 @@ function ensureStarted(): void {
   if (stopSubscription) return;
   let changedDuringHydration: Set<string> | null = new Set<string>();
   stopSubscription = subscribeUserInputAutoResolutionChanges((change) => {
-    const key = change.type === "updated"
-      ? buildKey(change.entry.conversationId, change.entry.requestId)
-      : buildKey(change.conversationId, change.requestId);
+    const key =
+      change.type === "updated"
+        ? buildKey(change.entry.conversationId, change.entry.requestId)
+        : buildKey(change.conversationId, change.requestId);
     changedDuringHydration?.add(key);
     applyChange(change);
   });
@@ -96,9 +91,7 @@ export function useUserInputAutoResolution(
   return entry;
 }
 
-export async function recordUserInputActivity(
-  conversationId: string,
-): Promise<void> {
+export async function recordUserInputActivity(conversationId: string): Promise<void> {
   await recordUserInputAutoResolutionActivity(conversationId);
 }
 
@@ -118,9 +111,7 @@ export async function isUserInputAutoResolutionTracked(
 ): Promise<boolean> {
   const key = buildKey(conversationId, requestId);
   const snapshot = await getUserInputAutoResolutionSnapshot();
-  return snapshot.some((entry) =>
-    buildKey(entry.conversationId, entry.requestId) === key
-  );
+  return snapshot.some((entry) => buildKey(entry.conversationId, entry.requestId) === key);
 }
 
 export function resetUserInputAutoResolutionStateForTests(): void {

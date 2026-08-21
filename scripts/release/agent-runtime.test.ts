@@ -40,11 +40,13 @@ test("Agent runtime publication rejects a tag for a different source commit", ()
   writeFileSync(arm64, "arm64");
   writeFileSync(x64, "x64");
 
-  expect(() => agentRuntimeReleaseArguments({
-    arm64Path: arm64,
-    repo: "junyudev/nodex",
-    sourceCommit: "855ab60c0e10dac6bc89f3e248cba3746d44f034",
-    tag: "agent-runtime-v0.146.0-00000000",
-    x64Path: x64,
-  })).toThrow("does not identify its source commit");
+  expect(() =>
+    agentRuntimeReleaseArguments({
+      arm64Path: arm64,
+      repo: "junyudev/nodex",
+      sourceCommit: "855ab60c0e10dac6bc89f3e248cba3746d44f034",
+      tag: "agent-runtime-v0.146.0-00000000",
+      x64Path: x64,
+    }),
+  ).toThrow("does not identify its source commit");
 });

@@ -14,23 +14,22 @@ export const primaryCanvasBlockId = (projectId: string): string =>
 export const primaryCanvasDocumentId = (projectId: string): string =>
   `${PRIMARY_CANVAS_DOCUMENT_PREFIX}${projectId}`;
 
-const isCanonicalPrimaryIdentity = (
-  value: string,
-  prefix: string,
-): boolean => {
+const isCanonicalPrimaryIdentity = (value: string, prefix: string): boolean => {
   if (
-    value.length <= prefix.length
-    || value.length > MAX_CANVAS_IDENTITY_LENGTH
-    || value !== value.trim()
-    || /[\u0000-\u001f\u007f]/u.test(value)
-    || !value.startsWith(prefix)
+    value.length <= prefix.length ||
+    value.length > MAX_CANVAS_IDENTITY_LENGTH ||
+    value !== value.trim() ||
+    /[\u0000-\u001f\u007f]/u.test(value) ||
+    !value.startsWith(prefix)
   ) {
     return false;
   }
   const projectId = value.slice(prefix.length);
-  return projectId.length > 0
-    && projectId === projectId.trim()
-    && !/[\u0000-\u001f\u007f]/u.test(projectId);
+  return (
+    projectId.length > 0 &&
+    projectId === projectId.trim() &&
+    !/[\u0000-\u001f\u007f]/u.test(projectId)
+  );
 };
 
 export const isPrimaryCanvasBlockId = (value: string): boolean =>
@@ -39,20 +38,14 @@ export const isPrimaryCanvasBlockId = (value: string): boolean =>
 export const isPrimaryCanvasDocumentId = (value: string): boolean =>
   isCanonicalPrimaryIdentity(value, PRIMARY_CANVAS_DOCUMENT_PREFIX);
 
-export const assertExistingCanvasBlockId = (
-  value: string,
-  label = "canvasId",
-): string => {
+export const assertExistingCanvasBlockId = (value: string, label = "canvasId"): string => {
   if (isUuidV7(value) || isPrimaryCanvasBlockId(value)) return value;
   throw new Error(
     `Invalid ${label}: expected canonical lowercase UUID-v7 or primary Canvas Block ID`,
   );
 };
 
-export const assertExistingCanvasDocumentId = (
-  value: string,
-  label = "documentId",
-): string => {
+export const assertExistingCanvasDocumentId = (value: string, label = "documentId"): string => {
   if (isUuidV7(value) || isPrimaryCanvasDocumentId(value)) return value;
   throw new Error(
     `Invalid ${label}: expected canonical lowercase UUID-v7 or primary Canvas Document ID`,

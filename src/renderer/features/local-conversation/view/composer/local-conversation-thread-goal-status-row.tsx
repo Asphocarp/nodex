@@ -1,4 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2";
 import {
   GoalChevronRightIcon,
@@ -45,19 +52,17 @@ function resolveThreadGoalToggleTarget(status: ThreadGoal["status"]): ThreadGoal
 }
 
 function resolveThreadGoalMetaText(goal: ThreadGoal, nowMs: number): string {
-  if (
-    goal.tokenBudget !== null &&
-    (goal.status === "active" || goal.status === "budgetLimited")
-  ) {
+  if (goal.tokenBudget !== null && (goal.status === "active" || goal.status === "budgetLimited")) {
     return formatThreadGoalTokenProgress({
       used: goal.tokensUsed,
       budget: goal.tokenBudget,
     });
   }
 
-  const elapsedMs = goal.status === "active"
-    ? (goal.timeUsedSeconds * 1000) + nowMs - (goal.updatedAt * 1000)
-    : goal.timeUsedSeconds * 1000;
+  const elapsedMs =
+    goal.status === "active"
+      ? goal.timeUsedSeconds * 1000 + nowMs - goal.updatedAt * 1000
+      : goal.timeUsedSeconds * 1000;
   return formatWorkedForTimeLabel(elapsedMs) ?? "0s";
 }
 
@@ -82,11 +87,7 @@ function useThreadGoalNowMs(ticking: boolean): number {
   return nowMs;
 }
 
-function useIsObjectiveTruncated({
-  disabled,
-}: {
-  disabled: boolean;
-}) {
+function useIsObjectiveTruncated({ disabled }: { disabled: boolean }) {
   const [element, setElement] = useState<HTMLSpanElement | null>(null);
   const [isTruncated, setIsTruncated] = useState(false);
 
@@ -98,7 +99,7 @@ function useIsObjectiveTruncated({
 
     const update = () => {
       const nextIsTruncated = element.scrollWidth > element.clientWidth;
-      setIsTruncated((current) => current === nextIsTruncated ? current : nextIsTruncated);
+      setIsTruncated((current) => (current === nextIsTruncated ? current : nextIsTruncated));
     };
 
     update();
@@ -173,7 +174,8 @@ function ThreadGoalEditDialog({
   }, [initialObjective, open]);
 
   const trimmedObjective = objective.trim();
-  const canSave = !pending && trimmedObjective.length > 0 && trimmedObjective !== initialObjective.trim();
+  const canSave =
+    !pending && trimmedObjective.length > 0 && trimmedObjective !== initialObjective.trim();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -214,10 +216,7 @@ function ThreadGoalEditDialog({
             />
           </NodexDialogBody>
           <NodexDialogFooter>
-            <NodexDialogAction
-              disabled={pending}
-              onClick={() => onOpenChange(false)}
-            >
+            <NodexDialogAction disabled={pending} onClick={() => onOpenChange(false)}>
               {getThreadGoalMessage("composer.threadGoal.editDialog.cancel")}
             </NodexDialogAction>
             <NodexDialogAction tone="primary" type="submit" disabled={!canSave}>
@@ -251,7 +250,10 @@ export function ThreadGoalStatusRow({
   });
   const nowMs = useThreadGoalNowMs(goal?.status === "active");
   const toggleTarget = goal ? resolveThreadGoalToggleTarget(goal.status) : null;
-  const metaText = useMemo(() => goal ? resolveThreadGoalMetaText(goal, nowMs) : "", [goal, nowMs]);
+  const metaText = useMemo(
+    () => (goal ? resolveThreadGoalMetaText(goal, nowMs) : ""),
+    [goal, nowMs],
+  );
 
   useEffect(() => {
     if (!hasGoal) {
@@ -335,12 +337,14 @@ export function ThreadGoalStatusRow({
     }
   };
 
-  const toggleTooltip = toggleTarget === "paused"
-    ? getThreadGoalMessage("composer.threadGoal.pauseTooltip")
-    : getThreadGoalMessage("composer.threadGoal.resumeTooltip");
-  const toggleLabel = toggleTarget === "paused"
-    ? getThreadGoalMessage("composer.threadGoal.pause")
-    : getThreadGoalMessage("composer.threadGoal.resume");
+  const toggleTooltip =
+    toggleTarget === "paused"
+      ? getThreadGoalMessage("composer.threadGoal.pauseTooltip")
+      : getThreadGoalMessage("composer.threadGoal.resumeTooltip");
+  const toggleLabel =
+    toggleTarget === "paused"
+      ? getThreadGoalMessage("composer.threadGoal.pause")
+      : getThreadGoalMessage("composer.threadGoal.resume");
 
   return (
     <div className="order-2 flex min-w-0 flex-col" data-thread-goal-status-row="true">
@@ -392,9 +396,11 @@ export function ThreadGoalStatusRow({
                   void handleSetStatus();
                 }}
               >
-                {toggleTarget === "paused"
-                  ? <GoalPauseIcon className="icon-2xs" />
-                  : <GoalResumeIcon className="icon-2xs" />}
+                {toggleTarget === "paused" ? (
+                  <GoalPauseIcon className="icon-2xs" />
+                ) : (
+                  <GoalResumeIcon className="icon-2xs" />
+                )}
               </ThreadGoalRowIconButton>
             ) : null}
             <ThreadGoalRowIconButton
@@ -410,18 +416,24 @@ export function ThreadGoalStatusRow({
             </ThreadGoalRowIconButton>
             {isObjectiveTruncated || isExpanded ? (
               <ThreadGoalRowIconButton
-                ariaLabel={isExpanded
-                  ? getThreadGoalMessage("composer.threadGoal.collapseObjective")
-                  : getThreadGoalMessage("composer.threadGoal.expandObjective")}
-                tooltip={isExpanded
-                  ? getThreadGoalMessage("composer.threadGoal.collapseObjectiveTooltip")
-                  : getThreadGoalMessage("composer.threadGoal.expandObjectiveTooltip")}
+                ariaLabel={
+                  isExpanded
+                    ? getThreadGoalMessage("composer.threadGoal.collapseObjective")
+                    : getThreadGoalMessage("composer.threadGoal.expandObjective")
+                }
+                tooltip={
+                  isExpanded
+                    ? getThreadGoalMessage("composer.threadGoal.collapseObjectiveTooltip")
+                    : getThreadGoalMessage("composer.threadGoal.expandObjectiveTooltip")
+                }
                 ariaExpanded={isExpanded}
                 onClick={() => {
                   setExpandedObjective(isExpanded ? null : goal.objective);
                 }}
               >
-                <GoalChevronRightIcon className={cn("icon-2xs transition-transform", isExpanded && "rotate-90")} />
+                <GoalChevronRightIcon
+                  className={cn("icon-2xs transition-transform", isExpanded && "rotate-90")}
+                />
               </ThreadGoalRowIconButton>
             ) : null}
           </div>

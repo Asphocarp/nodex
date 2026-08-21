@@ -44,7 +44,11 @@ export function resolvePanelTabCloseReplacement(input: PanelTabCloseRoutingInput
   );
   if (candidates.size === 0) return null;
 
-  if (input.activeTabId && input.activeTabId !== input.closingTabId && candidates.has(input.activeTabId)) {
+  if (
+    input.activeTabId &&
+    input.activeTabId !== input.closingTabId &&
+    candidates.has(input.activeTabId)
+  ) {
     return input.activeTabId;
   }
 

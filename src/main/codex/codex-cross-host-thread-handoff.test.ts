@@ -13,9 +13,11 @@ const run = promisify(execFile);
 const roots: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(roots.splice(0).map(async (root) => {
-    await rm(root, { recursive: true, force: true });
-  }));
+  await Promise.all(
+    roots.splice(0).map(async (root) => {
+      await rm(root, { recursive: true, force: true });
+    }),
+  );
 });
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
@@ -121,23 +123,31 @@ describe("CodexCrossHostThreadHandoffService", () => {
     });
 
     expect(allocated).toEqual([prepared.managedWorktreePath]);
-    await expect(readFile(path.join(prepared.destinationWorkspaceRoot, "tracked.txt"), "utf8"))
-      .resolves.toBe("moved\n");
-    await expect(readFile(path.join(prepared.destinationWorkspaceRoot, "untracked.txt"), "utf8"))
-      .resolves.toBe("untracked\n");
-    await expect(readFile(prepared.destinationRollout.path, "utf8"))
-      .resolves.toBe('{"type":"session_meta","id":"thread"}\n');
+    await expect(
+      readFile(path.join(prepared.destinationWorkspaceRoot, "tracked.txt"), "utf8"),
+    ).resolves.toBe("moved\n");
+    await expect(
+      readFile(path.join(prepared.destinationWorkspaceRoot, "untracked.txt"), "utf8"),
+    ).resolves.toBe("untracked\n");
+    await expect(readFile(prepared.destinationRollout.path, "utf8")).resolves.toBe(
+      '{"type":"session_meta","id":"thread"}\n',
+    );
 
     await expect(service.cleanup(prepared, "committed")).resolves.toEqual([]);
-    await expect(readFile(prepared.destinationRollout.path, "utf8"))
-      .resolves.toContain('"id":"thread"');
-    await expect(readFile(path.join(prepared.destinationWorkspaceRoot, "tracked.txt"), "utf8"))
-      .resolves.toBe("moved\n");
-    await expect(git(source, "rev-parse", "--verify", prepared.sourceTemporaryRef))
-      .rejects.toThrow();
-    await expect(git(destination, "rev-parse", "--verify", prepared.destinationTemporaryRef))
-      .rejects.toThrow();
-    await expect(readFile(path.join(prepared.relayRoot, "source.bundle")))
-      .rejects.toMatchObject({ code: "ENOENT" });
+    await expect(readFile(prepared.destinationRollout.path, "utf8")).resolves.toContain(
+      '"id":"thread"',
+    );
+    await expect(
+      readFile(path.join(prepared.destinationWorkspaceRoot, "tracked.txt"), "utf8"),
+    ).resolves.toBe("moved\n");
+    await expect(
+      git(source, "rev-parse", "--verify", prepared.sourceTemporaryRef),
+    ).rejects.toThrow();
+    await expect(
+      git(destination, "rev-parse", "--verify", prepared.destinationTemporaryRef),
+    ).rejects.toThrow();
+    await expect(readFile(path.join(prepared.relayRoot, "source.bundle"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
   });
 });

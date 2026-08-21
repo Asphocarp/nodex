@@ -11,8 +11,7 @@ let nextIntentId = 1;
 const intents = new Map<string, PageBlockFocusIntent>();
 const listeners = new Map<string, Set<() => void>>();
 
-const focusKey = (projectId: string, pageId: string): string =>
-  `${projectId}\0${pageId}`;
+const focusKey = (projectId: string, pageId: string): string => `${projectId}\0${pageId}`;
 
 const emit = (key: string): void => {
   for (const listener of listeners.get(key) ?? []) listener();
@@ -53,7 +52,7 @@ export const usePageBlockFocusIntent = (
         if (current.size === 0) listeners.delete(key);
       };
     },
-    () => key ? intents.get(key) ?? null : null,
+    () => (key ? (intents.get(key) ?? null) : null),
     () => null,
   );
 };
