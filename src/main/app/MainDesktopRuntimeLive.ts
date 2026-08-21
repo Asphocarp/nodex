@@ -33,6 +33,7 @@ import {
   createDesktopStoreAdministrationBridge,
 } from "../core-client";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
+import { CodexService } from "../codex/codex-service";
 import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
 import {
@@ -147,10 +148,6 @@ import {
   getThreadNotificationSettings,
 } from "../local-store/config";
 import { getLogger } from "../logging/logger";
-import {
-  activateMainServiceComposition,
-  createMainServiceComposition,
-} from "../main-service-composition";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronIpc } from "../platform/electron/ElectronIpc";
@@ -658,11 +655,11 @@ export const live: Layer.Layer<
           Effect.forkIn(runtimeScope),
         );
 
-        const activation = yield* Effect.try({
+        const codexService = yield* Effect.try({
           try: () => {
-            const composition = createMainServiceComposition({
+            return new CodexService({
+              browserTransferRuntime: browserSidebarService,
               agentProviderRuntime,
-              browserSidebarService,
               composerCatalog,
               desktopTools,
               preferences,
@@ -671,8 +668,8 @@ export const live: Layer.Layer<
                 approvalCoordinator,
                 callbacks,
               ),
-              codexClient: codexBridge,
-              codexRuntime,
+              client: codexBridge,
+              runtime: codexRuntime,
               runtimeStateHome,
               worktreeWorkerPort: hostWorkers.worktree,
               terminalRuntime: {
@@ -684,14 +681,13 @@ export const live: Layer.Layer<
                   callbacks.runPromise(terminals.refreshSessionProcessMetrics(sessionIds)),
               },
             });
-            return { composition, release: activateMainServiceComposition(composition) };
           },
-          catch: (cause) => runtimeError("activate-services", cause),
+          catch: (cause) => runtimeError("construct-codex-application", cause),
         });
         yield* Scope.addFinalizer(
           runtimeScope,
           Effect.tryPromise({
-            try: () => activation.composition.codexService.shutdown(),
+            try: () => codexService.shutdown(),
             catch: (cause) => runtimeError("shutdown-codex-application", cause),
           }).pipe(
             Effect.timeout("15 seconds"),
@@ -702,7 +698,6 @@ export const live: Layer.Layer<
             ),
           ),
         );
-        yield* Scope.addFinalizer(runtimeScope, Effect.sync(activation.release));
         yield* Layer.buildWithScope(
           applicationRequestDispatcherLive.pipe(
             Layer.provide(
@@ -718,10 +713,7 @@ export const live: Layer.Layer<
           Stream.runForEach((event) =>
             event.channel === "terminal-data"
               ? Effect.sync(() =>
-                  activation.composition.browserSidebarService.observePtyData(
-                    event.payload.sessionId,
-                    event.payload.data,
-                  ),
+                  browserSidebarService.observePtyData(event.payload.sessionId, event.payload.data),
                 )
               : Effect.void,
           ),
@@ -873,9 +865,9 @@ export const live: Layer.Layer<
             readBackupSettings: getBackupSettings,
             readBlockRetentionCount: () => getHistorySettings().retentionCount,
             runScheduledAutomation: (automation, context) =>
-              activation.composition.codexService.runScheduledAutomation(automation, context),
+              codexService.runScheduledAutomation(automation, context),
             notifyAutomationRunsUpdated: () => {
-              activation.composition.codexService.notifyAutomationRunsUpdated({
+              codexService.notifyAutomationRunsUpdated({
                 automationId: null,
                 threadId: null,
                 reason: "settle",
@@ -979,6 +971,8 @@ export const live: Layer.Layer<
                 },
                 applicationSchedulers,
                 automationModule,
+                browserSidebarService,
+                codexService,
                 dataAuthority: legacyDataAuthority,
                 databaseModule,
                 desktopNotificationManager: desktopNotifications.manager,
@@ -1027,19 +1021,13 @@ export const live: Layer.Layer<
         }
         yield* Layer.buildWithScope(
           codexThreadNotificationRuntimeLive({
-            source: activation.composition.codexService,
+            source: codexService,
             getSettings: getThreadNotificationSettings,
-            isAppForegrounded: () =>
-              activation.composition.codexService.hasForegroundRendererClient(),
+            isAppForegrounded: () => codexService.hasForegroundRendererClient(),
             isConversationPresentedInForeground: (conversationId) =>
-              activation.composition.codexService.isRendererConversationPresentedInForeground(
-                conversationId,
-              ),
+              codexService.isRendererConversationPresentedInForeground(conversationId),
             resolveTargetClientId: (conversationId) => {
-              const presenting =
-                activation.composition.codexService.resolveRendererPresentedSurfaceClient(
-                  conversationId,
-                );
+              const presenting = codexService.resolveRendererPresentedSurfaceClient(conversationId);
               if (presenting) return presenting;
               const fallbackWindow = windows.getLastFocused();
               if (!fallbackWindow) return null;

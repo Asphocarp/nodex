@@ -24,7 +24,8 @@ import {
   prepareComposerPickedFiles,
 } from "./composer-picked-files";
 import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
-import { getMainServiceComposition } from "./main-service-composition";
+import type { BrowserSidebarService } from "./browser-sidebar-service";
+import type { CodexService } from "./codex/codex-service";
 import {
   getBackupSettings,
   getCommandKeymapState,
@@ -242,8 +243,6 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
-
-const { browserSidebarService, codexService } = getMainServiceComposition();
 
 const ipcPayloadLogger = getLogger({
   subsystem: "ipc",
@@ -487,6 +486,8 @@ function refreshBrowserSidebarCommandAccelerators(): void {
 }
 
 interface RegisterIpcHandlersOptions {
+  browserSidebarService: BrowserSidebarService;
+  codexService: CodexService;
   gitWorkerHost?: Pick<GitWorkerHost, "requestFromMain">;
   resolveWindowSessionId?: (webContentsId: number) => string | null;
   onCreateWindow?: (sourceWebContentsId: number, request: WindowSessionNewWindowRequest) => void;
@@ -685,7 +686,8 @@ function createGitActionWorkerPort(
 
 const pageSearchRequests = new Map<string, AbortController>();
 
-export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): void {
+export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
+  const { browserSidebarService, codexService } = options;
   ipcMain.removeAllListeners(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL);
   ipcMain.on(CLIPBOARD_INSPECT_PASTE_SYNC_CHANNEL, (event) => {
     try {

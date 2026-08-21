@@ -18,7 +18,8 @@ import type { TerminalRunActionRequest, TerminalSessionSnapshot } from "../share
 import { registerIpcHandlers } from "./ipc-handlers";
 import type { GitWorkerHostPort } from "./host-runtime/HostWorkerRuntime";
 import { dbNotifier } from "./local-store/notifier";
-import { getMainServiceComposition } from "./main-service-composition";
+import type { BrowserSidebarService } from "./browser-sidebar-service";
+import type { CodexService } from "./codex/codex-service";
 import type { BrowserAuthorizedAttachment } from "./browser/browser-runtime-registry";
 import { McpAppSandboxHost } from "./mcp-app/mcp-app-sandbox-host";
 import {
@@ -145,7 +146,8 @@ const appIconPath = app.isPackaged
   ? join(process.resourcesPath, "icon.png")
   : join(__dirname, "../../resources/icon.png");
 const appDockIcon = nativeImage.createFromPath(appIconPath);
-const { browserSidebarService, codexService } = getMainServiceComposition();
+let browserSidebarService: BrowserSidebarService;
+let codexService: CodexService;
 
 let rendererHostReadyForWindows = false;
 let databaseReady = false;
@@ -1441,6 +1443,8 @@ export interface MainRuntimeStartupContext {
   };
   applicationSchedulers: ApplicationSchedulerRuntime["Service"];
   automationModule: DesktopAutomationModulePort;
+  browserSidebarService: BrowserSidebarService;
+  codexService: CodexService;
   dataAuthority: Promise<DesktopDataAuthorityRuntime>;
   databaseModule: DesktopDatabaseModuleBridge;
   desktopNotificationManager: DesktopNotificationManager;
@@ -1555,6 +1559,8 @@ export function shutdownFailedMainAppStartup(): Promise<void> {
 export async function runMainAppStartup(
   context: MainRuntimeStartupContext,
 ): Promise<MainRuntimeController> {
+  browserSidebarService = context.browserSidebarService;
+  codexService = context.codexService;
   appUpdateRuntime = context.appUpdateRuntime;
   desktopNotificationManager = context.desktopNotificationManager;
   rendererClientRouter = context.rendererClientRouter;
@@ -1650,6 +1656,8 @@ export async function runMainAppStartup(
   );
   registerIpcHandlers({
     automationModule,
+    browserSidebarService,
+    codexService,
     gitWorkerHost: context.gitWorkerHost,
     storeAdministration,
     onBackupSettingsChanged: context.applicationSchedulers.configureBackup,
