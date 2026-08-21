@@ -5,9 +5,9 @@ import {
 } from "./main-runtime-startup-events";
 
 describe("collectSecondInstancesForStartupReplay", () => {
-  test("consumes initial argv and queued deep links before replaying plain second instances", () => {
+  test("consumes initial argv and queued deep links before replaying plain second instances", async () => {
     const calls: string[] = [];
-    const replay = collectSecondInstancesForStartupReplay(
+    const replay = await collectSecondInstancesForStartupReplay(
       {
         initialArgv: ["--flag", "nodex://pages/card-1"],
         startupEvents: [

@@ -146,6 +146,7 @@ import {
   McpAppSandboxRuntime,
   live as mcpAppSandboxRuntimeLive,
 } from "../host-runtime/McpAppSandboxRuntime";
+import { DeepLinkRuntime, live as deepLinkRuntimeLive } from "../host-runtime/DeepLinkRuntime";
 import {
   getBackupSettings,
   getHistorySettings,
@@ -846,6 +847,16 @@ export const live: Layer.Layer<
         const projectWorkspace = createDesktopProjectWorkspaceBridge({
           authority: legacyDataAuthority,
         });
+        const deepLinkContext = yield* Layer.buildWithScope(
+          deepLinkRuntimeLive({
+            focusWindow: module.focusLastWindow,
+            library: libraryModule,
+            projectWorkspace,
+            windows,
+          }),
+          runtimeScope,
+        );
+        const deepLinks = Context.get(deepLinkContext, DeepLinkRuntime);
         const projectionDeliveryContext = yield* Layer.buildWithScope(
           projectionDeliveryRuntimeLive({
             authority: dataAuthority,
@@ -988,6 +999,12 @@ export const live: Layer.Layer<
                 codexService,
                 dataAuthority: legacyDataAuthority,
                 databaseModule,
+                deepLinks: {
+                  extractFromArgv: (argv) => callbacks.runPromise(deepLinks.extractFromArgv(argv)),
+                  flush: () => callbacks.runPromise(deepLinks.flush),
+                  handle: (value) => callbacks.runPromise(deepLinks.handle(value)),
+                  markReady: () => callbacks.runPromise(deepLinks.markReady),
+                },
                 desktopNotificationManager: desktopNotifications.manager,
                 documentSync,
                 gitWorkerHost: hostWorkers.git,
@@ -1113,11 +1130,15 @@ export const live: Layer.Layer<
       handleBootstrapEvent: (event) =>
         requireController("bootstrap-event").pipe(
           Effect.andThen((runtime) =>
-            Effect.sync(() => {
-              if (event.type === "open-url") runtime.handleOpenUrl(event.url);
-              else runtime.handleSecondInstance([...event.argv]);
+            Effect.tryPromise({
+              try: () =>
+                event.type === "open-url"
+                  ? runtime.handleOpenUrl(event.url)
+                  : runtime.handleSecondInstance([...event.argv]),
+              catch: (cause) => runtimeError("bootstrap-event", cause),
             }),
           ),
+          Effect.asVoid,
         ),
     });
   }),

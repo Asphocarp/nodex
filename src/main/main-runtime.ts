@@ -30,11 +30,6 @@ import {
 import { NodexAgentAuthorizationBroker } from "./agent-tools/authorization-broker";
 import type { DesktopNotificationManager } from "./desktop-notification-manager";
 import { composerAppshotService } from "./composer-appshot-service";
-import {
-  parsePageDeepLink,
-  parseSessionDeepLink,
-  parseViewDeepLink,
-} from "../shared/nodex-deeplink";
 import { isWindowSessionBoundsVisible, type AcquiredWindowSession } from "./window-session-state";
 import {
   captureWindowSessionBounds,
@@ -102,7 +97,6 @@ import {
 import { installCliCommand } from "./cli-command-installer";
 import { runAgentSkillSetup } from "./agent-skill-setup";
 import {
-  createCoreProjectWorkspaceAdapter,
   mapCoreAutomationEvent,
   mapCoreDatabaseEvent,
   mapCoreLibraryDatabaseEvent,
@@ -143,15 +137,9 @@ const appDockIcon = nativeImage.createFromPath(appIconPath);
 let browserSidebarService: BrowserSidebarService;
 let codexService: CodexService;
 let mcpAppSandboxRuntime: McpAppSandboxRuntime["Service"];
+let deepLinkRuntime: MainRuntimeStartupContext["deepLinks"];
 
 let rendererHostReadyForWindows = false;
-let databaseReady = false;
-let pendingPageDeepLinkPageId: string | null = null;
-let pendingPageDeepLinkTarget: { projectId: string; pageId: string } | null = null;
-let pendingViewDeepLinkViewId: string | null = null;
-let pendingViewDeepLinkTarget: { projectId: string; viewId: string } | null = null;
-let pendingSessionDeepLinkSessionId: string | null = null;
-let pendingSessionDeepLinkTarget: { projectId: string | null; sessionId: string } | null = null;
 let windowRuntime: WindowRuntimeService | null = null;
 let appInitializationStep: AppInitializationStep = { phase: "opening" };
 let appInitializationStepChangedAt = performance.now();
@@ -159,7 +147,6 @@ let appInitializationPromise: Promise<void> = Promise.resolve();
 let appUpdateRuntime: MainRuntimeStartupContext["appUpdateRuntime"] | null = null;
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
-let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
 const logger = getLogger({ subsystem: "app" });
 let desktopNotificationManager: DesktopNotificationManager | null = null;
 
@@ -167,7 +154,7 @@ function getLastFocusedWindow(): BrowserWindow | null {
   return windowRuntime?.getLastFocused() ?? null;
 }
 
-function focusLastWindow(): void {
+export function focusLastWindow(): void {
   const existingWindow = getLastFocusedWindow();
   if (existingWindow) {
     if (existingWindow.isMinimized()) existingWindow.restore();
@@ -587,241 +574,6 @@ function sendReminderOpenEvent(payload: {
   safeSendToWindow(targetWindow, "reminder:open", [payload]);
 }
 
-function flushPendingPageDeepLink(): void {
-  if (!pendingPageDeepLinkTarget) {
-    return;
-  }
-
-  const targetWindow = getLastFocusedWindow();
-  if (!targetWindow || targetWindow.isDestroyed()) {
-    return;
-  }
-
-  if (targetWindow.webContents.isDestroyed() || targetWindow.webContents.isLoadingMainFrame()) {
-    return;
-  }
-
-  if (safeSendToWindow(targetWindow, "deeplink:open-page", [pendingPageDeepLinkTarget])) {
-    pendingPageDeepLinkTarget = null;
-  }
-}
-
-function flushPendingSessionDeepLink(): void {
-  if (!pendingSessionDeepLinkTarget) {
-    return;
-  }
-
-  const targetWindow = getLastFocusedWindow();
-  if (!targetWindow || targetWindow.isDestroyed()) {
-    return;
-  }
-
-  if (targetWindow.webContents.isDestroyed() || targetWindow.webContents.isLoadingMainFrame()) {
-    return;
-  }
-
-  if (safeSendToWindow(targetWindow, "deeplink:open-session", [pendingSessionDeepLinkTarget])) {
-    pendingSessionDeepLinkTarget = null;
-  }
-}
-
-function flushPendingViewDeepLink(): void {
-  if (!pendingViewDeepLinkTarget) {
-    return;
-  }
-
-  const targetWindow = getLastFocusedWindow();
-  if (!targetWindow || targetWindow.isDestroyed()) {
-    return;
-  }
-
-  if (targetWindow.webContents.isDestroyed() || targetWindow.webContents.isLoadingMainFrame()) {
-    return;
-  }
-
-  if (safeSendToWindow(targetWindow, "deeplink:open-view", [pendingViewDeepLinkTarget])) {
-    pendingViewDeepLinkTarget = null;
-  }
-}
-
-async function resolvePendingPageDeepLink(): Promise<void> {
-  if (!databaseReady) {
-    return;
-  }
-
-  if (!pendingPageDeepLinkPageId) {
-    flushPendingPageDeepLink();
-    return;
-  }
-
-  const pageId = pendingPageDeepLinkPageId;
-  const location = desktopLibraryModule
-    ? await desktopLibraryModule.findPageLocation(pageId)
-    : null;
-  if (pendingPageDeepLinkPageId !== pageId) {
-    return;
-  }
-  pendingPageDeepLinkPageId = null;
-  if (!location) {
-    return;
-  }
-
-  pendingPageDeepLinkTarget = {
-    projectId: location.projectId,
-    pageId,
-  };
-
-  flushPendingPageDeepLink();
-}
-
-async function resolvePendingSessionDeepLink(): Promise<void> {
-  if (!databaseReady) {
-    return;
-  }
-
-  if (!pendingSessionDeepLinkSessionId) {
-    flushPendingSessionDeepLink();
-    return;
-  }
-
-  const sessionId = pendingSessionDeepLinkSessionId;
-  pendingSessionDeepLinkSessionId = null;
-  const session = desktopDataAuthorityRuntime
-    ? await createCoreProjectWorkspaceAdapter(
-        desktopDataAuthorityRuntime.rootClient,
-      ).getProjectSession(sessionId)
-    : null;
-  if (!session) {
-    return;
-  }
-
-  pendingSessionDeepLinkTarget = {
-    projectId: session.projectId,
-    sessionId,
-  };
-
-  flushPendingSessionDeepLink();
-}
-
-async function resolvePendingViewDeepLink(): Promise<void> {
-  if (!databaseReady) {
-    return;
-  }
-
-  if (!pendingViewDeepLinkViewId) {
-    flushPendingViewDeepLink();
-    return;
-  }
-
-  const viewId = pendingViewDeepLinkViewId;
-  const location = desktopLibraryModule
-    ? await desktopLibraryModule.findViewLocation(viewId)
-    : null;
-  if (pendingViewDeepLinkViewId !== viewId) {
-    return;
-  }
-  pendingViewDeepLinkViewId = null;
-  if (!location) {
-    return;
-  }
-
-  pendingViewDeepLinkTarget = {
-    projectId: location.projectId,
-    viewId,
-  };
-
-  flushPendingViewDeepLink();
-}
-
-function queuePageDeepLink(pageId: string): void {
-  pendingPageDeepLinkPageId = pageId;
-
-  if (!databaseReady) {
-    return;
-  }
-
-  focusLastWindow();
-  void resolvePendingPageDeepLink().catch((error) => {
-    logger.warn("Page deep-link resolution failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  });
-}
-
-function queueSessionDeepLink(sessionId: string): void {
-  pendingSessionDeepLinkSessionId = sessionId;
-
-  if (!databaseReady) {
-    return;
-  }
-
-  focusLastWindow();
-  void resolvePendingSessionDeepLink();
-}
-
-function queueViewDeepLink(viewId: string): void {
-  pendingViewDeepLinkViewId = viewId;
-
-  if (!databaseReady) {
-    return;
-  }
-
-  focusLastWindow();
-  void resolvePendingViewDeepLink().catch((error) => {
-    logger.warn("View deep-link resolution failed", {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  });
-}
-
-function handleIncomingDeepLink(value: string): boolean {
-  const sessionTarget = parseSessionDeepLink(value);
-  if (sessionTarget) {
-    queueSessionDeepLink(sessionTarget.sessionId);
-    return true;
-  }
-
-  const viewTarget = parseViewDeepLink(value);
-  if (viewTarget) {
-    queueViewDeepLink(viewTarget.viewId);
-    return true;
-  }
-
-  const pageTarget = parsePageDeepLink(value);
-  if (!pageTarget) {
-    return false;
-  }
-
-  queuePageDeepLink(pageTarget.pageId);
-  return true;
-}
-
-function extractDeepLinkFromArgv(argv: string[]): string | null {
-  for (const arg of argv) {
-    const sessionTarget = parseSessionDeepLink(arg);
-    if (sessionTarget) {
-      queueSessionDeepLink(sessionTarget.sessionId);
-      return arg;
-    }
-
-    const viewTarget = parseViewDeepLink(arg);
-    if (viewTarget) {
-      queueViewDeepLink(viewTarget.viewId);
-      return arg;
-    }
-
-    const pageTarget = parsePageDeepLink(arg);
-    if (!pageTarget) {
-      continue;
-    }
-
-    queuePageDeepLink(pageTarget.pageId);
-    return arg;
-  }
-
-  return null;
-}
-
 function registerDeepLinkProtocol(): void {
   if (process.defaultApp && process.argv[1]) {
     app.setAsDefaultProtocolClient("nodex", process.execPath, [resolve(process.argv[1])]);
@@ -1046,9 +798,7 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
     if (appUpdateStatus) {
       safeSendToWindow(window, "app:update-status", [appUpdateStatus]);
     }
-    flushPendingPageDeepLink();
-    flushPendingSessionDeepLink();
-    flushPendingViewDeepLink();
+    void deepLinkRuntime.flush();
     maybeStartAutomaticAppUpdateChecks();
   });
   window.webContents.on("render-process-gone", (_event, details) => {
@@ -1165,10 +915,7 @@ async function initializeDesktopApp(
       windows.seedInitialProjectPresentation(presentation);
     },
   });
-  databaseReady = true;
-  await resolvePendingPageDeepLink();
-  await resolvePendingSessionDeepLink();
-  await resolvePendingViewDeepLink();
+  await deepLinkRuntime.markReady();
   await codexService.synchronizeAutomationRuntime();
   codexService.requestManagedWorktreeRetentionSweep();
   applicationSchedulers.activate({
@@ -1279,6 +1026,12 @@ export interface MainRuntimeStartupContext {
   codexService: CodexService;
   dataAuthority: Promise<DesktopDataAuthorityRuntime>;
   databaseModule: DesktopDatabaseModuleBridge;
+  deepLinks: {
+    readonly extractFromArgv: (argv: readonly string[]) => Promise<string | null>;
+    readonly flush: () => Promise<void>;
+    readonly handle: (value: string) => Promise<boolean>;
+    readonly markReady: () => Promise<void>;
+  };
   desktopNotificationManager: DesktopNotificationManager;
   documentSync: DesktopDocumentSyncPort;
   gitWorkerHost: GitWorkerHostPort;
@@ -1324,16 +1077,16 @@ export interface MainRuntimeStartupContext {
 
 export interface MainRuntimeController {
   activate(): void;
-  handleOpenUrl(url: string): boolean;
-  handleSecondInstance(argv: string[]): boolean;
+  handleOpenUrl(url: string): Promise<boolean>;
+  handleSecondInstance(argv: string[]): Promise<boolean>;
   prepareQuit(): Promise<void>;
   shutdown(): Promise<void>;
 }
 
 let runtimeShutdownStarted = false;
 let runtimeShutdownPromise: Promise<void> | null = null;
-function handleSecondInstanceArgv(argv: string[]): boolean {
-  const handledDeepLink = Boolean(extractDeepLinkFromArgv(argv));
+async function handleSecondInstanceArgv(argv: string[]): Promise<boolean> {
+  const handledDeepLink = Boolean(await deepLinkRuntime.extractFromArgv(argv));
   if (handledDeepLink) {
     return true;
   }
@@ -1346,11 +1099,11 @@ function handleSecondInstanceArgv(argv: string[]): boolean {
   return true;
 }
 
-function collectStartupDeepLinks(context: MainRuntimeStartupContext): string[][] {
+function collectStartupDeepLinks(context: MainRuntimeStartupContext): Promise<string[][]> {
   return collectSecondInstancesForStartupReplay(context, {
-    consumeArgvDeepLink: (argv) => Boolean(extractDeepLinkFromArgv(argv)),
-    consumeOpenUrlDeepLink: (url) => {
-      handleIncomingDeepLink(url);
+    consumeArgvDeepLink: async (argv) => Boolean(await context.deepLinks.extractFromArgv(argv)),
+    consumeOpenUrlDeepLink: async (url) => {
+      await context.deepLinks.handle(url);
     },
   });
 }
@@ -1394,12 +1147,13 @@ export async function runMainAppStartup(
 ): Promise<MainRuntimeController> {
   browserSidebarService = context.browserSidebarService;
   codexService = context.codexService;
+  deepLinkRuntime = context.deepLinks;
   mcpAppSandboxRuntime = context.mcpAppSandbox;
   appUpdateRuntime = context.appUpdateRuntime;
   desktopNotificationManager = context.desktopNotificationManager;
   rendererClientRouter = context.rendererClientRouter;
   windowRuntime = context.windowRuntime;
-  const startupSecondInstancesWithoutDeepLinks = collectStartupDeepLinks(context);
+  const startupSecondInstancesWithoutDeepLinks = await collectStartupDeepLinks(context);
 
   logger.info("Nodex main process starting", {
     packaged: app.isPackaged,
@@ -1438,7 +1192,6 @@ export async function runMainAppStartup(
   };
   const documentSync = context.documentSync;
   const libraryModule = context.libraryModule;
-  desktopLibraryModule = libraryModule;
   const databaseModule = context.databaseModule;
   const projectWorkspace = context.projectWorkspace;
   browserSidebarService.setProjectSessionResolver(
@@ -1564,14 +1317,14 @@ export async function runMainAppStartup(
   }
 
   for (const argv of startupSecondInstancesWithoutDeepLinks) {
-    handleSecondInstanceArgv(argv);
+    await handleSecondInstanceArgv(argv);
   }
 
   await appInitializationPromise;
 
   return {
     activate: focusLastWindow,
-    handleOpenUrl: handleIncomingDeepLink,
+    handleOpenUrl: context.deepLinks.handle,
     handleSecondInstance: handleSecondInstanceArgv,
     prepareQuit: prepareMainRuntimeQuit,
     shutdown: shutdownMainRuntime,
