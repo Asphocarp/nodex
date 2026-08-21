@@ -64,11 +64,7 @@ import { NodexPopover, NodexPopoverAnchor } from "@/components/ui/popover";
 import { toast } from "@/components/ui/toast";
 import { NodexTooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import {
-  hasNestedTypedOwnerBlock,
-  hasTypedOwnerBlock,
-  isTypedOwnerBlockType,
-} from "@/lib/typed-owner-blocks";
+import { hasTypedOwnerBlock } from "@/lib/typed-owner-blocks";
 import { NfmEditorPopoverContent } from "./nfm-editor-popover-content";
 import { NfmFloatingPopover, type NfmPopoverReference } from "./nfm-floating-popover";
 import { NfmMoveToMenu } from "./nfm-move-to-menu";
@@ -1582,43 +1578,16 @@ function NfmSideMenuPopup({
 
       const selectedBlocks = getSideMenuActionBlocks(openState, block);
       const topLevelSelectedBlocks = getTopLevelSideMenuActionBlocks(selectedBlocks);
-      const selectedCanvasBlocks = topLevelSelectedBlocks.filter(
-        (candidate) => candidate.type === "canvas",
-      );
-      const selectedPageBlocks = topLevelSelectedBlocks.filter(
-        (candidate) => candidate.type === "page",
-      );
-      const selectedDatabaseBlocks = topLevelSelectedBlocks.filter(
-        (candidate) => candidate.type === "database",
-      );
-
       if (!isEditable) return;
 
       if (key === "duplicate") {
         if (
-          topLevelSelectedBlocks.some(
-            (candidate) => isTypedOwnerBlockType(candidate.type) && candidate.type !== "canvas",
+          runtimeSnapshot.onDuplicateBlocks(
+            topLevelSelectedBlocks.flatMap((candidate) =>
+              typeof candidate.id === "string" ? [candidate.id] : [],
+            ),
           )
         ) {
-          toast.info("Page and Database blocks must be duplicated through a typed action.");
-          close("action");
-          return;
-        }
-        if (hasNestedTypedOwnerBlock(topLevelSelectedBlocks)) {
-          toast.info(
-            "A Block containing a Page, Canvas, or Database cannot be duplicated as a generic Block.",
-          );
-          close("action");
-          return;
-        }
-        if (selectedCanvasBlocks.length > 0) {
-          if (
-            selectedCanvasBlocks.length === 1 &&
-            topLevelSelectedBlocks.length === 1 &&
-            selectedCanvasBlocks[0]?.id
-          ) {
-            void runtimeSnapshot.onDuplicateCanvas(selectedCanvasBlocks[0].id);
-          }
           close("action");
           return;
         }
@@ -1633,39 +1602,13 @@ function NfmSideMenuPopup({
       }
 
       if (key === "delete") {
-        if (selectedPageBlocks.length > 0) {
-          if (
-            selectedPageBlocks.length === 1 &&
-            topLevelSelectedBlocks.length === 1 &&
-            selectedPageBlocks[0]?.id
-          ) {
-            void runtimeSnapshot.onDeletePage(selectedPageBlocks[0].id);
-          } else {
-            toast.info("Delete one Page at a time.");
-          }
-          close("action");
-          return;
-        }
-        if (selectedCanvasBlocks.length > 0) {
-          if (
-            selectedCanvasBlocks.length === 1 &&
-            topLevelSelectedBlocks.length === 1 &&
-            selectedCanvasBlocks[0]?.id
-          ) {
-            void runtimeSnapshot.onDeleteCanvas(selectedCanvasBlocks[0].id);
-          }
-          close("action");
-          return;
-        }
-        if (selectedDatabaseBlocks.length > 0) {
-          toast.info("Database blocks must be removed through a typed Database action.");
-          close("action");
-          return;
-        }
-        if (hasNestedTypedOwnerBlock(topLevelSelectedBlocks)) {
-          toast.info(
-            "A Block containing a Page, Canvas, or Database must be removed through a typed action.",
-          );
+        if (
+          runtimeSnapshot.onDeleteBlocks(
+            topLevelSelectedBlocks.flatMap((candidate) =>
+              typeof candidate.id === "string" ? [candidate.id] : [],
+            ),
+          )
+        ) {
           close("action");
           return;
         }

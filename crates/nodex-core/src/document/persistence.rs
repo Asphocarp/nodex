@@ -18,12 +18,12 @@ use crate::infrastructure::sqlite::{StoreError, StoreErrorCode};
 
 use super::materialization::DocumentPlacementDelta;
 use super::{
-    CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION, DocumentMaterialization,
-    DocumentSearchMarkerKind, derive_document_node_delta, derive_document_placement_delta,
-    exact_moves_explain_document_placement,
+    CURRENT_DOCUMENT_MATERIALIZATION_DERIVATION_VERSION, DocumentBlockSearchUnit,
+    DocumentMaterialization, DocumentSearchMarkerKind, derive_document_node_delta,
+    derive_document_placement_delta, exact_moves_explain_document_placement,
 };
 
-const TYPED_CREATION_BLOCK_TYPES: &[&str] = &[
+pub(super) const TYPED_CREATION_BLOCK_TYPES: &[&str] = &[
     "page",
     "database",
     "synced_block_source",
@@ -72,10 +72,11 @@ pub(crate) enum DocumentReorderAttribution<'a> {
     Exact(&'a [String]),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum DocumentReactivationPolicy {
-    Reject,
-    LastDocumentAuthority,
+#[derive(Clone, Copy, Debug)]
+struct DocumentTombstoneReactivation<'a> {
+    block_ids: &'a [String],
+    source_document_id: &'a str,
+    source_document_generation: i64,
 }
 
 /// Declares only placement evidence that one Document's canonical before/after
@@ -89,7 +90,8 @@ pub(crate) struct DocumentPlacementEvidence<'a> {
     placement_preapplied_block_ids: &'a [String],
     placement_advance_block_ids: &'a [String],
     reorder_attribution: DocumentReorderAttribution<'a>,
-    reactivation_policy: DocumentReactivationPolicy,
+    allow_last_document_reactivation: bool,
+    tombstone_reactivation: Option<DocumentTombstoneReactivation<'a>>,
 }
 
 impl<'a> DocumentPlacementEvidence<'a> {
@@ -101,7 +103,8 @@ impl<'a> DocumentPlacementEvidence<'a> {
         placement_preapplied_block_ids: &[],
         placement_advance_block_ids: &[],
         reorder_attribution: DocumentReorderAttribution::Conservative,
-        reactivation_policy: DocumentReactivationPolicy::LastDocumentAuthority,
+        allow_last_document_reactivation: true,
+        tombstone_reactivation: None,
     };
 
     /// Typed structural updates name their exact move and authority evidence.
@@ -111,7 +114,8 @@ impl<'a> DocumentPlacementEvidence<'a> {
         placement_preapplied_block_ids: &[],
         placement_advance_block_ids: &[],
         reorder_attribution: DocumentReorderAttribution::Exact(&[]),
-        reactivation_policy: DocumentReactivationPolicy::Reject,
+        allow_last_document_reactivation: false,
+        tombstone_reactivation: None,
     };
 
     /// Blocks intentionally detached by the surrounding structural mutation.
@@ -144,6 +148,24 @@ impl<'a> DocumentPlacementEvidence<'a> {
     /// Exact moved roots emitted by a typed Document compiler.
     pub(crate) const fn with_exact_moves(mut self, block_ids: &'a [String]) -> Self {
         self.reorder_attribution = DocumentReorderAttribution::Exact(block_ids);
+        self
+    }
+
+    /// Ordinary Blocks may reactivate only from the exact tombstone authority
+    /// named by the typed structural operation. This supports both same-Document
+    /// undo and capability-authorized cross-Document cut moves without making
+    /// generic Document updates a resurrection authority.
+    pub(crate) const fn with_tombstone_reactivation(
+        mut self,
+        block_ids: &'a [String],
+        source_document_id: &'a str,
+        source_document_generation: i64,
+    ) -> Self {
+        self.tombstone_reactivation = Some(DocumentTombstoneReactivation {
+            block_ids,
+            source_document_id,
+            source_document_generation,
+        });
         self
     }
 }
@@ -853,6 +875,17 @@ fn reconcile_document_blocks(
         projected_seq,
         now,
     } = input;
+    assert_typed_owner_shells_are_childless(&materialization.search_units)?;
+    if matches!(
+        placement.reorder_attribution,
+        DocumentReorderAttribution::Conservative
+    ) && let Some(base_materialization) = base_materialization
+    {
+        assert_generic_placement_preserves_typed_owner_subtrees(
+            &base_materialization.search_units,
+            derived_placement,
+        )?;
+    }
     let mut placement_changed_page_ids = HashSet::new();
     let existing = connection
         .prepare(
@@ -894,6 +927,16 @@ fn reconcile_document_blocks(
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
+    let tombstone_reactivations = placement
+        .tombstone_reactivation
+        .map(|reactivation| {
+            reactivation
+                .block_ids
+                .iter()
+                .map(String::as_str)
+                .collect::<HashSet<_>>()
+        })
+        .unwrap_or_default();
     let exact_moves = match placement.reorder_attribution {
         DocumentReorderAttribution::Conservative => None,
         DocumentReorderAttribution::Exact(block_ids) => {
@@ -915,6 +958,7 @@ fn reconcile_document_blocks(
     let mut consumed_geneses = HashSet::new();
     let mut consumed_preapplied = HashSet::new();
     let mut consumed_advances = HashSet::new();
+    let mut consumed_tombstone_reactivations = HashSet::new();
     if placement_geneses
         .iter()
         .any(|block_id| !active_ids.contains(*block_id))
@@ -972,9 +1016,13 @@ fn reconcile_document_blocks(
                         unit.block_id
                     )));
                 }
-                if !is_uuid_v7(&unit.block_id)
-                    || TYPED_CREATION_BLOCK_TYPES.contains(&unit.block_type.as_str())
-                {
+                if TYPED_CREATION_BLOCK_TYPES.contains(&unit.block_type.as_str()) {
+                    return Err(protected_owner_mutation(format!(
+                        "Block {} requires a typed creation operation",
+                        unit.block_id
+                    )));
+                }
+                if !is_uuid_v7(&unit.block_id) {
                     return Err(invalid(format!(
                         "Block {} requires a typed creation operation",
                         unit.block_id
@@ -1044,7 +1092,7 @@ fn reconcile_document_blocks(
                     && (TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str())
                         || TYPED_CREATION_BLOCK_TYPES.contains(&unit.block_type.as_str()))
                 {
-                    return Err(invalid(format!(
+                    return Err(protected_owner_mutation(format!(
                         "Block {} requires a typed reclassification",
                         unit.block_id
                     )));
@@ -1052,20 +1100,35 @@ fn reconcile_document_blocks(
                 let typed_resource = TYPED_CREATION_BLOCK_TYPES.contains(&block_type.as_str());
                 let attached_from_another_authority =
                     document_id.as_deref() != Some(&authority.head.id);
-                let reactivating_from_same_document = attached_from_another_authority
+                let exact_tombstone_reactivation =
+                    placement
+                        .tombstone_reactivation
+                        .is_some_and(|reactivation| {
+                            tombstone_reactivations.contains(unit.block_id.as_str())
+                                && attached_from_another_authority
+                                && lifecycle == "deleted"
+                                && !typed_resource
+                                && tombstone_document_id.as_deref()
+                                    == Some(reactivation.source_document_id)
+                                && tombstone_document_generation
+                                    == Some(reactivation.source_document_generation)
+                                && tombstone_placement_revision == Some(placement_revision)
+                        });
+                let reactivating_from_last_document = placement.allow_last_document_reactivation
+                    && attached_from_another_authority
                     && lifecycle == "deleted"
                     && !typed_resource
-                    && placement.reactivation_policy
-                        == DocumentReactivationPolicy::LastDocumentAuthority
                     && tombstone_document_id.as_deref() == Some(&authority.head.id)
                     && tombstone_document_generation == Some(authority.head.generation)
                     && tombstone_placement_revision == Some(placement_revision);
+                let reactivating_from_tombstone =
+                    exact_tombstone_reactivation || reactivating_from_last_document;
                 if lifecycle != "active"
                     && attached_from_another_authority
-                    && !reactivating_from_same_document
+                    && !reactivating_from_tombstone
                 {
                     return Err(invalid(format!(
-                        "Deleted Block {} requires same-Document restore evidence",
+                        "Deleted Block {} requires exact tombstone restore evidence",
                         unit.block_id
                     )));
                 }
@@ -1087,7 +1150,7 @@ fn reconcile_document_blocks(
                     && !placement_genesis
                     && !placement_was_preapplied
                     && !placement_advances_here
-                    && !reactivating_from_same_document
+                    && !reactivating_from_tombstone
                 {
                     return Err(invalid(format!(
                         "Block {} attached without a cross-authority placement intent",
@@ -1106,6 +1169,9 @@ fn reconcile_document_blocks(
                 }
                 if placement_advances_here && attached_from_another_authority {
                     consumed_advances.insert(unit.block_id.as_str());
+                }
+                if exact_tombstone_reactivation {
+                    consumed_tombstone_reactivations.insert(unit.block_id.as_str());
                 }
                 if (lifecycle != "active" && !typed_resource)
                     || block_type != unit.block_type
@@ -1146,12 +1212,27 @@ fn reconcile_document_blocks(
                     }
                     placement_changed_page_ids.insert(unit.block_id.clone());
                 }
-                if reactivating_from_same_document {
+                if reactivating_from_tombstone {
+                    let (source_document_id, source_document_generation) = placement
+                        .tombstone_reactivation
+                        .filter(|_| exact_tombstone_reactivation)
+                        .map(|reactivation| {
+                            (
+                                reactivation.source_document_id,
+                                reactivation.source_document_generation,
+                            )
+                        })
+                        .unwrap_or((&authority.head.id, authority.head.generation));
                     let removed = connection.execute(
                         "DELETE FROM document_block_tombstones \
-                         WHERE block_id = ?1 AND document_id = ?2 \
-                           AND placement_revision = ?3",
-                        params![unit.block_id, authority.head.id, placement_revision],
+                         WHERE block_id = ?1 AND document_id = ?2 AND document_generation = ?3 \
+                           AND placement_revision = ?4",
+                        params![
+                            unit.block_id,
+                            source_document_id,
+                            source_document_generation,
+                            placement_revision,
+                        ],
                     )?;
                     if removed != 1 {
                         return Err(conflict("Document Block tombstone changed before restore"));
@@ -1198,6 +1279,11 @@ fn reconcile_document_blocks(
     require_exact_consumption(&placement_geneses, &consumed_geneses, "genesis")?;
     require_exact_consumption(&placement_preapplied, &consumed_preapplied, "preapplied")?;
     require_exact_consumption(&placement_advances, &consumed_advances, "advance")?;
+    require_exact_consumption(
+        &tombstone_reactivations,
+        &consumed_tombstone_reactivations,
+        "tombstone reactivation",
+    )?;
     for (block_id, block_type, lifecycle) in &existing {
         if active_ids.contains(block_id) {
             continue;
@@ -1206,13 +1292,9 @@ fn reconcile_document_blocks(
             && lifecycle != "deleted"
             && !structural_detaches.contains(block_id.as_str())
         {
-            return Err(StoreError::new(
-                StoreErrorCode::ProtectedOwnerDeletion,
-                format!(
-                    "Typed owner Block {block_id} cannot be removed by a generic Document update"
-                ),
-                false,
-            ));
+            return Err(protected_owner_mutation(format!(
+                "Typed owner Block {block_id} cannot be removed by a generic Document update"
+            )));
         }
     }
     connection.execute(
@@ -1280,6 +1362,69 @@ fn reconcile_document_blocks(
     Ok(ReconciledDocumentBlocks {
         placement_changed_page_ids,
     })
+}
+
+fn assert_typed_owner_shells_are_childless(
+    search_units: &[DocumentBlockSearchUnit],
+) -> Result<(), StoreError> {
+    let typed_owner_ids = search_units
+        .iter()
+        .filter(|unit| TYPED_CREATION_BLOCK_TYPES.contains(&unit.block_type.as_str()))
+        .map(|unit| unit.block_id.as_str())
+        .collect::<HashSet<_>>();
+    let illegal_parent = search_units.iter().find_map(|unit| {
+        unit.parent_block_id
+            .as_deref()
+            .filter(|parent_id| typed_owner_ids.contains(parent_id))
+    });
+    let Some(parent_id) = illegal_parent else {
+        return Ok(());
+    };
+    Err(protected_owner_mutation(format!(
+        "Typed owner Block {parent_id} cannot contain child Blocks"
+    )))
+}
+
+fn assert_generic_placement_preserves_typed_owner_subtrees(
+    base: &[DocumentBlockSearchUnit],
+    placement: &DocumentPlacementDelta,
+) -> Result<(), StoreError> {
+    let moved_block_ids = placement
+        .parent_changed_block_ids
+        .iter()
+        .chain(&placement.reordered_block_ids)
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    if moved_block_ids.is_empty() {
+        return Ok(());
+    }
+    let parents = base
+        .iter()
+        .map(|unit| (unit.block_id.as_str(), unit.parent_block_id.as_deref()))
+        .collect::<HashMap<_, _>>();
+    let moved_owner_roots = base
+        .iter()
+        .filter(|unit| TYPED_CREATION_BLOCK_TYPES.contains(&unit.block_type.as_str()))
+        .filter_map(|unit| {
+            let mut candidate = Some(unit.block_id.as_str());
+            while let Some(block_id) = candidate {
+                if moved_block_ids.contains(block_id) {
+                    return Some(block_id);
+                }
+                candidate = parents.get(block_id).copied().flatten();
+            }
+            None
+        })
+        .collect::<HashSet<_>>();
+    if moved_owner_roots.is_empty() {
+        return Ok(());
+    }
+    let mut moved_owner_roots = moved_owner_roots.into_iter().collect::<Vec<_>>();
+    moved_owner_roots.sort_unstable();
+    Err(protected_owner_mutation(format!(
+        "Generic Document update cannot move Block subtree(s) containing typed owners: {}",
+        moved_owner_roots.join(", ")
+    )))
 }
 
 #[cfg(test)]
@@ -1838,6 +1983,10 @@ fn invalid(message: String) -> StoreError {
     StoreError::new(StoreErrorCode::InvalidInput, message, false)
 }
 
+fn protected_owner_mutation(message: String) -> StoreError {
+    StoreError::new(StoreErrorCode::ProtectedOwnerDeletion, message, false)
+}
+
 fn conflict(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::HeadConflict, message, true)
 }
@@ -1848,4 +1997,71 @@ fn corrupt(message: &str) -> StoreError {
 
 fn internal(message: &str) -> StoreError {
     StoreError::new(StoreErrorCode::Internal, message, false)
+}
+
+#[cfg(test)]
+mod typed_owner_shell_tests {
+    use super::*;
+
+    fn unit(
+        block_id: &str,
+        block_type: &str,
+        parent_block_id: Option<&str>,
+    ) -> DocumentBlockSearchUnit {
+        DocumentBlockSearchUnit {
+            block_id: block_id.to_owned(),
+            parent_block_id: parent_block_id.map(str::to_owned),
+            ordinal: 0,
+            block_type: block_type.to_owned(),
+            text: String::new(),
+        }
+    }
+
+    #[test]
+    fn generic_persistence_rejects_children_beneath_every_typed_owner_shell() {
+        for owner_type in TYPED_CREATION_BLOCK_TYPES {
+            let owner = unit("owner", owner_type, None);
+            let child = unit("child", "paragraph", Some("owner"));
+            let error = assert_typed_owner_shells_are_childless(&[owner, child])
+                .expect_err("typed owner shells are childless");
+            assert_eq!(error.code, StoreErrorCode::ProtectedOwnerDeletion);
+            assert!(error.message.contains("owner"));
+        }
+    }
+
+    #[test]
+    fn generic_persistence_accepts_childless_owners_and_ordinary_parents() {
+        assert_typed_owner_shells_are_childless(&[
+            unit("owner", "page", None),
+            unit("parent", "paragraph", None),
+            unit("child", "paragraph", Some("parent")),
+        ])
+        .expect("only ordinary Blocks contain children");
+    }
+
+    #[test]
+    fn generic_persistence_rejects_moving_any_ancestor_of_a_typed_owner() {
+        for owner_type in TYPED_CREATION_BLOCK_TYPES {
+            let base = vec![
+                unit("parent", "paragraph", None),
+                unit("owner", owner_type, Some("parent")),
+                unit("unrelated", "paragraph", None),
+            ];
+            let placement = DocumentPlacementDelta {
+                parent_changed_block_ids: ["parent".to_owned()].into_iter().collect(),
+                ..DocumentPlacementDelta::default()
+            };
+            let error = assert_generic_placement_preserves_typed_owner_subtrees(&base, &placement)
+                .expect_err("a generic move cannot carry a typed owner subtree");
+            assert_eq!(error.code, StoreErrorCode::ProtectedOwnerDeletion);
+            assert!(error.message.contains("parent"));
+
+            let unrelated_placement = DocumentPlacementDelta {
+                reordered_block_ids: ["unrelated".to_owned()].into_iter().collect(),
+                ..DocumentPlacementDelta::default()
+            };
+            assert_generic_placement_preserves_typed_owner_subtrees(&base, &unrelated_placement)
+                .expect("ordinary unrelated placement remains generic");
+        }
+    }
 }

@@ -81,7 +81,7 @@ the referenced Page body into the containing Document or Agent prompt.
 Nodex extensions for owning Pages and block-level Page references:
 <page uuid="{{PAGE_BLOCK_ID}}" />
 <page-ref url="nodex://pages/{{PAGE_BLOCK_ID}}" />
-An owning `page` Block is a childless shell whose `uuid` is its stable Page/Block identity. During a semantically guarded whole-body replacement, that UUID may preserve or reorder only a Page already owned by the same Document; it never creates, copies, or moves a Page implicitly. Those operations require Nodex's typed ownership commands. `page-ref` is childless and non-owning in NFM and maps to the canonical `pageRef` editor node. Historical `card`, `cardRef`, `<card />`, and `<card-ref ... />` forms are decode-only and are never emitted by current materialization. The retired `<mention-card ... />` spelling is not accepted.
+An owning `page` Block is a childless shell whose `uuid` is its stable Page/Block identity. A semantically guarded whole-body replacement may preserve an already-owned Page only at its existing parent and relative position among surviving siblings; it never creates, copies, moves, or removes a Page implicitly. Those operations require Nodex's typed ownership commands. `page-ref` is childless and non-owning in NFM and maps to the canonical `pageRef` editor node.
 
 ## Agent wire contract
 

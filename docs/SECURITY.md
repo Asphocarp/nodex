@@ -194,6 +194,12 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   rich text and image payloads use a separately bounded asynchronous request.
   Renderer code never imports Electron clipboard access or reads arbitrary
   filesystem metadata through the preload.
+- Structural editor copy writes bounded HTML/plain presentation plus an opaque
+  capability envelope through trusted Main IPC. The owned snapshot stays in
+  Core. Paste verifies the Profile, Library, Store epoch, manifest hash,
+  capability hash, current authorization, target head, payload size, Block
+  count, and nesting depth before it may create an owner; malformed or foreign
+  envelopes have no owner-creation authority.
 - Built-in Browser guests are accepted only from a registered top-level app
   window whose Window Session, complete Browser route, storage identity, renderer
   instance, host generation, and mount generation all match. The partition

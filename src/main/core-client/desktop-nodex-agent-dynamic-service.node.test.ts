@@ -1609,7 +1609,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
           ifMatch: "nxe1.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
         },
       ],
-      safety: { allowDeletingOwnedBlocks: true },
       return: ["block_ids"],
     });
 
@@ -1626,7 +1625,6 @@ describe("native desktop Nodex Agent dynamic service", () => {
       "nodex-agent:thread-native-agent",
       expect.objectContaining({
         mutation: expect.objectContaining({
-          allow_deleting_owned_blocks: true,
           commands: [
             {
               kind: "insert_block",

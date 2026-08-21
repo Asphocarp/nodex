@@ -2,6 +2,8 @@ import { getNodeById } from "@blocknote/core";
 import { MultipleNodeSelection } from "@blocknote/core/extensions";
 import type { EditorView } from "@tiptap/pm/view";
 
+import { getNfmBlockSelectionIds } from "./nfm-block-selection";
+
 export interface SideMenuSelectionBlock {
   id?: string;
   children?: SideMenuSelectionBlock[];
@@ -37,36 +39,6 @@ export function getSideMenuSelectionBlockId(
   block: SideMenuSelectionBlock | undefined,
 ): string | null {
   return typeof block?.id === "string" && block.id.length > 0 ? block.id : null;
-}
-
-interface SelectionNodeLike {
-  attrs?: {
-    id?: unknown;
-  };
-}
-
-interface BlockSelectionLike {
-  node?: SelectionNodeLike;
-  nodes?: SelectionNodeLike[];
-}
-
-function getSelectionNodeBlockId(node: SelectionNodeLike | undefined): string | null {
-  const id = node?.attrs?.id;
-  return typeof id === "string" && id.length > 0 ? id : null;
-}
-
-function getBlockSelectionIds(selection: EditorView["state"]["selection"]): string[] {
-  const blockSelection = selection as EditorView["state"]["selection"] & BlockSelectionLike;
-  if (Array.isArray(blockSelection.nodes)) {
-    return Array.from(
-      new Set(
-        blockSelection.nodes.map(getSelectionNodeBlockId).filter((id): id is string => id !== null),
-      ),
-    );
-  }
-
-  const nodeId = getSelectionNodeBlockId(blockSelection.node);
-  return nodeId ? [nodeId] : [];
 }
 
 function findSelectionBlockById(
@@ -108,7 +80,7 @@ function getBlocksFromSelectionIds(
 
 function getSelectedBlocks(editor: SideMenuSelectionEditor): SideMenuSelectionBlock[] {
   const blockSelectionIds = editor.prosemirrorView
-    ? getBlockSelectionIds(editor.prosemirrorView.state.selection)
+    ? getNfmBlockSelectionIds(editor.prosemirrorView.state.selection)
     : [];
   if (blockSelectionIds.length > 0) {
     return getBlocksFromSelectionIds(editor, blockSelectionIds);
@@ -125,7 +97,7 @@ export function createSideMenuDragSelectionSnapshot(
   const selection = editor.prosemirrorView?.state.selection;
   if (!selection) return null;
 
-  const selectedBlockIds = getBlockSelectionIds(selection);
+  const selectedBlockIds = getNfmBlockSelectionIds(selection);
   if (selectedBlockIds.length > 0) {
     return { selectedBlockIds };
   }

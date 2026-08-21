@@ -157,15 +157,23 @@ describe("DocumentSessionRegistry", () => {
     });
     const firstEditor = { _tiptapEditor: { destroy: vi.fn() } };
     const secondEditor = { _tiptapEditor: { destroy: vi.fn() } };
+    const retainedController = { dispose: vi.fn() };
 
     expect(first.getOrCreateEditor("page-editor", () => firstEditor)).toBe(firstEditor);
     expect(second.getOrCreateEditor("page-editor", () => secondEditor)).toBe(secondEditor);
     expect(firstEditor).not.toBe(secondEditor);
     expect(first.runtime).toBe(second.runtime);
+    expect(
+      first.getOrCreateRetainedResource("history", () => retainedController),
+    ).toBe(retainedController);
+    expect(
+      first.getOrCreateRetainedResource("history", () => ({ dispose: vi.fn() })),
+    ).toBe(retainedController);
 
     await registry.disposeAll();
     expect(firstEditor._tiptapEditor.destroy).toHaveBeenCalledOnce();
     expect(secondEditor._tiptapEditor.destroy).toHaveBeenCalledOnce();
+    expect(retainedController.dispose).toHaveBeenCalledOnce();
   });
 
   test("does not share a DocumentSession across access scopes", async () => {

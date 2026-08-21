@@ -70,13 +70,33 @@ export type BlocksChanged<
      * The source of the change.
      */
     source: BlockChangeSource;
+    /**
+     * Same-parent siblings whose relative order crossed this block during the
+     * transaction. Present only when a surviving block changed placement.
+     */
+    crossedBlocks?: Block<BSchema, ISchema, SSchema>[];
   } & (
     | {
-        type: "insert" | "delete";
+        type: "insert";
         /**
-         * Insert and delete changes don't have a previous block.
+         * Insert changes don't have a previous block.
          */
         prevBlock: undefined;
+        /**
+         * The parent block after insertion (if it exists).
+         */
+        currentParent?: Block<BSchema, ISchema, SSchema>;
+      }
+    | {
+        type: "delete";
+        /**
+         * Delete changes don't have a previous block.
+         */
+        prevBlock: undefined;
+        /**
+         * The parent block before deletion (if it existed).
+         */
+        prevParent?: Block<BSchema, ISchema, SSchema>;
       }
     | {
         type: "update";
@@ -177,6 +197,51 @@ function collectSnapshot<
     return true;
   });
   return { byId, childrenByParent };
+}
+
+/**
+ * Returns surviving same-parent siblings that crossed one Block. This keeps
+ * minimal LIS move attribution while exposing enough placement context for
+ * consumers that protect semantic boundaries between sibling subtrees.
+ */
+function getCrossedBlocks<
+  BSchema extends BlockSchema,
+  ISchema extends InlineContentSchema,
+  SSchema extends StyleSchema,
+>(
+  id: string,
+  prevSnap: BlockSnapshot<BSchema, ISchema, SSchema>,
+  nextSnap: BlockSnapshot<BSchema, ISchema, SSchema>,
+): Block<BSchema, ISchema, SSchema>[] {
+  const prev = prevSnap.byId[id];
+  const next = nextSnap.byId[id];
+  if (!prev || !next || prev.parentId !== next.parentId) {
+    return [];
+  }
+  const parentKey = prev.parentId ?? "__root__";
+  const prevOrder = prevSnap.childrenByParent[parentKey] ?? [];
+  const nextOrder = nextSnap.childrenByParent[parentKey] ?? [];
+  const prevIndex = new Map(prevOrder.map((blockId, index) => [blockId, index]));
+  const nextIndex = new Map(nextOrder.map((blockId, index) => [blockId, index]));
+  const previousIdIndex = prevIndex.get(id);
+  const nextIdIndex = nextIndex.get(id);
+  if (previousIdIndex === undefined || nextIdIndex === undefined) {
+    return [];
+  }
+  return prevOrder.flatMap((blockId) => {
+    if (blockId === id || !nextSnap.byId[blockId]) {
+      return [];
+    }
+    const previousSiblingIndex = prevIndex.get(blockId);
+    const nextSiblingIndex = nextIndex.get(blockId);
+    if (previousSiblingIndex === undefined || nextSiblingIndex === undefined) {
+      return [];
+    }
+    const crossed =
+      (previousSiblingIndex < previousIdIndex && nextSiblingIndex > nextIdIndex) ||
+      (previousSiblingIndex > previousIdIndex && nextSiblingIndex < nextIdIndex);
+    return crossed ? [nextSnap.byId[blockId].block] : [];
+  });
 }
 
 /**
@@ -296,11 +361,17 @@ export function getBlocksChangedByTransaction<
   Object.keys(nextSnap.byId)
     .filter((id) => !(id in prevSnap.byId))
     .forEach((id) => {
+      const parentId = nextSnap.byId[id].parentId;
       changes.push({
         type: "insert",
         block: nextSnap.byId[id].block,
         source,
         prevBlock: undefined,
+        ...(parentId
+          ? {
+              currentParent: nextSnap.byId[parentId].block,
+            }
+          : {}),
       });
       changedIds.add(id);
     });
@@ -309,11 +380,17 @@ export function getBlocksChangedByTransaction<
   Object.keys(prevSnap.byId)
     .filter((id) => !(id in nextSnap.byId))
     .forEach((id) => {
+      const parentId = prevSnap.byId[id].parentId;
       changes.push({
         type: "delete",
         block: prevSnap.byId[id].block,
         source,
         prevBlock: undefined,
+        ...(parentId
+          ? {
+              prevParent: prevSnap.byId[parentId].block,
+            }
+          : {}),
       });
       changedIds.add(id);
     });
@@ -348,11 +425,13 @@ export function getBlocksChangedByTransaction<
           { ...next.block, children: undefined } as any,
         )
       ) {
+        const crossedBlocks = getCrossedBlocks(id, prevSnap, nextSnap);
         changes.push({
           type: "update",
           block: next.block,
           prevBlock: prev.block,
           source,
+          ...(crossedBlocks.length > 0 ? { crossedBlocks } : {}),
         });
         changedIds.add(id);
       }
@@ -402,6 +481,7 @@ export function getBlocksChangedByTransaction<
         return;
       }
       addedMoveForId.add(id);
+      const crossedBlocks = getCrossedBlocks(id, prevSnap, nextSnap);
       changes.push({
         type: "move",
         block: next.block,
@@ -413,6 +493,7 @@ export function getBlocksChangedByTransaction<
         currentParent: next.parentId
           ? nextSnap.byId[next.parentId]?.block
           : undefined,
+        ...(crossedBlocks.length > 0 ? { crossedBlocks } : {}),
       });
       changedIds.add(id);
     });

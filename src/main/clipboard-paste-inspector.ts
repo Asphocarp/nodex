@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import * as path from "node:path";
 
 import { parseLocalFileLinkHref } from "../shared/file-link-openers";
+import { inspectNodexClipboardHtml } from "../shared/clipboard-paste";
 import type {
   ClipboardPastePayload,
   ClipboardPasteInspectionItem,
@@ -19,6 +20,13 @@ export const CLIPBOARD_PASTE_FORMAT_MAX_BYTES = 8 * 1024 * 1024;
 export const CLIPBOARD_PASTE_TOTAL_MAX_BYTES = 16 * 1024 * 1024;
 
 const require = createRequire(import.meta.url);
+
+export interface ClipboardPasteTarget {
+  availableFormats(): string[];
+  read(format: string): string;
+  readHTML(): string;
+  readText(): string;
+}
 
 export function truncateClipboardUtf8(value: string, maxBytes: number): string {
   if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
@@ -87,9 +95,12 @@ export function inspectClipboardPasteItemsFromStrings(
   return { items };
 }
 
-export function inspectClipboardPasteItems(): ClipboardPasteInspectionResult {
-  const electron = require("electron") as typeof import("electron");
-  const clipboard = electron.clipboard;
+export function inspectClipboardPasteItems(
+  target?: ClipboardPasteTarget,
+): ClipboardPasteInspectionResult {
+  const clipboard =
+    target ??
+    ((require("electron") as typeof import("electron")).clipboard as ClipboardPasteTarget);
   const values: string[] = [];
   const availableFormats = new Set(clipboard.availableFormats());
 
@@ -105,13 +116,18 @@ export function inspectClipboardPasteItems(): ClipboardPasteInspectionResult {
     }
   }
 
-  return inspectClipboardPasteItemsFromStrings(values);
+  const result = inspectClipboardPasteItemsFromStrings(values);
+  const html = readClipboardHtml(clipboard);
+  if (!html) return result;
+  const inspected = inspectNodexClipboardHtml(html);
+  return {
+    ...result,
+    ...(inspected.envelope ? { structuralEnvelope: inspected.envelope } : {}),
+    ...(inspected.writeClaim ? { structuralWriteClaim: inspected.writeClaim } : {}),
+  };
 }
 
-function readClipboardFormat(
-  clipboard: typeof import("electron").clipboard,
-  format: string,
-): string | undefined {
+function readClipboardFormat(clipboard: ClipboardPasteTarget, format: string): string | undefined {
   try {
     const value = clipboard.read(format);
     return value.trim().length > 0
@@ -122,7 +138,7 @@ function readClipboardFormat(
   }
 }
 
-function readClipboardHtml(clipboard: typeof import("electron").clipboard): string | undefined {
+function readClipboardHtml(clipboard: ClipboardPasteTarget): string | undefined {
   try {
     const value = clipboard.readHTML();
     return value.trim().length > 0
@@ -133,7 +149,7 @@ function readClipboardHtml(clipboard: typeof import("electron").clipboard): stri
   }
 }
 
-function readClipboardText(clipboard: typeof import("electron").clipboard): string | undefined {
+function readClipboardText(clipboard: ClipboardPasteTarget): string | undefined {
   try {
     const value = clipboard.readText();
     return value.length > 0
@@ -144,14 +160,17 @@ function readClipboardText(clipboard: typeof import("electron").clipboard): stri
   }
 }
 
-export function readClipboardPastePayload(): ClipboardPastePayload {
-  const electron = require("electron") as typeof import("electron");
-  const clipboard = electron.clipboard;
+export function readClipboardPastePayload(target?: ClipboardPasteTarget): ClipboardPastePayload {
+  const clipboard =
+    target ??
+    ((require("electron") as typeof import("electron")).clipboard as ClipboardPasteTarget);
   const availableFormats = new Set(clipboard.availableFormats());
   const payload: ClipboardPastePayload = {};
 
   let remainingBytes = CLIPBOARD_PASTE_TOTAL_MAX_BYTES;
-  const assignWithinBudget = <Key extends keyof ClipboardPastePayload>(
+  const assignWithinBudget = <
+    Key extends Exclude<keyof ClipboardPastePayload, "structuralEnvelope" | "structuralWriteClaim">,
+  >(
     key: Key,
     value: ClipboardPastePayload[Key],
   ) => {
@@ -170,7 +189,13 @@ export function readClipboardPastePayload(): ClipboardPastePayload {
     assignWithinBudget("markdown", readClipboardFormat(clipboard, "text/markdown"));
   }
 
-  assignWithinBudget("html", readClipboardHtml(clipboard));
+  const html = readClipboardHtml(clipboard);
+  if (html) {
+    const inspected = inspectNodexClipboardHtml(html);
+    assignWithinBudget("html", inspected.fallbackHtml);
+    if (inspected.envelope) payload.structuralEnvelope = inspected.envelope;
+    if (inspected.writeClaim) payload.structuralWriteClaim = inspected.writeClaim;
+  }
   assignWithinBudget("text", readClipboardText(clipboard));
 
   return payload;

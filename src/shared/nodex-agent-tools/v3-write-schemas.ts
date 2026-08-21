@@ -114,11 +114,6 @@ export const UpdatePageV3InputSchema = z
       })
       .optional(),
     body: PageBodyUpdateV3Schema.optional(),
-    safety: z
-      .strictObject({
-        allowDeletingOwnedBlocks: z.boolean().optional(),
-      })
-      .optional(),
     return: PageUpdateReturnV3Schema.optional(),
   })
   .refine(
@@ -185,11 +180,6 @@ export const StableBlockEditV3Schema = z.discriminatedUnion("kind", [
 export const AdvancedUpdatePageV3InputSchema = z.strictObject({
   pageId: BlockIdSchema,
   edits: z.array(StableBlockEditV3Schema).min(1).max(512),
-  safety: z
-    .strictObject({
-      allowDeletingOwnedBlocks: z.boolean().optional(),
-    })
-    .optional(),
   return: PageUpdateReturnV3Schema.optional(),
 });
 

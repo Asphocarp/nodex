@@ -11,7 +11,7 @@ use crate::{
     ApplyResponse, ModuleMutationReceipt, ModuleName, StoreEpoch, VersionedModuleContract,
 };
 
-pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 7;
+pub const OWNED_DOCUMENT_CONTRACT_VERSION: u32 = 8;
 pub const OWNED_DOCUMENT_DESCRIPTOR_VERSION: u32 = 3;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -162,7 +162,6 @@ pub struct AgentDocumentSemanticMutation {
     pub document_id: String,
     pub generation: i64,
     pub expected_head_seq: i64,
-    pub allow_deleting_owned_blocks: bool,
     pub commands: Vec<DocumentSemanticCommand>,
 }
 

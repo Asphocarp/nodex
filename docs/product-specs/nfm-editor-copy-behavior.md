@@ -1,9 +1,9 @@
 # NFM Editor Copy Behavior
 
 Status: Active
-Last Updated: 2026-03-08
+Last Updated: 2026-08-21
 
-This document describes the current copy-related behavior inside the NFM / BlockNote editor. It covers standard selection copy/cut and the separate image-toolbar copy action.
+This document describes copy-related behavior inside the NFM / BlockNote editor. It covers ordinary selection copy/cut, structural selection copy/cut, and the separate image-toolbar copy action.
 
 This is intentionally narrower than the main product spec. It is the detailed source of truth for editor clipboard behavior.
 
@@ -11,10 +11,12 @@ This is intentionally narrower than the main product spec. It is the detailed so
 
 Included:
 
-- Copy and cut of editor selections through browser `copy` / `cut` events
+- Copy and cut of ordinary and structural editor selections
 - Image-block toolbar `Copy image`
 - Clipboard MIME types written by each path
 - Selection-shape rules that determine whether copied `text/plain` is raw text or structure-preserving text
+
+Detailed structural paste, identity, and undo behavior is owned by [NFM Editor Structural Editing Behavior](nfm-editor-structural-editing-behavior.md).
 
 Not included:
 
@@ -33,7 +35,7 @@ They share some helpers, but they are not the same pipeline.
 
 ## Standard Copy And Cut
 
-The editor installs a ProseMirror plugin named `structured-plain-text-copy` that runs before BlockNote's default `copyToClipboard` extension.
+The editor installs a ProseMirror plugin named `structured-plain-text-copy` that runs before BlockNote's default `copyToClipboard` extension. It first builds one visible-selection presentation, then chooses the ordinary or structural authority path from the selected forest.
 
 ### When it handles the event
 
@@ -62,10 +64,12 @@ On success, the handler calls `preventDefault()`.
 
 Cut uses the same clipboard payload as copy.
 
-After a successful clipboard write:
+For an ordinary selection, after a successful clipboard write:
 
 - if the editor view is editable, it deletes the selection
 - if clipboard serialization/writing fails, it does not delete the selection
+
+For a selection containing an owning Page, Canvas, or Database, Core first captures an immutable ownership-closure snapshot. Main writes safe HTML/plain presentation plus a bounded capability envelope to the native clipboard and verifies that exact capability by reading it back. Cut submits one structural source deletion only after that verification succeeds. Failure leaves the complete source unchanged.
 
 ### How copy payloads are derived
 

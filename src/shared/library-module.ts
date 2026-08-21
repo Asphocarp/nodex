@@ -512,6 +512,97 @@ export interface ApplyPageMetadataPropertiesOperation {
   readonly intrinsicFields: readonly BlockPropertyFieldMutationV2[];
 }
 
+export interface LibraryStructuralClipboardToken {
+  readonly bundleId: string;
+  readonly capability: string;
+  readonly manifestHash: string;
+  readonly storeEpoch: string;
+}
+
+export interface LibraryStructuralHistoryToken {
+  readonly recipeOperationId: string;
+  readonly recipeHash: string;
+  readonly storeEpoch: string;
+}
+
+export interface LibraryStructuralSelection {
+  readonly sourceDocumentId: string;
+  readonly rootBlockIds: readonly string[];
+  readonly sourceHead: LibraryDocumentHead;
+}
+
+export interface LibraryStructuralTarget {
+  readonly targetDocumentId: string;
+  readonly parentBlockId: string | null;
+  readonly beforeBlockId: string | null;
+  readonly targetHead: LibraryDocumentHead;
+}
+
+export interface LibraryStructuralReplacementBlock {
+  readonly blockType: string;
+  readonly props: Readonly<Record<string, unknown>>;
+  readonly content: unknown | null;
+  readonly children: readonly LibraryStructuralReplacementBlock[];
+}
+
+export type LibraryStructuralReplacement =
+  | {
+      readonly kind: "clipboard";
+      readonly bundle: LibraryStructuralClipboardToken;
+    }
+  | {
+      readonly kind: "blocks";
+      readonly blocks: readonly LibraryStructuralReplacementBlock[];
+    };
+
+export type LibraryStructuralEditCommand =
+  | {
+      readonly kind: "capture_clipboard";
+      readonly selection: LibraryStructuralSelection;
+    }
+  | {
+      readonly kind: "delete_selection";
+      readonly selection: LibraryStructuralSelection;
+      readonly reason:
+        | { readonly kind: "delete" }
+        | { readonly kind: "cut"; readonly bundle: LibraryStructuralClipboardToken };
+      readonly direction: "backward" | "forward";
+    }
+  | {
+      readonly kind: "paste_clipboard";
+      readonly bundle: LibraryStructuralClipboardToken;
+      readonly target: LibraryStructuralTarget;
+    }
+  | {
+      readonly kind: "duplicate_selection";
+      readonly selection: LibraryStructuralSelection;
+      readonly target: LibraryStructuralTarget;
+    }
+  | {
+      readonly kind: "move_selection";
+      readonly selection: LibraryStructuralSelection;
+      readonly target: LibraryStructuralTarget;
+    }
+  | {
+      readonly kind: "replace_selection";
+      readonly selection: LibraryStructuralSelection;
+      readonly replacement: LibraryStructuralReplacement;
+    }
+  | {
+      readonly kind: "release_history";
+      readonly tokens: readonly LibraryStructuralHistoryToken[];
+    };
+
+export interface ApplyLibraryStructuralEditOperation {
+  readonly kind: "apply_structural_edit";
+  readonly command: LibraryStructuralEditCommand;
+}
+
+export interface ReverseLibraryStructuralEditOperation {
+  readonly kind: "reverse_structural_edit";
+  readonly token: LibraryStructuralHistoryToken;
+}
+
 export type LibraryApplyOperation =
   | CreateLibraryPageOperation
   | CreateLibraryDatabaseOperation
@@ -525,7 +616,9 @@ export type LibraryApplyOperation =
   | RestoreLibraryResourceOperation
   | GrantLibraryResourceToProjectOperation
   | SetLibraryProjectAccessOperation
-  | ApplyPageMetadataPropertiesOperation;
+  | ApplyPageMetadataPropertiesOperation
+  | ApplyLibraryStructuralEditOperation
+  | ReverseLibraryStructuralEditOperation;
 
 export interface LibraryModuleApplyRequest {
   readonly operationId: string;
@@ -543,8 +636,29 @@ export interface LibraryCanvasMutationResult {
   readonly documentCommits: readonly DocumentCommitRef[];
 }
 
+export interface LibraryStructuralEditResult {
+  readonly operationKind: string;
+  readonly sourceRootBlockIds: readonly string[];
+  readonly resultRootBlockIds: readonly string[];
+  readonly copiedBlockIds: Readonly<Record<string, string>>;
+  readonly copiedDocumentIds: Readonly<Record<string, string>>;
+  readonly documentCommits: readonly DocumentCommitRef[];
+  readonly affectedPageIds: readonly string[];
+  readonly affectedDatabaseIds: readonly DatabaseId[];
+  readonly clipboard: LibraryStructuralClipboardToken | null;
+  readonly history: LibraryStructuralHistoryToken | null;
+  readonly supersededHistoryRecipeOperationIds: readonly string[];
+  readonly resume: {
+    readonly blockId: string;
+    readonly edge: "start" | "end";
+    readonly fallbackBeforeBlockId: string | null;
+    readonly fallbackAfterBlockId: string | null;
+  } | null;
+}
+
 export interface LibraryModuleApplyReceipt {
   readonly operationId: string;
+  readonly profileId: string;
   readonly storeEpoch: string;
   readonly libraryId: string;
   readonly operationKind: LibraryApplyOperation["kind"];
@@ -552,6 +666,7 @@ export interface LibraryModuleApplyReceipt {
   readonly didMutate: boolean;
   readonly createdTarget: Exclude<LibraryRouteTarget, { readonly kind: "view" }> | null;
   readonly canvasMutation: LibraryCanvasMutationResult | null;
+  readonly structuralEdit: LibraryStructuralEditResult | null;
   readonly affectedParentKeys: readonly string[];
   readonly affectedPageIds: readonly string[];
   readonly affectedDatabaseIds: readonly DatabaseId[];

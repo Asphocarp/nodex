@@ -196,11 +196,6 @@ export const EditDocumentInputSchema = z
       })
       .optional(),
     body: DocumentBodyEditSchema.optional(),
-    safety: z
-      .strictObject({
-        allowDeletingOwnedBlocks: z.boolean().optional(),
-      })
-      .optional(),
     return: z
       .strictObject({
         nfm: z.boolean().optional(),

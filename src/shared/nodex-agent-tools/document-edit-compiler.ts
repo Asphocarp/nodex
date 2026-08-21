@@ -29,6 +29,18 @@ export {
 } from "./exact-nfm-patches";
 
 const MAX_AGENT_DOCUMENT_BLOCKS = 512;
+const TYPED_OWNER_BLOCK_TYPES = new Set([
+  "page",
+  "database",
+  "synced_block_source",
+  "reusable_template_source",
+  "canvas",
+]);
+
+const isTypedOwnerBlockType = (type: string): boolean => TYPED_OWNER_BLOCK_TYPES.has(type);
+
+const blockContainsTypedOwner = (block: BlockTreeNode): boolean =>
+  isTypedOwnerBlockType(block.type) || block.children.some(blockContainsTypedOwner);
 
 export interface AgentDocumentEditEffects {
   readonly createdBlockIds: readonly string[];
@@ -97,6 +109,70 @@ function semanticFieldsEqual(left: BlockTreeNode, right: BlockTreeNode): boolean
   );
 }
 
+function deriveMovedBlockIds(
+  currentCoordinates: readonly Coordinate[],
+  targetCoordinates: readonly Coordinate[],
+): readonly string[] {
+  const currentById = new Map(
+    currentCoordinates.map((coordinate) => [coordinate.block.id, coordinate]),
+  );
+  const targetById = new Map(
+    targetCoordinates.map((coordinate) => [coordinate.block.id, coordinate]),
+  );
+  const commonIds = new Set(
+    currentCoordinates.map(({ block }) => block.id).filter((blockId) => targetById.has(blockId)),
+  );
+  const moved = new Set(
+    [...commonIds].filter(
+      (blockId) =>
+        currentById.get(blockId)?.parentBlockId !== targetById.get(blockId)?.parentBlockId,
+    ),
+  );
+  const stableIds = new Set([...commonIds].filter((blockId) => !moved.has(blockId)));
+  const parentIds = new Set(
+    [...stableIds].map((blockId) => currentById.get(blockId)?.parentBlockId ?? null),
+  );
+
+  for (const parentBlockId of parentIds) {
+    const stableOrder = (coordinates: readonly Coordinate[]) =>
+      coordinates
+        .filter(
+          (coordinate) =>
+            coordinate.parentBlockId === parentBlockId && stableIds.has(coordinate.block.id),
+        )
+        .map(({ block }) => block.id);
+    const previous = stableOrder(currentCoordinates);
+    const next = stableOrder(targetCoordinates);
+    if (previous.every((blockId, index) => next[index] === blockId)) continue;
+    previous.forEach((blockId, index) => {
+      if (next[index] !== blockId) moved.add(blockId);
+    });
+    next.forEach((blockId, index) => {
+      if (previous[index] !== blockId) moved.add(blockId);
+    });
+  }
+
+  return currentCoordinates.flatMap(({ block }) => (moved.has(block.id) ? [block.id] : []));
+}
+
+function assertNoTypedOwnerSubtreeMoved(
+  current: readonly BlockTreeNode[],
+  movedBlockIds: readonly string[],
+): void {
+  const currentById = new Map(
+    flattenCoordinates(current).map(({ block }) => [block.id, block] as const),
+  );
+  const movedOwnerRoots = movedBlockIds.filter((blockId) => {
+    const block = currentById.get(blockId);
+    return block !== undefined && blockContainsTypedOwner(block);
+  });
+  if (movedOwnerRoots.length === 0) return;
+  throw new AgentDocumentEditCompilerError(
+    "invalid_arguments",
+    `Document edit would move typed owner Block subtree(s): ${movedOwnerRoots.join(", ")}; use typed ownership operations`,
+  );
+}
+
 function toRichTitle(title: TextInput | undefined): PortableRichText | undefined {
   if (!title) return undefined;
   return title.kind === "plain" ? plainTextToPortableRichText(title.text) : title.richText;
@@ -111,6 +187,17 @@ function assertBoundedBlockCount(blocks: readonly BlockTreeNode[]): void {
   throw new AgentDocumentEditCompilerError(
     "invalid_nfm",
     `NFM content may contain at most ${MAX_AGENT_DOCUMENT_BLOCKS} Blocks`,
+  );
+}
+
+function assertTypedOwnerShellsAreChildless(blocks: readonly BlockTreeNode[]): void {
+  const ownerWithChildren = flattenCoordinates(blocks).find(
+    ({ block }) => isTypedOwnerBlockType(block.type) && block.children.length > 0,
+  )?.block;
+  if (!ownerWithChildren) return;
+  throw new AgentDocumentEditCompilerError(
+    "invalid_arguments",
+    `Typed owner Block ${ownerWithChildren.id} cannot contain child Blocks; use typed ownership operations`,
   );
 }
 
@@ -149,10 +236,10 @@ function parseNfmFragment(
     }
     const blocks = nfmToBlockNoteWithIds(parsed, allocateBlockId).map(toBlockTreeNode);
     assertBoundedBlockCount(blocks);
-    if (flattenCoordinates(blocks).some(({ block }) => block.type === "page")) {
+    if (flattenCoordinates(blocks).some(({ block }) => isTypedOwnerBlockType(block.type))) {
       throw new AgentDocumentEditCompilerError(
         "invalid_nfm",
-        "NFM insertion cannot create or move an owning Page; use create_pages, move_pages, or duplicate_page",
+        "NFM insertion cannot create or move an owning Page, Canvas, or Database; use its typed operation",
       );
     }
     return blocks;
@@ -241,6 +328,12 @@ function childrenOf(
 ): readonly BlockTreeNode[] {
   if (!parentBlockId) return current;
   const parent = flattenCoordinates(current).find(({ block }) => block.id === parentBlockId)?.block;
+  if (parent && isTypedOwnerBlockType(parent.type)) {
+    throw new AgentDocumentEditCompilerError(
+      "invalid_arguments",
+      `Typed owner Block ${parentBlockId} cannot contain child Blocks; use typed ownership operations`,
+    );
+  }
   if (parent) return parent.children;
   throw new AgentDocumentEditCompilerError(
     "invalid_arguments",
@@ -313,15 +406,38 @@ function compileStableEdits(
   allocateBlockId: () => string,
   localBlockIds: Map<string, string>,
 ): readonly DocumentBlockOperation[] {
+  const currentById = new Map(
+    flattenCoordinates(current).map(({ block }) => [block.id, block] as const),
+  );
   return edits.map((edit): DocumentBlockOperation => {
     if (edit.kind === "insert") {
+      const block = allocateDraft(edit.block, allocateBlockId, localBlockIds);
+      if (
+        flattenCoordinates([block]).some(({ block: candidate }) =>
+          isTypedOwnerBlockType(candidate.type),
+        )
+      ) {
+        throw new AgentDocumentEditCompilerError(
+          "invalid_arguments",
+          "Stable Block insertion cannot create an owning Page, Canvas, Database, Synced Block, or Reusable Template; use its typed operation",
+        );
+      }
       return {
         kind: "insert_block",
-        block: allocateDraft(edit.block, allocateBlockId, localBlockIds),
+        block,
         ...resolveDocumentAnchor(current, edit.at),
       };
     }
     if (edit.kind === "update") {
+      if (
+        isTypedOwnerBlockType(currentById.get(edit.blockId)?.type ?? "") ||
+        (edit.patch.type !== undefined && isTypedOwnerBlockType(edit.patch.type))
+      ) {
+        throw new AgentDocumentEditCompilerError(
+          "invalid_arguments",
+          `Stable Block update cannot reclassify or edit typed owner Block ${edit.blockId}; use its typed operation`,
+        );
+      }
       return {
         kind: "update_block",
         blockId: edit.blockId,
@@ -334,6 +450,13 @@ function compileStableEdits(
       };
     }
     if (edit.kind === "move") {
+      const block = currentById.get(edit.blockId);
+      if (block !== undefined && blockContainsTypedOwner(block)) {
+        throw new AgentDocumentEditCompilerError(
+          "invalid_arguments",
+          `Stable Block move cannot relocate Block ${edit.blockId} with a typed owner in its subtree; use typed ownership operations`,
+        );
+      }
       return {
         kind: "move_block",
         blockId: edit.blockId,
@@ -369,14 +492,7 @@ function deriveEffects(
       ? [coordinate.block.id]
       : [];
   });
-  const movedBlockIds = targetCoordinates.flatMap((coordinate) => {
-    const before = currentById.get(coordinate.block.id);
-    return before &&
-      (before.parentBlockId !== coordinate.parentBlockId ||
-        before.siblingIndex !== coordinate.siblingIndex)
-      ? [coordinate.block.id]
-      : [];
-  });
+  const movedBlockIds = deriveMovedBlockIds(currentCoordinates, targetCoordinates);
   return {
     createdBlockIds,
     localBlockIds: Object.fromEntries(localBlockIds),
@@ -384,8 +500,8 @@ function deriveEffects(
     updatedBlockIds,
     movedBlockIds,
     deletedBlockIds,
-    deletedOwnerBlockIds: deletedBlockIds.filter(
-      (blockId) => currentById.get(blockId)?.block.type === "page",
+    deletedOwnerBlockIds: deletedBlockIds.filter((blockId) =>
+      isTypedOwnerBlockType(currentById.get(blockId)?.block.type ?? ""),
     ),
     titleChanged:
       portableRichTextSemanticSource(current.richTitle) !==
@@ -508,14 +624,15 @@ export function compileAgentDocumentEdit(input: {
     }
   }
 
+  assertTypedOwnerShellsAreChildless(materialization.blockTree);
   const effects = deriveEffects(input.current, materialization, localBlockIds);
-  if (
-    effects.deletedOwnerBlockIds.length > 0 &&
-    input.edit.safety?.allowDeletingOwnedBlocks !== true
-  ) {
+  if (input.edit.body?.kind === "nfm.replace" || input.edit.body?.kind === "nfm.patch") {
+    assertNoTypedOwnerSubtreeMoved(input.current.blockTree, effects.movedBlockIds);
+  }
+  if (effects.deletedOwnerBlockIds.length > 0) {
     throw new AgentDocumentEditCompilerError(
       "protected_owner_deletion",
-      `Document edit would delete owning Page Block(s): ${effects.deletedOwnerBlockIds.join(", ")}`,
+      `Document edit would delete typed owner Block(s): ${effects.deletedOwnerBlockIds.join(", ")}; use the owning resource's lifecycle operation`,
     );
   }
   return {

@@ -31,6 +31,7 @@ import {
   type LibraryPlacementAnchor,
   type LibraryReadValue,
   type LibraryRouteTarget,
+  type LibraryStructuralReplacementBlock,
   type LibraryWriteParent,
 } from "./library-module";
 import { isWorkflowStatus } from "./workflow-status";
@@ -45,6 +46,10 @@ import { assertUuidV7 } from "./uuid-v7";
 
 const MAX_ID_LENGTH = 512;
 const MAX_TITLE_LENGTH = 1_000_000;
+const MAX_STRUCTURAL_ROOTS = 10_000;
+const MAX_STRUCTURAL_REPLACEMENT_BYTES = 64 * 1024 * 1024;
+const MAX_STRUCTURAL_REPLACEMENT_DEPTH = 128;
+const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/u;
 
 const displayText = (value: unknown, label: string): string => {
   if (
@@ -200,6 +205,161 @@ const parseLibraryDocumentHead = (
     generation,
     expectedHeadSeq: revision(head.expectedHeadSeq, `${label}.expectedHeadSeq`),
   };
+};
+
+const sha256Hex = (value: unknown, label: string): string => {
+  const parsed = string(value, label, 64);
+  if (SHA256_HEX_PATTERN.test(parsed)) return parsed;
+  throw new TypeError(`${label} must be a lowercase SHA-256 digest`);
+};
+
+const parseStructuralClipboardToken = (
+  value: unknown,
+  label: string,
+): {
+  readonly bundleId: string;
+  readonly capability: string;
+  readonly manifestHash: string;
+  readonly storeEpoch: string;
+} => {
+  const token = record(value, label);
+  exactKeys(token, label, ["bundleId", "capability", "manifestHash", "storeEpoch"]);
+  return {
+    bundleId: string(token.bundleId, `${label}.bundleId`),
+    capability: sha256Hex(token.capability, `${label}.capability`),
+    manifestHash: sha256Hex(token.manifestHash, `${label}.manifestHash`),
+    storeEpoch: string(token.storeEpoch, `${label}.storeEpoch`),
+  };
+};
+
+const parseStructuralHistoryToken = (
+  value: unknown,
+  label: string,
+): {
+  readonly recipeOperationId: string;
+  readonly recipeHash: string;
+  readonly storeEpoch: string;
+} => {
+  const token = record(value, label);
+  exactKeys(token, label, ["recipeOperationId", "recipeHash", "storeEpoch"]);
+  return {
+    recipeOperationId: string(token.recipeOperationId, `${label}.recipeOperationId`),
+    recipeHash: sha256Hex(token.recipeHash, `${label}.recipeHash`),
+    storeEpoch: string(token.storeEpoch, `${label}.storeEpoch`),
+  };
+};
+
+const parseStructuralSelection = (value: unknown, label: string) => {
+  const selection = record(value, label);
+  exactKeys(selection, label, ["sourceDocumentId", "rootBlockIds", "sourceHead"]);
+  if (
+    !Array.isArray(selection.rootBlockIds) ||
+    selection.rootBlockIds.length === 0 ||
+    selection.rootBlockIds.length > MAX_STRUCTURAL_ROOTS
+  ) {
+    throw new TypeError(`${label}.rootBlockIds must contain 1 to ${MAX_STRUCTURAL_ROOTS} Blocks`);
+  }
+  const rootBlockIds = selection.rootBlockIds.map((candidate, index) =>
+    string(candidate, `${label}.rootBlockIds[${index}]`),
+  );
+  if (new Set(rootBlockIds).size !== rootBlockIds.length) {
+    throw new TypeError(`${label}.rootBlockIds must contain unique Blocks`);
+  }
+  const sourceDocumentId = string(selection.sourceDocumentId, `${label}.sourceDocumentId`);
+  const sourceHead = parseLibraryDocumentHead(selection.sourceHead, `${label}.sourceHead`);
+  if (sourceHead.documentId !== sourceDocumentId) {
+    throw new TypeError(`${label}.sourceHead must target sourceDocumentId`);
+  }
+  return { sourceDocumentId, rootBlockIds, sourceHead };
+};
+
+const parseStructuralTarget = (value: unknown, label: string) => {
+  const target = record(value, label);
+  exactKeys(target, label, ["targetDocumentId", "parentBlockId", "beforeBlockId", "targetHead"]);
+  const targetDocumentId = string(target.targetDocumentId, `${label}.targetDocumentId`);
+  const targetHead = parseLibraryDocumentHead(target.targetHead, `${label}.targetHead`);
+  if (targetHead.documentId !== targetDocumentId) {
+    throw new TypeError(`${label}.targetHead must target targetDocumentId`);
+  }
+  return {
+    targetDocumentId,
+    parentBlockId:
+      target.parentBlockId === null
+        ? null
+        : string(target.parentBlockId, `${label}.parentBlockId`),
+    beforeBlockId:
+      target.beforeBlockId === null
+        ? null
+        : string(target.beforeBlockId, `${label}.beforeBlockId`),
+    targetHead,
+  };
+};
+
+const parseStructuralJson = (value: unknown, label: string): unknown => {
+  let encoded: string | undefined;
+  try {
+    encoded = JSON.stringify(value, (_key, candidate: unknown) => {
+      if (typeof candidate === "number" && !Number.isFinite(candidate)) {
+        throw new TypeError(`${label} must contain only finite JSON values`);
+      }
+      if (
+        candidate === undefined ||
+        typeof candidate === "bigint" ||
+        typeof candidate === "function" ||
+        typeof candidate === "symbol"
+      ) {
+        throw new TypeError(`${label} must contain only JSON values`);
+      }
+      return candidate;
+    });
+  } catch (error) {
+    if (error instanceof TypeError) throw error;
+    throw new TypeError(`${label} must contain only JSON values`, { cause: error });
+  }
+  if (encoded === undefined || encoded.length > MAX_STRUCTURAL_REPLACEMENT_BYTES) {
+    throw new TypeError(`${label} exceeds its JSON bound`);
+  }
+  return JSON.parse(encoded) as unknown;
+};
+
+const parseStructuralReplacementBlocks = (value: unknown, label: string) => {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_STRUCTURAL_ROOTS) {
+    throw new TypeError(`${label} must contain 1 to ${MAX_STRUCTURAL_ROOTS} Blocks`);
+  }
+  let count = 0;
+  const parseBlock = (
+    candidate: unknown,
+    blockLabel: string,
+    depth: number,
+  ): LibraryStructuralReplacementBlock => {
+    if (depth > MAX_STRUCTURAL_REPLACEMENT_DEPTH) {
+      throw new TypeError(`${blockLabel} exceeds its nesting bound`);
+    }
+    count += 1;
+    if (count > MAX_STRUCTURAL_ROOTS) {
+      throw new TypeError(`${label} exceeds its Block bound`);
+    }
+    const block = record(candidate, blockLabel);
+    exactKeys(block, blockLabel, ["blockType", "props", "content", "children"]);
+    const props = record(block.props, `${blockLabel}.props`);
+    if (!Array.isArray(block.children)) {
+      throw new TypeError(`${blockLabel}.children must be an array`);
+    }
+    return {
+      blockType: string(block.blockType, `${blockLabel}.blockType`, 128),
+      props: parseStructuralJson(props, `${blockLabel}.props`) as Readonly<Record<string, unknown>>,
+      content:
+        block.content === null
+          ? null
+          : parseStructuralJson(block.content, `${blockLabel}.content`),
+      children: block.children.map((child, index) =>
+        parseBlock(child, `${blockLabel}.children[${index}]`, depth + 1),
+      ),
+    };
+  };
+  const blocks = value.map((block, index) => parseBlock(block, `${label}[${index}]`, 0));
+  parseStructuralJson(blocks, label);
+  return blocks;
 };
 
 const boolean = (value: unknown, label: string): boolean => {
@@ -803,6 +963,212 @@ export const bindLibraryModuleApply = (value: unknown): LibraryModuleApplyReques
           { readonly kind: "edit_property_values" }
         >[],
         intrinsicFields: intrinsic.fields,
+      },
+    };
+  }
+  if (operation.kind === "apply_structural_edit") {
+    exactKeys(operation, "libraryModuleApply.operation", ["kind", "command"]);
+    const command = record(operation.command, "libraryModuleApply.operation.command");
+    if (command.kind === "capture_clipboard") {
+      exactKeys(command, "libraryModuleApply.operation.command", ["kind", "selection"]);
+      return {
+        operationId,
+        storeEpoch,
+        operation: {
+          kind: operation.kind,
+          command: {
+            kind: command.kind,
+            selection: parseStructuralSelection(
+              command.selection,
+              "libraryModuleApply.operation.command.selection",
+            ),
+          },
+        },
+      };
+    }
+    if (command.kind === "delete_selection") {
+      exactKeys(command, "libraryModuleApply.operation.command", [
+        "kind",
+        "selection",
+        "reason",
+        "direction",
+      ]);
+      if (command.direction !== "backward" && command.direction !== "forward") {
+        throw new TypeError("libraryModuleApply.operation.command.direction is unsupported");
+      }
+      const reason = record(command.reason, "libraryModuleApply.operation.command.reason");
+      const parsedReason = (() => {
+        if (reason.kind === "delete") {
+          exactKeys(reason, "libraryModuleApply.operation.command.reason", ["kind"]);
+          return { kind: "delete" as const };
+        }
+        if (reason.kind === "cut") {
+          exactKeys(reason, "libraryModuleApply.operation.command.reason", ["kind", "bundle"]);
+          return {
+            kind: "cut" as const,
+            bundle: parseStructuralClipboardToken(
+              reason.bundle,
+              "libraryModuleApply.operation.command.reason.bundle",
+            ),
+          };
+        }
+        throw new TypeError("libraryModuleApply.operation.command.reason.kind is unsupported");
+      })();
+      return {
+        operationId,
+        storeEpoch,
+        operation: {
+          kind: operation.kind,
+          command: {
+            kind: command.kind,
+            selection: parseStructuralSelection(
+              command.selection,
+              "libraryModuleApply.operation.command.selection",
+            ),
+            reason: parsedReason,
+            direction: command.direction,
+          },
+        },
+      };
+    }
+    if (command.kind === "paste_clipboard") {
+      exactKeys(command, "libraryModuleApply.operation.command", ["kind", "bundle", "target"]);
+      return {
+        operationId,
+        storeEpoch,
+        operation: {
+          kind: operation.kind,
+          command: {
+            kind: command.kind,
+            bundle: parseStructuralClipboardToken(
+              command.bundle,
+              "libraryModuleApply.operation.command.bundle",
+            ),
+            target: parseStructuralTarget(
+              command.target,
+              "libraryModuleApply.operation.command.target",
+            ),
+          },
+        },
+      };
+    }
+    if (command.kind === "duplicate_selection" || command.kind === "move_selection") {
+      exactKeys(command, "libraryModuleApply.operation.command", ["kind", "selection", "target"]);
+      return {
+        operationId,
+        storeEpoch,
+        operation: {
+          kind: operation.kind,
+          command: {
+            kind: command.kind,
+            selection: parseStructuralSelection(
+              command.selection,
+              "libraryModuleApply.operation.command.selection",
+            ),
+            target: parseStructuralTarget(
+              command.target,
+              "libraryModuleApply.operation.command.target",
+            ),
+          },
+        },
+      };
+    }
+    if (command.kind === "replace_selection") {
+      exactKeys(command, "libraryModuleApply.operation.command", [
+        "kind",
+        "selection",
+        "replacement",
+      ]);
+      const replacement = record(
+        command.replacement,
+        "libraryModuleApply.operation.command.replacement",
+      );
+      const parsedReplacement = (() => {
+        if (replacement.kind === "clipboard") {
+          exactKeys(replacement, "libraryModuleApply.operation.command.replacement", [
+            "kind",
+            "bundle",
+          ]);
+          return {
+            kind: "clipboard" as const,
+            bundle: parseStructuralClipboardToken(
+              replacement.bundle,
+              "libraryModuleApply.operation.command.replacement.bundle",
+            ),
+          };
+        }
+        if (replacement.kind === "blocks") {
+          exactKeys(replacement, "libraryModuleApply.operation.command.replacement", [
+            "kind",
+            "blocks",
+          ]);
+          return {
+            kind: "blocks" as const,
+            blocks: parseStructuralReplacementBlocks(
+              replacement.blocks,
+              "libraryModuleApply.operation.command.replacement.blocks",
+            ),
+          };
+        }
+        throw new TypeError(
+          "libraryModuleApply.operation.command.replacement.kind is unsupported",
+        );
+      })();
+      return {
+        operationId,
+        storeEpoch,
+        operation: {
+          kind: operation.kind,
+          command: {
+            kind: command.kind,
+            selection: parseStructuralSelection(
+              command.selection,
+              "libraryModuleApply.operation.command.selection",
+            ),
+            replacement: parsedReplacement,
+          },
+        },
+      };
+    }
+    if (command.kind === "release_history") {
+      exactKeys(command, "libraryModuleApply.operation.command", ["kind", "tokens"]);
+      if (!Array.isArray(command.tokens)) {
+        throw new TypeError("libraryModuleApply.operation.command.tokens must be an array");
+      }
+      const tokens = command.tokens;
+      if (tokens.length > 10_000) {
+        throw new TypeError("libraryModuleApply.operation.command.tokens exceeds its bound");
+      }
+      return {
+        operationId,
+        storeEpoch,
+        operation: {
+          kind: operation.kind,
+          command: {
+            kind: command.kind,
+            tokens: tokens.map((token, index) =>
+              parseStructuralHistoryToken(
+                token,
+                `libraryModuleApply.operation.command.tokens[${index}]`,
+              ),
+            ),
+          },
+        },
+      };
+    }
+    throw new TypeError("libraryModuleApply.operation.command.kind is unsupported");
+  }
+  if (operation.kind === "reverse_structural_edit") {
+    exactKeys(operation, "libraryModuleApply.operation", ["kind", "token"]);
+    return {
+      operationId,
+      storeEpoch,
+      operation: {
+        kind: operation.kind,
+        token: parseStructuralHistoryToken(
+          operation.token,
+          "libraryModuleApply.operation.token",
+        ),
       },
     };
   }
@@ -1725,10 +2091,46 @@ export const parseLibraryModuleReadResult = (value: unknown): LibraryModuleReadR
   };
 };
 
+const parseDocumentCommitRef = (value: unknown, label: string) => {
+  const commit = record(value, label);
+  exactKeys(commit, label, [
+    "documentId",
+    "generation",
+    "baseHeadSeq",
+    "headSeq",
+    "updateId",
+    "update",
+    "stateVector",
+  ]);
+  return {
+    documentId: uuidV7(commit.documentId, `${label}.documentId`),
+    generation: revision(commit.generation, `${label}.generation`),
+    baseHeadSeq: revision(commit.baseHeadSeq, `${label}.baseHeadSeq`),
+    headSeq: revision(commit.headSeq, `${label}.headSeq`),
+    updateId: string(commit.updateId, `${label}.updateId`),
+    update: commit.update === null ? null : bytes(commit.update, `${label}.update`),
+    stateVector: bytes(commit.stateVector, `${label}.stateVector`),
+  };
+};
+
+const parseStringMap = (value: unknown, label: string): Readonly<Record<string, string>> => {
+  const source = record(value, label);
+  if (Object.keys(source).length > MAX_STRUCTURAL_ROOTS) {
+    throw new TypeError(`${label} exceeds the structural edit limit`);
+  }
+  return Object.fromEntries(
+    Object.entries(source).map(([key, candidate]) => [
+      string(key, `${label} key`),
+      string(candidate, `${label}.${key}`),
+    ]),
+  );
+};
+
 const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
   const receipt = record(value, "libraryModuleApplyResult.value");
   exactKeys(receipt, "libraryModuleApplyResult.value", [
     "operationId",
+    "profileId",
     "storeEpoch",
     "libraryId",
     "operationKind",
@@ -1736,6 +2138,7 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     "didMutate",
     "createdTarget",
     "canvasMutation",
+    "structuralEdit",
     "affectedParentKeys",
     "affectedPageIds",
     "affectedDatabaseIds",
@@ -1758,6 +2161,8 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     "grant_project_access",
     "set_project_access",
     "apply_page_metadata_properties",
+    "apply_structural_edit",
+    "reverse_structural_edit",
   ]);
   if (typeof receipt.operationKind !== "string" || !operationKinds.has(receipt.operationKind)) {
     throw new TypeError("libraryModuleApplyResult.value.operationKind is unsupported");
@@ -1838,35 +2243,92 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
         mutation.metadataRevision,
         "libraryModuleApplyResult.value.canvasMutation.metadataRevision",
       ),
-      documentCommits: mutation.documentCommits.map((candidate, index) => {
-        const commit = record(
+      documentCommits: mutation.documentCommits.map((candidate, index) =>
+        parseDocumentCommitRef(
           candidate,
           `libraryModuleApplyResult.value.canvasMutation.documentCommits[${index}]`,
-        );
-        const commitLabel = `libraryModuleApplyResult.value.canvasMutation.documentCommits[${index}]`;
-        exactKeys(commit, commitLabel, [
-          "documentId",
-          "generation",
-          "baseHeadSeq",
-          "headSeq",
-          "updateId",
-          "update",
-          "stateVector",
-        ]);
-        return {
-          documentId: uuidV7(commit.documentId, `${commitLabel}.documentId`),
-          generation: revision(commit.generation, `${commitLabel}.generation`),
-          baseHeadSeq: revision(commit.baseHeadSeq, `${commitLabel}.baseHeadSeq`),
-          headSeq: revision(commit.headSeq, `${commitLabel}.headSeq`),
-          updateId: string(commit.updateId, `${commitLabel}.updateId`),
-          update: commit.update === null ? null : bytes(commit.update, `${commitLabel}.update`),
-          stateVector: bytes(commit.stateVector, `${commitLabel}.stateVector`),
-        };
-      }),
+        ),
+      ),
+    };
+  })();
+  const structuralEdit = (() => {
+    if (receipt.structuralEdit === null) return null;
+    const edit = record(receipt.structuralEdit, "libraryModuleApplyResult.value.structuralEdit");
+    const label = "libraryModuleApplyResult.value.structuralEdit";
+    exactKeys(edit, label, [
+      "operationKind",
+      "sourceRootBlockIds",
+      "resultRootBlockIds",
+      "copiedBlockIds",
+      "copiedDocumentIds",
+      "documentCommits",
+      "affectedPageIds",
+      "affectedDatabaseIds",
+      "clipboard",
+      "history",
+      "supersededHistoryRecipeOperationIds",
+      "resume",
+    ]);
+    if (!Array.isArray(edit.documentCommits)) {
+      throw new TypeError(`${label}.documentCommits must be an array`);
+    }
+    const resume = (() => {
+      if (edit.resume === null) return null;
+      const target = record(edit.resume, `${label}.resume`);
+      exactKeys(target, `${label}.resume`, [
+        "blockId",
+        "edge",
+        "fallbackBeforeBlockId",
+        "fallbackAfterBlockId",
+      ]);
+      if (target.edge !== "start" && target.edge !== "end") {
+        throw new TypeError(`${label}.resume.edge is unsupported`);
+      }
+      return {
+        blockId: string(target.blockId, `${label}.resume.blockId`),
+        edge: target.edge as "start" | "end",
+        fallbackBeforeBlockId:
+          target.fallbackBeforeBlockId === null
+            ? null
+            : string(target.fallbackBeforeBlockId, `${label}.resume.fallbackBeforeBlockId`),
+        fallbackAfterBlockId:
+          target.fallbackAfterBlockId === null
+            ? null
+            : string(target.fallbackAfterBlockId, `${label}.resume.fallbackAfterBlockId`),
+      };
+    })();
+    return {
+      operationKind: string(edit.operationKind, `${label}.operationKind`),
+      sourceRootBlockIds: parseStringList(edit.sourceRootBlockIds, `${label}.sourceRootBlockIds`),
+      resultRootBlockIds: parseStringList(edit.resultRootBlockIds, `${label}.resultRootBlockIds`),
+      copiedBlockIds: parseStringMap(edit.copiedBlockIds, `${label}.copiedBlockIds`),
+      copiedDocumentIds: parseStringMap(edit.copiedDocumentIds, `${label}.copiedDocumentIds`),
+      documentCommits: edit.documentCommits.map((candidate, index) =>
+        parseDocumentCommitRef(candidate, `${label}.documentCommits[${index}]`),
+      ),
+      affectedPageIds: parseStringList(edit.affectedPageIds, `${label}.affectedPageIds`),
+      affectedDatabaseIds: parseStringList(
+        edit.affectedDatabaseIds,
+        `${label}.affectedDatabaseIds`,
+      ).map(parseDatabaseId),
+      clipboard:
+        edit.clipboard === null
+          ? null
+          : parseStructuralClipboardToken(edit.clipboard, `${label}.clipboard`),
+      history:
+        edit.history === null
+          ? null
+          : parseStructuralHistoryToken(edit.history, `${label}.history`),
+      supersededHistoryRecipeOperationIds: parseStringList(
+        edit.supersededHistoryRecipeOperationIds,
+        `${label}.supersededHistoryRecipeOperationIds`,
+      ),
+      resume,
     };
   })();
   return {
     operationId: string(receipt.operationId, "libraryModuleApplyResult.value.operationId"),
+    profileId: string(receipt.profileId, "libraryModuleApplyResult.value.profileId"),
     storeEpoch: string(receipt.storeEpoch, "libraryModuleApplyResult.value.storeEpoch"),
     libraryId: string(receipt.libraryId, "libraryModuleApplyResult.value.libraryId"),
     operationKind: receipt.operationKind as LibraryModuleApplyReceipt["operationKind"],
@@ -1874,6 +2336,7 @@ const parseApplyReceipt = (value: unknown): LibraryModuleApplyReceipt => {
     didMutate: boolean(receipt.didMutate, "libraryModuleApplyResult.value.didMutate"),
     createdTarget,
     canvasMutation,
+    structuralEdit,
     affectedParentKeys: parseStringList(
       receipt.affectedParentKeys,
       "libraryModuleApplyResult.value.affectedParentKeys",

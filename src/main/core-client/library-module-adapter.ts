@@ -18,6 +18,7 @@ import type {
   LibraryReadValue,
   LibraryResourceTarget,
   LibraryRouteTarget,
+  LibraryStructuralReplacementBlock,
   LibraryWriteParent,
 } from "../../shared/library-module";
 import {
@@ -308,6 +309,122 @@ const toCoreRead = (request: LibraryModuleReadRequest): LibraryRead => {
   }
 };
 
+type StructuralEditCommand = Extract<
+  LibraryApplyOperation,
+  { readonly kind: "apply_structural_edit" }
+>["command"];
+type CoreStructuralEditCommand = Extract<
+  LibraryIntent,
+  { readonly kind: "apply_structural_edit" }
+>["command"];
+type CoreStructuralReplacementBlock = Extract<
+  Extract<CoreStructuralEditCommand, { readonly kind: "replace_selection" }>["replacement"],
+  { readonly kind: "blocks" }
+>["blocks"][number];
+
+const toCoreStructuralClipboardToken = (
+  token: Extract<StructuralEditCommand, { readonly kind: "paste_clipboard" }>["bundle"],
+) => ({
+  bundle_id: token.bundleId,
+  capability: token.capability,
+  manifest_hash: token.manifestHash,
+  store_epoch: token.storeEpoch,
+});
+
+const toCoreStructuralSelection = (
+  selection: Extract<StructuralEditCommand, { readonly kind: "capture_clipboard" }>["selection"],
+) => ({
+  source_document_id: selection.sourceDocumentId,
+  root_block_ids: [...selection.rootBlockIds],
+  source_head: {
+    document_id: selection.sourceHead.documentId,
+    generation: selection.sourceHead.generation,
+    head_seq: selection.sourceHead.expectedHeadSeq,
+  },
+});
+
+const toCoreStructuralTarget = (
+  target: Extract<StructuralEditCommand, { readonly kind: "paste_clipboard" }>["target"],
+) => ({
+  target_document_id: target.targetDocumentId,
+  parent_block_id: target.parentBlockId,
+  before_block_id: target.beforeBlockId,
+  target_head: {
+    document_id: target.targetHead.documentId,
+    generation: target.targetHead.generation,
+    head_seq: target.targetHead.expectedHeadSeq,
+  },
+});
+
+const toCoreStructuralReplacementBlock = (
+  block: LibraryStructuralReplacementBlock,
+): CoreStructuralReplacementBlock => ({
+  block_type: block.blockType,
+  props: { ...block.props },
+  content: block.content,
+  children: block.children.map(toCoreStructuralReplacementBlock),
+});
+
+const toCoreStructuralCommand = (command: StructuralEditCommand) => {
+  switch (command.kind) {
+    case "capture_clipboard":
+      return {
+        kind: command.kind,
+        selection: toCoreStructuralSelection(command.selection),
+      } as const;
+    case "delete_selection":
+      return {
+        kind: command.kind,
+        selection: toCoreStructuralSelection(command.selection),
+        reason:
+          command.reason.kind === "delete"
+            ? { kind: "delete" as const }
+            : {
+                kind: "cut" as const,
+                bundle: toCoreStructuralClipboardToken(command.reason.bundle),
+              },
+        direction: command.direction,
+      } as const;
+    case "paste_clipboard":
+      return {
+        kind: command.kind,
+        bundle: toCoreStructuralClipboardToken(command.bundle),
+        target: toCoreStructuralTarget(command.target),
+      } as const;
+    case "duplicate_selection":
+    case "move_selection":
+      return {
+        kind: command.kind,
+        selection: toCoreStructuralSelection(command.selection),
+        target: toCoreStructuralTarget(command.target),
+      } as const;
+    case "replace_selection":
+      return {
+        kind: command.kind,
+        selection: toCoreStructuralSelection(command.selection),
+        replacement:
+          command.replacement.kind === "clipboard"
+            ? {
+                kind: "clipboard" as const,
+                bundle: toCoreStructuralClipboardToken(command.replacement.bundle),
+              }
+            : {
+                kind: "blocks" as const,
+                blocks: command.replacement.blocks.map(toCoreStructuralReplacementBlock),
+              },
+      } as const;
+    case "release_history":
+      return {
+        kind: command.kind,
+        tokens: command.tokens.map((token) => ({
+          recipe_operation_id: token.recipeOperationId,
+          recipe_hash: token.recipeHash,
+          store_epoch: token.storeEpoch,
+        })),
+      } as const;
+  }
+};
+
 const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
   switch (operation.kind) {
     case "create_page":
@@ -420,6 +537,20 @@ const toCoreIntent = (operation: LibraryApplyOperation): LibraryIntent => {
           { kind: "page_metadata" },
           operation.clientSessionId,
         ),
+      };
+    case "apply_structural_edit":
+      return {
+        kind: operation.kind,
+        command: toCoreStructuralCommand(operation.command),
+      };
+    case "reverse_structural_edit":
+      return {
+        kind: operation.kind,
+        token: {
+          recipe_operation_id: operation.token.recipeOperationId,
+          recipe_hash: operation.token.recipeHash,
+          store_epoch: operation.token.storeEpoch,
+        },
       };
   }
 };
@@ -1752,6 +1883,7 @@ export const createCoreLibraryModuleAdapter = (
           localCommit: rendererLocalCommitApply(committed),
           value: {
             operationId: receipt.operation_id,
+            profileId: input.profileId,
             storeEpoch,
             libraryId: input.libraryId,
             operationKind: request.operation.kind,
@@ -1779,6 +1911,58 @@ export const createCoreLibraryModuleAdapter = (
                       stateVector: Uint8Array.from(commit.state_vector),
                     }),
                   ),
+                }
+              : null,
+            structuralEdit: committed.outcome.structural_edit
+              ? {
+                  operationKind: committed.outcome.structural_edit.operation_kind,
+                  sourceRootBlockIds: committed.outcome.structural_edit.source_root_block_ids,
+                  resultRootBlockIds: committed.outcome.structural_edit.result_root_block_ids,
+                  copiedBlockIds: committed.outcome.structural_edit.copied_block_ids,
+                  copiedDocumentIds: committed.outcome.structural_edit.copied_document_ids,
+                  documentCommits: committed.outcome.structural_edit.document_commits.map(
+                    (commit) => ({
+                      documentId: commit.document_id,
+                      generation: commit.generation,
+                      baseHeadSeq: commit.base_head_seq,
+                      headSeq: commit.head_seq,
+                      updateId: commit.update_id,
+                      update: Uint8Array.from(commit.update),
+                      stateVector: Uint8Array.from(commit.state_vector),
+                    }),
+                  ),
+                  affectedPageIds: committed.outcome.structural_edit.affected_page_ids,
+                  affectedDatabaseIds:
+                    committed.outcome.structural_edit.affected_database_ids.map(parseDatabaseId),
+                  clipboard: committed.outcome.structural_edit.clipboard
+                    ? {
+                        bundleId: committed.outcome.structural_edit.clipboard.bundle_id,
+                        capability: committed.outcome.structural_edit.clipboard.capability,
+                        manifestHash: committed.outcome.structural_edit.clipboard.manifest_hash,
+                        storeEpoch: committed.outcome.structural_edit.clipboard.store_epoch,
+                      }
+                    : null,
+                  history: committed.outcome.structural_edit.history
+                    ? {
+                        recipeOperationId:
+                          committed.outcome.structural_edit.history.recipe_operation_id,
+                        recipeHash: committed.outcome.structural_edit.history.recipe_hash,
+                        storeEpoch: committed.outcome.structural_edit.history.store_epoch,
+                      }
+                    : null,
+                  supersededHistoryRecipeOperationIds:
+                    committed.outcome.structural_edit
+                      .superseded_history_recipe_operation_ids,
+                  resume: committed.outcome.structural_edit.resume
+                    ? {
+                        blockId: committed.outcome.structural_edit.resume.block_id,
+                        edge: committed.outcome.structural_edit.resume.edge,
+                        fallbackBeforeBlockId:
+                          committed.outcome.structural_edit.resume.fallback_before_block_id ?? null,
+                        fallbackAfterBlockId:
+                          committed.outcome.structural_edit.resume.fallback_after_block_id ?? null,
+                      }
+                    : null,
                 }
               : null,
             affectedParentKeys: receipt.affected_parent_keys,

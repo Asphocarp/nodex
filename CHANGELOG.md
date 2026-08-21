@@ -6,6 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Added atomic mixed selection editing for Page, Canvas, and Database owners, including complete copy/cut/paste across consecutive commands and nested editors, race-safe native clipboard handoff, identity-preserving first cut paste, structural Duplicate/Move/drag, atomic-block cursor navigation, and chronological Undo/Redo with ordinary text edits.
+
 ### Changed
 
 - Nodex now requires Profiles to be at the v130 Store baseline: v130 upgrades automatically to v131 with a verified backup, while earlier Stores and the former `kanban.db` import path are no longer supported.
@@ -147,7 +149,7 @@ All notable changes to this project will be documented in this file.
 - Nodex Profile storage is now configured exclusively through `NODEX_HOME` or `[server].home`; the previous environment variable and TOML key are no longer accepted.
 - Page workflows now use the action-oriented Triage, Plan, Build, Review, and Ship stages; CLI and API callers must use the corresponding `triage`, `plan`, `build`, `review`, and `ship` identifiers.
 - Page mentions now persist only stable Page identity and refresh from membership-independent, identity-keyed events, so renamed or cleared titles cannot fall back to stale insertion-time text and nested Pages update without a Database row.
-- NFM now exposes nested Page ownership as `<page uuid="..." />` and non-owning references as `<page-ref url="nodex://pages/..." />`; persisted editor references use `pageRef`, older Card-shaped tags and `cardRef` nodes remain import-only aliases, and whole-NFM replacement can preserve existing shells exactly without allowing text import to create or move Pages.
+- NFM now exposes nested Page ownership as `<page uuid="..." />` and non-owning references as `<page-ref url="nodex://pages/..." />`; persisted editor references use `pageRef`, and whole-NFM replacement can preserve existing shells exactly without allowing text import to create or move Pages.
 - New user/content Blocks and Database/Data Source/View roots now receive independent time-ordered UUID-v7 identities. Source-scoped custom Properties and options use compact rename-stable IDs instead of exposing Project or parent paths; existing global identities remain opaque, and occurrence commands carry the identity of any Page they may create.
 - Pages now belong to one Library and have one exclusive Library, Page, or Data Source parent. Dragging between a Database View and a Page editor uses those logical coordinates while the storage layer privately resolves its Document and Database records; moves commit atomically, Option/Alt copies, and promoting a text-like Block preserves its rich title while lifting only its children into the Page body.
 - Thread tool activity now uses one mixed activity timeline: adjacent commands, edits, web searches, ordinary MCP calls, dynamic tools, and live Auto-review share stable collapsible groups, while standalone tools and requests keep their own surfaces and live, resumed, and recovered threads use the same canonical projection.

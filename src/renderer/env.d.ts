@@ -12,6 +12,10 @@ import type {
 } from "../shared/native-context-menu";
 import type { CodexDesktopMessageFromView } from "../shared/remote-hosted-pip";
 import type { WorkbenchCommandInvocation } from "../shared/workbench-commands";
+import type {
+  StructuralClipboardWriteInput,
+  StructuralClipboardWriteResult,
+} from "../shared/clipboard-paste";
 
 declare module "*.css";
 
@@ -59,6 +63,9 @@ declare global {
       resolveManagedAssetPath?: (source: string) => string | null;
       inspectPasteClipboard?: () => ClipboardPasteInspectionResult;
       readPasteClipboard?: () => Promise<ClipboardPastePayload>;
+      writeStructuralClipboard?: (
+        input: StructuralClipboardWriteInput,
+      ) => Promise<StructuralClipboardWriteResult>;
       getPathInfoForFile?: (file: File) => ClipboardPasteInspectionItem | null;
       getPathForFile?: (file: File) => string;
       sendGitWorkerMessage?: (

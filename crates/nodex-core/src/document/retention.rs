@@ -29,7 +29,7 @@ const DOCUMENT_BEARING_BLOCK_TYPES: [&str; 4] = [
     CANVAS_OWNER_TYPE,
 ];
 
-const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 31] = [
+const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 32] = [
     "block_asset_refs",
     "block_documents",
     "block_properties",
@@ -61,6 +61,7 @@ const KNOWN_INBOUND_AUTHORITY_TABLES: [&str; 31] = [
     "reminder_receipts",
     "reminder_snoozes",
     "scheduled_page_index",
+    "structural_cut_claims",
 ];
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -187,6 +188,13 @@ struct RecoveryRetentionEvidence {
 }
 
 #[derive(Debug)]
+struct StructuralRetentionEvidence {
+    library_id: String,
+    member_kind: String,
+    member_id: String,
+}
+
+#[derive(Debug)]
 struct UnknownInboundForeignKey {
     table_name: String,
     columns: Vec<ForeignKeyColumn>,
@@ -212,6 +220,7 @@ struct RetentionEvidenceIndex {
     immutable_rows: Vec<ImmutableRetentionEvidence>,
     relocations: Vec<RelocationRetentionEvidence>,
     recovery_artifacts: Vec<RecoveryRetentionEvidence>,
+    structural_members: Vec<StructuralRetentionEvidence>,
     unknown_inbound_foreign_keys: Vec<UnknownInboundForeignKey>,
 }
 
@@ -235,6 +244,7 @@ impl RetentionEvidenceIndex {
         let immutable_rows = load_immutable_retention_evidence(connection)?;
         let relocations = load_relocation_retention_evidence(connection)?;
         let recovery_artifacts = load_recovery_retention_evidence(connection)?;
+        let structural_members = load_structural_retention_evidence(connection)?;
         let unknown_inbound_foreign_keys = load_unknown_inbound_foreign_keys(connection)?;
         Ok(Self {
             current_documents,
@@ -242,6 +252,7 @@ impl RetentionEvidenceIndex {
             immutable_rows,
             relocations,
             recovery_artifacts,
+            structural_members,
             unknown_inbound_foreign_keys,
         })
     }
@@ -328,6 +339,18 @@ impl RetentionEvidenceIndex {
                         .member_block_id
                         .as_ref()
                         .is_some_and(|id| closure.block_ids.contains(id)))
+        })
+    }
+
+    fn has_structural_reference(&self, closure: &CandidateClosure) -> bool {
+        self.structural_members.iter().any(|member| {
+            member.library_id == closure.library_id
+                && match member.member_kind.as_str() {
+                    "block" | "database" => closure.block_ids.contains(&member.member_id),
+                    "document" => closure.document_ids.contains(&member.member_id),
+                    "asset" => false,
+                    _ => true,
+                }
         })
     }
 
@@ -613,6 +636,33 @@ fn load_recovery_retention_evidence(
             },
         )
         .collect()
+}
+
+fn load_structural_retention_evidence(
+    connection: &Connection,
+) -> Result<Vec<StructuralRetentionEvidence>, StoreError> {
+    connection
+        .prepare(
+            "SELECT member.library_id, member.member_kind, member.member_id \
+             FROM structural_retention_members member \
+             WHERE (member.authority_kind = 'clipboard_bundle' AND EXISTS ( \
+                      SELECT 1 FROM structural_clipboard_leases lease \
+                      WHERE lease.bundle_id = member.authority_id AND lease.state = 'active')) \
+                OR (member.authority_kind = 'history_recipe' AND EXISTS ( \
+                      SELECT 1 FROM structural_history_recipes recipe \
+                      WHERE recipe.recipe_operation_id = member.authority_id \
+                        AND recipe.state = 'available')) \
+             ORDER BY member.library_id, member.member_kind, member.member_id",
+        )?
+        .query_map([], |row| {
+            Ok(StructuralRetentionEvidence {
+                library_id: row.get(0)?,
+                member_kind: row.get(1)?,
+                member_id: row.get(2)?,
+            })
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(StoreError::from)
 }
 
 fn load_unknown_inbound_foreign_keys(
@@ -1055,6 +1105,7 @@ fn analyze_candidate(
         || evidence.has_historical_reference(closure, &database_view_ids)
         || evidence.has_cross_library_immutable_reference(closure)
         || evidence.has_relocation_reference(closure)
+        || evidence.has_structural_reference(closure)
         || has_relational_reference(
             connection,
             closure,

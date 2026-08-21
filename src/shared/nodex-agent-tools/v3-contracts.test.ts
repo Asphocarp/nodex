@@ -243,6 +243,13 @@ describe("nodex_app@4 contracts", () => {
     expect(NODEX_AGENT_V3_TOOL_CONTRACTS.advanced_update_page.classifyEffect(advanced)).toBe(
       "destructive",
     );
+    expect(
+      AdvancedUpdatePageV3InputSchema.safeParse({
+        pageId: "page-1",
+        edits: [{ kind: "delete", blockId: "block-1", ifMatch: ETAG }],
+        safety: { allowDeletingOwnedBlocks: true },
+      }).success,
+    ).toBe(false);
   });
 
   test("allows empty Page bodies but rejects empty insertion Fragments", () => {

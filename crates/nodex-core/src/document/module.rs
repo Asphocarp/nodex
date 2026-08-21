@@ -15,12 +15,13 @@ use nodex_core_contracts::document::{
     DocumentBlockOperation as ContractDocumentBlockOperation, DocumentCheckpointEffect,
     DocumentCommitOutcome, DocumentInvalidationReason, DocumentMutationCoordination,
     DocumentMutationEffect, DocumentOptionalValue, DocumentOwnerCommand, DocumentRevisionKind,
-    DocumentSemanticAnchor, DocumentSemanticBlockEtags, DocumentSemanticCommand,
-    DocumentSemanticEtags, DocumentUpdateResource, DocumentUpdateResourceUnavailable,
-    DocumentUpdateResourceUnavailableReason, OWNED_DOCUMENT_DESCRIPTOR_VERSION,
-    OwnedDocumentAccessContext, OwnedDocumentCommitValue, OwnedDocumentDescriptor,
-    OwnedDocumentIntent, OwnedDocumentOwnerLifecycle, OwnedDocumentRead, OwnedDocumentReadValue,
-    OwnedDocumentReadiness, OwnedDocumentReceipt, OwnedDocumentSyncDescriptor,
+    DocumentSemanticAnchor, DocumentSemanticBlockDraft, DocumentSemanticBlockEtags,
+    DocumentSemanticCommand, DocumentSemanticEtags, DocumentUpdateResource,
+    DocumentUpdateResourceUnavailable, DocumentUpdateResourceUnavailableReason,
+    OWNED_DOCUMENT_DESCRIPTOR_VERSION, OwnedDocumentAccessContext, OwnedDocumentCommitValue,
+    OwnedDocumentDescriptor, OwnedDocumentIntent, OwnedDocumentOwnerLifecycle, OwnedDocumentRead,
+    OwnedDocumentReadValue, OwnedDocumentReadiness, OwnedDocumentReceipt,
+    OwnedDocumentSyncDescriptor,
 };
 use nodex_core_contracts::events::ResourceKey;
 use nodex_core_contracts::{
@@ -86,7 +87,7 @@ use super::operations::{
 use super::owners::execute_owner_command;
 use super::persistence::{
     DocumentAuthorityRow, DocumentPlacementEvidence, PersistYjsCommit, PersistYjsGenesis,
-    derive_touched_block_ids, persist_yjs_commit_with_local_commit,
+    TYPED_CREATION_BLOCK_TYPES, derive_touched_block_ids, persist_yjs_commit_with_local_commit,
     persist_yjs_genesis_with_local_commit, read_document_authority, read_event_head,
     read_local_commit_head, read_store_epoch, sha256,
 };
@@ -662,7 +663,6 @@ impl OwnedDocumentModule {
                 document_id,
                 generation,
                 expected_head_seq,
-                false,
                 commands,
                 None,
             ),
@@ -710,7 +710,6 @@ impl OwnedDocumentModule {
                 mutation.document_id,
                 mutation.generation,
                 mutation.expected_head_seq,
-                mutation.allow_deleting_owned_blocks,
                 mutation.commands,
                 Some(*authorization),
             ),
@@ -1194,7 +1193,7 @@ impl OwnedDocumentModule {
                     &materialization,
                     mutation_effect,
                 )?;
-                assert_agent_owner_deletion_allowed(&mutation, &footprint)?;
+                assert_agent_owner_deletion_forbidden(&footprint)?;
                 let authority_revisions_hash = agent_authority_revisions_hash(
                     &transaction,
                     &authority_fingerprint,
@@ -2602,7 +2601,6 @@ impl OwnedDocumentModule {
         document_id: String,
         generation: i64,
         expected_head_seq: i64,
-        allow_deleting_owned_blocks: bool,
         commands: Vec<DocumentSemanticCommand>,
         prepared_agent: Option<AgentPreparedExecution>,
     ) -> Result<OwnedDocumentApplyOutcome, CoreError> {
@@ -2613,7 +2611,6 @@ impl OwnedDocumentModule {
             document_id: document_id.clone(),
             generation,
             expected_head_seq,
-            allow_deleting_owned_blocks,
             commands: commands.clone(),
         };
         let fingerprint = if let Some(execution) = prepared_agent.as_ref() {
@@ -2633,7 +2630,6 @@ impl OwnedDocumentModule {
                 expected_store_epoch.clone(),
                 &document_id,
                 generation,
-                allow_deleting_owned_blocks,
                 &commands,
             ))
             .map_err(|_| invalid("Owned Document semantic request cannot be fingerprinted"))?
@@ -2756,6 +2752,10 @@ impl OwnedDocumentModule {
             },
             move |connection, authority, engine, materialization, _store_epoch| {
                 assert_document_head(authority, generation, expected_head_seq)?;
+                assert_generic_document_operations_preserve_typed_owners(
+                    &operations,
+                    materialization,
+                )?;
                 let schema = registered_yjs_schema(authority)?;
                 let prepared = match prepare_document_operation_update(
                     &authority.head.id,
@@ -2900,6 +2900,11 @@ impl OwnedDocumentModule {
                         exact_moved_block_ids: None,
                     },
                 );
+                assert_document_mutation_effect_preserves_typed_owners(
+                    materialization,
+                    &prepared.materialization,
+                    &mutation_effect,
+                )?;
                 assert_fresh_document_block_ids(
                     connection,
                     authority,
@@ -3616,7 +3621,7 @@ impl OwnedDocumentModule {
                         &base_materialization,
                         mutation_effect,
                     )?;
-                    assert_agent_owner_deletion_allowed(&prepared_agent.mutation, &footprint)?;
+                    assert_agent_owner_deletion_forbidden(&footprint)?;
                     let authority_revisions_hash = agent_authority_revisions_hash(
                         &transaction,
                         agent_authority_fingerprint
@@ -4603,6 +4608,9 @@ fn prepare_semantic_update(
     update_id: &str,
     etag_project_id: &str,
 ) -> Result<(PreparedUpdate, Option<String>), StoreError> {
+    let footprint =
+        agent_semantic_footprint(&authority.owner_block_id, commands, materialization, None)?;
+    assert_agent_owner_deletion_forbidden(&footprint)?;
     let requires_structural_barrier = commands.iter().any(|command| {
         matches!(
             command,
@@ -4673,6 +4681,19 @@ fn prepare_semantic_update(
                     exact_moved_block_ids: Some(&exact_moved_block_ids),
                 },
             );
+            if commands.iter().any(|command| {
+                matches!(
+                    command,
+                    DocumentSemanticCommand::PatchBody { .. }
+                        | DocumentSemanticCommand::ReplaceBody { .. }
+                )
+            }) {
+                assert_document_mutation_effect_preserves_typed_owners(
+                    materialization,
+                    &prepared.materialization,
+                    &mutation_effect,
+                )?;
+            }
             assert_fresh_document_block_ids(
                 connection,
                 authority,
@@ -4701,6 +4722,188 @@ fn prepare_semantic_update(
         }
         Err(error) => Err(semantic_error(error)),
     }
+}
+
+fn assert_generic_document_operations_preserve_typed_owners(
+    operations: &[EngineDocumentBlockOperation],
+    materialization: &DocumentMaterialization,
+) -> Result<(), StoreError> {
+    let block_types = materialization
+        .search_units
+        .iter()
+        .map(|unit| (unit.block_id.clone(), unit.block_type.clone()))
+        .collect::<HashMap<_, _>>();
+    let is_typed_id = |block_id: &str| {
+        block_types
+            .get(block_id)
+            .is_some_and(|kind| TYPED_CREATION_BLOCK_TYPES.contains(&kind.as_str()))
+    };
+    let mut children = HashMap::<String, Vec<String>>::new();
+    for unit in &materialization.search_units {
+        if let Some(parent_block_id) = &unit.parent_block_id {
+            children
+                .entry(parent_block_id.clone())
+                .or_default()
+                .push(unit.block_id.clone());
+        }
+    }
+    for operation in operations {
+        match operation {
+            EngineDocumentBlockOperation::SetTitle { .. }
+            | EngineDocumentBlockOperation::SetRichTitle { .. } => {}
+            EngineDocumentBlockOperation::InsertBlock {
+                block,
+                parent_block_id,
+                ..
+            } => {
+                assert_materialized_draft_has_no_typed_owner(block)?;
+                if let Some(parent_block_id) = parent_block_id
+                    .as_deref()
+                    .filter(|parent_block_id| is_typed_id(parent_block_id))
+                {
+                    return Err(invalid_store(format!(
+                        "Typed owner Block {parent_block_id} cannot contain child Blocks"
+                    )));
+                }
+            }
+            EngineDocumentBlockOperation::UpdateBlock {
+                block_id, patch, ..
+            } => {
+                if is_typed_id(block_id)
+                    || patch
+                        .block_type
+                        .as_deref()
+                        .is_some_and(|kind| TYPED_CREATION_BLOCK_TYPES.contains(&kind))
+                {
+                    return Err(invalid_store(format!(
+                        "Typed owner Block {block_id} cannot be edited by a generic Document update"
+                    )));
+                }
+            }
+            EngineDocumentBlockOperation::DeleteBlock { block_id } => {
+                if document_subtree_contains_typed_owner(block_id, &children, &block_types) {
+                    return Err(StoreError::new(
+                        StoreErrorCode::ProtectedOwnerDeletion,
+                        format!(
+                            "Block subtree {block_id} contains a typed owner and cannot be removed by a generic Document update"
+                        ),
+                        false,
+                    ));
+                }
+            }
+            EngineDocumentBlockOperation::MoveBlock {
+                block_id,
+                parent_block_id,
+                ..
+            } => {
+                if document_subtree_contains_typed_owner(block_id, &children, &block_types) {
+                    return Err(invalid_store(format!(
+                        "Block subtree {block_id} contains a typed owner and cannot be moved by a generic Document update"
+                    )));
+                }
+                if let Some(parent_block_id) = parent_block_id
+                    .as_deref()
+                    .filter(|parent_block_id| is_typed_id(parent_block_id))
+                {
+                    return Err(invalid_store(format!(
+                        "Typed owner Block {parent_block_id} cannot contain child Blocks"
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn document_subtree_contains_typed_owner(
+    root_block_id: &str,
+    children: &HashMap<String, Vec<String>>,
+    block_types: &HashMap<String, String>,
+) -> bool {
+    let mut pending = VecDeque::from([root_block_id]);
+    while let Some(block_id) = pending.pop_front() {
+        if block_types
+            .get(block_id)
+            .is_some_and(|kind| TYPED_CREATION_BLOCK_TYPES.contains(&kind.as_str()))
+        {
+            return true;
+        }
+        if let Some(descendants) = children.get(block_id) {
+            pending.extend(descendants.iter().map(String::as_str));
+        }
+    }
+    false
+}
+
+fn assert_document_mutation_effect_preserves_typed_owners(
+    before: &DocumentMaterialization,
+    after: &DocumentMaterialization,
+    effect: &DocumentMutationEffect,
+) -> Result<(), StoreError> {
+    let block_types = before
+        .search_units
+        .iter()
+        .map(|unit| (unit.block_id.clone(), unit.block_type.clone()))
+        .collect::<HashMap<_, _>>();
+    let mut children = HashMap::<String, Vec<String>>::new();
+    for unit in &before.search_units {
+        if let Some(parent_block_id) = &unit.parent_block_id {
+            children
+                .entry(parent_block_id.clone())
+                .or_default()
+                .push(unit.block_id.clone());
+        }
+    }
+    let deleted_owners = effect
+        .deleted_block_ids
+        .iter()
+        .filter(|block_id| {
+            block_types
+                .get(block_id.as_str())
+                .is_some_and(|kind| TYPED_CREATION_BLOCK_TYPES.contains(&kind.as_str()))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if !deleted_owners.is_empty() {
+        return Err(StoreError::new(
+            StoreErrorCode::ProtectedOwnerDeletion,
+            format!(
+                "Document edit would delete typed owner Block(s): {}",
+                deleted_owners.join(", ")
+            ),
+            false,
+        ));
+    }
+    let placement = derive_document_placement_delta(before, after);
+    let moved_owner_subtrees = placement
+        .parent_changed_block_ids
+        .iter()
+        .chain(&placement.reordered_block_ids)
+        .filter(|block_id| document_subtree_contains_typed_owner(block_id, &children, &block_types))
+        .cloned()
+        .collect::<Vec<_>>();
+    if moved_owner_subtrees.is_empty() {
+        return Ok(());
+    }
+    Err(invalid_store(format!(
+        "Document edit would move typed owner Block subtree(s): {}",
+        moved_owner_subtrees.join(", ")
+    )))
+}
+
+fn assert_materialized_draft_has_no_typed_owner(
+    block: &MaterializedBlockNode,
+) -> Result<(), StoreError> {
+    if TYPED_CREATION_BLOCK_TYPES.contains(&block.block_type.as_str()) {
+        return Err(invalid_store(format!(
+            "Typed owner Block {} requires a typed creation operation",
+            block.id
+        )));
+    }
+    for child in &block.children {
+        assert_materialized_draft_has_no_typed_owner(child)?;
+    }
+    Ok(())
 }
 
 fn validate_agent_transport_context(
@@ -4926,13 +5129,30 @@ fn build_agent_semantic_footprint(
             }
             DocumentSemanticCommand::InsertBody { anchor, .. } => {
                 let (parent_block_id, _) = semantic_footprint_anchor(anchor, &parents, &children);
+                assert_agent_anchor_outside_typed_owner(parent_block_id.as_deref(), &block_types)?;
                 updated_roots.insert(parent_block_id.unwrap_or_else(|| owner_page_id.to_owned()));
             }
-            DocumentSemanticCommand::InsertBlock { anchor, .. } => {
+            DocumentSemanticCommand::InsertBlock { anchor, block } => {
+                assert_agent_draft_has_no_typed_owner(block)?;
                 let (parent_block_id, _) = semantic_footprint_anchor(anchor, &parents, &children);
+                assert_agent_anchor_outside_typed_owner(parent_block_id.as_deref(), &block_types)?;
                 updated_roots.insert(parent_block_id.unwrap_or_else(|| owner_page_id.to_owned()));
             }
-            DocumentSemanticCommand::UpdateBlock { block_id, .. } => {
+            DocumentSemanticCommand::UpdateBlock {
+                block_id, patch, ..
+            } => {
+                if block_types
+                    .get(block_id)
+                    .is_some_and(|kind| TYPED_CREATION_BLOCK_TYPES.contains(&kind.as_str()))
+                    || patch
+                        .block_type
+                        .as_deref()
+                        .is_some_and(|kind| TYPED_CREATION_BLOCK_TYPES.contains(&kind))
+                {
+                    return Err(invalid_store(format!(
+                        "Typed owner Block {block_id} cannot be edited by a generic Document update"
+                    )));
+                }
                 updated_roots.insert(block_id.clone());
             }
             DocumentSemanticCommand::DeleteBlock { block_id, .. } => {
@@ -4953,8 +5173,28 @@ fn build_agent_semantic_footprint(
                 }
             }
             DocumentSemanticCommand::MoveBlock { block_id, anchor } => {
+                let mut pending = VecDeque::from([block_id.clone()]);
+                let mut carries_typed_owner = false;
+                while let Some(candidate) = pending.pop_front() {
+                    if block_types
+                        .get(&candidate)
+                        .is_some_and(|kind| TYPED_CREATION_BLOCK_TYPES.contains(&kind.as_str()))
+                    {
+                        carries_typed_owner = true;
+                        break;
+                    }
+                    if let Some(descendants) = children.get(&Some(candidate)) {
+                        pending.extend(descendants.iter().cloned());
+                    }
+                }
+                if carries_typed_owner {
+                    return Err(invalid_store(format!(
+                        "Block subtree {block_id} contains a typed owner and cannot be moved by a generic Document update"
+                    )));
+                }
                 let (parent_block_id, before_block_id) =
                     semantic_footprint_anchor(anchor, &parents, &children);
+                assert_agent_anchor_outside_typed_owner(parent_block_id.as_deref(), &block_types)?;
                 updated_roots.insert(block_id.clone());
                 updated_roots.insert(
                     parent_block_id
@@ -4990,7 +5230,7 @@ fn build_agent_semantic_footprint(
         .filter(|block_id| {
             block_types
                 .get(*block_id)
-                .is_some_and(|kind| kind == "page")
+                .is_some_and(|kind| TYPED_CREATION_BLOCK_TYPES.contains(&kind.as_str()))
         })
         .cloned()
         .collect::<Vec<_>>();
@@ -5024,17 +5264,49 @@ fn build_agent_semantic_footprint(
     })
 }
 
-fn assert_agent_owner_deletion_allowed(
-    mutation: &AgentDocumentSemanticMutation,
+fn assert_agent_draft_has_no_typed_owner(
+    block: &DocumentSemanticBlockDraft,
+) -> Result<(), StoreError> {
+    if TYPED_CREATION_BLOCK_TYPES.contains(&block.block_type.as_str()) {
+        return Err(invalid_store(format!(
+            "Typed owner Block draft {} requires a typed creation operation",
+            block.local_id
+        )));
+    }
+    for child in &block.children {
+        assert_agent_draft_has_no_typed_owner(child)?;
+    }
+    Ok(())
+}
+
+fn assert_agent_anchor_outside_typed_owner(
+    parent_block_id: Option<&str>,
+    block_types: &HashMap<String, String>,
+) -> Result<(), StoreError> {
+    let Some(parent_block_id) = parent_block_id else {
+        return Ok(());
+    };
+    if !block_types
+        .get(parent_block_id)
+        .is_some_and(|kind| TYPED_CREATION_BLOCK_TYPES.contains(&kind.as_str()))
+    {
+        return Ok(());
+    }
+    Err(invalid_store(format!(
+        "Typed owner Block {parent_block_id} cannot contain child Blocks"
+    )))
+}
+
+fn assert_agent_owner_deletion_forbidden(
     footprint: &AgentOperationFootprint,
 ) -> Result<(), StoreError> {
-    if mutation.allow_deleting_owned_blocks || footprint.deleted_owner_roots.is_empty() {
+    if footprint.deleted_owner_roots.is_empty() {
         return Ok(());
     }
     Err(StoreError::new(
         StoreErrorCode::ProtectedOwnerDeletion,
         format!(
-            "Document edit would delete owning Page Block(s): {}",
+            "Document edit would delete typed owner Block(s): {}",
             footprint.deleted_owner_roots.join(", ")
         ),
         false,
@@ -7943,7 +8215,7 @@ mod tests {
                 ),
             )
             .expect_err("typed Page cannot enter a Synced Block genesis");
-        assert_eq!(error.code, CoreErrorCode::InvalidInput);
+        assert_eq!(error.code, CoreErrorCode::ProtectedOwnerDeletion);
         seeded
             .kernel
             .readers()
@@ -11006,7 +11278,6 @@ mod tests {
             document_id: DOCUMENT_ID.to_owned(),
             generation: 1,
             expected_head_seq: 1,
-            allow_deleting_owned_blocks: false,
             commands: vec![DocumentSemanticCommand::SetTitle {
                 inline_markdown: "Prepared Agent authority".to_owned(),
                 expected_etag: title_etag,
@@ -11183,7 +11454,6 @@ mod tests {
             document_id: DOCUMENT_ID.to_owned(),
             generation: 1,
             expected_head_seq: 1,
-            allow_deleting_owned_blocks: false,
             commands: vec![DocumentSemanticCommand::InsertBody {
                 anchor: DocumentSemanticAnchor::End {
                     parent_block_id: None,
@@ -11294,7 +11564,6 @@ mod tests {
             document_id: DOCUMENT_ID.to_owned(),
             generation: 1,
             expected_head_seq: 1,
-            allow_deleting_owned_blocks: false,
             commands: vec![DocumentSemanticCommand::InsertBody {
                 anchor: DocumentSemanticAnchor::End {
                     parent_block_id: None,
@@ -11603,47 +11872,251 @@ mod tests {
     }
 
     #[test]
-    fn agent_semantic_footprint_requires_explicit_owned_page_deletion_intent() {
+    fn agent_semantic_footprint_rejects_every_generic_typed_owner_deletion() {
         let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/yjs-yrs/empty-page.bin");
         let full_state = fs::read(fixture).expect("empty Page fixture");
         let engine =
             YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &full_state).expect("Page engine");
-        let mut materialization =
-            materialize_engine(&engine, BlockDocumentSchema::PageV2).expect("Page materialization");
-        let page_block = materialization
-            .search_units
-            .first_mut()
-            .expect("fixture contains a body Block");
-        page_block.block_type = "page".to_owned();
-        let page_block_id = page_block.block_id.clone();
-        let commands = vec![DocumentSemanticCommand::DeleteBlock {
-            block_id: page_block_id.clone(),
-            expected_etag: "nxe1.test".to_owned(),
-        }];
-        let footprint = agent_semantic_footprint(OWNER_BLOCK_ID, &commands, &materialization, None)
-            .expect("classify Agent deletion");
-        assert_eq!(footprint.deleted_owner_roots, vec![page_block_id]);
+        for owner_type in TYPED_CREATION_BLOCK_TYPES {
+            let mut materialization = materialize_engine(&engine, BlockDocumentSchema::PageV2)
+                .expect("Page materialization");
+            let owner_block = materialization
+                .search_units
+                .first_mut()
+                .expect("fixture contains a body Block");
+            owner_block.block_type = (*owner_type).to_owned();
+            let owner_block_id = owner_block.block_id.clone();
+            let commands = vec![DocumentSemanticCommand::DeleteBlock {
+                block_id: owner_block_id.clone(),
+                expected_etag: "nxe1.test".to_owned(),
+            }];
+            let footprint =
+                agent_semantic_footprint(OWNER_BLOCK_ID, &commands, &materialization, None)
+                    .expect("classify Agent deletion");
+            assert_eq!(footprint.deleted_owner_roots, vec![owner_block_id]);
 
-        let protected = AgentDocumentSemanticMutation {
-            document_id: DOCUMENT_ID.to_owned(),
-            generation: 1,
-            expected_head_seq: 1,
-            allow_deleting_owned_blocks: false,
-            commands,
-        };
-        let error = assert_agent_owner_deletion_allowed(&protected, &footprint)
-            .expect_err("owned Page deletion requires explicit intent");
-        assert_eq!(error.code, StoreErrorCode::ProtectedOwnerDeletion);
+            let error = assert_agent_owner_deletion_forbidden(&footprint)
+                .expect_err("typed owner deletion requires a lifecycle operation");
+            assert_eq!(error.code, StoreErrorCode::ProtectedOwnerDeletion);
+        }
+    }
 
-        assert_agent_owner_deletion_allowed(
-            &AgentDocumentSemanticMutation {
-                allow_deleting_owned_blocks: true,
-                ..protected
-            },
-            &footprint,
-        )
-        .expect("explicit intent permits owned Page deletion");
+    #[test]
+    fn agent_semantic_footprint_rejects_anchors_inside_every_typed_owner() {
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/yjs-yrs/empty-page.bin");
+        let full_state = fs::read(fixture).expect("empty Page fixture");
+        let engine =
+            YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &full_state).expect("Page engine");
+        for owner_type in TYPED_CREATION_BLOCK_TYPES {
+            let mut materialization = materialize_engine(&engine, BlockDocumentSchema::PageV2)
+                .expect("Page materialization");
+            let owner_block = materialization
+                .search_units
+                .first_mut()
+                .expect("fixture contains a body Block");
+            owner_block.block_type = (*owner_type).to_owned();
+            let owner_block_id = owner_block.block_id.clone();
+            let mut ordinary_block = owner_block.clone();
+            ordinary_block.block_id = "ordinary-block".to_owned();
+            ordinary_block.block_type = "paragraph".to_owned();
+            materialization.search_units.push(ordinary_block);
+
+            for command in [
+                DocumentSemanticCommand::InsertBody {
+                    anchor: DocumentSemanticAnchor::End {
+                        parent_block_id: Some(owner_block_id.clone()),
+                    },
+                    nested_markdown: "Child".to_owned(),
+                },
+                DocumentSemanticCommand::MoveBlock {
+                    block_id: "ordinary-block".to_owned(),
+                    anchor: DocumentSemanticAnchor::End {
+                        parent_block_id: Some(owner_block_id.clone()),
+                    },
+                },
+            ] {
+                let error =
+                    agent_semantic_footprint(OWNER_BLOCK_ID, &[command], &materialization, None)
+                        .expect_err("Agent anchors cannot target typed owner shells");
+                assert_eq!(error.code, StoreErrorCode::InvalidInput);
+            }
+            for command in [
+                DocumentSemanticCommand::InsertBlock {
+                    anchor: DocumentSemanticAnchor::End {
+                        parent_block_id: None,
+                    },
+                    block: DocumentSemanticBlockDraft {
+                        local_id: "typed-owner".to_owned(),
+                        block_type: (*owner_type).to_owned(),
+                        props: BTreeMap::new(),
+                        content: DocumentOptionalValue::Absent,
+                        children: Vec::new(),
+                    },
+                },
+                DocumentSemanticCommand::UpdateBlock {
+                    block_id: owner_block_id.clone(),
+                    expected_etag: "nxe1.test".to_owned(),
+                    patch: ContractDocumentBlockUpdatePatch {
+                        block_type: None,
+                        props: Some(BTreeMap::new()),
+                        content: DocumentOptionalValue::Absent,
+                        unset_content: false,
+                    },
+                },
+                DocumentSemanticCommand::MoveBlock {
+                    block_id: owner_block_id.clone(),
+                    anchor: DocumentSemanticAnchor::End {
+                        parent_block_id: None,
+                    },
+                },
+            ] {
+                let error =
+                    agent_semantic_footprint(OWNER_BLOCK_ID, &[command], &materialization, None)
+                        .expect_err("Agent generic edits cannot mutate typed owner shells");
+                assert_eq!(error.code, StoreErrorCode::InvalidInput);
+            }
+        }
+    }
+
+    #[test]
+    fn generic_operation_batches_reject_every_typed_owner_mutation() {
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/yjs-yrs/empty-page.bin");
+        let full_state = fs::read(fixture).expect("empty Page fixture");
+        let engine =
+            YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &full_state).expect("Page engine");
+        for owner_type in TYPED_CREATION_BLOCK_TYPES {
+            let mut materialization = materialize_engine(&engine, BlockDocumentSchema::PageV2)
+                .expect("Page materialization");
+            let owner_block = materialization
+                .search_units
+                .first_mut()
+                .expect("fixture contains a body Block");
+            owner_block.block_type = (*owner_type).to_owned();
+            let owner_block_id = owner_block.block_id.clone();
+
+            let ordinary_draft = MaterializedBlockNode {
+                id: "ordinary".to_owned(),
+                block_type: "paragraph".to_owned(),
+                props: BTreeMap::new(),
+                content: None,
+                children: Vec::new(),
+            };
+            let typed_draft = MaterializedBlockNode {
+                block_type: (*owner_type).to_owned(),
+                ..ordinary_draft.clone()
+            };
+            let cases = [
+                EngineDocumentBlockOperation::InsertBlock {
+                    block: typed_draft,
+                    parent_block_id: None,
+                    before_block_id: None,
+                },
+                EngineDocumentBlockOperation::InsertBlock {
+                    block: ordinary_draft,
+                    parent_block_id: Some(owner_block_id.clone()),
+                    before_block_id: None,
+                },
+                EngineDocumentBlockOperation::UpdateBlock {
+                    block_id: owner_block_id.clone(),
+                    patch: EngineDocumentBlockUpdatePatch {
+                        block_type: None,
+                        props: Some(BTreeMap::new()),
+                        content: None,
+                        unset_content: false,
+                    },
+                },
+                EngineDocumentBlockOperation::MoveBlock {
+                    block_id: owner_block_id.clone(),
+                    parent_block_id: None,
+                    before_block_id: None,
+                },
+                EngineDocumentBlockOperation::DeleteBlock {
+                    block_id: owner_block_id,
+                },
+            ];
+            for operation in cases {
+                let error = assert_generic_document_operations_preserve_typed_owners(
+                    &[operation],
+                    &materialization,
+                )
+                .expect_err("generic operation batches cannot mutate typed owners");
+                assert!(matches!(
+                    error.code,
+                    StoreErrorCode::InvalidInput | StoreErrorCode::ProtectedOwnerDeletion
+                ));
+            }
+
+            let mut nested_owner = materialization.search_units[0].clone();
+            nested_owner.parent_block_id = Some("ordinary-parent".to_owned());
+            let mut ordinary_parent = nested_owner.clone();
+            ordinary_parent.block_id = "ordinary-parent".to_owned();
+            ordinary_parent.block_type = "paragraph".to_owned();
+            ordinary_parent.parent_block_id = None;
+            materialization.search_units = vec![ordinary_parent, nested_owner];
+            let error = assert_generic_document_operations_preserve_typed_owners(
+                &[EngineDocumentBlockOperation::MoveBlock {
+                    block_id: "ordinary-parent".to_owned(),
+                    parent_block_id: None,
+                    before_block_id: None,
+                }],
+                &materialization,
+            )
+            .expect_err("generic moves cannot carry typed owner subtrees");
+            assert_eq!(error.code, StoreErrorCode::InvalidInput);
+        }
+    }
+
+    #[test]
+    fn whole_body_invariant_uses_canonical_placement_not_filtered_effect_metadata() {
+        let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/yjs-yrs/empty-page.bin");
+        let full_state = fs::read(fixture).expect("empty Page fixture");
+        let engine =
+            YrsDocumentEngine::from_full_state_v1(DOCUMENT_ID, &full_state).expect("Page engine");
+
+        for owner_type in TYPED_CREATION_BLOCK_TYPES {
+            let mut before = materialize_engine(&engine, BlockDocumentSchema::PageV2)
+                .expect("Page materialization");
+            let mut owner = before.block_tree[0].clone();
+            owner.block_type = (*owner_type).to_owned();
+            let mut ordinary = owner.clone();
+            ordinary.id = "ordinary-sibling".to_owned();
+            ordinary.block_type = "paragraph".to_owned();
+            before.block_tree = vec![owner, ordinary];
+            before.search_units[0].block_type = (*owner_type).to_owned();
+            let mut ordinary_unit = before.search_units[0].clone();
+            ordinary_unit.block_id = "ordinary-sibling".to_owned();
+            ordinary_unit.block_type = "paragraph".to_owned();
+            ordinary_unit.ordinal = 1;
+            before.search_units.push(ordinary_unit);
+
+            let mut after = before.clone();
+            after.block_tree.swap(0, 1);
+            after.search_units.swap(0, 1);
+            after.search_units[0].ordinal = 0;
+            after.search_units[1].ordinal = 1;
+            let no_declared_moves = Vec::new();
+            let effect = document_mutation_effect(
+                OWNER_BLOCK_ID,
+                1,
+                &before,
+                &after,
+                DocumentMutationEffectPolicy {
+                    write_fence_block_ids: &[],
+                    title_write_fence_required: false,
+                    force_write_fence: false,
+                    exact_moved_block_ids: Some(&no_declared_moves),
+                },
+            );
+            assert!(effect.moved_block_ids.is_empty());
+            let error =
+                assert_document_mutation_effect_preserves_typed_owners(&before, &after, &effect)
+                    .expect_err("whole-body edits cannot hide owner movement in filtered metadata");
+            assert_eq!(error.code, StoreErrorCode::InvalidInput);
+        }
     }
 
     #[test]
@@ -11656,7 +12129,6 @@ mod tests {
             document_id: DOCUMENT_ID.to_owned(),
             generation: 1,
             expected_head_seq: 1,
-            allow_deleting_owned_blocks: false,
             commands: vec![DocumentSemanticCommand::InsertBlock {
                 anchor: DocumentSemanticAnchor::End {
                     parent_block_id: None,
@@ -12048,7 +12520,6 @@ mod tests {
                             document_id: FOREIGN_DOCUMENT_ID.to_owned(),
                             generation: 1,
                             expected_head_seq: 1,
-                            allow_deleting_owned_blocks: false,
                             commands: Vec::new(),
                         }),
                     },
@@ -12089,7 +12560,6 @@ mod tests {
             document_id: DOCUMENT_ID.to_owned(),
             generation: 1,
             expected_head_seq: 1,
-            allow_deleting_owned_blocks: false,
             commands: vec![DocumentSemanticCommand::SetTitle {
                 inline_markdown: "One-call consent".to_owned(),
                 expected_etag: title_etag,

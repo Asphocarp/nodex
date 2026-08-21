@@ -1812,6 +1812,94 @@ CREATE TABLE block_transfer_undo_recipes (
   CHECK (consumed_at IS NULL OR length(consumed_at) > 0),
   CHECK (length(created_at) > 0)
 ) WITHOUT ROWID, STRICT;
+CREATE TABLE structural_clipboard_bundles (
+  bundle_id TEXT PRIMARY KEY,
+  capture_operation_id TEXT NOT NULL UNIQUE
+    REFERENCES block_mutations(mutation_id) ON DELETE CASCADE,
+  library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  store_epoch TEXT NOT NULL,
+  capability_hash TEXT NOT NULL,
+  manifest_hash TEXT NOT NULL,
+  snapshot_json TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  CHECK (length(bundle_id) BETWEEN 1 AND 512),
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(capability_hash) = 64 AND capability_hash NOT GLOB '*[^0-9a-f]*'),
+  CHECK (length(manifest_hash) = 64 AND manifest_hash NOT GLOB '*[^0-9a-f]*'),
+  CHECK (length(snapshot_json) BETWEEN 2 AND 67108864
+    AND json_valid(snapshot_json)
+    AND json_type(snapshot_json) = 'object'),
+  CHECK (length(created_at) > 0)
+) WITHOUT ROWID, STRICT;
+CREATE TABLE structural_clipboard_leases (
+  bundle_id TEXT PRIMARY KEY
+    REFERENCES structural_clipboard_bundles(bundle_id) ON DELETE CASCADE,
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  state TEXT NOT NULL CHECK (state IN ('active', 'released')),
+  released_at TEXT,
+  updated_at TEXT NOT NULL,
+  CHECK ((state = 'active' AND released_at IS NULL)
+    OR (state = 'released' AND length(released_at) > 0)),
+  CHECK (length(updated_at) > 0)
+) WITHOUT ROWID, STRICT;
+CREATE TABLE structural_cut_claims (
+  bundle_id TEXT PRIMARY KEY
+    REFERENCES structural_clipboard_bundles(bundle_id) ON DELETE CASCADE,
+  source_document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE RESTRICT,
+  source_root_ids_json TEXT NOT NULL,
+  delete_recipe_operation_id TEXT NOT NULL UNIQUE
+    REFERENCES structural_history_recipes(recipe_operation_id) ON DELETE RESTRICT,
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  state TEXT NOT NULL CHECK (state IN ('available', 'consumed', 'revoked')),
+  consumed_by_operation_id TEXT REFERENCES block_mutations(mutation_id) ON DELETE RESTRICT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  CHECK (json_valid(source_root_ids_json)
+    AND json_type(source_root_ids_json) = 'array'
+    AND json_array_length(source_root_ids_json) BETWEEN 1 AND 10000),
+  CHECK ((state = 'consumed' AND consumed_by_operation_id IS NOT NULL)
+    OR (state <> 'consumed' AND consumed_by_operation_id IS NULL)),
+  CHECK (length(created_at) > 0),
+  CHECK (length(updated_at) > 0)
+) WITHOUT ROWID, STRICT;
+CREATE TABLE structural_history_recipes (
+  recipe_operation_id TEXT PRIMARY KEY
+    REFERENCES block_mutations(mutation_id) ON DELETE CASCADE,
+  library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  store_epoch TEXT NOT NULL,
+  recipe_hash TEXT NOT NULL,
+  recipe_json TEXT NOT NULL,
+  state TEXT NOT NULL CHECK (state IN ('available', 'consumed', 'superseded')),
+  consumed_at TEXT,
+  superseded_by_recipe_operation_id TEXT
+    REFERENCES structural_history_recipes(recipe_operation_id) ON DELETE RESTRICT,
+  created_at TEXT NOT NULL,
+  CHECK (length(recipe_operation_id) BETWEEN 1 AND 512),
+  CHECK (length(store_epoch) BETWEEN 1 AND 512),
+  CHECK (length(recipe_hash) = 64 AND recipe_hash NOT GLOB '*[^0-9a-f]*'),
+  CHECK (length(recipe_json) BETWEEN 2 AND 67108864
+    AND json_valid(recipe_json)
+    AND json_type(recipe_json) = 'object'),
+  CHECK ((state = 'available' AND consumed_at IS NULL AND superseded_by_recipe_operation_id IS NULL)
+    OR (state = 'consumed' AND length(consumed_at) > 0 AND superseded_by_recipe_operation_id IS NULL)
+    OR (state = 'superseded' AND length(consumed_at) > 0 AND superseded_by_recipe_operation_id IS NOT NULL)),
+  CHECK (length(created_at) > 0)
+) WITHOUT ROWID, STRICT;
+CREATE TABLE structural_retention_members (
+  authority_kind TEXT NOT NULL CHECK (authority_kind IN ('clipboard_bundle', 'history_recipe')),
+  authority_id TEXT NOT NULL,
+  library_id TEXT NOT NULL REFERENCES libraries(id) ON DELETE CASCADE,
+  member_kind TEXT NOT NULL CHECK (member_kind IN ('block', 'document', 'database', 'asset')),
+  member_id TEXT NOT NULL,
+  PRIMARY KEY (authority_kind, authority_id, member_kind, member_id),
+  CHECK (length(authority_id) BETWEEN 1 AND 512),
+  CHECK (length(member_id) BETWEEN 1 AND 1024)
+) WITHOUT ROWID, STRICT;
+CREATE INDEX idx_structural_retention_members_identity
+  ON structural_retention_members(library_id, member_kind, member_id);
+CREATE INDEX idx_structural_history_recipes_state
+  ON structural_history_recipes(library_id, state, created_at);
 CREATE INDEX idx_project_sources_project_order
       ON project_sources(project_id, "order", created);
 CREATE INDEX idx_codex_automation_runs_automation_status_created
@@ -3939,4 +4027,52 @@ WHEN NOT (
 BEGIN
   SELECT RAISE(ABORT, 'Block transfer Undo recipes are immutable');
 END;
-PRAGMA user_version = 131;
+CREATE TRIGGER structural_clipboard_bundles_are_immutable
+BEFORE UPDATE ON structural_clipboard_bundles
+BEGIN
+  SELECT RAISE(ABORT, 'Structural clipboard bundles are immutable');
+END;
+CREATE TRIGGER structural_clipboard_leases_transition_once
+BEFORE UPDATE ON structural_clipboard_leases
+WHEN NOT (OLD.state = 'active'
+  AND NEW.state = 'released'
+  AND NEW.revision = OLD.revision + 1
+  AND NEW.released_at IS NOT NULL
+  AND OLD.bundle_id = NEW.bundle_id)
+BEGIN
+  SELECT RAISE(ABORT, 'Structural clipboard lease transition is invalid');
+END;
+CREATE TRIGGER structural_cut_claims_transition_once
+BEFORE UPDATE ON structural_cut_claims
+WHEN NOT (OLD.state = 'available'
+  AND NEW.state IN ('consumed', 'revoked')
+  AND NEW.revision = OLD.revision + 1
+  AND OLD.bundle_id = NEW.bundle_id
+  AND OLD.source_document_id = NEW.source_document_id
+  AND OLD.source_root_ids_json = NEW.source_root_ids_json
+  AND OLD.delete_recipe_operation_id = NEW.delete_recipe_operation_id
+  AND OLD.created_at = NEW.created_at)
+BEGIN
+  SELECT RAISE(ABORT, 'Structural cut claim transition is invalid');
+END;
+CREATE TRIGGER structural_history_recipes_transition_once
+BEFORE UPDATE ON structural_history_recipes
+WHEN NOT (OLD.state = 'available'
+  AND NEW.state IN ('consumed', 'superseded')
+  AND NEW.consumed_at IS NOT NULL
+  AND OLD.recipe_operation_id = NEW.recipe_operation_id
+  AND OLD.library_id = NEW.library_id
+  AND OLD.project_id = NEW.project_id
+  AND OLD.store_epoch = NEW.store_epoch
+  AND OLD.recipe_hash = NEW.recipe_hash
+  AND OLD.recipe_json = NEW.recipe_json
+  AND OLD.created_at = NEW.created_at)
+BEGIN
+  SELECT RAISE(ABORT, 'Structural history recipe transition is invalid');
+END;
+CREATE TRIGGER structural_retention_members_are_immutable
+BEFORE UPDATE ON structural_retention_members
+BEGIN
+  SELECT RAISE(ABORT, 'Structural retention members are immutable');
+END;
+PRAGMA user_version = 132;

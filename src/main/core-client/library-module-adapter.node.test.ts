@@ -26,6 +26,7 @@ const identity = {
   profileId: "profile:test",
   storeEpoch: "epoch:test",
 } as const;
+const structuralDigest = "b".repeat(64);
 
 const fakeHandshake = () => createFakeCoreHandshake(identity);
 
@@ -2125,6 +2126,123 @@ describe("Core Library Module Adapter", () => {
       error: { code: "store_epoch_mismatch" },
     });
     expect(client.applies).toHaveLength(1);
+  });
+
+  test("maps structural edit commands and opaque reverse receipts", async () => {
+    const client = new FakeCoreClient();
+    client.enqueueApply({
+      value: {
+        affected_resource_ids: ["page:one"],
+        structural_edit: {
+          operation_kind: "delete_selection",
+          source_root_block_ids: ["block:owner"],
+          result_root_block_ids: [],
+          copied_block_ids: {},
+          copied_document_ids: {},
+          document_commits: [],
+          affected_page_ids: ["page:one"],
+          affected_database_ids: [],
+          clipboard: null,
+          history: {
+            recipe_operation_id: "recipe:delete",
+            recipe_hash: structuralDigest,
+            store_epoch: identity.storeEpoch,
+          },
+          superseded_history_recipe_operation_ids: [],
+          resume: {
+            block_id: "block:previous",
+            edge: "end",
+            fallback_before_block_id: null,
+            fallback_after_block_id: null,
+          },
+        },
+      },
+      receipt: {
+        operation_id: "operation:structural-delete",
+        duplicate: false,
+        operation_kind: "apply_structural_edit",
+        did_mutate: true,
+        created_target: null,
+        affected_parent_keys: [],
+        affected_page_ids: ["page:one"],
+        affected_database_ids: [],
+        affected_view_ids: [],
+        committed_revisions: {},
+        commit_seq: 9,
+        committed_at: "2026-08-21T00:00:00.000Z",
+      },
+      event_sequence: 9,
+      store_epoch: identity.storeEpoch,
+    });
+    const adapter = createCoreLibraryModuleAdapter({ client, ...identity });
+
+    await expect(
+      adapter.apply({
+        operationId: "operation:structural-delete",
+        storeEpoch: identity.storeEpoch,
+        operation: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "replace_selection",
+            selection: {
+              sourceDocumentId: "document:source",
+              rootBlockIds: ["block:owner"],
+              sourceHead: {
+                documentId: "document:source",
+                generation: 2,
+                expectedHeadSeq: 8,
+              },
+            },
+            replacement: {
+              kind: "blocks",
+              blocks: [
+                {
+                  blockType: "paragraph",
+                  props: {},
+                  content: [{ type: "text", text: "replacement", styles: {} }],
+                  children: [],
+                },
+              ],
+            },
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: {
+        structuralEdit: {
+          history: { recipeOperationId: "recipe:delete" },
+          resume: { blockId: "block:previous", edge: "end" },
+        },
+      },
+    });
+    expect(client.applies).toEqual([
+      {
+        operationId: "operation:structural-delete",
+        intent: {
+          kind: "apply_structural_edit",
+          command: {
+            kind: "replace_selection",
+            selection: {
+              source_document_id: "document:source",
+              root_block_ids: ["block:owner"],
+              source_head: { document_id: "document:source", generation: 2, head_seq: 8 },
+            },
+            replacement: {
+              kind: "blocks",
+              blocks: [
+                {
+                  block_type: "paragraph",
+                  props: {},
+                  content: [{ type: "text", text: "replacement", styles: {} }],
+                  children: [],
+                },
+              ],
+            },
+          },
+        },
+      },
+    ]);
   });
 
   test("routes trusted Library writes through the root Core client", async () => {

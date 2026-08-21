@@ -35,6 +35,13 @@ export const containsDatabaseBlockDrag = (
   payload: Pick<CrossSurfaceBlockTransferPayload, "displayHints">,
 ): boolean => payload.displayHints.includes("database");
 
+export const containsTypedOwnerBlockDrag = (
+  payload: Pick<CrossSurfaceBlockTransferPayload, "displayHints">,
+): boolean =>
+  payload.displayHints.some((hint) =>
+    ["page", "canvas", "database", "structural"].includes(hint),
+  );
+
 export const isSingleCanvasBlockDrag = (
   payload: Pick<CrossSurfaceBlockTransferPayload, "displayHints" | "rootBlockIds">,
 ): boolean =>

@@ -44,6 +44,7 @@ const applyResult = (): LibraryModuleApplyResult => ({
   },
   value: {
     operationId,
+    profileId: "profile-1",
     storeEpoch: "epoch-1",
     libraryId: "library-1",
     operationKind: "create_page",
@@ -51,6 +52,7 @@ const applyResult = (): LibraryModuleApplyResult => ({
     didMutate: true,
     createdTarget: { kind: "page", pageId },
     canvasMutation: null,
+    structuralEdit: null,
     affectedParentKeys: ["library"],
     affectedPageIds: [pageId],
     affectedDatabaseIds: [],

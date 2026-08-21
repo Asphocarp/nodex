@@ -54,6 +54,7 @@ export interface DocumentHeadFence {
 
 /** Surface-scoped causal barrier for a structural mutation. */
 export interface BlockDocumentMutationBarrier {
+  readonly libraryId?: string;
   readonly flushAndFence: () => Promise<DocumentHeadFence>;
 }
 
@@ -299,6 +300,10 @@ export class BlockDocumentSurfaceRuntime {
   private closing = false;
   private closed = false;
   private status: BlockDocumentSurfaceStatus;
+
+  get libraryId(): string {
+    return this.descriptor.libraryId;
+  }
 
   constructor(options: BlockDocumentSurfaceRuntimeOptions) {
     this.descriptor = validateDescriptor(options.descriptor);

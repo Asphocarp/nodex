@@ -477,9 +477,17 @@ contracts are indexed in [Product Specifications](index.md).
 
 Owning Page, Canvas, and Database shells cannot be removed, duplicated,
 reclassified, or replaced through generic editor commands. Their lifecycle and
-movement use typed owner operations. Ordinary Blocks use Document edits within
-one Document and Block Transfer across Documents. Mixed selections that contain
-protected owners cannot become one generic destructive edit.
+movement use the shared
+[structural editing authority](nfm-editor-structural-editing-behavior.md).
+Ordinary Blocks use Document edits within one Document and Block Transfer across
+Documents. When a selection contains an owner, Core commits the complete mixed
+root forest, ownership closure, and inverse recipe as one structural mutation.
+Every document-bearing owner shell is childless. Indenting, inserting, or moving
+an ordinary Block beneath one is rejected; moving or deleting a legacy illegal
+child out of a shell remains allowed as a repair.
+This invariant is enforced on the actual local Block transaction before it
+enters the collaborative Y.Doc, not only on keyboard or side-menu commands.
+Remote Core delivery is admitted so authorized structural commits converge.
 
 Large or native clipboard input uses explicit bounded flows. Saved assets use
 managed asset identity; external links remain links. Exact attachment, copy,

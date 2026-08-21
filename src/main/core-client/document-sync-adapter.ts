@@ -1339,7 +1339,10 @@ const commandError = (error: unknown): DocumentSyncCommandError => {
       code: mapCoreErrorCode(code),
       message: error.message,
       retryable: error.coreError.retryable,
-      resetRequired: code === "stale_store_epoch" || code === "generation_conflict",
+      resetRequired:
+        code === "stale_store_epoch" ||
+        code === "generation_conflict" ||
+        code === "protected_owner_deletion",
     };
   }
   return {
@@ -1366,6 +1369,8 @@ const mapCoreErrorCode = (
       return "future_base_head";
     case "document_update_missing_dependencies":
       return "document_update_missing_dependencies";
+    case "protected_owner_deletion":
+      return "protected_owner_mutation";
     case "idempotency_key_reused":
       return "update_id_collision";
     case "invalid_document_schema":

@@ -77,6 +77,7 @@ import type {
   ThreadMemoryMode as CodexAppServerThreadMemoryMode,
 } from "@nodex/codex-app-server-protocol";
 import type { AgentExecutionProfile } from "./agent-runtime";
+import type { NodexClipboardEnvelopeV1 } from "./clipboard-paste";
 import type { CodexPendingWorktreeStartingState } from "./codex-pending-worktree";
 import type { PortableRichText } from "./block-documents/portable-rich-text";
 import type { ProjectLifecycle } from "./library";
@@ -1405,6 +1406,8 @@ export interface ClipboardPasteInspectionItem {
 
 export interface ClipboardPasteInspectionResult {
   items: ClipboardPasteInspectionItem[];
+  structuralEnvelope?: NodexClipboardEnvelopeV1;
+  structuralWriteClaim?: string;
 }
 
 export interface ClipboardPastePayload {
@@ -1412,6 +1415,8 @@ export interface ClipboardPastePayload {
   html?: string;
   markdown?: string;
   text?: string;
+  structuralEnvelope?: NodexClipboardEnvelopeV1;
+  structuralWriteClaim?: string;
 }
 
 export type BackupTrigger = "manual" | "auto" | "pre-restore";

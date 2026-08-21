@@ -87,6 +87,9 @@ merges the supported title/body changes when safe, and commits them atomically.
 Semantic mutation families create, duplicate, move, rename, replace, patch,
 insert, or delete Pages and stable Blocks. Nested Markdown is the normal bulk
 content format; identity-sensitive structure uses the bounded JSON Block form.
+Page deletion always uses the typed lifecycle path. For a nested Page, the
+headless CLI resolves and fences the current canonical host Document inside the
+same writer transaction; it never emits a generic Document deletion.
 Move and View placement consume one exact validator and commit membership,
 group value, position, ownership, Documents, projections, and receipt as one
 semantic operation.
