@@ -15,7 +15,6 @@ import type {
 } from "@nodex/codex-app-server-protocol";
 import type { CollaborationModeListResponse } from "@nodex/codex-app-server-protocol/v2/CollaborationModeListResponse";
 import type { AppInfo } from "@nodex/codex-app-server-protocol/v2/AppInfo";
-import type { AppsListResponse } from "@nodex/codex-app-server-protocol/v2/AppsListResponse";
 import type { ConfigBatchWriteParams } from "@nodex/codex-app-server-protocol/v2/ConfigBatchWriteParams";
 import type { ConfigReadParams } from "@nodex/codex-app-server-protocol/v2/ConfigReadParams";
 import type { ConfigReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigReadResponse";
@@ -37,15 +36,10 @@ import type { ExperimentalFeatureListResponse } from "@nodex/codex-app-server-pr
 import type { GetAccountRateLimitsResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountRateLimitsResponse";
 import type { GetAccountResponse } from "@nodex/codex-app-server-protocol/v2/GetAccountResponse";
 import type { LoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/LoginAccountResponse";
-import type { ListMcpServerStatusResponse } from "@nodex/codex-app-server-protocol/v2/ListMcpServerStatusResponse";
 import type { CancelLoginAccountResponse } from "@nodex/codex-app-server-protocol/v2/CancelLoginAccountResponse";
 import type { FileChangeRequestApprovalParams } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalParams";
 import type { FileChangeRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/FileChangeRequestApprovalResponse";
 import type { McpServerElicitationRequestResponse } from "@nodex/codex-app-server-protocol/v2/McpServerElicitationRequestResponse";
-import type { McpResourceReadParams } from "@nodex/codex-app-server-protocol/v2/McpResourceReadParams";
-import type { McpResourceReadResponse } from "@nodex/codex-app-server-protocol/v2/McpResourceReadResponse";
-import type { McpServerToolCallParams } from "@nodex/codex-app-server-protocol/v2/McpServerToolCallParams";
-import type { McpServerToolCallResponse } from "@nodex/codex-app-server-protocol/v2/McpServerToolCallResponse";
 import type { ModelListResponse } from "@nodex/codex-app-server-protocol/v2/ModelListResponse";
 import type { PermissionsRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/PermissionsRequestApprovalResponse";
 import type { PluginInstalledResponse } from "@nodex/codex-app-server-protocol/v2/PluginInstalledResponse";
@@ -3097,7 +3091,6 @@ export class CodexService extends EventEmitter {
   private rateLimitsPollHandle: ReturnType<typeof setInterval> | null = null;
   private rateLimitsPollInFlight = false;
   private threadSettingsUpdateSupport: "unknown" | "supported" | "unsupported" = "unknown";
-  private mcpServerStatusesInFlight: Promise<ListMcpServerStatusResponse> | null = null;
   private sidebarSyncInFlight: Promise<CodexSidebarSyncResult> | null = null;
   private sidebarSyncGeneration = 0;
   private sidebarLastSuccessfulSyncGeneration = 0;
@@ -8158,7 +8151,6 @@ export class CodexService extends EventEmitter {
       clearTimeout(this.sidebarSweepTimer);
       this.sidebarSweepTimer = null;
     }
-    this.mcpServerStatusesInFlight = null;
     this.sidebarSnapshotCacheByIncludeArchived.clear();
     for (const pending of this.pendingApprovals.values()) {
       pending.reject(new Error("Codex service shutting down"));
@@ -10509,53 +10501,6 @@ export class CodexService extends EventEmitter {
     return summary;
   }
 
-  async readMcpResource(params: McpResourceReadParams): Promise<McpResourceReadResponse> {
-    await this.ensureClientReady();
-    return this.client.request<"mcpServer/resource/read", McpResourceReadResponse>(
-      "mcpServer/resource/read",
-      params,
-    );
-  }
-
-  async callMcpServerTool(params: McpServerToolCallParams): Promise<McpServerToolCallResponse> {
-    await this.ensureClientReady();
-    return this.client.request<"mcpServer/tool/call", McpServerToolCallResponse>(
-      "mcpServer/tool/call",
-      params,
-    );
-  }
-
-  async listMcpApps(): Promise<AppInfo[]> {
-    if (!this.supportsChatGptApps) return [];
-    if (this.accountSnapshot.account?.type !== "chatgpt") return [];
-    await this.ensureClientReady();
-    const fetchApps = async (): Promise<AppInfo[]> => {
-      const apps: AppInfo[] = [];
-      let cursor: string | null = null;
-
-      do {
-        const response: AppsListResponse = await this.client.request<"app/list", AppsListResponse>(
-          "app/list",
-          {
-            cursor,
-            forceRefetch: false,
-            limit: 1_000,
-          },
-        );
-        apps.push(...response.data);
-        cursor = response.nextCursor;
-      } while (cursor);
-
-      return normalizeCodexAppInfoLogos(apps);
-    };
-
-    try {
-      return await fetchApps();
-    } catch {
-      return fetchApps();
-    }
-  }
-
   async listExperimentalFeatures(): Promise<ExperimentalFeature[]> {
     await this.ensureClientReady();
     const features: ExperimentalFeature[] = [];
@@ -10574,32 +10519,6 @@ export class CodexService extends EventEmitter {
     } while (cursor);
 
     return features;
-  }
-
-  listMcpServerStatuses(): Promise<ListMcpServerStatusResponse> {
-    if (this.mcpServerStatusesInFlight) return this.mcpServerStatusesInFlight;
-
-    const request = this.fetchMcpServerStatuses();
-    this.mcpServerStatusesInFlight = request;
-    const clearRequest = () => {
-      if (this.mcpServerStatusesInFlight === request) {
-        this.mcpServerStatusesInFlight = null;
-      }
-    };
-    void request.then(clearRequest, clearRequest);
-    return request;
-  }
-
-  private async fetchMcpServerStatuses(): Promise<ListMcpServerStatusResponse> {
-    await this.ensureClientReady();
-    return this.client.request<"mcpServerStatus/list", ListMcpServerStatusResponse>(
-      "mcpServerStatus/list",
-      {
-        detail: "full",
-        cursor: null,
-        limit: 100,
-      },
-    );
   }
 
   async listWorktreeEnvironments(projectId: string): Promise<WorktreeEnvironmentOption[]> {

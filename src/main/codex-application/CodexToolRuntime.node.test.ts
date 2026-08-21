@@ -96,6 +96,18 @@ it.effect("gates app discovery and coalesces concurrent status reads", () =>
       (yield* runtime.listApps).map((app) => app.id),
       ["app-a"],
     );
+    assert.deepEqual(yield* runtime.readResource({ server: "docs", uri: "docs://effect" }), {
+      contents: [],
+    });
+    assert.deepEqual(
+      yield* runtime.callTool({
+        threadId: "thread-1",
+        server: "docs",
+        tool: "search",
+        arguments: { query: "Effect" },
+      }),
+      { content: [] },
+    );
     const first = yield* runtime.listServerStatuses.pipe(Effect.forkScoped);
     yield* Effect.yieldNow;
     const second = yield* runtime.listServerStatuses.pipe(Effect.forkScoped);

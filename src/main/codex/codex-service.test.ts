@@ -58,8 +58,6 @@ import type {
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
-  AppInfo,
-  ListMcpServerStatusResponse,
   Thread,
   ThreadBackgroundTerminal,
   ThreadItem,
@@ -290,8 +288,6 @@ interface TestableCodexService {
     response: "accept" | "decline" | "cancel" | CodexMcpServerElicitationResponse,
     conversationId?: string,
   ) => Promise<boolean>;
-  listMcpServerStatuses: () => Promise<ListMcpServerStatusResponse>;
-  listMcpApps: () => Promise<AppInfo[]>;
   listExperimentalFeatures: () => Promise<
     import("@nodex/codex-app-server-protocol/v2").ExperimentalFeature[]
   >;
@@ -7282,162 +7278,6 @@ describe("codex-service session-backed transcript recovery", () => {
       );
     } finally {
       await serviceInternals.endThreadStartNotificationDeferral();
-      await service.shutdown();
-    }
-  });
-
-  test("listMcpServerStatuses coalesces the exact host-scoped first-page request", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method !== "mcpServerStatus/list") {
-        throw new Error(`Unexpected client request: ${method}`);
-      }
-      return {
-        data: [
-          {
-            name: "docs",
-            serverInfo: null,
-            tools: {},
-            resources: [],
-            resourceTemplates: [],
-            authStatus: "unsupported",
-          },
-        ],
-        nextCursor: "next-page",
-      };
-    };
-
-    try {
-      const firstRequest = service.listMcpServerStatuses();
-      const secondRequest = service.listMcpServerStatuses();
-      const response = await firstRequest;
-
-      expect(secondRequest).toBe(firstRequest);
-      expect(response.data.length).toBe(1);
-      expect(response.data[0]?.name).toBe("docs");
-      expect(response.nextCursor).toBe("next-page");
-      expect(requests.length).toBe(1);
-      expect(requests[0]?.method).toBe("mcpServerStatus/list");
-      expect(Object.hasOwn(requests[0]?.params as object, "threadId")).toBe(false);
-      expect((requests[0]?.params as { detail?: string })?.detail).toBe("full");
-      expect((requests[0]?.params as { cursor?: string | null })?.cursor).toBe(null);
-      expect((requests[0]?.params as { limit?: number })?.limit).toBe(100);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("does not contact app-server for unsupported ChatGPT Apps", async () => {
-    const service = createService();
-    Reflect.set(service as object, "accountSnapshot", {
-      account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
-      requiresOpenAiAuth: true,
-      pendingLogin: null,
-      rateLimits: null,
-    });
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: string[] = [];
-    const events: CodexEvent[] = [];
-
-    client.start = async () => {
-      throw new Error("Unsupported Apps must not start app-server");
-    };
-    client.request = async (method: string) => {
-      requests.push(method);
-      throw new Error(`Unsupported Apps must not request ${method}`);
-    };
-    service.on("event", (event) => events.push(event));
-
-    try {
-      await expect(service.listMcpApps()).resolves.toEqual([]);
-      await (
-        service as unknown as {
-          handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-        }
-      ).handleNotification({
-        method: "app/list/updated",
-        params: { data: [] },
-      });
-
-      expect(requests).toEqual([]);
-      expect(events.some((event) => event.type === "appsUpdated")).toBe(false);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("listMcpApps retries once, aggregates pages, and normalizes exact app logos when supported", async () => {
-    const service = createService({ supportsChatGptApps: true });
-    Reflect.set(service as object, "accountSnapshot", {
-      account: { type: "chatgpt", email: "fixture@example.test", planType: "team" },
-      requiresOpenAiAuth: true,
-      pendingLogin: null,
-      rateLimits: null,
-    });
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method !== "app/list") throw new Error(`Unexpected client request: ${method}`);
-      if (requests.length === 1) throw new Error("transient apps failure");
-
-      const cursor = (params as { cursor?: string | null }).cursor ?? null;
-      return {
-        data: [
-          {
-            id: cursor === null ? "connector_docs" : "connector_calendar",
-            name: cursor === null ? "Docs" : "Calendar",
-            description: null,
-            logoUrl: null,
-            logoUrlDark: null,
-            iconAssets: cursor === null ? { "256_square": " /assets/docs.png " } : null,
-            iconDarkAssets: null,
-            distributionChannel: null,
-            branding: null,
-            appMetadata: null,
-            labels: null,
-            installUrl: "https://apps.example.test/install",
-            isAccessible: true,
-            isEnabled: true,
-            pluginDisplayNames: [],
-          },
-        ],
-        nextCursor: cursor === null ? "next-page" : null,
-      };
-    };
-
-    try {
-      const apps = await service.listMcpApps();
-
-      expect(apps.length).toBe(2);
-      expect(apps[0]?.logoUrl).toBe("https://apps.example.test/assets/docs.png");
-      expect(apps[0]?.logoUrlDark).toBe("https://apps.example.test/assets/docs.png");
-      expect(requests.length).toBe(3);
-      expect((requests[0]?.params as { cursor?: string | null })?.cursor).toBe(null);
-      expect((requests[1]?.params as { cursor?: string | null })?.cursor).toBe(null);
-      expect((requests[2]?.params as { cursor?: string | null })?.cursor).toBe("next-page");
-      expect((requests[1]?.params as { limit?: number })?.limit).toBe(1_000);
-      expect((requests[1]?.params as { forceRefetch?: boolean })?.forceRefetch).toBe(false);
-      expect(requests.every(({ params }) => !Object.hasOwn(params as object, "threadId"))).toBe(
-        true,
-      );
-    } finally {
       await service.shutdown();
     }
   });
