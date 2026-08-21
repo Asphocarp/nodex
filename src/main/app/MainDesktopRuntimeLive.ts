@@ -155,6 +155,7 @@ import {
 } from "../host-runtime/RendererClientRuntime";
 import * as DatabaseNotifierRuntime from "../host-runtime/DatabaseNotifierRuntime";
 import { live as codexThreadNotificationRuntimeLive } from "../host-runtime/CodexThreadNotificationRuntime";
+import { live as codexRendererProjectionRuntimeLive } from "../host-runtime/CodexRendererProjectionRuntime";
 import {
   ApplicationSchedulerRuntime,
   live as applicationSchedulerRuntimeLive,
@@ -765,6 +766,14 @@ export const live: Layer.Layer<
               ),
             ),
           ),
+        );
+        yield* Layer.buildWithScope(
+          codexRendererProjectionRuntimeLive({
+            codex: codexService,
+            rendererClients: rendererClients.router,
+            windows,
+          }),
+          runtimeScope,
         );
         yield* Layer.buildWithScope(
           applicationRequestDispatcherLive.pipe(

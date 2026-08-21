@@ -53,7 +53,6 @@ import type {
   CodexHeartbeatAutomationsEnabledChangedInput,
   CodexApprovalResponse,
   CodexCollaborationModeKind,
-  CodexHostMessage,
   CodexProtocolRequestId,
   DatabasePage,
   TerminalRunActionRequest,
@@ -74,13 +73,9 @@ import type {
 import {
   acknowledgeRendererFollowerSnapshotApplied,
   ackRendererThreadOwnerNotification,
-  broadcastCodexHostMessageToRendererClients,
   publishRendererThreadOwnerStreamState,
   requestRendererThreadStreamResync,
   runThreadFollowerActionThroughOwner,
-  sendRendererOwnerHostMessage,
-  sendRendererThreadStreamControlRelay,
-  sendRendererThreadStreamRelay,
 } from "./codex/owner-follower-ipc-bridge";
 import { openFileLinkTarget } from "./file-link-opener";
 import { parseExternalNavigationUrl } from "./external-navigation";
@@ -657,121 +652,9 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
       return signal?.aborted ? null : message;
     };
 
-  const broadcastRendererClientMessage = (
-    channel: string,
-    args: readonly unknown[],
-    optionsOverride?: {
-      sourceClientId?: string | null;
-      includeSource?: boolean;
-    },
-  ) => {
-    if (options.rendererClientRouter) {
-      return options.rendererClientRouter.broadcast(channel, args, optionsOverride);
-    }
-
-    return safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args);
-  };
-
-  codexService.on("event", (event) => {
-    broadcastRendererClientMessage("codex:event", [event]);
-    if (event.type === "scheduledAutomationChanged") {
-      safeBroadcastToWindows(BrowserWindow.getAllWindows(), "codex:scheduled-automations:changed", [
-        event.event,
-      ]);
-    }
-    if (event.type === "automationRunsUpdated") {
-      broadcastIpcEvent("codex:automation-runs:updated", event.event);
-    }
-  });
-  codexService.on("hostMessage", (message) => {
-    const targetClientIds =
-      message.type === "threadStreamStateChanged"
-        ? codexService.getRendererConversationFollowerClientIds(message.conversationId)
-        : undefined;
-    if (message.type === "threadStreamStateChanged" && targetClientIds !== undefined) {
-      if (targetClientIds === null) return;
-      const delivery = sendRendererThreadStreamRelay(
-        options.rendererClientRouter,
-        targetClientIds,
-        message.sourceClientId,
-        message,
-      );
-      codexService.handleRendererClientDeliveryFailure([
-        ...delivery.unavailableClientIds,
-        ...delivery.failedClientIds,
-      ]);
-      return;
-    }
-    broadcastCodexHostMessageToRendererClients(
-      options.rendererClientRouter,
-      (channel, args) => safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, args),
-      message,
-    );
-  });
-  codexService.on("userInputAutoResolutionChanged", (change) => {
-    broadcastIpcEvent("codex:user-input:auto-resolution:changed", change);
-  });
-  codexService.on(
-    "rendererOwnerHostMessage",
-    (event: { targetClientId: string; message: unknown }) => {
-      sendRendererOwnerHostMessage(options.rendererClientRouter, event);
-    },
-  );
-  codexService.on(
-    "rendererThreadStreamRelay",
-    (event: {
-      targetClientIds: readonly string[];
-      sourceClientId: string | null;
-      message: CodexHostMessage;
-    }) => {
-      const delivery = sendRendererThreadStreamRelay(
-        options.rendererClientRouter,
-        event.targetClientIds,
-        event.sourceClientId,
-        event.message,
-      );
-      codexService.handleRendererClientDeliveryFailure([
-        ...delivery.unavailableClientIds,
-        ...delivery.failedClientIds,
-      ]);
-    },
-  );
-  codexService.on(
-    "rendererThreadStreamControlRelay",
-    (event: {
-      targetClientIds: readonly string[];
-      message: Extract<
-        CodexHostMessage,
-        { type: "threadStreamFollowersChanged" | "threadStreamTransportReset" }
-      >;
-    }) => {
-      const delivery = sendRendererThreadStreamControlRelay(
-        options.rendererClientRouter,
-        event.targetClientIds,
-        event.message,
-      );
-      codexService.handleRendererClientDeliveryFailure([
-        ...delivery.unavailableClientIds,
-        ...delivery.failedClientIds,
-      ]);
-    },
-  );
-
   registerCodexPendingWorktreeIpcHandlers({
     registerHandle,
     service: codexService as unknown as CodexPendingWorktreeIpcService,
-    subscribePendingWorktreesChanged: (listener) => {
-      codexService.on("pendingWorktreesChanged", listener);
-    },
-    broadcastPendingWorktreesChanged: (entries) => {
-      broadcastIpcEvent("codex:pending-worktrees:changed", entries);
-    },
-  });
-  codexService.on("pendingWorktreeWarning", (event) => {
-    broadcastIpcEvent("codex:pending-worktree:warning", event);
-  });
-  codexService.on("agentImportProgress", (event) => {
-    broadcastIpcEvent("agent-import:progress", event);
   });
   registerHandle(
     "codex:pending-worktree:discard-fork-side-panel-transfer",
@@ -800,12 +683,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
         response,
       ) ?? false,
   );
-  options.rendererClientRouter?.addClientDisposedListener((event) => {
-    codexService.handleRendererClientDisposed(event.clientId);
-  });
-  options.rendererClientRouter?.addClientConnectedListener((event) => {
-    codexService.handleRendererClientConnected(event.clientId);
-  });
   registerHandle("codex:thread-owner:stream-state:publish", (event, input) => {
     const sourceClientId = resolveRendererClientId(event);
     return publishRendererThreadOwnerStreamState(codexService, sourceClientId, input);
