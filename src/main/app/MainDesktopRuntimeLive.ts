@@ -21,7 +21,15 @@ import { coreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { live as coreTransportLive } from "../core-runtime/CoreTransport";
 import { makeDesktopDataAuthority } from "../core-runtime/DesktopCoreAdapter";
 import {
+  ProjectionDeliveryRuntime,
+  live as projectionDeliveryRuntimeLive,
+} from "../core-runtime/ProjectionDeliveryRuntime";
+import {
   createDesktopAutomationModuleBridge,
+  createDesktopDatabaseModuleBridge,
+  createDesktopDocumentSyncBridge,
+  createDesktopLibraryModuleBridge,
+  createDesktopProjectWorkspaceBridge,
   createDesktopStoreAdministrationBridge,
 } from "../core-client";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
@@ -80,6 +88,7 @@ import * as BrowserSidebarIpc from "../ipc/handlers/BrowserSidebarIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
 import * as CoreAuthorityIpc from "../ipc/handlers/CoreAuthorityIpc";
 import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
+import * as ProjectionDeliveryIpc from "../ipc/handlers/ProjectionDeliveryIpc";
 import * as RemoteHostedPipIpc from "../ipc/handlers/RemoteHostedPipIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import {
@@ -824,6 +833,39 @@ export const live: Layer.Layer<
         const storeAdministration = createDesktopStoreAdministrationBridge({
           authority: legacyDataAuthority,
         });
+        const documentSync = createDesktopDocumentSyncBridge({ authority: legacyDataAuthority });
+        const libraryModule = createDesktopLibraryModuleBridge({ authority: legacyDataAuthority });
+        const databaseModule = createDesktopDatabaseModuleBridge({
+          authority: legacyDataAuthority,
+        });
+        const projectWorkspace = createDesktopProjectWorkspaceBridge({
+          authority: legacyDataAuthority,
+        });
+        const projectionDeliveryContext = yield* Layer.buildWithScope(
+          projectionDeliveryRuntimeLive({
+            authority: dataAuthority,
+            documentSync,
+            onNotification: module.publishCoreModuleEventToNotifiers,
+          }),
+          runtimeScope,
+        );
+        const projectionDelivery = Context.get(
+          projectionDeliveryContext,
+          ProjectionDeliveryRuntime,
+        );
+        yield* Layer.buildWithScope(
+          ProjectionDeliveryIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(ProjectionDeliveryRuntime, projectionDelivery),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const applicationSchedulerContext = yield* Layer.buildWithScope(
           applicationSchedulerRuntimeLive({
             automation: automationModule,
@@ -938,10 +980,20 @@ export const live: Layer.Layer<
                 applicationSchedulers,
                 automationModule,
                 dataAuthority: legacyDataAuthority,
+                databaseModule,
                 desktopNotificationManager: desktopNotifications.manager,
+                documentSync,
                 gitWorkerHost: hostWorkers.git,
                 initialArgv: [...config.argv],
                 rendererClientRouter: rendererClients.router,
+                libraryModule,
+                projectWorkspace,
+                projectionDelivery: {
+                  deliverTail: (envelope) =>
+                    callbacks.runPromise(projectionDelivery.deliverTail(envelope)),
+                  observeCheckpoint: projectionDelivery.observeCheckpoint,
+                  resetStream: projectionDelivery.resetStream,
+                },
                 windowRuntime: windows,
                 startupEvents: [],
                 storeAdministration,

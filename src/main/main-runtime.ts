@@ -3,14 +3,12 @@ import {
   app,
   BrowserWindow,
   dialog,
-  ipcMain,
   nativeImage,
   nativeTheme,
   screen,
   shell,
   systemPreferences,
   type MenuItemConstructorOptions,
-  type WebContents,
 } from "electron";
 import { join, resolve } from "path";
 import { performance } from "node:perf_hooks";
@@ -92,7 +90,7 @@ import {
   PREVIOUS_PANEL_TAB_COMMAND_ID,
   toElectronAccelerator,
 } from "../shared/command-keybindings";
-import { safeBroadcastToWindows, safeSendToWebContents, safeSendToWindow } from "./ipc-safe-send";
+import { safeBroadcastToWindows, safeSendToWindow } from "./ipc-safe-send";
 import {
   type RendererClientRouter,
   type RendererClientRegistration,
@@ -110,10 +108,6 @@ import { installCliCommand } from "./cli-command-installer";
 import { runAgentSkillSetup } from "./agent-skill-setup";
 import {
   createCoreProjectWorkspaceAdapter,
-  createDesktopDatabaseModuleBridge,
-  createDesktopLibraryModuleBridge,
-  createDesktopDocumentSyncBridge,
-  createDesktopProjectWorkspaceBridge,
   mapCoreAutomationEvent,
   mapCoreDatabaseEvent,
   mapCoreLibraryDatabaseEvent,
@@ -125,23 +119,15 @@ import {
   type CoreEventReplayRequired,
   type CoreStreamCheckpoint,
   type DesktopAutomationModulePort,
+  type DesktopDatabaseModuleBridge,
   type DesktopDataAuthorityRuntime,
   type DesktopLibraryModuleBridge,
   type DesktopDocumentSyncPort,
   type DesktopStoreAdministrationPort,
+  type DesktopProjectWorkspacePort,
 } from "./core-client";
 import { createDesktopNodexAgentV3DynamicService } from "./core-client/desktop-nodex-agent-dynamic-service";
 import type { CoreAuthorityProcessExit, CoreStartupEvent } from "./core-client/core-launcher";
-import { LocalCommitCoordinator } from "./core-client/local-commit-coordinator";
-import { revocationsFromVisibilityDelta } from "../shared/local-commit-delivery";
-import { ScopedProjectionLiveSupervisor } from "./core-client/scoped-projection-live-supervisor";
-import { RecipientDeliveryRouter } from "./core-client/recipient-delivery-router";
-import { LocalCommitAudienceBroker } from "./core-client/local-commit-audience-broker";
-import {
-  projectionScopeDeliveryAddress,
-  DeliveryAddress,
-  type RecipientAdmissionResult,
-} from "../shared/recipient-delivery";
 import {
   allProjectSessionInvalidation,
   planCoreWorkspaceNotifications,
@@ -182,11 +168,6 @@ let appUpdateRuntime: MainRuntimeStartupContext["appUpdateRuntime"] | null = nul
 let rendererClientRouter: RendererClientRouter | null = null;
 let desktopDataAuthorityRuntime: DesktopDataAuthorityRuntime | null = null;
 let desktopLibraryModule: DesktopLibraryModuleBridge | null = null;
-let desktopDocumentSync: DesktopDocumentSyncPort | null = null;
-let localCommitCoordinator: LocalCommitCoordinator | null = null;
-let scopedProjectionLiveSupervisor: ScopedProjectionLiveSupervisor | null = null;
-let recipientDeliveryRouter: RecipientDeliveryRouter | null = null;
-let localCommitAudienceBroker: LocalCommitAudienceBroker | null = null;
 const logger = getLogger({ subsystem: "app" });
 let desktopNotificationManager: DesktopNotificationManager | null = null;
 
@@ -670,85 +651,6 @@ export function reportRendererInitialization(
 
 export function acknowledgeWindowClose(webContentsId: number): void {
   pendingCloseResolvers.get(webContentsId)?.();
-}
-
-interface ProjectionIpcSenderSubscriptions {
-  readonly sender: WebContents;
-  readonly releases: Map<string, () => void>;
-  readonly onDestroyed: () => void;
-}
-
-const projectionIpcSubscriptions = new Map<number, ProjectionIpcSenderSubscriptions>();
-
-function refreshScopedProjectionLiveScopes(): void {
-  localCommitAudienceBroker?.refreshScopes();
-}
-
-function registerProjectionStreamIpcHandlers(): void {
-  recipientDeliveryRouter ??= new RecipientDeliveryRouter({
-    send: (sender, channel, envelope) => safeSendToWebContents(sender, channel, [envelope]),
-  });
-  const recipientRouter = recipientDeliveryRouter;
-  localCommitAudienceBroker ??= new LocalCommitAudienceBroker({
-    router: recipientRouter,
-    onScopesChanged: (scopes) => scopedProjectionLiveSupervisor?.setScopes(scopes),
-    resolveLibraryId: () => desktopDataAuthorityRuntime?.identity.libraryId ?? null,
-  });
-  const audienceBroker = localCommitAudienceBroker;
-  const requireOwnedMainFrame = (event: Electron.IpcMainInvokeEvent): void => {
-    if (event.senderFrame !== event.sender.mainFrame || !windowRuntime?.has(event.sender.id)) {
-      throw new Error("Local commit audience sender is not an owned main frame");
-    }
-  };
-  const releaseSender = (senderId: number, clearRecipientRecovery: boolean): void => {
-    const state = projectionIpcSubscriptions.get(senderId);
-    if (!state) return;
-    projectionIpcSubscriptions.delete(senderId);
-    state.sender.removeListener("destroyed", state.onDestroyed);
-    for (const release of state.releases.values()) release();
-    state.releases.clear();
-    if (clearRecipientRecovery) audienceBroker.releaseSender(senderId);
-  };
-  const ensureSender = (sender: WebContents): ProjectionIpcSenderSubscriptions => {
-    const existing = projectionIpcSubscriptions.get(sender.id);
-    if (existing) return existing;
-    const state: ProjectionIpcSenderSubscriptions = {
-      sender,
-      releases: new Map(),
-      onDestroyed: () => releaseSender(sender.id, true),
-    };
-    projectionIpcSubscriptions.set(sender.id, state);
-    sender.once("destroyed", state.onDestroyed);
-    return state;
-  };
-  const unsubscribe = (senderId: number, address: DeliveryAddress) => {
-    const state = projectionIpcSubscriptions.get(senderId);
-    if (!state) return;
-    const key = JSON.stringify(address);
-    state.releases.get(key)?.();
-    state.releases.delete(key);
-    if (state.releases.size === 0) releaseSender(senderId, false);
-  };
-
-  ipcMain.removeHandler("local-commit-audience:subscribe");
-  ipcMain.handle("local-commit-audience:subscribe", (event, address: DeliveryAddress) => {
-    requireOwnedMainFrame(event);
-    unsubscribe(event.sender.id, address);
-    const state = ensureSender(event.sender);
-    state.releases.set(JSON.stringify(address), audienceBroker.subscribe(event.sender, address));
-  });
-
-  ipcMain.removeHandler("local-commit-audience:unsubscribe");
-  ipcMain.handle("local-commit-audience:unsubscribe", (event, address: DeliveryAddress) => {
-    requireOwnedMainFrame(event);
-    unsubscribe(event.sender.id, address);
-  });
-
-  ipcMain.removeHandler("recipient-delivery:admit");
-  ipcMain.handle("recipient-delivery:admit", (event, result: RecipientAdmissionResult) => {
-    requireOwnedMainFrame(event);
-    return recipientRouter.admit(event.sender.id, result);
-  });
 }
 
 function sendReminderOpenEvent(payload: {
@@ -1350,9 +1252,6 @@ function createWindow(options: { session: WindowSessionRecord }): BrowserWindow 
 
 async function publishCoreResync(eventHead: number): Promise<void> {
   const runtime = desktopDataAuthorityRuntime;
-  if (runtime) {
-    localCommitCoordinator?.resetStream("event_gap");
-  }
   dbNotifier.notifyLibraryNavigationChanged({
     version: 1,
     libraryId: runtime?.identity.libraryId ?? "",
@@ -1373,6 +1272,7 @@ async function initializeDesktopApp(
   initialProjectBootstrap: InitialProjectBootstrapService,
   startCoreEvents: MainRuntimeStartupContext["startCoreEvents"],
   applicationSchedulers: ApplicationSchedulerRuntime["Service"],
+  projectionDelivery: MainRuntimeStartupContext["projectionDelivery"],
 ): Promise<void> {
   const initializationStartedAt = performance.now();
   desktopDataAuthorityRuntime = await authority;
@@ -1387,91 +1287,14 @@ async function initializeDesktopApp(
     totalMs: Math.round(desktopDataAuthorityRuntime.launch.timings.totalMs),
   });
   const coreClient = desktopDataAuthorityRuntime.rootClient;
-  const coreIdentity = desktopDataAuthorityRuntime.identity;
-  localCommitCoordinator = new LocalCommitCoordinator({
-    expectedLibraryId: coreIdentity.libraryId,
-    expectedStoreEpoch: coreIdentity.storeEpoch,
-    onDocument: (packet, documentId) => {
-      desktopDocumentSync?.publishDocumentEffects(packet, documentId);
-    },
-    onProjection: () => undefined,
-    onNotification: (packet, effect) => {
-      const envelope: CoreEventEnvelope = {
-        transport_version: coreClient.handshake.selected_transport_version,
-        packet,
-      };
-      publishCoreModuleEventToNotifiers(envelope, effect, coreIdentity.libraryId);
-    },
-    onVisibility: (packet, delta) => {
-      for (const revocation of revocationsFromVisibilityDelta(delta)) {
-        if (revocation.resource_kind === "document") {
-          desktopDocumentSync?.publishResourceRevocation(packet, revocation);
-        }
-      }
-    },
-    onError: (failure) => {
-      logger.error("LocalCommit delivery lane failed", {
-        lane: failure.lane,
-        laneKey: failure.laneKey,
-        commitSeq: failure.packet.manifest.identity.commit_seq,
-        storeEpoch: failure.packet.manifest.identity.store_epoch,
-        error: failure.error instanceof Error ? failure.error.message : String(failure.error),
-      });
-      if (failure.lane !== "projection" && failure.lane !== "visibility") return;
-      localCommitAudienceBroker?.reset(
-        {
-          storeEpoch: failure.packet.manifest.identity.store_epoch,
-          commitSeq: failure.packet.manifest.identity.commit_seq,
-        },
-        "integrity_failure",
-        [failure.packet.delivery_address],
-      );
-    },
-  });
-  scopedProjectionLiveSupervisor = new ScopedProjectionLiveSupervisor({
-    open: (scopes, onEvent, onRepair, signal) =>
-      coreClient.openProjectionEventStream(scopes, onEvent, onRepair, signal),
-    onPacket: (envelope) => {
-      localCommitCoordinator?.admit(envelope.packet, "projection_live");
-      localCommitAudienceBroker?.publish(envelope.packet);
-    },
-    onBarrier: (barrier, scopes, resetScopes) => {
-      const storeEpochChanged = barrier.store_epoch !== coreIdentity.storeEpoch;
-      localCommitAudienceBroker?.installLeases(
-        barrier.recipient_leases,
-        {
-          storeEpoch: barrier.store_epoch,
-          commitSeq: barrier.commit_head,
-        },
-        (storeEpochChanged ? scopes : resetScopes).map(projectionScopeDeliveryAddress),
-        storeEpochChanged ? "store_epoch_replacement" : "stream_gap",
-      );
-    },
-    onRepair: (repair) => {
-      localCommitAudienceBroker?.reset(
-        {
-          storeEpoch: repair.store_epoch,
-          commitSeq: repair.commit_head,
-        },
-        repair.reason === "identity_changed" ? "store_epoch_replacement" : "stream_gap",
-      );
-    },
-    onError: (error) => {
-      logger.warn("Scoped Projection live broker interrupted", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    },
-  });
-  refreshScopedProjectionLiveScopes();
 
   let coreStreamInterruptionPublished = false;
   await startCoreEvents({
     initialAfter: coreClient.handshake.commit_head,
-    onEvent: publishCoreModuleEvent,
-    onCheckpoint: (checkpoint) => {
-      localCommitCoordinator?.observeCheckpoint(checkpoint);
-    },
+    onEvent: projectionDelivery.deliverTail,
+    onCheckpoint: projectionDelivery.observeCheckpoint,
     onResyncRequired: async (resync) => {
+      projectionDelivery.resetStream("event_gap");
       await publishCoreResync(resync.commit_head);
     },
     onConnectionStateChanged: (state, error) => {
@@ -1482,7 +1305,7 @@ async function initializeDesktopApp(
       if (state === "interrupted") {
         if (coreStreamInterruptionPublished) return;
         coreStreamInterruptionPublished = true;
-        localCommitCoordinator?.resetStream("reconnect");
+        projectionDelivery.resetStream("reconnect");
         logger.warn("Native Core event stream interrupted; reconnecting", {
           error:
             error instanceof Error
@@ -1528,12 +1351,7 @@ async function initializeDesktopApp(
   await appUpdateRuntime?.markApplicationReady();
 }
 
-async function publishCoreModuleEvent(envelope: CoreEventEnvelope): Promise<void> {
-  if (!desktopDataAuthorityRuntime || !localCommitCoordinator) return;
-  await localCommitCoordinator.admitAndWait(envelope.packet, "tailer");
-}
-
-function publishCoreModuleEventToNotifiers(
+export function publishCoreModuleEventToNotifiers(
   envelope: CoreEventEnvelope,
   effect: CoreAuthorizedDeliveryAtom,
   libraryId: string,
@@ -1624,9 +1442,18 @@ export interface MainRuntimeStartupContext {
   applicationSchedulers: ApplicationSchedulerRuntime["Service"];
   automationModule: DesktopAutomationModulePort;
   dataAuthority: Promise<DesktopDataAuthorityRuntime>;
+  databaseModule: DesktopDatabaseModuleBridge;
   desktopNotificationManager: DesktopNotificationManager;
+  documentSync: DesktopDocumentSyncPort;
   gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
+  libraryModule: DesktopLibraryModuleBridge;
+  projectWorkspace: DesktopProjectWorkspacePort;
+  projectionDelivery: {
+    readonly deliverTail: (envelope: CoreEventEnvelope) => Promise<void>;
+    readonly observeCheckpoint: (checkpoint: CoreStreamCheckpoint) => void;
+    readonly resetStream: (reason: "event_gap" | "reconnect" | "store_epoch_changed") => void;
+  };
   rendererClientRouter: RendererClientRouter;
   windowRuntime: WindowRuntimeService;
   startupEvents?: BootstrapRuntimeEvent[];
@@ -1700,19 +1527,6 @@ function beginMainRuntimeShutdown(): void {
   desktopNotificationManager = null;
   rendererClientRouter = null;
   logger.info("Nodex before-quit");
-  scopedProjectionLiveSupervisor?.stop();
-  scopedProjectionLiveSupervisor = null;
-  localCommitCoordinator = null;
-  desktopDocumentSync = null;
-  for (const state of projectionIpcSubscriptions.values()) {
-    state.sender.removeListener("destroyed", state.onDestroyed);
-    for (const release of state.releases.values()) release();
-    state.releases.clear();
-  }
-  projectionIpcSubscriptions.clear();
-  localCommitAudienceBroker?.dispose();
-  localCommitAudienceBroker = null;
-  recipientDeliveryRouter = null;
   windowRuntime = null;
 }
 
@@ -1782,20 +1596,11 @@ export async function runMainAppStartup(
     }, 250);
     restart.unref?.();
   };
-  const documentSync = createDesktopDocumentSyncBridge({
-    authority: dataAuthority,
-  });
-  desktopDocumentSync = documentSync;
-  const libraryModule = createDesktopLibraryModuleBridge({
-    authority: dataAuthority,
-  });
+  const documentSync = context.documentSync;
+  const libraryModule = context.libraryModule;
   desktopLibraryModule = libraryModule;
-  const databaseModule = createDesktopDatabaseModuleBridge({
-    authority: dataAuthority,
-  });
-  const projectWorkspace = createDesktopProjectWorkspaceBridge({
-    authority: dataAuthority,
-  });
+  const databaseModule = context.databaseModule;
+  const projectWorkspace = context.projectWorkspace;
   browserSidebarService.setProjectSessionResolver(
     async (sessionId) => (await projectWorkspace.getProjectSession(sessionId))?.projectId ?? null,
   );
@@ -1821,10 +1626,10 @@ export async function runMainAppStartup(
     initialProjectBootstrap,
     context.startCoreEvents,
     context.applicationSchedulers,
+    context.projectionDelivery,
   );
   rendererHostReadyForWindows = true;
   configureApplicationMenus();
-  registerProjectionStreamIpcHandlers();
   await codexService.reconcileCodexExecutionHosts().catch((error) => {
     logger.warn("Some configured SSH execution hosts are unavailable", {
       error: error instanceof Error ? error.message : String(error),
