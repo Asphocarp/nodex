@@ -2,9 +2,11 @@ import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
   useCallback,
   useEffect,
+  lazy,
   useMemo,
   useRef,
   useState,
+  Suspense,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
@@ -97,6 +99,11 @@ const CONTENT_SAMPLE_BYTES = 8_192;
 export const WORKSPACE_RICH_MARKDOWN_MAX_BYTES = 256 * 1024;
 export const WORKSPACE_RICH_MARKDOWN_MAX_LINES = 5_000;
 
+const LazyWorkspacePdfPreview = lazy(async () => {
+  const { WorkspacePdfPreview } = await import("./workspace-pdf-preview");
+  return { default: WorkspacePdfPreview };
+});
+
 export function classifyWorkspaceMarkdownPreview(value: string) {
   return classifyContentBudget({
     value,
@@ -137,8 +144,13 @@ function resolveWorkspaceRoot(tab: WorkspaceFilesTab, project: Project | null): 
   return project?.primaryWorkspaceRoot?.trim() || project?.sources[0]?.root.trim() || null;
 }
 
-function buildDataUrl(dataBase64: string, mimeType: string | undefined): string {
-  return `data:${mimeType || "application/octet-stream"};base64,${dataBase64}`;
+function buildBinaryObjectUrl(dataBase64: string, mimeType: string | undefined): string {
+  const decoded = window.atob(dataBase64);
+  const bytes = new Uint8Array(decoded.length);
+  for (let index = 0; index < decoded.length; index += 1) {
+    bytes[index] = decoded.charCodeAt(index);
+  }
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType || "application/octet-stream" }));
 }
 
 function Breadcrumb({
@@ -180,6 +192,7 @@ function WorkspaceFilePreview({
   document,
   workspaceRoot,
   onOpenExternal,
+  onOpenExternalLink,
   onEdit,
   onUseDisk,
   onKeepLocal,
@@ -193,6 +206,7 @@ function WorkspaceFilePreview({
   document: WorkspaceTextDocumentSnapshot | null;
   workspaceRoot: string | null;
   onOpenExternal: () => void;
+  onOpenExternalLink: (url: string) => void;
   onEdit: (value: string) => void;
   onUseDisk: () => void;
   onKeepLocal: () => void;
@@ -304,7 +318,21 @@ function WorkspaceFilePreview({
   }
 
   if (presentation === "pdf" && state.binaryUrl) {
-    return <iframe title="PDF preview" src={state.binaryUrl} className="h-full w-full border-0" />;
+    return (
+      <Suspense
+        fallback={
+          <div className="flex h-full items-center justify-center text-sm text-token-text-secondary">
+            Loading PDF…
+          </div>
+        }
+      >
+        <LazyWorkspacePdfPreview
+          fileDataUrl={state.binaryUrl}
+          title={getWorkspaceFileName(state.path ?? "file.pdf")}
+          onOpenExternalLink={onOpenExternalLink}
+        />
+      </Suspense>
+    );
   }
 
   if (
@@ -648,6 +676,7 @@ export function WorkspaceFilesPanel({
     let loadedController: WorkspaceTextDocumentController | null = null;
     let fileWatchSubscriptionId: string | null = null;
     let unsubscribeFileWatch: (() => void) | null = null;
+    let binaryObjectUrl: string | null = null;
     documentControllerRef.current = null;
     setDocumentSnapshot(null);
     setPreviewState({
@@ -687,7 +716,11 @@ export function WorkspaceFilesPanel({
           sizeBytes: metadata.sizeBytes,
         });
         if (nextPresentation === "image" || nextPresentation === "pdf") {
-          if (metadata.sizeBytes !== null && metadata.sizeBytes > MAX_BINARY_PREVIEW_BYTES) {
+          if (
+            nextPresentation === "image" &&
+            metadata.sizeBytes !== null &&
+            metadata.sizeBytes > MAX_BINARY_PREVIEW_BYTES
+          ) {
             if (!cancelled) {
               setPreviewState({
                 status: "unsupported",
@@ -707,17 +740,23 @@ export function WorkspaceFilesPanel({
             }),
           );
           if (!binary.contentsBase64) throw new Error("Unable to read binary file.");
-          const dataUrl = buildDataUrl(binary.contentsBase64, binary.mimeType);
-          if (!cancelled) {
-            setPreviewState({
-              status: "loaded",
-              path: selectedPath,
-              metadata,
-              content: "",
-              binaryUrl: dataUrl,
-              message: null,
-            });
+          const nextBinaryUrl =
+            nextPresentation === "pdf"
+              ? `data:application/pdf;base64,${binary.contentsBase64}`
+              : buildBinaryObjectUrl(binary.contentsBase64, binary.mimeType);
+          if (cancelled) {
+            if (nextPresentation === "image") URL.revokeObjectURL(nextBinaryUrl);
+            return;
           }
+          if (nextPresentation === "image") binaryObjectUrl = nextBinaryUrl;
+          setPreviewState({
+            status: "loaded",
+            path: selectedPath,
+            metadata,
+            content: "",
+            binaryUrl: nextBinaryUrl,
+            message: null,
+          });
           return;
         }
 
@@ -873,6 +912,7 @@ export function WorkspaceFilesPanel({
       unsubscribeDocument?.();
       unregisterDocument?.();
       unsubscribeFileWatch?.();
+      if (binaryObjectUrl) URL.revokeObjectURL(binaryObjectUrl);
       if (fileWatchSubscriptionId) {
         void invoke("workspace-file-watch:stop", {
           subscriptionId: fileWatchSubscriptionId,
@@ -988,6 +1028,12 @@ export function WorkspaceFilesPanel({
     },
     [cwd, fileReferenceRouter, revealLocation, selectedPath, workspaceRoot],
   );
+
+  const openExternalUrl = useCallback((url: string) => {
+    void invoke("shell:open-external-url", url).catch(() => {
+      toast.danger("Unable to open external link");
+    });
+  }, []);
 
   const startResize = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -1257,6 +1303,7 @@ export function WorkspaceFilesPanel({
             document={documentSnapshot}
             workspaceRoot={workspaceRoot}
             onOpenExternal={() => openExternal()}
+            onOpenExternalLink={openExternalUrl}
             onEdit={editDocument}
             onUseDisk={useDiskVersion}
             onKeepLocal={keepLocalChanges}

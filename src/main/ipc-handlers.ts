@@ -110,6 +110,7 @@ import {
   sendRendererThreadStreamRelay,
 } from "./codex/owner-follower-ipc-bridge";
 import { openFileLinkTarget } from "./file-link-opener";
+import { parseExternalNavigationUrl } from "./external-navigation";
 import {
   isWorkspaceFileUserError,
   listWorkspaceDirectoryEntries,
@@ -2535,6 +2536,12 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions = {}): v
   registerHandle("shell:open-file-link", (_, target, openerId) =>
     openFileLinkTarget(target, openerId),
   );
+  registerHandle("shell:open-external-url", async (event, value) => {
+    requireTrustedAppRendererSender(event, "external navigation");
+    const url = parseExternalNavigationUrl(value);
+    await shell.openExternal(url.toString());
+    return true;
+  });
   registerHandle("shell:open-path-default", async (_, inputPath) => {
     const normalizedPath = inputPath.trim();
     if (!isAbsolute(normalizedPath)) return false;
