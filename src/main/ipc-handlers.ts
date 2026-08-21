@@ -137,7 +137,7 @@ import { createProjectWithDefaultSource } from "./default-project-source";
 import { resolveNodexProjectsDirectory } from "./nodex-projects-directory";
 import type { DesktopDatabaseModuleBridge } from "./core-client/desktop-database-module-bridge";
 import type { CoreResult } from "../shared/core-result";
-import { cancellableCoreResultFrom, coreResultFrom } from "./core-result-ipc";
+import { coreResultFrom } from "./core-result-ipc";
 import type { DesktopAutomationModulePort } from "./core-client/desktop-automation-module-bridge";
 import type { DesktopStoreAdministrationPort } from "./core-client/desktop-store-administration-bridge";
 import type { GitWorkerHost } from "./git-worker-host";
@@ -624,8 +624,6 @@ function createGitActionWorkerPort(
     },
   };
 }
-
-const pageSearchRequests = new Map<string, AbortController>();
 
 export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   const { browserSidebarService, codexService } = options;
@@ -1541,65 +1539,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   registerCoreResultHandle(
     "library-database:view-groups:get",
     async (_, input) => await databaseModule.getLibraryDatabaseViewGroups(input),
-  );
-
-  // Database Pages
-  registerHandle("pages:search", async (event, requestId, input) => {
-    if (!requestId || requestId.length > 128 || requestId.trim() !== requestId) {
-      throw new Error("Page search request identity is invalid");
-    }
-    const key = `${event.sender.id}:${requestId}`;
-    if (pageSearchRequests.has(key)) {
-      throw new Error("Page search request identity is already active");
-    }
-    const controller = new AbortController();
-    pageSearchRequests.set(key, controller);
-    const startedAt = performance.now();
-    try {
-      const result = await cancellableCoreResultFrom(
-        controller.signal,
-        async () => await libraryModule.searchPages(input, controller.signal),
-      );
-      if (result.status === "cancelled") return result;
-      const snapshot = result.value;
-      ipcPayloadLogger.info("page search payload served", {
-        channel: "pages:search",
-        projectCount: input.projectIds.length,
-        resultCount: snapshot.results.length,
-        approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
-        durationMs: Math.round(performance.now() - startedAt),
-      });
-      return { status: "completed" as const, snapshot };
-    } finally {
-      if (pageSearchRequests.get(key) === controller) {
-        pageSearchRequests.delete(key);
-      }
-    }
-  });
-
-  registerHandle("pages:search:cancel", (event, requestId) => {
-    const controller = pageSearchRequests.get(`${event.sender.id}:${requestId}`);
-    if (!controller) return false;
-    controller.abort();
-    return true;
-  });
-
-  registerHandle("pages:search-metadata", async (_, projectIds, pageIds) => {
-    const startedAt = performance.now();
-    const snapshot = await libraryModule.pageSearchMetadata(projectIds, pageIds);
-    ipcPayloadLogger.info("page search metadata payload served", {
-      channel: "pages:search-metadata",
-      projectCount: projectIds.length,
-      resultCount: snapshot.documents.length,
-      approxPayloadBytes: approximateJsonPayloadBytes(snapshot),
-      durationMs: Math.round(performance.now() - startedAt),
-    });
-    return snapshot;
-  });
-
-  registerHandle(
-    "pages:search-facets",
-    async (_, projectIds) => await libraryModule.pageSearchFacets(projectIds),
   );
 
   registerHandle(
