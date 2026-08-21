@@ -65,6 +65,8 @@ export interface DatabaseViewRenderRow {
   readonly scheduledStart?: Date;
   readonly scheduledEnd?: Date;
   readonly assignee?: string;
+  readonly documentGeneration: number;
+  readonly documentHeadSeq: number;
   readonly metadataRevision: number;
   readonly createdAt: Date;
 }
@@ -179,6 +181,8 @@ export const projectDataSourcePageRowToDatabaseViewRenderRow = (
     ...(scheduledStart ? { scheduledStart } : {}),
     ...(scheduledEnd ? { scheduledEnd } : {}),
     ...(assignee ? { assignee } : {}),
+    documentGeneration: row.page.documentGeneration,
+    documentHeadSeq: row.page.documentHeadSeq,
     metadataRevision: row.page.metadataRevision,
     createdAt: new Date(row.page.createdAt),
   };

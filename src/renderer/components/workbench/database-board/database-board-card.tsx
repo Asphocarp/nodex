@@ -281,7 +281,10 @@ export function DatabaseBoardCard(props: DatabaseBoardCardProps) {
     draggable ? pragmaticDragData : null,
     { nativePreview: "portal" },
   );
-  const title = usePresentedPageTitle(row.pageId, row.title, model.libraryId);
+  const title = usePresentedPageTitle(row.pageId, row.title, model.libraryId, {
+    generation: row.documentGeneration,
+    headSeq: row.documentHeadSeq,
+  });
   const authority = model.query.rows.find((candidate) => candidate.page.pageId === row.pageId);
   if (!authority) return null;
   const description = row.preview.trim();

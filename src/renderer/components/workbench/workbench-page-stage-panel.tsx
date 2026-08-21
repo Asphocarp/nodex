@@ -23,6 +23,7 @@ import { pageStageSemanticValues, type PageStageSemanticValues } from "@/lib/pag
 import { readPageStageContentWidthPreference } from "@/lib/page-stage-layout";
 import { requestPageBlockFocus } from "@/lib/page-block-focus-intents";
 import { fetchPageDetail, usePageDetail } from "@/lib/page-detail-store";
+import { usePublishCanonicalPageTitle } from "@/lib/page-title-projection-context";
 import { RIGHT_PANEL_COMPOSER_OVERLAY_SCROLL_RESERVE_STYLE } from "@/lib/right-panel-composer-overlay-reserve";
 import { projectContentAccess } from "../../../shared/content-access-context";
 import type {
@@ -191,6 +192,17 @@ export function PageStageSessionTab({
       };
     }
   }, [detailSnapshot.detail]);
+  usePublishCanonicalPageTitle(
+    detailSnapshot.detail?.libraryId ?? null,
+    detailSnapshot.detail?.page.pageId ?? null,
+    detailSnapshot.detail?.page.title ?? null,
+    detailSnapshot.detail
+      ? {
+          generation: detailSnapshot.detail.page.documentGeneration,
+          headSeq: detailSnapshot.detail.page.documentHeadSeq,
+        }
+      : undefined,
+  );
   const page = stageProjection.page;
   const pageLoadError = !page
     ? (stageProjection.error ??

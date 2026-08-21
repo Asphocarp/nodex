@@ -823,7 +823,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
       disposeLiveTitle();
       await Promise.resolve();
     });
-    expect(screen.getByRole("tab", { name: "Beta project, Stale Beta Card" }) !== null).toBe(true);
+    expect(screen.getByRole("tab", { name: "Beta project, Renamed card" }) !== null).toBe(true);
 
     await act(async () => {
       publishLiveTitle("   ");
@@ -837,7 +837,7 @@ describe("workbench session shell / pages-shell-navigation", () => {
       disposeLiveTitle();
       await Promise.resolve();
     });
-    expect(screen.getByRole("tab", { name: "Beta project, Stale Beta Card" }) !== null).toBe(true);
+    expect(screen.getByRole("tab", { name: "Beta project, Untitled" }) !== null).toBe(true);
     expect(invokeCalls.some((call) => call[0] === "window-session-view:tab-update")).toBe(false);
   });
 
@@ -917,6 +917,66 @@ describe("workbench session shell / pages-shell-navigation", () => {
     expect(
       within(screen.getByRole("list", { name: "Pages" })).getByText("Renamed everywhere"),
     ).not.toBeNull();
+  });
+
+  test("keeps the observed Page title when tab switching unmounts the editor body", async () => {
+    const session = makeSession({
+      tabs: [
+        {
+          id: "db-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "db_view",
+          title: "DB View",
+          panelId: "right",
+          config: { projectId: "alpha" },
+        },
+        {
+          id: "page-tab",
+          sessionId: "session:alpha:database-view",
+          projectId: "alpha",
+          kind: "page_stage",
+          title: "Card One",
+          panelId: "right",
+          config: { projectId: "alpha", pageId: "card-1", titleSnapshot: "Card One" },
+        },
+      ],
+      rightLayout: makePanelLayout(["db-tab", "page-tab"], "page-tab"),
+    });
+    const screen = renderWorkbench({
+      sessionsByProject: { alpha: [session] },
+    });
+    await settleAsyncRender();
+    await settleAsyncRender();
+
+    const pageStageProps = (
+      globalThis as {
+        __mockPageStagePropsByPageId?: Record<string, Record<string, unknown>>;
+      }
+    ).__mockPageStagePropsByPageId?.["card-1"];
+    const publishLiveTitle = pageStageProps?.__publishPageTitle as
+      | ((title: string) => void)
+      | undefined;
+    if (!publishLiveTitle) throw new Error("Expected live Page title publisher");
+
+    await act(async () => {
+      publishLiveTitle("Renamed while open");
+      await Promise.resolve();
+    });
+    expect(screen.getByRole("tab", { name: "Renamed while open", selected: true })).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("tab", { name: "DB View" }));
+      await Promise.resolve();
+    });
+    await settleAsyncRender();
+
+    expect(screen.getByRole("tab", { name: "DB View", selected: true })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Renamed while open" })).toBeTruthy();
+    expect(
+      (globalThis as { __mockPageStageUnmountsByPageId?: Record<string, number> })
+        .__mockPageStageUnmountsByPageId?.["card-1"],
+    ).toBeGreaterThan(0);
   });
 
   test("keeps same-project page-stage tabs unprefixed while preserving default title tooltips", async () => {

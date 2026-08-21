@@ -189,6 +189,8 @@ const model = (): DatabaseViewRenderModel => {
           plainText: "",
           tags: [],
           taskParentValueRevision: 1,
+          documentGeneration: row.page.documentGeneration,
+          documentHeadSeq: row.page.documentHeadSeq,
           metadataRevision: 1,
           createdAt: new Date(timestamp),
         })),

@@ -98,7 +98,17 @@ function SidebarPageRootRow({
 }) {
   const target = nodeTarget(node);
   const key = nodeKey(node);
-  const title = usePresentedPageTitle(node.kind === "page" ? node.pageId : null, node.title);
+  const title = usePresentedPageTitle(
+    node.kind === "page" ? node.pageId : null,
+    node.title,
+    undefined,
+    node.kind === "page"
+      ? {
+          generation: node.documentGeneration,
+          headSeq: node.documentHeadSeq,
+        }
+      : undefined,
+  );
   const actionableTarget =
     node.kind === "canvas" ? null : (target as ActionableLibraryResourceTarget);
   const expectedLocationRevision =

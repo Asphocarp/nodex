@@ -181,6 +181,8 @@ const model: DatabaseViewRenderModel = {
           plainText: "",
           tags: ["selected-view"],
           taskParentValueRevision: 1,
+          documentGeneration: 1,
+          documentHeadSeq: 1,
           metadataRevision: 1,
           createdAt: new Date(timestamp),
         },
@@ -980,6 +982,7 @@ describe("DatabaseViewSurface", () => {
           makePageTitleResourceKey("library-1", "page-focused"),
           "page-stage",
           "Live editor title",
+          { generation: 1, headSeq: 1 },
         );
         await Promise.resolve();
       });

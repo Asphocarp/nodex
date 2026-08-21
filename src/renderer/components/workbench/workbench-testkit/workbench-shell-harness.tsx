@@ -1275,10 +1275,19 @@ vi.mock(".././workbench-page-stage", () => ({
     );
     const identity = props.pageTitleIdentity as PageTitleResourceIdentity | undefined;
     if (!identity || !publishingTitle) return content;
+    const documentAuthority = props.documentAuthority as
+      | {
+          descriptor?: { generation?: number; headSeq?: number };
+        }
+      | undefined;
     return (
       <PageTitleProjectionPublisher
         identity={identity}
         publisherId={String(props.editorSessionKey ?? pageId)}
+        authorityVersion={{
+          generation: documentAuthority?.descriptor?.generation ?? 1,
+          headSeq: documentAuthority?.descriptor?.headSeq ?? 1,
+        }}
         title={title}
       >
         {content}

@@ -11,6 +11,7 @@ import type * as Y from "yjs";
 
 import {
   makePageTitleResourceKey,
+  type PageTitleAuthorityVersion,
   type PageTitleProjectionStore,
 } from "./page-title-projection-store";
 
@@ -43,6 +44,7 @@ export function usePresentedPageTitle(
   pageId: string | null,
   fallbackTitle: string,
   libraryId?: string | null,
+  authorityVersion?: PageTitleAuthorityVersion,
 ): string {
   const context = useContext(PageTitleProjectionContext);
   const store = context?.store ?? null;
@@ -53,30 +55,69 @@ export function usePresentedPageTitle(
   }, [fallbackTitle, pageId, resolvedLibraryId, store]);
   const subscribe = source?.subscribe ?? EMPTY_SOURCE.subscribe;
   const getSnapshot = source?.getSnapshot ?? (() => presentFallbackTitle(fallbackTitle));
-  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const presentedTitle = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+
+  usePublishCanonicalPageTitle(resolvedLibraryId, pageId, fallbackTitle, authorityVersion);
+
+  return presentedTitle;
+}
+
+export function usePublishCanonicalPageTitle(
+  libraryId: string | null,
+  pageId: string | null,
+  title: string | null,
+  authorityVersion?: PageTitleAuthorityVersion,
+): void {
+  const context = useContext(PageTitleProjectionContext);
+  const store = context?.store ?? null;
+  const authorityGeneration = authorityVersion?.generation;
+  const authorityHeadSeq = authorityVersion?.headSeq;
+
+  useLayoutEffect(() => {
+    if (
+      !store ||
+      !libraryId ||
+      !pageId ||
+      title === null ||
+      authorityGeneration === undefined ||
+      authorityHeadSeq === undefined
+    )
+      return;
+    store.publishCanonical(makePageTitleResourceKey(libraryId, pageId), title, {
+      generation: authorityGeneration,
+      headSeq: authorityHeadSeq,
+    });
+  }, [authorityGeneration, authorityHeadSeq, libraryId, pageId, store, title]);
 }
 
 export function PageTitleProjectionPublisher({
   identity,
   publisherId,
+  authorityVersion,
   title,
   children,
 }: {
   readonly identity: PageTitleResourceIdentity;
   readonly publisherId: string;
+  readonly authorityVersion: PageTitleAuthorityVersion;
   readonly title: Y.Text;
   readonly children: ReactNode;
 }) {
   const context = useContext(PageTitleProjectionContext);
   const store = context?.store ?? null;
   const publisherLeaseId = useId();
+  const authorityGeneration = authorityVersion.generation;
+  const authorityHeadSeq = authorityVersion.headSeq;
 
   useLayoutEffect(() => {
     if (!store) return;
     const resourceKey = makePageTitleResourceKey(identity.libraryId, identity.pageId);
     const leasedPublisherId = `${publisherId}:${publisherLeaseId}`;
     const publish = () => {
-      store.publishLive(resourceKey, leasedPublisherId, title.toString());
+      store.publishLive(resourceKey, leasedPublisherId, title.toString(), {
+        generation: authorityGeneration,
+        headSeq: authorityHeadSeq,
+      });
     };
     publish();
     title.observe(publish);
@@ -84,7 +125,16 @@ export function PageTitleProjectionPublisher({
       title.unobserve(publish);
       store.releasePublisher(resourceKey, leasedPublisherId);
     };
-  }, [identity.libraryId, identity.pageId, publisherId, publisherLeaseId, store, title]);
+  }, [
+    authorityGeneration,
+    authorityHeadSeq,
+    identity.libraryId,
+    identity.pageId,
+    publisherId,
+    publisherLeaseId,
+    store,
+    title,
+  ]);
 
   return children;
 }
