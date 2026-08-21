@@ -49,6 +49,7 @@ it.effect("registers and releases the Git worker renderer ingress with the Main 
                 argv: [],
                 composerAppshotHelperPath: null,
                 documentsPath: "/tmp/Documents",
+                environment: {},
                 environmentPath: null,
                 initialProjectsDirectory: null,
                 isDefaultApp: false,

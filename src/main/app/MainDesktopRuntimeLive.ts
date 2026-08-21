@@ -165,6 +165,10 @@ import {
   live as worktreeEnvironmentRuntimeLive,
 } from "../host-runtime/WorktreeEnvironmentRuntime";
 import {
+  WorktreeShellEnvironmentRuntime,
+  live as worktreeShellEnvironmentRuntimeLive,
+} from "../host-runtime/WorktreeShellEnvironmentRuntime";
+import {
   live as projectRuntimeLifecycleLive,
   ProjectRuntimeLifecycleRuntime,
 } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
@@ -563,7 +567,7 @@ export const live: Layer.Layer<
             appVersion: config.appVersion,
             browserRuntime: codexRuntime.browserRuntime,
             browserSidebar: browserSidebarService,
-            environment: process.env,
+            environment: config.environment,
             isPackaged: config.isPackaged,
             platform: config.platform as NodeJS.Platform,
           }).pipe(Layer.provide(Layer.succeed(DesktopToolRuntime, desktopToolRuntime))),
@@ -924,6 +928,17 @@ export const live: Layer.Layer<
           worktreeEnvironmentContext,
           WorktreeEnvironmentRuntime,
         );
+        const worktreeShellEnvironmentContext = yield* Layer.buildWithScope(
+          worktreeShellEnvironmentRuntimeLive({
+            baseEnvironment: config.environment,
+            platform: config.platform as NodeJS.Platform,
+          }),
+          runtimeScope,
+        );
+        const worktreeShellEnvironment = Context.get(
+          worktreeShellEnvironmentContext,
+          WorktreeShellEnvironmentRuntime,
+        );
         const dataAuthority = yield* makeDesktopDataAuthority(callbacks).pipe(
           Effect.provideService(CoreAuthority, authority),
           Effect.provideService(CoreSessionAccess, access),
@@ -1029,6 +1044,8 @@ export const live: Layer.Layer<
               client: codexBridge,
               runtime: codexRuntime,
               runtimeStateHome,
+              loadWorktreeSetupBaseEnvironment: () =>
+                callbacks.runPromise(worktreeShellEnvironment.load),
               executionHosts: executionHosts.registry,
               managedWorktrees: makeManagedWorktreeRuntimePromiseAdapter(
                 managedWorktrees,

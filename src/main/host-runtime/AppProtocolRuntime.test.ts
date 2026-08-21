@@ -47,6 +47,7 @@ it.effect("owns application protocol handlers with the Main Scope", () =>
                 argv: [],
                 composerAppshotHelperPath: null,
                 documentsPath: "/tmp/Documents",
+                environment: {},
                 environmentPath: null,
                 initialProjectsDirectory: null,
                 isDefaultApp: false,

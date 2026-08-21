@@ -44,6 +44,7 @@ it.effect("registers and releases the Remote Hosted PiP ingress with the Main Sc
                 argv: [],
                 composerAppshotHelperPath: null,
                 documentsPath: "/tmp/Documents",
+                environment: {},
                 environmentPath: null,
                 initialProjectsDirectory: null,
                 isDefaultApp: false,

@@ -200,6 +200,11 @@ async function handleStartupFailure(error: unknown): Promise<void> {
 
 function launchMainApplication(): void {
   const startupEvents = runtimeQueue.takePendingEvents();
+  const environment = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    ),
+  );
   const foundation = MainFoundationLive.make({
     assistantStreamingDebug: process.env.NODEX_ASSISTANT_STREAMING_DEBUG === "1",
     appVersion: app.getVersion(),
@@ -207,6 +212,7 @@ function launchMainApplication(): void {
     argv: [...process.argv],
     composerAppshotHelperPath: process.env.NODEX_COMPOSER_APPSHOT_HELPER?.trim() || null,
     documentsPath: app.getPath("documents"),
+    environment,
     environmentPath: process.env.PATH ?? null,
     initialProjectsDirectory: process.env.NODEX_INITIAL_PROJECTS_DIR ?? null,
     isDefaultApp: process.defaultApp === true,

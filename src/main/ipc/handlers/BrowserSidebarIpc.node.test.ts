@@ -57,6 +57,7 @@ it.effect(
                   argv: [],
                   composerAppshotHelperPath: null,
                   documentsPath: "/tmp/Documents",
+                  environment: {},
                   environmentPath: null,
                   initialProjectsDirectory: null,
                   isDefaultApp: false,

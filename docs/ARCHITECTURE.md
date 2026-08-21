@@ -95,7 +95,7 @@ The decisions behind this model are recorded in [ADR 0017](docs/adr/0017-library
 | Window layout, owner-scoped Scenes, surface placement                   | Renderer Window Session App aggregate                                        | Main persists the revisioned Window Session catalog                                                                                              |
 | Browser guests, Browser Use, MCP App guests, Terminal processes         | Electron Main runtime aggregates                                             | Renderer holds presentation descriptors and host bindings only                                                                                   |
 | Git repository live-read state                                          | Main-owned Git worker process                                                | Typed Main/preload bus and renderer query projections                                                                                            |
-| Preferences, managed asset files, logs, OS notifications                | Electron Main local/OS adapters                                              | Typed renderer IPC; managed assets use immutable atomic publication outside backup staging, while durable semantic content remains in Core        |
+| Preferences, managed asset files, logs, OS notifications                | Electron Main local/OS adapters                                              | Typed renderer IPC; managed assets use immutable atomic publication outside backup staging, while durable semantic content remains in Core       |
 
 Authority and presentation are intentionally different. A Scene can present a Page without owning it; a renderer cache can display a Database window without authorizing it; Main can relay a Codex document without becoming its visible writer.
 
@@ -181,6 +181,12 @@ Its scoped runtime resolves Project workspace authority through Core, owns same-
 serialization, and exposes the five renderer operations through a dedicated trusted IPC adapter.
 Scope release stops admission and waits for already-admitted atomic writes; neither the filesystem
 service nor `CodexService` may own a process-global write queue.
+
+Interactive login-shell discovery is owned once per Main or worktree-worker lifetime. The Main
+bootstrap snapshots its inherited environment into immutable configuration; host Modules do not
+read ambient `process.env`. The scoped shell-environment runtime coalesces discovery, and release
+interrupts an active login-shell child and rejects later admission. Worker roots use an independent
+loader and close it with their own shutdown, so no cached environment crosses a process or Scope.
 
 Promise, callback, EventEmitter, AbortSignal, and synchronous IPC shapes are allowed only at explicit external Adapter seams. Application Modules expose Effect values, typed state, and Stream/PubSub observation; renderer, preload, shared contracts, and generated wire protocols remain Effect-free. Synchronous preload contracts use a separate scoped pure adapter because Electron requires a result before an Effect fiber can run. [ADR 0047](adr/0047-effect-control-plane-and-runtime-boundaries.md) defines the current frontier while the whole-Main kernel ADR is completed.
 

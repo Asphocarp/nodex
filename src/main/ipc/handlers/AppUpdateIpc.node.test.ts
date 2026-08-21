@@ -50,6 +50,7 @@ it.effect("registers and releases app update ingress with the Main Scope", () =>
                 argv: [],
                 composerAppshotHelperPath: null,
                 documentsPath: "/tmp/Documents",
+                environment: {},
                 environmentPath: null,
                 initialProjectsDirectory: null,
                 isDefaultApp: false,

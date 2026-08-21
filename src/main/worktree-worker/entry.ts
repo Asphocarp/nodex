@@ -1,5 +1,6 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { executeCodexWorktreeWorkerOperation } from "../codex/codex-worktree-worker-operation";
+import { CodexLocalShellEnvironmentLoader } from "../codex/codex-worktree-shell-environment";
 import {
   CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
   isCodexWorktreeWorkerHostMessage,
@@ -21,6 +22,7 @@ const active = new Map<
     readonly controller: AbortController;
   }
 >();
+const shellEnvironment = new CodexLocalShellEnvironmentLoader();
 
 function post(message: CodexWorktreeWorkerThreadMessage): void {
   port.postMessage(message);
@@ -33,6 +35,7 @@ port.on("message", (raw: unknown) => {
   if (raw.type === "shutdown") {
     for (const request of active.values()) request.controller.abort();
     active.clear();
+    shellEnvironment.close();
     port.close();
     return;
   }
@@ -62,6 +65,7 @@ port.on("message", (raw: unknown) => {
   const controller = new AbortController();
   active.set(raw.id, { operation: raw.request.operation, controller });
   void executeCodexWorktreeWorkerOperation(raw.request, {
+    loadBaseEnvironment: () => shellEnvironment.load(),
     signal: controller.signal,
     onEvent: (event) =>
       post({

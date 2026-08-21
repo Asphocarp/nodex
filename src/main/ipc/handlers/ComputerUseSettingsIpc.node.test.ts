@@ -48,6 +48,7 @@ it.effect("registers and releases Computer Use settings channels with the Main S
                 argv: [],
                 composerAppshotHelperPath: null,
                 documentsPath: "/tmp/Documents",
+                environment: {},
                 environmentPath: null,
                 initialProjectsDirectory: null,
                 isDefaultApp: false,

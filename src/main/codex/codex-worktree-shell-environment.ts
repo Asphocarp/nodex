@@ -22,8 +22,6 @@ const CODEX_INTERACTIVE_SHELL_ENVIRONMENT = {
   ZSH_TMUX_AUTOSTARTED: "true",
 } as const;
 
-let cachedCodexLocalShellEnvironment: Promise<NodeJS.ProcessEnv> | null = null;
-
 const CODEX_VOLATILE_SETUP_ENVIRONMENT_KEYS = new Set([
   "CODEX_SOURCE_TREE_PATH",
   "CODEX_WORKTREE_PATH",
@@ -114,6 +112,7 @@ export function parseCodexInteractiveShellEnvironment(output: string): Record<st
 function readCodexLoginShellEnvironment(input: {
   readonly shell: string;
   readonly baseEnvironment: NodeJS.ProcessEnv;
+  readonly signal?: AbortSignal;
 }): Promise<Record<string, string>> {
   return new Promise((resolve, reject) => {
     const child = spawn(input.shell, ["-ilc", CODEX_SHELL_ENVIRONMENT_COMMAND], {
@@ -127,6 +126,19 @@ function readCodexLoginShellEnvironment(input: {
     const stderrDecoder = new StringDecoder("utf8");
     let stdout = "";
     let stderr = "";
+    let settled = false;
+    const settle = (complete: () => void): void => {
+      if (settled) return;
+      settled = true;
+      input.signal?.removeEventListener("abort", onAbort);
+      complete();
+    };
+    const onAbort = (): void => {
+      killChildProcessTree(child, "SIGKILL");
+      settle(() => reject(new Error("Interactive login shell environment loading was canceled")));
+    };
+    input.signal?.addEventListener("abort", onAbort, { once: true });
+    if (input.signal?.aborted) onAbort();
 
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += stdoutDecoder.write(chunk);
@@ -134,21 +146,24 @@ function readCodexLoginShellEnvironment(input: {
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr += stderrDecoder.write(chunk);
     });
-    child.on("error", reject);
+    child.on("error", (error) => settle(() => reject(error)));
     child.on("close", (code, signal) => {
       stdout += stdoutDecoder.end();
       stderr += stderrDecoder.end();
       if (code === 0 && signal === null) {
         try {
-          resolve(parseCodexInteractiveShellEnvironment(stdout));
+          const environment = parseCodexInteractiveShellEnvironment(stdout);
+          settle(() => resolve(environment));
         } catch (error) {
-          reject(error);
+          settle(() => reject(error));
         }
         return;
       }
-      reject(
-        new Error(
-          `Interactive login shell environment failed (${signal ?? `exit ${code ?? "unknown"}`}).${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
+      settle(() =>
+        reject(
+          new Error(
+            `Interactive login shell environment failed (${signal ?? `exit ${code ?? "unknown"}`}).${stderr.trim() ? `\n${stderr.trim()}` : ""}`,
+          ),
         ),
       );
     });
@@ -158,6 +173,7 @@ function readCodexLoginShellEnvironment(input: {
 async function readCodexInteractiveShellEnvironment(
   baseEnvironment: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
+  signal?: AbortSignal,
 ): Promise<Record<string, string>> {
   const preferredShell = resolveCodexLoginShell(platform, baseEnvironment);
   const shells = [preferredShell, "/bin/zsh", "/bin/bash"].filter(
@@ -166,9 +182,11 @@ async function readCodexInteractiveShellEnvironment(
   let lastError: unknown = null;
 
   for (const shell of shells) {
+    signal?.throwIfAborted();
     try {
-      return await readCodexLoginShellEnvironment({ shell, baseEnvironment });
+      return await readCodexLoginShellEnvironment({ shell, baseEnvironment, signal });
     } catch (error) {
+      signal?.throwIfAborted();
       lastError = error;
     }
   }
@@ -178,34 +196,76 @@ async function readCodexInteractiveShellEnvironment(
 export async function loadCodexLocalShellEnvironment(
   input: {
     readonly baseEnvironment?: NodeJS.ProcessEnv;
-    readonly loadInteractiveEnvironment?: () => Promise<NodeJS.ProcessEnv>;
+    readonly loadInteractiveEnvironment?: (signal?: AbortSignal) => Promise<NodeJS.ProcessEnv>;
     readonly onError?: (error: unknown) => void;
     readonly platform?: NodeJS.Platform;
+    readonly signal?: AbortSignal;
   } = {},
 ): Promise<NodeJS.ProcessEnv> {
   const baseEnvironment = input.baseEnvironment ?? process.env;
   const platform = input.platform ?? process.platform;
+  input.signal?.throwIfAborted();
   if (platform === "win32") return compactProcessEnvironment(baseEnvironment);
 
   const load = async (): Promise<NodeJS.ProcessEnv> => {
     try {
-      const interactiveEnvironment = await (input.loadInteractiveEnvironment?.() ??
-        readCodexInteractiveShellEnvironment(baseEnvironment, platform));
+      const interactiveEnvironment = await (input.loadInteractiveEnvironment?.(input.signal) ??
+        readCodexInteractiveShellEnvironment(baseEnvironment, platform, input.signal));
+      input.signal?.throwIfAborted();
       return withoutCodexShellEnvironment({
         ...baseEnvironment,
         ...interactiveEnvironment,
       });
     } catch (error) {
+      input.signal?.throwIfAborted();
       input.onError?.(error);
       return withoutCodexShellEnvironment(baseEnvironment);
     }
   };
 
-  if (input.baseEnvironment || input.loadInteractiveEnvironment || input.platform) {
-    return await load();
+  return await load();
+}
+
+export interface CodexLocalShellEnvironmentLoaderOptions {
+  readonly baseEnvironment?: NodeJS.ProcessEnv;
+  readonly loadInteractiveEnvironment?: (signal?: AbortSignal) => Promise<NodeJS.ProcessEnv>;
+  readonly onError?: (error: unknown) => void;
+  readonly platform?: NodeJS.Platform;
+}
+
+/** One application/worker owner coalesces login-shell discovery and can interrupt it on close. */
+export class CodexLocalShellEnvironmentLoader {
+  readonly #options: CodexLocalShellEnvironmentLoaderOptions;
+  readonly #controller = new AbortController();
+  #cached: Promise<NodeJS.ProcessEnv> | null = null;
+  #closed = false;
+
+  constructor(options: CodexLocalShellEnvironmentLoaderOptions = {}) {
+    this.#options = {
+      ...options,
+      ...(options.baseEnvironment === undefined
+        ? {}
+        : { baseEnvironment: { ...options.baseEnvironment } }),
+    };
   }
-  cachedCodexLocalShellEnvironment ??= load();
-  return await cachedCodexLocalShellEnvironment;
+
+  load(): Promise<NodeJS.ProcessEnv> {
+    if (this.#closed) {
+      return Promise.reject(new Error("Shell environment loader is closed"));
+    }
+    this.#cached ??= loadCodexLocalShellEnvironment({
+      ...this.#options,
+      signal: this.#controller.signal,
+    });
+    return this.#cached;
+  }
+
+  close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#controller.abort();
+    this.#cached = null;
+  }
 }
 
 /** Exact `L0`: parse newline-delimited `env` output, retaining the final duplicate. */
