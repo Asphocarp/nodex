@@ -66,6 +66,12 @@ export class CodexAppServerClient extends Context.Service<
         params: unknown,
       ) => Effect.Effect<unknown, CodexError.CodexAppServerError>,
     ) => Effect.Effect<void, never, Scope.Scope>;
+    readonly handleServerRequestFallback: (
+      handler: (
+        method: CodexRpc.ServerRequestMethod,
+        params: unknown,
+      ) => Effect.Effect<unknown, CodexError.CodexAppServerError>,
+    ) => Effect.Effect<void, never, Scope.Scope>;
     readonly handleUnknownServerNotification: (
       handler: (
         method: string,
@@ -91,6 +97,12 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
   const notificationHandlers = new Map<string, Array<ServerNotificationHandler>>();
   let unknownRequestHandler:
     | ((method: string, params: unknown) => Effect.Effect<unknown, CodexError.CodexAppServerError>)
+    | undefined;
+  let serverRequestFallback:
+    | ((
+        method: CodexRpc.ServerRequestMethod,
+        params: unknown,
+      ) => Effect.Effect<unknown, CodexError.CodexAppServerError>)
     | undefined;
   let unknownNotificationHandler:
     | ((method: string, params: unknown) => Effect.Effect<void, CodexError.CodexAppServerError>)
@@ -171,7 +183,10 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
       const method = request.method as CodexRpc.ServerRequestMethod;
       const payloadSchema = getServerRequestParamSchema(method);
       const responseSchema = getServerRequestResponseSchema(method);
-      const handler = requestHandlers.get(method);
+      const fallback = serverRequestFallback;
+      const handler =
+        requestHandlers.get(method) ??
+        (fallback ? (params: unknown) => fallback(method, params) : undefined);
 
       return decodeOptionalPayload(method, payloadSchema, request.params).pipe(
         Effect.flatMap((decoded) => runHandler(handler, decoded, method)),
@@ -271,6 +286,16 @@ export const make = Effect.fn("effect-codex-app-server/CodexAppServerClient.make
         () =>
           Effect.sync(() => {
             if (unknownRequestHandler === handler) unknownRequestHandler = undefined;
+          }),
+      ),
+    handleServerRequestFallback: (handler) =>
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          serverRequestFallback = handler;
+        }),
+        () =>
+          Effect.sync(() => {
+            if (serverRequestFallback === handler) serverRequestFallback = undefined;
           }),
       ),
     handleUnknownServerNotification: (handler) =>

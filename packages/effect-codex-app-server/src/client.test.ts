@@ -49,8 +49,8 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
         const client = yield* CodexClient.CodexAppServerClient;
 
         yield* client
-          .handleServerRequest("item/tool/requestUserInput", (payload) =>
-            Ref.update(userInputRequests, (current) => [...current, payload]).pipe(
+          .handleServerRequestFallback((method, payload) =>
+            Ref.update(userInputRequests, (current) => [...current, { method, payload }]).pipe(
               Effect.as({
                 answers: {
                   approved: {
@@ -106,23 +106,26 @@ it.layer(NodeServices.layer)("effect-codex-app-server client", (it) => {
       assert.equal(result.skills.data[0]?.skills.length, 0);
       assert.deepEqual(yield* Ref.get(userInputRequests), [
         {
-          isBlocking: true,
-          itemId: "item-approval-1",
-          threadId: "thread-1",
-          turnId: "turn-1",
-          questions: [
-            {
-              id: "approved",
-              header: "Approve",
-              question: "Continue with the mock skills request?",
-              options: [
-                {
-                  label: "yes",
-                  description: "Approve the request",
-                },
-              ],
-            },
-          ],
+          method: "item/tool/requestUserInput",
+          payload: {
+            isBlocking: true,
+            itemId: "item-approval-1",
+            threadId: "thread-1",
+            turnId: "turn-1",
+            questions: [
+              {
+                id: "approved",
+                header: "Approve",
+                question: "Continue with the mock skills request?",
+                options: [
+                  {
+                    label: "yes",
+                    description: "Approve the request",
+                  },
+                ],
+              },
+            ],
+          },
         },
       ]);
       assert.deepEqual(yield* Ref.get(messageDeltas), [

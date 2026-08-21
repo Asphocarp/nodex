@@ -1,0 +1,288 @@
+import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
+import * as Result from "effect/Result";
+import * as Scope from "effect/Scope";
+import * as Sink from "effect/Sink";
+import * as Stdio from "effect/Stdio";
+import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
+import { TestClock } from "effect/testing";
+import { assert, it } from "@effect/vitest";
+import { make as makeCodexClient } from "@nodex/effect-codex-app-server/client";
+import { CodexAppServerSession } from "./CodexAppServerSession";
+import { CodexEndpoint, live as endpointLive, type CodexEndpointConfig } from "./CodexEndpoint";
+import {
+  CodexEndpointMap,
+  live as endpointMapLive,
+  type CodexExecutionHostConfig,
+} from "./CodexEndpointMap";
+import { live as eventHubLive } from "./CodexEventHub";
+import { CodexGateway, CodexThreadHostResolver, live as gatewayLive } from "./CodexGateway";
+import { codexRuntimeError, type CodexRuntimeError } from "./CodexRuntimeError";
+import { unhandled as unhandledServerRequests } from "./CodexServerRequestRuntime";
+import { CodexSessionTransport } from "../platform/node/CodexSessionTransport";
+
+interface FakeAttempt {
+  readonly generation: number;
+  readonly fail: (error: CodexRuntimeError) => Effect.Effect<boolean>;
+}
+
+interface FakeEndpoint {
+  readonly config: CodexExecutionHostConfig;
+  readonly attempts: FakeAttempt[];
+  readonly releases: number[];
+}
+
+const encoder = new TextEncoder();
+
+const makeTestStdio = Effect.gen(function* () {
+  const input = yield* Queue.unbounded<Uint8Array>();
+  const output = yield* Queue.unbounded<string>();
+  const decoder = new TextDecoder();
+  return {
+    input,
+    output,
+    stdio: Stdio.make({
+      args: Effect.succeed([]),
+      stdin: Stream.fromQueue(input),
+      stdout: () =>
+        Sink.forEach((chunk: string | Uint8Array) =>
+          Queue.offer(
+            output,
+            typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true }),
+          ),
+        ),
+      stderr: () => Sink.drain,
+    }),
+  };
+});
+
+const fakeTransport = Layer.succeed(
+  CodexSessionTransport,
+  CodexSessionTransport.of({
+    open: () => Effect.die(new Error("The fake session layer does not open a child process")),
+    canonicalPath: (path) => Effect.succeed(path),
+  }),
+);
+
+const fakeEndpoint = (input: {
+  readonly hostId: string;
+  readonly kind?: "local" | "remote";
+  readonly failGenerations?: ReadonlySet<number>;
+  readonly accountEmail?: string;
+  readonly respond?: boolean;
+}): FakeEndpoint => {
+  const attempts: FakeAttempt[] = [];
+  const releases: number[] = [];
+  const sessionLayer: CodexEndpointConfig["sessionLayer"] = (generation) =>
+    Layer.effect(
+      CodexAppServerSession,
+      Effect.gen(function* () {
+        yield* CodexSessionTransport;
+        if (input.failGenerations?.has(generation) === true) {
+          return yield* codexRuntimeError({
+            operation: "test.open",
+            reason: "spawn",
+            retryable: true,
+            hostId: input.hostId,
+            generation,
+          });
+        }
+        const io = yield* makeTestStdio;
+        const client = yield* makeCodexClient(io.stdio);
+        const termination = yield* Deferred.make<never, CodexRuntimeError>();
+        attempts.push({
+          generation,
+          fail: (error) => Deferred.fail(termination, error),
+        });
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            releases.push(generation);
+          }),
+        );
+
+        if (input.respond !== false) {
+          yield* Effect.forever(
+            Queue.take(io.output).pipe(
+              Effect.flatMap((line) => {
+                const request = JSON.parse(line.trim()) as { readonly id?: string | number };
+                if (request.id === undefined) return Effect.void;
+                return Queue.offer(
+                  io.input,
+                  encoder.encode(
+                    `${JSON.stringify({
+                      id: request.id,
+                      result: {
+                        account: {
+                          type: "chatgpt",
+                          email: input.accountEmail ?? `${input.hostId}@example.com`,
+                          planType: "plus",
+                        },
+                        requiresOpenaiAuth: false,
+                      },
+                    })}\n`,
+                  ),
+                ).pipe(Effect.asVoid);
+              }),
+            ),
+          ).pipe(Effect.forkScoped);
+        }
+
+        return CodexAppServerSession.of({
+          hostId: input.hostId,
+          generation,
+          pid: generation,
+          client,
+          initialize: {
+            codexHome: "/tmp/codex-home",
+            platformFamily: "unix",
+            platformOs: "macos",
+            userAgent: "fake-codex",
+          },
+          termination: Deferred.await(termination),
+        });
+      }),
+    );
+  return {
+    attempts,
+    releases,
+    config: {
+      kind: input.kind ?? "local",
+      hostId: input.hostId,
+      sessionLayer,
+      retryBase: "1 second",
+      retryCap: "1 second",
+      jitter: false,
+    },
+  };
+};
+
+const waitForConnection = (
+  endpoint: CodexEndpoint["Service"],
+  kind: "ready" | "backing-off",
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if ((yield* SubscriptionRef.get(endpoint.state)).kind === kind) return;
+      yield* Effect.yieldNow;
+    }
+    return yield* Effect.die(new Error(`Endpoint did not enter ${kind}`));
+  });
+
+const endpointDependencies = Layer.mergeAll(eventHubLive, unhandledServerRequests, fakeTransport);
+
+it.effect("retries one owned session at a time and interrupts backoff on scope close", () =>
+  Effect.gen(function* () {
+    const fake = fakeEndpoint({ hostId: "local", failGenerations: new Set([1]) });
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(
+      endpointLive(fake.config).pipe(Layer.provideMerge(endpointDependencies)),
+      scope,
+    );
+    const endpoint = Context.get(context, CodexEndpoint);
+
+    yield* waitForConnection(endpoint, "backing-off");
+    yield* TestClock.adjust("1 second");
+    const session = yield* endpoint.session;
+    assert.strictEqual(session.generation, 2);
+    assert.deepEqual(
+      fake.attempts.map(({ generation }) => generation),
+      [2],
+    );
+
+    yield* fake.attempts[0]!.fail(
+      codexRuntimeError({
+        operation: "test.exit",
+        reason: "session-lost",
+        retryable: true,
+        hostId: "local",
+        generation: 2,
+      }),
+    );
+    yield* waitForConnection(endpoint, "backing-off");
+    yield* Scope.close(scope, Exit.void);
+    yield* TestClock.adjust("1 hour");
+    assert.deepEqual(fake.releases, [2]);
+    assert.strictEqual(fake.attempts.length, 1);
+  }),
+);
+
+it.effect("routes typed requests explicitly across local and thread execution hosts", () =>
+  Effect.gen(function* () {
+    const local = fakeEndpoint({ hostId: "local", accountEmail: "local@example.com" });
+    const remote = fakeEndpoint({
+      hostId: "remote-a",
+      kind: "remote",
+      accountEmail: "remote@example.com",
+    });
+    const hub = eventHubLive;
+    const endpointMap = endpointMapLive(local.config).pipe(
+      Layer.provideMerge(Layer.mergeAll(hub, unhandledServerRequests, fakeTransport)),
+    );
+    const resolver = Layer.succeed(
+      CodexThreadHostResolver,
+      CodexThreadHostResolver.of({ resolve: () => Effect.succeed("remote-a") }),
+    );
+    const runtime = gatewayLive({ requestTimeout: "5 seconds" }).pipe(
+      Layer.provideMerge(Layer.mergeAll(endpointMap, hub, resolver)),
+    );
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(runtime, scope);
+    const gateway = Context.get(context, CodexGateway);
+    const endpoints = Context.get(context, CodexEndpointMap);
+    yield* gateway.reconcileHost(remote.config);
+
+    const localAccount = yield* gateway.requestLocal("account/read", {});
+    const remoteAccount = yield* gateway.requestForThread("thread-a", "account/read", {});
+    assert.strictEqual(localAccount.account?.type, "chatgpt");
+    assert.strictEqual(remoteAccount.account?.type, "chatgpt");
+    if (localAccount.account?.type === "chatgpt") {
+      assert.strictEqual(localAccount.account.email, "local@example.com");
+    }
+    if (remoteAccount.account?.type === "chatgpt") {
+      assert.strictEqual(remoteAccount.account.email, "remote@example.com");
+    }
+
+    const localRemoval = yield* Effect.result(endpoints.unregister("local"));
+    assert.isTrue(Result.isFailure(localRemoval));
+    yield* gateway.removeHost("remote-a");
+    assert.isFalse(yield* endpoints.has("remote-a"));
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("applies the only ordinary request deadline in the gateway", () =>
+  Effect.gen(function* () {
+    const local = fakeEndpoint({ hostId: "local", respond: false });
+    const hub = eventHubLive;
+    const endpointMap = endpointMapLive(local.config).pipe(
+      Layer.provideMerge(Layer.mergeAll(hub, unhandledServerRequests, fakeTransport)),
+    );
+    const resolver = Layer.succeed(
+      CodexThreadHostResolver,
+      CodexThreadHostResolver.of({ resolve: () => Effect.succeed("local") }),
+    );
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(
+      gatewayLive({ requestTimeout: "1 second" }).pipe(
+        Layer.provideMerge(Layer.mergeAll(endpointMap, hub, resolver)),
+      ),
+      scope,
+    );
+    const gateway = Context.get(context, CodexGateway);
+    const request = yield* gateway
+      .requestLocal("account/read", {})
+      .pipe(Effect.result, Effect.forkScoped);
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust("1 second");
+    const result = yield* Fiber.join(request);
+    assert.isTrue(Result.isFailure(result));
+    if (Result.isFailure(result)) assert.strictEqual(result.failure.reason, "timeout");
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
