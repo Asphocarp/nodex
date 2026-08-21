@@ -9,6 +9,8 @@ import { appScope, useScopeHandle } from "@/lib/maitai";
 import { NodexModalHost } from "@/lib/modal-registry";
 import { registerPageCreateTarget, type PageCreateTarget } from "@/lib/page-create-target-registry";
 import { requestPageCreate } from "@/lib/page-create-workflow";
+import { BOARD_PRIORITY_OPTIONS } from "@/lib/board-options";
+import { estimateStyles } from "@/lib/types";
 import { __resetNodexToastStoreForTests, NodexToastProvider } from "@/components/ui/toast";
 import { renderWithMaitai } from "@/test/dom";
 
@@ -23,19 +25,28 @@ const editorState = vi.hoisted(() => ({
 }));
 const optionRuntime = vi.hoisted(() => ({ readWindow: vi.fn() }));
 
-const property = (propertyId: "priority" | "estimate"): DataSourcePropertyRecordV2 => ({
-  propertyId: parseDataSourcePropertyId(propertyId),
-  dataSourceId: parseDataSourceId("source-test"),
-  name: propertyId,
-  ...testPropertySemantics("select", 5),
-  valueType: "select",
-  config: {},
-  rankKey: propertyId,
-  lifecycle: "active",
-  revision: 1,
-  createdAt: "2026-08-08T00:00:00.000Z",
-  updatedAt: "2026-08-08T00:00:00.000Z",
-});
+const property = (propertyId: "priority" | "estimate"): DataSourcePropertyRecordV2 => {
+  const options =
+    propertyId === "priority"
+      ? BOARD_PRIORITY_OPTIONS.map(({ label, value }) => ({ id: value, name: label }))
+      : (["xs", "s", "m", "l", "xl"] as const).map((id) => ({
+          id,
+          name: estimateStyles[id].label,
+        }));
+  return {
+    propertyId: parseDataSourcePropertyId(propertyId),
+    dataSourceId: parseDataSourceId("source-test"),
+    name: propertyId,
+    ...testPropertySemantics("select", options.length),
+    valueType: "select",
+    config: { options },
+    rankKey: propertyId,
+    lifecycle: "active",
+    revision: 1,
+    createdAt: "2026-08-08T00:00:00.000Z",
+    updatedAt: "2026-08-08T00:00:00.000Z",
+  };
+};
 
 vi.mock("@/lib/board-page-create-command", () => ({
   createBoardPage: (...args: unknown[]) => commandState.create(...args),
@@ -546,6 +557,7 @@ describe("PageCreateDialog", () => {
         pointerType: "mouse",
       });
       fireEvent.click(buildOption);
+      await Promise.resolve();
     });
 
     expect(view.getByRole("dialog")).toBeTruthy();
