@@ -35,9 +35,7 @@ import type {
 } from "../shared/types";
 import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 import { registerIpcHandlers } from "./ipc-handlers";
-import { GitWorkerHost } from "./git-worker-host";
-import { registerGitWorkerIpc } from "./git-worker-ipc";
-import { CodexWorktreeWorkerHost } from "./worktree-worker/worktree-worker-host";
+import type { GitWorkerHostPort } from "./host-runtime/HostWorkerRuntime";
 import { dbNotifier } from "./local-store/notifier";
 import { startAutomationReminderScheduler } from "./automation-reminder-scheduler";
 import type { ReminderNotificationPayload } from "./reminder-notification";
@@ -84,7 +82,6 @@ import {
 } from "./codex-scheduled-automation-scheduler";
 import { DesktopNotificationManager } from "./desktop-notification-manager";
 import { CodexThreadNotificationCoordinator } from "./codex/codex-thread-notification-coordinator";
-import { CODEX_APP_LOCAL_HOST_ID } from "./codex/codex-app-meta-thread-tools";
 import { composerAppshotService } from "./composer-appshot-service";
 import {
   parsePageDeepLink,
@@ -263,9 +260,6 @@ let appInitializationStepChangedAt = performance.now();
 let appInitializationPromise: Promise<void> = Promise.resolve();
 const rendererInitializationReports = new Set<number>();
 let appUpdateService: AppUpdateService | null = null;
-let gitWorkerHost: GitWorkerHost | null = null;
-let worktreeWorkerHost: CodexWorktreeWorkerHost | null = null;
-let disposeGitWorkerIpc: (() => void) | null = null;
 let browserUseSessionRegistry: BrowserUseSessionRegistry | null = null;
 let disposeBrowserUseSessionRegistryBridge: (() => void) | null = null;
 let scheduledAutomationScheduler: CodexScheduledAutomationScheduler | null = null;
@@ -2065,6 +2059,7 @@ function startRuntimeScheduledAutomationScheduler(): void {
 
 export interface MainRuntimeStartupContext {
   dataAuthority: Promise<DesktopDataAuthorityRuntime>;
+  gitWorkerHost: GitWorkerHostPort;
   initialArgv: string[];
   manageElectronLifecycle?: boolean;
   requestShutdown?: () => Promise<void>;
@@ -2255,24 +2250,6 @@ function shutdownMainRuntime(): Promise<void> {
         await browserUseSessionRegistry?.dispose();
         browserUseSessionRegistry = null;
         desktopTools.setAvailableBackendsResolver(() => []);
-      },
-      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    );
-    await settleRuntimeShutdownStep(
-      "Git worker",
-      async () => {
-        disposeGitWorkerIpc?.();
-        disposeGitWorkerIpc = null;
-        await gitWorkerHost?.shutdown();
-        gitWorkerHost = null;
-      },
-      RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
-    );
-    await settleRuntimeShutdownStep(
-      "Worktree worker",
-      async () => {
-        await worktreeWorkerHost?.shutdown();
-        worktreeWorkerHost = null;
       },
       RUNTIME_SHUTDOWN_STEP_TIMEOUT_MS,
     );
@@ -2723,42 +2700,6 @@ export async function runMainAppStartup(
   configureApplicationMenus();
   registerInitializationIpcHandlers();
   registerProjectionStreamIpcHandlers();
-  gitWorkerHost = new GitWorkerHost({
-    workerPath: join(__dirname, "git-worker.js"),
-    onInfrastructureError: (error, context) => {
-      logger.error("Git worker infrastructure failed", {
-        epoch: context.epoch,
-        error: error.message,
-        phase: context.phase,
-      });
-      captureMainException(error, {
-        tags: {
-          component: "git-worker",
-          phase: context.phase,
-        },
-        extra: {
-          epoch: context.epoch,
-        },
-      });
-    },
-    onPerformanceOperation: (metric) => {
-      logger.debug("Git worker operation", metric);
-    },
-  });
-  disposeGitWorkerIpc = registerGitWorkerIpc(gitWorkerHost);
-  worktreeWorkerHost = new CodexWorktreeWorkerHost({
-    hostId: CODEX_APP_LOCAL_HOST_ID,
-    workerPath: join(__dirname, "worktree-worker.js"),
-    onInfrastructureError: (error) => {
-      logger.error("Worktree worker infrastructure failed", {
-        error: error.message,
-      });
-      captureMainException(error, {
-        tags: { component: "worktree-worker" },
-      });
-    },
-  });
-  codexService.setWorktreeWorkerPort(CODEX_APP_LOCAL_HOST_ID, worktreeWorkerHost);
   await codexService.reconcileCodexExecutionHosts().catch((error) => {
     logger.warn("Some configured SSH execution hosts are unavailable", {
       error: error instanceof Error ? error.message : String(error),
@@ -2818,7 +2759,7 @@ export async function runMainAppStartup(
   );
   registerIpcHandlers({
     automationModule,
-    gitWorkerHost,
+    gitWorkerHost: context.gitWorkerHost,
     storeAdministration,
     onBackupSettingsChanged: configureRuntimeBackupScheduler,
     onStoreRestored,

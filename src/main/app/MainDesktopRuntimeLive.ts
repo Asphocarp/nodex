@@ -70,6 +70,7 @@ import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as CodexApplicationIpc from "../ipc/handlers/CodexApplicationIpc";
 import * as ComputerUseSettingsIpc from "../ipc/handlers/ComputerUseSettingsIpc";
+import * as GitWorkerIpc from "../ipc/handlers/GitWorkerIpc";
 import * as TerminalIpc from "../ipc/handlers/TerminalIpc";
 import {
   ComputerUseRuntime,
@@ -89,6 +90,10 @@ import {
   ComputerUseSettingsRuntime,
   live as computerUseSettingsRuntimeLive,
 } from "../host-runtime/ComputerUseSettingsRuntime";
+import {
+  HostWorkerRuntime,
+  live as hostWorkerRuntimeLive,
+} from "../host-runtime/HostWorkerRuntime";
 import { BrowserSidebarService } from "../browser-sidebar-service";
 import {
   activateMainServiceComposition,
@@ -322,6 +327,26 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
+        const hostWorkerContext = yield* Layer.buildWithScope(
+          hostWorkerRuntimeLive({
+            gitWorkerPath: `${__dirname}/git-worker.js`,
+            worktreeWorkerPath: `${__dirname}/worktree-worker.js`,
+          }),
+          runtimeScope,
+        );
+        const hostWorkers = Context.get(hostWorkerContext, HostWorkerRuntime);
+        yield* Layer.buildWithScope(
+          GitWorkerIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(HostWorkerRuntime, hostWorkers),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
         const providerCredentialsContext = yield* Layer.buildWithScope(
           ProviderCredentials.fromStore(providerCredentialStore),
           runtimeScope,
@@ -468,6 +493,7 @@ export const live: Layer.Layer<
               codexClient: codexBridge,
               codexRuntime,
               runtimeStateHome,
+              worktreeWorkerPort: hostWorkers.worktree,
               terminalRuntime: {
                 getSessionSnapshot: (sessionId) =>
                   callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),
@@ -619,6 +645,7 @@ export const live: Layer.Layer<
             try: () =>
               module.runMainAppStartup({
                 dataAuthority: Promise.resolve(dataAuthority),
+                gitWorkerHost: hostWorkers.git,
                 initialArgv: [...config.argv],
                 manageElectronLifecycle: false,
                 startupEvents: [],

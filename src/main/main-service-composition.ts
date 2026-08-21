@@ -9,6 +9,7 @@ import type { CodexPreferences } from "./codex-application/CodexPreferences";
 import type { CodexAttachments } from "./codex-application/CodexAttachments";
 import type { ServerRequestResponsesPromiseAdapter } from "./codex-application/ServerRequestResponsesPromiseAdapter";
 import type { RemoteHostedPipRuntimeAdapter } from "./host-runtime/RemoteHostedPipRuntime";
+import type { CodexWorktreeWorkerPort } from "./codex/codex-worktree-worker-port";
 
 export interface MainServiceComposition {
   readonly browserSidebarService: BrowserSidebarService;
@@ -22,6 +23,7 @@ export interface MainServiceCompositionInput {
   readonly browserSidebarService: BrowserSidebarService;
   readonly terminalRuntime: CodexTerminalRuntimePort;
   readonly runtimeStateHome: string;
+  readonly worktreeWorkerPort: CodexWorktreeWorkerPort;
   readonly composerCatalog: ComposerCatalogPromiseAdapter;
   readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   readonly preferences: Pick<CodexPreferences["Service"], "current">;
@@ -44,6 +46,7 @@ export function createMainServiceComposition(
     agentProviderRuntime: input.agentProviderRuntime,
     terminalRuntime: input.terminalRuntime,
     runtimeStateHome: input.runtimeStateHome,
+    worktreeWorkerPort: input.worktreeWorkerPort,
     composerCatalog: input.composerCatalog,
     desktopTools: input.desktopTools,
     preferences: input.preferences,
