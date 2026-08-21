@@ -129,7 +129,6 @@ const effectControlPlaneFiles = [
   "src/main/core-runtime/**/*.{ts,tsx}",
   "src/main/codex-runtime/**/*.{ts,tsx}",
   "src/main/platform/**/*.{ts,tsx}",
-  "src/main/effect-control-plane/**/*.{ts,tsx}",
   "src/main/main-program*.ts",
   "scripts/codex-probe-session.ts",
 ];

@@ -22,7 +22,7 @@ import {
 } from "../../shared/block-documents/canvas-scene-maintenance";
 import { decodeCanvasSceneSseEvent } from "../../shared/block-documents/canvas-scene-http-contract";
 import { CoreModuleResponseError } from "./core-client";
-import { isRetryableCoreEventStreamError } from "./core-event-stream-supervisor";
+import { isRetryableCoreEventStreamError } from "./core-event-stream-retry";
 import {
   superviseDocumentLiveStream,
   type SupervisedDocumentLiveSubscription,

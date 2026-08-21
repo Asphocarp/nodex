@@ -27,7 +27,7 @@ describe("Effect architecture boundaries", () => {
   });
 
   test("localizes unstable APIs and Effect execution", () => {
-    expect(codes("src/main/effect-control-plane/session.ts", "unstable-import.ts")).toEqual([
+    expect(codes("src/main/codex-runtime/session.ts", "unstable-import.ts")).toEqual([
       "unstable-outside-adapter",
     ]);
     expect(codes("src/main/core-client/supervisor.ts", "run-promise.ts")).toEqual([
@@ -41,7 +41,6 @@ describe("Effect architecture boundaries", () => {
       [],
     );
     expect(codes("src/main/app/MainEntry.ts", "run-promise.ts")).toEqual([]);
-    expect(codes("src/main/effect-control-plane/runtime.ts", "run-promise.ts")).toEqual([]);
     expect(codes("scripts/dev-launcher.ts", "run-promise.ts")).toEqual([]);
     expect(codes("src/main/app/MainEntry.test.ts", "run-promise.ts")).toEqual([]);
   });

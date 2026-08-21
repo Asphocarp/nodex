@@ -60,7 +60,7 @@ import type {
 } from "../../shared/block-documents/document-sync";
 import { CoreModuleResponseError } from "./core-client";
 import { applyResultCursor, applyResultStoreEpoch, rendererLocalCommitApply } from "./types";
-import { isRetryableCoreEventStreamError } from "./core-event-stream-supervisor";
+import { isRetryableCoreEventStreamError } from "./core-event-stream-retry";
 import {
   superviseDocumentLiveStream,
   type SupervisedDocumentLiveSubscription,

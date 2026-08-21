@@ -55,11 +55,7 @@ function isEffectAdapter(path: string): boolean {
 
 function isEffectRuntimeBoundary(path: string): boolean {
   if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)) return true;
-  return (
-    path === "src/main/app/MainEntry.ts" ||
-    path === "src/main/effect-control-plane/runtime.ts" ||
-    path === "scripts/dev-launcher.ts"
-  );
+  return path === "src/main/app/MainEntry.ts" || path === "scripts/dev-launcher.ts";
 }
 
 function effectNamespaceFromImport(declaration: ImportDeclaration): string[] {
