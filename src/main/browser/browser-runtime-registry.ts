@@ -280,6 +280,15 @@ export class BrowserRuntimeRegistry {
     }
   }
 
+  clear(): void {
+    this.rendererSessions.clear();
+    this.rendererInstanceIdByOwner.clear();
+    this.hosts.clear();
+    this.hostKeyByStorageId.clear();
+    this.pendingAttachments.clear();
+    this.guestOwnership.clear();
+  }
+
   getDiagnosticSnapshot(): {
     guests: number;
     hosts: number;

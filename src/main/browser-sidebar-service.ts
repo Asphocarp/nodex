@@ -469,14 +469,6 @@ export class BrowserSidebarService extends EventEmitter {
     this.resolveProjectIdForSession = deps.resolveProjectIdForSession ?? null;
   }
 
-  setPageStore(pageStore: BrowserPageSnapshotStore): void {
-    this.pageStore = pageStore;
-  }
-
-  setHistoryStore(historyStore: BrowserHistoryStore): void {
-    this.historyStore = historyStore;
-  }
-
   setDownloadService(service: Pick<BrowserDownloadService, "clearHistory"> | null): void {
     this.downloadService = service;
   }
@@ -487,6 +479,36 @@ export class BrowserSidebarService extends EventEmitter {
 
   setBrowserUseRouteCaptureHandler(handler: BrowserUseRouteCaptureHandler | null): void {
     this.browserUseRouteCaptureHandler = handler;
+  }
+
+  dispose(): void {
+    for (const dispose of this.webContentsDisposers.values()) dispose();
+    this.webContentsDisposers.clear();
+    this.runtimeRegistry.clear();
+    this.tabs.clear();
+    this.webContentsTabIds.clear();
+    this.attachedWebviewOwnership.clear();
+    this.activeImageDragsByOwnerWebContentsId.clear();
+    this.preparedPagesByStorageId.clear();
+    this.earlyPageRestoresByGuest.clear();
+    this.pendingTeardowns.clear();
+    this.localServersByProject.clear();
+    this.browserUseTabs.clear();
+    this.deviceToolbarStates.clear();
+    this.themeVariantsByViewScope.clear();
+    this.transferredBrowserTabIdsByConversationScope.clear();
+    this.browserUseViewportSizes.clear();
+    this.browserUseCaptureSurfaces.clear();
+    this.browserUseActiveTabIdsByConversationScope.clear();
+    this.browserUseCapturedRoutesByViewScope.clear();
+    this.pendingBrowserUsePresentations.clear();
+    this.browserUseCursors.clear();
+    this.invalidatedPageStorageIds.clear();
+    this.browserUseRouteCaptureHandler = null;
+    this.downloadService = null;
+    this.siteStatusPolicy = null;
+    this.resolveProjectIdForSession = null;
+    this.removeAllListeners();
   }
 
   async promoteBrowserUseRoute(input: {

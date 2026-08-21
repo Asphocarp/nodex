@@ -103,7 +103,10 @@ import {
   BrowserProfileRuntime,
   live as browserProfileRuntimeLive,
 } from "../host-runtime/BrowserProfileRuntime";
-import { BrowserSidebarService } from "../browser-sidebar-service";
+import {
+  BrowserSidebarRuntime,
+  live as browserSidebarRuntimeLive,
+} from "../host-runtime/BrowserSidebarRuntime";
 import {
   activateMainServiceComposition,
   createMainServiceComposition,
@@ -250,7 +253,14 @@ export const live: Layer.Layer<
         ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
         const codexGateway = Context.get(codexContext, CodexGateway);
         const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
-        const browserSidebarService = new BrowserSidebarService();
+        const browserSidebarContext = yield* Layer.buildWithScope(
+          browserSidebarRuntimeLive(userDataPath),
+          runtimeScope,
+        );
+        const browserSidebarService = Context.get(
+          browserSidebarContext,
+          BrowserSidebarRuntime,
+        ).browser;
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
             browserSidebarService,

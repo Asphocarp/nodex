@@ -37,8 +37,6 @@ import { dbNotifier } from "./local-store/notifier";
 import { startAutomationReminderScheduler } from "./automation-reminder-scheduler";
 import type { ReminderNotificationPayload } from "./reminder-notification";
 import { getMainServiceComposition } from "./main-service-composition";
-import { FileBrowserPageSnapshotStore } from "./browser/browser-page-store";
-import { FileBrowserHistoryStore } from "./browser/browser-history-store";
 import type { BrowserAuthorizedAttachment } from "./browser/browser-runtime-registry";
 import { McpAppSandboxHost } from "./mcp-app/mcp-app-sandbox-host";
 import {
@@ -2334,16 +2332,6 @@ export async function runMainAppStartup(
     app.dock?.setIcon(appDockIcon);
   }
   windowSessionState = new WindowSessionState(app.getPath("userData"));
-  browserSidebarService.setPageStore(
-    new FileBrowserPageSnapshotStore({
-      filePath: join(app.getPath("userData"), "browser-sidebar-page-states.json"),
-    }),
-  );
-  browserSidebarService.setHistoryStore(
-    new FileBrowserHistoryStore({
-      filePath: join(app.getPath("userData"), "browser-history.json"),
-    }),
-  );
   const packagedMacAppUpdater = (() => {
     if (!app.isPackaged || process.platform !== "darwin") return null;
     if (process.arch !== "arm64" && process.arch !== "x64") return null;
