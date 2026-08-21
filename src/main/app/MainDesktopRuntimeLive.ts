@@ -905,7 +905,6 @@ export const live: Layer.Layer<
                 initialArgv: [...config.argv],
                 rendererClientRouter: rendererClients.router,
                 windowRuntime: windows,
-                manageElectronLifecycle: false,
                 startupEvents: [],
                 storeAdministration,
                 startCoreEvents,

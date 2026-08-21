@@ -1776,8 +1776,6 @@ export interface MainRuntimeStartupContext {
   initialArgv: string[];
   rendererClientRouter: RendererClientRouter;
   windowRuntime: WindowRuntimeService;
-  manageElectronLifecycle?: boolean;
-  requestShutdown?: () => Promise<void>;
   startupEvents?: BootstrapRuntimeEvent[];
   storeAdministration: DesktopStoreAdministrationPort;
   startCoreEvents: (input: {
@@ -1814,12 +1812,8 @@ export interface MainRuntimeController {
   shutdown(): Promise<void>;
 }
 
-let runtimeLifecycleHandlersRegistered = false;
 let runtimeShutdownStarted = false;
-let runtimeShutdownCompleted = false;
 let runtimeShutdownPromise: Promise<void> | null = null;
-let runtimeQuitContinuationStarted = false;
-let requestRuntimeShutdown: () => Promise<void> = shutdownMainRuntime;
 function handleSecondInstanceArgv(argv: string[]): boolean {
   const handledDeepLink = Boolean(extractDeepLinkFromArgv(argv));
   if (handledDeepLink) {
@@ -1876,9 +1870,7 @@ function shutdownMainRuntime(): Promise<void> {
     return runtimeShutdownPromise;
   }
 
-  runtimeShutdownPromise = Promise.resolve().then(() => {
-    runtimeShutdownCompleted = true;
-  });
+  runtimeShutdownPromise = Promise.resolve();
   return runtimeShutdownPromise;
 }
 
@@ -1894,61 +1886,6 @@ export function shutdownFailedMainAppStartup(): Promise<void> {
   return shutdownMainRuntime();
 }
 
-function registerRuntimeLifecycleHandlers(requestShutdown?: () => Promise<void>): void {
-  requestRuntimeShutdown = requestShutdown ?? shutdownMainRuntime;
-  if (runtimeLifecycleHandlersRegistered) return;
-  runtimeLifecycleHandlersRegistered = true;
-
-  app.on("before-quit", (event) => {
-    if (runtimeShutdownCompleted) return;
-    event.preventDefault();
-    if (runtimeQuitContinuationStarted) return;
-    runtimeQuitContinuationStarted = true;
-    appQuitRequested = true;
-    rendererHostReadyForWindows = false;
-    void closeWindowsBeforeRuntimeShutdown(BrowserWindow.getAllWindows())
-      .then(() => requestRuntimeShutdown())
-      .catch((error: unknown) => {
-        logger.error("Runtime quit coordination failed", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-        captureMainException(error, {
-          tags: { phase: "runtime-shutdown", component: "quit-coordinator" },
-        });
-      })
-      .finally(() => {
-        runtimeShutdownCompleted = true;
-        app.quit();
-      });
-  });
-
-  app.on("will-quit", (event) => {
-    if (runtimeShutdownCompleted) return;
-    event.preventDefault();
-  });
-
-  app.on("window-all-closed", () => {
-    logger.info("All windows closed");
-    if (process.platform !== "darwin") {
-      app.quit();
-    }
-  });
-
-  process.on("uncaughtException", (error) => {
-    logger.error("Uncaught exception in main process", { error });
-    captureMainException(error, {
-      tags: { phase: "runtime", kind: "uncaughtException" },
-    });
-  });
-
-  process.on("unhandledRejection", (reason) => {
-    logger.error("Unhandled promise rejection in main process", { reason });
-    captureMainException(reason, {
-      tags: { phase: "runtime", kind: "unhandledRejection" },
-    });
-  });
-}
-
 export async function runMainAppStartup(
   context: MainRuntimeStartupContext,
 ): Promise<MainRuntimeController> {
@@ -1956,9 +1893,6 @@ export async function runMainAppStartup(
   desktopNotificationManager = context.desktopNotificationManager;
   rendererClientRouter = context.rendererClientRouter;
   windowRuntime = context.windowRuntime;
-  if (context.manageElectronLifecycle !== false) {
-    registerRuntimeLifecycleHandlers(context.requestShutdown);
-  }
   const startupSecondInstancesWithoutDeepLinks = collectStartupDeepLinks(context);
 
   logger.info("Nodex main process starting", {
