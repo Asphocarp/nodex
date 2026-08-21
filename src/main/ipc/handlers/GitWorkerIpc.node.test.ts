@@ -43,6 +43,7 @@ it.effect("registers and releases the Git worker renderer ingress with the Main 
             Layer.succeed(
               MainConfig,
               MainConfig.of({
+                assistantStreamingDebug: false,
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],

@@ -4,6 +4,7 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 export const MainConfigValue = Schema.Struct({
+  assistantStreamingDebug: Schema.Boolean,
   appVersion: Schema.String,
   arch: Schema.String,
   argv: Schema.Array(Schema.String),
@@ -43,6 +44,7 @@ export const testLayer = (overrides: Partial<MainConfigValue> = {}): Layer.Layer
   Layer.succeed(
     MainConfig,
     MainConfig.of({
+      assistantStreamingDebug: false,
       appVersion: "0.0.0-test",
       arch: "arm64",
       argv: [],

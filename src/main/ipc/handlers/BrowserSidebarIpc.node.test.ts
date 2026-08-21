@@ -51,6 +51,7 @@ it.effect(
               Layer.succeed(
                 MainConfig,
                 MainConfig.of({
+                  assistantStreamingDebug: false,
                   appVersion: "test",
                   arch: "arm64",
                   argv: [],

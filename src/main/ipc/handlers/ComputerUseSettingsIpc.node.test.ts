@@ -42,6 +42,7 @@ it.effect("registers and releases Computer Use settings channels with the Main S
             Layer.succeed(
               MainConfig,
               MainConfig.of({
+                assistantStreamingDebug: false,
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],

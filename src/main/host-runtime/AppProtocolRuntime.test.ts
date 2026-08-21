@@ -41,6 +41,7 @@ it.effect("owns application protocol handlers with the Main Scope", () =>
             Layer.succeed(
               MainConfig,
               MainConfig.of({
+                assistantStreamingDebug: false,
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],

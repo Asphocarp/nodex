@@ -38,6 +38,7 @@ it.effect("registers and releases the Remote Hosted PiP ingress with the Main Sc
             Layer.succeed(
               MainConfig,
               MainConfig.of({
+                assistantStreamingDebug: false,
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],

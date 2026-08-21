@@ -44,6 +44,7 @@ it.effect("registers and releases app update ingress with the Main Scope", () =>
             Layer.succeed(
               MainConfig,
               MainConfig.of({
+                assistantStreamingDebug: false,
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],

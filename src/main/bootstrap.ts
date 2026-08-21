@@ -201,6 +201,7 @@ async function handleStartupFailure(error: unknown): Promise<void> {
 function launchMainApplication(): void {
   const startupEvents = runtimeQueue.takePendingEvents();
   const foundation = MainFoundationLive.make({
+    assistantStreamingDebug: process.env.NODEX_ASSISTANT_STREAMING_DEBUG === "1",
     appVersion: app.getVersion(),
     arch: process.arch,
     argv: [...process.argv],

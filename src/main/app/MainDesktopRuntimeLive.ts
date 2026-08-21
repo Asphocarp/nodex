@@ -93,6 +93,7 @@ import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
 import * as ApplicationLifecycleIpc from "../ipc/handlers/ApplicationLifecycleIpc";
+import * as ApplicationLocalStateIpc from "../ipc/handlers/ApplicationLocalStateIpc";
 import * as ApplicationSettingsIpc from "../ipc/handlers/ApplicationSettingsIpc";
 import * as ApplicationSyncIpc from "../ipc/handlers/ApplicationSyncIpc";
 import * as ApplicationWindowIpc from "../ipc/handlers/ApplicationWindowIpc";
@@ -1124,6 +1125,18 @@ export const live: Layer.Layer<
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(HostWorkerRuntime, hostWorkers),
+                Layer.succeed(MainConfig, config),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
+          runtimeScope,
+        );
+        yield* Layer.buildWithScope(
+          ApplicationLocalStateIpc.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(WindowRuntime, windows),
               ),

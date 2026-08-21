@@ -173,6 +173,7 @@ it.effect("registers application channels directly against their owning modules"
             Layer.succeed(
               MainConfig,
               MainConfig.of({
+                assistantStreamingDebug: false,
                 appVersion: "test",
                 arch: "arm64",
                 argv: [],

@@ -7,7 +7,6 @@ import {
   type IpcMainInvokeEvent,
   type OpenDialogOptions,
 } from "electron";
-import { registerPersistedAtomIpc } from "./persisted-atom-ipc";
 import type { CodexService } from "./codex/codex-service";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
@@ -41,7 +40,6 @@ import type {
 import { isWorkspaceFileUserError } from "./workspace-files-service";
 import { requireTrustedAppRendererSender as requireTrustedAppRendererSenderWithOrigin } from "./platform/electron/TrustedRendererSender";
 import { captureMainException } from "./observability/sentry-main";
-import { getLogger } from "./logging/logger";
 import type { IpcApi } from "../shared/ipc-api";
 import { runWithTerminalProjectAdmission } from "./project-lifecycle-service";
 import type { DesktopProjectWorkspacePort } from "./core-client/project-workspace-adapter";
@@ -54,7 +52,6 @@ import type {
   CodexThreadStartForSessionInput,
   CodexTurnStartOptions,
 } from "../shared/types";
-import { safeBroadcastToWindows } from "./ipc-safe-send";
 import {
   approximateJsonPayloadBytes,
   getDevRuntimeMetricDurationMs,
@@ -68,10 +65,6 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   ...args: IpcApi[Channel]["args"]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
-const rendererDiagnosticsLogger = getLogger({
-  subsystem: "renderer",
-  component: "diagnostics",
-});
 function requireNonBlankStringArray(value: unknown, label: string): string[] {
   if (
     !Array.isArray(value) ||
@@ -189,28 +182,6 @@ export function registerIpcHandlers(options: RegisterIpcHandlersOptions): void {
   const resolveRendererClientId = (event: IpcMainInvokeEvent): string | null =>
     options.rendererClientRouter?.ensureClient(event.sender as RendererClientWebContents)
       .clientId ?? null;
-
-  registerHandle("diagnostics:renderer-log", (_, input) => {
-    if (process.env.NODEX_ASSISTANT_STREAMING_DEBUG !== "1") {
-      return;
-    }
-    rendererDiagnosticsLogger.info(input.message, input.fields);
-  });
-  registerPersistedAtomIpc({
-    registerSync: (listener) => {
-      registerHandle("persisted-atom:sync-request", listener);
-    },
-    registerMutation: (listener) => {
-      registerHandle("persisted-atom:update", (event, mutation) =>
-        listener(String(event.sender.id), mutation),
-      );
-    },
-    broadcast: (persistedEvent) => {
-      safeBroadcastToWindows(BrowserWindow.getAllWindows(), "persisted-atom:updated", [
-        persistedEvent,
-      ]);
-    },
-  });
 
   // Codex
   registerHandle(
