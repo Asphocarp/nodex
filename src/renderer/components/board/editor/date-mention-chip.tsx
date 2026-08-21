@@ -66,13 +66,14 @@ let dateMentionCalendarPromise:
   | Promise<typeof import("./date-mention-calendar")>
   | undefined;
 
-const loadDateMentionCalendar = () => {
+/** Warms the deferred calendar before an interaction that is likely to open it. */
+export const preloadDateMentionCalendar = () => {
   dateMentionCalendarPromise ??= import("./date-mention-calendar");
   return dateMentionCalendarPromise;
 };
 
 const LazyDateMentionCalendar = lazy(async () => ({
-  default: (await loadDateMentionCalendar()).DateMentionCalendar,
+  default: (await preloadDateMentionCalendar()).DateMentionCalendar,
 }));
 
 const DATE_FORMAT_OPTIONS: NodexOptionPickerOption[] = NFM_DATE_MENTION_DATE_FORMATS.map((format) => ({
@@ -553,10 +554,10 @@ export function DateMentionInlineContentView({
                 event.preventDefault();
               }}
               onPointerEnter={() => {
-                void loadDateMentionCalendar();
+                void preloadDateMentionCalendar();
               }}
               onFocus={() => {
-                void loadDateMentionCalendar();
+                void preloadDateMentionCalendar();
               }}
               onClick={(event) => {
                 event.preventDefault();

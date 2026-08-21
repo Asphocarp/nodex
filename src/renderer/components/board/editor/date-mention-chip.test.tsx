@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 import { act, fireEvent } from "@testing-library/react";
 import { render, settleAsyncRender } from "@/test/dom";
 import { NodexTooltipProvider } from "@/components/ui/tooltip";
@@ -8,6 +8,7 @@ import {
 } from "@/lib/nfm/date-mention-clock";
 import {
   DateMentionInlineContentView,
+  preloadDateMentionCalendar,
 } from "./date-mention-chip";
 import {
   dateMentionPayloadToProps,
@@ -15,7 +16,18 @@ import {
   type DateMentionProps,
 } from "./date-mention-inline-content";
 
+vi.mock("./date-mention-calendar", async () => {
+  const { DateMentionCalendarTestSurface } = await import(
+    "./testkit/date-mention-calendar-test-surface"
+  );
+  return { DateMentionCalendar: DateMentionCalendarTestSurface };
+});
+
 let restoreDateMentionClockStore: (() => void) | null = null;
+
+beforeAll(async () => {
+  await act(preloadDateMentionCalendar);
+});
 
 afterEach(() => {
   restoreDateMentionClockStore?.();

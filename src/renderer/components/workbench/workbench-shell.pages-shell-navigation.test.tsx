@@ -4,7 +4,7 @@ import { settleAsyncRender, textContent } from "../../test/dom";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { splitWorkbenchPanelLeaf } from "../../../shared/workbench-panel-layout";
 import { makeAttachedSession, makeBlankSession, makePanelLayout, makePanels, makeProject, makeSession, makeSessionTab } from "./workbench-testkit/workbench-shell-fixtures";
-import { TITLEBAR_NEW_CHAT_ICON_PREFIX, executeCommandPaletteCommand, getHeaderShellSlot, getLastTerminalPanelProps, getThreadRow, installReducedMotionMatchMediaForTest, invokeCalls, moveSidebarPointer, pointerActivate, pointerDownAndSettle, renderWorkbench, startThreadForSessionCalls, setInvokeCalls } from "./workbench-testkit/workbench-shell-harness";
+import { TITLEBAR_NEW_CHAT_ICON_PREFIX, executeCommandPaletteCommand, getHeaderShellSlot, getLastTerminalPanelProps, getThreadRow, installMotionEnabledMatchMediaForTest, installReducedMotionMatchMediaForTest, invokeCalls, moveSidebarPointer, pointerActivate, pointerDownAndSettle, renderWorkbench, startThreadForSessionCalls, setInvokeCalls } from "./workbench-testkit/workbench-shell-harness";
 
 describe("workbench session shell / pages-shell-navigation", () => {
   test("projects migrate retired Calendar tabs to the durable View's Board layout", async () => {
@@ -1625,23 +1625,28 @@ describe("workbench session shell / pages-shell-navigation", () => {
   });
 
   test("clicking Hide sidebar suppresses immediate edge auto-reveal", async () => {
-    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
-    await settleAsyncRender();
-    await settleAsyncRender();
+    const restoreMatchMedia = installMotionEnabledMatchMediaForTest();
+    try {
+      const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
+      await settleAsyncRender();
+      await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
+      expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Hide sidebar" }));
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
 
-    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
-    await moveSidebarPointer(12);
+      expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+      await moveSidebarPointer(12);
 
-    expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-sidebar-hover-trigger="true"]')).toBe(null);
-    expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(null);
+      expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBe(true);
+      expect(screen.container.querySelector('[data-sidebar-hover-trigger="true"]')).toBe(null);
+      expect(screen.container.querySelector('[data-testid="app-shell-floating-left-panel"]')).toBe(null);
+    } finally {
+      restoreMatchMedia();
+    }
   });
 
   test("clicking Show sidebar mounts the real sidebar in the first settled render", async () => {
@@ -1661,24 +1666,29 @@ describe("workbench session shell / pages-shell-navigation", () => {
   });
 
   test("registered menu and command palette sidebar toggles use the same sidebar motion action", async () => {
-    const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
-    await settleAsyncRender();
-    await settleAsyncRender();
+    const restoreMatchMedia = installMotionEnabledMatchMediaForTest();
+    try {
+      const screen = renderWorkbench({ sidebar: { collapsed: false, width: 300 } });
+      await settleAsyncRender();
+      await settleAsyncRender();
 
-    await act(async () => {
-      screen.requestSidebarToggle("menu");
-      await Promise.resolve();
-    });
-    await settleAsyncRender();
+      await act(async () => {
+        screen.requestSidebarToggle("menu");
+        await Promise.resolve();
+      });
+      await settleAsyncRender();
 
-    expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
-    expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
+      expect(screen.getByRole("button", { name: "Show sidebar" }) !== null).toBe(true);
+      expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+      expect(screen.container.querySelector('[data-testid="floating-project-session-sidebar-shell"]')).toBe(null);
 
-    await executeCommandPaletteCommand(screen, "toggle sidebar", "Toggle sidebar");
+      await executeCommandPaletteCommand(screen, "toggle sidebar", "Toggle sidebar");
 
-    expect(screen.getByRole("button", { name: "Hide sidebar" }) !== null).toBe(true);
-    expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+      expect(screen.getByRole("button", { name: "Hide sidebar" }) !== null).toBe(true);
+      expect(screen.container.querySelector('[data-testid="project-session-sidebar"]') !== null).toBe(true);
+    } finally {
+      restoreMatchMedia();
+    }
   });
 
   test("left sidebar resize clamps at Codex minimum before the collapse threshold", async () => {

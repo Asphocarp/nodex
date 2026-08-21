@@ -2035,13 +2035,15 @@ export function appendMockNfmEditor(container: HTMLElement): { root: HTMLElement
   return { root, content };
 }
 
-export function installReducedMotionMatchMediaForTest() {
+function installMotionPreferenceMatchMediaForTest(reducedMotion: boolean) {
   const originalMatchMedia = window.matchMedia;
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: (query: string) => ({
-      matches: query === "(prefers-reduced-motion)"
-        || query === "(prefers-reduced-motion: reduce)",
+      matches: reducedMotion && (
+        query === "(prefers-reduced-motion)"
+        || query === "(prefers-reduced-motion: reduce)"
+      ),
       media: query,
       onchange: null,
       addEventListener: () => {},
@@ -2061,6 +2063,16 @@ export function installReducedMotionMatchMediaForTest() {
     initPrefersReducedMotion();
   };
 }
+
+export function installReducedMotionMatchMediaForTest() {
+  return installMotionPreferenceMatchMediaForTest(true);
+}
+
+export function installMotionEnabledMatchMediaForTest() {
+  return installMotionPreferenceMatchMediaForTest(false);
+}
+
+let restoreDefaultReducedMotion: (() => void) | null = null;
 
 export function renderWorkbench({
   projects = [makeProject()],
@@ -3604,6 +3616,10 @@ export function installTerminalEventApiMock(): TerminalEventListenerMap {
 }
 
 beforeEach(() => {
+  restoreDefaultReducedMotion?.();
+  // Shell behavior tests assert settled product state. Avoid keeping Motion's
+  // exit trees and timers alive unless a test explicitly owns that contract.
+  restoreDefaultReducedMotion = installReducedMotionMatchMediaForTest();
   terminalSessionStore.disposeEventSubscriptions();
   resetDatabaseRowDetailStoreForTests();
   resetPageDetailStoreForTests();
@@ -3676,6 +3692,8 @@ beforeEach(() => {
 
 afterEach(() => {
   terminalSessionStore.disposeEventSubscriptions();
+  restoreDefaultReducedMotion?.();
+  restoreDefaultReducedMotion = null;
 });
 
 export async function openBottomPanel(screen: ReturnType<typeof renderWorkbench>): Promise<void> {

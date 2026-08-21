@@ -31,13 +31,14 @@ let dateCalendarPromise:
   | Promise<typeof import("@/components/ui/date-calendar")>
   | undefined;
 
-const loadDateCalendar = () => {
+/** Warms the deferred calendar before an interaction that is likely to open it. */
+export const preloadDatePropertyCalendar = () => {
   dateCalendarPromise ??= import("@/components/ui/date-calendar");
   return dateCalendarPromise;
 };
 
 const LazyNodexDateCalendar = lazy(async () => ({
-  default: (await loadDateCalendar()).NodexDateCalendar,
+  default: (await preloadDatePropertyCalendar()).NodexDateCalendar,
 }));
 
 const formatListDate = (date: Date): string => {
@@ -224,10 +225,10 @@ export function DatePropertyEditor({
             type="button"
             aria-label={`Edit ${label}`}
             onPointerEnter={() => {
-              void loadDateCalendar();
+              void preloadDatePropertyCalendar();
             }}
             onFocus={() => {
-              void loadDateCalendar();
+              void preloadDatePropertyCalendar();
             }}
             className={cn(
               "inline-flex min-h-6 min-w-0 items-center gap-1.5 rounded-md px-1 text-left outline-hidden",
