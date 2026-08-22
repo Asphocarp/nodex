@@ -151,6 +151,7 @@ import { PersistedAtomStore } from "../local-store/persisted-atoms";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHostRuntime";
 import { makeManagedWorktreeRuntimeTestHarness } from "../codex-application/ManagedWorktreeRuntime.test-support";
+import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { makeProjectRuntimeLifecycleTestHarness } from "../host-runtime/ProjectRuntimeLifecycleRuntime.test-support";
 
 interface TestableCodexService {
@@ -911,6 +912,48 @@ const EMPTY_TEST_BROWSER_TRANSFER_STATE_READER = {
 const MANAGED_WORKTREE_TEST_HARNESS_RELEASES: Array<() => Promise<void>> = [];
 const PROJECT_RUNTIME_TEST_HARNESS_RELEASES: Array<() => Promise<void>> = [];
 
+const makeCodexSidebarSweepTestAdapter = (): CodexSidebarSweepRuntimePromiseAdapter => {
+  let generation = 0;
+  let active: Promise<void> | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const schedule = <State extends { archived: boolean; cursor: string | null; phase: string }>(
+    admittedGeneration: number,
+    state: State,
+    step: (state: State) => Promise<State | null>,
+  ): void => {
+    timer = setTimeout(() => {
+      timer = null;
+      if (admittedGeneration !== generation) return;
+      const running = step(state)
+        .then((nextState) => {
+          if (nextState === null || admittedGeneration !== generation) return;
+          schedule(admittedGeneration, nextState, step);
+        })
+        .catch(() => undefined);
+      active = running;
+      void running.finally(() => {
+        if (active === running) active = null;
+      });
+    }, 0);
+  };
+
+  return {
+    start: async (initialState, step) => {
+      const admittedGeneration = ++generation;
+      schedule(admittedGeneration, initialState, step);
+    },
+    cancel: async () => {
+      generation += 1;
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      await active;
+    },
+  };
+};
+
 const TEST_CODEX_RUNTIME: ResolvedCodexRuntime = {
   source: "staged",
   binaryPath: "/tmp/nodex-test-agent",
@@ -1661,6 +1704,7 @@ function createService(options?: {
       await service.syncSidebarThreadsAfterNotification(minimumSyncGeneration);
     },
   );
+  const sidebarSweep = makeCodexSidebarSweepTestAdapter();
   const rendererOwnerRetention = new TestCodexRendererOwnerRetention({
     retentionMs: Math.max(0, options?.inactiveRendererOwnerRetentionMs ?? 60 * 60 * 1_000),
     maxRetained: Math.max(0, Math.floor(options?.inactiveRendererOwnerMaxRetained ?? 4)),
@@ -1798,6 +1842,7 @@ function createService(options?: {
     ownerNotificationDrainDeadline,
     rendererOwnerRetention,
     sidebarNotificationSync,
+    sidebarSweep,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -2906,9 +2951,8 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
   }
 });
 
-test("does not reconcile an incomplete sidebar sweep and resumes its failed cursor", async () => {
+test("does not reconcile an incomplete sidebar sweep before a fresh replacement", async () => {
   vi.useFakeTimers();
-  const random = vi.spyOn(Math, "random").mockReturnValue(0.5);
   let reconcileCalls = 0;
   const projectWorkspace = {
     ...createTestProjectWorkspace(),
@@ -2942,14 +2986,20 @@ test("does not reconcile an incomplete sidebar sweep and resumes its failed curs
     expect(requests.map((request) => request.cursor)).toEqual([null, "active:page-2"]);
     expect(reconcileCalls).toBe(0);
 
-    await vi.advanceTimersByTimeAsync(2_000);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(requests).toHaveLength(2);
+    expect(reconcileCalls).toBe(0);
+
+    await service.syncSidebarThreadsDetailed({
+      policy: "force",
+      reason: "manual",
+    });
+    expect(requests[2]).toEqual({ cursor: null, archived: false });
     await vi.runAllTimersAsync();
-    expect(requests[2]?.cursor).toBe("active:page-2");
     expect(requests.some((request) => request.archived)).toBe(true);
     expect(reconcileCalls).toBe(1);
   } finally {
     await service.shutdown();
-    random.mockRestore();
     vi.useRealTimers();
   }
 });

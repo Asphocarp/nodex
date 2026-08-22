@@ -88,6 +88,8 @@ import {
   make as makeCodexSidebarNotificationSync,
 } from "../codex-application/CodexSidebarNotificationSync";
 import { makeCodexSidebarNotificationSyncCallbackAdapter } from "../codex-application/CodexSidebarNotificationSyncCallbackAdapter";
+import { make as makeCodexSidebarSweepRuntime } from "../codex-application/CodexSidebarSweepRuntime";
+import { makeCodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
@@ -1217,6 +1219,9 @@ export const live: Layer.Layer<
           yield* makeCodexSidebarNotificationSyncCallbackAdapter(sidebarNotificationSync).pipe(
             Effect.provideService(Scope.Scope, runtimeScope),
           );
+        const sidebarSweep = yield* makeCodexSidebarSweepRuntime().pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1263,6 +1268,7 @@ export const live: Layer.Layer<
               ownerNotificationDrainDeadline: ownerNotificationDrainDeadlineCallbacks,
               rendererOwnerRetention: rendererOwnerRetentionCallbacks,
               sidebarNotificationSync: sidebarNotificationSyncCallbacks,
+              sidebarSweep: makeCodexSidebarSweepRuntimePromiseAdapter(sidebarSweep, callbacks),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,
                 callbacks,

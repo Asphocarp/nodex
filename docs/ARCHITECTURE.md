@@ -463,6 +463,13 @@ after the delay, the Module invokes the existing sidebar synchronization authori
 failure. The debounce and active repair close with Main Scope, while sidebar catalogs, generation
 counters, stale-request waiting, and force-refresh policy remain in their single current owner.
 
+The paginated background sidebar sweep is a separate Main-scoped runtime. It owns the single active
+sweep, cooperative replacement at the current physical page boundary, Effect-clock exponential
+retry with bounded jitter, and hard interruption on Main Scope close. `CodexService` owns only the
+domain step that materializes one app-server page or one reconciliation batch and returns the next
+immutable cursor state. A temporary Promise adapter drains the current non-cancellable page before
+a forced refresh starts, but it owns no timer, retry counter, generation fence, or in-flight queue.
+
 Codex native-notification policy is a pure projection from application events, settings, focus,
 and presentation facts. `CodexThreadNotificationRuntime` directly owns both source-listener
 registrations and notification-action admission in the Main Scope; it does not acquire a class with

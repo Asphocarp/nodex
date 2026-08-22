@@ -205,6 +205,7 @@ import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexP
 import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/AgentProviderRuntimePromiseAdapter";
 import type { ManagedWorktreeRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRuntimePromiseAdapter";
 import type { ManagedWorktreeRetentionRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRetentionRuntimePromiseAdapter";
+import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -829,6 +830,17 @@ interface SidebarThreadSyncMetadata {
   failedThreadIds: Set<string>;
 }
 
+interface CodexSidebarSweepState {
+  readonly phase: "scan" | "reconcile";
+  readonly sweepId: string;
+  readonly cursor: string | null;
+  readonly archived: boolean;
+  readonly includeArchived: boolean;
+  readonly projects: readonly Project[];
+  readonly reason: CodexSidebarRefreshReason;
+  readonly metadata: SidebarThreadSyncMetadata;
+}
+
 interface SidebarThreadMaterializationResult {
   summary: CodexThreadSummary | null;
   projectId: string | null;
@@ -1392,6 +1404,7 @@ type CodexServiceOptions = {
   ownerNotificationDrainDeadline: CodexOwnerNotificationDrainDeadlineLegacyPort;
   rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   sidebarNotificationSync: CodexSidebarNotificationSyncLegacyPort;
+  sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2586,6 +2599,7 @@ export class CodexService extends EventEmitter {
   private readonly ownerNotificationDrainDeadline: CodexOwnerNotificationDrainDeadlineLegacyPort;
   private readonly rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   private readonly sidebarNotificationSync: CodexSidebarNotificationSyncLegacyPort;
+  private readonly sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
   private readonly gitSettingsResolver: () => CodexGitSettings;
@@ -2748,20 +2762,6 @@ export class CodexService extends EventEmitter {
   private sidebarSyncInFlight: Promise<CodexSidebarSyncResult> | null = null;
   private sidebarSyncGeneration = 0;
   private sidebarLastSuccessfulSyncGeneration = 0;
-  private sidebarSweepTimer: ReturnType<typeof setTimeout> | null = null;
-  private sidebarSweepWindowInFlight: Promise<void> | null = null;
-  private sidebarSweepGeneration = 0;
-  private sidebarSweepState: {
-    phase: "scan" | "reconcile";
-    sweepId: string;
-    cursor: string | null;
-    archived: boolean;
-    includeArchived: boolean;
-    projects: readonly Project[];
-    reason: CodexSidebarRefreshReason;
-    metadata: SidebarThreadSyncMetadata;
-    retryAttempt: number;
-  } | null = null;
   private sidebarThreadMoveQueue: Promise<void> = Promise.resolve();
   private sidebarSyncInFlightIncludeArchived: boolean | null = null;
   private sidebarLastSuccessfulRefreshAt = 0;
@@ -2811,6 +2811,7 @@ export class CodexService extends EventEmitter {
     this.ownerNotificationDrainDeadline = options.ownerNotificationDrainDeadline;
     this.rendererOwnerRetention = options.rendererOwnerRetention;
     this.sidebarNotificationSync = options.sidebarNotificationSync;
+    this.sidebarSweep = options.sidebarSweep;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -6926,12 +6927,7 @@ export class CodexService extends EventEmitter {
     this.threadStartNotificationDeferralDepth = 0;
     this.sidebarSyncInFlight = null;
     this.sidebarSyncInFlightIncludeArchived = null;
-    this.sidebarSweepGeneration += 1;
-    this.sidebarSweepState = null;
-    if (this.sidebarSweepTimer !== null) {
-      clearTimeout(this.sidebarSweepTimer);
-      this.sidebarSweepTimer = null;
-    }
+    await this.sidebarSweep.cancel();
     this.sidebarSnapshotCacheByIncludeArchived.clear();
     for (const pending of this.pendingApprovals.values()) {
       pending.reject(new Error("Codex service shutting down"));
@@ -8123,13 +8119,7 @@ export class CodexService extends EventEmitter {
   }): Promise<SidebarThreadSyncMetadata> {
     const startedAt = getDevRuntimeMetricStart();
     await this.ensureClientReady();
-    this.sidebarSweepGeneration += 1;
-    this.sidebarSweepState = null;
-    if (this.sidebarSweepTimer !== null) {
-      clearTimeout(this.sidebarSweepTimer);
-      this.sidebarSweepTimer = null;
-    }
-    await this.sidebarSweepWindowInFlight;
+    await this.sidebarSweep.cancel();
 
     const projects = await this.projectWorkspace.listProjects();
     const metadata = createSidebarThreadSyncMetadata();
@@ -8149,7 +8139,7 @@ export class CodexService extends EventEmitter {
       if (observedThreadIds.length > 0) {
         await this.projectWorkspace.observeAppServerThreadWindow(sweepId, observedThreadIds);
       }
-      this.scheduleSidebarThreadSweep({
+      const continuation: CodexSidebarSweepState = {
         phase: "scan",
         sweepId,
         cursor: response.nextCursor,
@@ -8158,8 +8148,8 @@ export class CodexService extends EventEmitter {
         projects,
         reason: input.reason,
         metadata,
-        retryAttempt: 0,
-      });
+      };
+      await this.sidebarSweep.start(continuation, (state) => this.advanceSidebarThreadSweep(state));
 
       logDevRuntimeMetric("codex.sidebar.refresh_thread_list", {
         outcome: "success",
@@ -8213,127 +8203,48 @@ export class CodexService extends EventEmitter {
     return observedThreadIds;
   }
 
-  private scheduleSidebarThreadSweep(state: NonNullable<CodexService["sidebarSweepState"]>): void {
-    this.sidebarSweepState = state;
-    if (this.sidebarSweepTimer !== null) return;
-    const generation = this.sidebarSweepGeneration;
-    this.sidebarSweepTimer = setTimeout(() => {
-      this.sidebarSweepTimer = null;
-      void this.startSidebarThreadSweepWindow(generation);
-    }, 0);
-  }
-
-  private async startSidebarThreadSweepWindow(generation: number): Promise<void> {
-    const previous = this.sidebarSweepWindowInFlight;
-    if (previous) {
-      await previous;
-      if (generation !== this.sidebarSweepGeneration) return;
-    }
-    const running = this.runSidebarThreadSweepWindow(generation);
-    this.sidebarSweepWindowInFlight = running;
-    try {
-      await running;
-    } finally {
-      if (this.sidebarSweepWindowInFlight === running) {
-        this.sidebarSweepWindowInFlight = null;
-      }
-    }
-  }
-
-  private async runSidebarThreadSweepWindow(generation: number): Promise<void> {
-    if (generation !== this.sidebarSweepGeneration) return;
-    const state = this.sidebarSweepState;
-    if (!state) return;
-    try {
-      if (state.phase === "reconcile") {
-        const reconciled = await this.projectWorkspace.reconcileAppServerThreadSweep(
-          state.sweepId,
-          100,
-        );
-        if (generation !== this.sidebarSweepGeneration) return;
-        for (const projectId of reconciled.projectIds) {
-          markSidebarSyncScopeChanged(state.metadata, projectId);
-        }
-        if (reconciled.threadIds.length > 0) {
-          state.metadata.projectlessChanged = true;
-        }
-        if (reconciled.threadIds.length === 100) {
-          this.scheduleSidebarThreadSweep({
-            ...state,
-            retryAttempt: 0,
-          });
-          return;
-        }
-        this.sidebarSweepState = null;
-        const result = await this.buildWorkspaceSidebarSyncResult({
-          includeArchived: state.includeArchived,
-          source: "app-server",
-          refreshed: true,
-          refreshedAt: Date.now(),
-          metadata: state.metadata,
-        });
-        this.emitSidebarSyncUpdated(result, state.reason);
-        return;
-      }
-
-      const response = await this.requestSidebarThreadList({
-        cursor: state.cursor,
-        archived: state.archived,
-      });
-      if (generation !== this.sidebarSweepGeneration) return;
-      const observedThreadIds = await this.materializeSidebarThreadListWindow(response, state);
-      if (observedThreadIds.length > 0) {
-        await this.projectWorkspace.observeAppServerThreadWindow(state.sweepId, observedThreadIds);
-      }
-      if (generation !== this.sidebarSweepGeneration) return;
-
-      if (response.nextCursor) {
-        this.scheduleSidebarThreadSweep({
-          ...state,
-          phase: "scan",
-          cursor: response.nextCursor,
-          retryAttempt: 0,
-        });
-        return;
-      }
-      if (!state.archived) {
-        this.scheduleSidebarThreadSweep({
-          ...state,
-          phase: "scan",
-          cursor: null,
-          archived: true,
-          retryAttempt: 0,
-        });
-        return;
-      }
-
-      this.scheduleSidebarThreadSweep({
-        ...state,
-        phase: "reconcile",
-        cursor: null,
-        retryAttempt: 0,
-      });
-    } catch (error) {
-      if (generation !== this.sidebarSweepGeneration) return;
-      this.logger.warn("Could not continue background sidebar reconciliation", {
-        archived: state.archived,
-        cursorPresent: state.cursor !== null,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      const baseDelay = Math.min(
-        SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS * 2 ** state.retryAttempt,
-        SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS,
+  private async advanceSidebarThreadSweep(
+    state: CodexSidebarSweepState,
+  ): Promise<CodexSidebarSweepState | null> {
+    if (state.phase === "reconcile") {
+      const reconciled = await this.projectWorkspace.reconcileAppServerThreadSweep(
+        state.sweepId,
+        100,
       );
-      const retryDelay = Math.round(baseDelay * (0.8 + Math.random() * 0.4));
-      this.sidebarSweepState = {
-        ...state,
-        retryAttempt: state.retryAttempt + 1,
-      };
-      this.sidebarSweepTimer = setTimeout(() => {
-        this.sidebarSweepTimer = null;
-        void this.startSidebarThreadSweepWindow(generation);
-      }, retryDelay);
+      for (const projectId of reconciled.projectIds) {
+        markSidebarSyncScopeChanged(state.metadata, projectId);
+      }
+      if (reconciled.threadIds.length > 0) {
+        state.metadata.projectlessChanged = true;
+      }
+      if (reconciled.threadIds.length === 100) return state;
+
+      const result = await this.buildWorkspaceSidebarSyncResult({
+        includeArchived: state.includeArchived,
+        source: "app-server",
+        refreshed: true,
+        refreshedAt: Date.now(),
+        metadata: state.metadata,
+      });
+      this.emitSidebarSyncUpdated(result, state.reason);
+      return null;
     }
+
+    const response = await this.requestSidebarThreadList({
+      cursor: state.cursor,
+      archived: state.archived,
+    });
+    const observedThreadIds = await this.materializeSidebarThreadListWindow(response, state);
+    if (observedThreadIds.length > 0) {
+      await this.projectWorkspace.observeAppServerThreadWindow(state.sweepId, observedThreadIds);
+    }
+    if (response.nextCursor) {
+      return { ...state, cursor: response.nextCursor };
+    }
+    if (!state.archived) {
+      return { ...state, cursor: null, archived: true };
+    }
+    return { ...state, phase: "reconcile", cursor: null };
   }
 
   private async requestSidebarThreadList(input: {
