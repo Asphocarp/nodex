@@ -59,6 +59,7 @@ import { TestCodexQueuedFollowUpDispatchRuntime } from "./codex-queued-follow-up
 import { TestCodexConversationDeltaBufferRuntime } from "./codex-conversation-delta-buffer-runtime.test-support";
 import { TestCodexConversationResumeRuntime } from "./codex-conversation-resume-runtime.test-support";
 import { TestCodexConversationEventBufferRuntime } from "./codex-conversation-event-buffer-runtime.test-support";
+import { TestCodexFreshThreadLaunchRuntime } from "./codex-fresh-thread-launch-runtime.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -1881,6 +1882,21 @@ function createService(options?: {
     },
     reportThreadStartReplayFailure: (input) => service?.recordThreadStartReplayFailure(input),
   });
+  const freshThreadLaunch = new TestCodexFreshThreadLaunchRuntime({
+    adopt: async (launch) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.adoptFreshThreadLaunch(launch);
+    },
+    readAdopted: async (launch) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.readAdoptedFreshThreadLaunch(launch);
+    },
+    start: async (launch) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.runFreshThreadLaunchFirstTurn(launch);
+    },
+    abandon: (launch, reason) => service?.abandonFreshThreadLaunch(launch, reason),
+  });
   const postResumeGoals = new TestCodexPostResumeGoalRuntime({
     load: async (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -2075,6 +2091,7 @@ function createService(options?: {
     conversationDeltaBuffer,
     conversationResume,
     conversationEventBuffer,
+    freshThreadLaunch,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -6026,14 +6043,11 @@ describe("codex-service renderer owner stream publishing", () => {
         streamRole: string | null;
         isStreaming: boolean;
       };
-      pendingFreshSessionFirstTurnByThreadId: Map<
-        string,
-        {
-          launchId: string;
-          rendererClientId: string;
-          state: "prepared" | "adopted" | "starting";
-        }
-      >;
+      registerFreshThreadLaunch: (launch: {
+        launchId: string;
+        rendererClientId: string;
+        threadId: string;
+      }) => void;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
       syncDormantConversationFromRecord: (id: string, reason: "owner-unavailable") => void;
     };
@@ -6043,10 +6057,10 @@ describe("codex-service renderer owner stream publishing", () => {
     record.streamRole = "owner";
     record.isStreaming = true;
     serviceInternals.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-    serviceInternals.pendingFreshSessionFirstTurnByThreadId.set(threadId, {
+    serviceInternals.registerFreshThreadLaunch({
       launchId,
       rendererClientId: ownerClientId,
-      state: "prepared",
+      threadId,
     });
 
     try {
@@ -6163,26 +6177,30 @@ describe("codex-service renderer owner stream publishing", () => {
       };
     };
     const serviceInternals = service as unknown as {
-      pendingFreshSessionFirstTurnByThreadId: Map<
-        string,
-        {
-          launchId: string;
-          rendererClientId: string;
-          projectId: string | null;
-          sessionId: string;
-          threadId: string;
-          runInTarget: "localProject";
-          startedAt: number;
-          clientUserMessageId: string;
-          canonicalParams: Record<string, unknown>;
-          turnStartParams: typeof turnStartParams;
-          verifiedBuiltinFullAccess: boolean;
-          goalObjective: string;
-          rawGoalDraft: null;
-          heartbeatAutomation: null;
-          state: "prepared" | "adopted" | "starting";
-        }
-      >;
+      registerFreshThreadLaunch: (launch: {
+        launchId: string;
+        rendererClientId: string;
+        projectId: string | null;
+        sessionId: string;
+        threadId: string;
+        runInTarget: "localProject";
+        startedAt: number;
+        clientUserMessageId: string;
+        canonicalParams: Record<string, unknown>;
+        turnStartParams: typeof turnStartParams;
+        verifiedBuiltinFullAccess: boolean;
+        goalObjective: string;
+        rawGoalDraft: null;
+        heartbeatAutomation: null;
+      }) => void;
+      getFreshThreadLaunchReservation: (id: string) => { state: string } | null;
+      getConversationRecord: (id: string) => {
+        resumeState: string;
+        streamRole: string | null;
+        isStreaming: boolean;
+      };
+      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
+      syncDormantConversationFromRecord: (id: string, reason: "owner-unavailable") => void;
       startRendererOwnedSessionFirstTurn: (
         clientId: string,
         id: string,
@@ -6195,7 +6213,13 @@ describe("codex-service renderer owner stream publishing", () => {
     serviceInternals.markAutomationRunAcceptedForUserContinuation = async () => undefined;
     serviceInternals.markThreadAsActive = async () => undefined;
     serviceInternals.applyStartedSessionThreadGoal = async () => undefined;
-    serviceInternals.pendingFreshSessionFirstTurnByThreadId.set(threadId, {
+    serviceInternals.setConversationRecordDetail(makeThreadDetail(threadId));
+    const record = serviceInternals.getConversationRecord(threadId);
+    record.resumeState = "resumed";
+    record.streamRole = "owner";
+    record.isStreaming = true;
+    serviceInternals.syncDormantConversationFromRecord(threadId, "owner-unavailable");
+    serviceInternals.registerFreshThreadLaunch({
       launchId,
       rendererClientId: ownerClientId,
       projectId: "project-1",
@@ -6210,10 +6234,10 @@ describe("codex-service renderer owner stream publishing", () => {
       goalObjective: "",
       rawGoalDraft: null,
       heartbeatAutomation: null,
-      state: "adopted",
     });
 
     try {
+      await service.requestRendererFreshConversationAdoption(threadId, launchId, ownerClientId);
       const response = await serviceInternals.startRendererOwnedSessionFirstTurn(
         ownerClientId,
         threadId,
@@ -6226,7 +6250,7 @@ describe("codex-service renderer owner stream publishing", () => {
           params: turnStartParams,
         },
       ]);
-      expect(serviceInternals.pendingFreshSessionFirstTurnByThreadId.has(threadId)).toBe(false);
+      expect(serviceInternals.getFreshThreadLaunchReservation(threadId)).toBeNull();
       await expect(
         serviceInternals.startRendererOwnedSessionFirstTurn(ownerClientId, threadId, launchId),
       ).rejects.toThrow(`Fresh thread launch '${launchId}' is unavailable`);

@@ -488,6 +488,15 @@ retains protocol Thread-id resolution, raw-delta compaction, and canonical notif
 operations, but owns no event-buffer Map, deferral Set/depth, detached request Promise, or teardown
 loop.
 
+Fresh renderer-owned Thread launch is a Main-scoped three-phase protocol rather than a class-local
+registry. The launch runtime reserves the initiating renderer, coalesces an exact adoption, blocks
+the first-turn command until adoption commits, and admits exactly one physical first-turn fiber.
+Disconnect removes prepared/adopting/adopted launches and releases their event fence, while a launch
+whose first Turn has started is allowed to finish. Thread removal and Main Scope close interrupt the
+same adoption/start fibers; successful or failed first-turn completion consumes the launch. The
+canonical conversation owner supplies adoption projection and first-turn domain operations, but owns
+no launch Map, mutable state enum, duplicate-start race, renderer-disconnect scan, or shutdown entry.
+
 Post-resume Thread-goal hydration is a separate Main-scoped lifecycle because it correlates a
 remote read with a particular conversation revision. Concurrent awaited hydrations share one keyed
 load while each retains its own revision fence; background resume requests coalesce to the newest

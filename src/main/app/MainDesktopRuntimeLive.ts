@@ -144,6 +144,12 @@ import {
 } from "../codex-application/CodexConversationEventBufferRuntime";
 import { makeCodexConversationEventBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationEventBufferRuntimePromiseAdapter";
 import {
+  type CodexFreshThreadLaunch,
+  CodexFreshThreadLaunchError,
+  make as makeCodexFreshThreadLaunchRuntime,
+} from "../codex-application/CodexFreshThreadLaunchRuntime";
+import { makeCodexFreshThreadLaunchRuntimePromiseAdapter } from "../codex-application/CodexFreshThreadLaunchRuntimePromiseAdapter";
+import {
   CodexPostResumeGoalError,
   make as makeCodexPostResumeGoalRuntime,
 } from "../codex-application/CodexPostResumeGoalRuntime";
@@ -1455,6 +1461,35 @@ export const live: Layer.Layer<
           reportThreadStartReplayFailure: (input) =>
             requireCodexService().recordThreadStartReplayFailure(input),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const freshThreadLaunchError = (launch: CodexFreshThreadLaunch, cause: unknown) =>
+          new CodexFreshThreadLaunchError(
+            "operation-failed",
+            {
+              launchId: launch.launchId,
+              ownerClientId: launch.rendererClientId,
+              threadId: launch.threadId,
+            },
+            { cause },
+          );
+        const freshThreadLaunch = yield* makeCodexFreshThreadLaunchRuntime({
+          adopt: (launch) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().adoptFreshThreadLaunch(launch),
+              catch: (cause) => freshThreadLaunchError(launch, cause),
+            }),
+          readAdopted: (launch) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().readAdoptedFreshThreadLaunch(launch),
+              catch: (cause) => freshThreadLaunchError(launch, cause),
+            }),
+          start: (launch) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().runFreshThreadLaunchFirstTurn(launch),
+              catch: (cause) => freshThreadLaunchError(launch, cause),
+            }),
+          abandon: (launch, reason) =>
+            requireCodexService().abandonFreshThreadLaunch(launch, reason),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const backgroundSubagentMetadataRepair = yield* makeCodexBackgroundSubagentMetadataRepair({
           isRepairNeeded: (parentThreadId, childThreadId) =>
             requireCodexService().isBackgroundSubagentMetadataRepairNeeded(
@@ -1684,6 +1719,10 @@ export const live: Layer.Layer<
               ),
               conversationEventBuffer: makeCodexConversationEventBufferRuntimePromiseAdapter(
                 conversationEventBuffer,
+                callbacks,
+              ),
+              freshThreadLaunch: makeCodexFreshThreadLaunchRuntimePromiseAdapter(
+                freshThreadLaunch,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
