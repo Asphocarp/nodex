@@ -62,7 +62,7 @@ import {
 
 type TypedIpcHandler<Channel extends keyof IpcApi> = (
   event: IpcMainInvokeEvent,
-  ...args: IpcApi[Channel]["args"]
+  ...args: [...IpcApi[Channel]["args"], signal?: AbortSignal]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
 function requireNonBlankStringArray(value: unknown, label: string): string[] {
@@ -148,7 +148,7 @@ export const codexIpcLive = (
             authorize(event).pipe(
               Effect.andThen(
                 Effect.tryPromise({
-                  try: () => Promise.resolve(listener(event, ...args)),
+                  try: (signal) => Promise.resolve(listener(event, ...args, signal)),
                   catch: (cause) => new CodexIpcError({ operation: channel, cause }),
                 }),
               ),
@@ -334,13 +334,15 @@ export const codexIpcLive = (
 
       registerHandle(
         "codex:thread:start-for-session",
-        async (event, input: CodexThreadStartForSessionInput) => {
+        async (event, input: CodexThreadStartForSessionInput, fiberSignal) => {
           const controller = new AbortController();
           const abortWhenRendererCloses = (): void => controller.abort();
           event.sender.once("destroyed", abortWhenRendererCloses);
           try {
             return await codexService.startThreadForSession(input, {
-              signal: controller.signal,
+              signal: fiberSignal
+                ? AbortSignal.any([fiberSignal, controller.signal])
+                : controller.signal,
               browserViewScopeId:
                 windows.resolveSessionId(event.sender.id) ?? `headless:${input.sessionId}`,
               ownerClientId: resolveRendererClientId(event),

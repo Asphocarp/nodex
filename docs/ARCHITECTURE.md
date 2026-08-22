@@ -360,6 +360,11 @@ import-time active-service slot.
 
 Promise, callback, EventEmitter, AbortSignal, and synchronous IPC shapes are allowed only at explicit external Adapter seams. Application Modules expose Effect values, typed state, and Stream/PubSub observation; renderer, preload, shared contracts, and generated wire protocols remain Effect-free. Synchronous preload contracts use a separate scoped pure adapter because Electron requires a result before an Effect fiber can run. [ADR 0047](adr/0047-effect-control-plane-and-runtime-boundaries.md) defines the current frontier while the whole-Main kernel ADR is completed.
 
+The remaining Codex Promise ingress makes the ingress fiber's cancellation signal available at its
+single adapter seam. Operations additionally coupled to renderer lifetime, including fresh Thread
+startup, combine that signal with the exact `WebContents` destruction signal, so renderer disposal
+and Main Scope close cancel the same physical work rather than only abandoning its IPC result.
+
 The Effect architecture gate parses production sources rather than relying on
 path conventions alone. It rejects Effect imports in frontiers, unstable APIs
 outside platform seams, runtime execution outside allowlisted entries, and
