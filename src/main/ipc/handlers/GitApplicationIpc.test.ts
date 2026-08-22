@@ -4,8 +4,9 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
+import { layer as scopedCallbackRuntimeLayer } from "../../app/ScopedCallbackRuntime";
 import type { CodexService } from "../../codex/codex-service";
-import { HostWorkerRuntime } from "../../host-runtime/HostWorkerRuntime";
+import { GitWorkerRuntime } from "../../host-runtime/GitWorkerRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./GitApplicationIpc";
@@ -30,9 +31,8 @@ it.effect("owns Git and GitHub ingress with the Main Scope", () =>
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
-            Layer.succeed(HostWorkerRuntime, {
-              git: {},
-            } as unknown as HostWorkerRuntime["Service"]),
+            Layer.succeed(GitWorkerRuntime, {} as GitWorkerRuntime["Service"]),
+            scopedCallbackRuntimeLayer,
             Layer.succeed(WindowRuntime, {
               has: () => true,
             } as unknown as WindowRuntime["Service"]),

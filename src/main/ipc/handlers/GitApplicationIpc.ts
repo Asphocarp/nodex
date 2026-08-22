@@ -5,6 +5,7 @@ import type { IpcMainInvokeEvent } from "electron";
 import type { IpcApi } from "../../../shared/ipc-api";
 import type { GitReviewPatchResult } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
+import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import {
   cancelGitAction,
@@ -27,7 +28,7 @@ import {
   readGhPrStatus,
   updateGhPr,
 } from "../../github-pr-service";
-import { HostWorkerRuntime } from "../../host-runtime/HostWorkerRuntime";
+import { GitWorkerRuntime } from "../../host-runtime/GitWorkerRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
@@ -48,27 +49,32 @@ type Handler<Channel extends keyof IpcApi> = (
 
 export const live = (
   options: GitApplicationIpcOptions,
-): Layer.Layer<never, never, ElectronIpc | HostWorkerRuntime | MainConfig | WindowRuntime> =>
+): Layer.Layer<
+  never,
+  never,
+  ElectronIpc | GitWorkerRuntime | MainConfig | ScopedCallbackRuntime | WindowRuntime
+> =>
   Layer.effectDiscard(
     Effect.gen(function* () {
       const config = yield* MainConfig;
+      const callbacks = yield* ScopedCallbackRuntime;
       const ipc = yield* ElectronIpc;
       const windows = yield* WindowRuntime;
-      const workers = yield* HostWorkerRuntime;
+      const worker = yield* GitWorkerRuntime;
       const operations = yield* Effect.acquireRelease(
         Effect.sync(() => new GitActionOperationRegistry()),
         (registry) => Effect.sync(() => registry.close()),
       );
       const gitWorker: GitActionWorkerPort = {
         readStatus: (cwd, signal) =>
-          workers.git.requestFromMain({ method: "action-status", params: { cwd }, signal }),
+          callbacks.runPromise(
+            worker.request({ method: "action-status", params: { cwd }, signal }),
+          ),
         readReviewPatch: async (input, signal) => {
           for (let attempt = 0; attempt < 2; attempt += 1) {
-            const result = await workers.git.requestFromMain({
-              method: "review-patch",
-              params: input,
-              signal,
-            });
+            const result = await callbacks.runPromise(
+              worker.request({ method: "review-patch", params: input, signal }),
+            );
             if (!("type" in result) || result.type !== "stale-snapshot") {
               return result as GitReviewPatchResult;
             }
@@ -76,13 +82,17 @@ export const live = (
           throw new Error("Git repository changed while preparing the message.");
         },
         commit: (input, signal) =>
-          workers.git.requestFromMain({
-            method: "commit",
-            params: { ...input, nextStep: "commit" },
-            signal,
-          }),
+          callbacks.runPromise(
+            worker.request({
+              method: "commit",
+              params: { ...input, nextStep: "commit" },
+              signal,
+            }),
+          ),
         refreshRepository: async (cwd) => {
-          await workers.git.requestFromMain({ method: "refresh-repository", params: { cwd } });
+          await callbacks.runPromise(
+            worker.request({ method: "refresh-repository", params: { cwd } }),
+          );
         },
       };
       const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
@@ -150,8 +160,8 @@ export const live = (
       );
       yield* invoke("git:action:push", async (input) => {
         const result = await pushGitChanges(input, operations);
-        await workers.git
-          .requestFromMain({ method: "refresh-repository", params: { cwd: input.cwd } })
+        await callbacks
+          .runPromise(worker.request({ method: "refresh-repository", params: { cwd: input.cwd } }))
           .catch(() => undefined);
         return result;
       });

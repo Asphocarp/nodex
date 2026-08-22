@@ -6,7 +6,7 @@ import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import { GIT_WORKER_MESSAGE_FROM_VIEW_CHANNEL } from "../../../shared/git-worker-protocol";
 import { MainConfig } from "../../app/MainConfig";
-import { HostWorkerRuntime } from "../../host-runtime/HostWorkerRuntime";
+import { GitWorkerRuntime } from "../../host-runtime/GitWorkerRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { live } from "./GitWorkerIpc";
 
@@ -26,13 +26,9 @@ it.effect("registers and releases the Git worker renderer ingress with the Main 
         ).pipe(Effect.asVoid),
       on: () => Effect.void,
     });
-    const workers = HostWorkerRuntime.of({
-      git: {
-        handleRendererMessage: () => undefined,
-        requestFromMain: () => Promise.reject(new Error("unused")),
-        shutdown: async () => undefined,
-      },
-      worktree: {} as never,
+    const worker = GitWorkerRuntime.of({
+      handleRendererMessage: () => Effect.void,
+      request: () => Effect.die("unused") as never,
     });
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
@@ -63,7 +59,7 @@ it.effect("registers and releases the Git worker renderer ingress with the Main 
                 runtimeBinaryPath: "/electron",
               }),
             ),
-            Layer.succeed(HostWorkerRuntime, workers),
+            Layer.succeed(GitWorkerRuntime, worker),
           ),
         ),
       ),

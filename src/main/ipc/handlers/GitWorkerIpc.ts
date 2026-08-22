@@ -6,7 +6,7 @@ import {
   isGitWorkerMessageFromView,
 } from "../../../shared/git-worker-protocol";
 import { MainConfig } from "../../app/MainConfig";
-import { HostWorkerRuntime } from "../../host-runtime/HostWorkerRuntime";
+import { GitWorkerRuntime } from "../../host-runtime/GitWorkerRuntime";
 import { captureMainException } from "../../observability/sentry-main";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
@@ -16,12 +16,12 @@ export class GitWorkerIpcError extends Schema.TaggedError<GitWorkerIpcError>()(
   { operation: Schema.String, cause: Schema.Defect() },
 ) {}
 
-export const live: Layer.Layer<never, never, ElectronIpc | MainConfig | HostWorkerRuntime> =
+export const live: Layer.Layer<never, never, ElectronIpc | GitWorkerRuntime | MainConfig> =
   Layer.effectDiscard(
     Effect.gen(function* () {
       const ipc = yield* ElectronIpc;
       const config = yield* MainConfig;
-      const workers = yield* HostWorkerRuntime;
+      const worker = yield* GitWorkerRuntime;
       yield* ipc.handle(GIT_WORKER_MESSAGE_FROM_VIEW_CHANNEL, (event, rawMessage: unknown) =>
         Effect.try({
           try: () => {
@@ -29,10 +29,19 @@ export const live: Layer.Layer<never, never, ElectronIpc | MainConfig | HostWork
             if (!isGitWorkerMessageFromView(rawMessage)) {
               throw new Error("Invalid Git worker renderer message");
             }
-            workers.git.handleRendererMessage(event.sender, rawMessage);
+            return rawMessage;
           },
           catch: (cause) => new GitWorkerIpcError({ operation: "renderer-message", cause }),
         }).pipe(
+          Effect.flatMap((message) =>
+            worker
+              .handleRendererMessage(event.sender, message)
+              .pipe(
+                Effect.mapError(
+                  (cause) => new GitWorkerIpcError({ operation: "renderer-message", cause }),
+                ),
+              ),
+          ),
           Effect.tapError((error) =>
             Effect.sync(() => {
               captureMainException(error.cause, {

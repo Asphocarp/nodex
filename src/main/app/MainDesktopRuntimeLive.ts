@@ -161,11 +161,11 @@ import {
   ComputerUseSettingsRuntime,
   live as computerUseSettingsRuntimeLive,
 } from "../host-runtime/ComputerUseSettingsRuntime";
+import { GitWorkerRuntime, live as gitWorkerRuntimeLive } from "../host-runtime/GitWorkerRuntime";
 import {
-  HostWorkerRuntime,
-  live as hostWorkerRuntimeLive,
-} from "../host-runtime/HostWorkerRuntime";
-import { live as localWorktreeWorkerRuntimeLive } from "../host-runtime/LocalWorktreeWorkerRuntime";
+  LocalWorktreeWorkerRuntime,
+  live as localWorktreeWorkerRuntimeLive,
+} from "../host-runtime/LocalWorktreeWorkerRuntime";
 import {
   WorktreeEnvironmentRuntime,
   live as worktreeEnvironmentRuntimeLive,
@@ -629,33 +629,50 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const hostWorkerContext = yield* Layer.buildWithScope(
-          hostWorkerRuntimeLive({
-            gitWorkerPath: `${__dirname}/git-worker.js`,
-          }).pipe(
-            Layer.provide(
-              localWorktreeWorkerRuntimeLive({
-                hostId: CODEX_APP_LOCAL_HOST_ID,
-                workerPath: `${__dirname}/worktree-worker.js`,
-                onInfrastructureError: (error) => {
-                  applicationLogger.error("Worktree worker infrastructure failed", {
-                    error: error.message,
-                  });
-                  captureMainException(error, { tags: { component: "worktree-worker" } });
-                },
-              }),
-            ),
-          ),
+        const localWorktreeWorkerContext = yield* Layer.buildWithScope(
+          localWorktreeWorkerRuntimeLive({
+            hostId: CODEX_APP_LOCAL_HOST_ID,
+            workerPath: `${__dirname}/worktree-worker.js`,
+            onInfrastructureError: (error) => {
+              applicationLogger.error("Worktree worker infrastructure failed", {
+                error: error.message,
+              });
+              captureMainException(error, { tags: { component: "worktree-worker" } });
+            },
+          }),
           runtimeScope,
         );
-        const hostWorkers = Context.get(hostWorkerContext, HostWorkerRuntime);
+        const localWorktreeWorker = Context.get(
+          localWorktreeWorkerContext,
+          LocalWorktreeWorkerRuntime,
+        );
+        const gitWorkerContext = yield* Layer.buildWithScope(
+          gitWorkerRuntimeLive({
+            workerPath: `${__dirname}/git-worker.js`,
+            onInfrastructureError: (error, context) => {
+              applicationLogger.error("Git worker infrastructure failed", {
+                epoch: context.epoch,
+                error: error.message,
+                phase: context.phase,
+              });
+              captureMainException(error, {
+                tags: { component: "git-worker", phase: context.phase },
+                extra: { epoch: context.epoch },
+              });
+            },
+            onPerformanceOperation: (metric) =>
+              applicationLogger.debug("Git worker operation", metric),
+          }),
+          runtimeScope,
+        );
+        const gitWorker = Context.get(gitWorkerContext, GitWorkerRuntime);
         yield* Layer.buildWithScope(
           GitWorkerIpc.live.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(GitWorkerRuntime, gitWorker),
                 Layer.succeed(MainConfig, config),
-                Layer.succeed(HostWorkerRuntime, hostWorkers),
               ),
             ),
           ),
@@ -1011,7 +1028,7 @@ export const live: Layer.Layer<
             runtimeStateHome,
             nodexHome: config.nodexHome,
             remoteWorktreeWorkerBundlePath: `${__dirname}/remote-worktree-worker.cjs`,
-            localWorktreeWorker: hostWorkers.worktree,
+            localWorktreeWorker: localWorktreeWorker.port,
             settings: {
               read: getCodexExecutionHostSettings,
               update: updateCodexExecutionHostSettings,
@@ -1367,8 +1384,9 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
-                Layer.succeed(HostWorkerRuntime, hostWorkers),
+                Layer.succeed(GitWorkerRuntime, gitWorker),
                 Layer.succeed(MainConfig, config),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowRuntime, windows),
               ),
             ),

@@ -345,6 +345,16 @@ queries, repositories, generation providers, and review caches together. A
 replacement worker therefore always starts from a fresh repository identity and
 generation space rather than inheriting process-module state.
 
+`GitWorkerRuntime` owns the corresponding Main-side channel. Its single state
+tracks the active Worker generation, Main request `Deferred`s, renderer request
+ownership, and live-subscription ownership; worker callbacks enter one scoped
+FiberSet. Main callers use typed Effects, while the still-Promise-shaped Git
+action helpers receive a projection through the application callback runtime.
+Renderer destruction cancels only that renderer's requests and subscriptions.
+Generation failure rejects every pending owner before later admission starts a
+new generation, and Scope release gives cooperative shutdown one Effect-clock
+deadline before forced termination.
+
 Git and worktree worker entries are independent Effect applications. Each
 enters through `NodeRuntime.runMain`, registers its MessagePort or stdio ingress
 inside one Scope, and stores keyed requests in a scoped `FiberMap`. Cancellation
@@ -368,8 +378,9 @@ probe, deployed worker channel, file-transfer adapter, Codex endpoint, and host
 capability association. Removing or changing the configuration invalidates that
 Scope; Main shutdown closes every remaining host through the same release path.
 The local worktree worker remains owned by `LocalWorktreeWorkerRuntime`;
-execution-host state and the transitional `HostWorkerRuntime` aggregate only
-borrow its registry port and never close the worker.
+execution-host state only borrows its registry port and never closes the worker.
+Git and Worktree lifecycles have no process-wide aggregate or shared shutdown
+facade because their protocols and ownership semantics are independent.
 
 Thread-scoped app-server requests are routed from the same Core-backed execution
 host projection. Global account and configuration requests remain local. A
