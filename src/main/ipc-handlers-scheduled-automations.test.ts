@@ -25,6 +25,7 @@ type RegisteredIpcHandler = (event: unknown, ...args: unknown[]) => Promise<unkn
 const registeredHandlers = new Map<string, RegisteredIpcHandler>();
 const sentIpcEvents: Array<{ channel: string; args: unknown[] }> = [];
 const runNowInputs: CodexScheduledAutomationRunNowInput[] = [];
+const runNowSignals: Array<AbortSignal | undefined> = [];
 const unarchivedThreadIds: string[] = [];
 
 async function invokeIpc(channel: string, ...args: unknown[]): Promise<unknown> {
@@ -191,8 +192,9 @@ beforeAll(async () => {
       registeredHandlers.set(channel, listener as RegisteredIpcHandler);
     },
     automationModule,
-    runScheduledAutomationNow: async (input) => {
+    runScheduledAutomationNow: async (input, _rendererClientId, signal) => {
       runNowInputs.push(input);
+      runNowSignals.push(signal);
     },
     prepareCreateInput: async (input) =>
       input.modelProvider ? { ...input, harnessId: "resolved-harness" } : input,
@@ -368,11 +370,16 @@ describe("scheduled automation IPC contract", () => {
   });
 
   test("forwards run-now input to the automation runtime and returns success", async () => {
-    const response = (await invokeIpc("codex:scheduled-automations:run-now", {
-      id: "heartbeat-follow-up",
-      collaborationMode: "plan",
-      permissions: null,
-    })) as CodexScheduledAutomationRunNowResponse;
+    const signal = AbortSignal.abort("test cancellation identity");
+    const response = (await invokeIpc(
+      "codex:scheduled-automations:run-now",
+      {
+        id: "heartbeat-follow-up",
+        collaborationMode: "plan",
+        permissions: null,
+      },
+      signal,
+    )) as CodexScheduledAutomationRunNowResponse;
 
     expect(response.success).toBe(true);
     expect(runNowInputs.length).toBe(1);
@@ -383,6 +390,7 @@ describe("scheduled automation IPC contract", () => {
         permissions: null,
       }),
     );
+    expect(runNowSignals[0]).toBe(signal);
   });
 
   test("returns previous-run inbox and mutation response shapes with run update events", async () => {

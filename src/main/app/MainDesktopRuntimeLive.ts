@@ -2094,7 +2094,8 @@ export const live: Layer.Layer<
         const scheduledAutomationContext = yield* Layer.buildWithScope(
           scheduledAutomationRuntimeLive({
             automation: automationModule,
-            run: (automation, context) => codexService.runScheduledAutomation(automation, context),
+            run: (automation, context, signal) =>
+              codexService.runScheduledAutomation(automation, context, signal),
             notifyRunsUpdated: () => {
               codexService.notifyAutomationRunsUpdated({
                 automationId: null,

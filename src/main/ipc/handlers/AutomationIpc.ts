@@ -129,9 +129,9 @@ export const live = (
           },
           catch: (cause) => new AutomationIpcError({ operation: "authorize-renderer", cause }),
         });
-      const run = <A>(operation: string, task: () => A | Promise<A>) =>
+      const run = <A>(operation: string, task: (signal: AbortSignal) => A | Promise<A>) =>
         Effect.tryPromise({
-          try: () => Promise.resolve(task()),
+          try: (signal) => Promise.resolve(task(signal)),
           catch: (cause) => new AutomationIpcError({ operation, cause }),
         });
       const invoke = <Channel extends keyof IpcApi>(
@@ -175,7 +175,9 @@ export const live = (
       ) =>
         ipc.handle(channel, (event, ...args) =>
           authorize(event).pipe(
-            Effect.andThen(run(channel, () => Reflect.apply(handler, undefined, [event, ...args]))),
+            Effect.andThen(
+              run(channel, (signal) => Reflect.apply(handler, undefined, [event, ...args, signal])),
+            ),
           ),
         );
       registerCodexScheduledAutomationIpcHandlers({
@@ -186,8 +188,8 @@ export const live = (
         prepareCreateInput: (input) => options.codex.prepareScheduledAutomationInput(input),
         prepareUpdateInput: (input, current) =>
           options.codex.prepareScheduledAutomationInput(input, current),
-        runScheduledAutomationNow: (input, clientId) =>
-          options.codex.runScheduledAutomationNow(input, clientId),
+        runScheduledAutomationNow: (input, clientId, signal) =>
+          options.codex.runScheduledAutomationNow(input, clientId, signal),
         resolveAutomationArchiveMessages: (threadId) =>
           options.codex.resolveAutomationArchiveMessages(threadId),
         unarchiveThread: (threadId) => options.codex.unarchiveThread(threadId),

@@ -6282,8 +6282,8 @@ export class CodexService {
     return pendingResolution;
   }
 
-  private async ensureClientReady(): Promise<void> {
-    await this.client.start();
+  private async ensureClientReady(signal?: AbortSignal): Promise<void> {
+    await this.client.start(signal ? { signal } : undefined);
     const readiness = await this.desktopTools.ensureReady();
     const pluginResult = readiness.plugins;
     const computerUseRuntime = readiness.computerUse;
@@ -8436,8 +8436,9 @@ export class CodexService {
   async runScheduledAutomationNow(
     input: CodexScheduledAutomationRunNowInput,
     rendererClientId: string | null = null,
+    signal?: AbortSignal,
   ): Promise<void> {
-    await this.ensureClientReady();
+    await this.ensureClientReady(signal);
 
     const automation = await this.automationModule.getDefinition(input.id);
     if (!automation) {
@@ -8445,46 +8446,59 @@ export class CodexService {
     }
 
     if (automation.kind === "heartbeat") {
-      await this.runHeartbeatScheduledAutomation(automation, {
-        now: Date.now(),
-        reason: "run-now",
-        heartbeat: {
-          automationsEnabled: true,
-          rendererState: rendererClientId
-            ? {
-                rendererClientId,
-                isEligible: true,
-                reason: null,
-                updatedAtMs: Date.now(),
-              }
-            : null,
-          collaborationMode: input.collaborationMode ?? null,
-          permissions: input.permissions ?? null,
+      await this.runHeartbeatScheduledAutomation(
+        automation,
+        {
+          now: Date.now(),
+          reason: "run-now",
+          heartbeat: {
+            automationsEnabled: true,
+            rendererState: rendererClientId
+              ? {
+                  rendererClientId,
+                  isEligible: true,
+                  reason: null,
+                  updatedAtMs: Date.now(),
+                }
+              : null,
+            collaborationMode: input.collaborationMode ?? null,
+            permissions: input.permissions ?? null,
+          },
         },
-      });
+        signal,
+      );
       return;
     }
 
-    await this.runScheduledAutomation(automation, {
-      now: Date.now(),
-      reason: "run-now",
-    });
+    await this.runScheduledAutomation(
+      automation,
+      {
+        now: Date.now(),
+        reason: "run-now",
+      },
+      signal,
+    );
   }
 
   async runScheduledAutomation(
     automation: CodexScheduledAutomation,
     context: CodexScheduledAutomationRunContext = {},
+    signal?: AbortSignal,
   ): Promise<void> {
-    await this.ensureClientReady();
+    await this.ensureClientReady(signal);
 
     if (automation.kind === "heartbeat") {
-      await this.runHeartbeatScheduledAutomation(automation, {
-        now: context.now ?? Date.now(),
-        reason: context.reason ?? "scheduled",
-        leaseId: context.leaseId,
-        scheduleDispatched: context.scheduleDispatched,
-        heartbeat: context.heartbeat,
-      });
+      await this.runHeartbeatScheduledAutomation(
+        automation,
+        {
+          now: context.now ?? Date.now(),
+          reason: context.reason ?? "scheduled",
+          leaseId: context.leaseId,
+          scheduleDispatched: context.scheduleDispatched,
+          heartbeat: context.heartbeat,
+        },
+        signal,
+      );
       return;
     }
 
@@ -8492,6 +8506,7 @@ export class CodexService {
       automation,
       context.now ?? Date.now(),
       context.leaseId !== undefined || context.scheduleDispatched === true,
+      signal,
     );
   }
 
@@ -8502,6 +8517,7 @@ export class CodexService {
       scheduleDispatched?: boolean;
       heartbeat?: CodexScheduledAutomationHeartbeatRunContext;
     },
+    signal?: AbortSignal,
   ): Promise<void> {
     const targetThreadId = automation.targetThreadId?.trim() ?? "";
     if (!targetThreadId) {
@@ -8530,9 +8546,10 @@ export class CodexService {
       return;
     }
 
-    const targetThreadResult = await this.readHeartbeatTargetThread(targetThreadId).catch(
+    const targetThreadResult = await this.readHeartbeatTargetThread(targetThreadId, signal).catch(
       () => null,
     );
+    signal?.throwIfAborted();
     if (!targetThreadResult) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread not found.");
       await this.deferHeartbeatAutomation(automation, context, "heartbeat_thread_missing");
@@ -8563,6 +8580,7 @@ export class CodexService {
     const collaborationMode = await this.resolveHeartbeatCollaborationMode(
       context.heartbeat?.collaborationMode ?? null,
     );
+    signal?.throwIfAborted();
     if (!collaborationMode) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread mode is still loading.");
       await this.deferHeartbeatAutomation(automation, context, "heartbeat_mode_unavailable");
@@ -8577,6 +8595,7 @@ export class CodexService {
       targetThread.threadRuntimeStatus ?? null,
       targetThreadResult.rolloutPath,
     );
+    signal?.throwIfAborted();
     if (threadBlockReason) {
       if (context.reason === "run-now") throw new Error("Heartbeat thread is busy right now.");
       await this.deferHeartbeatAutomation(automation, context, threadBlockReason);
@@ -8625,6 +8644,7 @@ export class CodexService {
       collaborationMode,
       permissions: context.heartbeat?.permissions ?? null,
       waitForCompletion: context.reason === "scheduled",
+      signal,
     });
   }
 
@@ -8665,11 +8685,16 @@ export class CodexService {
 
   private async readHeartbeatTargetThread(
     threadId: string,
+    signal?: AbortSignal,
   ): Promise<{ thread: CodexThreadDetail; rolloutPath: string | null } | null> {
-    const result = await this.client.request<"thread/read", ThreadReadResponse>("thread/read", {
-      threadId,
-      includeTurns: false,
-    });
+    const result = await this.client.request<"thread/read", ThreadReadResponse>(
+      "thread/read",
+      {
+        threadId,
+        includeTurns: false,
+      },
+      { signal },
+    );
     if (result.thread.id !== threadId) {
       throw new Error(
         `Codex thread/read expected '${threadId}' but received '${result.thread.id}'`,
@@ -8745,6 +8770,7 @@ export class CodexService {
     collaborationMode: CodexAppServerCollaborationMode;
     permissions: CodexHeartbeatAutomationPermissions | null;
     waitForCompletion: boolean;
+    signal?: AbortSignal;
   }): Promise<void> {
     const requestedCwd = input.targetThread.cwd || "/";
     const existingPermissions = createCodexCanonicalWorkspacePermissionContext([requestedCwd]);
@@ -8773,6 +8799,7 @@ export class CodexService {
     const resumedThread = await this.resumeHeartbeatTargetThread(
       input.targetThread,
       input.rolloutPath,
+      input.signal,
     );
     const permissionOverrides = permissionContext.turnOverrides;
     const prompt = buildCodexScheduledAutomationHeartbeatPrompt(input.automation, input.now);
@@ -8804,8 +8831,16 @@ export class CodexService {
     let turnStart: TurnStartResponse;
     try {
       turnStart = input.waitForCompletion
-        ? await this.heartbeatTurnCompletion.startAndWait(turnStartParams)
-        : await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
+        ? await this.heartbeatTurnCompletion.startAndWait(turnStartParams, {
+            signal: input.signal,
+          })
+        : await this.client.request<"turn/start", TurnStartResponse>(
+            "turn/start",
+            turnStartParams,
+            {
+              signal: input.signal,
+            },
+          );
       await this.nodexAgentAuthorityRegistry.bindTurn(authorityLaunch, turnStart.turn.id);
     } catch (error) {
       this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
@@ -8816,6 +8851,7 @@ export class CodexService {
   private async resumeHeartbeatTargetThread(
     thread: CodexThreadDetail,
     rolloutPath: string | null,
+    signal?: AbortSignal,
   ): Promise<{ threadId: string; cwd: string }> {
     const executionProfile = thread.executionProfile ?? null;
     const browserUseConfig = await this.buildMcpCodexConfig(thread.cwd);
@@ -8842,6 +8878,7 @@ export class CodexService {
         personality: null,
         excludeTurns: true,
       },
+      { signal },
     );
     if (result.thread.id !== thread.threadId) {
       throw new Error(
@@ -8881,6 +8918,7 @@ export class CodexService {
     automation: CodexScheduledAutomation,
     now: number,
     scheduleDispatched: boolean,
+    signal?: AbortSignal,
   ): Promise<void> {
     const cwds = automation.cwds.map((cwd) => cwd.trim()).filter((cwd) => cwd.length > 0);
     if (cwds.length === 0) {
@@ -8901,6 +8939,7 @@ export class CodexService {
     try {
       models = await this.listModels();
     } catch (error) {
+      signal?.throwIfAborted();
       this.logger.warn("Failed to load models for scheduled automation run", {
         automationId: automation.id,
         error,
@@ -8922,8 +8961,10 @@ export class CodexService {
           model: modelSettings.model,
           reasoningEffort: modelSettings.reasoningEffort,
           now,
+          signal,
         });
       } catch (error) {
+        signal?.throwIfAborted();
         errors.push(error);
         this.logger.warn("Scheduled automation run failed", {
           automationId: automation.id,
@@ -8945,6 +8986,7 @@ export class CodexService {
     model: string | null;
     reasoningEffort: string | null;
     now: number;
+    signal?: AbortSignal;
   }): Promise<void> {
     const pendingThreadId = `pending:${randomUUID()}`;
     const pendingInserted = await this.automationModule.beginRun({
@@ -8981,6 +9023,7 @@ export class CodexService {
         automation: input.automation,
         sourceCwd: input.cwd,
         now: input.now,
+        signal: input.signal,
       });
       managedWorktreePath = runLocation.managedWorktreePath;
       projectlessOutputDirectory = runLocation.projectlessOutputDirectory;
@@ -9050,6 +9093,7 @@ export class CodexService {
         threadStart = await this.client.request<"thread/start", ThreadStartResponse>(
           "thread/start",
           threadStartParams,
+          { signal: input.signal },
         );
         effectiveCwd =
           resolveCodexCanonicalHydratedCwd({
@@ -9171,7 +9215,9 @@ export class CodexService {
         outputSchema: null,
         collaborationMode: null,
       };
-      await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
+      await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams, {
+        signal: input.signal,
+      });
     } catch (error) {
       if (!link) {
         const archived = await this.automationModule.archiveRun(
@@ -9209,6 +9255,7 @@ export class CodexService {
     automation: CodexScheduledAutomation;
     sourceCwd: string;
     now: number;
+    signal?: AbortSignal;
   }): Promise<{
     cwd: string;
     workspaceRoots: string[];
@@ -9253,7 +9300,7 @@ export class CodexService {
           propagateLocalWorkspaceFiles: true,
         },
         {
-          signal: new AbortController().signal,
+          ...(input.signal ? { signal: input.signal } : {}),
           onEvent: (event) => {
             if (event.type !== "path-allocated") return;
             allocatedWorktreeGitRoot = event.worktreeGitRoot;
@@ -9446,7 +9493,9 @@ export class CodexService {
   private async prepareThreadExecutionDestination(
     entry: CodexThreadHandoffJournalEntry,
     onPhase: Parameters<CodexThreadHandoffPromiseEffects["prepareDestination"]>[1],
+    signal: AbortSignal,
   ): Promise<CodexThreadHandoffPreparation> {
+    signal.throwIfAborted();
     if (!entry.source.projectId) {
       throw new Error("Move this task into a Project before handing it to a managed worktree.");
     }
@@ -9461,6 +9510,7 @@ export class CodexService {
         entry.source.hostId,
         "thread/read",
         { threadId: entry.threadId, includeTurns: false },
+        { signal },
       );
       const sourceRolloutPath = metadata.thread.path?.trim() ?? "";
       if (!sourceRolloutPath || !path.isAbsolute(sourceRolloutPath)) {
@@ -9482,6 +9532,7 @@ export class CodexService {
             destinationHostId,
             "fs/getMetadata",
             { path: additionalRoot },
+            { signal },
           );
         } catch {
           throw new Error(
@@ -9513,6 +9564,7 @@ export class CodexService {
           );
         },
         onPhase,
+        signal,
       });
       const targetPrimary = prepared.destinationWorkspaceRoot;
       return {
@@ -9549,7 +9601,6 @@ export class CodexService {
       CODEX_APP_LOCAL_HOST_ID,
       "prepare-handoff",
     );
-    const controller = new AbortController();
     const thread = await this.readWorkspaceThread(entry.threadId);
     let allocatedWorktreePath: string | null = null;
     let prepared: CodexWorktreeWorkerPreparedHandoff;
@@ -9570,7 +9621,7 @@ export class CodexService {
           destinationCheckoutRoot: entry.source.managedWorktreePath ? checkoutRoot : null,
         },
         {
-          signal: controller.signal,
+          signal,
           onEvent: (event) => {
             if (event.type === "path-allocated") {
               allocatedWorktreePath = event.worktreeGitRoot;
@@ -9623,7 +9674,11 @@ export class CodexService {
     };
   }
 
-  private async stopThreadForExecutionHandoff(threadId: string): Promise<void> {
+  private async stopThreadForExecutionHandoff(
+    threadId: string,
+    signal: AbortSignal,
+  ): Promise<void> {
+    signal.throwIfAborted();
     let activeTurn = [...this.listKnownTurns(threadId)]
       .reverse()
       .find((turn) => turn.status === "inProgress" && turn.turnId);
@@ -9638,6 +9693,7 @@ export class CodexService {
     }
     if (!activeTurn?.turnId) return;
     await this.interruptTurn(threadId, activeTurn.turnId);
+    signal.throwIfAborted();
     const terminal = this.getKnownTurn(threadId, activeTurn.turnId);
     if (terminal?.status === "inProgress") {
       throw new Error("The active turn did not stop before task handoff.");
@@ -9666,7 +9722,9 @@ export class CodexService {
     threadId: string,
     location: CodexThreadExecutionLocation,
     preparation: CodexThreadHandoffPreparation | null,
+    signal: AbortSignal,
   ): Promise<void> {
+    signal.throwIfAborted();
     if (preparation?.prepared.direction === "cross-host") {
       const prepared = preparation.prepared;
       const rolloutPath =
@@ -9696,15 +9754,20 @@ export class CodexService {
             shouldSendApprovalsReviewer: true,
           }),
         } satisfies ThreadResumeParams,
+        { signal },
       );
       this.assertThreadExecutionRuntimeLocation(threadId, location, response);
       return;
     }
-    await this.ensureClientReady();
-    const metadata = await this.client.request<"thread/read", ThreadReadResponse>("thread/read", {
-      threadId,
-      includeTurns: false,
-    });
+    await this.ensureClientReady(signal);
+    const metadata = await this.client.request<"thread/read", ThreadReadResponse>(
+      "thread/read",
+      {
+        threadId,
+        includeTurns: false,
+      },
+      { signal },
+    );
     const permissions = this.resolveHandoffPermissionContext(threadId, location.workspaceRoots);
     if (metadata.thread.status.type !== "notLoaded") {
       const settings: ThreadSettingsUpdateParams = {
@@ -9719,6 +9782,7 @@ export class CodexService {
       await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
         "thread/settings/update",
         settings,
+        { signal },
       );
       this.threadSettingsRuntime.recordRemoteUpdateSupported();
     }
@@ -9741,6 +9805,7 @@ export class CodexService {
           shouldSendApprovalsReviewer: true,
         }),
       },
+      { signal },
     );
     this.assertThreadExecutionRuntimeLocation(threadId, location, response);
   }
@@ -9769,7 +9834,9 @@ export class CodexService {
   private async commitThreadExecutionLocation(
     threadId: string,
     location: CodexThreadExecutionLocation,
+    signal: AbortSignal,
   ): Promise<void> {
+    signal.throwIfAborted();
     const updated = await this.projectWorkspace.setThreadExecutionLocation(threadId, {
       executionHostId: location.hostId,
       cwd: location.cwd,
@@ -9779,13 +9846,16 @@ export class CodexService {
       projectlessWorkspaceBrowserRoot: location.projectlessWorkspaceBrowserRoot,
     });
     if (!updated) throw new Error(`Task not found during handoff commit: ${threadId}`);
+    signal.throwIfAborted();
     this.rememberWorkspaceThread(updated);
   }
 
   private async projectThreadExecutionLocation(
     threadId: string,
     location: CodexThreadExecutionLocation,
+    signal: AbortSignal,
   ): Promise<void> {
+    signal.throwIfAborted();
     const thread = await this.readWorkspaceThread(threadId);
     if (!thread) throw new Error(`Task not found during handoff projection: ${threadId}`);
     this.applySidebarThreadWorkspaceMoveToRecord({
@@ -9804,12 +9874,15 @@ export class CodexService {
     const metadata = createSidebarThreadSyncMetadata();
     markSidebarSyncScopeChanged(metadata, thread.projectId);
     await this.emitWorkspaceSidebarSyncUpdatedFromMetadata(metadata, "session-change");
+    signal.throwIfAborted();
   }
 
   private async transferThreadExecutionOwner(
     threadId: string,
     preparation: CodexThreadHandoffPreparation,
+    signal: AbortSignal,
   ): Promise<void> {
+    signal.throwIfAborted();
     const worktreeGitRoot = preparation.prepared.managedWorktreePath;
     try {
       await this.managedWorktreeLifecycle.setOwner({
@@ -9833,7 +9906,9 @@ export class CodexService {
 
   private async rollbackThreadExecutionPreparation(
     preparation: CodexThreadHandoffPreparation,
+    signal: AbortSignal,
   ): Promise<readonly string[]> {
+    signal.throwIfAborted();
     if (preparation.prepared.direction === "cross-host") return [];
     const hostId = preparation.destination.hostId;
     const worker = this.executionHosts.requireWorktreeWorker(hostId, "rollback-handoff");
@@ -9849,7 +9924,7 @@ export class CodexService {
           prepared: preparation.prepared,
         },
         {
-          signal: new AbortController().signal,
+          signal,
           onEvent: () => undefined,
         },
       );
@@ -9867,7 +9942,9 @@ export class CodexService {
   private async cleanupThreadExecutionPreparation(
     preparation: CodexThreadHandoffPreparation,
     outcome: "committed" | "rolled-back",
+    signal: AbortSignal,
   ): Promise<readonly string[]> {
+    signal.throwIfAborted();
     if (preparation.prepared.direction === "cross-host") {
       const prepared = preparation.prepared;
       const warnings: string[] = [];
@@ -9886,7 +9963,7 @@ export class CodexService {
             );
           }
         }
-        warnings.push(...(await this.crossHostThreadHandoff.cleanup(prepared, outcome)));
+        warnings.push(...(await this.crossHostThreadHandoff.cleanup(prepared, outcome, signal)));
         return warnings;
       } finally {
         this.managedWorktreeLifecycle.releaseNewborn(
@@ -9908,33 +9985,52 @@ export class CodexService {
         prepared: preparation.prepared,
         outcome,
       },
-      { signal: new AbortController().signal },
+      { signal },
     );
     return result.warnings;
   }
 
   private buildThreadExecutionLocationEffects(): CodexThreadHandoffPromiseEffects {
     return {
-      resolveSource: async (threadId) => await this.resolveThreadExecutionLocation(threadId),
-      readCanonicalLocation: async (threadId) =>
-        await this.resolveThreadExecutionLocation(threadId).catch(() => null),
-      stopActiveTurn: async (threadId) => await this.stopThreadForExecutionHandoff(threadId),
-      prepareDestination: async (entry, onPhase) =>
-        await this.prepareThreadExecutionDestination(entry, onPhase),
-      switchRuntime: async (threadId, location, preparation) =>
-        await this.switchThreadExecutionRuntime(threadId, location, preparation),
-      commitLocation: async (threadId, location) =>
-        await this.commitThreadExecutionLocation(threadId, location),
-      projectLocation: async (threadId, location) =>
-        await this.projectThreadExecutionLocation(threadId, location),
-      transferOwner: async (threadId, preparation) =>
-        await this.transferThreadExecutionOwner(threadId, preparation),
-      cleanup: async (preparation, outcome) =>
-        await this.cleanupThreadExecutionPreparation(preparation, outcome),
-      rollbackPreparation: async (preparation) =>
-        await this.rollbackThreadExecutionPreparation(preparation),
-      sendFollowUp: async (threadId, prompt) => {
+      resolveSource: async (threadId, signal) => {
+        signal.throwIfAborted();
+        return await this.resolveThreadExecutionLocation(threadId);
+      },
+      readCanonicalLocation: async (threadId, signal) => {
+        signal.throwIfAborted();
+        try {
+          const location = await this.resolveThreadExecutionLocation(threadId);
+          signal.throwIfAborted();
+          return location;
+        } catch (error) {
+          signal.throwIfAborted();
+          this.logger.warn("Failed to read canonical task location during handoff recovery", {
+            threadId,
+            error,
+          });
+          return null;
+        }
+      },
+      stopActiveTurn: async (threadId, signal) =>
+        await this.stopThreadForExecutionHandoff(threadId, signal),
+      prepareDestination: async (entry, onPhase, signal) =>
+        await this.prepareThreadExecutionDestination(entry, onPhase, signal),
+      switchRuntime: async (threadId, location, preparation, signal) =>
+        await this.switchThreadExecutionRuntime(threadId, location, preparation, signal),
+      commitLocation: async (threadId, location, signal) =>
+        await this.commitThreadExecutionLocation(threadId, location, signal),
+      projectLocation: async (threadId, location, signal) =>
+        await this.projectThreadExecutionLocation(threadId, location, signal),
+      transferOwner: async (threadId, preparation, signal) =>
+        await this.transferThreadExecutionOwner(threadId, preparation, signal),
+      cleanup: async (preparation, outcome, signal) =>
+        await this.cleanupThreadExecutionPreparation(preparation, outcome, signal),
+      rollbackPreparation: async (preparation, signal) =>
+        await this.rollbackThreadExecutionPreparation(preparation, signal),
+      sendFollowUp: async (threadId, prompt, signal) => {
+        signal.throwIfAborted();
         const result = await this.startTurn(threadId, prompt);
+        signal.throwIfAborted();
         if (!result) throw new Error("The follow-up turn was not accepted after task handoff.");
       },
     };

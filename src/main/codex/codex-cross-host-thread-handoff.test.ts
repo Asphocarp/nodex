@@ -118,6 +118,7 @@ describe("CodexCrossHostThreadHandoffService", () => {
       sourceManagedWorktreePath: null,
       sourceRolloutPath,
       destinationRepositoryPaths: [destination],
+      signal: new AbortController().signal,
       onPathAllocated: ({ worktreeGitRoot }) => allocated.push(worktreeGitRoot),
       onPhase: () => undefined,
     });

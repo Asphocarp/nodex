@@ -2,17 +2,25 @@ import type {
   ClientRequestParamsByMethod,
   ClientRequestResponsesByMethod,
 } from "@nodex/effect-codex-app-server/rpc";
+import type { TurnStartParams as ProtocolTurnStartParams } from "@nodex/codex-app-server-protocol/v2/TurnStartParams";
 import { assert, it } from "@effect/vitest";
+import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
+import {
+  ScopedCallbackRuntime,
+  layer as scopedCallbackRuntimeLive,
+} from "../app/ScopedCallbackRuntime";
 import type { CodexEndpointEvent } from "../codex-runtime/CodexEventHub";
-import { make } from "./CodexHeartbeatTurnCompletion";
+import { CodexHeartbeatTurnCompletion, make } from "./CodexHeartbeatTurnCompletion";
+import { makeCodexHeartbeatTurnCompletionPromiseAdapter } from "./CodexHeartbeatTurnCompletionPromiseAdapter";
 
 type Turn = ClientRequestResponsesByMethod["turn/start"]["turn"];
 type TurnStartParams = ClientRequestParamsByMethod["turn/start"];
@@ -45,6 +53,35 @@ const completed = (
 });
 
 const turnStartParams = { threadId: "thread-1" } as TurnStartParams;
+
+it.effect("propagates Promise caller interruption to heartbeat completion", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const callbackContext = yield* Layer.buildWithScope(scopedCallbackRuntimeLive, scope);
+    const started = yield* Deferred.make<void>();
+    const interrupted = yield* Deferred.make<void>();
+    const runtime = CodexHeartbeatTurnCompletion.of({
+      startAndWait: () =>
+        Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.ensuring(Deferred.succeed(interrupted, undefined)),
+        ) as never,
+    });
+    const adapter = makeCodexHeartbeatTurnCompletionPromiseAdapter(
+      runtime,
+      Context.get(callbackContext, ScopedCallbackRuntime),
+    );
+    const protocolParams = turnStartParams as unknown as ProtocolTurnStartParams;
+    const caller = yield* Effect.forkChild(
+      Effect.promise((signal) => adapter.startAndWait(protocolParams, { signal })),
+    );
+
+    yield* Deferred.await(started);
+    yield* Fiber.interrupt(caller);
+    yield* Deferred.await(interrupted);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
 
 it.effect("buffers early completion and accepts only the exact local turn", () =>
   Effect.gen(function* () {

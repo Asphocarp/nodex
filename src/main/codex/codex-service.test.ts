@@ -984,17 +984,18 @@ const TEST_CODEX_RUNTIME: ResolvedCodexRuntime = {
 };
 
 class TestCodexGatewayPromiseClient implements CodexGatewayPromiseClient {
-  async request<TResult>(method: string, _params?: unknown): Promise<TResult> {
+  async request<TResult>(method: string, _params?: unknown, _options?: unknown): Promise<TResult> {
     throw new Error(`Unexpected client request: ${method}`);
   }
   async requestOnHost<TResult>(
     _hostId: string,
     method: string,
     params?: unknown,
+    _options?: unknown,
   ): Promise<TResult> {
     return await this.request<TResult>(method, params);
   }
-  async start(): Promise<void> {}
+  async start(_options?: unknown): Promise<void> {}
 }
 
 const createTestAutomationModule = (): DesktopAutomationModulePort => ({
@@ -1621,9 +1622,10 @@ function createService(options?: {
   PROJECT_RUNTIME_TEST_HARNESS_RELEASES.push(projectRuntimeLifecycleHarness.close);
   const threadHandoffRuntimeAdapter = {
     start: async (input, effects) => {
-      const source = await effects.resolveSource(input.threadId);
+      const signal = new AbortController().signal;
+      const source = await effects.resolveSource(input.threadId, signal);
       const createdAt = Date.now();
-      await effects.stopActiveTurn(input.threadId);
+      await effects.stopActiveTurn(input.threadId, signal);
       const preparation = await effects.prepareDestination(
         {
           schemaVersion: 1,
@@ -1646,13 +1648,16 @@ function createService(options?: {
           completedAt: null,
         },
         () => undefined,
+        signal,
       );
-      await effects.switchRuntime(input.threadId, preparation.destination, preparation);
-      await effects.commitLocation(input.threadId, preparation.destination);
-      await effects.projectLocation(input.threadId, preparation.destination);
-      await effects.transferOwner(input.threadId, preparation);
-      const warnings = await effects.cleanup(preparation, "committed");
-      if (input.followUpPrompt) await effects.sendFollowUp(input.threadId, input.followUpPrompt);
+      await effects.switchRuntime(input.threadId, preparation.destination, preparation, signal);
+      await effects.commitLocation(input.threadId, preparation.destination, signal);
+      await effects.projectLocation(input.threadId, preparation.destination, signal);
+      await effects.transferOwner(input.threadId, preparation, signal);
+      const warnings = await effects.cleanup(preparation, "committed", signal);
+      if (input.followUpPrompt) {
+        await effects.sendFollowUp(input.threadId, input.followUpPrompt, signal);
+      }
       const completedAt = Date.now();
       return {
         schemaVersion: 1,
@@ -9952,10 +9957,12 @@ describe("codex-service pending managed worktree setup", () => {
     const localWorker: CodexWorktreeWorkerPort = {
       ...createInProcessCodexWorktreeWorkerPort({ hostId: "local" }),
       create: async (_input, options) => {
-        workerState.signal = options.signal;
+        const signal = options.signal;
+        if (!signal) throw new Error("Expected request cancellation signal");
+        workerState.signal = signal;
         const creationGate = new Promise<void>((resolve, reject) => {
           workerState.finishCreation = resolve;
-          options.signal.addEventListener("abort", () => reject(new Error("Request canceled")), {
+          signal.addEventListener("abort", () => reject(new Error("Request canceled")), {
             once: true,
           });
         });

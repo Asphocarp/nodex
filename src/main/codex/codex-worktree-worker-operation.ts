@@ -159,7 +159,8 @@ export async function executeCodexWorktreeWorkerCreate(
 
 export async function executeCodexWorktreeWorkerOperation(
   request: CodexWorktreeWorkerRequest,
-  options: CodexWorktreeWorkerRequestOptions & {
+  options: Omit<CodexWorktreeWorkerRequestOptions, "signal"> & {
+    readonly signal: AbortSignal;
     readonly loadBaseEnvironment?: () => Promise<NodeJS.ProcessEnv>;
   },
 ): Promise<CodexWorktreeWorkerSuccess> {

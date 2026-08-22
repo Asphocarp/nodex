@@ -31,7 +31,7 @@ export type CodexScheduledAutomationIpcChannel =
 export type CodexScheduledAutomationIpcHandler<Channel extends CodexScheduledAutomationIpcChannel> =
   (
     event: unknown,
-    ...args: IpcApi[Channel]["args"]
+    ...args: [...IpcApi[Channel]["args"], signal?: AbortSignal]
   ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
 export interface CodexScheduledAutomationIpcRegistration {
@@ -42,6 +42,7 @@ export interface CodexScheduledAutomationIpcRegistration {
   runScheduledAutomationNow: (
     input: CodexScheduledAutomationRunNowInput,
     rendererClientId: string | null,
+    signal?: AbortSignal,
   ) => Promise<void>;
   automationModule?: DesktopAutomationModulePort;
   prepareCreateInput?: (
@@ -140,10 +141,11 @@ export function registerCodexScheduledAutomationIpcHandlers(
     };
   });
 
-  options.registerHandle("codex:scheduled-automations:run-now", async (event, input) => {
+  options.registerHandle("codex:scheduled-automations:run-now", async (event, input, signal) => {
     await options.runScheduledAutomationNow(
       input,
       options.resolveRendererClientId?.(event) ?? null,
+      signal,
     );
     return { success: true };
   });

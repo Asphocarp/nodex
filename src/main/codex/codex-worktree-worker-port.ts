@@ -378,7 +378,7 @@ export type CodexWorktreeWorkerSuccess =
     };
 
 export interface CodexWorktreeWorkerRequestOptions {
-  readonly signal: AbortSignal;
+  readonly signal?: AbortSignal;
   readonly onEvent: (event: CodexWorktreeWorkerEvent) => void;
 }
 

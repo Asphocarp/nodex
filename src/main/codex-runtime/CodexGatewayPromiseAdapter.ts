@@ -20,17 +20,35 @@ export type ClientRequestParams<TMethod extends ClientRequestMethod> = Extract<
   { method: TMethod }
 >["params"];
 
+export interface CodexGatewayPromiseRequestOptions {
+  readonly signal?: AbortSignal;
+}
+
 /** Stateless Promise projection for the application reducer methods not yet migrated to Gateway. */
 export interface CodexGatewayPromiseClient {
   request<TMethod extends ClientRequestMethod, TResult>(
     method: TMethod,
     ...args: ClientRequestParams<TMethod> extends undefined
-      ? [] | [params: ClientRequestParams<TMethod>]
-      : [params: ClientRequestParams<TMethod>]
+      ?
+          | []
+          | [params: ClientRequestParams<TMethod>]
+          | [params: ClientRequestParams<TMethod>, options: CodexGatewayPromiseRequestOptions]
+      :
+          | [params: ClientRequestParams<TMethod>]
+          | [params: ClientRequestParams<TMethod>, options: CodexGatewayPromiseRequestOptions]
   ): Promise<TResult>;
-  request<TResult>(method: string, params?: unknown): Promise<TResult>;
-  requestOnHost<TResult>(hostId: string, method: string, params?: unknown): Promise<TResult>;
-  start(): Promise<void>;
+  request<TResult>(
+    method: string,
+    params?: unknown,
+    options?: CodexGatewayPromiseRequestOptions,
+  ): Promise<TResult>;
+  requestOnHost<TResult>(
+    hostId: string,
+    method: string,
+    params?: unknown,
+    options?: CodexGatewayPromiseRequestOptions,
+  ): Promise<TResult>;
+  start(options?: CodexGatewayPromiseRequestOptions): Promise<void>;
 }
 
 const directThreadId = (params: unknown): string | null => {
@@ -57,6 +75,7 @@ export const makeCodexGatewayPromiseClient = (
     hostId: string,
     method: string,
     params?: unknown,
+    options?: CodexGatewayPromiseRequestOptions,
   ): Promise<TResult> => {
     const request = gateway.requestOnHost as (
       hostId: string,
@@ -64,14 +83,20 @@ export const makeCodexGatewayPromiseClient = (
       params: never,
     ) => Effect.Effect<unknown, CodexRuntimeFailure>;
     return (await callbacks
-      .runPromise(request(hostId, method as EffectClientRequestMethod, params as never))
+      .runPromise(request(hostId, method as EffectClientRequestMethod, params as never), options)
       .catch((error: unknown) => Promise.reject(legacyRequestError(error)))) as TResult;
   };
 
   return {
-    request: async <TResult>(method: string, params?: unknown): Promise<TResult> => {
+    request: async <TResult>(
+      method: string,
+      params?: unknown,
+      options?: CodexGatewayPromiseRequestOptions,
+    ): Promise<TResult> => {
       const threadId = directThreadId(params);
-      if (threadId === null) return await requestOnHost(gateway.localHostId, method, params);
+      if (threadId === null) {
+        return await requestOnHost(gateway.localHostId, method, params, options);
+      }
       const request = gateway.requestForThread as <M extends EffectClientRequestMethod>(
         threadId: string,
         method: M,
@@ -84,12 +109,13 @@ export const makeCodexGatewayPromiseClient = (
             method as EffectClientRequestMethod,
             params as ClientRequestParamsByMethod[EffectClientRequestMethod],
           ),
+          options,
         )
         .catch((error: unknown) => Promise.reject(legacyRequestError(error)))) as TResult;
     },
     requestOnHost,
-    start: async () => {
-      await callbacks.runPromise(gateway.awaitReady(gateway.localHostId));
+    start: async (options) => {
+      await callbacks.runPromise(gateway.awaitReady(gateway.localHostId), options);
     },
   };
 };

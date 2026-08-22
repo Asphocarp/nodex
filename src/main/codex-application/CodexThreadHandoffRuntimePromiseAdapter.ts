@@ -17,40 +17,51 @@ import {
 } from "./CodexThreadHandoffRuntime";
 
 export interface CodexThreadHandoffPromiseEffects {
-  readonly resolveSource: (threadId: string) => Promise<CodexThreadExecutionLocation>;
+  readonly resolveSource: (
+    threadId: string,
+    signal: AbortSignal,
+  ) => Promise<CodexThreadExecutionLocation>;
   readonly readCanonicalLocation: (
     threadId: string,
+    signal: AbortSignal,
   ) => Promise<CodexThreadExecutionLocation | null>;
-  readonly stopActiveTurn: (threadId: string) => Promise<void>;
+  readonly stopActiveTurn: (threadId: string, signal: AbortSignal) => Promise<void>;
   readonly prepareDestination: (
     entry: Parameters<CodexThreadHandoffEffects["prepareDestination"]>[0],
     onPhase: (phase: string, status: "running" | "success" | "error") => void,
+    signal: AbortSignal,
   ) => Promise<CodexThreadHandoffPreparation>;
   readonly switchRuntime: (
     threadId: string,
     location: CodexThreadExecutionLocation,
     preparation: CodexThreadHandoffPreparation | null,
+    signal: AbortSignal,
   ) => Promise<void>;
   readonly commitLocation: (
     threadId: string,
     location: CodexThreadExecutionLocation,
+    signal: AbortSignal,
   ) => Promise<void>;
   readonly projectLocation: (
     threadId: string,
     location: CodexThreadExecutionLocation,
+    signal: AbortSignal,
   ) => Promise<void>;
   readonly transferOwner: (
     threadId: string,
     preparation: CodexThreadHandoffPreparation,
+    signal: AbortSignal,
   ) => Promise<void>;
   readonly cleanup: (
     preparation: CodexThreadHandoffPreparation,
     outcome: "committed" | "rolled-back",
+    signal: AbortSignal,
   ) => Promise<readonly string[]>;
   readonly rollbackPreparation: (
     preparation: CodexThreadHandoffPreparation,
+    signal: AbortSignal,
   ) => Promise<readonly string[]>;
-  readonly sendFollowUp: (threadId: string, prompt: string) => Promise<void>;
+  readonly sendFollowUp: (threadId: string, prompt: string, signal: AbortSignal) => Promise<void>;
 }
 
 export interface CodexThreadHandoffRuntimePromiseAdapter {
@@ -78,32 +89,40 @@ const toEffectEffects = (
   effects: CodexThreadHandoffPromiseEffects,
   callbacks: Pick<ScopedCallbackRuntime["Service"], "fork">,
 ): CodexThreadHandoffEffects => {
-  const attempt = <A>(operation: () => Promise<A>) =>
+  const attempt = <A>(operation: (signal: AbortSignal) => Promise<A>) =>
     Effect.tryPromise({
       try: operation,
       catch: (cause) => new CodexThreadHandoffEffectError({ cause }),
     });
   return {
-    resolveSource: (threadId) => attempt(() => effects.resolveSource(threadId)),
-    readCanonicalLocation: (threadId) => attempt(() => effects.readCanonicalLocation(threadId)),
-    stopActiveTurn: (threadId) => attempt(() => effects.stopActiveTurn(threadId)),
+    resolveSource: (threadId) => attempt((signal) => effects.resolveSource(threadId, signal)),
+    readCanonicalLocation: (threadId) =>
+      attempt((signal) => effects.readCanonicalLocation(threadId, signal)),
+    stopActiveTurn: (threadId) => attempt((signal) => effects.stopActiveTurn(threadId, signal)),
     prepareDestination: (entry, onPhase) =>
-      attempt(() =>
-        effects.prepareDestination(entry, (phase, status) => {
-          callbacks.fork(onPhase(phase, status));
-        }),
+      attempt((signal) =>
+        effects.prepareDestination(
+          entry,
+          (phase, status) => {
+            callbacks.fork(onPhase(phase, status));
+          },
+          signal,
+        ),
       ),
     switchRuntime: (threadId, location, preparation) =>
-      attempt(() => effects.switchRuntime(threadId, location, preparation)),
+      attempt((signal) => effects.switchRuntime(threadId, location, preparation, signal)),
     commitLocation: (threadId, location) =>
-      attempt(() => effects.commitLocation(threadId, location)),
+      attempt((signal) => effects.commitLocation(threadId, location, signal)),
     projectLocation: (threadId, location) =>
-      attempt(() => effects.projectLocation(threadId, location)),
+      attempt((signal) => effects.projectLocation(threadId, location, signal)),
     transferOwner: (threadId, preparation) =>
-      attempt(() => effects.transferOwner(threadId, preparation)),
-    cleanup: (preparation, outcome) => attempt(() => effects.cleanup(preparation, outcome)),
-    rollbackPreparation: (preparation) => attempt(() => effects.rollbackPreparation(preparation)),
-    sendFollowUp: (threadId, prompt) => attempt(() => effects.sendFollowUp(threadId, prompt)),
+      attempt((signal) => effects.transferOwner(threadId, preparation, signal)),
+    cleanup: (preparation, outcome) =>
+      attempt((signal) => effects.cleanup(preparation, outcome, signal)),
+    rollbackPreparation: (preparation) =>
+      attempt((signal) => effects.rollbackPreparation(preparation, signal)),
+    sendFollowUp: (threadId, prompt) =>
+      attempt((signal) => effects.sendFollowUp(threadId, prompt, signal)),
   };
 };
 

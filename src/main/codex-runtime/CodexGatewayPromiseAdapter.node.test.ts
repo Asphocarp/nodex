@@ -1,6 +1,8 @@
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -53,6 +55,47 @@ it.effect("routes thread requests through Gateway authority and global requests 
     assert.deepEqual(threadResult, { source: "thread-a" });
     assert.deepEqual(localResult, { source: "local" });
     assert.deepEqual(calls, ["thread:thread-a:thread/read", "host:local:config/read"]);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("propagates Promise boundary cancellation to the Gateway request fiber", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const callbackContext = yield* Layer.buildWithScope(scopedCallbackRuntimeLive, scope);
+    const started = yield* Deferred.make<void>();
+    const interrupted = yield* Deferred.make<void>();
+    const unsupported = () => Effect.die(new Error("Unsupported test operation"));
+    const gateway = CodexGateway.of({
+      localHostId: "local",
+      events: Stream.empty,
+      requestLocal: unsupported,
+      requestOnHost: () =>
+        Deferred.succeed(started, undefined).pipe(
+          Effect.andThen(Effect.never),
+          Effect.ensuring(Deferred.succeed(interrupted, undefined)),
+        ) as never,
+      requestForThread: unsupported,
+      notifyLocal: unsupported,
+      connection: unsupported,
+      connectionChanges: () => Stream.empty,
+      awaitReady: () => Effect.void,
+      reconcileHost: unsupported,
+      removeHost: unsupported,
+      restartHost: unsupported,
+    });
+    const client = makeCodexGatewayPromiseClient(
+      gateway,
+      Context.get(callbackContext, ScopedCallbackRuntime),
+    );
+    const caller = yield* Effect.forkChild(
+      Effect.promise((signal) =>
+        client.requestOnHost("local", "config/read", { includeLayers: false }, { signal }),
+      ),
+    );
+    yield* Deferred.await(started);
+    yield* Fiber.interrupt(caller);
+    yield* Deferred.await(interrupted);
     yield* Scope.close(scope, Exit.void);
   }),
 );

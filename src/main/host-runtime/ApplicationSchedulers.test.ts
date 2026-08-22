@@ -113,6 +113,7 @@ const buildHarness = (input: {
   readonly runScheduledAutomation?: (
     automation: CodexScheduledAutomation,
     context: CodexScheduledAutomationRunContext,
+    signal: AbortSignal,
   ) => Promise<void>;
   readonly settled?: () => void;
   readonly readBlockRetentionCount?: () => number;
@@ -410,6 +411,7 @@ it.effect("returns an admitted automation lease when its Main Scope closes", () 
   Effect.gen(function* () {
     const failures: Array<{ leaseId: string; reason: string }> = [];
     let runStarted = false;
+    const runSignals: AbortSignal[] = [];
     const automation = {
       ...defaultAutomation(),
       claimDueDefinitions: async () => [
@@ -421,8 +423,9 @@ it.effect("returns an admitted automation lease when its Main Scope closes", () 
     } as unknown as DesktopAutomationModulePort;
     const harness = yield* buildHarness({
       automation,
-      runScheduledAutomation: () => {
+      runScheduledAutomation: (_automation, _context, signal) => {
         runStarted = true;
+        runSignals.push(signal);
         return new Promise<void>(() => undefined);
       },
     });
@@ -430,6 +433,7 @@ it.effect("returns an admitted automation lease when its Main Scope closes", () 
     yield* waitUntil("scheduled shutdown run", () => runStarted);
 
     yield* Scope.close(harness.scope, Exit.void);
+    assert.isTrue(runSignals[0]?.aborted ?? false);
     assert.deepEqual(failures, [{ leaseId: "lease:shutdown", reason: "scheduler_stopped" }]);
   }),
 );

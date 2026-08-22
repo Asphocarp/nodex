@@ -874,6 +874,13 @@ Journal mutation is serialized and durable-first: a failed publication cannot
 advance the in-memory authority. Startup recovery, rollback, operation status,
 revision waiting, and bounded completed-status retention use the same runtime;
 there is no parallel Promise queue, waiter registry, or timer in `CodexService`.
+Every remaining Promise-shaped Codex or worker effect receives the current
+transaction fiber's `AbortSignal`. Closing Main's Scope therefore interrupts the
+physical request instead of merely abandoning its result, while the durable
+journal remains the recovery authority. A cross-host preparation that may have
+partially committed performs deterministic, operation-fenced compensation through
+the destination host Scope without reusing the already-aborted request signal; this
+best-effort cleanup is not a second handoff owner.
 
 After creation, `ManagedWorktreeRuntime` owns physical lifecycle routing,
 normalized single-flight removal, newborn protection, inspection, restoration,
@@ -938,7 +945,10 @@ Store-wide permit, and backup configuration replacement interrupts the previous
 schedule through one `FiberHandle`. Core remains the durable definition and
 lease authority. Core recovery triggers an immediate reminder and automation
 pass, while Main Scope closure interrupts every schedule and returns admitted
-leases. `DesktopNotificationRuntime` is the sole registry for active operating-system notification
+leases. Scheduled Codex execution receives the owning schedule fiber's
+`AbortSignal` through the temporary Promise adapter, and passes it unchanged to
+Gateway and worktree requests. Shutdown therefore cancels active external work
+in addition to stopping future ticks. `DesktopNotificationRuntime` is the sole registry for active operating-system notification
 occurrences and their Electron callbacks. It derives platform, home, packaged resources, and
 development resources from immutable `MainConfig`, fences action admission before Scope release,
 withdraws each application occurrence exactly once, and closes every remaining native object in its

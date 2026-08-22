@@ -25,7 +25,7 @@ export interface PrepareCodexCrossHostThreadHandoffInput {
     readonly worktreeGitRoot: string;
   }) => void;
   readonly onPhase: (phase: string, status: "running" | "success" | "error") => void;
-  readonly signal?: AbortSignal;
+  readonly signal: AbortSignal;
 }
 
 function isWithin(parentPath: string, candidatePath: string): boolean {
@@ -114,7 +114,7 @@ export class CodexCrossHostThreadHandoffService {
           stagingRoot: sourceStagingRoot,
         },
         {
-          signal: input.signal ?? new AbortController().signal,
+          signal: input.signal,
           onEvent: (event) => {
             if (event.type !== "handoff-progress") return;
             input.onPhase(
@@ -181,7 +181,7 @@ export class CodexCrossHostThreadHandoffService {
           threadTitle: input.threadTitle,
         },
         {
-          signal: input.signal ?? new AbortController().signal,
+          signal: input.signal,
           onEvent: (event) => {
             if (event.type === "path-allocated") {
               input.onPathAllocated({
@@ -256,6 +256,7 @@ export class CodexCrossHostThreadHandoffService {
   async cleanup(
     prepared: CodexCrossHostPreparedHandoff,
     outcome: "committed" | "rolled-back",
+    signal?: AbortSignal,
   ): Promise<readonly string[]> {
     const warnings: string[] = [];
     const sourceWorker = this.options.executionHosts.requireWorktreeWorker(
@@ -266,7 +267,6 @@ export class CodexCrossHostThreadHandoffService {
       prepared.destinationHostId,
       "cleanup-transfer-handoff",
     );
-    const requestSignal = new AbortController().signal;
     const collect = async (
       label: string,
       operation: () => Promise<readonly string[]>,
@@ -296,7 +296,7 @@ export class CodexCrossHostThreadHandoffService {
           ),
           outcome,
         },
-        { signal: requestSignal },
+        signal ? { signal } : undefined,
       );
       return result.warnings;
     });
@@ -315,7 +315,7 @@ export class CodexCrossHostThreadHandoffService {
           destinationCodexHome: null,
           outcome,
         },
-        { signal: requestSignal },
+        signal ? { signal } : undefined,
       );
       return result.warnings;
     });
@@ -373,7 +373,7 @@ export class CodexCrossHostThreadHandoffService {
               destinationCodexHome: input.destinationCodexHome,
               outcome: "rolled-back",
             },
-            { signal: new AbortController().signal },
+            undefined,
           );
         warnings.push(...result.warnings);
       } catch (error) {
@@ -409,7 +409,7 @@ export class CodexCrossHostThreadHandoffService {
                 destinationCodexHome: input.destinationCodexHome,
                 outcome: "rolled-back",
               },
-              { signal: new AbortController().signal },
+              undefined,
             );
           warnings.push(...result.warnings);
         } catch (error) {
@@ -435,7 +435,7 @@ export class CodexCrossHostThreadHandoffService {
               destinationCodexHome: null,
               outcome: "rolled-back",
             },
-            { signal: new AbortController().signal },
+            undefined,
           );
         warnings.push(...result.warnings);
       } catch (error) {

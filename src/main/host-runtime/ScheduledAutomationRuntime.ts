@@ -34,6 +34,7 @@ export interface ScheduledAutomationRuntimeOptions {
   readonly run: (
     automation: CodexScheduledAutomation,
     context: CodexScheduledAutomationRunContext,
+    signal: AbortSignal,
   ) => Promise<void>;
   readonly notifyRunsUpdated: () => void;
   readonly intervalMs?: number;
@@ -129,21 +130,25 @@ export const live = (
           if (!(yield* authorityReady)) {
             return yield* failClaim(claim.leaseId, intervalMs, "core_authority_unavailable");
           }
-          const execution = fromSchedulerPromise("run-scheduled-automation", () =>
-            options.run(claim.definition, {
-              now: tickNow,
-              reason: "scheduled",
-              leaseId: claim.leaseId,
-              ...(claim.definition.kind === "heartbeat"
-                ? {
-                    heartbeat: heartbeatRunContext({
-                      automation: claim.definition,
-                      state,
-                      now: tickNow,
-                    }),
-                  }
-                : {}),
-            }),
+          const execution = fromSchedulerPromise("run-scheduled-automation", (signal) =>
+            options.run(
+              claim.definition,
+              {
+                now: tickNow,
+                reason: "scheduled",
+                leaseId: claim.leaseId,
+                ...(claim.definition.kind === "heartbeat"
+                  ? {
+                      heartbeat: heartbeatRunContext({
+                        automation: claim.definition,
+                        state,
+                        now: tickNow,
+                      }),
+                    }
+                  : {}),
+              },
+              signal,
+            ),
           ).pipe(
             Effect.andThen(
               fromSchedulerPromise("complete-automation-claim", () =>

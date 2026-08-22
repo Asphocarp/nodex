@@ -14,7 +14,10 @@ export class ScopedCallbackRuntime extends Context.Service<
   ScopedCallbackRuntime,
   {
     readonly fork: <A, E>(effect: Effect.Effect<A, E>) => Fiber.Fiber<A, E> | null;
-    readonly runPromise: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
+    readonly runPromise: <A, E>(
+      effect: Effect.Effect<A, E>,
+      options?: Effect.RunOptions,
+    ) => Promise<A>;
   }
 >()("nodex/main/app/ScopedCallbackRuntime") {}
 
@@ -39,9 +42,9 @@ export const layer: Layer.Layer<ScopedCallbackRuntime> = Layer.effect(
         if (!accepting) return null;
         return runFork(effect) as Fiber.Fiber<A, E>;
       },
-      runPromise: <A, E>(effect: Effect.Effect<A, E>) => {
+      runPromise: <A, E>(effect: Effect.Effect<A, E>, options?: Effect.RunOptions) => {
         if (!accepting) return Promise.reject(new CallbackRuntimeClosedError());
-        return runPromise(effect) as Promise<A>;
+        return runPromise(effect, options) as Promise<A>;
       },
     });
   }),
