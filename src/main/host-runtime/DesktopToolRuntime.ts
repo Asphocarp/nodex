@@ -32,9 +32,12 @@ export interface DesktopToolRuntimeSnapshot {
 }
 
 export interface BrowserUseTurnLifecyclePort {
-  readonly releaseSession?: (sessionId: string) => Promise<void> | void;
-  readonly turnEnded: (input: { sessionId: string; turnId: string }) => Promise<void> | void;
-  readonly turnStarted: (input: { sessionId: string; turnId: string }) => Promise<void> | void;
+  readonly releaseSession?: (sessionId: string) => Effect.Effect<void, Error>;
+  readonly turnEnded: (input: { sessionId: string; turnId: string }) => Effect.Effect<void, Error>;
+  readonly turnStarted: (input: {
+    sessionId: string;
+    turnId: string;
+  }) => Effect.Effect<void, Error>;
 }
 
 export interface BrowserUseRoutePromoterPort {
@@ -43,7 +46,7 @@ export interface BrowserUseRoutePromoterPort {
     browserViewScopeId: string;
     codexSessionId: string;
     projectId: string | null;
-  }) => Promise<void>;
+  }) => Effect.Effect<void, Error>;
 }
 
 export interface BrowserUseRuntimeBindings {
@@ -112,15 +115,14 @@ const make = (options: DesktopToolRuntimeLayerOptions) =>
     const browserUseBindings = yield* Ref.make<BrowserUseRuntimeBindings | null>(null);
     const runBrowserUse = (
       operation: string,
-      callback: (bindings: BrowserUseRuntimeBindings) => Promise<void> | void,
+      callback: (bindings: BrowserUseRuntimeBindings) => Effect.Effect<void, Error> | undefined,
     ): Effect.Effect<void, DesktopToolRuntimeError> =>
       Ref.get(browserUseBindings).pipe(
         Effect.flatMap((bindings) => {
           if (!bindings) return Effect.void;
-          return Effect.tryPromise({
-            try: async () => await callback(bindings),
-            catch: (cause) => new DesktopToolRuntimeError({ operation, cause }),
-          });
+          return (callback(bindings) ?? Effect.void).pipe(
+            Effect.mapError((cause) => new DesktopToolRuntimeError({ operation, cause })),
+          );
         }),
       );
     const snapshot = Effect.gen(function* () {

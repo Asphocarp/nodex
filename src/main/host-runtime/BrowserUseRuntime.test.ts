@@ -43,27 +43,22 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
       },
     };
     const events: string[] = [];
-    const registry: ReturnType<BrowserUseRuntimePorts["makeRegistry"]> = {
-      availableBackends: () => ["iab"],
-      captureRoute: async () => {
-        events.push("capture");
-      },
-      dispose: async () => {
-        events.push("dispose");
-      },
-      notifyCursorArrived: () => {
-        events.push("cursor");
-      },
-      releaseOwner: async () => {
-        events.push("release-owner");
-      },
-      releaseSession: async () => undefined,
-      turnEnded: async () => undefined,
-      turnStarted: () => undefined,
+    const registry = {
+      availableBackends: () => ["iab"] as const,
+      captureRoute: () => Effect.sync(() => void events.push("capture")),
+      notifyCursorArrived: () => Effect.sync(() => void events.push("cursor")),
+      releaseOwner: () => Effect.sync(() => void events.push("release-owner")),
+      releaseSession: () => Effect.void,
+      turnEnded: () => Effect.void,
+      turnStarted: () => Effect.void,
     };
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(
-      testLayer({ browserSidebar: sidebar, desktopTools, makeRegistry: () => registry }),
+      testLayer({
+        browserSidebar: sidebar,
+        desktopTools,
+        makeRegistry: () => Effect.succeed(registry),
+      }),
       scope,
     );
     const runtime = Context.get(context, BrowserUseRuntime);
@@ -111,6 +106,5 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
     assert.strictEqual(listeners.size, 0);
     assert.deepEqual(resolver(), []);
     assert.strictEqual(cleared, 1);
-    assert.include(events, "dispose");
   }),
 );

@@ -158,6 +158,15 @@ window focus/closed and WebContents destroyed listener by Window identity and
 removes the whole registration on window removal or Main Scope release. Gateway
 notifications and Browser Use refresh signals enter the same runtime owner.
 
+Browser Use sessions are a process-scoped keyed resource family. An infinite-idle
+`LayerMap` owns one IAB API, native pipe server, CDP listener, and turn sequencer per
+captured route generation; session release, renderer-owner release, provisional-route
+replacement, and Main shutdown invalidate that exact generation. Route mutation is
+single-writer and every turn completes through the session's own semaphore. Browser
+Use application Modules exchange typed Effects; Promise exists only at the sidebar
+route callback and native pipe/API adapters, where callback fibers belong to the
+session or installation Scope.
+
 The MCP App sandbox coordinator owns its protocol cache together with Electron session policy,
 guest hosts, pending attachments, and protocol handlers. Skybridge fetches are shared only within
 that coordinator lifetime; releasing the Main Scope aborts in-flight fetches and clears cached

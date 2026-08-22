@@ -65,20 +65,16 @@ it.effect("owns desktop plugin readiness and derives one coherent snapshot", () 
     const browserEvents: string[] = [];
     yield* runtime.installBrowserUseBindings({
       lifecycle: {
-        releaseSession: (sessionId) => {
-          browserEvents.push(`release:${sessionId}`);
-        },
-        turnEnded: ({ sessionId, turnId }) => {
-          browserEvents.push(`ended:${sessionId}:${turnId}`);
-        },
-        turnStarted: ({ sessionId, turnId }) => {
-          browserEvents.push(`started:${sessionId}:${turnId}`);
-        },
+        releaseSession: (sessionId) =>
+          Effect.sync(() => void browserEvents.push(`release:${sessionId}`)),
+        turnEnded: ({ sessionId, turnId }) =>
+          Effect.sync(() => void browserEvents.push(`ended:${sessionId}:${turnId}`)),
+        turnStarted: ({ sessionId, turnId }) =>
+          Effect.sync(() => void browserEvents.push(`started:${sessionId}:${turnId}`)),
       },
       routePromoter: {
-        promote: async ({ codexSessionId }) => {
-          browserEvents.push(`promote:${codexSessionId}`);
-        },
+        promote: ({ codexSessionId }) =>
+          Effect.sync(() => void browserEvents.push(`promote:${codexSessionId}`)),
       },
     });
     yield* runtime.turnStarted({ sessionId: "thread-1", turnId: "turn-1" });
