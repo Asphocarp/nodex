@@ -18644,7 +18644,7 @@ describe("codex-service terminal turn reconciliation", () => {
 });
 
 describe("codex-service managed worktree inventory", () => {
-  test("deduplicates thread inspection and restores through the owning host", async () => {
+  test("resolves thread inspection and restoration through the owning host", async () => {
     const worktreePath = "/managed/a1b2/repository";
     const thread = makeDesktopWorkspaceThread({
       threadId: "thread-restore",
@@ -18700,14 +18700,10 @@ describe("codex-service managed worktree inventory", () => {
     (service as unknown as CodexService).setWorktreeWorkerPort("local", worker, "/managed");
 
     try {
-      const first = service.inspectThreadManagedWorktree(thread.threadId);
-      const second = service.inspectThreadManagedWorktree(thread.threadId);
+      const inspection = service.inspectThreadManagedWorktree(thread.threadId);
       await Promise.resolve();
       releaseInspection();
-      await expect(Promise.all([first, second])).resolves.toEqual([
-        expect.objectContaining({ state: "restorable" }),
-        expect.objectContaining({ state: "restorable" }),
-      ]);
+      await expect(inspection).resolves.toEqual(expect.objectContaining({ state: "restorable" }));
       expect(inspect).toHaveBeenCalledOnce();
       expect(inspect).toHaveBeenCalledWith(
         expect.objectContaining({

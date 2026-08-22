@@ -102,10 +102,17 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
     const executionHosts = yield* ExecutionHostRuntime;
     const scope = yield* Scope.Scope;
     const removalLock = yield* Semaphore.make(1);
+    const inspectionLock = yield* Semaphore.make(1);
     const removals = yield* Ref.make<
       ReadonlyMap<
         string,
         Deferred.Deferred<CodexWorktreeWorkerRemoveResult, ManagedWorktreeRuntimeError>
+      >
+    >(new Map());
+    const inspections = yield* Ref.make<
+      ReadonlyMap<
+        string,
+        Deferred.Deferred<CodexWorktreeWorkerInspectResult, ManagedWorktreeRuntimeError>
       >
     >(new Map());
     const newborns = new Set<string>();
@@ -132,6 +139,14 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
         try: () => executionHosts.registry.resolveManagedRoot(hostId, worktreeGitRoot),
         catch: (cause) => error("resolve-managed-root", hostId, cause, worktreeGitRoot),
       });
+    const inspectionKey = (input: ManagedWorktreeInspectInput): string =>
+      [
+        key(input.hostId, input.worktreeGitRoot),
+        normalizeWorktreePathForIdentity(path.resolve(input.cwd)),
+        ...input.candidateRepositoryPaths
+          .map((candidate) => normalizeWorktreePathForIdentity(path.resolve(candidate)))
+          .sort(),
+      ].join("\0");
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
@@ -207,10 +222,12 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
         return yield* Deferred.await(deferred);
       });
 
-    const inspect = (
+    const runInspection = Effect.fn("ManagedWorktreeRuntime.runInspection")(function* (
       input: ManagedWorktreeInspectInput,
-    ): Effect.Effect<CodexWorktreeWorkerInspectResult, ManagedWorktreeRuntimeError> =>
-      Effect.gen(function* () {
+      operationKey: string,
+      deferred: Deferred.Deferred<CodexWorktreeWorkerInspectResult, ManagedWorktreeRuntimeError>,
+    ) {
+      const operation = Effect.gen(function* () {
         const target = yield* worker(input.hostId, "inspect");
         const root = yield* managedRoot(input.hostId, input.worktreeGitRoot);
         return yield* Effect.tryPromise({
@@ -228,6 +245,40 @@ export const live: Layer.Layer<ManagedWorktreeRuntime, never, ExecutionHostRunti
             ),
           catch: (cause) => error("inspect", input.hostId, cause, input.worktreeGitRoot),
         });
+      }).pipe(
+        Effect.ensuring(
+          Ref.update(inspections, (current) => {
+            if (current.get(operationKey) !== deferred) return current;
+            const next = new Map(current);
+            next.delete(operationKey);
+            return next;
+          }),
+        ),
+        Effect.onExit((exit) => Deferred.done(deferred, exit)),
+      );
+      yield* Effect.forkIn(operation, scope, { startImmediately: true });
+    });
+
+    const inspect = (
+      input: ManagedWorktreeInspectInput,
+    ): Effect.Effect<CodexWorktreeWorkerInspectResult, ManagedWorktreeRuntimeError> =>
+      Effect.gen(function* () {
+        const operationKey = inspectionKey(input);
+        const deferred = yield* inspectionLock.withPermits(1)(
+          Effect.gen(function* () {
+            const current = yield* Ref.get(inspections);
+            const existing = current.get(operationKey);
+            if (existing !== undefined) return existing;
+            const created = yield* Deferred.make<
+              CodexWorktreeWorkerInspectResult,
+              ManagedWorktreeRuntimeError
+            >();
+            yield* Ref.update(inspections, (state) => new Map(state).set(operationKey, created));
+            yield* runInspection(input, operationKey, created);
+            return created;
+          }),
+        );
+        return yield* Deferred.await(deferred);
       });
 
     const list = (

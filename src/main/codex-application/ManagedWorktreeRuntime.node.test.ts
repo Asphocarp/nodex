@@ -10,7 +10,10 @@ import type { CodexSshExecutionHostConfig } from "../../shared/types";
 import { CodexExecutionHostRegistry } from "../codex/codex-execution-host-registry";
 import { snapshotPolicyForManagedWorktreeRemoval } from "../codex/codex-managed-worktree-lifecycle";
 import { createInProcessCodexWorktreeWorkerPort } from "../codex/codex-worktree-worker-operation";
-import type { CodexWorktreeWorkerPort } from "../codex/codex-worktree-worker-port";
+import type {
+  CodexWorktreeWorkerInspectResult,
+  CodexWorktreeWorkerPort,
+} from "../codex/codex-worktree-worker-port";
 import { ExecutionHostRuntime } from "./ExecutionHostRuntime";
 import {
   ManagedWorktreeRuntime,
@@ -24,7 +27,7 @@ const makeExecutionHosts = (worker: CodexWorktreeWorkerPort) =>
       hostId: "local",
       managedRoot: "/managed",
       worktreeWorker: worker,
-      capabilities: ["remove"],
+      capabilities: ["remove", "inspect"],
     });
     const activeSshHosts = yield* SubscriptionRef.make<
       ReadonlyMap<string, CodexSshExecutionHostConfig>
@@ -36,6 +39,15 @@ const makeExecutionHosts = (worker: CodexWorktreeWorkerPort) =>
       reconcile: () => Effect.void,
       updateSettings: () => Effect.succeed({ sshHosts: [] }),
     });
+  });
+
+const waitUntil = (label: string, predicate: () => boolean): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (predicate()) return;
+      yield* Effect.yieldNow;
+    }
+    return yield* Effect.die(new Error(`Managed Worktree test did not settle: ${label}`));
   });
 
 it.effect("maps every removal reason to a closed snapshot policy", () =>
@@ -98,13 +110,85 @@ it.effect("owns one physical removal per host/path and clears newborn protection
       }),
       { startImmediately: true },
     );
-    yield* Effect.yieldNow;
+    yield* waitUntil("physical removal start", () => removeCalls === 1);
     assert.strictEqual(removeCalls, 1);
     resolveRemoval();
     const [firstResult, secondResult] = yield* Effect.all([Fiber.join(first), Fiber.join(second)]);
     assert.isTrue(firstResult.removed);
     assert.deepEqual(secondResult, firstResult);
     assert.isFalse(managed.legacyNewborns.has("local", "/managed/abcd/repo"));
+
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("keeps coalesced inspection alive after caller cancellation and evicts completion", () =>
+  Effect.gen(function* () {
+    let inspectCalls = 0;
+    let resolveInspection!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      resolveInspection = resolve;
+    });
+    const result = {
+      availability: {
+        state: "restorable",
+        repositoryPath: "/repositories/repository",
+        snapshotRef: "refs/nodex/snapshots/one",
+      },
+    } satisfies CodexWorktreeWorkerInspectResult;
+    const base = createInProcessCodexWorktreeWorkerPort({ hostId: "local" });
+    const worker = {
+      ...base,
+      inspect: async () => {
+        inspectCalls += 1;
+        if (inspectCalls === 1) await gate;
+        return result;
+      },
+    } as CodexWorktreeWorkerPort;
+    const executionHosts = yield* makeExecutionHosts(worker);
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(
+      managedWorktreeRuntimeLive.pipe(
+        Layer.provide(Layer.succeed(ExecutionHostRuntime, executionHosts)),
+      ),
+      scope,
+    );
+    const managed = Context.get(context, ManagedWorktreeRuntime);
+    const first = yield* Effect.forkChild(
+      managed.inspect({
+        hostId: "local",
+        worktreeGitRoot: "/managed/abcd/repository",
+        cwd: "/managed/abcd/repository/packages/app",
+        candidateRepositoryPaths: ["/repositories/secondary", "/repositories/repository"],
+      }),
+      { startImmediately: true },
+    );
+    const second = yield* Effect.forkChild(
+      managed.inspect({
+        hostId: "local",
+        worktreeGitRoot: "/managed/abcd/./repository",
+        cwd: "/managed/abcd/repository/packages/./app",
+        candidateRepositoryPaths: ["/repositories/repository", "/repositories/secondary"],
+      }),
+      { startImmediately: true },
+    );
+    yield* waitUntil("physical inspection start", () => inspectCalls === 1);
+    assert.strictEqual(inspectCalls, 1);
+    yield* Fiber.interrupt(first);
+    assert.strictEqual(inspectCalls, 1);
+    resolveInspection();
+    assert.deepEqual(yield* Fiber.join(second), result);
+
+    assert.deepEqual(
+      yield* managed.inspect({
+        hostId: "local",
+        worktreeGitRoot: "/managed/abcd/repository",
+        cwd: "/managed/abcd/repository/packages/app",
+        candidateRepositoryPaths: ["/repositories/repository", "/repositories/secondary"],
+      }),
+      result,
+    );
+    assert.strictEqual(inspectCalls, 2);
 
     yield* Scope.close(scope, Exit.void);
   }),

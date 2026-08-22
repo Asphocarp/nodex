@@ -595,9 +595,13 @@ ready; renderer and Core never receive SSH credentials or arbitrary commands.
 
 After creation, `ManagedWorktreeRuntime` owns physical lifecycle routing,
 normalized single-flight removal, newborn protection, inspection, restoration,
-and ownership metadata. Its Scope owns in-flight worker operations, so Main
-shutdown interrupts them through the same worker cancellation channel. The
-owning execution-host worker alone mutates Git, files, and scripts.
+and ownership metadata. Concurrent inspections with the same normalized
+host/worktree/cwd/candidate-roots identity share one active physical worker
+operation; completion evicts that operation rather than caching repository
+state. Shared operations belong to the Module Scope rather than to the first
+caller, so caller interruption only stops waiting while Main shutdown
+interrupts the worker through the same cancellation channel. The owning
+execution-host worker alone mutates Git, files, and scripts.
 `ManagedWorktreeRetentionRuntime` owns retention admission, the fixed coalescing
 window, single-flight execution, and Scope cancellation; policy evaluation still
 combines the physical lifecycle Interface with durable Core metadata and active

@@ -2585,10 +2585,6 @@ export class CodexService extends EventEmitter {
   private readonly databaseNotifier: DatabaseNotifier;
   private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
   private readonly threadExecutionLocationService: CodexThreadExecutionLocationService;
-  private readonly managedWorktreeInspectionByThreadId = new Map<
-    string,
-    Promise<ManagedWorktreeAvailability>
-  >();
   private readonly browserTransferRuntime: CodexServiceOptions["browserTransferRuntime"];
   private readonly browserTransferStateReader: CodexServiceOptions["browserTransferStateReader"];
   private forkSidePanelTransferLifecycle: CodexServiceOptions["forkSidePanelTransferLifecycle"];
@@ -9258,29 +9254,18 @@ export class CodexService extends EventEmitter {
   async inspectThreadManagedWorktree(threadId: string): Promise<ManagedWorktreeAvailability> {
     const normalizedThreadId = threadId.trim();
     if (!normalizedThreadId) return { state: "not-managed" };
-    const inFlight = this.managedWorktreeInspectionByThreadId.get(normalizedThreadId);
-    if (inFlight) return await inFlight;
-
-    const inspection = (async (): Promise<ManagedWorktreeAvailability> => {
-      const context = await this.resolveManagedWorktreeThreadContext(normalizedThreadId);
-      if (!context) return { state: "not-managed" };
-      try {
-        const result = await this.managedWorktreeLifecycle.inspect(context);
-        return result.availability;
-      } catch (error) {
-        return {
-          state: "unavailable",
-          reason: "inspection-failed",
-          message: error instanceof Error ? error.message : String(error),
-        };
-      }
-    })().finally(() => {
-      if (this.managedWorktreeInspectionByThreadId.get(normalizedThreadId) === inspection) {
-        this.managedWorktreeInspectionByThreadId.delete(normalizedThreadId);
-      }
-    });
-    this.managedWorktreeInspectionByThreadId.set(normalizedThreadId, inspection);
-    return await inspection;
+    const context = await this.resolveManagedWorktreeThreadContext(normalizedThreadId);
+    if (!context) return { state: "not-managed" };
+    try {
+      const result = await this.managedWorktreeLifecycle.inspect(context);
+      return result.availability;
+    } catch (error) {
+      return {
+        state: "unavailable",
+        reason: "inspection-failed",
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async restoreThreadManagedWorktree(threadId: string): Promise<ManagedWorktreeRestoreResult> {
@@ -9290,7 +9275,6 @@ export class CodexService extends EventEmitter {
       ...context,
       ownerThreadId: context.threadId,
     });
-    this.managedWorktreeInspectionByThreadId.delete(context.threadId);
     if (result.ownerWarning) {
       this.logger.warn("Restored managed worktree without owner metadata", {
         threadId: context.threadId,
