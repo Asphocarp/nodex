@@ -495,6 +495,12 @@ unsubscribes and releases the helper Thread. Scope closure performs the same str
 `CodexService` owns only title-generation admission, fallback normalization, and persistence; it
 does not own the helper protocol client, notification parser, timer, interrupt, or cleanup state.
 
+Dynamic-tool discovery during Thread launch borrows one Effect-clock policy capability. Discovery
+failure remains a typed launch failure, while the five-second deadline intentionally fails open to
+an empty catalog so Thread creation is not blocked by optional model-aware tools. The losing
+discovery fiber is interrupted with its caller. The pure launch-parameter builder receives only a
+stateless Promise projection; it owns no timer, settlement flag, or injected clock implementation.
+
 Codex native-notification policy is a pure projection from application events, settings, focus,
 and presentation facts. `CodexThreadNotificationRuntime` directly owns both source-listener
 registrations and notification-action admission in the Main Scope; it does not acquire a class with

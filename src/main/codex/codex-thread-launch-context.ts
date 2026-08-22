@@ -3,8 +3,6 @@ import type { DynamicToolSpec } from "@nodex/codex-app-server-protocol/v2/Dynami
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
 import type { AgentExecutionProfile } from "../../shared/agent-runtime";
 
-export const CODEX_DYNAMIC_TOOLS_THREAD_START_TIMEOUT_MS = 5_000;
-
 const DEFAULT_FEATURE_CONFIG_EXCLUSIONS = new Set([
   "auth_elicitation",
   "memories",
@@ -55,6 +53,9 @@ export interface CodexThreadLaunchContextDependencies {
     readonly mode: string;
     readonly threadStartKind: string;
   }) => Promise<DynamicToolSpec[]>;
+  readonly loadDynamicToolsWithDeadline: (
+    operation: () => Promise<DynamicToolSpec[]>,
+  ) => Promise<DynamicToolSpec[]>;
   readonly resolveDeveloperInstructions: (input: {
     readonly baseInstructions: string | null;
     readonly cwd: string;
@@ -64,11 +65,6 @@ export interface CodexThreadLaunchContextDependencies {
   }) => Promise<string>;
   readonly onConfigRequirementsError?: (error: unknown) => void;
   readonly onShellEnvironmentError?: (error: unknown) => void;
-  readonly scheduleTimeout?: (
-    callback: () => void,
-    timeoutMs: number,
-  ) => ReturnType<typeof setTimeout>;
-  readonly cancelTimeout?: (handle: ReturnType<typeof setTimeout>) => void;
 }
 
 export interface BuildCodexNewConversationParamsInput {
@@ -276,38 +272,6 @@ async function applyCodexWorktreeShellEnvironment(
   }
 }
 
-export function loadCodexDynamicToolsWithTimeout(
-  load: () => Promise<DynamicToolSpec[]>,
-  options: Pick<CodexThreadLaunchContextDependencies, "scheduleTimeout" | "cancelTimeout"> = {},
-): Promise<DynamicToolSpec[]> {
-  const scheduleTimeout = options.scheduleTimeout ?? setTimeout;
-  const cancelTimeout = options.cancelTimeout ?? clearTimeout;
-
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const timeout = scheduleTimeout(() => {
-      if (settled) return;
-      settled = true;
-      resolve([]);
-    }, CODEX_DYNAMIC_TOOLS_THREAD_START_TIMEOUT_MS);
-
-    void load().then(
-      (tools) => {
-        if (settled) return;
-        settled = true;
-        cancelTimeout(timeout);
-        resolve(tools);
-      },
-      (error) => {
-        if (settled) return;
-        settled = true;
-        cancelTimeout(timeout);
-        reject(error);
-      },
-    );
-  });
-}
-
 export async function buildCodexNewConversationParams(
   input: BuildCodexNewConversationParamsInput,
   dependencies: CodexThreadLaunchContextDependencies,
@@ -369,14 +333,12 @@ export async function buildCodexNewConversationParams(
   if (!input.skipDynamicTools) {
     params = {
       ...params,
-      dynamicTools: await loadCodexDynamicToolsWithTimeout(
-        () =>
-          dependencies.loadDynamicTools({
-            featureOverrides: input.defaultFeatureOverrides,
-            mode: input.mode ?? "default",
-            threadStartKind: input.threadStartKind ?? "default",
-          }),
-        dependencies,
+      dynamicTools: await dependencies.loadDynamicToolsWithDeadline(() =>
+        dependencies.loadDynamicTools({
+          featureOverrides: input.defaultFeatureOverrides,
+          mode: input.mode ?? "default",
+          threadStartKind: input.threadStartKind ?? "default",
+        }),
       ),
     };
   }

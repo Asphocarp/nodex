@@ -107,6 +107,8 @@ import {
   make as makeCodexStructuredThreadTitle,
 } from "../codex-application/CodexStructuredThreadTitle";
 import { makeCodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
+import { make as makeCodexDynamicToolsLaunch } from "../codex-application/CodexDynamicToolsLaunch";
+import { makeCodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
 import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
@@ -1345,6 +1347,7 @@ export const live: Layer.Layer<
           releaseInternalThread: (threadId) =>
             Effect.sync(() => requireCodexService().releaseStructuredThreadTitleThread(threadId)),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const dynamicToolsLaunch = makeCodexDynamicToolsLaunch();
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1403,6 +1406,10 @@ export const live: Layer.Layer<
               ),
               structuredThreadTitle: makeCodexStructuredThreadTitlePromiseAdapter(
                 structuredThreadTitle,
+                callbacks,
+              ),
+              dynamicToolsLaunch: makeCodexDynamicToolsLaunchPromiseAdapter(
+                dynamicToolsLaunch,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(

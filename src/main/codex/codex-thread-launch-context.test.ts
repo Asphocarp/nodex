@@ -2,7 +2,6 @@ import { describe, expect, test } from "vite-plus/test";
 import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-protocol/v2/ConfigRequirementsReadResponse";
 import {
   buildCodexNewConversationParams,
-  loadCodexDynamicToolsWithTimeout,
   mergeCodexDefaultFeatureOverrides,
   parseCodexStoredShellEnvironment,
   resolveCodexLaunchServiceTier,
@@ -18,6 +17,7 @@ function createDependencies(
     readConfigRequirements: async () => noRequirements,
     buildMcpCodexConfig: async () => null,
     loadDynamicTools: async () => [],
+    loadDynamicToolsWithDeadline: (operation) => operation(),
     resolveDeveloperInstructions: async () => "Desktop instructions",
     ...overrides,
   };
@@ -291,20 +291,6 @@ describe("Codex thread launch context", () => {
         "features.request_permissions_tool",
       ),
     ).toBe(false);
-  });
-
-  test("times out dynamic-tool loading to an empty list", async () => {
-    let timeoutMs = 0;
-    const tools = await loadCodexDynamicToolsWithTimeout(() => new Promise(() => {}), {
-      scheduleTimeout: (callback, requestedTimeoutMs) => {
-        timeoutMs = requestedTimeoutMs;
-        callback();
-        return 0 as unknown as ReturnType<typeof setTimeout>;
-      },
-    });
-
-    expect(timeoutMs).toBe(5_000);
-    expect(tools.length).toBe(0);
   });
 
   test("rejects malformed persisted shell environment payloads", () => {

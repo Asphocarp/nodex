@@ -208,6 +208,7 @@ import type { CodexGitProbePromiseAdapter } from "../codex-application/CodexGitP
 import type { CodexExternalAgentImportRuntimePromiseAdapter } from "../codex-application/CodexExternalAgentImportRuntimePromiseAdapter";
 import type { CodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-application/CodexHeartbeatTurnCompletionPromiseAdapter";
 import type { CodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
+import type { CodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -1371,6 +1372,7 @@ type CodexServiceOptions = {
   externalAgentImport: CodexExternalAgentImportRuntimePromiseAdapter;
   heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
+  dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2550,6 +2552,7 @@ export class CodexService extends EventEmitter {
   private readonly externalAgentImport: CodexExternalAgentImportRuntimePromiseAdapter;
   private readonly heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   private readonly structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
+  private readonly dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
   private readonly gitSettingsResolver: () => CodexGitSettings;
@@ -2766,6 +2769,7 @@ export class CodexService extends EventEmitter {
     this.externalAgentImport = options.externalAgentImport;
     this.heartbeatTurnCompletion = options.heartbeatTurnCompletion;
     this.structuredThreadTitle = options.structuredThreadTitle;
+    this.dynamicToolsLaunch = options.dynamicToolsLaunch;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -11095,6 +11099,7 @@ export class CodexService extends EventEmitter {
           return this.buildCodexDynamicToolSpecs();
         }
       },
+      loadDynamicToolsWithDeadline: (operation) => this.dynamicToolsLaunch.load(operation),
       resolveDeveloperInstructions: async (developerInput) =>
         await this.resolveProjectAwareDeveloperInstructions({
           baseInstructions: developerInput.baseInstructions,

@@ -1883,6 +1883,9 @@ function createService(options?: {
     structuredThreadTitle: {
       generate: async () => null,
     },
+    dynamicToolsLaunch: {
+      load: (operation) => operation(),
+    },
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
