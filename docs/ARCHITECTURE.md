@@ -416,6 +416,12 @@ the presenting client, and projection consumes its Stream. `CodexService` may su
 protocol response operation through a temporary callback Adapter, but it owns no timer, request map,
 snapshot, or renderer event bus for this policy.
 
+Codex native-notification policy is a pure projection from application events, settings, focus,
+and presentation facts. `CodexThreadNotificationRuntime` directly owns both source-listener
+registrations and notification-action admission in the Main Scope; it does not acquire a class with
+an internal disposer list. Scope release closes action admission before unregistering listeners, so
+an already displayed operating-system notification cannot dispatch into a replaced Main runtime.
+
 The detailed contracts are [Codex owner/follower streaming](docs/product-specs/codex-thread-owner-follower-streaming.md), [Codex transcript behavior](docs/product-specs/codex-thread-transcript-behavior.md), and [the generated protocol runtime plan](docs/plans/codex-generated-protocol-runtime-boundary.md).
 
 Prompt-created worktrees are a separate pre-conversation Main runtime. A pure

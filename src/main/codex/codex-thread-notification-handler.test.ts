@@ -11,10 +11,8 @@ import {
   type CodexNotificationConversationFacts,
   type CodexThreadNotificationEvent,
 } from "../../shared/codex-thread-notification";
-import {
-  CodexThreadNotificationCoordinator,
-  type CodexThreadNotificationEventSource,
-} from "./codex-thread-notification-coordinator";
+import { makeCodexThreadNotificationHandler } from "./codex-thread-notification-handler";
+import type { CodexThreadNotificationEventSource } from "../host-runtime/CodexThreadNotificationRuntime";
 
 function conversation(
   overrides: Partial<CodexNotificationConversationFacts> = {},
@@ -64,8 +62,7 @@ function setup(
   let foregrounded = false;
   let presented = false;
   const focusTargetClient = vi.fn();
-  const coordinator = new CodexThreadNotificationCoordinator({
-    source,
+  source.eventListener = makeCodexThreadNotificationHandler({
     getSettings: () => settings,
     isAppForegrounded: () => foregrounded,
     isConversationPresentedInForeground: () => presented,
@@ -81,9 +78,9 @@ function setup(
     },
     focusTargetClient,
   });
+  source.presentedListener = (conversationId) => dismissed.push({ conversationId });
   return {
     actions,
-    coordinator,
     dismissed,
     dispatched,
     focusTargetClient,
@@ -98,7 +95,7 @@ function setup(
   };
 }
 
-describe("CodexThreadNotificationCoordinator", () => {
+describe("Codex thread notification handler", () => {
   test("shapes root turns and applies app focus without using conversation visibility", () => {
     const runtime = setup();
     runtime.setPresented(true);

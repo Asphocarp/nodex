@@ -32,17 +32,7 @@ const APPROVAL_ACTIONS = [
   { id: "decline", title: "Decline", actionType: "decline" },
 ] as const;
 
-export interface CodexThreadNotificationEventSource {
-  addThreadNotificationListener(
-    listener: (event: CodexThreadNotificationEvent) => void,
-  ): () => void;
-  addRendererConversationPresentedInForegroundListener(
-    listener: (conversationId: string) => void,
-  ): () => void;
-}
-
-export interface CodexThreadNotificationCoordinatorOptions {
-  source: CodexThreadNotificationEventSource;
+export interface CodexThreadNotificationHandlerOptions {
   getSettings: () => ThreadNotificationSettings;
   isAppForegrounded: () => boolean;
   isConversationPresentedInForeground: (conversationId: string) => boolean;
@@ -77,29 +67,69 @@ function resolveNavigation(
   };
 }
 
-export class CodexThreadNotificationCoordinator {
-  private readonly options: CodexThreadNotificationCoordinatorOptions;
-  private readonly disposers: Array<() => void>;
-
-  constructor(options: CodexThreadNotificationCoordinatorOptions) {
-    this.options = options;
-    this.disposers = [
-      options.source.addThreadNotificationListener((event) => {
-        this.handleEvent(event);
-      }),
-      options.source.addRendererConversationPresentedInForegroundListener((conversationId) => {
-        options.dismissNotification({ conversationId });
-      }),
-    ];
+function showNotification(
+  options: CodexThreadNotificationHandlerOptions,
+  event: Exclude<CodexThreadNotificationEvent, { type: "request-resolved" }>,
+  copy: Pick<
+    DesktopNotificationPayload,
+    "id" | "occurrenceId" | "kind" | "title" | "body" | "actions" | "replyPlaceholder"
+  >,
+): void {
+  const conversationId = event.conversation.conversationId;
+  const targetClientId = options.resolveTargetClientId(conversationId);
+  if (!targetClientId) {
+    options.logger?.warn("[desktop-notifications] dropped", {
+      conversationId,
+      reason: "no-live-target",
+      type: event.type,
+    });
+    return;
   }
+  const navigation = resolveNavigation(event);
+  const notification: DesktopNotificationPayload = {
+    ...copy,
+    hostId: event.hostId,
+    conversationId,
+    navigationPath: navigation.navigationPath,
+    activateTabId: navigation.activateTabId,
+    ...(event.type === "approval-requested" || event.type === "user-input-requested"
+      ? { requestId: event.requestId }
+      : {}),
+  };
 
-  dispose(): void {
-    for (const dispose of this.disposers.splice(0)) dispose();
-  }
+  options.showNotification(notification, targetClientId, (action) => {
+    if (action.actionType === "open") {
+      options.focusTargetClient(targetClientId);
+    }
+    const dispatched = options.dispatchAction(targetClientId, {
+      ...action,
+      hostId: event.hostId,
+      conversationId,
+      navigationPath: navigation.navigationPath,
+      activateTabId: navigation.activateTabId,
+      requestId:
+        event.type === "approval-requested" || event.type === "user-input-requested"
+          ? event.requestId
+          : null,
+    });
+    if (!dispatched) {
+      options.dismissNotification(
+        notification.occurrenceId
+          ? { occurrenceId: notification.occurrenceId }
+          : { notificationId: notification.id },
+      );
+    }
+  });
+}
 
-  private handleEvent(event: CodexThreadNotificationEvent): void {
+/** Pure notification policy; listener and action admission belong to the host runtime Scope. */
+export const makeCodexThreadNotificationHandler =
+  (
+    options: CodexThreadNotificationHandlerOptions,
+  ): ((event: CodexThreadNotificationEvent) => void) =>
+  (event) => {
     if (event.type === "request-resolved") {
-      this.options.dismissNotification({
+      options.dismissNotification({
         occurrenceId: buildCodexRequestNotificationOccurrenceId(
           "approval",
           event.hostId,
@@ -107,7 +137,7 @@ export class CodexThreadNotificationCoordinator {
           event.requestId,
         ),
       });
-      this.options.dismissNotification({
+      options.dismissNotification({
         occurrenceId: buildCodexRequestNotificationOccurrenceId(
           "question",
           event.hostId,
@@ -118,22 +148,22 @@ export class CodexThreadNotificationCoordinator {
       return;
     }
 
-    const settings = this.options.getSettings();
+    const settings = options.getSettings();
     if (event.type === "turn-completed") {
       const decision = decideCodexTurnNotification(event, {
         turnMode: settings.turnMode,
-        isAppForegrounded: this.options.isAppForegrounded(),
+        isAppForegrounded: options.isAppForegrounded(),
         includeTurnNotifications: event.hostId === DEFAULT_CODEX_HOST_ID,
       });
       if (decision.type === "suppress") {
-        this.options.logger?.debug("[desktop-notifications] suppressed", {
+        options.logger?.debug("[desktop-notifications] suppressed", {
           type: event.type,
           conversationId: event.conversation.conversationId,
           reason: decision.reason,
         });
         return;
       }
-      this.show(event, {
+      showNotification(options, event, {
         id: buildCodexTurnNotificationId(event.turnId),
         occurrenceId: buildCodexTurnNotificationOccurrenceId(
           event.hostId,
@@ -152,12 +182,12 @@ export class CodexThreadNotificationCoordinator {
       event.type === "approval-requested" ? settings.permissionsEnabled : settings.questionsEnabled;
     const decision = decideCodexRequestNotification(event.conversation, {
       enabled,
-      isConversationPresentedInForeground: this.options.isConversationPresentedInForeground(
+      isConversationPresentedInForeground: options.isConversationPresentedInForeground(
         event.conversation.conversationId,
       ),
     });
     if (decision.type === "suppress") {
-      this.options.logger?.debug("[desktop-notifications] suppressed", {
+      options.logger?.debug("[desktop-notifications] suppressed", {
         type: event.type,
         conversationId: event.conversation.conversationId,
         reason: decision.reason,
@@ -167,7 +197,7 @@ export class CodexThreadNotificationCoordinator {
 
     if (event.type === "approval-requested") {
       const copy = resolveCodexApprovalNotificationCopy(event);
-      this.show(event, {
+      showNotification(options, event, {
         id: buildCodexApprovalNotificationId(event.hostId, event.requestId),
         occurrenceId: buildCodexRequestNotificationOccurrenceId(
           "approval",
@@ -183,7 +213,7 @@ export class CodexThreadNotificationCoordinator {
       return;
     }
 
-    this.show(event, {
+    showNotification(options, event, {
       id: buildCodexQuestionNotificationId(event.hostId, event.requestId),
       occurrenceId: buildCodexRequestNotificationOccurrenceId(
         "question",
@@ -195,59 +225,4 @@ export class CodexThreadNotificationCoordinator {
       title: resolveCodexQuestionNotificationTitle(event.conversation.title),
       body: resolveCodexQuestionNotificationBody(event.questionCount),
     });
-  }
-
-  private show(
-    event: Exclude<CodexThreadNotificationEvent, { type: "request-resolved" }>,
-    copy: Pick<
-      DesktopNotificationPayload,
-      "id" | "occurrenceId" | "kind" | "title" | "body" | "actions" | "replyPlaceholder"
-    >,
-  ): void {
-    const conversationId = event.conversation.conversationId;
-    const targetClientId = this.options.resolveTargetClientId(conversationId);
-    if (!targetClientId) {
-      this.options.logger?.warn("[desktop-notifications] dropped", {
-        conversationId,
-        reason: "no-live-target",
-        type: event.type,
-      });
-      return;
-    }
-    const navigation = resolveNavigation(event);
-    const notification: DesktopNotificationPayload = {
-      ...copy,
-      hostId: event.hostId,
-      conversationId,
-      navigationPath: navigation.navigationPath,
-      activateTabId: navigation.activateTabId,
-      ...(event.type === "approval-requested" || event.type === "user-input-requested"
-        ? { requestId: event.requestId }
-        : {}),
-    };
-
-    this.options.showNotification(notification, targetClientId, (action) => {
-      if (action.actionType === "open") {
-        this.options.focusTargetClient(targetClientId);
-      }
-      const dispatched = this.options.dispatchAction(targetClientId, {
-        ...action,
-        hostId: event.hostId,
-        conversationId,
-        navigationPath: navigation.navigationPath,
-        activateTabId: navigation.activateTabId,
-        requestId:
-          event.type === "approval-requested" || event.type === "user-input-requested"
-            ? event.requestId
-            : null,
-      });
-      if (!dispatched) {
-        this.options.dismissNotification(
-          notification.occurrenceId
-            ? { occurrenceId: notification.occurrenceId }
-            : { notificationId: notification.id },
-        );
-      }
-    });
-  }
-}
+  };
