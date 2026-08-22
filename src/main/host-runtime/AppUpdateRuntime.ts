@@ -17,10 +17,10 @@ import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import { safeBroadcastToWindows } from "../ipc-safe-send";
 import { getAppUpdateSettings, updateAppUpdateSettings } from "../local-store/config";
 import { getLogger } from "../logging/logger";
-import type { MacAppUpdater, MacAppUpdaterEvent } from "../mac-app-updater";
+import type { MacAppUpdaterEvent, MacAppUpdaterPlatform } from "../mac-app-updater";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
-import { createPackagedMacAppUpdater } from "../sparkle-mac-app-updater";
+import { createPackagedMacAppUpdaterPlatform } from "../sparkle-mac-app-updater";
 import {
   initialAppUpdateState,
   reduceAppUpdateStatus,
@@ -50,7 +50,7 @@ export class AppUpdateRuntime extends Context.Service<
 >()("nodex/main/host-runtime/AppUpdateRuntime") {}
 
 export interface AppUpdateRuntimeOptions {
-  readonly createUpdater?: (config: MainConfigValue) => MacAppUpdater | null;
+  readonly createUpdaterPlatform?: (config: MainConfigValue) => MacAppUpdaterPlatform | null;
   readonly readSettings?: (buildDefaultChannel: AppUpdateSettings["channel"]) => AppUpdateSettings;
   readonly persistSettings?: (
     input: UpdateAppUpdateSettingsInput,
@@ -58,18 +58,18 @@ export interface AppUpdateRuntimeOptions {
   ) => AppUpdateSettings;
 }
 
-const createUpdater = (config: MainConfigValue): MacAppUpdater | null => {
+const createUpdaterPlatform = (config: MainConfigValue): MacAppUpdaterPlatform | null => {
   if (!config.isPackaged || config.platform !== "darwin") return null;
   if (config.arch !== "arm64" && config.arch !== "x64") return null;
-  return createPackagedMacAppUpdater({
+  return createPackagedMacAppUpdaterPlatform({
     applicationBundlePath: resolve(config.resourcesPath, "..", ".."),
     architecture: config.arch,
     resourcesPath: config.resourcesPath,
   });
 };
 
-const fromUpdater = <A>(operation: string, task: () => Promise<A>) =>
-  Effect.tryPromise({
+const fromUpdater = <A>(operation: string, task: () => A) =>
+  Effect.try({
     try: task,
     catch: (cause) => new AppUpdateRuntimeError({ operation, cause }),
   });
@@ -90,9 +90,9 @@ export const layer = (
       const windows = yield* ElectronWindowHost;
       const isInApplicationsFolder = yield* app.isInApplicationsFolder;
       const logger = getLogger({ component: "app-update-runtime" });
-      const updater = yield* Effect.sync(() => {
+      const updaterPlatform = yield* Effect.sync(() => {
         try {
-          return (options.createUpdater ?? createUpdater)(config);
+          return (options.createUpdaterPlatform ?? createUpdaterPlatform)(config);
         } catch (cause) {
           logger.error("Packaged app updater is invalid", {
             error: cause instanceof Error ? cause.message : String(cause),
@@ -100,7 +100,7 @@ export const layer = (
           return null;
         }
       });
-      const buildDefaultChannel = updater?.getBuildDefaultChannel() ?? "stable";
+      const buildDefaultChannel = updaterPlatform?.buildDefaultChannel ?? "stable";
       const settings = (options.readSettings ?? getAppUpdateSettings)(buildDefaultChannel);
       const state = yield* Ref.make<AppUpdateRuntimeState>(
         initialAppUpdateState({
@@ -110,7 +110,7 @@ export const layer = (
           isPackaged: config.isPackaged,
           platform: config.platform as NodeJS.Platform,
           settings,
-          updaterAvailable: updater !== null,
+          updaterAvailable: updaterPlatform !== null,
         }),
       );
       const lock = yield* Semaphore.make(1);
@@ -167,37 +167,43 @@ export const layer = (
         callbacks.fork(lock.withPermits(1)(handleEvent(event)));
       };
 
-      const initialize = yield* Effect.cached(
-        Effect.gen(function* () {
-          const current = yield* Ref.get(state);
-          if (!current.status.supported || updater === null) return;
-          yield* fromUpdater("initialize-channel", () =>
-            updater.setChannel(current.settings.channel),
-          );
-          yield* fromUpdater("initialize-updater", () => updater.start(admitEvent));
-          yield* Effect.sync(() => {
-            logger.info("App updater initialized", {
-              currentVersion: config.appVersion,
-              platform: config.platform,
-            });
-          });
-        }).pipe(
-          Effect.tapError((error) =>
-            Effect.gen(function* () {
-              yield* Effect.sync(() => {
-                logger.error("App updater initialization failed", { error: error.cause });
-              });
-              yield* publishError(error);
-            }),
+      const updater = yield* Effect.gen(function* () {
+        const current = yield* Ref.get(state);
+        if (!current.status.supported || updaterPlatform === null) return null;
+        const acquired = yield* Effect.result(
+          Effect.acquireRelease(
+            fromUpdater("initialize-updater", () =>
+              updaterPlatform.acquire(current.settings.channel, admitEvent),
+            ),
+            (lease) =>
+              fromUpdater("dispose-updater", lease.release).pipe(
+                Effect.catch((error) =>
+                  Effect.logWarning("Could not release the app updater").pipe(
+                    Effect.annotateLogs({ error: String(error.cause) }),
+                  ),
+                ),
+              ),
           ),
-        ),
-      );
+        );
+        if (Result.isFailure(acquired)) {
+          yield* Effect.sync(() => {
+            logger.error("App updater initialization failed", { error: acquired.failure.cause });
+          });
+          yield* publishError(acquired.failure);
+          return null;
+        }
+        yield* Effect.sync(() => {
+          logger.info("App updater initialized", {
+            currentVersion: config.appVersion,
+            platform: config.platform,
+          });
+        });
+        return acquired.success.session;
+      });
 
       const check = Effect.fn("AppUpdateRuntime.check")(function* (
         reason: "startup" | "manual" = "manual",
       ) {
-        const initialized = yield* Effect.result(initialize);
-        if (Result.isFailure(initialized)) return (yield* Ref.get(state)).status;
         const current = yield* Ref.get(state);
         if (!current.status.supported || updater === null) return current.status;
         if (
@@ -296,7 +302,6 @@ export const layer = (
               });
             }
             if (channelChanged && updater !== null) {
-              yield* initialize;
               yield* fromUpdater("set-update-channel", () => updater.setChannel(next.channel));
             }
             const persisted = yield* Effect.try({
@@ -328,19 +333,6 @@ export const layer = (
         yield* startAutomaticChecks();
         return persisted;
       });
-
-      if (updater !== null) {
-        yield* Effect.addFinalizer(() =>
-          fromUpdater("dispose-updater", () => updater.dispose()).pipe(
-            Effect.catch((error) =>
-              Effect.logWarning("Could not dispose the app updater").pipe(
-                Effect.annotateLogs({ error: String(error.cause) }),
-              ),
-            ),
-          ),
-        );
-      }
-      yield* lock.withPermits(1)(initialize).pipe(Effect.ignore, Effect.forkScoped);
 
       return AppUpdateRuntime.of({
         check: serializedCheck(),

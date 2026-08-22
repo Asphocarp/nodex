@@ -876,14 +876,15 @@ finalizer. Window and Codex notification owners borrow only its synchronous nati
 capabilities; no disposable manager class or ambient process path owns a second registry.
 
 `AppUpdateRuntime` is the single owner of application-update state and the
-native updater adapter. Status, settings, readiness, and automatic-check
-admission live in one immutable `Ref`; initialization is one cached Effect and
-channel/check/install mutations share one semaphore. Native updater callbacks
-enter the scoped callback runtime, publish the next status projection, and are
-discarded after Scope closure. IPC and window-load delivery read Effect
-snapshots rather than borrowing synchronous state from a Promise service. The
-native updater's Promise interface exists only at this adapter seam and its
-disposal is the Module finalizer.
+native updater lease. Status, settings, readiness, and automatic-check admission
+live in one immutable `Ref`; channel/check/install mutations share one
+semaphore. The packaged Sparkle descriptor is stateless. `AppUpdateRuntime`
+acquires exactly one synchronous native session with `Effect.acquireRelease`,
+and the enclosing Main Scope closes that lease. Native updater callbacks enter
+the scoped callback runtime, publish the next status projection, and are fenced
+before native release. IPC and window-load delivery read Effect snapshots;
+there is no Promise updater service, lifecycle class, or duplicate
+checking/download-readiness state outside the Module.
 
 The launcher selects a single Core candidate while holding the Profile lifetime lock, then proves authority with an authenticated handshake. Existing descriptors and PIDs are hints, not process identity. Core compatibility is evaluated across transport, event, Module contracts, artifact policy, and exact Store identity.
 

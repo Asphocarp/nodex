@@ -7,47 +7,53 @@ import * as Scope from "effect/Scope";
 import type { AppUpdateSettings, AppUpdateStatus } from "../../shared/types";
 import { testLayer as mainConfigLayer } from "../app/MainConfig";
 import { layer as callbackRuntimeLayer } from "../app/ScopedCallbackRuntime";
-import type { MacAppUpdater, MacAppUpdaterCheckKind, MacAppUpdaterEvent } from "../mac-app-updater";
+import type {
+  MacAppUpdaterCheckKind,
+  MacAppUpdaterEvent,
+  MacAppUpdaterPlatform,
+} from "../mac-app-updater";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { reduceAppUpdateStatus } from "./AppUpdatePolicy";
 import { AppUpdateRuntime, layer } from "./AppUpdateRuntime";
 
-class FakeUpdater implements MacAppUpdater {
+class FakeUpdaterPlatform implements MacAppUpdaterPlatform {
+  readonly buildDefaultChannel = "stable" as const;
   readonly checkKinds: MacAppUpdaterCheckKind[] = [];
-  disposeCount = 0;
+  acquireCount = 0;
+  failAcquire = false;
   installCount = 0;
-  startCount = 0;
+  releaseCount = 0;
   private listener: ((event: MacAppUpdaterEvent) => void) | null = null;
   private channel: AppUpdateSettings["channel"] = "stable";
-
-  getBuildDefaultChannel(): AppUpdateSettings["channel"] {
-    return "stable";
-  }
 
   getChannel(): AppUpdateSettings["channel"] {
     return this.channel;
   }
 
-  async setChannel(channel: AppUpdateSettings["channel"]): Promise<void> {
+  acquire(channel: AppUpdateSettings["channel"], listener: (event: MacAppUpdaterEvent) => void) {
+    this.acquireCount += 1;
+    if (this.failAcquire) throw new Error("native updater unavailable");
     this.channel = channel;
-  }
-
-  async start(listener: (event: MacAppUpdaterEvent) => void): Promise<void> {
-    this.startCount += 1;
     this.listener = listener;
-  }
-
-  async check(kind: MacAppUpdaterCheckKind): Promise<void> {
-    this.checkKinds.push(kind);
-  }
-
-  async installDownloadedUpdate(): Promise<void> {
-    this.installCount += 1;
-  }
-
-  async dispose(): Promise<void> {
-    this.disposeCount += 1;
+    let released = false;
+    return {
+      release: () => {
+        if (released) return;
+        released = true;
+        this.releaseCount += 1;
+        this.listener = null;
+      },
+      session: {
+        check: (kind: MacAppUpdaterCheckKind) => this.checkKinds.push(kind),
+        installDownloadedUpdate: () => {
+          this.installCount += 1;
+        },
+        setChannel: (nextChannel: AppUpdateSettings["channel"]) => {
+          this.channel = nextChannel;
+        },
+      },
+    };
   }
 
   emit(event: MacAppUpdaterEvent): void {
@@ -68,10 +74,10 @@ const buildHarness = (input: {
   readonly inApplicationsFolder?: boolean;
   readonly isPackaged?: boolean;
   readonly platform?: NodeJS.Platform;
-  readonly updater?: FakeUpdater | null;
+  readonly updater?: FakeUpdaterPlatform | null;
 }) =>
   Effect.gen(function* () {
-    const updater = "updater" in input ? (input.updater ?? null) : new FakeUpdater();
+    const updater = "updater" in input ? (input.updater ?? null) : new FakeUpdaterPlatform();
     const broadcasts: AppUpdateStatus[] = [];
     let persistedSettings: AppUpdateSettings = {
       automaticChecksEnabled: true,
@@ -95,7 +101,7 @@ const buildHarness = (input: {
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(
       layer({
-        createUpdater: () => updater,
+        createUpdaterPlatform: () => updater,
         persistSettings: (update) => {
           persistedSettings = { ...persistedSettings, ...update };
           return persistedSettings;
@@ -123,7 +129,7 @@ const buildHarness = (input: {
       (input.platform ?? "darwin") === "darwin" &&
       (input.inApplicationsFolder ?? true) &&
       updater !== null;
-    yield* waitUntil("app updater initialization", () => !supported || updater?.startCount === 1);
+    yield* waitUntil("app updater initialization", () => !supported || updater?.acquireCount === 1);
     return { broadcasts, runtime, scope, updater };
   });
 
@@ -149,7 +155,7 @@ it.effect("keeps unsupported runtimes offline", () =>
       message: "Move Nodex to Applications to enable app updates.",
       status: "unsupported",
     });
-    assert.strictEqual(misplaced.updater?.startCount, 0);
+    assert.strictEqual(misplaced.updater?.acquireCount, 0);
     yield* Scope.close(misplaced.scope, Exit.void);
   }),
 );
@@ -163,7 +169,7 @@ it.effect("starts exactly one automatic check after application readiness", () =
       { concurrency: "unbounded", discard: true },
     );
 
-    assert.strictEqual(harness.updater?.startCount, 1);
+    assert.strictEqual(harness.updater?.acquireCount, 1);
     assert.deepEqual(harness.updater?.checkKinds, ["background"]);
     yield* Scope.close(harness.scope, Exit.void);
   }),
@@ -300,6 +306,25 @@ it.effect("surfaces updater errors and releases the native adapter with its Scop
     });
 
     yield* Scope.close(harness.scope, Exit.void);
-    assert.strictEqual(harness.updater?.disposeCount, 1);
+    assert.strictEqual(harness.updater?.releaseCount, 1);
+  }),
+);
+
+it.effect("keeps a failed native acquisition out of the Scope release set", () =>
+  Effect.gen(function* () {
+    const updater = new FakeUpdaterPlatform();
+    updater.failAcquire = true;
+    const harness = yield* buildHarness({ updater });
+
+    assert.deepInclude(yield* harness.runtime.currentStatus, {
+      message: "native updater unavailable",
+      status: "error",
+      supported: true,
+    });
+    assert.strictEqual(updater.acquireCount, 1);
+    assert.deepEqual(updater.checkKinds, []);
+
+    yield* Scope.close(harness.scope, Exit.void);
+    assert.strictEqual(updater.releaseCount, 0);
   }),
 );

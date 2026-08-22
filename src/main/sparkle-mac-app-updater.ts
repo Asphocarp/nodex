@@ -1,12 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import type {
-  MacAppUpdater,
-  AppUpdateChannel,
-  MacAppUpdaterCheckKind,
-  MacAppUpdaterEvent,
-} from "./mac-app-updater";
+import type { AppUpdateChannel, MacAppUpdaterPlatform } from "./mac-app-updater";
 import { loadSparkleNativeBinding, parseSparkleNativeEvent } from "./sparkle-native-binding";
 
 type RuntimeArchitecture = "arm64" | "x64";
@@ -26,6 +21,7 @@ interface SparkleRuntimeConfig {
 interface SparkleMacAppUpdaterOptions {
   readonly applicationBundlePath: string;
   readonly architecture: RuntimeArchitecture;
+  readonly loadNativeBinding?: typeof loadSparkleNativeBinding;
   readonly resourcesPath: string;
 }
 
@@ -101,120 +97,66 @@ export function readSparkleRuntimeConfig(resourcesPath: string): SparkleRuntimeC
   return parseSparkleRuntimeConfig(JSON.parse(readFileSync(manifestPath, "utf8")) as unknown);
 }
 
-export class SparkleMacAppUpdater implements MacAppUpdater {
-  private readonly options: SparkleMacAppUpdaterOptions;
-  private readonly config: SparkleRuntimeConfig;
-  private binding: ReturnType<typeof loadSparkleNativeBinding> | null = null;
-  private checkInFlight = false;
-  private disposed = false;
-  private readyToInstall = false;
-  private started = false;
-  private channel: AppUpdateChannel;
-
-  constructor(options: SparkleMacAppUpdaterOptions, config: SparkleRuntimeConfig) {
-    this.options = options;
-    this.config = config;
-    if (config.buildChannel === "disabled")
-      throw new Error("Disabled Sparkle updater cannot be constructed.");
-    this.channel = config.buildChannel;
-  }
-
-  getBuildDefaultChannel(): AppUpdateChannel {
-    if (this.config.buildChannel === "disabled")
-      throw new Error("Updates are disabled in this build.");
-    return this.config.buildChannel;
-  }
-
-  getChannel(): AppUpdateChannel {
-    return this.channel;
-  }
-
-  async setChannel(channel: AppUpdateChannel): Promise<void> {
-    if (channel === this.channel) return;
-    if (this.checkInFlight || this.readyToInstall)
-      throw new Error("Update channel cannot change during an update session.");
-    const feedUrl = this.config.feedUrls?.[channel];
-    if (!feedUrl) throw new Error("Update channel is unavailable in this build.");
-    this.binding?.setFeedUrl(feedUrl);
-    this.channel = channel;
-  }
-
-  async start(onEvent: (event: MacAppUpdaterEvent) => void): Promise<void> {
-    if (this.disposed) throw new Error("Sparkle updater has been disposed.");
-    if (this.started) throw new Error("Sparkle updater has already started.");
-    const feedUrl = this.config.feedUrls?.[this.channel];
-    if (!feedUrl) throw new Error("Disabled Sparkle updater cannot be started.");
-    const binding = loadSparkleNativeBinding(this.options.resourcesPath);
-    const runtime = binding.initialize(
-      {
-        applicationBundlePath: this.options.applicationBundlePath,
-        feedUrl,
-        hostBundlePath: this.options.applicationBundlePath,
-      },
-      (value) => {
-        if (this.disposed) return;
-        const event = parseSparkleNativeEvent(value);
-        if (event.type === "update-ready") this.readyToInstall = true;
-        if (
-          event.type === "up-to-date" ||
-          event.type === "update-ready" ||
-          event.type === "error"
-        ) {
-          this.checkInFlight = false;
-        }
-        onEvent(event);
-      },
-    );
-    if (
-      runtime.architecture !== this.options.architecture ||
-      runtime.sparkleVersion !== this.config.sparkleVersion
-    ) {
-      binding.dispose();
-      throw new Error("Loaded Sparkle runtime does not match its packaged manifest.");
-    }
-    this.binding = binding;
-    this.started = true;
-  }
-
-  async check(kind: MacAppUpdaterCheckKind): Promise<void> {
-    if (this.disposed || !this.started || !this.binding) {
-      throw new Error("Sparkle updater is not running.");
-    }
-    if (this.checkInFlight) return;
-    this.checkInFlight = true;
-    this.readyToInstall = false;
-    try {
-      this.binding.checkForUpdates(kind);
-    } catch (error) {
-      this.checkInFlight = false;
-      throw error;
-    }
-  }
-
-  async installDownloadedUpdate(): Promise<void> {
-    if (this.disposed || !this.started || !this.binding || !this.readyToInstall) {
-      throw new Error("No downloaded Sparkle update is ready to install.");
-    }
-    this.binding.installDownloadedUpdate();
-  }
-
-  async dispose(): Promise<void> {
-    if (this.disposed) return;
-    this.disposed = true;
-    this.binding?.dispose();
-    this.binding = null;
-    this.checkInFlight = false;
-    this.readyToInstall = false;
-  }
-}
-
-export function createPackagedMacAppUpdater(
+export function createPackagedMacAppUpdaterPlatform(
   options: SparkleMacAppUpdaterOptions,
-): MacAppUpdater | null {
+): MacAppUpdaterPlatform | null {
   const config = readSparkleRuntimeConfig(options.resourcesPath);
   if (config.architecture !== options.architecture) {
     throw new Error("Packaged Sparkle architecture does not match Electron.");
   }
   if (config.buildChannel === "disabled") return null;
-  return new SparkleMacAppUpdater(options, config);
+  return {
+    buildDefaultChannel: config.buildChannel,
+    acquire: (channel, onEvent) => {
+      const feedUrl = config.feedUrls?.[channel];
+      if (!feedUrl) throw new Error("Update channel is unavailable in this build.");
+      const binding = (options.loadNativeBinding ?? loadSparkleNativeBinding)(
+        options.resourcesPath,
+      );
+      let accepting = true;
+      try {
+        const runtime = binding.initialize(
+          {
+            applicationBundlePath: options.applicationBundlePath,
+            feedUrl,
+            hostBundlePath: options.applicationBundlePath,
+          },
+          (value) => {
+            if (accepting) onEvent(parseSparkleNativeEvent(value));
+          },
+        );
+        if (
+          runtime.architecture !== options.architecture ||
+          runtime.sparkleVersion !== config.sparkleVersion
+        ) {
+          throw new Error("Loaded Sparkle runtime does not match its packaged manifest.");
+        }
+      } catch (error) {
+        accepting = false;
+        binding.dispose();
+        throw error;
+      }
+
+      let released = false;
+      return {
+        release: () => {
+          if (released) return;
+          released = true;
+          accepting = false;
+          binding.dispose();
+        },
+        session: {
+          check: (kind) => binding.checkForUpdates(kind),
+          installDownloadedUpdate: () => binding.installDownloadedUpdate(),
+          setChannel: (nextChannel) => {
+            const nextFeedUrl = config.feedUrls?.[nextChannel];
+            if (!nextFeedUrl) {
+              throw new Error("Update channel is unavailable in this build.");
+            }
+            binding.setFeedUrl(nextFeedUrl);
+          },
+        },
+      };
+    },
+  };
 }

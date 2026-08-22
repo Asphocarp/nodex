@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/async-function -- The remaining Codex application reducer is a Promise boundary. */
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
