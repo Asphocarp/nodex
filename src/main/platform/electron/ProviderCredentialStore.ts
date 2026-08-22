@@ -1,6 +1,9 @@
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
-import type { AgentProviderCredentialStatus } from "../../shared/agent-runtime";
+import { safeStorage } from "electron";
+import type { AgentProviderCredentialStatus } from "../../../shared/agent-runtime";
+import { getNodexHome } from "../../local-store/config";
 
 const CREDENTIAL_FILE_VERSION = 1;
 const MAX_API_KEY_LENGTH = 16 * 1024;
@@ -35,7 +38,6 @@ export interface ProviderCredentialStoreOptions {
   readonly filePath: string;
   readonly encryption: ProviderCredentialEncryption;
   readonly inheritedEnv?: NodeJS.ProcessEnv;
-  readonly now?: () => Date;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -94,21 +96,18 @@ export class ProviderCredentialStore {
   private readonly filePath: string;
   private readonly encryption: ProviderCredentialEncryption;
   private readonly inheritedEnv: NodeJS.ProcessEnv;
-  private readonly now: () => Date;
-  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(options: ProviderCredentialStoreOptions) {
     this.filePath = path.resolve(options.filePath);
     this.encryption = options.encryption;
     this.inheritedEnv = { ...(options.inheritedEnv ?? process.env) };
-    this.now = options.now ?? (() => new Date());
   }
 
   isEncryptionAvailable(): boolean {
     return this.encryption.isAvailable();
   }
 
-  async status(providerId: string): Promise<AgentProviderCredentialStatus> {
+  status(providerId: string): AgentProviderCredentialStatus {
     if (providerId === "openai") return "runtimeManaged";
     if (!isStoredProviderId(providerId)) return "unsupported";
 
@@ -128,16 +127,14 @@ export class ProviderCredentialStore {
     return this.encryption.isAvailable() ? "missing" : "unavailable";
   }
 
-  async statuses(): Promise<Record<string, AgentProviderCredentialStatus>> {
+  statuses(): Record<string, AgentProviderCredentialStatus> {
     const providerIds = ["openai", ...Object.keys(PROVIDER_API_KEY_ENV)];
     return Object.fromEntries(
-      await Promise.all(
-        providerIds.map(async (providerId) => [providerId, await this.status(providerId)] as const),
-      ),
+      providerIds.map((providerId) => [providerId, this.status(providerId)]),
     );
   }
 
-  async setApiKey(providerId: string, plaintext: string): Promise<void> {
+  setApiKey(providerId: string, plaintext: string, updatedAt: string): void {
     if (!isStoredProviderId(providerId)) {
       throw new Error(`API-key storage is unsupported for provider ${providerId}`);
     }
@@ -148,30 +145,30 @@ export class ProviderCredentialStore {
     const ciphertext = this.encryption.encryptString(normalized).toString("base64");
     if (!ciphertext) throw new Error("Credential encryption returned an empty result");
 
-    await this.enqueueWrite((current) => ({
+    this.updateFile((current) => ({
       version: CREDENTIAL_FILE_VERSION,
       credentials: {
         ...current.credentials,
         [providerId]: {
           ciphertext,
-          updatedAt: this.now().toISOString(),
+          updatedAt,
         },
       },
     }));
   }
 
-  async delete(providerId: string): Promise<void> {
+  delete(providerId: string): void {
     if (!isStoredProviderId(providerId)) {
       throw new Error(`API-key storage is unsupported for provider ${providerId}`);
     }
-    await this.enqueueWrite((current) => {
+    this.updateFile((current) => {
       const credentials = { ...current.credentials };
       delete credentials[providerId];
       return { version: CREDENTIAL_FILE_VERSION, credentials };
     });
   }
 
-  async buildRuntimeEnvOverlay(): Promise<Readonly<Record<string, string>>> {
+  buildRuntimeEnvOverlay(): Readonly<Record<string, string>> {
     const current = this.readFile();
     const overlay: Record<string, string> = {};
     for (const providerId of Object.keys(current.credentials)) {
@@ -209,15 +206,9 @@ export class ProviderCredentialStore {
     return parseCredentialFile(JSON.parse(fs.readFileSync(this.filePath, "utf8")));
   }
 
-  private async enqueueWrite(
-    update: (current: StoredCredentialFile) => StoredCredentialFile,
-  ): Promise<void> {
-    const operation = this.writeQueue.then(() => {
-      const current = this.readFile();
-      this.writeFileAtomically(update(current));
-    });
-    this.writeQueue = operation.catch(() => undefined);
-    await operation;
+  private updateFile(update: (current: StoredCredentialFile) => StoredCredentialFile): void {
+    const current = this.readFile();
+    this.writeFileAtomically(update(current));
   }
 
   private writeFileAtomically(value: StoredCredentialFile): void {
@@ -231,7 +222,7 @@ export class ProviderCredentialStore {
 
     const temporaryPath = path.join(
       directory,
-      `.${path.basename(this.filePath)}.${process.pid}.${Date.now()}.tmp`,
+      `.${path.basename(this.filePath)}.${process.pid}.${randomUUID()}.tmp`,
     );
     const descriptor = fs.openSync(temporaryPath, "wx", 0o600);
     try {
@@ -258,4 +249,15 @@ export class ProviderCredentialStore {
       throw error;
     }
   }
+}
+
+export function createElectronProviderCredentialStore(): ProviderCredentialStore {
+  return new ProviderCredentialStore({
+    filePath: path.join(getNodexHome(), "secrets", "provider-credentials.v1.json"),
+    encryption: {
+      isAvailable: () => safeStorage.isEncryptionAvailable(),
+      encryptString: (plaintext) => safeStorage.encryptString(plaintext),
+      decryptString: (ciphertext) => safeStorage.decryptString(ciphertext),
+    },
+  });
 }

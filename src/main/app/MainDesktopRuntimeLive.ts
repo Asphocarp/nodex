@@ -49,7 +49,7 @@ import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { CodexService } from "../codex/codex-service";
 import { CodexSessionStore } from "../codex/codex-session-store";
 import { AgentImportOperations } from "../codex/agent-import-operations";
-import { createElectronProviderCredentialStore } from "../codex/electron-provider-credential-store";
+import { createElectronProviderCredentialStore } from "../platform/electron/ProviderCredentialStore";
 import { CodexAccount, live as codexAccountLive } from "../codex-application/CodexAccount";
 import {
   AgentProviderRuntime,

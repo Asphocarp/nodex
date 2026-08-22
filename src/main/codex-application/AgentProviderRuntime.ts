@@ -101,6 +101,7 @@ export const live: Layer.Layer<AgentProviderRuntime, never, CodexGateway | Provi
       const cache = yield* Ref.make<AgentProviderCatalog | null>(null);
       const restartPending = yield* Ref.make(false);
       const catalogLock = yield* Semaphore.make(1);
+      const credentialMutationLock = yield* Semaphore.make(1);
       const restartLock = yield* Semaphore.make(1);
 
       const discover = Effect.fn("AgentProviderRuntime.discover")(function* () {
@@ -186,15 +187,19 @@ export const live: Layer.Layer<AgentProviderRuntime, never, CodexGateway | Provi
         providerId: string,
         mutation: Effect.Effect<void, ProviderCredentialsError>,
       ) {
-        yield* mutation;
-        yield* Ref.set(cache, null);
-        yield* Ref.set(restartPending, true);
-        const runtimeRestartPending = yield* restartIfIdle();
-        return {
-          providerId,
-          status: yield* credentials.status(providerId),
-          runtimeRestartPending,
-        } satisfies AgentProviderCredentialMutationResult;
+        return yield* credentialMutationLock.withPermits(1)(
+          Effect.gen(function* () {
+            yield* mutation;
+            yield* Ref.set(cache, null);
+            yield* Ref.set(restartPending, true);
+            const runtimeRestartPending = yield* restartIfIdle();
+            return {
+              providerId,
+              status: yield* credentials.status(providerId),
+              runtimeRestartPending,
+            } satisfies AgentProviderCredentialMutationResult;
+          }),
+        );
       });
 
       yield* gateway.events.pipe(

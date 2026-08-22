@@ -423,6 +423,15 @@ legacy `CodexService` shutdown hook only clears its synchronous local projection
 presentation capabilities. It does not close pending requests, replay buffers, sidebar work, fresh
 Thread launches, the Gateway, or endpoints; those resources close once through their owning Scope.
 
+Agent-provider credential mutation belongs to `AgentProviderRuntime`, which serializes secure-file
+publication, catalog invalidation, deferred-restart state, idle detection, endpoint restart, and the
+returned status as one scoped operation. The Electron credential file is a synchronous platform
+Adapter: it validates/encrypts input and durably publishes one complete file by exclusive staging,
+file fsync, atomic rename, permissions repair, and directory fsync. It owns no Promise queue or
+shutdown path. Codex child environment materialization receives only the Adapter's read capability,
+so concurrent startup observes either the complete prior file or the complete replacement and cannot
+become a second credential writer.
+
 Decoded, generation-fenced app-server notifications enter the application through one lossless
 Main-scoped Queue actor. Callback admission is synchronous so EventEmitter arrival order is retained;
 the actor awaits each route before taking the next notification, supervises failures per envelope,

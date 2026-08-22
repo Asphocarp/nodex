@@ -1,13 +1,13 @@
 /* oxlint-disable effecttsgo/async-function, effecttsgo/process-env-in-effect -- Process environment materialization is a Node child-process adapter boundary. */
 import * as Effect from "effect/Effect";
 import { materializeCodexFeatureDefaults } from "../../codex/codex-feature-defaults";
-import type { ProviderCredentialStore } from "../../codex/provider-credential-store";
+import type { ProviderCredentialStore } from "../electron/ProviderCredentialStore";
 import { codexRuntimeError } from "../../codex-runtime/CodexRuntimeError";
 
 export const resolveCodexProcessEnvironment = (input: {
   readonly additionalSearchPaths: readonly string[];
   readonly pathDelimiter: string;
-  readonly providerCredentialStore: ProviderCredentialStore;
+  readonly providerCredentialStore: Pick<ProviderCredentialStore, "buildRuntimeEnvOverlay">;
   readonly runtimeStateHome: string;
 }) =>
   Effect.tryPromise({

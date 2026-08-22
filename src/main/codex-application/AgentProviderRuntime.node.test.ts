@@ -1,8 +1,10 @@
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
+import * as Fiber from "effect/Fiber";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
@@ -128,6 +130,69 @@ it.effect("owns provider discovery, profile resolution, and deferred credential 
     yield* runtime.ensureRuntimeReady;
     assert.strictEqual(restarts, 1);
 
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("serializes credential publication with runtime reload consequences", () =>
+  Effect.gen(function* () {
+    const firstStarted = yield* Deferred.make<void>();
+    const releaseFirst = yield* Deferred.make<void>();
+    const events: string[] = [];
+    const gateway = CodexGateway.of({
+      localHostId: "local",
+      events: Stream.empty,
+      requestLocal: ((method: string) => {
+        if (method === "thread/list") return Effect.succeed({ data: [], nextCursor: null });
+        return unsupported();
+      }) as CodexGateway["Service"]["requestLocal"],
+      requestOnHost: unsupported,
+      requestForThread: unsupported,
+      notifyLocal: unsupported,
+      connection: unsupported,
+      awaitReady: () => Effect.void,
+      reconcileHost: unsupported,
+      removeHost: unsupported,
+      restartHost: () => Effect.void,
+    });
+    const credentials = ProviderCredentials.of({
+      status: () => Effect.succeed("ready"),
+      set: () =>
+        Effect.gen(function* () {
+          events.push("set:start");
+          yield* Deferred.succeed(firstStarted, undefined);
+          yield* Deferred.await(releaseFirst);
+          events.push("set:end");
+        }),
+      remove: () => Effect.sync(() => events.push("remove")),
+    });
+    const scope = yield* Scope.make();
+    const context = yield* Layer.buildWithScope(
+      agentProviderRuntimeLive.pipe(
+        Layer.provide(
+          Layer.merge(
+            Layer.succeed(CodexGateway, gateway),
+            Layer.succeed(ProviderCredentials, credentials),
+          ),
+        ),
+      ),
+      scope,
+    );
+    const runtime = Context.get(context, AgentProviderRuntime);
+    const setting = yield* Effect.forkChild(
+      runtime.setCredential({ providerId: "openrouter", apiKey: "key" }),
+    );
+    yield* Deferred.await(firstStarted);
+    const deleting = yield* Effect.forkChild(
+      runtime.deleteCredential({ providerId: "openrouter" }),
+    );
+    yield* Effect.yieldNow;
+    assert.deepEqual(events, ["set:start"]);
+
+    yield* Deferred.succeed(releaseFirst, undefined);
+    yield* Fiber.join(setting);
+    yield* Fiber.join(deleting);
+    assert.deepEqual(events, ["set:start", "set:end", "remove"]);
     yield* Scope.close(scope, Exit.void);
   }),
 );
