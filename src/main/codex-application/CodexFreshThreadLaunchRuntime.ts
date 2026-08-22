@@ -112,7 +112,6 @@ export interface CodexFreshThreadLaunchRuntimeService {
   ) => Effect.Effect<TurnStartResponse, CodexFreshThreadLaunchError>;
   readonly releaseRenderer: (rendererClientId: string, reason: unknown) => void;
   readonly clear: (threadId: string) => void;
-  readonly shutdown: Effect.Effect<void>;
 }
 
 export class CodexFreshThreadLaunchRuntime extends Context.Service<
@@ -246,7 +245,7 @@ export const make = (
       runStart(threadId, Effect.interrupt);
     };
 
-    const shutdown = Effect.gen(function* () {
+    const release = Effect.gen(function* () {
       if (closed) return;
       closed = true;
       entries.clear();
@@ -254,7 +253,7 @@ export const make = (
       yield* FiberMap.clear(starts);
     });
 
-    yield* Effect.addFinalizer(() => shutdown);
+    yield* Effect.addFinalizer(() => release);
 
     return CodexFreshThreadLaunchRuntime.of({
       register: (launch) => {
@@ -291,6 +290,5 @@ export const make = (
         entries.delete(threadId);
         interrupt(threadId);
       },
-      shutdown,
     });
   });

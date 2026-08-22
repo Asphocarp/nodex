@@ -272,7 +272,7 @@ import {
   ThreadGoalAttachmentDirectoryManager,
 } from "../thread-goal-attachments";
 import type { CodexAttachments } from "../codex-application/CodexAttachments";
-import type { CodexPendingServerRequestRuntimePromiseAdapter } from "../codex-application/CodexPendingServerRequestRuntimePromiseAdapter";
+import type { CodexPendingServerRequestRuntimeService } from "../codex-application/CodexPendingServerRequestRuntime";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import {
   buildThreadPermissionOverrides,
@@ -1204,7 +1204,7 @@ type CodexServiceOptions = {
   client: CodexGatewayPromiseClient;
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
-  pendingServerRequests: CodexPendingServerRequestRuntimePromiseAdapter;
+  pendingServerRequests: CodexPendingServerRequestRuntimeService;
   persistedAtoms: PersistedAtomStore;
   sessionStore: CodexSessionStore;
   runtime: ResolvedCodexRuntime;
@@ -2412,7 +2412,7 @@ export class CodexService {
     | null;
   private readonly projectlessHomeDirectory: () => string;
   private readonly attachments: CodexAttachments["Service"]["legacy"];
-  private readonly pendingServerRequests: CodexPendingServerRequestRuntimePromiseAdapter;
+  private readonly pendingServerRequests: CodexPendingServerRequestRuntimeService;
   private readonly persistedAtoms: PersistedAtomStore;
   private readonly sessionStore: CodexSessionStore;
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;

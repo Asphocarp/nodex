@@ -10,9 +10,9 @@ import {
   type CodexPendingServerRequestKind,
   type CodexPendingServerRequestRegistration,
   type CodexPendingServerRequestResponse,
+  type CodexPendingServerRequestRuntimeService,
   type CodexServerRequestOccurrenceCompletion,
 } from "../codex-application/CodexPendingServerRequestRuntime";
-import type { CodexPendingServerRequestRuntimePromiseAdapter } from "../codex-application/CodexPendingServerRequestRuntimePromiseAdapter";
 
 interface TestCodexPendingServerRequestRuntimeOptions {
   readonly respond: (
@@ -32,7 +32,7 @@ interface TestCodexPendingServerRequestRuntimeOptions {
 type EntryState = "claimed" | "queued" | "settled";
 
 /** Synchronous fixture for the legacy CodexService suite; production uses the scoped Module. */
-export class TestCodexPendingServerRequestRuntime implements CodexPendingServerRequestRuntimePromiseAdapter {
+export class TestCodexPendingServerRequestRuntime implements CodexPendingServerRequestRuntimeService {
   private readonly all = new Set<CodexPendingServerRequest>();
   private readonly entriesByKind = new Map<
     CodexPendingServerRequestKind,

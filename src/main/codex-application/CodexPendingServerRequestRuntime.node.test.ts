@@ -1,5 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Scope from "effect/Scope";
 import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
 import type { CodexApprovalRequest, CodexUserInputRequest } from "../../shared/types";
 import type { CodexServerRequest } from "../codex-runtime/CodexApplicationProtocol";
@@ -206,14 +208,16 @@ it.effect(
 it.effect("Scope shutdown rejects every unsettled occurrence exactly once", () =>
   Effect.gen(function* () {
     const completions: Completion[] = [];
-    const runtime = yield* make(harness(completions));
+    const scope = yield* Scope.make();
+    const runtime = yield* make(harness(completions)).pipe(
+      Effect.provideService(Scope.Scope, scope),
+    );
     runtime.register({ kind: "approval", request: approval("queued"), occurrenceToken: 1 });
     runtime.register({ kind: "user-input", request: userInput("claimed"), occurrenceToken: 2 });
     const claimed = runtime.takeFirst("user-input", "claimed");
     assert.isDefined(claimed);
 
-    yield* runtime.shutdown(new Error("closing"));
-    yield* runtime.shutdown(new Error("closing again"));
+    yield* Scope.close(scope, Exit.void);
     runtime.complete(claimed!, { answers: {} });
     yield* Effect.yieldNow;
 

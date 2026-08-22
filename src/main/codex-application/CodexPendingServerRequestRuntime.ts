@@ -202,7 +202,6 @@ export interface CodexPendingServerRequestRuntimeService {
     options?: { readonly retainTurnless?: boolean },
   ) => void;
   readonly rejectDispatchedDynamicForThread: (threadId: string, reason: unknown) => void;
-  readonly shutdown: (reason: unknown) => Effect.Effect<void>;
 }
 
 export class CodexPendingServerRequestRuntime extends Context.Service<
@@ -385,7 +384,7 @@ export const make = (
       }
     };
 
-    const shutdown = Effect.fn("CodexPendingServerRequestRuntime.shutdown")((reason: unknown) =>
+    const release = Effect.fn("CodexPendingServerRequestRuntime.release")((reason: unknown) =>
       Effect.gen(function* () {
         if (closed) return;
         closed = true;
@@ -400,7 +399,7 @@ export const make = (
     );
 
     yield* Effect.addFinalizer(() =>
-      shutdown(new Error("Codex pending server-request runtime is closing")),
+      release(new Error("Codex pending server-request runtime is closing")),
     );
 
     return CodexPendingServerRequestRuntime.of({
@@ -492,6 +491,5 @@ export const make = (
           reject(entry, reason);
         }
       },
-      shutdown,
     });
   });

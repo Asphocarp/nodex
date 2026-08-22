@@ -497,7 +497,8 @@ the Main-scoped runtime. Server-request decoding is a separate transport/applica
 connection plus notification input is consumed by a scoped Effect projection. The Gateway and
 Endpoint Map remain the only owners of physical sessions. Pending requests, replay buffers, sidebar
 work, fresh Thread launches, authorization, the Gateway, and endpoints each close once through
-their owning Scope.
+their owning Scope. Their application capabilities expose domain release operations only; none
+publishes a second whole-runtime `shutdown` command beside its Scope finalizer.
 
 Agent-provider credential mutation belongs to `AgentProviderRuntime`, which serializes secure-file
 publication, catalog invalidation, deferred-restart state, idle detection, endpoint restart, and the
@@ -864,7 +865,8 @@ until their exact occurrence token is completed. Disconnect, history pruning,
 Thread cleanup, and Main Scope close all settle the same inbox. Canonical
 conversation reducers remain the sole owner of transcript/request truth and
 select which inbox occurrences receive a response; they do not own completion
-callbacks, pending maps, or shutdown rejection loops.
+callbacks, pending maps, shutdown rejection loops, or a public inbox shutdown
+path.
 
 `CodexThreadHandoffRuntime` is the single owner of the cross-system compensation
 transaction. It atomically reserves one operation per Thread before resolving

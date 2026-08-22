@@ -8,7 +8,7 @@ import {
 
 export interface CodexFreshThreadLaunchRuntimePromiseAdapter extends Omit<
   CodexFreshThreadLaunchRuntimeService,
-  "adopt" | "shutdown" | "start"
+  "adopt" | "start"
 > {
   readonly adopt: (
     input: Parameters<CodexFreshThreadLaunchRuntimeService["adopt"]>[0],
@@ -16,7 +16,6 @@ export interface CodexFreshThreadLaunchRuntimePromiseAdapter extends Omit<
   readonly start: (
     input: Parameters<CodexFreshThreadLaunchRuntimeService["start"]>[0],
   ) => Promise<TurnStartResponse>;
-  readonly shutdown: () => Promise<void>;
 }
 
 const unwrap = (error: unknown): never => {
@@ -40,5 +39,4 @@ export const makeCodexFreshThreadLaunchRuntimePromiseAdapter = (
   start: (input) => callbacks.runPromise(runtime.start(input)).catch(unwrap),
   releaseRenderer: runtime.releaseRenderer,
   clear: runtime.clear,
-  shutdown: () => callbacks.runPromise(runtime.shutdown),
 });

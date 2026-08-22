@@ -6,12 +6,11 @@ import {
 
 export interface CodexConversationEventBufferRuntimePromiseAdapter extends Omit<
   CodexConversationEventBufferRuntimeService,
-  "completeThreadStartDeferral" | "endThreadStartDeferral" | "releaseResume" | "shutdown"
+  "completeThreadStartDeferral" | "endThreadStartDeferral" | "releaseResume"
 > {
   readonly completeThreadStartDeferral: (threadId: string | null) => Promise<void>;
   readonly endThreadStartDeferral: () => Promise<void>;
   readonly releaseResume: (threadId: string) => Promise<void>;
-  readonly shutdown: (reason: unknown) => Promise<void>;
 }
 
 export const makeCodexConversationEventBufferRuntimePromiseAdapter = (
@@ -33,5 +32,4 @@ export const makeCodexConversationEventBufferRuntimePromiseAdapter = (
     }),
   discardResume: runtime.discardResume,
   clear: runtime.clear,
-  shutdown: (reason) => callbacks.runPromise(runtime.shutdown(reason)),
 });

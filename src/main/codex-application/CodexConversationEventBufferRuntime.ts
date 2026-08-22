@@ -86,7 +86,6 @@ export interface CodexConversationEventBufferRuntimeService {
   ) => Effect.Effect<void, CodexConversationEventBufferError>;
   readonly discardResume: (threadId: string, reason: unknown) => void;
   readonly clear: (threadId: string, reason: unknown) => void;
-  readonly shutdown: (reason: unknown) => Effect.Effect<void>;
 }
 
 export class CodexConversationEventBufferRuntime extends Context.Service<
@@ -119,7 +118,7 @@ export const make = (
     const readyThreadStarts = new Set<string>();
     const interruptionReasons = new Map<string, unknown>();
     let threadStartDeferralDepth = 0;
-    let shutdownReason: unknown = new Error("Codex conversation event buffer closed");
+    let closeReason: unknown = new Error("Codex conversation event buffer closed");
     let closed = false;
 
     const replayBatch = (
@@ -188,7 +187,7 @@ export const make = (
             const reason =
               interruptionReasons.get(key) ??
               (closed
-                ? shutdownReason
+                ? closeReason
                 : new CodexConversationEventBufferError({
                     cause: exit.cause,
                     phase,
@@ -272,11 +271,11 @@ export const make = (
       if (buffered) rejectRequests(buffered, reason);
     };
 
-    const shutdown = (reason: unknown): Effect.Effect<void> =>
+    const closeAll = (reason: unknown): Effect.Effect<void> =>
       Effect.gen(function* () {
         if (closed) return;
         closed = true;
-        shutdownReason = reason;
+        closeReason = reason;
         for (const buffered of resumeBuffers.values()) rejectRequests(buffered, reason);
         for (const buffered of threadStartBuffers.values()) rejectRequests(buffered, reason);
         resumeBuffers.clear();
@@ -289,7 +288,7 @@ export const make = (
       });
 
     yield* Effect.addFinalizer(() =>
-      shutdown(new Error("Codex conversation event buffer Main Scope closed")),
+      closeAll(new Error("Codex conversation event buffer Main Scope closed")),
     );
 
     return CodexConversationEventBufferRuntime.of({
@@ -356,6 +355,5 @@ export const make = (
         interruptReplay("resume", threadId, reason);
         interruptReplay("thread-start", threadId, reason);
       },
-      shutdown,
     });
   });

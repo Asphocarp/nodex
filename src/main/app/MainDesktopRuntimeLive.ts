@@ -91,7 +91,6 @@ import {
   applicationRequestDispatcherLive,
 } from "../codex-application/ApprovalCoordinator";
 import { make as makeCodexPendingServerRequestRuntime } from "../codex-application/CodexPendingServerRequestRuntime";
-import { makeCodexPendingServerRequestRuntimePromiseAdapter } from "../codex-application/CodexPendingServerRequestRuntimePromiseAdapter";
 import {
   CodexActiveGoalContinuationError,
   make as makeCodexActiveGoalContinuation,
@@ -1828,10 +1827,7 @@ export const live: Layer.Layer<
               permissions: makeCodexPermissionsPromiseAdapter(codexPermissions, callbacks),
               persistedAtoms,
               attachments: attachments.legacy,
-              pendingServerRequests: makeCodexPendingServerRequestRuntimePromiseAdapter(
-                pendingServerRequests,
-                callbacks,
-              ),
+              pendingServerRequests,
               activeGoalContinuation: activeGoalContinuationCallbacks,
               ownerNotificationDrain: makeCodexOwnerNotificationDrainRuntimePromiseAdapter(
                 ownerNotificationDrain,
