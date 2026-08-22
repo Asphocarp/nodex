@@ -314,9 +314,11 @@ archive and restore. No feature owns a parallel per-Project lock map; projectles
 independent, and Main Scope closure interrupts admitted or queued work.
 
 Core application invalidation enters one process-scoped database notification runtime. That
-runtime owns the notifier instance and its renderer projection listeners; Core projection and
-temporary legacy consumers borrow the same injected capability. Importing a local-store module
-must never create a second process event bus.
+runtime is the typed publication capability: it performs synchronous renderer projection itself
+and exposes project-session invalidation as a scoped Stream for in-process consumers. Core
+projection borrows the publisher directly; Sidebar sync consumes the Stream before Core ingress
+starts. There is no EventEmitter, listener-registration API, or import-created local-store bus;
+Scope release fences publication, shuts the PubSub, and interrupts every subscriber.
 
 Git application actions are admitted through one Main-scoped `GitActionOperationRuntime`. A scoped
 `FiberMap` owns commit, push, and generated commit/pull-request-message work by renderer operation

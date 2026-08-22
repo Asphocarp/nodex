@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
 import type { CodexSidebarSnapshot } from "../../shared/types";
 import {
@@ -134,7 +135,7 @@ it.effect("notification repair crosses the active-catalog fence despite an archi
   }),
 );
 
-it.effect("Main Scope close interrupts refreshes and releases invalidation subscription", () =>
+it.effect("Main Scope close interrupts refreshes and releases the invalidation stream", () =>
   Effect.gen(function* () {
     const ownerScope = yield* Scope.make();
     let subscriptions = 0;
@@ -142,7 +143,7 @@ it.effect("Main Scope close interrupts refreshes and releases invalidation subsc
       refresh: () => Effect.never,
       buildSnapshot: (_includeArchived, revision) => Effect.succeed(snapshot(revision)),
       emit: () => {},
-      subscribeInvalidation: () =>
+      invalidations: Stream.fromEffect(
         Effect.acquireRelease(
           Effect.sync(() => {
             subscriptions += 1;
@@ -152,6 +153,7 @@ it.effect("Main Scope close interrupts refreshes and releases invalidation subsc
               subscriptions -= 1;
             }),
         ),
+      ).pipe(Stream.concat(Stream.never)),
     }).pipe(Effect.provideService(Scope.Scope, ownerScope));
     const pending = yield* Effect.forkChild(runtime.sync({ policy: "force" }), {
       startImmediately: true,

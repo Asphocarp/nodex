@@ -9,6 +9,7 @@ import * as FiberMap from "effect/FiberMap";
 import * as Option from "effect/Option";
 import * as Semaphore from "effect/Semaphore";
 import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import type {
   CodexSidebarRefreshPolicy,
   CodexSidebarRefreshReason,
@@ -89,9 +90,7 @@ export interface CodexSidebarSyncRuntimeOptions {
     revision: number,
   ) => Effect.Effect<CodexSidebarSnapshot, CodexSidebarSyncError>;
   readonly emit: (result: CodexSidebarSyncResult, reason: CodexSidebarRefreshReason) => void;
-  readonly subscribeInvalidation?: (
-    invalidate: () => void,
-  ) => Effect.Effect<void, never, Scope.Scope>;
+  readonly invalidations?: Stream.Stream<unknown, never, Scope.Scope>;
   readonly observeDecision?: (event: CodexSidebarSyncDecisionEvent) => void;
   readonly observeRefresh?: (event: CodexSidebarRefreshOutcomeEvent) => void;
   readonly observeNotificationScheduled?: (
@@ -486,7 +485,11 @@ export const make = (
       revision += 1;
     };
 
-    if (options.subscribeInvalidation) yield* options.subscribeInvalidation(invalidate);
+    if (options.invalidations) {
+      yield* Stream.runForEach(options.invalidations, () => Effect.sync(invalidate)).pipe(
+        Effect.forkScoped({ startImmediately: true }),
+      );
+    }
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {
         cache.clear();

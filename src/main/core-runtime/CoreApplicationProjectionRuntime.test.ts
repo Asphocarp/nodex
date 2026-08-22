@@ -6,21 +6,24 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { layer as scopedCallbackRuntimeLive } from "../app/ScopedCallbackRuntime";
 import { createCoreLocalCommitFixture } from "../core-client/testing/local-commit-fixture";
-import { DatabaseNotifier } from "../local-store/notifier";
+import type { DatabaseNotificationPublisher } from "../host-runtime/DatabaseNotifierRuntime";
 import { CoreApplicationProjectionRuntime, live } from "./CoreApplicationProjectionRuntime";
 
 it.effect("projects Automation commits and full resynchronization through owned ports", () =>
   Effect.gen(function* () {
-    const notifier = new DatabaseNotifier();
     const scheduledEvents: unknown[] = [];
     const runEvents: unknown[] = [];
     const libraryEvents: unknown[] = [];
     const projectEvents: unknown[] = [];
     const sessionEvents: unknown[] = [];
     let synchronizeCount = 0;
-    notifier.on("library-navigation-changed", (event) => libraryEvents.push(event));
-    notifier.on("projects-changed", (event) => projectEvents.push(event));
-    notifier.on("project-sessions-changed", (event) => sessionEvents.push(event));
+    const notifications: DatabaseNotificationPublisher = {
+      notifyDatabaseChanged: () => undefined,
+      notifyLibraryNavigationChanged: (event) => libraryEvents.push(event),
+      notifyProjectsChanged: (changeType, projectId) =>
+        projectEvents.push({ changeType, projectId }),
+      notifyProjectSessionInvalidation: (event) => sessionEvents.push(event),
+    };
 
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(
@@ -32,7 +35,7 @@ it.effect("projects Automation commits and full resynchronization through owned 
             synchronizeCount += 1;
           }),
         },
-        notifier,
+        notifications,
       }).pipe(Layer.provide(scopedCallbackRuntimeLive)),
       scope,
     );

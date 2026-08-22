@@ -129,7 +129,10 @@ import type {
 } from "../codex-application/CodexApplicationEventHub";
 import { TestCodexOwnerNotificationDrainRuntime } from "./codex-owner-notification-drain-runtime.test-support";
 import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
-import { TestCodexSidebarSyncRuntime } from "./codex-sidebar-sync-runtime.test-support";
+import {
+  TestCodexSidebarSyncRuntime,
+  TestDatabaseInvalidationSource,
+} from "./codex-sidebar-sync-runtime.test-support";
 import type { CodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
 import { removeManagedWorktree } from "./git-worktree-service";
 import { runCodexGitCommand } from "./codex-git-command";
@@ -153,7 +156,6 @@ import type {
   DesktopProjectWorkspaceThread,
   DesktopProjectWorkspaceThreadMoveInput,
 } from "../core-client/project-workspace-adapter";
-import { DatabaseNotifier } from "../local-store/notifier";
 import { PersistedAtomStore } from "../local-store/persisted-atoms";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHostRuntime";
@@ -1546,7 +1548,7 @@ function createService(options?: {
     setTimeout?: (callback: () => void, timeoutMs: number) => unknown;
     clearTimeout?: (timer: unknown) => void;
   };
-  databaseNotifier?: DatabaseNotifier;
+  databaseNotifier?: TestDatabaseInvalidationSource;
 }): TestableCodexService {
   const applicationEventEmitter = new EventEmitter();
   const applicationEvents: CodexApplicationEventPublisher = {
@@ -1755,7 +1757,7 @@ function createService(options?: {
   const ownerNotificationDrain = new TestCodexOwnerNotificationDrainRuntime(
     DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT,
   );
-  const databaseNotifier = options?.databaseNotifier ?? new DatabaseNotifier();
+  const databaseNotifier = options?.databaseNotifier ?? new TestDatabaseInvalidationSource();
   const sidebarSync = new TestCodexSidebarSyncRuntime({
     refresh: async (input) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -1766,7 +1768,7 @@ function createService(options?: {
       return await service.buildBoundedWorkspaceSidebarSnapshot(includeArchived, revision);
     },
     emit: (result, reason) => service?.emitSidebarSyncUpdated(result, reason),
-    notifier: databaseNotifier,
+    invalidations: databaseNotifier,
   });
   const sidebarSweep = makeCodexSidebarSweepTestAdapter();
   const rendererOwnerRetention = new TestCodexRendererOwnerRetention({
@@ -2856,7 +2858,7 @@ test("does not mask a sidebar invalidation that lands during a Core read", async
       return overview;
     },
   } as DesktopProjectWorkspacePort;
-  const databaseNotifier = new DatabaseNotifier();
+  const databaseNotifier = new TestDatabaseInvalidationSource();
   const service = createService({ projectWorkspace, databaseNotifier });
   const client = Reflect.get(service as object, "client") as {
     start: () => Promise<void>;
@@ -2880,7 +2882,7 @@ test("does not mask a sidebar invalidation that lands during a Core read", async
       threadPreview: "After invalidation",
     });
     await baseWorkspace.setThreadPinned("thread:after-invalidation", true);
-    databaseNotifier.emit("project-sessions-changed");
+    databaseNotifier.invalidate();
     releaseFirstRead();
 
     const initial = await initialSync;

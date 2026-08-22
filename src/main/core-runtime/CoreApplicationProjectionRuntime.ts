@@ -19,7 +19,7 @@ import {
   allProjectSessionInvalidation,
   planCoreWorkspaceNotifications,
 } from "../core-client/core-project-workspace-invalidation";
-import type { DatabaseNotifier } from "../local-store/notifier";
+import type { DatabaseNotificationPublisher } from "../host-runtime/DatabaseNotifierRuntime";
 import { getLogger } from "../logging/logger";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 
@@ -31,7 +31,7 @@ export interface CoreAutomationProjectionPort {
 
 export interface CoreApplicationProjectionRuntimeOptions {
   readonly automation: CoreAutomationProjectionPort;
-  readonly notifier: DatabaseNotifier;
+  readonly notifications: DatabaseNotificationPublisher;
 }
 
 export class CoreApplicationProjectionRuntime extends Context.Service<
@@ -100,23 +100,23 @@ export const live = (
 
         const databaseEvent = mapCoreDatabaseEvent(envelope, atom, libraryId);
         if (databaseEvent) {
-          options.notifier.notifyDatabaseChanged(databaseEvent);
+          options.notifications.notifyDatabaseChanged(databaseEvent);
           if ((databaseEvent.affectedViewIds ?? []).length > 0) {
             // The Project catalog projects a Database's primary default View.
-            options.notifier.notifyProjectsChanged("update", databaseEvent.projectId);
+            options.notifications.notifyProjectsChanged("update", databaseEvent.projectId);
           }
           return;
         }
 
         const libraryDatabaseEvent = mapCoreLibraryDatabaseEvent(envelope, atom, libraryId);
         if (libraryDatabaseEvent) {
-          options.notifier.notifyLibraryNavigationChanged(libraryDatabaseEvent);
+          options.notifications.notifyLibraryNavigationChanged(libraryDatabaseEvent);
           return;
         }
 
         const libraryEvent = mapCoreLibraryEvent(envelope, atom, libraryId);
         if (libraryEvent) {
-          options.notifier.notifyLibraryNavigationChanged(libraryEvent);
+          options.notifications.notifyLibraryNavigationChanged(libraryEvent);
           return;
         }
 
@@ -124,13 +124,13 @@ export const live = (
         if (!workspaceEvent) return;
         const notifications = planCoreWorkspaceNotifications(workspaceEvent);
         if (notifications.project) {
-          options.notifier.notifyProjectsChanged(
+          options.notifications.notifyProjectsChanged(
             notifications.project.changeType,
             notifications.project.projectId,
           );
         }
         if (notifications.invalidateStandaloneRoots) {
-          options.notifier.notifyLibraryNavigationChanged({
+          options.notifications.notifyLibraryNavigationChanged({
             version: 1,
             libraryId,
             storeEpoch: envelope.packet.manifest.identity.store_epoch,
@@ -143,14 +143,14 @@ export const live = (
           });
         }
         if (notifications.sessions) {
-          options.notifier.notifyProjectSessionInvalidation(notifications.sessions);
+          options.notifications.notifyProjectSessionInvalidation(notifications.sessions);
         }
       };
 
       return CoreApplicationProjectionRuntime.of({
         publish,
         publishResync: ({ commitSeq, libraryId, storeEpoch }) => {
-          options.notifier.notifyLibraryNavigationChanged({
+          options.notifications.notifyLibraryNavigationChanged({
             version: 1,
             libraryId,
             storeEpoch,
@@ -161,8 +161,8 @@ export const live = (
             affectedDatabaseIds: [],
             affectedViewIds: [],
           });
-          options.notifier.notifyProjectsChanged("update");
-          options.notifier.notifyProjectSessionInvalidation(allProjectSessionInvalidation());
+          options.notifications.notifyProjectsChanged("update");
+          options.notifications.notifyProjectSessionInvalidation(allProjectSessionInvalidation());
         },
       });
     }),

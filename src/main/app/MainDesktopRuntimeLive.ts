@@ -693,7 +693,14 @@ export const live: Layer.Layer<
         );
         const initialization = Context.get(initializationContext, ApplicationInitializationRuntime);
         const databaseNotifierContext = yield* Layer.buildWithScope(
-          DatabaseNotifierRuntime.live.pipe(Layer.provide(Layer.succeed(WindowRuntime, windows))),
+          DatabaseNotifierRuntime.live.pipe(
+            Layer.provide(
+              Layer.mergeAll(
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
+                Layer.succeed(WindowRuntime, windows),
+              ),
+            ),
+          ),
           runtimeScope,
         );
         const databaseNotifications = Context.get(
@@ -1351,16 +1358,7 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexSidebarSyncError({ cause }),
             }),
           emit: (result, reason) => requireCodexService().emitSidebarSyncUpdated(result, reason),
-          subscribeInvalidation: (invalidate) =>
-            Effect.acquireRelease(
-              Effect.sync(() => {
-                databaseNotifications.notifier.on("project-sessions-changed", invalidate);
-              }),
-              () =>
-                Effect.sync(() => {
-                  databaseNotifications.notifier.off("project-sessions-changed", invalidate);
-                }),
-            ),
+          invalidations: databaseNotifications.projectSessionInvalidations,
           observeDecision: (event) => requireCodexService().recordSidebarSyncDecision(event),
           observeRefresh: (event) => requireCodexService().recordSidebarRefreshOutcome(event),
           observeNotificationScheduled: (event) =>
@@ -2313,7 +2311,7 @@ export const live: Layer.Layer<
                 codexService.notifyScheduledAutomationChanged(event),
               synchronize: Effect.promise(() => codexService.synchronizeAutomationRuntime()),
             },
-            notifier: databaseNotifications.notifier,
+            notifications: databaseNotifications,
           }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
           runtimeScope,
         );

@@ -1,4 +1,3 @@
-import type { DatabaseNotifier } from "../local-store/notifier";
 import type {
   CodexSidebarSyncNotification,
   CodexSidebarProjectionInput,
@@ -22,8 +21,21 @@ interface TestCodexSidebarSyncRuntimeOptions {
     revision: number,
   ) => Promise<CodexSidebarSnapshot>;
   readonly emit: (result: CodexSidebarSyncResult, reason: CodexSidebarRefreshReason) => void;
-  readonly notifier: DatabaseNotifier;
+  readonly invalidations: TestDatabaseInvalidationSource;
   readonly notificationDebounceMs?: number;
+}
+
+export class TestDatabaseInvalidationSource {
+  readonly #listeners = new Set<() => void>();
+
+  subscribe(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  invalidate(): void {
+    for (const listener of this.#listeners) listener();
+  }
 }
 
 const EMPTY_METADATA: CodexSidebarSyncMetadata = {
@@ -59,12 +71,13 @@ export class TestCodexSidebarSyncRuntime implements CodexSidebarSyncRuntimePromi
   readonly #invalidate = (): void => {
     this.#revision += 1;
   };
+  readonly #releaseInvalidation: () => void;
   #revision = 0;
   #generation = 0;
   #notificationTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(private readonly options: TestCodexSidebarSyncRuntimeOptions) {
-    options.notifier.on("project-sessions-changed", this.#invalidate);
+    this.#releaseInvalidation = options.invalidations.subscribe(this.#invalidate);
   }
 
   async sync(input: CodexSidebarSyncInput = {}): Promise<CodexSidebarSyncResult> {
@@ -146,7 +159,7 @@ export class TestCodexSidebarSyncRuntime implements CodexSidebarSyncRuntimePromi
   dispose(): void {
     if (this.#notificationTimer) clearTimeout(this.#notificationTimer);
     this.#notificationTimer = null;
-    this.options.notifier.off("project-sessions-changed", this.#invalidate);
+    this.#releaseInvalidation();
     this.#active.clear();
     this.#cache.clear();
     this.#catalogStates.clear();
