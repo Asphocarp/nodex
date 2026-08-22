@@ -5,6 +5,7 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
+import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
@@ -32,6 +33,10 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
       live({
         codex: {} as CodexService,
         projects: {} as DesktopProjectWorkspacePort,
+        threadTitles: CodexThreadTitlePersistence.of({
+          set: () => Effect.die("unused"),
+          setRequired: () => Effect.die("unused"),
+        }),
       }).pipe(
         Layer.provide(
           Layer.mergeAll(

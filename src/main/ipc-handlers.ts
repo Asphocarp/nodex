@@ -15,6 +15,7 @@ import type { CodexService } from "./codex/codex-service";
 import type { CodexManualCompactionRuntime } from "./codex-application/CodexManualCompactionRuntime";
 import type { CodexThreadGoalRuntime } from "./codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadSettingsRuntime } from "./codex-application/CodexThreadSettingsRuntime";
+import type { CodexThreadTitlePersistence } from "./codex-application/CodexThreadTitlePersistence";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -100,6 +101,7 @@ interface CodexIpcOptions {
   manualCompaction: CodexManualCompactionRuntime["Service"];
   threadGoals: CodexThreadGoalRuntime["Service"];
   threadSettings: CodexThreadSettingsRuntime["Service"];
+  threadTitles: CodexThreadTitlePersistence["Service"];
   rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
@@ -497,12 +499,24 @@ export const codexIpcLive = (
         codexService.loadCompleteThreadHistory(threadId),
       );
 
-      registerHandle("codex:thread:name:set", (_, threadId: string, name: string) =>
-        codexService.setThreadName(threadId, name),
+      registerEffectHandle("codex:thread:name:set", (_, threadId: string, name: string) =>
+        options.threadTitles
+          .set({ threadId, name, normalization: "manual" })
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:name:set", cause }),
+            ),
+          ),
       );
 
-      registerHandle("codex:thread:name:set-generated", (_, threadId: string, name: string) =>
-        codexService.setGeneratedThreadName(threadId, name),
+      registerEffectHandle("codex:thread:name:set-generated", (_, threadId: string, name: string) =>
+        options.threadTitles
+          .set({ threadId, name, normalization: "trim" })
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:name:set-generated", cause }),
+            ),
+          ),
       );
 
       registerHandle(

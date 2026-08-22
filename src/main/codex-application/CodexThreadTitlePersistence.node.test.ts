@@ -17,10 +17,43 @@ const failure = (message: string) =>
 const options = (
   overrides: Partial<CodexThreadTitlePersistenceOptions> = {},
 ): CodexThreadTitlePersistenceOptions => ({
+  project: () => Effect.void,
   setRemote: () => Effect.void,
   persistWorkspace: () => Effect.void,
   ...overrides,
 });
+
+it.effect("owns title normalization, local projection, and best-effort persistence order", () =>
+  Effect.gen(function* () {
+    const calls: string[] = [];
+    const persistence = yield* make(
+      options({
+        project: ({ name }) => Effect.sync(() => void calls.push(`project:${name}`)),
+        setRemote: ({ name }) =>
+          Effect.sync(() => void calls.push(`remote:${name}`)).pipe(
+            Effect.andThen(Effect.fail(failure("remote failed"))),
+          ),
+        persistWorkspace: ({ name }) => Effect.sync(() => void calls.push(`workspace:${name}`)),
+      }),
+    );
+
+    assert.isTrue(
+      yield* persistence.set({
+        threadId: "thread-1",
+        name: "  **Ship**   parity  ",
+        normalization: "manual",
+      }),
+    );
+    assert.deepEqual(calls, [
+      "project:**Ship** parity",
+      "remote:**Ship** parity",
+      "workspace:**Ship** parity",
+    ]);
+    assert.isFalse(
+      yield* persistence.set({ threadId: "thread-1", name: "   ", normalization: "trim" }),
+    );
+  }),
+);
 
 it.effect("persists Thread titles FIFO per Thread", () =>
   Effect.gen(function* () {
@@ -40,11 +73,11 @@ it.effect("persists Thread titles FIFO per Thread", () =>
       }),
     );
     const first = yield* Effect.forkChild(
-      persistence.persistRequired({ threadId: "thread-1", name: "first" }),
+      persistence.setRequired({ threadId: "thread-1", name: "first", normalization: "trim" }),
     );
     yield* Deferred.await(firstRemote);
     const second = yield* Effect.forkChild(
-      persistence.persistRequired({ threadId: "thread-1", name: "second" }),
+      persistence.setRequired({ threadId: "thread-1", name: "second", normalization: "trim" }),
     );
     yield* Effect.yieldNow;
     assert.deepEqual(calls, ["remote:first"]);
@@ -70,10 +103,14 @@ it.effect("allows unrelated Thread titles to persist independently", () =>
       }),
     );
     const first = yield* Effect.forkChild(
-      persistence.persistRequired({ threadId: "thread-1", name: "first" }),
+      persistence.setRequired({ threadId: "thread-1", name: "first", normalization: "trim" }),
     );
     yield* Effect.yieldNow;
-    yield* persistence.persistRequired({ threadId: "thread-2", name: "second" });
+    yield* persistence.setRequired({
+      threadId: "thread-2",
+      name: "second",
+      normalization: "trim",
+    });
     yield* Deferred.succeed(releaseFirst, undefined);
     yield* Fiber.join(first);
   }),
@@ -91,7 +128,7 @@ it.effect("isolates both best-effort failures and still reaches Project Workspac
           }).pipe(Effect.andThen(Effect.fail(failure("workspace failed")))),
       }),
     );
-    yield* persistence.persistBestEffort({ threadId: "thread-1", name: "title" });
+    yield* persistence.set({ threadId: "thread-1", name: "title", normalization: "trim" });
     assert.strictEqual(workspaceAttempts, 1);
   }),
 );
@@ -105,11 +142,15 @@ it.effect("surfaces required persistence failure and releases the Thread lane", 
       }),
     );
     const error = yield* persistence
-      .persistRequired({ threadId: "thread-1", name: "first" })
+      .setRequired({ threadId: "thread-1", name: "first", normalization: "trim" })
       .pipe(Effect.flip);
     assert.instanceOf(error.cause, Error);
     failRemote = false;
-    yield* persistence.persistRequired({ threadId: "thread-1", name: "second" });
+    yield* persistence.setRequired({
+      threadId: "thread-1",
+      name: "second",
+      normalization: "trim",
+    });
   }),
 );
 
@@ -128,7 +169,7 @@ it.effect("interrupts active title persistence when its Main Scope closes", () =
       }),
     ).pipe(Effect.provideService(Scope.Scope, ownerScope));
     const caller = yield* Effect.forkChild(
-      persistence.persistRequired({ threadId: "thread-1", name: "title" }),
+      persistence.setRequired({ threadId: "thread-1", name: "title", normalization: "trim" }),
     );
     yield* Deferred.await(started);
     yield* Scope.close(ownerScope, Exit.void);

@@ -8,6 +8,7 @@ import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRunt
 import { CodexManualCompactionRuntime } from "../../codex-application/CodexManualCompactionRuntime";
 import { CodexThreadGoalRuntime } from "../../codex-application/CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "../../codex-application/CodexThreadSettingsRuntime";
+import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
@@ -50,6 +51,10 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           remoteUpdateSupport: () => "unknown",
           recordRemoteUpdateSupported: () => undefined,
           recordRemoteUpdateUnsupported: () => undefined,
+        }),
+        threadTitles: CodexThreadTitlePersistence.of({
+          set: () => Effect.die(new Error("Unexpected Thread title operation")),
+          setRequired: () => Effect.die(new Error("Unexpected required Thread title operation")),
         }),
         projectWorkspace: {} as DesktopProjectWorkspacePort,
         rendererClientRouter: {} as RendererClientRuntimeService,

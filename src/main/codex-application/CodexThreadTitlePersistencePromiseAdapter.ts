@@ -2,12 +2,12 @@ import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import {
   CodexThreadTitlePersistenceEffectError,
   type CodexThreadTitlePersistence,
-  type CodexThreadTitlePersistenceInput,
+  type CodexThreadTitleSetCommand,
 } from "./CodexThreadTitlePersistence";
 
 export interface CodexThreadTitlePersistencePromiseAdapter {
-  readonly persistBestEffort: (input: CodexThreadTitlePersistenceInput) => Promise<void>;
-  readonly persistRequired: (input: CodexThreadTitlePersistenceInput) => Promise<void>;
+  readonly set: (input: CodexThreadTitleSetCommand) => Promise<boolean>;
+  readonly setRequired: (input: CodexThreadTitleSetCommand) => Promise<boolean>;
 }
 
 const unwrapPersistenceError = (error: unknown): never => {
@@ -20,7 +20,7 @@ export const makeCodexThreadTitlePersistencePromiseAdapter = (
   persistence: CodexThreadTitlePersistence["Service"],
   callbacks: Pick<ScopedCallbackRuntime["Service"], "runPromise">,
 ): CodexThreadTitlePersistencePromiseAdapter => ({
-  persistBestEffort: (input) => callbacks.runPromise(persistence.persistBestEffort(input)),
-  persistRequired: (input) =>
-    callbacks.runPromise(persistence.persistRequired(input)).catch(unwrapPersistenceError),
+  set: (input) => callbacks.runPromise(persistence.set(input)).catch(unwrapPersistenceError),
+  setRequired: (input) =>
+    callbacks.runPromise(persistence.setRequired(input)).catch(unwrapPersistenceError),
 });

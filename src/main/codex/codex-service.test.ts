@@ -329,8 +329,6 @@ interface TestableCodexService {
   startThreadForSession: (
     input: CodexThreadStartForSessionInput,
   ) => Promise<CodexThreadStartForSessionResult>;
-  setThreadName: (threadId: string, name: string) => Promise<boolean>;
-  setGeneratedThreadName: (threadId: string, name: string) => Promise<boolean>;
   interruptTurn: (threadId: string, turnId?: string) => Promise<boolean>;
   cleanBackgroundTerminals: (threadId: string) => Promise<boolean>;
   cleanBackgroundTerminalsSilently: (threadId: string) => Promise<boolean>;
@@ -1824,9 +1822,16 @@ function createService(options?: {
   });
   const threadSettingsRuntime = new TestCodexThreadSettingsRuntime();
   const threadTitlePersistence = new TestCodexThreadTitlePersistence({
+    project: ({ threadId, name, syncDormantConversationUpdates }) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      service.applyThreadNameLocal(threadId, name, { syncDormantConversationUpdates });
+    },
     setRemote: async ({ threadId, name }) => {
       if (!service) throw new Error("Codex test service is not constructed");
-      await service.setThreadTitleOnAppServer(threadId, name);
+      const client = Reflect.get(service, "client") as {
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      await client.request("thread/name/set", { threadId, name });
     },
     persistWorkspace: async ({ threadId, name }) => {
       if (!service) throw new Error("Codex test service is not constructed");

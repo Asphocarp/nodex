@@ -1530,11 +1530,19 @@ export const live: Layer.Layer<
         );
         const threadGoals = Context.get(threadGoalContext, CodexThreadGoalRuntime);
         const threadTitlePersistence = yield* makeCodexThreadTitlePersistence({
-          setRemote: ({ threadId, name }) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().setThreadTitleOnAppServer(threadId, name),
+          project: (input) =>
+            Effect.try({
+              try: () =>
+                requireCodexService().applyThreadNameLocal(input.threadId, input.name, {
+                  syncDormantConversationUpdates: input.syncDormantConversationUpdates,
+                }),
               catch: (cause) => new CodexThreadTitlePersistenceEffectError({ cause }),
             }),
+          setRemote: ({ threadId, name }) =>
+            codexGateway.requestForThread(threadId, "thread/name/set", { threadId, name }).pipe(
+              Effect.asVoid,
+              Effect.mapError((cause) => new CodexThreadTitlePersistenceEffectError({ cause })),
+            ),
           persistWorkspace: ({ threadId, name }) =>
             Effect.tryPromise({
               try: () => requireCodexService().persistThreadTitleInProjectWorkspace(threadId, name),
@@ -2121,6 +2129,7 @@ export const live: Layer.Layer<
           ProjectWorkspaceIpc.live({
             codex: codexService,
             projects: projectWorkspace,
+            threadTitles: threadTitlePersistence,
             terminals: {
               listLiveSessionsForOwners: (input) =>
                 callbacks.runPromise(terminals.listLiveSessionsForOwners(input)),
@@ -2601,6 +2610,7 @@ export const live: Layer.Layer<
             manualCompaction,
             threadGoals,
             threadSettings: threadSettingsRuntime,
+            threadTitles: threadTitlePersistence,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

@@ -6028,8 +6028,11 @@ export class CodexService {
       };
       await this.materializeImportedThread(projectedThread);
       if (session.title && !fork.thread.name?.trim()) {
-        await this.applyThreadNameLocal(threadId, session.title);
-        await this.threadTitlePersistence.persistRequired({ threadId, name: session.title });
+        await this.threadTitlePersistence.setRequired({
+          threadId,
+          name: session.title,
+          normalization: "trim",
+        });
       }
       return threadId;
     } catch (error) {
@@ -9204,10 +9207,10 @@ export class CodexService {
       await this.automationModule.setRunThreadTitle(link.threadId, input.automation.name);
 
       try {
-        await this.applyThreadNameLocal(link.threadId, input.automation.name);
-        await this.threadTitlePersistence.persistBestEffort({
+        await this.threadTitlePersistence.set({
           threadId: link.threadId,
           name: input.automation.name,
+          normalization: "trim",
         });
       } catch (error) {
         this.logger.warn("Failed to set scheduled automation thread title", {
@@ -13477,11 +13480,12 @@ export class CodexService {
     );
   }
 
-  private async applyThreadNameLocal(
+  /** Effect Module projection operation; callers use threadTitlePersistence instead. */
+  applyThreadNameLocal(
     threadId: string,
     name: string,
     options: DormantConversationSyncOptions = {},
-  ): Promise<void> {
+  ): void {
     this.emitThreadTitleUpdated(threadId, name);
     const detail = this.getMaybeConversationRecord(threadId)?.detail;
     if (detail) {
@@ -13541,8 +13545,11 @@ export class CodexService {
     if (!normalizedTitle) return;
     if (await this.hasThreadTitle(threadId)) return;
 
-    await this.applyThreadNameLocal(threadId, normalizedTitle);
-    await this.threadTitlePersistence.persistBestEffort({ threadId, name: normalizedTitle });
+    await this.threadTitlePersistence.set({
+      threadId,
+      name: normalizedTitle,
+      normalization: "trim",
+    });
   }
 
   private async generateThreadTitleForPrompt(
@@ -14200,10 +14207,10 @@ export class CodexService {
       });
 
       if (explicitThreadName) {
-        await this.applyThreadNameLocal(link.threadId, explicitThreadName);
-        await this.threadTitlePersistence.persistRequired({
+        await this.threadTitlePersistence.setRequired({
           threadId: link.threadId,
           name: explicitThreadName,
+          normalization: "trim",
         });
       }
 
@@ -14693,7 +14700,11 @@ export class CodexService {
     }
     this.emitEvent({ type: "threadSummary", thread: summary });
     if (forkThreadTitle) {
-      await this.setThreadName(detail.threadId, forkThreadTitle);
+      await this.threadTitlePersistence.set({
+        threadId: detail.threadId,
+        name: forkThreadTitle,
+        normalization: "manual",
+      });
     }
     await this.forkSidePanelTransferLifecycle?.stageDirect({
       sourceConversationId: sourceThreadId,
@@ -16605,7 +16616,10 @@ export class CodexService {
       this.emitEvent({ type: "threadSummary", thread: summary });
     }
     if (forkThreadTitle) {
-      await this.setThreadName(detail.threadId, forkThreadTitle, {
+      await this.threadTitlePersistence.set({
+        threadId: detail.threadId,
+        name: forkThreadTitle,
+        normalization: "manual",
         syncDormantConversationUpdates: options.syncDormantConversationUpdates,
       });
     }
@@ -16830,11 +16844,6 @@ export class CodexService {
   }
 
   /** Effect Module adapter operation; callers use threadTitlePersistence instead. */
-  async setThreadTitleOnAppServer(threadId: string, name: string): Promise<void> {
-    await this.client.request("thread/name/set", { threadId, name });
-  }
-
-  /** Effect Module adapter operation; callers use threadTitlePersistence instead. */
   async persistThreadTitleInProjectWorkspace(threadId: string, name: string): Promise<void> {
     const summary = await this.updateWorkspaceThreadSummary(threadId, {
       threadName: name,
@@ -16843,40 +16852,6 @@ export class CodexService {
       this.emitEvent({ type: "threadSummary", thread: summary });
     }
     await this.emitSidebarCatalogChangedForThread(threadId, "host-message");
-  }
-
-  async setThreadName(
-    threadId: string,
-    name: string,
-    options: DormantConversationSyncOptions = {},
-  ): Promise<boolean> {
-    await this.ensureClientReady();
-    const normalizedName = normalizeCodexManualThreadTitle(name);
-    if (!normalizedName) {
-      return false;
-    }
-
-    await this.applyThreadNameLocal(threadId, normalizedName, options);
-    await this.threadTitlePersistence.persistBestEffort({
-      threadId,
-      name: normalizedName,
-    });
-    return true;
-  }
-
-  async setGeneratedThreadName(threadId: string, name: string): Promise<boolean> {
-    await this.ensureClientReady();
-    const normalizedName = name.trim();
-    if (!normalizedName) {
-      return false;
-    }
-
-    await this.applyThreadNameLocal(threadId, normalizedName);
-    await this.threadTitlePersistence.persistBestEffort({
-      threadId,
-      name: normalizedName,
-    });
-    return true;
   }
 
   private async deleteHeartbeatAutomationForArchivedThread(threadId: string): Promise<void> {
@@ -20036,7 +20011,11 @@ export class CodexService {
     if (initialTitle) {
       const currentTitle = this.getThreadLinkSafely(threadId)?.threadName?.trim() ?? "";
       if (!onlyIfUntitled || !currentTitle) {
-        await this.setThreadName(threadId, initialTitle);
+        await this.threadTitlePersistence.set({
+          threadId,
+          name: initialTitle,
+          normalization: "manual",
+        });
       }
     }
     if (includeWorktreeInit && entry.worktreeGitRoot) {
@@ -20464,7 +20443,11 @@ export class CodexService {
 
     const threadId = detail.threadId;
     if (input.initialTitle?.trim()) {
-      await this.setThreadName(threadId, input.initialTitle);
+      await this.threadTitlePersistence.set({
+        threadId,
+        name: input.initialTitle,
+        normalization: "manual",
+      });
     }
     if (!responsePermissionContext) {
       throw new Error("Thread start did not resolve its permission context");
@@ -20991,7 +20974,11 @@ export class CodexService {
         const title = this.parseDynamicString(args.title) ?? "";
         if (!threadId || !title) throw new Error("set_thread_title requires threadId and title");
         await this.resolveDynamicThreadDetail(threadId);
-        await this.setThreadName(threadId, title);
+        await this.threadTitlePersistence.set({
+          threadId,
+          name: title,
+          normalization: "manual",
+        });
         return this.buildDynamicToolSuccess({ threadId, title });
       }
 

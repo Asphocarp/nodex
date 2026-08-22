@@ -9,6 +9,7 @@ import { ProjectLifecycleInputSchema } from "../../../shared/schemas/projects";
 import type { TerminalSessionSnapshot } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
 import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
+import type { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { coreResultFrom } from "../../core-result-ipc";
@@ -34,6 +35,7 @@ import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 export interface ProjectWorkspaceIpcOptions {
   readonly codex: CodexService;
   readonly projects: DesktopProjectWorkspacePort;
+  readonly threadTitles: CodexThreadTitlePersistence["Service"];
   readonly terminals?: {
     readonly listLiveSessionsForOwners: (input: {
       readonly conversationIds: ReadonlySet<string>;
@@ -246,7 +248,10 @@ export const live = (
         renameProjectSessionChat(sessionId, input, {
           getProjectSession: options.projects.getProjectSession,
           renameProjectSession: options.projects.renameProjectSession,
-          setThreadName: (threadId, title) => options.codex.setThreadName(threadId, title),
+          setThreadName: (threadId, title) =>
+            callbacks.runPromise(
+              options.threadTitles.set({ threadId, name: title, normalization: "manual" }),
+            ),
         }),
       );
       yield* invoke("project-sessions:delete", (_, sessionId) =>

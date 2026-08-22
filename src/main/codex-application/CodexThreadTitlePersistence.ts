@@ -5,10 +5,16 @@ import * as Fiber from "effect/Fiber";
 import * as RcMap from "effect/RcMap";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import { normalizeCodexManualThreadTitle } from "../../shared/codex-thread-title";
 
 export interface CodexThreadTitlePersistenceInput {
   readonly threadId: string;
   readonly name: string;
+}
+
+export interface CodexThreadTitleSetCommand extends CodexThreadTitlePersistenceInput {
+  readonly normalization: "manual" | "trim";
+  readonly syncDormantConversationUpdates?: boolean;
 }
 
 export class CodexThreadTitlePersistenceEffectError extends Data.TaggedError(
@@ -18,6 +24,9 @@ export class CodexThreadTitlePersistenceEffectError extends Data.TaggedError(
 }> {}
 
 export interface CodexThreadTitlePersistenceOptions {
+  readonly project: (
+    input: CodexThreadTitleSetCommand,
+  ) => Effect.Effect<void, CodexThreadTitlePersistenceEffectError>;
   readonly setRemote: (
     input: CodexThreadTitlePersistenceInput,
   ) => Effect.Effect<void, CodexThreadTitlePersistenceEffectError>;
@@ -29,12 +38,14 @@ export interface CodexThreadTitlePersistenceOptions {
 export class CodexThreadTitlePersistence extends Context.Service<
   CodexThreadTitlePersistence,
   {
-    /** Local projection has already committed; both persistence targets are best effort. */
-    readonly persistBestEffort: (input: CodexThreadTitlePersistenceInput) => Effect.Effect<void>;
-    /** Used by transactional Thread creation paths that must surface persistence failure. */
-    readonly persistRequired: (
-      input: CodexThreadTitlePersistenceInput,
-    ) => Effect.Effect<void, CodexThreadTitlePersistenceEffectError>;
+    /** Commits local title projection, then persists both external targets best effort. */
+    readonly set: (
+      input: CodexThreadTitleSetCommand,
+    ) => Effect.Effect<boolean, CodexThreadTitlePersistenceEffectError>;
+    /** Commits local title projection and requires both persistence targets to succeed. */
+    readonly setRequired: (
+      input: CodexThreadTitleSetCommand,
+    ) => Effect.Effect<boolean, CodexThreadTitlePersistenceEffectError>;
   }
 >()("nodex/main/codex-application/CodexThreadTitlePersistence") {}
 
@@ -80,27 +91,60 @@ export const make = (
         }),
       );
 
-    const persistRequired = (
-      input: CodexThreadTitlePersistenceInput,
-    ): Effect.Effect<void, CodexThreadTitlePersistenceEffectError> =>
-      runSerial(
-        input.threadId,
-        options.setRemote(input).pipe(Effect.andThen(options.persistWorkspace(input))),
-      );
+    const normalize = (
+      input: CodexThreadTitleSetCommand,
+    ): (CodexThreadTitleSetCommand & { readonly name: string }) | null => {
+      const name =
+        input.normalization === "manual"
+          ? normalizeCodexManualThreadTitle(input.name)
+          : input.name.trim();
+      return name ? { ...input, name } : null;
+    };
 
-    return CodexThreadTitlePersistence.of({
-      persistRequired,
-      persistBestEffort: (input) =>
-        runSerial(
-          input.threadId,
-          options.setRemote(input).pipe(
-            Effect.catch((error) => logFailure("app-server", input, error)),
-            Effect.andThen(
-              options
-                .persistWorkspace(input)
-                .pipe(Effect.catch((error) => logFailure("project-workspace", input, error))),
+    const set = (
+      input: CodexThreadTitleSetCommand,
+    ): Effect.Effect<boolean, CodexThreadTitlePersistenceEffectError> => {
+      const normalized = normalize(input);
+      if (!normalized) return Effect.succeed(false);
+      const persisted = { threadId: normalized.threadId, name: normalized.name };
+      return runSerial(
+        normalized.threadId,
+        options.project(normalized).pipe(
+          Effect.andThen(
+            options.setRemote(persisted).pipe(
+              Effect.catch((error) => logFailure("app-server", persisted, error)),
+              Effect.andThen(
+                options
+                  .persistWorkspace(persisted)
+                  .pipe(Effect.catch((error) => logFailure("project-workspace", persisted, error))),
+              ),
             ),
           ),
+          Effect.as(true),
         ),
+      );
+    };
+
+    const setRequired = (
+      input: CodexThreadTitleSetCommand,
+    ): Effect.Effect<boolean, CodexThreadTitlePersistenceEffectError> => {
+      const normalized = normalize(input);
+      if (!normalized) return Effect.succeed(false);
+      const persisted = { threadId: normalized.threadId, name: normalized.name };
+      return runSerial(
+        normalized.threadId,
+        options
+          .project(normalized)
+          .pipe(
+            Effect.andThen(options.setRemote(persisted)),
+            Effect.andThen(options.persistWorkspace(persisted)),
+            Effect.as(true),
+          ),
+      );
+    };
+
+    return CodexThreadTitlePersistence.of({
+      set,
+      setRequired,
     });
   });

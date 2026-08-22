@@ -1,7 +1,12 @@
-import type { CodexThreadTitlePersistenceInput } from "../codex-application/CodexThreadTitlePersistence";
+import {
+  type CodexThreadTitlePersistenceInput,
+  type CodexThreadTitleSetCommand,
+} from "../codex-application/CodexThreadTitlePersistence";
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
+import { normalizeCodexManualThreadTitle } from "../../shared/codex-thread-title";
 
 export interface TestCodexThreadTitlePersistenceOptions {
+  readonly project: (input: CodexThreadTitleSetCommand) => Promise<void> | void;
   readonly setRemote: (input: CodexThreadTitlePersistenceInput) => Promise<void>;
   readonly persistWorkspace: (input: CodexThreadTitlePersistenceInput) => Promise<void>;
 }
@@ -12,18 +17,32 @@ export class TestCodexThreadTitlePersistence implements CodexThreadTitlePersiste
 
   constructor(private readonly options: TestCodexThreadTitlePersistenceOptions) {}
 
-  persistBestEffort(input: CodexThreadTitlePersistenceInput): Promise<void> {
-    return this.runSerial(input, async () => {
-      await this.options.setRemote(input).catch(() => undefined);
-      await this.options.persistWorkspace(input).catch(() => undefined);
-    });
+  set(input: CodexThreadTitleSetCommand): Promise<boolean> {
+    const name =
+      input.normalization === "manual"
+        ? normalizeCodexManualThreadTitle(input.name)
+        : input.name.trim();
+    if (!name) return Promise.resolve(false);
+    return this.runSerial({ threadId: input.threadId, name }, async () => {
+      await this.options.project({ ...input, name });
+      await this.options.setRemote({ threadId: input.threadId, name }).catch(() => undefined);
+      await this.options
+        .persistWorkspace({ threadId: input.threadId, name })
+        .catch(() => undefined);
+    }).then(() => true);
   }
 
-  persistRequired(input: CodexThreadTitlePersistenceInput): Promise<void> {
-    return this.runSerial(input, async () => {
-      await this.options.setRemote(input);
-      await this.options.persistWorkspace(input);
-    });
+  setRequired(input: CodexThreadTitleSetCommand): Promise<boolean> {
+    const name =
+      input.normalization === "manual"
+        ? normalizeCodexManualThreadTitle(input.name)
+        : input.name.trim();
+    if (!name) return Promise.resolve(false);
+    return this.runSerial({ threadId: input.threadId, name }, async () => {
+      await this.options.project({ ...input, name });
+      await this.options.setRemote({ threadId: input.threadId, name });
+      await this.options.persistWorkspace({ threadId: input.threadId, name });
+    }).then(() => true);
   }
 
   private runSerial(
