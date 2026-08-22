@@ -298,10 +298,12 @@ runtime-owned `AbortSignal` at the child-process/worker Promise seam; they do no
 controller map, or manual shutdown path.
 
 Local Environment settings are a filesystem-backed host Module, not Codex conversation state.
-Its scoped runtime resolves Project workspace authority through Core, owns same-target write
-serialization, and exposes the five renderer operations through a dedicated trusted IPC adapter.
-Scope release stops admission and waits for already-admitted atomic writes; neither the filesystem
-service nor `CodexService` may own a process-global write queue.
+Its scoped runtime resolves Project workspace authority through Core, owns one low-frequency config
+mutation lane plus the physical write fibers, and exposes the five renderer operations through a
+dedicated trusted IPC adapter. A caller may stop waiting after a write is admitted, but the durable
+filesystem transaction remains uninterruptible and Scope-owned; release rejects all new reads and
+writes, interrupts queued mutations, and drains the active write before returning. The filesystem
+helper is stateless and neither it nor `CodexService` owns a Promise tail or shutdown path.
 
 Renderer persisted atoms and Codex client-thread identity aliases share one
 Main-owned `PersistedAtomStore`. The repository owns its in-memory projection

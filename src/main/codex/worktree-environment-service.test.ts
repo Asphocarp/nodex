@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "vite-plus/test";
+import { describe, expect, test } from "vite-plus/test";
 import type { WorktreeEnvironmentDefinition } from "../../shared/types";
 import { WORKTREE_ENVIRONMENT_MAX_BYTES } from "./worktree-environment-codec";
 import {
@@ -10,22 +10,12 @@ import {
   listWorktreeEnvironmentOptions,
   readWorktreeEnvironmentDefinition,
   readWorktreeEnvironmentSettingsSnapshot,
-  WorktreeEnvironmentFileStore,
+  saveWorktreeEnvironmentConfigFile as saveWorktreeEnvironmentConfigFileTransaction,
 } from "./worktree-environment-service";
 
-let environmentFiles: WorktreeEnvironmentFileStore;
-
-beforeEach(() => {
-  environmentFiles = new WorktreeEnvironmentFileStore();
-});
-
-afterEach(async () => {
-  await environmentFiles.close();
-});
-
 const saveWorktreeEnvironmentConfigFile = (
-  input: Parameters<WorktreeEnvironmentFileStore["save"]>[0],
-) => environmentFiles.save(input);
+  input: Parameters<typeof saveWorktreeEnvironmentConfigFileTransaction>[0],
+) => saveWorktreeEnvironmentConfigFileTransaction(input);
 
 function createWorkspace(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "nodex-worktree-env-"));
@@ -229,37 +219,6 @@ describe("worktree-environment-service", () => {
       expect(fs.readFileSync(environmentPath(workspacePath), "utf8")).toBe(
         referenceRaw("External"),
       );
-    } finally {
-      removeWorkspace(workspacePath);
-    }
-  });
-
-  test("serializes concurrent writes per canonical path", async () => {
-    const workspacePath = createWorkspace();
-    const raw = referenceRaw("Initial");
-    writeEnvironmentFile(workspacePath, "environment.toml", raw);
-    const expectedRevision = revisionFor(raw);
-
-    try {
-      const results = await Promise.all([
-        saveWorktreeEnvironmentConfigFile({
-          projectId: "project",
-          workspacePath,
-          configPath: ".codex/environments/environment.toml",
-          expectedRevision,
-          environment: makeEnvironment("First"),
-        }),
-        saveWorktreeEnvironmentConfigFile({
-          projectId: "project",
-          workspacePath,
-          configPath: ".codex/environments/environment.toml",
-          expectedRevision,
-          environment: makeEnvironment("Second"),
-        }),
-      ]);
-
-      expect(results).toContainEqual({ type: "success" });
-      expect(results).toContainEqual({ type: "conflict" });
     } finally {
       removeWorkspace(workspacePath);
     }
