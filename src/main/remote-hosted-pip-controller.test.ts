@@ -1,10 +1,15 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, expect } from "vite-plus/test";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Scope from "effect/Scope";
+import { it } from "@effect/vitest";
 import type { RemoteHostedPipHostLayout } from "../shared/remote-hosted-pip";
 import {
-  RemoteHostedPipService,
+  makeRemoteHostedPipController,
+  type RemoteHostedPipController,
   type RemoteHostedPipWebContentsLike,
   type RemoteHostedPipWindowLike,
-} from "./remote-hosted-pip-service";
+} from "./remote-hosted-pip-controller";
 import type { SkyNativeAddon, SkyRemoteHostedPipHostRegistration } from "./sky-native";
 
 class FakeSender implements RemoteHostedPipWebContentsLike {
@@ -211,7 +216,20 @@ const layout: RemoteHostedPipHostLayout = {
   presentationScope: "thread",
 };
 
-function createHarness() {
+function createHarness(): Effect.Effect<
+  {
+    readonly addon: FakeSkyAddon;
+    readonly broadcasts: Array<{ channel: string; payload: unknown }>;
+    readonly sent: Array<{ channel: string; payload: unknown }>;
+    readonly service: RemoteHostedPipController;
+    readonly getMaxDisplaySize: () => number | null;
+    readonly getAlwaysHide: () => boolean;
+    readonly setSurfacePresented: (value: boolean) => void;
+    readonly window: FakeWindow;
+  },
+  never,
+  Scope.Scope
+> {
   const addon = new FakeSkyAddon();
   const broadcasts: Array<{ channel: string; payload: unknown }> = [];
   const sent: Array<{ channel: string; payload: unknown }> = [];
@@ -219,7 +237,7 @@ function createHarness() {
   let surfacePresented = false;
   let alwaysHide = false;
   let maxDisplaySize: number | null = 280;
-  const service = new RemoteHostedPipService({
+  return makeRemoteHostedPipController({
     addon,
     broadcast: (channel, payload) => broadcasts.push({ channel, payload }),
     getFocusedWindow: () => (window.focused && !window.destroyed ? window : null),
@@ -234,22 +252,23 @@ function createHarness() {
     writeMaxDisplaySize: (size) => {
       maxDisplaySize = size;
     },
-  });
-  return {
-    addon,
-    broadcasts,
-    sent,
-    service,
-    getMaxDisplaySize: () => maxDisplaySize,
-    getAlwaysHide: () => alwaysHide,
-    setSurfacePresented(value: boolean) {
-      surfacePresented = value;
-    },
-    window,
-  };
+  }).pipe(
+    Effect.map((service) => ({
+      addon,
+      broadcasts,
+      sent,
+      service,
+      getMaxDisplaySize: () => maxDisplaySize,
+      getAlwaysHide: () => alwaysHide,
+      setSurfacePresented: (value: boolean) => {
+        surfacePresented = value;
+      },
+      window,
+    })),
+  );
 }
 
-function attachThread(service: RemoteHostedPipService, window: FakeWindow): void {
+function attachThread(service: RemoteHostedPipController, window: FakeWindow): void {
   service.handleDesktopMessageFromView(window.webContents, {
     layout,
     type: "remote-hosted-pip-host-layout-changed",
@@ -283,142 +302,168 @@ function browserNotification(surface: Record<string, unknown>): unknown {
   };
 }
 
-describe("RemoteHostedPipService", () => {
-  test("registers the focused BrowserWindow as a native host and publishes real native state", () => {
-    const { addon, broadcasts, service, window } = createHarness();
-    attachThread(service, window);
-    expect(addon.registrations.at(-1)).toMatchObject({
-      contentBounds: { height: 800, width: 1200, x: 10, y: 20 },
-      id: "codex-main-thread",
-      isCodexHomeAvailable: false,
-      presentationScope: "thread",
-      title: "Window 1",
-    });
-    expect(addon.activeThreadIds.at(-1)).toBe("thread-1");
-    expect(addon.maxDisplaySizes).toEqual([280]);
+describe("RemoteHostedPipController", () => {
+  it.effect(
+    "registers the focused BrowserWindow as a native host and publishes real native state",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const { addon, broadcasts, service, window } = yield* createHarness();
+          attachThread(service, window);
+          expect(addon.registrations.at(-1)).toMatchObject({
+            contentBounds: { height: 800, width: 1200, x: 10, y: 20 },
+            id: "codex-main-thread",
+            isCodexHomeAvailable: false,
+            presentationScope: "thread",
+            title: "Window 1",
+          });
+          expect(addon.activeThreadIds.at(-1)).toBe("thread-1");
+          expect(addon.maxDisplaySizes).toEqual([280]);
 
-    addon.maxDisplaySizeChangedHandler?.(340);
+          addon.maxDisplaySizeChangedHandler?.(340);
+          addon.activeTaskIds = ["thread-1"];
+          addon.anyPresentation = true;
+          service.handleCodexNotification(
+            browserNotification({
+              screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
+            }),
+          );
+          expect(broadcasts.at(-1)).toEqual({
+            channel: "remote-hosted-pip-stream-state-changed",
+            payload: {
+              conversationId: "thread-1",
+              isActive: true,
+              isAnyActive: true,
+              type: "remote-hosted-pip-stream-state-changed",
+            },
+          });
+        }),
+      ),
+  );
 
-    addon.activeTaskIds = ["thread-1"];
-    addon.anyPresentation = true;
-    service.handleCodexNotification(
-      browserNotification({
-        screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
+  it.effect("releases native callbacks and window listeners with its Scope", () =>
+    Effect.gen(function* () {
+      const scope = yield* Scope.make();
+      const { addon, getMaxDisplaySize, service, window } = yield* createHarness().pipe(
+        Effect.provideService(Scope.Scope, scope),
+      );
+      attachThread(service, window);
+
+      addon.maxDisplaySizeChangedHandler?.(360);
+      expect(getMaxDisplaySize()).toBe(360);
+      addon.privacySettingsTerminationRequest = true;
+      expect(service.isPrivacySettingsTerminationRequest()).toBe(true);
+      expect(window.listenerCount("focus")).toBe(1);
+      expect(window.listenerCount("closed")).toBe(1);
+      expect(window.webContents.listenerCount()).toBe(1);
+
+      yield* Scope.close(scope, Exit.void);
+      expect(addon.maxDisplaySizeChangedHandler).toBeNull();
+      expect(addon.shouldShowTaskHandler).toBeNull();
+      expect(window.listenerCount("focus")).toBe(0);
+      expect(window.listenerCount("closed")).toBe(0);
+      expect(window.webContents.listenerCount()).toBe(0);
+      expect(service.isPrivacySettingsTerminationRequest()).toBe(false);
+    }),
+  );
+
+  it.effect("persists the global always-hide setting and refreshes native visibility", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { addon, getAlwaysHide, service, window } = yield* createHarness();
+        attachThread(service, window);
+
+        service.setAlwaysHide(true);
+        expect(getAlwaysHide()).toBe(true);
+        expect(service.getAlwaysHide()).toBe(true);
+        expect(addon.refreshVisibilityCalls.length).toBeGreaterThan(0);
+
+        service.setAlwaysHide(false);
+        expect(addon.refreshVisibilityCalls.length).toBeGreaterThan(1);
       }),
-    );
-    expect(broadcasts.at(-1)).toEqual({
-      channel: "remote-hosted-pip-stream-state-changed",
-      payload: {
-        conversationId: "thread-1",
-        isActive: true,
-        isAnyActive: true,
-        type: "remote-hosted-pip-stream-state-changed",
-      },
-    });
-    service.dispose();
-  });
+    ),
+  );
 
-  test("persists native resize callbacks and exposes privacy-settings termination", () => {
-    const { addon, getMaxDisplaySize, service, window } = createHarness();
-    attachThread(service, window);
+  it.effect("ingests completed Browser metadata and prunes exact presentations", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { addon, service, window } = yield* createHarness();
+        attachThread(service, window);
+        service.handleCodexNotification(
+          browserNotification({
+            screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
+          }),
+        );
+        service.handleCodexNotification(
+          browserNotification({
+            screenshot: { tabId: "tab-2", url: "data:image/png;base64,Yg==" },
+          }),
+        );
+        expect(addon.upserts.map(([id]) => id)).toEqual([
+          'browser:["thread-1","browser-1","tab-1"]',
+          'browser:["thread-1","browser-1","tab-2"]',
+        ]);
 
-    addon.maxDisplaySizeChangedHandler?.(360);
-    expect(getMaxDisplaySize()).toBe(360);
-    addon.privacySettingsTerminationRequest = true;
-    expect(service.isPrivacySettingsTerminationRequest()).toBe(true);
-    expect(window.listenerCount("focus")).toBe(1);
-    expect(window.listenerCount("closed")).toBe(1);
-    expect(window.webContents.listenerCount()).toBe(1);
-
-    service.dispose();
-    expect(addon.maxDisplaySizeChangedHandler).toBeNull();
-    expect(addon.shouldShowTaskHandler).toBeNull();
-    expect(window.listenerCount("focus")).toBe(0);
-    expect(window.listenerCount("closed")).toBe(0);
-    expect(window.webContents.listenerCount()).toBe(0);
-  });
-
-  test("persists the global always-hide setting and refreshes native visibility", () => {
-    const { addon, getAlwaysHide, service, window } = createHarness();
-    attachThread(service, window);
-
-    service.setAlwaysHide(true);
-    expect(getAlwaysHide()).toBe(true);
-    expect(service.getAlwaysHide()).toBe(true);
-    expect(addon.refreshVisibilityCalls.length).toBeGreaterThan(0);
-
-    service.setAlwaysHide(false);
-    expect(addon.refreshVisibilityCalls.length).toBeGreaterThan(1);
-    service.dispose();
-  });
-
-  test("ingests completed Browser metadata and prunes or ends exact presentations", () => {
-    const { addon, service, window } = createHarness();
-    attachThread(service, window);
-    service.handleCodexNotification(
-      browserNotification({
-        screenshot: { tabId: "tab-1", url: "data:image/png;base64,YQ==" },
+        service.handleCodexNotification(browserNotification({ openTabIds: ["tab-2"] }));
+        expect(addon.invalidatedPresentations).toEqual([
+          'browser:["thread-1","browser-1","tab-1"]',
+        ]);
+        service.handleCodexNotification(browserNotification({ sessionEnded: true }));
+        expect(addon.invalidatedPresentations.at(-1)).toBe(
+          'browser:["thread-1","browser-1","tab-2"]',
+        );
       }),
-    );
-    service.handleCodexNotification(
-      browserNotification({
-        screenshot: { tabId: "tab-2", url: "data:image/png;base64,Yg==" },
+    ),
+  );
+
+  it.effect("keeps user-hidden threads separate from Browser surface suppression", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { addon, broadcasts, service, setSurfacePresented, window } = yield* createHarness();
+        attachThread(service, window);
+        service.handleDesktopMessageFromView(window.webContents, {
+          hiddenThreadIds: ["thread-hidden"],
+          type: "remote-hosted-pip-hidden-thread-ids-changed",
+        });
+        expect(addon.suppressedThreadIds.at(-1)).toEqual(["thread-hidden"]);
+        expect(addon.shouldShowTaskHandler?.("thread-1")).toBe(true);
+        expect(addon.shouldShowTaskHandler?.("thread-hidden")).toBe(false);
+
+        setSurfacePresented(true);
+        service.handleBrowserUseStateSnapshot();
+        expect(addon.suppressedThreadIds.at(-1)).toEqual(["thread-1", "thread-hidden"]);
+        expect(addon.activeThreadIds.at(-1)).toBe(null);
+        expect(addon.shouldShowTaskHandler?.("thread-1")).toBe(false);
+
+        addon.visibilityHandler?.(false, ["thread-1"]);
+        expect(service.getHiddenThreadIds()).toEqual(["thread-1", "thread-hidden"]);
+        expect(broadcasts.at(-1)).toEqual({
+          channel: "remote-hosted-pip-hidden-thread-ids-requested",
+          payload: {
+            hiddenThreadIds: ["thread-1", "thread-hidden"],
+            type: "remote-hosted-pip-hidden-thread-ids-requested",
+          },
+        });
       }),
-    );
-    expect(addon.upserts.map(([id]) => id)).toEqual([
-      'browser:["thread-1","browser-1","tab-1"]',
-      'browser:["thread-1","browser-1","tab-2"]',
-    ]);
+    ),
+  );
 
-    service.handleCodexNotification(browserNotification({ openTabIds: ["tab-2"] }));
-    expect(addon.invalidatedPresentations).toEqual(['browser:["thread-1","browser-1","tab-1"]']);
-    service.handleCodexNotification(browserNotification({ sessionEnded: true }));
-    expect(addon.invalidatedPresentations.at(-1)).toBe('browser:["thread-1","browser-1","tab-2"]');
-    service.dispose();
-  });
-
-  test("keeps user-hidden threads separate from Browser surface suppression", async () => {
-    const { addon, broadcasts, service, setSurfacePresented, window } = createHarness();
-    attachThread(service, window);
-    service.handleDesktopMessageFromView(window.webContents, {
-      hiddenThreadIds: ["thread-hidden"],
-      type: "remote-hosted-pip-hidden-thread-ids-changed",
-    });
-    expect(addon.suppressedThreadIds.at(-1)).toEqual(["thread-hidden"]);
-    expect(addon.shouldShowTaskHandler?.("thread-1")).toBe(true);
-    expect(addon.shouldShowTaskHandler?.("thread-hidden")).toBe(false);
-
-    setSurfacePresented(true);
-    await service.handleBrowserUseStateSnapshot();
-    expect(addon.suppressedThreadIds.at(-1)).toEqual(["thread-1", "thread-hidden"]);
-    expect(addon.activeThreadIds.at(-1)).toBe(null);
-    expect(addon.shouldShowTaskHandler?.("thread-1")).toBe(false);
-
-    addon.visibilityHandler?.(false, ["thread-1"]);
-    expect(service.getHiddenThreadIds()).toEqual(["thread-1", "thread-hidden"]);
-    expect(broadcasts.at(-1)).toEqual({
-      channel: "remote-hosted-pip-hidden-thread-ids-requested",
-      payload: {
-        hiddenThreadIds: ["thread-1", "thread-hidden"],
-        type: "remote-hosted-pip-hidden-thread-ids-requested",
-      },
-    });
-    service.dispose();
-  });
-
-  test("maps terminal turn lifecycle to complete versus invalidate", () => {
-    const { addon, service, window } = createHarness();
-    attachThread(service, window);
-    service.handleCodexNotification({
-      method: "turn/completed",
-      params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } },
-    });
-    service.handleCodexNotification({
-      method: "turn/completed",
-      params: { threadId: "thread-1", turn: { id: "turn-2", status: "failed" } },
-    });
-    expect(addon.completedThreads).toEqual(["thread-1"]);
-    expect(addon.invalidatedTurns).toEqual([["thread-1", "turn-2"]]);
-    service.dispose();
-  });
+  it.effect("maps terminal turn lifecycle to complete versus invalidate", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const { addon, service, window } = yield* createHarness();
+        attachThread(service, window);
+        service.handleCodexNotification({
+          method: "turn/completed",
+          params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed" } },
+        });
+        service.handleCodexNotification({
+          method: "turn/completed",
+          params: { threadId: "thread-1", turn: { id: "turn-2", status: "failed" } },
+        });
+        expect(addon.completedThreads).toEqual(["thread-1"]);
+        expect(addon.invalidatedTurns).toEqual([["thread-1", "turn-2"]]);
+      }),
+    ),
+  );
 });

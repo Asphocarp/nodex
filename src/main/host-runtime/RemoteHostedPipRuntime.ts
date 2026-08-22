@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { BrowserWindow } from "electron";
 import type { CodexDesktopMessageFromView } from "../../shared/remote-hosted-pip";
@@ -10,14 +11,16 @@ import type { BrowserSidebarService } from "../browser-sidebar-service";
 import type { BrowserSidebarEventHubService } from "../browser/BrowserSidebarEventHub";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { safeBroadcastToWindows, safeSendToWebContents } from "../ipc-safe-send";
-import { RemoteHostedPipPreferenceStore } from "../remote-hosted-pip-preference-store";
-import { RemoteHostedPipService } from "../remote-hosted-pip-service";
+import {
+  makeRemoteHostedPipController,
+  type RemoteHostedPipWindowLike,
+} from "../remote-hosted-pip-controller";
+import { makeRemoteHostedPipPreferences } from "../remote-hosted-pip-preference-store";
 import { isMacOSVersionAtLeast, loadSkyNativeAddon } from "../sky-native";
 
 interface RemoteHostedPipPort {
-  readonly dispose: () => void;
   readonly getAlwaysHide: () => boolean;
-  readonly handleBrowserUseStateSnapshot: () => Promise<void>;
+  readonly handleBrowserUseStateSnapshot: () => void;
   readonly handleCodexNotification: (notification: unknown) => void;
   readonly handleDesktopMessageFromView: (
     sender: Electron.WebContents,
@@ -57,7 +60,7 @@ export interface RemoteHostedPipRuntimeOptions {
 }
 
 const fromPort = (
-  acquire: Effect.Effect<RemoteHostedPipPort>,
+  acquire: Effect.Effect<RemoteHostedPipPort, never, Scope.Scope>,
   notifications: Stream.Stream<unknown>,
   browserUseStateSignals: Stream.Stream<unknown> = Stream.empty,
   pollIntervalMs = REMOTE_HOSTED_PIP_POLL_INTERVAL_MS,
@@ -65,9 +68,7 @@ const fromPort = (
   Layer.effect(
     RemoteHostedPipRuntime,
     Effect.gen(function* () {
-      const service = yield* Effect.acquireRelease(acquire, (runtime) =>
-        Effect.sync(() => runtime.dispose()),
-      );
+      const service = yield* acquire;
       yield* notifications.pipe(
         Stream.runForEach((notification) =>
           Effect.sync(() => service.handleCodexNotification(notification)),
@@ -79,8 +80,8 @@ const fromPort = (
           Effect.andThen(Effect.sync(() => service.pollNativePresentationState())),
         ),
       ).pipe(Effect.forkScoped);
-      const refresh = Effect.tryPromise({
-        try: () => service.handleBrowserUseStateSnapshot(),
+      const refresh = Effect.try({
+        try: service.handleBrowserUseStateSnapshot,
         catch: (cause) => new RemoteHostedPipRuntimeError({ operation: "refresh", cause }),
       });
       yield* Stream.concat(Stream.make(undefined), browserUseStateSignals).pipe(
@@ -121,30 +122,30 @@ export const live = (
   Layer.unwrap(
     Effect.gen(function* () {
       const gateway = yield* CodexGateway;
-      const preferences = new RemoteHostedPipPreferenceStore(options.preferenceFilePath);
+      const preferences = makeRemoteHostedPipPreferences(options.preferenceFilePath);
       return fromPort(
-        Effect.sync(
-          () =>
-            new RemoteHostedPipService({
-              addon: loadSkyNativeAddon(),
-              broadcast: (channel, payload) => {
-                safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, [payload]);
-              },
-              getFocusedWindow: () => BrowserWindow.getFocusedWindow(),
-              getWindowForSender: (sender) =>
-                BrowserWindow.fromWebContents(sender as Electron.WebContents),
-              isEnabled: () => options.platform === "darwin" && isMacOSVersionAtLeast("13.0"),
-              isThreadSurfacePresented: (threadId) =>
-                options.browserSidebarService.hasPresentedBrowserUseSurfaceForThread(threadId),
-              readAlwaysHide: () => preferences.readAlwaysHide(),
-              readMaxDisplaySize: () => preferences.readMaxDisplaySize(),
-              sendToSender: (sender, channel, payload) => {
-                safeSendToWebContents(sender as Electron.WebContents, channel, [payload]);
-              },
-              writeAlwaysHide: (alwaysHide) => preferences.writeAlwaysHide(alwaysHide),
-              writeMaxDisplaySize: (size) => preferences.writeMaxDisplaySize(size),
-            }),
-        ),
+        makeRemoteHostedPipController({
+          addon: loadSkyNativeAddon(),
+          broadcast: (channel, payload) => {
+            safeBroadcastToWindows(BrowserWindow.getAllWindows(), channel, [payload]);
+          },
+          getFocusedWindow: () =>
+            BrowserWindow.getFocusedWindow() as unknown as RemoteHostedPipWindowLike | null,
+          getWindowForSender: (sender) =>
+            BrowserWindow.fromWebContents(
+              sender as Electron.WebContents,
+            ) as unknown as RemoteHostedPipWindowLike | null,
+          isEnabled: () => options.platform === "darwin" && isMacOSVersionAtLeast("13.0"),
+          isThreadSurfacePresented: (threadId) =>
+            options.browserSidebarService.hasPresentedBrowserUseSurfaceForThread(threadId),
+          readAlwaysHide: preferences.readAlwaysHide,
+          readMaxDisplaySize: preferences.readMaxDisplaySize,
+          sendToSender: (sender, channel, payload) => {
+            safeSendToWebContents(sender as Electron.WebContents, channel, [payload]);
+          },
+          writeAlwaysHide: preferences.writeAlwaysHide,
+          writeMaxDisplaySize: preferences.writeMaxDisplaySize,
+        }),
         gateway.events.pipe(
           Stream.filterMap((event) =>
             event.kind === "notification" ? Result.succeed(event.value) : Result.fail(undefined),

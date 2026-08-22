@@ -9,21 +9,17 @@ import * as TestClock from "effect/testing/TestClock";
 import { assert, it } from "@effect/vitest";
 import { RemoteHostedPipRuntime, testLayer } from "./RemoteHostedPipRuntime";
 
-it.effect("owns notification consumption and releases the native host with its Scope", () =>
+it.effect("owns notification consumption with its Scope", () =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
     const notifications: unknown[] = [];
     let alwaysHide = false;
-    let disposed = 0;
     let refreshed = 0;
     const context = yield* Layer.buildWithScope(
       testLayer(
         {
-          dispose: () => {
-            disposed += 1;
-          },
           getAlwaysHide: () => alwaysHide,
-          handleBrowserUseStateSnapshot: async () => {
+          handleBrowserUseStateSnapshot: () => {
             refreshed += 1;
           },
           handleCodexNotification: (notification) => {
@@ -49,7 +45,6 @@ it.effect("owns notification consumption and releases the native host with its S
     assert.strictEqual(refreshed, 2);
     assert.deepEqual(notifications, [{ method: "turn/started", params: { threadId: "thread-1" } }]);
     yield* Scope.close(scope, Exit.void);
-    assert.strictEqual(disposed, 1);
   }),
 );
 
@@ -61,9 +56,8 @@ it.effect("tracks Browser Use refresh signals only while its Scope is open", () 
     yield* Layer.buildWithScope(
       testLayer(
         {
-          dispose: () => undefined,
           getAlwaysHide: () => false,
-          handleBrowserUseStateSnapshot: async () => {
+          handleBrowserUseStateSnapshot: () => {
             refreshed += 1;
           },
           handleCodexNotification: () => undefined,
@@ -98,9 +92,8 @@ it.effect("owns native presentation polling with the Main Scope clock", () =>
     yield* Layer.buildWithScope(
       testLayer(
         {
-          dispose: () => undefined,
           getAlwaysHide: () => false,
-          handleBrowserUseStateSnapshot: async () => undefined,
+          handleBrowserUseStateSnapshot: () => undefined,
           handleCodexNotification: () => undefined,
           handleDesktopMessageFromView: () => undefined,
           isPrivacySettingsTerminationRequest: () => false,

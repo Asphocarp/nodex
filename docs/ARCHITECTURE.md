@@ -161,11 +161,14 @@ The native Adapter owns only helper execution, screen metadata, and Electron
 capture calls; it has no scheduler or application state. Renderer IPC borrows
 the runtime and never owns a second cache or scheduler.
 
-Remote Hosted PiP likewise keeps its native presentation poll in one scoped
-Effect fiber. The native host coordinator contains no timer; it tracks every
-window focus/closed and WebContents destroyed listener by Window identity and
-removes the whole registration on window removal or Main Scope release. Gateway
-notifications and Browser Use refresh signals enter the same runtime owner.
+Remote Hosted PiP keeps its native presentation poll in one scoped Effect fiber. The same runtime
+acquires a synchronous controller whose closure owns native host state, native callback registrations,
+and every window focus/closed and WebContents destroyed listener. Window removal releases its exact
+registration; Main Scope release first closes callback admission, removes all remaining listeners,
+unregisters every native host and presentation, clears the five native handlers, and stops the native
+content host. The controller has no public `dispose()` or independent lifecycle. Gateway notifications
+and Browser Use refresh signals enter through scoped Stream consumers. Preference file access is a
+stateless synchronous Adapter required by the native resize callback, not a cached service owner.
 
 Browser Use sessions are a process-scoped keyed resource family. An infinite-idle
 `LayerMap` owns one IAB API, native pipe server, CDP listener, and turn sequencer per
