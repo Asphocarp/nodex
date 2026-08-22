@@ -31,10 +31,11 @@ The feature has four owners:
 1. `CodexService` emits a typed occurrence only after the matching raw
    app-server lifecycle transition and pending-request registry change have
    committed. Hydration and renderer snapshot projection are not producers.
-2. `CodexThreadNotificationCoordinator` is the single Main-process policy,
-   settings, focus, presentation, host, and target-renderer authority.
-3. `DesktopNotificationManager` owns Electron `Notification` instances and
-   their native callback lifecycle.
+2. The pure Codex notification handler decides policy, settings, focus,
+   presentation, host, and target renderer; its Main-scoped runtime owns event
+   subscription and action admission.
+3. `DesktopNotificationRuntime` owns Electron `Notification` instances, exact
+   occurrence records, and their native callback lifecycle.
 4. `WorkbenchCommandIngress` owns renderer action ingress. Workbench session
    and panel commands perform navigation before any reply or approval action.
 
@@ -157,7 +158,7 @@ dismissal of both possible families:
 
 Presenting a conversation in a foreground renderer dismisses all notifications
 for that conversation. Window disposal dismisses records targeted to that
-renderer. The native manager also supports exact notification-ID and exact
+renderer. The native runtime also supports exact notification-ID and exact
 navigation-path dismissal.
 
 ## Native IDs and Presentation

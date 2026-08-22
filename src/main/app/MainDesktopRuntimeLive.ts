@@ -2222,7 +2222,7 @@ export const live: Layer.Layer<
             appUpdates,
             browserSidebar: browserSidebarService,
             codex: codexService,
-            desktopNotifications: desktopNotifications.manager,
+            desktopNotifications,
             iconPath: config.isPackaged
               ? `${config.resourcesPath}/icon.png`
               : `${config.projectRootPath}/resources/icon.png`,
@@ -2605,13 +2605,9 @@ export const live: Layer.Layer<
               if (webContentsId === null) return;
               const targetWindow = windows.get(webContentsId);
               if (!targetWindow || targetWindow.isDestroyed()) return;
-              desktopNotifications.manager.showNotification(
-                notification,
-                targetWindow.webContents,
-                onAction,
-              );
+              desktopNotifications.show(notification, targetWindow.webContents, onAction);
             },
-            dismissNotification: (selector) => desktopNotifications.manager.dismiss(selector),
+            dismissNotification: desktopNotifications.dismiss,
             dispatchAction: (targetClientId, action) =>
               rendererClients.sendToClient(targetClientId, "desktop-notification:action", [action]),
             focusTargetClient: (targetClientId) => {

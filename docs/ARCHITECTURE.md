@@ -851,8 +851,12 @@ Store-wide permit, and backup configuration replacement interrupts the previous
 schedule through one `FiberHandle`. Core remains the durable definition and
 lease authority. Core recovery triggers an immediate reminder and automation
 pass, while Main Scope closure interrupts every schedule and returns admitted
-leases. Native notification objects and their Electron listeners remain inside
-the platform capability and close with the application Scope.
+leases. `DesktopNotificationRuntime` is the sole registry for active operating-system notification
+occurrences and their Electron callbacks. It derives platform, home, packaged resources, and
+development resources from immutable `MainConfig`, fences action admission before Scope release,
+withdraws each application occurrence exactly once, and closes every remaining native object in its
+finalizer. Window and Codex notification owners borrow only its synchronous native-boundary
+capabilities; no disposable manager class or ambient process path owns a second registry.
 
 `AppUpdateRuntime` is the single owner of application-update state and the
 native updater adapter. Status, settings, readiness, and automatic-check

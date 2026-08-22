@@ -24,7 +24,7 @@ import type {
 } from "../codex/renderer-client-runtime-contracts";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
-import type { DesktopNotificationManager } from "../desktop-notification-manager";
+import type { DesktopNotificationRuntime } from "../host-runtime/DesktopNotificationRuntime";
 import type { McpAppSandboxRuntime } from "../host-runtime/McpAppSandboxRuntime";
 import { getLogger } from "../logging/logger";
 import { captureMainException, captureMainMessage } from "../observability/sentry-main";
@@ -44,7 +44,7 @@ export interface ApplicationWindowRuntimeOptions {
   };
   readonly browserSidebar: BrowserSidebarService;
   readonly codex: CodexService;
-  readonly desktopNotifications: DesktopNotificationManager;
+  readonly desktopNotifications: DesktopNotificationRuntime["Service"];
   readonly iconPath: string;
   readonly mcpAppSandbox: McpAppSandboxRuntime["Service"];
   readonly platform: NodeJS.Platform;
