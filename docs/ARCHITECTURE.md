@@ -416,6 +416,16 @@ the presenting client, and projection consumes its Stream. `CodexService` may su
 protocol response operation through a temporary callback Adapter, but it owns no timer, request map,
 snapshot, or renderer event bus for this policy.
 
+Inactive renderer-owner retention is owned by one Main-scoped Codex application Module. Its
+immutable candidate generations, retention and reconnect timers, bounded oldest-owner eviction,
+and failed-unsubscribe retry fibers all close with the Main Scope. The Module performs the typed
+`thread/unsubscribe` operation through `CodexGateway`, then generation-fences completion before
+asking the conversation projection to commit synchronous owner removal. `CodexService` may decide
+whether a conversation is currently eligible and apply that final projection, but it owns no
+retention clock, candidate collection, retry loop, capacity policy, or network cleanup task. Its
+synchronous ownership callbacks enter the Module through one scoped FIFO adapter that captures
+eligibility at admission, preserving transient owner-generation boundaries without detached fibers.
+
 Codex native-notification policy is a pure projection from application events, settings, focus,
 and presentation facts. `CodexThreadNotificationRuntime` directly owns both source-listener
 registrations and notification-action admission in the Main Scope; it does not acquire a class with

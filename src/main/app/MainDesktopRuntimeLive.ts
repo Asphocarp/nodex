@@ -73,6 +73,11 @@ import {
 } from "../codex-application/ApprovalCoordinator";
 import { makeServerRequestResponsesPromiseAdapter } from "../codex-application/ServerRequestResponsesPromiseAdapter";
 import {
+  CodexRendererOwnerRetentionError,
+  make as makeCodexRendererOwnerRetention,
+} from "../codex-application/CodexRendererOwnerRetention";
+import { makeCodexRendererOwnerRetentionCallbackAdapter } from "../codex-application/CodexRendererOwnerRetentionCallbackAdapter";
+import {
   CodexUserInputAutoResolution,
   make as makeCodexUserInputAutoResolution,
 } from "../codex-application/CodexUserInputAutoResolution";
@@ -1143,6 +1148,32 @@ export const live: Layer.Layer<
           Effect.sync(() => codexSessionStore.clear()),
         );
         let codexService: CodexService | undefined;
+        const isInactiveRendererOwnerCandidate = (conversationId: string) =>
+          codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
+        const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
+          isCandidate: isInactiveRendererOwnerCandidate,
+          unsubscribe: (conversationId) =>
+            codexGateway
+              .requestForThread(conversationId, "thread/unsubscribe", {
+                threadId: conversationId,
+              })
+              .pipe(
+                Effect.asVoid,
+                Effect.mapError((cause) => new CodexRendererOwnerRetentionError({ cause })),
+              ),
+          commitCleanup: (conversationId) =>
+            Effect.sync(() => {
+              const service = codexService;
+              if (!service) {
+                throw new Error("CodexService is unavailable during renderer-owner cleanup");
+              }
+              service.commitInactiveRendererOwnerCleanup(conversationId);
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const rendererOwnerRetentionCallbacks =
+          yield* makeCodexRendererOwnerRetentionCallbackAdapter(rendererOwnerRetention, {
+            isCandidate: isInactiveRendererOwnerCandidate,
+          }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const userInputAutoResolution = yield* makeCodexUserInputAutoResolution({
           isConversationPresented: (conversationId) =>
             codexService?.isRendererConversationPresentedInForeground(conversationId) === true,
@@ -1162,6 +1193,7 @@ export const live: Layer.Layer<
                 approvalCoordinator,
                 callbacks,
               ),
+              rendererOwnerRetention: rendererOwnerRetentionCallbacks,
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,
                 callbacks,

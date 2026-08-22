@@ -113,6 +113,7 @@ import {
   TestCodexUserInputAutoResolutionController,
   USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS,
 } from "./codex-user-input-auto-resolution.test-support";
+import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
 import type {
@@ -1631,6 +1632,21 @@ function createService(options?: {
       await pending.resolve();
     },
   });
+  const rendererOwnerRetention = new TestCodexRendererOwnerRetention({
+    retentionMs: Math.max(0, options?.inactiveRendererOwnerRetentionMs ?? 60 * 60 * 1_000),
+    maxRetained: Math.max(0, Math.floor(options?.inactiveRendererOwnerMaxRetained ?? 4)),
+    retryMs: Math.max(0, options?.inactiveRendererOwnerRetryMs ?? 15_000),
+    isCandidate: (conversationId) =>
+      service?.isInactiveRendererOwnerCandidate(conversationId) === true,
+    cleanup: async (conversationId) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      const client = Reflect.get(service as object, "client") as {
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      await client.request("thread/unsubscribe", { threadId: conversationId });
+      service.commitInactiveRendererOwnerCleanup(conversationId);
+    },
+  });
   const testService = new CodexService({
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
@@ -1748,6 +1764,7 @@ function createService(options?: {
         autoResolutionResolvers.clear();
       },
     },
+    rendererOwnerRetention,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -1765,9 +1782,6 @@ function createService(options?: {
     },
     projectRuntimeLifecycle: projectRuntimeLifecycleHarness.adapter,
     databaseNotifier: options?.databaseNotifier ?? new DatabaseNotifier(),
-    inactiveRendererOwnerRetentionMs: options?.inactiveRendererOwnerRetentionMs,
-    inactiveRendererOwnerMaxRetained: options?.inactiveRendererOwnerMaxRetained,
-    inactiveRendererOwnerRetryMs: options?.inactiveRendererOwnerRetryMs,
     supportsChatGptApps: options?.supportsChatGptApps,
     projectAwareDeveloperInstructionsResolver: options?.projectAwareDeveloperInstructionsResolver,
     gitSettingsResolver: options?.gitSettingsResolver,
@@ -1787,6 +1801,7 @@ function createService(options?: {
     try {
       await shutdown();
     } finally {
+      rendererOwnerRetention.dispose();
       await managedWorktreeHarness.close();
     }
   };
