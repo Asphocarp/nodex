@@ -121,8 +121,8 @@ import {
 } from "./codex-user-input-auto-resolution.test-support";
 import { TestCodexActiveGoalContinuation } from "./codex-active-goal-continuation.test-support";
 import { TestCodexNotificationRouting } from "./codex-notification-routing.test-support";
-import { DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT } from "../codex-application/CodexOwnerNotificationDrainDeadline";
-import { TestCodexOwnerNotificationDrainDeadline } from "./codex-owner-notification-drain-deadline.test-support";
+import { DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT } from "../codex-application/CodexOwnerNotificationDrainRuntime";
+import { TestCodexOwnerNotificationDrainRuntime } from "./codex-owner-notification-drain-runtime.test-support";
 import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
 import { TestCodexSidebarNotificationSync } from "./codex-sidebar-notification-sync.test-support";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
@@ -1759,11 +1759,9 @@ function createService(options?: {
     if (!service) throw new Error("Codex test service is not constructed");
     await service.routeAppServerNotification(notification);
   });
-  const ownerNotificationDrainDeadline = new TestCodexOwnerNotificationDrainDeadline({
-    timeoutMs: DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT,
-    onTimeout: (conversationId, sentSequence, ackSequence) =>
-      service?.handleOwnerNotificationDrainTimeout(conversationId, sentSequence, ackSequence),
-  });
+  const ownerNotificationDrain = new TestCodexOwnerNotificationDrainRuntime(
+    DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT,
+  );
   const sidebarNotificationSync = new TestCodexSidebarNotificationSync(
     async (minimumSyncGeneration) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -1977,7 +1975,7 @@ function createService(options?: {
     },
     activeGoalContinuation,
     notificationRouting,
-    ownerNotificationDrainDeadline,
+    ownerNotificationDrain,
     rendererOwnerRetention,
     sidebarNotificationSync,
     sidebarSweep,
@@ -2073,7 +2071,7 @@ function createService(options?: {
   const shutdown = testService.shutdown.bind(testService);
   testService.shutdown = async () => {
     activeGoalContinuation.dispose();
-    ownerNotificationDrainDeadline.dispose();
+    ownerNotificationDrain.dispose();
     rendererOwnerRetention.dispose();
     sidebarNotificationSync.dispose();
     pendingWorktrees.shutdown();
@@ -4850,10 +4848,7 @@ describe("codex-service renderer owner stream publishing", () => {
     });
     const serviceInternals = service as unknown as {
       getNextOwnerNotificationSequence: (conversationId: string) => number;
-      drainRendererOwnerNotificationsBefore: (
-        conversationId: string,
-        callback: () => void,
-      ) => boolean;
+      waitForRendererOwnerNotificationDrain: (conversationId: string) => Promise<void>;
     };
 
     try {
@@ -4875,11 +4870,11 @@ describe("codex-service renderer owner stream publishing", () => {
         serviceInternals.getNextOwnerNotificationSequence("thread-owner");
       }
       let drained = false;
-      expect(
-        serviceInternals.drainRendererOwnerNotificationsBefore("thread-owner", () => {
+      const drain = serviceInternals
+        .waitForRendererOwnerNotificationDrain("thread-owner")
+        .then(() => {
           drained = true;
-        }),
-      ).toBe(true);
+        });
 
       expect(
         service.publishRendererThreadStreamStateChange(
@@ -4892,6 +4887,7 @@ describe("codex-service renderer owner stream publishing", () => {
           }),
         ).accepted,
       ).toBe(true);
+      await drain;
 
       const latest = projectConversationFromHostMessages(hostMessages);
       const lastMessage = hostMessages[hostMessages.length - 1];
@@ -5828,10 +5824,7 @@ describe("codex-service renderer owner stream publishing", () => {
     });
     const serviceInternals = service as unknown as {
       getNextOwnerNotificationSequence: (conversationId: string) => number;
-      drainRendererOwnerNotificationsBefore: (
-        conversationId: string,
-        callback: () => void,
-      ) => boolean;
+      waitForRendererOwnerNotificationDrain: (conversationId: string) => Promise<void>;
     };
 
     try {
@@ -5851,11 +5844,11 @@ describe("codex-service renderer owner stream publishing", () => {
       ).toBe(true);
       expect(serviceInternals.getNextOwnerNotificationSequence("thread-owner-repair")).toBe(1);
       let notificationDrained = false;
-      expect(
-        serviceInternals.drainRendererOwnerNotificationsBefore("thread-owner-repair", () => {
+      const drain = serviceInternals
+        .waitForRendererOwnerNotificationDrain("thread-owner-repair")
+        .then(() => {
           notificationDrained = true;
-        }),
-      ).toBe(true);
+        });
       const invalidPublication = buildTestPatchPublication({
         before: baseConversation,
         after: repairedConversation,
@@ -5891,6 +5884,7 @@ describe("codex-service renderer owner stream publishing", () => {
         ).accepted,
       ).toBe(true);
 
+      await drain;
       expect(notificationDrained).toBe(true);
       expect(hostMessages).toHaveLength(2);
       expect(

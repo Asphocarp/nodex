@@ -81,8 +81,8 @@ import {
   CodexNotificationRoutingError,
   make as makeCodexNotificationRouting,
 } from "../codex-application/CodexNotificationRouting";
-import { make as makeCodexOwnerNotificationDrainDeadline } from "../codex-application/CodexOwnerNotificationDrainDeadline";
-import { makeCodexOwnerNotificationDrainDeadlineCallbackAdapter } from "../codex-application/CodexOwnerNotificationDrainDeadlineCallbackAdapter";
+import { make as makeCodexOwnerNotificationDrainRuntime } from "../codex-application/CodexOwnerNotificationDrainRuntime";
+import { makeCodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntimePromiseAdapter";
 import {
   CodexSidebarNotificationSyncError,
   make as makeCodexSidebarNotificationSync,
@@ -1248,20 +1248,9 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexNotificationRoutingError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const ownerNotificationDrainDeadline = yield* makeCodexOwnerNotificationDrainDeadline({
-          onTimeout: (conversationId, sentSequence, ackSequence) =>
-            Effect.sync(() =>
-              requireCodexService().handleOwnerNotificationDrainTimeout(
-                conversationId,
-                sentSequence,
-                ackSequence,
-              ),
-            ),
-        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const ownerNotificationDrainDeadlineCallbacks =
-          yield* makeCodexOwnerNotificationDrainDeadlineCallbackAdapter(
-            ownerNotificationDrainDeadline,
-          ).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const ownerNotificationDrain = yield* makeCodexOwnerNotificationDrainRuntime().pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const sidebarNotificationSync = yield* makeCodexSidebarNotificationSync({
           repair: (minimumSyncGeneration) =>
             Effect.tryPromise({
@@ -1570,7 +1559,10 @@ export const live: Layer.Layer<
               ),
               activeGoalContinuation: activeGoalContinuationCallbacks,
               notificationRouting,
-              ownerNotificationDrainDeadline: ownerNotificationDrainDeadlineCallbacks,
+              ownerNotificationDrain: makeCodexOwnerNotificationDrainRuntimePromiseAdapter(
+                ownerNotificationDrain,
+                callbacks,
+              ),
               rendererOwnerRetention: rendererOwnerRetentionCallbacks,
               sidebarNotificationSync: sidebarNotificationSyncCallbacks,
               sidebarSweep: makeCodexSidebarSweepRuntimePromiseAdapter(sidebarSweep, callbacks),

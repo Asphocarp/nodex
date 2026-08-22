@@ -296,7 +296,7 @@ import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-au
 import { CodexRendererViewRegistry } from "./codex-renderer-view-registry";
 import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application/CodexActiveGoalContinuation";
 import type { CodexNotificationRoutingLegacyPort } from "../codex-application/CodexNotificationRouting";
-import type { CodexOwnerNotificationDrainDeadlineLegacyPort } from "../codex-application/CodexOwnerNotificationDrainDeadline";
+import type { CodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import type { CodexRendererOwnerRetentionLegacyPort } from "../codex-application/CodexRendererOwnerRetention";
 import type { CodexSidebarNotificationSyncLegacyPort } from "../codex-application/CodexSidebarNotificationSync";
 import type { CodexUserInputAutoResolutionLegacyPort } from "../codex-application/CodexUserInputAutoResolution";
@@ -1341,7 +1341,7 @@ type CodexServiceOptions = {
   nodexAgentDynamicService: NodexAgentV3DynamicService | null;
   activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   notificationRouting: CodexNotificationRoutingLegacyPort;
-  ownerNotificationDrainDeadline: CodexOwnerNotificationDrainDeadlineLegacyPort;
+  ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
   rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   sidebarNotificationSync: CodexSidebarNotificationSyncLegacyPort;
   sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
@@ -2530,7 +2530,7 @@ export class CodexService extends EventEmitter {
   private readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   private readonly activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   private readonly notificationRouting: CodexNotificationRoutingLegacyPort;
-  private readonly ownerNotificationDrainDeadline: CodexOwnerNotificationDrainDeadlineLegacyPort;
+  private readonly ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
   private readonly rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   private readonly sidebarNotificationSync: CodexSidebarNotificationSyncLegacyPort;
   private readonly sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
@@ -2648,12 +2648,6 @@ export class CodexService extends EventEmitter {
   private readonly disposedRendererClientIds = new Set<string>();
   private readonly rendererViewRegistry = new CodexRendererViewRegistry();
   private readonly userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
-  private readonly ownerNotificationSequenceByConversationId = new Map<string, number>();
-  private readonly ownerNotificationAckSequenceByConversationId = new Map<string, number>();
-  private readonly ownerNotificationDrainCallbacksByConversationId = new Map<
-    string,
-    Array<() => void>
-  >();
   private readonly frameTextDeltaQueue = new CodexFrameTextDeltaQueue({
     scheduler: createCodexFrameTextDeltaTimeoutScheduler(),
     onFlush: (updates) => {
@@ -2716,7 +2710,7 @@ export class CodexService extends EventEmitter {
     this.sessionStore = options.sessionStore;
     this.activeGoalContinuation = options.activeGoalContinuation;
     this.notificationRouting = options.notificationRouting;
-    this.ownerNotificationDrainDeadline = options.ownerNotificationDrainDeadline;
+    this.ownerNotificationDrain = options.ownerNotificationDrain;
     this.rendererOwnerRetention = options.rendererOwnerRetention;
     this.sidebarNotificationSync = options.sidebarNotificationSync;
     this.sidebarSweep = options.sidebarSweep;
@@ -3589,84 +3583,16 @@ export class CodexService extends EventEmitter {
   }
 
   private getNextOwnerNotificationSequence(conversationId: string): number {
-    const sequence = (this.ownerNotificationSequenceByConversationId.get(conversationId) ?? 0) + 1;
-    this.ownerNotificationSequenceByConversationId.set(conversationId, sequence);
-    return sequence;
+    return this.ownerNotificationDrain.next(conversationId);
   }
 
   private ackOwnerNotificationSequence(conversationId: string, sequence: number): void {
-    const currentSequence =
-      this.ownerNotificationAckSequenceByConversationId.get(conversationId) ?? 0;
-    if (sequence <= currentSequence) return;
-
-    this.ownerNotificationAckSequenceByConversationId.set(conversationId, sequence);
-    this.completeOwnerNotificationDrainIfReady(conversationId);
-  }
-
-  private completeOwnerNotificationDrainIfReady(conversationId: string): void {
-    const sentSequence = this.ownerNotificationSequenceByConversationId.get(conversationId) ?? 0;
-    const ackSequence = this.ownerNotificationAckSequenceByConversationId.get(conversationId) ?? 0;
-    if (ackSequence < sentSequence) return;
-
-    const callbacks = this.ownerNotificationDrainCallbacksByConversationId.get(conversationId);
-    if (!callbacks || callbacks.length === 0) return;
-
-    this.ownerNotificationDrainCallbacksByConversationId.delete(conversationId);
-    this.ownerNotificationDrainDeadline.clear(conversationId);
-
-    for (const callback of callbacks) {
-      callback();
-    }
-  }
-
-  private drainRendererOwnerNotificationsBefore(
-    conversationId: string,
-    callback: () => void,
-  ): boolean {
-    const ownerClientId = this.rendererOwnerClientIdByConversationId.get(conversationId);
-    if (!ownerClientId) return false;
-
-    const sentSequence = this.ownerNotificationSequenceByConversationId.get(conversationId) ?? 0;
-    const ackSequence = this.ownerNotificationAckSequenceByConversationId.get(conversationId) ?? 0;
-    if (ackSequence >= sentSequence) return false;
-
-    const callbacks =
-      this.ownerNotificationDrainCallbacksByConversationId.get(conversationId) ?? [];
-    callbacks.push(callback);
-    this.ownerNotificationDrainCallbacksByConversationId.set(conversationId, callbacks);
-
-    this.ownerNotificationDrainDeadline.schedule(conversationId, sentSequence, ackSequence);
-    return true;
-  }
-
-  handleOwnerNotificationDrainTimeout(
-    conversationId: string,
-    sentSequence: number,
-    ackSequence: number,
-  ): void {
-    const pendingCallbacks =
-      this.ownerNotificationDrainCallbacksByConversationId.get(conversationId) ?? [];
-    this.ownerNotificationDrainCallbacksByConversationId.delete(conversationId);
-    this.ownerNotificationAckSequenceByConversationId.set(conversationId, sentSequence);
-    this.logger.warn(
-      "Timed out waiting for renderer owner text-delta ack before terminal lifecycle",
-      {
-        conversationId,
-        sentSequence,
-        ackSequence,
-      },
-    );
-    for (const pendingCallback of pendingCallbacks) {
-      pendingCallback();
-    }
+    this.ownerNotificationDrain.ack(conversationId, sequence);
   }
 
   private waitForRendererOwnerNotificationDrain(conversationId: string): Promise<void> {
-    return new Promise((resolve) => {
-      if (!this.drainRendererOwnerNotificationsBefore(conversationId, resolve)) {
-        resolve();
-      }
-    });
+    if (!this.rendererOwnerClientIdByConversationId.has(conversationId)) return Promise.resolve();
+    return this.ownerNotificationDrain.awaitCurrent(conversationId);
   }
 
   private waitForFrameTextDeltaDrain(conversationId: string): Promise<void> {
@@ -3678,17 +3604,11 @@ export class CodexService extends EventEmitter {
   }
 
   private clearOwnerNotificationDrain(conversationId: string): void {
-    this.ownerNotificationDrainDeadline.clear(conversationId);
-    this.ownerNotificationDrainCallbacksByConversationId.delete(conversationId);
+    this.ownerNotificationDrain.clear(conversationId);
   }
 
   private releaseOwnerNotificationDrain(conversationId: string): void {
-    const callbacks =
-      this.ownerNotificationDrainCallbacksByConversationId.get(conversationId) ?? [];
-    this.clearOwnerNotificationDrain(conversationId);
-    for (const callback of callbacks) {
-      callback();
-    }
+    this.ownerNotificationDrain.release(conversationId);
   }
 
   private getNextConversationVersion(threadId: string): number {
@@ -3796,11 +3716,7 @@ export class CodexService extends EventEmitter {
     this.rendererOwnerRetention.reconcile(threadId);
     if (previousClientId === clientId) return;
 
-    this.clearOwnerNotificationDrain(threadId);
-    this.ownerNotificationAckSequenceByConversationId.set(
-      threadId,
-      this.ownerNotificationSequenceByConversationId.get(threadId) ?? 0,
-    );
+    this.ownerNotificationDrain.resetOwner(threadId);
   }
 
   getRendererConversationOwner(threadId: string): string | null {
@@ -4050,8 +3966,6 @@ export class CodexService extends EventEmitter {
     this.rendererOwnerClientIdByConversationId.delete(threadId);
     this.rendererOwnerDetachedAtByConversationId.delete(threadId);
     this.rendererThreadStreamSubscriptions.clearConversation(threadId);
-    this.ownerNotificationSequenceByConversationId.delete(threadId);
-    this.ownerNotificationAckSequenceByConversationId.delete(threadId);
     this.releaseOwnerNotificationDrain(threadId);
     this.conversationStreamRevisionById.delete(threadId);
     this.conversationStreamCheckpointById.delete(threadId);
@@ -4105,8 +4019,6 @@ export class CodexService extends EventEmitter {
     for (const conversationId of conversationIds) {
       this.rendererOwnerClientIdByConversationId.delete(conversationId);
       this.rendererOwnerDetachedAtByConversationId.set(conversationId, Date.now());
-      this.ownerNotificationSequenceByConversationId.delete(conversationId);
-      this.ownerNotificationAckSequenceByConversationId.delete(conversationId);
       this.releaseOwnerNotificationDrain(conversationId);
       this.rendererOwnerRetention.clear(conversationId);
       const record = this.getMaybeConversationRecord(conversationId);
@@ -6228,8 +6140,6 @@ export class CodexService extends EventEmitter {
     this.userInputAutoResolution.clearConversation(threadId);
     this.rendererViewRegistry.clearConversation(threadId);
     this.rendererOwnerRetention.clear(threadId);
-    this.ownerNotificationSequenceByConversationId.delete(threadId);
-    this.ownerNotificationAckSequenceByConversationId.delete(threadId);
     this.clearOwnerNotificationDrain(threadId);
     this.frameTextDeltaQueue.discardConversation(threadId);
     this.outputDeltaQueue.discardConversation(threadId);
@@ -6700,7 +6610,6 @@ export class CodexService extends EventEmitter {
       this.sidebarSnapshotCacheNotifierSubscribed = false;
     }
     this.terminalInputBuffers.clear();
-    this.ownerNotificationDrainCallbacksByConversationId.clear();
     this.conversationResumeInFlightByThreadId.clear();
     this.pendingFreshSessionFirstTurnByThreadId.clear();
     this.rejectBufferedResumeRequests(new Error("Codex service is shutting down"));

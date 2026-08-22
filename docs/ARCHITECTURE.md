@@ -443,11 +443,14 @@ retention clock, candidate collection, retry loop, capacity policy, or network c
 synchronous ownership callbacks enter the Module through one scoped FIFO adapter that captures
 eligibility at admission, preserving transient owner-generation boundaries without detached fibers.
 
-Renderer-owner text-delta acknowledgement drain deadlines are a separate Main-scoped time Module.
-It owns one keyed fiber per conversation, preserves the first admitted sent/ack barrier, and is
-cleared by acknowledgement, owner replacement, conversation removal, or Scope close. The canonical
-conversation projection may still hold synchronous sequence counters and drain callbacks, but it
-does not create timers or carry deadline cleanup in its shutdown routine.
+Renderer-owner text-delta acknowledgement is one Main-scoped drain Module. It owns monotonic sent
+and acknowledged sequences, one shared Deferred waiter and one Effect-clock deadline per active
+conversation. A waiter freezes the first sent/ack barrier for deadline diagnostics, while later
+notifications extend the acknowledgement requirement without resetting that deadline. Ack, owner
+replacement, owner release, conversation removal, and Main Scope close all finish or interrupt the
+same barrier through the Module Interface. `CodexService` only attaches the returned sequence to the
+renderer notification and awaits the Promise boundary where its legacy reducer still requires it;
+it owns no sequence maps, callback arrays, timer adapter, or timeout callback.
 
 Active thread-goal continuation is admitted as an event, not as an untracked Promise workflow. One
 Main-scoped Module owns the per-conversation delay, single-flight fiber, duplicate coalescing,
