@@ -41,6 +41,21 @@ it.effect("routes direct thread operations and drains background-terminal pages"
       if (method === "thread/backgroundTerminals/terminate") {
         return Effect.succeed({ terminated: true });
       }
+      if (method === "review/start") {
+        return Effect.succeed({
+          reviewThreadId: "thread-a",
+          turn: {
+            id: "review-turn",
+            items: [],
+            itemsView: "full",
+            status: "inProgress",
+            error: null,
+            startedAt: 1,
+            completedAt: null,
+            durationMs: null,
+          },
+        });
+      }
       return Effect.succeed({});
     };
     const unsupported = () => Effect.die(new Error("Unsupported test operation"));
@@ -86,6 +101,10 @@ it.effect("routes direct thread operations and drains background-terminal pages"
       threadId: "thread-a",
       includeLogs: false,
     });
+    const review = yield* commands.startReview({
+      threadId: "thread-a",
+      target: { type: "uncommittedChanges" },
+    });
     const terminals = yield* commands.listBackgroundTerminals("thread-a");
     const terminated = yield* commands.terminateBackgroundTerminal("thread-a", "process-b");
 
@@ -94,6 +113,11 @@ it.effect("routes direct thread operations and drains background-terminal pages"
       ["process-a", "process-b"],
     );
     assert.isTrue(terminated);
+    assert.strictEqual(review.turn.id, "review-turn");
+    assert.strictEqual(
+      requests.filter(({ method }) => method === "review/start")[0]?.scope,
+      "thread",
+    );
     assert.strictEqual(
       requests.filter(({ method }) => method === "feedback/upload")[0]?.scope,
       "local",

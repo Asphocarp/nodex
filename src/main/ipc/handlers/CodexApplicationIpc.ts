@@ -24,6 +24,7 @@ import type {
 import type { FeedbackUploadParams } from "@nodex/codex-app-server-protocol/v2/FeedbackUploadParams";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type { ThreadMemoryMode } from "@nodex/codex-app-server-protocol";
+import type { ReviewStartParams } from "@nodex/codex-app-server-protocol/v2/ReviewStartParams";
 import type {
   AgentProviderCredentialDeleteInput,
   AgentProviderCredentialMutationInput,
@@ -257,6 +258,9 @@ export const live: Layer.Layer<
       "codex:thread:memory-mode:set",
       (_event, threadId: string, mode: ThreadMemoryMode) =>
         conversations.setMemoryMode(threadId, mode),
+    );
+    yield* ipc.handle("codex:review:start", (_event, params: ReviewStartParams) =>
+      conversations.startReview(params),
     );
     yield* ipc.handle("codex:feedback:upload", (_event, params: FeedbackUploadParams) =>
       conversations.uploadFeedback(parseFeedbackUpload(params)),

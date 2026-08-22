@@ -43,6 +43,9 @@ export class ConversationCommands extends Context.Service<
       threadId: string,
       mode: ClientRequestParamsByMethod["thread/memoryMode/set"]["mode"],
     ) => Effect.Effect<void, CodexRuntimeError>;
+    readonly startReview: (
+      params: ClientRequestParamsByMethod["review/start"],
+    ) => Effect.Effect<ClientRequestResponsesByMethod["review/start"], CodexRuntimeError>;
     readonly uploadFeedback: (
       params: ClientRequestParamsByMethod["feedback/upload"],
     ) => Effect.Effect<void, CodexRuntimeError>;
@@ -97,6 +100,7 @@ export const live: Layer.Layer<ConversationCommands, never, CodexGateway | Conve
           gateway
             .requestForThread(threadId, "thread/memoryMode/set", { threadId, mode })
             .pipe(Effect.asVoid),
+        startReview: (params) => gateway.requestForThread(params.threadId, "review/start", params),
         uploadFeedback: (params) =>
           gateway.requestLocal("feedback/upload", params).pipe(Effect.asVoid),
         listBackgroundTerminals: (threadId) => listBackgroundTerminals(threadId.trim()),

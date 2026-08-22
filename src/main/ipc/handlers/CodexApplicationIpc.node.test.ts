@@ -117,6 +117,7 @@ it.effect("registers application channels directly against their owning modules"
       start: () => Effect.die("unused"),
       request: () => Effect.die("unused"),
       setMemoryMode: () => Effect.void,
+      startReview: () => Effect.die("unused"),
       uploadFeedback: () => Effect.void,
       listBackgroundTerminals: () =>
         Effect.succeed([
@@ -224,6 +225,7 @@ it.effect("registers application channels directly against their owning modules"
     assert.isTrue(handlers.has("codex:pasted-text:read"));
     assert.isTrue(handlers.has("codex:pasted-text:remove"));
     assert.isTrue(handlers.has("codex:thread:memory-mode:set"));
+    assert.isTrue(handlers.has("codex:review:start"));
     assert.isTrue(handlers.has("codex:feedback:upload"));
     assert.isTrue(handlers.has("codex:thread:background-terminals:list"));
     assert.isTrue(handlers.has("codex:thread:background-terminals:terminate"));

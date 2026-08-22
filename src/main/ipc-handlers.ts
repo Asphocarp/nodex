@@ -545,8 +545,6 @@ export const codexIpcLive = (
         },
       );
 
-      registerHandle("codex:review:start", (_, input) => codexService.startReview(input));
-
       registerHandle(
         "codex:thread:follow-up:enqueue",
         (_, threadId: string, prompt: string, opts?: CodexTurnStartOptions) =>
