@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { EventEmitter } from "node:events";
 import { z } from "zod";
 import {
   type BrowserSidebarTabIdentity,
@@ -67,6 +66,7 @@ export interface BrowserUseRoute {
 export interface BrowserUseIabApiOptions {
   appSessionId: string;
   appVersion: string;
+  asyncRuntime: BrowserUseIabAsyncRuntime;
   browserService: BrowserSidebarService;
   buildFlavor: string;
   cdpCommandTimeoutMs?: number;
@@ -75,6 +75,21 @@ export interface BrowserUseIabApiOptions {
   grantDownload?: (identity: BrowserSidebarTabIdentity, sourceUrl: string, ttlMs?: number) => void;
   pageReadyTimeoutMs?: number;
   policyStore?: BrowserUsePolicyReader;
+}
+
+export interface BrowserUseIabAsyncRuntime {
+  readonly deadline: <A>(
+    task: () => Promise<A>,
+    timeoutMs: number,
+    timeoutMessage: string,
+  ) => Promise<A>;
+  readonly now: () => Promise<number>;
+  readonly sleep: (delayMs: number) => Promise<void>;
+  readonly waitFor: <A>(
+    register: (succeed: (value: A) => void) => () => void,
+    timeoutMs: number,
+    onTimeout: () => A,
+  ) => Promise<A>;
 }
 
 export interface BrowserUseIabTabInfo {
@@ -185,13 +200,6 @@ function isCaptureSurfaceReady(
   return width >= target.width && height >= target.height;
 }
 
-function waitForDelay(delayMs: number): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, delayMs);
-    timer.unref?.();
-  });
-}
-
 function assertAllowedBrowserUseNavigationUrl(value: unknown): string {
   if (typeof value !== "string" || !isAllowedBrowserNavigationUrl(value)) {
     throw new Error("Browser Use navigation URL is not allowed");
@@ -203,26 +211,10 @@ function assertAllowedBrowserUseNavigationUrl(value: unknown): string {
   return value;
 }
 
-function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-    timer.unref?.();
-    operation.then(
-      (result) => {
-        clearTimeout(timer);
-        resolve(result);
-      },
-      (error: unknown) => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    );
-  });
-}
-
-export class BrowserUseIabApi extends EventEmitter {
+export class BrowserUseIabApi {
   private readonly appSessionId: string;
   private readonly appVersion: string;
+  private readonly asyncRuntime: BrowserUseIabAsyncRuntime;
   private readonly browserService: BrowserSidebarService;
   private readonly buildFlavor: string;
   private readonly cdpCommandTimeoutMs: number;
@@ -233,6 +225,7 @@ export class BrowserUseIabApi extends EventEmitter {
   private readonly debuggerTargetSessionsByTabId = new Map<number, Map<string, string>>();
   private readonly expressionCache = new Map<string, string>();
   private readonly grantDownload: NonNullable<BrowserUseIabApiOptions["grantDownload"]>;
+  private readonly cdpEventListeners = new Set<CdpEventListener>();
   private readonly cursorArrivalWaiters = new Map<number, () => void>();
   private readonly pageReadyTimeoutMs: number;
   private readonly policyStore: BrowserUsePolicyReader | null;
@@ -247,9 +240,9 @@ export class BrowserUseIabApi extends EventEmitter {
   private disposed = false;
 
   constructor(options: BrowserUseIabApiOptions) {
-    super();
     this.appSessionId = options.appSessionId;
     this.appVersion = options.appVersion;
+    this.asyncRuntime = options.asyncRuntime;
     this.browserService = options.browserService;
     this.buildFlavor = options.buildFlavor;
     this.cdpCommandTimeoutMs = Math.max(
@@ -347,8 +340,8 @@ export class BrowserUseIabApi extends EventEmitter {
   }
 
   addCdpEventListener(listener: CdpEventListener): () => void {
-    this.on("cdp-event", listener);
-    return () => this.off("cdp-event", listener);
+    this.cdpEventListeners.add(listener);
+    return () => this.cdpEventListeners.delete(listener);
   }
 
   hasActiveControl(): boolean {
@@ -374,7 +367,7 @@ export class BrowserUseIabApi extends EventEmitter {
     for (const resolve of this.cursorArrivalWaiters.values()) resolve();
     this.cursorArrivalWaiters.clear();
     await this.releaseSessionControl();
-    this.removeAllListeners();
+    this.cdpEventListeners.clear();
   }
 
   private requireSession(rawParams: unknown): Record<string, unknown> {
@@ -625,8 +618,8 @@ export class BrowserUseIabApi extends EventEmitter {
       if (!Number.isInteger(entryId)) {
         throw new Error("Page.navigateToHistoryEntry requires an integer entryId");
       }
-      const history = await withTimeout(
-        debuggerPort.sendCommand("Page.getNavigationHistory", undefined, targetSessionId),
+      const history = await this.asyncRuntime.deadline(
+        () => debuggerPort.sendCommand("Page.getNavigationHistory", undefined, targetSessionId),
         this.cdpCommandTimeoutMs,
         "Timed out validating Browser Use navigation history",
       );
@@ -651,12 +644,13 @@ export class BrowserUseIabApi extends EventEmitter {
           `${params.method} is not supported in the in-app browser because top-level input commands preserve guest focus`,
         );
       }
-      const translated = await withTimeout(
-        contents.executeJavaScript(
-          buildBrowserUseInputTranslationScript(params.method, params.commandParams ?? {}),
-          params.method === "Input.dispatchMouseEvent" &&
-            params.commandParams?.type === "mouseReleased",
-        ) as Promise<BrowserUseInputTranslationResult>,
+      const translated = await this.asyncRuntime.deadline(
+        () =>
+          contents.executeJavaScript(
+            buildBrowserUseInputTranslationScript(params.method, params.commandParams ?? {}),
+            params.method === "Input.dispatchMouseEvent" &&
+              params.commandParams?.type === "mouseReleased",
+          ) as Promise<BrowserUseInputTranslationResult>,
         this.cdpCommandTimeoutMs,
         `Timed out translating Browser Use input command ${params.method}`,
       );
@@ -683,13 +677,8 @@ export class BrowserUseIabApi extends EventEmitter {
       if (captureSurfaceSize) {
         await this.waitForCaptureSurface(debuggerPort, captureSurfaceSize);
       }
-      const command = debuggerPort.sendCommand(
-        params.method,
-        params.commandParams,
-        targetSessionId,
-      );
-      return await withTimeout(
-        command,
+      return await this.asyncRuntime.deadline(
+        () => debuggerPort.sendCommand(params.method, params.commandParams, targetSessionId),
         this.cdpCommandTimeoutMs,
         `Timed out executing Browser Use CDP command ${params.method}`,
       );
@@ -866,16 +855,14 @@ export class BrowserUseIabApi extends EventEmitter {
       updatedAt: Date.now(),
     });
     if (params.waitForArrival === false || !shouldWaitForArrival) return;
-    await new Promise<void>((resolve) => {
-      const finish = () => {
-        clearTimeout(timer);
-        this.cursorArrivalWaiters.delete(moveSequence);
-        resolve();
-      };
-      const timer = setTimeout(finish, this.cursorArrivalTimeoutMs);
-      timer.unref?.();
-      this.cursorArrivalWaiters.set(moveSequence, finish);
-    });
+    await this.asyncRuntime.waitFor<void>(
+      (succeed) => {
+        this.cursorArrivalWaiters.set(moveSequence, () => succeed());
+        return () => this.cursorArrivalWaiters.delete(moveSequence);
+      },
+      this.cursorArrivalTimeoutMs,
+      () => undefined,
+    );
   }
 
   notifyCursorArrived(moveSequence: number): void {
@@ -979,36 +966,28 @@ export class BrowserUseIabApi extends EventEmitter {
     const existing = this.browserService.getWebContentsForTab(identity);
     if (existing && !existing.isDestroyed()) return existing;
 
-    return await new Promise<BrowserWebContentsLike>((resolve, reject) => {
-      let settled = false;
-      const finish = (outcome: { contents: BrowserWebContentsLike } | { error: Error }) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        this.browserService.off("webviewAttached", onAttached);
-        if ("error" in outcome) reject(outcome.error);
-        else resolve(outcome.contents);
-      };
-      const onAttached = (event: BrowserSidebarTabIdentity) => {
-        if (
-          event.browserConversationId !== identity.browserConversationId ||
-          event.browserViewScopeId !== identity.browserViewScopeId ||
-          event.browserTabId !== identity.browserTabId
-        ) {
-          return;
-        }
-        const contents = this.browserService.getWebContentsForTab(identity);
-        if (!contents || contents.isDestroyed()) return;
-        finish({ contents });
-      };
-      const timer = setTimeout(() => {
-        finish({
-          error: new Error(`Timed out waiting for Browser Use tab ${tab.id}`),
-        });
-      }, this.pageReadyTimeoutMs);
-      timer.unref?.();
-      this.browserService.on("webviewAttached", onAttached);
-    });
+    return await this.asyncRuntime.waitFor<BrowserWebContentsLike>(
+      (succeed) => {
+        const onAttached = (event: BrowserSidebarTabIdentity) => {
+          if (
+            event.browserConversationId !== identity.browserConversationId ||
+            event.browserViewScopeId !== identity.browserViewScopeId ||
+            event.browserTabId !== identity.browserTabId
+          ) {
+            return;
+          }
+          const contents = this.browserService.getWebContentsForTab(identity);
+          if (!contents || contents.isDestroyed()) return;
+          succeed(contents);
+        };
+        this.browserService.on("webviewAttached", onAttached);
+        return () => this.browserService.off("webviewAttached", onAttached);
+      },
+      this.pageReadyTimeoutMs,
+      () => {
+        throw new Error(`Timed out waiting for Browser Use tab ${tab.id}`);
+      },
+    );
   }
 
   private registerCdpListener(
@@ -1050,7 +1029,7 @@ export class BrowserUseIabApi extends EventEmitter {
         method,
         ...(isRecord(params) ? { params } : {}),
       };
-      this.emit("cdp-event", event);
+      for (const cdpEventListener of this.cdpEventListeners) cdpEventListener(event);
     };
     debuggerPort.on("message", listener);
     this.cdpDisposers.set(tab.id, () => {
@@ -1184,19 +1163,20 @@ export class BrowserUseIabApi extends EventEmitter {
     debuggerPort: NonNullable<BrowserWebContentsLike["debugger"]>,
     target: { height: number; width: number },
   ): Promise<void> {
-    const deadline = Date.now() + CAPTURE_SURFACE_READY_TIMEOUT_MS;
+    const deadline = (await this.asyncRuntime.now()) + CAPTURE_SURFACE_READY_TIMEOUT_MS;
     do {
       try {
-        const metrics = await withTimeout(
-          debuggerPort.sendCommand("Page.getLayoutMetrics", {}),
-          Math.max(1, deadline - Date.now()),
+        const now = await this.asyncRuntime.now();
+        const metrics = await this.asyncRuntime.deadline(
+          () => debuggerPort.sendCommand("Page.getLayoutMetrics", {}),
+          Math.max(1, deadline - now),
           "Timed out waiting for the Browser Use capture surface",
         );
         if (isCaptureSurfaceReady(metrics, target)) return;
       } catch {
         return;
       }
-      await waitForDelay(CAPTURE_SURFACE_POLL_INTERVAL_MS);
-    } while (Date.now() < deadline);
+      await this.asyncRuntime.sleep(CAPTURE_SURFACE_POLL_INTERVAL_MS);
+    } while ((await this.asyncRuntime.now()) < deadline);
   }
 }

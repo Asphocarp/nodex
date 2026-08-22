@@ -165,7 +165,11 @@ replacement, and Main shutdown invalidate that exact generation. Route mutation 
 single-writer and every turn completes through the session's own semaphore. Browser
 Use application Modules exchange typed Effects; Promise exists only at the sidebar
 route callback and native pipe/API adapters, where callback fibers belong to the
-session or installation Scope.
+session or installation Scope. Native-pipe commands pass through the session's
+single command admission semaphore. IAB deadlines, capture polling sleeps, cursor
+arrival, and WebContents attachment waits borrow the session Effect clock and
+callback runtime, so closing the session interrupts waits and removes registrations;
+the IAB state machine contains no EventEmitter, timer, or detached Promise waiter.
 
 The MCP App sandbox coordinator owns its protocol cache together with Electron session policy,
 guest hosts, pending attachments, and protocol handlers. Skybridge fetches are shared only within

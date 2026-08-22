@@ -9,7 +9,11 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
-import type { BrowserUseCdpEvent, BrowserUseRoute } from "./browser-use-iab-api";
+import type {
+  BrowserUseCdpEvent,
+  BrowserUseIabAsyncRuntime,
+  BrowserUseRoute,
+} from "./browser-use-iab-api";
 import type { BrowserUseNativePipeRequestHandler } from "./browser-use-native-pipe-server";
 
 const MAX_DEBUG_EVENTS = 200;
@@ -78,7 +82,10 @@ export interface BrowserUseNativePipeServerPort {
 }
 
 export interface BrowserUseSessionRuntimePlatform {
-  readonly createApi: (route: BrowserUseRoute) => BrowserUseIabApiPort;
+  readonly createApi: (
+    route: BrowserUseRoute,
+    asyncRuntime: BrowserUseIabAsyncRuntime,
+  ) => BrowserUseIabApiPort;
   readonly createServer: (
     handler: BrowserUseNativePipeRequestHandler,
   ) => BrowserUseNativePipeServerPort;
@@ -172,8 +179,51 @@ const sessionLayer = (
     BrowserUseSession,
     Effect.gen(function* () {
       const sessionId = key.route.codexSessionId;
+      const runPromise = yield* FiberSet.makeRuntimePromise<
+        never,
+        unknown,
+        BrowserUseSessionRuntimeError
+      >();
+      const waitFor = <A>(
+        register: (succeed: (value: A) => void) => () => void,
+        timeoutMs: number,
+        onTimeout: () => A,
+      ): Promise<A> =>
+        runPromise(
+          Effect.callback<A>((resume) => {
+            const release = register((value) => resume(Effect.succeed(value)));
+            return Effect.sync(release);
+          }).pipe(
+            Effect.timeoutOrElse({
+              duration: Duration.millis(timeoutMs),
+              orElse: () =>
+                Effect.try({
+                  try: onTimeout,
+                  catch: (cause) => runtimeError("iab-wait-timeout", sessionId, cause),
+                }),
+            }),
+          ),
+        );
+      const asyncRuntime: BrowserUseIabAsyncRuntime = {
+        deadline: (task, timeoutMs, timeoutMessage) =>
+          runPromise(
+            Effect.tryPromise({
+              try: task,
+              catch: (cause) => runtimeError("iab-operation", sessionId, cause),
+            }).pipe(
+              Effect.timeoutOrElse({
+                duration: Duration.millis(timeoutMs),
+                orElse: () =>
+                  Effect.fail(runtimeError("iab-timeout", sessionId, new Error(timeoutMessage))),
+              }),
+            ),
+          ),
+        now: () => runPromise(Clock.currentTimeMillis),
+        sleep: (delayMs) => runPromise(Effect.sleep(Duration.millis(delayMs))),
+        waitFor,
+      };
       const api = yield* Effect.try({
-        try: () => platform.createApi(key.route),
+        try: () => platform.createApi(key.route, asyncRuntime),
         catch: (cause) => runtimeError("create-api", sessionId, cause),
       });
       yield* Effect.addFinalizer(() =>
@@ -187,19 +237,17 @@ const sessionLayer = (
         ),
       );
 
-      const runPromise = yield* FiberSet.makeRuntimePromise<
-        never,
-        unknown,
-        BrowserUseSessionRuntimeError
-      >();
+      const commandLock = yield* Semaphore.make(1);
       const server = yield* Effect.try({
         try: () =>
           platform.createServer((request) =>
             runPromise(
-              Effect.tryPromise({
-                try: () => api.dispatch(request.method, request.params),
-                catch: (cause) => runtimeError("dispatch", sessionId, cause),
-              }),
+              commandLock.withPermits(1)(
+                Effect.tryPromise({
+                  try: () => api.dispatch(request.method, request.params),
+                  catch: (cause) => runtimeError("dispatch", sessionId, cause),
+                }),
+              ),
             ),
           ),
         catch: (cause) => runtimeError("create-server", sessionId, cause),
@@ -250,14 +298,16 @@ const sessionLayer = (
                 });
                 return false;
               }
-              yield* Effect.tryPromise({
-                try: () =>
-                  api.turnEnded({
-                    session_id: sessionId,
-                    turn_id: input.turnId,
-                  }),
-                catch: (cause) => runtimeError("turn-ended", sessionId, cause),
-              });
+              yield* commandLock.withPermits(1)(
+                Effect.tryPromise({
+                  try: () =>
+                    api.turnEnded({
+                      session_id: sessionId,
+                      turn_id: input.turnId,
+                    }),
+                  catch: (cause) => runtimeError("turn-ended", sessionId, cause),
+                }),
+              );
               yield* Ref.update(completedTurnIds, (latest) => {
                 const next = new Set(latest);
                 next.add(input.turnId);

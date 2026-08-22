@@ -268,10 +268,11 @@ export const live = (
         makeRegistry: (input) => {
           const appSessionId = randomUUID();
           const runtime = makeBrowserUseSessionRuntime(capability.status === "available", {
-            createApi: (route) =>
+            createApi: (route, asyncRuntime) =>
               new BrowserUseIabApi({
                 appSessionId,
                 appVersion: options.appVersion,
+                asyncRuntime,
                 browserService: options.browserSidebar,
                 buildFlavor:
                   options.browserRuntime.status === "available"

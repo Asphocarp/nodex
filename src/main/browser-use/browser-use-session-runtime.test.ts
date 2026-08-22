@@ -1,8 +1,10 @@
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Scope from "effect/Scope";
+import * as TestClock from "effect/testing/TestClock";
 import { assert, it } from "@effect/vitest";
-import type { BrowserUseCdpEvent } from "./browser-use-iab-api";
+import type { BrowserUseCdpEvent, BrowserUseIabAsyncRuntime } from "./browser-use-iab-api";
+import type { BrowserUseNativePipeRequestHandler } from "./browser-use-native-pipe-server";
 import {
   makeBrowserUseSessionRuntime,
   type BrowserUseRouteCapture,
@@ -10,8 +12,10 @@ import {
 
 class FakeApi {
   activeControl = false;
+  activeDispatches = 0;
   disposed = false;
   readonly endedTurns: string[] = [];
+  maxActiveDispatches = 0;
 
   addCdpEventListener(listener: (event: BrowserUseCdpEvent) => void) {
     void listener;
@@ -19,6 +23,10 @@ class FakeApi {
   }
 
   async dispatch(method: string): Promise<unknown> {
+    this.activeDispatches += 1;
+    this.maxActiveDispatches = Math.max(this.maxActiveDispatches, this.activeDispatches);
+    if (method === "slow") await new Promise((resolve) => setImmediate(resolve));
+    this.activeDispatches -= 1;
     return method;
   }
 
@@ -43,7 +51,19 @@ class FakeServer {
   closed = false;
   started = false;
 
-  constructor(readonly pipePath: string) {}
+  constructor(
+    readonly pipePath: string,
+    private readonly handler: BrowserUseNativePipeRequestHandler,
+  ) {}
+
+  handle(method: string): Promise<unknown> {
+    return Promise.resolve(
+      this.handler(
+        { jsonrpc: "2.0", method },
+        { connectionId: "test-connection", notification: false },
+      ),
+    );
+  }
 
   broadcast(method: string, params?: unknown): void {
     void method;
@@ -70,21 +90,23 @@ const capture = (overrides: Partial<BrowserUseRouteCapture> = {}): BrowserUseRou
 
 const makeTestRuntime = Effect.gen(function* () {
   const apis: FakeApi[] = [];
+  const asyncRuntimes: BrowserUseIabAsyncRuntime[] = [];
   const servers: FakeServer[] = [];
   const scope = yield* Scope.make();
   const runtime = yield* makeBrowserUseSessionRuntime(true, {
-    createApi: () => {
+    createApi: (_route, asyncRuntime) => {
       const api = new FakeApi();
       apis.push(api);
+      asyncRuntimes.push(asyncRuntime);
       return api;
     },
-    createServer: () => {
-      const server = new FakeServer(`/tmp/fake-${servers.length}.sock`);
+    createServer: (handler) => {
+      const server = new FakeServer(`/tmp/fake-${servers.length}.sock`, handler);
       servers.push(server);
       return server;
     },
   }).pipe(Effect.provideService(Scope.Scope, scope));
-  return { apis, runtime, scope, servers };
+  return { apis, asyncRuntimes, runtime, scope, servers };
 });
 
 it.effect("reuses one scoped backend for an exact route", () =>
@@ -102,6 +124,41 @@ it.effect("reuses one scoped backend for an exact route", () =>
     yield* Scope.close(scope, Exit.void);
     assert.isTrue(apis[0]!.disposed);
     assert.isTrue(servers[0]!.closed);
+  }),
+);
+
+it.effect("serializes native pipe commands inside each session", () =>
+  Effect.gen(function* () {
+    const { apis, runtime, scope, servers } = yield* makeTestRuntime;
+    yield* runtime.captureRoute(capture());
+
+    yield* Effect.promise(() =>
+      Promise.all([servers[0]!.handle("slow"), servers[0]!.handle("slow")]),
+    );
+
+    assert.strictEqual(apis[0]!.maxActiveDispatches, 1);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("runs IAB waits on the session clock and releases their registration", () =>
+  Effect.gen(function* () {
+    const { asyncRuntimes, runtime, scope } = yield* makeTestRuntime;
+    yield* runtime.captureRoute(capture());
+    let released = false;
+    const result = asyncRuntimes[0]!.waitFor(
+      () => () => {
+        released = true;
+      },
+      1_000,
+      () => "timeout",
+    );
+
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust("1 second");
+    assert.strictEqual(yield* Effect.promise(() => result), "timeout");
+    assert.isTrue(released);
+    yield* Scope.close(scope, Exit.void);
   }),
 );
 

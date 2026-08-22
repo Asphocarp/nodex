@@ -6,8 +6,45 @@ import type {
   BrowserUseTabState,
 } from "../../shared/browser-sidebar";
 import type { BrowserWebContentsLike } from "../browser-sidebar-service";
-import { BrowserUseIabApi, type BrowserUseCdpEvent } from "./browser-use-iab-api";
+import {
+  BrowserUseIabApi,
+  type BrowserUseCdpEvent,
+  type BrowserUseIabAsyncRuntime,
+} from "./browser-use-iab-api";
 import type { BrowserUsePolicyReader } from "./browser-use-policy-store";
+
+const testAsyncRuntime: BrowserUseIabAsyncRuntime = {
+  deadline: <A>(task: () => Promise<A>, timeoutMs: number, timeoutMessage: string) =>
+    new Promise<A>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(timeoutMessage)), timeoutMs);
+      void task()
+        .then(resolve, reject)
+        .finally(() => clearTimeout(timer));
+    }),
+  now: async () => Date.now(),
+  sleep: async (delayMs) => {
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  },
+  waitFor: <A>(
+    register: (succeed: (value: A) => void) => () => void,
+    timeoutMs: number,
+    onTimeout: () => A,
+  ) =>
+    new Promise<A>((resolve, reject) => {
+      let release: () => void = () => undefined;
+      const settle = (task: () => A) => {
+        clearTimeout(timer);
+        release();
+        try {
+          resolve(task());
+        } catch (error) {
+          reject(error);
+        }
+      };
+      const timer = setTimeout(() => settle(onTimeout), timeoutMs);
+      release = register((value) => settle(() => value));
+    }),
+};
 
 class FakeDebugger extends EventEmitter {
   attached = false;
@@ -240,6 +277,7 @@ function makeApi(policyStore?: BrowserUsePolicyReader) {
   const api = new BrowserUseIabApi({
     appSessionId: "app-session-1",
     appVersion: "1.0.0",
+    asyncRuntime: testAsyncRuntime,
     browserService: service as never,
     buildFlavor: "production",
     grantDownload,
