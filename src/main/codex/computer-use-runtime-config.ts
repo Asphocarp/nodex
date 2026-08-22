@@ -140,42 +140,11 @@ async function writeConfigAtomically(
   return configPath;
 }
 
-/** Owns config-path serialization for one Computer Use runtime lifetime. */
-export class ComputerUseRuntimeConfigWriter {
-  readonly #active = new Set<Promise<unknown>>();
-  readonly #writeQueues = new Map<string, Promise<string>>();
-  #closed = false;
-
-  write(input: ComputerUseRuntimeConfigWriteInput): Promise<string> {
-    if (this.#closed) return Promise.reject(new Error("Computer Use config writer is closed"));
-    const operation = this.#write(input);
-    this.#active.add(operation);
-    return operation.finally(() => this.#active.delete(operation));
-  }
-
-  async close(): Promise<void> {
-    if (this.#closed) return;
-    this.#closed = true;
-    await Promise.allSettled([...this.#active]);
-    this.#writeQueues.clear();
-  }
-
-  async #write(input: ComputerUseRuntimeConfigWriteInput): Promise<string> {
-    const directory = path.join(
-      path.resolve(input.runtimeStateHome),
-      COMPUTER_USE_CONFIG_DIRECTORY,
-    );
-    const configPath = path.join(directory, COMPUTER_USE_CONFIG_FILENAME);
-    const config = buildComputerUseRuntimeConfig(input);
-    if (this.#closed) throw new Error("Computer Use config writer is closed");
-    const operation = (this.#writeQueues.get(configPath) ?? Promise.resolve(configPath))
-      .catch(() => configPath)
-      .then(async () => await writeConfigAtomically(directory, configPath, config));
-    this.#writeQueues.set(configPath, operation);
-    try {
-      return await operation;
-    } finally {
-      if (this.#writeQueues.get(configPath) === operation) this.#writeQueues.delete(configPath);
-    }
-  }
+/** Atomic filesystem operation; the owning ComputerUseRuntime serializes mutations. */
+export function writeComputerUseRuntimeConfig(
+  input: ComputerUseRuntimeConfigWriteInput,
+): Promise<string> {
+  const directory = path.join(path.resolve(input.runtimeStateHome), COMPUTER_USE_CONFIG_DIRECTORY);
+  const configPath = path.join(directory, COMPUTER_USE_CONFIG_FILENAME);
+  return writeConfigAtomically(directory, configPath, buildComputerUseRuntimeConfig(input));
 }

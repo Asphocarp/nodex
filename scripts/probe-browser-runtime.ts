@@ -6,7 +6,11 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import type * as Cause from "effect/Cause";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Layer from "effect/Layer";
+import * as Scope from "effect/Scope";
 import type {
   McpServerToolCallResponse,
   ThreadStartResponse,
@@ -21,7 +25,11 @@ import { BrowserUseThreadConfigBuilder } from "../src/main/codex/browser-use-thr
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
 import { BrowserUseNativePipeServer } from "../src/main/browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../src/main/browser-use/browser-use-peer-authorizer";
-import { ComputerUseRuntimeCoordinator } from "../src/main/codex/computer-use-runtime";
+import {
+  ComputerUseRuntime,
+  testLayer as computerUseRuntimeLayer,
+} from "../src/main/host-runtime/ComputerUseRuntime";
+import { makeComputerUseHostPlatform } from "../src/main/platform/electron/ComputerUseHostPlatform";
 import type { SkyNativeAddon } from "../src/main/sky-native";
 import { runCodexProbeMain, withCodexProbeSession } from "./codex-probe-session";
 
@@ -272,24 +280,41 @@ async function probeBrowserRuntimePromise(
     }),
   });
   const requireForProbe = createRequire(import.meta.url);
-  const computerUseRuntime = new ComputerUseRuntimeCoordinator({
-    browserRuntime: runtime.browserRuntime,
-    loadAddon: () =>
-      requireForProbe(bundle.paths.skyNativeAddon) as Pick<
-        SkyNativeAddon,
-        "computerUseServiceProcessMatchesExecutablePath" | "spawnComputerUseService"
-      >,
-    macOSRelease: execFileSync("/usr/bin/sw_vers", ["-productVersion"], {
-      encoding: "utf8",
-    }).trim(),
-    peerAuthorizationMode,
-    runtimeStateHome: stateHome,
-    terminateManagedServiceOnDispose: true,
-  });
+  const computerUseScope = await callbacks.runPromise(Scope.make());
+  const macOSRelease = execFileSync("/usr/bin/sw_vers", ["-productVersion"], {
+    encoding: "utf8",
+  }).trim();
+  const computerUseHost = {
+    ...makeComputerUseHostPlatform({ macOSRelease, platform: process.platform }, callbacks),
+    loadAddon: Effect.sync(
+      () =>
+        requireForProbe(bundle.paths.skyNativeAddon) as Pick<
+          SkyNativeAddon,
+          "computerUseServiceProcessMatchesExecutablePath" | "spawnComputerUseService"
+        >,
+    ),
+  };
+  const computerUseContext = await callbacks.runPromise(
+    Layer.buildWithScope(
+      computerUseRuntimeLayer(
+        {
+          browserRuntime: runtime.browserRuntime,
+          macOSRelease,
+          peerAuthorizationMode,
+          platform: process.platform,
+          runtimeStateHome: stateHome,
+          terminateManagedServiceOnDispose: true,
+        },
+        computerUseHost,
+      ),
+      computerUseScope,
+    ),
+  );
+  const computerUseRuntime = Context.get(computerUseContext, ComputerUseRuntime);
 
   try {
     await nativePipeServer.start();
-    const computerUseRuntimeResult = await computerUseRuntime.ensureReady();
+    const computerUseRuntimeResult = await callbacks.runPromise(computerUseRuntime.ensureReady);
     return await callbacks.runPromise(
       withCodexProbeSession(
         callbacks,
@@ -463,7 +488,7 @@ async function probeBrowserRuntimePromise(
           recursive: true,
           retryDelay: 100,
         }),
-      stopComputerUseRuntime: () => computerUseRuntime.dispose(),
+      stopComputerUseRuntime: () => callbacks.runPromise(Scope.close(computerUseScope, Exit.void)),
       stopClient: () => Promise.resolve(),
     });
   }

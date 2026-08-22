@@ -717,9 +717,10 @@ export const live: Layer.Layer<
           computerUseRuntimeLive({
             browserRuntime: codexRuntime.browserRuntime,
             peerAuthorizationMode: codexRuntime.source === "bundled" ? "packaged" : "development",
+            platform: config.platform as NodeJS.Platform,
             runtimeConfig: () => ({ locale }),
             runtimeStateHome,
-          }),
+          }).pipe(Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks))),
           runtimeScope,
         );
         const computerUse = Context.get(computerUseContext, ComputerUseRuntime);

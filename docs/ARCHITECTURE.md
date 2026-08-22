@@ -253,10 +253,13 @@ prewarm fibers and invalidates cached responses. Pending guest-attachment expiry
 scoped FiberSet task rather than a coordinator timer. No protocol cache or expiry task survives a
 runtime replacement.
 
-The Computer Use runtime owns helper materialization, runtime-config serialization, native pipe,
-and managed service state as one process-scoped aggregate. Releasing it stops new readiness
-admission, joins an in-progress start, then attempts every pipe/service/config-writer cleanup even
-when one cleanup fails. Runtime-config write queues may not outlive that aggregate.
+The process-scoped Computer Use Effect Module owns readiness, the current availability projection,
+native-pipe lifetime, exact managed-service PID identity, and service validation time. One
+readiness semaphore and one service semaphore serialize those two protocols; validation sleeps on
+the Effect clock. Scope release atomically closes admission, fences late platform results, waits for
+active transitions, and releases every acquired handle. The Electron platform Adapter owns only
+atomic helper/config filesystem operations, native-addon calls, process inspection, and the pipe's
+scoped Promise callback projection; it has no queue, timer, cached result, PID, or disposer state.
 
 Project lifecycle mutation and admission of Project-owned host work share one Main-scoped,
 Project-keyed coordination runtime. Codex turns, Terminal sessions, and background runtime

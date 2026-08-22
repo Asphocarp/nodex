@@ -15,9 +15,8 @@ import {
 } from "../codex/browser-plugin-reconciler";
 import type { BrowserRuntimeAvailability } from "../codex/browser-runtime-bundle";
 import { BrowserUseThreadConfigBuilder } from "../codex/browser-use-thread-config";
-import type { ComputerUseRuntimeResult } from "../codex/computer-use-runtime";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
-import { ComputerUseRuntime } from "./ComputerUseRuntime";
+import { ComputerUseRuntime, type ComputerUseRuntimeResult } from "./ComputerUseRuntime";
 
 export class DesktopToolRuntimeError extends Schema.TaggedError<DesktopToolRuntimeError>()(
   "DesktopToolRuntimeError",

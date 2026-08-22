@@ -16,7 +16,7 @@ import {
   type ComputerUseSettingsSnapshot,
   type ComputerUseSoundMode,
 } from "../../shared/computer-use-settings";
-import type { ComputerUseRuntimeResult } from "../codex/computer-use-runtime";
+import type { ComputerUseRuntimeResult } from "./ComputerUseRuntime";
 import { MainConfig } from "../app/MainConfig";
 import { DesktopToolRuntime } from "./DesktopToolRuntime";
 import { RemoteHostedPipRuntime } from "./RemoteHostedPipRuntime";

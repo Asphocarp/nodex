@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vite-plus/test";
 import {
   buildComputerUseRuntimeConfig,
-  ComputerUseRuntimeConfigWriter,
+  writeComputerUseRuntimeConfig,
 } from "./computer-use-runtime-config";
 
 const temporaryRoots: string[] = [];
@@ -50,24 +50,16 @@ describe("Computer Use runtime config", () => {
     });
   });
 
-  test("serializes atomic writes to the canonical CODEX_HOME config", async () => {
+  test("atomically writes the canonical CODEX_HOME config", async () => {
     const runtimeStateHome = makeTemporaryRoot();
-    const writer = new ComputerUseRuntimeConfigWriter();
-    await Promise.all([
-      writer.write({
-        accentColor: "invalid",
-        locale: "en",
-        runtimeStateHome,
-      }),
-      writer.write({
-        locale: "zh-CN",
-        runtimeStateHome,
-        strings: {
-          escToCancel: "按 Esc 取消",
-          usingComputer: "Nodex 正在使用你的电脑",
-        },
-      }),
-    ]);
+    await writeComputerUseRuntimeConfig({
+      locale: "zh-CN",
+      runtimeStateHome,
+      strings: {
+        escToCancel: "按 Esc 取消",
+        usingComputer: "Nodex 正在使用你的电脑",
+      },
+    });
 
     const directory = path.join(runtimeStateHome, "computer-use");
     const config = JSON.parse(
@@ -83,8 +75,5 @@ describe("Computer Use runtime config", () => {
       },
     });
     expect(fs.readdirSync(directory).filter((entry) => entry.endsWith(".tmp"))).toEqual([]);
-
-    await writer.close();
-    await expect(writer.write({ runtimeStateHome })).rejects.toThrow("closed");
   });
 });
