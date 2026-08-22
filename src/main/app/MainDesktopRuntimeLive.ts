@@ -153,6 +153,11 @@ import {
 } from "../codex-application/CodexFreshThreadLaunchRuntime";
 import { makeCodexFreshThreadLaunchRuntimePromiseAdapter } from "../codex-application/CodexFreshThreadLaunchRuntimePromiseAdapter";
 import {
+  CodexForkSidePanelAdapterError,
+  make as makeCodexForkSidePanelTransferRuntime,
+} from "../codex-application/CodexForkSidePanelTransferRuntime";
+import { makeCodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
+import {
   CodexPostResumeGoalError,
   make as makeCodexPostResumeGoalRuntime,
 } from "../codex-application/CodexPostResumeGoalRuntime";
@@ -176,6 +181,7 @@ import {
 import { makeCodexUserInputAutoResolutionPromiseAdapter } from "../codex-application/CodexUserInputAutoResolutionPromiseAdapter";
 import { requestHandlingLive } from "../codex-application/CodexApplicationLayers";
 import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
+import { createCodexForkBrowserSnapshotAdapter } from "../codex/codex-fork-browser-snapshot-adapter";
 import { makeCodexThreadHandoffJournalStorage } from "../platform/CodexThreadHandoffJournalStorage";
 import {
   CodexPreferences,
@@ -1664,10 +1670,39 @@ export const live: Layer.Layer<
           isConversationPresented: (conversationId) =>
             codexService?.isRendererConversationPresentedInForeground(conversationId) === true,
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const forkBrowserSnapshotAdapter = createCodexForkBrowserSnapshotAdapter({
+          getProjectSession: (projectSessionId) =>
+            projectWorkspace.getProjectSession(projectSessionId),
+          resolveBrowserConversationId: (conversationId) =>
+            requireCodexService().resolveForkBrowserConversationId(conversationId),
+          runtime: browserSidebarService,
+        });
+        const forkSidePanelTransfers = yield* makeCodexForkSidePanelTransferRuntime({
+          capture: (sourceConversationId, sourceSceneContext) =>
+            Effect.tryPromise({
+              try: () =>
+                forkBrowserSnapshotAdapter.capture(sourceConversationId, sourceSceneContext),
+              catch: (cause) => new CodexForkSidePanelAdapterError({ cause }),
+            }),
+          rebase: (snapshot, input) =>
+            Effect.tryPromise({
+              try: () => forkBrowserSnapshotAdapter.rebase(snapshot, input),
+              catch: (cause) => new CodexForkSidePanelAdapterError({ cause }),
+            }),
+          apply: (snapshot, input) =>
+            Effect.tryPromise({
+              try: () => forkBrowserSnapshotAdapter.apply(snapshot, input),
+              catch: (cause) => new CodexForkSidePanelAdapterError({ cause }),
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
-              browserTransferRuntime: browserSidebarService,
+              browserTransferStateReader: browserSidebarService,
+              forkSidePanelTransferLifecycle: makeCodexForkSidePanelTransferRuntimePromiseAdapter(
+                forkSidePanelTransfers,
+                callbacks,
+              ),
               agentProviderRuntime,
               composerCatalog,
               desktopTools,

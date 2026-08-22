@@ -131,7 +131,7 @@ import { makeCodexRendererConversationState } from "../codex-application/CodexRe
 import { TestCodexOwnerNotificationDrainRuntime } from "./codex-owner-notification-drain-runtime.test-support";
 import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
 import { TestCodexSidebarSyncRuntime } from "./codex-sidebar-sync-runtime.test-support";
-import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
+import type { CodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
 import { removeManagedWorktree } from "./git-worktree-service";
 import { runCodexGitCommand } from "./codex-git-command";
 import type {
@@ -1552,7 +1552,7 @@ function createService(options?: {
     getStateSnapshot(): BrowserSidebarStateSnapshot;
     getBrowserUseStateSnapshot(): BrowserSidebarBrowserUseStateSnapshot;
   };
-  forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
+  forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferRuntimePromiseAdapter;
   automationModule?: DesktopAutomationModulePort;
   projectWorkspace?: DesktopProjectWorkspacePort;
   userInputAutoResolutionTimer?: {
@@ -2714,27 +2714,34 @@ describe("codex-service sidebar Thread Project moves", () => {
 
 function makeRecordingForkSidePanelTransferLifecycle(
   events: string[],
-): CodexForkSidePanelTransferLifecycle {
+): CodexForkSidePanelTransferRuntimePromiseAdapter & {
+  readonly failCapture: () => void;
+} {
+  let captureFailure = false;
   return {
     stageDirect: async ({ sourceConversationId, targetConversationId }) => {
       events.push(`direct:${sourceConversationId}:${targetConversationId}`);
     },
     capturePending: async ({ pendingWorktreeId, sourceConversationId, sourceWorkspaceRoot }) => {
+      if (captureFailure) {
+        events.push("capture-failed");
+        throw new Error("snapshot capture failed");
+      }
       events.push(`capture:${pendingWorktreeId}:${sourceConversationId}:${sourceWorkspaceRoot}`);
     },
     promotePending: async ({ pendingWorktreeId, targetConversationId, targetWorkspaceRoot }) => {
       events.push(`promote:${pendingWorktreeId}:${targetConversationId}:${targetWorkspaceRoot}`);
       return true;
     },
-    discardPending: (pendingWorktreeId) => {
+    discardPending: async (pendingWorktreeId) => {
       events.push(`discard:${pendingWorktreeId}`);
     },
     consumeTarget: async ({ targetConversationId, targetProjectSessionId }) => {
       events.push(`consume:${targetConversationId}:${targetProjectSessionId}`);
       return null;
     },
-    clear: () => {
-      events.push("clear");
+    failCapture: () => {
+      captureFailure = true;
     },
   };
 }
@@ -12383,10 +12390,7 @@ describe("codex-service approval fallback", () => {
         ].join(","),
       );
 
-      transferLifecycle.capturePending = () => {
-        transferEvents.push("capture-failed");
-        throw new Error("snapshot capture failed");
-      };
+      transferLifecycle.failCapture();
       const failedResponse = await serviceInternals.handleDynamicToolCall({
         threadId: sourceThreadId,
         turnId: "turn_dynamic_pending_fork_failure",

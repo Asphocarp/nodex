@@ -504,6 +504,16 @@ same adoption/start fibers; successful or failed first-turn completion consumes 
 canonical conversation owner supplies adoption projection and first-turn domain operations, but owns
 no launch Map, mutable state enum, duplicate-start race, renderer-disconnect scan, or shutdown entry.
 
+Fork side-panel transfer is a Main-scoped application protocol, not state hidden inside the
+conversation projection. One immutable state keeps pending-worktree captures and target-conversation
+snapshots in separate namespaces, and one semaphore serializes capture, rebase, promotion, discard,
+and consume transitions. External Browser capture/rebase/apply operations happen before the
+corresponding state commit: a failed rebase preserves both the pending capture and any previous
+target, while a failed apply preserves the target for retry. Scope close atomically closes admission
+and clears both namespaces; an operation returning from a non-cancellable Electron boundary cannot
+publish state after closure. `CodexService` temporarily supplies conversation/session resolution but
+owns no transfer Map, lazy manager, or shutdown cleanup.
+
 Post-resume Thread-goal hydration is a separate Main-scoped lifecycle because it correlates a
 remote read with a particular conversation revision. Concurrent awaited hydrations share one keyed
 load while each retains its own revision fence; background resume requests coalesce to the newest

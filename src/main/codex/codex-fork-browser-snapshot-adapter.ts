@@ -21,7 +21,29 @@ import type {
   WorkbenchSceneSnapshot,
   WorkbenchSurfaceDescriptor,
 } from "../../shared/workbench-scene";
-import type { CodexForkSidePanelSnapshotAdapter } from "./codex-fork-side-panel-transfer";
+
+export interface CodexForkBrowserSnapshotAdapter<Snapshot> {
+  readonly capture: (
+    sourceConversationId: string,
+    sourceSceneContext?: CodexForkBrowserSceneContext,
+  ) => Promise<Snapshot>;
+  readonly rebase: (
+    snapshot: Snapshot,
+    input: {
+      readonly targetConversationId: string;
+      readonly sourceWorkspaceRoot?: string;
+      readonly targetWorkspaceRoot?: string;
+    },
+  ) => Promise<Snapshot>;
+  readonly apply: (
+    snapshot: Snapshot,
+    input: {
+      readonly targetConversationId: string;
+      readonly targetProjectSessionId: string;
+      readonly targetBrowserViewScopeId: string;
+    },
+  ) => Promise<Snapshot | void>;
+}
 
 export interface CodexForkBrowserRuntime {
   getBrowserUseStateSnapshot(): BrowserSidebarBrowserUseStateSnapshot;
@@ -294,7 +316,7 @@ function remintIdentity(
 
 export function createCodexForkBrowserSnapshotAdapter(
   dependencies: CodexForkBrowserSnapshotAdapterDependencies,
-): CodexForkSidePanelSnapshotAdapter<CodexForkBrowserSidePanelSnapshot> {
+): CodexForkBrowserSnapshotAdapter<CodexForkBrowserSidePanelSnapshot> {
   return {
     async capture(sourceConversationId, sourceSceneContext) {
       const browserConversationId =

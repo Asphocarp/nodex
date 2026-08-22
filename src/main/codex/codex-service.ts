@@ -715,14 +715,8 @@ import {
   shouldSendCodexPendingPermissionOverrides,
 } from "./codex-pending-worktree-request";
 import { captureCodexOrdinaryBrowserTransfer } from "./codex-browser-transfer-capture";
-import {
-  CodexForkSidePanelTransferManager,
-  type CodexForkSidePanelTransferLifecycle,
-} from "./codex-fork-side-panel-transfer";
-import {
-  createCodexForkBrowserSnapshotAdapter,
-  type CodexForkBrowserRuntime,
-} from "./codex-fork-browser-snapshot-adapter";
+import type { CodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
+import { type CodexForkBrowserRuntime } from "./codex-fork-browser-snapshot-adapter";
 import {
   approximateJsonPayloadBytes,
   getDevRuntimeMetricDurationMs,
@@ -1262,9 +1256,8 @@ type CodexServiceOptions = {
   managedWorktrees: ManagedWorktreeRuntimePromiseAdapter;
   managedWorktreeRetention: ManagedWorktreeRetentionRuntimePromiseAdapter;
   projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
-  browserTransferRuntime?: CodexForkBrowserRuntime;
   browserTransferStateReader?: CodexBrowserTransferStateReader;
-  forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
+  forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferRuntimePromiseAdapter;
   userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
   terminalRuntime?: CodexTerminalRuntimePort;
 };
@@ -2430,9 +2423,8 @@ export class CodexService extends EventEmitter {
   private readonly projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
   private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
   private readonly threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
-  private readonly browserTransferRuntime: CodexServiceOptions["browserTransferRuntime"];
   private readonly browserTransferStateReader: CodexServiceOptions["browserTransferStateReader"];
-  private forkSidePanelTransferLifecycle: CodexServiceOptions["forkSidePanelTransferLifecycle"];
+  private readonly forkSidePanelTransferLifecycle: CodexServiceOptions["forkSidePanelTransferLifecycle"];
   private readonly terminalRuntime: NonNullable<CodexServiceOptions["terminalRuntime"]>;
   private nodexAgentAuthorizationBroker: NodexAgentAuthorizationBroker | null = null;
   private automationModule: DesktopAutomationModulePort =
@@ -2553,9 +2545,7 @@ export class CodexService extends EventEmitter {
       executionHosts: this.executionHosts,
       relayBaseRoot: path.join(this.runtimeStateHome, "handoffs"),
     });
-    this.browserTransferRuntime = options?.browserTransferRuntime;
-    this.browserTransferStateReader =
-      options?.browserTransferStateReader ?? this.browserTransferRuntime;
+    this.browserTransferStateReader = options?.browserTransferStateReader;
     this.forkSidePanelTransferLifecycle = options?.forkSidePanelTransferLifecycle;
     this.userInputAutoResolution = options.userInputAutoResolution;
     this.client = options.client;
@@ -6117,7 +6107,6 @@ export class CodexService extends EventEmitter {
   shutdown(): void {
     this.logger.info("Closing Codex application projection");
     this.nodexAgentAuthorizationBroker?.revokeAll();
-    this.forkSidePanelTransferLifecycle?.clear();
     this.terminalInputBuffers.clear();
   }
 
@@ -6300,7 +6289,7 @@ export class CodexService extends EventEmitter {
     return await this.projectWorkspace.getProjectSession(thread.sessionId);
   }
 
-  private async resolveForkBrowserConversationId(conversationId: string): Promise<string> {
+  async resolveForkBrowserConversationId(conversationId: string): Promise<string> {
     return (
       (await this.resolveForkBrowserProjectSession(conversationId))?.id ??
       getCodexClientThreadId(this.persistedAtoms, CODEX_APP_LOCAL_HOST_ID, conversationId) ??
@@ -6308,26 +6297,8 @@ export class CodexService extends EventEmitter {
     );
   }
 
-  private ensureForkSidePanelTransferLifecycle(): CodexForkSidePanelTransferLifecycle | null {
-    if (this.forkSidePanelTransferLifecycle) {
-      return this.forkSidePanelTransferLifecycle;
-    }
-    const runtime = this.browserTransferRuntime;
-    if (!runtime) return null;
-
-    const adapter = createCodexForkBrowserSnapshotAdapter({
-      getProjectSession: (projectSessionId) =>
-        this.projectWorkspace.getProjectSession(projectSessionId),
-      resolveBrowserConversationId: (conversationId) =>
-        this.resolveForkBrowserConversationId(conversationId),
-      runtime,
-    });
-    this.forkSidePanelTransferLifecycle = new CodexForkSidePanelTransferManager(adapter);
-    return this.forkSidePanelTransferLifecycle;
-  }
-
-  discardPendingForkSidePanelTransfer(pendingWorktreeId: string): void {
-    this.forkSidePanelTransferLifecycle?.discardPending(pendingWorktreeId);
+  async discardPendingForkSidePanelTransfer(pendingWorktreeId: string): Promise<void> {
+    await this.forkSidePanelTransferLifecycle?.discardPending(pendingWorktreeId);
   }
 
   async consumeForkSidePanelTransfer(
@@ -14569,7 +14540,7 @@ export class CodexService extends EventEmitter {
         targetTurnId: parsed.turnId ?? null,
         threadSource: "user",
       });
-      await this.ensureForkSidePanelTransferLifecycle()?.capturePending({
+      await this.forkSidePanelTransferLifecycle?.capturePending({
         pendingWorktreeId: created.pendingWorktreeId,
         sourceConversationId: sourceThreadId,
         sourceWorkspaceRoot: sourceThread.cwd,
@@ -14717,7 +14688,7 @@ export class CodexService extends EventEmitter {
     if (forkThreadTitle) {
       await this.setThreadName(detail.threadId, forkThreadTitle);
     }
-    await this.ensureForkSidePanelTransferLifecycle()?.stageDirect({
+    await this.forkSidePanelTransferLifecycle?.stageDirect({
       sourceConversationId: sourceThreadId,
       targetConversationId: detail.threadId,
       ...(sourceSceneContext ? { sourceSceneContext } : {}),
@@ -16629,7 +16600,7 @@ export class CodexService extends EventEmitter {
         syncDormantConversationUpdates: options.syncDormantConversationUpdates,
       });
     }
-    await this.ensureForkSidePanelTransferLifecycle()?.stageDirect({
+    await this.forkSidePanelTransferLifecycle?.stageDirect({
       sourceConversationId: threadId,
       targetConversationId: detail.threadId,
     });
@@ -21243,7 +21214,7 @@ export class CodexService extends EventEmitter {
             targetTurnId: null,
             threadSource: "subagent",
           });
-          await this.ensureForkSidePanelTransferLifecycle()?.capturePending({
+          await this.forkSidePanelTransferLifecycle?.capturePending({
             pendingWorktreeId: created.pendingWorktreeId,
             sourceConversationId: sourceThreadId,
             sourceWorkspaceRoot: sourceDetail.cwd,
@@ -21299,7 +21270,7 @@ export class CodexService extends EventEmitter {
           }
         }
         if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
-        await this.ensureForkSidePanelTransferLifecycle()?.stageDirect({
+        await this.forkSidePanelTransferLifecycle?.stageDirect({
           sourceConversationId: sourceThreadId,
           targetConversationId: detail.threadId,
         });
