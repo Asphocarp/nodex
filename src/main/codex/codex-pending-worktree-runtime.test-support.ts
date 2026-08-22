@@ -4,11 +4,11 @@ import type {
   CodexPendingWorktreeThreadResolution,
 } from "../../shared/codex-pending-worktree";
 import {
-  CodexPendingWorktreeStateStore,
   type CodexPendingWorktreeAction,
   type CodexPendingWorktreeEffect,
   type CodexPendingWorktreeMetadataUpdate,
 } from "./codex-pending-worktree-state";
+import { CodexPendingWorktreeStateStore } from "./codex-pending-worktree-state.test-support";
 import type { CodexWorktreeWorkerEvent } from "./codex-worktree-worker-port";
 
 export interface CodexPendingWorktreeCreationResult {
@@ -123,11 +123,7 @@ export function projectCodexWorktreeWorkerEventToPendingAction(
   }
 }
 
-/**
- * Main-process counterpart of the exact Electron pending-worktree service plus
- * its renderer conversation-start coordinator. The reducer remains the sole
- * lifecycle authority; this class only executes emitted effects.
- */
+/** Test-only Promise harness for CodexService vertical contracts. */
 export class CodexPendingWorktreeRuntime {
   private readonly store = new CodexPendingWorktreeStateStore();
   private readonly runtimesByPendingWorktreeId = new Map<

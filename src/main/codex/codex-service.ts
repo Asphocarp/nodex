@@ -678,7 +678,7 @@ import {
   augmentCodexDynamicFirstTurnPermissionContext,
   resolveCodexThreadVisualizationDirectory,
 } from "./codex-dynamic-first-turn-context";
-import { CodexPendingWorktreeRuntime } from "./codex-pending-worktree-runtime";
+import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
 import {
   isExecutionWorkspacePathWithinRoot,
   rewriteExecutionWorkspaceRoots,
@@ -1347,6 +1347,7 @@ type CodexServiceOptions = {
   dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
   sidebarThreadMoveRuntime: CodexSidebarThreadMoveRuntimePromiseAdapter;
   threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
+  pendingWorktrees: CodexPendingWorktreeRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2587,7 +2588,7 @@ export class CodexService extends EventEmitter {
   private readonly pendingPrivateServerRequests =
     new PendingServerRequestRegistry<PendingPrivateServerRequest>();
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
-  private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntime;
+  private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
   private readonly conversationResumeInFlightByThreadId = new Map<
     string,
     Promise<CodexConversationSnapshot | null>
@@ -2740,6 +2741,7 @@ export class CodexService extends EventEmitter {
     this.dynamicToolsLaunch = options.dynamicToolsLaunch;
     this.sidebarThreadMoveRuntime = options.sidebarThreadMoveRuntime;
     this.threadHandoffRuntime = options.threadHandoffRuntime;
+    this.pendingWorktreeRuntime = options.pendingWorktrees;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -2810,38 +2812,6 @@ export class CodexService extends EventEmitter {
       },
       emitProgress: (progress) => {
         this.emit("agentImportProgress", progress);
-      },
-    });
-
-    this.pendingWorktreeRuntime = new CodexPendingWorktreeRuntime({
-      createWorktree: async (entry, context) =>
-        await this.createPendingManagedWorktree(entry, context),
-      launchConversation: async (entry, workspaceRoot, context) =>
-        await this.launchPendingWorktreeConversation(entry, workspaceRoot, context),
-      removeWorktree: async (hostId, worktreeGitRoot) => {
-        await this.managedWorktreeLifecycle.remove({
-          hostId,
-          worktreeGitRoot,
-          reason: "cancel",
-        });
-      },
-      cleanupGoalSources: async (entry) => await this.cleanupPendingGoalSources(entry),
-      registerStableProject: async (workspaceRoots, label) => {
-        await this.projectWorkspace.createProject({
-          name: label,
-          sources: [...workspaceRoots],
-        });
-      },
-      onChanged: (entries) => {
-        this.invalidateSidebarSnapshotCache();
-        this.emit("pendingWorktreesChanged", entries);
-      },
-      onError: (phase, error, pendingWorktreeId) => {
-        this.logger.error("Pending worktree lifecycle failed", {
-          phase,
-          pendingWorktreeId,
-          error,
-        });
       },
     });
 
@@ -6791,7 +6761,6 @@ export class CodexService extends EventEmitter {
     this.frameTextDeltaQueue.dispose();
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.outputDeltaQueue.dispose();
-    this.pendingWorktreeRuntime.shutdown();
     this.forkSidePanelTransferLifecycle?.clear();
     if (this.sidebarSnapshotCacheNotifierSubscribed) {
       this.databaseNotifier.off(
@@ -6849,6 +6818,11 @@ export class CodexService extends EventEmitter {
 
   listPendingWorktrees(): readonly CodexPendingWorktreeEntry[] {
     return this.pendingWorktreeRuntime.list();
+  }
+
+  projectPendingWorktreeSnapshot(entries: readonly CodexPendingWorktreeEntry[]): void {
+    this.invalidateSidebarSnapshotCache();
+    this.emit("pendingWorktreesChanged", entries);
   }
 
   createPendingWorktree(input: CodexPendingWorktreeCreateInput): CodexPendingWorktreeCreateResult {
@@ -20807,7 +20781,7 @@ export class CodexService extends EventEmitter {
     return { clientThreadId: created.clientThreadId };
   }
 
-  private async createPendingManagedWorktree(
+  async createPendingManagedWorktree(
     entry: CodexPendingWorktreeEntry,
     context: {
       readonly signal: AbortSignal;
@@ -20931,7 +20905,7 @@ export class CodexService extends EventEmitter {
     return this.attachments.goals;
   }
 
-  private async cleanupPendingGoalSources(entry: CodexPendingWorktreeEntry): Promise<void> {
+  async cleanupPendingGoalSources(entry: CodexPendingWorktreeEntry): Promise<void> {
     if (entry.launchMode !== "start-conversation" || entry.threadGoalDraft == null) return;
     await (
       await this.getPastedTextAttachmentManager()
@@ -20974,7 +20948,7 @@ export class CodexService extends EventEmitter {
     await goal.directoryManager.removeDirectory(goal.attachmentDirectory).catch(() => undefined);
   }
 
-  private async launchPendingWorktreeConversation(
+  async launchPendingWorktreeConversation(
     entry: CodexPendingWorktreeEntry,
     workspaceRoot: string,
     context: {

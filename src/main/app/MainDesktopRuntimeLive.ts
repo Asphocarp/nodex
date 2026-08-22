@@ -114,6 +114,11 @@ import { makeCodexSidebarThreadMoveRuntimePromiseAdapter } from "../codex-applic
 import { make as makeCodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
 import { makeCodexThreadHandoffRuntimePromiseAdapter } from "../codex-application/CodexThreadHandoffRuntimePromiseAdapter";
 import {
+  CodexPendingWorktreeEffectError,
+  make as makeCodexPendingWorktreeRuntime,
+} from "../codex-application/CodexPendingWorktreeRuntime";
+import { makeCodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
+import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
 } from "../codex-application/CodexRendererOwnerRetention";
@@ -1363,6 +1368,72 @@ export const live: Layer.Layer<
           resolveHostDisplayName: (hostId) =>
             executionHosts.registry.getDescriptor(hostId)?.displayName ?? hostId,
         });
+        const pendingWorktrees = yield* makeCodexPendingWorktreeRuntime({
+          createWorktree: (entry, onEvent) =>
+            Effect.tryPromise({
+              try: (signal) =>
+                requireCodexService().createPendingManagedWorktree(entry, {
+                  signal,
+                  onEvent,
+                }),
+              catch: (cause) =>
+                new CodexPendingWorktreeEffectError({ operation: "create-worktree", cause }),
+            }),
+          launchConversation: (entry, workspaceRoot, context) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().launchPendingWorktreeConversation(
+                  entry,
+                  workspaceRoot,
+                  context,
+                ),
+              catch: (cause) =>
+                new CodexPendingWorktreeEffectError({
+                  operation: "launch-conversation",
+                  cause,
+                }),
+            }),
+          removeWorktree: (hostId, worktreeGitRoot) =>
+            managedWorktrees.remove({ hostId, worktreeGitRoot, reason: "cancel" }).pipe(
+              Effect.asVoid,
+              Effect.mapError(
+                (cause) =>
+                  new CodexPendingWorktreeEffectError({
+                    operation: "remove-worktree",
+                    cause,
+                  }),
+              ),
+            ),
+          cleanupGoalSources: (entry) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().cleanupPendingGoalSources(entry),
+              catch: (cause) =>
+                new CodexPendingWorktreeEffectError({
+                  operation: "cleanup-goal-sources",
+                  cause,
+                }),
+            }),
+          registerStableProject: (workspaceRoots, label) =>
+            Effect.tryPromise({
+              try: () =>
+                projectWorkspace.createProject({
+                  name: label,
+                  sources: [...workspaceRoots],
+                }),
+              catch: (cause) =>
+                new CodexPendingWorktreeEffectError({
+                  operation: "register-stable-project",
+                  cause,
+                }),
+            }).pipe(Effect.asVoid),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        yield* pendingWorktrees.changes.pipe(
+          Stream.runForEach((entries) =>
+            Effect.sync(() => requireCodexService().projectPendingWorktreeSnapshot(entries)),
+          ),
+          Effect.forkIn(runtimeScope),
+          Effect.asVoid,
+        );
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1433,6 +1504,10 @@ export const live: Layer.Layer<
               ),
               threadHandoffRuntime: makeCodexThreadHandoffRuntimePromiseAdapter(
                 threadHandoffRuntime,
+                callbacks,
+              ),
+              pendingWorktrees: makeCodexPendingWorktreeRuntimePromiseAdapter(
+                pendingWorktrees,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(

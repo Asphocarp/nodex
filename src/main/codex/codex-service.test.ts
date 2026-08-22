@@ -149,6 +149,7 @@ import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHo
 import { makeManagedWorktreeRuntimeTestHarness } from "../codex-application/ManagedWorktreeRuntime.test-support";
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { makeProjectRuntimeLifecycleTestHarness } from "../host-runtime/ProjectRuntimeLifecycleRuntime.test-support";
+import { CodexPendingWorktreeRuntime } from "./codex-pending-worktree-runtime.test-support";
 
 interface TestableCodexService {
   on: {
@@ -1779,6 +1780,32 @@ function createService(options?: {
       service.commitInactiveRendererOwnerCleanup(conversationId);
     },
   });
+  const projectWorkspace = options?.projectWorkspace ?? createTestProjectWorkspace();
+  const pendingWorktrees = new CodexPendingWorktreeRuntime({
+    createWorktree: async (entry, context) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.createPendingManagedWorktree(entry, context);
+    },
+    launchConversation: async (entry, workspaceRoot, context) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.launchPendingWorktreeConversation(entry, workspaceRoot, context);
+    },
+    removeWorktree: async (hostId, worktreeGitRoot) => {
+      await managedWorktreeHarness.adapter.remove({
+        hostId,
+        worktreeGitRoot,
+        reason: "cancel",
+      });
+    },
+    cleanupGoalSources: async (entry) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      await service.cleanupPendingGoalSources(entry);
+    },
+    registerStableProject: async (workspaceRoots, label) => {
+      await projectWorkspace.createProject({ name: label, sources: [...workspaceRoots] });
+    },
+    onChanged: (entries) => service?.projectPendingWorktreeSnapshot(entries),
+  });
   const testService = new CodexService({
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
@@ -1953,6 +1980,7 @@ function createService(options?: {
       run: (operation) => operation(),
     },
     threadHandoffRuntime: threadHandoffRuntimeAdapter,
+    pendingWorktrees,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -1990,6 +2018,7 @@ function createService(options?: {
     ownerNotificationDrainDeadline.dispose();
     rendererOwnerRetention.dispose();
     sidebarNotificationSync.dispose();
+    pendingWorktrees.shutdown();
     try {
       await shutdown();
     } finally {
@@ -1998,7 +2027,7 @@ function createService(options?: {
   };
   permissionStateByTestService.set(testService, permissionStateByScope);
   testService.setAutomationModule(options?.automationModule ?? createTestAutomationModule());
-  testService.setProjectWorkspacePort(options?.projectWorkspace ?? createTestProjectWorkspace());
+  testService.setProjectWorkspacePort(projectWorkspace);
   testService.setNodexAgentAuthorityPort(TEST_NODEX_AGENT_AUTHORITY);
   const internals = testService as unknown as {
     getMaybeConversationRecord: (threadId: string) => {

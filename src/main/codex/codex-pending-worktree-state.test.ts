@@ -2,7 +2,6 @@ import { describe, expect, test } from "vite-plus/test";
 import {
   CODEX_PENDING_WORKTREE_CONTINUE_WITHOUT_SETUP_OUTPUT,
   CODEX_PENDING_WORKTREE_CREATION_STARTED_OUTPUT,
-  CodexPendingWorktreeStateStore,
   appendCodexPendingWorktreeOutputTail,
   getCodexPendingWorktreeConversationStartSnapshot,
   type CodexPendingStartConversationRequest,
@@ -11,6 +10,7 @@ import {
   type CodexPendingWorktreeEffect,
 } from "./codex-pending-worktree-state";
 import { WORKTREE_OUTPUT_TAIL_MAX_CHARS } from "../../shared/worktree-output";
+import { CodexPendingWorktreeStateStore } from "./codex-pending-worktree-state.test-support";
 
 function createStartRequest(
   id = "pending-1",

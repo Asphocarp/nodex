@@ -515,16 +515,18 @@ an already displayed operating-system notification cannot dispatch into a replac
 
 The detailed contracts are [Codex owner/follower streaming](docs/product-specs/codex-thread-owner-follower-streaming.md), [Codex transcript behavior](docs/product-specs/codex-thread-transcript-behavior.md), and [the generated protocol runtime plan](docs/plans/codex-generated-protocol-runtime-boundary.md).
 
-Prompt-created worktrees are a separate pre-conversation Main runtime. A pure
-reducer owns the pending and conversation-start state machines, while a
-host-scoped worktree worker owns Git and setup filesystem effects. The renderer
-can observe and act on typed pending entries but cannot invoke raw worktree
-mutation. Core receives only the successful durable Session/Thread link and
-managed-worktree metadata; the app-side initialization activity remains outside
-the generated app-server protocol. Main keeps that synthetic activity only for
-its process lifetime: renderer replacement can recover it from Main's
-conversation document, while a Main/app restart reconstructs protocol history
-without it. See
+Prompt-created worktrees are a separate pre-conversation Main-scoped Module. A pure reducer defines
+the pending and conversation-start transitions; the Module owns the current immutable projection,
+keyed creation and launch fibers, shared local-launch Deferreds, progress-generation fencing,
+cleanup work, and stable-Project registration. Cancellation, retry, local fallback, and Main Scope
+release therefore complete through one owner rather than an `AbortController`/Promise registry in
+`CodexService`. The host-scoped worktree worker remains the sole owner of Git and setup filesystem
+effects, and Effect interruption reaches that adapter's `AbortSignal`. The renderer can observe and
+act on typed pending entries but cannot invoke raw worktree mutation. Core receives only the
+successful durable Session/Thread link and managed-worktree metadata; app-side initialization
+activity remains outside the generated app-server protocol. Main keeps that synthetic activity only
+for its process lifetime: renderer replacement can recover it from Main's conversation document,
+while a Main/app restart reconstructs protocol history without it. See
 [Codex worktree creation behavior](docs/product-specs/codex-worktree-creation-behavior.md).
 
 Execution-host workers use a versioned, operation-discriminated protocol. Main
