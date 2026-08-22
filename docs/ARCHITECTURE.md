@@ -236,7 +236,11 @@ Hosted PiP consume independent Streams whose fibers start before their owning La
 close with that Scope. The only callback observation capability is the exact `webviewAttached`
 subscription required by the IAB Promise adapter to close its check/register race; the hub closes and
 clears that registration with the same Scope. `BrowserSidebarService` is not an EventEmitter and owns
-no projection subscriber or disposer list.
+no projection subscriber or disposer list. Browser host/guest identity is a synchronous functional
+state machine with no physical resource handles. A separate Sidebar-scoped listener runtime owns the
+exact listener release for every attached guest; detach releases that guest immediately, while Main
+Scope close releases all remaining listeners and replaces each live guest's window-open callback with
+a deny-only handler. The presentation state machine therefore has no `dispose()` lifecycle of its own.
 
 Local-server thumbnails belong to the Browser Sidebar runtime rather than the Sidebar state machine.
 An Effect Cache provides bounded TTL and same-URL single-flight, a semaphore bounds capture

@@ -8,6 +8,8 @@ import type { IpcMainInvokeEvent } from "electron";
 import { MainConfig } from "../../app/MainConfig";
 import { BrowserSidebarService } from "../../browser-sidebar-service";
 import { make as makeBrowserSidebarEventHub } from "../../browser/BrowserSidebarEventHub";
+import { makeBrowserRuntimeRegistry } from "../../browser/browser-runtime-registry";
+import { makeBrowserWebContentsListenerRuntime } from "../../browser/BrowserWebContentsListenerRuntime";
 import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
@@ -36,7 +38,13 @@ it.effect(
       const events = yield* makeBrowserSidebarEventHub.pipe(
         Effect.provideService(Scope.Scope, scope),
       );
-      const browser = new BrowserSidebarService({ events });
+      const browser = new BrowserSidebarService({
+        events,
+        runtimeRegistry: makeBrowserRuntimeRegistry(),
+        webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(
+          Effect.provideService(Scope.Scope, scope),
+        ),
+      });
       yield* Layer.buildWithScope(
         live.pipe(
           Layer.provide(

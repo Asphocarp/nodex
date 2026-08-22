@@ -12,6 +12,8 @@ import { assert, it } from "@effect/vitest";
 import type { Session } from "electron";
 import { BrowserSidebarService } from "../browser-sidebar-service";
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
+import { makeBrowserRuntimeRegistry } from "../browser/browser-runtime-registry";
+import { makeBrowserWebContentsListenerRuntime } from "../browser/BrowserWebContentsListenerRuntime";
 import { ChatGptDesktop } from "../codex-application/ChatGptDesktop";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
@@ -33,10 +35,14 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
       (root) =>
         Effect.gen(function* () {
           const browserSession = new FakeBrowserSession();
+          const scope = yield* Scope.make();
           const browserSidebar = new BrowserSidebarService({
             events: { publish: () => undefined },
+            runtimeRegistry: makeBrowserRuntimeRegistry(),
+            webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(
+              Effect.provideService(Scope.Scope, scope),
+            ),
           });
-          const scope = yield* Scope.make();
           const callbacksContext = yield* Layer.buildWithScope(callbackLayer, scope);
           const callbacks = Context.get(callbacksContext, ScopedCallbackRuntime);
           const context = yield* Layer.buildWithScope(

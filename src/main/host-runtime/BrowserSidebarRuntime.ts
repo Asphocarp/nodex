@@ -27,6 +27,8 @@ import {
   make as makeBrowserSidebarEventHub,
   type BrowserSidebarEventHubService,
 } from "../browser/BrowserSidebarEventHub";
+import { makeBrowserRuntimeRegistry } from "../browser/browser-runtime-registry";
+import { makeBrowserWebContentsListenerRuntime } from "../browser/BrowserWebContentsListenerRuntime";
 import { ElectronNet } from "../platform/electron/ElectronNet";
 
 export class BrowserSidebarRuntime extends Context.Service<
@@ -59,6 +61,8 @@ export const live = (
       const callbacks = yield* ScopedCallbackRuntime;
       const electronNet = yield* ElectronNet;
       const events = yield* makeBrowserSidebarEventHub;
+      const runtimeRegistry = makeBrowserRuntimeRegistry();
+      const webContentsListeners = yield* makeBrowserWebContentsListenerRuntime;
       const localServerThumbnail = yield* makeBrowserLocalServerThumbnailRuntime();
       const localServers = yield* makeBrowserLocalServerRuntime({
         fetch: electronNet.fetch,
@@ -90,17 +94,13 @@ export const live = (
           callbacks.runPromise(pages.reassociate(sourceStorageId, targetStorageId)),
         set: (page) => callbacks.runPromise(pages.set(page)),
       };
-      const browser = yield* Effect.acquireRelease(
-        Effect.sync(
-          () =>
-            new BrowserSidebarService({
-              events,
-              historyStore,
-              pageStore,
-            }),
-        ),
-        (service) => Effect.sync(() => service.dispose()),
-      );
+      const browser = new BrowserSidebarService({
+        events,
+        historyStore,
+        pageStore,
+        runtimeRegistry,
+        webContentsListeners,
+      });
       return BrowserSidebarRuntime.of({
         browser,
         events,

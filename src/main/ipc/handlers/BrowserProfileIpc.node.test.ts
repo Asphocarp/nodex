@@ -5,6 +5,8 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { BrowserSidebarService } from "../../browser-sidebar-service";
+import { makeBrowserRuntimeRegistry } from "../../browser/browser-runtime-registry";
+import { makeBrowserWebContentsListenerRuntime } from "../../browser/BrowserWebContentsListenerRuntime";
 import { BrowserProfileRuntime } from "../../host-runtime/BrowserProfileRuntime";
 import { MainConfig } from "../../app/MainConfig";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
@@ -36,9 +38,16 @@ it.effect("registers and releases Browser Profile ingress with the Main Scope", 
         ).pipe(Effect.asVoid),
     });
     const scope = yield* Scope.make();
+    const browserSidebar = new BrowserSidebarService({
+      events: { publish: () => undefined },
+      runtimeRegistry: makeBrowserRuntimeRegistry(),
+      webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(
+        Effect.provideService(Scope.Scope, scope),
+      ),
+    });
     yield* Layer.buildWithScope(
       live({
-        browserSidebar: new BrowserSidebarService({ events: { publish: () => undefined } }),
+        browserSidebar,
       }).pipe(
         Layer.provide(
           Layer.mergeAll(

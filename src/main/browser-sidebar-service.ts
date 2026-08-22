@@ -53,9 +53,10 @@ import {
   type BrowserSerializedPage,
 } from "./browser/browser-page-store";
 import {
-  BrowserRuntimeRegistry,
+  type BrowserRuntimeRegistry,
   type BrowserAttachmentRoute,
 } from "./browser/browser-runtime-registry";
+import type { BrowserWebContentsListenerRuntime } from "./browser/BrowserWebContentsListenerRuntime";
 import { selectBrowserTabsToSuspend } from "./browser/browser-tab-budget";
 import {
   BrowserPageEmulationController,
@@ -160,6 +161,8 @@ interface BrowserSidebarElectronDeps {
 
 interface BrowserSidebarServiceDeps {
   events: BrowserSidebarEventPublisher;
+  runtimeRegistry: BrowserRuntimeRegistry;
+  webContentsListeners: BrowserWebContentsListenerRuntime;
   contextMenuPresenter?: (
     template: MenuItemConstructorOptions[],
     ownerWebContentsId: number,
@@ -168,7 +171,6 @@ interface BrowserSidebarServiceDeps {
   logger?: Pick<BackendLogger, "debug" | "info" | "warn">;
   pageStore?: BrowserPageSnapshotStore;
   historyStore?: Pick<BrowserHistoryStore, "clear" | "record">;
-  runtimeRegistry?: BrowserRuntimeRegistry;
   siteStatusPolicy?: SiteStatusPolicyService;
   saveBrowserImage?: typeof saveUploadedImage;
 }
@@ -349,7 +351,6 @@ export class BrowserSidebarService {
   private readonly activeImageDragsByOwnerWebContentsId = new Map<number, ActiveBrowserImageDrag>();
   private readonly preparedPagesByStorageId = new Map<string, BrowserSerializedPage>();
   private readonly earlyPageRestoresByGuest = new Map<number, Promise<BrowserSidebarTabSnapshot>>();
-  private readonly webContentsDisposers = new Map<number, () => void>();
   private readonly pendingTeardowns = new Map<string, PendingWebviewTeardown>();
   private readonly browserUseTabs = new Map<string, BrowserUseTabState>();
   private readonly deviceToolbarStates = new Map<
@@ -384,6 +385,7 @@ export class BrowserSidebarService {
   private readonly invalidatedPageStorageIds = new Set<string>();
   private readonly pageEmulationController = new BrowserPageEmulationController();
   private readonly runtimeRegistry: BrowserRuntimeRegistry;
+  private readonly webContentsListeners: BrowserWebContentsListenerRuntime;
   private readonly saveBrowserImage: typeof saveUploadedImage;
   private pageStore: BrowserPageSnapshotStore | null;
   private historyStore: Pick<BrowserHistoryStore, "clear" | "record"> | null;
@@ -412,7 +414,8 @@ export class BrowserSidebarService {
     this.pageStore = deps.pageStore ?? null;
     this.historyStore = deps.historyStore ?? null;
     this.siteStatusPolicy = deps.siteStatusPolicy ?? null;
-    this.runtimeRegistry = deps.runtimeRegistry ?? new BrowserRuntimeRegistry();
+    this.runtimeRegistry = deps.runtimeRegistry;
+    this.webContentsListeners = deps.webContentsListeners;
     this.saveBrowserImage = deps.saveBrowserImage ?? saveUploadedImage;
   }
 
@@ -426,33 +429,6 @@ export class BrowserSidebarService {
 
   setBrowserUseRouteCaptureHandler(handler: BrowserUseRouteCaptureHandler | null): void {
     this.browserUseRouteCaptureHandler = handler;
-  }
-
-  dispose(): void {
-    for (const dispose of this.webContentsDisposers.values()) dispose();
-    this.webContentsDisposers.clear();
-    this.runtimeRegistry.clear();
-    this.tabs.clear();
-    this.webContentsTabIds.clear();
-    this.attachedWebviewOwnership.clear();
-    this.activeImageDragsByOwnerWebContentsId.clear();
-    this.preparedPagesByStorageId.clear();
-    this.earlyPageRestoresByGuest.clear();
-    this.pendingTeardowns.clear();
-    this.browserUseTabs.clear();
-    this.deviceToolbarStates.clear();
-    this.themeVariantsByViewScope.clear();
-    this.transferredBrowserTabIdsByConversationScope.clear();
-    this.browserUseViewportSizes.clear();
-    this.browserUseCaptureSurfaces.clear();
-    this.browserUseActiveTabIdsByConversationScope.clear();
-    this.browserUseCapturedRoutesByViewScope.clear();
-    this.pendingBrowserUsePresentations.clear();
-    this.browserUseCursors.clear();
-    this.invalidatedPageStorageIds.clear();
-    this.browserUseRouteCaptureHandler = null;
-    this.downloadService = null;
-    this.siteStatusPolicy = null;
   }
 
   async promoteBrowserUseRoute(input: {
@@ -2094,7 +2070,7 @@ export class BrowserSidebarService {
     const tab = this.tabs.get(tabId);
     if (tab && tab.webContentsId !== null) {
       this.webContentsTabIds.delete(tab.webContentsId);
-      this.disposeWebContentsListeners(tab.webContentsId);
+      this.webContentsListeners.release(tab.webContentsId);
     }
     this.tabs.delete(tabId);
     this.deviceToolbarStates.delete(tabId);
@@ -2170,7 +2146,7 @@ export class BrowserSidebarService {
       typeof webContentsId === "number" ? webContentsId : current.webContentsId;
     if (detachedWebContentsId !== null && detachedWebContentsId !== undefined) {
       this.webContentsTabIds.delete(detachedWebContentsId);
-      this.disposeWebContentsListeners(detachedWebContentsId);
+      this.webContentsListeners.release(detachedWebContentsId);
     }
     this.updateTab(tabId, {
       webContentsId: null,
@@ -2191,197 +2167,196 @@ export class BrowserSidebarService {
     webContentsId: number,
     contents: BrowserWebContentsLike,
   ): void {
-    if (this.webContentsDisposers.has(webContentsId)) return;
+    if (this.webContentsListeners.has(webContentsId)) return;
 
-    contents.setWindowOpenHandler(({ url: targetUrl, disposition }) => {
-      const ownership = this.attachedWebviewOwnership.get(webContentsId);
-      const canOpenAsBrowserTab =
-        isAllowedBrowserNavigationUrl(targetUrl) &&
-        (targetUrl === "about:blank" || ["http:", "https:"].includes(new URL(targetUrl).protocol));
-      if (ownership && canOpenAsBrowserTab) {
-        this.events.publish({
-          kind: "openNewTab",
-          value: {
-            ...browserIdentity(ownership.identity),
-            url: targetUrl,
-            background: disposition === "background-tab",
+    this.webContentsListeners.acquire(webContentsId, () => {
+      contents.setWindowOpenHandler(({ url: targetUrl, disposition }) => {
+        const ownership = this.attachedWebviewOwnership.get(webContentsId);
+        const canOpenAsBrowserTab =
+          isAllowedBrowserNavigationUrl(targetUrl) &&
+          (targetUrl === "about:blank" ||
+            ["http:", "https:"].includes(new URL(targetUrl).protocol));
+        if (ownership && canOpenAsBrowserTab) {
+          this.events.publish({
+            kind: "openNewTab",
+            value: {
+              ...browserIdentity(ownership.identity),
+              url: targetUrl,
+              background: disposition === "background-tab",
+            },
+          });
+        } else if (isAllowedBrowserExternalUrl(targetUrl)) {
+          void this.electron.shell.openExternal(targetUrl);
+        }
+        return { action: "deny" };
+      });
+
+      const disposers: Array<() => void> = [];
+      const add = (eventName: string, listener: (...args: unknown[]) => void) => {
+        contents.on(eventName, listener);
+        disposers.push(() => contents.removeListener(eventName, listener));
+      };
+
+      add("destroyed", () => {
+        const activeTabId = this.webContentsTabIds.get(webContentsId) ?? tabId;
+        this.logger.info("Browser webContents destroyed", { tabId: activeTabId, webContentsId });
+        const ownership = this.attachedWebviewOwnership.get(webContentsId);
+        if (ownership) this.clearBrowserImageDrag(ownership.ownerWebContentsId);
+        this.attachedWebviewOwnership.delete(webContentsId);
+        this.runtimeRegistry.releaseGuest(webContentsId);
+        this.earlyPageRestoresByGuest.delete(webContentsId);
+        this.detachWebview(activeTabId, webContentsId);
+      });
+      add("context-menu", (...args) => {
+        const params = args[1] as BrowserContextMenuParams | undefined;
+        if (!isBrowserContextMenuParams(params)) return;
+        this.showBrowserContextMenu(webContentsId, contents, params);
+      });
+      add("did-start-loading", () => {
+        this.updateTabForWebContents(webContentsId, contents, {
+          isLoading: true,
+          isWaitingForResponse: true,
+          errorMessage: undefined,
+          failure: undefined,
+        });
+      });
+      const preventUnsafeTopFrameNavigation = (...args: unknown[]) => {
+        const url = readUrlFromEventArgs(args, "");
+        if (isAllowedBrowserNavigationUrl(url)) return;
+        const event = args[0] as { preventDefault?: () => void } | undefined;
+        event?.preventDefault?.();
+        this.updateTabForWebContents(webContentsId, contents, {
+          isLoading: false,
+          isWaitingForResponse: false,
+          pendingUrl: undefined,
+          failure: {
+            kind: "blocked",
+            failedUrl: url,
+            policy: "navigation-policy",
+          },
+          errorMessage: "This URL is blocked by the built-in Browser policy",
+        });
+        this.logger.warn("Blocked unsafe Browser top-frame navigation", {
+          webContentsId,
+          hasUrl: url.length > 0,
+        });
+      };
+      add("will-navigate", preventUnsafeTopFrameNavigation);
+      add("will-redirect", preventUnsafeTopFrameNavigation);
+      add("did-stop-loading", () => {
+        const snapshot = this.updateTabForWebContents(webContentsId, contents, {
+          isLoading: false,
+          isWaitingForResponse: false,
+          pendingUrl: undefined,
+        });
+        if (snapshot) {
+          void this.historyStore?.record({
+            url: snapshot.url,
+            title: snapshot.title,
+          });
+        }
+        void this.persistPageSnapshotForWebContents(webContentsId, contents);
+      });
+      add("did-navigate", (...args) => {
+        this.updateTabForWebContents(webContentsId, contents, {
+          url: readUrlFromEventArgs(args, contents.getURL()),
+          isWaitingForResponse: false,
+          pendingUrl: undefined,
+        });
+        void this.persistPageSnapshotForWebContents(webContentsId, contents);
+      });
+      add("did-navigate-in-page", (...args) => {
+        const snapshot = this.updateTabForWebContents(webContentsId, contents, {
+          url: readUrlFromEventArgs(args, contents.getURL()),
+          isWaitingForResponse: false,
+          pendingUrl: undefined,
+        });
+        if (snapshot) {
+          void this.historyStore?.record({
+            url: snapshot.url,
+            title: snapshot.title,
+          });
+        }
+        void this.persistPageSnapshotForWebContents(webContentsId, contents);
+      });
+      add("page-title-updated", (...args) => {
+        this.updateTabForWebContents(webContentsId, contents, {
+          title: readTitleFromEventArgs(args, contents.getTitle()),
+        });
+        void this.persistPageSnapshotForWebContents(webContentsId, contents);
+      });
+      add("page-favicon-updated", (...args) => {
+        const faviconUrl = readFaviconFromEventArgs(args);
+        this.updateTabForWebContents(webContentsId, contents, { faviconUrl });
+        void this.persistPageSnapshotForWebContents(webContentsId, contents);
+      });
+      add("found-in-page", (...args) => {
+        const result = readFoundInPageResult(args);
+        if (!result) return;
+        this.updateTabForWebContents(webContentsId, contents, {
+          findState: {
+            ...(this.tabs.get(this.webContentsTabIds.get(webContentsId) ?? "")?.findState ??
+              DEFAULT_BROWSER_SIDEBAR_FIND_STATE),
+            activeMatchOrdinal: result.activeMatchOrdinal,
+            matchCount: result.matches,
           },
         });
-      } else if (isAllowedBrowserExternalUrl(targetUrl)) {
-        void this.electron.shell.openExternal(targetUrl);
-      }
-      return { action: "deny" };
-    });
-
-    const disposers: Array<() => void> = [];
-    const add = (eventName: string, listener: (...args: unknown[]) => void) => {
-      contents.on(eventName, listener);
-      disposers.push(() => contents.removeListener(eventName, listener));
-    };
-
-    add("destroyed", () => {
-      const activeTabId = this.webContentsTabIds.get(webContentsId) ?? tabId;
-      this.logger.info("Browser webContents destroyed", { tabId: activeTabId, webContentsId });
-      const ownership = this.attachedWebviewOwnership.get(webContentsId);
-      if (ownership) this.clearBrowserImageDrag(ownership.ownerWebContentsId);
-      this.attachedWebviewOwnership.delete(webContentsId);
-      this.runtimeRegistry.releaseGuest(webContentsId);
-      this.earlyPageRestoresByGuest.delete(webContentsId);
-      this.detachWebview(activeTabId, webContentsId);
-    });
-    add("context-menu", (...args) => {
-      const params = args[1] as BrowserContextMenuParams | undefined;
-      if (!isBrowserContextMenuParams(params)) return;
-      this.showBrowserContextMenu(webContentsId, contents, params);
-    });
-    add("did-start-loading", () => {
-      this.updateTabForWebContents(webContentsId, contents, {
-        isLoading: true,
-        isWaitingForResponse: true,
-        errorMessage: undefined,
-        failure: undefined,
       });
-    });
-    const preventUnsafeTopFrameNavigation = (...args: unknown[]) => {
-      const url = readUrlFromEventArgs(args, "");
-      if (isAllowedBrowserNavigationUrl(url)) return;
-      const event = args[0] as { preventDefault?: () => void } | undefined;
-      event?.preventDefault?.();
-      this.updateTabForWebContents(webContentsId, contents, {
-        isLoading: false,
-        isWaitingForResponse: false,
-        pendingUrl: undefined,
-        failure: {
-          kind: "blocked",
-          failedUrl: url,
-          policy: "navigation-policy",
-        },
-        errorMessage: "This URL is blocked by the built-in Browser policy",
-      });
-      this.logger.warn("Blocked unsafe Browser top-frame navigation", {
-        webContentsId,
-        hasUrl: url.length > 0,
-      });
-    };
-    add("will-navigate", preventUnsafeTopFrameNavigation);
-    add("will-redirect", preventUnsafeTopFrameNavigation);
-    add("did-stop-loading", () => {
-      const snapshot = this.updateTabForWebContents(webContentsId, contents, {
-        isLoading: false,
-        isWaitingForResponse: false,
-        pendingUrl: undefined,
-      });
-      if (snapshot) {
-        void this.historyStore?.record({
-          url: snapshot.url,
-          title: snapshot.title,
+      add("did-fail-load", (...args) => this.handleLoadFailure(webContentsId, contents, args));
+      add("did-fail-provisional-load", (...args) =>
+        this.handleLoadFailure(webContentsId, contents, args),
+      );
+      add("render-process-gone", (...args) => {
+        const tabKey = this.webContentsTabIds.get(webContentsId);
+        const tab = tabKey ? this.tabs.get(tabKey) : null;
+        if (!tabKey || !tab) return;
+        const reason = readRenderProcessGoneReason(args);
+        this.updateTab(tabKey, {
+          lifecycleState: "crashed",
+          isLoading: false,
+          isWaitingForResponse: false,
+          failure: {
+            kind: "crashed",
+            failedUrl: tab.url,
+            reason,
+          },
+          errorMessage: "The Browser page process stopped working",
         });
-      }
-      void this.persistPageSnapshotForWebContents(webContentsId, contents);
-    });
-    add("did-navigate", (...args) => {
-      this.updateTabForWebContents(webContentsId, contents, {
-        url: readUrlFromEventArgs(args, contents.getURL()),
-        isWaitingForResponse: false,
-        pendingUrl: undefined,
       });
-      void this.persistPageSnapshotForWebContents(webContentsId, contents);
-    });
-    add("did-navigate-in-page", (...args) => {
-      const snapshot = this.updateTabForWebContents(webContentsId, contents, {
-        url: readUrlFromEventArgs(args, contents.getURL()),
-        isWaitingForResponse: false,
-        pendingUrl: undefined,
-      });
-      if (snapshot) {
-        void this.historyStore?.record({
-          url: snapshot.url,
-          title: snapshot.title,
+      add("unresponsive", () => {
+        const tabKey = this.webContentsTabIds.get(webContentsId);
+        const tab = tabKey ? this.tabs.get(tabKey) : null;
+        if (!tabKey || !tab) return;
+        this.updateTab(tabKey, {
+          failure: {
+            kind: "crashed",
+            failedUrl: tab.url,
+            reason: "unresponsive",
+          },
+          errorMessage: "The Browser page is not responding",
         });
-      }
-      void this.persistPageSnapshotForWebContents(webContentsId, contents);
-    });
-    add("page-title-updated", (...args) => {
-      this.updateTabForWebContents(webContentsId, contents, {
-        title: readTitleFromEventArgs(args, contents.getTitle()),
       });
-      void this.persistPageSnapshotForWebContents(webContentsId, contents);
-    });
-    add("page-favicon-updated", (...args) => {
-      const faviconUrl = readFaviconFromEventArgs(args);
-      this.updateTabForWebContents(webContentsId, contents, { faviconUrl });
-      void this.persistPageSnapshotForWebContents(webContentsId, contents);
-    });
-    add("found-in-page", (...args) => {
-      const result = readFoundInPageResult(args);
-      if (!result) return;
-      this.updateTabForWebContents(webContentsId, contents, {
-        findState: {
-          ...(this.tabs.get(this.webContentsTabIds.get(webContentsId) ?? "")?.findState ??
-            DEFAULT_BROWSER_SIDEBAR_FIND_STATE),
-          activeMatchOrdinal: result.activeMatchOrdinal,
-          matchCount: result.matches,
-        },
+      const updateMediaState = (mediaActive: boolean) => {
+        this.updateTabForWebContents(webContentsId, contents, {
+          mediaActive,
+          audible: contents.isCurrentlyAudible?.() === true,
+        });
+      };
+      add("media-started-playing", () => updateMediaState(true));
+      add("media-paused", () => updateMediaState(false));
+      add("audio-state-changed", () => {
+        this.updateTabForWebContents(webContentsId, contents, {
+          audible: contents.isCurrentlyAudible?.() === true,
+        });
       });
-    });
-    add("did-fail-load", (...args) => this.handleLoadFailure(webContentsId, contents, args));
-    add("did-fail-provisional-load", (...args) =>
-      this.handleLoadFailure(webContentsId, contents, args),
-    );
-    add("render-process-gone", (...args) => {
-      const tabKey = this.webContentsTabIds.get(webContentsId);
-      const tab = tabKey ? this.tabs.get(tabKey) : null;
-      if (!tabKey || !tab) return;
-      const reason = readRenderProcessGoneReason(args);
-      this.updateTab(tabKey, {
-        lifecycleState: "crashed",
-        isLoading: false,
-        isWaitingForResponse: false,
-        failure: {
-          kind: "crashed",
-          failedUrl: tab.url,
-          reason,
-        },
-        errorMessage: "The Browser page process stopped working",
-      });
-    });
-    add("unresponsive", () => {
-      const tabKey = this.webContentsTabIds.get(webContentsId);
-      const tab = tabKey ? this.tabs.get(tabKey) : null;
-      if (!tabKey || !tab) return;
-      this.updateTab(tabKey, {
-        failure: {
-          kind: "crashed",
-          failedUrl: tab.url,
-          reason: "unresponsive",
-        },
-        errorMessage: "The Browser page is not responding",
-      });
-    });
-    const updateMediaState = (mediaActive: boolean) => {
-      this.updateTabForWebContents(webContentsId, contents, {
-        mediaActive,
-        audible: contents.isCurrentlyAudible?.() === true,
-      });
-    };
-    add("media-started-playing", () => updateMediaState(true));
-    add("media-paused", () => updateMediaState(false));
-    add("audio-state-changed", () => {
-      this.updateTabForWebContents(webContentsId, contents, {
-        audible: contents.isCurrentlyAudible?.() === true,
-      });
-    });
 
-    this.webContentsDisposers.set(webContentsId, () => {
-      for (const dispose of disposers) dispose();
+      return () => {
+        if (!contents.isDestroyed()) {
+          contents.setWindowOpenHandler(() => ({ action: "deny" }));
+        }
+        for (const dispose of disposers) dispose();
+      };
     });
-  }
-
-  private disposeWebContentsListeners(webContentsId: number): void {
-    const dispose = this.webContentsDisposers.get(webContentsId);
-    if (!dispose) return;
-    dispose();
-    this.webContentsDisposers.delete(webContentsId);
   }
 
   private updateTabForWebContents(

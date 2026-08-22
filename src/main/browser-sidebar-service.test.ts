@@ -12,6 +12,8 @@ import type {
   BrowserSidebarEvent,
   BrowserSidebarEventPublisher,
 } from "./browser/BrowserSidebarEventHub";
+import { makeBrowserRuntimeRegistry } from "./browser/browser-runtime-registry";
+import { makeBrowserWebContentsListenerRuntimeUnsafe } from "./browser/BrowserWebContentsListenerRuntime";
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
@@ -285,8 +287,10 @@ function createService(
       warn: () => undefined,
     },
     pageStore,
+    runtimeRegistry: makeBrowserRuntimeRegistry(),
     saveBrowserImage,
     siteStatusPolicy,
+    webContentsListeners: makeBrowserWebContentsListenerRuntimeUnsafe(),
   });
   return Object.assign(service, { testEvents });
 }
@@ -1244,6 +1248,15 @@ describe("BrowserSidebarService webview lifecycle", () => {
       webContentsId: 101,
     });
     expect(readTab(service).webContentsId).toBe(null);
+    expect(contents.listenerCount("did-start-loading")).toBe(0);
+    expect(contents.listenerCount("destroyed")).toBe(0);
+    expect(contents.windowOpenHandlerCalls).toBe(2);
+    expect(
+      contents.windowOpenHandler?.({
+        disposition: "foreground-tab",
+        url: "https://example.com/late",
+      }),
+    ).toEqual({ action: "deny" });
   });
 
   test("reload commands stay main-owned", async () => {
