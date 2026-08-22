@@ -11,7 +11,6 @@ import { performance } from "node:perf_hooks";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import type { ClientRequestParamsByMethod } from "@nodex/effect-codex-app-server/rpc";
 import type { ExternalAgentConfigMigrationItem } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigMigrationItem";
-import { NodexAgentAuthorizationBroker } from "../agent-tools/authorization-broker";
 import {
   CoreAuthority,
   CoreSessionAccess,
@@ -61,6 +60,12 @@ import {
   make as makeAgentImportRuntime,
 } from "../codex-application/AgentImportRuntime";
 import { makeAgentImportRuntimePromiseAdapter } from "../codex-application/AgentImportRuntimePromiseAdapter";
+import {
+  NodexAgentAuthorizationPersistenceError,
+  NodexAgentAuthorizationRuntime,
+  live as nodexAgentAuthorizationRuntimeLive,
+} from "../codex-application/NodexAgentAuthorizationRuntime";
+import { makeNodexAgentAuthorizationRuntimePromiseAdapter } from "../codex-application/NodexAgentAuthorizationRuntimePromiseAdapter";
 import { CodexConnection, live as codexConnectionLive } from "../codex-application/CodexConnection";
 import { CodexMedia, live as codexMediaLive } from "../codex-application/CodexMedia";
 import { ChatGptDesktop, live as chatGptDesktopLive } from "../codex-application/ChatGptDesktop";
@@ -323,7 +328,6 @@ import {
   RendererClientRuntime,
   live as rendererClientRuntimeLive,
 } from "../host-runtime/RendererClientRuntime";
-import { makeRendererClientRequestPromiseAdapter } from "../host-runtime/RendererClientRuntimePromiseAdapter";
 import {
   ComposerAppshotRuntime,
   live as composerAppshotRuntimeLive,
@@ -1758,6 +1762,25 @@ export const live: Layer.Layer<
           (progress) =>
             Effect.sync(() => requireCodexService().projectAgentImportProgress(progress)),
         ).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const dataAuthorityPromise = Promise.resolve(dataAuthority);
+        const nodexAgentResourceAuthority = createDesktopNodexAgentResourceAuthorityPort({
+          authority: dataAuthorityPromise,
+        });
+        const nodexAgentAuthorizationContext = yield* Layer.buildWithScope(
+          nodexAgentAuthorizationRuntimeLive({
+            readStoreEpoch: () => dataAuthority.identity.storeEpoch,
+            persistProjectGrants: (input) =>
+              Effect.tryPromise({
+                try: () => nodexAgentResourceAuthority.persistProjectGrants(input),
+                catch: (cause) => new NodexAgentAuthorizationPersistenceError({ cause }),
+              }),
+          }).pipe(Layer.provide(Layer.succeed(RendererClientRuntime, rendererClients))),
+          runtimeScope,
+        );
+        const nodexAgentAuthorization = Context.get(
+          nodexAgentAuthorizationContext,
+          NodexAgentAuthorizationRuntime,
+        );
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
@@ -1860,6 +1883,10 @@ export const live: Layer.Layer<
               runtime: codexRuntime,
               runtimeStateHome,
               nodexAgentDynamicService,
+              nodexAgentAuthorization: makeNodexAgentAuthorizationRuntimePromiseAdapter(
+                nodexAgentAuthorization,
+                callbacks,
+              ),
               loadWorktreeSetupBaseEnvironment: () =>
                 callbacks.runPromise(worktreeShellEnvironment.load),
               executionHosts: executionHosts.registry,
@@ -1884,10 +1911,6 @@ export const live: Layer.Layer<
           },
           catch: (cause) => runtimeError("construct-codex-application", cause),
         });
-        yield* Scope.addFinalizer(
-          runtimeScope,
-          Effect.sync(() => codexService.shutdown()),
-        );
         yield* SubscriptionRef.changes(executionHosts.activeSshHosts).pipe(
           Stream.runForEach(() =>
             Effect.sync(() => codexService.handleExecutionHostTopologyChanged()),
@@ -2341,28 +2364,12 @@ export const live: Layer.Layer<
         );
 
         yield* deepLinks.extractFromArgv(config.argv);
-        const dataAuthorityPromise = Promise.resolve(dataAuthority);
-        const nodexAgentResourceAuthority = createDesktopNodexAgentResourceAuthorityPort({
-          authority: dataAuthorityPromise,
-        });
         codexService.setNodexAgentAuthorityPort(
           createDesktopNodexAgentAuthorityPort({ authority: dataAuthorityPromise }),
         );
         codexService.setNodexAgentResourceAuthorityPort(nodexAgentResourceAuthority);
         codexService.setAutomationModule(automationModule);
         codexService.setProjectWorkspacePort(projectWorkspace);
-        codexService.setNodexAgentAuthorizationBroker(
-          new NodexAgentAuthorizationBroker({
-            rendererClientRouter: makeRendererClientRequestPromiseAdapter(
-              rendererClients,
-              callbacks,
-            ),
-            readStoreEpoch: () => dataAuthority.identity.storeEpoch,
-            persistProjectGrants: (input) =>
-              nodexAgentResourceAuthority.persistProjectGrants(input),
-          }),
-        );
-
         const initializationStartedAt = performance.now();
         const initialize = Effect.gen(function* () {
           applicationLogger.info("Native Core authority ready", {

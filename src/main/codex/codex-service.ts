@@ -532,10 +532,8 @@ import {
 import { NODEX_APP_TOOL_NAMESPACE } from "../../shared/nodex-agent-tools/identity";
 import type { NodexAgentAccess } from "../../shared/nodex-agent-tools/read-runtime";
 import { resolveDynamicToolCatalogBindings } from "./codex-dynamic-tool-catalog-bindings";
-import type {
-  NodexAgentAuthorizationBroker,
-  NodexAgentAuthorizationPresentationTarget,
-} from "../agent-tools/authorization-broker";
+import type { NodexAgentAuthorizationPresentationTarget } from "../codex-application/NodexAgentAuthorizationRuntime";
+import type { NodexAgentAuthorizationRuntimePromiseAdapter } from "../codex-application/NodexAgentAuthorizationRuntimePromiseAdapter";
 import {
   buildNodexAgentDynamicToolSpecs,
   executeNodexAgentDynamicToolCall,
@@ -1212,6 +1210,7 @@ type CodexServiceOptions = {
   runtime: ResolvedCodexRuntime;
   runtimeStateHome: string;
   nodexAgentDynamicService: NodexAgentV3DynamicService | null;
+  nodexAgentAuthorization: NodexAgentAuthorizationRuntimePromiseAdapter;
   activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   notificationRouting: CodexNotificationRoutingLegacyPort;
   ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
@@ -2427,7 +2426,7 @@ export class CodexService extends EventEmitter {
   private readonly browserTransferStateReader: CodexServiceOptions["browserTransferStateReader"];
   private readonly forkSidePanelTransferLifecycle: CodexServiceOptions["forkSidePanelTransferLifecycle"];
   private readonly terminalRuntime: NonNullable<CodexServiceOptions["terminalRuntime"]>;
-  private nodexAgentAuthorizationBroker: NodexAgentAuthorizationBroker | null = null;
+  private readonly nodexAgentAuthorization: NodexAgentAuthorizationRuntimePromiseAdapter;
   private automationModule: DesktopAutomationModulePort =
     unconfiguredAuthority("Automation authority");
   private projectWorkspace: DesktopProjectWorkspacePort = unconfiguredAuthority(
@@ -2495,6 +2494,7 @@ export class CodexService extends EventEmitter {
       } satisfies CodexTerminalRuntimePort);
     this.runtimeStateHome = path.resolve(options.runtimeStateHome);
     this.nodexAgentDynamicService = options.nodexAgentDynamicService;
+    this.nodexAgentAuthorization = options.nodexAgentAuthorization;
     this.executionHosts = options.executionHosts;
     this.attachments = options.attachments;
     this.pendingServerRequests = options.pendingServerRequests;
@@ -3584,7 +3584,6 @@ export class CodexService extends EventEmitter {
   }
 
   handleRendererClientDisposed(clientId: string): void {
-    this.nodexAgentAuthorizationBroker?.revokePresentationClient(clientId);
     const subscriptionResult = this.rendererConversations.handleClientDisposed(clientId);
     this.emitRendererThreadStreamSubscriptionActions(subscriptionResult.actions);
     this.freshThreadLaunch.releaseRenderer(clientId, new Error("Fresh thread owner disconnected"));
@@ -3627,11 +3626,6 @@ export class CodexService extends EventEmitter {
       ownerClientId: clientId,
       conversationIds: [...conversationIds],
     });
-  }
-
-  setNodexAgentAuthorizationBroker(broker: NodexAgentAuthorizationBroker | null): void {
-    this.nodexAgentAuthorizationBroker?.revokeAll();
-    this.nodexAgentAuthorizationBroker = broker;
   }
 
   private async promoteBrowserUseRouteForFirstTurn(input: {
@@ -6075,12 +6069,6 @@ export class CodexService extends EventEmitter {
       this.emitEvent({ type: "threadSummary", thread: summary });
     }
     await this.emitSidebarCatalogChangedForThread(thread.id, "host-message");
-  }
-
-  shutdown(): void {
-    this.logger.info("Closing Codex application projection");
-    this.nodexAgentAuthorizationBroker?.revokeAll();
-    this.terminalInputBuffers.clear();
   }
 
   listPendingWorktrees(): readonly CodexPendingWorktreeEntry[] {
@@ -16923,7 +16911,7 @@ export class CodexService extends EventEmitter {
   async archiveThread(threadId: string): Promise<boolean> {
     await this.ensureClientReady();
     await this.client.request("thread/archive", { threadId });
-    this.nodexAgentAuthorizationBroker?.revokeRoot(this.resolveNodexAgentRootThreadId(threadId));
+    await this.nodexAgentAuthorization.revokeRoot(this.resolveNodexAgentRootThreadId(threadId));
     const isAutomationRun = this.resolveAutomationIdForRunThread(threadId) !== null;
     if (isAutomationRun) {
       const messages = await this.resolveAutomationArchiveMessages(threadId);
@@ -20917,7 +20905,7 @@ export class CodexService extends EventEmitter {
         ? await this.captureNodexAgentTurnAuthority(params)
         : frozenAuthority;
     const projectId = authority?.actorProjectId ?? null;
-    const broker = this.nodexAgentAuthorizationBroker;
+    const broker = this.nodexAgentAuthorization;
     const writeAccess: NodexAgentAccess["write"] = resolveNodexAgentWriteAccess({
       authorityScope: authority?.scope ?? null,
       hasActorProject: projectId !== null,
@@ -20934,7 +20922,7 @@ export class CodexService extends EventEmitter {
       executionContext?.dynamicToolCatalogs.find(
         (catalog) => catalog.namespace === NODEX_APP_TOOL_NAMESPACE,
       )?.toolsetRevision ?? null;
-    const taskResourceAccess = authority && broker ? broker.getTaskAccess(authority) : undefined;
+    const taskResourceAccess = authority ? await broker.getTaskAccess(authority) : undefined;
 
     return await executeNodexAgentDynamicToolCall(params, {
       service: this.nodexAgentDynamicService,
@@ -20942,11 +20930,9 @@ export class CodexService extends EventEmitter {
       authority,
       access,
       ...(taskResourceAccess ? { resourceAccess: taskResourceAccess } : {}),
-      ...(authority && broker
+      ...(authority
         ? {
-            recordTaskResourceAccess: (grants) => {
-              broker.extendTaskAccess(authority, grants);
-            },
+            recordTaskResourceAccess: (grants) => broker.extendTaskAccess(authority, grants),
           }
         : {}),
       resolveResourceAccess: async (intents: readonly NodexAgentResourceIntent[]) => {
@@ -20960,7 +20946,7 @@ export class CodexService extends EventEmitter {
             reason: "project_not_found" as const,
           };
         }
-        const currentTaskAccess = broker?.getTaskAccess(authority);
+        const currentTaskAccess = await broker.getTaskAccess(authority);
         return await this.nodexAgentResourceAuthority.plan({
           authority,
           callId: params.callId,
@@ -20976,7 +20962,7 @@ export class CodexService extends EventEmitter {
           }
           return "unavailable";
         }
-        if (!authority || !broker) return "unavailable";
+        if (!authority) return "unavailable";
         const currentPresentation = this.resolveNodexAgentAuthorizationPresentation(
           params.threadId,
           params.turnId,

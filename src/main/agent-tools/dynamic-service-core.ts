@@ -60,7 +60,9 @@ export interface NodexAgentDynamicExecutionContext {
   readonly resolveResourceAccess: (
     intents: readonly NodexAgentResourceIntent[],
   ) => Promise<NodexAgentResourceAccessPlan>;
-  readonly recordTaskResourceAccess?: (grants: readonly NodexAgentResourceGrantSpec[]) => void;
+  readonly recordTaskResourceAccess?: (
+    grants: readonly NodexAgentResourceGrantSpec[],
+  ) => void | Promise<void>;
   readonly authorize: (
     input: NodexAgentDynamicAuthorizationInput,
   ) => Promise<NodexAgentDynamicAuthorizationResolution>;

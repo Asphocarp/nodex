@@ -2113,6 +2113,12 @@ function createService(options?: {
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome,
     nodexAgentDynamicService: null,
+    nodexAgentAuthorization: {
+      authorize: async () => "unavailable",
+      extendTaskAccess: async () => undefined,
+      getTaskAccess: async () => undefined,
+      revokeRoot: async () => undefined,
+    },
     executionHosts,
     managedWorktrees: managedWorktreeHarness.adapter,
     managedWorktreeRetention: {
@@ -2135,21 +2141,19 @@ function createService(options?: {
   }) as unknown as TestableCodexService;
   service = testService as unknown as CodexService;
   Reflect.set(testService, "getUserInputAutoResolutionSnapshot", () => autoResolution.snapshot());
-  const shutdown = testService.shutdown.bind(testService);
   testService.shutdown = async () => {
-    activeGoalContinuation.dispose();
-    ownerNotificationDrain.dispose();
-    rendererOwnerRetention.dispose();
-    sidebarSync.dispose();
-    pendingWorktrees.shutdown();
-    conversationDeltaBuffer.dispose();
-    conversationResume.dispose();
-    await freshThreadLaunch.shutdown();
-    await conversationEventBuffer.shutdown(new Error("Codex test service is shutting down"));
-    await sidebarSweep.cancel();
-    await pendingServerRequests.shutdown(new Error("Codex test service is shutting down"));
     try {
-      await shutdown();
+      activeGoalContinuation.dispose();
+      ownerNotificationDrain.dispose();
+      rendererOwnerRetention.dispose();
+      sidebarSync.dispose();
+      pendingWorktrees.shutdown();
+      conversationDeltaBuffer.dispose();
+      conversationResume.dispose();
+      await freshThreadLaunch.shutdown();
+      await conversationEventBuffer.shutdown(new Error("Codex test service is shutting down"));
+      await sidebarSweep.cancel();
+      await pendingServerRequests.shutdown(new Error("Codex test service is shutting down"));
     } finally {
       await managedWorktreeHarness.close();
     }

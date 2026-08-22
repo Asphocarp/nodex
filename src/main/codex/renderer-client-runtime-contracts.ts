@@ -135,13 +135,3 @@ export interface RendererClientRuntimeService {
   readonly disposeClient: (clientId: string, reason?: string) => Effect.Effect<void>;
   readonly events: Stream.Stream<RendererClientEvent>;
 }
-
-/** Temporary Promise projection for legacy application callers being cut over. */
-export interface RendererClientRequestPromisePort {
-  readonly sendRequest: <A = unknown>(
-    targetClientId: string,
-    method: string,
-    params: unknown,
-    options?: RendererClientRequestOptions,
-  ) => Promise<A>;
-}

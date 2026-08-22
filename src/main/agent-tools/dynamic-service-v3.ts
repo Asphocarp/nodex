@@ -136,12 +136,12 @@ function boundedMarkdownPreview(markdown: string): string | undefined {
   return `${normalized.slice(0, MAX_AUTHORIZATION_MARKDOWN_PREVIEW_CHARS)}\n…`;
 }
 
-function recordTopLevelTaskPages(
+async function recordTopLevelTaskPages(
   context: NodexAgentDynamicExecutionContext,
   destination: PageDestination,
   resourceAccess: NodexAgentResourceAccessOverlay | undefined,
   pageIds: readonly string[],
-): void {
+): Promise<void> {
   if (
     destination.kind !== "library" ||
     resourceAccess?.scope !== "task" ||
@@ -152,7 +152,7 @@ function recordTopLevelTaskPages(
     root: { kind: "page", pageId },
     access: "read_write",
   }));
-  context.recordTaskResourceAccess(grants);
+  await context.recordTaskResourceAccess(grants);
 }
 
 function createPagesPreview(
@@ -548,7 +548,7 @@ export class NodexAgentV3DynamicService {
           this.executionTimeoutMs,
         );
         if (!result.ok) return fail({ error: result.error });
-        recordTopLevelTaskPages(
+        await recordTopLevelTaskPages(
           context,
           input.destination,
           prepared.command.resourceAccess,
@@ -595,7 +595,7 @@ export class NodexAgentV3DynamicService {
           this.executionTimeoutMs,
         );
         if (!result.ok) return fail({ error: result.error });
-        recordTopLevelTaskPages(
+        await recordTopLevelTaskPages(
           context,
           input.destination,
           prepared.command.resourceAccess,
@@ -638,7 +638,7 @@ export class NodexAgentV3DynamicService {
           this.executionTimeoutMs,
         );
         if (!result.ok) return fail({ error: result.error });
-        recordTopLevelTaskPages(context, input.destination, prepared.command.resourceAccess, [
+        await recordTopLevelTaskPages(context, input.destination, prepared.command.resourceAccess, [
           result.value.output.data.pageId,
         ]);
         return result.value.output;

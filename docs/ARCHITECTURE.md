@@ -416,15 +416,24 @@ that waits for a response is a typed Effect backed by one Deferred and one Effec
 Responses must come from the exact target WebContents; renderer destruction, explicit release,
 request interruption, timeout, and Main Scope close all complete the same pending authority at most
 once. Connected/disposed observation is a scoped Stream rather than a listener set. The temporary
-Promise projection used by the legacy Nodex Agent authorization broker owns no state, timer,
-listener, or request lifecycle and must disappear with that broker's application cut-over.
+Promise projection used by the remaining conversation facade owns no state, timer, listener, or
+request lifecycle.
+
+Transient Nodex Agent resource consent belongs to one Main-scoped
+`NodexAgentAuthorizationRuntime`. Its immutable Ref is the sole process owner of task grants;
+Effect Clock timestamps renderer requests, direct `RendererClientRuntime` Effects own targeted
+correlation and deadlines, and Scope closure atomically closes admission and clears every transient
+grant. Rust Core remains the only owner of durable Project grants and revalidates the exact Turn and
+Store authority supplied by Main. The conversation facade receives only a callback-tracked Promise
+projection of this Module; it cannot replace the Module, inject a broker later, or clear grants from
+an unrelated shutdown hook.
 
 The temporary `CodexGatewayBridge` is a scoped boundary Adapter, not an endpoint owner. Its finalizer
 closes request admission, removes EventEmitter listeners, and clears host/connection projections;
 the Effect Gateway and Endpoint Map independently release the physical sessions they own. The
-legacy `CodexService` shutdown hook only clears its synchronous local projection and revokes local
-presentation capabilities. It does not close pending requests, replay buffers, sidebar work, fresh
-Thread launches, the Gateway, or endpoints; those resources close once through their owning Scope.
+legacy `CodexService` is an orchestration facade, not a lifecycle owner, and has no application
+shutdown hook. Pending requests, replay buffers, sidebar work, fresh Thread launches, authorization,
+the Gateway, and endpoints each close once through their owning Scope.
 
 Agent-provider credential mutation belongs to `AgentProviderRuntime`, which serializes secure-file
 publication, catalog invalidation, deferred-restart state, idle detection, endpoint restart, and the
