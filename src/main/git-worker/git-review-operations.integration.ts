@@ -71,11 +71,7 @@ function expectSuccessfulSearch(
 
 async function withGitReviewRuntime<Result>(run: () => Promise<Result>): Promise<Result> {
   const runtime = new GitReviewRuntime();
-  try {
-    return await runtime.run(new AbortController().signal, run);
-  } finally {
-    runtime.dispose();
-  }
+  return await runtime.run(new AbortController().signal, run);
 }
 
 afterEach(() => {

@@ -167,7 +167,6 @@ export class GitReviewRuntime {
   readonly #repositoryKeysByCwd = new Map<string, string>();
   readonly #repositoryPathReads = new Map<string, Promise<GitReviewRepositoryPaths | null>>();
   readonly #snapshotGenerationProviders = new Map<string, GitReviewSnapshotGenerationProvider>();
-  #closed = false;
 
   constructor(
     options: {
@@ -186,12 +185,10 @@ export class GitReviewRuntime {
   }
 
   get commandRunner(): GitCommandRunner {
-    this.#assertOpen();
     return this.#commandRunner;
   }
 
   get environment(): NodeJS.ProcessEnv {
-    this.#assertOpen();
     return this.#environment;
   }
 
@@ -199,7 +196,6 @@ export class GitReviewRuntime {
     cwd: string,
     identity: GitReviewRepositoryIdentity & { gitDir?: string },
   ): GitReviewRepositoryIdentity {
-    this.#assertOpen();
     const normalizedIdentity: GitReviewRepositoryIdentity = {
       hostId: identity.hostId.trim() || GIT_REVIEW_LOCAL_HOST_ID,
       commonDir: normalizeGitReviewRepositoryPath(identity.commonDir),
@@ -242,24 +238,20 @@ export class GitReviewRuntime {
     cwd: string,
     hostId = GIT_REVIEW_LOCAL_HOST_ID,
   ): GitReviewRepositoryIdentity | null {
-    this.#assertOpen();
     const cwdKey = buildGitReviewRepositoryCwdKey(hostId, cwd);
     const registeredKey = this.#repositoryKeysByCwd.get(cwdKey);
     return registeredKey ? (this.#repositoryIdentitiesByKey.get(registeredKey) ?? null) : null;
   }
 
   findRepositoryPaths(identity: GitReviewRepositoryIdentity): GitReviewRepositoryPaths | null {
-    this.#assertOpen();
     return this.#repositoryPathsByKey.get(buildGitReviewRepositoryKey(identity)) ?? null;
   }
 
   findRepositoryPathRead(key: string): Promise<GitReviewRepositoryPaths | null> | undefined {
-    this.#assertOpen();
     return this.#repositoryPathReads.get(key);
   }
 
   registerRepositoryPathRead(key: string, read: Promise<GitReviewRepositoryPaths | null>): void {
-    this.#assertOpen();
     this.#repositoryPathReads.set(key, read);
   }
 
@@ -270,7 +262,6 @@ export class GitReviewRuntime {
   }
 
   readSnapshotGeneration(repository: GitReviewRepositoryIdentity): number {
-    this.#assertOpen();
     const key = buildGitReviewRepositoryKey(repository);
     return (
       this.#snapshotGenerationProviders.get(key)?.current() ??
@@ -280,7 +271,6 @@ export class GitReviewRuntime {
   }
 
   invalidateSnapshot(cwd: string, identity?: GitReviewRepositoryIdentity): void {
-    this.#assertOpen();
     const normalizedCwd = cwd.trim();
     if (!normalizedCwd) return;
     const repository = identity
@@ -304,23 +294,7 @@ export class GitReviewRuntime {
     operation: () => Promise<Result>,
     repository?: GitReviewOperationContext["repository"],
   ): Promise<Result> {
-    this.#assertOpen();
     return gitReviewOperationContext.run({ runtime: this, signal, repository }, operation);
-  }
-
-  dispose(): void {
-    if (this.#closed) return;
-    this.#closed = true;
-    this.#fallbackSnapshotGenerations.clear();
-    this.#repositoryIdentitiesByKey.clear();
-    this.#repositoryPathsByKey.clear();
-    this.#repositoryKeysByCwd.clear();
-    this.#repositoryPathReads.clear();
-    this.#snapshotGenerationProviders.clear();
-  }
-
-  #assertOpen(): void {
-    if (this.#closed) throw new Error("Git review runtime is closed");
   }
 }
 

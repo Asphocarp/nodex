@@ -745,10 +745,12 @@ The local Git worker has one application owner, `GitWorkerModule`. That owner
 constructs one command runner, one repository registry, and one
 `GitReviewRuntime`; repository identity aliases, discovery coalescing and review
 snapshot generations live only in that runtime. Each review request enters its
-runtime through an async operation context, and module disposal releases live
-queries, repositories, generation providers, and review caches together. A
-replacement worker therefore always starts from a fresh repository identity and
-generation space rather than inheriting process-module state.
+runtime through an async operation context. `GitReviewRuntime` is a lifecycle-free
+in-memory aggregate: it owns no handle, timer, callback registration, or child and
+therefore exposes no `dispose()` protocol. Worker Scope release must instead release
+the physical live queries, repository watches, and generation-provider registrations;
+the aggregate then becomes unreachable. A replacement worker constructs a fresh
+aggregate and therefore starts from a fresh repository identity and generation space.
 
 `GitWorkerRuntime` owns the corresponding Main-side channel. Its single state
 tracks the active Worker generation, Main request `Deferred`s, renderer request

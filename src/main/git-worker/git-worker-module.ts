@@ -430,7 +430,6 @@ export class GitWorkerModule {
   dispose(): void {
     this.#liveQueries.dispose();
     this.#registry.dispose();
-    this.#reviewRuntime.dispose();
   }
 
   async #runReviewRequest<Result>(input: {

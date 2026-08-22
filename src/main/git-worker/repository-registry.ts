@@ -15,7 +15,6 @@ function repositoryKey(identity: GitReviewRepositoryPaths): string {
 export class GitRepositoryRegistry {
   readonly #runner: GitCommandRunner;
   readonly #reviewRuntime: GitReviewRuntime;
-  readonly #ownsReviewRuntime: boolean;
   readonly #repositories = new Map<string, WorktreeRepository>();
   readonly #repositoryKeysByCwd = new Map<string, string>();
   readonly #discoveries = new Map<string, Promise<WorktreeRepository | null>>();
@@ -24,7 +23,6 @@ export class GitRepositoryRegistry {
   constructor(runner: GitCommandRunner, reviewRuntime?: GitReviewRuntime) {
     this.#runner = runner;
     this.#reviewRuntime = reviewRuntime ?? new GitReviewRuntime({ commandRunner: runner });
-    this.#ownsReviewRuntime = reviewRuntime === undefined;
   }
 
   async get(cwd: string, signal?: AbortSignal): Promise<WorktreeRepository | null> {
@@ -71,7 +69,6 @@ export class GitRepositoryRegistry {
     this.#repositoryKeysByCwd.clear();
     this.#discoveries.clear();
     this.#generationProviderCleanups.clear();
-    if (this.#ownsReviewRuntime) this.#reviewRuntime.dispose();
   }
 
   async #discover(cwd: string, signal?: AbortSignal): Promise<WorktreeRepository | null> {
