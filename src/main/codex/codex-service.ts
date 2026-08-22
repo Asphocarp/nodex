@@ -206,6 +206,7 @@ import type { ManagedWorktreeRetentionRuntimePromiseAdapter } from "../codex-app
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import type { CodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
 import type { CodexExternalAgentImportRuntimePromiseAdapter } from "../codex-application/CodexExternalAgentImportRuntimePromiseAdapter";
+import type { CodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-application/CodexHeartbeatTurnCompletionPromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -738,7 +739,6 @@ const CODEX_BACKGROUND_SUBAGENT_DELTA_METHODS = new Set<CodexServerNotification[
   "item/reasoning/textDelta",
   "item/commandExecution/outputDelta",
 ] satisfies readonly CodexServerNotification["method"][]);
-const CODEX_HEARTBEAT_TURN_COMPLETION_TIMEOUT_MS = 10 * 60_000;
 const CODEX_HEARTBEAT_ROLLOUT_TAIL_BYTES = 256 * 1024;
 const CODEX_HEARTBEAT_TERMINAL_ROLLOUT_EVENTS = new Set([
   "task_complete",
@@ -1407,6 +1407,7 @@ type CodexServiceOptions = {
   sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   gitProbe: CodexGitProbePromiseAdapter;
   externalAgentImport: CodexExternalAgentImportRuntimePromiseAdapter;
+  heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2604,6 +2605,7 @@ export class CodexService extends EventEmitter {
   private readonly sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   private readonly gitProbe: CodexGitProbePromiseAdapter;
   private readonly externalAgentImport: CodexExternalAgentImportRuntimePromiseAdapter;
+  private readonly heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
   private readonly gitSettingsResolver: () => CodexGitSettings;
@@ -2818,6 +2820,7 @@ export class CodexService extends EventEmitter {
     this.sidebarSweep = options.sidebarSweep;
     this.gitProbe = options.gitProbe;
     this.externalAgentImport = options.externalAgentImport;
+    this.heartbeatTurnCompletion = options.heartbeatTurnCompletion;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -9878,77 +9881,11 @@ export class CodexService extends EventEmitter {
     let turnStart: TurnStartResponse;
     try {
       turnStart = input.waitForCompletion
-        ? await this.startHeartbeatTurnAndWaitForCompletion(turnStartParams)
+        ? await this.heartbeatTurnCompletion.startAndWait(turnStartParams)
         : await this.client.request<"turn/start", TurnStartResponse>("turn/start", turnStartParams);
       await this.nodexAgentAuthorityRegistry.bindTurn(authorityLaunch, turnStart.turn.id);
     } catch (error) {
       this.nodexAgentAuthorityRegistry.abortTurn(authorityLaunch);
-      throw error;
-    }
-  }
-
-  private async startHeartbeatTurnAndWaitForCompletion(
-    turnStartParams: TurnStartParams,
-  ): Promise<TurnStartResponse> {
-    let activeTurnId: string | null = null;
-    let cleanup = () => undefined;
-    const completion = new Promise<void>((resolve, reject) => {
-      let settled = false;
-      const settle = (callback: () => void) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        callback();
-      };
-      const timeout = setTimeout(() => {
-        settle(resolve);
-      }, CODEX_HEARTBEAT_TURN_COMPLETION_TIMEOUT_MS);
-      const unsubscribe = this.registerInternalNotificationHandler((notification) => {
-        if (notification.method !== "turn/started" && notification.method !== "turn/completed") {
-          return;
-        }
-
-        const payload = asRecord(notification.params);
-        if (parseEventThreadId(payload) !== turnStartParams.threadId) return;
-
-        const eventTurnId = parseEventTurnId(payload);
-        if (activeTurnId !== null && eventTurnId !== null && eventTurnId !== activeTurnId) return;
-        if (eventTurnId !== null) activeTurnId = eventTurnId;
-        if (notification.method === "turn/started") return;
-
-        const turn = asRecord(payload?.turn);
-        const status =
-          typeof turn?.status === "string"
-            ? turn.status
-            : typeof payload?.status === "string"
-              ? payload.status
-              : notification.method === "turn/completed"
-                ? "completed"
-                : "failed";
-        if (status === "completed") {
-          settle(resolve);
-          return;
-        }
-
-        settle(() => reject(new Error("Heartbeat automation did not complete.")));
-      });
-      cleanup = () => {
-        clearTimeout(timeout);
-        unsubscribe();
-        cleanup = () => undefined;
-      };
-    });
-
-    try {
-      const turnStart = await this.client.request<"turn/start", TurnStartResponse>(
-        "turn/start",
-        turnStartParams,
-      );
-      activeTurnId = parseTurnIdFromStartResult(turnStart);
-      await completion;
-      return turnStart;
-    } catch (error) {
-      cleanup();
       throw error;
     }
   }

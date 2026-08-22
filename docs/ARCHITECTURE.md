@@ -477,6 +477,15 @@ pre-response events cannot cross import operations. One Effect-clock deadline an
 the request, collector, and wait. `CodexService` only materializes successfully imported Thread ids;
 it owns no import listener, early-completion map, resolver Promise, or timer.
 
+Heartbeat turn completion is one Main-scoped request/correlation capability. It subscribes to the
+generation-fenced Gateway stream before resolving the Thread host and starting the turn on that exact
+host, buffers completion that races the response, and accepts only the exact host, Thread, and returned
+Turn identity. The ten-minute deadline covers host resolution, request, and completion waiting but
+preserves the product's non-failing timeout policy. A failed terminal status remains typed failure,
+and Main Scope closure interrupts the request, subscription, deadline, and wait together.
+`CodexService` only selects whether a scheduled automation needs this capability; it owns no
+heartbeat notification handler, resolver Promise, timer, or cleanup path.
+
 Codex native-notification policy is a pure projection from application events, settings, focus,
 and presentation facts. `CodexThreadNotificationRuntime` directly owns both source-listener
 registrations and notification-action admission in the Main Scope; it does not acquire a class with

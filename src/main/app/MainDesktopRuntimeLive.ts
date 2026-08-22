@@ -98,6 +98,11 @@ import {
 } from "../codex-application/CodexExternalAgentImportRuntime";
 import { makeCodexExternalAgentImportRuntimePromiseAdapter } from "../codex-application/CodexExternalAgentImportRuntimePromiseAdapter";
 import {
+  CodexHeartbeatTurnCompletionError,
+  make as makeCodexHeartbeatTurnCompletion,
+} from "../codex-application/CodexHeartbeatTurnCompletion";
+import { makeCodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-application/CodexHeartbeatTurnCompletionPromiseAdapter";
+import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
 } from "../codex-application/CodexRendererOwnerRetention";
@@ -1252,6 +1257,33 @@ export const live: Layer.Layer<
                 ),
               ),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const heartbeatTurnCompletion = yield* makeCodexHeartbeatTurnCompletion({
+          events: codexGateway.events,
+          resolveHost: (threadId) =>
+            codexBridge.resolveThreadHost(threadId).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexHeartbeatTurnCompletionError({
+                    reason: "request-failed",
+                    message: `Could not resolve the execution host for heartbeat thread ${threadId}`,
+                    cause,
+                    threadId,
+                  }),
+              ),
+            ),
+          request: (hostId, params) =>
+            codexGateway.requestOnHost(hostId, "turn/start", params).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexHeartbeatTurnCompletionError({
+                    reason: "request-failed",
+                    message: `Could not start the heartbeat turn on host ${hostId}`,
+                    cause,
+                    threadId: params.threadId,
+                  }),
+              ),
+            ),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1302,6 +1334,10 @@ export const live: Layer.Layer<
               gitProbe: makeCodexGitProbePromiseAdapter(gitProbe, callbacks),
               externalAgentImport: makeCodexExternalAgentImportRuntimePromiseAdapter(
                 externalAgentImport,
+                callbacks,
+              ),
+              heartbeatTurnCompletion: makeCodexHeartbeatTurnCompletionPromiseAdapter(
+                heartbeatTurnCompletion,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(

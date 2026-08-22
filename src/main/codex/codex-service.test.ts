@@ -1876,6 +1876,15 @@ function createService(options?: {
     externalAgentImport: {
       run: async () => ({ importId: "test-import", itemTypeResults: [] }),
     },
+    heartbeatTurnCompletion: {
+      startAndWait: async (params) => {
+        if (!service) throw new Error("Codex test service is not constructed");
+        const client = Reflect.get(service, "client") as {
+          request: <TResult>(method: string, params: unknown) => Promise<TResult>;
+        };
+        return await client.request("turn/start", params);
+      },
+    },
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
