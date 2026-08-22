@@ -1021,7 +1021,6 @@ export const makeGitWorkerModule = (
     const runner = yield* makeGitCommandRunner({ environment: options.environment });
     const reviewRuntime = new GitReviewRuntime({
       commandRunner: runner,
-      environment: options.environment,
     });
     const registry = yield* makeGitRepositoryRegistry(runner, reviewRuntime);
     const publish = options.publish ?? (() => undefined);

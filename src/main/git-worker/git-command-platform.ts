@@ -7,12 +7,23 @@ export type GitCommandProcessFailureReason =
   | "timed_out"
   | "wait_failed";
 
+/**
+ * Consumes stdout without decoding or retaining it in the process adapter.
+ * The callback must consume or copy each transient chunk synchronously. A null
+ * limit is safe only for consumers whose own memory use stays bounded.
+ */
+export interface GitCommandStdoutStream {
+  readonly maxBytes: number | null;
+  readonly onChunk: (chunk: Uint8Array) => void;
+}
+
 export interface GitCommandProcessInput {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly outputBytesCap: number;
   readonly stdin?: string | Uint8Array;
+  readonly stdoutStream?: GitCommandStdoutStream;
   readonly timeoutMs: number | null;
 }
 

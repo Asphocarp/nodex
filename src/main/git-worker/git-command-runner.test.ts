@@ -127,6 +127,47 @@ describe("GitCommandRunner", () => {
         outputLimitExceeded: true,
       });
       expect(capped.stdoutBytes + capped.stderrBytes).toBeGreaterThan(256);
+      expect(Buffer.byteLength(capped.stdout)).toBe(256);
+    }),
+  );
+
+  it.live("streams binary stdout verbatim and retains the exact bounded prefix", () =>
+    withRunner(async (runner) => {
+      const repository = await createRepository();
+      const binary = Buffer.from([0xff, 0x00, 0x61]);
+      const object = await runner.run(repository, ["hash-object", "-w", "--stdin"], {
+        stdin: binary,
+      });
+      expect(object.success).toBe(true);
+
+      const chunks: Buffer[] = [];
+      const streamed = await runner.run(repository, ["cat-file", "--batch"], {
+        stdin: `${object.stdout.trim()}\n`,
+        stdoutStream: {
+          maxBytes: null,
+          onChunk: (chunk) => chunks.push(Buffer.from(chunk)),
+        },
+      });
+      const output = Buffer.concat(chunks);
+      expect(streamed).toMatchObject({ success: true, stdout: "", failureReason: null });
+      expect(output.subarray(-4)).toEqual(Buffer.from([0xff, 0x00, 0x61, 0x0a]));
+
+      const cappedChunks: Buffer[] = [];
+      const cap = output.byteLength - 2;
+      const capped = await runner.run(repository, ["cat-file", "--batch"], {
+        stdin: `${object.stdout.trim()}\n`,
+        stdoutStream: {
+          maxBytes: cap,
+          onChunk: (chunk) => cappedChunks.push(Buffer.from(chunk)),
+        },
+      });
+      expect(capped).toMatchObject({
+        success: false,
+        failureReason: "output_limit",
+        outputLimitExceeded: true,
+      });
+      expect(Buffer.concat(cappedChunks)).toEqual(output.subarray(0, cap));
+      expect(capped.stdoutBytes).toBeGreaterThan(cap);
     }),
   );
 

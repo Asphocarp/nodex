@@ -61,10 +61,7 @@ async function createRepository(): Promise<string> {
 }
 
 const registryFor = (runner: GitCommandRunner) =>
-  makeGitRepositoryRegistry(
-    runner,
-    new GitReviewRuntime({ commandRunner: runner, environment: process.env }),
-  );
+  makeGitRepositoryRegistry(runner, new GitReviewRuntime({ commandRunner: runner }));
 
 describe("UntrackedPathCache", () => {
   it.effect("expands normal-mode directories and excludes ignored files", () => {

@@ -87,10 +87,7 @@ it.layer(GitCommandPlatformNode.nodeLive)("git review service", (it) => {
       makeGitCommandRunner({ environment: process.env }).pipe(
         Effect.flatMap((runner) =>
           Effect.promise(() =>
-            new GitReviewRuntime({ commandRunner: runner, environment: process.env }).run(
-              new AbortController().signal,
-              run,
-            ),
+            new GitReviewRuntime({ commandRunner: runner }).run(new AbortController().signal, run),
           ),
         ),
       ),

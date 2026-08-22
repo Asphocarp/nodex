@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { tmpdir } from "node:os";
 import { readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
@@ -48,7 +47,13 @@ import {
   REVIEW_RENDERABLE_TEXT_MAX_BYTES,
   REVIEW_UNTRACKED_DIFF_CONCURRENCY,
 } from "../../shared/review-file-safety";
-import type { GitCommandRunner } from "./git-command-runner";
+import {
+  GIT_CAT_FILE_TIMEOUT_MS,
+  type GitCommandOptions,
+  type GitCommandResult as GitRunnerCommandResult,
+  type GitCommandRunner,
+  type GitRepositoryExecutionIdentity,
+} from "./git-command-runner";
 
 interface GitCommandResult {
   stdout: string;
@@ -64,7 +69,7 @@ interface GitCommandError extends Error {
 const GIT_EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const REVIEW_FILE_CHANGED_LINES_LIMIT = 15_000;
 const REVIEW_CAT_FILE_MAX_BYTES = 5_242_880;
-const REVIEW_CAT_FILE_TIMEOUT_MS = 30_000;
+const REVIEW_GIT_STREAM_ERROR_MAX_BYTES = 64 * 1024;
 export const GIT_REVIEW_LOCAL_HOST_ID = "local";
 
 export interface GitReviewRepositoryIdentity {
@@ -85,10 +90,7 @@ interface GitReviewOperationContext {
   runtime: GitReviewRuntime;
   signal: AbortSignal;
   repository?: {
-    runGit(
-      args: readonly string[],
-      options?: import("./git-command-runner").GitCommandOptions,
-    ): Promise<import("./git-command-runner").GitCommandResult>;
+    runGit(args: readonly string[], options?: GitCommandOptions): Promise<GitRunnerCommandResult>;
   };
 }
 
@@ -97,14 +99,6 @@ interface GitReviewSnapshotGenerationProvider {
   advance(): number;
   current(): number;
 }
-const GIT_CONFIG_OVERRIDES = [
-  "-c",
-  "diff.mnemonicPrefix=false",
-  "-c",
-  "diff.noprefix=false",
-  "-c",
-  "core.quotePath=false",
-];
 const GIT_REVIEW_DIFF_BASE_ARGS = [
   "--no-ext-diff",
   "--no-textconv",
@@ -160,7 +154,6 @@ function buildGitReviewRepositoryCwdKey(hostId: string, cwd: string): string {
 
 export class GitReviewRuntime {
   readonly #commandRunner: GitCommandRunner;
-  readonly #environment: NodeJS.ProcessEnv;
   readonly #fallbackSnapshotGenerations = new Map<string, number>();
   readonly #repositoryIdentitiesByKey = new Map<string, GitReviewRepositoryIdentity>();
   readonly #repositoryPathsByKey = new Map<string, GitReviewRepositoryPaths>();
@@ -168,23 +161,12 @@ export class GitReviewRuntime {
   readonly #repositoryPathReads = new Map<string, Promise<GitReviewRepositoryPaths | null>>();
   readonly #snapshotGenerationProviders = new Map<string, GitReviewSnapshotGenerationProvider>();
 
-  constructor(options: { commandRunner: GitCommandRunner; environment: NodeJS.ProcessEnv }) {
+  constructor(options: { commandRunner: GitCommandRunner }) {
     this.#commandRunner = options.commandRunner;
-    this.#environment = {
-      ...options.environment,
-      GIT_OPTIONAL_LOCKS: "0",
-      GIT_TERMINAL_PROMPT: "0",
-      LC_ALL: "C",
-      LANG: "C",
-    };
   }
 
   get commandRunner(): GitCommandRunner {
     return this.#commandRunner;
-  }
-
-  get environment(): NodeJS.ProcessEnv {
-    return this.#environment;
   }
 
   registerRepositoryIdentity(
@@ -299,6 +281,28 @@ function currentGitReviewRuntime(): GitReviewRuntime {
   return runtime;
 }
 
+function runGitRunnerCommand(
+  args: readonly string[],
+  cwd: string,
+  options: GitCommandOptions = {},
+): Promise<GitRunnerCommandResult> {
+  const context = gitReviewOperationContext.getStore();
+  const runtime = context?.runtime ?? currentGitReviewRuntime();
+  const signal = options.signal ?? context?.signal;
+  signal?.throwIfAborted();
+  const normalizedCwd = normalizeGitReviewRepositoryPath(cwd);
+  const registered = runtime.findRepository(normalizedCwd);
+  const identity: GitRepositoryExecutionIdentity = {
+    hostId: "local",
+    root: registered?.root ?? normalizedCwd,
+    commonDir: registered?.commonDir ?? normalizedCwd,
+  };
+  const commandOptions = { ...options, signal };
+  return context?.repository
+    ? context.repository.runGit(args, commandOptions)
+    : runtime.commandRunner.run(identity, args, commandOptions);
+}
+
 async function ensureDirectory(cwd: string): Promise<string> {
   const normalizedCwd = cwd.trim();
   if (!normalizedCwd) {
@@ -320,26 +324,14 @@ function runGitCommand(
   options?: { literalPathspecs?: boolean; signal?: AbortSignal },
 ): Promise<GitCommandResult> {
   const context = gitReviewOperationContext.getStore();
-  const runtime = context?.runtime ?? currentGitReviewRuntime();
   const signal = options?.signal ?? context?.signal;
-  signal?.throwIfAborted();
-  const normalizedCwd = normalizeGitReviewRepositoryPath(cwd);
-  const registered = runtime.findRepository(normalizedCwd);
-  const identity = {
-    hostId: "local" as const,
-    root: registered?.root ?? normalizedCwd,
-    commonDir: registered?.commonDir ?? normalizedCwd,
-  };
   const commandOptions = {
     allowedNonZeroExitCodes: allowedExitCodes.filter((code) => code !== 0),
     outputBytesCap: REVIEW_GIT_DIFF_MAX_BYTES,
     literalPathspecs: options?.literalPathspecs,
     signal,
   };
-  const command = context?.repository
-    ? context.repository.runGit(args, commandOptions)
-    : runtime.commandRunner.run(identity, args, commandOptions);
-  return command.then((result) => {
+  return runGitRunnerCommand(args, cwd, commandOptions).then((result) => {
     if (result.success) {
       return {
         stdout: result.stdout,
@@ -1464,81 +1456,29 @@ function splitGitObjectLines(contents: string): string[] {
   return lines;
 }
 
-function runGitCatFileBatch(cwd: string, objectSpecs: string[]): Promise<Buffer> {
-  if (objectSpecs.length === 0) return Promise.resolve(Buffer.alloc(0));
+async function runGitCatFileBatch(cwd: string, objectSpecs: string[]): Promise<Buffer> {
+  if (objectSpecs.length === 0) return Buffer.alloc(0);
 
   const context = gitReviewOperationContext.getStore();
-  const runtime = context?.runtime ?? currentGitReviewRuntime();
   const signal = context?.signal;
   signal?.throwIfAborted();
-
-  return new Promise((resolve, reject) => {
-    const child = spawn("git", [...GIT_CONFIG_OVERRIDES, "cat-file", "--batch"], {
-      cwd,
-      env: runtime.environment,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-    });
-    const outputChunks: Buffer[] = [];
-    const errorChunks: Buffer[] = [];
-    const outputLimit = objectSpecs.length * (REVIEW_CAT_FILE_MAX_BYTES + 512);
-    let outputBytes = 0;
-    let settled = false;
-    let outputLimitReached = false;
-    const abort = () => child.kill("SIGKILL");
-    signal?.addEventListener("abort", abort, { once: true });
-    const timer = setTimeout(() => {
-      if (settled) return;
-      child.kill("SIGKILL");
-    }, REVIEW_CAT_FILE_TIMEOUT_MS);
-
-    child.stdout.on("data", (chunk: Buffer) => {
-      if (outputLimitReached) return;
-      const remaining = outputLimit - outputBytes;
-      if (remaining <= 0) {
-        outputLimitReached = true;
-        child.kill("SIGKILL");
-        return;
-      }
-      const accepted = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
-      outputChunks.push(accepted);
-      outputBytes += accepted.length;
-      if (accepted.length !== chunk.length) {
-        outputLimitReached = true;
-        child.kill("SIGKILL");
-      }
-    });
-    child.stderr.on("data", (chunk: Buffer) => errorChunks.push(chunk));
-    child.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
-      reject(error);
-    });
-    child.once("close", (exitCode) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", abort);
-      if (signal?.aborted) {
-        reject(signal.reason ?? new DOMException("Git object read aborted", "AbortError"));
-        return;
-      }
-      const output = Buffer.concat(outputChunks);
-      if (exitCode === 0 || outputLimitReached) {
-        resolve(output);
-        return;
-      }
-      reject(
-        new Error(
-          Buffer.concat(errorChunks).toString("utf8").trim() || "Could not read Git objects.",
-        ),
-      );
-    });
-
-    child.stdin.end(`${objectSpecs.join("\n")}\n`);
+  const outputChunks: Buffer[] = [];
+  const stdoutBytesCap = objectSpecs.length * (REVIEW_CAT_FILE_MAX_BYTES + 512);
+  const result = await runGitRunnerCommand(["cat-file", "--batch"], cwd, {
+    outputBytesCap: REVIEW_GIT_STREAM_ERROR_MAX_BYTES,
+    signal,
+    stdin: `${objectSpecs.join("\n")}\n`,
+    stdoutStream: {
+      maxBytes: stdoutBytesCap,
+      onChunk: (chunk) => outputChunks.push(Buffer.from(chunk)),
+    },
+    timeoutMs: GIT_CAT_FILE_TIMEOUT_MS,
   });
+  signal?.throwIfAborted();
+  if (result.success || (result.outputLimitExceeded && result.stdoutBytes > stdoutBytesCap)) {
+    return Buffer.concat(outputChunks);
+  }
+  throw new Error(result.stderr.trim() || "Could not read Git objects.");
 }
 
 function parseGitCatFileBatch(
@@ -2778,85 +2718,56 @@ function scanGitReviewPatchLines(input: {
   }
 }
 
-function streamTrackedGitReviewSearch(input: {
+async function streamTrackedGitReviewSearch(input: {
   cwd: string;
   diffArgs: string[];
   generatedPaths: ReadonlySet<string>;
   accumulator: GitReviewSearchAccumulator;
   signal?: AbortSignal;
 }): Promise<void> {
-  const runtime = currentGitReviewRuntime();
-  return new Promise((resolve, reject) => {
-    const child = spawn(
-      "git",
-      [...GIT_CONFIG_OVERRIDES, "diff", ...input.diffArgs, "--unified=3"],
-      {
-        cwd: input.cwd,
-        env: runtime.environment,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
+  const state = createGitReviewPatchSearchState();
+  const decoder = new TextDecoder();
+  let pending = "";
+  const scanPendingLines = () => {
+    const lines = pending.split("\n");
+    pending = lines.pop() ?? "";
+    if (pending.length > REVIEW_GIT_DIFF_MAX_BYTES) {
+      throw new Error("Git review diff contains a line above the safe search limit.");
+    }
+    scanGitReviewPatchLines({
+      lines: lines.map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line)),
+      generatedPaths: input.generatedPaths,
+      accumulator: input.accumulator,
+      state,
+    });
+  };
+  const result = await runGitRunnerCommand(["diff", ...input.diffArgs, "--unified=3"], input.cwd, {
+    outputBytesCap: REVIEW_GIT_STREAM_ERROR_MAX_BYTES,
+    signal: input.signal,
+    stdoutStream: {
+      // The stream is not retained; the process deadline and bounded pending line own resource use.
+      maxBytes: null,
+      onChunk: (chunk) => {
+        pending += decoder.decode(chunk, { stream: true });
+        scanPendingLines();
       },
-    );
-    child.stderr.setEncoding("utf8");
-    const state = createGitReviewPatchSearchState();
-    const decoder = new TextDecoder();
-    let pending = "";
-    let stderr = "";
-    let settled = false;
-    const timeout = setTimeout(() => child.kill("SIGKILL"), 30_000);
-    const abort = () => child.kill("SIGKILL");
-    input.signal?.addEventListener("abort", abort, { once: true });
-
-    const scanPendingLines = () => {
-      const lines = pending.split("\n");
-      pending = lines.pop() ?? "";
-      scanGitReviewPatchLines({
-        lines: lines.map((line) => (line.endsWith("\r") ? line.slice(0, -1) : line)),
-        generatedPaths: input.generatedPaths,
-        accumulator: input.accumulator,
-        state,
-      });
-    };
-    child.stdout.on("data", (chunk: Uint8Array) => {
-      pending += decoder.decode(chunk, { stream: true });
-      scanPendingLines();
-    });
-    child.stderr.on("data", (chunk: string) => {
-      if (stderr.length < 8_192) stderr += chunk;
-    });
-    child.once("error", (error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      input.signal?.removeEventListener("abort", abort);
-      reject(error);
-    });
-    child.once("close", (exitCode) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeout);
-      input.signal?.removeEventListener("abort", abort);
-      pending += decoder.decode();
-      scanPendingLines();
-      if (pending) {
-        scanGitReviewPatchLines({
-          lines: [pending.endsWith("\r") ? pending.slice(0, -1) : pending],
-          generatedPaths: input.generatedPaths,
-          accumulator: input.accumulator,
-          state,
-        });
-      }
-      if (input.signal?.aborted) {
-        reject(new DOMException("Git review search aborted", "AbortError"));
-        return;
-      }
-      if (exitCode === 0) {
-        resolve();
-        return;
-      }
-      reject(new Error(stderr.trim() || "Could not search the Git review diff."));
-    });
+    },
+    timeoutMs: 30_000,
   });
+  input.signal?.throwIfAborted();
+  if (!result.success) {
+    throw new Error(result.stderr.trim() || "Could not search the Git review diff.");
+  }
+  pending += decoder.decode();
+  scanPendingLines();
+  if (pending) {
+    scanGitReviewPatchLines({
+      lines: [pending.endsWith("\r") ? pending.slice(0, -1) : pending],
+      generatedPaths: input.generatedPaths,
+      accumulator: input.accumulator,
+      state,
+    });
+  }
 }
 
 export async function searchGitReview(input: GitReviewSearchInput): Promise<GitReviewSearchResult> {

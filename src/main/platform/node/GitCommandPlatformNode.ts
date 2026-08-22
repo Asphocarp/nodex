@@ -23,6 +23,8 @@ class GitCommandProcessError extends Data.TaggedError("GitCommandProcessError")<
 interface OutputState {
   readonly stdout: string[];
   readonly stderr: string[];
+  retainedBytes: number;
+  stdoutDeliveredBytes: number;
   stdoutBytes: number;
   stderrBytes: number;
 }
@@ -35,12 +37,12 @@ const processError = (
 
 function finishOutput(
   state: OutputState,
-  stdoutDecoder: StringDecoder,
+  stdoutDecoder: StringDecoder | null,
   stderrDecoder: StringDecoder,
   code: number | null,
   failureReason: GitCommandProcessFailureReason | null,
 ): GitCommandProcessResult {
-  state.stdout.push(stdoutDecoder.end());
+  if (stdoutDecoder) state.stdout.push(stdoutDecoder.end());
   state.stderr.push(stderrDecoder.end());
   return {
     code,
@@ -58,8 +60,15 @@ const runGitProcess = (
   input: GitCommandProcessInput,
 ): Effect.Effect<GitCommandProcessResult> =>
   Effect.suspend(() => {
-    const state: OutputState = { stdout: [], stderr: [], stdoutBytes: 0, stderrBytes: 0 };
-    const stdoutDecoder = new StringDecoder("utf8");
+    const state: OutputState = {
+      stdout: [],
+      stderr: [],
+      retainedBytes: 0,
+      stdoutDeliveredBytes: 0,
+      stdoutBytes: 0,
+      stderrBytes: 0,
+    };
+    const stdoutDecoder = input.stdoutStream ? null : new StringDecoder("utf8");
     const stderrDecoder = new StringDecoder("utf8");
     const stdin =
       input.stdin === undefined
@@ -83,18 +92,42 @@ const runGitProcess = (
     });
     const append = (
       stream: "stdout" | "stderr",
-      decoder: StringDecoder,
+      decoder: StringDecoder | null,
       chunk: Uint8Array,
     ): Effect.Effect<void, GitCommandProcessError> =>
-      Effect.suspend(() => {
-        if (stream === "stdout") state.stdoutBytes += chunk.byteLength;
-        else state.stderrBytes += chunk.byteLength;
-        if (state.stdoutBytes + state.stderrBytes > input.outputBytesCap) {
-          return Effect.fail(processError("output_limit"));
-        }
-        state[stream].push(decoder.write(Buffer.from(chunk)));
-        return Effect.void;
-      });
+      Effect.try({
+        try: () => {
+          if (stream === "stdout") state.stdoutBytes += chunk.byteLength;
+          else state.stderrBytes += chunk.byteLength;
+
+          const streamLimit =
+            stream === "stdout" && input.stdoutStream
+              ? input.stdoutStream.maxBytes
+              : input.outputBytesCap;
+          const consumedBytes =
+            stream === "stdout" && input.stdoutStream
+              ? state.stdoutDeliveredBytes
+              : state.retainedBytes;
+          const remaining = streamLimit === null ? chunk.byteLength : streamLimit - consumedBytes;
+          const acceptedLength = Math.max(0, Math.min(chunk.byteLength, remaining));
+          const accepted =
+            acceptedLength === chunk.byteLength ? chunk : chunk.subarray(0, acceptedLength);
+
+          if (accepted.byteLength > 0 && stream === "stdout" && input.stdoutStream) {
+            input.stdoutStream.onChunk(accepted);
+            state.stdoutDeliveredBytes += accepted.byteLength;
+          } else if (accepted.byteLength > 0) {
+            state[stream].push(decoder?.write(Buffer.from(accepted)) ?? "");
+            state.retainedBytes += accepted.byteLength;
+          }
+          return acceptedLength === chunk.byteLength;
+        },
+        catch: (cause) => processError("wait_failed", cause),
+      }).pipe(
+        Effect.flatMap((complete) =>
+          complete ? Effect.void : Effect.fail(processError("output_limit")),
+        ),
+      );
     const attempt = Effect.scoped(
       Effect.gen(function* () {
         const handle = yield* spawner

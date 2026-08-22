@@ -776,6 +776,12 @@ port. Its Node adapter is the only layer that imports the unstable `ChildProcess
 it owns stdin/stdout/stderr streams, bounded output, Effect-clock deadlines, and scoped
 TERM-to-KILL process-group cleanup. The runner receives an explicit environment snapshot
 from the worker entry and owns no process-global Promise tail or ambient environment read.
+Binary object batches and streamed Review search cross that same runner and platform rather
+than acquiring child processes themselves. The platform can synchronously deliver undecoded
+stdout chunks with either an exact byte cap or no retained-output cap: `cat-file --batch`
+copies an exact bounded binary prefix, while Review search consumes the complete diff stream
+without retaining it and bounds stderr, deadline, pending line, stored matches, and caller
+lifetime. `GitReviewRuntime` therefore owns neither an environment copy nor any process path.
 Application Git mutations, including commit and push, cross the same worker protocol. The
 repository owner advances its generation after success; Main does not run a parallel mutation
 path or issue a compensating refresh whose correctness depends on the caller remembering it.

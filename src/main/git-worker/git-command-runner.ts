@@ -12,7 +12,7 @@ import type {
   GitPerformanceOperationOutcome,
   GitPerformanceOperationTrigger,
 } from "../../shared/git-worker-protocol";
-import { GitCommandPlatform } from "./git-command-platform";
+import { GitCommandPlatform, type GitCommandStdoutStream } from "./git-command-platform";
 
 export const GIT_READ_TIMEOUT_MS = 60_000;
 export const GIT_CAT_FILE_TIMEOUT_MS = 30_000;
@@ -55,6 +55,7 @@ export interface GitCommandOptions {
   serialize?: boolean;
   signal?: AbortSignal;
   stdin?: string | Uint8Array;
+  stdoutStream?: GitCommandStdoutStream;
   timeoutMs?: number | null;
 }
 
@@ -246,6 +247,13 @@ class GitCommandRunnerState implements GitCommandRunner {
     if (timeoutMs !== null && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
       throw new Error("Git command timeout must be a positive safe integer");
     }
+    if (
+      options.stdoutStream !== undefined &&
+      options.stdoutStream.maxBytes !== null &&
+      (!Number.isSafeInteger(options.stdoutStream.maxBytes) || options.stdoutStream.maxBytes <= 0)
+    ) {
+      throw new Error("Git command stdout stream cap must be null or a positive safe integer");
+    }
     const callerConfigOverrides = options.configOverrides ?? [];
     if (callerConfigOverrides.some((entry) => entry.includes("\0"))) {
       throw new Error("Git config overrides cannot contain NUL bytes");
@@ -342,6 +350,7 @@ class GitCommandRunnerState implements GitCommandRunner {
         },
         outputBytesCap: options.outputBytesCap,
         stdin: options.stdin,
+        stdoutStream: options.stdoutStream,
         timeoutMs: options.timeoutMs,
       });
       const failureReason: GitCommandFailureReason | null =
