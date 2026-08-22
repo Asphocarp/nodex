@@ -9,7 +9,7 @@ import { assert, it } from "@effect/vitest";
 import type { CodexSshExecutionHostConfig } from "../../shared/types";
 import { CodexExecutionHostRegistry } from "../codex/codex-execution-host-registry";
 import { snapshotPolicyForManagedWorktreeRemoval } from "../codex/codex-managed-worktree-lifecycle";
-import { createInProcessCodexWorktreeWorkerPort } from "../codex/codex-worktree-worker-operation";
+import { createInProcessCodexWorktreeWorkerPort } from "../codex/codex-worktree-worker-port.test-support";
 import type {
   CodexWorktreeWorkerInspectResult,
   CodexWorktreeWorkerPort,

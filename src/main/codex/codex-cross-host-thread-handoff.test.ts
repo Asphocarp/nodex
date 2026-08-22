@@ -7,7 +7,7 @@ import { afterEach, describe, expect, test } from "vite-plus/test";
 import { CodexCrossHostThreadHandoffService } from "./codex-cross-host-thread-handoff";
 import { CodexExecutionHostRegistry } from "./codex-execution-host-registry";
 import { CodexLocalExecutionHostFileTransfer } from "./codex-execution-host-file-transfer";
-import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-operation";
+import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-port.test-support";
 
 const run = promisify(execFile);
 const roots: string[] = [];

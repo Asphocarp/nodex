@@ -142,7 +142,7 @@ import type {
   CodexWorktreeWorkerPort,
   CodexWorktreeWorkerRemoveInput,
 } from "./codex-worktree-worker-port";
-import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-operation";
+import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-port.test-support";
 import type { CodexThreadHandoffJournalEntry } from "./codex-thread-handoff-journal";
 import {
   PastedTextAttachmentManager,

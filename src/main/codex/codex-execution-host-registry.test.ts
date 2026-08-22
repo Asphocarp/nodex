@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vite-plus/test";
 import { CodexExecutionHostRegistry } from "./codex-execution-host-registry";
-import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-operation";
+import { createInProcessCodexWorktreeWorkerPort } from "./codex-worktree-worker-port.test-support";
 
 describe("CodexExecutionHostRegistry", () => {
   test("routes only advertised capabilities to the exact host worker", () => {
