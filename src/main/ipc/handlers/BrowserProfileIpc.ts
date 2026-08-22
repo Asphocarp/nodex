@@ -89,8 +89,15 @@ export const live = (
       const config = yield* MainConfig;
       const windowSessions = yield* WindowSessionCatalog;
       const { browserSidebar } = options;
-      const { credentials, download, localServerPreferences, policy, profileImport, services } =
-        browserProfile;
+      const {
+        credentials,
+        download,
+        extensions,
+        localServerPreferences,
+        policy,
+        profileImport,
+        siteInfo,
+      } = browserProfile;
 
       const trusted = (event: IpcMainInvokeEvent, capabilityName: string) =>
         attempt("authorize-renderer", () =>
@@ -159,7 +166,7 @@ export const live = (
               profileImport: profileImport.capability(),
               siteInfo: { available: true as const, provider: "electron-public-api" as const },
               history: { available: true as const, provider: "electron-public-api" as const },
-              extensions: services.extensionsProvider.capability(),
+              extensions: extensions.capability(),
             })),
           ),
         ),
@@ -308,14 +315,26 @@ export const live = (
           ),
           Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
           Effect.flatMap((input) =>
-            attempt("read-browser-site-info", () => services.siteInfoProvider.get(input)),
+            siteInfo
+              .get(input)
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new BrowserProfileIpcError({ operation: "read-browser-site-info", cause }),
+                ),
+              ),
           ),
         ),
       );
       yield* ipc.handle("browser-extensions-list", (event) =>
         trusted(event, "Browser extensions").pipe(
           Effect.andThen(
-            attempt("list-browser-extensions", () => services.extensionsProvider.snapshot()),
+            extensions.snapshot.pipe(
+              Effect.mapError(
+                (cause) =>
+                  new BrowserProfileIpcError({ operation: "list-browser-extensions", cause }),
+              ),
+            ),
           ),
         ),
       );
@@ -336,9 +355,14 @@ export const live = (
           );
           const extensionPath = result.canceled ? undefined : result.filePaths[0];
           if (!extensionPath) return null;
-          return yield* attempt("load-browser-extension", () =>
-            services.extensionsProvider.load(extensionPath),
-          );
+          return yield* extensions
+            .load(extensionPath)
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new BrowserProfileIpcError({ operation: "load-browser-extension", cause }),
+              ),
+            );
         }),
       );
       yield* ipc.handle("browser-extension-remove", (event, extensionId: unknown) =>
@@ -349,9 +373,11 @@ export const live = (
             ),
           ),
           Effect.flatMap((input) =>
-            attempt("remove-browser-extension", () =>
-              services.extensionsProvider.remove(input.extensionId),
-            ).pipe(
+            extensions.remove(input.extensionId).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new BrowserProfileIpcError({ operation: "remove-browser-extension", cause }),
+              ),
               Effect.as({ ok: true as const }),
               Effect.catch((error) =>
                 Effect.succeed({

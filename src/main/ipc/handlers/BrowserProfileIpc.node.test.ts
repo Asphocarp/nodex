@@ -45,10 +45,11 @@ it.effect("registers and releases Browser Profile ingress with the Main Scope", 
               BrowserProfileRuntime.of({
                 credentials: {} as never,
                 download: {} as never,
+                extensions: {} as never,
                 localServerPreferences: {} as never,
                 policy: {} as never,
                 profileImport: {} as never,
-                services: {} as never,
+                siteInfo: {} as never,
               }),
             ),
             Layer.succeed(

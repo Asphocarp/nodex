@@ -138,7 +138,8 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
           );
           const runtime = Context.get(context, BrowserProfileRuntime);
 
-          assert.isObject(runtime.services);
+          assert.isObject(runtime.extensions);
+          assert.isObject(runtime.siteInfo);
           assert.isObject(runtime.download);
           assert.deepEqual(yield* runtime.localServerPreferences.snapshot, {
             showMode: "online",

@@ -209,6 +209,12 @@ deadline. Imported cookies enter only Electron's Profile cookie store, while pas
 credential mutation lane used by every other Browser credential write. Neither the helper nor the
 importer owns a second vault, write queue, child-process registry, or timer.
 
+Browser extension and site-information operations are stateless Profile capabilities, not a generic
+service aggregate. The Profile exposes their typed Effects directly: filesystem/Electron extension
+failures and cookie-store failures remain in the Effect channel until IPC maps them once. Synchronous
+capability checks stay pure, while Electron's Promise APIs are confined to the operation Adapter; no
+Promise provider object or duplicate Profile facade owns these calls.
+
 Browser local-server display preferences are Profile-owned state, not a renderer or IPC cache. Their
 runtime loads and validates one bounded JSON file, quarantines malformed input, and serializes partial
 updates through one semaphore. A mutation atomically publishes and fsyncs the complete next document

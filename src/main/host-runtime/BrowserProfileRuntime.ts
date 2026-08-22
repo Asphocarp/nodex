@@ -16,7 +16,10 @@ import {
   type BrowserCredentialRuntime,
 } from "../browser/browser-credential-service";
 import { BrowserCredentialVault } from "../browser/browser-credential-vault";
-import { BrowserExtensionsProvider } from "../browser/browser-extensions-provider";
+import {
+  makeBrowserExtensionsRuntime,
+  type BrowserExtensionsRuntime,
+} from "../browser/browser-extensions-provider";
 import {
   makeBrowserLocalServerPreferencesRuntime,
   type BrowserLocalServerPreferencesRuntime,
@@ -29,8 +32,10 @@ import {
   makeBrowserProfileImportRuntime,
   type BrowserProfileImportRuntime,
 } from "../browser/browser-profile-importer";
-import type { BrowserProfileServices } from "../browser/browser-profile-services";
-import { BrowserSiteInfoProvider } from "../browser/browser-site-info-provider";
+import {
+  makeBrowserSiteInfoRuntime,
+  type BrowserSiteInfoRuntime,
+} from "../browser/browser-site-info-provider";
 import {
   makeBrowserUsePolicyRuntime,
   type BrowserUsePolicyRuntime,
@@ -59,10 +64,11 @@ export class BrowserProfileRuntime extends Context.Service<
   {
     readonly download: BrowserDownloadRuntime;
     readonly credentials: BrowserCredentialRuntime;
+    readonly extensions: BrowserExtensionsRuntime;
     readonly localServerPreferences: BrowserLocalServerPreferencesRuntime;
     readonly policy: BrowserUsePolicyRuntime;
     readonly profileImport: BrowserProfileImportRuntime;
-    readonly services: BrowserProfileServices;
+    readonly siteInfo: BrowserSiteInfoRuntime;
   }
 >()("nodex/main/host-runtime/BrowserProfileRuntime") {}
 
@@ -179,13 +185,8 @@ export const live = (
         homeDirectory: options.homeDirectory,
         platform: options.platform,
       });
-      const services: BrowserProfileServices = {
-        extensionsProvider: new BrowserExtensionsProvider(browserSession.extensions ?? null),
-        siteInfoProvider: new BrowserSiteInfoProvider(
-          options.browserSidebar,
-          browserSession.cookies,
-        ),
-      };
+      const extensions = makeBrowserExtensionsRuntime(browserSession.extensions ?? null);
+      const siteInfo = makeBrowserSiteInfoRuntime(options.browserSidebar, browserSession.cookies);
       const siteStatusRuntime = yield* makeSiteStatusPolicyRuntime({
         apiBaseUrl: DEFAULT_CHATGPT_BASE_URL,
         logger,
@@ -233,10 +234,11 @@ export const live = (
       return BrowserProfileRuntime.of({
         credentials,
         download,
+        extensions,
         localServerPreferences,
         policy,
         profileImport,
-        services,
+        siteInfo,
       });
     }),
   );
