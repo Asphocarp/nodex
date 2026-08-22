@@ -13,6 +13,7 @@ import type {
   GitWorkerMethodMap,
   GitWorkerRequest,
 } from "../../shared/git-worker-protocol";
+import * as GitCommandPlatformNode from "../platform/node/GitCommandPlatformNode";
 import { makeGitWorkerModule, type GitWorkerModule } from "./git-worker-module";
 
 const execFileAsync = promisify(execFile);
@@ -39,7 +40,11 @@ function request<Method extends GitWorkerMethod>(
 }
 
 const withGitWorkerModule = <A>(run: (module: GitWorkerModule) => Promise<A>) =>
-  makeGitWorkerModule().pipe(Effect.flatMap((module) => Effect.promise(() => run(module))));
+  makeGitWorkerModule({ environment: process.env }).pipe(
+    Effect.flatMap((module) => Effect.promise(() => run(module))),
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- the helper owns a fresh test application Scope.
+    Effect.provide(GitCommandPlatformNode.nodeLive),
+  );
 
 describe("GitWorkerModule", () => {
   it.effect("reads canonical metadata and tracked-first status from one repository owner", () =>
@@ -207,7 +212,9 @@ describe("GitWorkerModule", () => {
     Effect.gen(function* () {
       const parentScope = yield* Scope.Scope;
       const workerScope = yield* Scope.fork(parentScope);
-      const module = yield* makeGitWorkerModule().pipe(Scope.provide(workerScope));
+      const module = yield* makeGitWorkerModule({ environment: process.env }).pipe(
+        Scope.provide(workerScope),
+      );
       yield* Effect.promise(() =>
         expect(
           module.execute(request("probe", { nonce: "before-close" }), new AbortController().signal),
@@ -221,6 +228,9 @@ describe("GitWorkerModule", () => {
           module.execute(request("probe", { nonce: "after-close" }), new AbortController().signal),
         ).rejects.toThrow("closed"),
       );
-    }),
+    }).pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the explicit worker-Scope test root.
+      Effect.provide(GitCommandPlatformNode.nodeLive),
+    ),
   );
 });

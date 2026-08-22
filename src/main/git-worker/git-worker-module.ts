@@ -30,7 +30,8 @@ import {
   runGitReviewOperationWithSignal,
   searchGitReview,
 } from "./git-review-operations";
-import { LocalGitCommandRunner, runGitPerformanceOperation } from "./git-command-runner";
+import { makeGitCommandRunner, runGitPerformanceOperation } from "./git-command-runner";
+import type { GitCommandPlatform } from "./git-command-platform";
 import { makeGitLiveQueryRegistry, type GitLiveQueryRegistry } from "./live-query-registry";
 import { makeGitRepositoryRegistry, type GitRepositoryRegistry } from "./repository-registry";
 import type { WorktreeRepository } from "./worktree-repository";
@@ -104,7 +105,7 @@ export interface GitWorkerModule {
 }
 
 export interface GitWorkerModuleOptions {
-  readonly environment?: NodeJS.ProcessEnv;
+  readonly environment: NodeJS.ProcessEnv;
   readonly publish?: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
 }
 
@@ -1014,10 +1015,10 @@ class GitWorkerModuleState implements GitWorkerModule {
 }
 
 export const makeGitWorkerModule = (
-  options: GitWorkerModuleOptions = {},
-): Effect.Effect<GitWorkerModule, never, Scope.Scope> =>
+  options: GitWorkerModuleOptions,
+): Effect.Effect<GitWorkerModule, never, GitCommandPlatform | Scope.Scope> =>
   Effect.gen(function* () {
-    const runner = new LocalGitCommandRunner();
+    const runner = yield* makeGitCommandRunner({ environment: options.environment });
     const reviewRuntime = new GitReviewRuntime({
       commandRunner: runner,
       environment: options.environment,

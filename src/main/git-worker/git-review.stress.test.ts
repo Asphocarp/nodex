@@ -12,6 +12,7 @@ import type {
   GitWorkerMethodMap,
   GitWorkerRequest,
 } from "../../shared/git-worker-protocol";
+import * as GitCommandPlatformNode from "../platform/node/GitCommandPlatformNode";
 import { makeGitWorkerModule } from "./git-worker-module";
 
 const execFileAsync = promisify(execFile);
@@ -42,6 +43,7 @@ describe("Git review read wave stress", () => {
     Effect.gen(function* () {
       const metrics: GitPerformanceOperationMetric[] = [];
       const module = yield* makeGitWorkerModule({
+        environment: process.env,
         publish: (event) => {
           if (event.type === "git-performance-operation") metrics.push(event.metric);
         },
@@ -99,6 +101,9 @@ describe("Git review read wave stress", () => {
         expect(Math.max(...metrics.map((metric) => metric.peakConcurrency))).toBe(1);
         expect(metrics.some((metric) => metric.coalescedQueries > 0)).toBe(true);
       });
-    }),
+    }).pipe(
+      // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the stress-test application root.
+      Effect.provide(GitCommandPlatformNode.nodeLive),
+    ),
   );
 });

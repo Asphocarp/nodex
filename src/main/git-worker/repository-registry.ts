@@ -168,7 +168,7 @@ class GitRepositoryRegistryState implements GitRepositoryRegistry {
 
 export const makeGitRepositoryRegistry = (
   runner: GitCommandRunner,
-  reviewRuntime = new GitReviewRuntime({ commandRunner: runner }),
+  reviewRuntime: GitReviewRuntime,
 ): Effect.Effect<GitRepositoryRegistry, never, Scope.Scope> =>
   Effect.gen(function* () {
     const ownerScope = yield* Scope.Scope;

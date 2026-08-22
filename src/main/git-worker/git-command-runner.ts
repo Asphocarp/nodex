@@ -1,20 +1,22 @@
-import { spawn } from "node:child_process";
-import { StringDecoder } from "node:string_decoder";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { devNull } from "node:os";
-import { killChildProcessTree } from "../process-tree";
-import { RepositoryExecutionQueue } from "./repository-execution-queue";
+import * as Clock from "effect/Clock";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as FiberSet from "effect/FiberSet";
+import * as RcMap from "effect/RcMap";
+import type * as Scope from "effect/Scope";
+import * as Semaphore from "effect/Semaphore";
 import type {
   GitPerformanceOperationMetric,
   GitPerformanceOperationOutcome,
   GitPerformanceOperationTrigger,
 } from "../../shared/git-worker-protocol";
+import { GitCommandPlatform } from "./git-command-platform";
 
 export const GIT_READ_TIMEOUT_MS = 60_000;
 export const GIT_CAT_FILE_TIMEOUT_MS = 30_000;
 export const GIT_DEFAULT_OUTPUT_BYTES_CAP = 32 * 1024 * 1024;
-const GIT_KILL_ESCALATION_MS = 250;
-const sharedRepositoryExecutionQueue = new RepositoryExecutionQueue();
 
 export interface GitRepositoryExecutionIdentity {
   hostId: "local";
@@ -188,13 +190,30 @@ function createEmptyFailure(
   };
 }
 
-export class LocalGitCommandRunner implements GitCommandRunner {
-  readonly #queue: RepositoryExecutionQueue;
+class GitCommandRunnerState implements GitCommandRunner {
+  readonly #environment: NodeJS.ProcessEnv;
+  readonly #lanes: RcMap.RcMap<string, Semaphore.Semaphore>;
+  readonly #platform: GitCommandPlatform["Service"];
+  readonly #runPromise: (
+    effect: Effect.Effect<GitCommandResult>,
+    options?: Effect.RunOptions,
+  ) => Promise<GitCommandResult>;
   readonly #safeFsmonitorCache = new Map<string, SafeFsmonitorCacheEntry>();
   readonly #activeByCommonDir = new Map<string, number>();
 
-  constructor(queue = sharedRepositoryExecutionQueue) {
-    this.#queue = queue;
+  constructor(options: {
+    environment: NodeJS.ProcessEnv;
+    lanes: RcMap.RcMap<string, Semaphore.Semaphore>;
+    platform: GitCommandPlatform["Service"];
+    runPromise: (
+      effect: Effect.Effect<GitCommandResult>,
+      options?: Effect.RunOptions,
+    ) => Promise<GitCommandResult>;
+  }) {
+    this.#environment = options.environment;
+    this.#lanes = options.lanes;
+    this.#platform = options.platform;
+    this.#runPromise = options.runPromise;
   }
 
   async run(
@@ -214,17 +233,41 @@ export class LocalGitCommandRunner implements GitCommandRunner {
     if (options.signal?.aborted) {
       return createEmptyFailure("canceled", { aborted: true });
     }
+    const outputBytesCap = options.outputBytesCap ?? GIT_DEFAULT_OUTPUT_BYTES_CAP;
+    const timeoutMs =
+      options.timeoutMs === undefined
+        ? isGitReadCommand(args)
+          ? GIT_READ_TIMEOUT_MS
+          : null
+        : options.timeoutMs;
+    if (!Number.isSafeInteger(outputBytesCap) || outputBytesCap <= 0) {
+      throw new Error("Git command output cap must be a positive safe integer");
+    }
+    if (timeoutMs !== null && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
+      throw new Error("Git command timeout must be a positive safe integer");
+    }
+    const callerConfigOverrides = options.configOverrides ?? [];
+    if (callerConfigOverrides.some((entry) => entry.includes("\0"))) {
+      throw new Error("Git config overrides cannot contain NUL bytes");
+    }
     const enqueuedAt = performance.now();
-    const execute = async () => {
+    const activeByCommonDir = this.#activeByCommonDir;
+    const executeCommand = this.#execute.bind(this);
+    const lanes = this.#lanes;
+    const execute = Effect.gen(function* () {
       const runtime = gitPerformanceOperationContext.getStore();
-      const active = (this.#activeByCommonDir.get(repository.commonDir) ?? 0) + 1;
-      this.#activeByCommonDir.set(repository.commonDir, active);
+      const active = (activeByCommonDir.get(repository.commonDir) ?? 0) + 1;
+      activeByCommonDir.set(repository.commonDir, active);
       if (runtime) {
         runtime.queueDurationMs += Math.max(0, performance.now() - enqueuedAt);
         runtime.peakConcurrency = Math.max(runtime.peakConcurrency, active);
       }
       try {
-        const result = await this.#execute(repository, args, options);
+        const result = yield* executeCommand(repository, args, {
+          ...options,
+          outputBytesCap,
+          timeoutMs,
+        });
         if (runtime) {
           runtime.commandCount += 1;
           runtime.statusCommandCount += args[0] === "status" ? 1 : 0;
@@ -240,239 +283,122 @@ export class LocalGitCommandRunner implements GitCommandRunner {
         }
         return result;
       } finally {
-        if (active === 1) this.#activeByCommonDir.delete(repository.commonDir);
-        else this.#activeByCommonDir.set(repository.commonDir, active - 1);
+        if (active === 1) activeByCommonDir.delete(repository.commonDir);
+        else activeByCommonDir.set(repository.commonDir, active - 1);
       }
-    };
-    if (options.serialize === false) return execute();
+    });
+    const operation =
+      options.serialize === false
+        ? execute
+        : Effect.scoped(
+            Effect.gen(function* () {
+              const lane = yield* RcMap.get(lanes, repository.commonDir);
+              return yield* lane.withPermit(execute);
+            }),
+          );
     try {
-      return await this.#queue.run(repository.commonDir, execute, options.signal);
+      return await this.#runPromise(
+        operation,
+        options.signal ? { signal: options.signal } : undefined,
+      );
     } catch (error) {
-      if (options.signal?.aborted) {
-        return createEmptyFailure("canceled", { aborted: true });
-      }
+      if (options.signal?.aborted) return createEmptyFailure("canceled", { aborted: true });
       throw error;
     }
   }
 
-  async #execute(
+  #execute(
     repository: GitRepositoryExecutionIdentity,
     args: readonly string[],
-    options: GitCommandOptions,
+    options: GitCommandOptions & { outputBytesCap: number; timeoutMs: number | null },
     skipFsmonitorResolution = false,
-  ): Promise<GitCommandResult> {
+  ): Effect.Effect<GitCommandResult> {
     const allowedExitCodes = new Set([0, ...(options.allowedNonZeroExitCodes ?? [])]);
-    const outputBytesCap = options.outputBytesCap ?? GIT_DEFAULT_OUTPUT_BYTES_CAP;
-    const timeoutMs =
-      options.timeoutMs === undefined
-        ? isGitReadCommand(args)
-          ? GIT_READ_TIMEOUT_MS
-          : null
-        : options.timeoutMs;
-    if (!Number.isSafeInteger(outputBytesCap) || outputBytesCap <= 0) {
-      throw new Error("Git command output cap must be a positive safe integer");
-    }
-    if (timeoutMs !== null && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
-      throw new Error("Git command timeout must be a positive safe integer");
-    }
-
-    const fsmonitorOverride = skipFsmonitorResolution
-      ? null
-      : await this.#resolveSafeFsmonitorOverride(repository, options);
     const callerConfigOverrides = options.configOverrides ?? [];
-    if (callerConfigOverrides.some((entry) => entry.includes("\0"))) {
-      throw new Error("Git config overrides cannot contain NUL bytes");
-    }
     const configArgs = callerConfigOverrides.flatMap((entry) => ["-c", entry]);
-
-    return await new Promise<GitCommandResult>((resolve) => {
-      let child: ReturnType<typeof spawn>;
-      try {
-        child = spawn(
-          "git",
-          [
-            ...GIT_CONFIG_OVERRIDES,
-            ...configArgs,
-            ...(fsmonitorOverride === null ? [] : ["-c", `core.fsmonitor=${fsmonitorOverride}`]),
-            ...(options.literalPathspecs ? ["--literal-pathspecs"] : []),
-            ...args,
-          ],
-          {
-            cwd: repository.root,
-            detached: process.platform !== "win32",
-            env: {
-              ...process.env,
-              ...options.env,
-              GIT_OPTIONAL_LOCKS: "0",
-              GIT_TERMINAL_PROMPT: "0",
-              LANGUAGE: "C",
-              LC_MESSAGES: "C",
-            },
-            stdio: ["pipe", "pipe", "pipe"],
-            windowsHide: true,
-          },
-        );
-      } catch {
-        resolve(createEmptyFailure("spawn_failed"));
-        return;
-      }
-      const childStdout = child.stdout;
-      const childStderr = child.stderr;
-      const childStdin = child.stdin;
-      if (!childStdout || !childStderr || !childStdin) {
-        child.kill();
-        resolve(createEmptyFailure("wait_failed"));
-        return;
-      }
-
-      const stdoutDecoder = new StringDecoder("utf8");
-      const stderrDecoder = new StringDecoder("utf8");
-      const stdout: string[] = [];
-      const stderr: string[] = [];
-      let stdoutBytes = 0;
-      let stderrBytes = 0;
-      let aborted = false;
-      let timedOut = false;
-      let outputLimitExceeded = false;
-      let spawnFailed = false;
-      let settled = false;
-      let killTimer: ReturnType<typeof setTimeout> | null = null;
-
-      const terminate = () => {
-        if (child.exitCode !== null || child.signalCode !== null) return;
-        killChildProcessTree(child, "SIGTERM");
-        if (killTimer) return;
-        killTimer = setTimeout(() => {
-          if (child.exitCode === null && child.signalCode === null) {
-            killChildProcessTree(child, "SIGKILL");
-          }
-        }, GIT_KILL_ESCALATION_MS);
-        killTimer.unref?.();
-      };
-      const handleAbort = () => {
-        aborted = true;
-        terminate();
-      };
-      const timeout =
-        timeoutMs === null
-          ? null
-          : setTimeout(() => {
-              timedOut = true;
-              terminate();
-            }, timeoutMs);
-      timeout?.unref?.();
-
-      const cleanup = () => {
-        if (timeout) clearTimeout(timeout);
-        if (killTimer) clearTimeout(killTimer);
-        options.signal?.removeEventListener("abort", handleAbort);
-      };
-      const finish = (code: number | null, signal: NodeJS.Signals | null) => {
-        if (settled) return;
-        settled = true;
-        cleanup();
-        stdout.push(stdoutDecoder.end());
-        stderr.push(stderrDecoder.end());
-        const failureReason: GitCommandFailureReason | null = aborted
-          ? "canceled"
-          : timedOut
-            ? "timed_out"
-            : outputLimitExceeded
-              ? "output_limit"
-              : spawnFailed
-                ? "spawn_failed"
-                : code !== null && allowedExitCodes.has(code)
-                  ? null
-                  : "nonzero_exit";
-        resolve({
-          success: failureReason === null,
-          code,
-          signal,
-          stdout: stdout.join(""),
-          stderr: stderr.join(""),
-          stdoutBytes,
-          stderrBytes,
-          failureReason,
-          aborted,
-          timedOut,
-          outputLimitExceeded,
-        });
-      };
-      const append = (
-        chunk: Buffer,
-        decoder: StringDecoder,
-        output: string[],
-        stream: "stdout" | "stderr",
-      ) => {
-        if (stream === "stdout") stdoutBytes += chunk.byteLength;
-        else stderrBytes += chunk.byteLength;
-        if (stdoutBytes + stderrBytes > outputBytesCap) {
-          outputLimitExceeded = true;
-          terminate();
-          return;
-        }
-        output.push(decoder.write(chunk));
-      };
-
-      options.signal?.addEventListener("abort", handleAbort, { once: true });
-      if (options.signal?.aborted) handleAbort();
-      childStdout.on("data", (chunk: Buffer) => {
-        append(chunk, stdoutDecoder, stdout, "stdout");
+    const environment = this.#environment;
+    const platform = this.#platform;
+    const resolveSafeFsmonitorOverride = this.#resolveSafeFsmonitorOverride.bind(this);
+    return Effect.gen(function* () {
+      const fsmonitorOverride = skipFsmonitorResolution
+        ? null
+        : yield* resolveSafeFsmonitorOverride(repository, options);
+      const result = yield* platform.run({
+        args: [
+          ...GIT_CONFIG_OVERRIDES,
+          ...configArgs,
+          ...(fsmonitorOverride === null ? [] : ["-c", `core.fsmonitor=${fsmonitorOverride}`]),
+          ...(options.literalPathspecs ? ["--literal-pathspecs"] : []),
+          ...args,
+        ],
+        cwd: repository.root,
+        environment: {
+          ...environment,
+          ...options.env,
+          GIT_OPTIONAL_LOCKS: "0",
+          GIT_TERMINAL_PROMPT: "0",
+          LANGUAGE: "C",
+          LC_MESSAGES: "C",
+        },
+        outputBytesCap: options.outputBytesCap,
+        stdin: options.stdin,
+        timeoutMs: options.timeoutMs,
       });
-      childStderr.on("data", (chunk: Buffer) => {
-        append(chunk, stderrDecoder, stderr, "stderr");
-      });
-      child.on("error", () => {
-        spawnFailed = true;
-      });
-      child.on("close", (code, signal) => finish(code, signal));
-      childStdin.on("error", () => undefined);
-      if (options.stdin === undefined) {
-        childStdin.end();
-      } else {
-        childStdin.end(options.stdin);
-      }
+      const failureReason: GitCommandFailureReason | null =
+        result.failureReason ??
+        (result.code !== null && allowedExitCodes.has(result.code) ? null : "nonzero_exit");
+      return {
+        ...result,
+        success: failureReason === null,
+        failureReason,
+        aborted: false,
+        timedOut: failureReason === "timed_out",
+        outputLimitExceeded: failureReason === "output_limit",
+      };
     });
   }
 
-  async #resolveSafeFsmonitorOverride(
+  #resolveSafeFsmonitorOverride(
     repository: GitRepositoryExecutionIdentity,
-    options: GitCommandOptions,
-  ): Promise<"" | "true"> {
+    options: GitCommandOptions & { outputBytesCap: number; timeoutMs: number | null },
+  ): Effect.Effect<"" | "true"> {
     if (process.platform !== "darwin" && process.platform !== "win32") {
-      return "";
+      return Effect.succeed("");
     }
     const cacheKey = JSON.stringify([
       repository.commonDir,
       Object.entries(options.env ?? {}).sort(([left], [right]) => left.localeCompare(right)),
     ]);
-    const now = performance.now();
-    const cached = this.#safeFsmonitorCache.get(cacheKey);
-    if (cached && cached.expiresAt > now) return cached.value;
-    if (cached) this.#safeFsmonitorCache.delete(cacheKey);
-    const deadline = now + 1_000;
-    const value = await this.#readSafeFsmonitorOverride(repository, options);
-    if (!options.signal?.aborted && performance.now() < deadline) {
-      this.#safeFsmonitorCache.set(cacheKey, {
-        expiresAt: deadline,
-        value,
-      });
-    }
-    return value;
+    const cache = this.#safeFsmonitorCache;
+    const readSafeFsmonitorOverride = this.#readSafeFsmonitorOverride.bind(this);
+    return Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      const cached = cache.get(cacheKey);
+      if (cached && cached.expiresAt > now) return cached.value;
+      if (cached) cache.delete(cacheKey);
+      const deadline = now + 1_000;
+      const value = yield* readSafeFsmonitorOverride(repository, options);
+      const completedAt = yield* Clock.currentTimeMillis;
+      if (completedAt < deadline) {
+        cache.set(cacheKey, { expiresAt: deadline, value });
+      }
+      return value;
+    });
   }
 
-  async #readSafeFsmonitorOverride(
+  #readSafeFsmonitorOverride(
     repository: GitRepositoryExecutionIdentity,
-    options: GitCommandOptions,
-  ): Promise<"" | "true"> {
-    try {
-      const config = await this.#execute(
+    options: GitCommandOptions & { outputBytesCap: number; timeoutMs: number | null },
+  ): Effect.Effect<"" | "true"> {
+    const executeCommand = this.#execute.bind(this);
+    return Effect.gen(function* () {
+      const config = yield* executeCommand(
         repository,
         ["config", "--null", "--get", "core.fsmonitor"],
         {
           allowedNonZeroExitCodes: [1],
           env: options.env,
-          signal: options.signal,
+          outputBytesCap: options.outputBytesCap,
           timeoutMs: options.timeoutMs ?? GIT_READ_TIMEOUT_MS,
         },
         true,
@@ -483,7 +409,7 @@ export class LocalGitCommandRunner implements GitCommandRunner {
       const normalized = configuredValue.toLowerCase();
       let enabled = ["true", "yes", "on"].includes(normalized);
       if (!["true", "yes", "on", "false", "no", "off"].includes(normalized)) {
-        const parsed = await this.#execute(
+        const parsed = yield* executeCommand(
           repository,
           [
             "config",
@@ -497,7 +423,7 @@ export class LocalGitCommandRunner implements GitCommandRunner {
           {
             allowedNonZeroExitCodes: [1],
             env: options.env,
-            signal: options.signal,
+            outputBytesCap: options.outputBytesCap,
             timeoutMs: options.timeoutMs ?? GIT_READ_TIMEOUT_MS,
           },
           true,
@@ -505,12 +431,12 @@ export class LocalGitCommandRunner implements GitCommandRunner {
         enabled = parsed.code === 0 && parsed.stdout === "true\0";
       }
       if (!enabled) return "";
-      const buildOptions = await this.#execute(
+      const buildOptions = yield* executeCommand(
         repository,
         ["version", "--build-options"],
         {
           env: options.env,
-          signal: options.signal,
+          outputBytesCap: options.outputBytesCap,
           timeoutMs: options.timeoutMs ?? GIT_READ_TIMEOUT_MS,
         },
         true,
@@ -521,11 +447,32 @@ export class LocalGitCommandRunner implements GitCommandRunner {
         .some((line) => line.trim() === "feature: fsmonitor--daemon")
         ? "true"
         : "";
-    } catch {
-      return "";
-    }
+    });
   }
 }
+
+export interface GitCommandRunnerOptions {
+  readonly environment: NodeJS.ProcessEnv;
+}
+
+/** Owns all one-shot Git command fibers and per-repository FIFO lanes in the worker Scope. */
+export const makeGitCommandRunner = (
+  options: GitCommandRunnerOptions,
+): Effect.Effect<GitCommandRunner, never, GitCommandPlatform | Scope.Scope> =>
+  Effect.gen(function* () {
+    const platform = yield* GitCommandPlatform;
+    const lanes = yield* RcMap.make({
+      lookup: (_commonDir: string) => Semaphore.make(1),
+      idleTimeToLive: Duration.zero,
+    });
+    const runPromise = yield* FiberSet.makeRuntimePromise<never, GitCommandResult, never>();
+    return new GitCommandRunnerState({
+      environment: { ...options.environment },
+      lanes,
+      platform,
+      runPromise,
+    });
+  });
 
 export function isGitReadCommand(args: readonly string[]): boolean {
   switch (args[0]) {

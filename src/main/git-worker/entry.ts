@@ -13,6 +13,7 @@ import {
   type GitWorkerMessageFromThread,
   type GitWorkerResponse,
 } from "../../shared/git-worker-protocol";
+import * as GitCommandPlatformNode from "../platform/node/GitCommandPlatformNode";
 import { makeGitWorkerModule } from "./git-worker-module";
 
 interface GitWorkerEntryData {
@@ -117,6 +118,8 @@ const program = Effect.scoped(
     yield* Deferred.await(shutdown);
   }),
 ).pipe(
+  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the Git worker process composition root.
+  Effect.provide(GitCommandPlatformNode.nodeLive),
   Effect.catchCause((cause) =>
     Effect.sync(() => {
       const error = Cause.squash(cause);

@@ -6,7 +6,9 @@ import { promisify } from "node:util";
 import { it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { afterEach, describe, expect } from "vite-plus/test";
-import { LocalGitCommandRunner } from "./git-command-runner";
+import * as GitCommandPlatformNode from "../platform/node/GitCommandPlatformNode";
+import { makeGitCommandRunner } from "./git-command-runner";
+import { GitReviewRuntime } from "./git-review-operations";
 import { makeGitRepositoryRegistry } from "./repository-registry";
 
 const execFileAsync = promisify(execFile);
@@ -20,9 +22,20 @@ afterEach(async () => {
   );
 });
 
+const makeRegistry = makeGitCommandRunner({ environment: process.env }).pipe(
+  Effect.flatMap((runner) =>
+    makeGitRepositoryRegistry(
+      runner,
+      new GitReviewRuntime({ commandRunner: runner, environment: process.env }),
+    ),
+  ),
+  // oxlint-disable-next-line effecttsgo/strict-effect-provide -- this is the test application composition root.
+  Effect.provide(GitCommandPlatformNode.nodeLive),
+);
+
 describe("GitRepositoryRegistry", () => {
   it.effect("canonicalizes cwd aliases to one worktree owner", () =>
-    makeGitRepositoryRegistry(new LocalGitCommandRunner()).pipe(
+    makeRegistry.pipe(
       Effect.flatMap((registry) =>
         Effect.promise(async () => {
           const root = await mkdtemp(path.join(tmpdir(), "nodex-git-registry-"));
@@ -43,7 +56,7 @@ describe("GitRepositoryRegistry", () => {
   );
 
   it.effect("returns null for an ordinary directory", () =>
-    makeGitRepositoryRegistry(new LocalGitCommandRunner()).pipe(
+    makeRegistry.pipe(
       Effect.flatMap((registry) =>
         Effect.promise(async () => {
           const root = await mkdtemp(path.join(tmpdir(), "nodex-not-git-"));

@@ -18,6 +18,7 @@ import type {
   GitWorkerMethodMap,
   GitWorkerRequest,
 } from "../shared/git-worker-protocol";
+import * as GitCommandPlatformNode from "./platform/node/GitCommandPlatformNode";
 import { makeGitWorkerModule, type GitWorkerModule } from "./git-worker/git-worker-module";
 
 interface CommandResult {
@@ -79,7 +80,11 @@ async function readActionStatus(module: GitWorkerModule, cwd: string) {
 }
 
 const withGitWorkerModule = <A>(run: (module: GitWorkerModule) => Promise<A>) =>
-  makeGitWorkerModule().pipe(Effect.flatMap((module) => Effect.promise(() => run(module))));
+  makeGitWorkerModule({ environment: process.env }).pipe(
+    Effect.flatMap((module) => Effect.promise(() => run(module))),
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- the helper owns a fresh integration-test application Scope.
+    Effect.provide(GitCommandPlatformNode.nodeLive),
+  );
 
 function runCommand(command: string, args: string[], cwd: string): Promise<CommandResult> {
   return new Promise((resolve, reject) => {

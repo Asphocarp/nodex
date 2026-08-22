@@ -48,7 +48,7 @@ import {
   REVIEW_RENDERABLE_TEXT_MAX_BYTES,
   REVIEW_UNTRACKED_DIFF_CONCURRENCY,
 } from "../../shared/review-file-safety";
-import { LocalGitCommandRunner, type GitCommandRunner } from "./git-command-runner";
+import type { GitCommandRunner } from "./git-command-runner";
 
 interface GitCommandResult {
   stdout: string;
@@ -168,15 +168,10 @@ export class GitReviewRuntime {
   readonly #repositoryPathReads = new Map<string, Promise<GitReviewRepositoryPaths | null>>();
   readonly #snapshotGenerationProviders = new Map<string, GitReviewSnapshotGenerationProvider>();
 
-  constructor(
-    options: {
-      commandRunner?: GitCommandRunner;
-      environment?: NodeJS.ProcessEnv;
-    } = {},
-  ) {
-    this.#commandRunner = options.commandRunner ?? new LocalGitCommandRunner();
+  constructor(options: { commandRunner: GitCommandRunner; environment: NodeJS.ProcessEnv }) {
+    this.#commandRunner = options.commandRunner;
     this.#environment = {
-      ...(options.environment ?? process.env),
+      ...options.environment,
       GIT_OPTIONAL_LOCKS: "0",
       GIT_TERMINAL_PROMPT: "0",
       LC_ALL: "C",
@@ -299,7 +294,9 @@ export class GitReviewRuntime {
 }
 
 function currentGitReviewRuntime(): GitReviewRuntime {
-  return gitReviewOperationContext.getStore()?.runtime ?? new GitReviewRuntime();
+  const runtime = gitReviewOperationContext.getStore()?.runtime;
+  if (!runtime) throw new Error("Git review operation requires an explicit runtime context");
+  return runtime;
 }
 
 async function ensureDirectory(cwd: string): Promise<string> {
@@ -323,7 +320,7 @@ function runGitCommand(
   options?: { literalPathspecs?: boolean; signal?: AbortSignal },
 ): Promise<GitCommandResult> {
   const context = gitReviewOperationContext.getStore();
-  const runtime = context?.runtime ?? new GitReviewRuntime();
+  const runtime = context?.runtime ?? currentGitReviewRuntime();
   const signal = options?.signal ?? context?.signal;
   signal?.throwIfAborted();
   const normalizedCwd = normalizeGitReviewRepositoryPath(cwd);
@@ -1471,7 +1468,7 @@ function runGitCatFileBatch(cwd: string, objectSpecs: string[]): Promise<Buffer>
   if (objectSpecs.length === 0) return Promise.resolve(Buffer.alloc(0));
 
   const context = gitReviewOperationContext.getStore();
-  const runtime = context?.runtime ?? new GitReviewRuntime();
+  const runtime = context?.runtime ?? currentGitReviewRuntime();
   const signal = context?.signal;
   signal?.throwIfAborted();
 

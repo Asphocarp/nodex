@@ -3,10 +3,18 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, it } from "vite-plus/test";
+import { it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Scope from "effect/Scope";
+import { afterEach, describe, expect } from "vite-plus/test";
+import * as GitCommandPlatformNode from "../platform/node/GitCommandPlatformNode";
+import { GitCommandPlatform, type GitCommandProcessResult } from "./git-command-platform";
 import {
-  LocalGitCommandRunner,
   isGitReadCommand,
+  makeGitCommandRunner,
+  type GitCommandRunner,
   type GitRepositoryExecutionIdentity,
 } from "./git-command-runner";
 
@@ -35,72 +43,190 @@ afterEach(async () => {
   );
 });
 
-describe("LocalGitCommandRunner", () => {
-  it("runs with non-interactive, stable, no-optional-locks Git policy", async () => {
-    const repository = await createRepository();
-    const runner = new LocalGitCommandRunner();
-    const result = await runner.run(repository, ["nodex-env"], {
-      configOverrides: [
-        'alias.nodex-env=!test "$GIT_OPTIONAL_LOCKS" = 0' +
-          ' && test "$GIT_TERMINAL_PROMPT" = 0' +
-          ' && test "$LC_MESSAGES" = C' +
-          ' && test "$LANGUAGE" = C',
-      ],
-    });
+const withRunner = <A>(run: (runner: GitCommandRunner) => Promise<A>) =>
+  makeGitCommandRunner({ environment: process.env }).pipe(
+    Effect.flatMap((runner) => Effect.promise(() => run(runner))),
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- the helper owns a fresh test application Scope.
+    Effect.provide(GitCommandPlatformNode.nodeLive),
+  );
 
-    expect(result).toMatchObject({
-      success: true,
-      code: 0,
-      failureReason: null,
-      timedOut: false,
-    });
-  });
+const processResult = (code = 0): GitCommandProcessResult => ({
+  code,
+  signal: null,
+  stdout: "",
+  stderr: "",
+  stdoutBytes: 0,
+  stderrBytes: 0,
+  failureReason: null,
+});
 
-  it("returns timeout as structured data without fabricating exit code zero", async () => {
-    const repository = await createRepository();
-    const runner = new LocalGitCommandRunner();
-    const result = await runner.run(repository, ["nodex-sleep"], {
-      configOverrides: ["alias.nodex-sleep=!sleep 1"],
-      timeoutMs: 20,
-    });
+describe("GitCommandRunner", () => {
+  it.live("runs with non-interactive, stable, no-optional-locks Git policy", () =>
+    withRunner(async (runner) => {
+      const repository = await createRepository();
+      const result = await runner.run(repository, ["nodex-env"], {
+        configOverrides: [
+          'alias.nodex-env=!test "$GIT_OPTIONAL_LOCKS" = 0' +
+            ' && test "$GIT_TERMINAL_PROMPT" = 0' +
+            ' && test "$LC_MESSAGES" = C' +
+            ' && test "$LANGUAGE" = C',
+        ],
+      });
 
-    expect(result).toMatchObject({
-      success: false,
-      code: null,
-      failureReason: "timed_out",
-      timedOut: true,
-      aborted: false,
-    });
-  });
+      expect(result).toMatchObject({
+        success: true,
+        code: 0,
+        failureReason: null,
+        timedOut: false,
+      });
+    }),
+  );
 
-  it("distinguishes cancellation and output limits", async () => {
-    const repository = await createRepository();
-    const runner = new LocalGitCommandRunner();
-    const controller = new AbortController();
-    const canceled = runner.run(repository, ["nodex-sleep"], {
-      configOverrides: ["alias.nodex-sleep=!sleep 1"],
-      signal: controller.signal,
-    });
-    controller.abort();
+  it.live("returns timeout as structured data without fabricating exit code zero", () =>
+    withRunner(async (runner) => {
+      const repository = await createRepository();
+      const result = await runner.run(repository, ["nodex-sleep"], {
+        configOverrides: ["alias.nodex-sleep=!sleep 1"],
+        timeoutMs: 20,
+      });
 
-    await expect(canceled).resolves.toMatchObject({
-      success: false,
-      failureReason: "canceled",
-      aborted: true,
-      timedOut: false,
-    });
+      expect(result).toMatchObject({
+        success: false,
+        code: null,
+        failureReason: "timed_out",
+        timedOut: true,
+        aborted: false,
+      });
+    }),
+  );
 
-    const capped = await runner.run(repository, ["nodex-output"], {
-      configOverrides: ["alias.nodex-output=!yes x | head -c 4096"],
-      outputBytesCap: 256,
-    });
-    expect(capped).toMatchObject({
-      success: false,
-      failureReason: "output_limit",
-      outputLimitExceeded: true,
-    });
-    expect(capped.stdoutBytes + capped.stderrBytes).toBeGreaterThan(256);
-  });
+  it.live("distinguishes cancellation and output limits", () =>
+    withRunner(async (runner) => {
+      const repository = await createRepository();
+      const controller = new AbortController();
+      const canceled = runner.run(repository, ["nodex-sleep"], {
+        configOverrides: ["alias.nodex-sleep=!sleep 1"],
+        signal: controller.signal,
+      });
+      controller.abort();
+
+      await expect(canceled).resolves.toMatchObject({
+        success: false,
+        failureReason: "canceled",
+        aborted: true,
+        timedOut: false,
+      });
+
+      const capped = await runner.run(repository, ["nodex-output"], {
+        configOverrides: ["alias.nodex-output=!yes x | head -c 4096"],
+        outputBytesCap: 256,
+      });
+      expect(capped).toMatchObject({
+        success: false,
+        failureReason: "output_limit",
+        outputLimitExceeded: true,
+      });
+      expect(capped.stdoutBytes + capped.stderrBytes).toBeGreaterThan(256);
+    }),
+  );
+
+  it.effect("serializes one repository while allowing another to run", () =>
+    Effect.gen(function* () {
+      const firstGate = yield* Deferred.make<void>();
+      const otherGate = yield* Deferred.make<void>();
+      const firstStarted = yield* Deferred.make<void>();
+      const otherStarted = yield* Deferred.make<void>();
+      const starts: string[] = [];
+      const platform = GitCommandPlatform.of({
+        run: (input) => {
+          const operation = input.args.at(-1);
+          if (operation === "first") {
+            return Effect.sync(() => starts.push("first")).pipe(
+              Effect.andThen(Deferred.succeed(firstStarted, undefined)),
+              Effect.andThen(Deferred.await(firstGate)),
+              Effect.as(processResult()),
+            );
+          }
+          if (operation === "other") {
+            return Effect.sync(() => starts.push("other")).pipe(
+              Effect.andThen(Deferred.succeed(otherStarted, undefined)),
+              Effect.andThen(Deferred.await(otherGate)),
+              Effect.as(processResult()),
+            );
+          }
+          if (operation === "second") {
+            return Effect.sync(() => starts.push("second")).pipe(Effect.as(processResult()));
+          }
+          return Effect.succeed(processResult(1));
+        },
+      });
+      const runner = yield* makeGitCommandRunner({ environment: {} }).pipe(
+        Effect.provideService(GitCommandPlatform, platform),
+      );
+      const repositoryA = { hostId: "local" as const, root: "/a", commonDir: "/a/.git" };
+      const repositoryB = { hostId: "local" as const, root: "/b", commonDir: "/b/.git" };
+
+      const first = runner.run(repositoryA, ["first"]);
+      const second = runner.run(repositoryA, ["second"]);
+      const other = runner.run(repositoryB, ["other"]);
+      yield* Deferred.await(firstStarted);
+      yield* Deferred.await(otherStarted);
+      expect(starts).toEqual(["first", "other"]);
+
+      yield* Deferred.succeed(firstGate, undefined);
+      yield* Effect.promise(() => first);
+      yield* Effect.promise(() => second);
+      expect(starts).toEqual(["first", "other", "second"]);
+      yield* Deferred.succeed(otherGate, undefined);
+      yield* Effect.promise(() => other);
+    }),
+  );
+
+  it.effect("interrupts queued and active commands with caller and owner Scope", () =>
+    Effect.gen(function* () {
+      const parentScope = yield* Scope.Scope;
+      const runnerScope = yield* Scope.fork(parentScope);
+      const activeStarted = yield* Deferred.make<void>();
+      const activeInterrupted = yield* Deferred.make<void>();
+      const starts: string[] = [];
+      const platform = GitCommandPlatform.of({
+        run: (input) => {
+          const operation = input.args.at(-1);
+          if (operation === "active") {
+            return Effect.sync(() => starts.push("active")).pipe(
+              Effect.andThen(Deferred.succeed(activeStarted, undefined)),
+              Effect.andThen(Effect.never),
+              Effect.onInterrupt(() => Deferred.succeed(activeInterrupted, undefined)),
+            );
+          }
+          if (operation === "queued") {
+            return Effect.sync(() => starts.push("queued")).pipe(Effect.as(processResult()));
+          }
+          return Effect.succeed(processResult(1));
+        },
+      });
+      const runner = yield* makeGitCommandRunner({ environment: {} }).pipe(
+        Effect.provideService(GitCommandPlatform, platform),
+        Scope.provide(runnerScope),
+      );
+      const repository = { hostId: "local" as const, root: "/a", commonDir: "/a/.git" };
+      const active = runner.run(repository, ["active"]);
+      yield* Deferred.await(activeStarted);
+      const controller = new AbortController();
+      const queued = runner.run(repository, ["queued"], { signal: controller.signal });
+      controller.abort();
+
+      yield* Effect.promise(() =>
+        expect(queued).resolves.toMatchObject({ failureReason: "canceled", aborted: true }),
+      );
+      expect(starts).toEqual(["active"]);
+
+      yield* Scope.close(runnerScope, Exit.void);
+      yield* Deferred.await(activeInterrupted);
+      yield* Effect.promise(() => expect(active).rejects.toBeDefined());
+      expect(starts).toEqual(["active"]);
+    }),
+  );
 
   it("classifies only bounded background reads for the default timeout", () => {
     expect(isGitReadCommand(["status", "--porcelain=v1"])).toBe(true);
@@ -111,12 +237,12 @@ describe("LocalGitCommandRunner", () => {
     expect(isGitReadCommand(["apply", "patch.diff"])).toBe(false);
   });
 
-  it("rejects global options outside the typed config override seam", async () => {
-    const repository = await createRepository();
-    const runner = new LocalGitCommandRunner();
-
-    await expect(runner.run(repository, ["-c", "core.fsmonitor=false", "status"])).rejects.toThrow(
-      "must begin with a subcommand",
-    );
-  });
+  it.live("rejects global options outside the typed config override seam", () =>
+    withRunner(async (runner) => {
+      const repository = await createRepository();
+      await expect(
+        runner.run(repository, ["-c", "core.fsmonitor=false", "status"]),
+      ).rejects.toThrow("must begin with a subcommand");
+    }),
+  );
 });

@@ -768,6 +768,14 @@ windows without owning raw timers. Repository reads coalesce in one `QueryClient
 query signal is the physical read cancellation authority. Last-consumer release,
 generation replacement, and Scope release all cancel through that same signal before the
 cache and generation-provider registrations are released.
+The command runner is also worker-scoped. A zero-idle `RcMap` supplies one Effect
+`Semaphore` lane per canonical common directory, so same-repository commands are FIFO
+while unrelated repositories remain concurrent; waiting and active commands are fibers in
+the worker's `FiberSet`. Ordinary one-shot commands cross the stable `GitCommandPlatform`
+port. Its Node adapter is the only layer that imports the unstable `ChildProcessSpawner`;
+it owns stdin/stdout/stderr streams, bounded output, Effect-clock deadlines, and scoped
+TERM-to-KILL process-group cleanup. The runner receives an explicit environment snapshot
+from the worker entry and owns no process-global Promise tail or ambient environment read.
 Application Git mutations, including commit and push, cross the same worker protocol. The
 repository owner advances its generation after success; Main does not run a parallel mutation
 path or issue a compensating refresh whose correctness depends on the caller remembering it.
