@@ -15,8 +15,8 @@ import {
   live as executionHostRuntimeLive,
   type ExecutionHostRuntimeFactories,
   type RemoteExecutionHostTransport,
-  type RemoteWorktreeWorker,
 } from "./ExecutionHostRuntime";
+import type { CodexWorktreeWorkerPort } from "../codex/codex-worktree-worker-port";
 
 const sshHost = (
   id: string,
@@ -88,19 +88,17 @@ const makeHarness = (failedHostId?: string) => {
         cleanup: () => Promise.reject(new Error("not exercised")),
       }) satisfies RemoteExecutionHostTransport,
     makeWorker: ({ hostId }) =>
-      ({
-        hostId,
-        shutdown: () => {
+      Effect.acquireRelease(Effect.succeed({ hostId } as CodexWorktreeWorkerPort), () =>
+        Effect.sync(() => {
           shutdowns.push(hostId);
-          return Promise.resolve();
-        },
-      }) as RemoteWorktreeWorker,
+        }),
+      ),
   };
   const layer = executionHostRuntimeLive({
     runtimeStateHome: "/profile/agent",
     nodexHome: "/profile",
     remoteWorktreeWorkerBundlePath: "/app/remote-worktree-worker.cjs",
-    localWorktreeWorker: { hostId: "local" } as RemoteWorktreeWorker,
+    localWorktreeWorker: { hostId: "local" } as CodexWorktreeWorkerPort,
     settings: {
       read: () => settings,
       update: (input) => {

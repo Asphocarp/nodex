@@ -11,7 +11,7 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { afterAll, beforeAll } from "vite-plus/test";
 import type { CodexWorktreeWorkerCreateInput } from "../codex/codex-worktree-worker-port";
-import { LocalWorktreeWorkerRuntime, live } from "./LocalWorktreeWorkerRuntime";
+import { localLive, WorktreeWorkerRuntime } from "./WorktreeWorkerRuntime";
 
 let fixtureRoot = "";
 let fixturePath = "";
@@ -92,10 +92,10 @@ const acquire = (onInfrastructureError?: (error: Error) => void) =>
   Effect.gen(function* () {
     const scope = yield* Scope.make();
     const context = yield* Layer.buildWithScope(
-      live({ hostId: "local", workerPath: fixturePath, onInfrastructureError }),
+      localLive({ hostId: "local", workerPath: fixturePath, onInfrastructureError }),
       scope,
     );
-    return { runtime: Context.get(context, LocalWorktreeWorkerRuntime), scope };
+    return { runtime: Context.get(context, WorktreeWorkerRuntime), scope };
   });
 
 it.effect("streams events and replaces a crashed worker generation", () =>

@@ -7,6 +7,7 @@ import * as LayerMap from "effect/LayerMap";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import * as Scope from "effect/Scope";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import type {
   CodexExecutionHostSettings,
@@ -26,7 +27,7 @@ import {
   CodexLocalExecutionHostFileTransfer,
   type CodexExecutionHostFileTransferPort,
 } from "../codex/codex-execution-host-file-transfer";
-import { CodexRemoteWorktreeWorkerPort } from "../codex/codex-remote-worktree-worker-port";
+import { makeCodexRemoteWorktreeWorker } from "../codex/codex-remote-worktree-worker-port";
 import {
   CodexSshExecutionHostTransport,
   type CodexSshExecutionHostHealth,
@@ -72,10 +73,6 @@ export interface RemoteExecutionHostTransport extends CodexExecutionHostFileTran
   readonly appServerClientOptions: CodexSshExecutionHostTransport["appServerClientOptions"];
 }
 
-export type RemoteWorktreeWorker = CodexWorktreeWorkerPort & {
-  readonly shutdown: () => Promise<void>;
-};
-
 export interface ExecutionHostRuntimeFactories {
   readonly makeTransport: (input: {
     readonly config: CodexSshExecutionHostConfig;
@@ -83,9 +80,9 @@ export interface ExecutionHostRuntimeFactories {
   }) => RemoteExecutionHostTransport;
   readonly makeWorker: (input: {
     readonly hostId: string;
-    readonly openWorker: () => Promise<ChildProcessWithoutNullStreams>;
+    readonly openWorker: (signal: AbortSignal) => Promise<ChildProcessWithoutNullStreams>;
     readonly onInfrastructureError: (error: Error) => void;
-  }) => RemoteWorktreeWorker;
+  }) => Effect.Effect<CodexWorktreeWorkerPort, never, Scope.Scope>;
 }
 
 export interface ExecutionHostRuntimeOptions {
@@ -136,13 +133,13 @@ class ActiveRemoteHost extends Context.Service<
   ActiveRemoteHost,
   {
     readonly config: CodexSshExecutionHostConfig;
-    readonly worker: RemoteWorktreeWorker;
+    readonly worker: CodexWorktreeWorkerPort;
   }
 >()("nodex/main/codex-application/ExecutionHostRuntime/ActiveRemoteHost") {}
 
 const defaultFactories: ExecutionHostRuntimeFactories = {
   makeTransport: (input) => new CodexSshExecutionHostTransport(input),
-  makeWorker: (input) => new CodexRemoteWorktreeWorkerPort(input),
+  makeWorker: makeCodexRemoteWorktreeWorker,
 };
 
 const sameConfig = (
@@ -226,24 +223,16 @@ export const live = (
       const releaseRemoteHost = (host: ActiveRemoteHost["Service"]): Effect.Effect<void> =>
         Effect.gen(function* () {
           registry.unregister(host.config.id, host.worker);
-          const releases = yield* Effect.all(
-            [
-              gateway.removeHost(host.config.id).pipe(Effect.result),
-              Effect.tryPromise(() => host.worker.shutdown()).pipe(Effect.result),
-            ],
-            { concurrency: "unbounded" },
-          );
+          const release = yield* gateway.removeHost(host.config.id).pipe(Effect.result);
           yield* SubscriptionRef.update(activeSshHosts, (current) => {
             const next = new Map(current);
             next.delete(host.config.id);
             return next;
           });
-          for (const release of releases) {
-            if (release._tag === "Success") continue;
-            yield* Effect.logWarning("Could not fully release SSH execution host").pipe(
-              Effect.annotateLogs({ hostId: host.config.id, cause: String(release.failure) }),
-            );
-          }
+          if (release._tag === "Success") return;
+          yield* Effect.logWarning("Could not fully release SSH execution host").pipe(
+            Effect.annotateLogs({ hostId: host.config.id, cause: String(release.failure) }),
+          );
         });
 
       const remoteHostLayer = (
@@ -280,19 +269,15 @@ export const live = (
                           catch: (cause) => error("prepare", cause, hostId),
                         }),
                       );
-                      const worker = yield* Effect.try({
-                        try: () =>
-                          factories.makeWorker({
+                      const worker = yield* factories.makeWorker({
+                        hostId,
+                        openWorker: (signal) => transport.openWorktreeWorker(signal),
+                        onInfrastructureError: (cause) => {
+                          logger.error("Remote worktree worker failed", {
                             hostId,
-                            openWorker: () => transport.openWorktreeWorker(),
-                            onInfrastructureError: (cause) => {
-                              logger.error("Remote worktree worker failed", {
-                                hostId,
-                                error: cause.message,
-                              });
-                            },
-                          }),
-                        catch: (cause) => error("construct-worker", cause, hostId),
+                            error: cause.message,
+                          });
+                        },
                       });
                       const host = ActiveRemoteHost.of({ config, worker });
                       yield* Effect.gen(function* () {
@@ -337,15 +322,7 @@ export const live = (
                       }).pipe(
                         Effect.onError(() =>
                           Effect.sync(() => registry.unregister(hostId, worker)).pipe(
-                            Effect.andThen(
-                              Effect.all(
-                                [
-                                  gateway.removeHost(hostId).pipe(Effect.ignore),
-                                  Effect.tryPromise(() => worker.shutdown()).pipe(Effect.ignore),
-                                ],
-                                { concurrency: "unbounded", discard: true },
-                              ),
-                            ),
+                            Effect.andThen(gateway.removeHost(hostId).pipe(Effect.ignore)),
                           ),
                         ),
                       );

@@ -440,5 +440,4 @@ export interface CodexWorktreeWorkerPort {
     input: CodexWorktreeWorkerCleanupTransferHandoffInput,
     options?: Partial<CodexWorktreeWorkerRequestOptions>,
   ): Promise<CodexWorktreeWorkerCleanupTransferHandoffResult>;
-  shutdown?(): Promise<void>;
 }

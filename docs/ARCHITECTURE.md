@@ -821,22 +821,27 @@ interrupts every remaining request, releases shell/repository resources, and
 then closes the transport. Worker entry files contain no module-level active
 request registry or detached Promise chain.
 
-The Main side of the local worktree channel is likewise one
-`LocalWorktreeWorkerRuntime`. It owns the active Worker generation, protocol
-listeners, pending request `Deferred`s, callback fibers, and termination in the
-Main Scope. Effect interruption sends one protocol cancellation for the
-matching request. Worker failure rejects every request from that generation;
-later admission creates a fresh generation. Its Promise-shaped execution-host
-port is a state-free transport projection backed by the same scoped FiberSet,
-not a second lifecycle owner.
+The Main side of every worktree channel uses the same `WorktreeWorkerRuntime`
+kernel. One scoped instance owns the active process generation, protocol
+listeners, pending request `Deferred`s, callback fibers, and bounded
+cooperative-to-forced termination. Effect interruption sends one protocol
+cancellation for the matching request. Generation failure rejects every
+pending request before later admission starts a replacement. The local adapter
+only creates a `worker_threads` process; the SSH adapter only opens a child and
+frames JSON lines. Neither adapter owns request correlation, reconnect state,
+or a public shutdown protocol. The Promise-shaped execution-host port is a
+state-free projection backed by the owning Scope's FiberSet.
 
 `ExecutionHostRuntime` is the sole owner of execution-host settings and remote
 host activation. Each enabled SSH host is one keyed Scope containing its health
-probe, deployed worker channel, file-transfer adapter, Codex endpoint, and host
-capability association. Removing or changing the configuration invalidates that
-Scope; Main shutdown closes every remaining host through the same release path.
-The local worktree worker remains owned by `LocalWorktreeWorkerRuntime`;
-execution-host state only borrows its registry port and never closes the worker.
+probe, scoped `WorktreeWorkerRuntime` client, file-transfer adapter, Codex
+endpoint, and host capability association. Removing or changing the
+configuration invalidates that Scope; its finalizers unregister routing, close
+request admission, reject pending work, request cooperative worker shutdown,
+and force the SSH child only after the bounded deadline. Main shutdown closes
+every remaining host through the same release path. The local
+`WorktreeWorkerRuntime` belongs directly to the Main Scope; execution-host state
+only borrows its registry port and never closes that local owner.
 Git and Worktree lifecycles have no process-wide aggregate or shared shutdown
 facade because their protocols and ownership semantics are independent.
 

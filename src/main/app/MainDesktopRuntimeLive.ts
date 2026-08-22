@@ -298,9 +298,9 @@ import {
 } from "../host-runtime/GitActionOperationRuntime";
 import { GitWorkerRuntime, live as gitWorkerRuntimeLive } from "../host-runtime/GitWorkerRuntime";
 import {
-  LocalWorktreeWorkerRuntime,
-  live as localWorktreeWorkerRuntimeLive,
-} from "../host-runtime/LocalWorktreeWorkerRuntime";
+  localLive as localWorktreeWorkerRuntimeLive,
+  WorktreeWorkerRuntime,
+} from "../host-runtime/WorktreeWorkerRuntime";
 import {
   WorktreeEnvironmentRuntime,
   live as worktreeEnvironmentRuntimeLive,
@@ -841,10 +841,7 @@ export const live: Layer.Layer<
           }),
           runtimeScope,
         );
-        const localWorktreeWorker = Context.get(
-          localWorktreeWorkerContext,
-          LocalWorktreeWorkerRuntime,
-        );
+        const localWorktreeWorker = Context.get(localWorktreeWorkerContext, WorktreeWorkerRuntime);
         const gitWorkerContext = yield* Layer.buildWithScope(
           gitWorkerRuntimeLive({
             workerPath: `${__dirname}/git-worker.js`,
