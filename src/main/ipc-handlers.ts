@@ -14,6 +14,7 @@ import { ScopedCallbackRuntime } from "./app/ScopedCallbackRuntime";
 import type { CodexService } from "./codex/codex-service";
 import type { CodexManualCompactionRuntime } from "./codex-application/CodexManualCompactionRuntime";
 import type { CodexThreadGoalRuntime } from "./codex-application/CodexThreadGoalRuntime";
+import type { CodexThreadSettingsRuntime } from "./codex-application/CodexThreadSettingsRuntime";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -98,6 +99,7 @@ interface CodexIpcOptions {
   codexService: CodexService;
   manualCompaction: CodexManualCompactionRuntime["Service"];
   threadGoals: CodexThreadGoalRuntime["Service"];
+  threadSettings: CodexThreadSettingsRuntime["Service"];
   rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
@@ -522,16 +524,40 @@ export const codexIpcLive = (
         codexService.unarchiveThread(threadId),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:collaboration-mode:set",
         (_, threadId: string, collaborationMode: CodexCollaborationModeKind) =>
-          codexService.setConversationCollaborationMode(threadId, collaborationMode),
+          options.threadSettings.update({ threadId, patch: { collaborationMode } }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new CodexIpcError({
+                  operation: "codex:thread:collaboration-mode:set",
+                  cause,
+                }),
+            ),
+            Effect.flatMap((settings) =>
+              settings.collaborationMode
+                ? Effect.succeed(settings.collaborationMode)
+                : Effect.fail(
+                    new CodexIpcError({
+                      operation: "codex:thread:collaboration-mode:set",
+                      cause: new Error("Thread settings projection omitted collaboration mode"),
+                    }),
+                  ),
+            ),
+          ),
       );
 
-      registerHandle(
+      registerEffectHandle(
         "codex:thread:settings:update",
         (_, threadId: string, patch: CodexConversationThreadSettingsPatch) =>
-          codexService.updateThreadSettingsForNextTurn(threadId, patch),
+          options.threadSettings
+            .update({ threadId, patch })
+            .pipe(
+              Effect.mapError(
+                (cause) => new CodexIpcError({ operation: "codex:thread:settings:update", cause }),
+              ),
+            ),
       );
 
       registerHandle(

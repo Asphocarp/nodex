@@ -7,6 +7,7 @@ import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
 import { CodexManualCompactionRuntime } from "../../codex-application/CodexManualCompactionRuntime";
 import { CodexThreadGoalRuntime } from "../../codex-application/CodexThreadGoalRuntime";
+import { CodexThreadSettingsRuntime } from "../../codex-application/CodexThreadSettingsRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
@@ -42,6 +43,13 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           set: () => Effect.succeed(null),
           clear: () => Effect.void,
           load: () => Effect.succeed({ ok: true, goal: null }),
+        }),
+        threadSettings: CodexThreadSettingsRuntime.of({
+          update: () => Effect.die(new Error("Unexpected Thread settings operation")),
+          awaitCurrent: () => Effect.void,
+          remoteUpdateSupport: () => "unknown",
+          recordRemoteUpdateSupported: () => undefined,
+          recordRemoteUpdateUnsupported: () => undefined,
         }),
         projectWorkspace: {} as DesktopProjectWorkspacePort,
         rendererClientRouter: {} as RendererClientRuntimeService,

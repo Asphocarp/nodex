@@ -188,7 +188,10 @@ import {
   live as codexManualCompactionRuntimeLive,
 } from "../codex-application/CodexManualCompactionRuntime";
 import { makeCodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
-import { make as makeCodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
+import {
+  CodexThreadSettingsOperationError,
+  make as makeCodexThreadSettingsRuntime,
+} from "../codex-application/CodexThreadSettingsRuntime";
 import { makeCodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import {
   CodexThreadTitlePersistenceEffectError,
@@ -1490,7 +1493,19 @@ export const live: Layer.Layer<
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const dynamicToolsLaunch = makeCodexDynamicToolsLaunch();
         const sidebarThreadMoveRuntime = yield* makeCodexSidebarThreadMoveRuntime;
-        const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime.pipe(
+        const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime({
+          prepare: (input) =>
+            Effect.tryPromise({
+              try: (signal) => requireCodexService().prepareThreadSettingsUpdate(input, signal),
+              catch: (cause) =>
+                new CodexThreadSettingsOperationError({
+                  operation: "prepare-update",
+                  threadId: input.threadId,
+                  cause,
+                }),
+            }),
+        }).pipe(
+          Effect.provideService(CodexGateway, codexGateway),
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const threadGoalContext = yield* Layer.buildWithScope(
@@ -1499,18 +1514,17 @@ export const live: Layer.Layer<
               applySet: (input) => requireCodexService().threadGoalProjection.applySet(input),
             },
             updateSettings: (threadId, patch) =>
-              Effect.tryPromise({
-                try: (signal) =>
-                  requireCodexService()
-                    .updateThreadSettingsForNextTurn(threadId, patch, { signal })
-                    .then(() => undefined),
-                catch: (cause) =>
-                  new CodexThreadGoalOperationError({
-                    operation: "update-settings",
-                    threadId,
-                    cause,
-                  }),
-              }),
+              threadSettingsRuntime.update({ threadId, patch }).pipe(
+                Effect.asVoid,
+                Effect.mapError(
+                  (cause) =>
+                    new CodexThreadGoalOperationError({
+                      operation: "update-settings",
+                      threadId,
+                      cause,
+                    }),
+                ),
+              ),
           }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
           runtimeScope,
         );
@@ -2586,6 +2600,7 @@ export const live: Layer.Layer<
             codexService,
             manualCompaction,
             threadGoals,
+            threadSettings: threadSettingsRuntime,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

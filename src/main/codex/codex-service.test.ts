@@ -50,6 +50,10 @@ import type {
 } from "../../shared/codex-user-input-auto-resolution";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { TestCodexThreadSettingsRuntime } from "./codex-thread-settings-runtime.test-support";
+import type {
+  CodexPreparedThreadSettingsUpdate,
+  CodexThreadSettingsUpdateCommand,
+} from "../codex-application/CodexThreadSettingsRuntime";
 import { TestCodexThreadTitlePersistence } from "./codex-thread-title-persistence.test-support";
 import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime.test-support";
 import { TestCodexConversationHistoryRuntime } from "./codex-conversation-history-runtime.test-support";
@@ -390,14 +394,10 @@ interface TestableCodexService {
     reason: "archive" | "automation-archive",
   ) => Promise<void>;
   runManagedWorktreeRetentionSweep: CodexService["runManagedWorktreeRetentionSweep"];
-  setConversationCollaborationMode: (
-    threadId: string,
-    collaborationMode: "default" | "plan",
-  ) => Promise<import("../../shared/types").CodexCollaborationModeState>;
-  updateThreadSettingsForNextTurn: (
-    threadId: string,
-    patch: import("../../shared/types").CodexConversationThreadSettingsPatch,
-  ) => Promise<import("../../shared/types").CodexConversationThreadSettings>;
+  prepareThreadSettingsUpdate: (
+    input: CodexThreadSettingsUpdateCommand,
+    signal: AbortSignal,
+  ) => Promise<CodexPreparedThreadSettingsUpdate>;
   removePlanImplementationRequest: (threadId: string, turnId: string) => Promise<boolean>;
   setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
   setRendererConversationViewActive: (
@@ -1903,7 +1903,10 @@ function createService(options?: {
       if (!service) throw new Error("Codex test service is not constructed");
       const action = normalizeCodexThreadGoalSetAction(input);
       if (action.threadSettings) {
-        await service.updateThreadSettingsForNextTurn(action.threadId, action.threadSettings);
+        await threadSettingsRuntime.update({
+          threadId: action.threadId,
+          patch: action.threadSettings,
+        });
       }
       const params: ThreadGoalSetParams = { threadId: action.threadId };
       if (Object.prototype.hasOwnProperty.call(action, "objective")) {
@@ -2201,6 +2204,37 @@ function createService(options?: {
     return () => applicationEventEmitter.off("threadNotification", listener);
   };
   service = testService as unknown as CodexService;
+  threadSettingsRuntime.setUpdateOperation(async (input, signal) => {
+    const prepared = await testService.prepareThreadSettingsUpdate(input, signal);
+    if (threadSettingsRuntime.remoteUpdateSupport() === "unsupported") {
+      return prepared.nextSettings;
+    }
+    const client = Reflect.get(service as object, "client") as {
+      request: (method: string, params: unknown) => Promise<unknown>;
+    };
+    try {
+      await client.request("thread/settings/update", prepared.params);
+      threadSettingsRuntime.recordRemoteUpdateSupported();
+    } catch (error) {
+      if (error instanceof CodexRpcError) {
+        const message = error.message.toLowerCase();
+        if (message.includes("thread") && message.includes("not found")) {
+          return prepared.nextSettings;
+        }
+        if (
+          error.code === -32601 ||
+          message.includes("method not found") ||
+          message.includes("unknown method") ||
+          (message.includes("thread/settings/update") && message.includes("unsupported"))
+        ) {
+          threadSettingsRuntime.recordRemoteUpdateUnsupported();
+          return prepared.nextSettings;
+        }
+      }
+      throw error;
+    }
+    return prepared.nextSettings;
+  });
   Reflect.set(testService, "getUserInputAutoResolutionSnapshot", () => autoResolution.snapshot());
   testService.shutdown = async () => {
     try {
@@ -2548,6 +2582,15 @@ function createService(options?: {
   };
   return testService;
 }
+
+const updateThreadSettingsForTest = (
+  service: TestableCodexService,
+  threadId: string,
+  patch: import("../../shared/types").CodexConversationThreadSettingsPatch,
+) =>
+  (
+    Reflect.get(service as object, "threadSettingsRuntime") as TestCodexThreadSettingsRuntime
+  ).update({ threadId, patch });
 
 describe("codex-service sidebar Thread Project moves", () => {
   test("confirms Project-wide source access, replays the move, and can remove it to Chats", async () => {
@@ -8572,7 +8615,7 @@ describe("codex-service interrupt target resolution", () => {
     };
     let resolveSettings: () => void = () => {};
 
-    const heldSettingsMutation = threadSettingsRuntime.runMutation(
+    const heldSettingsMutation = threadSettingsRuntime.holdMutation(
       "thr_goal_continue_settings",
       async () =>
         await new Promise<void>((resolve) => {
@@ -9230,7 +9273,7 @@ describe("codex-service collaboration modes", () => {
     serviceInternals.ensureConversationDetail("thr_start_settings_priority");
 
     try {
-      await service.updateThreadSettingsForNextTurn("thr_start_settings_priority", {
+      await updateThreadSettingsForTest(service, "thr_start_settings_priority", {
         model: "gpt-settings",
         reasoningEffort: "medium",
         serviceTier: "fast",
@@ -9305,7 +9348,7 @@ describe("codex-service collaboration modes", () => {
     serviceInternals.ensureConversationDetail("thr_unloaded_settings");
 
     try {
-      const settings = await service.updateThreadSettingsForNextTurn("thr_unloaded_settings", {
+      const settings = await updateThreadSettingsForTest(service, "thr_unloaded_settings", {
         model: "gpt-settings",
         reasoningEffort: "high",
       });
@@ -9466,7 +9509,7 @@ describe("codex-service collaboration modes", () => {
     };
 
     try {
-      const settings = await service.updateThreadSettingsForNextTurn("thr_profile_update", {
+      const settings = await updateThreadSettingsForTest(service, "thr_profile_update", {
         executionProfile: nextProfile,
       });
       const params = requests[0]?.params;
@@ -9478,7 +9521,7 @@ describe("codex-service collaboration modes", () => {
       expect(settings.model).toBe("gpt-5.4");
       expect(settings.serviceTier).toBe("fast");
 
-      await service.updateThreadSettingsForNextTurn("thr_profile_update", {
+      await updateThreadSettingsForTest(service, "thr_profile_update", {
         executionProfile: {
           ...currentProfile,
           reasoningEffort: "xhigh",
@@ -9490,7 +9533,7 @@ describe("codex-service collaboration modes", () => {
         reasoningEffort: "xhigh",
       });
 
-      await service.updateThreadSettingsForNextTurn("thr_profile_update", {
+      await updateThreadSettingsForTest(service, "thr_profile_update", {
         executionProfile: {
           ...currentProfile,
           modelId: "gpt-5.6",
@@ -9505,7 +9548,7 @@ describe("codex-service collaboration modes", () => {
       expect(persistedProfiles[2]).toEqual(latestProfile);
 
       await expect(
-        service.updateThreadSettingsForNextTurn("thr_profile_update", {
+        updateThreadSettingsForTest(service, "thr_profile_update", {
           executionProfile: {
             ...nextProfile,
             modelId: "gpt-new-thread-only",

@@ -197,6 +197,10 @@ import {
   type CodexThreadGoalProjectionPort,
 } from "../codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
+import type {
+  CodexPreparedThreadSettingsUpdate,
+  CodexThreadSettingsUpdateCommand,
+} from "../codex-application/CodexThreadSettingsRuntime";
 import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
@@ -1097,10 +1101,6 @@ type StartTurnOverrides = CodexTurnStartOptions & {
 
 interface DormantConversationSyncOptions {
   syncDormantConversationUpdates?: boolean;
-}
-
-interface ThreadSettingsUpdateOptions extends DormantConversationSyncOptions {
-  signal?: AbortSignal;
 }
 
 interface MainOwnedStartTurnOptions extends DormantConversationSyncOptions {
@@ -16365,7 +16365,9 @@ export class CodexService {
           syncDormantConversationUpdates: false,
         });
       case "thread/settings/update":
-        return await this.updateThreadSettingsForNextTurn(conversationId, request.params.patch, {
+        return await this.threadSettingsRuntime.update({
+          threadId: conversationId,
+          patch: request.params.patch,
           syncDormantConversationUpdates: false,
         });
       case "thread/goal/set": {
@@ -17092,85 +17094,36 @@ export class CodexService {
     return summary;
   }
 
-  async setConversationCollaborationMode(
-    threadId: string,
-    collaborationMode: CodexCollaborationModeKind,
-  ): Promise<CodexCollaborationModeState> {
-    const nextSettings = await this.updateThreadSettingsForNextTurn(threadId, {
-      collaborationMode,
-    });
-    return (
-      nextSettings.collaborationMode ?? this.getConversationRecord(threadId).latestCollaborationMode
+  /** Effect Module adapter operation; the runtime owns ordering, remote I/O, and fallback policy. */
+  async prepareThreadSettingsUpdate(
+    input: CodexThreadSettingsUpdateCommand,
+    signal: AbortSignal,
+  ): Promise<CodexPreparedThreadSettingsUpdate> {
+    signal.throwIfAborted();
+    const executionProfile = input.patch.executionProfile
+      ? await this.validateAndPersistThreadExecutionProfile(
+          input.threadId,
+          input.patch.executionProfile,
+          input.patch.executionProfileChange,
+        )
+      : null;
+    signal.throwIfAborted();
+    const validatedPatch = executionProfile ? { ...input.patch, executionProfile } : input.patch;
+    const nextSettings = this.mergeThreadSettingsPatch(input.threadId, validatedPatch);
+    this.applyLatestThreadSettingsForThread(input.threadId, nextSettings);
+    if (input.syncDormantConversationUpdates ?? true) {
+      this.syncAcceptedConversationDocument(input.threadId, {
+        syncLatestCollaborationMode: true,
+        syncLatestThreadSettings: true,
+      });
+    }
+    const params = await this.buildThreadSettingsUpdateParams(
+      input.threadId,
+      validatedPatch,
+      nextSettings,
     );
-  }
-
-  async updateThreadSettingsForNextTurn(
-    threadId: string,
-    patch: CodexConversationThreadSettingsPatch,
-    options: ThreadSettingsUpdateOptions = {},
-  ): Promise<CodexConversationThreadSettings> {
-    const syncDormantConversationUpdates = options.syncDormantConversationUpdates ?? true;
-    return await this.threadSettingsRuntime.runMutation(
-      threadId,
-      async (signal) => {
-        await this.ensureClientReady(signal);
-        signal.throwIfAborted();
-        const executionProfile = patch.executionProfile
-          ? await this.validateAndPersistThreadExecutionProfile(
-              threadId,
-              patch.executionProfile,
-              patch.executionProfileChange,
-            )
-          : null;
-        signal.throwIfAborted();
-        const validatedPatch = executionProfile ? { ...patch, executionProfile } : patch;
-        const nextSettings = this.mergeThreadSettingsPatch(threadId, validatedPatch);
-        this.applyLatestThreadSettingsForThread(threadId, nextSettings);
-        if (syncDormantConversationUpdates) {
-          this.syncAcceptedConversationDocument(threadId, {
-            syncLatestCollaborationMode: true,
-            syncLatestThreadSettings: true,
-          });
-        }
-
-        if (this.threadSettingsRuntime.remoteUpdateSupport() !== "unsupported") {
-          const params = await this.buildThreadSettingsUpdateParams(
-            threadId,
-            validatedPatch,
-            nextSettings,
-          );
-          try {
-            await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
-              "thread/settings/update",
-              params,
-              { signal },
-            );
-            this.threadSettingsRuntime.recordRemoteUpdateSupported();
-            return nextSettings;
-          } catch (error) {
-            if (isThreadNotFoundError(error)) {
-              this.logger.info(
-                "Task settings will be applied when the unloaded task starts its next turn",
-                { threadId },
-              );
-              return nextSettings;
-            }
-            if (!isUnsupportedThreadSettingsUpdateError(error)) throw error;
-            this.threadSettingsRuntime.recordRemoteUpdateUnsupported();
-            this.logger.warn(
-              "Codex app-server does not support thread/settings/update; using local next-turn settings fallback",
-              {
-                threadId,
-                error: error instanceof Error ? error.message : String(error),
-              },
-            );
-          }
-        }
-
-        return nextSettings;
-      },
-      options.signal ? { signal: options.signal } : undefined,
-    );
+    signal.throwIfAborted();
+    return { nextSettings, params };
   }
 
   private async ensureReasoningSummaryForGoalContinuation(threadId: string): Promise<void> {
@@ -17180,7 +17133,7 @@ export class CodexService {
     });
     if (record.latestThreadSettings?.summary === summary) return;
 
-    await this.updateThreadSettingsForNextTurn(threadId, { summary });
+    await this.threadSettingsRuntime.update({ threadId, patch: { summary } });
   }
 
   private hasPendingThreadGoalSteering(threadId: string, record: CodexConversationRecord): boolean {

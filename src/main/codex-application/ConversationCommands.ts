@@ -17,9 +17,7 @@ type ThreadMethod =
   | "thread/delete"
   | "thread/read"
   | "thread/name/set"
-  | "thread/settings/update"
   | "thread/memoryMode/set"
-  | "thread/compact/start"
   | "turn/start"
   | "turn/steer"
   | "turn/interrupt";
