@@ -12,7 +12,6 @@ export type CodexServerRequest = ParsedCodexServerRequest & {
 
 /** Temporary outer adapter contract while the remaining Codex application state is cut over. */
 export interface CodexApplicationClient extends EventEmitter {
-  dispose(): Promise<void>;
   hasHost(hostId: string): boolean;
   notify(method: string, params?: unknown): Promise<void>;
   registerProcessHost(hostId: string, options: CodexAppServerClientOptions): void;

@@ -983,7 +983,6 @@ const TEST_CODEX_RUNTIME: ResolvedCodexRuntime = {
 class TestCodexApplicationClient extends EventEmitter implements CodexApplicationClient {
   readonly #hosts = new Set([DEFAULT_CODEX_HOST_ID]);
 
-  async dispose(): Promise<void> {}
   hasHost(hostId: string): boolean {
     return this.#hosts.has(hostId.trim());
   }
@@ -1909,6 +1908,14 @@ function createService(options?: {
     requestContinuation: (threadId) => service?.requestActiveGoalContinuationAfterResume(threadId),
     scheduleRemainingTurns: (threadId) => service?.scheduleRemainingThreadTurnsLoad(threadId),
   });
+  const pendingServerRequests = new TestCodexPendingServerRequestRuntime({
+    respond: (threadId, _requestId, occurrenceToken, response) => {
+      completeResponse(threadId, occurrenceToken, { kind: "success", value: response });
+    },
+    reject: (threadId, _requestId, occurrenceToken, reason) => {
+      completeResponse(threadId, occurrenceToken, { kind: "failure", reason });
+    },
+  });
   const testService = new CodexService({
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
@@ -1975,14 +1982,7 @@ function createService(options?: {
       resolveAutomation: async (workspaceRoots) => defaultPermissionState(workspaceRoots),
     },
     attachments: { pastedText: pastedTextAttachments, goals: goalAttachments },
-    pendingServerRequests: new TestCodexPendingServerRequestRuntime({
-      respond: (threadId, _requestId, occurrenceToken, response) => {
-        completeResponse(threadId, occurrenceToken, { kind: "success", value: response });
-      },
-      reject: (threadId, _requestId, occurrenceToken, reason) => {
-        completeResponse(threadId, occurrenceToken, { kind: "failure", reason });
-      },
-    }),
+    pendingServerRequests,
     userInputAutoResolution: {
       observeRequest: (conversationId, requestId, resolve) => {
         autoResolutionResolvers.set(conversationId, { requestId, resolve });
@@ -2136,6 +2136,10 @@ function createService(options?: {
     pendingWorktrees.shutdown();
     conversationDeltaBuffer.dispose();
     conversationResume.dispose();
+    await freshThreadLaunch.shutdown();
+    await conversationEventBuffer.shutdown(new Error("Codex test service is shutting down"));
+    await sidebarSweep.cancel();
+    await pendingServerRequests.shutdown(new Error("Codex test service is shutting down"));
     try {
       await shutdown();
     } finally {

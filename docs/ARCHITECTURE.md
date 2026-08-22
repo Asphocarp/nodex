@@ -416,6 +416,13 @@ once. Connected/disposed observation is a scoped Stream rather than a listener s
 Promise projection used by the legacy Nodex Agent authorization broker owns no state, timer,
 listener, or request lifecycle and must disappear with that broker's application cut-over.
 
+The temporary `CodexGatewayBridge` is a scoped boundary Adapter, not an endpoint owner. Its finalizer
+closes request admission, removes EventEmitter listeners, and clears host/connection projections;
+the Effect Gateway and Endpoint Map independently release the physical sessions they own. The
+legacy `CodexService` shutdown hook only clears its synchronous local projection and revokes local
+presentation capabilities. It does not close pending requests, replay buffers, sidebar work, fresh
+Thread launches, the Gateway, or endpoints; those resources close once through their owning Scope.
+
 Decoded, generation-fenced app-server notifications enter the application through one lossless
 Main-scoped Queue actor. Callback admission is synchronous so EventEmitter arrival order is retained;
 the actor awaits each route before taking the next notification, supervises failures per envelope,

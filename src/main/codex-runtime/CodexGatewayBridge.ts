@@ -2,6 +2,7 @@
 import { EventEmitter } from "node:events";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
@@ -72,6 +73,7 @@ export class CodexGatewayBridge extends EventEmitter implements CodexApplication
   #serverRequestHandler: ((request: CodexServerRequest) => Promise<unknown>) | null = null;
   #threadHostResolver: (threadId: string) => string | null = () => null;
   #connectionByHost = new Map<string, CodexConnectionState>();
+  #closed = false;
   #stopped = false;
 
   constructor(callbacks: ScopedCallbackRuntime["Service"]) {
@@ -80,6 +82,7 @@ export class CodexGatewayBridge extends EventEmitter implements CodexApplication
   }
 
   attach(gateway: CodexGateway["Service"], endpoints: CodexEndpointMap["Service"]): void {
+    if (this.#closed) throw new Error("Codex Gateway bridge is closed");
     if (this.#gateway !== null) throw new Error("Codex Gateway bridge is already attached");
     this.#gateway = gateway;
     this.#endpoints = endpoints;
@@ -91,6 +94,7 @@ export class CodexGatewayBridge extends EventEmitter implements CodexApplication
   );
 
   observe(event: CodexEndpointEvent): void {
+    if (this.#closed) return;
     if (event.kind === "notification") {
       this.emit("notification", event.value as CodexServerNotification);
       return;
@@ -186,8 +190,16 @@ export class CodexGatewayBridge extends EventEmitter implements CodexApplication
     await this.#callbacks.runPromise(gateway.restartHost(gateway.localHostId));
   }
 
-  async dispose(): Promise<void> {
-    // The Main Scope is the only owner and releases all endpoints after application finalizers.
+  close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#stopped = true;
+    this.#serverRequestHandler = null;
+    this.#threadHostResolver = () => null;
+    this.#gateway = null;
+    this.#endpoints = null;
+    this.#connectionByHost.clear();
+    this.removeAllListeners();
   }
 
   async request<TResult>(method: string, params?: unknown): Promise<TResult> {
@@ -273,12 +285,22 @@ export class CodexGatewayBridge extends EventEmitter implements CodexApplication
   }
 
   #requireGateway(): CodexGateway["Service"] {
+    if (this.#closed) throw new Error("Codex Gateway bridge is closed");
     if (this.#gateway === null) throw new Error("Codex Gateway bridge is not attached");
     return this.#gateway;
   }
 
   #requireEndpoints(): CodexEndpointMap["Service"] {
+    if (this.#closed) throw new Error("Codex Gateway bridge is closed");
     if (this.#endpoints === null) throw new Error("Codex Gateway bridge is not attached");
     return this.#endpoints;
   }
 }
+
+export const makeCodexGatewayBridge = (
+  callbacks: ScopedCallbackRuntime["Service"],
+): Effect.Effect<CodexGatewayBridge, never, Scope.Scope> =>
+  Effect.acquireRelease(
+    Effect.sync(() => new CodexGatewayBridge(callbacks)),
+    (bridge) => Effect.sync(() => bridge.close()),
+  );

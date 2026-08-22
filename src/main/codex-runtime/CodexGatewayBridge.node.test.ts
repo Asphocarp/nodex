@@ -2,13 +2,14 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as Result from "effect/Result";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import {
   CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
   type CodexServerRequest,
 } from "./CodexApplicationClient";
-import { CodexGatewayBridge } from "./CodexGatewayBridge";
+import { CodexGatewayBridge, makeCodexGatewayBridge } from "./CodexGatewayBridge";
 import {
   ScopedCallbackRuntime,
   layer as scopedCallbackRuntimeLive,
@@ -44,5 +45,45 @@ it.effect("carries the Effect occurrence token into application request projecti
     assert.strictEqual(result, CodexApplicationRequestPending);
     assert.strictEqual(received?.[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN], 23);
     yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("removes legacy callbacks and rejects request admission when its Scope closes", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const callbackContext = yield* Layer.buildWithScope(scopedCallbackRuntimeLive, scope);
+    const bridge = yield* makeCodexGatewayBridge(
+      Context.get(callbackContext, ScopedCallbackRuntime),
+    ).pipe(Effect.provideService(Scope.Scope, scope));
+    let notifications = 0;
+    bridge.on("notification", () => {
+      notifications += 1;
+    });
+    bridge.setServerRequestHandler(() => Promise.resolve(CodexApplicationRequestPending));
+
+    yield* Scope.close(scope, Exit.void);
+    bridge.observe({
+      kind: "notification",
+      hostId: "local",
+      generation: 1,
+      value: {
+        method: "thread/name/updated",
+        params: { threadId: "thread-a", threadName: "ignored" },
+      },
+    });
+    const result = yield* bridge
+      .applicationServerRequests()
+      .handle("local", 1, 1, "item/tool/requestUserInput", {
+        isBlocking: true,
+        itemId: "item-a",
+        questions: [],
+        threadId: "thread-a",
+        turnId: "turn-a",
+      })
+      .pipe(Effect.result);
+
+    assert.strictEqual(notifications, 0);
+    assert.strictEqual(bridge.listenerCount("notification"), 0);
+    assert.isTrue(Result.isFailure(result));
   }),
 );

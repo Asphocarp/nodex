@@ -212,7 +212,7 @@ import {
 } from "../codex-application/CodexToolRuntime";
 import { CodexEndpointMap } from "../codex-runtime/CodexEndpointMap";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
-import { CodexGatewayBridge } from "../codex-runtime/CodexGatewayBridge";
+import { makeCodexGatewayBridge } from "../codex-runtime/CodexGatewayBridge";
 import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
@@ -482,7 +482,9 @@ export const live: Layer.Layer<
           projectRuntimeLifecycle,
           callbacks,
         );
-        const codexBridge = new CodexGatewayBridge(callbacks);
+        const codexBridge = yield* makeCodexGatewayBridge(callbacks).pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const applicationServerRequests = CodexGlobalServerRequestRuntime.of(
           codexBridge.applicationServerRequests(),
         );
@@ -1785,17 +1787,7 @@ export const live: Layer.Layer<
         });
         yield* Scope.addFinalizer(
           runtimeScope,
-          Effect.tryPromise({
-            try: () => codexService.shutdown(),
-            catch: (cause) => runtimeError("shutdown-codex-application", cause),
-          }).pipe(
-            Effect.timeout("15 seconds"),
-            Effect.catch((error) =>
-              Effect.logWarning("Could not fully close the Codex application runtime").pipe(
-                Effect.annotateLogs({ error: String(error) }),
-              ),
-            ),
-          ),
+          Effect.sync(() => codexService.shutdown()),
         );
         yield* SubscriptionRef.changes(executionHosts.activeSshHosts).pipe(
           Stream.runForEach(() =>

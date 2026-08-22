@@ -6114,25 +6114,11 @@ export class CodexService extends EventEmitter {
     await this.emitSidebarCatalogChangedForThread(thread.id, "host-message");
   }
 
-  async shutdown(): Promise<void> {
-    const pendingServerRequests = this.pendingServerRequests.counts();
-    this.logger.info("Shutting down Codex service", {
-      pendingApprovals: pendingServerRequests.approvals,
-      pendingUserInputs: pendingServerRequests.userInputs,
-      pendingMcpElicitations: pendingServerRequests.mcpElicitations,
-      pendingPermissionRequests: pendingServerRequests.permissionRequests,
-      pendingPrivateServerRequests: pendingServerRequests.privateServerRequests,
-      pendingDynamicToolCalls: pendingServerRequests.dynamicToolCalls,
-    });
+  shutdown(): void {
+    this.logger.info("Closing Codex application projection");
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.forkSidePanelTransferLifecycle?.clear();
     this.terminalInputBuffers.clear();
-    await this.freshThreadLaunch.shutdown();
-    await this.conversationEventBuffer.shutdown(new Error("Codex service is shutting down"));
-    await this.sidebarSweep.cancel();
-    await this.pendingServerRequests.shutdown(new Error("Codex service shutting down"));
-
-    await this.client.dispose();
   }
 
   listPendingWorktrees(): readonly CodexPendingWorktreeEntry[] {
