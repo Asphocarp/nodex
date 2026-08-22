@@ -684,6 +684,7 @@ import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-applica
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
 import type { CodexBackgroundSubagentMetadataRepair } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
+import type { CodexQueuedFollowUpDispatchRuntime } from "../codex-application/CodexQueuedFollowUpDispatchRuntime";
 import {
   isExecutionWorkspacePathWithinRoot,
   rewriteExecutionWorkspaceRoots,
@@ -1357,6 +1358,7 @@ type CodexServiceOptions = {
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
+  queuedFollowUpDispatch: CodexQueuedFollowUpDispatchRuntime["Service"];
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2603,6 +2605,7 @@ export class CodexService extends EventEmitter {
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
+  private readonly queuedFollowUpDispatch: CodexQueuedFollowUpDispatchRuntime["Service"];
   private readonly conversationResumeInFlightByThreadId = new Map<
     string,
     Promise<CodexConversationSnapshot | null>
@@ -2651,7 +2654,6 @@ export class CodexService extends EventEmitter {
     string,
     Array<() => void>
   >();
-  private readonly queuedFollowUpDispatchInFlight = new Set<string>();
   private readonly frameTextDeltaQueue = new CodexFrameTextDeltaQueue({
     scheduler: createCodexFrameTextDeltaTimeoutScheduler(),
     onFlush: (updates) => {
@@ -2731,6 +2733,7 @@ export class CodexService extends EventEmitter {
     this.postResumeGoals = options.postResumeGoals;
     this.conversationHistory = options.conversationHistory;
     this.backgroundSubagentMetadataRepair = options.backgroundSubagentMetadataRepair;
+    this.queuedFollowUpDispatch = options.queuedFollowUpDispatch;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -6235,7 +6238,7 @@ export class CodexService extends EventEmitter {
     this.postResumeGoals.clear(threadId);
     this.conversationHistory.clear(threadId);
     this.backgroundSubagentMetadataRepair.clear(threadId);
-    this.queuedFollowUpDispatchInFlight.delete(threadId);
+    this.queuedFollowUpDispatch.clear(threadId);
   }
 
   private listQueuedFollowUps(threadId: string): CodexQueuedFollowUp[] {
@@ -6276,8 +6279,8 @@ export class CodexService extends EventEmitter {
     return this.listKnownTurns(threadId).some((turn) => turn.status === "inProgress");
   }
 
-  private canDispatchQueuedFollowUp(threadId: string): boolean {
-    if (this.queuedFollowUpDispatchInFlight.has(threadId)) return false;
+  /** Effect Module adapter operation; callers use queuedFollowUpDispatch. */
+  isQueuedFollowUpDispatchEligible(threadId: string): boolean {
     if (this.hasActiveTurn(threadId)) return false;
 
     const nextFollowUp = this.listQueuedFollowUps(threadId)[0];
@@ -6288,30 +6291,18 @@ export class CodexService extends EventEmitter {
   }
 
   private maybeDispatchQueuedFollowUp(threadId: string): void {
-    if (!this.canDispatchQueuedFollowUp(threadId)) return;
-
-    this.queuedFollowUpDispatchInFlight.add(threadId);
-    void this.dispatchNextQueuedFollowUp(threadId).finally(() => {
-      this.queuedFollowUpDispatchInFlight.delete(threadId);
-    });
+    this.queuedFollowUpDispatch.request(threadId);
   }
 
-  private async dispatchNextQueuedFollowUp(threadId: string): Promise<void> {
-    if (this.hasActiveTurn(threadId)) return;
+  /** Effect Module adapter operation; atomically claims canonical queue state. */
+  takeQueuedFollowUpForDispatch(threadId: string): CodexQueuedFollowUp | null {
+    if (this.hasActiveTurn(threadId)) return null;
 
     const nextFollowUp = this.listQueuedFollowUps(threadId)[0];
-    if (!nextFollowUp || nextFollowUp.pausedReason) return;
+    if (!nextFollowUp || nextFollowUp.pausedReason) return null;
 
     this.dequeueQueuedFollowUp(threadId, nextFollowUp.followUpId);
-    try {
-      await this.submitQueuedFollowUp(threadId, nextFollowUp);
-    } catch (error) {
-      this.restoreQueuedFollowUp(
-        threadId,
-        nextFollowUp,
-        error instanceof Error ? error.message : String(error),
-      );
-    }
+    return nextFollowUp;
   }
 
   private enqueueQueuedFollowUp(
@@ -6366,7 +6357,8 @@ export class CodexService extends EventEmitter {
     );
   }
 
-  private restoreQueuedFollowUp(
+  /** Effect Module adapter operation; restores a failed canonical queue claim. */
+  restoreQueuedFollowUp(
     threadId: string,
     followUp: CodexQueuedFollowUp,
     reason?: string | null,
@@ -6496,10 +6488,8 @@ export class CodexService extends EventEmitter {
     });
   }
 
-  private async submitQueuedFollowUp(
-    threadId: string,
-    followUp: CodexQueuedFollowUp,
-  ): Promise<void> {
+  /** Effect Module adapter operation; submits an already claimed follow-up. */
+  async submitQueuedFollowUp(threadId: string, followUp: CodexQueuedFollowUp): Promise<void> {
     const knownTurns = this.listKnownTurns(threadId);
     let activeTurnId: string | null = null;
     for (let index = knownTurns.length - 1; index >= 0; index -= 1) {
@@ -6509,31 +6499,25 @@ export class CodexService extends EventEmitter {
       break;
     }
 
-    try {
-      if (activeTurnId) {
-        await this.steerTurn({
-          threadId,
-          expectedTurnId: activeTurnId,
-          prompt: followUp.prompt,
-          ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
-          collaborationMode: followUp.collaborationMode,
-          serviceTier: followUp.serviceTier,
-          summary: followUp.summary,
-        });
-        return;
-      }
-
-      await this.startTurn(threadId, followUp.prompt, {
-        collaborationMode: followUp.collaborationMode ?? undefined,
+    if (activeTurnId) {
+      await this.steerTurn({
+        threadId,
+        expectedTurnId: activeTurnId,
+        prompt: followUp.prompt,
+        ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
+        collaborationMode: followUp.collaborationMode,
         serviceTier: followUp.serviceTier,
         summary: followUp.summary,
-        ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
       });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.restoreQueuedFollowUp(threadId, followUp, message);
-      throw error;
+      return;
     }
+
+    await this.startTurn(threadId, followUp.prompt, {
+      collaborationMode: followUp.collaborationMode ?? undefined,
+      serviceTier: followUp.serviceTier,
+      summary: followUp.summary,
+      ...(followUp.promptInput ? { promptInput: followUp.promptInput } : {}),
+    });
   }
 
   private emitThreadStartProgress(input: {

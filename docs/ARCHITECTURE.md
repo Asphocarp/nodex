@@ -483,6 +483,14 @@ the fixed interval. Thread removal clears its repair generation, and Main Scope 
 physical reads. `CodexService` owns no repair Promise map, retry timestamp map, completed Set, or
 detached finalizer.
 
+Automatic queued follow-up dispatch is owned by one Main-scoped keyed runtime. Canonical conversation
+state remains the only queue authority and exposes synchronous eligibility, atomic claim, submission,
+and failure restoration operations. The runtime coalesces duplicate dispatch requests per Thread,
+owns the physical submit fiber, restores a failed claim exactly once, and drops an interrupted claim
+when the Thread or Main Scope is removed so stale work cannot recreate deleted conversation state.
+Manual “send now” remains an explicit user transaction over the same canonical queue. `CodexService`
+owns no dispatch in-flight Set, detached Promise, or automatic failure-finalizer path.
+
 App-server notifications that require a sidebar repair enter one trailing-debounce Module. The
 latest request replaces the pending fiber and carries the minimum acceptable sync generation;
 after the delay, the Module invokes the existing sidebar synchronization authority and supervises

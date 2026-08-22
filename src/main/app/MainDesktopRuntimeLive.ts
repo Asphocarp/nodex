@@ -128,6 +128,10 @@ import {
   make as makeCodexBackgroundSubagentMetadataRepair,
 } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
 import {
+  CodexQueuedFollowUpDispatchError,
+  make as makeCodexQueuedFollowUpDispatchRuntime,
+} from "../codex-application/CodexQueuedFollowUpDispatchRuntime";
+import {
   CodexPostResumeGoalError,
   make as makeCodexPostResumeGoalRuntime,
 } from "../codex-application/CodexPostResumeGoalRuntime";
@@ -1421,6 +1425,18 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexBackgroundSubagentMetadataRepairError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const queuedFollowUpDispatch = yield* makeCodexQueuedFollowUpDispatchRuntime({
+          isEligible: (threadId) =>
+            requireCodexService().isQueuedFollowUpDispatchEligible(threadId),
+          take: (threadId) => requireCodexService().takeQueuedFollowUpForDispatch(threadId),
+          submit: (threadId, followUp) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().submitQueuedFollowUp(threadId, followUp),
+              catch: (cause) => new CodexQueuedFollowUpDispatchError({ cause }),
+            }),
+          restore: (threadId, followUp, reason) =>
+            requireCodexService().restoreQueuedFollowUp(threadId, followUp, reason),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const postResumeGoals = yield* makeCodexPostResumeGoalRuntime({
           load: (threadId) =>
             Effect.tryPromise({
@@ -1604,6 +1620,7 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               backgroundSubagentMetadataRepair,
+              queuedFollowUpDispatch,
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,
                 callbacks,

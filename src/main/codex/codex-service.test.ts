@@ -55,6 +55,7 @@ import { TestCodexThreadTitlePersistence } from "./codex-thread-title-persistenc
 import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime.test-support";
 import { TestCodexConversationHistoryRuntime } from "./codex-conversation-history-runtime.test-support";
 import { TestCodexBackgroundSubagentMetadataRepair } from "./codex-background-subagent-metadata-repair.test-support";
+import { TestCodexQueuedFollowUpDispatchRuntime } from "./codex-queued-follow-up-dispatch-runtime.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -1837,6 +1838,16 @@ function createService(options?: {
       return await service.repairBackgroundSubagentMetadata(parentThreadId, childThreadId);
     },
   });
+  const queuedFollowUpDispatch = new TestCodexQueuedFollowUpDispatchRuntime({
+    isEligible: (threadId) => service?.isQueuedFollowUpDispatchEligible(threadId) === true,
+    take: (threadId) => service?.takeQueuedFollowUpForDispatch(threadId) ?? null,
+    submit: async (threadId, followUp) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      await service.submitQueuedFollowUp(threadId, followUp);
+    },
+    restore: (threadId, followUp, reason) =>
+      service?.restoreQueuedFollowUp(threadId, followUp, reason),
+  });
   const postResumeGoals = new TestCodexPostResumeGoalRuntime({
     load: async (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -2027,6 +2038,7 @@ function createService(options?: {
     postResumeGoals,
     conversationHistory,
     backgroundSubagentMetadataRepair,
+    queuedFollowUpDispatch,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
