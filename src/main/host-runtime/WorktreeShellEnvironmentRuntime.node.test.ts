@@ -63,3 +63,48 @@ it.effect("interrupts active discovery when its Scope closes", () =>
     assert.strictEqual(exit._tag, "Failure");
   }),
 );
+
+it.effect("keeps shared discovery alive when one caller stops waiting", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    let markStarted: (() => void) | undefined;
+    let finish: ((environment: NodeJS.ProcessEnv) => void) | undefined;
+    let aborted = false;
+    let loads = 0;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const context = yield* Layer.buildWithScope(
+      live({
+        baseEnvironment: { PATH: "/usr/bin" },
+        platform: "darwin",
+        loadInteractiveEnvironment: (signal) =>
+          new Promise<NodeJS.ProcessEnv>((resolve, reject) => {
+            loads += 1;
+            finish = resolve;
+            markStarted?.();
+            signal?.addEventListener(
+              "abort",
+              () => {
+                aborted = true;
+                reject(signal.reason);
+              },
+              { once: true },
+            );
+          }),
+      }),
+      scope,
+    );
+    const runtime = Context.get(context, WorktreeShellEnvironmentRuntime);
+    const first = yield* Effect.forkChild(runtime.load);
+    yield* Effect.promise(() => started);
+    yield* Fiber.interrupt(first);
+
+    assert.isFalse(aborted);
+    finish?.({ PATH: "/opt/bin:/usr/bin" });
+    const environment = yield* runtime.load;
+    assert.strictEqual(environment.PATH, "/opt/bin:/usr/bin");
+    assert.strictEqual(loads, 1);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);

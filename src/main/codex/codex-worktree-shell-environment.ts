@@ -193,14 +193,15 @@ async function readCodexInteractiveShellEnvironment(
   throw lastError ?? new Error("No interactive login shell is available");
 }
 
+export interface CodexLocalShellEnvironmentOptions {
+  readonly baseEnvironment?: NodeJS.ProcessEnv;
+  readonly loadInteractiveEnvironment?: (signal?: AbortSignal) => Promise<NodeJS.ProcessEnv>;
+  readonly onError?: (error: unknown) => void;
+  readonly platform?: NodeJS.Platform;
+}
+
 export async function loadCodexLocalShellEnvironment(
-  input: {
-    readonly baseEnvironment?: NodeJS.ProcessEnv;
-    readonly loadInteractiveEnvironment?: (signal?: AbortSignal) => Promise<NodeJS.ProcessEnv>;
-    readonly onError?: (error: unknown) => void;
-    readonly platform?: NodeJS.Platform;
-    readonly signal?: AbortSignal;
-  } = {},
+  input: CodexLocalShellEnvironmentOptions & { readonly signal?: AbortSignal } = {},
 ): Promise<NodeJS.ProcessEnv> {
   const baseEnvironment = input.baseEnvironment ?? process.env;
   const platform = input.platform ?? process.platform;
@@ -224,48 +225,6 @@ export async function loadCodexLocalShellEnvironment(
   };
 
   return await load();
-}
-
-export interface CodexLocalShellEnvironmentLoaderOptions {
-  readonly baseEnvironment?: NodeJS.ProcessEnv;
-  readonly loadInteractiveEnvironment?: (signal?: AbortSignal) => Promise<NodeJS.ProcessEnv>;
-  readonly onError?: (error: unknown) => void;
-  readonly platform?: NodeJS.Platform;
-}
-
-/** One application/worker owner coalesces login-shell discovery and can interrupt it on close. */
-export class CodexLocalShellEnvironmentLoader {
-  readonly #options: CodexLocalShellEnvironmentLoaderOptions;
-  readonly #controller = new AbortController();
-  #cached: Promise<NodeJS.ProcessEnv> | null = null;
-  #closed = false;
-
-  constructor(options: CodexLocalShellEnvironmentLoaderOptions = {}) {
-    this.#options = {
-      ...options,
-      ...(options.baseEnvironment === undefined
-        ? {}
-        : { baseEnvironment: { ...options.baseEnvironment } }),
-    };
-  }
-
-  load(): Promise<NodeJS.ProcessEnv> {
-    if (this.#closed) {
-      return Promise.reject(new Error("Shell environment loader is closed"));
-    }
-    this.#cached ??= loadCodexLocalShellEnvironment({
-      ...this.#options,
-      signal: this.#controller.signal,
-    });
-    return this.#cached;
-  }
-
-  close(): void {
-    if (this.#closed) return;
-    this.#closed = true;
-    this.#controller.abort();
-    this.#cached = null;
-  }
 }
 
 /** Exact `L0`: parse newline-delimited `env` output, retaining the final duplicate. */

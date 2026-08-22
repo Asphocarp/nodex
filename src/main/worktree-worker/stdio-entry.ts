@@ -9,6 +9,10 @@ import {
 
 const hostId = process.argv[2]?.trim();
 if (!hostId) throw new Error("Remote worktree worker requires an execution host id");
+const shellEnvironment = {
+  baseEnvironment: { ...process.env },
+  platform: process.platform,
+} as const;
 
 const transport: WorktreeWorkerTransport = {
   close: () => {
@@ -42,7 +46,7 @@ const transport: WorktreeWorkerTransport = {
 };
 
 NodeRuntime.runMain(
-  runWorktreeWorkerApplication({ epoch: 1, hostId, transport }).pipe(
+  runWorktreeWorkerApplication({ epoch: 1, hostId, shellEnvironment, transport }).pipe(
     Effect.catchCause((cause) =>
       Effect.sync(() => {
         const error = Cause.squash(cause);

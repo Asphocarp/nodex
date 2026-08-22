@@ -314,9 +314,11 @@ Interactive login-shell discovery is owned once per Main or worktree-worker life
 bootstrap snapshots its inherited environment, process platform, and home directory into immutable
 configuration;
 host Modules do not reread ambient `process.env` or `process.platform`. The scoped
-shell-environment runtime coalesces discovery, and release
-interrupts an active login-shell child and rejects later admission. Worker roots use an independent
-loader and close it with their own shutdown, so no cached environment crosses a process or Scope.
+shell-environment runtime keeps one lazy discovery child in a `FiberHandle`; individual callers may
+stop waiting without canceling shared discovery, while release interrupts the child and rejects
+later admission. Each worker entry snapshots its inherited environment and platform once, then
+constructs the same runtime in its own root Scope. There is no cached Promise, AbortController
+registry, manual `close()`, or environment cache shared across a process or Scope.
 
 Nodex Agent dynamic tools receive their Core-backed registry explicitly from the Main composition
 root. The protocol validator remains a pure helper and can report stale catalogs before a registry

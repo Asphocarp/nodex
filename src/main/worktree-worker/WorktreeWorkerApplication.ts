@@ -5,7 +5,11 @@ import * as FiberMap from "effect/FiberMap";
 import * as FiberSet from "effect/FiberSet";
 import * as Schema from "effect/Schema";
 import { executeCodexWorktreeWorkerOperation } from "../codex/codex-worktree-worker-operation";
-import { CodexLocalShellEnvironmentLoader } from "../codex/codex-worktree-shell-environment";
+import {
+  type CodexLocalShellEnvironmentRuntimeError,
+  make as makeShellEnvironment,
+} from "../codex/CodexLocalShellEnvironmentRuntime";
+import type { CodexLocalShellEnvironmentOptions } from "../codex/codex-worktree-shell-environment";
 import {
   CODEX_WORKTREE_WORKER_PROTOCOL_VERSION,
   isCodexWorktreeWorkerHostMessage,
@@ -23,6 +27,7 @@ export interface WorktreeWorkerTransport {
 export interface WorktreeWorkerApplicationOptions {
   readonly epoch: number;
   readonly hostId: string;
+  readonly shellEnvironment?: CodexLocalShellEnvironmentOptions;
   readonly transport: WorktreeWorkerTransport;
 }
 
@@ -49,10 +54,12 @@ export const runWorktreeWorkerApplication = (
           transport.close();
         }),
       );
-      const shellEnvironment = yield* Effect.acquireRelease(
-        Effect.sync(() => new CodexLocalShellEnvironmentLoader()),
-        (loader) => Effect.sync(() => loader.close()),
-      );
+      const shellEnvironment = yield* makeShellEnvironment(options.shellEnvironment);
+      const loadBaseEnvironment = yield* FiberSet.makeRuntimePromise<
+        never,
+        NodeJS.ProcessEnv,
+        CodexLocalShellEnvironmentRuntimeError
+      >();
       const shutdown = yield* Deferred.make<void, WorktreeWorkerApplicationError>();
       const requests = yield* FiberMap.make<string, void>();
       const runRequest = yield* FiberMap.runtime(requests)();
@@ -80,7 +87,7 @@ export const runWorktreeWorkerApplication = (
       const execute = (message: Extract<CodexWorktreeWorkerHostMessage, { type: "request" }>) =>
         Effect.promise((signal) =>
           executeCodexWorktreeWorkerOperation(message.request, {
-            loadBaseEnvironment: () => shellEnvironment.load(),
+            loadBaseEnvironment: () => loadBaseEnvironment(shellEnvironment.load),
             signal,
             onEvent: (event) =>
               transport.post({

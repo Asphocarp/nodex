@@ -22,6 +22,10 @@ const readEntryData = (): { readonly epoch: number; readonly hostId: string } =>
 
 const port = requirePort();
 const data = readEntryData();
+const shellEnvironment = {
+  baseEnvironment: { ...process.env },
+  platform: process.platform,
+} as const;
 const transport: WorktreeWorkerTransport = {
   close: () => port.close(),
   post: (message) => port.postMessage(message),
@@ -37,7 +41,7 @@ const transport: WorktreeWorkerTransport = {
 };
 
 NodeRuntime.runMain(
-  runWorktreeWorkerApplication({ ...data, transport }).pipe(
+  runWorktreeWorkerApplication({ ...data, shellEnvironment, transport }).pipe(
     Effect.catchCause((cause) =>
       Effect.sync(() => {
         const error = Cause.squash(cause);

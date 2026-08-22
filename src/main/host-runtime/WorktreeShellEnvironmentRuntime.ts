@@ -1,39 +1,26 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
 import {
-  CodexLocalShellEnvironmentLoader,
-  type CodexLocalShellEnvironmentLoaderOptions,
-} from "../codex/codex-worktree-shell-environment";
-
-export class WorktreeShellEnvironmentRuntimeError extends Schema.TaggedError<WorktreeShellEnvironmentRuntimeError>()(
-  "WorktreeShellEnvironmentRuntimeError",
-  {
-    cause: Schema.Defect(),
-  },
-) {}
+  type CodexLocalShellEnvironmentRuntimeError,
+  make,
+} from "../codex/CodexLocalShellEnvironmentRuntime";
+import type { CodexLocalShellEnvironmentOptions } from "../codex/codex-worktree-shell-environment";
 
 export class WorktreeShellEnvironmentRuntime extends Context.Service<
   WorktreeShellEnvironmentRuntime,
   {
-    readonly load: Effect.Effect<NodeJS.ProcessEnv, WorktreeShellEnvironmentRuntimeError>;
+    readonly load: Effect.Effect<NodeJS.ProcessEnv, CodexLocalShellEnvironmentRuntimeError>;
   }
 >()("nodex/main/host-runtime/WorktreeShellEnvironmentRuntime") {}
 
 export const live = (
-  options: CodexLocalShellEnvironmentLoaderOptions = {},
+  options: CodexLocalShellEnvironmentOptions = {},
 ): Layer.Layer<WorktreeShellEnvironmentRuntime> =>
   Layer.effect(
     WorktreeShellEnvironmentRuntime,
     Effect.gen(function* () {
-      const loader = new CodexLocalShellEnvironmentLoader(options);
-      yield* Effect.addFinalizer(() => Effect.sync(() => loader.close()));
-      return WorktreeShellEnvironmentRuntime.of({
-        load: Effect.tryPromise({
-          try: () => loader.load(),
-          catch: (cause) => new WorktreeShellEnvironmentRuntimeError({ cause }),
-        }),
-      });
+      const runtime = yield* make(options);
+      return WorktreeShellEnvironmentRuntime.of(runtime);
     }),
   );
