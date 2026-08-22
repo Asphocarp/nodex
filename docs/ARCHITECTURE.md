@@ -445,12 +445,14 @@ Store authority supplied by Main. The conversation facade receives only a callba
 projection of this Module; it cannot replace the Module, inject a broker later, or clear grants from
 an unrelated shutdown hook.
 
-The temporary `CodexGatewayBridge` is a scoped boundary Adapter, not an endpoint owner. Its finalizer
-closes request admission, removes EventEmitter listeners, and clears host/connection projections;
-the Effect Gateway and Endpoint Map independently release the physical sessions they own. The
-legacy `CodexService` is an orchestration facade, not a lifecycle owner, and has no application
-shutdown hook. Pending requests, replay buffers, sidebar work, fresh Thread launches, authorization,
-the Gateway, and endpoints each close once through their owning Scope.
+The remaining conversation facade borrows a stateless `CodexGatewayPromiseClient` only for methods
+not yet migrated to typed Gateway Effects. That Adapter owns no event source, endpoint registry,
+connection projection, callback setter, or shutdown path; callback-started request fibers stay in
+the Main-scoped runtime. Server-request decoding is a separate transport/application seam, and
+connection plus notification input is consumed by a scoped Effect projection. The Gateway and
+Endpoint Map remain the only owners of physical sessions. Pending requests, replay buffers, sidebar
+work, fresh Thread launches, authorization, the Gateway, and endpoints each close once through
+their owning Scope.
 
 Agent-provider credential mutation belongs to `AgentProviderRuntime`, which serializes secure-file
 publication, catalog invalidation, deferred-restart state, idle detection, endpoint restart, and the
@@ -461,12 +463,12 @@ shutdown path. Codex child environment materialization receives only the Adapter
 so concurrent startup observes either the complete prior file or the complete replacement and cannot
 become a second credential writer.
 
-Decoded, generation-fenced app-server notifications enter the application through one lossless
-Main-scoped Queue actor. Callback admission is synchronous so EventEmitter arrival order is retained;
-the actor awaits each route before taking the next notification, supervises failures per envelope,
-and abandons both active work and backlog when the Main Scope closes. `CodexService` temporarily
-supplies the canonical notification reducer operation, but it owns no Promise chain, queue recovery,
-or notification-ingress lifetime.
+Decoded, generation-fenced app-server notifications flow from `CodexGateway.events` through one
+Main-scoped Stream consumer into a lossless Queue actor. The consumer subscribes before its Layer is
+ready and offers each event in Stream order; the actor awaits each route before taking the next
+notification, supervises failures per envelope, and abandons both active work and backlog when the
+Main Scope closes. `CodexService` temporarily supplies the canonical notification reducer operation,
+but it owns no subscription, Promise chain, queue recovery, or notification-ingress lifetime.
 
 Non-blocking app-server user-input requests are owned by one Main-scoped Codex application Module.
 Its immutable per-conversation state, keyed countdown fibers, serialized transitions, and change

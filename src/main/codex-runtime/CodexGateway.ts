@@ -61,6 +61,9 @@ export class CodexGateway extends Context.Service<
     readonly connection: (
       hostId: string,
     ) => Effect.Effect<CodexEndpointConnection, CodexRuntimeError>;
+    readonly connectionChanges: (
+      hostId: string,
+    ) => Stream.Stream<CodexEndpointConnection, CodexRuntimeError>;
     readonly awaitReady: (hostId: string) => Effect.Effect<void, CodexRuntimeError>;
     readonly reconcileHost: (
       config: CodexExecutionHostConfig,
@@ -163,6 +166,12 @@ export const live = (
           endpoints
             .endpoint(hostId)
             .pipe(Effect.flatMap((endpoint) => SubscriptionRef.get(endpoint.state))),
+        connectionChanges: (hostId) =>
+          Stream.unwrap(
+            endpoints
+              .endpoint(hostId)
+              .pipe(Effect.map((endpoint) => SubscriptionRef.changes(endpoint.state))),
+          ),
         awaitReady: (hostId) =>
           endpoints.endpoint(hostId).pipe(
             Effect.flatMap((endpoint) => endpoint.session),

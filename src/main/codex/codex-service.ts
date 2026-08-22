@@ -292,7 +292,6 @@ import type {
 } from "../nodex-agent-authority-port";
 import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
 import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application/CodexActiveGoalContinuation";
-import type { CodexNotificationRoutingLegacyPort } from "../codex-application/CodexNotificationRouting";
 import type { CodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import type { CodexRendererConversationRuntimeService } from "../codex-application/CodexRendererConversationRuntime";
 import type { CodexRendererOwnerRetentionLegacyPort } from "../codex-application/CodexRendererOwnerRetention";
@@ -441,7 +440,7 @@ import {
 import { buildTurnErrorItemView } from "../../shared/codex-turn-error-projection";
 import { normalizeCodexAppInfoLogos } from "../../shared/codex-app-info";
 import { CODEX_INTEGRATION_CAPABILITIES } from "../../shared/codex-integration-capabilities";
-import type { CodexApplicationClient } from "../codex-runtime/CodexApplicationClient";
+import type { CodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import { resolveAssetPath } from "../local-store/assets";
 import {
   getCodexDeveloperInstructionSettings,
@@ -454,10 +453,10 @@ import {
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
   CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
-  CodexRpcError,
   type CodexServerRequest,
   type CodexServerNotification,
-} from "../codex-runtime/CodexApplicationClient";
+} from "../codex-runtime/CodexApplicationProtocol";
+import { CodexRpcError } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import { CodexSessionStore } from "./codex-session-store";
 import {
   createManagedWorktree,
@@ -1202,7 +1201,7 @@ type CodexServiceOptions = {
   preferences: Pick<CodexPreferences["Service"], "current">;
   permissions: CodexPermissionsPromiseAdapter;
   agentImport: AgentImportRuntimePromiseAdapter;
-  client: CodexApplicationClient;
+  client: CodexGatewayPromiseClient;
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
   pendingServerRequests: CodexPendingServerRequestRuntimePromiseAdapter;
@@ -1213,7 +1212,6 @@ type CodexServiceOptions = {
   nodexAgentDynamicService: NodexAgentV3DynamicService | null;
   nodexAgentAuthorization: NodexAgentAuthorizationRuntimePromiseAdapter;
   activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
-  notificationRouting: CodexNotificationRoutingLegacyPort;
   ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
   rendererConversations: CodexRendererConversationRuntimeService;
   rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
@@ -2373,7 +2371,7 @@ const unconfiguredAuthority = <Port extends object>(name: string): Port =>
 
 export class CodexService {
   private readonly logger = codexLogger;
-  private readonly client: CodexApplicationClient;
+  private readonly client: CodexGatewayPromiseClient;
   private readonly applicationEvents: CodexApplicationEventPublisher;
   private readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   private readonly composerCatalog: ComposerCatalogPromiseAdapter;
@@ -2385,7 +2383,6 @@ export class CodexService {
   private readonly runtimeVersion: string | null;
   private readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   private readonly activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
-  private readonly notificationRouting: CodexNotificationRoutingLegacyPort;
   private readonly ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
   private readonly rendererConversations: CodexRendererConversationRuntimeService;
   private readonly rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
@@ -2502,7 +2499,6 @@ export class CodexService {
     this.persistedAtoms = options.persistedAtoms;
     this.sessionStore = options.sessionStore;
     this.activeGoalContinuation = options.activeGoalContinuation;
-    this.notificationRouting = options.notificationRouting;
     this.ownerNotificationDrain = options.ownerNotificationDrain;
     this.rendererConversations = options.rendererConversations;
     this.rendererOwnerRetention = options.rendererOwnerRetention;
@@ -2552,37 +2548,28 @@ export class CodexService {
     this.forkSidePanelTransferLifecycle = options?.forkSidePanelTransferLifecycle;
     this.userInputAutoResolution = options.userInputAutoResolution;
     this.client = options.client;
-    this.client.setThreadHostResolver?.(
-      (threadId) =>
-        this.workspaceThreadProjectionById.get(threadId)?.executionHostId ??
-        CODEX_APP_LOCAL_HOST_ID,
+  }
+
+  resolveThreadExecutionHostId(threadId: string): string {
+    return (
+      this.workspaceThreadProjectionById.get(threadId.trim())?.executionHostId ??
+      CODEX_APP_LOCAL_HOST_ID
     );
-    this.client.setServerRequestHandler(async (request) => this.handleServerRequest(request));
+  }
 
-    this.client.on("connection", (connection) => {
-      const wasConnected = this.lastConnectionStatus === "connected";
-      this.lastConnectionStatus = connection.status;
-      if (wasConnected && connection.status !== "connected") {
-        this.userInputAutoResolution.handleDisconnect();
-        this.clearPendingServerRequestsAfterDisconnect();
-      }
-      this.emitEvent({ type: "connection", connection });
-      if (connection.status === "connected" && connection.retries > 0 && !wasConnected) {
-        this.markConversationsNeedResumeAfterReconnect();
-        void this.syncSidebarThreadsDetailed({
-          policy: "stale",
-          reason: "app-server-reconnect",
-        });
-      }
-    });
-
-    this.client.on("notification", (notification: CodexServerNotification) => {
-      this.notificationRouting.offer(notification);
-    });
-
-    this.client.on("protocolError", (message: string) => {
-      this.logger.error("Received Codex protocol error", { message });
-      this.emitEvent({ type: "error", message });
+  observeConnection(connection: CodexConnectionState): void {
+    const wasConnected = this.lastConnectionStatus === "connected";
+    this.lastConnectionStatus = connection.status;
+    if (wasConnected && connection.status !== "connected") {
+      this.userInputAutoResolution.handleDisconnect();
+      this.clearPendingServerRequestsAfterDisconnect();
+    }
+    this.emitEvent({ type: "connection", connection });
+    if (connection.status !== "connected" || connection.retries <= 0 || wasConnected) return;
+    this.markConversationsNeedResumeAfterReconnect();
+    void this.syncSidebarThreadsDetailed({
+      policy: "stale",
+      reason: "app-server-reconnect",
     });
   }
 
@@ -9958,6 +9945,7 @@ export class CodexService {
     destinationHostId: string,
   ): CodexThreadHandoffCapability {
     const crossHost = sourceHostId !== destinationHostId;
+    const availableHostIds = new Set(this.executionHosts.listHostIds());
     const localTransactionEffects = (hostId: string): boolean =>
       ["prepare-handoff", "rollback-handoff", "cleanup-handoff"].every((operation) =>
         this.executionHosts.hasCapability(hostId, operation as CodexWorktreeWorkerOperation),
@@ -9989,13 +9977,13 @@ export class CodexService {
       sourceHost: {
         available:
           this.executionHosts.hasCapability(sourceHostId, "create") &&
-          this.client.hasHost(sourceHostId),
+          availableHostIds.has(sourceHostId),
         transactionEffects: sourceTransactionEffects,
       },
       destinationHost: {
         available:
           this.executionHosts.hasCapability(destinationHostId, "create") &&
-          this.client.hasHost(destinationHostId),
+          availableHostIds.has(destinationHostId),
         transactionEffects: destinationTransactionEffects,
       },
       crossHost,
@@ -10017,7 +10005,6 @@ export class CodexService {
   } {
     const availableHandoffHosts = this.executionHosts
       .listDescriptors()
-      .filter((host) => this.client.hasHost(host.hostId))
       .filter((host) => this.executionHosts.hasFileTransfer(host.hostId))
       .filter((host) => this.executionHosts.hasCapability(host.hostId, "cleanup-transfer-handoff"))
       .filter(
@@ -21690,7 +21677,7 @@ export class CodexService {
     return true;
   }
 
-  private async handleServerRequest(request: CodexServerRequest): Promise<unknown> {
+  async handleServerRequest(request: CodexServerRequest): Promise<unknown> {
     this.logger.info("Handling Codex server request", {
       requestId: String(request.id),
       method: request.method,

@@ -18,7 +18,7 @@ import type {
   CodexUserInputRequest,
 } from "../../shared/types";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
-import type { CodexServerRequest } from "../codex-runtime/CodexApplicationClient";
+import type { CodexServerRequest } from "../codex-runtime/CodexApplicationProtocol";
 
 export type CodexPendingServerRequestKind =
   | "approval"

@@ -64,6 +64,7 @@ it.effect("gates app discovery and coalesces concurrent status reads", () =>
       requestForThread: (_threadId, method, params) => requestLocal(method, params),
       notifyLocal: unsupported,
       connection: () => unsupported(),
+      connectionChanges: () => Stream.empty,
       awaitReady: () => Effect.void,
       reconcileHost: unsupported,
       removeHost: unsupported,

@@ -8,7 +8,7 @@ import {
   CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
   type CodexServerNotification,
   type CodexServerRequest,
-} from "../codex-runtime/CodexApplicationClient";
+} from "../codex-runtime/CodexApplicationProtocol";
 import {
   CodexConversationEventBufferError,
   type CodexConversationEventBufferRuntimeService,

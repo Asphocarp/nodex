@@ -110,22 +110,17 @@ import type {
 import { CodexService } from "./codex-service";
 import { CodexSessionStore } from "./codex-session-store";
 import type { ResolvedCodexRuntime } from "./codex-runtime";
-import type {
-  CodexApplicationClient,
-  CodexAppServerClientOptions,
-  CodexServerRequest,
-} from "../codex-runtime/CodexApplicationClient";
+import type { CodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import {
   CODEX_SERVER_REQUEST_NO_RESPONSE,
   CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
-  CodexRpcError,
-} from "../codex-runtime/CodexApplicationClient";
+} from "../codex-runtime/CodexApplicationProtocol";
+import { CodexRpcError } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import {
   TestCodexUserInputAutoResolutionController,
   USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS,
 } from "./codex-user-input-auto-resolution.test-support";
 import { TestCodexActiveGoalContinuation } from "./codex-active-goal-continuation.test-support";
-import { TestCodexNotificationRouting } from "./codex-notification-routing.test-support";
 import { DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import { makeCodexRendererConversationState } from "../codex-application/CodexRendererConversationRuntime";
 import type {
@@ -183,6 +178,8 @@ interface TestableCodexService {
     listener: (event: CodexThreadNotificationEvent) => void,
   ) => () => void;
   shutdown: () => Promise<void>;
+  routeAppServerNotification: (notification: CodexServerNotification) => Promise<void>;
+  observeConnection: (connection: import("../../shared/types").CodexConnectionState) => void;
   readThread: (threadId: string, includeTurns?: boolean) => Promise<CodexThreadDetail | null>;
   resolveThreadSummary: (
     threadId: string,
@@ -984,16 +981,7 @@ const TEST_CODEX_RUNTIME: ResolvedCodexRuntime = {
   version: null,
 };
 
-class TestCodexApplicationClient extends EventEmitter implements CodexApplicationClient {
-  readonly #hosts = new Set([DEFAULT_CODEX_HOST_ID]);
-
-  hasHost(hostId: string): boolean {
-    return this.#hosts.has(hostId.trim());
-  }
-  async notify(_method: string, _params?: unknown): Promise<void> {}
-  registerProcessHost(hostId: string, _options: CodexAppServerClientOptions): void {
-    this.#hosts.add(hostId.trim());
-  }
+class TestCodexGatewayPromiseClient implements CodexGatewayPromiseClient {
   async request<TResult>(method: string, _params?: unknown): Promise<TResult> {
     throw new Error(`Unexpected client request: ${method}`);
   }
@@ -1004,13 +992,7 @@ class TestCodexApplicationClient extends EventEmitter implements CodexApplicatio
   ): Promise<TResult> {
     return await this.request<TResult>(method, params);
   }
-  setServerRequestHandler(_handler: (request: CodexServerRequest) => Promise<unknown>): void {}
-  setThreadHostResolver(_resolver: (threadId: string) => string | null): void {}
   async start(): Promise<void> {}
-  async stop(): Promise<void> {}
-  async unregister(hostId: string): Promise<boolean> {
-    return this.#hosts.delete(hostId.trim());
-  }
 }
 
 const createTestAutomationModule = (): DesktopAutomationModulePort => ({
@@ -1770,10 +1752,6 @@ function createService(options?: {
       await service.runActiveThreadGoalContinuation(conversationId);
     },
   });
-  const notificationRouting = new TestCodexNotificationRouting(async (notification) => {
-    if (!service) throw new Error("Codex test service is not constructed");
-    await service.routeAppServerNotification(notification);
-  });
   const ownerNotificationDrain = new TestCodexOwnerNotificationDrainRuntime(
     DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT,
   );
@@ -2048,7 +2026,6 @@ function createService(options?: {
       },
     },
     activeGoalContinuation,
-    notificationRouting,
     ownerNotificationDrain,
     rendererConversations: makeCodexRendererConversationState(),
     rendererOwnerRetention,
@@ -2120,7 +2097,7 @@ function createService(options?: {
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
     sessionStore: new CodexSessionStore(),
-    client: new TestCodexApplicationClient(),
+    client: new TestCodexGatewayPromiseClient(),
     runtime: TEST_CODEX_RUNTIME,
     runtimeStateHome,
     nodexAgentDynamicService: null,
@@ -9143,7 +9120,7 @@ describe("codex-service startTurn", () => {
       }
 
       if (method === "thread/resume") {
-        client.emit("notification", {
+        await service.routeAppServerNotification({
           method: "item/agentMessage/delta",
           params: {
             threadId: "thr_start",
@@ -11570,14 +11547,11 @@ describe("codex-service approval fallback", () => {
         conversationId: string,
       ) => Promise<boolean>;
     };
-    const client = Reflect.get(service as object, "client") as {
-      emit: (event: string, payload: unknown) => boolean;
-    };
     const threadId = "thread-auto-resolution-disconnect";
     const requestId = "request-auto-resolution-disconnect";
 
     try {
-      client.emit("connection", { status: "connected", retries: 0 });
+      service.observeConnection({ status: "connected", retries: 0 });
       const request = serviceInternals.handleServerRequest({
         id: requestId,
         method: "item/tool/requestUserInput",
@@ -11600,7 +11574,7 @@ describe("codex-service approval fallback", () => {
       await Promise.resolve();
       expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toHaveLength(1);
 
-      client.emit("connection", { status: "disconnected", retries: 1 });
+      service.observeConnection({ status: "disconnected", retries: 1 });
       expect(serviceInternals.getUserInputAutoResolutionSnapshot()).toEqual([]);
 
       expect(await request).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);

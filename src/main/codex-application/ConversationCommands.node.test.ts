@@ -55,6 +55,7 @@ it.effect("routes direct thread operations and drains background-terminal pages"
         respond("thread", method, params)) as CodexGateway["Service"]["requestForThread"],
       notifyLocal: unsupported,
       connection: () => unsupported(),
+      connectionChanges: () => Stream.empty,
       awaitReady: () => Effect.void,
       reconcileHost: unsupported,
       removeHost: unsupported,

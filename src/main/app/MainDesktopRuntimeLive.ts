@@ -96,6 +96,7 @@ import {
   CodexNotificationRoutingError,
   make as makeCodexNotificationRouting,
 } from "../codex-application/CodexNotificationRouting";
+import { live as codexApplicationIngressRuntimeLive } from "../codex-application/CodexApplicationIngressRuntime";
 import { make as makeCodexOwnerNotificationDrainRuntime } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import { makeCodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntimePromiseAdapter";
 import { make as makeCodexRendererConversationRuntime } from "../codex-application/CodexRendererConversationRuntime";
@@ -230,10 +231,10 @@ import {
   CodexToolRuntime,
   live as codexToolRuntimeLive,
 } from "../codex-application/CodexToolRuntime";
-import { CodexEndpointMap } from "../codex-runtime/CodexEndpointMap";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
-import { makeCodexGatewayBridge } from "../codex-runtime/CodexGatewayBridge";
 import { CodexThreadHostResolver } from "../codex-runtime/CodexGateway";
+import { makeCodexApplicationServerRequests } from "../codex-runtime/CodexApplicationServerRequests";
+import { makeCodexGatewayPromiseClient } from "../codex-runtime/CodexGatewayPromiseAdapter";
 import * as CodexRuntimeLive from "../codex-runtime/CodexRuntimeLive";
 import { CodexServerRequestRuntime } from "../codex-runtime/CodexServerRequestRuntime";
 import * as AppUpdateIpc from "../ipc/handlers/AppUpdateIpc";
@@ -504,11 +505,25 @@ export const live: Layer.Layer<
           projectRuntimeLifecycle,
           callbacks,
         );
-        const codexBridge = yield* makeCodexGatewayBridge(callbacks).pipe(
-          Effect.provideService(Scope.Scope, runtimeScope),
-        );
+        let codexService: CodexService | undefined;
+        const requireCodexService = (): CodexService => {
+          const service = codexService;
+          if (!service) throw new Error("CodexService is not constructed");
+          return service;
+        };
+        const resolveCodexThreadHost = (threadId: string) =>
+          Effect.sync(
+            () => codexService?.resolveThreadExecutionHostId(threadId) ?? CODEX_APP_LOCAL_HOST_ID,
+          );
         const applicationServerRequests = CodexGlobalServerRequestRuntime.of(
-          codexBridge.applicationServerRequests(),
+          makeCodexApplicationServerRequests({
+            current: () => {
+              const service = codexService;
+              return service === undefined
+                ? null
+                : { handle: (request) => service.handleServerRequest(request) };
+            },
+          }),
         );
         const requestHandlingContext = yield* Layer.buildWithScope(
           requestHandlingLive.pipe(
@@ -545,7 +560,7 @@ export const live: Layer.Layer<
           Layer.succeed(
             CodexThreadHostResolver,
             CodexThreadHostResolver.of({
-              resolve: (threadId) => codexBridge.resolveThreadHost(threadId),
+              resolve: resolveCodexThreadHost,
             }),
           ),
         );
@@ -580,7 +595,7 @@ export const live: Layer.Layer<
           runtimeScope,
         ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
         const codexGateway = Context.get(codexContext, CodexGateway);
-        const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
+        const codexClient = makeCodexGatewayPromiseClient(codexGateway, callbacks);
         const electronNetContext = yield* Layer.buildWithScope(ElectronNet.live, runtimeScope);
         const electronNet = Context.get(electronNetContext, ElectronNet.ElectronNet);
         const browserSidebarContext = yield* Layer.buildWithScope(
@@ -1001,12 +1016,6 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        codexBridge.attach(codexGateway, codexEndpoints);
-        yield* codexBridge.events.pipe(
-          Stream.runForEach((event) => Effect.sync(() => codexBridge.observe(event))),
-          Effect.forkIn(runtimeScope),
-        );
-
         yield* terminals.events.pipe(
           Stream.runForEach((event) => {
             if (event.channel !== "terminal-data") return Effect.void;
@@ -1286,12 +1295,6 @@ export const live: Layer.Layer<
           runtimeScope,
           Effect.sync(() => codexSessionStore.clear()),
         );
-        let codexService: CodexService | undefined;
-        const requireCodexService = (): CodexService => {
-          const service = codexService;
-          if (!service) throw new Error("CodexService is not constructed");
-          return service;
-        };
         const isActiveGoalContinuationCandidate = (conversationId: string) =>
           codexService?.isActiveThreadGoalContinuationCandidate(conversationId) === true;
         const activeGoalContinuation = yield* makeCodexActiveGoalContinuation({
@@ -1379,7 +1382,7 @@ export const live: Layer.Layer<
         const heartbeatTurnCompletion = yield* makeCodexHeartbeatTurnCompletion({
           events: codexGateway.events,
           resolveHost: (threadId) =>
-            codexBridge.resolveThreadHost(threadId).pipe(
+            resolveCodexThreadHost(threadId).pipe(
               Effect.mapError(
                 (cause) =>
                   new CodexHeartbeatTurnCompletionError({
@@ -1811,7 +1814,6 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               activeGoalContinuation: activeGoalContinuationCallbacks,
-              notificationRouting,
               ownerNotificationDrain: makeCodexOwnerNotificationDrainRuntimePromiseAdapter(
                 ownerNotificationDrain,
                 callbacks,
@@ -1888,7 +1890,7 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               sessionStore: codexSessionStore,
-              client: codexBridge,
+              client: codexClient,
               runtime: codexRuntime,
               runtimeStateHome,
               nodexAgentDynamicService,
@@ -1920,6 +1922,15 @@ export const live: Layer.Layer<
           },
           catch: (cause) => runtimeError("construct-codex-application", cause),
         });
+        yield* Layer.buildWithScope(
+          codexApplicationIngressRuntimeLive({
+            connections: codexConnectionService.changes,
+            events: codexGateway.events,
+            observeConnection: (connection) => codexService.observeConnection(connection),
+            offerNotification: notificationRouting.offer,
+          }),
+          runtimeScope,
+        );
         yield* SubscriptionRef.changes(executionHosts.activeSshHosts).pipe(
           Stream.runForEach(() =>
             Effect.sync(() => codexService.handleExecutionHostTopologyChanged()),

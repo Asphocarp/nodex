@@ -41,6 +41,7 @@ it.effect("projects the authoritative endpoint state without losing retry histor
       requestForThread: unsupported,
       notifyLocal: unsupported,
       connection: () => Effect.succeed({ kind: "ready", hostId: "local", generation: 1 }),
+      connectionChanges: () => Stream.succeed({ kind: "ready", hostId: "local", generation: 1 }),
       awaitReady: () => Effect.void,
       reconcileHost: unsupported,
       removeHost: unsupported,

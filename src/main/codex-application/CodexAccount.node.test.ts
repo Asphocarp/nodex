@@ -52,6 +52,7 @@ it.effect("owns account, login, rate-limit, and notification state behind one in
       requestForThread: (_threadId, method, params) => requestLocal(method, params),
       notifyLocal: unsupported,
       connection: () => unsupported(),
+      connectionChanges: () => Stream.empty,
       awaitReady: () => Effect.void,
       reconcileHost: unsupported,
       removeHost: unsupported,

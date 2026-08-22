@@ -53,6 +53,7 @@ const makeHarness = (options: { readonly rejectConfigWrite?: boolean } = {}) => 
     requestForThread: (_threadId, method, params) => requestLocal(method, params),
     notifyLocal: unsupported,
     connection: () => unsupported(),
+    connectionChanges: () => Stream.empty,
     awaitReady: () => Effect.void,
     reconcileHost: unsupported,
     removeHost: unsupported,

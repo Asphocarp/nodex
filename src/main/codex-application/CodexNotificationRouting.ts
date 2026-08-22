@@ -3,7 +3,7 @@ import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Queue from "effect/Queue";
 import type * as Scope from "effect/Scope";
-import type { CodexServerNotification } from "../codex-runtime/CodexApplicationClient";
+import type { CodexServerNotification } from "../codex-runtime/CodexApplicationProtocol";
 
 export class CodexNotificationRoutingError extends Data.TaggedError(
   "CodexNotificationRoutingError",
@@ -18,8 +18,7 @@ export interface CodexNotificationRoutingOptions {
 export class CodexNotificationRouting extends Context.Service<
   CodexNotificationRouting,
   {
-    /** Synchronous callback ingress backed by the Module's scoped lossless Queue. */
-    readonly offer: (notification: CodexServerNotification) => void;
+    readonly offer: (notification: CodexServerNotification) => Effect.Effect<boolean>;
   }
 >()("nodex/main/codex-application/CodexNotificationRouting") {}
 
@@ -49,10 +48,6 @@ export const make = (
     );
 
     return CodexNotificationRouting.of({
-      offer: (notification) => {
-        Queue.offerUnsafe(notifications, notification);
-      },
+      offer: (notification) => Queue.offer(notifications, notification),
     });
   });
-
-export type CodexNotificationRoutingLegacyPort = Pick<CodexNotificationRouting["Service"], "offer">;

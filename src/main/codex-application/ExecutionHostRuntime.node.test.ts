@@ -49,6 +49,7 @@ const makeHarness = (failedHostId?: string) => {
     requestForThread: unsupported,
     notifyLocal: unsupported,
     connection: unsupported,
+    connectionChanges: () => Stream.empty,
     awaitReady: unsupported,
     reconcileHost: (config) =>
       Effect.sync(() => {

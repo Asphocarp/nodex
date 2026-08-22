@@ -30,6 +30,7 @@ const gateway = CodexGateway.of({
   requestForThread: unsupported,
   notifyLocal: unsupported,
   connection: unsupported,
+  connectionChanges: () => Stream.empty,
   awaitReady: () => Effect.void,
   reconcileHost: unsupported,
   removeHost: unsupported,

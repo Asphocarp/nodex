@@ -1,10 +1,23 @@
 import { delimiter as pathDelimiter } from "node:path";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import type { CodexAppServerClientOptions } from "../../codex-runtime/CodexApplicationClient";
 import { live as sessionLive } from "../../codex-runtime/CodexAppServerSession";
 import type { CodexExecutionHostConfig } from "../../codex-runtime/CodexEndpointMap";
 import { codexRuntimeError } from "../../codex-runtime/CodexRuntimeError";
+
+export interface CodexAppServerClientOptions {
+  readonly binaryPath?: string;
+  readonly args?: string[];
+  readonly env?: NodeJS.ProcessEnv;
+  readonly resolveEnv?: () => NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv>;
+  readonly additionalSearchPaths?: string[];
+  readonly missingBinaryMessage?: string;
+  readonly initializeTimeoutMs?: number;
+  readonly requestTimeoutMs?: number;
+  readonly logStderr?: boolean;
+  readonly expectedCodexHome?: string;
+  readonly clientInfo?: { readonly name: string; readonly title: string; readonly version: string };
+}
 
 const withSearchPath = (
   env: Readonly<Record<string, string | undefined>>,

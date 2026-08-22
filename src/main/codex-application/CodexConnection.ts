@@ -2,8 +2,8 @@ import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
+import * as SubscriptionRef from "effect/SubscriptionRef";
 import type { CodexConnectionState } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexEndpointConnection } from "../codex-runtime/CodexEventHub";
@@ -13,6 +13,7 @@ export class CodexConnection extends Context.Service<
   CodexConnection,
   {
     readonly read: Effect.Effect<CodexConnectionState, CodexRuntimeError>;
+    readonly changes: Stream.Stream<CodexConnectionState>;
   }
 >()("nodex/main/codex-application/CodexConnection") {}
 
@@ -54,28 +55,24 @@ export const live: Layer.Layer<CodexConnection, never, CodexGateway> = Layer.eff
   CodexConnection,
   Effect.gen(function* () {
     const gateway = yield* CodexGateway;
-    const state = yield* Ref.make(disconnected());
+    const state = yield* SubscriptionRef.make(disconnected());
     const observe = Effect.fn("CodexConnection.observe")(function* (
       connection: CodexEndpointConnection,
     ) {
       const now = yield* Clock.currentTimeMillis;
-      return yield* Ref.updateAndGet(state, (previous) =>
+      return yield* SubscriptionRef.updateAndGet(state, (previous) =>
         projectCodexConnection(previous, connection, now),
       );
     });
 
-    yield* gateway.events.pipe(
-      Stream.filter(
-        (event) => event.kind === "connection" && event.value.hostId === gateway.localHostId,
-      ),
-      Stream.runForEach((event) =>
-        event.kind === "connection" ? observe(event.value).pipe(Effect.asVoid) : Effect.void,
-      ),
-      Effect.forkScoped,
+    yield* gateway.connectionChanges(gateway.localHostId).pipe(
+      Stream.runForEach((connection) => observe(connection).pipe(Effect.asVoid)),
+      Effect.forkScoped({ startImmediately: true }),
     );
 
     return CodexConnection.of({
-      read: gateway.connection(gateway.localHostId).pipe(Effect.flatMap(observe)),
+      read: SubscriptionRef.get(state),
+      changes: SubscriptionRef.changes(state),
     });
   }),
 );

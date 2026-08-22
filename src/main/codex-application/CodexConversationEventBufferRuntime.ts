@@ -10,7 +10,7 @@ import type * as Scope from "effect/Scope";
 import type {
   CodexServerNotification,
   CodexServerRequest,
-} from "../codex-runtime/CodexApplicationClient";
+} from "../codex-runtime/CodexApplicationProtocol";
 
 export type CodexConversationEventBufferPhase = "resume" | "thread-start";
 

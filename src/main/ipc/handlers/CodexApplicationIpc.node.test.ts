@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
@@ -100,6 +101,7 @@ it.effect("registers application channels directly against their owning modules"
     });
     const connection = CodexConnection.of({
       read: Effect.succeed({ status: "connected", retries: 0 }),
+      changes: Stream.succeed({ status: "connected", retries: 0 }),
     });
     const media = CodexMedia.of({
       dictationState: Effect.succeed({

@@ -2,7 +2,7 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import { CodexAppServerNoResponse } from "@nodex/effect-codex-app-server/protocol";
 import type { CodexApprovalRequest, CodexUserInputRequest } from "../../shared/types";
-import type { CodexServerRequest } from "../codex-runtime/CodexApplicationClient";
+import type { CodexServerRequest } from "../codex-runtime/CodexApplicationProtocol";
 import {
   CodexPendingServerRequestRuntimeClosedError,
   type CodexPendingServerRequestRuntimeOptions,
