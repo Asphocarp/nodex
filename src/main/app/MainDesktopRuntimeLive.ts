@@ -93,6 +93,11 @@ import { makeCodexSidebarSweepRuntimePromiseAdapter } from "../codex-application
 import { make as makeCodexGitProbe } from "../codex-application/CodexGitProbe";
 import { makeCodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
 import {
+  CodexExternalAgentImportError,
+  make as makeCodexExternalAgentImportRuntime,
+} from "../codex-application/CodexExternalAgentImportRuntime";
+import { makeCodexExternalAgentImportRuntimePromiseAdapter } from "../codex-application/CodexExternalAgentImportRuntimePromiseAdapter";
+import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
 } from "../codex-application/CodexRendererOwnerRetention";
@@ -1225,6 +1230,28 @@ export const live: Layer.Layer<
           Effect.provideService(Scope.Scope, runtimeScope),
         );
         const gitProbe = makeCodexGitProbe({ environment: config.environment });
+        const externalAgentImport = yield* makeCodexExternalAgentImportRuntime({
+          hostId: codexGateway.localHostId,
+          events: codexGateway.events,
+          request: (items) =>
+            codexGateway
+              .requestLocal("externalAgentConfig/import", {
+                migrationItems: [...items],
+              })
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new CodexExternalAgentImportError({
+                      reason: "request-failed",
+                      message:
+                        cause instanceof Error
+                          ? cause.message
+                          : "Could not start the Claude Code import",
+                      cause,
+                    }),
+                ),
+              ),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1273,6 +1300,10 @@ export const live: Layer.Layer<
               sidebarNotificationSync: sidebarNotificationSyncCallbacks,
               sidebarSweep: makeCodexSidebarSweepRuntimePromiseAdapter(sidebarSweep, callbacks),
               gitProbe: makeCodexGitProbePromiseAdapter(gitProbe, callbacks),
+              externalAgentImport: makeCodexExternalAgentImportRuntimePromiseAdapter(
+                externalAgentImport,
+                callbacks,
+              ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,
                 callbacks,

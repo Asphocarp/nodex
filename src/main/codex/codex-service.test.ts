@@ -1873,6 +1873,9 @@ function createService(options?: {
         }
       },
     },
+    externalAgentImport: {
+      run: async () => ({ importId: "test-import", itemTypeResults: [] }),
+    },
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),

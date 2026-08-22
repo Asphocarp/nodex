@@ -1,0 +1,151 @@
+import type { ExternalAgentConfigImportCompletedNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportCompletedNotification";
+import type { ExternalAgentConfigImportProgressNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportProgressNotification";
+import type { ExternalAgentConfigImportResponse } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportResponse";
+import type { ExternalAgentConfigMigrationItem } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigMigrationItem";
+import * as Context from "effect/Context";
+import * as Data from "effect/Data";
+import type * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Latch from "effect/Latch";
+import * as Queue from "effect/Queue";
+import * as Semaphore from "effect/Semaphore";
+import type * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import type { CodexEndpointEvent } from "../codex-runtime/CodexEventHub";
+
+export const DEFAULT_CODEX_EXTERNAL_AGENT_IMPORT_TIMEOUT = "2 minutes";
+
+type ImportNotification =
+  | {
+      readonly method: "externalAgentConfig/import/progress";
+      readonly params: ExternalAgentConfigImportProgressNotification;
+    }
+  | {
+      readonly method: "externalAgentConfig/import/completed";
+      readonly params: ExternalAgentConfigImportCompletedNotification;
+    };
+
+export class CodexExternalAgentImportError extends Data.TaggedError(
+  "CodexExternalAgentImportError",
+)<{
+  readonly reason: "request-failed" | "runtime-closed" | "timeout";
+  readonly message: string;
+  readonly cause?: unknown;
+}> {}
+
+export interface CodexExternalAgentImportRuntimeOptions {
+  readonly hostId: string;
+  readonly events: Stream.Stream<CodexEndpointEvent>;
+  readonly request: (
+    items: readonly ExternalAgentConfigMigrationItem[],
+  ) => Effect.Effect<ExternalAgentConfigImportResponse, CodexExternalAgentImportError>;
+  readonly timeout?: Duration.Input;
+}
+
+export class CodexExternalAgentImportRuntime extends Context.Service<
+  CodexExternalAgentImportRuntime,
+  {
+    readonly run: (
+      items: readonly ExternalAgentConfigMigrationItem[],
+      onProgress: (progress: ExternalAgentConfigImportProgressNotification) => Effect.Effect<void>,
+    ) => Effect.Effect<
+      ExternalAgentConfigImportCompletedNotification,
+      CodexExternalAgentImportError
+    >;
+  }
+>()("nodex/main/codex-application/CodexExternalAgentImportRuntime") {}
+
+const relevantNotification = (
+  event: CodexEndpointEvent,
+  hostId: string,
+): ImportNotification | null => {
+  if (event.kind !== "notification" || event.hostId !== hostId) return null;
+  if (event.value.method === "externalAgentConfig/import/progress") {
+    return {
+      method: event.value.method,
+      params: event.value.params as ExternalAgentConfigImportProgressNotification,
+    };
+  }
+  if (event.value.method === "externalAgentConfig/import/completed") {
+    return {
+      method: event.value.method,
+      params: event.value.params as ExternalAgentConfigImportCompletedNotification,
+    };
+  }
+  return null;
+};
+
+export const make = (
+  options: CodexExternalAgentImportRuntimeOptions,
+): Effect.Effect<CodexExternalAgentImportRuntime["Service"], never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const admission = yield* Semaphore.make(1);
+    const closed = yield* Latch.make();
+    yield* Effect.addFinalizer(() => closed.open);
+
+    const runImport = (
+      items: readonly ExternalAgentConfigMigrationItem[],
+      onProgress: (progress: ExternalAgentConfigImportProgressNotification) => Effect.Effect<void>,
+    ) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const notifications = yield* Queue.unbounded<ImportNotification>();
+          yield* Effect.addFinalizer(() => Queue.shutdown(notifications).pipe(Effect.asVoid));
+          yield* options.events.pipe(
+            Stream.runForEach((event) => {
+              const notification = relevantNotification(event, options.hostId);
+              return notification === null
+                ? Effect.void
+                : Queue.offer(notifications, notification).pipe(Effect.asVoid);
+            }),
+            Effect.forkScoped,
+          );
+          yield* Effect.yieldNow;
+
+          const response = yield* options.request(items);
+          const awaitCompletion: Effect.Effect<ExternalAgentConfigImportCompletedNotification> =
+            Effect.suspend(() =>
+              Queue.take(notifications).pipe(
+                Effect.flatMap((notification) => {
+                  if (notification.params.importId !== response.importId) {
+                    return awaitCompletion;
+                  }
+                  if (notification.method === "externalAgentConfig/import/progress") {
+                    return onProgress(notification.params).pipe(Effect.andThen(awaitCompletion));
+                  }
+                  return Effect.succeed(notification.params);
+                }),
+              ),
+            );
+          return yield* awaitCompletion;
+        }),
+      ).pipe(
+        Effect.timeoutOrElse({
+          duration: options.timeout ?? DEFAULT_CODEX_EXTERNAL_AGENT_IMPORT_TIMEOUT,
+          orElse: () =>
+            Effect.fail(
+              new CodexExternalAgentImportError({
+                reason: "timeout",
+                message: "Timed out waiting for Claude Code import to finish",
+              }),
+            ),
+        }),
+      );
+
+    return CodexExternalAgentImportRuntime.of({
+      run: (items, onProgress) =>
+        Effect.raceFirst(
+          admission.withPermits(1)(runImport(items, onProgress)),
+          closed.await.pipe(
+            Effect.andThen(
+              Effect.fail(
+                new CodexExternalAgentImportError({
+                  reason: "runtime-closed",
+                  message: "The agent import runtime is closing",
+                }),
+              ),
+            ),
+          ),
+        ),
+    });
+  });

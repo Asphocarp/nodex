@@ -470,6 +470,13 @@ domain step that materializes one app-server page or one reconciliation batch an
 immutable cursor state. A temporary Promise adapter drains the current non-cancellable page before
 a forced refresh starts, but it owns no timer, retry counter, generation fence, or in-flight queue.
 
+External-agent import request correlation is owned by one Main-scoped runtime. It subscribes to the
+generation-fenced local Gateway stream before issuing the import request, buffers progress and
+completion notifications until the returned import identity is known, and serializes admission so
+pre-response events cannot cross import operations. One Effect-clock deadline and the Main Scope own
+the request, collector, and wait. `CodexService` only materializes successfully imported Thread ids;
+it owns no import listener, early-completion map, resolver Promise, or timer.
+
 Codex native-notification policy is a pure projection from application events, settings, focus,
 and presentation facts. `CodexThreadNotificationRuntime` directly owns both source-listener
 registrations and notification-action admission in the Main Scope; it does not acquire a class with

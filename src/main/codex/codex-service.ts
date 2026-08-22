@@ -18,7 +18,6 @@ import type { ConfigRequirementsReadResponse } from "@nodex/codex-app-server-pro
 import type { ExternalAgentConfigDetectResponse } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigDetectResponse";
 import type { ExternalAgentConfigImportCompletedNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportCompletedNotification";
 import type { ExternalAgentConfigImportProgressNotification } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportProgressNotification";
-import type { ExternalAgentConfigImportResponse } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigImportResponse";
 import type { ExternalAgentConfigMigrationItem } from "@nodex/codex-app-server-protocol/v2/ExternalAgentConfigMigrationItem";
 import type { CommandExecutionRequestApprovalResponse } from "@nodex/codex-app-server-protocol/v2/CommandExecutionRequestApprovalResponse";
 import type { DynamicToolCallParams } from "@nodex/codex-app-server-protocol/v2/DynamicToolCallParams";
@@ -206,6 +205,7 @@ import type { ManagedWorktreeRuntimePromiseAdapter } from "../codex-application/
 import type { ManagedWorktreeRetentionRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRetentionRuntimePromiseAdapter";
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import type { CodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
+import type { CodexExternalAgentImportRuntimePromiseAdapter } from "../codex-application/CodexExternalAgentImportRuntimePromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -1406,6 +1406,7 @@ type CodexServiceOptions = {
   sidebarNotificationSync: CodexSidebarNotificationSyncLegacyPort;
   sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   gitProbe: CodexGitProbePromiseAdapter;
+  externalAgentImport: CodexExternalAgentImportRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2602,6 +2603,7 @@ export class CodexService extends EventEmitter {
   private readonly sidebarNotificationSync: CodexSidebarNotificationSyncLegacyPort;
   private readonly sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
   private readonly gitProbe: CodexGitProbePromiseAdapter;
+  private readonly externalAgentImport: CodexExternalAgentImportRuntimePromiseAdapter;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
   private readonly gitSettingsResolver: () => CodexGitSettings;
@@ -2815,6 +2817,7 @@ export class CodexService extends EventEmitter {
     this.sidebarNotificationSync = options.sidebarNotificationSync;
     this.sidebarSweep = options.sidebarSweep;
     this.gitProbe = options.gitProbe;
+    this.externalAgentImport = options.externalAgentImport;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -6744,56 +6747,9 @@ export class CodexService extends EventEmitter {
     migrationItems: readonly ExternalAgentConfigMigrationItem[],
     onProgress: (progress: ExternalAgentConfigImportProgressNotification) => void,
   ): Promise<ExternalAgentConfigImportCompletedNotification> {
-    await this.ensureClientReady();
-    let expectedImportId: string | null = null;
-    const earlyCompletions = new Map<string, ExternalAgentConfigImportCompletedNotification>();
-    let settleCompletion: (result: ExternalAgentConfigImportCompletedNotification) => void = () =>
-      undefined;
-    let rejectCompletion: (error: Error) => void = () => undefined;
-    const completion = new Promise<ExternalAgentConfigImportCompletedNotification>(
-      (resolve, reject) => {
-        settleCompletion = resolve;
-        rejectCompletion = reject;
-      },
-    );
-    const timeout = setTimeout(
-      () => {
-        rejectCompletion(new Error("Timed out waiting for Claude Code import to finish"));
-      },
-      2 * 60 * 1_000,
-    );
-    const unsubscribe = this.registerInternalNotificationHandler((notification) => {
-      if (notification.method === "externalAgentConfig/import/progress") {
-        if (expectedImportId && notification.params.importId !== expectedImportId) return;
-        onProgress(notification.params);
-        return;
-      }
-      if (notification.method !== "externalAgentConfig/import/completed") return;
-      if (expectedImportId === null) {
-        earlyCompletions.set(notification.params.importId, notification.params);
-        return;
-      }
-      if (notification.params.importId !== expectedImportId) return;
-      settleCompletion(notification.params);
-    });
-
-    try {
-      const response = await this.client.request<
-        "externalAgentConfig/import",
-        ExternalAgentConfigImportResponse
-      >("externalAgentConfig/import", {
-        migrationItems: [...migrationItems],
-      });
-      expectedImportId = response.importId;
-      const earlyCompletion = earlyCompletions.get(expectedImportId);
-      if (earlyCompletion) settleCompletion(earlyCompletion);
-      const completed = await completion;
-      await this.materializeImportedClaudeThreads(completed);
-      return completed;
-    } finally {
-      clearTimeout(timeout);
-      unsubscribe();
-    }
+    const completed = await this.externalAgentImport.run(migrationItems, onProgress);
+    await this.materializeImportedClaudeThreads(completed);
+    return completed;
   }
 
   private async materializeImportedClaudeThreads(
