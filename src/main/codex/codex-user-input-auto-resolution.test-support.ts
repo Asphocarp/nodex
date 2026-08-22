@@ -7,6 +7,8 @@ import type {
 export const USER_INPUT_FOREGROUND_INACTIVITY_MS = 60_000;
 export const USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS = 90_000;
 
+/** Synchronous clock fixture for legacy CodexService integration tests only. */
+
 interface TimerHandle {
   unref?: () => void;
 }
@@ -38,7 +40,7 @@ function sameRequestId(left: CodexProtocolRequestId, right: CodexProtocolRequest
   return typeof left === typeof right && left === right;
 }
 
-export class CodexUserInputAutoResolutionController {
+export class TestCodexUserInputAutoResolutionController {
   private readonly now: () => number;
   private readonly setTimer: (callback: () => void, timeoutMs: number) => unknown;
   private readonly clearTimer: (timer: unknown) => void;

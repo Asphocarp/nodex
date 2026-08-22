@@ -14,10 +14,6 @@ import { ScopedCallbackRuntime } from "./app/ScopedCallbackRuntime";
 import type { CodexService } from "./codex/codex-service";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
-  parseCodexUserInputAutoResolutionActivityInput,
-  parseCodexUserInputAutoResolutionTarget,
-} from "../shared/codex-user-input-auto-resolution";
-import {
   createCodexProjectlessWorkspace,
   parseCodexProjectlessThreadCwdInput,
 } from "./codex/codex-projectless-workspace";
@@ -473,30 +469,6 @@ export const codexIpcLive = (
           "presented" in input && input.presented === true,
         );
         return true;
-      });
-
-      registerHandle("codex:user-input:auto-resolution:snapshot", () =>
-        codexService.getUserInputAutoResolutionSnapshot(),
-      );
-
-      registerHandle("codex:user-input:auto-resolution:activity", (event, input: unknown) => {
-        const conversationId = parseCodexUserInputAutoResolutionActivityInput(input);
-        if (conversationId === null) return false;
-        const clientId = resolveRendererClientId(event);
-        if (!clientId) return false;
-        return codexService.recordUserInputAutoResolutionActivity(conversationId, clientId);
-      });
-
-      registerHandle("codex:user-input:auto-resolution:snooze", (event, input: unknown) => {
-        const target = parseCodexUserInputAutoResolutionTarget(input);
-        if (target === null) return false;
-        const clientId = resolveRendererClientId(event);
-        if (!clientId) return false;
-        return codexService.snoozeUserInputAutoResolution(
-          target.conversationId,
-          target.requestId,
-          clientId,
-        );
       });
 
       registerHandle("codex:thread:turns:load-older", (_, threadId: string) =>

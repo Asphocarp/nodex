@@ -109,7 +109,10 @@ import {
   CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN,
   CodexRpcError,
 } from "../codex-runtime/CodexApplicationClient";
-import { USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS } from "./codex-user-input-auto-resolution";
+import {
+  TestCodexUserInputAutoResolutionController,
+  USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS,
+} from "./codex-user-input-auto-resolution.test-support";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
 import type {
@@ -1606,7 +1609,29 @@ function createService(options?: {
     else waiter.reject(completion.reason);
     return true;
   };
-  const service = new CodexService({
+  let service: CodexService | undefined;
+  const autoResolutionResolvers = new Map<
+    string,
+    { readonly requestId: string | number; readonly resolve: () => Promise<void> }
+  >();
+  const autoResolution = new TestCodexUserInputAutoResolutionController({
+    ...options?.userInputAutoResolutionTimer,
+    isConversationPresented: (conversationId) =>
+      service?.isRendererConversationPresentedInForeground(conversationId) === true,
+    onChange: (change) => service?.emit("userInputAutoResolutionChanged", change),
+    onResolve: async (conversationId, requestId) => {
+      const pending = autoResolutionResolvers.get(conversationId);
+      if (
+        !pending ||
+        typeof pending.requestId !== typeof requestId ||
+        pending.requestId !== requestId
+      ) {
+        return;
+      }
+      await pending.resolve();
+    },
+  });
+  const testService = new CodexService({
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
       resolveExecutionProfile: async (requested) => requested,
@@ -1678,6 +1703,51 @@ function createService(options?: {
       reject: async (threadId, _requestId, occurrenceToken, reason) =>
         completeResponse(threadId, occurrenceToken, { kind: "failure", reason }),
     },
+    userInputAutoResolution: {
+      observeRequest: (conversationId, requestId, resolve) => {
+        autoResolutionResolvers.set(conversationId, { requestId, resolve });
+        autoResolution.observeRequest(conversationId, requestId);
+      },
+      observeResponse: (conversationId, requestId) => {
+        autoResolution.observeResponse(conversationId, requestId);
+        const pending = autoResolutionResolvers.get(conversationId);
+        if (
+          pending &&
+          typeof pending.requestId === typeof requestId &&
+          pending.requestId === requestId
+        ) {
+          autoResolutionResolvers.delete(conversationId);
+        }
+      },
+      observeServerResolution: (conversationId, requestId) => {
+        autoResolution.observeServerResolution(conversationId, requestId);
+        const pending = autoResolutionResolvers.get(conversationId);
+        if (
+          pending &&
+          typeof pending.requestId === typeof requestId &&
+          pending.requestId === requestId
+        ) {
+          autoResolutionResolvers.delete(conversationId);
+        }
+      },
+      reevaluatePresentation: (conversationId) =>
+        autoResolution.reevaluatePresentation(conversationId),
+      clearConversation: (conversationId) => {
+        autoResolution.clearConversation(conversationId);
+        autoResolutionResolvers.delete(conversationId);
+      },
+      reconcilePendingRequests: (conversationId, requestIds) => {
+        autoResolution.reconcilePendingRequests(conversationId, requestIds);
+        if (autoResolution.snapshot().some((entry) => entry.conversationId === conversationId)) {
+          return;
+        }
+        autoResolutionResolvers.delete(conversationId);
+      },
+      handleDisconnect: () => {
+        autoResolution.handleDisconnect();
+        autoResolutionResolvers.clear();
+      },
+    },
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -1709,21 +1779,22 @@ function createService(options?: {
     browserTransferStateReader:
       options?.browserTransferStateReader ?? EMPTY_TEST_BROWSER_TRANSFER_STATE_READER,
     forkSidePanelTransferLifecycle: options?.forkSidePanelTransferLifecycle,
-    userInputAutoResolutionTimer: options?.userInputAutoResolutionTimer,
   }) as unknown as TestableCodexService;
-  const shutdown = service.shutdown.bind(service);
-  service.shutdown = async () => {
+  service = testService as unknown as CodexService;
+  Reflect.set(testService, "getUserInputAutoResolutionSnapshot", () => autoResolution.snapshot());
+  const shutdown = testService.shutdown.bind(testService);
+  testService.shutdown = async () => {
     try {
       await shutdown();
     } finally {
       await managedWorktreeHarness.close();
     }
   };
-  permissionStateByTestService.set(service, permissionStateByScope);
-  service.setAutomationModule(options?.automationModule ?? createTestAutomationModule());
-  service.setProjectWorkspacePort(options?.projectWorkspace ?? createTestProjectWorkspace());
-  service.setNodexAgentAuthorityPort(TEST_NODEX_AGENT_AUTHORITY);
-  const internals = service as unknown as {
+  permissionStateByTestService.set(testService, permissionStateByScope);
+  testService.setAutomationModule(options?.automationModule ?? createTestAutomationModule());
+  testService.setProjectWorkspacePort(options?.projectWorkspace ?? createTestProjectWorkspace());
+  testService.setNodexAgentAuthorityPort(TEST_NODEX_AGENT_AUTHORITY);
+  const internals = testService as unknown as {
     getMaybeConversationRecord: (threadId: string) => {
       canonicalState: CodexCanonicalConversationState | null;
       detail: CodexThreadDetail | null;
@@ -2029,23 +2100,24 @@ function createService(options?: {
       responseWaiters.set(key, [...(responseWaiters.get(key) ?? []), { resolve, reject }]);
     });
   };
-  const upsertPlanImplementationRequest = internals.upsertPlanImplementationRequest.bind(service);
+  const upsertPlanImplementationRequest =
+    internals.upsertPlanImplementationRequest.bind(testService);
   internals.upsertPlanImplementationRequest = (threadId, turnId, planContent, itemCreatedAt) => {
     syncCanonicalFixture(threadId);
     return upsertPlanImplementationRequest(threadId, turnId, planContent, itemCreatedAt);
   };
-  const steerService = service as unknown as {
+  const steerService = testService as unknown as {
     steerTurn: (
       input: CodexSteerTurnInput,
       options?: { syncDormantConversationUpdates?: boolean },
     ) => Promise<{ turnId: string } | null>;
   };
-  const steerTurn = steerService.steerTurn.bind(service);
+  const steerTurn = steerService.steerTurn.bind(testService);
   steerService.steerTurn = async (input, steerOptions) => {
     syncCanonicalFixture(input.threadId);
     return await steerTurn(input, steerOptions);
   };
-  return service;
+  return testService;
 }
 
 describe("codex-service sidebar Thread Project moves", () => {

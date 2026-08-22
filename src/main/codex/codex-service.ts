@@ -285,14 +285,7 @@ import type {
 } from "../nodex-agent-authority-port";
 import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
 import { CodexRendererViewRegistry } from "./codex-renderer-view-registry";
-import {
-  CodexUserInputAutoResolutionController,
-  type CodexUserInputAutoResolutionTimerOptions,
-} from "./codex-user-input-auto-resolution";
-import type {
-  CodexUserInputAutoResolutionChange,
-  CodexUserInputAutoResolutionEntry,
-} from "../../shared/codex-user-input-auto-resolution";
+import type { CodexUserInputAutoResolutionLegacyPort } from "../codex-application/CodexUserInputAutoResolution";
 import {
   buildPlanImplementationRequestId,
   selectPrimaryBackgroundConversationRequest,
@@ -1419,7 +1412,7 @@ type CodexServiceOptions = {
   browserTransferRuntime?: CodexForkBrowserRuntime;
   browserTransferStateReader?: CodexBrowserTransferStateReader;
   forkSidePanelTransferLifecycle?: CodexForkSidePanelTransferLifecycle;
-  userInputAutoResolutionTimer?: CodexUserInputAutoResolutionTimerOptions;
+  userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
   terminalRuntime?: CodexTerminalRuntimePort;
 };
 
@@ -2718,7 +2711,7 @@ export class CodexService extends EventEmitter {
   >();
   private readonly disposedRendererClientIds = new Set<string>();
   private readonly rendererViewRegistry = new CodexRendererViewRegistry();
-  private readonly userInputAutoResolutionController: CodexUserInputAutoResolutionController;
+  private readonly userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
   private readonly inactiveRendererOwnerCandidateSinceByConversationId = new Map<string, number>();
   private readonly inactiveRendererOwnerCleanupTimersByConversationId = new Map<
     string,
@@ -2873,34 +2866,7 @@ export class CodexService extends EventEmitter {
     this.browserTransferStateReader =
       options?.browserTransferStateReader ?? this.browserTransferRuntime;
     this.forkSidePanelTransferLifecycle = options?.forkSidePanelTransferLifecycle;
-    this.userInputAutoResolutionController = new CodexUserInputAutoResolutionController({
-      ...options?.userInputAutoResolutionTimer,
-      isConversationPresented: (conversationId) =>
-        this.rendererViewRegistry.isPresentedInForeground(conversationId),
-      onChange: (change: CodexUserInputAutoResolutionChange) => {
-        this.emit("userInputAutoResolutionChanged", change);
-      },
-      onResolve: async (conversationId, requestId) => {
-        const resolved = await this.respondToUserInput(requestId, {}, conversationId);
-        if (!resolved) {
-          throw new Error("Codex user-input auto-resolution was not accepted");
-        }
-        this.forwardNotificationToRendererOwner({
-          method: "serverRequest/resolved",
-          params: {
-            threadId: conversationId,
-            requestId,
-          },
-        });
-      },
-      onResolveError: (error, conversationId, requestId) => {
-        this.logger.warn("Codex user-input auto-resolution failed", {
-          conversationId,
-          requestId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      },
-    });
+    this.userInputAutoResolution = options.userInputAutoResolution;
     this.databaseNotifier.on(
       "project-sessions-changed",
       this.invalidateSidebarSnapshotCacheListener,
@@ -2984,7 +2950,7 @@ export class CodexService extends EventEmitter {
       const wasConnected = this.lastConnectionStatus === "connected";
       this.lastConnectionStatus = connection.status;
       if (wasConnected && connection.status !== "connected") {
-        this.userInputAutoResolutionController.handleDisconnect();
+        this.userInputAutoResolution.handleDisconnect();
         this.clearPendingServerRequestsAfterDisconnect();
       }
       this.emitEvent({ type: "connection", connection });
@@ -4114,7 +4080,7 @@ export class CodexService extends EventEmitter {
     if (active && this.disposedRendererClientIds.has(clientId)) return;
     this.rendererViewRegistry.setActive(threadId, clientId, active);
     this.setRendererConversationFollowing(threadId, clientId, active);
-    this.userInputAutoResolutionController.reevaluatePresentation(threadId);
+    this.userInputAutoResolution.reevaluatePresentation(threadId);
     this.syncInactiveRendererOwnerCleanup(threadId);
   }
 
@@ -4122,7 +4088,7 @@ export class CodexService extends EventEmitter {
     if (!clientId) return;
     const conversationIds = this.rendererViewRegistry.setClientForegrounded(clientId, foregrounded);
     for (const conversationId of conversationIds) {
-      this.userInputAutoResolutionController.reevaluatePresentation(conversationId);
+      this.userInputAutoResolution.reevaluatePresentation(conversationId);
       if (foregrounded) {
         this.emit("rendererConversationPresentedInForeground", conversationId);
       }
@@ -4138,7 +4104,7 @@ export class CodexService extends EventEmitter {
     if (!clientId) return;
     if (presented && this.disposedRendererClientIds.has(clientId)) return;
     this.rendererViewRegistry.setPresented(threadId, clientId, surfaceId, presented);
-    this.userInputAutoResolutionController.reevaluatePresentation(threadId);
+    this.userInputAutoResolution.reevaluatePresentation(threadId);
     if (presented && this.rendererViewRegistry.isPresentedInForeground(threadId)) {
       this.emit("rendererConversationPresentedInForeground", threadId);
     }
@@ -4169,27 +4135,8 @@ export class CodexService extends EventEmitter {
     return this.rendererViewRegistry.resolvePresentedSurfaceClient(conversationId);
   }
 
-  getUserInputAutoResolutionSnapshot(): CodexUserInputAutoResolutionEntry[] {
-    return this.userInputAutoResolutionController.snapshot();
-  }
-
-  recordUserInputAutoResolutionActivity(conversationId: string, clientId: string): boolean {
-    if (!this.rendererViewRegistry.isClientPresenting(conversationId, clientId)) {
-      return false;
-    }
-    this.userInputAutoResolutionController.recordActivity(conversationId);
-    return true;
-  }
-
-  snoozeUserInputAutoResolution(
-    conversationId: string,
-    requestId: RequestId,
-    clientId: string,
-  ): boolean {
-    if (!this.rendererViewRegistry.isClientPresenting(conversationId, clientId)) {
-      return false;
-    }
-    return this.userInputAutoResolutionController.snooze(conversationId, requestId);
+  isRendererClientPresenting(conversationId: string, clientId: string): boolean {
+    return this.rendererViewRegistry.isClientPresenting(conversationId, clientId);
   }
 
   private removeRendererClientActiveViews(clientId: string): string[] {
@@ -4401,7 +4348,7 @@ export class CodexService extends EventEmitter {
     }
     const viewConversationIds = this.removeRendererClientActiveViews(clientId);
     for (const conversationId of viewConversationIds) {
-      this.userInputAutoResolutionController.reevaluatePresentation(conversationId);
+      this.userInputAutoResolution.reevaluatePresentation(conversationId);
     }
     const conversationIds = [...this.rendererOwnerClientIdByConversationId.entries()]
       .filter(([, ownerClientId]) => ownerClientId === clientId)
@@ -6549,7 +6496,7 @@ export class CodexService extends EventEmitter {
         };
       }
       record.serverRequests = [...requests];
-      this.userInputAutoResolutionController.reconcilePendingRequests(
+      this.userInputAutoResolution.reconcilePendingRequests(
         threadId,
         requests
           .filter((request) => request.method === "item/tool/requestUserInput")
@@ -6570,7 +6517,7 @@ export class CodexService extends EventEmitter {
     this.rendererOwnerClientIdByConversationId.delete(threadId);
     this.rendererThreadStreamSubscriptions.clearConversation(threadId);
     this.rendererOwnerDetachedAtByConversationId.delete(threadId);
-    this.userInputAutoResolutionController.clearConversation(threadId);
+    this.userInputAutoResolution.clearConversation(threadId);
     this.rendererViewRegistry.clearConversation(threadId);
     this.clearInactiveRendererOwnerCleanup(threadId);
     this.inactiveRendererOwnerCleanupInFlight.delete(threadId);
@@ -7104,7 +7051,6 @@ export class CodexService extends EventEmitter {
     this.frameTextDeltaQueue.dispose();
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.outputDeltaQueue.dispose();
-    this.userInputAutoResolutionController.dispose();
     this.pendingWorktreeRuntime.shutdown();
     this.forkSidePanelTransferLifecycle?.clear();
     if (this.sidebarSnapshotCacheNotifierSubscribed) {
@@ -20359,7 +20305,7 @@ export class CodexService extends EventEmitter {
       { now: () => Date.now() },
     );
     if (lifecycle.selectedRequests.length === 0) return false;
-    this.userInputAutoResolutionController.observeResponse(pending.request.threadId, requestId);
+    this.userInputAutoResolution.observeResponse(pending.request.threadId, requestId);
     this.logger.info("Resolving Codex user-input request", {
       requestId,
       threadId: pending.request.threadId,
@@ -24650,7 +24596,14 @@ export class CodexService extends EventEmitter {
       ),
     });
     if (!params.isBlocking) {
-      this.userInputAutoResolutionController.observeRequest(threadId, requestId);
+      this.userInputAutoResolution.observeRequest(threadId, requestId, async () => {
+        const resolved = await this.respondToUserInput(requestId, {}, threadId);
+        if (!resolved) throw new Error("Codex user-input auto-resolution was not accepted");
+        this.forwardNotificationToRendererOwner({
+          method: "serverRequest/resolved",
+          params: { threadId, requestId },
+        });
+      });
     }
     this.applyStandalonePendingRequestProjection(request);
     const ownerRouted = this.forwardServerRequestToRendererOwner({
@@ -25874,7 +25827,7 @@ export class CodexService extends EventEmitter {
       if (typeof requestId !== "string" && typeof requestId !== "number") return;
       const threadId = payload.threadId;
       if (typeof threadId !== "string") return;
-      this.userInputAutoResolutionController.observeServerResolution(threadId, requestId);
+      this.userInputAutoResolution.observeServerResolution(threadId, requestId);
       const ownerRouted = this.forwardNotificationToRendererOwner(notification);
       this.resolvePendingServerRequest(threadId, requestId, {
         suppressConversationSync: ownerRouted,

@@ -406,6 +406,16 @@ One renderer client is the active visible owner of a live conversation. It reduc
 
 A follower first acknowledges an exact owner snapshot barrier. It then accepts only contiguous patches from the same owner epoch and requests a fresh snapshot after a gap, hash mismatch, owner replacement, or transport reset. Follower actions route to the current owner; a client with no role must resume or adopt before acting.
 
+Non-blocking app-server user-input requests are owned by one Main-scoped Codex application Module.
+Its immutable per-conversation state, keyed countdown fibers, serialized transitions, and change
+Stream determine when an unattended request is resolved. A visible foreground presentation first
+waits for renderer inactivity; a background request starts its countdown immediately; activity,
+presentation changes, manual response, server resolution, replacement, disconnect, and Scope close
+all transition the same owner. Renderer IPC reads or mutates this Module directly after validating
+the presenting client, and projection consumes its Stream. `CodexService` may supply the eventual
+protocol response operation through a temporary callback Adapter, but it owns no timer, request map,
+snapshot, or renderer event bus for this policy.
+
 The detailed contracts are [Codex owner/follower streaming](docs/product-specs/codex-thread-owner-follower-streaming.md), [Codex transcript behavior](docs/product-specs/codex-thread-transcript-behavior.md), and [the generated protocol runtime plan](docs/plans/codex-generated-protocol-runtime-boundary.md).
 
 Prompt-created worktrees are a separate pre-conversation Main runtime. A pure

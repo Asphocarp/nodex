@@ -72,6 +72,11 @@ import {
   applicationRequestDispatcherLive,
 } from "../codex-application/ApprovalCoordinator";
 import { makeServerRequestResponsesPromiseAdapter } from "../codex-application/ServerRequestResponsesPromiseAdapter";
+import {
+  CodexUserInputAutoResolution,
+  make as makeCodexUserInputAutoResolution,
+} from "../codex-application/CodexUserInputAutoResolution";
+import { makeCodexUserInputAutoResolutionPromiseAdapter } from "../codex-application/CodexUserInputAutoResolutionPromiseAdapter";
 import { requestHandlingLive } from "../codex-application/CodexApplicationLayers";
 import {
   CodexPreferences,
@@ -1137,7 +1142,12 @@ export const live: Layer.Layer<
           runtimeScope,
           Effect.sync(() => codexSessionStore.clear()),
         );
-        const codexService = yield* Effect.try({
+        let codexService: CodexService | undefined;
+        const userInputAutoResolution = yield* makeCodexUserInputAutoResolution({
+          isConversationPresented: (conversationId) =>
+            codexService?.isRendererConversationPresentedInForeground(conversationId) === true,
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
               browserTransferRuntime: browserSidebarService,
@@ -1150,6 +1160,10 @@ export const live: Layer.Layer<
               attachments: attachments.legacy,
               serverRequestResponses: makeServerRequestResponsesPromiseAdapter(
                 approvalCoordinator,
+                callbacks,
+              ),
+              userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
+                userInputAutoResolution,
                 callbacks,
               ),
               sessionStore: codexSessionStore,
@@ -1207,6 +1221,7 @@ export const live: Layer.Layer<
           codexRendererProjectionRuntimeLive({
             codex: codexService,
             rendererClients: rendererClients.router,
+            userInputAutoResolution,
             windows,
           }),
           runtimeScope,
@@ -1219,6 +1234,7 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(CodexUserInputAutoResolution, userInputAutoResolution),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(WindowRuntime, windows),
               ),
