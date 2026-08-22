@@ -486,6 +486,15 @@ and Main Scope closure interrupts the request, subscription, deadline, and wait 
 `CodexService` only selects whether a scheduled automation needs this capability; it owns no
 heartbeat notification handler, resolver Promise, timer, or cleanup path.
 
+Structured Thread-title generation is one Main-scoped ephemeral operation Module. It acquires a
+system Thread, registers it with the existing internal-Thread projection, subscribes to the
+generation-fenced local Gateway stream before starting its Turn, and aggregates only the exact
+Thread/Turn agent-message stream. A completed agent message replaces partial deltas; terminal
+failure and the single Effect-clock deadline interrupt the active Turn, while every exit path
+unsubscribes and releases the helper Thread. Scope closure performs the same structured release.
+`CodexService` owns only title-generation admission, fallback normalization, and persistence; it
+does not own the helper protocol client, notification parser, timer, interrupt, or cleanup state.
+
 Codex native-notification policy is a pure projection from application events, settings, focus,
 and presentation facts. `CodexThreadNotificationRuntime` directly owns both source-listener
 registrations and notification-action admission in the Main Scope; it does not acquire a class with

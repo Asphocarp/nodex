@@ -103,6 +103,11 @@ import {
 } from "../codex-application/CodexHeartbeatTurnCompletion";
 import { makeCodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-application/CodexHeartbeatTurnCompletionPromiseAdapter";
 import {
+  CodexStructuredThreadTitleError,
+  make as makeCodexStructuredThreadTitle,
+} from "../codex-application/CodexStructuredThreadTitle";
+import { makeCodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
+import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
 } from "../codex-application/CodexRendererOwnerRetention";
@@ -1284,6 +1289,62 @@ export const live: Layer.Layer<
               ),
             ),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const structuredThreadTitle = yield* makeCodexStructuredThreadTitle({
+          hostId: codexGateway.localHostId,
+          events: codexGateway.events,
+          startThread: (params) =>
+            codexGateway.requestLocal("thread/start", params).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexStructuredThreadTitleError({
+                    reason: "request-failed",
+                    message: "Structured thread title thread/start failed",
+                    cause,
+                  }),
+              ),
+            ),
+          startTurn: (params) =>
+            codexGateway.requestLocal("turn/start", params).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexStructuredThreadTitleError({
+                    reason: "request-failed",
+                    message: "Structured thread title turn/start failed",
+                    cause,
+                    threadId: params.threadId,
+                  }),
+              ),
+            ),
+          interruptTurn: (threadId, turnId) =>
+            codexGateway.requestLocal("turn/interrupt", { threadId, turnId }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexStructuredThreadTitleError({
+                    reason: "request-failed",
+                    message: "Structured thread title turn/interrupt failed",
+                    cause,
+                    threadId,
+                    turnId,
+                  }),
+              ),
+            ),
+          unsubscribeThread: (threadId) =>
+            codexGateway.requestLocal("thread/unsubscribe", { threadId }).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new CodexStructuredThreadTitleError({
+                    reason: "request-failed",
+                    message: "Structured thread title thread/unsubscribe failed",
+                    cause,
+                    threadId,
+                  }),
+              ),
+            ),
+          registerInternalThread: (threadId) =>
+            Effect.sync(() => requireCodexService().registerStructuredThreadTitleThread(threadId)),
+          releaseInternalThread: (threadId) =>
+            Effect.sync(() => requireCodexService().releaseStructuredThreadTitleThread(threadId)),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1338,6 +1399,10 @@ export const live: Layer.Layer<
               ),
               heartbeatTurnCompletion: makeCodexHeartbeatTurnCompletionPromiseAdapter(
                 heartbeatTurnCompletion,
+                callbacks,
+              ),
+              structuredThreadTitle: makeCodexStructuredThreadTitlePromiseAdapter(
+                structuredThreadTitle,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(

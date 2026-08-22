@@ -1,0 +1,267 @@
+import type {
+  ClientRequestParamsByMethod,
+  ClientRequestResponsesByMethod,
+  ServerNotificationMethod,
+} from "@nodex/effect-codex-app-server/rpc";
+import { assert, it } from "@effect/vitest";
+import * as Deferred from "effect/Deferred";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as PubSub from "effect/PubSub";
+import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
+import type { CodexEndpointEvent } from "../codex-runtime/CodexEventHub";
+import { make, type CodexStructuredThreadTitleOptions } from "./CodexStructuredThreadTitle";
+
+type ThreadStartResponse = ClientRequestResponsesByMethod["thread/start"];
+type TurnStartResponse = ClientRequestResponsesByMethod["turn/start"];
+
+const threadStarted = (threadId: string): ThreadStartResponse =>
+  ({ thread: { id: threadId } }) as ThreadStartResponse;
+
+const turnStarted = (turnId: string): TurnStartResponse =>
+  ({ turn: { id: turnId } }) as TurnStartResponse;
+
+const notification = (
+  method: ServerNotificationMethod,
+  params: unknown,
+  hostId = "local",
+): CodexEndpointEvent =>
+  ({
+    kind: "notification",
+    generation: 1,
+    hostId,
+    value: { method, params },
+  }) as CodexEndpointEvent;
+
+const makeOptions = (
+  events: PubSub.PubSub<CodexEndpointEvent>,
+  overrides: Partial<CodexStructuredThreadTitleOptions> = {},
+) => {
+  const lifecycle: string[] = [];
+  const options: CodexStructuredThreadTitleOptions = {
+    hostId: "local",
+    events: Stream.fromPubSub(events),
+    startThread: () => Effect.succeed(threadStarted("thread-title")),
+    startTurn: () => Effect.succeed(turnStarted("turn-title")),
+    interruptTurn: (_threadId, turnId) => Effect.sync(() => lifecycle.push(`interrupt:${turnId}`)),
+    unsubscribeThread: (threadId) => Effect.sync(() => lifecycle.push(`unsubscribe:${threadId}`)),
+    registerInternalThread: (threadId) => Effect.sync(() => lifecycle.push(`register:${threadId}`)),
+    releaseInternalThread: (threadId) => Effect.sync(() => lifecycle.push(`release:${threadId}`)),
+    ...overrides,
+  };
+  return { lifecycle, options };
+};
+
+it.effect("buffers an exact-host title completion that arrives before turn/start responds", () =>
+  Effect.gen(function* () {
+    const events = yield* PubSub.unbounded<CodexEndpointEvent>();
+    const threadStartRequests: ClientRequestParamsByMethod["thread/start"][] = [];
+    const turnStartRequests: ClientRequestParamsByMethod["turn/start"][] = [];
+    const { lifecycle, options } = makeOptions(events, {
+      startThread: (params) =>
+        Effect.sync(() => {
+          threadStartRequests.push(params);
+          return threadStarted("thread-title-1");
+        }),
+      startTurn: (params) => {
+        turnStartRequests.push(params);
+        return PubSub.publish(
+          events,
+          notification(
+            "item/agentMessage/delta",
+            {
+              threadId: "thread-title-1",
+              turnId: "turn-title-1",
+              itemId: "message-1",
+              delta: '{"title":"Wrong host"}',
+            },
+            "ssh",
+          ),
+        ).pipe(
+          Effect.andThen(
+            PubSub.publish(
+              events,
+              notification("item/agentMessage/delta", {
+                threadId: "thread-title-1",
+                turnId: "turn-title-1",
+                itemId: "message-1",
+                delta: '{"title":"Refactor inbox list layout"}',
+              }),
+            ),
+          ),
+          Effect.andThen(
+            PubSub.publish(
+              events,
+              notification("turn/completed", {
+                threadId: "thread-title-1",
+                turn: { id: "turn-title-1", status: "completed" },
+              }),
+            ),
+          ),
+          Effect.as(turnStarted("turn-title-1")),
+        );
+      },
+    });
+    const runtime = yield* make(options);
+
+    assert.strictEqual(
+      yield* runtime.generate({
+        prompt: "Refactor inbox list layout",
+        cwd: "/tmp/codex",
+        serviceName: "source-service",
+      }),
+      "Refactor inbox list layout",
+    );
+    assert.strictEqual(threadStartRequests[0]?.ephemeral, true);
+    assert.strictEqual(threadStartRequests[0]?.threadSource, "system");
+    assert.strictEqual(threadStartRequests[0]?.serviceName, "source-service");
+    assert.strictEqual(turnStartRequests[0]?.threadId, "thread-title-1");
+    assert.strictEqual(turnStartRequests[0]?.permissions, ":read-only");
+    assert.deepEqual(lifecycle, [
+      "register:thread-title-1",
+      "unsubscribe:thread-title-1",
+      "release:thread-title-1",
+    ]);
+  }),
+);
+
+it.effect("uses the completed agent message instead of partial deltas", () =>
+  Effect.gen(function* () {
+    const events = yield* PubSub.unbounded<CodexEndpointEvent>();
+    const { options } = makeOptions(events, {
+      startTurn: () =>
+        PubSub.publish(
+          events,
+          notification("item/agentMessage/delta", {
+            threadId: "thread-title",
+            turnId: "turn-title",
+            itemId: "message-1",
+            delta: "partial",
+          }),
+        ).pipe(
+          Effect.andThen(
+            PubSub.publish(
+              events,
+              notification("item/completed", {
+                threadId: "thread-title",
+                turnId: "turn-title",
+                completedAtMs: 1,
+                item: {
+                  id: "message-1",
+                  type: "agentMessage",
+                  text: '{"title":"title: \\"Fix flaky.\\""}',
+                },
+              }),
+            ),
+          ),
+          Effect.andThen(
+            PubSub.publish(
+              events,
+              notification("turn/completed", {
+                threadId: "thread-title",
+                turn: { id: "turn-title", status: "completed" },
+              }),
+            ),
+          ),
+          Effect.as(turnStarted("turn-title")),
+        ),
+    });
+    const runtime = yield* make(options);
+    assert.strictEqual(yield* runtime.generate({ prompt: "Fix flaky", cwd: null }), "Fix flaky");
+  }),
+);
+
+it.effect("reports terminal failure and best-effort interrupts and unsubscribes", () =>
+  Effect.gen(function* () {
+    const events = yield* PubSub.unbounded<CodexEndpointEvent>();
+    const { lifecycle, options } = makeOptions(events, {
+      startTurn: () =>
+        PubSub.publish(
+          events,
+          notification("error", {
+            threadId: "thread-title",
+            turnId: "turn-failed",
+            willRetry: false,
+            error: { message: "model unavailable", additionalDetails: null },
+          }),
+        ).pipe(
+          Effect.andThen(
+            PubSub.publish(
+              events,
+              notification("turn/completed", {
+                threadId: "thread-title",
+                turn: { id: "turn-failed", status: "failed", error: null },
+              }),
+            ),
+          ),
+          Effect.as(turnStarted("turn-failed")),
+        ),
+    });
+    const runtime = yield* make(options);
+    const error = yield* runtime
+      .generate({ prompt: "Fix title flow", cwd: null })
+      .pipe(Effect.flip);
+    assert.strictEqual(error.reason, "turn-failed");
+    assert.include(error.message, "model unavailable");
+    assert.deepEqual(lifecycle, [
+      "register:thread-title",
+      "interrupt:turn-failed",
+      "unsubscribe:thread-title",
+      "release:thread-title",
+    ]);
+  }),
+);
+
+it.effect("uses the Effect clock for the sole operation deadline", () =>
+  Effect.gen(function* () {
+    const events = yield* PubSub.unbounded<CodexEndpointEvent>();
+    const started = yield* Deferred.make<void>();
+    const { lifecycle, options } = makeOptions(events, {
+      timeout: "2 seconds",
+      startTurn: () =>
+        Deferred.succeed(started, undefined).pipe(Effect.as(turnStarted("turn-timeout"))),
+    });
+    const runtime = yield* make(options);
+    const timedOut = yield* Effect.forkChild(
+      runtime.generate({ prompt: "Timeout", cwd: null }).pipe(Effect.flip),
+    );
+    yield* Deferred.await(started);
+    yield* TestClock.adjust("1999 millis");
+    yield* TestClock.adjust("1 millis");
+    assert.strictEqual((yield* Fiber.join(timedOut)).reason, "timeout");
+    assert.deepEqual(lifecycle, [
+      "register:thread-title",
+      "interrupt:turn-timeout",
+      "unsubscribe:thread-title",
+      "release:thread-title",
+    ]);
+  }),
+);
+
+it.effect("releases the helper Thread when the Main Scope closes", () =>
+  Effect.gen(function* () {
+    const scope = yield* Scope.make();
+    const events = yield* PubSub.unbounded<CodexEndpointEvent>();
+    const started = yield* Deferred.make<void>();
+    const { lifecycle, options } = makeOptions(events, {
+      startTurn: () =>
+        Deferred.succeed(started, undefined).pipe(Effect.as(turnStarted("turn-closing"))),
+    });
+    const runtime = yield* make(options).pipe(Effect.provideService(Scope.Scope, scope));
+    const closed = yield* Effect.forkChild(
+      runtime.generate({ prompt: "Closing", cwd: null }).pipe(Effect.flip),
+    );
+    yield* Deferred.await(started);
+    yield* Scope.close(scope, Exit.void);
+    assert.strictEqual((yield* Fiber.join(closed)).reason, "runtime-closed");
+    assert.deepEqual(lifecycle, [
+      "register:thread-title",
+      "interrupt:turn-closing",
+      "unsubscribe:thread-title",
+      "release:thread-title",
+    ]);
+  }),
+);
