@@ -3,11 +3,10 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type { CodexWorktreeWorkerPort } from "../codex/codex-worktree-worker-port";
-import { CODEX_APP_LOCAL_HOST_ID } from "../codex/codex-app-meta-thread-tools";
 import { GitWorkerHost } from "../git-worker-host";
 import { getLogger } from "../logging/logger";
 import { captureMainException } from "../observability/sentry-main";
-import { CodexWorktreeWorkerHost } from "../worktree-worker/worktree-worker-host";
+import { LocalWorktreeWorkerRuntime } from "./LocalWorktreeWorkerRuntime";
 
 export type GitWorkerHostPort = Pick<
   GitWorkerHost,
@@ -15,7 +14,7 @@ export type GitWorkerHostPort = Pick<
 >;
 
 export type WorktreeWorkerHostPort = CodexWorktreeWorkerPort & {
-  readonly shutdown: () => Promise<void>;
+  readonly shutdown?: () => Promise<void>;
 };
 
 export class HostWorkerRuntime extends Context.Service<
@@ -52,12 +51,16 @@ const release = (ports: HostWorkerPorts): Effect.Effect<void> =>
   Effect.all(
     [
       shutdown("git", () => ports.git.shutdown()),
-      shutdown("worktree", () => ports.worktree.shutdown()),
+      ...(ports.worktree.shutdown
+        ? [shutdown("worktree", () => ports.worktree.shutdown?.() ?? Promise.resolve())]
+        : []),
     ],
     { concurrency: "unbounded", discard: true },
   ).pipe(Effect.asVoid);
 
-const fromPorts = (acquire: Effect.Effect<HostWorkerPorts>): Layer.Layer<HostWorkerRuntime> =>
+const fromPorts = <Requirements>(
+  acquire: Effect.Effect<HostWorkerPorts, never, Requirements>,
+): Layer.Layer<HostWorkerRuntime, never, Requirements> =>
   Layer.effect(
     HostWorkerRuntime,
     Effect.acquireRelease(acquire, release).pipe(
@@ -67,37 +70,34 @@ const fromPorts = (acquire: Effect.Effect<HostWorkerPorts>): Layer.Layer<HostWor
 
 export interface HostWorkerRuntimeOptions {
   readonly gitWorkerPath: string;
-  readonly worktreeWorkerPath: string;
 }
 
-export const live = (options: HostWorkerRuntimeOptions): Layer.Layer<HostWorkerRuntime> => {
+export const live = (
+  options: HostWorkerRuntimeOptions,
+): Layer.Layer<HostWorkerRuntime, never, LocalWorktreeWorkerRuntime> => {
   const logger = getLogger({ component: "host-worker-runtime" });
   return fromPorts(
-    Effect.sync(() => ({
-      git: new GitWorkerHost({
-        workerPath: options.gitWorkerPath,
-        onInfrastructureError: (error, context) => {
-          logger.error("Git worker infrastructure failed", {
-            epoch: context.epoch,
-            error: error.message,
-            phase: context.phase,
-          });
-          captureMainException(error, {
-            tags: { component: "git-worker", phase: context.phase },
-            extra: { epoch: context.epoch },
-          });
-        },
-        onPerformanceOperation: (metric) => logger.debug("Git worker operation", metric),
-      }),
-      worktree: new CodexWorktreeWorkerHost({
-        hostId: CODEX_APP_LOCAL_HOST_ID,
-        workerPath: options.worktreeWorkerPath,
-        onInfrastructureError: (error) => {
-          logger.error("Worktree worker infrastructure failed", { error: error.message });
-          captureMainException(error, { tags: { component: "worktree-worker" } });
-        },
-      }),
-    })),
+    Effect.gen(function* () {
+      const worktree = yield* LocalWorktreeWorkerRuntime;
+      return {
+        git: new GitWorkerHost({
+          workerPath: options.gitWorkerPath,
+          onInfrastructureError: (error, context) => {
+            logger.error("Git worker infrastructure failed", {
+              epoch: context.epoch,
+              error: error.message,
+              phase: context.phase,
+            });
+            captureMainException(error, {
+              tags: { component: "git-worker", phase: context.phase },
+              extra: { epoch: context.epoch },
+            });
+          },
+          onPerformanceOperation: (metric) => logger.debug("Git worker operation", metric),
+        }),
+        worktree: worktree.port,
+      };
+    }),
   );
 };
 

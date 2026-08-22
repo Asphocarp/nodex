@@ -353,13 +353,23 @@ interrupts every remaining request, releases shell/repository resources, and
 then closes the transport. Worker entry files contain no module-level active
 request registry or detached Promise chain.
 
+The Main side of the local worktree channel is likewise one
+`LocalWorktreeWorkerRuntime`. It owns the active Worker generation, protocol
+listeners, pending request `Deferred`s, callback fibers, and termination in the
+Main Scope. Effect interruption sends one protocol cancellation for the
+matching request. Worker failure rejects every request from that generation;
+later admission creates a fresh generation. Its Promise-shaped execution-host
+port is a state-free transport projection backed by the same scoped FiberSet,
+not a second lifecycle owner.
+
 `ExecutionHostRuntime` is the sole owner of execution-host settings and remote
 host activation. Each enabled SSH host is one keyed Scope containing its health
 probe, deployed worker channel, file-transfer adapter, Codex endpoint, and host
 capability association. Removing or changing the configuration invalidates that
 Scope; Main shutdown closes every remaining host through the same release path.
-The local worktree worker remains owned by `HostWorkerRuntime`; execution-host
-state owns only its registry association and never closes the borrowed worker.
+The local worktree worker remains owned by `LocalWorktreeWorkerRuntime`;
+execution-host state and the transitional `HostWorkerRuntime` aggregate only
+borrow its registry port and never close the worker.
 
 Thread-scoped app-server requests are routed from the same Core-backed execution
 host projection. Global account and configuration requests remain local. A

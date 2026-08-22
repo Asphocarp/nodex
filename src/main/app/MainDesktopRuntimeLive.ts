@@ -95,6 +95,7 @@ import {
   live as managedWorktreeRetentionRuntimeLive,
 } from "../codex-application/ManagedWorktreeRetentionRuntime";
 import { makeManagedWorktreeRetentionRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRetentionRuntimePromiseAdapter";
+import { CODEX_APP_LOCAL_HOST_ID } from "../codex/codex-app-meta-thread-tools";
 import {
   CodexAttachments,
   live as codexAttachmentsLive,
@@ -164,6 +165,7 @@ import {
   HostWorkerRuntime,
   live as hostWorkerRuntimeLive,
 } from "../host-runtime/HostWorkerRuntime";
+import { live as localWorktreeWorkerRuntimeLive } from "../host-runtime/LocalWorktreeWorkerRuntime";
 import {
   WorktreeEnvironmentRuntime,
   live as worktreeEnvironmentRuntimeLive,
@@ -257,6 +259,7 @@ import {
 import { makePersistedAtomStore } from "../local-store/persisted-atoms";
 import { requestsExplicitNewWindow } from "../main-runtime-startup-events";
 import { getLogger } from "../logging/logger";
+import { captureMainException } from "../observability/sentry-main";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
 import { ElectronIpc, ElectronSyncIpc } from "../platform/electron/ElectronIpc";
@@ -629,8 +632,20 @@ export const live: Layer.Layer<
         const hostWorkerContext = yield* Layer.buildWithScope(
           hostWorkerRuntimeLive({
             gitWorkerPath: `${__dirname}/git-worker.js`,
-            worktreeWorkerPath: `${__dirname}/worktree-worker.js`,
-          }),
+          }).pipe(
+            Layer.provide(
+              localWorktreeWorkerRuntimeLive({
+                hostId: CODEX_APP_LOCAL_HOST_ID,
+                workerPath: `${__dirname}/worktree-worker.js`,
+                onInfrastructureError: (error) => {
+                  applicationLogger.error("Worktree worker infrastructure failed", {
+                    error: error.message,
+                  });
+                  captureMainException(error, { tags: { component: "worktree-worker" } });
+                },
+              }),
+            ),
+          ),
           runtimeScope,
         );
         const hostWorkers = Context.get(hostWorkerContext, HostWorkerRuntime);
