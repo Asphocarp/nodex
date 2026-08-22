@@ -5,6 +5,7 @@ import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import type { BrowserUsePeerAuthorizationMode } from "../../shared/browser-use-host-capability";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
@@ -15,7 +16,6 @@ import {
   ComputerUseHostPlatformError,
   makeComputerUseHostPlatform,
   type ComputerUseHostPlatform,
-  type ComputerUseHostServicesServer,
   type ComputerUseServiceAddon,
 } from "../platform/electron/ComputerUseHostPlatform";
 import { isMacOSVersionAtLeast } from "../sky-native";
@@ -71,7 +71,6 @@ interface ComputerUseRuntimeState {
   readonly closed: boolean;
   readonly managedPid: number | null;
   readonly result: ComputerUseRuntimeResult | null;
-  readonly server: ComputerUseHostServicesServer | null;
   readonly serviceExecutablePath: string | null;
 }
 
@@ -82,7 +81,6 @@ interface ComputerUseRuntimeLayerOptions extends ComputerUseRuntimeOptions {
 interface ComputerUseRuntimeStart {
   readonly addon: ComputerUseServiceAddon | null;
   readonly result: ComputerUseRuntimeResult;
-  readonly server: ComputerUseHostServicesServer | null;
   readonly serviceExecutablePath: string | null;
 }
 
@@ -91,7 +89,6 @@ const initialState: ComputerUseRuntimeState = {
   closed: false,
   managedPid: null,
   result: null,
-  server: null,
   serviceExecutablePath: null,
 };
 
@@ -113,6 +110,7 @@ const unavailable = (
 
 const make = (options: ComputerUseRuntimeLayerOptions) =>
   Effect.gen(function* () {
+    const ownerScope = yield* Scope.Scope;
     const state = yield* Ref.make(initialState);
     const readinessGate = yield* Semaphore.make(1);
     const serviceGate = yield* Semaphore.make(1);
@@ -237,7 +235,6 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
             "platform-unsupported",
             `Computer Use is unavailable on ${options.host.platform}`,
           ),
-          server: null,
           serviceExecutablePath: null,
         };
       }
@@ -246,7 +243,6 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
         return {
           addon: null,
           result: unavailable("runtime-unavailable", runtime.message),
-          server: null,
           serviceExecutablePath: null,
         };
       }
@@ -258,7 +254,6 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
             "architecture-unsupported",
             "Computer Use is unavailable for this architecture",
           ),
-          server: null,
           serviceExecutablePath: null,
         };
       }
@@ -269,7 +264,6 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
             "macos-version-unsupported",
             `Computer Use requires macOS ${capability.minimumMacOSVersion} or later`,
           ),
-          server: null,
           serviceExecutablePath: null,
         };
       }
@@ -295,7 +289,6 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
             "native-addon-unavailable",
             "Computer Use native host is unavailable",
           ),
-          server: null,
           serviceExecutablePath: null,
         };
       }
@@ -303,7 +296,6 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
         return {
           addon: null,
           result: unavailable("helper-invalid", "Computer Use helper bundle is missing"),
-          server: null,
           serviceExecutablePath: null,
         };
       }
@@ -324,7 +316,6 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
             "helper-materialization-failed",
             `Computer Use helper materialization failed: ${boundedMessage(helperExit.cause)}`,
           ),
-          server: null,
           serviceExecutablePath: null,
         };
       }
@@ -355,20 +346,22 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
         return ensureService(addon, serviceExecutablePath).pipe(Effect.as({}));
       };
       const serverExit = yield* Effect.exit(
-        options.host.createNativePipeServer(
-          (method, params) =>
-            handler(method, params).pipe(
-              Effect.mapError(
-                (error) =>
-                  new ComputerUseHostPlatformError({
-                    operation: "native-pipe.request",
-                    cause: error,
-                  }),
+        options.host
+          .createNativePipeServer(
+            (method, params) =>
+              handler(method, params).pipe(
+                Effect.mapError(
+                  (error) =>
+                    new ComputerUseHostPlatformError({
+                      operation: "native-pipe.request",
+                      cause: error,
+                    }),
+                ),
               ),
-            ),
-          options.peerAuthorizationMode,
-          runtime.bundle.paths.peerAuthorization,
-        ),
+            options.peerAuthorizationMode,
+            runtime.bundle.paths.peerAuthorization,
+          )
+          .pipe(Scope.provide(ownerScope)),
       );
       if (Exit.isFailure(serverExit)) {
         return {
@@ -377,28 +370,11 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
             "host-services-failed",
             `Computer Use host-services pipe failed: ${boundedMessage(serverExit.cause)}`,
           ),
-          server: null,
           serviceExecutablePath: null,
         };
       }
 
       const server = serverExit.value;
-      const started = yield* Effect.exit(server.start);
-      if (Exit.isFailure(started)) {
-        yield* Effect.all([Effect.exit(server.close), Effect.exit(clearManagedService)], {
-          concurrency: 2,
-        });
-        return {
-          addon: null,
-          result: unavailable(
-            "host-services-failed",
-            `Computer Use host-services pipe failed: ${boundedMessage(started.cause)}`,
-          ),
-          server: null,
-          serviceExecutablePath: null,
-        };
-      }
-
       return {
         result: {
           appPath: helper.appPath,
@@ -406,7 +382,6 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
           serviceExecutablePath,
           status: "available",
         } satisfies ComputerUseRuntimeResult,
-        server,
         addon,
         serviceExecutablePath,
       };
@@ -432,14 +407,12 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
               ...latest,
               addon: started.addon,
               result: started.result,
-              server: started.server,
               serviceExecutablePath: started.serviceExecutablePath,
             },
           ] as const;
         });
         if (committed) return started.result;
 
-        if (started.server) yield* started.server.close.pipe(Effect.ignore);
         yield* clearManagedService;
         return yield* runtimeError(
           "ensure-ready.closed",
@@ -461,14 +434,12 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
                     addon: current.addon,
                     executablePath: current.serviceExecutablePath,
                     pid: current.managedPid,
-                    server: current.server,
                   },
                   {
                     ...current,
                     addon: null,
                     managedPid: null,
                     result: null,
-                    server: null,
                     serviceExecutablePath: null,
                   },
                 ] as const,
@@ -476,7 +447,6 @@ const make = (options: ComputerUseRuntimeLayerOptions) =>
           ),
         );
         const releases: Array<Effect.Effect<void, ComputerUseHostPlatformError>> = [];
-        if (resources.server) releases.push(resources.server.close);
         if (
           options.terminateManagedServiceOnDispose &&
           resources.addon &&

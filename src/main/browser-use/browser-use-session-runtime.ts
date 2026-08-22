@@ -14,7 +14,10 @@ import type {
   BrowserUseIabAsyncRuntime,
   BrowserUseRoute,
 } from "./browser-use-iab-api";
-import type { BrowserUseNativePipeRequestHandler } from "./browser-use-native-pipe-server";
+import type {
+  BrowserUseNativePipeRequestHandler,
+  BrowserUseNativePipeServerError,
+} from "./browser-use-native-pipe-server";
 
 const MAX_DEBUG_EVENTS = 200;
 
@@ -77,8 +80,6 @@ export interface BrowserUseIabApiPort {
 export interface BrowserUseNativePipeServerPort {
   readonly pipePath: string;
   readonly broadcast: (method: string, params?: unknown) => void;
-  readonly close: () => Promise<void>;
-  readonly start: () => Promise<void>;
 }
 
 export interface BrowserUseSessionRuntimePlatform {
@@ -88,7 +89,11 @@ export interface BrowserUseSessionRuntimePlatform {
   ) => BrowserUseIabApiPort;
   readonly createServer: (
     handler: BrowserUseNativePipeRequestHandler,
-  ) => BrowserUseNativePipeServerPort;
+  ) => Effect.Effect<
+    BrowserUseNativePipeServerPort,
+    BrowserUseNativePipeServerError,
+    import("effect/Scope").Scope
+  >;
 }
 
 export interface BrowserUseSessionRuntime {
@@ -238,30 +243,18 @@ const sessionLayer = (
       );
 
       const commandLock = yield* Semaphore.make(1);
-      const server = yield* Effect.try({
-        try: () =>
-          platform.createServer((request) =>
-            runPromise(
-              commandLock.withPermits(1)(
-                Effect.tryPromise({
-                  try: () => api.dispatch(request.method, request.params),
-                  catch: (cause) => runtimeError("dispatch", sessionId, cause),
-                }),
-              ),
+      const server = yield* platform
+        .createServer((request) =>
+          runPromise(
+            commandLock.withPermits(1)(
+              Effect.tryPromise({
+                try: () => api.dispatch(request.method, request.params),
+                catch: (cause) => runtimeError("dispatch", sessionId, cause),
+              }),
             ),
           ),
-        catch: (cause) => runtimeError("create-server", sessionId, cause),
-      });
-      yield* Effect.addFinalizer(() =>
-        bestEffort(
-          "close-server",
-          sessionId,
-          Effect.tryPromise({
-            try: () => server.close(),
-            catch: (cause) => runtimeError("close-server", sessionId, cause),
-          }),
-        ),
-      );
+        )
+        .pipe(Effect.mapError((cause) => runtimeError("create-server", sessionId, cause)));
 
       const disposeCdpListener = yield* Effect.try({
         try: () =>
@@ -271,11 +264,6 @@ const sessionLayer = (
         catch: (cause) => runtimeError("listen-cdp", sessionId, cause),
       });
       yield* Effect.addFinalizer(() => Effect.sync(disposeCdpListener));
-      yield* Effect.tryPromise({
-        try: () => server.start(),
-        catch: (cause) => runtimeError("start-server", sessionId, cause),
-      });
-
       const currentTurnId = yield* Ref.make<string | null>(null);
       const completedTurnIds = yield* Ref.make<ReadonlySet<string>>(new Set());
       const disposeAfterSessionActivity = yield* Ref.make(key.initialDisposeAfterSessionActivity);

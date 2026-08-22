@@ -23,7 +23,7 @@ import {
 } from "../src/main/codex/browser-plugin-reconciler";
 import { BrowserUseThreadConfigBuilder } from "../src/main/codex/browser-use-thread-config";
 import { resolveCodexRuntime } from "../src/main/codex/codex-runtime";
-import { BrowserUseNativePipeServer } from "../src/main/browser-use/browser-use-native-pipe-server";
+import { makeBrowserUseNativePipeServer } from "../src/main/browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../src/main/browser-use/browser-use-peer-authorizer";
 import {
   ComputerUseRuntime,
@@ -241,44 +241,48 @@ async function probeBrowserRuntimePromise(
   const turnId = randomUUID();
   const nativePipeMethods: string[] = [];
   const nativePipeDiagnostics: string[] = [];
-  const nativePipeServer = new BrowserUseNativePipeServer({
-    events: {
-      onAuthorizationError: (error) => {
-        nativePipeDiagnostics.push(
-          `authorization-error:${error instanceof Error ? error.message : String(error)}`,
-        );
+  const nativePipeScope = await callbacks.runPromise(Scope.make());
+  await callbacks.runPromise(
+    makeBrowserUseNativePipeServer({
+      events: {
+        onAuthorizationError: (error) => {
+          nativePipeDiagnostics.push(
+            `authorization-error:${error instanceof Error ? error.message : String(error)}`,
+          );
+        },
+        onRejectedSocket: (result) => {
+          nativePipeDiagnostics.push(`rejected:${JSON.stringify(result)}`);
+        },
+        onSocketError: (error) => {
+          nativePipeDiagnostics.push(`socket-error:${error.message}`);
+        },
       },
-      onRejectedSocket: (result) => {
-        nativePipeDiagnostics.push(`rejected:${JSON.stringify(result)}`);
+      handler: (request) => {
+        nativePipeMethods.push(request.method);
+        if (request.method === "ping") return "pong";
+        if (request.method === "getInfo") {
+          return {
+            apiSupportOverrides: {},
+            capabilities: { browser: [], tab: [] },
+            metadata: {
+              codexAppBuildFlavor: bundle.manifest.buildFlavor,
+              codexAppSessionId: "runtime-probe",
+              codexSessionId: sessionId,
+            },
+            name: "Nodex Browser Runtime Probe",
+            type: "iab",
+            version: bundle.manifest.desktopBuild,
+          };
+        }
+        throw new Error(`Unexpected Browser runtime probe method: ${request.method}`);
       },
-      onSocketError: (error) => {
-        nativePipeDiagnostics.push(`socket-error:${error.message}`);
-      },
-    },
-    handler: (request) => {
-      nativePipeMethods.push(request.method);
-      if (request.method === "ping") return "pong";
-      if (request.method === "getInfo") {
-        return {
-          apiSupportOverrides: {},
-          capabilities: { browser: [], tab: [] },
-          metadata: {
-            codexAppBuildFlavor: bundle.manifest.buildFlavor,
-            codexAppSessionId: "runtime-probe",
-            codexSessionId: sessionId,
-          },
-          name: "Nodex Browser Runtime Probe",
-          type: "iab",
-          version: bundle.manifest.desktopBuild,
-        };
-      }
-      throw new Error(`Unexpected Browser runtime probe method: ${request.method}`);
-    },
-    socketPeerAuthorizer: createBrowserUsePeerAuthorizer({
-      addonPath: bundle.paths.peerAuthorization,
-      mode: peerAuthorizationMode,
-    }),
-  });
+      platform: process.platform,
+      socketPeerAuthorizer: createBrowserUsePeerAuthorizer({
+        addonPath: bundle.paths.peerAuthorization,
+        mode: peerAuthorizationMode,
+      }),
+    }).pipe(Scope.provide(nativePipeScope)),
+  );
   const requireForProbe = createRequire(import.meta.url);
   const computerUseScope = await callbacks.runPromise(Scope.make());
   const macOSRelease = execFileSync("/usr/bin/sw_vers", ["-productVersion"], {
@@ -313,7 +317,6 @@ async function probeBrowserRuntimePromise(
   const computerUseRuntime = Context.get(computerUseContext, ComputerUseRuntime);
 
   try {
-    await nativePipeServer.start();
     const computerUseRuntimeResult = await callbacks.runPromise(computerUseRuntime.ensureReady);
     return await callbacks.runPromise(
       withCodexProbeSession(
@@ -480,7 +483,7 @@ async function probeBrowserRuntimePromise(
     );
   } finally {
     await cleanupBrowserRuntime({
-      closeNativePipeServer: () => nativePipeServer.close(),
+      closeNativePipeServer: () => callbacks.runPromise(Scope.close(nativePipeScope, Exit.void)),
       removeStateHome: () =>
         fs.rmSync(stateHome, {
           force: true,

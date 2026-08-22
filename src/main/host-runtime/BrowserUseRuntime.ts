@@ -18,7 +18,7 @@ import type {
   BrowserSidebarEventHubService,
 } from "../browser/BrowserSidebarEventHub";
 import { BrowserUseIabApi } from "../browser-use/browser-use-iab-api";
-import { BrowserUseNativePipeServer } from "../browser-use/browser-use-native-pipe-server";
+import { makeBrowserUseNativePipeServer } from "../browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../browser-use/browser-use-peer-authorizer";
 import type { BrowserUsePolicyReader } from "../browser-use/browser-use-policy-store";
 import {
@@ -277,7 +277,7 @@ export const live = (
                 route,
               }),
             createServer: (handler) =>
-              new BrowserUseNativePipeServer({
+              makeBrowserUseNativePipeServer({
                 events: {
                   onAuthorizationError: (error) =>
                     logger.warn("Browser Use native pipe peer authorization failed", {
@@ -302,6 +302,7 @@ export const live = (
                     }),
                 },
                 handler,
+                platform: options.platform,
                 socketPeerAuthorizer,
               }),
           });

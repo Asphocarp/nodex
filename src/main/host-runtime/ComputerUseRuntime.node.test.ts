@@ -44,14 +44,14 @@ afterEach(() => {
 });
 
 interface HostHarness {
-  readonly close: ReturnType<typeof vi.fn>;
+  readonly acquire: ReturnType<typeof vi.fn>;
   readonly host: ComputerUseHostPlatform;
+  readonly release: ReturnType<typeof vi.fn>;
   readonly request: () => (
     method: string,
     params: unknown,
   ) => Effect.Effect<unknown, ComputerUseHostPlatformError>;
   readonly spawn: ReturnType<typeof vi.fn>;
-  readonly start: ReturnType<typeof vi.fn>;
   readonly terminate: ReturnType<typeof vi.fn>;
   readonly writeConfig: ReturnType<typeof vi.fn>;
 }
@@ -60,8 +60,8 @@ function makeHost(overrides: Partial<ComputerUseHostPlatform> = {}): HostHarness
   let requestHandler:
     | ((method: string, params: unknown) => Effect.Effect<unknown, ComputerUseHostPlatformError>)
     | null = null;
-  const close = vi.fn();
-  const start = vi.fn();
+  const acquire = vi.fn();
+  const release = vi.fn();
   const spawn = vi.fn();
   const terminate = vi.fn();
   const writeConfig = vi.fn();
@@ -70,14 +70,15 @@ function makeHost(overrides: Partial<ComputerUseHostPlatform> = {}): HostHarness
     spawnComputerUseService: async () => 8123,
   };
   const host: ComputerUseHostPlatform = {
-    createNativePipeServer: (handler) => {
-      requestHandler = handler;
-      return Effect.succeed({
-        close: Effect.sync(close),
-        pipePath: "/tmp/host-services.sock",
-        start: Effect.sync(start),
-      });
-    },
+    createNativePipeServer: (handler) =>
+      Effect.gen(function* () {
+        acquire();
+        requestHandler = handler;
+        yield* Effect.addFinalizer(() => Effect.sync(release));
+        return {
+          pipePath: "/tmp/host-services.sock",
+        };
+      }),
     isProcessAlive: () => true,
     loadAddon: Effect.succeed(addon),
     macOSRelease: "15.0",
@@ -99,14 +100,14 @@ function makeHost(overrides: Partial<ComputerUseHostPlatform> = {}): HostHarness
     ...overrides,
   };
   return {
-    close,
+    acquire,
     host,
+    release,
     request: () => {
       if (!requestHandler) throw new Error("Missing native-pipe request handler");
       return requestHandler;
     },
     spawn,
-    start,
     terminate,
     writeConfig,
   };
@@ -153,7 +154,7 @@ it.effect("owns readiness, native requests, managed service, and release in one 
     });
     assert.deepEqual(results, [expected, expected]);
     assert.deepEqual(runtime.current(), expected);
-    assert.strictEqual(harness.start.mock.calls.length, 1);
+    assert.strictEqual(harness.acquire.mock.calls.length, 1);
     assert.strictEqual(harness.writeConfig.mock.calls.length, 1);
 
     const request = harness.request();
@@ -166,7 +167,7 @@ it.effect("owns readiness, native requests, managed service, and release in one 
     assert.isTrue(Exit.isFailure(rejected));
 
     yield* Scope.close(scope, Exit.void);
-    assert.strictEqual(harness.close.mock.calls.length, 1);
+    assert.strictEqual(harness.release.mock.calls.length, 1);
     assert.isNull(runtime.current());
     assert.isTrue(Exit.isFailure(yield* Effect.exit(runtime.ensureReady)));
   }),
@@ -228,11 +229,10 @@ it.effect("fences a late native-pipe start before closing the owning Scope", () 
     let closeCount = 0;
     const harness = makeHost({
       createNativePipeServer: () =>
-        Effect.succeed({
-          close: Effect.sync(() => void (closeCount += 1)),
-          pipePath: "/tmp/late.sock",
-          start: Deferred.await(releaseStart),
-        }),
+        Effect.acquireRelease(
+          Deferred.await(releaseStart).pipe(Effect.as({ pipePath: "/tmp/late.sock" })),
+          () => Effect.sync(() => void (closeCount += 1)),
+        ),
     });
     const { runtime, scope } = yield* buildRuntime({ ...fixture, host: harness.host });
     const ready = yield* Effect.forkChild(runtime.ensureReady);
@@ -277,7 +277,7 @@ it.effect("projects unsupported hosts without acquiring native resources", () =>
       reason: "platform-unsupported",
       status: "unavailable",
     });
-    assert.strictEqual(harness.start.mock.calls.length, 0);
+    assert.strictEqual(harness.acquire.mock.calls.length, 0);
     assert.strictEqual(harness.writeConfig.mock.calls.length, 0);
     yield* Scope.close(scope, Exit.void);
   }),

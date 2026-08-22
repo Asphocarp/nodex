@@ -2,63 +2,61 @@ import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vite-plus/test";
+import { it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Scope from "effect/Scope";
+import { expect } from "vite-plus/test";
+import {
+  makeBrowserUseNativePipeServer,
+  type BrowserUseNativePipeRequestHandler,
+  type BrowserUseNativePipeServerEvents,
+} from "./browser-use-native-pipe-server";
 import {
   BrowserUseNativePipeFrameDecoder,
   encodeBrowserUseNativePipeFrame,
 } from "./native-pipe-framing";
-import {
-  BrowserUseNativePipeServer,
-  type BrowserUseNativePipeServerEvents,
-} from "./browser-use-native-pipe-server";
 
-const servers: BrowserUseNativePipeServer[] = [];
-const temporaryDirectories: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(
-    servers.splice(0).map(async (server) => {
-      await server.close();
-    }),
-  );
-  await Promise.all(
-    temporaryDirectories.splice(0).map(async (directory) => {
-      await fs.rm(directory, { recursive: true, force: true });
-    }),
-  );
-});
-
-async function makeServer(
+const makeServer = (
   authorized: boolean,
-  handler: ConstructorParameters<typeof BrowserUseNativePipeServer>[0]["handler"],
+  handler: BrowserUseNativePipeRequestHandler,
   events?: BrowserUseNativePipeServerEvents,
-) {
-  const temporaryRoot = process.platform === "win32" ? os.tmpdir() : "/tmp";
-  const directory = await fs.mkdtemp(path.join(temporaryRoot, "nxbu-"));
-  temporaryDirectories.push(directory);
-  const server = new BrowserUseNativePipeServer({
-    events,
-    handler,
-    nativePipeDirectory: directory,
-    socketPeerAuthorizer: () => ({
-      authorized,
-      ...(!authorized ? { reason: "test-denied" } : {}),
+) =>
+  Effect.acquireRelease(
+    Effect.promise(() => {
+      const temporaryRoot = process.platform === "win32" ? os.tmpdir() : "/tmp";
+      return fs.mkdtemp(path.join(temporaryRoot, "nxbu-"));
     }),
-  });
-  servers.push(server);
-  await server.start();
-  return server;
-}
+    (directory) => Effect.promise(() => fs.rm(directory, { recursive: true, force: true })),
+  ).pipe(
+    Effect.flatMap((nativePipeDirectory) =>
+      makeBrowserUseNativePipeServer({
+        events,
+        handler,
+        nativePipeDirectory,
+        platform: process.platform,
+        socketPeerAuthorizer: () => ({
+          authorized,
+          ...(!authorized ? { reason: "test-denied" } : {}),
+        }),
+      }),
+    ),
+  );
 
-function connect(pipePath: string): Promise<net.Socket> {
-  return new Promise((resolve, reject) => {
+const connect = (pipePath: string): Promise<net.Socket> =>
+  new Promise((resolve, reject) => {
     const socket = net.createConnection(pipePath);
     socket.once("connect", () => resolve(socket));
     socket.once("error", reject);
   });
-}
 
-function readOne(socket: net.Socket): Promise<Record<string, unknown>> {
+const connectScoped = (pipePath: string) =>
+  Effect.acquireRelease(
+    Effect.promise(() => connect(pipePath)),
+    (socket) => Effect.sync(() => socket.destroy()),
+  );
+
+const readOne = (socket: net.Socket): Promise<Record<string, unknown>> => {
   const decoder = new BrowserUseNativePipeFrameDecoder();
   return new Promise((resolve, reject) => {
     socket.on("data", (chunk) => {
@@ -71,42 +69,36 @@ function readOne(socket: net.Socket): Promise<Record<string, unknown>> {
     });
     socket.once("error", reject);
   });
-}
+};
 
-describe("BrowserUseNativePipeServer", () => {
-  test.runIf(process.platform !== "win32")(
-    "authorizes before reading and returns isolated JSON-RPC responses",
-    async () => {
-      const server = await makeServer(true, (request, context) => ({
+it.effect("authorizes before reading and returns isolated JSON-RPC responses", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      if (process.platform === "win32") return;
+      const server = yield* makeServer(true, (request, context) => ({
         connectionId: context.connectionId,
         method: request.method,
       }));
-      const [first, second] = await Promise.all([
-        connect(server.pipePath),
-        connect(server.pipePath),
-      ]);
+      const [first, second] = yield* Effect.all(
+        [connectScoped(server.pipePath), connectScoped(server.pipePath)],
+        { concurrency: 2 },
+      );
       const firstResponse = readOne(first);
       const secondResponse = readOne(second);
       first.write(
         encodeBrowserUseNativePipeFrame(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: "same-id",
-            method: "ping",
-          }),
+          JSON.stringify({ jsonrpc: "2.0", id: "same-id", method: "ping" }),
         ),
       );
       second.write(
         encodeBrowserUseNativePipeFrame(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: "same-id",
-            method: "getInfo",
-          }),
+          JSON.stringify({ jsonrpc: "2.0", id: "same-id", method: "getInfo" }),
         ),
       );
 
-      const [firstMessage, secondMessage] = await Promise.all([firstResponse, secondResponse]);
+      const [firstMessage, secondMessage] = yield* Effect.promise(() =>
+        Promise.all([firstResponse, secondResponse]),
+      );
       expect(firstMessage.id).toBe("same-id");
       expect(secondMessage.id).toBe("same-id");
       expect((firstMessage.result as { method: string }).method).toBe("ping");
@@ -114,54 +106,85 @@ describe("BrowserUseNativePipeServer", () => {
       expect((firstMessage.result as { connectionId: string }).connectionId).not.toBe(
         (secondMessage.result as { connectionId: string }).connectionId,
       );
-      first.destroy();
-      second.destroy();
-    },
-  );
+    }),
+  ),
+);
 
-  test.runIf(process.platform !== "win32")(
-    "rejects unauthorized peers without dispatching a request",
-    async () => {
+it.effect("rejects unauthorized peers without dispatching a request", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      if (process.platform === "win32") return;
       let calls = 0;
-      const server = await makeServer(false, () => {
+      const server = yield* makeServer(false, () => {
         calls += 1;
       });
-      const socket = await connect(server.pipePath);
+      const socket = yield* connectScoped(server.pipePath);
       socket.write(
-        encodeBrowserUseNativePipeFrame(
-          JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "ping",
-          }),
-        ),
+        encodeBrowserUseNativePipeFrame(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })),
       );
-      await new Promise<void>((resolve) => socket.once("close", () => resolve()));
+      yield* Effect.promise(
+        () => new Promise<void>((resolve) => socket.once("close", () => resolve())),
+      );
       expect(calls).toBe(0);
-    },
-  );
+    }),
+  ),
+);
 
-  test.runIf(process.platform !== "win32")(
-    "uses restrictive directory and socket permissions",
-    async () => {
-      const server = await makeServer(true, () => "pong");
-      const directoryMode = (await fs.stat(path.dirname(server.pipePath))).mode & 0o777;
-      const socketMode = (await fs.stat(server.pipePath)).mode & 0o777;
+it.effect("uses restrictive directory and socket permissions", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      if (process.platform === "win32") return;
+      const server = yield* makeServer(true, () => "pong");
+      const directoryMode =
+        (yield* Effect.promise(() => fs.stat(path.dirname(server.pipePath)))).mode & 0o777;
+      const socketMode = (yield* Effect.promise(() => fs.stat(server.pipePath))).mode & 0o777;
       expect(directoryMode).toBe(0o700);
       expect(socketMode).toBe(0o600);
-    },
-  );
+    }),
+  ),
+);
 
-  test.runIf(process.platform !== "win32")(
-    "reports bounded request lifecycle metadata without request parameters",
-    async () => {
+it.effect("closes accepted sockets and removes the exact pipe with its Scope", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      if (process.platform === "win32") return;
+      const directory = yield* Effect.acquireRelease(
+        Effect.promise(() => fs.mkdtemp(path.join("/tmp", "nxbu-release-"))),
+        (ownedDirectory) =>
+          Effect.promise(() => fs.rm(ownedDirectory, { recursive: true, force: true })),
+      );
+      const parentScope = yield* Scope.Scope;
+      const serverScope = yield* Scope.fork(parentScope);
+      const server = yield* makeBrowserUseNativePipeServer({
+        handler: () => "pong",
+        nativePipeDirectory: directory,
+        platform: process.platform,
+        socketPeerAuthorizer: () => ({ authorized: true }),
+      }).pipe(Scope.provide(serverScope));
+      const socket = yield* connectScoped(server.pipePath);
+      const socketClosed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
+
+      yield* Scope.close(serverScope, Exit.void);
+      yield* Effect.promise(() => socketClosed);
+
+      const pipeEntry = yield* Effect.promise(() => fs.lstat(server.pipePath).catch(() => null));
+      expect(pipeEntry).toBeNull();
+      expect(socket.destroyed).toBe(true);
+    }),
+  ),
+);
+
+it.effect("reports bounded request lifecycle metadata without request parameters", () =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      if (process.platform === "win32") return;
       const started: unknown[] = [];
       const completed: unknown[] = [];
-      const server = await makeServer(true, () => "ok", {
+      const server = yield* makeServer(true, () => "ok", {
         onRequestCompleted: (event) => completed.push(event),
         onRequestStarted: (event) => started.push(event),
       });
-      const socket = await connect(server.pipePath);
+      const socket = yield* connectScoped(server.pipePath);
       const response = readOne(socket);
       socket.write(
         encodeBrowserUseNativePipeFrame(
@@ -178,12 +201,9 @@ describe("BrowserUseNativePipeServer", () => {
         ),
       );
 
-      await expect(response).resolves.toMatchObject({ id: 1, result: "ok" });
+      expect(yield* Effect.promise(() => response)).toMatchObject({ id: 1, result: "ok" });
       expect(started).toEqual([
-        expect.objectContaining({
-          label: "executeCdp:Page.navigate",
-          notification: false,
-        }),
+        expect.objectContaining({ label: "executeCdp:Page.navigate", notification: false }),
       ]);
       expect(completed).toEqual([
         expect.objectContaining({
@@ -193,7 +213,6 @@ describe("BrowserUseNativePipeServer", () => {
         }),
       ]);
       expect(JSON.stringify({ started, completed })).not.toContain("private.example");
-      socket.destroy();
-    },
-  );
-});
+    }),
+  ),
+);

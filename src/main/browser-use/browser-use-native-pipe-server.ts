@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Scope from "effect/Scope";
 import fs from "node:fs/promises";
-import net, { type Server, type Socket } from "node:net";
+import net, { type Socket } from "node:net";
 import path from "node:path";
 import {
   makeBrowserUseRpcError,
@@ -55,6 +58,7 @@ interface BrowserUseNativePipeServerOptions {
   handler: BrowserUseNativePipeRequestHandler;
   nativePipeDirectory?: string;
   pipePath?: string;
+  platform?: NodeJS.Platform;
   socketPeerAuthorizer: BrowserUseSocketPeerAuthorizer;
 }
 
@@ -118,105 +122,121 @@ async function removeOwnedUnixPipe(pipePath: string): Promise<void> {
   }
 }
 
-export class BrowserUseNativePipeServer {
-  private readonly connections = new Map<Socket, BrowserUseNativePipeConnection>();
-  private readonly events: BrowserUseNativePipeServerEvents;
-  private readonly handler: BrowserUseNativePipeRequestHandler;
-  private readonly socketPeerAuthorizer: BrowserUseSocketPeerAuthorizer;
-  private ownsPipePath = false;
-  private server: Server | null = null;
+export interface BrowserUseNativePipeServer {
+  readonly broadcast: (method: string, params?: unknown) => void;
   readonly pipePath: string;
+}
 
-  constructor(options: BrowserUseNativePipeServerOptions) {
-    this.events = options.events ?? {};
-    this.handler = options.handler;
-    this.socketPeerAuthorizer = options.socketPeerAuthorizer;
-    this.pipePath =
-      options.pipePath ??
-      (process.platform === "win32"
-        ? `${options.nativePipeDirectory ?? resolveBrowserUseNativePipeDirectory()}-${randomUUID()}`
-        : path.join(
-            options.nativePipeDirectory ?? resolveBrowserUseNativePipeDirectory(),
-            `${randomUUID()}.sock`,
-          ));
-  }
+export class BrowserUseNativePipeServerError extends Schema.TaggedError<BrowserUseNativePipeServerError>()(
+  "BrowserUseNativePipeServerError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
 
-  async start(): Promise<void> {
-    if (this.server) return;
-    if (process.platform !== "win32") {
-      await ensureUnixPipeDirectory(path.dirname(this.pipePath));
-      await removeOwnedUnixPipe(this.pipePath);
-    }
-    const server = net.createServer((socket) => {
-      this.handleConnection(socket);
-    });
+const serverError = (operation: string, cause: unknown): BrowserUseNativePipeServerError =>
+  new BrowserUseNativePipeServerError({ operation, cause });
+
+function makeServerState(options: BrowserUseNativePipeServerOptions): {
+  readonly port: BrowserUseNativePipeServer;
+  readonly release: () => Promise<void>;
+  readonly start: () => Promise<void>;
+} {
+  const connections = new Map<Socket, BrowserUseNativePipeConnection>();
+  const events = options.events ?? {};
+  const platform = options.platform ?? process.platform;
+  const pipePath =
+    options.pipePath ??
+    (platform === "win32"
+      ? `${options.nativePipeDirectory ?? resolveBrowserUseNativePipeDirectory(platform)}-${randomUUID()}`
+      : path.join(
+          options.nativePipeDirectory ?? resolveBrowserUseNativePipeDirectory(platform),
+          `${randomUUID()}.sock`,
+        ));
+  let accepting = true;
+  let ownsPipePath = false;
+  let server: ReturnType<typeof net.createServer> | null = null;
+
+  const dispatch = async (
+    connection: BrowserUseNativePipeConnection,
+    request: BrowserUseRpcRequest,
+  ): Promise<void> => {
+    if (!accepting) return;
+    const notification = request.id === undefined;
+    const requestEvent: BrowserUseNativePipeRequestEvent = {
+      connectionId: connection.id,
+      label: requestLabel(request),
+      notification,
+    };
+    const startedAt = performance.now();
+    events.onRequestStarted?.(requestEvent);
     try {
-      await new Promise<void>((resolve, reject) => {
-        const onError = (error: Error) => {
-          server.off("listening", onListening);
-          reject(error);
-        };
-        const onListening = () => {
-          server.off("error", onError);
-          resolve();
-        };
-        server.once("error", onError);
-        server.once("listening", onListening);
-        server.listen(this.pipePath);
+      const result = await options.handler(request, {
+        connectionId: connection.id,
+        notification,
       });
-      if (process.platform !== "win32") await fs.chmod(this.pipePath, 0o600);
-      this.server = server;
-      this.ownsPipePath = true;
-      this.events.onListening?.(this.pipePath);
+      events.onRequestCompleted?.({
+        ...requestEvent,
+        durationMs: performance.now() - startedAt,
+        outcome: "success",
+      });
+      if (!accepting || notification || connection.socket.destroyed) return;
+      connection.socket.write(
+        encodeBrowserUseNativePipeFrame(
+          JSON.stringify(makeBrowserUseRpcResult(request.id!, result)),
+        ),
+      );
     } catch (error) {
-      server.close();
-      throw error;
-    }
-  }
-
-  broadcast(method: string, params?: unknown): void {
-    const frame = encodeBrowserUseNativePipeFrame(
-      JSON.stringify({
-        jsonrpc: "2.0",
-        method,
-        ...(params === undefined ? {} : { params }),
-      }),
-    );
-    for (const connection of this.connections.values()) {
-      if (!connection.socket.destroyed) connection.socket.write(frame);
-    }
-  }
-
-  async close(): Promise<void> {
-    for (const connection of this.connections.values()) {
-      connection.decoder.reset();
-      connection.socket.destroy();
-    }
-    this.connections.clear();
-
-    const server = this.server;
-    this.server = null;
-    if (server) {
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
+      events.onRequestCompleted?.({
+        ...requestEvent,
+        durationMs: performance.now() - startedAt,
+        outcome: "error",
       });
+      if (!accepting || notification || connection.socket.destroyed) return;
+      connection.socket.write(
+        encodeBrowserUseNativePipeFrame(
+          JSON.stringify(makeBrowserUseRpcError(request.id!, 1, boundedErrorMessage(error))),
+        ),
+      );
     }
-    const shouldRemovePipe = this.ownsPipePath && process.platform !== "win32";
-    this.ownsPipePath = false;
-    if (shouldRemovePipe) await removeOwnedUnixPipe(this.pipePath);
-  }
+  };
 
-  private handleConnection(socket: Socket): void {
+  const handleSocketData = (connection: BrowserUseNativePipeConnection, chunk: Buffer): void => {
+    if (!accepting) return;
+    let messages: string[];
+    try {
+      messages = connection.decoder.push(chunk);
+    } catch (error) {
+      events.onInvalidMessage?.(error);
+      connection.socket.destroy();
+      return;
+    }
+    for (const message of messages) {
+      let request: BrowserUseRpcRequest;
+      try {
+        request = parseBrowserUseRpcRequest(message);
+      } catch (error) {
+        events.onInvalidMessage?.(error);
+        connection.socket.destroy();
+        return;
+      }
+      void dispatch(connection, request);
+    }
+  };
+
+  const handleConnection = (socket: Socket): void => {
+    if (!accepting) {
+      socket.destroy();
+      return;
+    }
     let authorization: BrowserUsePeerAuthorizationResult;
     try {
-      authorization = this.socketPeerAuthorizer(socket);
+      authorization = options.socketPeerAuthorizer(socket);
     } catch (error) {
-      this.events.onAuthorizationError?.(error);
+      events.onAuthorizationError?.(error);
       socket.destroy();
       return;
     }
     if (!authorization.authorized) {
-      this.events.onRejectedSocket?.(authorization);
+      events.onRejectedSocket?.(authorization);
       socket.destroy();
       return;
     }
@@ -226,82 +246,114 @@ export class BrowserUseNativePipeServer {
       id: randomUUID(),
       socket,
     };
-    this.connections.set(socket, connection);
+    connections.set(socket, connection);
     socket.setNoDelay(true);
     socket.on("data", (chunk) => {
-      this.handleSocketData(connection, chunk);
+      handleSocketData(connection, chunk);
     });
     socket.on("error", (error) => {
-      this.events.onSocketError?.(error);
+      events.onSocketError?.(error);
     });
     socket.on("close", () => {
       connection.decoder.reset();
-      this.connections.delete(socket);
+      connections.delete(socket);
     });
-  }
+  };
 
-  private handleSocketData(connection: BrowserUseNativePipeConnection, chunk: Buffer): void {
-    let messages: string[];
-    try {
-      messages = connection.decoder.push(chunk);
-    } catch (error) {
-      this.events.onInvalidMessage?.(error);
+  const start = async (): Promise<void> => {
+    if (server) return;
+    if (platform !== "win32") {
+      await ensureUnixPipeDirectory(path.dirname(pipePath));
+      await removeOwnedUnixPipe(pipePath);
+    }
+    const acquired = net.createServer(handleConnection);
+    server = acquired;
+    await new Promise<void>((resolve, reject) => {
+      const onError = (error: Error) => {
+        acquired.off("listening", onListening);
+        reject(error);
+      };
+      const onListening = () => {
+        acquired.off("error", onError);
+        resolve();
+      };
+      acquired.once("error", onError);
+      acquired.once("listening", onListening);
+      acquired.listen(pipePath);
+    });
+    ownsPipePath = platform !== "win32";
+    if (platform !== "win32") await fs.chmod(pipePath, 0o600);
+    events.onListening?.(pipePath);
+  };
+
+  const release = async (): Promise<void> => {
+    accepting = false;
+    for (const connection of connections.values()) {
+      connection.decoder.reset();
       connection.socket.destroy();
-      return;
     }
-    for (const message of messages) {
-      let request: BrowserUseRpcRequest;
-      try {
-        request = parseBrowserUseRpcRequest(message);
-      } catch (error) {
-        this.events.onInvalidMessage?.(error);
-        connection.socket.destroy();
-        return;
-      }
-      void this.dispatch(connection, request);
-    }
-  }
+    connections.clear();
 
-  private async dispatch(
-    connection: BrowserUseNativePipeConnection,
-    request: BrowserUseRpcRequest,
-  ): Promise<void> {
-    const notification = request.id === undefined;
-    const requestEvent: BrowserUseNativePipeRequestEvent = {
-      connectionId: connection.id,
-      label: requestLabel(request),
-      notification,
-    };
-    const startedAt = performance.now();
-    this.events.onRequestStarted?.(requestEvent);
-    try {
-      const result = await this.handler(request, {
-        connectionId: connection.id,
-        notification,
-      });
-      this.events.onRequestCompleted?.({
-        ...requestEvent,
-        durationMs: performance.now() - startedAt,
-        outcome: "success",
-      });
-      if (notification || connection.socket.destroyed) return;
-      connection.socket.write(
-        encodeBrowserUseNativePipeFrame(
-          JSON.stringify(makeBrowserUseRpcResult(request.id!, result)),
-        ),
-      );
-    } catch (error) {
-      this.events.onRequestCompleted?.({
-        ...requestEvent,
-        durationMs: performance.now() - startedAt,
-        outcome: "error",
-      });
-      if (notification || connection.socket.destroyed) return;
-      connection.socket.write(
-        encodeBrowserUseNativePipeFrame(
-          JSON.stringify(makeBrowserUseRpcError(request.id!, 1, boundedErrorMessage(error))),
-        ),
-      );
+    const acquired = server;
+    server = null;
+    if (acquired?.listening) {
+      await new Promise<void>((resolve) => acquired.close(() => resolve()));
     }
-  }
+    const shouldRemovePipe = ownsPipePath && platform !== "win32";
+    ownsPipePath = false;
+    if (shouldRemovePipe) await removeOwnedUnixPipe(pipePath);
+  };
+
+  return {
+    port: {
+      broadcast: (method, params) => {
+        if (!accepting) return;
+        const frame = encodeBrowserUseNativePipeFrame(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method,
+            ...(params === undefined ? {} : { params }),
+          }),
+        );
+        for (const connection of connections.values()) {
+          if (!connection.socket.destroyed) connection.socket.write(frame);
+        }
+      },
+      pipePath,
+    },
+    release,
+    start,
+  };
 }
+
+/** Owns the net server, accepted sockets and Unix socket path in one session Scope. */
+export const makeBrowserUseNativePipeServer = (
+  options: BrowserUseNativePipeServerOptions,
+): Effect.Effect<BrowserUseNativePipeServer, BrowserUseNativePipeServerError, Scope.Scope> =>
+  Effect.gen(function* () {
+    const state = makeServerState(options);
+    yield* Effect.addFinalizer(() =>
+      Effect.tryPromise({
+        try: state.release,
+        catch: (cause) => serverError("release", cause),
+      }).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("Could not release Browser Use native pipe").pipe(
+            Effect.annotateLogs({ error: String(error.cause) }),
+          ),
+        ),
+      ),
+    );
+    yield* Effect.tryPromise({
+      try: state.start,
+      catch: (cause) => serverError("start", cause),
+    }).pipe(
+      Effect.tapError(() =>
+        Effect.tryPromise({
+          try: state.release,
+          catch: (cause) => serverError("rollback", cause),
+        }).pipe(Effect.ignore),
+      ),
+    );
+    return state.port;
+  });

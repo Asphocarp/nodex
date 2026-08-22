@@ -6,9 +6,10 @@ import { promisify } from "node:util";
 import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Scope from "effect/Scope";
 import type { BrowserUsePeerAuthorizationMode } from "../../../shared/browser-use-host-capability";
 import type { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
-import { BrowserUseNativePipeServer } from "../../browser-use/browser-use-native-pipe-server";
+import { makeBrowserUseNativePipeServer } from "../../browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../../browser-use/browser-use-peer-authorizer";
 import {
   writeComputerUseRuntimeConfig,
@@ -45,9 +46,7 @@ export class ComputerUseHostPlatformError extends Data.TaggedError("ComputerUseH
 }> {}
 
 export interface ComputerUseHostServicesServer {
-  readonly close: Effect.Effect<void, ComputerUseHostPlatformError>;
   readonly pipePath: string;
-  readonly start: Effect.Effect<void, ComputerUseHostPlatformError>;
 }
 
 export interface ComputerUseHostPlatform {
@@ -58,7 +57,7 @@ export interface ComputerUseHostPlatform {
     ) => Effect.Effect<unknown, ComputerUseHostPlatformError>,
     peerAuthorizationMode: BrowserUsePeerAuthorizationMode,
     peerAuthorizationAddonPath: string,
-  ) => Effect.Effect<ComputerUseHostServicesServer, ComputerUseHostPlatformError>;
+  ) => Effect.Effect<ComputerUseHostServicesServer, ComputerUseHostPlatformError, Scope.Scope>;
   readonly isProcessAlive: (pid: number) => boolean;
   readonly loadAddon: Effect.Effect<ComputerUseServiceAddon | null>;
   readonly macOSRelease: string;
@@ -333,30 +332,15 @@ export function makeComputerUseHostPlatform(
 ): ComputerUseHostPlatform {
   return {
     createNativePipeServer: (handler, peerAuthorizationMode, peerAuthorizationAddonPath) =>
-      Effect.try({
-        try: () => {
-          const server = new BrowserUseNativePipeServer({
-            handler: (request) => callbacks.runPromise(handler(request.method, request.params)),
-            nativePipeDirectory: path.join("/tmp", "nodex-host-services"),
-            socketPeerAuthorizer: createBrowserUsePeerAuthorizer({
-              addonPath: peerAuthorizationAddonPath,
-              mode: peerAuthorizationMode,
-            }),
-          });
-          return {
-            close: Effect.tryPromise({
-              try: () => server.close(),
-              catch: (cause) => platformError("native-pipe.close", cause),
-            }),
-            pipePath: server.pipePath,
-            start: Effect.tryPromise({
-              try: () => server.start(),
-              catch: (cause) => platformError("native-pipe.start", cause),
-            }),
-          };
-        },
-        catch: (cause) => platformError("native-pipe.create", cause),
-      }),
+      makeBrowserUseNativePipeServer({
+        handler: (request) => callbacks.runPromise(handler(request.method, request.params)),
+        nativePipeDirectory: path.join("/tmp", "nodex-host-services"),
+        platform: options.platform,
+        socketPeerAuthorizer: createBrowserUsePeerAuthorizer({
+          addonPath: peerAuthorizationAddonPath,
+          mode: peerAuthorizationMode,
+        }),
+      }).pipe(Effect.mapError((cause) => platformError("native-pipe.acquire", cause))),
     isProcessAlive: isLiveProcess,
     loadAddon: Effect.sync(() => loadSkyNativeAddon()),
     macOSRelease: options.macOSRelease ?? process.getSystemVersion?.() ?? "0",

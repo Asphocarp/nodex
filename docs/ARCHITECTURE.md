@@ -177,11 +177,15 @@ replacement, and Main shutdown invalidate that exact generation. Route mutation 
 single-writer and every turn completes through the session's own semaphore. Browser
 Use application Modules exchange typed Effects; Promise exists only at the sidebar
 route callback and native pipe/API adapters, where callback fibers belong to the
-session or installation Scope. Native-pipe commands pass through the session's
-single command admission semaphore. IAB deadlines, capture polling sleeps, cursor
-arrival, and WebContents attachment waits borrow the session Effect clock and
-callback runtime, so closing the session interrupts waits and removes registrations;
-the IAB state machine contains no EventEmitter, timer, or detached Promise waiter.
+session or installation Scope. The native-pipe factory registers its finalizer before
+listening and returns only `pipePath` plus broadcast capability: the session Scope
+directly owns the net server, accepted sockets, callback admission, and exact Unix
+socket file, with no `start()`, `close()`, or disposable server class. Native-pipe
+commands pass through the session's single command admission semaphore. IAB deadlines,
+capture polling sleeps, cursor arrival, and WebContents attachment waits borrow the
+session Effect clock and callback runtime, so closing the session interrupts waits and
+removes registrations; the IAB state machine contains no EventEmitter, timer, or
+detached Promise waiter.
 
 Browser site-status policy is a Browser Profile-scoped Effect runtime, not an HTTP client or a
 Sidebar-owned cache. It borrows authenticated requests from `ChatGptDesktop`, keeps only valid
@@ -283,10 +287,13 @@ protocol cache, handler, guest callback, or expiry task survives runtime replace
 The process-scoped Computer Use Effect Module owns readiness, the current availability projection,
 native-pipe lifetime, exact managed-service PID identity, and service validation time. One
 readiness semaphore and one service semaphore serialize those two protocols; validation sleeps on
-the Effect clock. Scope release atomically closes admission, fences late platform results, waits for
-active transitions, and releases every acquired handle. The Electron platform Adapter owns only
-atomic helper/config filesystem operations, native-addon calls, process inspection, and the pipe's
-scoped Promise callback projection; it has no queue, timer, cached result, PID, or disposer state.
+the Effect clock. Lazy native-pipe acquisition is provided with the Module's owning Scope, so a late
+result racing Main closure is released immediately and cannot be committed. Scope release atomically
+closes admission, fences late platform results, waits for active transitions, and terminates an exact
+managed helper when policy requires it; it does not retain or manually close a parallel server
+handle. The Electron platform Adapter owns only atomic helper/config filesystem operations,
+native-addon calls, process inspection, and the pipe's scoped Promise callback projection; it has no
+queue, timer, cached result, PID, or disposer state.
 
 Project lifecycle mutation and admission of Project-owned host work share one Main-scoped,
 Project-keyed coordination runtime. Codex turns, Terminal sessions, and background runtime

@@ -48,8 +48,7 @@ class FakeApi {
 }
 
 class FakeServer {
-  closed = false;
-  started = false;
+  released = false;
 
   constructor(
     readonly pipePath: string,
@@ -68,14 +67,6 @@ class FakeServer {
   broadcast(method: string, params?: unknown): void {
     void method;
     void params;
-  }
-
-  async close(): Promise<void> {
-    this.closed = true;
-  }
-
-  async start(): Promise<void> {
-    this.started = true;
   }
 }
 
@@ -103,7 +94,14 @@ const makeTestRuntime = Effect.gen(function* () {
     createServer: (handler) => {
       const server = new FakeServer(`/tmp/fake-${servers.length}.sock`, handler);
       servers.push(server);
-      return server;
+      return Effect.gen(function* () {
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            server.released = true;
+          }),
+        );
+        return server;
+      });
     },
   }).pipe(Effect.provideService(Scope.Scope, scope));
   return { apis, asyncRuntimes, runtime, scope, servers };
@@ -119,11 +117,10 @@ it.effect("reuses one scoped backend for an exact route", () =>
     assert.strictEqual(second.pipePath, first.pipePath);
     assert.lengthOf(apis, 1);
     assert.lengthOf(servers, 1);
-    assert.isTrue(servers[0]!.started);
     assert.deepEqual(runtime.availableBackends(), ["iab"]);
     yield* Scope.close(scope, Exit.void);
     assert.isTrue(apis[0]!.disposed);
-    assert.isTrue(servers[0]!.closed);
+    assert.isTrue(servers[0]!.released);
   }),
 );
 
@@ -196,8 +193,8 @@ it.effect("atomically replaces a provisional route with its Codex session", () =
     assert.strictEqual(snapshot.sessions[0]?.sessionId, "thread-1");
     assert.lengthOf(apis, 2);
     assert.isTrue(apis[0]!.disposed);
-    assert.isTrue(servers[0]!.closed);
-    assert.isTrue(servers[1]!.started);
+    assert.isTrue(servers[0]!.released);
+    assert.isFalse(servers[1]!.released);
     assert.isTrue(snapshot.events.some((event) => event.kind === "provisional-route-rebound"));
     yield* Scope.close(scope, Exit.void);
   }),
@@ -229,7 +226,7 @@ it.effect("invalidates every backend owned by a renderer", () =>
 
     assert.deepEqual((yield* runtime.debugSnapshot).sessions, []);
     assert.isTrue(apis[0]!.disposed);
-    assert.isTrue(servers[0]!.closed);
+    assert.isTrue(servers[0]!.released);
     yield* Scope.close(scope, Exit.void);
   }),
 );
