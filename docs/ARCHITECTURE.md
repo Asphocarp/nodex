@@ -452,6 +452,15 @@ same barrier through the Module Interface. `CodexService` only attaches the retu
 renderer notification and awaits the Promise boundary where its legacy reducer still requires it;
 it owns no sequence maps, callback arrays, timer adapter, or timeout callback.
 
+Main-process frame-text and command-output fallback batching is owned by one scoped Queue actor.
+Synchronous notification ingress only offers typed enqueue/clear commands; the actor is the single
+writer for both key-coalesced buffers. Separate FiberHandles own the non-resetting 16 ms frame-text
+and 50 ms bounded-output deadlines, and a terminal frame drain is an ordered command with a Deferred
+acknowledgement. Reentrant canonical projection may enqueue a new batch without being swallowed by
+the completing timer generation. Thread removal clears only that Thread's pending values, while Main
+Scope close interrupts both deadlines and drops the backlog. Renderer animation-frame batching stays
+in its Effect-free local conversation owner because it has a different visual-frame lifecycle.
+
 Active thread-goal continuation is admitted as an event, not as an untracked Promise workflow. One
 Main-scoped Module owns the per-conversation delay, single-flight fiber, duplicate coalescing,
 eligibility recheck, failure supervision, and interruption. Synchronous conversation lifecycle

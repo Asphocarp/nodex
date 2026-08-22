@@ -386,11 +386,7 @@ import {
   reduceCodexConversationFrameTextDeltas,
   toCodexFrameTextDelta,
 } from "../../shared/codex-conversation-state/codex-frame-text-delta";
-import {
-  CodexFrameTextDeltaQueue,
-  createCodexFrameTextDeltaTimeoutScheduler,
-  type CodexFrameTextDeltaUpdate,
-} from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
+import type { CodexFrameTextDeltaUpdate } from "../../shared/codex-conversation-state/codex-frame-text-delta-queue";
 import {
   groupCodexCommandOutputUpdatesByConversation,
   isCodexCommandOutputNotification,
@@ -398,10 +394,7 @@ import {
   reduceCodexConversationTerminalCommands,
   toCodexCommandOutputUpdate,
 } from "../../shared/codex-conversation-state/codex-command-execution-stream";
-import {
-  CodexCommandOutputQueue,
-  type CodexCommandOutputUpdate,
-} from "../../shared/codex-conversation-state/codex-command-output-queue";
+import type { CodexCommandOutputUpdate } from "../../shared/codex-conversation-state/codex-command-output-queue";
 import {
   isCodexFileChangePatchUpdatedNotification,
   isCodexMcpToolCallProgressNotification,
@@ -685,6 +678,7 @@ import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-applicat
 import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
 import type { CodexBackgroundSubagentMetadataRepair } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
 import type { CodexQueuedFollowUpDispatchRuntime } from "../codex-application/CodexQueuedFollowUpDispatchRuntime";
+import type { CodexConversationDeltaBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import {
   isExecutionWorkspacePathWithinRoot,
   rewriteExecutionWorkspaceRoots,
@@ -1359,6 +1353,7 @@ type CodexServiceOptions = {
   conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   queuedFollowUpDispatch: CodexQueuedFollowUpDispatchRuntime["Service"];
+  conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2606,6 +2601,7 @@ export class CodexService extends EventEmitter {
   private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   private readonly queuedFollowUpDispatch: CodexQueuedFollowUpDispatchRuntime["Service"];
+  private readonly conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
   private readonly conversationResumeInFlightByThreadId = new Map<
     string,
     Promise<CodexConversationSnapshot | null>
@@ -2648,17 +2644,6 @@ export class CodexService extends EventEmitter {
   private readonly disposedRendererClientIds = new Set<string>();
   private readonly rendererViewRegistry = new CodexRendererViewRegistry();
   private readonly userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
-  private readonly frameTextDeltaQueue = new CodexFrameTextDeltaQueue({
-    scheduler: createCodexFrameTextDeltaTimeoutScheduler(),
-    onFlush: (updates) => {
-      this.applyFrameTextDeltas(updates);
-    },
-  });
-  private readonly outputDeltaQueue = new CodexCommandOutputQueue({
-    onFlush: (updates) => {
-      this.applyOutputDeltas(updates);
-    },
-  });
   private readonly terminalInputBuffers = new Map<string, string>();
   private readonly manualCompactionTracker = new CodexManualCompactionTracker();
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
@@ -2728,6 +2713,7 @@ export class CodexService extends EventEmitter {
     this.conversationHistory = options.conversationHistory;
     this.backgroundSubagentMetadataRepair = options.backgroundSubagentMetadataRepair;
     this.queuedFollowUpDispatch = options.queuedFollowUpDispatch;
+    this.conversationDeltaBuffer = options.conversationDeltaBuffer;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -3596,11 +3582,7 @@ export class CodexService extends EventEmitter {
   }
 
   private waitForFrameTextDeltaDrain(conversationId: string): Promise<void> {
-    return new Promise((resolve) => {
-      if (!this.frameTextDeltaQueue.drainBefore(resolve, conversationId)) {
-        resolve();
-      }
-    });
+    return this.conversationDeltaBuffer.drainFrameText(conversationId);
   }
 
   private clearOwnerNotificationDrain(conversationId: string): void {
@@ -6141,8 +6123,7 @@ export class CodexService extends EventEmitter {
     this.rendererViewRegistry.clearConversation(threadId);
     this.rendererOwnerRetention.clear(threadId);
     this.clearOwnerNotificationDrain(threadId);
-    this.frameTextDeltaQueue.discardConversation(threadId);
-    this.outputDeltaQueue.discardConversation(threadId);
+    this.conversationDeltaBuffer.clear(threadId);
     this.manualCompactionTracker.clear(threadId);
     this.activeGoalContinuation.clear(threadId);
     this.postResumeGoals.clear(threadId);
@@ -6598,9 +6579,7 @@ export class CodexService extends EventEmitter {
       pendingPrivateServerRequests: this.pendingPrivateServerRequests.size,
       pendingDynamicToolCalls: this.pendingDynamicToolCalls.size,
     });
-    this.frameTextDeltaQueue.dispose();
     this.nodexAgentAuthorizationBroker?.revokeAll();
-    this.outputDeltaQueue.dispose();
     this.forkSidePanelTransferLifecycle?.clear();
     if (this.sidebarSnapshotCacheNotifierSubscribed) {
       this.databaseNotifier.off(
@@ -23274,7 +23253,8 @@ export class CodexService extends EventEmitter {
     return CodexApplicationRequestPending;
   }
 
-  private applyFrameTextDeltas(
+  /** Effect Module adapter operation; applies a scheduled canonical frame-text batch. */
+  applyFrameTextDeltas(
     updates: readonly CodexFrameTextDeltaUpdate[],
     options: { publishMainFallback?: boolean } = {},
   ): void {
@@ -23362,7 +23342,8 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private applyOutputDeltas(updates: readonly CodexCommandOutputUpdate[]): void {
+  /** Effect Module adapter operation; applies a scheduled canonical command-output batch. */
+  applyOutputDeltas(updates: readonly CodexCommandOutputUpdate[]): void {
     if (updates.length === 0) return;
 
     for (const [threadId, threadUpdates] of groupCodexCommandOutputUpdatesByConversation(updates)) {
@@ -24288,7 +24269,7 @@ export class CodexService extends EventEmitter {
         this.applyFrameTextDeltas([frameTextDelta], { publishMainFallback: false });
         return;
       }
-      this.frameTextDeltaQueue.enqueue(frameTextDelta);
+      this.conversationDeltaBuffer.enqueueFrameText(frameTextDelta);
       return;
     }
 
@@ -24311,7 +24292,7 @@ export class CodexService extends EventEmitter {
       if (!isCodexCommandOutputNotification(notification)) return;
       const update = toCodexCommandOutputUpdate(notification);
       if (this.forwardNotificationToRendererOwner(notification)) {
-        this.outputDeltaQueue.enqueue(update);
+        this.conversationDeltaBuffer.enqueueCommandOutput(update);
         return;
       }
 
@@ -24322,7 +24303,7 @@ export class CodexService extends EventEmitter {
           notification,
         });
       }
-      this.outputDeltaQueue.enqueue(update);
+      this.conversationDeltaBuffer.enqueueCommandOutput(update);
       return;
     }
 

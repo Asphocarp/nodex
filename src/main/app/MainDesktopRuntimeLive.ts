@@ -131,6 +131,8 @@ import {
   CodexQueuedFollowUpDispatchError,
   make as makeCodexQueuedFollowUpDispatchRuntime,
 } from "../codex-application/CodexQueuedFollowUpDispatchRuntime";
+import { make as makeCodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
+import { makeCodexConversationDeltaBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationDeltaBufferRuntimePromiseAdapter";
 import {
   CodexPostResumeGoalError,
   make as makeCodexPostResumeGoalRuntime,
@@ -1426,6 +1428,10 @@ export const live: Layer.Layer<
           restore: (threadId, followUp, reason) =>
             requireCodexService().restoreQueuedFollowUp(threadId, followUp, reason),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const conversationDeltaBuffer = yield* makeCodexConversationDeltaBufferRuntime({
+          flushFrameText: (updates) => requireCodexService().applyFrameTextDeltas(updates),
+          flushCommandOutput: (updates) => requireCodexService().applyOutputDeltas(updates),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const postResumeGoals = yield* makeCodexPostResumeGoalRuntime({
           load: (threadId) =>
             Effect.tryPromise({
@@ -1613,6 +1619,10 @@ export const live: Layer.Layer<
               ),
               backgroundSubagentMetadataRepair,
               queuedFollowUpDispatch,
+              conversationDeltaBuffer: makeCodexConversationDeltaBufferRuntimePromiseAdapter(
+                conversationDeltaBuffer,
+                callbacks,
+              ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,
                 callbacks,

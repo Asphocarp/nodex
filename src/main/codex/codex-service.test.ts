@@ -56,6 +56,7 @@ import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime
 import { TestCodexConversationHistoryRuntime } from "./codex-conversation-history-runtime.test-support";
 import { TestCodexBackgroundSubagentMetadataRepair } from "./codex-background-subagent-metadata-repair.test-support";
 import { TestCodexQueuedFollowUpDispatchRuntime } from "./codex-queued-follow-up-dispatch-runtime.test-support";
+import { TestCodexConversationDeltaBufferRuntime } from "./codex-conversation-delta-buffer-runtime.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -1846,6 +1847,10 @@ function createService(options?: {
     restore: (threadId, followUp, reason) =>
       service?.restoreQueuedFollowUp(threadId, followUp, reason),
   });
+  const conversationDeltaBuffer = new TestCodexConversationDeltaBufferRuntime({
+    flushFrameText: (updates) => service?.applyFrameTextDeltas(updates),
+    flushCommandOutput: (updates) => service?.applyOutputDeltas(updates),
+  });
   const postResumeGoals = new TestCodexPostResumeGoalRuntime({
     load: async (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -2037,6 +2042,7 @@ function createService(options?: {
     conversationHistory,
     backgroundSubagentMetadataRepair,
     queuedFollowUpDispatch,
+    conversationDeltaBuffer,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -2075,6 +2081,7 @@ function createService(options?: {
     rendererOwnerRetention.dispose();
     sidebarNotificationSync.dispose();
     pendingWorktrees.shutdown();
+    conversationDeltaBuffer.dispose();
     try {
       await shutdown();
     } finally {
