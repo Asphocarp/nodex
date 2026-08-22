@@ -4,8 +4,8 @@ import * as Layer from "effect/Layer";
 import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
-import { EventEmitter } from "node:events";
 import { assert, it } from "@effect/vitest";
+import type { CodexApplicationEvent } from "../codex-application/CodexApplicationEventHub";
 import type { CodexService } from "../codex/codex-service";
 import type {
   RendererClientEvent,
@@ -15,19 +15,19 @@ import { live } from "./CodexRendererProjectionRuntime";
 
 it.effect("releases Codex projection and renderer-client subscriptions with the Main Scope", () =>
   Effect.gen(function* () {
-    const codex = new EventEmitter() as CodexService;
-    const autoResolutionChanges = yield* PubSub.unbounded();
-    const projectedChanges: Array<readonly [string, unknown]> = [];
-    const rendererClientEvents = yield* PubSub.unbounded<RendererClientEvent>();
     const rendererLifecycleEvents: string[] = [];
-    Object.assign(codex, {
+    const codex = {
       handleRendererClientConnected: (clientId: string) => {
         rendererLifecycleEvents.push(`connected:${clientId}`);
       },
       handleRendererClientDisposed: (clientId: string) => {
         rendererLifecycleEvents.push(`disposed:${clientId}`);
       },
-    });
+    } as unknown as CodexService;
+    const autoResolutionChanges = yield* PubSub.unbounded();
+    const applicationEvents = yield* PubSub.unbounded<CodexApplicationEvent>();
+    const projectedChanges: Array<readonly [string, unknown]> = [];
+    const rendererClientEvents = yield* PubSub.unbounded<RendererClientEvent>();
     const rendererClients = {
       events: Stream.fromPubSub(rendererClientEvents),
     } as unknown as RendererClientRuntimeService;
@@ -35,6 +35,12 @@ it.effect("releases Codex projection and renderer-client subscriptions with the 
     yield* Layer.buildWithScope(
       live({
         codex,
+        events: {
+          events: Stream.fromPubSub(applicationEvents),
+          publish: (event) => {
+            PubSub.publishUnsafe(applicationEvents, event);
+          },
+        },
         rendererClients,
         userInputAutoResolution: {
           changes: Stream.fromPubSub(autoResolutionChanges),
@@ -56,7 +62,6 @@ it.effect("releases Codex projection and renderer-client subscriptions with the 
       scope,
     );
 
-    assert.strictEqual(codex.eventNames().length, 8);
     yield* Effect.yieldNow;
     yield* PubSub.publish(rendererClientEvents, {
       kind: "connected",
@@ -74,6 +79,10 @@ it.effect("releases Codex projection and renderer-client subscriptions with the 
       conversationId: "thread-1",
       requestId: "request-1",
     });
+    yield* PubSub.publish(applicationEvents, {
+      kind: "pendingWorktreesChanged",
+      value: [],
+    });
     yield* Effect.yieldNow;
     assert.deepEqual(projectedChanges, [
       [
@@ -84,9 +93,15 @@ it.effect("releases Codex projection and renderer-client subscriptions with the 
           requestId: "request-1",
         },
       ],
+      ["codex:pending-worktrees:changed", []],
     ]);
     assert.deepEqual(rendererLifecycleEvents, ["connected:renderer:1", "disposed:renderer:1"]);
     yield* Scope.close(scope, Exit.void);
-    assert.strictEqual(codex.eventNames().length, 0);
+    yield* PubSub.publish(applicationEvents, {
+      kind: "pendingWorktreesChanged",
+      value: [],
+    });
+    yield* Effect.yieldNow;
+    assert.strictEqual(projectedChanges.length, 2);
   }),
 );

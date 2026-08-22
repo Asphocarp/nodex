@@ -192,6 +192,7 @@ import {
   make as makeCodexUserInputAutoResolution,
 } from "../codex-application/CodexUserInputAutoResolution";
 import { makeCodexUserInputAutoResolutionPromiseAdapter } from "../codex-application/CodexUserInputAutoResolutionPromiseAdapter";
+import { make as makeCodexApplicationEventHub } from "../codex-application/CodexApplicationEventHub";
 import { requestHandlingLive } from "../codex-application/CodexApplicationLayers";
 import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
 import { createCodexForkBrowserSnapshotAdapter } from "../codex/codex-fork-browser-snapshot-adapter";
@@ -1686,6 +1687,9 @@ export const live: Layer.Layer<
           isConversationPresented: (conversationId) =>
             codexService?.isRendererConversationPresentedInForeground(conversationId) === true,
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const codexApplicationEvents = yield* makeCodexApplicationEventHub.pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const forkBrowserSnapshotAdapter = createCodexForkBrowserSnapshotAdapter({
           getProjectSession: (projectSessionId) =>
             projectWorkspace.getProjectSession(projectSessionId),
@@ -1787,6 +1791,7 @@ export const live: Layer.Layer<
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
+              applicationEvents: codexApplicationEvents,
               browserTransferStateReader: browserSidebarService,
               forkSidePanelTransferLifecycle: makeCodexForkSidePanelTransferRuntimePromiseAdapter(
                 forkSidePanelTransfers,
@@ -1924,6 +1929,7 @@ export const live: Layer.Layer<
         yield* Layer.buildWithScope(
           codexRendererProjectionRuntimeLive({
             codex: codexService,
+            events: codexApplicationEvents,
             rendererClients,
             userInputAutoResolution,
             windows,
@@ -2570,7 +2576,7 @@ export const live: Layer.Layer<
         };
         yield* Layer.buildWithScope(
           codexThreadNotificationRuntimeLive({
-            source: codexService,
+            events: codexApplicationEvents,
             getSettings: getThreadNotificationSettings,
             isAppForegrounded: () => codexService.hasForegroundRendererClient(),
             isConversationPresentedInForeground: (conversationId) =>

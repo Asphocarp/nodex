@@ -657,11 +657,12 @@ an empty catalog so Thread creation is not blocked by optional model-aware tools
 discovery fiber is interrupted with its caller. The pure launch-parameter builder receives only a
 stateless Promise projection; it owns no timer, settlement flag, or injected clock implementation.
 
-Codex native-notification policy is a pure projection from application events, settings, focus,
-and presentation facts. `CodexThreadNotificationRuntime` directly owns both source-listener
-registrations and notification-action admission in the Main Scope; it does not acquire a class with
-an internal disposer list. Scope release closes action admission before unregistering listeners, so
-an already displayed operating-system notification cannot dispatch into a replaced Main runtime.
+Codex application projections share one typed, Main-scoped event hub. The transitional
+`CodexService` receives only its synchronous publisher capability so reducer callbacks preserve
+causal order; it cannot subscribe, register listeners, or own projection cleanup. Renderer delivery
+and native-notification policy consume independent Effect Streams from the hub. Their fibers and the
+hub close with the Main Scope, and notification action admission closes at the same boundary, so an
+already displayed operating-system notification cannot dispatch into a replaced Main runtime.
 
 Renderer conversation coordination belongs to one Main-scoped client-generation runtime. It
 atomically owns retired-client admission, owner identity and epoch, detached-owner recovery grace,

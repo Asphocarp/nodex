@@ -1,4 +1,3 @@
-import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { mkdir, open as openFile, readFile } from "node:fs/promises";
@@ -195,6 +194,7 @@ import type {
   WorktreeStartMode,
 } from "../../shared/types";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
+import type { CodexApplicationEventPublisher } from "../codex-application/CodexApplicationEventHub";
 import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
@@ -1196,6 +1196,7 @@ type CodexManagedWorktreeSettingsPort = {
 };
 
 type CodexServiceOptions = {
+  applicationEvents: CodexApplicationEventPublisher;
   agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   composerCatalog: ComposerCatalogPromiseAdapter;
   preferences: Pick<CodexPreferences["Service"], "current">;
@@ -2370,9 +2371,10 @@ const unconfiguredAuthority = <Port extends object>(name: string): Port =>
     },
   ) as Port;
 
-export class CodexService extends EventEmitter {
+export class CodexService {
   private readonly logger = codexLogger;
   private readonly client: CodexApplicationClient;
+  private readonly applicationEvents: CodexApplicationEventPublisher;
   private readonly agentProviderRuntime: AgentProviderRuntimePromiseAdapter;
   private readonly composerCatalog: ComposerCatalogPromiseAdapter;
   private readonly preferences: Pick<CodexPreferences["Service"], "current">;
@@ -2475,8 +2477,7 @@ export class CodexService extends EventEmitter {
   private sidebarUseStateDbOnlyThreadList = true;
 
   constructor(options: CodexServiceOptions) {
-    super();
-
+    this.applicationEvents = options.applicationEvents;
     this.agentProviderRuntime = options.agentProviderRuntime;
     this.composerCatalog = options.composerCatalog;
     this.preferences = options.preferences;
@@ -2586,21 +2587,12 @@ export class CodexService extends EventEmitter {
   }
 
   private emitEvent(event: CodexEvent): void {
-    this.emit("event", event);
+    this.applicationEvents.publish({ kind: "codex", value: event });
     this.emitHostMessagesForEvent(event);
   }
 
-  addThreadNotificationListener(
-    listener: (event: CodexThreadNotificationEvent) => void,
-  ): () => void {
-    this.on("threadNotification", listener);
-    return () => {
-      this.off("threadNotification", listener);
-    };
-  }
-
   private emitThreadNotificationEvent(event: CodexThreadNotificationEvent): void {
-    this.emit("threadNotification", event);
+    this.applicationEvents.publish({ kind: "threadNotification", value: event });
   }
 
   private buildNotificationConversationFacts(threadId: string): CodexNotificationConversationFacts {
@@ -2870,7 +2862,7 @@ export class CodexService extends EventEmitter {
   }
 
   private emitHostMessage(message: CodexHostMessage): void {
-    this.emit("hostMessage", message);
+    this.applicationEvents.publish({ kind: "hostMessage", value: message });
   }
 
   private beginResumeNotificationBuffer(threadId: string): boolean {
@@ -3121,9 +3113,9 @@ export class CodexService extends EventEmitter {
     const targetClientId = this.rendererConversations.getOwnerClientId(threadId);
     if (!targetClientId) return false;
 
-    this.emit("rendererOwnerHostMessage", {
-      targetClientId,
-      message,
+    this.applicationEvents.publish({
+      kind: "rendererOwnerHostMessage",
+      value: { targetClientId, message },
     });
     return true;
   }
@@ -3138,23 +3130,26 @@ export class CodexService extends EventEmitter {
       return false;
     }
 
-    this.emit("rendererThreadStreamRelay", {
-      targetClientIds: [targetClientId],
-      sourceClientId: ownerClientId,
-      message: {
-        type: "threadStreamStateChanged",
-        hostId: DEFAULT_CODEX_HOST_ID,
-        conversationId: threadId,
-        change: {
-          type: "snapshot",
-          revision: replica.checkpoint.revision,
-          conversationState: replica.conversation,
-        },
-        version: this.conversationVersionById.get(threadId) ?? 0,
+    this.applicationEvents.publish({
+      kind: "rendererThreadStreamRelay",
+      value: {
+        targetClientIds: [targetClientId],
         sourceClientId: ownerClientId,
-        checkpoint: replica.checkpoint,
-        baseCheckpoint: null,
-      } satisfies CodexHostMessage,
+        message: {
+          type: "threadStreamStateChanged",
+          hostId: DEFAULT_CODEX_HOST_ID,
+          conversationId: threadId,
+          change: {
+            type: "snapshot",
+            revision: replica.checkpoint.revision,
+            conversationState: replica.conversation,
+          },
+          version: this.conversationVersionById.get(threadId) ?? 0,
+          sourceClientId: ownerClientId,
+          checkpoint: replica.checkpoint,
+          baseCheckpoint: null,
+        } satisfies CodexHostMessage,
+      },
     });
     return true;
   }
@@ -3179,26 +3174,32 @@ export class CodexService extends EventEmitter {
         continue;
       }
       if (action.type === "followers-changed") {
-        this.emit("rendererThreadStreamControlRelay", {
-          targetClientIds: action.targetClientIds,
-          message: {
-            type: "threadStreamFollowersChanged",
-            hostId: DEFAULT_CODEX_HOST_ID,
-            conversationId: action.conversationId,
-            ownerClientId: action.ownerClientId,
-            followerClientIds: [...action.followerClientIds],
-            membershipEpoch: action.membershipEpoch,
-          } satisfies CodexHostMessage,
+        this.applicationEvents.publish({
+          kind: "rendererThreadStreamControlRelay",
+          value: {
+            targetClientIds: action.targetClientIds,
+            message: {
+              type: "threadStreamFollowersChanged",
+              hostId: DEFAULT_CODEX_HOST_ID,
+              conversationId: action.conversationId,
+              ownerClientId: action.ownerClientId,
+              followerClientIds: [...action.followerClientIds],
+              membershipEpoch: action.membershipEpoch,
+            },
+          },
         });
         continue;
       }
-      this.emit("rendererThreadStreamControlRelay", {
-        targetClientIds: action.targetClientIds,
-        message: {
-          type: "threadStreamTransportReset",
-          hostId: DEFAULT_CODEX_HOST_ID,
-          conversationIds: [...action.conversationIds],
-        } satisfies CodexHostMessage,
+      this.applicationEvents.publish({
+        kind: "rendererThreadStreamControlRelay",
+        value: {
+          targetClientIds: action.targetClientIds,
+          message: {
+            type: "threadStreamTransportReset",
+            hostId: DEFAULT_CODEX_HOST_ID,
+            conversationIds: [...action.conversationIds],
+          },
+        },
       });
     }
   }
@@ -3464,7 +3465,10 @@ export class CodexService extends EventEmitter {
     for (const conversationId of conversationIds) {
       this.userInputAutoResolution.reevaluatePresentation(conversationId);
       if (foregrounded) {
-        this.emit("rendererConversationPresentedInForeground", conversationId);
+        this.applicationEvents.publish({
+          kind: "rendererConversationPresentedInForeground",
+          value: conversationId,
+        });
       }
     }
   }
@@ -3485,17 +3489,11 @@ export class CodexService extends EventEmitter {
     if (!result.accepted) return;
     this.userInputAutoResolution.reevaluatePresentation(threadId);
     if (result.presentedInForeground) {
-      this.emit("rendererConversationPresentedInForeground", threadId);
+      this.applicationEvents.publish({
+        kind: "rendererConversationPresentedInForeground",
+        value: threadId,
+      });
     }
-  }
-
-  addRendererConversationPresentedInForegroundListener(
-    listener: (conversationId: string) => void,
-  ): () => void {
-    this.on("rendererConversationPresentedInForeground", listener);
-    return () => {
-      this.off("rendererConversationPresentedInForeground", listener);
-    };
   }
 
   isRendererConversationPresentedInForeground(conversationId: string): boolean {
@@ -5961,7 +5959,7 @@ export class CodexService extends EventEmitter {
   }
 
   projectAgentImportProgress(progress: AgentImportProgress): void {
-    this.emit("agentImportProgress", progress);
+    this.applicationEvents.publish({ kind: "agentImportProgress", value: progress });
   }
 
   async importClaudeAgentConfiguration(
@@ -6077,7 +6075,7 @@ export class CodexService extends EventEmitter {
 
   projectPendingWorktreeSnapshot(entries: readonly CodexPendingWorktreeEntry[]): void {
     this.invalidateSidebarSnapshotCache();
-    this.emit("pendingWorktreesChanged", entries);
+    this.applicationEvents.publish({ kind: "pendingWorktreesChanged", value: entries });
   }
 
   createPendingWorktree(input: CodexPendingWorktreeCreateInput): CodexPendingWorktreeCreateResult {
@@ -19920,13 +19918,16 @@ export class CodexService extends EventEmitter {
       emitStartProgress: false,
     });
     if (outcome !== "failed") return;
-    this.emit("pendingWorktreeWarning", {
-      clientThreadId: entry.clientThreadId,
-      kind: "heartbeat-automation-create-failed",
-      message: "Started task, but could not create the heartbeat",
-      pendingWorktreeId: entry.id,
-      threadId,
-    } satisfies import("../../shared/codex-pending-worktree").CodexPendingWorktreeWarningEvent);
+    this.applicationEvents.publish({
+      kind: "pendingWorktreeWarning",
+      value: {
+        clientThreadId: entry.clientThreadId,
+        kind: "heartbeat-automation-create-failed",
+        message: "Started task, but could not create the heartbeat",
+        pendingWorktreeId: entry.id,
+        threadId,
+      },
+    });
   }
 
   private async launchPendingWorktreeStart(

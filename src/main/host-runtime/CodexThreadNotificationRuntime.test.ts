@@ -1,42 +1,31 @@
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import type { DesktopNotificationActionPayload } from "../../shared/types";
-import { live, type CodexThreadNotificationEventSource } from "./CodexThreadNotificationRuntime";
+import type { CodexApplicationEvent } from "../codex-application/CodexApplicationEventHub";
+import { live } from "./CodexThreadNotificationRuntime";
 
 it.effect("releases every Codex notification listener with the Main Scope", () =>
   Effect.gen(function* () {
-    let notificationListenerCount = 0;
-    let presentedListenerCount = 0;
     const listeners: {
-      event:
-        | Parameters<CodexThreadNotificationEventSource["addThreadNotificationListener"]>[0]
-        | null;
       action: ((action: DesktopNotificationActionPayload) => void) | null;
-    } = { event: null, action: null };
+    } = { action: null };
     let dispatchedActionCount = 0;
-    const source: CodexThreadNotificationEventSource = {
-      addThreadNotificationListener: (listener) => {
-        listeners.event = listener;
-        notificationListenerCount += 1;
-        return () => {
-          listeners.event = null;
-          notificationListenerCount -= 1;
-        };
-      },
-      addRendererConversationPresentedInForegroundListener: () => {
-        presentedListenerCount += 1;
-        return () => {
-          presentedListenerCount -= 1;
-        };
-      },
-    };
+    let dismissedCount = 0;
+    const applicationEvents = yield* PubSub.unbounded<CodexApplicationEvent>();
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live({
-        source,
+        events: {
+          events: Stream.fromPubSub(applicationEvents),
+          publish: (event) => {
+            PubSub.publishUnsafe(applicationEvents, event);
+          },
+        },
         getSettings: () => ({
           turnMode: "unfocused",
           permissionsEnabled: true,
@@ -48,7 +37,9 @@ it.effect("releases every Codex notification listener with the Main Scope", () =
         showNotification: (_notification, _targetClientId, onAction) => {
           listeners.action = onAction;
         },
-        dismissNotification: () => undefined,
+        dismissNotification: () => {
+          dismissedCount += 1;
+        },
         dispatchAction: () => {
           dispatchedActionCount += 1;
           return true;
@@ -57,28 +48,40 @@ it.effect("releases every Codex notification listener with the Main Scope", () =
       }),
       scope,
     );
-    assert.strictEqual(notificationListenerCount, 1);
-    assert.strictEqual(presentedListenerCount, 1);
-    listeners.event?.({
-      type: "user-input-requested",
-      hostId: "default",
-      conversation: {
-        conversationId: "thread-1",
-        title: "Question",
-        threadSource: null,
-        parentThreadId: null,
-        source: null,
-        sideConversationParentNavigationPath: null,
+    yield* Effect.yieldNow;
+    yield* PubSub.publish(applicationEvents, {
+      kind: "threadNotification",
+      value: {
+        type: "user-input-requested",
+        hostId: "default",
+        conversation: {
+          conversationId: "thread-1",
+          title: "Question",
+          threadSource: null,
+          parentThreadId: null,
+          source: null,
+          sideConversationParentNavigationPath: null,
+        },
+        requestId: "request-1",
+        turnId: "turn-1",
+        questionCount: 1,
       },
-      requestId: "request-1",
-      turnId: "turn-1",
-      questionCount: 1,
     });
+    yield* PubSub.publish(applicationEvents, {
+      kind: "rendererConversationPresentedInForeground",
+      value: "thread-1",
+    });
+    yield* Effect.yieldNow;
     assert.isNotNull(listeners.action);
+    assert.strictEqual(dismissedCount, 1);
 
     yield* Scope.close(scope, Exit.void);
-    assert.strictEqual(notificationListenerCount, 0);
-    assert.strictEqual(presentedListenerCount, 0);
+    yield* PubSub.publish(applicationEvents, {
+      kind: "rendererConversationPresentedInForeground",
+      value: "thread-1",
+    });
+    yield* Effect.yieldNow;
+    assert.strictEqual(dismissedCount, 1);
     listeners.action?.({
       notificationId: "question-default-request-1",
       actionId: null,

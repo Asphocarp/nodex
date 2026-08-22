@@ -12,7 +12,6 @@ import {
   type CodexThreadNotificationEvent,
 } from "../../shared/codex-thread-notification";
 import { makeCodexThreadNotificationHandler } from "./codex-thread-notification-handler";
-import type { CodexThreadNotificationEventSource } from "../host-runtime/CodexThreadNotificationRuntime";
 
 function conversation(
   overrides: Partial<CodexNotificationConversationFacts> = {},
@@ -28,7 +27,7 @@ function conversation(
   };
 }
 
-class FakeSource implements CodexThreadNotificationEventSource {
+class FakeSource {
   eventListener: ((event: CodexThreadNotificationEvent) => void) | null = null;
   presentedListener: ((conversationId: string) => void) | null = null;
 

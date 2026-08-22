@@ -128,6 +128,10 @@ import { TestCodexActiveGoalContinuation } from "./codex-active-goal-continuatio
 import { TestCodexNotificationRouting } from "./codex-notification-routing.test-support";
 import { DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import { makeCodexRendererConversationState } from "../codex-application/CodexRendererConversationRuntime";
+import type {
+  CodexApplicationEvent,
+  CodexApplicationEventPublisher,
+} from "../codex-application/CodexApplicationEventHub";
 import { TestCodexOwnerNotificationDrainRuntime } from "./codex-owner-notification-drain-runtime.test-support";
 import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
 import { TestCodexSidebarSyncRuntime } from "./codex-sidebar-sync-runtime.test-support";
@@ -1562,6 +1566,12 @@ function createService(options?: {
   };
   databaseNotifier?: DatabaseNotifier;
 }): TestableCodexService {
+  const applicationEventEmitter = new EventEmitter();
+  const applicationEvents: CodexApplicationEventPublisher = {
+    publish: (event: CodexApplicationEvent) => {
+      applicationEventEmitter.emit(event.kind === "codex" ? "event" : event.kind, event.value);
+    },
+  };
   const permissionStateByScope = new Map<string | null, CodexPermissionState>();
   const defaultPermissionState = (
     workspaceRoots: readonly string[] = [],
@@ -1738,7 +1748,7 @@ function createService(options?: {
     ...options?.userInputAutoResolutionTimer,
     isConversationPresented: (conversationId) =>
       service?.isRendererConversationPresentedInForeground(conversationId) === true,
-    onChange: (change) => service?.emit("userInputAutoResolutionChanged", change),
+    onChange: (change) => applicationEventEmitter.emit("userInputAutoResolutionChanged", change),
     onResolve: async (conversationId, requestId) => {
       const pending = autoResolutionResolvers.get(conversationId);
       if (
@@ -1917,6 +1927,7 @@ function createService(options?: {
     },
   });
   const testService = new CodexService({
+    applicationEvents,
     agentImport: {
       scan: async () => {
         throw new Error("Agent import is unavailable in this fixture");
@@ -2139,6 +2150,11 @@ function createService(options?: {
       options?.browserTransferStateReader ?? EMPTY_TEST_BROWSER_TRANSFER_STATE_READER,
     forkSidePanelTransferLifecycle: options?.forkSidePanelTransferLifecycle,
   }) as unknown as TestableCodexService;
+  testService.on = applicationEventEmitter.on.bind(applicationEventEmitter);
+  testService.addThreadNotificationListener = (listener) => {
+    applicationEventEmitter.on("threadNotification", listener);
+    return () => applicationEventEmitter.off("threadNotification", listener);
+  };
   service = testService as unknown as CodexService;
   Reflect.set(testService, "getUserInputAutoResolutionSnapshot", () => autoResolution.snapshot());
   testService.shutdown = async () => {
