@@ -36,6 +36,18 @@ Each renderer has independent delivery and acknowledgement state. Recipient
 leases and resets are Core-issued; Main cannot broaden an audience. A destroyed
 renderer retains no delivery timer or state.
 
+Renderer audience membership, its current Core lease, pending delivery IDs,
+required repair floor, ACK deadlines, and reset retry are one scoped aggregate.
+Each recipient admits at most 128 pending envelopes. Overflow, NACK, send
+failure, or a one-second ACK deadline fences that exact address and authors a
+lease-bound reset; a replacement lease carries forward every in-flight floor
+before retiring old delivery IDs. ACK and retry tasks are keyed child fibers,
+not ambient timers. Quiet reset failure uses bounded exponential full-jitter
+retry capped at one minute and at most 20 sends per ten-minute window. Renderer
+release interrupts every task, rejects late ACKs, removes unused lease grants,
+and publishes the new canonical desired-scope set before the physical broker
+reconciles.
+
 The multiplexed Projection live connection is one Main-scoped resource. Audience
 changes publish only the latest desired scope set. A replacement opens in its
 own child Scope while the current lease remains authoritative; its barrier is
