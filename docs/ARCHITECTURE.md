@@ -184,8 +184,11 @@ socket file, with no `start()`, `close()`, or disposable server class. Native-pi
 commands pass through the session's single command admission semaphore. IAB deadlines,
 capture polling sleeps, cursor arrival, and WebContents attachment waits borrow the
 session Effect clock and callback runtime, so closing the session interrupts waits and
-removes registrations; the IAB state machine contains no EventEmitter, timer, or
-detached Promise waiter.
+removes registrations. The scoped IAB factory returns only command and observation
+capabilities: its internal synchronous state machine retains Electron/CDP callback
+causality but exposes no `dispose()` or independent lifecycle. Its Scope fences later
+commands, wakes cursor waiters, detaches CDP listeners, and releases every controlled tab;
+the state machine contains no EventEmitter, timer, or detached Promise waiter.
 
 Browser site-status policy is a Browser Profile-scoped Effect runtime, not an HTTP client or a
 Sidebar-owned cache. It borrows authenticated requests from `ChatGptDesktop`, keeps only valid

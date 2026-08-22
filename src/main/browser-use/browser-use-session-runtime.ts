@@ -7,15 +7,17 @@ import * as Layer from "effect/Layer";
 import * as LayerMap from "effect/LayerMap";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
 import type {
-  BrowserUseCdpEvent,
+  BrowserUseIabApi,
   BrowserUseIabAsyncRuntime,
   BrowserUseRoute,
 } from "./browser-use-iab-api";
 import type {
   BrowserUseNativePipeRequestHandler,
+  BrowserUseNativePipeServer,
   BrowserUseNativePipeServerError,
 } from "./browser-use-native-pipe-server";
 
@@ -68,32 +70,14 @@ export class BrowserUseSessionRuntimeError extends Schema.TaggedError<BrowserUse
   },
 ) {}
 
-export interface BrowserUseIabApiPort {
-  readonly addCdpEventListener: (listener: (event: BrowserUseCdpEvent) => void) => () => void;
-  readonly dispatch: (method: string, params: unknown) => Promise<unknown>;
-  readonly dispose: () => Promise<void>;
-  readonly hasActiveControl: () => boolean;
-  readonly notifyCursorArrived: (moveSequence: number) => void;
-  readonly turnEnded: (params: unknown) => Promise<void>;
-}
-
-export interface BrowserUseNativePipeServerPort {
-  readonly pipePath: string;
-  readonly broadcast: (method: string, params?: unknown) => void;
-}
-
 export interface BrowserUseSessionRuntimePlatform {
   readonly createApi: (
     route: BrowserUseRoute,
     asyncRuntime: BrowserUseIabAsyncRuntime,
-  ) => BrowserUseIabApiPort;
+  ) => Effect.Effect<BrowserUseIabApi, never, Scope.Scope>;
   readonly createServer: (
     handler: BrowserUseNativePipeRequestHandler,
-  ) => Effect.Effect<
-    BrowserUseNativePipeServerPort,
-    BrowserUseNativePipeServerError,
-    import("effect/Scope").Scope
-  >;
+  ) => Effect.Effect<BrowserUseNativePipeServer, BrowserUseNativePipeServerError, Scope.Scope>;
 }
 
 export interface BrowserUseSessionRuntime {
@@ -158,19 +142,6 @@ class BrowserUseSession extends Context.Service<BrowserUseSession, BrowserUseSes
 const runtimeError = (operation: string, sessionId: string, cause: unknown) =>
   new BrowserUseSessionRuntimeError({ operation, sessionId, cause });
 
-const bestEffort = (
-  operation: string,
-  sessionId: string,
-  effect: Effect.Effect<void, BrowserUseSessionRuntimeError>,
-) =>
-  effect.pipe(
-    Effect.catch((cause) =>
-      Effect.logWarning("Browser Use session release failed").pipe(
-        Effect.annotateLogs({ operation, sessionId, error: String(cause) }),
-      ),
-    ),
-  );
-
 const sessionLayer = (
   key: SessionKey,
   platform: BrowserUseSessionRuntimePlatform,
@@ -227,20 +198,7 @@ const sessionLayer = (
         sleep: (delayMs) => runPromise(Effect.sleep(Duration.millis(delayMs))),
         waitFor,
       };
-      const api = yield* Effect.try({
-        try: () => platform.createApi(key.route, asyncRuntime),
-        catch: (cause) => runtimeError("create-api", sessionId, cause),
-      });
-      yield* Effect.addFinalizer(() =>
-        bestEffort(
-          "dispose-api",
-          sessionId,
-          Effect.tryPromise({
-            try: () => api.dispose(),
-            catch: (cause) => runtimeError("dispose-api", sessionId, cause),
-          }),
-        ),
-      );
+      const api = yield* platform.createApi(key.route, asyncRuntime);
 
       const commandLock = yield* Semaphore.make(1);
       const server = yield* platform

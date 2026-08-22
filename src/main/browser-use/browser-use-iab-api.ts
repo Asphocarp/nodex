@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import * as Cause from "effect/Cause";
+import * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";
 import { z } from "zod";
 import {
   type BrowserSidebarTabIdentity,
@@ -122,6 +125,16 @@ export interface BrowserUseCdpEvent {
 
 type CdpEventListener = (event: BrowserUseCdpEvent) => void;
 
+export interface BrowserUseIabApi {
+  readonly addCdpEventListener: (listener: CdpEventListener) => () => void;
+  readonly dispatch: (method: string, rawParams: unknown) => Promise<unknown>;
+  readonly getInfo: (rawParams: unknown) => Record<string, unknown>;
+  readonly hasActiveControl: () => boolean;
+  readonly notifyCursorArrived: (moveSequence: number) => void;
+  readonly ping: () => string;
+  readonly turnEnded: (rawParams: unknown) => Promise<void>;
+}
+
 function clampDimension(value: number, minimum: number): number {
   return Math.min(MAX_BROWSER_USE_VIEWPORT_DIMENSION, Math.max(minimum, Math.round(value)));
 }
@@ -212,7 +225,7 @@ function assertAllowedBrowserUseNavigationUrl(value: unknown): string {
   return value;
 }
 
-export class BrowserUseIabApi {
+class BrowserUseIabApiState implements BrowserUseIabApi {
   private readonly appSessionId: string;
   private readonly appVersion: string;
   private readonly asyncRuntime: BrowserUseIabAsyncRuntime;
@@ -351,26 +364,57 @@ export class BrowserUseIabApi {
     return this.controlledTabs.size > 0;
   }
 
-  async releaseSessionControl(): Promise<void> {
-    for (const tabId of this.cdpDisposers.keys()) {
-      await this.detachTabBestEffort(tabId);
+  private async releaseSessionControl(): Promise<void> {
+    const failures: unknown[] = [];
+    for (const tabId of [...this.cdpDisposers.keys()]) {
+      try {
+        await this.detachTabBestEffort(tabId);
+      } catch (error) {
+        failures.push(error);
+      }
     }
     for (const tab of this.controlledTabs.values()) {
-      this.browserService.releaseBrowserUseTab(toIdentity(this.route, tab.browserTabId));
+      try {
+        this.browserService.releaseBrowserUseTab(toIdentity(this.route, tab.browserTabId));
+      } catch (error) {
+        failures.push(error);
+      }
     }
     this.controlledTabs.clear();
     this.selectedTabId = null;
     this.clearPendingCapabilityIntents();
-    this.browserService.setActiveBrowserUseTab(this.route, null);
+    try {
+      this.browserService.setActiveBrowserUseTab(this.route, null);
+    } catch (error) {
+      failures.push(error);
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Browser Use session control release failed");
+    }
   }
 
-  async dispose(): Promise<void> {
+  async release(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
-    for (const resolve of this.cursorArrivalWaiters.values()) resolve();
+    const failures: unknown[] = [];
+    for (const resolve of this.cursorArrivalWaiters.values()) {
+      try {
+        resolve();
+      } catch (error) {
+        failures.push(error);
+      }
+    }
     this.cursorArrivalWaiters.clear();
-    await this.releaseSessionControl();
-    this.cdpEventListeners.clear();
+    try {
+      await this.releaseSessionControl();
+    } catch (error) {
+      failures.push(error);
+    } finally {
+      this.cdpEventListeners.clear();
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Browser Use IAB release failed");
+    }
   }
 
   private requireSession(rawParams: unknown): Record<string, unknown> {
@@ -1182,3 +1226,18 @@ export class BrowserUseIabApi {
     } while ((await this.asyncRuntime.now()) < deadline);
   }
 }
+
+export const makeBrowserUseIabApi = (
+  options: BrowserUseIabApiOptions,
+): Effect.Effect<BrowserUseIabApi, never, Scope.Scope> =>
+  Effect.acquireRelease(
+    Effect.sync(() => new BrowserUseIabApiState(options)),
+    (api) =>
+      Effect.promise(() => api.release()).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("Browser Use IAB release failed").pipe(
+            Effect.annotateLogs({ cause: Cause.pretty(cause) }),
+          ),
+        ),
+      ),
+  );

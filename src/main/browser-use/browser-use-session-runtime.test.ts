@@ -30,8 +30,8 @@ class FakeApi {
     return method;
   }
 
-  async dispose(): Promise<void> {
-    this.disposed = true;
+  getInfo(): Record<string, unknown> {
+    return {};
   }
 
   hasActiveControl(): boolean {
@@ -40,6 +40,10 @@ class FakeApi {
 
   notifyCursorArrived(moveSequence: number): void {
     void moveSequence;
+  }
+
+  ping(): string {
+    return "pong";
   }
 
   async turnEnded(params: unknown): Promise<void> {
@@ -89,7 +93,14 @@ const makeTestRuntime = Effect.gen(function* () {
       const api = new FakeApi();
       apis.push(api);
       asyncRuntimes.push(asyncRuntime);
-      return api;
+      return Effect.gen(function* () {
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            api.disposed = true;
+          }),
+        );
+        return api;
+      });
     },
     createServer: (handler) => {
       const server = new FakeServer(`/tmp/fake-${servers.length}.sock`, handler);

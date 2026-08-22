@@ -17,7 +17,7 @@ import type {
   BrowserSidebarEvent,
   BrowserSidebarEventHubService,
 } from "../browser/BrowserSidebarEventHub";
-import { BrowserUseIabApi } from "../browser-use/browser-use-iab-api";
+import { makeBrowserUseIabApi } from "../browser-use/browser-use-iab-api";
 import { makeBrowserUseNativePipeServer } from "../browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../browser-use/browser-use-peer-authorizer";
 import type { BrowserUsePolicyReader } from "../browser-use/browser-use-policy-store";
@@ -261,7 +261,7 @@ export const live = (
           const appSessionId = randomUUID();
           const runtime = makeBrowserUseSessionRuntime(capability.status === "available", {
             createApi: (route, asyncRuntime) =>
-              new BrowserUseIabApi({
+              makeBrowserUseIabApi({
                 appSessionId,
                 appVersion: options.appVersion,
                 asyncRuntime,
