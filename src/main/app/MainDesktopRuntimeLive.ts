@@ -435,10 +435,15 @@ export const live: Layer.Layer<
         const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
         const browserSidebarContext = yield* Layer.buildWithScope(
           browserSidebarRuntimeLive(userDataPath).pipe(
-            Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks)),
+            Layer.provide(
+              Layer.merge(
+                Layer.succeed(FileSystem.FileSystem, fileSystem),
+                Layer.succeed(ScopedCallbackRuntime, callbacks),
+              ),
+            ),
           ),
           runtimeScope,
-        );
+        ).pipe(Effect.mapError((cause) => runtimeError("browser-sidebar-runtime", cause)));
         const browserSidebar = Context.get(browserSidebarContext, BrowserSidebarRuntime);
         const browserSidebarService = browserSidebar.browser;
         const appUpdateContext = yield* Layer.buildWithScope(

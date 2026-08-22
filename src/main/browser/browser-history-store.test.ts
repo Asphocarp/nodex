@@ -1,80 +1,102 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, test } from "vite-plus/test";
-import { FileBrowserHistoryStore } from "./browser-history-store";
+import * as Effect from "effect/Effect";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import { assert, it } from "@effect/vitest";
+import { makeBrowserHistoryRuntime } from "./browser-history-store";
 
-const roots: string[] = [];
+const withHistory = <A, E, R>(
+  run: (input: { readonly filePath: string; readonly root: string }) => Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> =>
+  Effect.acquireUseRelease(
+    Effect.sync(() => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-browser-history-"));
+      return { root, filePath: path.join(root, "browser-history.json") };
+    }),
+    run,
+    ({ root }) => Effect.sync(() => fs.rmSync(root, { recursive: true, force: true })),
+  );
 
-afterEach(() => {
-  for (const root of roots.splice(0)) {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
+it.layer(NodeServices.layer)("Browser history runtime", (it) => {
+  it.effect("persists searchable visit history and coalesces identical URLs", () =>
+    withHistory(({ filePath }) =>
+      Effect.gen(function* () {
+        const history = yield* makeBrowserHistoryRuntime(filePath);
+        yield* history.record({
+          url: "https://example.com/path?q=one",
+          title: "Example",
+          visitedAt: 10,
+        });
+        yield* history.record({
+          url: "https://example.com/path?q=one",
+          title: "Updated title",
+          visitedAt: 20,
+        });
+        yield* history.record({
+          url: "https://other.example/",
+          title: "Other",
+          visitedAt: 15,
+        });
 
-function createStore(now = () => 100) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-browser-history-"));
-  roots.push(root);
-  return new FileBrowserHistoryStore({
-    filePath: path.join(root, "browser-history.json"),
-    now,
-  });
-}
+        assert.deepInclude((yield* history.list()).entries[0], {
+          title: "Updated title",
+          visitCount: 2,
+          lastVisitedAt: 20,
+        });
+        assert.lengthOf((yield* history.list({ query: "other" })).entries, 1);
+        const reloaded = yield* makeBrowserHistoryRuntime(filePath);
+        assert.lengthOf((yield* reloaded.list()).entries, 2);
+      }),
+    ),
+  );
 
-describe("FileBrowserHistoryStore", () => {
-  test("persists searchable visit history and coalesces identical URLs", async () => {
-    const store = createStore();
-    await store.record({
-      url: "https://example.com/path?q=one",
-      title: "Example",
-      visitedAt: 10,
-    });
-    await store.record({
-      url: "https://example.com/path?q=one",
-      title: "Updated title",
-      visitedAt: 20,
-    });
-    await store.record({
-      url: "https://other.example/",
-      title: "Other",
-      visitedAt: 15,
-    });
+  it.effect("rejects credential-bearing and non-web URLs", () =>
+    withHistory(({ filePath }) =>
+      Effect.gen(function* () {
+        const history = yield* makeBrowserHistoryRuntime(filePath);
+        yield* history.record({ url: "javascript:alert(1)", title: "unsafe" });
+        yield* history.record({
+          url: "https://user:secret@example.com/",
+          title: "credential",
+        });
+        assert.isEmpty((yield* history.list()).entries);
+      }),
+    ),
+  );
 
-    expect((await store.list()).entries).toMatchObject([
-      { title: "Updated title", visitCount: 2, lastVisitedAt: 20 },
-      { title: "Other", visitCount: 1, lastVisitedAt: 15 },
-    ]);
-    expect((await store.list({ query: "other" })).entries).toHaveLength(1);
-  });
+  it.effect("serializes concurrent mutations and reloads their durable result", () =>
+    withHistory(({ filePath }) =>
+      Effect.gen(function* () {
+        const history = yield* makeBrowserHistoryRuntime(filePath);
+        yield* Effect.all(
+          [
+            history.record({ url: "https://one.example/", title: "One", visitedAt: 1 }),
+            history.record({ url: "https://two.example/", title: "Two", visitedAt: 2 }),
+          ],
+          { concurrency: "unbounded" },
+        );
+        const reloaded = yield* makeBrowserHistoryRuntime(filePath);
+        assert.lengthOf((yield* reloaded.list()).entries, 2);
 
-  test("rejects credential-bearing and non-web URLs", async () => {
-    const store = createStore();
-    await store.record({ url: "javascript:alert(1)", title: "unsafe" });
-    await store.record({
-      url: "https://user:secret@example.com/",
-      title: "credential",
-    });
-    expect((await store.list()).entries).toEqual([]);
-  });
+        const [entry] = (yield* history.list({ query: "one" })).entries;
+        yield* history.delete(entry!.id);
+        yield* history.clear;
+        assert.isEmpty((yield* history.list()).entries);
+      }),
+    ),
+  );
 
-  test("deletes individual entries and clears durable history", async () => {
-    const store = createStore();
-    await store.record({ url: "https://example.com/", title: "Example" });
-    const [entry] = (await store.list()).entries;
-    await store.delete(entry!.id);
-    expect((await store.list()).entries).toEqual([]);
-    await store.record({ url: "https://example.com/", title: "Example" });
-    await store.clear();
-    expect((await store.list()).entries).toEqual([]);
-  });
-
-  test("quarantines malformed history instead of trusting it", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "nodex-browser-history-"));
-    roots.push(root);
-    const filePath = path.join(root, "browser-history.json");
-    fs.writeFileSync(filePath, "{broken");
-    const store = new FileBrowserHistoryStore({ filePath, now: () => 123 });
-    expect((await store.list()).entries).toEqual([]);
-    expect(fs.existsSync(`${filePath}.corrupt-123`)).toBe(true);
-  });
+  it.effect("quarantines malformed history instead of trusting it", () =>
+    withHistory(({ filePath, root }) =>
+      Effect.gen(function* () {
+        fs.writeFileSync(filePath, "{broken");
+        const history = yield* makeBrowserHistoryRuntime(filePath);
+        assert.isEmpty((yield* history.list()).entries);
+        assert.isTrue(
+          fs.readdirSync(root).some((name) => name.startsWith("browser-history.json.corrupt-")),
+        );
+      }),
+    ),
+  );
 });

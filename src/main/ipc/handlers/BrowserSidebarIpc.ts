@@ -78,7 +78,7 @@ export const live: Layer.Layer<
   | WindowSessionCatalog
 > = Layer.effectDiscard(
   Effect.gen(function* () {
-    const { browser, localServerThumbnail } = yield* BrowserSidebarRuntime;
+    const { browser, history, localServerThumbnail } = yield* BrowserSidebarRuntime;
     const callbacks = yield* ScopedCallbackRuntime;
     const config = yield* MainConfig;
     const ipc = yield* ElectronIpc;
@@ -205,9 +205,7 @@ export const live: Layer.Layer<
             rawInput === undefined ? {} : BrowserHistoryListInputSchema.parse(rawInput),
           ),
         ),
-        Effect.flatMap((input) =>
-          attempt("list-browser-history", () => browser.listHistory(input)),
-        ),
+        Effect.flatMap((input) => history.list(input)),
       ),
     );
     yield* ipc.handle("browser-history-delete", (event, historyId: unknown) =>
@@ -218,7 +216,14 @@ export const live: Layer.Layer<
           ),
         ),
         Effect.flatMap(({ id }) =>
-          attempt("remove-browser-history", () => browser.deleteHistoryEntry(id)),
+          history
+            .delete(id)
+            .pipe(
+              Effect.mapError(
+                (cause) =>
+                  new BrowserSidebarIpcError({ operation: "remove-browser-history", cause }),
+              ),
+            ),
         ),
         Effect.as({ ok: true as const }),
       ),

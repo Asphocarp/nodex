@@ -3,22 +3,25 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { layer as callbackLayer } from "../app/ScopedCallbackRuntime";
 import { BrowserSidebarRuntime, live } from "./BrowserSidebarRuntime";
 
-it.effect("owns the Browser sidebar service with the Main Scope", () =>
-  Effect.gen(function* () {
-    const scope = yield* Scope.make();
-    const context = yield* Layer.buildWithScope(
-      live("/tmp/nodex-browser-sidebar-runtime").pipe(Layer.provide(callbackLayer)),
-      scope,
-    );
-    const { browser } = Context.get(context, BrowserSidebarRuntime);
-    browser.on("state", () => undefined);
-    assert.strictEqual(browser.listenerCount("state"), 1);
+it.layer(NodeServices.layer)("BrowserSidebarRuntime", (it) => {
+  it.effect("owns the Browser sidebar service with the Main Scope", () =>
+    Effect.gen(function* () {
+      const scope = yield* Scope.make();
+      const context = yield* Layer.buildWithScope(
+        live("/tmp/nodex-browser-sidebar-runtime").pipe(Layer.provide(callbackLayer)),
+        scope,
+      );
+      const { browser } = Context.get(context, BrowserSidebarRuntime);
+      browser.on("state", () => undefined);
+      assert.strictEqual(browser.listenerCount("state"), 1);
 
-    yield* Scope.close(scope, Exit.void);
-    assert.strictEqual(browser.listenerCount("state"), 0);
-  }),
-);
+      yield* Scope.close(scope, Exit.void);
+      assert.strictEqual(browser.listenerCount("state"), 0);
+    }),
+  );
+});

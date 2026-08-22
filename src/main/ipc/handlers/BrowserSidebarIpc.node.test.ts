@@ -41,7 +41,9 @@ it.effect(
                 BrowserSidebarRuntime,
                 BrowserSidebarRuntime.of({
                   browser,
+                  history: {} as never,
                   localServerThumbnail: {} as never,
+                  pages: {} as never,
                 }),
               ),
               Layer.succeed(ElectronIpc, ipc),

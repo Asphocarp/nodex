@@ -175,7 +175,7 @@ interface BrowserSidebarServiceDeps {
   logger?: Pick<BackendLogger, "debug" | "info" | "warn">;
   invalidateLocalServerThumbnail?: (url?: string) => void;
   pageStore?: BrowserPageSnapshotStore;
-  historyStore?: BrowserHistoryStore;
+  historyStore?: Pick<BrowserHistoryStore, "clear" | "record">;
   runtimeRegistry?: BrowserRuntimeRegistry;
   siteStatusPolicy?: SiteStatusPolicyService;
   resolveProjectIdForSession?: (sessionId: string) => Promise<string | null>;
@@ -441,7 +441,7 @@ export class BrowserSidebarService extends EventEmitter {
   private readonly runtimeRegistry: BrowserRuntimeRegistry;
   private readonly saveBrowserImage: typeof saveUploadedImage;
   private pageStore: BrowserPageSnapshotStore | null;
-  private historyStore: BrowserHistoryStore | null;
+  private historyStore: Pick<BrowserHistoryStore, "clear" | "record"> | null;
   private siteStatusPolicy: SiteStatusPolicyService | null;
   private resolveProjectIdForSession: ((sessionId: string) => Promise<string | null>) | null;
   private browserUseRouteCaptureHandler: BrowserUseRouteCaptureHandler | null = null;
@@ -536,24 +536,6 @@ export class BrowserSidebarService extends EventEmitter {
     };
     await this.captureBrowserUseRoute(promoted);
     this.browserUseCapturedRoutesByViewScope.set(promoted.browserViewScopeId, promoted);
-  }
-
-  async listHistory(
-    input: {
-      query?: string;
-      limit?: number;
-    } = {},
-  ) {
-    return (
-      (await this.historyStore?.list(input)) ?? {
-        entries: [],
-        updatedAt: Date.now(),
-      }
-    );
-  }
-
-  async deleteHistoryEntry(id: string): Promise<void> {
-    await this.historyStore?.delete(id);
   }
 
   authorizeWebviewAttachment(ownerWebContentsId: number, route: BrowserSidebarHostRouteIdentity) {

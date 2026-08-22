@@ -228,6 +228,14 @@ concurrency, and a scoped FiberSet owns queued and active captures. Each hidden 
 removes listeners and destroys the window. Sidebar state performs only Project/URL admission and emits
 tracked invalidations, while renderer IPC executes the admitted capture Effect directly.
 
+Browser history and restorable page snapshots are also Browser Sidebar-owned repositories. They load
+and validate bounded files during runtime acquisition, keep one immutable `HashMap` projection each,
+and serialize durable-first mutations through one semaphore per repository. Malformed or oversized
+documents are quarantined; real filesystem failures fail acquisition or mutation instead of becoming
+an empty history. Renderer history reads and deletes invoke typed Effects directly. Electron navigation
+callbacks temporarily borrow scoped Promise projections, so their writes remain children of the Main
+Scope and cannot outlive the repository owner.
+
 The MCP App sandbox runtime Scope owns both the Electron coordinator and its protocol runtime.
 The protocol runtime uses a bounded Effect Cache for TTL and single-flight Skybridge fetches,
 tracks prewarm graphs in a keyed FiberMap, and projects Promise only at Electron's protocol and
