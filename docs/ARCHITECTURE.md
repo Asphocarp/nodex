@@ -466,6 +466,14 @@ buffer is released. Conversation removal and Main Scope close interrupt active l
 `CodexService` retains the canonical projection and performs one atomic revision-fenced commit, but
 owns no hydration Promise map, deferred-flow Set, detached tail, or shutdown cleanup.
 
+Conversation history pagination has one Main-scoped per-Thread runtime. Concurrent page or complete
+callers join the same physical load; a complete-history demand arriving behind a page demand runs
+the required escalation after that page settles. Caller interruption only stops that waiter, while
+Thread removal and Main Scope close interrupt the shared physical load. Post-resume remaining-history
+work enters the same runtime as a supervised background request instead of a detached Promise.
+`CodexService` owns the canonical pagination reducer and page materialization operation, but owns no
+load Promise map, escalation tail, background error handler, or lifecycle cleanup.
+
 App-server notifications that require a sidebar repair enter one trailing-debounce Module. The
 latest request replaces the pending fiber and carries the minimum acceptable sync generation;
 after the delay, the Module invokes the existing sidebar synchronization authority and supervises

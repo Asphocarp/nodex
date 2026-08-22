@@ -119,6 +119,11 @@ import {
 } from "../codex-application/CodexPendingWorktreeRuntime";
 import { makeCodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
 import {
+  CodexConversationHistoryError,
+  make as makeCodexConversationHistoryRuntime,
+} from "../codex-application/CodexConversationHistoryRuntime";
+import { makeCodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
+import {
   CodexPostResumeGoalError,
   make as makeCodexPostResumeGoalRuntime,
 } from "../codex-application/CodexPostResumeGoalRuntime";
@@ -1387,6 +1392,15 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexThreadTitlePersistenceEffectError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const conversationHistory = yield* makeCodexConversationHistoryRuntime({
+          shouldLoadRemaining: (threadId) =>
+            requireCodexService().shouldLoadRemainingThreadTurns(threadId),
+          load: (input) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().loadConversationHistory(input),
+              catch: (cause) => new CodexConversationHistoryError({ cause }),
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const postResumeGoals = yield* makeCodexPostResumeGoalRuntime({
           load: (threadId) =>
             Effect.tryPromise({
@@ -1401,8 +1415,7 @@ export const live: Layer.Layer<
             ),
           requestContinuation: (threadId) =>
             requireCodexService().requestActiveGoalContinuationAfterResume(threadId),
-          scheduleRemainingTurns: (threadId) =>
-            requireCodexService().scheduleRemainingThreadTurnsLoad(threadId),
+          scheduleRemainingTurns: conversationHistory.requestRemaining,
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
           scope: runtimeScope,
@@ -1564,6 +1577,10 @@ export const live: Layer.Layer<
               ),
               postResumeGoals: makeCodexPostResumeGoalRuntimePromiseAdapter(
                 postResumeGoals,
+                callbacks,
+              ),
+              conversationHistory: makeCodexConversationHistoryRuntimePromiseAdapter(
+                conversationHistory,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(

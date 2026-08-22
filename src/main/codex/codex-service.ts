@@ -682,6 +682,7 @@ import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-applica
 import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
+import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
 import {
   isExecutionWorkspacePathWithinRoot,
   rewriteExecutionWorkspaceRoots,
@@ -1354,6 +1355,7 @@ type CodexServiceOptions = {
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
+  conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2598,6 +2600,7 @@ export class CodexService extends EventEmitter {
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
+  private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   private readonly conversationResumeInFlightByThreadId = new Map<
     string,
     Promise<CodexConversationSnapshot | null>
@@ -2656,13 +2659,6 @@ export class CodexService extends EventEmitter {
     Array<() => void>
   >();
   private readonly queuedFollowUpDispatchInFlight = new Set<string>();
-  private readonly conversationTurnsLoads = new Map<
-    string,
-    {
-      promise: Promise<void>;
-      loadCompleteHistory: boolean;
-    }
-  >();
   private readonly frameTextDeltaQueue = new CodexFrameTextDeltaQueue({
     scheduler: createCodexFrameTextDeltaTimeoutScheduler(),
     onFlush: (updates) => {
@@ -2740,6 +2736,7 @@ export class CodexService extends EventEmitter {
     this.threadSettingsRuntime = options.threadSettingsRuntime;
     this.threadTitlePersistence = options.threadTitlePersistence;
     this.postResumeGoals = options.postResumeGoals;
+    this.conversationHistory = options.conversationHistory;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -6280,6 +6277,7 @@ export class CodexService extends EventEmitter {
     this.manualCompactionTracker.clear(threadId);
     this.activeGoalContinuation.clear(threadId);
     this.postResumeGoals.clear(threadId);
+    this.conversationHistory.clear(threadId);
     this.queuedFollowUpDispatchInFlight.delete(threadId);
   }
 
@@ -16545,48 +16543,22 @@ export class CodexService extends EventEmitter {
   }
 
   async loadOlderThreadTurns(threadId: string): Promise<CodexConversationSnapshot | null> {
-    await this.loadConversationTurns(threadId, false, { broadcastResult: true });
+    await this.conversationHistory.loadPage(threadId);
     return this.serializeConversationSnapshot(threadId);
   }
 
   async loadCompleteThreadHistory(threadId: string): Promise<CodexConversationSnapshot | null> {
-    await this.loadConversationTurns(threadId, true, { broadcastResult: false });
+    await this.conversationHistory.loadComplete(threadId, false);
     return this.serializeConversationSnapshot(threadId);
   }
 
-  private async loadConversationTurns(
-    threadId: string,
-    loadCompleteHistory: boolean,
-    options: { broadcastResult: boolean },
-  ): Promise<void> {
-    const existing = this.conversationTurnsLoads.get(threadId);
-    if (existing) {
-      await existing.promise;
-      if (loadCompleteHistory && !existing.loadCompleteHistory) {
-        await this.loadConversationTurns(threadId, true, options);
-      }
-      return;
-    }
-
-    const request = this.loadConversationTurnsInner(threadId, loadCompleteHistory, options);
-    this.conversationTurnsLoads.set(threadId, {
-      promise: request,
-      loadCompleteHistory,
-    });
-    try {
-      await request;
-    } finally {
-      if (this.conversationTurnsLoads.get(threadId)?.promise === request) {
-        this.conversationTurnsLoads.delete(threadId);
-      }
-    }
-  }
-
-  private async loadConversationTurnsInner(
-    threadId: string,
-    loadCompleteHistory: boolean,
-    options: { broadcastResult: boolean },
-  ): Promise<void> {
+  /** Effect Module adapter operation; callers use conversationHistory instead. */
+  async loadConversationHistory(input: {
+    readonly threadId: string;
+    readonly loadCompleteHistory: boolean;
+    readonly broadcastResult: boolean;
+  }): Promise<void> {
+    const { threadId, loadCompleteHistory, broadcastResult } = input;
     for (;;) {
       const record = this.getMaybeConversationRecord(threadId);
       if (
@@ -16599,12 +16571,12 @@ export class CodexService extends EventEmitter {
       }
       const pageHydrationContext = this.resolveCanonicalOlderTurnHydrationContext(threadId);
       const status = loadCompleteHistory
-        ? await this.loadRemainingThreadTurns(threadId, pageHydrationContext, options)
+        ? await this.loadRemainingThreadTurns(threadId, pageHydrationContext, { broadcastResult })
         : await this.loadOlderThreadTurnsPage(
             threadId,
             {
-              broadcastLoading: options.broadcastResult,
-              broadcastResult: options.broadcastResult,
+              broadcastLoading: broadcastResult,
+              broadcastResult,
             },
             pageHydrationContext,
           );
@@ -16712,19 +16684,15 @@ export class CodexService extends EventEmitter {
   }
 
   scheduleRemainingThreadTurnsLoad(threadId: string): void {
+    this.conversationHistory.requestRemaining(threadId);
+  }
+
+  shouldLoadRemainingThreadTurns(threadId: string): boolean {
     const record = this.getMaybeConversationRecord(threadId);
-    if (
-      record?.turnPagination.olderCursor === null ||
-      record?.turnPagination.hasLoadedOldest === true
-    ) {
-      return;
-    }
-    void this.loadConversationTurns(threadId, true, { broadcastResult: true }).catch((error) => {
-      this.logger.warn("Failed to load remaining Codex thread turns after resume", {
-        threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+    if (!record) return false;
+    return !(
+      record.turnPagination.olderCursor === null || record.turnPagination.hasLoadedOldest === true
+    );
   }
 
   private async loadRemainingThreadTurns(

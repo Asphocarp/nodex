@@ -53,6 +53,7 @@ import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { TestCodexThreadSettingsRuntime } from "./codex-thread-settings-runtime.test-support";
 import { TestCodexThreadTitlePersistence } from "./codex-thread-title-persistence.test-support";
 import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime.test-support";
+import { TestCodexConversationHistoryRuntime } from "./codex-conversation-history-runtime.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -1820,6 +1821,13 @@ function createService(options?: {
       await service.persistThreadTitleInProjectWorkspace(threadId, name);
     },
   });
+  const conversationHistory = new TestCodexConversationHistoryRuntime({
+    shouldLoadRemaining: (threadId) => service?.shouldLoadRemainingThreadTurns(threadId) === true,
+    load: async (input) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      await service.loadConversationHistory(input);
+    },
+  });
   const postResumeGoals = new TestCodexPostResumeGoalRuntime({
     load: async (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -2008,6 +2016,7 @@ function createService(options?: {
     threadSettingsRuntime,
     threadTitlePersistence,
     postResumeGoals,
+    conversationHistory,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
