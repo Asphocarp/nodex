@@ -569,13 +569,23 @@ the completing timer generation. Thread removal clears only that Thread's pendin
 Scope close interrupts both deadlines and drops the backlog. Renderer animation-frame batching stays
 in its Effect-free local conversation owner because it has a different visual-frame lifecycle.
 
+Thread-goal get, set, clear, and post-resume load operations share one Main-scoped application
+Module. The Module normalizes local command intent, applies optional next-turn settings before the
+goal request, sends only protocol-owned fields through `CodexGateway`, and projects only an accepted
+server goal into canonical conversation state. Interruption propagates through the settings and goal
+requests, and post-resume hydration reuses the same contained read operation instead of opening a
+second Promise request path. Renderer IPC invokes this Module directly. `CodexService` temporarily
+supplies only the synchronous accepted-goal projection while it still owns canonical conversation
+state; its remaining internal goal call sites use one explicit Promise adapter and it exposes no
+public goal command methods.
+
 Active thread-goal continuation is admitted as an event, not as an untracked Promise workflow. One
 Main-scoped Module owns the per-conversation delay, single-flight fiber, duplicate coalescing,
 eligibility recheck, failure supervision, and interruption. Synchronous conversation lifecycle
 callbacks enter through a scoped FIFO adapter, so a later thread removal deterministically cancels
-an earlier request. Until thread-goal commands move with the canonical conversation authority,
-`CodexService` supplies only the current eligibility query and the eventual command Effect; it owns
-no continuation timer, in-flight collection, error catch, or shutdown cleanup.
+an earlier request. `CodexService` supplies only the current eligibility query and the eventual
+command Effect; it owns no continuation timer, in-flight collection, error catch, or shutdown
+cleanup.
 
 Conversation resume admission is owned by one Main-scoped keyed runtime. Identical callers join one
 physical resume fiber; a renderer's silent/deferred adoption demand and an ordinary replay/broadcast

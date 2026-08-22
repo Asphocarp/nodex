@@ -29,7 +29,6 @@ import type {
   CodexSteerTurnInput,
   CodexThreadActionResult,
   CodexThreadDetail,
-  CodexThreadGoalSetActionInput,
   CodexThreadStartForSessionInput,
   CodexThreadStartForSessionResult,
   CodexThreadOwnerStreamStatePublishInput,
@@ -163,12 +162,15 @@ import { PersistedAtomStore } from "../local-store/persisted-atoms";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import { makeLocalExecutionHostRegistry } from "../codex-application/ExecutionHostRuntime";
 import { makeManagedWorktreeRuntimeTestHarness } from "../codex-application/ManagedWorktreeRuntime.test-support";
+import { normalizeCodexThreadGoalSetAction } from "../codex-application/CodexThreadGoalRuntime";
+import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { makeProjectRuntimeLifecycleTestHarness } from "../host-runtime/ProjectRuntimeLifecycleRuntime.test-support";
 import { CodexPendingWorktreeRuntime } from "./codex-pending-worktree-runtime.test-support";
 
 interface TestableCodexService {
   manualCompactionProjection: CodexService["manualCompactionProjection"];
+  threadGoalProjection: CodexService["threadGoalProjection"];
   on: {
     (event: "event", listener: (event: CodexEvent) => void): unknown;
     (
@@ -396,7 +398,6 @@ interface TestableCodexService {
     threadId: string,
     patch: import("../../shared/types").CodexConversationThreadSettingsPatch,
   ) => Promise<import("../../shared/types").CodexConversationThreadSettings>;
-  setThreadGoal: (input: CodexThreadGoalSetActionInput) => Promise<ThreadGoal | null>;
   removePlanImplementationRequest: (threadId: string, turnId: string) => Promise<boolean>;
   setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
   setRendererConversationViewActive: (
@@ -1897,10 +1898,58 @@ function createService(options?: {
     },
     abandon: (launch, reason) => service?.abandonFreshThreadLaunch(launch, reason),
   });
+  const threadGoals: CodexThreadGoalRuntimePromiseAdapter = {
+    set: async (input) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      const action = normalizeCodexThreadGoalSetAction(input);
+      if (action.threadSettings) {
+        await service.updateThreadSettingsForNextTurn(action.threadId, action.threadSettings);
+      }
+      const params: ThreadGoalSetParams = { threadId: action.threadId };
+      if (Object.prototype.hasOwnProperty.call(action, "objective")) {
+        params.objective = action.objective;
+      }
+      if (Object.prototype.hasOwnProperty.call(action, "status")) params.status = action.status;
+      if (Object.prototype.hasOwnProperty.call(action, "tokenBudget")) {
+        params.tokenBudget = action.tokenBudget;
+      }
+      const client = Reflect.get(service as object, "client") as {
+        request: (method: string, params: unknown) => Promise<{ goal?: ThreadGoal | null }>;
+      };
+      const goal = (await client.request("thread/goal/set", params)).goal ?? null;
+      if (goal) {
+        service.threadGoalProjection.applySet({
+          threadId: action.threadId,
+          goal,
+          appendTranscriptItem: action.appendTranscriptItem !== false,
+          dismissResumeConfirmation: action.dismissResumeConfirmation === true,
+          objective: typeof action.objective === "string" ? action.objective : null,
+        });
+      }
+      return goal;
+    },
+    clear: async (threadId) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      const client = Reflect.get(service as object, "client") as {
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      await client.request("thread/goal/clear", { threadId });
+    },
+  };
   const postResumeGoals = new TestCodexPostResumeGoalRuntime({
     load: async (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
-      return await service.loadThreadGoalAfterResume(threadId);
+      const client = Reflect.get(service as object, "client") as {
+        request: (method: string, params: unknown) => Promise<{ goal?: ThreadGoal | null }>;
+      };
+      try {
+        return {
+          ok: true,
+          goal: (await client.request("thread/goal/get", { threadId })).goal ?? null,
+        };
+      } catch {
+        return { ok: false, goal: null };
+      }
     },
     commit: (threadId, expectedRevision, goal) =>
       service?.commitThreadGoalHydratedAfterResume(threadId, expectedRevision, goal) ?? false,
@@ -2111,6 +2160,7 @@ function createService(options?: {
       consumeSource: () => "automatic",
       clear: () => undefined,
     },
+    threadGoals,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -4664,53 +4714,7 @@ describe("codex-service renderer owner stream publishing", () => {
     }
   });
 
-  test("sends status-only thread goal updates without fabricating an objective", async () => {
-    const service = createService();
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "thread/goal/set") {
-        return {
-          goal: {
-            threadId: "thread-goal-status",
-            objective: "Ship parity",
-            status: "paused",
-            tokenBudget: null,
-            tokensUsed: 10,
-            timeUsedSeconds: 2,
-            createdAt: 1,
-            updatedAt: 2,
-          },
-        };
-      }
-      throw new Error(`Unexpected client request: ${method}`);
-    };
-
-    try {
-      const goal = await service.setThreadGoal({
-        threadId: "thread-goal-status",
-        status: "paused",
-      });
-      const params = requests[0]?.params as
-        | { threadId?: string; objective?: unknown; status?: unknown }
-        | undefined;
-
-      expect(goal?.status).toBe("paused");
-      expect(requests[0]?.method).toBe("thread/goal/set");
-      expect(params?.threadId).toBe("thread-goal-status");
-      expect(params?.status).toBe("paused");
-      expect(Object.prototype.hasOwnProperty.call(params ?? {}, "objective")).toBe(false);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("defaults objective thread goal sets to active like Codex Electron", async () => {
+  test("projects an accepted thread goal into canonical and transcript state", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
@@ -4718,31 +4722,6 @@ describe("codex-service renderer owner stream publishing", () => {
         input: ThreadResumeResponse,
       ) => CodexCanonicalConversationState;
     };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "thread/goal/set") {
-        return {
-          goal: {
-            threadId: "thread-goal-objective",
-            objective: "Ship parity",
-            status: "active",
-            tokenBudget: null,
-            tokensUsed: 0,
-            timeUsedSeconds: 0,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        };
-      }
-      throw new Error(`Unexpected client request: ${method}`);
-    };
-
     try {
       serviceInternals.setConversationRecordDetail({
         ...makeThreadDetail("thread-goal-objective"),
@@ -4756,17 +4735,27 @@ describe("codex-service renderer owner stream publishing", () => {
           initialTurnsPage: null,
         }),
       );
-      await service.setThreadGoal({ threadId: "thread-goal-objective", objective: "Ship parity" });
-      const params = requests[0]?.params as
-        | { objective?: unknown; status?: unknown; tokenBudget?: unknown }
-        | undefined;
+      service.threadGoalProjection.applySet({
+        threadId: "thread-goal-objective",
+        goal: {
+          threadId: "thread-goal-objective",
+          objective: "Ship parity",
+          status: "active",
+          tokenBudget: null,
+          tokensUsed: 0,
+          timeUsedSeconds: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+        appendTranscriptItem: true,
+        dismissResumeConfirmation: false,
+        objective: "Ship parity",
+      });
       const snapshot = await service.requestConversationSnapshot("thread-goal-objective");
       const turn = snapshot?.turns[0];
       const item = turn?.items[0];
 
-      expect(params?.objective).toBe("Ship parity");
-      expect(params?.status).toBe("active");
-      expect(Object.prototype.hasOwnProperty.call(params ?? {}, "tokenBudget")).toBe(false);
+      expect(snapshot?.threadGoal?.objective).toBe("Ship parity");
       expect(snapshot?.turns.length ?? 0).toBe(1);
       expect((turn as { turnId?: string | null } | undefined)?.turnId ?? null).toBe(null);
       expect(turn?.status ?? "").toBe("completed");
@@ -4779,103 +4768,6 @@ describe("codex-service renderer owner stream publishing", () => {
       const rawInput = snapshot?.canonicalState?.turns[0]?.sidecar.params.input[0];
       expect(rawInput?.type).toBe("text");
       expect(rawInput?.type === "text" ? rawInput.text : "").toBe("/goal Ship parity");
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("applies thread settings before setting a goal and strips local action metadata", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      hydrateCanonicalConversationState: (
-        input: ThreadResumeResponse,
-      ) => CodexCanonicalConversationState;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    const requests: Array<{ method: string; params: unknown }> = [];
-    client.start = async () => undefined;
-    client.request = async (method: string, params: unknown) => {
-      requests.push({ method, params });
-      if (method === "thread/settings/update") return {};
-      if (method === "thread/goal/set") {
-        return {
-          goal: {
-            threadId: "thread-goal-settings",
-            objective: "Ship parity",
-            status: "active",
-            tokenBudget: null,
-            tokensUsed: 0,
-            timeUsedSeconds: 0,
-            createdAt: 1,
-            updatedAt: 1,
-          },
-        };
-      }
-      throw new Error(`Unexpected client request: ${method}`);
-    };
-
-    try {
-      serviceInternals.setConversationRecordDetail({
-        ...makeThreadDetail("thread-goal-settings"),
-        turns: [],
-        transcript: [],
-      });
-      serviceInternals.hydrateCanonicalConversationState(
-        makeCanonicalResumeResponse({
-          threadId: "thread-goal-settings",
-          threadTurns: [],
-          initialTurnsPage: null,
-        }),
-      );
-      await service.setThreadGoal({
-        threadId: "thread-goal-settings",
-        objective: "Ship parity",
-        appendTranscriptItem: false,
-        threadSettings: {
-          model: "gpt-5.9-codex",
-          reasoningEffort: "high",
-          summary: "concise",
-          collaborationMode: "plan",
-        },
-      });
-      const settingsParams = requests[0]?.params as
-        | {
-            threadId?: string;
-            model?: string;
-            effort?: string;
-            summary?: string;
-          }
-        | undefined;
-      const goalParams = requests[1]?.params as
-        | {
-            threadId?: string;
-            objective?: string;
-            status?: string;
-            appendTranscriptItem?: unknown;
-            threadSettings?: unknown;
-          }
-        | undefined;
-
-      expect(requests[0]?.method).toBe("thread/settings/update");
-      expect(settingsParams?.threadId).toBe("thread-goal-settings");
-      expect(settingsParams?.model).toBe("gpt-5.9-codex");
-      expect(settingsParams?.effort).toBe("high");
-      expect(settingsParams?.summary).toBe("concise");
-      expect(requests[1]?.method).toBe("thread/goal/set");
-      expect(goalParams?.threadId).toBe("thread-goal-settings");
-      expect(goalParams?.objective).toBe("Ship parity");
-      expect(goalParams?.status).toBe("active");
-      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "appendTranscriptItem")).toBe(
-        false,
-      );
-      expect(Object.prototype.hasOwnProperty.call(goalParams ?? {}, "threadSettings")).toBe(false);
-      const snapshot = await service.requestConversationSnapshot("thread-goal-settings");
-      expect(snapshot?.turns.length ?? 0).toBe(0);
-      expect(snapshot?.canonicalState?.turns.length ?? 0).toBe(0);
     } finally {
       await service.shutdown();
     }
@@ -11467,7 +11359,10 @@ describe("codex-service pending goal draft lifecycle", () => {
     const manager = await internals.getPastedTextAttachmentManager();
     const successSource = await manager.createRawSource({ text: "remove after metadata" });
     const failedSource = await manager.createRawSource({ text: "retain after metadata failure" });
-    const originalSetThreadGoal = service.setThreadGoal.bind(service);
+    const threadGoals = Reflect.get(service as object, "threadGoals") as {
+      set: CodexThreadGoalRuntimePromiseAdapter["set"];
+    };
+    const originalSetThreadGoal = threadGoals.set;
     const originalCleanup = manager.cleanupGoalSources.bind(manager);
     const events: string[] = [];
 
@@ -11476,7 +11371,7 @@ describe("codex-service pending goal draft lifecycle", () => {
         events.push("cleanup");
         await originalCleanup(draft, fallbackHostId);
       };
-      service.setThreadGoal = async () => {
+      threadGoals.set = async () => {
         events.push("metadata");
         return null;
       };
@@ -11494,7 +11389,7 @@ describe("codex-service pending goal draft lifecycle", () => {
       expect(events.join(",")).toBe("metadata,cleanup,returned");
       expect(fs.existsSync(successSource.file.fsPath)).toBe(false);
 
-      service.setThreadGoal = async () => {
+      threadGoals.set = async () => {
         events.push("metadata-failed");
         throw new Error("goal metadata failed");
       };
@@ -11516,7 +11411,7 @@ describe("codex-service pending goal draft lifecycle", () => {
       expect(errorMessage).toBe("goal metadata failed");
       expect(fs.existsSync(failedSource.file.fsPath)).toBe(true);
     } finally {
-      service.setThreadGoal = originalSetThreadGoal;
+      threadGoals.set = originalSetThreadGoal;
       manager.cleanupGoalSources = originalCleanup;
       await manager.remove(failedSource.file.path).catch(() => undefined);
       await service.shutdown();

@@ -44,9 +44,7 @@ import type { ThreadSource } from "@nodex/codex-app-server-protocol/v2/ThreadSou
 import type { ThreadSourceKind } from "@nodex/codex-app-server-protocol/v2/ThreadSourceKind";
 import type { ThreadItem } from "@nodex/codex-app-server-protocol/v2/ThreadItem";
 import type { ThreadGoal } from "@nodex/codex-app-server-protocol/v2/ThreadGoal";
-import type { ThreadGoalGetResponse } from "@nodex/codex-app-server-protocol/v2/ThreadGoalGetResponse";
 import type { ThreadGoalSetParams } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetParams";
-import type { ThreadGoalSetResponse } from "@nodex/codex-app-server-protocol/v2/ThreadGoalSetResponse";
 import type { ThreadResumeParams } from "@nodex/codex-app-server-protocol/v2/ThreadResumeParams";
 import type { ThreadResumeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadResumeResponse";
 import type { ThreadSettings } from "@nodex/codex-app-server-protocol/v2/ThreadSettings";
@@ -140,7 +138,6 @@ import type {
   CodexThreadActionResult,
   CodexThreadDetail,
   CodexThreadGoalDraftInput,
-  CodexThreadGoalSetActionInput,
   CodexThreadRuntimeStatus,
   CodexThreadStatusType,
   CodexThreadSummary,
@@ -195,6 +192,11 @@ import type { ComposerCatalogPromiseAdapter } from "../codex-application/Compose
 import type { CodexApplicationEventPublisher } from "../codex-application/CodexApplicationEventHub";
 import type { CodexManualCompactionProjectionPort } from "../codex-application/CodexManualCompactionRuntime";
 import type { CodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
+import {
+  normalizeCodexThreadGoalSetAction,
+  type CodexThreadGoalProjectionPort,
+} from "../codex-application/CodexThreadGoalRuntime";
+import type { CodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
 import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
@@ -257,7 +259,6 @@ import {
   prepareCodexPrompt,
 } from "../../shared/codex-prompt-preparation";
 import {
-  CodexThreadGoalSchema,
   CodexThreadGoalStatusSchema,
   CodexThreadStatusSchema,
   parseCodexThreadTokenUsage,
@@ -367,7 +368,10 @@ import {
   failCodexCanonicalOptimisticTurn,
 } from "../../shared/codex-conversation-state/codex-optimistic-turn";
 import { reduceCodexConversationTurnLifecycle } from "../../shared/codex-conversation-state/codex-turn-lifecycle";
-import { reduceCodexConversationThreadGoalUpdated } from "../../shared/codex-conversation-state/codex-thread-metadata";
+import {
+  reduceCodexConversationThreadGoalResumeConfirmationDismissed,
+  reduceCodexConversationThreadGoalUpdated,
+} from "../../shared/codex-conversation-state/codex-thread-metadata";
 import { appendCodexCanonicalThreadGoalTranscriptTurn } from "../../shared/codex-conversation-state/codex-thread-goal-transcript";
 import { reduceCodexBackgroundTerminalCleanup } from "../../shared/codex-conversation-state/codex-background-terminal-cleanup";
 import { projectCodexHistoryRequestViews } from "../../shared/codex-conversation-state/codex-history-request-projection";
@@ -1095,6 +1099,10 @@ interface DormantConversationSyncOptions {
   syncDormantConversationUpdates?: boolean;
 }
 
+interface ThreadSettingsUpdateOptions extends DormantConversationSyncOptions {
+  signal?: AbortSignal;
+}
+
 interface MainOwnedStartTurnOptions extends DormantConversationSyncOptions {
   stateOwner?: "main";
 }
@@ -1231,6 +1239,7 @@ type CodexServiceOptions = {
   conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   freshThreadLaunch: CodexFreshThreadLaunchRuntimePromiseAdapter;
   manualCompaction: CodexManualCompactionRuntimePromiseAdapter;
+  threadGoals: CodexThreadGoalRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -1718,32 +1727,6 @@ function isThreadGoalStatus(value: unknown): value is ThreadGoal["status"] {
   return CodexThreadGoalStatusSchema.safeParse(value).success;
 }
 
-function normalizeThreadGoalSetParams(input: ThreadGoalSetParams): ThreadGoalSetParams {
-  const params: ThreadGoalSetParams = { threadId: input.threadId };
-  if (input.objective !== undefined) params.objective = input.objective;
-  if (input.status !== undefined) params.status = input.status;
-  if (input.tokenBudget !== undefined) params.tokenBudget = input.tokenBudget;
-
-  if (typeof params.objective === "string" && params.status === undefined) {
-    params.status = "active";
-  }
-
-  return params;
-}
-
-function normalizeThreadGoalSetActionInput(
-  input: CodexThreadGoalSetActionInput,
-): CodexThreadGoalSetActionInput {
-  const params = normalizeThreadGoalSetParams(input);
-  return {
-    ...params,
-    ...(input.appendTranscriptItem !== undefined
-      ? { appendTranscriptItem: input.appendTranscriptItem }
-      : {}),
-    ...(input.threadSettings ? { threadSettings: input.threadSettings } : {}),
-  };
-}
-
 function readThreadGoalSetParams(
   threadId: string,
   params: Record<string, unknown>,
@@ -1766,12 +1749,7 @@ function readThreadGoalSetParams(
     input.tokenBudget = getFiniteNumber(params.tokenBudget);
   }
 
-  return normalizeThreadGoalSetParams(input);
-}
-
-function parseThreadGoalPayload(value: unknown): ThreadGoal | null {
-  const parsed = CodexThreadGoalSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
+  return normalizeCodexThreadGoalSetAction(input);
 }
 
 function parseThreadParentThreadId(thread: Record<string, unknown>): string | null {
@@ -2449,6 +2427,7 @@ export class CodexService {
   private readonly conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   private readonly freshThreadLaunch: CodexFreshThreadLaunchRuntimePromiseAdapter;
   private readonly manualCompaction: CodexManualCompactionRuntimePromiseAdapter;
+  private readonly threadGoals: CodexThreadGoalRuntimePromiseAdapter;
   private readonly internalThreadIds = new Map<string, InternalThreadMetadata>();
   private readonly subagentThreadIds = new Set<string>();
   private readonly deletedThreadIds = new Set<string>();
@@ -2482,6 +2461,28 @@ export class CodexService {
         syncBackgroundTerminalRows: true,
         syncCapabilityFlags: true,
       });
+    },
+  };
+
+  /** Temporary canonical projection port while conversation state is still owned by this class. */
+  readonly threadGoalProjection: CodexThreadGoalProjectionPort = {
+    applySet: ({ threadId, goal, appendTranscriptItem, dismissResumeConfirmation, objective }) => {
+      const record = this.getMaybeConversationRecord(threadId);
+      const before = record?.canonicalState;
+      if (record && before) {
+        const updated = reduceCodexConversationThreadGoalUpdated(before, threadId, goal).state;
+        record.canonicalState = dismissResumeConfirmation
+          ? reduceCodexConversationThreadGoalResumeConfirmationDismissed(updated, threadId)
+          : updated;
+        this.projectCanonicalMainThreadMetadata(threadId);
+      } else {
+        this.applyThreadGoalUpdated(threadId, goal);
+        if (dismissResumeConfirmation && record) record.threadGoalResumeConfirmation = null;
+      }
+      if (appendTranscriptItem && objective !== null) {
+        this.appendThreadGoalTranscriptTurn(threadId, goal);
+      }
+      this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
     },
   };
 
@@ -2535,6 +2536,7 @@ export class CodexService {
     this.conversationEventBuffer = options.conversationEventBuffer;
     this.freshThreadLaunch = options.freshThreadLaunch;
     this.manualCompaction = options.manualCompaction;
+    this.threadGoals = options.threadGoals;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -11853,7 +11855,7 @@ export class CodexService {
   }
 
   private scheduleCompletedThreadGoalClear(threadId: string): void {
-    void this.clearThreadGoal(threadId).catch((error) => {
+    void this.threadGoals.clear(threadId).catch((error) => {
       this.logger.error("Failed to clear completed thread goal", {
         threadId,
         error: error instanceof Error ? error.message : String(error),
@@ -11873,56 +11875,6 @@ export class CodexService {
     expectedRevision: number,
   ): Promise<void> {
     await this.postResumeGoals.hydrate(threadId, expectedRevision);
-  }
-
-  /** Effect Module adapter operation; callers use postResumeGoals instead. */
-  async loadThreadGoalAfterResume(
-    threadId: string,
-  ): Promise<{ ok: boolean; goal: ThreadGoal | null }> {
-    const startedAt = getDevRuntimeMetricStart();
-    let response: ThreadGoalGetResponse;
-    try {
-      response = await this.client.request<"thread/goal/get", ThreadGoalGetResponse>(
-        "thread/goal/get",
-        {
-          threadId,
-        },
-      );
-    } catch (error) {
-      this.logger.warn("Failed to hydrate thread goal after resume", {
-        threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      logDevRuntimeMetric("codex.thread.goal_get", {
-        threadId,
-        outcome: "error",
-        error: error instanceof Error ? error.message : String(error),
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      return { ok: false, goal: null };
-    }
-    logDevRuntimeMetric("codex.thread.goal_get", {
-      threadId,
-      outcome: "success",
-      approxPayloadBytes: approximateJsonPayloadBytes(response),
-      durationMs: getDevRuntimeMetricDurationMs(startedAt),
-    });
-
-    const payload = asRecord(response);
-    const rawGoal = payload && hasOwnValue(payload, "goal") ? payload.goal : null;
-    if (rawGoal === null) {
-      return { ok: true, goal: null };
-    }
-
-    const goal = parseThreadGoalPayload(rawGoal);
-    if (!goal || goal.threadId !== threadId) {
-      this.logger.warn("Ignored malformed thread goal after resume", {
-        threadId,
-      });
-      return { ok: false, goal: null };
-    }
-
-    return { ok: true, goal };
   }
 
   /** Effect Module adapter operation; atomically preserves the conversation revision fence. */
@@ -16417,10 +16369,10 @@ export class CodexService {
           syncDormantConversationUpdates: false,
         });
       case "thread/goal/set": {
-        return await this.setThreadGoal(readThreadGoalSetParams(conversationId, untrustedParams));
+        return await this.threadGoals.set(readThreadGoalSetParams(conversationId, untrustedParams));
       }
       case "thread/goal/clear":
-        await this.clearThreadGoal(conversationId);
+        await this.threadGoals.clear(conversationId);
         return null;
       case "thread/memoryMode/set": {
         const mode =
@@ -17155,106 +17107,70 @@ export class CodexService {
   async updateThreadSettingsForNextTurn(
     threadId: string,
     patch: CodexConversationThreadSettingsPatch,
-    options: DormantConversationSyncOptions = {},
+    options: ThreadSettingsUpdateOptions = {},
   ): Promise<CodexConversationThreadSettings> {
     const syncDormantConversationUpdates = options.syncDormantConversationUpdates ?? true;
-    return await this.threadSettingsRuntime.runMutation(threadId, async () => {
-      await this.ensureClientReady();
-      const executionProfile = patch.executionProfile
-        ? await this.validateAndPersistThreadExecutionProfile(
-            threadId,
-            patch.executionProfile,
-            patch.executionProfileChange,
-          )
-        : null;
-      const validatedPatch = executionProfile ? { ...patch, executionProfile } : patch;
-      const nextSettings = this.mergeThreadSettingsPatch(threadId, validatedPatch);
-      this.applyLatestThreadSettingsForThread(threadId, nextSettings);
-      if (syncDormantConversationUpdates) {
-        this.syncAcceptedConversationDocument(threadId, {
-          syncLatestCollaborationMode: true,
-          syncLatestThreadSettings: true,
-        });
-      }
-
-      if (this.threadSettingsRuntime.remoteUpdateSupport() !== "unsupported") {
-        const params = await this.buildThreadSettingsUpdateParams(
-          threadId,
-          validatedPatch,
-          nextSettings,
-        );
-        try {
-          await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
-            "thread/settings/update",
-            params,
-          );
-          this.threadSettingsRuntime.recordRemoteUpdateSupported();
-          return nextSettings;
-        } catch (error) {
-          if (isThreadNotFoundError(error)) {
-            this.logger.info(
-              "Task settings will be applied when the unloaded task starts its next turn",
-              { threadId },
-            );
-            return nextSettings;
-          }
-          if (!isUnsupportedThreadSettingsUpdateError(error)) throw error;
-          this.threadSettingsRuntime.recordRemoteUpdateUnsupported();
-          this.logger.warn(
-            "Codex app-server does not support thread/settings/update; using local next-turn settings fallback",
-            {
+    return await this.threadSettingsRuntime.runMutation(
+      threadId,
+      async (signal) => {
+        await this.ensureClientReady(signal);
+        signal.throwIfAborted();
+        const executionProfile = patch.executionProfile
+          ? await this.validateAndPersistThreadExecutionProfile(
               threadId,
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
+              patch.executionProfile,
+              patch.executionProfileChange,
+            )
+          : null;
+        signal.throwIfAborted();
+        const validatedPatch = executionProfile ? { ...patch, executionProfile } : patch;
+        const nextSettings = this.mergeThreadSettingsPatch(threadId, validatedPatch);
+        this.applyLatestThreadSettingsForThread(threadId, nextSettings);
+        if (syncDormantConversationUpdates) {
+          this.syncAcceptedConversationDocument(threadId, {
+            syncLatestCollaborationMode: true,
+            syncLatestThreadSettings: true,
+          });
         }
-      }
 
-      return nextSettings;
-    });
-  }
+        if (this.threadSettingsRuntime.remoteUpdateSupport() !== "unsupported") {
+          const params = await this.buildThreadSettingsUpdateParams(
+            threadId,
+            validatedPatch,
+            nextSettings,
+          );
+          try {
+            await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
+              "thread/settings/update",
+              params,
+              { signal },
+            );
+            this.threadSettingsRuntime.recordRemoteUpdateSupported();
+            return nextSettings;
+          } catch (error) {
+            if (isThreadNotFoundError(error)) {
+              this.logger.info(
+                "Task settings will be applied when the unloaded task starts its next turn",
+                { threadId },
+              );
+              return nextSettings;
+            }
+            if (!isUnsupportedThreadSettingsUpdateError(error)) throw error;
+            this.threadSettingsRuntime.recordRemoteUpdateUnsupported();
+            this.logger.warn(
+              "Codex app-server does not support thread/settings/update; using local next-turn settings fallback",
+              {
+                threadId,
+                error: error instanceof Error ? error.message : String(error),
+              },
+            );
+          }
+        }
 
-  async getThreadGoal(threadId: string): Promise<ThreadGoal | null> {
-    await this.ensureClientReady();
-    const response = await this.client.request<"thread/goal/get", ThreadGoalGetResponse>(
-      "thread/goal/get",
-      {
-        threadId,
+        return nextSettings;
       },
+      options.signal ? { signal: options.signal } : undefined,
     );
-    return response.goal ?? null;
-  }
-
-  async setThreadGoal(input: CodexThreadGoalSetActionInput): Promise<ThreadGoal | null> {
-    await this.ensureClientReady();
-    const action = normalizeThreadGoalSetActionInput(input);
-    if (action.threadSettings) {
-      await this.updateThreadSettingsForNextTurn(action.threadId, action.threadSettings);
-    }
-    const response = await this.client.request<"thread/goal/set", ThreadGoalSetResponse>(
-      "thread/goal/set",
-      normalizeThreadGoalSetParams(action),
-    );
-    const goal = response.goal ?? null;
-    if (goal) {
-      const record = this.getMaybeConversationRecord(action.threadId);
-      const before = record?.canonicalState;
-      if (record && before) {
-        record.canonicalState = reduceCodexConversationThreadGoalUpdated(
-          before,
-          action.threadId,
-          goal,
-        ).state;
-        this.projectCanonicalMainThreadMetadata(action.threadId);
-      } else {
-        this.applyThreadGoalUpdated(action.threadId, goal);
-      }
-      if (action.appendTranscriptItem !== false && typeof action.objective === "string") {
-        this.appendThreadGoalTranscriptTurn(action.threadId, goal);
-      }
-      this.syncDormantConversationFromRecord(action.threadId, "owner-unavailable");
-    }
-    return goal;
   }
 
   private async ensureReasoningSummaryForGoalContinuation(threadId: string): Promise<void> {
@@ -17265,11 +17181,6 @@ export class CodexService {
     if (record.latestThreadSettings?.summary === summary) return;
 
     await this.updateThreadSettingsForNextTurn(threadId, { summary });
-  }
-
-  async clearThreadGoal(threadId: string): Promise<void> {
-    await this.ensureClientReady();
-    await this.client.request("thread/goal/clear", { threadId });
   }
 
   private hasPendingThreadGoalSteering(threadId: string, record: CodexConversationRecord): boolean {
@@ -17346,7 +17257,7 @@ export class CodexService {
       return;
     }
 
-    await this.setThreadGoal({ threadId, status: "active" });
+    await this.threadGoals.set({ threadId, status: "active" });
   }
 
   private maybeContinueActiveThreadGoal(threadId: string): void {
@@ -17354,21 +17265,15 @@ export class CodexService {
     this.activeGoalContinuation.request(threadId);
   }
 
-  private async pauseActiveThreadGoalBeforeInterrupt(
-    threadId: string,
-    options: DormantConversationSyncOptions = {},
-  ): Promise<void> {
+  private async pauseActiveThreadGoalBeforeInterrupt(threadId: string): Promise<void> {
     const record = this.getMaybeConversationRecord(threadId);
     if (record?.threadGoal?.status !== "active") return;
 
-    const goal = await this.setThreadGoal({ threadId, status: "paused" });
-    record.threadGoal = goal;
-    record.completedThreadGoal = goal?.status === "complete" ? goal : null;
-    record.threadGoalResumeConfirmation = null;
-
-    if (options.syncDormantConversationUpdates ?? true) {
-      this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-    }
+    await this.threadGoals.set({
+      threadId,
+      status: "paused",
+      dismissResumeConfirmation: true,
+    });
   }
 
   async startTurn(
@@ -17852,7 +17757,7 @@ export class CodexService {
       resolvedTurnId,
     });
 
-    await this.pauseActiveThreadGoalBeforeInterrupt(threadId, { syncDormantConversationUpdates });
+    await this.pauseActiveThreadGoalBeforeInterrupt(threadId);
 
     await this.declinePendingRequestsBeforeInterrupt(threadId);
 
@@ -19831,7 +19736,7 @@ export class CodexService {
     readonly rawDraft: CodexThreadGoalDraftInput | null;
   }): Promise<void> {
     if (input.objective.length === 0) return;
-    await this.setThreadGoal({
+    await this.threadGoals.set({
       threadId: input.threadId,
       objective: input.objective,
       status: "active",
@@ -20200,7 +20105,7 @@ export class CodexService {
       }
     }
     if (materializedGoal) {
-      const goal = await this.setThreadGoal({
+      const goal = await this.threadGoals.set({
         threadId,
         objective: materializedGoal.objective,
         status: "active",
@@ -20209,7 +20114,6 @@ export class CodexService {
       if (!goal) {
         throw new Error(`Pending worktree thread '${threadId}' could not retain its goal`);
       }
-      this.applyThreadGoalUpdated(threadId, goal);
     }
   }
 

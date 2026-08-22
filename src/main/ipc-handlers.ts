@@ -13,6 +13,7 @@ import { MainConfig } from "./app/MainConfig";
 import { ScopedCallbackRuntime } from "./app/ScopedCallbackRuntime";
 import type { CodexService } from "./codex/codex-service";
 import type { CodexManualCompactionRuntime } from "./codex-application/CodexManualCompactionRuntime";
+import type { CodexThreadGoalRuntime } from "./codex-application/CodexThreadGoalRuntime";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -96,6 +97,7 @@ async function showDirectoryPicker(
 interface CodexIpcOptions {
   codexService: CodexService;
   manualCompaction: CodexManualCompactionRuntime["Service"];
+  threadGoals: CodexThreadGoalRuntime["Service"];
   rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
@@ -575,16 +577,34 @@ export const codexIpcLive = (
           ),
       );
 
-      registerHandle("codex:thread:goal:get", (_, threadId: string) =>
-        codexService.getThreadGoal(threadId),
+      registerEffectHandle("codex:thread:goal:get", (_, threadId: string) =>
+        options.threadGoals
+          .get(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:goal:get", cause }),
+            ),
+          ),
       );
 
-      registerHandle("codex:thread:goal:set", (_, params: CodexThreadGoalSetActionInput) =>
-        codexService.setThreadGoal(params),
+      registerEffectHandle("codex:thread:goal:set", (_, params: CodexThreadGoalSetActionInput) =>
+        options.threadGoals
+          .set(params)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:goal:set", cause }),
+            ),
+          ),
       );
 
-      registerHandle("codex:thread:goal:clear", (_, threadId: string) =>
-        codexService.clearThreadGoal(threadId),
+      registerEffectHandle("codex:thread:goal:clear", (_, threadId: string) =>
+        options.threadGoals
+          .clear(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:goal:clear", cause }),
+            ),
+          ),
       );
 
       registerHandle("codex:turn:steer", (_, input) => codexService.steerTurn(input));

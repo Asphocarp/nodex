@@ -16,6 +16,7 @@ export interface CodexThreadSettingsRuntimePromiseAdapter {
   readonly runMutation: <A>(
     threadId: string,
     mutation: (signal: AbortSignal) => Promise<A>,
+    options?: Effect.RunOptions,
   ) => Promise<A>;
   readonly awaitCurrent: (threadId: string) => Promise<void>;
   readonly remoteUpdateSupport: () => CodexThreadSettingsUpdateSupport;
@@ -33,7 +34,7 @@ export const makeCodexThreadSettingsRuntimePromiseAdapter = (
   runtime: CodexThreadSettingsRuntime["Service"],
   callbacks: Pick<ScopedCallbackRuntime["Service"], "runPromise">,
 ): CodexThreadSettingsRuntimePromiseAdapter => ({
-  runMutation: (threadId, mutation) =>
+  runMutation: (threadId, mutation, options) =>
     callbacks
       .runPromise(
         runtime.runMutation(
@@ -43,6 +44,7 @@ export const makeCodexThreadSettingsRuntimePromiseAdapter = (
             catch: (cause) => new CodexThreadSettingsMutationError({ cause }),
           }),
         ),
+        options,
       )
       .catch(unwrapMutationError),
   awaitCurrent: (threadId) => callbacks.runPromise(runtime.awaitCurrent(threadId)),

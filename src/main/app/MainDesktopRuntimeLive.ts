@@ -175,11 +175,14 @@ import {
   make as makeCodexForkSidePanelTransferRuntime,
 } from "../codex-application/CodexForkSidePanelTransferRuntime";
 import { makeCodexForkSidePanelTransferRuntimePromiseAdapter } from "../codex-application/CodexForkSidePanelTransferRuntimePromiseAdapter";
-import {
-  CodexPostResumeGoalError,
-  make as makeCodexPostResumeGoalRuntime,
-} from "../codex-application/CodexPostResumeGoalRuntime";
+import { make as makeCodexPostResumeGoalRuntime } from "../codex-application/CodexPostResumeGoalRuntime";
 import { makeCodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
+import {
+  CodexThreadGoalOperationError,
+  CodexThreadGoalRuntime,
+  live as codexThreadGoalRuntimeLive,
+} from "../codex-application/CodexThreadGoalRuntime";
+import { makeCodexThreadGoalRuntimePromiseAdapter } from "../codex-application/CodexThreadGoalRuntimePromiseAdapter";
 import {
   CodexManualCompactionRuntime,
   live as codexManualCompactionRuntimeLive,
@@ -1490,6 +1493,28 @@ export const live: Layer.Layer<
         const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const threadGoalContext = yield* Layer.buildWithScope(
+          codexThreadGoalRuntimeLive({
+            projection: {
+              applySet: (input) => requireCodexService().threadGoalProjection.applySet(input),
+            },
+            updateSettings: (threadId, patch) =>
+              Effect.tryPromise({
+                try: (signal) =>
+                  requireCodexService()
+                    .updateThreadSettingsForNextTurn(threadId, patch, { signal })
+                    .then(() => undefined),
+                catch: (cause) =>
+                  new CodexThreadGoalOperationError({
+                    operation: "update-settings",
+                    threadId,
+                    cause,
+                  }),
+              }),
+          }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
+          runtimeScope,
+        );
+        const threadGoals = Context.get(threadGoalContext, CodexThreadGoalRuntime);
         const threadTitlePersistence = yield* makeCodexThreadTitlePersistence({
           setRemote: ({ threadId, name }) =>
             Effect.tryPromise({
@@ -1599,11 +1624,7 @@ export const live: Layer.Layer<
           flushCommandOutput: (updates) => requireCodexService().applyOutputDeltas(updates),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const postResumeGoals = yield* makeCodexPostResumeGoalRuntime({
-          load: (threadId) =>
-            Effect.tryPromise({
-              try: () => requireCodexService().loadThreadGoalAfterResume(threadId),
-              catch: (cause) => new CodexPostResumeGoalError({ cause }),
-            }),
+          load: threadGoals.load,
           commit: (threadId, expectedRevision, goal) =>
             requireCodexService().commitThreadGoalHydratedAfterResume(
               threadId,
@@ -1919,6 +1940,7 @@ export const live: Layer.Layer<
                 manualCompaction,
                 callbacks,
               ),
+              threadGoals: makeCodexThreadGoalRuntimePromiseAdapter(threadGoals, callbacks),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,
                 callbacks,
@@ -2563,6 +2585,7 @@ export const live: Layer.Layer<
           codexIpcLive({
             codexService,
             manualCompaction,
+            threadGoals,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

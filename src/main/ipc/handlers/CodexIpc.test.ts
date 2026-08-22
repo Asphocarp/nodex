@@ -6,6 +6,7 @@ import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
 import { CodexManualCompactionRuntime } from "../../codex-application/CodexManualCompactionRuntime";
+import { CodexThreadGoalRuntime } from "../../codex-application/CodexThreadGoalRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
@@ -35,6 +36,12 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
           start: () => Effect.void,
           consumeSource: () => "automatic",
           clear: () => undefined,
+        }),
+        threadGoals: CodexThreadGoalRuntime.of({
+          get: () => Effect.succeed(null),
+          set: () => Effect.succeed(null),
+          clear: () => Effect.void,
+          load: () => Effect.succeed({ ok: true, goal: null }),
         }),
         projectWorkspace: {} as DesktopProjectWorkspacePort,
         rendererClientRouter: {} as RendererClientRuntimeService,
