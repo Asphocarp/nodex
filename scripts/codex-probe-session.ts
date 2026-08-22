@@ -1,4 +1,4 @@
-/* oxlint-disable effecttsgo/async-function, effecttsgo/extends-native-error -- Probe consumers are Promise/EventEmitter based external harnesses; this adapter is the one conversion seam around an Effect-owned session. */
+/* oxlint-disable effecttsgo/async-function -- Probe consumers are Promise/EventEmitter based external harnesses; this adapter is the one conversion seam around an Effect-owned session. */
 import { EventEmitter } from "node:events";
 import { delimiter as pathDelimiter } from "node:path";
 import * as Context from "effect/Context";

@@ -1,4 +1,4 @@
-/* oxlint-disable effecttsgo/async-function, effecttsgo/global-date, effecttsgo/node-builtin-import -- This is the single Promise/EventEmitter adapter for the legacy Electron application surface. */
+/* oxlint-disable effecttsgo/async-function, effecttsgo/global-date -- This is the single Promise/EventEmitter adapter for the legacy Electron application surface. */
 import { EventEmitter } from "node:events";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";

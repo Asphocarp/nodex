@@ -1,4 +1,3 @@
-/* oxlint-disable effecttsgo/process-env-in-effect -- Process environment materialization is a Node child-process adapter boundary. */
 import { delimiter as pathDelimiter } from "node:path";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
