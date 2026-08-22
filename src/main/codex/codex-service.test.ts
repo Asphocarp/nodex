@@ -60,6 +60,7 @@ import { TestCodexConversationDeltaBufferRuntime } from "./codex-conversation-de
 import { TestCodexConversationResumeRuntime } from "./codex-conversation-resume-runtime.test-support";
 import { TestCodexConversationEventBufferRuntime } from "./codex-conversation-event-buffer-runtime.test-support";
 import { TestCodexFreshThreadLaunchRuntime } from "./codex-fresh-thread-launch-runtime.test-support";
+import { TestCodexPendingServerRequestRuntime } from "./codex-pending-server-request-runtime.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -1973,12 +1974,14 @@ function createService(options?: {
       resolveAutomation: async (workspaceRoots) => defaultPermissionState(workspaceRoots),
     },
     attachments: { pastedText: pastedTextAttachments, goals: goalAttachments },
-    serverRequestResponses: {
-      respond: async (threadId, _requestId, occurrenceToken, response) =>
-        completeResponse(threadId, occurrenceToken, { kind: "success", value: response }),
-      reject: async (threadId, _requestId, occurrenceToken, reason) =>
-        completeResponse(threadId, occurrenceToken, { kind: "failure", reason }),
-    },
+    pendingServerRequests: new TestCodexPendingServerRequestRuntime({
+      respond: (threadId, _requestId, occurrenceToken, response) => {
+        completeResponse(threadId, occurrenceToken, { kind: "success", value: response });
+      },
+      reject: (threadId, _requestId, occurrenceToken, reason) => {
+        completeResponse(threadId, occurrenceToken, { kind: "failure", reason });
+      },
+    }),
     userInputAutoResolution: {
       observeRequest: (conversationId, requestId, resolve) => {
         autoResolutionResolvers.set(conversationId, { requestId, resolve });
@@ -5218,7 +5221,6 @@ describe("codex-service renderer owner stream publishing", () => {
         answers: Record<string, string[]>,
         conversationId: string,
       ) => Promise<boolean>;
-      pendingDynamicToolCalls: { readonly size: number };
       getConversationRecord: (targetThreadId: string) => {
         serverRequests: Array<{ id: string | number }>;
       };
@@ -5267,7 +5269,6 @@ describe("codex-service renderer owner stream publishing", () => {
       await Promise.resolve();
       expect(settled).toBe(false);
       expect(rejected).toBe(false);
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(1);
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(1);
 
       service.setRendererConversationOwner(threadId, "owner-after-disconnect");
@@ -5287,7 +5288,6 @@ describe("codex-service renderer owner stream publishing", () => {
           success: true,
         }),
       );
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
     } finally {
       await service.shutdown();
@@ -11817,9 +11817,6 @@ describe("codex-service approval fallback", () => {
         params: unknown;
       }) => Promise<unknown>;
       conversationRecords: Map<string, unknown>;
-      pendingApprovals: { size: number };
-      pendingUserInputs: { size: number };
-      pendingPrivateServerRequests: { size: number };
     };
     installManualApprovalState(service, "project-invalid-thread-id");
     const directRequests = [
@@ -11887,9 +11884,6 @@ describe("codex-service approval fallback", () => {
       }
 
       expect(serviceInternals.conversationRecords.size).toBe(0);
-      expect(serviceInternals.pendingApprovals.size).toBe(0);
-      expect(serviceInternals.pendingUserInputs.size).toBe(0);
-      expect(serviceInternals.pendingPrivateServerRequests.size).toBe(0);
     } finally {
       await service.shutdown();
     }
@@ -13178,7 +13172,6 @@ describe("codex-service approval fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      pendingDynamicToolCalls: Map<string | number, unknown>;
       respondToDynamicToolCall: (
         requestId: string | number,
       ) => Promise<{ success: boolean } | null>;
@@ -13216,7 +13209,6 @@ describe("codex-service approval fallback", () => {
       });
 
       await Promise.resolve();
-      expect(serviceInternals.pendingDynamicToolCalls.has(74)).toBe(true);
       expect(String(hostMessages.length)).toBe("0");
       expect(String(ownerMessages.length)).toBe("1");
       expect(ownerMessages[0]?.targetClientId).toBe("owner-dynamic");
@@ -13231,7 +13223,6 @@ describe("codex-service approval fallback", () => {
       const serverResponse = (await requestPromise) as { success: boolean };
       expect(ownerResponse?.success).toBe(false);
       expect(serverResponse.success).toBe(false);
-      expect(serviceInternals.pendingDynamicToolCalls.has(74)).toBe(false);
     } finally {
       await service.shutdown();
     }
@@ -13261,7 +13252,6 @@ describe("codex-service approval fallback", () => {
       }) => Promise<unknown>;
       handleDynamicToolCall: typeof handleDynamicToolCall;
       captureNodexAgentTurnAuthority: () => typeof projectAuthority;
-      pendingDynamicToolCalls: { readonly size: number };
       on: (event: "rendererOwnerHostMessage", listener: (message: unknown) => void) => void;
     };
     const ownerMessages: unknown[] = [];
@@ -13295,7 +13285,6 @@ describe("codex-service approval fallback", () => {
         {},
         projectAuthority,
       );
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
       expect(ownerMessages).toEqual([]);
     } finally {
       await service.shutdown();
@@ -13310,7 +13299,6 @@ describe("codex-service approval fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      pendingDynamicToolCalls: { readonly size: number };
       getMaybeConversationRecord: (threadId: string) => unknown;
     };
 
@@ -13329,7 +13317,6 @@ describe("codex-service approval fallback", () => {
       });
 
       expect(result).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
       expect(serviceInternals.getMaybeConversationRecord("")).toBe(null);
     } finally {
       await service.shutdown();
@@ -13346,7 +13333,6 @@ describe("codex-service approval fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      pendingDynamicToolCalls: { readonly size: number };
       getMaybeConversationRecord: (targetThreadId: string) => {
         detail: CodexThreadDetail | null;
         serverRequests: Array<{ id: string | number }>;
@@ -13372,7 +13358,6 @@ describe("codex-service approval fallback", () => {
       });
 
       expect(result).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
       expect(serviceInternals.getMaybeConversationRecord(threadId)?.detail?.archived).toBe(true);
       expect(serviceInternals.getMaybeConversationRecord(threadId)?.serverRequests.length).toBe(0);
     } finally {
@@ -13388,7 +13373,6 @@ describe("codex-service approval fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      pendingDynamicToolCalls: { readonly size: number };
       getConversationRecord: (threadId: string) => {
         serverRequests: Array<{ id: string | number; method: string }>;
       };
@@ -13417,7 +13401,6 @@ describe("codex-service approval fallback", () => {
 
     try {
       await Promise.resolve();
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(1);
       expect(serviceInternals.getConversationRecord("").serverRequests.length).toBe(1);
       expect(
         await serviceInternals.respondToSetupCodexStep("", "stored-dynamic-empty-thread", {
@@ -13437,7 +13420,6 @@ describe("codex-service approval fallback", () => {
           success: true,
         }),
       );
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
     } finally {
       await service.shutdown();
     }
@@ -13452,7 +13434,6 @@ describe("codex-service approval fallback", () => {
         params: unknown;
       }) => Promise<unknown>;
       handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-      pendingDynamicToolCalls: { readonly size: number };
       getConversationRecord: (threadId: string) => {
         serverRequests: Array<{ id: string | number; method: string }>;
       };
@@ -13475,7 +13456,6 @@ describe("codex-service approval fallback", () => {
       const firstPromise = request("call-withdraw-stored-empty-thread-1");
       const secondPromise = request("call-withdraw-stored-empty-thread-2");
       await Promise.resolve();
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(2);
       expect(serviceInternals.getConversationRecord("").serverRequests.length).toBe(2);
 
       await serviceInternals.handleNotification({
@@ -13488,7 +13468,6 @@ describe("codex-service approval fallback", () => {
 
       expect(await firstPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
       expect(await secondPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
       expect(serviceInternals.getConversationRecord("").serverRequests.length).toBe(0);
     } finally {
       await service.shutdown();
@@ -13503,7 +13482,6 @@ describe("codex-service approval fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      pendingDynamicToolCalls: { readonly size: number };
       respondToDynamicToolCall: (
         requestId: string | number,
         conversationId: string,
@@ -13574,7 +13552,6 @@ describe("codex-service approval fallback", () => {
       await Promise.resolve();
 
       expect(ownerMessages.length).toBe(3);
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(3);
       expect(
         JSON.stringify(
           serviceInternals
@@ -13588,14 +13565,12 @@ describe("codex-service approval fallback", () => {
         "Unsupported dynamic tool: unsupported_occurrence_first",
       );
       expect(JSON.stringify(await firstDispatchedPromise)).toBe(JSON.stringify(firstResponse));
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(2);
 
       const secondResponse = await serviceInternals.respondToDynamicToolCall(requestId, threadId);
       expect(secondResponse?.contentItems[0]?.text).toBe(
         "Unsupported dynamic tool: unsupported_occurrence_second",
       );
       expect(JSON.stringify(await secondDispatchedPromise)).toBe(JSON.stringify(secondResponse));
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(1);
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(1);
 
       expect(
@@ -13614,7 +13589,6 @@ describe("codex-service approval fallback", () => {
           success: true,
         }),
       );
-      expect(serviceInternals.pendingDynamicToolCalls.size).toBe(0);
       expect(serviceInternals.getConversationRecord(threadId).serverRequests.length).toBe(0);
     } finally {
       await service.shutdown();
@@ -13631,13 +13605,6 @@ describe("codex-service approval fallback", () => {
           method: string;
           params: unknown;
         }) => Promise<unknown>;
-        pendingApprovals: Map<
-          string | number,
-          {
-            request: { requestId: string | number };
-            reject: (reason?: unknown) => void;
-          }
-        >;
         getConversationRecord: (threadId: string) => {
           canonicalState: CodexCanonicalConversationState | null;
           serverRequests: Array<{ id: string | number }>;
@@ -13690,9 +13657,6 @@ describe("codex-service approval fallback", () => {
         });
 
         await Promise.resolve();
-        expect(serviceInternals.pendingApprovals.size).toBe(3);
-        expect(serviceInternals.pendingApprovals.has(42)).toBe(true);
-        expect(serviceInternals.pendingApprovals.has("42")).toBe(true);
         const approvalItem = getRecordedItem(
           serviceInternals,
           "thr_request_id",
@@ -13726,9 +13690,6 @@ describe("codex-service approval fallback", () => {
         ).toBe(true);
         expect(JSON.stringify(await numericPromise)).toBe(JSON.stringify({ decision: "decline" }));
         expect(await duplicateNumericPromise).toBe(CODEX_SERVER_REQUEST_NO_RESPONSE);
-        expect(serviceInternals.pendingApprovals.size).toBe(1);
-        expect(serviceInternals.pendingApprovals.has(42)).toBe(false);
-        expect(serviceInternals.pendingApprovals.has("42")).toBe(true);
         expect(
           JSON.stringify(
             serviceInternals
@@ -13744,10 +13705,13 @@ describe("codex-service approval fallback", () => {
           ),
         ).toBe(JSON.stringify(["42"]));
 
-        for (const pending of serviceInternals.pendingApprovals.values()) {
-          pending.reject(new Error("test cleanup"));
-        }
-        await textualPromise.catch(() => undefined);
+        expect(
+          await serviceInternals.respondToApproval("42", {
+            kind: "command",
+            decision: "decline",
+          }),
+        ).toBe(true);
+        expect(JSON.stringify(await textualPromise)).toBe(JSON.stringify({ decision: "decline" }));
       } finally {
         await service.shutdown();
       }
@@ -13771,7 +13735,6 @@ describe("codex-service approval fallback", () => {
       getConversationRecord: (threadId: string) => {
         serverRequests: Array<{ id: string | number }>;
       };
-      pendingApprovals: Map<string | number, unknown>;
       respondToApproval: (
         requestId: string | number,
         response: CodexApprovalResponse,
@@ -13822,7 +13785,6 @@ describe("codex-service approval fallback", () => {
         ),
       ).toBe(true);
       expect(JSON.stringify(await secondPromise)).toBe(JSON.stringify({ decision: "decline" }));
-      expect(serviceInternals.pendingApprovals.size).toBe(1);
       expect(serviceInternals.getConversationRecord(firstThreadId).serverRequests.length).toBe(1);
       expect(serviceInternals.getConversationRecord(secondThreadId).serverRequests.length).toBe(0);
 
@@ -13853,7 +13815,6 @@ describe("codex-service approval fallback", () => {
         serverRequests: Array<{ id: string | number; method: string }>;
       };
       requestConversationResume: (threadId: string) => Promise<CodexConversationSnapshot | null>;
-      pendingApprovals: { size: number };
       respondToApproval: (
         requestId: string | number,
         response: CodexApprovalResponse,
@@ -13908,7 +13869,6 @@ describe("codex-service approval fallback", () => {
           input.threadId,
         ),
       ).toBe(false);
-      expect(serviceInternals.pendingApprovals.size).toBe(2);
       expect(
         JSON.stringify(
           serviceInternals
@@ -16136,7 +16096,6 @@ describe("codex-service item lifecycle status fallback", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      pendingMcpElicitations: Map<string, unknown>;
       setRendererConversationOwner: (threadId: string, clientId: string | null | undefined) => void;
       on: (
         event: "rendererOwnerHostMessage",
@@ -16199,8 +16158,6 @@ describe("codex-service item lifecycle status fallback", () => {
           _meta: null,
         }),
       );
-      expect(serviceInternals.pendingMcpElicitations.has("mcp_invalid")).toBe(false);
-      expect(serviceInternals.pendingMcpElicitations.has("mcp_unknown_mode")).toBe(false);
       expect(String(ownerMessages.length)).toBe("0");
       expect(String(hostMessages.length)).toBe("0");
     } finally {

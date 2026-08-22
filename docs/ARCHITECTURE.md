@@ -688,6 +688,19 @@ commits the new host with cwd and runtime roots. SSH adapters are registered onl
 after health, worker-deployment, file-transfer, and app-server capabilities are
 ready; renderer and Core never receive SSH credentials or arbitrary commands.
 
+Server-request transport and application presentation have separate, single
+authorities. `ApprovalCoordinator` routes each request occurrence to the
+Thread-scoped `ConversationRuntimeMap`, whose `Deferred` is the only transport
+waiter. `CodexPendingServerRequestRuntime` owns the application inbox for
+approval, user-input, permission, MCP elicitation, private picker, and dynamic
+tool occurrences. Its FIFO lanes preserve duplicate scalar JSON-RPC ids and
+keep numeric and textual ids distinct; claimed entries remain Scope-tracked
+until their exact occurrence token is completed. Disconnect, history pruning,
+Thread cleanup, and Main Scope close all settle the same inbox. Canonical
+conversation reducers remain the sole owner of transcript/request truth and
+select which inbox occurrences receive a response; they do not own completion
+callbacks, pending maps, or shutdown rejection loops.
+
 `CodexThreadHandoffRuntime` is the single owner of the cross-system compensation
 transaction. It atomically reserves one operation per Thread before resolving
 external state, journals every durable boundary before advancing, and keeps the

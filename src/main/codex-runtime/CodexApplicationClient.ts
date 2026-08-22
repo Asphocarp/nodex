@@ -53,7 +53,8 @@ export type ClientRequestParams<TMethod extends ClientRequestMethod> = Extract<
 
 export type CodexServerNotification = ServerNotification;
 /** @deprecated Use the Effect protocol sentinel directly in new application Modules. */
-export const CODEX_SERVER_REQUEST_NO_RESPONSE = CodexAppServerNoResponse;
+export const CODEX_SERVER_REQUEST_NO_RESPONSE: typeof CodexAppServerNoResponse =
+  CodexAppServerNoResponse;
 
 // oxlint-disable-next-line effecttsgo/extends-native-error -- Promise adapter callers require Error identity; this type never enters an Effect failure channel.
 export class CodexRpcError extends Error {

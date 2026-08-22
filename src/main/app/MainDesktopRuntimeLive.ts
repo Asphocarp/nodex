@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { performance } from "node:perf_hooks";
+import { CodexAppServerRequestError } from "@nodex/effect-codex-app-server/errors";
 import { NodexAgentAuthorizationBroker } from "../agent-tools/authorization-broker";
 import {
   CoreAuthority,
@@ -71,7 +72,8 @@ import {
   CodexGlobalServerRequestRuntime,
   applicationRequestDispatcherLive,
 } from "../codex-application/ApprovalCoordinator";
-import { makeServerRequestResponsesPromiseAdapter } from "../codex-application/ServerRequestResponsesPromiseAdapter";
+import { make as makeCodexPendingServerRequestRuntime } from "../codex-application/CodexPendingServerRequestRuntime";
+import { makeCodexPendingServerRequestRuntimePromiseAdapter } from "../codex-application/CodexPendingServerRequestRuntimePromiseAdapter";
 import {
   CodexActiveGoalContinuationError,
   make as makeCodexActiveGoalContinuation,
@@ -494,6 +496,24 @@ export const live: Layer.Layer<
         const conversationRuntimes = Context.get(requestHandlingContext, ConversationRuntimeMap);
         const serverRequests = Context.get(requestHandlingContext, CodexServerRequestRuntime);
         const approvalCoordinator = Context.get(requestHandlingContext, ApprovalCoordinator);
+        const pendingServerRequests = yield* makeCodexPendingServerRequestRuntime({
+          respond: (threadId, _requestId, occurrenceToken, response) =>
+            approvalCoordinator.respondToken(threadId, occurrenceToken, response),
+          reject: (threadId, requestId, occurrenceToken, reason) =>
+            approvalCoordinator.rejectToken(
+              threadId,
+              occurrenceToken,
+              CodexAppServerRequestError.internalError(
+                "Codex application request failed",
+                undefined,
+                {
+                  operation: "handle-request",
+                  requestId: String(requestId),
+                  cause: reason,
+                },
+              ),
+            ),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const codexDependencies = Layer.mergeAll(
           CodexSessionTransport.nodeLive,
           Layer.succeed(CodexServerRequestRuntime, serverRequests),
@@ -1649,8 +1669,8 @@ export const live: Layer.Layer<
               permissions: makeCodexPermissionsPromiseAdapter(codexPermissions, callbacks),
               persistedAtoms,
               attachments: attachments.legacy,
-              serverRequestResponses: makeServerRequestResponsesPromiseAdapter(
-                approvalCoordinator,
+              pendingServerRequests: makeCodexPendingServerRequestRuntimePromiseAdapter(
+                pendingServerRequests,
                 callbacks,
               ),
               activeGoalContinuation: activeGoalContinuationCallbacks,

@@ -274,7 +274,7 @@ import {
   ThreadGoalAttachmentDirectoryManager,
 } from "../thread-goal-attachments";
 import type { CodexAttachments } from "../codex-application/CodexAttachments";
-import type { ServerRequestResponsesPromiseAdapter } from "../codex-application/ServerRequestResponsesPromiseAdapter";
+import type { CodexPendingServerRequestRuntimePromiseAdapter } from "../codex-application/CodexPendingServerRequestRuntimePromiseAdapter";
 import { CodexApplicationRequestPending } from "../codex-application/ApprovalCoordinator";
 import {
   buildThreadPermissionOverrides,
@@ -1023,130 +1023,6 @@ function hasSidebarThreadSummaryChanged(
   );
 }
 
-interface PendingApproval {
-  request: CodexApprovalRequest;
-  resolve: (
-    value:
-      | CommandExecutionRequestApprovalResponse
-      | FileChangeRequestApprovalResponse
-      | typeof CODEX_SERVER_REQUEST_NO_RESPONSE,
-  ) => void;
-  reject: (reason?: unknown) => void;
-}
-
-interface PendingUserInput {
-  request: CodexUserInputRequest;
-  resolve: (
-    value:
-      | { answers: Record<string, { answers: string[] }> }
-      | typeof CODEX_SERVER_REQUEST_NO_RESPONSE,
-  ) => void;
-  reject: (reason?: unknown) => void;
-}
-
-interface PendingMcpServerElicitation {
-  request: CodexMcpServerElicitationRequest;
-  resolve: (
-    value: McpServerElicitationRequestResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE,
-  ) => void;
-  reject: (reason?: unknown) => void;
-}
-
-interface PendingPermissionRequest {
-  request: CodexPermissionRequest;
-  resolve: (
-    value: PermissionsRequestApprovalResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE,
-  ) => void;
-  reject: (reason?: unknown) => void;
-}
-
-interface PendingPrivateServerRequest {
-  request: Extract<
-    CodexServerRequest,
-    {
-      method: "item/tool/requestOptionPicker" | "item/tool/requestSetupCodexContextPicker";
-    }
-  >;
-  resolve: (value: unknown) => void;
-  reject: (reason?: unknown) => void;
-}
-
-interface PendingDynamicToolCall {
-  request: CodexServerRequest & { method: "item/tool/call"; params: DynamicToolCallParams };
-  nodexAuthority: FrozenNodexAgentTurnAuthority | null;
-  disposition: "stored" | "dispatched";
-  resolve: (value: DynamicToolCallResponse | typeof CODEX_SERVER_REQUEST_NO_RESPONSE) => void;
-  reject: (reason?: unknown) => void;
-}
-
-/**
- * JSON-RPC ids are scalar correlation tokens, not unique state keys. The
- * reference state appends duplicate envelopes, so transport waiters must do
- * the same instead of overwriting an earlier Promise in a Map.
- */
-class PendingServerRequestRegistry<T> {
-  private readonly entriesById = new Map<RequestId, T[]>();
-
-  get size(): number {
-    let size = 0;
-    for (const entries of this.entriesById.values()) size += entries.length;
-    return size;
-  }
-
-  has(requestId: RequestId): boolean {
-    return (this.entriesById.get(requestId)?.length ?? 0) > 0;
-  }
-
-  get(requestId: RequestId): T | undefined {
-    return this.entriesById.get(requestId)?.[0];
-  }
-
-  find(requestId: RequestId, predicate: (entry: T) => boolean): T | undefined {
-    return this.entriesById.get(requestId)?.find(predicate);
-  }
-
-  set(requestId: RequestId, entry: T): this {
-    const entries = this.entriesById.get(requestId) ?? [];
-    entries.push(entry);
-    this.entriesById.set(requestId, entries);
-    return this;
-  }
-
-  takeFirst(requestId: RequestId, predicate: (entry: T) => boolean = () => true): T | undefined {
-    const entries = this.entriesById.get(requestId);
-    if (!entries) return undefined;
-    const index = entries.findIndex(predicate);
-    if (index < 0) return undefined;
-    const [entry] = entries.splice(index, 1);
-    if (entries.length === 0) this.entriesById.delete(requestId);
-    return entry;
-  }
-
-  takeAll(requestId: RequestId, predicate: (entry: T) => boolean = () => true): T[] {
-    const entries = this.entriesById.get(requestId);
-    if (!entries) return [];
-    const selected = entries.filter(predicate);
-    const retained = entries.filter((entry) => !predicate(entry));
-    if (retained.length === 0) this.entriesById.delete(requestId);
-    else this.entriesById.set(requestId, retained);
-    return selected;
-  }
-
-  *values(): IterableIterator<T> {
-    for (const entries of this.entriesById.values()) yield* entries;
-  }
-
-  *entries(): IterableIterator<[RequestId, T]> {
-    for (const [requestId, entries] of this.entriesById) {
-      for (const entry of entries) yield [requestId, entry];
-    }
-  }
-
-  clear(): void {
-    this.entriesById.clear();
-  }
-}
-
 type AutomationUpdateMode =
   | "list"
   | "view"
@@ -1274,8 +1150,6 @@ interface AcceptedConversationDocumentSyncOptions {
   syncChildMemberships?: boolean;
 }
 
-type InternalNotificationHandler = (notification: CodexServerNotification) => void;
-
 type CodexCanonicalHydrationInput = Pick<
   ThreadResumeResponse,
   | "thread"
@@ -1338,7 +1212,7 @@ type CodexServiceOptions = {
   client: CodexApplicationClient;
   desktopTools: DesktopToolRuntimePromiseAdapter;
   attachments: CodexAttachments["Service"]["legacy"];
-  serverRequestResponses: ServerRequestResponsesPromiseAdapter;
+  pendingServerRequests: CodexPendingServerRequestRuntimePromiseAdapter;
   persistedAtoms: PersistedAtomStore;
   sessionStore: CodexSessionStore;
   runtime: ResolvedCodexRuntime;
@@ -2545,7 +2419,7 @@ export class CodexService extends EventEmitter {
     | null;
   private readonly projectlessHomeDirectory: () => string;
   private readonly attachments: CodexAttachments["Service"]["legacy"];
-  private readonly serverRequestResponses: ServerRequestResponsesPromiseAdapter;
+  private readonly pendingServerRequests: CodexPendingServerRequestRuntimePromiseAdapter;
   private readonly persistedAtoms: PersistedAtomStore;
   private readonly sessionStore: CodexSessionStore;
   private readonly loadWorktreeSetupBaseEnvironment: (() => Promise<NodeJS.ProcessEnv>) | undefined;
@@ -2574,16 +2448,6 @@ export class CodexService extends EventEmitter {
     "Nodex Agent resource authority",
   );
 
-  private readonly pendingApprovals = new PendingServerRequestRegistry<PendingApproval>();
-  private readonly pendingUserInputs = new PendingServerRequestRegistry<PendingUserInput>();
-  private readonly pendingMcpElicitations =
-    new PendingServerRequestRegistry<PendingMcpServerElicitation>();
-  private readonly pendingPermissionRequests =
-    new PendingServerRequestRegistry<PendingPermissionRequest>();
-  private readonly pendingDynamicToolCalls =
-    new PendingServerRequestRegistry<PendingDynamicToolCall>();
-  private readonly pendingPrivateServerRequests =
-    new PendingServerRequestRegistry<PendingPrivateServerRequest>();
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
@@ -2596,7 +2460,6 @@ export class CodexService extends EventEmitter {
   private readonly conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   private readonly conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   private readonly freshThreadLaunch: CodexFreshThreadLaunchRuntimePromiseAdapter;
-  private readonly internalNotificationHandlers = new Set<InternalNotificationHandler>();
   private readonly internalThreadIds = new Map<string, InternalThreadMetadata>();
   private readonly subagentThreadIds = new Set<string>();
   private readonly deletedThreadIds = new Set<string>();
@@ -2648,7 +2511,7 @@ export class CodexService extends EventEmitter {
     this.nodexAgentDynamicService = options.nodexAgentDynamicService;
     this.executionHosts = options.executionHosts;
     this.attachments = options.attachments;
-    this.serverRequestResponses = options.serverRequestResponses;
+    this.pendingServerRequests = options.pendingServerRequests;
     this.persistedAtoms = options.persistedAtoms;
     this.sessionStore = options.sessionStore;
     this.activeGoalContinuation = options.activeGoalContinuation;
@@ -2833,10 +2696,6 @@ export class CodexService extends EventEmitter {
     this.emitEvent({ type: "scheduledAutomationChanged", event });
   }
 
-  observeAppServerNotifications(handler: InternalNotificationHandler): () => void {
-    return this.registerInternalNotificationHandler(handler);
-  }
-
   private notifyAutomationRunThreadUpdated(
     threadId: string,
     reason: CodexAutomationRunsUpdatedEvent["reason"],
@@ -2875,13 +2734,6 @@ export class CodexService extends EventEmitter {
         error,
       });
     }
-  }
-
-  private registerInternalNotificationHandler(handler: InternalNotificationHandler): () => void {
-    this.internalNotificationHandlers.add(handler);
-    return () => {
-      this.internalNotificationHandlers.delete(handler);
-    };
   }
 
   private markInternalThread(
@@ -3042,17 +2894,6 @@ export class CodexService extends EventEmitter {
       }
     }
 
-    for (const handler of [...this.internalNotificationHandlers]) {
-      try {
-        handler(notification);
-      } catch (error) {
-        this.logger.warn("Internal Codex notification handler failed", {
-          method: notification.method,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
     this.registerInternalThreadFromStartedNotification(notification);
     await this.registerSubagentThreadFromStartedNotification(notification);
     const threadId = this.resolveNotificationThreadId(notification);
@@ -3121,7 +2962,7 @@ export class CodexService extends EventEmitter {
       threadId,
       request,
       completion: () =>
-        this.buildServerRequestCompletion(
+        this.pendingServerRequests.completion(
           threadId,
           request.id,
           request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
@@ -3998,12 +3839,7 @@ export class CodexService extends EventEmitter {
   }
 
   private rejectPendingDynamicToolCallsForThread(threadId: string, reason: unknown): void {
-    for (const [requestId, pending] of [...this.pendingDynamicToolCalls.entries()]) {
-      if (pending.request.params.threadId !== threadId) continue;
-      if (pending.disposition === "stored") continue;
-      pending.reject(reason);
-      this.pendingDynamicToolCalls.takeFirst(requestId, (candidate) => candidate === pending);
-    }
+    this.pendingServerRequests.rejectDispatchedDynamicForThread(threadId, reason);
   }
 
   publishRendererThreadStreamStateChange(
@@ -5870,47 +5706,7 @@ export class CodexService extends EventEmitter {
     const shouldRetainTurn = (turnId: string): boolean =>
       (retainTurnless && turnId.length === 0) || retainedTurnIds.has(turnId);
 
-    for (const [requestId, pending] of [...this.pendingApprovals.entries()]) {
-      if (pending.request.threadId !== threadId) continue;
-      if (shouldRetainTurn(pending.request.turnId)) continue;
-      pending.reject(new Error("Approval request cleared after thread history changed"));
-      this.pendingApprovals.takeFirst(requestId, (candidate) => candidate === pending);
-    }
-
-    for (const [requestId, pending] of [...this.pendingUserInputs.entries()]) {
-      if (pending.request.threadId !== threadId) continue;
-      if (shouldRetainTurn(pending.request.turnId)) continue;
-      pending.reject(new Error("User input request cleared after thread history changed"));
-      this.pendingUserInputs.takeFirst(requestId, (candidate) => candidate === pending);
-    }
-
-    for (const [requestId, pending] of [...this.pendingMcpElicitations.entries()]) {
-      if (pending.request.threadId !== threadId) continue;
-      if (shouldRetainTurn(pending.request.turnId)) continue;
-      pending.reject(new Error("MCP elicitation cleared after thread history changed"));
-      this.pendingMcpElicitations.takeFirst(requestId, (candidate) => candidate === pending);
-    }
-
-    for (const [requestId, pending] of [...this.pendingPermissionRequests.entries()]) {
-      if (pending.request.threadId !== threadId) continue;
-      if (shouldRetainTurn(pending.request.turnId)) continue;
-      pending.reject(new Error("Permission request cleared after thread history changed"));
-      this.pendingPermissionRequests.takeFirst(requestId, (candidate) => candidate === pending);
-    }
-
-    for (const [requestId, pending] of [...this.pendingPrivateServerRequests.entries()]) {
-      if (pending.request.params.threadId !== threadId) continue;
-      if (shouldRetainTurn(pending.request.params.turnId)) continue;
-      pending.reject(new Error("Private server request cleared after thread history changed"));
-      this.pendingPrivateServerRequests.takeFirst(requestId, (candidate) => candidate === pending);
-    }
-
-    for (const [requestId, pending] of [...this.pendingDynamicToolCalls.entries()]) {
-      if (pending.request.params.threadId !== threadId) continue;
-      if (shouldRetainTurn(pending.request.params.turnId)) continue;
-      pending.reject(new Error("Dynamic tool call cleared after thread history changed"));
-      this.pendingDynamicToolCalls.takeFirst(requestId, (candidate) => candidate === pending);
-    }
+    this.pendingServerRequests.rejectRemovedTurns(threadId, retainedTurnIds, options);
 
     const record = this.getMaybeConversationRecord(threadId);
     if (record) {
@@ -6405,13 +6201,14 @@ export class CodexService extends EventEmitter {
   }
 
   async shutdown(): Promise<void> {
+    const pendingServerRequests = this.pendingServerRequests.counts();
     this.logger.info("Shutting down Codex service", {
-      pendingApprovals: this.pendingApprovals.size,
-      pendingUserInputs: this.pendingUserInputs.size,
-      pendingMcpElicitations: this.pendingMcpElicitations.size,
-      pendingPermissionRequests: this.pendingPermissionRequests.size,
-      pendingPrivateServerRequests: this.pendingPrivateServerRequests.size,
-      pendingDynamicToolCalls: this.pendingDynamicToolCalls.size,
+      pendingApprovals: pendingServerRequests.approvals,
+      pendingUserInputs: pendingServerRequests.userInputs,
+      pendingMcpElicitations: pendingServerRequests.mcpElicitations,
+      pendingPermissionRequests: pendingServerRequests.permissionRequests,
+      pendingPrivateServerRequests: pendingServerRequests.privateServerRequests,
+      pendingDynamicToolCalls: pendingServerRequests.dynamicToolCalls,
     });
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.forkSidePanelTransferLifecycle?.clear();
@@ -6419,35 +6216,7 @@ export class CodexService extends EventEmitter {
     await this.freshThreadLaunch.shutdown();
     await this.conversationEventBuffer.shutdown(new Error("Codex service is shutting down"));
     await this.sidebarSweep.cancel();
-    for (const pending of this.pendingApprovals.values()) {
-      pending.reject(new Error("Codex service shutting down"));
-    }
-    this.pendingApprovals.clear();
-
-    for (const pending of this.pendingUserInputs.values()) {
-      pending.reject(new Error("Codex service shutting down"));
-    }
-    this.pendingUserInputs.clear();
-
-    for (const pending of this.pendingMcpElicitations.values()) {
-      pending.reject(new Error("Codex service shutting down"));
-    }
-    this.pendingMcpElicitations.clear();
-
-    for (const pending of this.pendingPermissionRequests.values()) {
-      pending.reject(new Error("Codex service shutting down"));
-    }
-    this.pendingPermissionRequests.clear();
-
-    for (const pending of this.pendingPrivateServerRequests.values()) {
-      pending.reject(new Error("Codex service shutting down"));
-    }
-    this.pendingPrivateServerRequests.clear();
-
-    for (const pending of this.pendingDynamicToolCalls.values()) {
-      pending.reject(new Error("Codex service shutting down"));
-    }
-    this.pendingDynamicToolCalls.clear();
+    await this.pendingServerRequests.shutdown(new Error("Codex service shutting down"));
 
     await this.client.dispose();
   }
@@ -18572,36 +18341,6 @@ export class CodexService extends EventEmitter {
     this.syncAcceptedConversationDocumentSilently(threadId);
   }
 
-  private buildServerRequestCompletion(
-    threadId: string,
-    requestId: RequestId,
-    occurrenceToken: number | undefined,
-  ) {
-    if (occurrenceToken === undefined) {
-      throw new Error("Codex application request is missing its Effect occurrence token");
-    }
-    const observeFailure = (operation: "respond" | "reject", failure: unknown): void => {
-      this.logger.warn("Codex server request completion failed", {
-        operation,
-        threadId,
-        requestId,
-        error: failure instanceof Error ? failure.message : String(failure),
-      });
-    };
-    return {
-      resolve: (response: unknown): void => {
-        void this.serverRequestResponses
-          .respond(threadId, requestId, occurrenceToken, response)
-          .catch((failure: unknown) => observeFailure("respond", failure));
-      },
-      reject: (reason?: unknown): void => {
-        void this.serverRequestResponses
-          .reject(threadId, requestId, occurrenceToken, reason)
-          .catch((failure: unknown) => observeFailure("reject", failure));
-      },
-    };
-  }
-
   async respondToApproval(
     requestId: RequestId,
     response: CodexApprovalResponse,
@@ -18609,12 +18348,17 @@ export class CodexService extends EventEmitter {
   ): Promise<boolean> {
     const { kind, decision } = response;
     const pending = conversationId
-      ? this.pendingApprovals.find(
+      ? this.pendingServerRequests.find(
+          "approval",
           requestId,
           (candidate) =>
             candidate.request.threadId === conversationId && candidate.request.kind === kind,
         )
-      : this.pendingApprovals.find(requestId, (candidate) => candidate.request.kind === kind);
+      : this.pendingServerRequests.find(
+          "approval",
+          requestId,
+          (candidate) => candidate.request.kind === kind,
+        );
     if (!pending) return false;
     const record = this.getConversationRecord(pending.request.threadId);
     const before = record.canonicalState;
@@ -18625,7 +18369,8 @@ export class CodexService extends EventEmitter {
       getCodexApprovalRequestMethod(kind),
     );
     if (lifecycle.selectedRequests.length === 0) return false;
-    const selectedPendings = this.pendingApprovals.takeAll(
+    const selectedPendings = this.pendingServerRequests.takeAll(
+      "approval",
       requestId,
       (candidate) => candidate.request.threadId === pending.request.threadId,
     );
@@ -18653,11 +18398,14 @@ export class CodexService extends EventEmitter {
         });
       }
       for (const selectedPending of selectedPendings) {
-        selectedPending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+        this.pendingServerRequests.complete(selectedPending, CODEX_SERVER_REQUEST_NO_RESPONSE);
       }
     } else {
       for (const [index, selectedPending] of selectedPendings.entries()) {
-        selectedPending.resolve(index === 0 ? { decision } : CODEX_SERVER_REQUEST_NO_RESPONSE);
+        this.pendingServerRequests.complete(
+          selectedPending,
+          index === 0 ? { decision } : CODEX_SERVER_REQUEST_NO_RESPONSE,
+        );
       }
     }
     this.applyServerRequestCanonicalLifecycleResult(pending.request.threadId, before, lifecycle);
@@ -18738,7 +18486,8 @@ export class CodexService extends EventEmitter {
       if (!before) return false;
       const lifecycle = reduceCodexConversationOnboardingInputResponse(before, requestId);
       if (lifecycle.selectedRequests.length === 0) return false;
-      const selectedPendings = this.pendingDynamicToolCalls.takeAll(
+      const selectedPendings = this.pendingServerRequests.takeAll(
+        "dynamic-tool",
         requestId,
         (candidate) =>
           candidate.disposition === "stored" &&
@@ -18753,10 +18502,13 @@ export class CodexService extends EventEmitter {
             tool: "request_onboarding_input",
           })
         ) {
-          selectedPending.resolve(this.buildDynamicToolSuccess({ answers: normalizedAnswers }));
+          this.pendingServerRequests.complete(
+            selectedPending,
+            this.buildDynamicToolSuccess({ answers: normalizedAnswers }),
+          );
           didResolveResponse = true;
         } else {
-          selectedPending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+          this.pendingServerRequests.complete(selectedPending, CODEX_SERVER_REQUEST_NO_RESPONSE);
         }
       }
       this.applyServerRequestCanonicalLifecycleResult(requestedConversationId, before, lifecycle);
@@ -18769,11 +18521,12 @@ export class CodexService extends EventEmitter {
     }
 
     const pending = conversationId
-      ? this.pendingUserInputs.find(
+      ? this.pendingServerRequests.find(
+          "user-input",
           requestId,
           (candidate) => candidate.request.threadId === conversationId,
         )
-      : this.pendingUserInputs.get(requestId);
+      : this.pendingServerRequests.find("user-input", requestId);
     if (!pending) return false;
     const record = this.getConversationRecord(pending.request.threadId);
     const before = record.canonicalState;
@@ -18794,12 +18547,14 @@ export class CodexService extends EventEmitter {
       answeredQuestionCount: Object.keys(normalizedAnswers).length,
     });
 
-    const selectedPendings = this.pendingUserInputs.takeAll(
+    const selectedPendings = this.pendingServerRequests.takeAll(
+      "user-input",
       requestId,
       (candidate) => candidate.request.threadId === pending.request.threadId,
     );
     for (const [index, selectedPending] of selectedPendings.entries()) {
-      selectedPending.resolve(
+      this.pendingServerRequests.complete(
+        selectedPending,
         index === 0 ? { answers: normalizedAnswers } : CODEX_SERVER_REQUEST_NO_RESPONSE,
       );
     }
@@ -18824,11 +18579,12 @@ export class CodexService extends EventEmitter {
     conversationId?: string,
   ): Promise<boolean> {
     const pending = conversationId
-      ? this.pendingMcpElicitations.find(
+      ? this.pendingServerRequests.find(
+          "mcp-elicitation",
           requestId,
           (candidate) => candidate.request.threadId === conversationId,
         )
-      : this.pendingMcpElicitations.get(requestId);
+      : this.pendingServerRequests.find("mcp-elicitation", requestId);
     if (!pending) return false;
     const normalizedResponse = normalizeCodexMcpServerElicitationResponse(response);
     const record = this.getConversationRecord(pending.request.threadId);
@@ -18852,12 +18608,13 @@ export class CodexService extends EventEmitter {
 
     const selectedTurnIds = new Set<string>();
     for (const selectedRequest of lifecycle.selectedRequests) {
-      const selectedPending = this.pendingMcpElicitations.takeFirst(
+      const selectedPending = this.pendingServerRequests.takeFirst(
+        "mcp-elicitation",
         selectedRequest.id,
         (candidate) => candidate.request.threadId === pending.request.threadId,
       );
       if (!selectedPending) continue;
-      selectedPending.resolve(normalizedResponse);
+      this.pendingServerRequests.complete(selectedPending, normalizedResponse);
       if (selectedPending.request.turnId) {
         selectedTurnIds.add(selectedPending.request.turnId);
       }
@@ -18882,11 +18639,12 @@ export class CodexService extends EventEmitter {
     conversationId?: string,
   ): Promise<boolean> {
     const pending = conversationId
-      ? this.pendingPermissionRequests.find(
+      ? this.pendingServerRequests.find(
+          "permission",
           requestId,
           (candidate) => candidate.request.threadId === conversationId,
         )
-      : this.pendingPermissionRequests.get(requestId);
+      : this.pendingServerRequests.find("permission", requestId);
     if (!pending) return false;
     const record = this.getConversationRecord(pending.request.threadId);
     const before = record.canonicalState;
@@ -18903,12 +18661,16 @@ export class CodexService extends EventEmitter {
       scope: response.scope,
     });
 
-    const selectedPendings = this.pendingPermissionRequests.takeAll(
+    const selectedPendings = this.pendingServerRequests.takeAll(
+      "permission",
       requestId,
       (candidate) => candidate.request.threadId === pending.request.threadId,
     );
     for (const [index, selectedPending] of selectedPendings.entries()) {
-      selectedPending.resolve(index === 0 ? response : CODEX_SERVER_REQUEST_NO_RESPONSE);
+      this.pendingServerRequests.complete(
+        selectedPending,
+        index === 0 ? response : CODEX_SERVER_REQUEST_NO_RESPONSE,
+      );
     }
     this.applyServerRequestCanonicalLifecycleResult(pending.request.threadId, before, lifecycle);
     this.abandonOtherPendingRequestsById(pending.request.threadId, requestId);
@@ -18919,77 +18681,13 @@ export class CodexService extends EventEmitter {
   }
 
   private clearPendingServerRequestsAfterDisconnect(): void {
-    const requestsByIdentity = new Map<string, { threadId: string; requestId: RequestId }>();
-    const remember = (threadId: string, requestId: RequestId) => {
-      requestsByIdentity.set(`${threadId}\u0000${typeof requestId}:${String(requestId)}`, {
-        threadId,
-        requestId,
-      });
-    };
-
-    for (const [requestId, pending] of this.pendingApprovals.entries()) {
-      remember(pending.request.threadId, requestId);
-    }
-    for (const [requestId, pending] of this.pendingUserInputs.entries()) {
-      remember(pending.request.threadId, requestId);
-    }
-    for (const [requestId, pending] of this.pendingMcpElicitations.entries()) {
-      remember(pending.request.threadId, requestId);
-    }
-    for (const [requestId, pending] of this.pendingPermissionRequests.entries()) {
-      remember(pending.request.threadId, requestId);
-    }
-    for (const [requestId, pending] of this.pendingPrivateServerRequests.entries()) {
-      remember(pending.request.params.threadId, requestId);
-    }
-    for (const [requestId, pending] of this.pendingDynamicToolCalls.entries()) {
-      if (pending.disposition !== "stored") continue;
-      remember(pending.request.params.threadId, requestId);
-    }
-
-    for (const { threadId, requestId } of requestsByIdentity.values()) {
+    for (const { threadId, requestId } of this.pendingServerRequests.disconnectIdentities()) {
       this.resolvePendingServerRequest(threadId, requestId);
     }
   }
 
   private abandonOtherPendingRequestsById(threadId: string, requestId: RequestId): void {
-    for (const pending of this.pendingApprovals.takeAll(
-      requestId,
-      (candidate) => candidate.request.threadId === threadId,
-    )) {
-      pending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
-    }
-    for (const pending of this.pendingUserInputs.takeAll(
-      requestId,
-      (candidate) => candidate.request.threadId === threadId,
-    )) {
-      pending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
-    }
-    for (const pending of this.pendingMcpElicitations.takeAll(
-      requestId,
-      (candidate) => candidate.request.threadId === threadId,
-    )) {
-      pending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
-    }
-    for (const pending of this.pendingPermissionRequests.takeAll(
-      requestId,
-      (candidate) => candidate.request.threadId === threadId,
-    )) {
-      pending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
-    }
-    for (const pending of this.pendingPrivateServerRequests.takeAll(
-      requestId,
-      (candidate) => candidate.request.params.threadId === threadId,
-    )) {
-      pending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
-    }
-    for (const pending of this.pendingDynamicToolCalls.takeAll(
-      requestId,
-      (candidate) =>
-        candidate.disposition === "stored" && candidate.request.params.threadId === threadId,
-    )) {
-      pending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
-    }
+    this.pendingServerRequests.abandonIdentity(threadId, requestId);
   }
 
   private syncPlanImplementationForTurn(threadId: string, turnId: string): void {
@@ -21916,17 +21614,13 @@ export class CodexService extends EventEmitter {
       return await this.handleDynamicToolCall(request.params, {}, nodexAuthority);
     }
 
-    const pending: PendingDynamicToolCall = {
+    const pending = this.pendingServerRequests.register({
+      kind: "dynamic-tool",
       request,
       nodexAuthority,
       disposition: isStoredSpecialRequest ? "stored" : "dispatched",
-      ...this.buildServerRequestCompletion(
-        threadId,
-        request.id,
-        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
-      ),
-    };
-    this.pendingDynamicToolCalls.set(request.id, pending);
+      occurrenceToken: request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
+    });
 
     const dynamicArgs = asRecord(request.params.arguments);
     const shouldNotifyUserInput =
@@ -21958,7 +21652,12 @@ export class CodexService extends EventEmitter {
       return CodexApplicationRequestPending;
     }
 
-    this.pendingDynamicToolCalls.takeFirst(request.id, (candidate) => candidate === pending);
+    const claimed = this.pendingServerRequests.takeFirst(
+      "dynamic-tool",
+      request.id,
+      (candidate) => candidate === pending,
+    );
+    if (claimed) this.pendingServerRequests.discard(claimed);
     return await this.handleDynamicToolCall(request.params, {}, nodexAuthority);
   }
 
@@ -21967,7 +21666,8 @@ export class CodexService extends EventEmitter {
     conversationId?: string,
     context: CodexDynamicToolExecutionContext = {},
   ): Promise<DynamicToolCallResponse | null> {
-    const pending = this.pendingDynamicToolCalls.takeFirst(
+    const pending = this.pendingServerRequests.takeFirst(
+      "dynamic-tool",
       requestId,
       (candidate) =>
         candidate.disposition === "dispatched" &&
@@ -21981,10 +21681,10 @@ export class CodexService extends EventEmitter {
         context,
         pending.nodexAuthority,
       );
-      pending.resolve(response);
+      this.pendingServerRequests.complete(pending, response);
       return response;
     } catch (error) {
-      pending.reject(error);
+      this.pendingServerRequests.reject(pending, error);
       throw error;
     }
   }
@@ -22034,7 +21734,8 @@ export class CodexService extends EventEmitter {
           return { action: response.action, selectedSources: [...response.selectedSources] };
       }
     })();
-    const selectedPendings = this.pendingDynamicToolCalls.takeAll(
+    const selectedPendings = this.pendingServerRequests.takeAll(
+      "dynamic-tool",
       requestId,
       (candidate) =>
         candidate.disposition === "stored" && candidate.request.params.threadId === conversationId,
@@ -22048,10 +21749,10 @@ export class CodexService extends EventEmitter {
           tool: "setup_codex_step",
         })
       ) {
-        selectedPending.resolve(this.buildDynamicToolSuccess(result));
+        this.pendingServerRequests.complete(selectedPending, this.buildDynamicToolSuccess(result));
         didResolveResponse = true;
       } else {
-        selectedPending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+        this.pendingServerRequests.complete(selectedPending, CODEX_SERVER_REQUEST_NO_RESPONSE);
       }
     }
     commitLifecycle();
@@ -22115,20 +21816,22 @@ export class CodexService extends EventEmitter {
         tool: dynamicTool,
       });
 
-    const privatePendings = this.pendingPrivateServerRequests.takeAll(
+    const privatePendings = this.pendingServerRequests.takeAll(
+      "private",
       requestId,
       (candidate) => candidate.request.params.threadId === conversationId,
     );
     let didResolveResponse = false;
     for (const pending of privatePendings) {
       if (isDirect && !didResolveResponse && pending.request.method === directMethod) {
-        pending.resolve(response);
+        this.pendingServerRequests.complete(pending, response);
         didResolveResponse = true;
       } else {
-        pending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+        this.pendingServerRequests.complete(pending, CODEX_SERVER_REQUEST_NO_RESPONSE);
       }
     }
-    const dynamicPendings = this.pendingDynamicToolCalls.takeAll(
+    const dynamicPendings = this.pendingServerRequests.takeAll(
+      "dynamic-tool",
       requestId,
       (candidate) =>
         candidate.disposition === "stored" && candidate.request.params.threadId === conversationId,
@@ -22142,10 +21845,10 @@ export class CodexService extends EventEmitter {
           tool: dynamicTool,
         })
       ) {
-        pending.resolve(this.buildDynamicToolSuccess(response));
+        this.pendingServerRequests.complete(pending, this.buildDynamicToolSuccess(response));
         didResolveResponse = true;
       } else {
-        pending.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+        this.pendingServerRequests.complete(pending, CODEX_SERVER_REQUEST_NO_RESPONSE);
       }
     }
     this.abandonOtherPendingRequestsById(conversationId, requestId);
@@ -22290,13 +21993,10 @@ export class CodexService extends EventEmitter {
       return CODEX_SERVER_REQUEST_NO_RESPONSE;
     }
 
-    this.pendingPrivateServerRequests.set(request.id, {
+    this.pendingServerRequests.register({
+      kind: "private",
       request,
-      ...this.buildServerRequestCompletion(
-        threadId,
-        request.id,
-        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
-      ),
+      occurrenceToken: request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
     });
     const ownerRouted = this.forwardServerRequestToRendererOwner(request);
     if (ownerRouted) {
@@ -22479,13 +22179,10 @@ export class CodexService extends EventEmitter {
       cwd: payload.cwd ?? null,
       reason: payload.reason ?? null,
     });
-    this.pendingApprovals.set(requestId, {
+    this.pendingServerRequests.register({
+      kind: "approval",
       request: payload,
-      ...this.buildServerRequestCompletion(
-        threadId,
-        requestId,
-        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
-      ),
+      occurrenceToken: request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
     });
     const ownerRouted = this.forwardServerRequestToRendererOwner(request);
 
@@ -22684,13 +22381,10 @@ export class CodexService extends EventEmitter {
       cwd: payload.cwd,
       reason: payload.reason,
     });
-    this.pendingPermissionRequests.set(requestId, {
+    this.pendingServerRequests.register({
+      kind: "permission",
       request: payload,
-      ...this.buildServerRequestCompletion(
-        threadId,
-        requestId,
-        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
-      ),
+      occurrenceToken: request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
     });
     this.applyStandalonePendingRequestProjection(request);
 
@@ -22773,13 +22467,10 @@ export class CodexService extends EventEmitter {
       questionCount: questions.length,
       questionIds: questions.map((question) => question.id),
     });
-    this.pendingUserInputs.set(requestId, {
+    this.pendingServerRequests.register({
+      kind: "user-input",
       request: payload,
-      ...this.buildServerRequestCompletion(
-        threadId,
-        requestId,
-        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
-      ),
+      occurrenceToken: request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
     });
     if (!params.isBlocking) {
       this.userInputAutoResolution.observeRequest(threadId, requestId, async () => {
@@ -22873,13 +22564,10 @@ export class CodexService extends EventEmitter {
       mode: params.mode,
       serverName: params.serverName,
     });
-    this.pendingMcpElicitations.set(requestId, {
+    this.pendingServerRequests.register({
+      kind: "mcp-elicitation",
       request: payload,
-      ...this.buildServerRequestCompletion(
-        threadId,
-        requestId,
-        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
-      ),
+      occurrenceToken: request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
     });
     const ownerRouted = this.forwardServerRequestToRendererOwner({
       id: protocolRequestId,
@@ -23138,19 +22826,20 @@ export class CodexService extends EventEmitter {
 
     this.logger.info("Resolving pending Codex server request from server notification", {
       requestId,
-      pendingApproval: this.pendingApprovals.has(requestId),
-      pendingUserInput: this.pendingUserInputs.has(requestId),
-      pendingMcpElicitation: this.pendingMcpElicitations.has(requestId),
-      pendingPermissionRequest: this.pendingPermissionRequests.has(requestId),
+      pendingApproval: this.pendingServerRequests.has("approval", requestId),
+      pendingUserInput: this.pendingServerRequests.has("user-input", requestId),
+      pendingMcpElicitation: this.pendingServerRequests.has("mcp-elicitation", requestId),
+      pendingPermissionRequest: this.pendingServerRequests.has("permission", requestId),
     });
     const projectionTurnIds = new Set<string>();
 
-    const pendingApprovals = this.pendingApprovals.takeAll(
+    const pendingApprovals = this.pendingServerRequests.takeAll(
+      "approval",
       requestId,
       (pending) => pending.request.threadId === threadId,
     );
     for (const pendingApproval of pendingApprovals) {
-      pendingApproval.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      this.pendingServerRequests.complete(pendingApproval, CODEX_SERVER_REQUEST_NO_RESPONSE);
       this.clearApprovalRequestAttachment(
         pendingApproval.request.threadId,
         pendingApproval.request.turnId,
@@ -23162,12 +22851,13 @@ export class CodexService extends EventEmitter {
       this.emitEvent({ type: "approvalResolved", requestId, decision: "cancel" });
     }
 
-    const pendingUserInputs = this.pendingUserInputs.takeAll(
+    const pendingUserInputs = this.pendingServerRequests.takeAll(
+      "user-input",
       requestId,
       (pending) => pending.request.threadId === threadId,
     );
     for (const pendingUserInput of pendingUserInputs) {
-      pendingUserInput.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      this.pendingServerRequests.complete(pendingUserInput, CODEX_SERVER_REQUEST_NO_RESPONSE);
       this.removeStandalonePendingRequestProjection(
         pendingUserInput.request.threadId,
         pendingUserInput.request.turnId,
@@ -23179,32 +22869,39 @@ export class CodexService extends EventEmitter {
       this.emitEvent({ type: "userInputResolved", requestId });
     }
 
-    for (const pendingMcpElicitation of this.pendingMcpElicitations.takeAll(
+    for (const pendingMcpElicitation of this.pendingServerRequests.takeAll(
+      "mcp-elicitation",
       requestId,
       (pending) => pending.request.threadId === threadId,
     )) {
-      pendingMcpElicitation.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      this.pendingServerRequests.complete(pendingMcpElicitation, CODEX_SERVER_REQUEST_NO_RESPONSE);
     }
 
-    for (const pendingPermissionRequest of this.pendingPermissionRequests.takeAll(
+    for (const pendingPermissionRequest of this.pendingServerRequests.takeAll(
+      "permission",
       requestId,
       (pending) => pending.request.threadId === threadId,
     )) {
-      pendingPermissionRequest.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      this.pendingServerRequests.complete(
+        pendingPermissionRequest,
+        CODEX_SERVER_REQUEST_NO_RESPONSE,
+      );
     }
 
-    for (const pendingPrivateRequest of this.pendingPrivateServerRequests.takeAll(
+    for (const pendingPrivateRequest of this.pendingServerRequests.takeAll(
+      "private",
       requestId,
       (pending) => pending.request.params.threadId === threadId,
     )) {
-      pendingPrivateRequest.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      this.pendingServerRequests.complete(pendingPrivateRequest, CODEX_SERVER_REQUEST_NO_RESPONSE);
     }
 
-    for (const pendingDynamicRequest of this.pendingDynamicToolCalls.takeAll(
+    for (const pendingDynamicRequest of this.pendingServerRequests.takeAll(
+      "dynamic-tool",
       requestId,
       (pending) => pending.disposition === "stored" && pending.request.params.threadId === threadId,
     )) {
-      pendingDynamicRequest.resolve(CODEX_SERVER_REQUEST_NO_RESPONSE);
+      this.pendingServerRequests.complete(pendingDynamicRequest, CODEX_SERVER_REQUEST_NO_RESPONSE);
     }
 
     if (!options.suppressConversationSync) {
@@ -23221,7 +22918,8 @@ export class CodexService extends EventEmitter {
         request.method === "item/commandExecution/requestApproval" ||
         request.method === "item/fileChange/requestApproval"
       ) {
-        const projected = this.pendingApprovals.find(
+        const projected = this.pendingServerRequests.find(
+          "approval",
           request.id,
           (pending) => pending.request.threadId === threadId,
         )?.request;
@@ -23229,7 +22927,8 @@ export class CodexService extends EventEmitter {
         continue;
       }
       if (request.method === "item/tool/requestUserInput") {
-        const projected = this.pendingUserInputs.find(
+        const projected = this.pendingServerRequests.find(
+          "user-input",
           request.id,
           (pending) => pending.request.threadId === threadId,
         )?.request;
@@ -23237,7 +22936,8 @@ export class CodexService extends EventEmitter {
         continue;
       }
       if (request.method === "mcpServer/elicitation/request") {
-        const projected = this.pendingMcpElicitations.find(
+        const projected = this.pendingServerRequests.find(
+          "mcp-elicitation",
           request.id,
           (pending) => pending.request.threadId === threadId,
         )?.request;
@@ -23245,7 +22945,8 @@ export class CodexService extends EventEmitter {
         continue;
       }
       if (request.method === "item/permissions/requestApproval") {
-        const projected = this.pendingPermissionRequests.find(
+        const projected = this.pendingServerRequests.find(
+          "permission",
           request.id,
           (pending) => pending.request.threadId === threadId,
         )?.request;
