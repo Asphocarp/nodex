@@ -1458,7 +1458,7 @@ export const live: Layer.Layer<
             Effect.sync(() => requireCodexService().releaseStructuredThreadTitleThread(threadId)),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const dynamicToolsLaunch = makeCodexDynamicToolsLaunch();
-        const sidebarThreadMoveRuntime = makeCodexSidebarThreadMoveRuntime();
+        const sidebarThreadMoveRuntime = yield* makeCodexSidebarThreadMoveRuntime;
         const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );

@@ -54,6 +54,14 @@ describe("Effect architecture boundaries", () => {
       "application-unstructured-async",
       "application-unstructured-async",
     ]);
+    expect(
+      codes("src/main/host-runtime/DetachedRuntime.ts", "application-unsafe-runtime.ts"),
+    ).toEqual([
+      "application-unsafe-runtime",
+      "application-unsafe-runtime",
+      "application-unsafe-runtime",
+      "application-unsafe-runtime",
+    ]);
   });
 
   test("accepts dedicated adapters and the unique process entry", () => {
@@ -68,5 +76,8 @@ describe("Effect architecture boundaries", () => {
     expect(codes("scripts/codex-probe-session.ts", "node-runtime.ts")).toEqual([]);
     expect(codes("scripts/dev-launcher.ts", "run-promise.ts")).toEqual([]);
     expect(codes("src/main/app/MainEntry.test.ts", "run-promise.ts")).toEqual([]);
+    expect(
+      codes("src/main/core-runtime/ProjectionLiveRuntime.ts", "callback-unsafe-ingress.ts"),
+    ).toEqual([]);
   });
 });

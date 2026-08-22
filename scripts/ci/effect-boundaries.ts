@@ -3,6 +3,7 @@ import { parseTypeScriptSource, sourcePosition } from "../lib/oxc-source";
 
 export type EffectBoundaryDiagnosticCode =
   | "application-ambient-process"
+  | "application-unsafe-runtime"
   | "application-unstructured-async"
   | "effect-free-import"
   | "node-runtime-outside-entry"
@@ -43,6 +44,29 @@ const effectApplicationRoots = [
 const unstructuredConstructors = new Set(["AbortController", "EventEmitter", "Promise"]);
 const unstructuredTimers = new Set(["setInterval", "setTimeout"]);
 const ambientProcessProperties = new Set(["arch", "cwd", "env", "platform"]);
+const lifecycleBypassingCalls = new Set([
+  "doneUnsafe",
+  "interruptUnsafe",
+  "makeUnsafe",
+  "offerUnsafe",
+]);
+
+// These synchronous callback ingress points cannot suspend without changing
+// Electron/app-server ordering. They may only offer to an already scoped Queue
+// or complete its overflow signal; allocation and interruption stay effectful.
+const synchronousCallbackUnsafeCalls = new Map<string, ReadonlySet<string>>([
+  ["src/main/core-runtime/ProjectionLiveRuntime.ts", new Set(["doneUnsafe", "offerUnsafe"])],
+  ["src/main/codex-application/CodexNotificationRouting.ts", new Set(["offerUnsafe"])],
+  ["src/main/codex-application/CodexConversationDeltaBufferRuntime.ts", new Set(["offerUnsafe"])],
+  [
+    "src/main/codex-application/CodexActiveGoalContinuationCallbackAdapter.ts",
+    new Set(["offerUnsafe"]),
+  ],
+  [
+    "src/main/codex-application/CodexRendererOwnerRetentionCallbackAdapter.ts",
+    new Set(["offerUnsafe"]),
+  ],
+]);
 
 function normalizeProjectPath(path: string): string {
   return path.replaceAll("\\", "/").replace(/^\.\//, "");
@@ -188,8 +212,20 @@ export function analyzeEffectBoundaries({
         return;
       }
       if (node.callee.type !== "MemberExpression") return;
-      if (node.callee.object.type !== "Identifier") return;
       if (node.callee.property.type !== "Identifier") return;
+      if (
+        applicationModule &&
+        lifecycleBypassingCalls.has(node.callee.property.name) &&
+        !synchronousCallbackUnsafeCalls.get(path)?.has(node.callee.property.name)
+      ) {
+        report(
+          "application-unsafe-runtime",
+          node.start,
+          `${node.callee.property.name} bypasses Effect lifecycle and interruption semantics; use the effectful API or a narrowly ledgered synchronous callback ingress.`,
+        );
+        return;
+      }
+      if (node.callee.object.type !== "Identifier") return;
       if (
         nodeRuntimeNamespaces.has(node.callee.object.name) &&
         node.callee.property.name === "runMain" &&

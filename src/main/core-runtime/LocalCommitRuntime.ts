@@ -161,6 +161,14 @@ interface PlannedAdmission {
   readonly tasks: readonly DeliveryTask[];
 }
 
+interface AdmissionAnalysis {
+  readonly existingCompletions: readonly Deferred.Deferred<void, LocalCommitRuntimeError>[];
+  readonly identity: ReturnType<typeof identityOf>;
+  readonly newClaims: readonly ResourceClaim[];
+  readonly rememberedCommit: RememberedCommit | undefined;
+  readonly resources: ReadonlyMap<string, RememberedResource>;
+}
+
 const emptyLanes = (): DeliveryLanes => ({
   document: new Map(),
   projection: new Map(),
@@ -404,12 +412,11 @@ const cloneLanes = (
   notification: new Map(lanes.notification),
 });
 
-const planAdmission = (
+const analyzeAdmission = (
   state: LocalCommitState,
   packet: CoreAuthorizedDeliveryPacket,
-  ingress: LocalCommitIngress,
   options: LocalCommitRuntimeOptions,
-): PlannedAdmission => {
+): AdmissionAnalysis => {
   const identity = identityOf(packet);
   if (identity.storeEpoch !== options.expectedStoreEpoch) {
     throw new Error(`Commit belongs to another Store epoch: ${identity.key}`);
@@ -430,44 +437,40 @@ const planAdmission = (
     throw new Error(`Commit manifest identity collision for ${identity.key}`);
   }
   const resources = new Map(rememberedCommit?.resources ?? []);
-  const admittedByKey = new Map<string, AdmittedClaim>();
-  const completions = new Set<Deferred.Deferred<void, LocalCommitRuntimeError>>();
-  let nextResourceToken = state.nextResourceToken;
+  const existingCompletions = new Set<Deferred.Deferred<void, LocalCommitRuntimeError>>();
+  const newClaims = new Map<string, ResourceClaim>();
   for (const claim of resourceClaims(packet)) {
     const known = resources.get(claim.key);
-    if (known && known.fingerprint !== claim.fingerprint) {
+    const pending = newClaims.get(claim.key);
+    if (
+      (known && known.fingerprint !== claim.fingerprint) ||
+      (pending && pending.fingerprint !== claim.fingerprint)
+    ) {
       throw new Error(`Commit resource identity collision for ${identity.key}:${claim.key}`);
     }
     if (known) {
-      completions.add(known.completion);
+      existingCompletions.add(known.completion);
       continue;
     }
-    const completion = Deferred.makeUnsafe<void, LocalCommitRuntimeError>();
-    const admitted = { ...claim, completion, token: nextResourceToken };
-    nextResourceToken += 1;
-    resources.set(claim.key, {
-      completion,
-      fingerprint: claim.fingerprint,
-      status: "in_flight",
-      token: admitted.token,
-    });
-    admittedByKey.set(claim.key, admitted);
-    completions.add(completion);
+    newClaims.set(claim.key, claim);
   }
 
-  const remembered = new Map(state.remembered);
-  remembered.delete(identity.key);
-  remembered.set(identity.key, { manifestHash: identity.manifestHash, resources });
-  if (admittedByKey.size === 0) {
-    return {
-      admission: { kind: "duplicate", key: identity.key },
-      completions: [...completions],
-      nextResourceToken,
-      remembered,
-      tasks: [],
-    };
-  }
+  return {
+    existingCompletions: [...existingCompletions],
+    identity,
+    newClaims: [...newClaims.values()],
+    rememberedCommit,
+    resources,
+  };
+};
 
+const deliveryTasks = (
+  packet: CoreAuthorizedDeliveryPacket,
+  ingress: LocalCommitIngress,
+  commitKey: string,
+  admittedByKey: ReadonlyMap<string, AdmittedClaim>,
+  options: LocalCommitRuntimeOptions,
+): readonly DeliveryTask[] => {
   const tasks: DeliveryTask[] = [];
   for (const delta of packet.visibility_deltas) {
     const scopeKey = authorizationScopeKey(delta.authorization_scope);
@@ -477,7 +480,7 @@ const planAdmission = (
     if (!claim) continue;
     tasks.push({
       claims: [claim],
-      commitKey: identity.key,
+      commitKey,
       kind: "visibility",
       laneKey: JSON.stringify([scopeKey, delta.delta_hash]),
       packet,
@@ -487,7 +490,7 @@ const planAdmission = (
   for (const delivery of documentDeliveries(packet, admittedByKey)) {
     tasks.push({
       claims: delivery.claims,
-      commitKey: identity.key,
+      commitKey,
       kind: "document",
       laneKey: delivery.documentId,
       packet,
@@ -501,7 +504,7 @@ const planAdmission = (
     if (!claim) continue;
     tasks.push({
       claims: [claim],
-      commitKey: identity.key,
+      commitKey,
       kind: "projection",
       laneKey: effect.scope.canonical_key,
       packet,
@@ -516,22 +519,77 @@ const planAdmission = (
     if (!claim) continue;
     tasks.push({
       claims: [claim],
-      commitKey: identity.key,
+      commitKey,
       kind: "notification",
-      laneKey: JSON.stringify([scopeKey, identity.key]),
+      laneKey: JSON.stringify([scopeKey, commitKey]),
       packet,
       work: options.onNotification(packet, atom, ingress),
     });
   }
-
-  return {
-    admission: { kind: rememberedCommit ? "enriched" : "accepted", key: identity.key },
-    completions: [...completions],
-    nextResourceToken,
-    remembered,
-    tasks,
-  };
+  return tasks;
 };
+
+const planAdmission = (
+  state: LocalCommitState,
+  packet: CoreAuthorizedDeliveryPacket,
+  ingress: LocalCommitIngress,
+  options: LocalCommitRuntimeOptions,
+): Effect.Effect<PlannedAdmission, LocalCommitRuntimeError> =>
+  Effect.gen(function* () {
+    const analysis = yield* Effect.try({
+      try: () => analyzeAdmission(state, packet, options),
+      catch: (cause) => runtimeError("admit", cause),
+    });
+    const resources = new Map(analysis.resources);
+    const admittedByKey = new Map<string, AdmittedClaim>();
+    const completions = new Set(analysis.existingCompletions);
+    let nextResourceToken = state.nextResourceToken;
+    for (const claim of analysis.newClaims) {
+      const completion = yield* Deferred.make<void, LocalCommitRuntimeError>();
+      const admitted = { ...claim, completion, token: nextResourceToken };
+      nextResourceToken += 1;
+      resources.set(claim.key, {
+        completion,
+        fingerprint: claim.fingerprint,
+        status: "in_flight",
+        token: admitted.token,
+      });
+      admittedByKey.set(claim.key, admitted);
+      completions.add(completion);
+    }
+
+    const remembered = new Map(state.remembered);
+    remembered.delete(analysis.identity.key);
+    remembered.set(analysis.identity.key, {
+      manifestHash: analysis.identity.manifestHash,
+      resources,
+    });
+    if (admittedByKey.size === 0) {
+      return {
+        admission: { kind: "duplicate", key: analysis.identity.key },
+        completions: [...completions],
+        nextResourceToken,
+        remembered,
+        tasks: [],
+      };
+    }
+
+    const tasks = yield* Effect.try({
+      try: () => deliveryTasks(packet, ingress, analysis.identity.key, admittedByKey, options),
+      catch: (cause) => runtimeError("admit", cause),
+    });
+
+    return {
+      admission: {
+        kind: analysis.rememberedCommit ? "enriched" : "accepted",
+        key: analysis.identity.key,
+      },
+      completions: [...completions],
+      nextResourceToken,
+      remembered,
+      tasks,
+    };
+  });
 
 /**
  * Owns process-local LocalCommit deduplication, causal lane workers, retries,
@@ -594,7 +652,7 @@ export const make = (
             });
             yield* beforeCompletion;
             for (const completion of completions) {
-              Deferred.doneUnsafe(completion, failure ? Effect.fail(failure) : Effect.void);
+              yield* Deferred.done(completion, failure ? Exit.fail(failure) : Exit.void);
             }
             return pending === 0;
           }),
@@ -652,10 +710,7 @@ export const make = (
             if (current.closed) {
               return yield* runtimeError("admit", new Error("LocalCommit runtime is closed"));
             }
-            const planned = yield* Effect.try({
-              try: () => planAdmission(current, packet, ingress, options),
-              catch: (cause) => runtimeError("admit", cause),
-            });
+            const planned = yield* planAdmission(current, packet, ingress, options);
             if (current.pendingDeliveries + planned.tasks.length > maxPendingDeliveries) {
               return yield* runtimeError(
                 "admit.capacity",
@@ -690,7 +745,7 @@ export const make = (
               remembered: trimRemembered(planned.remembered, maxRememberedCommits),
             });
             for (const item of scheduled) {
-              if (!Queue.offerUnsafe(item.lane.queue, item.delivery)) {
+              if (!(yield* Queue.offer(item.lane.queue, item.delivery))) {
                 return yield* Effect.die(new Error("Open LocalCommit lane rejected delivery"));
               }
             }
@@ -777,7 +832,7 @@ export const make = (
               remembered: new Map(),
             });
             for (const completion of completions) {
-              Deferred.doneUnsafe(completion, Effect.fail(closure));
+              yield* Deferred.done(completion, Exit.fail(closure));
             }
             yield* Effect.forEach(queues, Queue.shutdown, { discard: true });
           }),

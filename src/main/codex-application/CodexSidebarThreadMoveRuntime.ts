@@ -1,6 +1,6 @@
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
-import type * as Effect from "effect/Effect";
+import * as Effect from "effect/Effect";
 import * as Semaphore from "effect/Semaphore";
 
 export class CodexSidebarThreadMoveError extends Data.TaggedError("CodexSidebarThreadMoveError")<{
@@ -16,9 +16,11 @@ export class CodexSidebarThreadMoveRuntime extends Context.Service<
   }
 >()("nodex/main/codex-application/CodexSidebarThreadMoveRuntime") {}
 
-export const make = (): CodexSidebarThreadMoveRuntime["Service"] => {
-  const admission = Semaphore.makeUnsafe(1);
-  return CodexSidebarThreadMoveRuntime.of({
-    run: (operation) => admission.withPermits(1)(operation),
-  });
-};
+export const make: Effect.Effect<CodexSidebarThreadMoveRuntime["Service"]> = Effect.gen(
+  function* () {
+    const admission = yield* Semaphore.make(1);
+    return CodexSidebarThreadMoveRuntime.of({
+      run: (operation) => admission.withPermits(1)(operation),
+    });
+  },
+);

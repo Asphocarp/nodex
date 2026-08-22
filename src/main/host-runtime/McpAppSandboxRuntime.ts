@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import { net, type WebContents } from "electron";
@@ -47,7 +48,9 @@ export const live = (options: McpAppSandboxHostOptions): Layer.Layer<McpAppSandb
           const fiber = runTimer(
             Effect.sleep(Duration.millis(delayMs)).pipe(Effect.andThen(Effect.sync(task))),
           );
-          return () => fiber.interruptUnsafe();
+          return () => {
+            void runTimer(Fiber.interrupt(fiber));
+          };
         },
       });
       yield* Effect.acquireRelease(

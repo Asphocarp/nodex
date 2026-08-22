@@ -6,7 +6,7 @@ import { CodexSidebarThreadMoveError, make } from "./CodexSidebarThreadMoveRunti
 
 it.effect("admits one sidebar move at a time in FIFO order", () =>
   Effect.gen(function* () {
-    const runtime = make();
+    const runtime = yield* make;
     const firstStarted = yield* Deferred.make<void>();
     const releaseFirst = yield* Deferred.make<void>();
     const order: string[] = [];
@@ -32,7 +32,7 @@ it.effect("admits one sidebar move at a time in FIFO order", () =>
 
 it.effect("releases admission after a failed move", () =>
   Effect.gen(function* () {
-    const runtime = make();
+    const runtime = yield* make;
     const failure = new CodexSidebarThreadMoveError({ cause: new Error("move failed") });
     assert.strictEqual(yield* runtime.run(Effect.fail(failure)).pipe(Effect.flip), failure);
     assert.strictEqual(yield* runtime.run(Effect.succeed("next")), "next");
@@ -41,7 +41,7 @@ it.effect("releases admission after a failed move", () =>
 
 it.effect("removes an interrupted waiter without running its move", () =>
   Effect.gen(function* () {
-    const runtime = make();
+    const runtime = yield* make;
     const active = yield* Deferred.make<void>();
     const release = yield* Deferred.make<void>();
     const first = yield* Effect.forkChild(
