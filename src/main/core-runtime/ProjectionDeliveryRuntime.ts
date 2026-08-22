@@ -1,6 +1,5 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -8,7 +7,6 @@ import type { WebContents } from "electron";
 import type { DeliveryAddress, RecipientAdmissionResult } from "../../shared/recipient-delivery";
 import { projectionScopeDeliveryAddress } from "../../shared/recipient-delivery";
 import { revocationsFromVisibilityDelta } from "../../shared/local-commit-delivery";
-import { LocalCommitCoordinator } from "../core-client/local-commit-coordinator";
 import type {
   CoreAuthorizedDeliveryAtom,
   CoreEventEnvelope,
@@ -18,6 +16,7 @@ import type {
 } from "../core-client";
 import { safeSendToWebContents } from "../ipc-safe-send";
 import { getLogger } from "../logging/logger";
+import { make as makeLocalCommitRuntime } from "./LocalCommitRuntime";
 import {
   make as makeProjectionAudienceRuntime,
   ProjectionAudienceRuntimeError,
@@ -53,9 +52,13 @@ export class ProjectionDeliveryRuntime extends Context.Service<
     readonly deliverTail: (
       envelope: CoreEventEnvelope,
     ) => Effect.Effect<void, ProjectionDeliveryError>;
-    readonly observeCheckpoint: (checkpoint: CoreStreamCheckpoint) => void;
+    readonly observeCheckpoint: (
+      checkpoint: CoreStreamCheckpoint,
+    ) => Effect.Effect<void, ProjectionDeliveryError>;
     readonly releaseSender: (senderId: number) => Effect.Effect<void>;
-    readonly resetStream: (reason: "event_gap" | "reconnect" | "store_epoch_changed") => void;
+    readonly resetStream: (
+      reason: "event_gap" | "reconnect" | "store_epoch_changed",
+    ) => Effect.Effect<void>;
     readonly subscribe: (
       sender: WebContents,
       address: DeliveryAddress,
@@ -72,55 +75,59 @@ export const live = (
       const logger = getLogger({ component: "projection-delivery-runtime" });
       const coreClient = options.authority.rootClient;
       const coreIdentity = options.authority.identity;
-      const runAudienceEffect = yield* FiberSet.makeRuntime<never, void, never>();
       const audience = yield* makeProjectionAudienceRuntime({
         libraryId: coreIdentity.libraryId,
         send: (sender, channel, envelope) => safeSendToWebContents(sender, channel, [envelope]),
       });
 
-      const coordinator = new LocalCommitCoordinator({
+      const localCommits = yield* makeLocalCommitRuntime({
         expectedLibraryId: coreIdentity.libraryId,
         expectedStoreEpoch: coreIdentity.storeEpoch,
         onDocument: (packet, documentId) =>
-          options.documentSync.publishDocumentEffects(packet, documentId),
-        onProjection: () => undefined,
-        onNotification: (packet, atom) => {
-          options.onNotification(
-            {
-              transport_version: coreClient.handshake.selected_transport_version,
-              packet,
-            },
-            atom,
-            coreIdentity.libraryId,
-          );
-        },
-        onVisibility: (packet, delta) => {
-          for (const revocation of revocationsFromVisibilityDelta(delta)) {
-            if (revocation.resource_kind === "document") {
-              options.documentSync.publishResourceRevocation(packet, revocation);
-            }
-          }
-        },
-        onError: (failure) => {
-          logger.error("LocalCommit delivery lane failed", {
-            lane: failure.lane,
-            laneKey: failure.laneKey,
-            commitSeq: failure.packet.manifest.identity.commit_seq,
-            storeEpoch: failure.packet.manifest.identity.store_epoch,
-            error: failure.error instanceof Error ? failure.error.message : String(failure.error),
-          });
-          if (failure.lane !== "projection" && failure.lane !== "visibility") return;
-          void runAudienceEffect(
-            audience.reset(
+          Effect.sync(() => options.documentSync.publishDocumentEffects(packet, documentId)),
+        onProjection: () => Effect.void,
+        onNotification: (packet, atom) =>
+          Effect.sync(() => {
+            options.onNotification(
               {
-                storeEpoch: failure.packet.manifest.identity.store_epoch,
-                commitSeq: failure.packet.manifest.identity.commit_seq,
+                transport_version: coreClient.handshake.selected_transport_version,
+                packet,
               },
-              "integrity_failure",
-              [failure.packet.delivery_address],
+              atom,
+              coreIdentity.libraryId,
+            );
+          }),
+        onVisibility: (packet, delta) =>
+          Effect.sync(() => {
+            for (const revocation of revocationsFromVisibilityDelta(delta)) {
+              if (revocation.resource_kind === "document") {
+                options.documentSync.publishResourceRevocation(packet, revocation);
+              }
+            }
+          }),
+        onError: (failure) =>
+          Effect.sync(() =>
+            logger.error("LocalCommit delivery lane failed", {
+              lane: failure.lane,
+              laneKey: failure.laneKey,
+              commitSeq: failure.packet.manifest.identity.commit_seq,
+              storeEpoch: failure.packet.manifest.identity.store_epoch,
+              error: failure.error instanceof Error ? failure.error.message : String(failure.error),
+            }),
+          ).pipe(
+            Effect.andThen(
+              failure.lane !== "projection" && failure.lane !== "visibility"
+                ? Effect.void
+                : audience.reset(
+                    {
+                      storeEpoch: failure.packet.manifest.identity.store_epoch,
+                      commitSeq: failure.packet.manifest.identity.commit_seq,
+                    },
+                    "integrity_failure",
+                    [failure.packet.delivery_address],
+                  ),
             ),
-          );
-        },
+          ),
       });
 
       const projectionLive = yield* makeProjectionLiveRuntime({
@@ -141,11 +148,13 @@ export const live = (
             })),
           ),
         onPacket: (envelope) =>
-          Effect.try({
-            try: () => coordinator.admit(envelope.packet, "projection_live"),
-            catch: (cause) =>
-              new ProjectionLiveRuntimeError({ operation: "stream.deliver", cause }),
-          }).pipe(Effect.andThen(audience.publish(envelope.packet)), Effect.asVoid),
+          localCommits.admit(envelope.packet, "projection_live").pipe(
+            Effect.mapError(
+              (cause) => new ProjectionLiveRuntimeError({ operation: "stream.deliver", cause }),
+            ),
+            Effect.andThen(audience.publish(envelope.packet)),
+            Effect.asVoid,
+          ),
         onBarrier: (barrier, scopes, resetScopes) =>
           audience
             .installLeases(
@@ -196,13 +205,22 @@ export const live = (
       return ProjectionDeliveryRuntime.of({
         admitRecipientResult: audience.admit,
         deliverTail: (envelope) =>
-          Effect.tryPromise({
-            try: () => coordinator.admitAndWait(envelope.packet, "tailer"),
-            catch: (cause) => new ProjectionDeliveryError({ operation: "deliver-tail", cause }),
-          }).pipe(Effect.asVoid),
-        observeCheckpoint: (checkpoint) => coordinator.observeCheckpoint(checkpoint),
+          localCommits.admitAndWait(envelope.packet, "tailer").pipe(
+            Effect.mapError(
+              (cause) => new ProjectionDeliveryError({ operation: "deliver-tail", cause }),
+            ),
+            Effect.asVoid,
+          ),
+        observeCheckpoint: (checkpoint) =>
+          localCommits
+            .observeCheckpoint(checkpoint)
+            .pipe(
+              Effect.mapError(
+                (cause) => new ProjectionDeliveryError({ operation: "observe-checkpoint", cause }),
+              ),
+            ),
         releaseSender: audience.releaseSender,
-        resetStream: (reason) => coordinator.resetStream(reason),
+        resetStream: localCommits.resetStream,
         subscribe: audience.subscribe,
       });
     }),

@@ -2396,16 +2396,21 @@ export const live: Layer.Layer<
                 .deliverTail(event)
                 .pipe(Effect.mapError((cause) => deliveryError("events.deliver", cause))),
             checkpoint: (checkpoint) =>
-              Effect.sync(() => projectionDelivery.observeCheckpoint(checkpoint)),
+              projectionDelivery
+                .observeCheckpoint(checkpoint)
+                .pipe(Effect.mapError((cause) => deliveryError("events.checkpoint", cause))),
             resync: (boundary) =>
-              Effect.sync(() => {
-                projectionDelivery.resetStream("event_gap");
-                coreApplicationProjection.publishResync({
-                  commitSeq: boundary.commit_head,
-                  libraryId: dataAuthority.identity.libraryId,
-                  storeEpoch: dataAuthority.identity.storeEpoch,
-                });
-              }),
+              projectionDelivery.resetStream("event_gap").pipe(
+                Effect.andThen(
+                  Effect.sync(() =>
+                    coreApplicationProjection.publishResync({
+                      commitSeq: boundary.commit_head,
+                      libraryId: dataAuthority.identity.libraryId,
+                      storeEpoch: dataAuthority.identity.storeEpoch,
+                    }),
+                  ),
+                ),
+              ),
           });
           const eventContext = yield* Layer.buildWithScope(
             coreEventHubLive({ initialAfter: dataAuthority.rootClient.handshake.commit_head }).pipe(
@@ -2423,12 +2428,18 @@ export const live: Layer.Layer<
               if (connection.kind === "backing-off") {
                 if (coreStreamInterruptionPublished) return Effect.void;
                 coreStreamInterruptionPublished = true;
-                return Effect.sync(() => {
-                  projectionDelivery.resetStream("reconnect");
-                  applicationLogger.warn("Native Core event stream interrupted; reconnecting", {
-                    error: connection.error,
-                  });
-                });
+                return projectionDelivery
+                  .resetStream("reconnect")
+                  .pipe(
+                    Effect.andThen(
+                      Effect.sync(() =>
+                        applicationLogger.warn(
+                          "Native Core event stream interrupted; reconnecting",
+                          { error: connection.error },
+                        ),
+                      ),
+                    ),
+                  );
               }
               if (connection.kind === "failed") {
                 return Effect.sync(() =>

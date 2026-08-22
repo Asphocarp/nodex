@@ -20,7 +20,6 @@ import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-cli
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import { CoreEventCompatibilityError, CoreHttpError } from "./uds-http";
 import type { CoreAuthorizedDeliveryPacket, DocumentLiveBarrier } from "./types";
-import { LocalCommitCoordinator } from "./local-commit-coordinator";
 
 class FakeTarget implements DocumentSyncClientTarget {
   readonly sent: Array<{ readonly channel: string; readonly payload: unknown }> = [];
@@ -1191,41 +1190,6 @@ describe("Desktop Document sync bridge", () => {
     bridge.publishDocumentEffects(envelope);
 
     expect(target.sent).toHaveLength(1);
-  });
-
-  test("publishes the admitted apply envelope once before the tailer replay", async () => {
-    const client = new FakeCoreClient();
-    const bridge = createDesktopDocumentSyncBridge({
-      authority: Promise.resolve(rustRuntime(client)),
-    });
-    const target = new FakeTarget(2);
-    await bridge.subscribe({ kind: "library" }, target, subscribeRequest);
-    await activateYjsSubscription(bridge, client, { kind: "library" }, target, subscribeRequest, 5);
-    target.sent.splice(0);
-
-    const coordinator = new LocalCommitCoordinator({
-      expectedLibraryId: "library:test",
-      expectedStoreEpoch: "epoch:test",
-      onDocument: (packet) => bridge.publishDocumentEffects(packet),
-      onProjection: () => undefined,
-      onNotification: () => undefined,
-      onVisibility: () => undefined,
-    });
-    const envelope = documentCommitEnvelope(6, [subscribeRequest.documentId]);
-
-    expect(coordinator.admit(envelope, "apply").kind).toBe("accepted");
-    expect(coordinator.admit(envelope, "tailer").kind).toBe("duplicate");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(
-      target.sent.filter(
-        (delivery) =>
-          typeof delivery.payload === "object" &&
-          delivery.payload !== null &&
-          "kind" in delivery.payload &&
-          delivery.payload.kind === "document-update",
-      ),
-    ).toHaveLength(1);
   });
 
   test("turns a compacted Document effect into a history resync", async () => {

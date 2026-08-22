@@ -31,6 +31,24 @@ pages are indexed, bounded, authorized, and keyed by the complete Store
 coordinate. The global LocalCommit sequence measures replay progress; it is not
 a Projection revision, Document head, or change-log sequence.
 
+Main admits scoped-live and durable-tail copies through one Main-scoped
+LocalCommit runtime. Manifest/resource identity, completion signals, causal
+lane actors, retry, checkpoint observation, and shutdown are one ownership
+boundary. Delivery is FIFO within an exact Document, Projection scope,
+authorization-scoped revocation, or notification lane; unrelated lanes remain
+concurrent. The process admits at most 10,000 pending lane operations and
+retries each operation at most three times. Saturation or terminal failure
+prevents the durable checkpoint from advancing, and terminal failure releases
+only the affected resource claims so replay can reclaim them.
+
+Scoped-live admission schedules work without waiting for a lane. Durable-tail
+delivery attaches to the exact same claim completion when scoped-live already
+owns it. Its waiting fiber may be interrupted without cancelling the shared
+delivery actor. Closing Main rejects every outstanding durable waiter,
+interrupts active lane work, and retires all queues through the same Scope. The
+initiating renderer's apply-response admission remains renderer-local and is
+not a third Main ingress path.
+
 Main multiplexes Core-authored audience packets to concrete renderer recipients.
 Each renderer has independent delivery and acknowledgement state. Recipient
 leases and resets are Core-issued; Main cannot broaden an audience. A destroyed
