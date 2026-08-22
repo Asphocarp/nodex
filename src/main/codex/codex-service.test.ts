@@ -1886,6 +1886,9 @@ function createService(options?: {
     dynamicToolsLaunch: {
       load: (operation) => operation(),
     },
+    sidebarThreadMoveRuntime: {
+      run: (operation) => operation(),
+    },
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),

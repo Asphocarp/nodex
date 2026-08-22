@@ -209,6 +209,7 @@ import type { CodexExternalAgentImportRuntimePromiseAdapter } from "../codex-app
 import type { CodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-application/CodexHeartbeatTurnCompletionPromiseAdapter";
 import type { CodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
 import type { CodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
+import type { CodexSidebarThreadMoveRuntimePromiseAdapter } from "../codex-application/CodexSidebarThreadMoveRuntimePromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -1373,6 +1374,7 @@ type CodexServiceOptions = {
   heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
   dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
+  sidebarThreadMoveRuntime: CodexSidebarThreadMoveRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2553,6 +2555,7 @@ export class CodexService extends EventEmitter {
   private readonly heartbeatTurnCompletion: CodexHeartbeatTurnCompletionPromiseAdapter;
   private readonly structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
   private readonly dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
+  private readonly sidebarThreadMoveRuntime: CodexSidebarThreadMoveRuntimePromiseAdapter;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
   private readonly gitSettingsResolver: () => CodexGitSettings;
@@ -2715,7 +2718,6 @@ export class CodexService extends EventEmitter {
   private sidebarSyncInFlight: Promise<CodexSidebarSyncResult> | null = null;
   private sidebarSyncGeneration = 0;
   private sidebarLastSuccessfulSyncGeneration = 0;
-  private sidebarThreadMoveQueue: Promise<void> = Promise.resolve();
   private sidebarSyncInFlightIncludeArchived: boolean | null = null;
   private sidebarLastSuccessfulRefreshAt = 0;
   private sidebarFailureBackoffUntil = 0;
@@ -2770,6 +2772,7 @@ export class CodexService extends EventEmitter {
     this.heartbeatTurnCompletion = options.heartbeatTurnCompletion;
     this.structuredThreadTitle = options.structuredThreadTitle;
     this.dynamicToolsLaunch = options.dynamicToolsLaunch;
+    this.sidebarThreadMoveRuntime = options.sidebarThreadMoveRuntime;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -7935,13 +7938,7 @@ export class CodexService extends EventEmitter {
     input: CodexSidebarThreadMoveInput,
   ): Promise<CodexSidebarThreadMoveResult> {
     const parsed = CodexSidebarThreadMoveInputSchema.parse(input);
-    const run = () => this.runSidebarThreadMove(parsed);
-    const move = this.sidebarThreadMoveQueue.then(run, run);
-    this.sidebarThreadMoveQueue = move.then(
-      () => undefined,
-      () => undefined,
-    );
-    return await move;
+    return await this.sidebarThreadMoveRuntime.run(() => this.runSidebarThreadMove(parsed));
   }
 
   async listPinnedThreads(): Promise<string[]> {

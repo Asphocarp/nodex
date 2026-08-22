@@ -470,6 +470,12 @@ domain step that materializes one app-server page or one reconciliation batch an
 immutable cursor state. A temporary Promise adapter drains the current non-cancellable page before
 a forced refresh starts, but it owns no timer, retry counter, generation fence, or in-flight queue.
 
+Sidebar Thread moves across Project Workspace, app-server settings, and renderer projection pass
+through one global Effect semaphore. The semaphore is the sole single-writer admission owner;
+failure releases the permit, queued caller interruption removes that operation, and Main shutdown
+interrupts active and waiting projections through the application callback runtime. `CodexService`
+keeps the move's domain validation and state transition but owns no Promise chain or recovery tail.
+
 External-agent import request correlation is owned by one Main-scoped runtime. It subscribes to the
 generation-fenced local Gateway stream before issuing the import request, buffers progress and
 completion notifications until the returned import identity is known, and serializes admission so

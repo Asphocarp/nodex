@@ -109,6 +109,8 @@ import {
 import { makeCodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
 import { make as makeCodexDynamicToolsLaunch } from "../codex-application/CodexDynamicToolsLaunch";
 import { makeCodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
+import { make as makeCodexSidebarThreadMoveRuntime } from "../codex-application/CodexSidebarThreadMoveRuntime";
+import { makeCodexSidebarThreadMoveRuntimePromiseAdapter } from "../codex-application/CodexSidebarThreadMoveRuntimePromiseAdapter";
 import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
@@ -1348,6 +1350,7 @@ export const live: Layer.Layer<
             Effect.sync(() => requireCodexService().releaseStructuredThreadTitleThread(threadId)),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const dynamicToolsLaunch = makeCodexDynamicToolsLaunch();
+        const sidebarThreadMoveRuntime = makeCodexSidebarThreadMoveRuntime();
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1410,6 +1413,10 @@ export const live: Layer.Layer<
               ),
               dynamicToolsLaunch: makeCodexDynamicToolsLaunchPromiseAdapter(
                 dynamicToolsLaunch,
+                callbacks,
+              ),
+              sidebarThreadMoveRuntime: makeCodexSidebarThreadMoveRuntimePromiseAdapter(
+                sidebarThreadMoveRuntime,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
