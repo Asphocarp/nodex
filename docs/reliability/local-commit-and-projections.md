@@ -36,6 +36,17 @@ Each renderer has independent delivery and acknowledgement state. Recipient
 leases and resets are Core-issued; Main cannot broaden an audience. A destroyed
 renderer retains no delivery timer or state.
 
+The multiplexed Projection live connection is one Main-scoped resource. Audience
+changes publish only the latest desired scope set. A replacement opens in its
+own child Scope while the current lease remains authoritative; its barrier is
+installed before buffered packets become visible and before the old child Scope
+closes. A clean overlap resets only newly added scopes. An unexpected end has no
+overlap proof, so reconnect backs off on the Effect clock and resets every
+desired scope. Callback ingress is ordered and bounded to 512 packets or repairs;
+overflow fails and replaces that attempt instead of growing an unbounded queue.
+Closing Main interrupts opening or backoff, closes the exact active subscription,
+and fences callbacks that arrive after release.
+
 ## Projection freshness
 
 Each projection advances on its exact scope revision and semantic dependencies.
