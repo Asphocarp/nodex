@@ -3,16 +3,19 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import type { IpcMainInvokeEvent } from "electron";
 import type { IpcApi } from "../../../shared/ipc-api";
-import type { GitReviewPatchResult } from "../../../shared/types";
+import type {
+  GitActionMutationResult,
+  GitCommitMessageGenerateResult,
+  GitPullRequestMessageGenerateResult,
+  GitReviewPatchResult,
+} from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
 import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import {
-  cancelGitAction,
   commitGitChanges,
   generateGitCommitMessage,
   generateGitPullRequestMessage,
-  GitActionOperationRegistry,
   pushGitChanges,
   type GitActionWorkerPort,
 } from "../../git-action-service";
@@ -28,6 +31,10 @@ import {
   readGhPrStatus,
   updateGhPr,
 } from "../../github-pr-service";
+import {
+  GitActionOperationRuntime,
+  type GitActionOperationRuntimeError,
+} from "../../host-runtime/GitActionOperationRuntime";
 import { GitWorkerRuntime } from "../../host-runtime/GitWorkerRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
@@ -52,7 +59,12 @@ export const live = (
 ): Layer.Layer<
   never,
   never,
-  ElectronIpc | GitWorkerRuntime | MainConfig | ScopedCallbackRuntime | WindowRuntime
+  | ElectronIpc
+  | GitActionOperationRuntime
+  | GitWorkerRuntime
+  | MainConfig
+  | ScopedCallbackRuntime
+  | WindowRuntime
 > =>
   Layer.effectDiscard(
     Effect.gen(function* () {
@@ -61,10 +73,7 @@ export const live = (
       const ipc = yield* ElectronIpc;
       const windows = yield* WindowRuntime;
       const worker = yield* GitWorkerRuntime;
-      const operations = yield* Effect.acquireRelease(
-        Effect.sync(() => new GitActionOperationRegistry()),
-        (registry) => Effect.sync(() => registry.close()),
-      );
+      const operations = yield* GitActionOperationRuntime;
       const gitWorker: GitActionWorkerPort = {
         readStatus: (cwd, signal) =>
           callbacks.runPromise(
@@ -121,6 +130,13 @@ export const live = (
         handle(channel, (event, ...args) =>
           authorize(event).pipe(Effect.andThen(run(channel, () => task(...args)))),
         );
+      const invokeEffect = <Channel extends keyof IpcApi>(
+        channel: Channel,
+        task: (
+          ...args: IpcApi[Channel]["args"]
+        ) => Effect.Effect<IpcApi[Channel]["result"], GitActionOperationRuntimeError>,
+      ) =>
+        handle(channel, (event, ...args) => authorize(event).pipe(Effect.andThen(task(...args))));
       const generateCommitMessage =
         (hostId: string | undefined) =>
         async ({ cwd, prompt, signal }: { cwd: string; prompt: string; signal?: AbortSignal }) => {
@@ -137,35 +153,104 @@ export const live = (
         };
 
       yield* invoke("git:repository:identity", readGitRepositoryIdentity);
-      yield* invoke("git:action:commit-message:generate", (input) =>
-        generateGitCommitMessage(input, {
-          gitWorker,
-          operations,
-          generateCommitMessage: generateCommitMessage(input.hostId),
-        }),
+      yield* invokeEffect("git:action:commit-message:generate", (input) =>
+        operations.run(
+          input.operationId,
+          Effect.promise((signal) =>
+            generateGitCommitMessage(
+              input,
+              {
+                gitWorker,
+                generateCommitMessage: generateCommitMessage(input.hostId),
+              },
+              signal,
+            ),
+          ),
+          (): GitCommitMessageGenerateResult => ({
+            cwd: input.cwd.trim(),
+            status: "error",
+            message: null,
+            stderr: "",
+            errorMessage: "Git action was canceled.",
+          }),
+        ),
       );
-      yield* invoke("git:action:pull-request-message:generate", (input) =>
-        generateGitPullRequestMessage(input, {
-          gitWorker,
-          operations,
-          generatePullRequestMessage: generatePullRequestMessage(input.hostId),
-        }),
+      yield* invokeEffect("git:action:pull-request-message:generate", (input) =>
+        operations.run(
+          input.operationId,
+          Effect.promise((signal) =>
+            generateGitPullRequestMessage(
+              input,
+              {
+                gitWorker,
+                generatePullRequestMessage: generatePullRequestMessage(input.hostId),
+              },
+              signal,
+            ),
+          ),
+          (): GitPullRequestMessageGenerateResult => ({
+            cwd: input.cwd.trim(),
+            status: "error",
+            title: null,
+            body: null,
+            stderr: "",
+            errorMessage: "Git action was canceled.",
+          }),
+        ),
       );
-      yield* invoke("git:action:commit", (input) =>
-        commitGitChanges(input, {
-          gitWorker,
-          operations,
-          generateCommitMessage: generateCommitMessage(input.hostId),
-        }),
+      yield* invokeEffect("git:action:commit", (input) =>
+        operations.run(
+          input.operationId,
+          Effect.promise((signal) =>
+            commitGitChanges(
+              input,
+              {
+                gitWorker,
+                generateCommitMessage: generateCommitMessage(input.hostId),
+              },
+              signal,
+            ),
+          ),
+          (): GitActionMutationResult => ({
+            cwd: input.cwd.trim(),
+            status: "error",
+            branch: null,
+            stdout: "",
+            stderr: "",
+            errorMessage: "Git action was canceled.",
+          }),
+        ),
       );
-      yield* invoke("git:action:push", async (input) => {
-        const result = await pushGitChanges(input, operations);
-        await callbacks
-          .runPromise(worker.request({ method: "refresh-repository", params: { cwd: input.cwd } }))
-          .catch(() => undefined);
-        return result;
-      });
-      yield* invoke("git:action:cancel", (input) => cancelGitAction(input, operations));
+      yield* invokeEffect("git:action:push", (input) =>
+        operations
+          .run(
+            input.operationId,
+            Effect.promise((signal) => pushGitChanges(input, signal)),
+            (): GitActionMutationResult => ({
+              cwd: input.cwd.trim(),
+              status: "error",
+              branch: null,
+              stdout: "",
+              stderr: "",
+              errorMessage: "Git action was canceled.",
+            }),
+          )
+          .pipe(
+            Effect.tap(() =>
+              Effect.promise(() =>
+                callbacks
+                  .runPromise(
+                    worker.request({
+                      method: "refresh-repository",
+                      params: { cwd: input.cwd },
+                    }),
+                  )
+                  .catch(() => undefined),
+              ),
+            ),
+          ),
+      );
+      yield* invokeEffect("git:action:cancel", (input) => operations.cancel(input));
       yield* invoke("gh-cli-status", readGhCliStatus);
       yield* invoke("gh-pr-status", readGhPrStatus);
       yield* invoke("gh-pr-checks", readGhPrChecks);

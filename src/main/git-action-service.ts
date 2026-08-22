@@ -2,8 +2,6 @@ import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type {
-  GitActionCancelInput,
-  GitActionCancelResult,
   GitActionMutationResult,
   GitActionStatusResult,
   GitCommitMessageGenerateInput,
@@ -69,56 +67,10 @@ export interface GitPullRequestMessageGenerationResponse {
 
 export interface CommitGitChangesOptions {
   gitWorker: GitActionWorkerPort;
-  operations: GitActionOperationRegistry;
   generateCommitMessage?: (input: GitCommitMessageGenerationRequest) => Promise<string | null>;
   generatePullRequestMessage?: (
     input: GitPullRequestMessageGenerationRequest,
   ) => Promise<GitPullRequestMessageGenerationResponse | null>;
-}
-
-export class GitActionOperationRegistry {
-  private readonly active = new Set<AbortController>();
-  private readonly activeById = new Map<string, AbortController>();
-  private closed = false;
-
-  async run<T>(
-    operationId: string | undefined,
-    action: (signal: AbortSignal | undefined) => Promise<T>,
-  ): Promise<T> {
-    const normalizedOperationId = operationId?.trim();
-    if (this.closed) throw new Error("Git action runtime is closed");
-
-    if (normalizedOperationId) this.activeById.get(normalizedOperationId)?.abort();
-    const controller = new AbortController();
-    this.active.add(controller);
-    if (normalizedOperationId) this.activeById.set(normalizedOperationId, controller);
-    try {
-      return await action(controller.signal);
-    } finally {
-      this.active.delete(controller);
-      if (normalizedOperationId && this.activeById.get(normalizedOperationId) === controller) {
-        this.activeById.delete(normalizedOperationId);
-      }
-    }
-  }
-
-  cancel(input: GitActionCancelInput): GitActionCancelResult {
-    const operationId = input.operationId.trim();
-    if (!operationId) return { canceled: false };
-
-    const controller = this.activeById.get(operationId);
-    if (!controller) return { canceled: false };
-    controller.abort();
-    return { canceled: true };
-  }
-
-  close(): void {
-    if (this.closed) return;
-    this.closed = true;
-    for (const controller of this.active) controller.abort();
-    this.active.clear();
-    this.activeById.clear();
-  }
 }
 
 export interface GitActionWorkerPort {
@@ -701,9 +653,10 @@ async function pushGitBranch(
 export function commitGitChanges(
   input: GitCommitInput,
   options: CommitGitChangesOptions,
+  signal?: AbortSignal,
 ): Promise<GitActionMutationResult> {
   const requestedMessage = input.message.trim();
-  return options.operations.run(input.operationId, async (signal) => {
+  return (async () => {
     let cwd = input.cwd.trim();
     let branch: string | null = null;
 
@@ -774,15 +727,16 @@ export function commitGitChanges(
     } catch (error) {
       return mutationError(cwd, branch, error, "Could not commit changes.");
     }
-  });
+  })();
 }
 
 export function generateGitCommitMessage(
   input: GitCommitMessageGenerateInput,
   options: CommitGitChangesOptions,
+  signal?: AbortSignal,
 ): Promise<GitCommitMessageGenerateResult> {
   const draftMessage = input.draftMessage?.trim() ?? "";
-  return options.operations.run(input.operationId, async (signal) => {
+  return (async () => {
     let cwd = input.cwd.trim();
 
     try {
@@ -837,16 +791,17 @@ export function generateGitCommitMessage(
     } catch (error) {
       return commitMessageGenerationError(cwd, error, "Could not generate a commit message.");
     }
-  });
+  })();
 }
 
 export function generateGitPullRequestMessage(
   input: GitPullRequestMessageGenerateInput,
   options: CommitGitChangesOptions,
+  signal?: AbortSignal,
 ): Promise<GitPullRequestMessageGenerateResult> {
   const title = input.title?.trim() ?? "";
   const body = input.body?.trim() ?? "";
-  return options.operations.run(input.operationId, async (signal) => {
+  return (async () => {
     let cwd = input.cwd.trim();
 
     try {
@@ -904,14 +859,14 @@ export function generateGitPullRequestMessage(
         "Could not generate pull request title and body.",
       );
     }
-  });
+  })();
 }
 
 export function pushGitChanges(
   input: GitPushInput,
-  operations: GitActionOperationRegistry,
+  signal?: AbortSignal,
 ): Promise<GitActionMutationResult> {
-  return operations.run(input.operationId, async (signal) => {
+  return (async () => {
     let cwd = input.cwd.trim();
     let branch: string | null = null;
 
@@ -942,12 +897,5 @@ export function pushGitChanges(
     } catch (error) {
       return mutationError(cwd, branch, error, "Could not push changes.");
     }
-  });
-}
-
-export function cancelGitAction(
-  input: GitActionCancelInput,
-  operations: GitActionOperationRegistry,
-): GitActionCancelResult {
-  return operations.cancel(input);
+  })();
 }

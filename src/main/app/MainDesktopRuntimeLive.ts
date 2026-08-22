@@ -287,6 +287,10 @@ import {
   ComputerUseSettingsRuntime,
   live as computerUseSettingsRuntimeLive,
 } from "../host-runtime/ComputerUseSettingsRuntime";
+import {
+  GitActionOperationRuntime,
+  live as gitActionOperationRuntimeLive,
+} from "../host-runtime/GitActionOperationRuntime";
 import { GitWorkerRuntime, live as gitWorkerRuntimeLive } from "../host-runtime/GitWorkerRuntime";
 import {
   LocalWorktreeWorkerRuntime,
@@ -848,6 +852,14 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const gitWorker = Context.get(gitWorkerContext, GitWorkerRuntime);
+        const gitActionOperationContext = yield* Layer.buildWithScope(
+          gitActionOperationRuntimeLive,
+          runtimeScope,
+        );
+        const gitActionOperations = Context.get(
+          gitActionOperationContext,
+          GitActionOperationRuntime,
+        );
         yield* Layer.buildWithScope(
           GitWorkerIpc.live.pipe(
             Layer.provide(
@@ -2166,6 +2178,7 @@ export const live: Layer.Layer<
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(GitActionOperationRuntime, gitActionOperations),
                 Layer.succeed(GitWorkerRuntime, gitWorker),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),

@@ -6,6 +6,7 @@ import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { layer as scopedCallbackRuntimeLayer } from "../../app/ScopedCallbackRuntime";
 import type { CodexService } from "../../codex/codex-service";
+import { live as gitActionOperationRuntimeLive } from "../../host-runtime/GitActionOperationRuntime";
 import { GitWorkerRuntime } from "../../host-runtime/GitWorkerRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
@@ -30,6 +31,7 @@ it.effect("owns Git and GitHub ingress with the Main Scope", () =>
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
+            gitActionOperationRuntimeLive,
             mainConfigLayer(),
             Layer.succeed(GitWorkerRuntime, {} as GitWorkerRuntime["Service"]),
             scopedCallbackRuntimeLayer,

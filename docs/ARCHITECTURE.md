@@ -289,11 +289,13 @@ runtime owns the notifier instance and its renderer projection listeners; Core p
 temporary legacy consumers borrow the same injected capability. Importing a local-store module
 must never create a second process event bus.
 
-Git application actions are admitted through one scoped IPC runtime. Its operation registry
-owns cancellation identity for commit, push, and generated commit/pull-request messages; replacing
-an operation aborts the prior operation with the same identity, and releasing the ingress Scope
-aborts every remaining operation. Action services receive that registry explicitly and must not
-retain process-global cancellation state.
+Git application actions are admitted through one Main-scoped `GitActionOperationRuntime`. A scoped
+`FiberMap` owns commit, push, and generated commit/pull-request-message work by renderer operation
+identity; replacement or explicit cancellation interrupts the exact child, while the waiting IPC
+fiber observes its `Exit` and returns the stable canceled domain result. Scope release closes
+admission and interrupts every remaining action. Stateless Git action helpers receive only the
+runtime-owned `AbortSignal` at the child-process/worker Promise seam; they do not own a registry,
+controller map, or manual shutdown path.
 
 Local Environment settings are a filesystem-backed host Module, not Codex conversation state.
 Its scoped runtime resolves Project workspace authority through Core, owns same-target write
@@ -718,8 +720,9 @@ generation space rather than inheriting process-module state.
 `GitWorkerRuntime` owns the corresponding Main-side channel. Its single state
 tracks the active Worker generation, Main request `Deferred`s, renderer request
 ownership, and live-subscription ownership; worker callbacks enter one scoped
-FiberSet. Main callers use typed Effects, while the still-Promise-shaped Git
-action helpers receive a projection through the application callback runtime.
+FiberSet. Main callers use typed Effects. The stateless Promise-shaped Git action
+helpers are invoked only inside `GitActionOperationRuntime` child Effects and
+receive the Effect interruption signal through the application callback boundary.
 Renderer destruction cancels only that renderer's requests and subscriptions.
 Generation failure rejects every pending owner before later admission starts a
 new generation, and Scope release gives cooperative shutdown one Effect-clock
