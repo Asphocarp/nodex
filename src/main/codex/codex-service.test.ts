@@ -118,6 +118,7 @@ import { TestCodexNotificationRouting } from "./codex-notification-routing.test-
 import { DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT } from "../codex-application/CodexOwnerNotificationDrainDeadline";
 import { TestCodexOwnerNotificationDrainDeadline } from "./codex-owner-notification-drain-deadline.test-support";
 import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
+import { TestCodexSidebarNotificationSync } from "./codex-sidebar-notification-sync.test-support";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
 import type {
@@ -1654,6 +1655,12 @@ function createService(options?: {
     onTimeout: (conversationId, sentSequence, ackSequence) =>
       service?.handleOwnerNotificationDrainTimeout(conversationId, sentSequence, ackSequence),
   });
+  const sidebarNotificationSync = new TestCodexSidebarNotificationSync(
+    async (minimumSyncGeneration) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      await service.syncSidebarThreadsAfterNotification(minimumSyncGeneration);
+    },
+  );
   const rendererOwnerRetention = new TestCodexRendererOwnerRetention({
     retentionMs: Math.max(0, options?.inactiveRendererOwnerRetentionMs ?? 60 * 60 * 1_000),
     maxRetained: Math.max(0, Math.floor(options?.inactiveRendererOwnerMaxRetained ?? 4)),
@@ -1790,6 +1797,7 @@ function createService(options?: {
     notificationRouting,
     ownerNotificationDrainDeadline,
     rendererOwnerRetention,
+    sidebarNotificationSync,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -1826,6 +1834,7 @@ function createService(options?: {
     activeGoalContinuation.dispose();
     ownerNotificationDrainDeadline.dispose();
     rendererOwnerRetention.dispose();
+    sidebarNotificationSync.dispose();
     try {
       await shutdown();
     } finally {

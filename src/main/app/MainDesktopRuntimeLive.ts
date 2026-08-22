@@ -84,6 +84,11 @@ import {
 import { make as makeCodexOwnerNotificationDrainDeadline } from "../codex-application/CodexOwnerNotificationDrainDeadline";
 import { makeCodexOwnerNotificationDrainDeadlineCallbackAdapter } from "../codex-application/CodexOwnerNotificationDrainDeadlineCallbackAdapter";
 import {
+  CodexSidebarNotificationSyncError,
+  make as makeCodexSidebarNotificationSync,
+} from "../codex-application/CodexSidebarNotificationSync";
+import { makeCodexSidebarNotificationSyncCallbackAdapter } from "../codex-application/CodexSidebarNotificationSyncCallbackAdapter";
+import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
 } from "../codex-application/CodexRendererOwnerRetention";
@@ -1199,6 +1204,18 @@ export const live: Layer.Layer<
           yield* makeCodexOwnerNotificationDrainDeadlineCallbackAdapter(
             ownerNotificationDrainDeadline,
           ).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const sidebarNotificationSync = yield* makeCodexSidebarNotificationSync({
+          repair: (minimumSyncGeneration) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().syncSidebarThreadsAfterNotification(minimumSyncGeneration),
+              catch: (cause) => new CodexSidebarNotificationSyncError({ cause }),
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const sidebarNotificationSyncCallbacks =
+          yield* makeCodexSidebarNotificationSyncCallbackAdapter(sidebarNotificationSync).pipe(
+            Effect.provideService(Scope.Scope, runtimeScope),
+          );
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1244,6 +1261,7 @@ export const live: Layer.Layer<
               notificationRouting,
               ownerNotificationDrainDeadline: ownerNotificationDrainDeadlineCallbacks,
               rendererOwnerRetention: rendererOwnerRetentionCallbacks,
+              sidebarNotificationSync: sidebarNotificationSyncCallbacks,
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,
                 callbacks,

@@ -447,6 +447,12 @@ an earlier request. Until thread-goal commands move with the canonical conversat
 `CodexService` supplies only the current eligibility query and the eventual command Effect; it owns
 no continuation timer, in-flight collection, error catch, or shutdown cleanup.
 
+App-server notifications that require a sidebar repair enter one trailing-debounce Module. The
+latest request replaces the pending fiber and carries the minimum acceptable sync generation;
+after the delay, the Module invokes the existing sidebar synchronization authority and supervises
+failure. The debounce and active repair close with Main Scope, while sidebar catalogs, generation
+counters, stale-request waiting, and force-refresh policy remain in their single current owner.
+
 Codex native-notification policy is a pure projection from application events, settings, focus,
 and presentation facts. `CodexThreadNotificationRuntime` directly owns both source-listener
 registrations and notification-action admission in the Main Scope; it does not acquire a class with

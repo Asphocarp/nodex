@@ -288,6 +288,7 @@ import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application
 import type { CodexNotificationRoutingLegacyPort } from "../codex-application/CodexNotificationRouting";
 import type { CodexOwnerNotificationDrainDeadlineLegacyPort } from "../codex-application/CodexOwnerNotificationDrainDeadline";
 import type { CodexRendererOwnerRetentionLegacyPort } from "../codex-application/CodexRendererOwnerRetention";
+import type { CodexSidebarNotificationSyncLegacyPort } from "../codex-application/CodexSidebarNotificationSync";
 import type { CodexUserInputAutoResolutionLegacyPort } from "../codex-application/CodexUserInputAutoResolution";
 import {
   buildPlanImplementationRequestId,
@@ -719,7 +720,6 @@ import {
 
 const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const SIDEBAR_THREAD_SYNC_STALE_MS = 60_000;
-const SIDEBAR_NOTIFICATION_SYNC_DEBOUNCE_MS = 300;
 const SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS = 2_000;
 const SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS = 60_000;
 const BACKGROUND_SUBAGENT_METADATA_REPAIR_RETRY_MS = 30_000;
@@ -1391,6 +1391,7 @@ type CodexServiceOptions = {
   notificationRouting: CodexNotificationRoutingLegacyPort;
   ownerNotificationDrainDeadline: CodexOwnerNotificationDrainDeadlineLegacyPort;
   rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
+  sidebarNotificationSync: CodexSidebarNotificationSyncLegacyPort;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2584,6 +2585,7 @@ export class CodexService extends EventEmitter {
   private readonly notificationRouting: CodexNotificationRoutingLegacyPort;
   private readonly ownerNotificationDrainDeadline: CodexOwnerNotificationDrainDeadlineLegacyPort;
   private readonly rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
+  private readonly sidebarNotificationSync: CodexSidebarNotificationSyncLegacyPort;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
   private readonly gitSettingsResolver: () => CodexGitSettings;
@@ -2766,7 +2768,6 @@ export class CodexService extends EventEmitter {
   private sidebarFailureBackoffUntil = 0;
   private sidebarFailureBackoffMs = SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS;
   private sidebarLastFailure: unknown = null;
-  private sidebarNotificationSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private sidebarUseStateDbOnlyThreadList = true;
   private sidebarSnapshotRevision = 0;
   private readonly sidebarSnapshotCacheByIncludeArchived = new Map<
@@ -2809,6 +2810,7 @@ export class CodexService extends EventEmitter {
     this.notificationRouting = options.notificationRouting;
     this.ownerNotificationDrainDeadline = options.ownerNotificationDrainDeadline;
     this.rendererOwnerRetention = options.rendererOwnerRetention;
+    this.sidebarNotificationSync = options.sidebarNotificationSync;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -6922,10 +6924,6 @@ export class CodexService extends EventEmitter {
     this.deferredThreadStartThreadIds.clear();
     this.readyDeferredThreadStartThreadIds.clear();
     this.threadStartNotificationDeferralDepth = 0;
-    if (this.sidebarNotificationSyncTimer !== null) {
-      clearTimeout(this.sidebarNotificationSyncTimer);
-      this.sidebarNotificationSyncTimer = null;
-    }
     this.sidebarSyncInFlight = null;
     this.sidebarSyncInFlightIncludeArchived = null;
     this.sidebarSweepGeneration += 1;
@@ -24903,26 +24901,18 @@ export class CodexService extends EventEmitter {
       threadId,
       minimumSyncGeneration,
     });
-    if (this.sidebarNotificationSyncTimer !== null) {
-      clearTimeout(this.sidebarNotificationSyncTimer);
-    }
-    this.sidebarNotificationSyncTimer = setTimeout(() => {
-      this.sidebarNotificationSyncTimer = null;
-      void this.syncSidebarThreadsAfterNotification(minimumSyncGeneration).catch((error) => {
-        this.logger.debug("Sidebar notification sync failed", {
-          notificationMethod,
-          threadId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      });
-    }, SIDEBAR_NOTIFICATION_SYNC_DEBOUNCE_MS);
+    this.sidebarNotificationSync.schedule({
+      notificationMethod,
+      threadId,
+      minimumSyncGeneration,
+    });
   }
 
   /**
    * A completion can arrive while an older thread/list request is still in flight.
    * Wait for that stale request, then require a sync that started after the notification.
    */
-  private async syncSidebarThreadsAfterNotification(minimumSyncGeneration: number): Promise<void> {
+  async syncSidebarThreadsAfterNotification(minimumSyncGeneration: number): Promise<void> {
     if (this.sidebarLastSuccessfulSyncGeneration >= minimumSyncGeneration) return;
 
     const inFlight = this.sidebarSyncInFlight;
