@@ -469,6 +469,14 @@ an earlier request. Until thread-goal commands move with the canonical conversat
 `CodexService` supplies only the current eligibility query and the eventual command Effect; it owns
 no continuation timer, in-flight collection, error catch, or shutdown cleanup.
 
+Conversation resume admission is owned by one Main-scoped keyed runtime. Identical callers join one
+physical resume fiber; a renderer's silent/deferred adoption demand and an ordinary replay/broadcast
+demand are not treated as equivalent. An incompatible caller waits for the current canonical
+transition, then runs an idempotent demand upgrade, so a deferred notification buffer cannot remain
+stranded behind an earlier join. Thread removal and Main Scope close interrupt physical resumes.
+`CodexService` keeps the canonical hydration and replay operations but owns no resume Promise map,
+option-blind join policy, detached cleanup, or shutdown entry.
+
 Post-resume Thread-goal hydration is a separate Main-scoped lifecycle because it correlates a
 remote read with a particular conversation revision. Concurrent awaited hydrations share one keyed
 load while each retains its own revision fence; background resume requests coalesce to the newest

@@ -134,6 +134,11 @@ import {
 import { make as makeCodexConversationDeltaBufferRuntime } from "../codex-application/CodexConversationDeltaBufferRuntime";
 import { makeCodexConversationDeltaBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationDeltaBufferRuntimePromiseAdapter";
 import {
+  CodexConversationResumeError,
+  make as makeCodexConversationResumeRuntime,
+} from "../codex-application/CodexConversationResumeRuntime";
+import { makeCodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
+import {
   CodexPostResumeGoalError,
   make as makeCodexPostResumeGoalRuntime,
 } from "../codex-application/CodexPostResumeGoalRuntime";
@@ -1419,6 +1424,14 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexConversationHistoryError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const conversationResume = yield* makeCodexConversationResumeRuntime({
+          run: (input) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().runConversationResume(input),
+              catch: (cause) => new CodexConversationResumeError({ cause }),
+            }),
+          observe: (outcome) => requireCodexService().recordConversationResumeOutcome(outcome),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const backgroundSubagentMetadataRepair = yield* makeCodexBackgroundSubagentMetadataRepair({
           isRepairNeeded: (parentThreadId, childThreadId) =>
             requireCodexService().isBackgroundSubagentMetadataRepairNeeded(
@@ -1640,6 +1653,10 @@ export const live: Layer.Layer<
               queuedFollowUpDispatch,
               conversationDeltaBuffer: makeCodexConversationDeltaBufferRuntimePromiseAdapter(
                 conversationDeltaBuffer,
+                callbacks,
+              ),
+              conversationResume: makeCodexConversationResumeRuntimePromiseAdapter(
+                conversationResume,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(

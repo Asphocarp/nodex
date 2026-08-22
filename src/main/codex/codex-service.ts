@@ -683,6 +683,11 @@ import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-app
 import type { CodexBackgroundSubagentMetadataRepair } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
 import type { CodexQueuedFollowUpDispatchRuntime } from "../codex-application/CodexQueuedFollowUpDispatchRuntime";
 import type { CodexConversationDeltaBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationDeltaBufferRuntime";
+import type {
+  CodexConversationResumeDemand,
+  CodexConversationResumeOutcome,
+} from "../codex-application/CodexConversationResumeRuntime";
+import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
 import {
   isExecutionWorkspacePathWithinRoot,
   rewriteExecutionWorkspaceRoots,
@@ -1197,10 +1202,7 @@ type DormantConversationSyncReason =
   | "inactive-owner-cleanup"
   | "durable-recovery";
 
-interface RequestConversationResumeOptions {
-  syncDormantConversationSnapshots?: boolean;
-  replayBufferedNotifications?: boolean;
-}
+type RequestConversationResumeOptions = Partial<Omit<CodexConversationResumeDemand, "threadId">>;
 
 interface CodexConversationResumeSeed {
   readonly requestedCwd: string | null;
@@ -1366,6 +1368,7 @@ type CodexServiceOptions = {
   backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   queuedFollowUpDispatch: CodexQueuedFollowUpDispatchRuntime["Service"];
   conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
+  conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2612,10 +2615,7 @@ export class CodexService extends EventEmitter {
   private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   private readonly queuedFollowUpDispatch: CodexQueuedFollowUpDispatchRuntime["Service"];
   private readonly conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
-  private readonly conversationResumeInFlightByThreadId = new Map<
-    string,
-    Promise<CodexConversationSnapshot | null>
-  >();
+  private readonly conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   private readonly pendingFreshSessionFirstTurnByThreadId = new Map<
     string,
     PendingFreshSessionFirstTurnLaunch
@@ -2704,6 +2704,7 @@ export class CodexService extends EventEmitter {
     this.backgroundSubagentMetadataRepair = options.backgroundSubagentMetadataRepair;
     this.queuedFollowUpDispatch = options.queuedFollowUpDispatch;
     this.conversationDeltaBuffer = options.conversationDeltaBuffer;
+    this.conversationResume = options.conversationResume;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -6111,6 +6112,7 @@ export class CodexService extends EventEmitter {
     this.activeGoalContinuation.clear(threadId);
     this.postResumeGoals.clear(threadId);
     this.conversationHistory.clear(threadId);
+    this.conversationResume.clear(threadId);
     this.backgroundSubagentMetadataRepair.clear(threadId);
     this.queuedFollowUpDispatch.clear(threadId);
   }
@@ -6565,7 +6567,6 @@ export class CodexService extends EventEmitter {
     this.nodexAgentAuthorizationBroker?.revokeAll();
     this.forkSidePanelTransferLifecycle?.clear();
     this.terminalInputBuffers.clear();
-    this.conversationResumeInFlightByThreadId.clear();
     this.pendingFreshSessionFirstTurnByThreadId.clear();
     this.rejectBufferedResumeRequests(new Error("Codex service is shutting down"));
     this.deferredThreadStartThreadIds.clear();
@@ -15840,68 +15841,44 @@ export class CodexService extends EventEmitter {
     threadId: string,
     options: RequestConversationResumeOptions = {},
   ): Promise<CodexConversationSnapshot | null> {
-    const startedAt = getDevRuntimeMetricStart();
-    const existing = this.conversationResumeInFlightByThreadId.get(threadId);
-    if (existing) {
-      this.logger.debug("Joining in-flight Codex thread resume", { threadId });
-      const result = await existing;
-      logDevRuntimeMetric("codex.thread.resume.request", {
-        threadId,
-        outcome: "success",
-        join: true,
-        syncDormantConversationSnapshots: options.syncDormantConversationSnapshots !== false,
-        replayBufferedNotifications: options.replayBufferedNotifications !== false,
-        hasSnapshot: result !== null,
-        turnCount: result?.turns.length ?? null,
-        childMembershipCount: result?.childMemberships.length ?? null,
-        approxPayloadBytes: result ? approximateJsonPayloadBytes(result) : null,
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      return result;
-    }
-
-    const resumePromise = this.runConversationResumeRequest(threadId, options);
-    this.conversationResumeInFlightByThreadId.set(threadId, resumePromise);
-    try {
-      const result = await resumePromise;
-      logDevRuntimeMetric("codex.thread.resume.request", {
-        threadId,
-        outcome: "success",
-        join: false,
-        syncDormantConversationSnapshots: options.syncDormantConversationSnapshots !== false,
-        replayBufferedNotifications: options.replayBufferedNotifications !== false,
-        hasSnapshot: result !== null,
-        turnCount: result?.turns.length ?? null,
-        childMembershipCount: result?.childMemberships.length ?? null,
-        approxPayloadBytes: result ? approximateJsonPayloadBytes(result) : null,
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      return result;
-    } catch (error) {
-      logDevRuntimeMetric("codex.thread.resume.request", {
-        threadId,
-        join: false,
-        syncDormantConversationSnapshots: options.syncDormantConversationSnapshots !== false,
-        replayBufferedNotifications: options.replayBufferedNotifications !== false,
-        outcome: "error",
-        error: error instanceof Error ? error.message : String(error),
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-      throw error;
-    } finally {
-      if (this.conversationResumeInFlightByThreadId.get(threadId) === resumePromise) {
-        this.conversationResumeInFlightByThreadId.delete(threadId);
-      }
-    }
+    return await this.conversationResume.resume({ threadId, ...options });
   }
 
-  private async runConversationResumeRequest(
-    threadId: string,
-    options: RequestConversationResumeOptions,
+  recordConversationResumeOutcome(outcome: CodexConversationResumeOutcome): void {
+    const result = outcome.result;
+    if (outcome.join && outcome.error === undefined) {
+      this.logger.debug("Joined in-flight Codex thread resume", {
+        threadId: outcome.input.threadId,
+      });
+    }
+    logDevRuntimeMetric("codex.thread.resume.request", {
+      threadId: outcome.input.threadId,
+      outcome: outcome.error === undefined ? "success" : "error",
+      join: outcome.join,
+      syncDormantConversationSnapshots: outcome.input.syncDormantConversationSnapshots,
+      replayBufferedNotifications: outcome.input.replayBufferedNotifications,
+      ...(outcome.error === undefined
+        ? {
+            hasSnapshot: result != null,
+            turnCount: result?.turns.length ?? null,
+            childMembershipCount: result?.childMemberships.length ?? null,
+            approxPayloadBytes: result ? approximateJsonPayloadBytes(result) : null,
+          }
+        : {
+            error: outcome.error instanceof Error ? outcome.error.message : String(outcome.error),
+          }),
+      durationMs: outcome.durationMs,
+    });
+  }
+
+  /** Effect Module adapter operation; runs one admitted resume demand. */
+  async runConversationResume(
+    input: CodexConversationResumeDemand,
   ): Promise<CodexConversationSnapshot | null> {
+    const { threadId } = input;
     await this.readWorkspaceThread(threadId);
-    const syncDormantConversationSnapshots = options.syncDormantConversationSnapshots !== false;
-    const replayBufferedNotifications = options.replayBufferedNotifications !== false;
+    const syncDormantConversationSnapshots = input.syncDormantConversationSnapshots;
+    const replayBufferedNotifications = input.replayBufferedNotifications;
     const syncOrEmitSnapshot = (): number => {
       if (syncDormantConversationSnapshots) {
         this.syncDormantConversationFromRecord(threadId, "explicit-resync");
@@ -15926,7 +15903,16 @@ export class CodexService extends EventEmitter {
       existingRecord.streamRole !== null &&
       (existingRecord.resumeState !== "needs_resume" || existingRecord.isStreaming)
     ) {
-      syncOrEmitSnapshot();
+      const hadDeferredBuffer = this.resumeNotificationBuffersByThreadId.has(threadId);
+      if (replayBufferedNotifications && hadDeferredBuffer) {
+        await this.releaseConversationResumeBufferCore(threadId);
+      }
+      const revision = syncOrEmitSnapshot();
+      if (replayBufferedNotifications && hadDeferredBuffer) {
+        if (!this.postResumeGoals.release(threadId, revision)) {
+          this.startPostResumeGoalFlow(threadId, revision);
+        }
+      }
       return this.serializeConversationSnapshot(threadId);
     }
 
