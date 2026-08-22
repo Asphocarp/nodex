@@ -89,7 +89,7 @@ export const live = (
       const config = yield* MainConfig;
       const windowSessions = yield* WindowSessionCatalog;
       const { browserSidebar } = options;
-      const { download, policy, services } = browserProfile;
+      const { credentials, download, policy, services } = browserProfile;
 
       const trusted = (event: IpcMainInvokeEvent, capabilityName: string) =>
         attempt("authorize-renderer", () =>
@@ -109,6 +109,8 @@ export const live = (
           ),
         );
       const parse = <A>(operation: string, run: () => A) => attempt(operation, run);
+      const credential = <A, E>(operation: string, effect: Effect.Effect<A, E>) =>
+        effect.pipe(Effect.mapError((cause) => new BrowserProfileIpcError({ operation, cause })));
 
       yield* ipc.handle("browser-downloads-list", (event) =>
         trusted(event, "Browser download history").pipe(
@@ -151,8 +153,8 @@ export const live = (
         trusted(event, "Browser Profile capabilities").pipe(
           Effect.andThen(
             attempt("read-browser-profile-capabilities", () => ({
-              credentialVault: services.credentialService.capability(),
-              contactInfo: services.credentialService.capability(),
+              credentialVault: credentials.capability(),
+              contactInfo: credentials.capability(),
               profileImport: services.profileImporter.capability(),
               siteInfo: { available: true as const, provider: "electron-public-api" as const },
               history: { available: true as const, provider: "electron-public-api" as const },
@@ -185,15 +187,13 @@ export const live = (
           ),
           Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
           Effect.flatMap((input) =>
-            attempt("list-browser-credentials", () => services.credentialService.listForTab(input)),
+            credential("list-browser-credentials", credentials.listForTab(input)),
           ),
         ),
       );
       yield* ipc.handle("browser-credentials-list-all", (event) =>
         trusted(event, "Browser credential listing").pipe(
-          Effect.andThen(
-            attempt("list-all-browser-credentials", () => services.credentialService.listAll()),
-          ),
+          Effect.andThen(credential("list-all-browser-credentials", credentials.listAll)),
         ),
       );
       yield* ipc.handle("browser-credential-fill", (event, rawInput: unknown) =>
@@ -202,9 +202,7 @@ export const live = (
             parse("parse-credential-fill", () => BrowserCredentialFillInputSchema.parse(rawInput)),
           ),
           Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
-          Effect.flatMap((input) =>
-            attempt("fill-browser-credential", () => services.credentialService.fill(input)),
-          ),
+          Effect.flatMap((input) => credential("fill-browser-credential", credentials.fill(input))),
         ),
       );
       yield* ipc.handle("browser-credential-generate-fill", (event, rawInput: unknown) =>
@@ -216,9 +214,7 @@ export const live = (
           ),
           Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
           Effect.flatMap((input) =>
-            attempt("generate-browser-credential", () =>
-              services.credentialService.generateAndFill(input),
-            ),
+            credential("generate-browser-credential", credentials.generateAndFill(input)),
           ),
         ),
       );
@@ -230,8 +226,9 @@ export const live = (
             ),
           ),
           Effect.flatMap((input) =>
-            attempt("apply-credential-candidate-action", () =>
-              services.credentialService.actOnCandidate(event.sender.id, input),
+            credential(
+              "apply-credential-candidate-action",
+              credentials.actOnCandidate(event.sender.id, input),
             ),
           ),
         ),
@@ -244,17 +241,13 @@ export const live = (
             ),
           ),
           Effect.flatMap(({ id }) =>
-            attempt("remove-browser-credential", () => services.credentialService.remove(id)),
+            credential("remove-browser-credential", credentials.remove(id)),
           ),
         ),
       );
       yield* ipc.handle("browser-contact-info-list", (event) =>
         trusted(event, "Browser contact info listing").pipe(
-          Effect.andThen(
-            attempt("list-browser-contact-info", () =>
-              services.credentialService.listContactInfo(),
-            ),
-          ),
+          Effect.andThen(credential("list-browser-contact-info", credentials.listContactInfo)),
         ),
       );
       yield* ipc.handle("browser-contact-info-upsert", (event, rawInput: unknown) =>
@@ -263,9 +256,7 @@ export const live = (
             parse("parse-contact-info", () => BrowserContactInfoUpsertInputSchema.parse(rawInput)),
           ),
           Effect.flatMap((input) =>
-            attempt("save-browser-contact-info", () =>
-              services.credentialService.saveContactInfo(input),
-            ),
+            credential("save-browser-contact-info", credentials.saveContactInfo(input)),
           ),
         ),
       );
@@ -277,8 +268,9 @@ export const live = (
             ),
           ),
           Effect.flatMap((input) =>
-            attempt("remove-browser-contact-info", () =>
-              services.credentialService.removeContactInfo(input.contactInfoId),
+            credential(
+              "remove-browser-contact-info",
+              credentials.removeContactInfo(input.contactInfoId),
             ),
           ),
         ),
@@ -292,9 +284,7 @@ export const live = (
           ),
           Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
           Effect.flatMap((input) =>
-            attempt("fill-browser-contact-info", () =>
-              services.credentialService.fillContactInfo(input),
-            ),
+            credential("fill-browser-contact-info", credentials.fillContactInfo(input)),
           ),
         ),
       );
@@ -460,8 +450,9 @@ export const live = (
         if (!owner) return Effect.void;
         const input = BrowserCredentialGuestCandidateSchema.safeParse(rawInput);
         if (!input.success) return Effect.void;
-        return attempt("capture-guest-credential-candidate", () =>
-          services.credentialService.captureGuestCandidate(event.sender.id, input.data),
+        return credential(
+          "capture-guest-credential-candidate",
+          credentials.captureGuestCandidate(event.sender.id, input.data),
         ).pipe(
           Effect.tap((candidate) =>
             candidate

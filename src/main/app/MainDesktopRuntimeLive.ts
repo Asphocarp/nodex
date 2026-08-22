@@ -783,8 +783,7 @@ export const live: Layer.Layer<
           grantDownload: (identity, sourceUrl, ttlMs) =>
             browserProfile.download.grantAgentDownload(identity, sourceUrl, ttlMs),
           policyStore: browserProfile.policy,
-          releaseCredentialOwner: (ownerWebContentsId) =>
-            browserProfile.services.credentialService.releaseOwner(ownerWebContentsId),
+          releaseCredentialOwner: browserProfile.credentials.releaseOwner,
         });
         const codexMediaContext = yield* Layer.buildWithScope(
           codexMediaLive.pipe(

@@ -193,6 +193,14 @@ the bounded JSON history. Scope release removes session ingress, interrupts call
 ephemeral grants and live handles, and leaves completed files untouched. IPC calls typed download
 Effects directly; Browser Sidebar receives only a tracked `clearHistory` Promise projection.
 
+Browser credentials and contact information share one Browser Profile-scoped Effect runtime. Its
+immutable candidate `Ref` and single semaphore own candidate expiry, renderer-owner release, and all
+credential/contact mutations; Profile release clears candidate plaintext. The encrypted vault is a
+stateless synchronous security adapter for Electron `safeStorage` and atomic filesystem publication,
+not an application service or a second write queue. Renderer and guest IPC invoke the runtime's typed
+Effects directly, and decrypted values are sent only after revalidating the exact guest and HTTP(S)
+origin.
+
 The MCP App sandbox runtime Scope owns both the Electron coordinator and its protocol runtime.
 The protocol runtime uses a bounded Effect Cache for TTL and single-flight Skybridge fetches,
 tracks prewarm graphs in a keyed FiberMap, and projects Promise only at Electron's protocol and

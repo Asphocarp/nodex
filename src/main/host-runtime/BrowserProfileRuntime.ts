@@ -11,7 +11,10 @@ import {
   makeBrowserDownloadSidebarPort,
   type BrowserDownloadRuntime,
 } from "../browser/browser-download-service";
-import { BrowserCredentialService } from "../browser/browser-credential-service";
+import {
+  makeBrowserCredentialRuntime,
+  type BrowserCredentialRuntime,
+} from "../browser/browser-credential-service";
 import { BrowserCredentialVault } from "../browser/browser-credential-vault";
 import { BrowserExtensionsProvider } from "../browser/browser-extensions-provider";
 import { BrowserLocalServerPreferencesStore } from "../browser/browser-local-server-preferences";
@@ -49,6 +52,7 @@ export class BrowserProfileRuntime extends Context.Service<
   BrowserProfileRuntime,
   {
     readonly download: BrowserDownloadRuntime;
+    readonly credentials: BrowserCredentialRuntime;
     readonly policy: BrowserUsePolicyRuntime;
     readonly services: BrowserProfileServices;
   }
@@ -129,7 +133,7 @@ export const live = (
           decryptString: (ciphertext) => desktop.safeStorage.decryptString(ciphertext),
         },
       });
-      const credentialService = new BrowserCredentialService({
+      const credentials = yield* makeBrowserCredentialRuntime({
         vault: credentialVault,
         resolveGuest: (identity) => options.browserSidebar.getWebContentsForTab(identity),
         resolveGuestIdentity: (webContentsId) =>
@@ -138,7 +142,6 @@ export const live = (
           options.browserSidebar.getOwnerWebContentsIdForGuest(webContentsId),
       });
       const services: BrowserProfileServices = {
-        credentialService,
         extensionsProvider: new BrowserExtensionsProvider(browserSession.extensions ?? null),
         localServerPreferencesStore: new BrowserLocalServerPreferencesStore(
           `${options.userDataPath}/browser-local-server-preferences.json`,
@@ -203,6 +206,6 @@ export const live = (
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => options.browserSidebar.setDownloadService(null)),
       );
-      return BrowserProfileRuntime.of({ download, policy, services });
+      return BrowserProfileRuntime.of({ credentials, download, policy, services });
     }),
   );

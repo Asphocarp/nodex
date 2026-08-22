@@ -78,13 +78,13 @@ describe("BrowserCredentialVault", () => {
       available: false,
       provider: "unavailable",
     });
-    await expect(
+    expect(() =>
       vault.save({
         origin: "https://example.com",
         username: "person",
         password: "secret",
       }),
-    ).rejects.toThrow("unavailable");
+    ).toThrow("unavailable");
   });
 
   test("generates passwords with every required character class", () => {

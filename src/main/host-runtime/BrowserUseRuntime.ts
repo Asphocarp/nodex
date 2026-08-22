@@ -38,7 +38,7 @@ export interface BrowserUseRuntimeInstallInput {
     ttlMs?: number,
   ) => void;
   readonly policyStore: BrowserUsePolicyReader;
-  readonly releaseCredentialOwner: (ownerWebContentsId: number) => void;
+  readonly releaseCredentialOwner: (ownerWebContentsId: number) => Effect.Effect<void>;
 }
 
 export class BrowserUseRuntime extends Context.Service<
@@ -174,11 +174,7 @@ const make = (
 
               const ownerReleased = (event: { ownerWebContentsId: number }) => {
                 void runPromise(
-                  Effect.try({
-                    try: () => input.releaseCredentialOwner(event.ownerWebContentsId),
-                    catch: (cause) =>
-                      new BrowserUseRuntimeError({ operation: "release-credential-owner", cause }),
-                  }).pipe(
+                  input.releaseCredentialOwner(event.ownerWebContentsId).pipe(
                     Effect.andThen(registry.releaseOwner(event.ownerWebContentsId)),
                     Effect.catch((error) => logFailure(error.operation, error.cause)),
                   ),

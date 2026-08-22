@@ -68,7 +68,7 @@ it.effect("installs Browser Use bindings once and releases every ingress with it
         snapshot: () => DEFAULT_BROWSER_USE_POLICY,
         isExplicitlyDenied: () => false,
       },
-      releaseCredentialOwner: () => events.push("release-credential-owner"),
+      releaseCredentialOwner: () => Effect.sync(() => void events.push("release-credential-owner")),
     });
 
     assert.deepEqual(resolver(), ["iab"]);
