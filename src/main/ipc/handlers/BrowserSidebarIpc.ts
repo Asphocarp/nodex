@@ -78,7 +78,7 @@ export const live: Layer.Layer<
   | WindowSessionCatalog
 > = Layer.effectDiscard(
   Effect.gen(function* () {
-    const { browser } = yield* BrowserSidebarRuntime;
+    const { browser, localServerThumbnail } = yield* BrowserSidebarRuntime;
     const callbacks = yield* ScopedCallbackRuntime;
     const config = yield* MainConfig;
     const ipc = yield* ElectronIpc;
@@ -281,11 +281,12 @@ export const live: Layer.Layer<
           ),
         ),
         Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
-        Effect.flatMap((input) =>
-          attempt("capture-local-server-thumbnail", () =>
-            browser.captureLocalServerThumbnail(input),
-          ),
-        ),
+        Effect.flatMap((input) => {
+          const admission = browser.admitLocalServerThumbnail(input);
+          return admission._tag === "Denied"
+            ? Effect.succeed(admission.result)
+            : localServerThumbnail.get(admission.url);
+        }),
       ),
     );
 

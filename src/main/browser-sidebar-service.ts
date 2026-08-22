@@ -80,7 +80,6 @@ import {
 } from "./browser/browser-context-menu";
 import { fetchBrowserImage } from "./browser/browser-image-attachment";
 import { saveUploadedImage } from "./local-store/assets";
-import { BrowserLocalServerThumbnailService } from "./browser/browser-local-server-thumbnail";
 
 type BrowserUseCommand = Extract<
   BrowserSidebarCommand,
@@ -174,7 +173,7 @@ interface BrowserSidebarServiceDeps {
   ) => void;
   electron?: BrowserSidebarElectronDeps;
   logger?: Pick<BackendLogger, "debug" | "info" | "warn">;
-  localServerThumbnailService?: Pick<BrowserLocalServerThumbnailService, "get" | "invalidate">;
+  invalidateLocalServerThumbnail?: (url?: string) => void;
   pageStore?: BrowserPageSnapshotStore;
   historyStore?: BrowserHistoryStore;
   runtimeRegistry?: BrowserRuntimeRegistry;
@@ -182,6 +181,16 @@ interface BrowserSidebarServiceDeps {
   resolveProjectIdForSession?: (sessionId: string) => Promise<string | null>;
   saveBrowserImage?: typeof saveUploadedImage;
 }
+
+export type BrowserLocalServerThumbnailAdmission =
+  | {
+      readonly _tag: "Allowed";
+      readonly url: string;
+    }
+  | {
+      readonly _tag: "Denied";
+      readonly result: BrowserSidebarLocalServerThumbnailResult;
+    };
 
 interface BrowserSidebarCommandContext {
   browserViewScopeId?: string;
@@ -418,10 +427,7 @@ export class BrowserSidebarService extends EventEmitter {
     ownerWebContentsId: number,
   ) => void;
   private readonly logger: Pick<BackendLogger, "debug" | "info" | "warn">;
-  private readonly localServerThumbnailService: Pick<
-    BrowserLocalServerThumbnailService,
-    "get" | "invalidate"
-  >;
+  private readonly invalidateLocalServerThumbnail: (url?: string) => void;
   private downloadService: BrowserDownloadSidebarPort | null = null;
   private readonly browserUseActiveTabIdsByConversationScope = new Map<string, string>();
   private readonly browserUseCapturedRoutesByViewScope = new Map<string, BrowserUseCapturedRoute>();
@@ -459,8 +465,7 @@ export class BrowserSidebarService extends EventEmitter {
         Menu.buildFromTemplate(template).popup(window ? { window } : {});
       });
     this.logger = deps.logger ?? getLogger({ subsystem: "browser-sidebar" });
-    this.localServerThumbnailService =
-      deps.localServerThumbnailService ?? new BrowserLocalServerThumbnailService();
+    this.invalidateLocalServerThumbnail = deps.invalidateLocalServerThumbnail ?? (() => undefined);
     this.pageStore = deps.pageStore ?? null;
     this.historyStore = deps.historyStore ?? null;
     this.siteStatusPolicy = deps.siteStatusPolicy ?? null;
@@ -1176,14 +1181,17 @@ export class BrowserSidebarService extends EventEmitter {
     return this.toLocalServersSnapshot(this.getLocalServerProjectState(projectId));
   }
 
-  async captureLocalServerThumbnail(
+  admitLocalServerThumbnail(
     input: BrowserSidebarLocalServerThumbnailRequest,
-  ): Promise<BrowserSidebarLocalServerThumbnailResult> {
+  ): BrowserLocalServerThumbnailAdmission {
     const tab = this.tabs.get(browserTabKey(input));
     if (!tab || tab.projectId !== input.projectId) {
       return {
-        status: "unavailable",
-        message: "Local server preview does not belong to this Browser tab",
+        _tag: "Denied",
+        result: {
+          status: "unavailable",
+          message: "Local server preview does not belong to this Browser tab",
+        },
       };
     }
     let origin: string;
@@ -1191,18 +1199,24 @@ export class BrowserSidebarService extends EventEmitter {
       origin = new URL(input.url).origin;
     } catch {
       return {
-        status: "unavailable",
-        message: "Local server preview URL is invalid",
+        _tag: "Denied",
+        result: {
+          status: "unavailable",
+          message: "Local server preview URL is invalid",
+        },
       };
     }
     const state = this.localServersByProject.get(input.projectId);
     if (!state?.servers.has(makeLocalServerId(origin))) {
       return {
-        status: "unavailable",
-        message: "Local server preview was not discovered for this project",
+        _tag: "Denied",
+        result: {
+          status: "unavailable",
+          message: "Local server preview was not discovered for this project",
+        },
       };
     }
-    return await this.localServerThumbnailService.get(input.url);
+    return { _tag: "Allowed", url: input.url };
   }
 
   registerAttachedWebviewOwnership(
@@ -1993,9 +2007,9 @@ export class BrowserSidebarService extends EventEmitter {
       if (!isLocalServerUrl(parsed)) continue;
 
       const origin = parsed.origin;
-      this.localServerThumbnailService.invalidate(origin);
+      this.invalidateLocalServerThumbnail(origin);
       if (parsed.href !== origin) {
-        this.localServerThumbnailService.invalidate(parsed.href);
+        this.invalidateLocalServerThumbnail(parsed.href);
       }
       const serverId = makeLocalServerId(origin);
       const routeId = makeLocalServerRouteId(origin, parsed.pathname || "/");

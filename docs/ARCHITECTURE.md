@@ -207,6 +207,13 @@ updates through one semaphore. A mutation atomically publishes and fsyncs the co
 before committing its `Ref`, so concurrent partial updates cannot overwrite one another and a failed
 write cannot advance the visible snapshot. IPC reads and mutates this runtime directly.
 
+Local-server thumbnails belong to the Browser Sidebar runtime rather than the Sidebar state machine.
+An Effect Cache provides bounded TTL and same-URL single-flight, a semaphore bounds capture
+concurrency, and a scoped FiberSet owns queued and active captures. Each hidden BrowserWindow is an
+`acquireUseRelease` resource whose navigation and capture deadlines use the Effect clock; interruption
+removes listeners and destroys the window. Sidebar state performs only Project/URL admission and emits
+tracked invalidations, while renderer IPC executes the admitted capture Effect directly.
+
 The MCP App sandbox runtime Scope owns both the Electron coordinator and its protocol runtime.
 The protocol runtime uses a bounded Effect Cache for TTL and single-flight Skybridge fetches,
 tracks prewarm graphs in a keyed FiberMap, and projects Promise only at Electron's protocol and

@@ -37,7 +37,13 @@ it.effect(
         live.pipe(
           Layer.provide(
             Layer.mergeAll(
-              Layer.succeed(BrowserSidebarRuntime, BrowserSidebarRuntime.of({ browser })),
+              Layer.succeed(
+                BrowserSidebarRuntime,
+                BrowserSidebarRuntime.of({
+                  browser,
+                  localServerThumbnail: {} as never,
+                }),
+              ),
               Layer.succeed(ElectronIpc, ipc),
               Layer.succeed(
                 ElectronWindowHost,

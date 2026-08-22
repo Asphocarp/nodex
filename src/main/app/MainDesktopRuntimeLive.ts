@@ -431,7 +431,9 @@ export const live: Layer.Layer<
         const codexGateway = Context.get(codexContext, CodexGateway);
         const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
         const browserSidebarContext = yield* Layer.buildWithScope(
-          browserSidebarRuntimeLive(userDataPath),
+          browserSidebarRuntimeLive(userDataPath).pipe(
+            Layer.provide(Layer.succeed(ScopedCallbackRuntime, callbacks)),
+          ),
           runtimeScope,
         );
         const browserSidebar = Context.get(browserSidebarContext, BrowserSidebarRuntime);
