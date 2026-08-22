@@ -5,6 +5,7 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
+import { CodexManualCompactionRuntime } from "../../codex-application/CodexManualCompactionRuntime";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
@@ -30,6 +31,11 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
     yield* Layer.buildWithScope(
       codexIpcLive({
         codexService: {} as CodexService,
+        manualCompaction: CodexManualCompactionRuntime.of({
+          start: () => Effect.void,
+          consumeSource: () => "automatic",
+          clear: () => undefined,
+        }),
         projectWorkspace: {} as DesktopProjectWorkspacePort,
         rendererClientRouter: {} as RendererClientRuntimeService,
         terminalRuntime: { runAction: () => Promise.resolve() },

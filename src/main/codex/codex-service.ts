@@ -195,6 +195,8 @@ import type {
 } from "../../shared/types";
 import type { ComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import type { CodexApplicationEventPublisher } from "../codex-application/CodexApplicationEventHub";
+import type { CodexManualCompactionProjectionPort } from "../codex-application/CodexManualCompactionRuntime";
+import type { CodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
 import { parseCodexPersonality } from "../codex-application/CodexPersonality";
 import type { CodexPreferences } from "../codex-application/CodexPreferences";
 import type { CodexPermissionsPromiseAdapter } from "../codex-application/CodexPermissionsPromiseAdapter";
@@ -337,14 +339,12 @@ import {
   resolveCodexItemPrimaryIdentityKey,
 } from "../../shared/codex-item-identity";
 import {
-  CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID,
   reduceCodexConversationEventWithEffects,
   type CodexConversationReducerEffect,
   type CodexItemLifecycleNotification,
 } from "../../shared/codex-conversation-state/codex-conversation-reducer";
 import {
   appendCodexCanonicalForkedFromConversationItem,
-  appendCodexCanonicalInProgressSyntheticItem,
   appendCodexCanonicalWorktreeInitItem,
   canonicalizeCodexCanonicalTurnStates,
   createCodexCanonicalWorkspacePermissionContext,
@@ -356,8 +356,6 @@ import {
   resolveCodexCanonicalHydratedCwd,
   resolveCodexCanonicalHydratedPermissionContext,
   resolveCodexCanonicalProjectlessCwd,
-  removeCodexCanonicalLocalSyntheticItem,
-  type CodexCanonicalContextCompactionItem,
   type CodexCanonicalHydratedPermissionContext,
   type CodexCanonicalLiveTurnParams,
   type CodexCanonicalSteeringUserMessageItem,
@@ -510,7 +508,6 @@ import type {
 } from "../../shared/agent-import";
 import type { NativeSessionCandidate } from "./agent-import-operations";
 import type { AgentImportRuntimePromiseAdapter } from "../codex-application/AgentImportRuntimePromiseAdapter";
-import { CodexManualCompactionTracker } from "./codex-manual-compaction-tracker";
 import {
   cleanCodexAutoTitlePrompt,
   CODEX_THREAD_TITLE_PROMPT_MAX_CHARS,
@@ -1235,6 +1232,7 @@ type CodexServiceOptions = {
   conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   freshThreadLaunch: CodexFreshThreadLaunchRuntimePromiseAdapter;
+  manualCompaction: CodexManualCompactionRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2452,6 +2450,7 @@ export class CodexService {
   private readonly conversationResume: CodexConversationResumeRuntimePromiseAdapter;
   private readonly conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   private readonly freshThreadLaunch: CodexFreshThreadLaunchRuntimePromiseAdapter;
+  private readonly manualCompaction: CodexManualCompactionRuntimePromiseAdapter;
   private readonly internalThreadIds = new Map<string, InternalThreadMetadata>();
   private readonly subagentThreadIds = new Set<string>();
   private readonly deletedThreadIds = new Set<string>();
@@ -2469,9 +2468,24 @@ export class CodexService {
   >();
   private readonly userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
   private readonly terminalInputBuffers = new Map<string, string>();
-  private readonly manualCompactionTracker = new CodexManualCompactionTracker();
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
   private sidebarUseStateDbOnlyThreadList = true;
+
+  /** Temporary canonical projection port while conversation state is still owned by this class. */
+  readonly manualCompactionProjection: CodexManualCompactionProjectionPort = {
+    read: (threadId) => this.getMaybeConversationRecord(threadId)?.canonicalState ?? null,
+    commit: (input) => this.commitCanonicalLocalTurnMutation(input),
+    publish: (threadId, turnId) => {
+      if (turnId === null) {
+        this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
+        return;
+      }
+      this.syncAcceptedConversationTurnState(threadId, turnId, {
+        syncBackgroundTerminalRows: true,
+        syncCapabilityFlags: true,
+      });
+    },
+  };
 
   constructor(options: CodexServiceOptions) {
     this.applicationEvents = options.applicationEvents;
@@ -2522,6 +2536,7 @@ export class CodexService {
     this.conversationResume = options.conversationResume;
     this.conversationEventBuffer = options.conversationEventBuffer;
     this.freshThreadLaunch = options.freshThreadLaunch;
+    this.manualCompaction = options.manualCompaction;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -5600,7 +5615,7 @@ export class CodexService {
     this.rendererOwnerRetention.clear(threadId);
     this.clearOwnerNotificationDrain(threadId);
     this.conversationDeltaBuffer.clear(threadId);
-    this.manualCompactionTracker.clear(threadId);
+    this.manualCompaction.clear(threadId);
     this.activeGoalContinuation.clear(threadId);
     this.postResumeGoals.clear(threadId);
     this.conversationHistory.clear(threadId);
@@ -11364,7 +11379,7 @@ export class CodexService {
       { type: "notification", notification },
       {
         now: () => observedAtMs,
-        consumeContextCompactionSource: () => this.manualCompactionTracker.consumeSource(threadId),
+        consumeContextCompactionSource: () => this.manualCompaction.consumeSource(threadId),
         resolveCollabReceiverThread: (receiverThreadId) =>
           this.resolveLoadedCanonicalThread(receiverThreadId),
       },
@@ -16424,7 +16439,7 @@ export class CodexService {
         return null;
       }
       case "thread/compact/start":
-        await this.startThreadCompaction(conversationId);
+        await this.manualCompaction.start(conversationId);
         return null;
       case "thread/backgroundTerminals/list": {
         const { cursor = null, limit } = request.params;
@@ -17199,74 +17214,6 @@ export class CodexService {
 
       return nextSettings;
     });
-  }
-
-  async startThreadCompaction(threadId: string): Promise<void> {
-    await this.ensureClientReady();
-    const before = this.getMaybeConversationRecord(threadId)?.canonicalState;
-    if (!before) {
-      throw new Error(`Cannot compact '${threadId}' before canonical conversation state is loaded`);
-    }
-    this.manualCompactionTracker.register(threadId);
-    const placeholder = {
-      type: "contextCompaction",
-      id: CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID,
-      completed: false,
-      source: "manual",
-    } satisfies CodexCanonicalContextCompactionItem;
-    const pendingState = appendCodexCanonicalInProgressSyntheticItem(
-      before,
-      placeholder,
-      Date.now(),
-    );
-    const turnIndex = pendingState.turns.findLastIndex((turn) =>
-      turn.items.some((item) => item.id === placeholder.id),
-    );
-    const turnId = pendingState.turns[turnIndex]?.protocol.id ?? null;
-    this.commitCanonicalLocalTurnMutation({
-      threadId,
-      before,
-      after: pendingState,
-      observedAtMs: Date.now(),
-    });
-    if (turnId === null) {
-      this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-    } else {
-      this.syncAcceptedConversationTurnState(threadId, turnId, {
-        syncBackgroundTerminalRows: true,
-        syncCapabilityFlags: true,
-      });
-    }
-
-    try {
-      await this.client.request("thread/compact/start", { threadId });
-    } catch (error) {
-      const remaining = this.manualCompactionTracker.cancel(threadId);
-      if (remaining === 0) {
-        const current = this.getMaybeConversationRecord(threadId)?.canonicalState;
-        if (current) {
-          const after = removeCodexCanonicalLocalSyntheticItem(
-            current,
-            CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID,
-          );
-          this.commitCanonicalLocalTurnMutation({
-            threadId,
-            before: current,
-            after,
-            observedAtMs: Date.now(),
-          });
-          if (turnId === null) {
-            this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
-          } else {
-            this.syncAcceptedConversationTurnState(threadId, turnId, {
-              syncBackgroundTerminalRows: true,
-              syncCapabilityFlags: true,
-            });
-          }
-        }
-      }
-      throw error;
-    }
   }
 
   async getThreadGoal(threadId: string): Promise<ThreadGoal | null> {

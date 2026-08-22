@@ -12,6 +12,7 @@ import {
 import { MainConfig } from "./app/MainConfig";
 import { ScopedCallbackRuntime } from "./app/ScopedCallbackRuntime";
 import type { CodexService } from "./codex/codex-service";
+import type { CodexManualCompactionRuntime } from "./codex-application/CodexManualCompactionRuntime";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -65,6 +66,11 @@ type TypedIpcHandler<Channel extends keyof IpcApi> = (
   ...args: [...IpcApi[Channel]["args"], signal?: AbortSignal]
 ) => IpcApi[Channel]["result"] | Promise<IpcApi[Channel]["result"]>;
 
+type TypedEffectIpcHandler<Channel extends keyof IpcApi> = (
+  event: IpcMainInvokeEvent,
+  ...args: IpcApi[Channel]["args"]
+) => Effect.Effect<IpcApi[Channel]["result"], CodexIpcError>;
+
 function requireNonBlankStringArray(value: unknown, label: string): string[] {
   if (
     !Array.isArray(value) ||
@@ -89,6 +95,7 @@ async function showDirectoryPicker(
 
 interface CodexIpcOptions {
   codexService: CodexService;
+  manualCompaction: CodexManualCompactionRuntime["Service"];
   rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
@@ -139,19 +146,14 @@ export const codexIpcLive = (
           },
           catch: (cause) => new CodexIpcError({ operation: "authorize-renderer", cause }),
         });
-      const registerHandle = <Channel extends keyof IpcApi>(
+      const registerEffectHandle = <Channel extends keyof IpcApi>(
         channel: Channel,
-        listener: TypedIpcHandler<Channel>,
+        listener: TypedEffectIpcHandler<Channel>,
       ): void => {
         registrations.push(
           ipc.handle(channel, (event, ...args: IpcApi[Channel]["args"]) =>
             authorize(event).pipe(
-              Effect.andThen(
-                Effect.tryPromise({
-                  try: (signal) => Promise.resolve(listener(event, ...args, signal)),
-                  catch: (cause) => new CodexIpcError({ operation: channel, cause }),
-                }),
-              ),
+              Effect.andThen(Effect.suspend(() => listener(event, ...args))),
               Effect.tapError((error) =>
                 Effect.sync(() =>
                   captureMainException(error.cause, {
@@ -166,6 +168,17 @@ export const codexIpcLive = (
               ),
             ),
           ),
+        );
+      };
+      const registerHandle = <Channel extends keyof IpcApi>(
+        channel: Channel,
+        listener: TypedIpcHandler<Channel>,
+      ): void => {
+        registerEffectHandle(channel, (event, ...args) =>
+          Effect.tryPromise({
+            try: (signal) => Promise.resolve(listener(event, ...args, signal)),
+            catch: (cause) => new CodexIpcError({ operation: channel, cause }),
+          }),
         );
       };
       const requireTrustedAppRendererSender = (
@@ -554,8 +567,14 @@ export const codexIpcLive = (
         codexService.sendQueuedFollowUpNow(threadId, followUpId),
       );
 
-      registerHandle("codex:thread:compact:start", (_, threadId: string) =>
-        codexService.startThreadCompaction(threadId),
+      registerEffectHandle("codex:thread:compact:start", (_, threadId: string) =>
+        options.manualCompaction
+          .start(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:compact:start", cause }),
+            ),
+          ),
       );
 
       registerHandle("codex:thread:goal:get", (_, threadId: string) =>

@@ -180,6 +180,11 @@ import {
   make as makeCodexPostResumeGoalRuntime,
 } from "../codex-application/CodexPostResumeGoalRuntime";
 import { makeCodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
+import {
+  CodexManualCompactionRuntime,
+  live as codexManualCompactionRuntimeLive,
+} from "../codex-application/CodexManualCompactionRuntime";
+import { makeCodexManualCompactionRuntimePromiseAdapter } from "../codex-application/CodexManualCompactionRuntimePromiseAdapter";
 import { make as makeCodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
 import { makeCodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import {
@@ -1810,6 +1815,16 @@ export const live: Layer.Layer<
           nodexAgentAuthorizationContext,
           NodexAgentAuthorizationRuntime,
         );
+        const manualCompactionContext = yield* Layer.buildWithScope(
+          codexManualCompactionRuntimeLive({
+            read: (threadId) => requireCodexService().manualCompactionProjection.read(threadId),
+            commit: (input) => requireCodexService().manualCompactionProjection.commit(input),
+            publish: (threadId, turnId) =>
+              requireCodexService().manualCompactionProjection.publish(threadId, turnId),
+          }).pipe(Layer.provide(Layer.succeed(CodexGateway, codexGateway))),
+          runtimeScope,
+        );
+        const manualCompaction = Context.get(manualCompactionContext, CodexManualCompactionRuntime);
         codexService = yield* Effect.try({
           try: () => {
             return new CodexService({
@@ -1898,6 +1913,10 @@ export const live: Layer.Layer<
               ),
               freshThreadLaunch: makeCodexFreshThreadLaunchRuntimePromiseAdapter(
                 freshThreadLaunch,
+                callbacks,
+              ),
+              manualCompaction: makeCodexManualCompactionRuntimePromiseAdapter(
+                manualCompaction,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
@@ -2543,6 +2562,7 @@ export const live: Layer.Layer<
         yield* Layer.buildWithScope(
           codexIpcLive({
             codexService,
+            manualCompaction,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

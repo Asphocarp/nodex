@@ -521,6 +521,16 @@ notification, supervises failures per envelope, and abandons both active work an
 Main Scope closes. `CodexService` temporarily supplies the canonical notification reducer operation,
 but it owns no subscription, Promise chain, queue recovery, or notification-ingress lifetime.
 
+Manual context compaction is one Main-scoped application transaction. Its Module owns per-Thread
+admission counts, inserts the single optimistic compaction item through the canonical projection
+port, sends the typed command directly through `CodexGateway`, correlates accepted lifecycle events
+with exactly one manual admission, and compensates the projection when a request fails or is
+interrupted. Concurrent requests retain the optimistic item until no admission can still succeed;
+Thread removal and Main Scope close clear the same owner. Renderer IPC invokes the Effect directly.
+`CodexService` temporarily supplies only synchronous canonical read/commit/publication callbacks and
+the pure notification reducer consume site; it owns no compaction counter, request Promise, failure
+handler, or public compaction command.
+
 Non-blocking app-server user-input requests are owned by one Main-scoped Codex application Module.
 Its immutable per-conversation state, keyed countdown fibers, serialized transitions, and change
 Stream determine when an unattended request is resolved. A visible foreground presentation first

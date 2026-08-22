@@ -100,9 +100,12 @@ import type {
   CodexMcpToolCallProgressUpdate,
 } from "../../shared/codex-conversation-state/codex-file-change-stream";
 import {
+  appendCodexCanonicalInProgressSyntheticItem,
   createCodexCanonicalHydratedConversationState,
   isCodexCanonicalProtocolItem,
+  removeCodexCanonicalLocalSyntheticItem,
 } from "../../shared/codex-conversation-state/codex-conversation-state";
+import { CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID } from "../../shared/codex-conversation-state/codex-conversation-reducer";
 import type {
   BrowserSidebarBrowserUseStateSnapshot,
   BrowserSidebarStateSnapshot,
@@ -165,6 +168,7 @@ import { makeProjectRuntimeLifecycleTestHarness } from "../host-runtime/ProjectR
 import { CodexPendingWorktreeRuntime } from "./codex-pending-worktree-runtime.test-support";
 
 interface TestableCodexService {
+  manualCompactionProjection: CodexService["manualCompactionProjection"];
   on: {
     (event: "event", listener: (event: CodexEvent) => void): unknown;
     (
@@ -2100,6 +2104,13 @@ function createService(options?: {
     conversationResume,
     conversationEventBuffer,
     freshThreadLaunch,
+    manualCompaction: {
+      start: async () => {
+        throw new Error("Manual compaction is unavailable in the legacy CodexService fixture");
+      },
+      consumeSource: () => "automatic",
+      clear: () => undefined,
+    },
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -15405,174 +15416,7 @@ describe("codex-service item identity dedupe", () => {
 });
 
 describe("codex-service item lifecycle status fallback", () => {
-  test("replaces the pending manual compaction row with an accepted manual lifecycle item", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      hydrateCanonicalConversationState: (
-        input: ThreadResumeResponse,
-      ) => CodexCanonicalConversationState;
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    client.start = async () => undefined;
-    client.request = async (method) => {
-      if (method === "thread/compact/start") return {};
-      throw new Error(`Unexpected method: ${method}`);
-    };
-
-    serviceInternals.hydrateCanonicalConversationState(
-      makeCanonicalResumeResponse({
-        threadId: "thr_manual_compaction",
-        threadTurns: [
-          {
-            ...makeCanonicalHydrationTurn("turn_manual_compaction"),
-            items: [],
-            status: "inProgress",
-            completedAt: null,
-            durationMs: null,
-          },
-        ],
-        initialTurnsPage: {
-          data: [
-            {
-              ...makeCanonicalHydrationTurn("turn_manual_compaction"),
-              items: [],
-              status: "inProgress",
-              completedAt: null,
-              durationMs: null,
-            },
-          ],
-          nextCursor: null,
-          backwardsCursor: null,
-        },
-      }),
-    );
-    serviceInternals.setConversationRecordDetail({
-      ...makeThreadDetail("thr_manual_compaction"),
-      turns: [
-        {
-          threadId: "thr_manual_compaction",
-          turnId: "turn_manual_compaction",
-          status: "inProgress",
-          itemIds: [],
-        },
-      ],
-      transcript: [],
-    });
-
-    try {
-      await (
-        service as unknown as {
-          startThreadCompaction: (threadId: string) => Promise<void>;
-        }
-      ).startThreadCompaction("thr_manual_compaction");
-      expect(
-        getCanonicalConversationState(service, "thr_manual_compaction")?.turns[0]?.items[0]?.id,
-      ).toBe("pending-manual-context-compaction");
-
-      await serviceInternals.handleNotification({
-        method: "item/started",
-        params: {
-          threadId: "thr_manual_compaction",
-          turnId: "turn_manual_compaction",
-          startedAtMs: 1_000,
-          item: { id: "compaction-accepted", type: "contextCompaction" },
-        },
-      });
-      const items =
-        getCanonicalConversationState(service, "thr_manual_compaction")?.turns[0]?.items ?? [];
-      const accepted = items[0] as
-        | { id?: string; source?: string; completed?: boolean }
-        | undefined;
-      expect(items.length).toBe(1);
-      expect(accepted?.id).toBe("compaction-accepted");
-      expect(accepted?.source).toBe("manual");
-      expect(accepted?.completed).toBe(false);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("removes the pending manual compaction row when the request fails", async () => {
-    const service = createService();
-    const serviceInternals = service as unknown as {
-      hydrateCanonicalConversationState: (
-        input: ThreadResumeResponse,
-      ) => CodexCanonicalConversationState;
-      setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-    };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    client.start = async () => undefined;
-    client.request = async (method) => {
-      if (method === "thread/compact/start") throw new Error("compaction rejected");
-      throw new Error(`Unexpected method: ${method}`);
-    };
-
-    serviceInternals.hydrateCanonicalConversationState(
-      makeCanonicalResumeResponse({
-        threadId: "thr_manual_compaction_failure",
-        threadTurns: [
-          {
-            ...makeCanonicalHydrationTurn("turn_manual_compaction_failure"),
-            items: [],
-            status: "inProgress",
-            completedAt: null,
-            durationMs: null,
-          },
-        ],
-        initialTurnsPage: {
-          data: [
-            {
-              ...makeCanonicalHydrationTurn("turn_manual_compaction_failure"),
-              items: [],
-              status: "inProgress",
-              completedAt: null,
-              durationMs: null,
-            },
-          ],
-          nextCursor: null,
-          backwardsCursor: null,
-        },
-      }),
-    );
-    serviceInternals.setConversationRecordDetail({
-      ...makeThreadDetail("thr_manual_compaction_failure"),
-      turns: [
-        {
-          threadId: "thr_manual_compaction_failure",
-          turnId: "turn_manual_compaction_failure",
-          status: "inProgress",
-          itemIds: [],
-        },
-      ],
-      transcript: [],
-    });
-
-    try {
-      await expect(
-        (
-          service as unknown as {
-            startThreadCompaction: (threadId: string) => Promise<void>;
-          }
-        ).startThreadCompaction("thr_manual_compaction_failure"),
-      ).rejects.toThrow("compaction rejected");
-      expect(
-        getCanonicalConversationState(service, "thr_manual_compaction_failure")?.turns[0]?.items
-          .length,
-      ).toBe(0);
-    } finally {
-      await service.shutdown();
-    }
-  });
-
-  test("keeps an earlier local turn when an unbound manual compaction turn is added and removed", async () => {
+  test("manual compaction projection preserves an earlier local turn through rollback", async () => {
     const service = createService();
     const serviceInternals = service as unknown as {
       hydrateCanonicalConversationState: (
@@ -15582,45 +15426,21 @@ describe("codex-service item lifecycle status fallback", () => {
       appendThreadGoalTranscriptTurn: (threadId: string, goal: ThreadGoal) => void;
       conversationRecords: Map<string, { detail: CodexThreadDetail | null }>;
     };
-    const client = Reflect.get(service as object, "client") as {
-      start: () => Promise<void>;
-      request: (method: string, params: unknown) => Promise<unknown>;
-    };
-    client.start = async () => undefined;
-    client.request = async (method) => {
-      if (method !== "thread/compact/start") throw new Error(`Unexpected method: ${method}`);
-      const pendingDetail = serviceInternals.conversationRecords.get(
-        "thr_manual_compaction_unbound",
-      )?.detail;
-      expect(pendingDetail?.turns).toMatchObject([
-        { turnId: null, status: "completed" },
-        { turnId: null, status: "inProgress" },
-      ]);
-      expect(pendingDetail?.transcript.map((item) => item.type)).toEqual([
-        "userMessage",
-        "contextCompaction",
-      ]);
-      throw new Error("compaction rejected");
-    };
-
+    const threadId = "thr_manual_compaction_projection";
     serviceInternals.hydrateCanonicalConversationState(
       makeCanonicalResumeResponse({
-        threadId: "thr_manual_compaction_unbound",
+        threadId,
         threadTurns: [],
-        initialTurnsPage: {
-          data: [],
-          nextCursor: null,
-          backwardsCursor: null,
-        },
+        initialTurnsPage: { data: [], nextCursor: null, backwardsCursor: null },
       }),
     );
     serviceInternals.setConversationRecordDetail({
-      ...makeThreadDetail("thr_manual_compaction_unbound"),
+      ...makeThreadDetail(threadId),
       turns: [],
       transcript: [],
     });
-    serviceInternals.appendThreadGoalTranscriptTurn("thr_manual_compaction_unbound", {
-      threadId: "thr_manual_compaction_unbound",
+    serviceInternals.appendThreadGoalTranscriptTurn(threadId, {
+      threadId,
       objective: "Preserve the earlier local turn",
       status: "active",
       tokenBudget: null,
@@ -15631,22 +15451,47 @@ describe("codex-service item lifecycle status fallback", () => {
     });
 
     try {
-      await expect(
-        (
-          service as unknown as {
-            startThreadCompaction: (threadId: string) => Promise<void>;
-          }
-        ).startThreadCompaction("thr_manual_compaction_unbound"),
-      ).rejects.toThrow("compaction rejected");
-      expect(
-        getCanonicalConversationState(service, "thr_manual_compaction_unbound")?.turns,
-      ).toHaveLength(1);
-      expect(
-        serviceInternals.conversationRecords.get("thr_manual_compaction_unbound")?.detail?.turns,
-      ).toMatchObject([{ turnId: null, status: "completed" }]);
+      const before = service.manualCompactionProjection.read(threadId);
+      if (!before) throw new Error("Expected canonical state");
+      const pending = appendCodexCanonicalInProgressSyntheticItem(
+        before,
+        {
+          type: "contextCompaction",
+          id: CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID,
+          completed: false,
+          source: "manual",
+        },
+        3,
+      );
+      service.manualCompactionProjection.commit({
+        threadId,
+        before,
+        after: pending,
+        observedAtMs: 3,
+      });
+      service.manualCompactionProjection.publish(threadId, null);
+      expect(serviceInternals.conversationRecords.get(threadId)?.detail?.turns).toMatchObject([
+        { turnId: null, status: "completed" },
+        { turnId: null, status: "inProgress" },
+      ]);
+
+      const rolledBack = removeCodexCanonicalLocalSyntheticItem(
+        pending,
+        CODEX_PENDING_MANUAL_CONTEXT_COMPACTION_ITEM_ID,
+      );
+      service.manualCompactionProjection.commit({
+        threadId,
+        before: pending,
+        after: rolledBack,
+        observedAtMs: 4,
+      });
+      service.manualCompactionProjection.publish(threadId, null);
+      expect(serviceInternals.conversationRecords.get(threadId)?.detail?.turns).toMatchObject([
+        { turnId: null, status: "completed" },
+      ]);
       expect(
         serviceInternals.conversationRecords
-          .get("thr_manual_compaction_unbound")
+          .get(threadId)
           ?.detail?.transcript.map((item) => item.markdownText),
       ).toEqual(["Preserve the earlier local turn"]);
     } finally {
