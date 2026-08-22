@@ -8,7 +8,7 @@ import * as Scope from "effect/Scope";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { TestClock } from "effect/testing";
 import { assert, it } from "@effect/vitest";
-import type { CoreGenerationClient } from "../core-client/desktop-core-authority-supervisor";
+import type { CoreGenerationClient } from "../core-client/core-generation-client";
 import type { LibraryReadSnapshot } from "../core-client/types";
 import { createFakeCoreHandshake, FakeCoreClient } from "../core-client/testing/fake-core-client";
 import { CoreTransportError } from "../core-client/uds-http";

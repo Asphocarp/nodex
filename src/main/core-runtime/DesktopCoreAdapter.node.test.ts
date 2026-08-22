@@ -2,7 +2,7 @@ import * as Effect from "effect/Effect";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { assert, it } from "@effect/vitest";
 import { ScopedCallbackRuntime, layer as callbackLayer } from "../app/ScopedCallbackRuntime";
-import type { CoreGenerationClient } from "../core-client/desktop-core-authority-supervisor";
+import type { CoreGenerationClient } from "../core-client/core-generation-client";
 import { createFakeCoreHandshake, FakeCoreClient } from "../core-client/testing/fake-core-client";
 import { CoreAuthority, CoreSessionAccess, type CoreAuthorityState } from "./CoreAuthority";
 import { makeDesktopDataAuthority } from "./DesktopCoreAdapter";

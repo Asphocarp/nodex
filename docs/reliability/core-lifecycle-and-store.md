@@ -17,11 +17,14 @@ contains no content or secret, and remains diagnostic rather than authority.
 
 ## Generation recovery
 
-Electron retains one process-lifetime authority supervisor and one logical Core
-connection identity. Definitive transport loss may start a single-flight
-selection of another ready generation only when Profile, Library, and Store
-epoch still match. Stable Module facades, projection cursors, Document/Canvas
-subscriptions, and schedulers survive the physical connection change.
+Electron's process Scope retains one Effect `CoreAuthority` and one logical Core
+connection identity. Definitive transport loss may start one scoped,
+single-flight selection of another ready generation only when Profile, Library,
+and Store epoch still match. Stable Module facades, projection cursors,
+Document/Canvas subscriptions, and schedulers survive the physical connection
+change. Scenario and integration harnesses may acquire one standalone generation
+for a bounded Scope, but they do not implement production recovery or circuit
+state.
 
 Reads and writes with stable idempotency identity may retry once with their
 original input. Ephemeral Awareness triggers recovery but is never replayed.

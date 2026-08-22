@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect";
 import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
-import type { CoreGenerationClient } from "../core-client/desktop-core-authority-supervisor";
+import type { CoreGenerationClient } from "../core-client/core-generation-client";
 import type {
   DesktopDataAuthorityRuntime,
   RustDataAuthorityRuntime,
@@ -69,9 +69,6 @@ export const makeDesktopDataAuthority = Effect.fn("DesktopCoreAdapter.makeDeskto
         projectClients.set(projectId, client);
         return client;
       },
-      // Scope owns the authority. Legacy callers may signal intent to close, but
-      // they cannot retire the process-scoped resource out of order.
-      close: () => Promise.resolve(),
     };
     return runtime;
   },

@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import type { ConnectOrStartCoreInput, CoreLaunchResult } from "../core-client/core-launcher";
 import { connectOrStartCore } from "../core-client/core-launcher";
-import type { CoreGenerationClient } from "../core-client/desktop-core-authority-supervisor";
+import type { CoreGenerationClient } from "../core-client/core-generation-client";
 import { coreRuntimeError, type CoreRuntimeError } from "./CoreRuntimeError";
 
 export interface CoreTransportSession {

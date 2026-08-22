@@ -18,11 +18,7 @@ export {
 } from "./desktop-document-sync-bridge";
 export { readCoreRuntimeConnection } from "./runtime-descriptor";
 export { connectOrStartCore, resolveCoreExecutable } from "./core-launcher";
-export { initializeDesktopDataAuthority } from "./desktop-data-authority";
-export {
-  CoreAuthorityUnavailableError,
-  DesktopCoreAuthoritySupervisor,
-} from "./desktop-core-authority-supervisor";
+export { initializeStandaloneDataAuthority } from "./standalone-data-authority";
 export { createCoreLibraryModuleAdapter } from "./library-module-adapter";
 export {
   createDesktopLibraryModuleBridge,
@@ -74,18 +70,13 @@ export type {
 } from "./core-launcher";
 export type {
   DesktopDataAuthorityRuntime,
-  InitializeDesktopDataAuthorityInput,
   RustDataAuthorityRuntime,
 } from "./desktop-data-authority";
 export type {
   CoreAuthorityIdentity,
-  CoreAuthorityState,
   CoreGenerationClient,
-  CoreGenerationLaunch,
-  CreateDesktopCoreAuthoritySupervisorInput,
-  DesktopCoreAuthoritySupervisorDependencies,
   DesktopCoreClient,
-} from "./desktop-core-authority-supervisor";
+} from "./core-generation-client";
 export type {
   CoreLibraryModuleAdapter,
   CoreLibraryModuleAdapterInput,

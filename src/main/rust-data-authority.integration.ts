@@ -6,7 +6,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vite-plus/test";
 import * as Y from "yjs";
 
-import { initializeDesktopDataAuthority } from "./core-client/desktop-data-authority";
+import { initializeStandaloneDataAuthority } from "./core-client/standalone-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
 import { createCoreCanvasSceneAdapter } from "./core-client/core-canvas-scene-adapter";
 import { createCoreLibraryModuleAdapter } from "./core-client/library-module-adapter";
@@ -72,7 +72,7 @@ describe("Electron native data authority", () => {
     let runtime: RustDataAuthorityRuntime | null = null;
 
     try {
-      const selected = await initializeDesktopDataAuthority({
+      const selected = await initializeStandaloneDataAuthority({
         buildId: "electron-authority-integration-test",
         isPackaged: false,
         nodexHome,

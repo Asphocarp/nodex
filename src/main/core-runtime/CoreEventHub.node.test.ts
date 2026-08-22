@@ -6,7 +6,7 @@ import * as Scope from "effect/Scope";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import { TestClock } from "effect/testing";
 import { assert, it } from "@effect/vitest";
-import type { CoreGenerationClient } from "../core-client/desktop-core-authority-supervisor";
+import type { CoreGenerationClient } from "../core-client/core-generation-client";
 import type {
   CoreEventEnvelope,
   CoreEventReplayRequired,

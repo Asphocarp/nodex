@@ -8,7 +8,7 @@ import { afterEach, describe, expect, test } from "vite-plus/test";
 import * as Y from "yjs";
 
 import { removePrivateTemporaryDirectory } from "../../scripts/verify-native-runtime";
-import { initializeDesktopDataAuthority } from "./core-client/desktop-data-authority";
+import { initializeStandaloneDataAuthority } from "./core-client/standalone-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import type { CoreEventEnvelope } from "./core-client/types";
@@ -144,7 +144,7 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
 
       process.env.NODEX_CORE_EXECUTABLE = packagedCore;
       process.env.NODEX_HOME = home;
-      const selected = await initializeDesktopDataAuthority({
+      const selected = await initializeStandaloneDataAuthority({
         appResourcesPath: path.resolve(packagedBin, ".."),
         buildId: "packaged-native-cli-electron-acceptance",
         isPackaged: true,

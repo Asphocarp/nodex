@@ -132,7 +132,7 @@ Store formats and migration sequences are implementation/recovery contracts, not
 
 [`src/main`](src/main) owns the non-transactional desktop boundary:
 
-- Core selection, authenticated connection, compatibility checks, supervision, and recovery through [`src/main/core-client`](src/main/core-client).
+- Core transport selection, authenticated connection, and compatibility checks through [`src/main/core-client`](../src/main/core-client); process-lifetime supervision and recovery through Effect [`CoreAuthority`](../src/main/core-runtime/CoreAuthority.ts).
 - Trusted identity binding and strict mapping between renderer/Host contracts and Core Module contracts.
 - BrowserWindow, preload, IPC, application menus, deep links, clipboard, notifications, assets, logs, and platform integration.
 - Codex app-server lifecycle, request routing, runtime configuration, and external agent execution.
@@ -368,7 +368,7 @@ EventEmitter construction inside application Module roots. The companion
 Oxlint rule also covers `.test-support.ts`, so support code cannot hide a manual
 runtime from `@effect/vitest` lifecycle checks.
 
-Long-lived Core adapters target the process-lifetime authority supervisor, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. The lifecycle decision is detailed in [ADR 0034](docs/adr/0034-core-generations-are-supervised-runtime-sessions.md).
+Long-lived Core adapters target the process-scoped Effect `CoreAuthority`, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. One-generation scenario and integration harnesses are bounded transport fixtures, not alternate recovery owners. The lifecycle decision is detailed in the [Core generation ADR](adr/0041-core-generations-are-supervised-runtime-sessions.md).
 
 Main propagates renderer cancellation across IPC and the Core transport using the same request identity. Its transport timer is only a short liveness grace after Core's declared semantic deadline; it is not a competing execution deadline and cannot classify an ambiguous response loss as generation failure.
 
@@ -945,7 +945,7 @@ checking/download-readiness state outside the Module.
 
 The launcher selects a single Core candidate while holding the Profile lifetime lock, then proves authority with an authenticated handshake. Existing descriptors and PIDs are hints, not process identity. Core compatibility is evaluated across transport, event, Module contracts, artifact policy, and exact Store identity.
 
-Electron keeps one logical authority supervisor for its lifetime. A disconnected transport may recover by selecting another compatible Core generation for the same Store epoch; epoch or authority drift fails closed. Long-lived stream supervisors reconnect from their retained logical cursors or resource identities.
+Electron keeps one process-scoped Effect `CoreAuthority` for its lifetime. A disconnected transport may recover by selecting another compatible Core generation for the same Store epoch; epoch or authority drift fails closed. Long-lived stream owners reconnect from their retained logical cursors or resource identities.
 
 Whole-store restore is an exclusive Core maintenance operation. It drains admitted work, validates and journals the database/assets replacement, rotates the Store epoch, resets native caches and streams, and returns a committed receipt. Electron then performs a controlled relaunch so every Adapter binds the new authority.
 
