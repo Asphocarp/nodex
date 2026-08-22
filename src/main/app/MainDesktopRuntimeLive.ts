@@ -90,6 +90,8 @@ import {
 import { makeCodexSidebarNotificationSyncCallbackAdapter } from "../codex-application/CodexSidebarNotificationSyncCallbackAdapter";
 import { make as makeCodexSidebarSweepRuntime } from "../codex-application/CodexSidebarSweepRuntime";
 import { makeCodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
+import { make as makeCodexGitProbe } from "../codex-application/CodexGitProbe";
+import { makeCodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
 import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
@@ -1222,6 +1224,7 @@ export const live: Layer.Layer<
         const sidebarSweep = yield* makeCodexSidebarSweepRuntime().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const gitProbe = makeCodexGitProbe({ environment: config.environment });
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1269,6 +1272,7 @@ export const live: Layer.Layer<
               rendererOwnerRetention: rendererOwnerRetentionCallbacks,
               sidebarNotificationSync: sidebarNotificationSyncCallbacks,
               sidebarSweep: makeCodexSidebarSweepRuntimePromiseAdapter(sidebarSweep, callbacks),
+              gitProbe: makeCodexGitProbePromiseAdapter(gitProbe, callbacks),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,
                 callbacks,

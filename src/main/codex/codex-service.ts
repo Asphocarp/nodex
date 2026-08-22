@@ -1,5 +1,4 @@
 import { EventEmitter } from "node:events";
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { mkdir, open as openFile, readFile } from "node:fs/promises";
@@ -206,6 +205,7 @@ import type { AgentProviderRuntimePromiseAdapter } from "../codex-application/Ag
 import type { ManagedWorktreeRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRuntimePromiseAdapter";
 import type { ManagedWorktreeRetentionRuntimePromiseAdapter } from "../codex-application/ManagedWorktreeRetentionRuntimePromiseAdapter";
 import type { CodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
+import type { CodexGitProbePromiseAdapter } from "../codex-application/CodexGitProbePromiseAdapter";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -1405,6 +1405,7 @@ type CodexServiceOptions = {
   rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   sidebarNotificationSync: CodexSidebarNotificationSyncLegacyPort;
   sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
+  gitProbe: CodexGitProbePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2600,6 +2601,7 @@ export class CodexService extends EventEmitter {
   private readonly rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   private readonly sidebarNotificationSync: CodexSidebarNotificationSyncLegacyPort;
   private readonly sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
+  private readonly gitProbe: CodexGitProbePromiseAdapter;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
   private readonly gitSettingsResolver: () => CodexGitSettings;
@@ -2812,6 +2814,7 @@ export class CodexService extends EventEmitter {
     this.rendererOwnerRetention = options.rendererOwnerRetention;
     this.sidebarNotificationSync = options.sidebarNotificationSync;
     this.sidebarSweep = options.sidebarSweep;
+    this.gitProbe = options.gitProbe;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -10541,41 +10544,7 @@ export class CodexService extends EventEmitter {
   }
 
   private async resolveIsNonGitWorkspace(cwd: string): Promise<boolean> {
-    const normalizedCwd = cwd.trim();
-    if (!normalizedCwd || !existsSync(normalizedCwd)) return false;
-
-    return await new Promise<boolean>((resolve) => {
-      let settled = false;
-      let stderr = "";
-      const finish = (value: boolean): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        resolve(value);
-      };
-      const child = spawn("git", ["rev-parse", "--show-toplevel"], {
-        cwd: normalizedCwd,
-        env: process.env,
-        windowsHide: true,
-      });
-      const timeout = setTimeout(() => {
-        child.kill("SIGTERM");
-        finish(false);
-      }, 8_000);
-      timeout.unref();
-
-      child.stderr?.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString("utf8");
-      });
-      child.on("error", () => finish(false));
-      child.on("close", (code) => {
-        if (code === 0) {
-          finish(false);
-          return;
-        }
-        finish(stderr.toLowerCase().includes("not a git repository"));
-      });
-    });
+    return await this.gitProbe.isNonGitWorkspace(cwd);
   }
 
   private async readWorktreeShellEnvironment(
@@ -11344,40 +11313,7 @@ export class CodexService extends EventEmitter {
   }
 
   private async readGitPath(cwd: string, args: string[]): Promise<string | null> {
-    const normalizedCwd = cwd.trim();
-    if (!normalizedCwd) return null;
-    if (!existsSync(normalizedCwd)) return null;
-
-    return await new Promise<string | null>((resolve) => {
-      const child = spawn("git", args, {
-        cwd: normalizedCwd,
-        env: process.env,
-        windowsHide: true,
-      });
-      let stdout = "";
-      const timeout = setTimeout(() => {
-        child.kill("SIGTERM");
-      }, 8_000);
-      timeout.unref();
-
-      child.stdout?.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString("utf8");
-      });
-      child.on("error", () => {
-        clearTimeout(timeout);
-        resolve(null);
-      });
-      child.on("close", (code) => {
-        clearTimeout(timeout);
-        if (code !== 0) {
-          resolve(null);
-          return;
-        }
-
-        const normalized = stdout.trim();
-        resolve(normalized.length > 0 ? normalized : null);
-      });
-    });
+    return await this.gitProbe.readPath(cwd, args);
   }
 
   private uniqueResolvedPaths(paths: string[]): string[] {

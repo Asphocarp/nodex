@@ -121,6 +121,7 @@ import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retentio
 import { TestCodexSidebarNotificationSync } from "./codex-sidebar-notification-sync.test-support";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
+import { runCodexGitCommand } from "./codex-git-command";
 import type {
   CodexWorktreeWorkerCreateInput,
   CodexWorktreeWorkerEvent,
@@ -1843,6 +1844,35 @@ function createService(options?: {
     rendererOwnerRetention,
     sidebarNotificationSync,
     sidebarSweep,
+    gitProbe: {
+      readPath: async (cwd, args) => {
+        if (!cwd.trim()) return null;
+        try {
+          return (
+            (
+              await runCodexGitCommand(args, cwd.trim(), {
+                timeoutMs: 8_000,
+                maxOutputBytes: 256 * 1_024,
+              })
+            ).stdout.trim() || null
+          );
+        } catch {
+          return null;
+        }
+      },
+      isNonGitWorkspace: async (cwd) => {
+        if (!cwd.trim()) return false;
+        try {
+          await runCodexGitCommand(["rev-parse", "--show-toplevel"], cwd.trim(), {
+            timeoutMs: 8_000,
+            maxOutputBytes: 256 * 1_024,
+          });
+          return false;
+        } catch (error) {
+          return String(error).toLowerCase().includes("not a git repository");
+        }
+      },
+    },
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),

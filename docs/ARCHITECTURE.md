@@ -515,6 +515,12 @@ Generation failure rejects every pending owner before later admission starts a
 new generation, and Scope release gives cooperative shutdown one Effect-clock
 deadline before forced termination.
 
+Lightweight Codex policy probes that only need `git rev-parse` use one typed
+`CodexGitProbe` capability with the immutable bootstrap environment and bounded
+output/deadline policy. Fiber interruption reaches the process-group Adapter's
+AbortSignal. `CodexService` may temporarily borrow its stateless Promise projection,
+but it never spawns Git, owns a child timer, or reads ambient process environment.
+
 Git and worktree worker entries are independent Effect applications. Each
 enters through `NodeRuntime.runMain`, registers its MessagePort or stdio ingress
 inside one Scope, and stores keyed requests in a scoped `FiberMap`. Cancellation
