@@ -230,6 +230,14 @@ updates through one semaphore. A mutation atomically publishes and fsyncs the co
 before committing its `Ref`, so concurrent partial updates cannot overwrite one another and a failed
 write cannot advance the visible snapshot. IPC reads and mutates this runtime directly.
 
+Browser Sidebar projections have one typed event hub inside the Sidebar Main Scope. The imperative
+Sidebar state machine receives only its synchronous publisher; renderer IPC, Browser Use, and Remote
+Hosted PiP consume independent Streams whose fibers start before their owning Layer reports ready and
+close with that Scope. The only callback observation capability is the exact `webviewAttached`
+subscription required by the IAB Promise adapter to close its check/register race; the hub closes and
+clears that registration with the same Scope. `BrowserSidebarService` is not an EventEmitter and owns
+no projection subscriber or disposer list.
+
 Local-server thumbnails belong to the Browser Sidebar runtime rather than the Sidebar state machine.
 An Effect Cache provides bounded TTL and same-URL single-flight, a semaphore bounds capture
 concurrency, and a scoped FiberSet owns queued and active captures. Each hidden BrowserWindow is an

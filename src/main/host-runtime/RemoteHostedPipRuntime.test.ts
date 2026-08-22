@@ -2,6 +2,7 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
+import * as PubSub from "effect/PubSub";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import * as TestClock from "effect/testing/TestClock";
@@ -45,7 +46,7 @@ it.effect("owns notification consumption and releases the native host with its S
     yield* Effect.yieldNow;
 
     assert.isTrue(runtime.getAlwaysHide());
-    assert.strictEqual(refreshed, 1);
+    assert.strictEqual(refreshed, 2);
     assert.deepEqual(notifications, [{ method: "turn/started", params: { threadId: "thread-1" } }]);
     yield* Scope.close(scope, Exit.void);
     assert.strictEqual(disposed, 1);
@@ -54,8 +55,8 @@ it.effect("owns notification consumption and releases the native host with its S
 
 it.effect("tracks Browser Use refresh signals only while its Scope is open", () =>
   Effect.gen(function* () {
-    let listener: (() => void) | null = null;
     let refreshed = 0;
+    const signals = yield* PubSub.unbounded<void>();
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       testLayer(
@@ -72,25 +73,21 @@ it.effect("tracks Browser Use refresh signals only while its Scope is open", () 
           setAlwaysHide: () => undefined,
         },
         Stream.empty,
-        (next) => {
-          listener = next;
-          return () => {
-            listener = null;
-          };
-        },
+        Stream.fromPubSub(signals),
       ),
       scope,
     );
     yield* Effect.yieldNow;
     assert.strictEqual(refreshed, 1);
 
-    const refresh = listener as (() => void) | null;
-    refresh?.();
+    yield* PubSub.publish(signals, undefined);
     yield* Effect.yieldNow;
     assert.strictEqual(refreshed, 2);
 
     yield* Scope.close(scope, Exit.void);
-    assert.isNull(listener);
+    yield* PubSub.publish(signals, undefined);
+    yield* Effect.yieldNow;
+    assert.strictEqual(refreshed, 2);
   }),
 );
 
@@ -113,7 +110,7 @@ it.effect("owns native presentation polling with the Main Scope clock", () =>
           setAlwaysHide: () => undefined,
         },
         Stream.empty,
-        undefined,
+        Stream.empty,
         500,
       ),
       scope,

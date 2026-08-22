@@ -24,7 +24,6 @@ import {
   BrowserHistoryListInputSchema,
 } from "../../../shared/browser-profile";
 import { MainConfig } from "../../app/MainConfig";
-import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import { computeBrowserAnnotationEvidenceCrop } from "../../browser/browser-annotation-evidence";
 import { isBrowserLocalServerCommand } from "../../browser/browser-local-server-runtime";
 import {
@@ -73,16 +72,11 @@ const commandViewScope = (command: BrowserSidebarCommand): string | null => {
 export const live: Layer.Layer<
   never,
   never,
-  | BrowserSidebarRuntime
-  | ElectronIpc
-  | ElectronWindowHost
-  | MainConfig
-  | ScopedCallbackRuntime
-  | WindowSessionCatalog
+  BrowserSidebarRuntime | ElectronIpc | ElectronWindowHost | MainConfig | WindowSessionCatalog
 > = Layer.effectDiscard(
   Effect.gen(function* () {
-    const { browser, history, localServers, localServerThumbnail } = yield* BrowserSidebarRuntime;
-    const callbacks = yield* ScopedCallbackRuntime;
+    const { browser, events, history, localServers, localServerThumbnail } =
+      yield* BrowserSidebarRuntime;
     const config = yield* MainConfig;
     const ipc = yield* ElectronIpc;
     const windows = yield* ElectronWindowHost;
@@ -385,9 +379,6 @@ export const live: Layer.Layer<
         ),
       );
 
-    const stateListener = (snapshot: ReturnType<typeof browser.getStateSnapshot>) => {
-      callbacks.fork(sendFilteredState(snapshot));
-    };
     yield* localServers.updates.pipe(
       Stream.runForEach((snapshot) =>
         windows.all.pipe(
@@ -399,98 +390,92 @@ export const live: Layer.Layer<
           Effect.asVoid,
         ),
       ),
-      Effect.forkScoped,
+      Effect.forkScoped({ startImmediately: true }),
     );
-    const browserUseStateListener = (
-      snapshot: ReturnType<typeof browser.getBrowserUseStateSnapshot>,
-    ) => {
-      callbacks.fork(sendFilteredBrowserUseState(snapshot));
-    };
-    const browserUseViewportListener = (event: IpcEvents["browser-sidebar-browser-use-viewport"]) =>
-      callbacks.fork(
-        sendToScope("browser-sidebar-browser-use-viewport", event.browserViewScopeId, event),
-      );
-    const browserUseCaptureSurfaceListener = (
-      event: IpcEvents["browser-sidebar-browser-use-capture-surface"],
-    ) =>
-      callbacks.fork(
-        sendToScope("browser-sidebar-browser-use-capture-surface", event.browserViewScopeId, event),
-      );
-    const browserUseCursorListener = (
-      event: IpcEvents["browser-sidebar-browser-use-cursor-state"],
-    ) =>
-      callbacks.fork(
-        sendToScope("browser-sidebar-browser-use-cursor-state", event.browserViewScopeId, event),
-      );
-    const pageReleasedListener = (event: IpcEvents["browser-sidebar-browser-use-page-released"]) =>
-      callbacks.fork(
-        sendToScope("browser-sidebar-browser-use-page-released", event.browserViewScopeId, event),
-      );
-    const pageClosedListener = (event: IpcEvents["browser-sidebar-browser-use-page-closed"]) =>
-      callbacks.fork(
-        sendToScope("browser-sidebar-browser-use-page-closed", event.browserViewScopeId, event),
-      );
-    const presentationListener = (
-      event: IpcEvents["browser-sidebar-browser-use-presentation-request"],
-    ) =>
-      callbacks.fork(
-        sendToScope(
-          "browser-sidebar-browser-use-presentation-request",
-          event.browserViewScopeId,
-          event,
-        ),
-      );
-    const openNewTabListener = (event: IpcEvents["browser-sidebar-open-new-tab"]) =>
-      callbacks.fork(sendToScope("browser-sidebar-open-new-tab", event.browserViewScopeId, event));
-    const contextMenuListener = (event: IpcEvents["browser-sidebar-context-menu-action"]) =>
-      callbacks.fork(
-        sendToScope("browser-sidebar-context-menu-action", event.browserViewScopeId, event),
-      );
-    const imageDragListener = (event: IpcEvents["browser-sidebar-image-drag-state"]) =>
-      callbacks.fork(
-        sendToScope("browser-sidebar-image-drag-state", event.browserViewScopeId, event),
-      );
-    const webviewAttachedListener = (event: IpcEvents["browser-sidebar-webview-attached"]) =>
-      callbacks.fork(
-        sendToScope("browser-sidebar-webview-attached", event.browserViewScopeId, event),
-      );
-    const destroyWebviewListener = (event: IpcEvents["browser-sidebar-destroy-webview"]) =>
-      callbacks.fork(
-        sendToScope("browser-sidebar-destroy-webview", event.browserViewScopeId, event),
-      );
-
-    yield* Effect.acquireRelease(
-      Effect.sync(() => {
-        browser.on("state", stateListener);
-        browser.on("browserUseState", browserUseStateListener);
-        browser.on("browserUseViewport", browserUseViewportListener);
-        browser.on("browserUseCaptureSurface", browserUseCaptureSurfaceListener);
-        browser.on("browserUseCursor", browserUseCursorListener);
-        browser.on("pageReleased", pageReleasedListener);
-        browser.on("pageClosed", pageClosedListener);
-        browser.on("browserUsePresentationRequest", presentationListener);
-        browser.on("openNewTab", openNewTabListener);
-        browser.on("contextMenuAction", contextMenuListener);
-        browser.on("imageDragState", imageDragListener);
-        browser.on("webviewAttached", webviewAttachedListener);
-        browser.on("destroyWebview", destroyWebviewListener);
+    yield* events.events.pipe(
+      Stream.runForEach((event) => {
+        if (event.kind === "state") return sendFilteredState(event.value);
+        if (event.kind === "browserUseState") return sendFilteredBrowserUseState(event.value);
+        if (event.kind === "browserUseViewport") {
+          return sendToScope(
+            "browser-sidebar-browser-use-viewport",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        if (event.kind === "browserUseCaptureSurface") {
+          return sendToScope(
+            "browser-sidebar-browser-use-capture-surface",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        if (event.kind === "browserUseCursor") {
+          return sendToScope(
+            "browser-sidebar-browser-use-cursor-state",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        if (event.kind === "pageReleased") {
+          return sendToScope(
+            "browser-sidebar-browser-use-page-released",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        if (event.kind === "pageClosed") {
+          return sendToScope(
+            "browser-sidebar-browser-use-page-closed",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        if (event.kind === "browserUsePresentationRequest") {
+          return sendToScope(
+            "browser-sidebar-browser-use-presentation-request",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        if (event.kind === "openNewTab") {
+          return sendToScope(
+            "browser-sidebar-open-new-tab",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        if (event.kind === "contextMenuAction") {
+          return sendToScope(
+            "browser-sidebar-context-menu-action",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        if (event.kind === "imageDragState") {
+          return sendToScope(
+            "browser-sidebar-image-drag-state",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        if (event.kind === "webviewAttached") {
+          return sendToScope(
+            "browser-sidebar-webview-attached",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        if (event.kind === "destroyWebview") {
+          return sendToScope(
+            "browser-sidebar-destroy-webview",
+            event.value.browserViewScopeId,
+            event.value,
+          );
+        }
+        return Effect.void;
       }),
-      () =>
-        Effect.sync(() => {
-          browser.removeListener("state", stateListener);
-          browser.removeListener("browserUseState", browserUseStateListener);
-          browser.removeListener("browserUseViewport", browserUseViewportListener);
-          browser.removeListener("browserUseCaptureSurface", browserUseCaptureSurfaceListener);
-          browser.removeListener("browserUseCursor", browserUseCursorListener);
-          browser.removeListener("pageReleased", pageReleasedListener);
-          browser.removeListener("pageClosed", pageClosedListener);
-          browser.removeListener("browserUsePresentationRequest", presentationListener);
-          browser.removeListener("openNewTab", openNewTabListener);
-          browser.removeListener("contextMenuAction", contextMenuListener);
-          browser.removeListener("imageDragState", imageDragListener);
-          browser.removeListener("webviewAttached", webviewAttachedListener);
-          browser.removeListener("destroyWebview", destroyWebviewListener);
-        }),
-    ).pipe(Effect.asVoid);
+      Effect.forkScoped({ startImmediately: true }),
+    );
   }),
 );

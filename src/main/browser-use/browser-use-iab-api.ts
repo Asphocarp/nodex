@@ -75,6 +75,7 @@ export interface BrowserUseIabApiOptions {
   grantDownload?: (identity: BrowserSidebarTabIdentity, sourceUrl: string, ttlMs?: number) => void;
   pageReadyTimeoutMs?: number;
   policyStore?: BrowserUsePolicyReader;
+  subscribeWebviewAttached: (listener: (event: BrowserSidebarTabIdentity) => void) => () => void;
 }
 
 export interface BrowserUseIabAsyncRuntime {
@@ -230,6 +231,7 @@ export class BrowserUseIabApi {
   private readonly pageReadyTimeoutMs: number;
   private readonly policyStore: BrowserUsePolicyReader | null;
   private readonly route: BrowserUseRoute;
+  private readonly subscribeWebviewAttached: BrowserUseIabApiOptions["subscribeWebviewAttached"];
   private readonly userTabIdsByBrowserTabId = new Map<string, number>();
   private nextTabId = 1;
   private nextCursorMoveSequence = 1;
@@ -255,6 +257,7 @@ export class BrowserUseIabApi {
     this.pageReadyTimeoutMs = options.pageReadyTimeoutMs ?? DEFAULT_PAGE_READY_TIMEOUT_MS;
     this.policyStore = options.policyStore ?? null;
     this.route = options.route;
+    this.subscribeWebviewAttached = options.subscribeWebviewAttached;
   }
 
   ping(): string {
@@ -980,8 +983,7 @@ export class BrowserUseIabApi {
           if (!contents || contents.isDestroyed()) return;
           succeed(contents);
         };
-        this.browserService.on("webviewAttached", onAttached);
-        return () => this.browserService.off("webviewAttached", onAttached);
+        return this.subscribeWebviewAttached(onAttached);
       },
       this.pageReadyTimeoutMs,
       () => {

@@ -9,7 +9,6 @@ import {
   type NativeImage,
   type WebContents,
 } from "electron";
-import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
 import {
   BROWSER_SIDEBAR_PARTITION,
@@ -26,19 +25,15 @@ import {
   type BrowserSidebarCommand,
   type BrowserSidebarCommandResult,
   type BrowserSidebarClonedTabInput,
-  type BrowserSidebarContextMenuActionEvent,
   type BrowserSidebarDestroyWebviewRequest,
-  type BrowserSidebarImageDragStateEvent,
   type BrowserSidebarHostRouteIdentity,
   type BrowserSidebarLocalServerThumbnailRequest,
   type BrowserSidebarLocalServerThumbnailResult,
-  type BrowserSidebarOpenNewTabRequest,
   type BrowserSidebarStateSnapshot,
   type BrowserSidebarTabSnapshot,
   type BrowserSidebarTabIdentity,
   type BrowserSidebarThemeVariant,
   type BrowserSidebarViewport,
-  type BrowserSidebarWebviewAttached,
   type BrowserSidebarWebviewDestroyed,
   type BrowserSidebarWebviewHostCreated,
   type BrowserUsePageClosedEvent,
@@ -76,6 +71,7 @@ import {
 } from "./browser/browser-context-menu";
 import { fetchBrowserImage } from "./browser/browser-image-attachment";
 import { saveUploadedImage } from "./local-store/assets";
+import type { BrowserSidebarEventPublisher } from "./browser/BrowserSidebarEventHub";
 
 type BrowserUseCommand = Extract<
   BrowserSidebarCommand,
@@ -163,6 +159,7 @@ interface BrowserSidebarElectronDeps {
 }
 
 interface BrowserSidebarServiceDeps {
+  events: BrowserSidebarEventPublisher;
   contextMenuPresenter?: (
     template: MenuItemConstructorOptions[],
     ownerWebContentsId: number,
@@ -324,38 +321,6 @@ function isBrowserContextMenuParams(
   );
 }
 
-interface BrowserSidebarServiceEvents {
-  state: [BrowserSidebarStateSnapshot];
-  browserUseState: [BrowserSidebarBrowserUseStateSnapshot];
-  browserUseViewport: [BrowserSidebarBrowserUseViewportEvent];
-  browserUseCaptureSurface: [BrowserSidebarBrowserUseCaptureSurfaceEvent];
-  browserUseCursor: [BrowserUseCursorState];
-  browserUseCursorArrived: [
-    {
-      browserConversationId: string;
-      browserViewScopeId: string;
-      browserTabId: string;
-      moveSequence: number;
-      ownerWebContentsId: number | null;
-    },
-  ];
-  pageReleased: [BrowserSidebarTabIdentity];
-  pageClosed: [BrowserUsePageClosedEvent];
-  browserUsePresentationRequest: [BrowserUsePresentationRequest];
-  contextMenuAction: [BrowserSidebarContextMenuActionEvent];
-  openNewTab: [BrowserSidebarOpenNewTabRequest];
-  webviewAttached: [BrowserSidebarWebviewAttached];
-  destroyWebview: [BrowserSidebarDestroyWebviewRequest];
-  browserUseOwnerReleased: [
-    {
-      ownerWebContentsId: number;
-    },
-  ];
-  imageDragState: [BrowserSidebarImageDragStateEvent];
-}
-
-type BrowserSidebarEventName = keyof BrowserSidebarServiceEvents;
-
 interface PendingWebviewTeardown extends BrowserSidebarTabIdentity {
   mountGeneration: number;
   reason: BrowserSidebarDestroyWebviewRequest["reason"];
@@ -377,7 +342,7 @@ interface ActiveBrowserImageDrag extends BrowserSidebarTabIdentity {
   sourceUrl: string;
 }
 
-export class BrowserSidebarService extends EventEmitter {
+export class BrowserSidebarService {
   private readonly tabs = new Map<string, BrowserSidebarTabSnapshot>();
   private readonly webContentsTabIds = new Map<number, string>();
   private readonly attachedWebviewOwnership = new Map<number, AttachedBrowserWebviewOwnership>();
@@ -402,6 +367,7 @@ export class BrowserSidebarService extends EventEmitter {
     BrowserSidebarBrowserUseCaptureSurfaceEvent
   >();
   private readonly electron: BrowserSidebarElectronDeps;
+  private readonly events: BrowserSidebarEventPublisher;
   private readonly contextMenuPresenter: (
     template: MenuItemConstructorOptions[],
     ownerWebContentsId: number,
@@ -425,8 +391,8 @@ export class BrowserSidebarService extends EventEmitter {
   private browserUseRouteCaptureHandler: BrowserUseRouteCaptureHandler | null = null;
   private teardownSequence = 0;
 
-  constructor(deps: BrowserSidebarServiceDeps = {}) {
-    super();
+  constructor(deps: BrowserSidebarServiceDeps) {
+    this.events = deps.events;
     this.electron = deps.electron ?? {
       clipboard,
       session,
@@ -487,7 +453,6 @@ export class BrowserSidebarService extends EventEmitter {
     this.browserUseRouteCaptureHandler = null;
     this.downloadService = null;
     this.siteStatusPolicy = null;
-    this.removeAllListeners();
   }
 
   async promoteBrowserUseRoute(input: {
@@ -550,21 +515,7 @@ export class BrowserSidebarService extends EventEmitter {
         this.pendingBrowserUsePresentations.delete(key);
       }
     }
-    this.emit("browserUseOwnerReleased", { ownerWebContentsId });
-  }
-
-  override on<EventName extends BrowserSidebarEventName>(
-    eventName: EventName,
-    listener: (...args: BrowserSidebarServiceEvents[EventName]) => void,
-  ): this {
-    return super.on(eventName, listener);
-  }
-
-  override emit<EventName extends BrowserSidebarEventName>(
-    eventName: EventName,
-    ...args: BrowserSidebarServiceEvents[EventName]
-  ): boolean {
-    return super.emit(eventName, ...args);
+    this.events.publish({ kind: "browserUseOwnerReleased", value: { ownerWebContentsId } });
   }
 
   getStateSnapshot(): BrowserSidebarStateSnapshot {
@@ -658,7 +609,7 @@ export class BrowserSidebarService extends EventEmitter {
         transition: request.transition,
         visible: request.visible,
       });
-      this.emit("browserUsePresentationRequest", request);
+      this.events.publish({ kind: "browserUsePresentationRequest", value: request });
       return;
     }
 
@@ -686,7 +637,7 @@ export class BrowserSidebarService extends EventEmitter {
       transition: request.transition,
       visible: request.visible,
     });
-    this.emit("browserUsePresentationRequest", request);
+    this.events.publish({ kind: "browserUsePresentationRequest", value: request });
   }
 
   isBrowserVisibleForBrowserUse(route: BrowserUseCapturedRoute, browserTabId: string): boolean {
@@ -825,9 +776,9 @@ export class BrowserSidebarService extends EventEmitter {
     };
     this.clearBrowserImageDrag(ownership.ownerWebContentsId);
     this.activeImageDragsByOwnerWebContentsId.set(ownership.ownerWebContentsId, active);
-    this.emit("imageDragState", {
-      ...browserIdentity(active),
-      isActive: true,
+    this.events.publish({
+      kind: "imageDragState",
+      value: { ...browserIdentity(active), isActive: true },
     });
     return true;
   }
@@ -935,9 +886,9 @@ export class BrowserSidebarService extends EventEmitter {
 
     this.emitBrowserUseState();
     if (hadOrdinaryTab || hadBrowserUseTab) {
-      this.emit("pageClosed", {
-        ...browserIdentity(identity),
-        reason,
+      this.events.publish({
+        kind: "pageClosed",
+        value: { ...browserIdentity(identity), reason },
       });
     }
   }
@@ -1308,10 +1259,13 @@ export class BrowserSidebarService extends EventEmitter {
         void this.syncDeviceEmulation(snapshot, contents);
       }
     }
-    this.emit("webviewAttached", {
-      ...browserIdentity(event),
-      mountGeneration: event.mountGeneration,
-      webContentsId: event.webContentsId,
+    this.events.publish({
+      kind: "webviewAttached",
+      value: {
+        ...browserIdentity(event),
+        mountGeneration: event.mountGeneration,
+        webContentsId: event.webContentsId,
+      },
     });
     this.enforceBrowserTabBudget(event.browserViewScopeId);
     return { ok: true, snapshot };
@@ -1596,10 +1550,13 @@ export class BrowserSidebarService extends EventEmitter {
     }
 
     if (command.type === "browser-use-cursor-arrived") {
-      this.emit("browserUseCursorArrived", {
-        ...browserIdentity(command),
-        moveSequence: command.moveSequence,
-        ownerWebContentsId: context.ownerWebContentsId ?? null,
+      this.events.publish({
+        kind: "browserUseCursorArrived",
+        value: {
+          ...browserIdentity(command),
+          moveSequence: command.moveSequence,
+          ownerWebContentsId: context.ownerWebContentsId ?? null,
+        },
       });
       return { ok: true };
     }
@@ -1893,12 +1850,15 @@ export class BrowserSidebarService extends EventEmitter {
       params,
       actions: {
         annotate: (action) => {
-          this.emit("contextMenuAction", {
-            ...identity,
-            action,
-            point: {
-              x: params.x / annotationScale,
-              y: params.y / annotationScale,
+          this.events.publish({
+            kind: "contextMenuAction",
+            value: {
+              ...identity,
+              action,
+              point: {
+                x: params.x / annotationScale,
+                y: params.y / annotationScale,
+              },
             },
           });
         },
@@ -1924,10 +1884,9 @@ export class BrowserSidebarService extends EventEmitter {
         },
         openLink: (url) => {
           if (!isAllowedBrowserNavigationUrl(url)) return;
-          this.emit("openNewTab", {
-            ...identity,
-            url,
-            background: false,
+          this.events.publish({
+            kind: "openNewTab",
+            value: { ...identity, url, background: false },
           });
         },
         reload: () => {
@@ -1950,9 +1909,9 @@ export class BrowserSidebarService extends EventEmitter {
     const active = this.activeImageDragsByOwnerWebContentsId.get(ownerWebContentsId);
     if (!active) return;
     this.activeImageDragsByOwnerWebContentsId.delete(ownerWebContentsId);
-    this.emit("imageDragState", {
-      ...browserIdentity(active),
-      isActive: false,
+    this.events.publish({
+      kind: "imageDragState",
+      value: { ...browserIdentity(active), isActive: false },
     });
   }
 
@@ -1983,22 +1942,24 @@ export class BrowserSidebarService extends EventEmitter {
         mimeType: fetched.mimeType,
         bytes: fetched.bytes,
       });
-      this.emit("contextMenuAction", {
-        ...identity,
-        action: "image-attached",
-        attachment: {
-          id: saved.fileName,
-          fileName: fetched.name,
-          source: saved.source,
+      this.events.publish({
+        kind: "contextMenuAction",
+        value: {
+          ...identity,
+          action: "image-attached",
+          attachment: {
+            id: saved.fileName,
+            fileName: fetched.name,
+            source: saved.source,
+          },
         },
       });
       return { ok: true };
     } catch (error) {
       const message = readBoundedErrorMessage(error);
-      this.emit("contextMenuAction", {
-        ...identity,
-        action: "error",
-        message,
+      this.events.publish({
+        kind: "contextMenuAction",
+        value: { ...identity, action: "error", message },
       });
       this.logger.warn("Failed to attach Browser image", {
         ...identity,
@@ -2238,10 +2199,13 @@ export class BrowserSidebarService extends EventEmitter {
         isAllowedBrowserNavigationUrl(targetUrl) &&
         (targetUrl === "about:blank" || ["http:", "https:"].includes(new URL(targetUrl).protocol));
       if (ownership && canOpenAsBrowserTab) {
-        this.emit("openNewTab", {
-          ...browserIdentity(ownership.identity),
-          url: targetUrl,
-          background: disposition === "background-tab",
+        this.events.publish({
+          kind: "openNewTab",
+          value: {
+            ...browserIdentity(ownership.identity),
+            url: targetUrl,
+            background: disposition === "background-tab",
+          },
         });
       } else if (isAllowedBrowserExternalUrl(targetUrl)) {
         void this.electron.shell.openExternal(targetUrl);
@@ -2852,7 +2816,7 @@ export class BrowserSidebarService extends EventEmitter {
       reason,
       teardownId,
     });
-    this.emit("destroyWebview", request);
+    this.events.publish({ kind: "destroyWebview", value: request });
   }
 
   private getAttachedWebContents(tab: BrowserSidebarTabSnapshot): BrowserWebContentsLike | null {
@@ -2861,11 +2825,11 @@ export class BrowserSidebarService extends EventEmitter {
   }
 
   private emitState(): void {
-    this.emit("state", this.getStateSnapshot());
+    this.events.publish({ kind: "state", value: this.getStateSnapshot() });
   }
 
   private emitBrowserUseState(): void {
-    this.emit("browserUseState", this.getBrowserUseStateSnapshot());
+    this.events.publish({ kind: "browserUseState", value: this.getBrowserUseStateSnapshot() });
   }
 
   private async captureBrowserUseRoute(route: BrowserUseCapturedRoute): Promise<void> {
@@ -2894,11 +2858,14 @@ export class BrowserSidebarService extends EventEmitter {
       const key = browserTabKey(command);
       const cursor = this.browserUseCursors.get(key);
       if (cursor) {
-        this.emit("browserUseCursor", {
-          ...cursor,
-          animateMovement: false,
-          visible: false,
-          updatedAt: Date.now(),
+        this.events.publish({
+          kind: "browserUseCursor",
+          value: {
+            ...cursor,
+            animateMovement: false,
+            visible: false,
+            updatedAt: Date.now(),
+          },
         });
       }
       this.browserUseTabs.delete(key);
@@ -2914,7 +2881,7 @@ export class BrowserSidebarService extends EventEmitter {
       ) {
         this.browserUseActiveTabIdsByConversationScope.delete(conversationScopeKey);
       }
-      this.emit("pageReleased", browserIdentity(command));
+      this.events.publish({ kind: "pageReleased", value: browserIdentity(command) });
       this.emitBrowserUseState();
       return;
     }
@@ -2940,7 +2907,7 @@ export class BrowserSidebarService extends EventEmitter {
 
     if (command.type === "browser-use-set-cursor") {
       this.browserUseCursors.set(browserTabKey(command.cursor), command.cursor);
-      this.emit("browserUseCursor", command.cursor);
+      this.events.publish({ kind: "browserUseCursor", value: command.cursor });
       this.emitBrowserUseState();
       return;
     }
@@ -2948,14 +2915,14 @@ export class BrowserSidebarService extends EventEmitter {
     if (command.type === "browser-use-set-viewport") {
       const key = browserTabKey(command.event);
       this.browserUseViewportSizes.set(key, command.event);
-      this.emit("browserUseViewport", command.event);
+      this.events.publish({ kind: "browserUseViewport", value: command.event });
       return;
     }
 
     if (command.type === "browser-use-set-capture-surface") {
       const key = browserTabKey(command.event);
       this.browserUseCaptureSurfaces.set(key, command.event);
-      this.emit("browserUseCaptureSurface", command.event);
+      this.events.publish({ kind: "browserUseCaptureSurface", value: command.event });
     }
   }
 
@@ -2979,7 +2946,7 @@ export class BrowserSidebarService extends EventEmitter {
           : null,
     };
     this.browserUseViewportSizes.set(key, event);
-    this.emit("browserUseViewport", event);
+    this.events.publish({ kind: "browserUseViewport", value: event });
     this.emitBrowserUseState();
   }
 }

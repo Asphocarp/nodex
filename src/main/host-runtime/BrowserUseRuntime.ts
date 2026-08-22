@@ -8,10 +8,15 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
+import * as Stream from "effect/Stream";
 import type { BrowserRuntimeBackend } from "../../shared/browser-runtime-metadata";
 import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
 import { resolveBrowserUseHostCapability } from "../../shared/browser-use-host-capability";
 import type { BrowserSidebarService } from "../browser-sidebar-service";
+import type {
+  BrowserSidebarEvent,
+  BrowserSidebarEventHubService,
+} from "../browser/BrowserSidebarEventHub";
 import { BrowserUseIabApi } from "../browser-use/browser-use-iab-api";
 import { BrowserUseNativePipeServer } from "../browser-use/browser-use-native-pipe-server";
 import { createBrowserUsePeerAuthorizer } from "../browser-use/browser-use-peer-authorizer";
@@ -52,7 +57,7 @@ export class BrowserUseRuntime extends Context.Service<
 
 type BrowserSidebarPort = Pick<
   BrowserSidebarService,
-  "off" | "on" | "promoteBrowserUseRoute" | "setBrowserUseRouteCaptureHandler"
+  "promoteBrowserUseRoute" | "setBrowserUseRouteCaptureHandler"
 >;
 
 interface BrowserUseRegistryPort {
@@ -83,6 +88,7 @@ type DesktopToolPort = Pick<
 >;
 
 export interface BrowserUseRuntimePorts {
+  readonly browserEvents: Stream.Stream<BrowserSidebarEvent>;
   readonly browserSidebar: BrowserSidebarPort;
   readonly desktopTools: DesktopToolPort;
   readonly makeRegistry: (
@@ -172,40 +178,28 @@ const make = (
                 Effect.sync(() => ports.browserSidebar.setBrowserUseRouteCaptureHandler(null)),
               );
 
-              const ownerReleased = (event: { ownerWebContentsId: number }) => {
-                void runPromise(
-                  input.releaseCredentialOwner(event.ownerWebContentsId).pipe(
-                    Effect.andThen(registry.releaseOwner(event.ownerWebContentsId)),
-                    Effect.catch((error) => logFailure(error.operation, error.cause)),
-                  ),
-                );
-              };
-              const cursorArrived = (event: {
-                browserConversationId: string;
-                browserViewScopeId: string;
-                browserTabId: string;
-                moveSequence: number;
-                ownerWebContentsId: number | null;
-              }) => {
-                const ownerWebContentsId = event.ownerWebContentsId;
-                if (ownerWebContentsId === null) return;
-                void runPromise(
-                  registry
+              yield* ports.browserEvents.pipe(
+                Stream.runForEach((event) => {
+                  if (event.kind === "browserUseOwnerReleased") {
+                    return input.releaseCredentialOwner(event.value.ownerWebContentsId).pipe(
+                      Effect.andThen(registry.releaseOwner(event.value.ownerWebContentsId)),
+                      Effect.catch((error) => logFailure(error.operation, error.cause)),
+                    );
+                  }
+                  if (
+                    event.kind !== "browserUseCursorArrived" ||
+                    event.value.ownerWebContentsId === null
+                  ) {
+                    return Effect.void;
+                  }
+                  return registry
                     .notifyCursorArrived({
-                      ...event,
-                      ownerWebContentsId,
+                      ...event.value,
+                      ownerWebContentsId: event.value.ownerWebContentsId,
                     })
-                    .pipe(Effect.catch((error) => logFailure(error.operation, error.cause))),
-                );
-              };
-              ports.browserSidebar.on("browserUseOwnerReleased", ownerReleased);
-              ports.browserSidebar.on("browserUseCursorArrived", cursorArrived);
-              yield* Scope.addFinalizer(
-                childScope,
-                Effect.sync(() => {
-                  ports.browserSidebar.off("browserUseOwnerReleased", ownerReleased);
-                  ports.browserSidebar.off("browserUseCursorArrived", cursorArrived);
+                    .pipe(Effect.catch((error) => logFailure(error.operation, error.cause)));
                 }),
+                Effect.forkIn(childScope, { startImmediately: true }),
               );
             }),
           );
@@ -223,6 +217,7 @@ const make = (
 export interface BrowserUseRuntimeOptions {
   readonly appVersion: string;
   readonly browserRuntime: BrowserRuntimeAvailability;
+  readonly browserEvents: BrowserSidebarEventHubService;
   readonly browserSidebar: BrowserSidebarService;
   readonly environment: Readonly<Record<string, string | undefined>>;
   readonly isPackaged: boolean;
@@ -259,6 +254,7 @@ export const live = (
         platform: options.platform,
       });
       return yield* make({
+        browserEvents: options.browserEvents.events,
         browserSidebar: options.browserSidebar,
         desktopTools,
         makeRegistry: (input) => {
@@ -270,6 +266,8 @@ export const live = (
                 appVersion: options.appVersion,
                 asyncRuntime,
                 browserService: options.browserSidebar,
+                subscribeWebviewAttached: (listener) =>
+                  options.browserEvents.subscribeWebviewAttached(listener),
                 buildFlavor:
                   options.browserRuntime.status === "available"
                     ? options.browserRuntime.bundle.manifest.buildFlavor

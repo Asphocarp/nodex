@@ -37,7 +37,9 @@ it.effect("registers and releases Browser Profile ingress with the Main Scope", 
     });
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
-      live({ browserSidebar: new BrowserSidebarService() }).pipe(
+      live({
+        browserSidebar: new BrowserSidebarService({ events: { publish: () => undefined } }),
+      }).pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(

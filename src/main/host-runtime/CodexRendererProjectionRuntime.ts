@@ -36,7 +36,7 @@ export const live = (options: CodexRendererProjectionRuntimeOptions): Layer.Laye
             ),
           ),
         ),
-        Effect.forkScoped,
+        Effect.forkScoped({ startImmediately: true }),
       );
       yield* options.rendererClients.events.pipe(
         Stream.runForEach((event) =>
@@ -48,7 +48,7 @@ export const live = (options: CodexRendererProjectionRuntimeOptions): Layer.Laye
             options.codex.handleRendererClientDisposed(event.clientId);
           }),
         ),
-        Effect.forkScoped,
+        Effect.forkScoped({ startImmediately: true }),
       );
       const broadcastWindows = <Channel extends keyof IpcEvents>(
         channel: Channel,
@@ -142,7 +142,7 @@ export const live = (options: CodexRendererProjectionRuntimeOptions): Layer.Laye
             }
           }),
         ),
-        Effect.forkScoped,
+        Effect.forkScoped({ startImmediately: true }),
       );
     }),
   );

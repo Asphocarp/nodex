@@ -23,12 +23,17 @@ import {
   type BrowserPageSnapshotStore,
 } from "../browser/browser-page-store";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
+import {
+  make as makeBrowserSidebarEventHub,
+  type BrowserSidebarEventHubService,
+} from "../browser/BrowserSidebarEventHub";
 import { ElectronNet } from "../platform/electron/ElectronNet";
 
 export class BrowserSidebarRuntime extends Context.Service<
   BrowserSidebarRuntime,
   {
     readonly browser: BrowserSidebarService;
+    readonly events: BrowserSidebarEventHubService;
     readonly history: BrowserHistoryRuntime;
     readonly localServers: BrowserLocalServerRuntime;
     readonly localServerThumbnail: BrowserLocalServerThumbnailRuntime;
@@ -53,6 +58,7 @@ export const live = (
     Effect.gen(function* () {
       const callbacks = yield* ScopedCallbackRuntime;
       const electronNet = yield* ElectronNet;
+      const events = yield* makeBrowserSidebarEventHub;
       const localServerThumbnail = yield* makeBrowserLocalServerThumbnailRuntime();
       const localServers = yield* makeBrowserLocalServerRuntime({
         fetch: electronNet.fetch,
@@ -88,6 +94,7 @@ export const live = (
         Effect.sync(
           () =>
             new BrowserSidebarService({
+              events,
               historyStore,
               pageStore,
             }),
@@ -96,6 +103,7 @@ export const live = (
       );
       return BrowserSidebarRuntime.of({
         browser,
+        events,
         history,
         localServers,
         localServerThumbnail,

@@ -3,10 +3,15 @@ import { EventEmitter } from "node:events";
 import type { MenuItemConstructorOptions } from "electron";
 import type {
   BrowserSidebarCommandResult,
+  BrowserSidebarContextMenuActionEvent,
   BrowserSidebarTabIdentity,
   BrowserUsePresentationRequest,
 } from "../shared/browser-sidebar";
 import type { BrowserPageSnapshotStore, BrowserSerializedPage } from "./browser/browser-page-store";
+import type {
+  BrowserSidebarEvent,
+  BrowserSidebarEventPublisher,
+} from "./browser/BrowserSidebarEventHub";
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
@@ -25,6 +30,34 @@ vi.mock("electron", () => ({
 
 const { BrowserSidebarService } = await import("./browser-sidebar-service");
 type BrowserSidebarServiceInstance = InstanceType<typeof BrowserSidebarService>;
+
+class TestBrowserSidebarEvents implements BrowserSidebarEventPublisher {
+  private readonly listeners = new Map<BrowserSidebarEvent["kind"], Set<(value: never) => void>>();
+
+  publish(event: BrowserSidebarEvent): void {
+    for (const listener of [...(this.listeners.get(event.kind) ?? [])]) {
+      listener(event.value as never);
+    }
+  }
+
+  subscribe<Kind extends BrowserSidebarEvent["kind"]>(
+    kind: Kind,
+    listener: (value: Extract<BrowserSidebarEvent, { readonly kind: Kind }>["value"]) => void,
+  ): () => void {
+    const listeners = this.listeners.get(kind) ?? new Set<(value: never) => void>();
+    listeners.add(listener as (value: never) => void);
+    this.listeners.set(kind, listeners);
+    return () => listeners.delete(listener as (value: never) => void);
+  }
+
+  onceContextMenuAction(listener: (value: BrowserSidebarContextMenuActionEvent) => void): void {
+    let release: () => void = () => undefined;
+    release = this.subscribe("contextMenuAction", (value) => {
+      release();
+      listener(value);
+    });
+  }
+}
 
 const browserIdentity = {
   browserConversationId: "session-1",
@@ -224,7 +257,8 @@ function createService(
     ConstructorParameters<typeof BrowserSidebarService>[0]
   >["saveBrowserImage"],
 ) {
-  return new BrowserSidebarService({
+  const testEvents = new TestBrowserSidebarEvents();
+  const service = new BrowserSidebarService({
     contextMenuPresenter,
     electron: {
       clipboard: {
@@ -244,6 +278,7 @@ function createService(
         fromId: (id) => (contentsById.get(id) as never) ?? null,
       },
     },
+    events: testEvents,
     logger: {
       debug: () => undefined,
       info: () => undefined,
@@ -253,6 +288,7 @@ function createService(
     saveBrowserImage,
     siteStatusPolicy,
   });
+  return Object.assign(service, { testEvents });
 }
 
 async function registerTab(service: BrowserSidebarServiceInstance) {
@@ -326,8 +362,8 @@ describe("BrowserSidebarService webview lifecycle", () => {
     );
     const dragStates: unknown[] = [];
     const attachmentEvents: unknown[] = [];
-    service.on("imageDragState", (event) => dragStates.push(event));
-    service.on("contextMenuAction", (event) => attachmentEvents.push(event));
+    service.testEvents.subscribe("imageDragState", (event) => dragStates.push(event));
+    service.testEvents.subscribe("contextMenuAction", (event) => attachmentEvents.push(event));
 
     expect(service.startBrowserImageDrag(101, "https://example.com/image.png")).toBe(true);
     await expect(
@@ -409,8 +445,8 @@ describe("BrowserSidebarService webview lifecycle", () => {
       zoomPercent: 200,
     });
 
-    const actionPromise = new Promise<Record<string, unknown>>((resolve) => {
-      service.once("contextMenuAction", resolve);
+    const actionPromise = new Promise<BrowserSidebarContextMenuActionEvent>((resolve) => {
+      service.testEvents.onceContextMenuAction((event) => resolve(event));
     });
     contents.emit(
       "context-menu",
@@ -726,7 +762,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
     ).resolves.toEqual({ ok: true });
     service.registerAttachedWebviewOwnership(7, 101, hostRoute, hostRoute.browserStorageId);
     const cursorStates: Array<{ animateMovement?: boolean; moveSequence: number }> = [];
-    service.on("browserUseCursor", (cursor) => {
+    service.testEvents.subscribe("browserUseCursor", (cursor) => {
       cursorStates.push(cursor);
     });
     expect(
@@ -1176,7 +1212,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const service = createService(new Map([[101, contents]]));
     const pendingDestroys: import("../shared/browser-sidebar").BrowserSidebarDestroyWebviewRequest[] =
       [];
-    service.on("destroyWebview", (request) => {
+    service.testEvents.subscribe("destroyWebview", (request) => {
       pendingDestroys.push(request);
     });
     await registerTab(service);
@@ -1304,7 +1340,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       initialUrl: "https://example.com",
     });
     const requests: unknown[] = [];
-    service.on("openNewTab", (request) => requests.push(request));
+    service.testEvents.subscribe("openNewTab", (request) => requests.push(request));
 
     expect(
       contents.windowOpenHandler?.({
@@ -1417,18 +1453,18 @@ describe("BrowserSidebarService webview lifecycle", () => {
     const cursorEvents: string[] = [];
     let releasedEvent = "";
     const closedEvents: string[] = [];
-    service.on("browserUseViewport", (payload) => {
+    service.testEvents.subscribe("browserUseViewport", (payload) => {
       viewportEvent = `${payload.browserConversationId}/${payload.browserTabId}:${payload.viewportSize?.width ?? 0}x${payload.viewportSize?.height ?? 0}`;
     });
-    service.on("browserUseCursor", (payload) => {
+    service.testEvents.subscribe("browserUseCursor", (payload) => {
       cursorEvents.push(
         `${payload.browserConversationId}/${payload.browserTabId}:${payload.x},${payload.y}:${payload.visible}`,
       );
     });
-    service.on("pageReleased", (payload) => {
+    service.testEvents.subscribe("pageReleased", (payload) => {
       releasedEvent = `${payload.browserConversationId}/${payload.browserTabId}`;
     });
-    service.on("pageClosed", (payload) => {
+    service.testEvents.subscribe("pageClosed", (payload) => {
       closedEvents.push(
         `${payload.browserConversationId}/${payload.browserTabId}:${payload.reason}`,
       );
@@ -1539,7 +1575,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       projectId: "alpha",
     };
     const requests: BrowserUsePresentationRequest[] = [];
-    service.on("browserUsePresentationRequest", (request) => {
+    service.testEvents.subscribe("browserUsePresentationRequest", (request) => {
       requests.push(request);
     });
 
@@ -1702,7 +1738,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       projectId: "alpha",
     };
     let transition: string | null = null;
-    service.on("browserUsePresentationRequest", (request) => {
+    service.testEvents.subscribe("browserUsePresentationRequest", (request) => {
       transition = request.transition;
     });
     await service.handleCommand(
@@ -1751,7 +1787,7 @@ describe("BrowserSidebarService webview lifecycle", () => {
       browserTabId: browserIdentity.browserTabId,
     } as const;
     let pageReleasedCount = 0;
-    service.on("pageReleased", () => {
+    service.testEvents.subscribe("pageReleased", () => {
       pageReleasedCount += 1;
     });
 

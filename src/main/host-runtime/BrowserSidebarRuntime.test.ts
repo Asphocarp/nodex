@@ -31,12 +31,24 @@ it.layer(NodeServices.layer)("BrowserSidebarRuntime", (it) => {
         ),
         scope,
       );
-      const { browser } = Context.get(context, BrowserSidebarRuntime);
-      browser.on("state", () => undefined);
-      assert.strictEqual(browser.listenerCount("state"), 1);
+      const { events } = Context.get(context, BrowserSidebarRuntime);
+      let observed = 0;
+      events.subscribeWebviewAttached(() => {
+        observed += 1;
+      });
+      const attached = {
+        browserConversationId: "conversation-1",
+        browserViewScopeId: "scope-1",
+        browserTabId: "tab-1",
+        mountGeneration: 1,
+        webContentsId: 1,
+      } as const;
+      events.publish({ kind: "webviewAttached", value: attached });
+      assert.strictEqual(observed, 1);
 
       yield* Scope.close(scope, Exit.void);
-      assert.strictEqual(browser.listenerCount("state"), 0);
+      events.publish({ kind: "webviewAttached", value: attached });
+      assert.strictEqual(observed, 1);
     }),
   );
 });

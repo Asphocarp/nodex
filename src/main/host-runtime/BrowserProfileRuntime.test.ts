@@ -33,7 +33,9 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
       (root) =>
         Effect.gen(function* () {
           const browserSession = new FakeBrowserSession();
-          const browserSidebar = new BrowserSidebarService();
+          const browserSidebar = new BrowserSidebarService({
+            events: { publish: () => undefined },
+          });
           const scope = yield* Scope.make();
           const callbacksContext = yield* Layer.buildWithScope(callbackLayer, scope);
           const callbacks = Context.get(callbacksContext, ScopedCallbackRuntime);

@@ -1,6 +1,5 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
-import * as FiberSet from "effect/FiberSet";
 import * as Layer from "effect/Layer";
 import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
@@ -8,6 +7,7 @@ import * as Stream from "effect/Stream";
 import { BrowserWindow } from "electron";
 import type { CodexDesktopMessageFromView } from "../../shared/remote-hosted-pip";
 import type { BrowserSidebarService } from "../browser-sidebar-service";
+import type { BrowserSidebarEventHubService } from "../browser/BrowserSidebarEventHub";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { safeBroadcastToWindows, safeSendToWebContents } from "../ipc-safe-send";
 import { RemoteHostedPipPreferenceStore } from "../remote-hosted-pip-preference-store";
@@ -50,6 +50,7 @@ export class RemoteHostedPipRuntimeError extends Schema.TaggedError<RemoteHosted
 ) {}
 
 export interface RemoteHostedPipRuntimeOptions {
+  readonly browserSidebarEvents: BrowserSidebarEventHubService;
   readonly browserSidebarService: BrowserSidebarService;
   readonly platform: NodeJS.Platform;
   readonly preferenceFilePath: string;
@@ -58,7 +59,7 @@ export interface RemoteHostedPipRuntimeOptions {
 const fromPort = (
   acquire: Effect.Effect<RemoteHostedPipPort>,
   notifications: Stream.Stream<unknown>,
-  subscribeBrowserUseState?: (listener: () => void) => () => void,
+  browserUseStateSignals: Stream.Stream<unknown> = Stream.empty,
   pollIntervalMs = REMOTE_HOSTED_PIP_POLL_INTERVAL_MS,
 ): Layer.Layer<RemoteHostedPipRuntime> =>
   Layer.effect(
@@ -71,7 +72,7 @@ const fromPort = (
         Stream.runForEach((notification) =>
           Effect.sync(() => service.handleCodexNotification(notification)),
         ),
-        Effect.forkScoped,
+        Effect.forkScoped({ startImmediately: true }),
       );
       yield* Effect.forever(
         Effect.sleep(Math.max(1, pollIntervalMs)).pipe(
@@ -82,25 +83,18 @@ const fromPort = (
         try: () => service.handleBrowserUseStateSnapshot(),
         catch: (cause) => new RemoteHostedPipRuntimeError({ operation: "refresh", cause }),
       });
-      if (subscribeBrowserUseState) {
-        const runRefresh = yield* FiberSet.makeRuntime<never, void, never>();
-        const listener = () => {
-          runRefresh(
-            refresh.pipe(
-              Effect.catch((error) =>
-                Effect.logWarning("Could not refresh Remote Hosted PiP state").pipe(
-                  Effect.annotateLogs({ error: String(error.cause) }),
-                ),
+      yield* Stream.concat(Stream.make(undefined), browserUseStateSignals).pipe(
+        Stream.runForEach(() =>
+          refresh.pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Could not refresh Remote Hosted PiP state").pipe(
+                Effect.annotateLogs({ error: String(error.cause) }),
               ),
             ),
-          );
-        };
-        yield* Effect.acquireRelease(
-          Effect.sync(() => subscribeBrowserUseState(listener)),
-          (unsubscribe) => Effect.sync(unsubscribe),
-        );
-        listener();
-      }
+          ),
+        ),
+        Effect.forkScoped({ startImmediately: true }),
+      );
       return RemoteHostedPipRuntime.of({
         getAlwaysHide: () => service.getAlwaysHide(),
         handleDesktopMessageFromView: (sender, message) =>
@@ -156,10 +150,9 @@ export const live = (
             event.kind === "notification" ? Result.succeed(event.value) : Result.fail(undefined),
           ),
         ),
-        (listener) => {
-          options.browserSidebarService.on("browserUseState", listener);
-          return () => options.browserSidebarService.removeListener("browserUseState", listener);
-        },
+        options.browserSidebarEvents.events.pipe(
+          Stream.filter((event) => event.kind === "browserUseState"),
+        ),
       );
     }),
   );
@@ -167,7 +160,7 @@ export const live = (
 export const testLayer = (
   service: RemoteHostedPipPort,
   notifications: Stream.Stream<unknown> = Stream.empty,
-  subscribeBrowserUseState?: (listener: () => void) => () => void,
+  browserUseStateSignals: Stream.Stream<unknown> = Stream.empty,
   pollIntervalMs?: number,
 ): Layer.Layer<RemoteHostedPipRuntime> =>
-  fromPort(Effect.succeed(service), notifications, subscribeBrowserUseState, pollIntervalMs);
+  fromPort(Effect.succeed(service), notifications, browserUseStateSignals, pollIntervalMs);

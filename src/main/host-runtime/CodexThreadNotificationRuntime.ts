@@ -40,7 +40,7 @@ export const live = (options: CodexThreadNotificationRuntimeOptions): Layer.Laye
             }
           }),
         ),
-        Effect.forkScoped,
+        Effect.forkScoped({ startImmediately: true }),
       );
     }),
   );

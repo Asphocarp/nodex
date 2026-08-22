@@ -6,8 +6,8 @@ import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import { MainConfig } from "../../app/MainConfig";
-import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import { BrowserSidebarService } from "../../browser-sidebar-service";
+import { make as makeBrowserSidebarEventHub } from "../../browser/BrowserSidebarEventHub";
 import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { ElectronWindowHost } from "../../platform/electron/ElectronWindowHost";
@@ -32,8 +32,11 @@ it.effect(
           ).pipe(Effect.asVoid),
         on: () => Effect.void,
       });
-      const browser = new BrowserSidebarService();
       const scope = yield* Scope.make();
+      const events = yield* makeBrowserSidebarEventHub.pipe(
+        Effect.provideService(Scope.Scope, scope),
+      );
+      const browser = new BrowserSidebarService({ events });
       yield* Layer.buildWithScope(
         live.pipe(
           Layer.provide(
@@ -42,6 +45,7 @@ it.effect(
                 BrowserSidebarRuntime,
                 BrowserSidebarRuntime.of({
                   browser,
+                  events,
                   history: {} as never,
                   localServers: { updates: Stream.empty } as never,
                   localServerThumbnail: {} as never,
@@ -83,13 +87,6 @@ it.effect(
                 }),
               ),
               Layer.succeed(
-                ScopedCallbackRuntime,
-                ScopedCallbackRuntime.of({
-                  fork: () => null,
-                  runPromise: () => Promise.reject(new Error("unused")),
-                }),
-              ),
-              Layer.succeed(
                 WindowSessionCatalog,
                 WindowSessionCatalog.of({ resolveForWebContents: () => Effect.succeed(null) }),
               ),
@@ -110,14 +107,7 @@ it.effect(
         "browser-sidebar-webview-destroyed",
         "browser-sidebar-webview-host-created",
       ]);
-      assert.strictEqual(browser.listenerCount("state"), 1);
-      assert.strictEqual(browser.listenerCount("browserUseState"), 1);
-      assert.strictEqual(browser.listenerCount("destroyWebview"), 1);
-
       yield* Scope.close(scope, Exit.void);
       assert.strictEqual(handlers.size, 0);
-      assert.strictEqual(browser.listenerCount("state"), 0);
-      assert.strictEqual(browser.listenerCount("browserUseState"), 0);
-      assert.strictEqual(browser.listenerCount("destroyWebview"), 0);
     }),
 );

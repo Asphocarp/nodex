@@ -682,6 +682,7 @@ export const live: Layer.Layer<
         );
         const remoteHostedPipContext = yield* Layer.buildWithScope(
           remoteHostedPipRuntimeLive({
+            browserSidebarEvents: browserSidebar.events,
             browserSidebarService,
             platform: config.platform as NodeJS.Platform,
             preferenceFilePath: `${userDataPath}/remote-hosted-pip-preferences.json`,
@@ -752,6 +753,7 @@ export const live: Layer.Layer<
           browserUseRuntimeLive({
             appVersion: config.appVersion,
             browserRuntime: codexRuntime.browserRuntime,
+            browserEvents: browserSidebar.events,
             browserSidebar: browserSidebarService,
             environment: config.environment,
             isPackaged: config.isPackaged,
@@ -1104,7 +1106,6 @@ export const live: Layer.Layer<
                 Layer.succeed(ElectronIpc, ipc),
                 Layer.succeed(ElectronWindowHost, windowHost),
                 Layer.succeed(MainConfig, config),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
                 Layer.succeed(WindowSessionCatalog.WindowSessionCatalog, windowSessions),
               ),
             ),

@@ -289,6 +289,10 @@ function makeApi(policyStore?: BrowserUsePolicyReader) {
       ownerWebContentsId: 7,
       projectId: null,
     },
+    subscribeWebviewAttached: (listener) => {
+      service.on("webviewAttached", listener);
+      return () => service.off("webviewAttached", listener);
+    },
   });
   return { api, grantDownload, service };
 }
