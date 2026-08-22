@@ -1,6 +1,8 @@
 import type { GitStatusSummaryResult } from "../../shared/git-review";
 import type {
+  GitActionMutationResult,
   GitBranchMetadataResult,
+  GitPushInput,
   GitReviewRepositoryMetadataResult,
 } from "../../shared/types";
 import type {
@@ -29,7 +31,7 @@ import {
   searchGitReview,
 } from "./git-review-operations";
 import { LocalGitCommandRunner, runGitPerformanceOperation } from "./git-command-runner";
-import { GitLiveQueryRegistry } from "./live-query-registry";
+import { makeGitLiveQueryRegistry, type GitLiveQueryRegistry } from "./live-query-registry";
 import { GitRepositoryRegistry } from "./repository-registry";
 import type { WorktreeRepository } from "./worktree-repository";
 
@@ -71,6 +73,7 @@ const GIT_MUTATION_METHODS = new Set<GitWorkerMethod>([
   "commit",
   "create-branch",
   "git-init-repo",
+  "push",
   "refresh-repository",
 ]);
 
@@ -96,42 +99,36 @@ function classifyGitWorkerOperationOutcome(
   return "success";
 }
 
-export class GitWorkerModule {
+export interface GitWorkerModule {
+  readonly execute: (request: GitWorkerRequest["request"], signal: AbortSignal) => Promise<unknown>;
+}
+
+export interface GitWorkerModuleOptions {
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly publish?: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
+}
+
+class GitWorkerModuleState implements GitWorkerModule {
   readonly #registry: GitRepositoryRegistry;
   readonly #reviewRuntime: GitReviewRuntime;
   readonly #publish: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
   readonly #liveQueries: GitLiveQueryRegistry;
+  #closed = false;
 
-  constructor(
-    options: {
-      publish?: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
-      environment?: NodeJS.ProcessEnv;
-    } = {},
-  ) {
-    const runner = new LocalGitCommandRunner();
-    this.#reviewRuntime = new GitReviewRuntime({
-      commandRunner: runner,
-      environment: options.environment,
-    });
-    this.#registry = new GitRepositoryRegistry(runner, this.#reviewRuntime);
-    this.#publish = options.publish ?? (() => undefined);
-    this.#liveQueries = new GitLiveQueryRegistry({
-      registry: this.#registry,
-      publish: this.#publish,
-      execute: async (input) =>
-        await this.execute(
-          {
-            id: input.id,
-            method: input.method,
-            params: input.params,
-            enqueuedAtMs: Date.now(),
-          } as GitWorkerRequest["request"],
-          input.signal,
-        ),
-    });
+  constructor(options: {
+    liveQueries: GitLiveQueryRegistry;
+    publish: (event: GitWorkerLiveQueryEvent | GitWorkerPerformanceOperationEvent) => void;
+    registry: GitRepositoryRegistry;
+    reviewRuntime: GitReviewRuntime;
+  }) {
+    this.#reviewRuntime = options.reviewRuntime;
+    this.#registry = options.registry;
+    this.#publish = options.publish;
+    this.#liveQueries = options.liveQueries;
   }
 
   async execute(request: GitWorkerRequest["request"], signal: AbortSignal): Promise<unknown> {
+    if (this.#closed) throw new Error("Git worker module is closed");
     const trigger = /:(?:tracked|complete)$/.test(request.id)
       ? "live"
       : GIT_MUTATION_METHODS.has(request.method)
@@ -149,6 +146,10 @@ export class GitWorkerModule {
         }),
       run: async () => await this.#executeRequest(request, signal),
     });
+  }
+
+  release(): void {
+    this.#closed = true;
   }
 
   async #executeRequest(
@@ -405,6 +406,8 @@ export class GitWorkerModule {
         return await this.#mutateBranch(request.params.cwd, request.params.branch, true, signal);
       case "commit":
         return await this.#commit(request.params, signal);
+      case "push":
+        return await this.#push(request.params, signal);
       case "subscribe-live-query": {
         await this.#liveQueries.subscribe(request.params);
         return { subscribed: true };
@@ -425,11 +428,6 @@ export class GitWorkerModule {
         };
       }
     }
-  }
-
-  dispose(): void {
-    this.#liveQueries.dispose();
-    this.#registry.dispose();
   }
 
   async #runReviewRequest<Result>(input: {
@@ -922,4 +920,134 @@ export class GitWorkerModule {
       errorMessage: null,
     };
   }
+
+  async #push(input: GitPushInput, signal: AbortSignal): Promise<GitActionMutationResult> {
+    const repository = await this.#registry.get(input.cwd, signal);
+    if (!repository) {
+      return {
+        cwd: input.cwd,
+        status: "error",
+        branch: null,
+        stdout: "",
+        stderr: "",
+        errorMessage: "Git repository is required before pushing.",
+      };
+    }
+
+    const [current, remotes, upstream] = await Promise.all([
+      repository.runGit(["branch", "--show-current"], { signal }),
+      repository.runGit(["remote"], { signal }),
+      repository.runGit(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], {
+        allowedNonZeroExitCodes: [128],
+        signal,
+      }),
+    ]);
+    const branch = current.success ? current.stdout.trim() || null : null;
+    const required = [current, remotes, upstream];
+    const failed = required.find((result) => !result.success);
+    if (failed) {
+      return {
+        cwd: repository.identity.root,
+        status: "error",
+        branch,
+        stdout: failed.stdout,
+        stderr: failed.stderr,
+        errorMessage: commandErrorMessage(failed.stderr, "Could not inspect Git push state."),
+      };
+    }
+    if (!branch) {
+      return {
+        cwd: repository.identity.root,
+        status: "error",
+        branch: null,
+        stdout: "",
+        stderr: "",
+        errorMessage: "Current branch is required before pushing.",
+      };
+    }
+
+    const upstreamBranch = upstream.code === 0 ? upstream.stdout.trim() || null : null;
+    const remoteNames = remotes.stdout
+      .split(/\r?\n/)
+      .map((name) => name.trim())
+      .filter(Boolean);
+    if (!upstreamBranch && !remoteNames.includes("origin")) {
+      return {
+        cwd: repository.identity.root,
+        status: "error",
+        branch,
+        stdout: "",
+        stderr: "",
+        errorMessage: "No upstream branch or origin remote is configured.",
+      };
+    }
+
+    const result = await repository.runGit(
+      [
+        "push",
+        ...(input.force ? ["--force-with-lease"] : []),
+        ...(upstreamBranch ? [] : ["-u", "origin", branch]),
+      ],
+      { timeoutMs: 30_000, signal },
+    );
+    if (!result.success) {
+      return {
+        cwd: repository.identity.root,
+        status: "error",
+        branch,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        errorMessage: commandErrorMessage(result.stderr, "Could not push changes."),
+      };
+    }
+
+    await repository.invalidateGitReadCachesForRepoChange("remote-refs");
+    return {
+      cwd: repository.identity.root,
+      status: "success",
+      branch,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      errorMessage: null,
+    };
+  }
 }
+
+export const makeGitWorkerModule = (
+  options: GitWorkerModuleOptions = {},
+): Effect.Effect<GitWorkerModule, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const runner = new LocalGitCommandRunner();
+    const reviewRuntime = new GitReviewRuntime({
+      commandRunner: runner,
+      environment: options.environment,
+    });
+    const registry = new GitRepositoryRegistry(runner, reviewRuntime);
+    yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
+    const publish = options.publish ?? (() => undefined);
+    let module!: GitWorkerModuleState;
+    const liveQueries = yield* makeGitLiveQueryRegistry({
+      registry,
+      publish,
+      execute: async (input) =>
+        await module.execute(
+          {
+            id: input.id,
+            method: input.method,
+            params: input.params,
+            enqueuedAtMs: Date.now(),
+          } as GitWorkerRequest["request"],
+          input.signal,
+        ),
+    });
+    module = new GitWorkerModuleState({
+      liveQueries,
+      publish,
+      registry,
+      reviewRuntime,
+    });
+    yield* Effect.addFinalizer(() => Effect.sync(() => module.release()));
+    return module;
+  });
+import * as Effect from "effect/Effect";
+import type * as Scope from "effect/Scope";

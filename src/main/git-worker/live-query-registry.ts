@@ -7,6 +7,10 @@ import type {
 import type { GitWorkerLiveQueryEvent } from "../../shared/git-worker-protocol";
 import type { GitReviewRepositoryChange } from "./repository-watcher";
 import type { QueryKey } from "@tanstack/query-core";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as FiberMap from "effect/FiberMap";
+import type * as Scope from "effect/Scope";
 import type { GitReadQueryMeta, GitRepositoryWatchLease } from "./worktree-repository";
 
 export const GIT_LIVE_QUERY_DEBOUNCE_MS = 100;
@@ -29,16 +33,14 @@ export interface LiveQueryRepository {
 }
 
 interface LiveQueryState {
-  controller: AbortController | null;
   dirty: boolean;
   disposed: boolean;
   errorRetryCount: number;
   generation: number;
   query: GitReviewLiveQuery;
-  refreshTimer: ReturnType<typeof setTimeout> | null;
+  refreshScheduled: boolean;
   repository: LiveQueryRepository | null;
   requiresRecovery: boolean;
-  running: boolean;
   settledGeneration: number;
   subscriptionId: string;
   waiters: Map<number, Set<() => void>>;
@@ -56,6 +58,25 @@ export interface GitLiveQueryRegistryOptions {
   registry: {
     get(cwd: string, signal?: AbortSignal): Promise<LiveQueryRepository | null>;
   };
+}
+
+export interface GitLiveQueryRegistry {
+  readonly recover: (subscriptionId: string) => Promise<boolean>;
+  readonly refresh: (subscriptionId: string) => Promise<boolean>;
+  readonly subscribe: (input: {
+    subscriptionId: string;
+    query: GitReviewLiveQuery;
+  }) => Promise<void>;
+  readonly unsubscribe: (subscriptionId: string) => boolean;
+}
+
+interface GitLiveQueryExecution {
+  readonly interrupt: (subscriptionId: string) => void;
+  readonly start: (
+    subscriptionId: string,
+    delayMs: number,
+    operation: (signal: AbortSignal) => Promise<void>,
+  ) => void;
 }
 
 function normalizeQueryParams(params: GitReviewLiveQuery["params"]): object {
@@ -105,31 +126,34 @@ export function shouldRefreshGitLiveQuery(
   );
 }
 
-export class GitLiveQueryRegistry {
+class GitLiveQueryRegistryState implements GitLiveQueryRegistry {
   readonly #execute: GitLiveQueryRegistryOptions["execute"];
   readonly #publish: GitLiveQueryRegistryOptions["publish"];
   readonly #registry: GitLiveQueryRegistryOptions["registry"];
   readonly #subscriptions = new Map<string, LiveQueryState>();
+  #closed = false;
 
-  constructor(options: GitLiveQueryRegistryOptions) {
+  constructor(
+    options: GitLiveQueryRegistryOptions,
+    private readonly execution: GitLiveQueryExecution,
+  ) {
     this.#execute = options.execute;
     this.#publish = options.publish;
     this.#registry = options.registry;
   }
 
   async subscribe(input: { subscriptionId: string; query: GitReviewLiveQuery }): Promise<void> {
+    if (this.#closed) throw new Error("Git live query registry is closed");
     this.unsubscribe(input.subscriptionId);
     const state: LiveQueryState = {
-      controller: null,
       dirty: true,
       disposed: false,
       errorRetryCount: 0,
       generation: 1,
       query: input.query,
-      refreshTimer: null,
+      refreshScheduled: false,
       repository: null,
       requiresRecovery: false,
-      running: false,
       settledGeneration: 0,
       subscriptionId: input.subscriptionId,
       waiters: new Map(),
@@ -141,11 +165,15 @@ export class GitLiveQueryRegistry {
   }
 
   unsubscribe(subscriptionId: string): boolean {
+    if (this.#closed) return false;
+    return this.#releaseSubscription(subscriptionId);
+  }
+
+  #releaseSubscription(subscriptionId: string): boolean {
     const state = this.#subscriptions.get(subscriptionId);
     if (!state) return false;
     state.disposed = true;
-    state.controller?.abort();
-    if (state.refreshTimer) clearTimeout(state.refreshTimer);
+    this.execution.interrupt(subscriptionId);
     state.watchLease?.release();
     for (const waiters of state.waiters.values()) {
       for (const resolve of waiters) resolve();
@@ -156,6 +184,7 @@ export class GitLiveQueryRegistry {
   }
 
   async recover(subscriptionId: string): Promise<boolean> {
+    if (this.#closed) return false;
     const state = this.#subscriptions.get(subscriptionId);
     if (!state) return false;
     await state.watchLease?.recover();
@@ -165,6 +194,7 @@ export class GitLiveQueryRegistry {
   }
 
   async refresh(subscriptionId: string): Promise<boolean> {
+    if (this.#closed) return false;
     const state = this.#subscriptions.get(subscriptionId);
     if (!state) return false;
     if (state.repository) {
@@ -176,9 +206,11 @@ export class GitLiveQueryRegistry {
     return true;
   }
 
-  dispose(): void {
+  release(): void {
+    if (this.#closed) return;
+    this.#closed = true;
     for (const subscriptionId of [...this.#subscriptions.keys()]) {
-      this.unsubscribe(subscriptionId);
+      this.#releaseSubscription(subscriptionId);
     }
   }
 
@@ -211,52 +243,33 @@ export class GitLiveQueryRegistry {
     state.generation += 1;
     state.dirty = true;
     state.errorRetryCount = 0;
-    state.controller?.abort();
     const generation = state.generation;
     this.#schedule(state, immediate ? 0 : GIT_LIVE_QUERY_DEBOUNCE_MS);
     await this.#waitForGeneration(state, generation);
   }
 
   #schedule(state: LiveQueryState, delay: number): void {
-    if (state.disposed || state.running || state.refreshTimer) return;
-    if (delay === 0) {
-      void this.#run(state);
-      return;
-    }
-    state.refreshTimer = setTimeout(() => {
-      state.refreshTimer = null;
-      void this.#run(state);
-    }, delay);
+    if (state.disposed || state.refreshScheduled) return;
+    state.refreshScheduled = true;
+    this.execution.start(state.subscriptionId, delay, async (signal) => {
+      state.refreshScheduled = false;
+      await this.#run(state, signal);
+    });
   }
 
-  async #run(state: LiveQueryState): Promise<void> {
-    if (state.disposed || state.running || !state.dirty) return;
-    state.running = true;
+  async #run(state: LiveQueryState, signal: AbortSignal): Promise<void> {
+    if (state.disposed || !state.dirty) return;
     state.dirty = false;
     const generation = state.generation;
-    const controller = new AbortController();
-    state.controller = controller;
     let retryDelay: number | null = null;
     try {
       const trackedParams = this.#trackedPhaseParams(state.query);
       if (trackedParams) {
-        const tracked = await this.#read(
-          state,
-          generation,
-          "tracked",
-          trackedParams,
-          controller.signal,
-        );
+        const tracked = await this.#read(state, generation, "tracked", trackedParams, signal);
         if (!this.#isCurrent(state, generation) || isStaleResult(tracked)) return;
         this.#publishResult(state, generation, "tracked", tracked);
       }
-      const complete = await this.#read(
-        state,
-        generation,
-        "complete",
-        state.query.params,
-        controller.signal,
-      );
+      const complete = await this.#read(state, generation, "complete", state.query.params, signal);
       if (!this.#isCurrent(state, generation) || isStaleResult(complete)) return;
       this.#publishResult(state, generation, "complete", complete);
       if (
@@ -278,8 +291,6 @@ export class GitLiveQueryRegistry {
         retryDelay = GIT_LIVE_QUERY_RETRY_MS;
       }
     } finally {
-      if (state.controller === controller) state.controller = null;
-      state.running = false;
       this.#settleGeneration(state, generation);
       if (!state.disposed && state.dirty) {
         if (retryDelay !== null && generation === state.generation) {
@@ -409,3 +420,29 @@ export class GitLiveQueryRegistry {
     });
   }
 }
+
+export const makeGitLiveQueryRegistry = (
+  options: GitLiveQueryRegistryOptions,
+): Effect.Effect<GitLiveQueryRegistry, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const fibers = yield* FiberMap.make<string>();
+    const runFiber = yield* FiberMap.runtime(fibers)();
+    const runPromise = yield* FiberMap.runtimePromise(fibers)();
+    const execution: GitLiveQueryExecution = {
+      interrupt: (subscriptionId) => {
+        runFiber(subscriptionId, Effect.void);
+      },
+      start: (subscriptionId, delayMs, operation) => {
+        const run = runPromise(
+          subscriptionId,
+          Effect.sleep(Duration.millis(delayMs)).pipe(
+            Effect.andThen(Effect.promise((signal) => operation(signal))),
+          ),
+        );
+        void run.catch(() => undefined);
+      },
+    };
+    const registry = new GitLiveQueryRegistryState(options, execution);
+    yield* Effect.addFinalizer(() => Effect.sync(() => registry.release()));
+    return registry;
+  });

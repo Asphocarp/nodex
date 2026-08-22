@@ -13,7 +13,7 @@ import {
   type GitWorkerMessageFromThread,
   type GitWorkerResponse,
 } from "../../shared/git-worker-protocol";
-import { GitWorkerModule } from "./git-worker-module";
+import { makeGitWorkerModule } from "./git-worker-module";
 
 interface GitWorkerEntryData {
   epoch?: unknown;
@@ -43,20 +43,14 @@ const program = Effect.scoped(
     const port = requirePort();
     const epoch = readEpoch();
     yield* Effect.addFinalizer(() => Effect.sync(() => port.close()));
-    const worker = yield* Effect.acquireRelease(
-      Effect.sync(
-        () =>
-          new GitWorkerModule({
-            environment: Object.fromEntries(
-              Object.entries(process.env).filter(
-                (entry): entry is [string, string] => entry[1] !== undefined,
-              ),
-            ),
-            publish: (message) => port.postMessage(message),
-          }),
+    const worker = yield* makeGitWorkerModule({
+      environment: Object.fromEntries(
+        Object.entries(process.env).filter(
+          (entry): entry is [string, string] => entry[1] !== undefined,
+        ),
       ),
-      (module) => Effect.sync(() => module.dispose()),
-    );
+      publish: (message) => port.postMessage(message),
+    });
     const shutdown = yield* Deferred.make<void, GitWorkerEntryError>();
     const requests = yield* FiberMap.make<string, void>();
     const runRequest = yield* FiberMap.runtime(requests)();

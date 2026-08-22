@@ -752,6 +752,17 @@ the physical live queries, repository watches, and generation-provider registrat
 the aggregate then becomes unreachable. A replacement worker constructs a fresh
 aggregate and therefore starts from a fresh repository identity and generation space.
 
+`GitWorkerModule` itself is acquired only from its worker Scope and exposes command
+execution without construction or disposal methods. Live-query debounce, retry, active
+read, and replacement are subscription-keyed fibers using the Effect clock; refresh
+replacement, unsubscribe, and worker shutdown interrupt the same fiber and propagate its
+signal through repository query coalescing. The live-query Scope finalizer fences later
+subscription admission, releases every repository watch lease, resolves generation
+waiters, and interrupts all remaining keyed work before the repository graph is released.
+Application Git mutations, including commit and push, cross the same worker protocol. The
+repository owner advances its generation after success; Main does not run a parallel mutation
+path or issue a compensating refresh whose correctness depends on the caller remembering it.
+
 `GitWorkerRuntime` owns the corresponding Main-side channel. Its single state
 tracks the active Worker generation, Main request `Deferred`s, renderer request
 ownership, and live-subscription ownership; worker callbacks enter one scoped

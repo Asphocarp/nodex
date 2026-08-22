@@ -98,11 +98,8 @@ export const live = (
               signal,
             }),
           ),
-        refreshRepository: async (cwd) => {
-          await callbacks.runPromise(
-            worker.request({ method: "refresh-repository", params: { cwd } }),
-          );
-        },
+        push: (input, signal) =>
+          callbacks.runPromise(worker.request({ method: "push", params: input, signal })),
       };
       const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
         ipc.handle(channel, handler);
@@ -222,33 +219,18 @@ export const live = (
         ),
       );
       yield* invokeEffect("git:action:push", (input) =>
-        operations
-          .run(
-            input.operationId,
-            Effect.promise((signal) => pushGitChanges(input, signal)),
-            (): GitActionMutationResult => ({
-              cwd: input.cwd.trim(),
-              status: "error",
-              branch: null,
-              stdout: "",
-              stderr: "",
-              errorMessage: "Git action was canceled.",
-            }),
-          )
-          .pipe(
-            Effect.tap(() =>
-              Effect.promise(() =>
-                callbacks
-                  .runPromise(
-                    worker.request({
-                      method: "refresh-repository",
-                      params: { cwd: input.cwd },
-                    }),
-                  )
-                  .catch(() => undefined),
-              ),
-            ),
-          ),
+        operations.run(
+          input.operationId,
+          Effect.promise((signal) => pushGitChanges(input, { gitWorker }, signal)),
+          (): GitActionMutationResult => ({
+            cwd: input.cwd.trim(),
+            status: "error",
+            branch: null,
+            stdout: "",
+            stderr: "",
+            errorMessage: "Git action was canceled.",
+          }),
+        ),
       );
       yield* invokeEffect("git:action:cancel", (input) => operations.cancel(input));
       yield* invoke("gh-cli-status", readGhCliStatus);

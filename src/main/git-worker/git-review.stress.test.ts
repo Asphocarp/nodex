@@ -3,14 +3,16 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { afterEach, describe, expect, test } from "vite-plus/test";
+import { it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import { afterEach, describe, expect } from "vite-plus/test";
 import type {
   GitPerformanceOperationMetric,
   GitWorkerMethod,
   GitWorkerMethodMap,
   GitWorkerRequest,
 } from "../../shared/git-worker-protocol";
-import { GitWorkerModule } from "./git-worker-module";
+import { makeGitWorkerModule } from "./git-worker-module";
 
 const execFileAsync = promisify(execFile);
 const temporaryDirectories: string[] = [];
@@ -36,69 +38,67 @@ function request<Method extends GitWorkerMethod>(
 }
 
 describe("Git review read wave stress", () => {
-  test("shares one bounded untracked scan across concurrent review reads", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "nodex-git-review-stress-"));
-    temporaryDirectories.push(root);
-    await execFileAsync("git", ["init", "-q", "-b", "main", root]);
-    await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
-    await execFileAsync("git", ["-C", root, "config", "user.name", "Nodex Test"]);
-    await writeFile(path.join(root, "tracked.txt"), "initial\n", "utf8");
-    await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
-    const bulk = path.join(root, "bulk");
-    await mkdir(bulk);
-    await Promise.all(
-      Array.from({ length: 270 }, (_, index) =>
-        writeFile(path.join(bulk, `file-${index}.txt`), `${index}\n`, "utf8"),
-      ),
-    );
-
-    const metrics: GitPerformanceOperationMetric[] = [];
-    const module = new GitWorkerModule({
-      publish: (event) => {
-        if (event.type === "git-performance-operation") metrics.push(event.metric);
-      },
-    });
-    const signal = new AbortController().signal;
-
-    try {
-      const [status, summary, branchStats] = await Promise.all([
-        module.execute(
-          request("status-summary", { cwd: root, includeUntrackedFiles: true }),
-          signal,
-        ),
-        module.execute(
-          request("review-summary", {
-            cwd: root,
-            source: "unstaged",
-            includeUntrackedFiles: true,
-          }),
-          signal,
-        ),
-        module.execute(
-          request("branch-diff-stats", {
-            cwd: root,
-            includeUntrackedFiles: true,
-          }),
-          signal,
-        ),
-      ]);
-
-      expect(status).toMatchObject({ type: "success", untrackedCount: 270 });
-      expect(summary).toMatchObject({
-        type: "success",
-        untrackedFilesOmitted: 14,
+  it.effect("shares one bounded untracked scan across concurrent review reads", () =>
+    Effect.gen(function* () {
+      const metrics: GitPerformanceOperationMetric[] = [];
+      const module = yield* makeGitWorkerModule({
+        publish: (event) => {
+          if (event.type === "git-performance-operation") metrics.push(event.metric);
+        },
       });
-      expect(branchStats).toMatchObject({
-        fileCount: 270,
-        untrackedFilesOmitted: 14,
+      yield* Effect.promise(async () => {
+        const root = await mkdtemp(path.join(tmpdir(), "nodex-git-review-stress-"));
+        temporaryDirectories.push(root);
+        await execFileAsync("git", ["init", "-q", "-b", "main", root]);
+        await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+        await execFileAsync("git", ["-C", root, "config", "user.name", "Nodex Test"]);
+        await writeFile(path.join(root, "tracked.txt"), "initial\n", "utf8");
+        await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
+        await execFileAsync("git", ["-C", root, "commit", "-q", "-m", "initial"]);
+        const bulk = path.join(root, "bulk");
+        await mkdir(bulk);
+        await Promise.all(
+          Array.from({ length: 270 }, (_, index) =>
+            writeFile(path.join(bulk, `file-${index}.txt`), `${index}\n`, "utf8"),
+          ),
+        );
+        const signal = new AbortController().signal;
+        const [status, summary, branchStats] = await Promise.all([
+          module.execute(
+            request("status-summary", { cwd: root, includeUntrackedFiles: true }),
+            signal,
+          ),
+          module.execute(
+            request("review-summary", {
+              cwd: root,
+              source: "unstaged",
+              includeUntrackedFiles: true,
+            }),
+            signal,
+          ),
+          module.execute(
+            request("branch-diff-stats", {
+              cwd: root,
+              includeUntrackedFiles: true,
+            }),
+            signal,
+          ),
+        ]);
+
+        expect(status).toMatchObject({ type: "success", untrackedCount: 270 });
+        expect(summary).toMatchObject({
+          type: "success",
+          untrackedFilesOmitted: 14,
+        });
+        expect(branchStats).toMatchObject({
+          fileCount: 270,
+          untrackedFilesOmitted: 14,
+        });
+        expect(metrics.reduce((total, metric) => total + metric.fullUntrackedScanCount, 0)).toBe(1);
+        expect(metrics.reduce((total, metric) => total + metric.unscopedAllStatusCount, 0)).toBe(0);
+        expect(Math.max(...metrics.map((metric) => metric.peakConcurrency))).toBe(1);
+        expect(metrics.some((metric) => metric.coalescedQueries > 0)).toBe(true);
       });
-      expect(metrics.reduce((total, metric) => total + metric.fullUntrackedScanCount, 0)).toBe(1);
-      expect(metrics.reduce((total, metric) => total + metric.unscopedAllStatusCount, 0)).toBe(0);
-      expect(Math.max(...metrics.map((metric) => metric.peakConcurrency))).toBe(1);
-      expect(metrics.some((metric) => metric.coalescedQueries > 0)).toBe(true);
-    } finally {
-      module.dispose();
-    }
-  });
+    }),
+  );
 });

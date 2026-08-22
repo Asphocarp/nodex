@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { stat } from "node:fs/promises";
 import path from "node:path";
 import type {
@@ -14,18 +13,6 @@ import type {
   GitReviewPatchResult,
 } from "../shared/types";
 
-interface GitCommandResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-
-interface GitCommandError extends Error {
-  stderr?: string;
-  exitCode?: number | null;
-}
-
-const GIT_ACTION_COMMAND_TIMEOUT_MS = 30_000;
 const GENERATED_COMMIT_SUBJECT_MAX_LENGTH = 72;
 const COMMIT_MESSAGE_DIFF_INLINE_LINE_THRESHOLD = 1_000;
 const PULL_REQUEST_MESSAGE_DIFF_INLINE_LINE_THRESHOLD = 1_000;
@@ -65,8 +52,11 @@ export interface GitPullRequestMessageGenerationResponse {
   body: string | null;
 }
 
-export interface CommitGitChangesOptions {
+export interface GitActionMutationOptions {
   gitWorker: GitActionWorkerPort;
+}
+
+export interface CommitGitChangesOptions extends GitActionMutationOptions {
   generateCommitMessage?: (input: GitCommitMessageGenerationRequest) => Promise<string | null>;
   generatePullRequestMessage?: (
     input: GitPullRequestMessageGenerationRequest,
@@ -80,14 +70,7 @@ export interface GitActionWorkerPort {
     signal?: AbortSignal,
   ): Promise<GitReviewPatchResult>;
   commit(input: GitCommitInput, signal?: AbortSignal): Promise<GitActionMutationResult>;
-  refreshRepository(cwd: string): Promise<void>;
-}
-
-interface PushGitState {
-  currentBranch: string | null;
-  isGitRepository: boolean;
-  remotes: string[];
-  upstreamBranch: string | null;
+  push(input: GitPushInput, signal?: AbortSignal): Promise<GitActionMutationResult>;
 }
 
 async function ensureDirectory(cwd: string, signal?: AbortSignal): Promise<string> {
@@ -106,62 +89,10 @@ async function ensureDirectory(cwd: string, signal?: AbortSignal): Promise<strin
   return normalizedCwd;
 }
 
-function runGitCommand(
-  args: string[],
-  cwd: string,
-  allowedExitCodes: number[] = [0],
-  signal?: AbortSignal,
-): Promise<GitCommandResult> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      "git",
-      args,
-      {
-        cwd,
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          GIT_OPTIONAL_LOCKS: "0",
-          GIT_TERMINAL_PROMPT: "0",
-          LANG: "C",
-          LANGUAGE: "C",
-          LC_MESSAGES: "C",
-        },
-        timeout: GIT_ACTION_COMMAND_TIMEOUT_MS,
-        windowsHide: true,
-        maxBuffer: 8 * 1024 * 1024,
-        signal,
-      },
-      (error, stdout, stderr) => {
-        const errorCode = (error as { code?: unknown } | null)?.code;
-        const exitCode = typeof errorCode === "number" ? errorCode : null;
-        if (error && (exitCode === null || !allowedExitCodes.includes(exitCode))) {
-          const failure = error as GitCommandError;
-          failure.stderr = typeof stderr === "string" ? stderr : "";
-          failure.exitCode = exitCode;
-          reject(failure);
-          return;
-        }
-
-        resolve({
-          stdout: typeof stdout === "string" ? stdout : "",
-          stderr: typeof stderr === "string" ? stderr : "",
-          exitCode: exitCode ?? 0,
-        });
-      },
-    );
-  });
-}
-
 function isAbortError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const errorCode = (error as { code?: unknown }).code;
   return error.name === "AbortError" || errorCode === "ABORT_ERR";
-}
-
-function ignoreGitCommandErrorUnlessAborted(error: unknown): null {
-  if (isAbortError(error)) throw error;
-  return null;
 }
 
 function gitErrorMessage(error: unknown, fallback: string): string {
@@ -175,16 +106,6 @@ function gitErrorMessage(error: unknown, fallback: string): string {
 function gitErrorStderr(error: unknown): string {
   if (!error || typeof error !== "object") return "";
   return "stderr" in error && typeof error.stderr === "string" ? error.stderr : "";
-}
-
-async function isGitRepository(cwd: string, signal?: AbortSignal): Promise<boolean> {
-  const result = await runGitCommand(
-    ["rev-parse", "--is-inside-work-tree"],
-    cwd,
-    [0],
-    signal,
-  ).catch(ignoreGitCommandErrorUnlessAborted);
-  return result?.stdout.trim() === "true";
 }
 
 function fileBasename(filePath: string): string {
@@ -535,50 +456,6 @@ function summarizeUnifiedDiffPaths(diff: string | null): string {
   return `Update ${filePaths.length} files`;
 }
 
-async function readRemotes(cwd: string, signal?: AbortSignal): Promise<string[]> {
-  const result = await runGitCommand(["remote"], cwd, [0, 128], signal).catch(
-    ignoreGitCommandErrorUnlessAborted,
-  );
-  if (!result) return [];
-  return result.stdout
-    .split(/\r?\n/)
-    .map((remote) => remote.trim())
-    .filter((remote, index, remotes) => remote.length > 0 && remotes.indexOf(remote) === index);
-}
-
-async function readUpstreamBranch(cwd: string, signal?: AbortSignal): Promise<string | null> {
-  const result = await runGitCommand(
-    ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-    cwd,
-    [0, 128],
-    signal,
-  ).catch(ignoreGitCommandErrorUnlessAborted);
-  const upstream = result?.exitCode === 0 ? result.stdout.trim() : "";
-  return upstream || null;
-}
-
-async function readPushGitState(cwd: string, signal?: AbortSignal): Promise<PushGitState> {
-  if (!(await isGitRepository(cwd, signal))) {
-    return {
-      currentBranch: null,
-      isGitRepository: false,
-      remotes: [],
-      upstreamBranch: null,
-    };
-  }
-  const [current, remotes, upstreamBranch] = await Promise.all([
-    runGitCommand(["branch", "--show-current"], cwd, [0], signal),
-    readRemotes(cwd, signal),
-    readUpstreamBranch(cwd, signal),
-  ]);
-  return {
-    currentBranch: current.stdout.trim() || null,
-    isGitRepository: true,
-    remotes,
-    upstreamBranch,
-  };
-}
-
 function mutationError(
   cwd: string,
   branch: string | null,
@@ -622,32 +499,6 @@ function pullRequestMessageGenerationError(
     stderr: gitErrorStderr(error),
     errorMessage: gitErrorMessage(error, fallback),
   };
-}
-
-async function pushGitBranch(
-  cwd: string,
-  state: PushGitState,
-  force: boolean | undefined,
-  signal?: AbortSignal,
-): Promise<GitCommandResult> {
-  if (!state.currentBranch) {
-    throw new Error("Current branch is required before pushing.");
-  }
-
-  if (state.upstreamBranch) {
-    return runGitCommand(["push", ...(force ? ["--force-with-lease"] : [])], cwd, [0], signal);
-  }
-
-  if (!state.remotes.includes("origin")) {
-    throw new Error("No upstream branch or origin remote is configured.");
-  }
-
-  return runGitCommand(
-    ["push", ...(force ? ["--force-with-lease"] : []), "-u", "origin", state.currentBranch],
-    cwd,
-    [0],
-    signal,
-  );
 }
 
 export function commitGitChanges(
@@ -710,20 +561,14 @@ export function commitGitChanges(
         return committed;
       }
 
-      try {
-        const pushState = await readPushGitState(cwd, signal);
-        const pushed = await pushGitBranch(cwd, pushState, false, signal);
-        return {
-          cwd,
-          status: "success",
-          branch: committed.branch,
-          stdout: [committed.stdout, pushed.stdout].filter(Boolean).join("\n"),
-          stderr: [committed.stderr, pushed.stderr].filter(Boolean).join("\n"),
-          errorMessage: null,
-        };
-      } finally {
-        await options.gitWorker.refreshRepository(cwd).catch(() => undefined);
-      }
+      const pushed = await options.gitWorker.push({ cwd, force: false }, signal);
+      if (pushed.status !== "success") return pushed;
+      return {
+        ...pushed,
+        branch: committed.branch,
+        stdout: [committed.stdout, pushed.stdout].filter(Boolean).join("\n"),
+        stderr: [committed.stderr, pushed.stderr].filter(Boolean).join("\n"),
+      };
     } catch (error) {
       return mutationError(cwd, branch, error, "Could not commit changes.");
     }
@@ -864,6 +709,7 @@ export function generateGitPullRequestMessage(
 
 export function pushGitChanges(
   input: GitPushInput,
+  options: GitActionMutationOptions,
   signal?: AbortSignal,
 ): Promise<GitActionMutationResult> {
   return (async () => {
@@ -872,28 +718,9 @@ export function pushGitChanges(
 
     try {
       cwd = await ensureDirectory(input.cwd, signal);
-      const state = await readPushGitState(cwd, signal);
-      branch = state.currentBranch;
-      if (!state.isGitRepository) {
-        return {
-          cwd,
-          status: "error",
-          branch: null,
-          stdout: "",
-          stderr: "",
-          errorMessage: "Git repository is required before pushing.",
-        };
-      }
-
-      const result = await pushGitBranch(cwd, state, input.force, signal);
-      return {
-        cwd,
-        status: "success",
-        branch,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        errorMessage: null,
-      };
+      const result = await options.gitWorker.push({ ...input, cwd }, signal);
+      branch = result.branch;
+      return result;
     } catch (error) {
       return mutationError(cwd, branch, error, "Could not push changes.");
     }
