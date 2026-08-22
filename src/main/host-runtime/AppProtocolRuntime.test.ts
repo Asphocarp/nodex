@@ -49,6 +49,7 @@ it.effect("owns application protocol handlers with the Main Scope", () =>
                 documentsPath: "/tmp/Documents",
                 environment: {},
                 environmentPath: null,
+                homeDirectory: "/tmp",
                 initialProjectsDirectory: null,
                 isDefaultApp: false,
                 isPackaged: false,

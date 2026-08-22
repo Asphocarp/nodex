@@ -65,6 +65,7 @@ it.effect(
                   documentsPath: "/tmp/Documents",
                   environment: {},
                   environmentPath: null,
+                  homeDirectory: "/tmp",
                   initialProjectsDirectory: null,
                   isDefaultApp: false,
                   isPackaged: false,

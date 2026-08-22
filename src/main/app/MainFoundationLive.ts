@@ -1,10 +1,12 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Layer from "effect/Layer";
+import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import * as ElectronApp from "../platform/electron/ElectronApp";
 import * as ElectronDesktop from "../platform/electron/ElectronDesktop";
 import * as ElectronIpc from "../platform/electron/ElectronIpc";
 import * as ElectronSessionHost from "../platform/electron/ElectronSessionHost";
 import * as ElectronWindowHost from "../platform/electron/ElectronWindowHost";
+import * as BrowserProfileHelperNode from "../platform/node/BrowserProfileHelperNode";
 import * as MainConfig from "./MainConfig";
 import * as MainObservability from "./MainObservability";
 import * as MainShutdown from "./MainShutdown";
@@ -21,6 +23,7 @@ export type MainFoundation =
   | ElectronIpc.ElectronSyncIpc
   | ElectronSessionHost.ElectronSessionHost
   | ElectronWindowHost.ElectronWindowHost
+  | BrowserProfileHelperPlatform
   | NodeServices.NodeServices;
 
 const electronPlatform = Layer.mergeAll(
@@ -31,13 +34,15 @@ const electronPlatform = Layer.mergeAll(
   ElectronWindowHost.live,
 );
 
+const nodePlatform = BrowserProfileHelperNode.live.pipe(Layer.provideMerge(NodeServices.layer));
+
 export const make = (config: unknown): Layer.Layer<MainFoundation, MainConfig.MainConfigError> => {
   const base = Layer.mergeAll(
     MainConfig.layer(config),
     MainObservability.layer,
     MainShutdown.layer,
     ScopedCallbackRuntime.layer,
-    NodeServices.layer,
+    nodePlatform,
   );
   return electronPlatform.pipe(Layer.provideMerge(base));
 };

@@ -214,6 +214,7 @@ function launchMainApplication(): void {
     documentsPath: app.getPath("documents"),
     environment,
     environmentPath: process.env.PATH ?? null,
+    homeDirectory: app.getPath("home"),
     initialProjectsDirectory: process.env.NODEX_INITIAL_PROJECTS_DIR ?? null,
     isDefaultApp: process.defaultApp === true,
     isPackaged: app.isPackaged,

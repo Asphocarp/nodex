@@ -11,6 +11,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import type { Session } from "electron";
 import { BrowserSidebarService } from "../browser-sidebar-service";
+import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import { ChatGptDesktop } from "../codex-application/ChatGptDesktop";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
@@ -39,9 +40,12 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
           const context = yield* Layer.buildWithScope(
             live({
               browserSidebar,
+              environment: {},
+              homeDirectory: root,
               isPackaged: false,
               nodexHome: `${root}/home`,
               projectRootPath: root,
+              platform: "darwin",
               resourcesPath: `${root}/resources`,
               userDataPath: `${root}/user-data`,
             }).pipe(
@@ -121,6 +125,12 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
                     }),
                   ),
                   Layer.succeed(ScopedCallbackRuntime, callbacks),
+                  Layer.succeed(
+                    BrowserProfileHelperPlatform,
+                    BrowserProfileHelperPlatform.of({
+                      make: () => ({ readProfile: () => Effect.die("unused") }),
+                    }),
+                  ),
                 ),
               ),
             ),

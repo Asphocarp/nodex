@@ -89,7 +89,8 @@ export const live = (
       const config = yield* MainConfig;
       const windowSessions = yield* WindowSessionCatalog;
       const { browserSidebar } = options;
-      const { credentials, download, localServerPreferences, policy, services } = browserProfile;
+      const { credentials, download, localServerPreferences, policy, profileImport, services } =
+        browserProfile;
 
       const trusted = (event: IpcMainInvokeEvent, capabilityName: string) =>
         attempt("authorize-renderer", () =>
@@ -155,7 +156,7 @@ export const live = (
             attempt("read-browser-profile-capabilities", () => ({
               credentialVault: credentials.capability(),
               contactInfo: credentials.capability(),
-              profileImport: services.profileImporter.capability(),
+              profileImport: profileImport.capability(),
               siteInfo: { available: true as const, provider: "electron-public-api" as const },
               history: { available: true as const, provider: "electron-public-api" as const },
               extensions: services.extensionsProvider.capability(),
@@ -166,7 +167,12 @@ export const live = (
       yield* ipc.handle("browser-profile-import-profiles", (event) =>
         trusted(event, "Browser Profile discovery").pipe(
           Effect.andThen(
-            attempt("list-importable-profiles", () => services.profileImporter.listProfiles()),
+            profileImport.listProfiles.pipe(
+              Effect.mapError(
+                (cause) =>
+                  new BrowserProfileIpcError({ operation: "list-importable-profiles", cause }),
+              ),
+            ),
           ),
         ),
       );
@@ -176,7 +182,14 @@ export const live = (
             parse("parse-profile-import", () => BrowserProfileImportInputSchema.parse(rawInput)),
           ),
           Effect.flatMap((input) =>
-            attempt("import-browser-profile", () => services.profileImporter.import(input)),
+            profileImport
+              .importProfile(input)
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new BrowserProfileIpcError({ operation: "import-browser-profile", cause }),
+                ),
+              ),
           ),
         ),
       );

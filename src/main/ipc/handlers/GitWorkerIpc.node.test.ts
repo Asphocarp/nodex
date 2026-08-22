@@ -47,6 +47,7 @@ it.effect("registers and releases the Git worker renderer ingress with the Main 
                 documentsPath: "/tmp/Documents",
                 environment: {},
                 environmentPath: null,
+                homeDirectory: "/tmp",
                 initialProjectsDirectory: null,
                 isDefaultApp: false,
                 isPackaged: false,

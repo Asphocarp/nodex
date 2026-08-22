@@ -81,6 +81,9 @@ export interface BrowserCredentialRuntime {
     input: BrowserCredentialGenerateInput,
   ) => Effect.Effect<BrowserCredentialActionResult>;
   readonly remove: (id: string) => Effect.Effect<BrowserCredentialActionResult>;
+  readonly importCredential: (
+    input: SaveBrowserCredentialInput,
+  ) => Effect.Effect<"imported" | "unchanged", BrowserCredentialRuntimeError>;
   readonly captureGuestCandidate: (
     guestWebContentsId: number,
     input: { readonly username: string; readonly password: string },
@@ -254,6 +257,14 @@ export const makeBrowserCredentialRuntime = (
           action("remove", () => {
             options.vault.remove(id);
             return { ok: true };
+          }),
+        ),
+      importCredential: (input) =>
+        writes.withPermits(1)(
+          attempt("import-credential", () => {
+            if (options.vault.matches(input)) return "unchanged" as const;
+            options.vault.save(input);
+            return "imported" as const;
           }),
         ),
       captureGuestCandidate: (guestWebContentsId, input) =>

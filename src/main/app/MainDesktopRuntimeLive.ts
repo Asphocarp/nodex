@@ -180,6 +180,7 @@ import {
   ProjectRuntimeLifecycleRuntime,
 } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { makeProjectRuntimeLifecyclePromiseAdapter } from "../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
+import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
 import {
   BrowserUseRuntime,
   live as browserUseRuntimeLive,
@@ -308,6 +309,7 @@ export const live: Layer.Layer<
   | ElectronSessionHost
   | ElectronWindowHost
   | FileSystem.FileSystem
+  | BrowserProfileHelperPlatform
   | MainConfig
   | MainShutdown
   | ScopedCallbackRuntime
@@ -326,6 +328,7 @@ export const live: Layer.Layer<
     const callbacks = yield* ScopedCallbackRuntime;
     const terminals = yield* TerminalSessions;
     const fileSystem = yield* FileSystem.FileSystem;
+    const browserProfileHelper = yield* BrowserProfileHelperPlatform;
     const runtimeScope = yield* Scope.Scope;
     const locale = yield* electron.locale;
     const userDataPath = yield* electron.userDataPath;
@@ -759,15 +762,19 @@ export const live: Layer.Layer<
         const browserProfileContext = yield* Layer.buildWithScope(
           browserProfileRuntimeLive({
             browserSidebar: browserSidebarService,
+            environment: config.environment,
+            homeDirectory: config.homeDirectory,
             isPackaged: config.isPackaged,
             nodexHome: config.nodexHome,
             projectRootPath: config.projectRootPath,
+            platform: config.platform,
             resourcesPath: config.resourcesPath,
             userDataPath,
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
                 Layer.succeed(ChatGptDesktop, chatGpt),
+                Layer.succeed(BrowserProfileHelperPlatform, browserProfileHelper),
                 Layer.succeed(ElectronApp, electron),
                 Layer.succeed(ElectronDesktop, desktop),
                 Layer.succeed(FileSystem.FileSystem, fileSystem),

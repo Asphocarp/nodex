@@ -230,9 +230,13 @@ Nodex is local-first. Main risks are malformed local inputs, accidental data los
   registered guest and is excluded from Browser snapshots, downloads, history,
   logs, diagnostics, screenshots, and IPC responses. Password save/import is
   disabled when platform encryption is unavailable. Profile import uses the
-  signed native helper, bounded read-only source/profile selection, temporary
-  copies, explicit data/domain choices, and no intermediate plaintext password
-  file.
+  signed native helper, canonical bounded read-only source/profile selection,
+  temporary copies, explicit data/domain choices, and no intermediate plaintext
+  password file. Imports are serialized and revalidate that the selected source
+  is still present and closed before spawning a scoped, deadline-bounded helper;
+  helper output is size- and schema-bounded. Imported cookies enter only the
+  Electron Profile cookie store, and imported passwords enter the same encrypted
+  credential mutation authority as interactive saves.
 - Browser Use loads only a manifest-verified first-party runtime tuple and exact
   trusted client hashes/paths. Its per-session native pipe is private and
   frame-bounded; every command carries the current Codex session and turn.

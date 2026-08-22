@@ -22,10 +22,13 @@ import {
   type BrowserLocalServerPreferencesRuntime,
 } from "../browser/browser-local-server-preferences";
 import {
-  BrowserProfileHelperClient,
+  BrowserProfileHelperPlatform,
   resolveBrowserProfileHelperExecutable,
 } from "../browser/browser-profile-helper-client";
-import { BrowserProfileImporter } from "../browser/browser-profile-importer";
+import {
+  makeBrowserProfileImportRuntime,
+  type BrowserProfileImportRuntime,
+} from "../browser/browser-profile-importer";
 import type { BrowserProfileServices } from "../browser/browser-profile-services";
 import { BrowserSiteInfoProvider } from "../browser/browser-site-info-provider";
 import {
@@ -58,15 +61,19 @@ export class BrowserProfileRuntime extends Context.Service<
     readonly credentials: BrowserCredentialRuntime;
     readonly localServerPreferences: BrowserLocalServerPreferencesRuntime;
     readonly policy: BrowserUsePolicyRuntime;
+    readonly profileImport: BrowserProfileImportRuntime;
     readonly services: BrowserProfileServices;
   }
 >()("nodex/main/host-runtime/BrowserProfileRuntime") {}
 
 export interface BrowserProfileRuntimeOptions {
   readonly browserSidebar: BrowserSidebarService;
+  readonly environment: Readonly<Record<string, string>>;
+  readonly homeDirectory: string;
   readonly isPackaged: boolean;
   readonly nodexHome: string;
   readonly projectRootPath: string;
+  readonly platform: string;
   readonly resourcesPath: string;
   readonly userDataPath: string;
 }
@@ -102,6 +109,7 @@ export const live = (
   BrowserProfileRuntime,
   BrowserProfileRuntimeError,
   | FileSystem.FileSystem
+  | BrowserProfileHelperPlatform
   | ChatGptDesktop
   | ElectronApp
   | ElectronDesktop
@@ -116,9 +124,9 @@ export const live = (
       const callbacks = yield* ScopedCallbackRuntime;
       const chatGpt = yield* ChatGptDesktop;
       const desktop = yield* ElectronDesktop;
+      const profileHelperPlatform = yield* BrowserProfileHelperPlatform;
       const sessions = yield* ElectronSessionHost;
       const windows = yield* ElectronWindowHost;
-      const appPath = yield* app.appPath;
       const downloadsPath = yield* app.downloadsPath;
       const browserSession = yield* sessions.fromPartition(BROWSER_SIDEBAR_PARTITION);
       const logger = getLogger({ component: "browser-profile-runtime" });
@@ -156,19 +164,23 @@ export const live = (
             }),
         ),
       );
+      const profileHelper = profileHelperPlatform.make({
+        executablePath: resolveBrowserProfileHelperExecutable({
+          environment: options.environment,
+          isPackaged: options.isPackaged,
+          resourcesPath: options.resourcesPath,
+          repositoryRoot: options.projectRootPath,
+        }),
+      });
+      const profileImport = yield* makeBrowserProfileImportRuntime({
+        cookieStore: browserSession.cookies,
+        credentials,
+        helper: profileHelper,
+        homeDirectory: options.homeDirectory,
+        platform: options.platform,
+      });
       const services: BrowserProfileServices = {
         extensionsProvider: new BrowserExtensionsProvider(browserSession.extensions ?? null),
-        profileImporter: new BrowserProfileImporter({
-          cookieStore: browserSession.cookies,
-          credentialVault,
-          helper: new BrowserProfileHelperClient({
-            executablePath: resolveBrowserProfileHelperExecutable({
-              isPackaged: options.isPackaged,
-              resourcesPath: options.resourcesPath,
-              repositoryRoot: options.isPackaged ? appPath : options.projectRootPath,
-            }),
-          }),
-        }),
         siteInfoProvider: new BrowserSiteInfoProvider(
           options.browserSidebar,
           browserSession.cookies,
@@ -223,6 +235,7 @@ export const live = (
         download,
         localServerPreferences,
         policy,
+        profileImport,
         services,
       });
     }),

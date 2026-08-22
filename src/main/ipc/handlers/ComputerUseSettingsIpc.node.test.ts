@@ -50,6 +50,7 @@ it.effect("registers and releases Computer Use settings channels with the Main S
                 documentsPath: "/tmp/Documents",
                 environment: {},
                 environmentPath: null,
+                homeDirectory: "/tmp",
                 initialProjectsDirectory: null,
                 isDefaultApp: false,
                 isPackaged: false,

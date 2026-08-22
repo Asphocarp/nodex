@@ -1,5 +1,7 @@
+import * as Effect from "effect/Effect";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type {
   BrowserCapabilityStatus,
@@ -9,246 +11,316 @@ import type {
   BrowserProfileSource,
   ImportableBrowserProfile,
 } from "../../shared/browser-profile";
-import type { BrowserCredentialVault } from "./browser-credential-vault";
-import {
-  BrowserProfileHelperClient,
-  type BrowserProfileHelperResponse,
+import type { BrowserCredentialRuntime } from "./browser-credential-service";
+import type {
+  BrowserProfileHelper,
+  BrowserProfileHelperResponse,
 } from "./browser-profile-helper-client";
 
 interface BrowserCookie {
-  domain?: string;
-  name: string;
-  path?: string;
-  value: string;
+  readonly domain?: string;
+  readonly name: string;
+  readonly path?: string;
+  readonly value: string;
 }
 
 interface BrowserCookieStore {
-  get(filter: Record<string, never>): Promise<BrowserCookie[]>;
-  set(details: {
-    url: string;
-    name: string;
-    value: string;
-    domain?: string;
-    path?: string;
-    secure?: boolean;
-    httpOnly?: boolean;
-    expirationDate?: number;
-    sameSite?: "unspecified" | "no_restriction" | "lax" | "strict";
-  }): Promise<void>;
+  readonly get: (filter: Record<string, never>) => Promise<BrowserCookie[]>;
+  readonly set: (details: {
+    readonly url: string;
+    readonly name: string;
+    readonly value: string;
+    readonly domain?: string;
+    readonly path?: string;
+    readonly secure?: boolean;
+    readonly httpOnly?: boolean;
+    readonly expirationDate?: number;
+    readonly sameSite?: "unspecified" | "no_restriction" | "lax" | "strict";
+  }) => Promise<void>;
 }
 
-export interface BrowserProfileImporterOptions {
-  cookieStore: BrowserCookieStore;
-  credentialVault: BrowserCredentialVault;
-  helper: Pick<BrowserProfileHelperClient, "readProfile">;
-  sourceRoots?: Partial<Record<BrowserProfileSource, string>>;
-  now?: () => number;
+export interface BrowserProfileImportRuntimeOptions {
+  readonly cookieStore: BrowserCookieStore;
+  readonly credentials: Pick<BrowserCredentialRuntime, "capability" | "importCredential">;
+  readonly helper: BrowserProfileHelper;
+  readonly homeDirectory: string;
+  readonly platform: string;
+  readonly sourceRoots?: Partial<Record<BrowserProfileSource, string>>;
+  readonly isProcessAlive?: (pid: number) => boolean;
+  readonly now?: () => number;
 }
 
 interface BrowserSourceDefinition {
-  source: BrowserProfileSource;
-  appName: string;
-  rootPath: string;
+  readonly source: BrowserProfileSource;
+  readonly appName: string;
+  readonly rootPath: string;
 }
 
-export class BrowserProfileImporter {
-  private readonly cookieStore: BrowserCookieStore;
-  private readonly credentialVault: BrowserCredentialVault;
-  private readonly helper: Pick<BrowserProfileHelperClient, "readProfile">;
-  private readonly sourceRoots: Partial<Record<BrowserProfileSource, string>>;
-  private readonly now: () => number;
+export class BrowserProfileImportRuntimeError extends Schema.TaggedError<BrowserProfileImportRuntimeError>()(
+  "BrowserProfileImportRuntimeError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
 
-  constructor(options: BrowserProfileImporterOptions) {
-    this.cookieStore = options.cookieStore;
-    this.credentialVault = options.credentialVault;
-    this.helper = options.helper;
-    this.sourceRoots = options.sourceRoots ?? {};
-    this.now = options.now ?? Date.now;
+export interface BrowserProfileImportRuntime {
+  readonly capability: () => BrowserCapabilityStatus;
+  readonly listProfiles: Effect.Effect<
+    readonly ImportableBrowserProfile[],
+    BrowserProfileImportRuntimeError
+  >;
+  readonly importProfile: (
+    input: BrowserProfileImportInput,
+  ) => Effect.Effect<BrowserProfileImportResult, BrowserProfileImportRuntimeError>;
+}
+
+const runtimeError = (operation: string, cause: unknown): BrowserProfileImportRuntimeError =>
+  new BrowserProfileImportRuntimeError({ operation, cause });
+
+const defaultIsProcessAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
   }
+};
 
-  capability(): BrowserCapabilityStatus {
-    if (process.platform !== "darwin") {
-      return {
-        available: false,
-        provider: "unavailable",
-        reason: "Browser Profile import is unavailable on this platform",
-      };
-    }
-    if (!this.credentialVault.capability().available) {
-      return {
-        available: false,
-        provider: "unavailable",
-        reason: "Secure credential storage is unavailable on this device",
-      };
-    }
-    return {
-      available: true,
-      provider: "nodex-profile-import",
-    };
-  }
+const sourceDefinitions = (
+  homeDirectory: string,
+  sourceRoots: Partial<Record<BrowserProfileSource, string>>,
+): readonly BrowserSourceDefinition[] => {
+  const applicationSupport = path.join(homeDirectory, "Library", "Application Support");
+  return [
+    {
+      source: "atlas",
+      appName: "ChatGPT Atlas",
+      rootPath:
+        sourceRoots.atlas ??
+        path.join(applicationSupport, "com.openai.atlas", "browser-data", "host"),
+    },
+    {
+      source: "chrome",
+      appName: "Google Chrome",
+      rootPath: sourceRoots.chrome ?? path.join(applicationSupport, "Google", "Chrome"),
+    },
+  ];
+};
 
-  async listProfiles(): Promise<ImportableBrowserProfile[]> {
-    const profiles = this.sourceDefinitions().flatMap((definition) => discoverProfiles(definition));
-    return profiles.sort((left, right) => {
-      if (left.source !== right.source) return left.source === "atlas" ? -1 : 1;
-      return left.profileName.localeCompare(right.profileName);
-    });
-  }
-
-  async import(input: BrowserProfileImportInput): Promise<BrowserProfileImportResult> {
-    if (!input.importCookies && !input.importPasswords) {
-      throw new Error("Select cookies, passwords, or both to import");
-    }
-    if (!input.importCookies && input.cookieDomainAllowlist !== undefined) {
-      throw new Error("Cookie domain selection requires cookie import");
-    }
-    const profile = (await this.listProfiles()).find(
-      (candidate) =>
-        candidate.source === input.source && candidate.profilePath === input.profilePath,
-    );
-    if (!profile) {
-      throw new Error("Browser Profile is no longer importable");
-    }
-    if (profile.sourceBrowserOpen) {
-      throw new Error(`Close ${profile.appName} completely before importing`);
-    }
-    if (input.importPasswords && !this.credentialVault.capability().available) {
-      throw new Error("Secure credential storage is unavailable");
-    }
-
-    const helperResult = await this.helper.readProfile({
-      source: input.source,
-      profilePath: profile.profilePath,
-      includeCookies: input.importCookies,
-      includePasswords: input.importPasswords,
-      cookieDomainAllowlist: input.cookieDomainAllowlist,
-    });
-    const result: BrowserProfileImportResult = {
-      source: input.source,
-      profilePath: profile.profilePath,
-    };
-    if (input.importCookies) {
-      result.cookies = await this.importCookies(helperResult);
-    }
-    if (input.importPasswords) {
-      result.passwords = await this.importPasswords(helperResult);
-    }
-    return result;
-  }
-
-  private async importCookies(
-    helperResult: BrowserProfileHelperResponse,
-  ): Promise<BrowserProfileImportDataResult> {
-    const existing = new Map(
-      (await this.cookieStore.get({})).map((cookie) => [
-        cookieKey(cookie.domain ?? "", cookie.name, cookie.path ?? "/"),
-        cookie.value,
-      ]),
-    );
-    let imported = 0;
-    let skippedExisting = 0;
-    let skippedInvalid = 0;
-    let failed = helperResult.cookieFailures;
-    for (const cookie of helperResult.cookies) {
-      const host = cookie.domain.replace(/^\./u, "");
-      const expirationDate = cookie.expirationDate ?? undefined;
-      if (
-        !isSafeCookieHost(host) ||
-        (expirationDate !== undefined && expirationDate <= this.now() / 1_000)
-      ) {
-        skippedInvalid += 1;
-        continue;
+export const makeBrowserProfileImportRuntime = (
+  options: BrowserProfileImportRuntimeOptions,
+): Effect.Effect<BrowserProfileImportRuntime> =>
+  Effect.gen(function* () {
+    const now = options.now ?? Date.now;
+    const isProcessAlive = options.isProcessAlive ?? defaultIsProcessAlive;
+    const roots = options.sourceRoots ?? {};
+    const imports = yield* Semaphore.make(1);
+    const capability = (): BrowserCapabilityStatus => {
+      if (options.platform !== "darwin") {
+        return {
+          available: false,
+          provider: "unavailable",
+          reason: "Browser Profile import is unavailable on this platform",
+        };
       }
-      const key = cookieKey(cookie.domain, cookie.name, cookie.path);
-      if (existing.get(key) === cookie.value) {
-        skippedExisting += 1;
-        continue;
+      if (!options.credentials.capability().available) {
+        return {
+          available: false,
+          provider: "unavailable",
+          reason: "Secure credential storage is unavailable on this device",
+        };
       }
-      try {
-        await this.cookieStore.set({
-          url: `${cookie.secure ? "https" : "http"}://${host}${normalizeCookiePath(cookie.path)}`,
-          name: cookie.name,
-          value: cookie.value,
-          domain: cookie.domain,
-          path: normalizeCookiePath(cookie.path),
-          secure: cookie.secure,
-          httpOnly: cookie.httpOnly,
-          ...(expirationDate === undefined ? {} : { expirationDate }),
-          sameSite: cookie.sameSite,
+      return { available: true, provider: "nodex-profile-import" };
+    };
+    const listProfiles = Effect.try({
+      try: () =>
+        sourceDefinitions(options.homeDirectory, roots)
+          .flatMap((definition) => discoverProfiles(definition, isProcessAlive))
+          .sort((left, right) => {
+            if (left.source !== right.source) return left.source === "atlas" ? -1 : 1;
+            return left.profileName.localeCompare(right.profileName);
+          }),
+      catch: (cause) => runtimeError("discover-profiles", cause),
+    });
+    const importCookies = (
+      helperResult: BrowserProfileHelperResponse,
+    ): Effect.Effect<BrowserProfileImportDataResult, BrowserProfileImportRuntimeError> =>
+      Effect.gen(function* () {
+        const currentCookies = yield* Effect.tryPromise({
+          try: () => options.cookieStore.get({}),
+          catch: (cause) => runtimeError("read-cookies", cause),
         });
-        existing.set(key, cookie.value);
-        imported += 1;
-      } catch {
-        failed += 1;
-      }
-    }
-    return importDataResult({
-      discovered: helperResult.cookies.length + helperResult.cookieFailures,
-      imported,
-      skippedExisting,
-      skippedInvalid,
-      failed,
-    });
-  }
-
-  private async importPasswords(
-    helperResult: BrowserProfileHelperResponse,
-  ): Promise<BrowserProfileImportDataResult> {
-    let imported = 0;
-    let skippedExisting = 0;
-    let skippedInvalid = 0;
-    let failed = helperResult.passwordFailures;
-    for (const credential of helperResult.credentials) {
-      try {
-        if (await this.credentialVault.matches(credential)) {
-          skippedExisting += 1;
-          continue;
+        const existing = new Map(
+          currentCookies.map((cookie) => [
+            cookieKey(cookie.domain ?? "", cookie.name, cookie.path ?? "/"),
+            cookie.value,
+          ]),
+        );
+        let imported = 0;
+        let skippedExisting = 0;
+        let skippedInvalid = 0;
+        let failed = helperResult.cookieFailures;
+        for (const cookie of helperResult.cookies) {
+          const host = cookie.domain.replace(/^\./u, "");
+          const expirationDate = cookie.expirationDate ?? undefined;
+          if (
+            !isSafeCookieHost(host) ||
+            (expirationDate !== undefined && expirationDate <= now() / 1_000)
+          ) {
+            skippedInvalid += 1;
+            continue;
+          }
+          const key = cookieKey(cookie.domain, cookie.name, cookie.path);
+          if (existing.get(key) === cookie.value) {
+            skippedExisting += 1;
+            continue;
+          }
+          const saved = yield* Effect.tryPromise({
+            try: () =>
+              options.cookieStore.set({
+                url: `${cookie.secure ? "https" : "http"}://${host}${normalizeCookiePath(cookie.path)}`,
+                name: cookie.name,
+                value: cookie.value,
+                domain: cookie.domain,
+                path: normalizeCookiePath(cookie.path),
+                secure: cookie.secure,
+                httpOnly: cookie.httpOnly,
+                ...(expirationDate === undefined ? {} : { expirationDate }),
+                sameSite: cookie.sameSite,
+              }),
+            catch: (cause) => runtimeError("write-cookie", cause),
+          }).pipe(
+            Effect.match({
+              onFailure: () => false,
+              onSuccess: () => true,
+            }),
+          );
+          if (!saved) {
+            failed += 1;
+            continue;
+          }
+          existing.set(key, cookie.value);
+          imported += 1;
         }
-        await this.credentialVault.save(credential);
-        imported += 1;
-      } catch (error) {
-        if (error instanceof Error && /origin|username|password/iu.test(error.message)) {
-          skippedInvalid += 1;
-          continue;
+        return importDataResult({
+          discovered: helperResult.cookies.length + helperResult.cookieFailures,
+          imported,
+          skippedExisting,
+          skippedInvalid,
+          failed,
+        });
+      });
+    const importPasswords = (
+      helperResult: BrowserProfileHelperResponse,
+    ): Effect.Effect<BrowserProfileImportDataResult> =>
+      Effect.gen(function* () {
+        let imported = 0;
+        let skippedExisting = 0;
+        let skippedInvalid = 0;
+        let failed = helperResult.passwordFailures;
+        for (const credential of helperResult.credentials) {
+          const outcome = yield* options.credentials.importCredential(credential).pipe(
+            Effect.match({
+              onFailure: (error) => ({ _tag: "Failed" as const, error }),
+              onSuccess: (status) => ({ _tag: "Succeeded" as const, status }),
+            }),
+          );
+          if (outcome._tag === "Succeeded") {
+            if (outcome.status === "unchanged") skippedExisting += 1;
+            else imported += 1;
+            continue;
+          }
+          if (isInvalidCredentialFailure(outcome.error.cause)) skippedInvalid += 1;
+          else failed += 1;
         }
-        failed += 1;
-      }
-    }
-    return importDataResult({
-      discovered: helperResult.credentials.length + helperResult.passwordFailures,
-      imported,
-      skippedExisting,
-      skippedInvalid,
-      failed,
-    });
-  }
+        return importDataResult({
+          discovered: helperResult.credentials.length + helperResult.passwordFailures,
+          imported,
+          skippedExisting,
+          skippedInvalid,
+          failed,
+        });
+      });
 
-  private sourceDefinitions(): BrowserSourceDefinition[] {
-    const applicationSupport = path.join(os.homedir(), "Library", "Application Support");
-    return [
-      {
-        source: "atlas",
-        appName: "ChatGPT Atlas",
-        rootPath:
-          this.sourceRoots.atlas ??
-          path.join(applicationSupport, "com.openai.atlas", "browser-data", "host"),
-      },
-      {
-        source: "chrome",
-        appName: "Google Chrome",
-        rootPath: this.sourceRoots.chrome ?? path.join(applicationSupport, "Google", "Chrome"),
-      },
-    ];
-  }
-}
+    return {
+      capability,
+      listProfiles,
+      importProfile: (input) =>
+        imports.withPermits(1)(
+          Effect.gen(function* () {
+            if (!input.importCookies && !input.importPasswords) {
+              return yield* Effect.fail(
+                runtimeError(
+                  "validate-import",
+                  new TypeError("Select cookies, passwords, or both to import"),
+                ),
+              );
+            }
+            if (!input.importCookies && input.cookieDomainAllowlist !== undefined) {
+              return yield* Effect.fail(
+                runtimeError(
+                  "validate-import",
+                  new TypeError("Cookie domain selection requires cookie import"),
+                ),
+              );
+            }
+            const profile = (yield* listProfiles).find(
+              (candidate) =>
+                candidate.source === input.source && candidate.profilePath === input.profilePath,
+            );
+            if (profile === undefined) {
+              return yield* Effect.fail(
+                runtimeError(
+                  "validate-profile",
+                  new Error("Browser Profile is no longer importable"),
+                ),
+              );
+            }
+            if (profile.sourceBrowserOpen) {
+              return yield* Effect.fail(
+                runtimeError(
+                  "validate-profile",
+                  new Error(`Close ${profile.appName} completely before importing`),
+                ),
+              );
+            }
+            if (input.importPasswords && !options.credentials.capability().available) {
+              return yield* Effect.fail(
+                runtimeError(
+                  "validate-profile",
+                  new Error("Secure credential storage is unavailable"),
+                ),
+              );
+            }
+            const helperResult = yield* options.helper
+              .readProfile({
+                source: input.source,
+                profilePath: profile.profilePath,
+                includeCookies: input.importCookies,
+                includePasswords: input.importPasswords,
+                cookieDomainAllowlist: input.cookieDomainAllowlist,
+              })
+              .pipe(Effect.mapError((cause) => runtimeError("read-profile", cause)));
+            const result: BrowserProfileImportResult = {
+              source: input.source,
+              profilePath: profile.profilePath,
+            };
+            if (input.importCookies) result.cookies = yield* importCookies(helperResult);
+            if (input.importPasswords) result.passwords = yield* importPasswords(helperResult);
+            return result;
+          }),
+        ),
+    } satisfies BrowserProfileImportRuntime;
+  });
 
-function discoverProfiles(definition: BrowserSourceDefinition): ImportableBrowserProfile[] {
+const discoverProfiles = (
+  definition: BrowserSourceDefinition,
+  isProcessAlive: (pid: number) => boolean,
+): ImportableBrowserProfile[] => {
   const rootMetadata = safeLstat(definition.rootPath);
   if (!rootMetadata?.isDirectory() || rootMetadata.isSymbolicLink()) return [];
   const rootPath = safeRealpath(definition.rootPath);
   if (!rootPath) return [];
   const profileMetadata = readProfileInfoCache(path.join(rootPath, "Local State"));
-  const sourceBrowserOpen = isSourceBrowserOpen(rootPath);
+  const sourceBrowserOpen = isSourceBrowserOpen(rootPath, isProcessAlive);
   const profiles: ImportableBrowserProfile[] = [];
   for (const [directoryName, metadata] of Object.entries(profileMetadata)) {
     const profilePath = safeRealpath(path.join(rootPath, directoryName));
@@ -275,9 +347,9 @@ function discoverProfiles(definition: BrowserSourceDefinition): ImportableBrowse
     });
   }
   return profiles;
-}
+};
 
-function readProfileInfoCache(localStatePath: string): Record<string, Record<string, unknown>> {
+const readProfileInfoCache = (localStatePath: string): Record<string, Record<string, unknown>> => {
   try {
     const value = JSON.parse(fs.readFileSync(localStatePath, "utf8")) as unknown;
     if (!isRecord(value) || !isRecord(value.profile) || !isRecord(value.profile.info_cache)) {
@@ -291,9 +363,12 @@ function readProfileInfoCache(localStatePath: string): Record<string, Record<str
   } catch {
     return {};
   }
-}
+};
 
-function isSourceBrowserOpen(rootPath: string): boolean {
+const isSourceBrowserOpen = (
+  rootPath: string,
+  isProcessAlive: (pid: number) => boolean,
+): boolean => {
   const lockPath = path.join(rootPath, "SingletonLock");
   let target: string;
   try {
@@ -304,76 +379,62 @@ function isSourceBrowserOpen(rootPath: string): boolean {
     return false;
   }
   const pid = Number.parseInt(/-(\d+)$/u.exec(target)?.[1] ?? "", 10);
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
+  return Number.isSafeInteger(pid) && pid > 0 && isProcessAlive(pid);
+};
 
-function importDataResult(
+const importDataResult = (
   input: Omit<BrowserProfileImportDataResult, "status">,
-): BrowserProfileImportDataResult {
-  return {
-    ...input,
-    status:
-      input.failed > 0
-        ? input.imported > 0 || input.skippedExisting > 0
-          ? "partial-success"
-          : "failed"
-        : "success",
-  };
-}
+): BrowserProfileImportDataResult => ({
+  ...input,
+  status:
+    input.failed > 0
+      ? input.imported > 0 || input.skippedExisting > 0
+        ? "partial-success"
+        : "failed"
+      : "success",
+});
 
-function cookieKey(domain: string, name: string, cookiePath: string): string {
-  return `${domain.toLowerCase()}\0${name}\0${normalizeCookiePath(cookiePath)}`;
-}
+const cookieKey = (domain: string, name: string, cookiePath: string): string =>
+  `${domain.toLowerCase()}\0${name}\0${normalizeCookiePath(cookiePath)}`;
 
-function normalizeCookiePath(value: string): string {
-  return value.startsWith("/") ? value : "/";
-}
+const normalizeCookiePath = (value: string): string => (value.startsWith("/") ? value : "/");
 
-function isSafeCookieHost(value: string): boolean {
-  return (
-    value.length > 0 &&
-    value.length <= 253 &&
-    !value.includes("/") &&
-    !value.includes(":") &&
-    !/\s/u.test(value)
-  );
-}
+const isSafeCookieHost = (value: string): boolean =>
+  value.length > 0 &&
+  value.length <= 253 &&
+  !value.includes("/") &&
+  !value.includes(":") &&
+  !/\s/u.test(value);
 
-function isRegularFile(value: string): boolean {
+const isInvalidCredentialFailure = (cause: unknown): boolean =>
+  cause instanceof Error && /origin|username|password/iu.test(cause.message);
+
+const isRegularFile = (value: string): boolean => {
   const metadata = safeLstat(value);
   return metadata?.isFile() === true && !metadata.isSymbolicLink();
-}
+};
 
-function safeLstat(value: string): fs.Stats | null {
+const safeLstat = (value: string): fs.Stats | null => {
   try {
     return fs.lstatSync(value);
   } catch {
     return null;
   }
-}
+};
 
-function safeRealpath(value: string): string | null {
+const safeRealpath = (value: string): string | null => {
   try {
     return fs.realpathSync(value);
   } catch {
     return null;
   }
-}
+};
 
-function isPathInside(candidate: string, root: string): boolean {
-  return candidate === root || candidate.startsWith(`${root}${path.sep}`);
-}
+const isPathInside = (candidate: string, root: string): boolean =>
+  candidate === root || candidate.startsWith(`${root}${path.sep}`);
 
-function readNonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
+const readNonEmptyString = (value: unknown): string | null =>
+  typeof value === "string" && value.trim() ? value.trim() : null;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);

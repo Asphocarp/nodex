@@ -201,6 +201,14 @@ not an application service or a second write queue. Renderer and guest IPC invok
 Effects directly, and decrypted values are sent only after revalidating the exact guest and HTTP(S)
 origin.
 
+Browser Profile import is a separate Profile-scoped runtime. The Main bootstrap supplies immutable
+platform, home-directory, environment, and helper-path inputs; discovery never rereads ambient
+configuration. One semaphore admits an import only after rediscovering and canonicalizing its source,
+and the helper process is a scoped `ChildProcessSpawner` resource with bounded output and an Effect
+deadline. Imported cookies enter only Electron's Profile cookie store, while passwords enter the same
+credential mutation lane used by every other Browser credential write. Neither the helper nor the
+importer owns a second vault, write queue, child-process registry, or timer.
+
 Browser local-server display preferences are Profile-owned state, not a renderer or IPC cache. Their
 runtime loads and validates one bounded JSON file, quarantines malformed input, and serializes partial
 updates through one semaphore. A mutation atomically publishes and fsyncs the complete next document
@@ -259,7 +267,8 @@ reopens durable values from disk with a fresh delivery revision and never
 inherits a module cache or test path override.
 
 Interactive login-shell discovery is owned once per Main or worktree-worker lifetime. The Main
-bootstrap snapshots its inherited environment and process platform into immutable configuration;
+bootstrap snapshots its inherited environment, process platform, and home directory into immutable
+configuration;
 host Modules do not reread ambient `process.env` or `process.platform`. The scoped
 shell-environment runtime coalesces discovery, and release
 interrupts an active login-shell child and rejects later admission. Worker roots use an independent
