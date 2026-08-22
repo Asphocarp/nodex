@@ -368,7 +368,10 @@ import {
   ApplicationHostRuntime,
   live as applicationHostRuntimeLive,
 } from "../host-runtime/ApplicationHostRuntime";
-import { InitialProjectBootstrapService } from "../initial-project-bootstrap-service";
+import {
+  InitialProjectBootstrapRuntime,
+  live as initialProjectBootstrapRuntimeLive,
+} from "../initial-project/InitialProjectBootstrapRuntime";
 import { resolveInitialProjectProjectsDirectory } from "../initial-project/initial-project-filesystem";
 import { resolveInitialProjectJournalPath } from "../initial-project/initial-project-journal-store";
 import {
@@ -1966,14 +1969,21 @@ export const live: Layer.Layer<
           ),
           runtimeScope,
         );
-        const initialProjectBootstrap = new InitialProjectBootstrapService({
-          projectWorkspace,
-          projectsDirectory: resolveInitialProjectProjectsDirectory({
-            configuredDirectory: config.initialProjectsDirectory ?? undefined,
-            documentsDirectory: config.documentsPath,
+        const initialProjectBootstrapContext = yield* Layer.buildWithScope(
+          initialProjectBootstrapRuntimeLive({
+            projectWorkspace,
+            projectsDirectory: resolveInitialProjectProjectsDirectory({
+              configuredDirectory: config.initialProjectsDirectory ?? undefined,
+              documentsDirectory: config.documentsPath,
+            }),
+            journalPath: resolveInitialProjectJournalPath(config.nodexHome),
           }),
-          journalPath: resolveInitialProjectJournalPath(config.nodexHome),
-        });
+          runtimeScope,
+        );
+        const initialProjectBootstrap = Context.get(
+          initialProjectBootstrapContext,
+          InitialProjectBootstrapRuntime,
+        );
         yield* Layer.buildWithScope(
           CoreDocumentIpc.live({
             database: databaseModule,
@@ -2432,16 +2442,11 @@ export const live: Layer.Layer<
             Effect.forkIn(runtimeScope),
             Effect.asVoid,
           );
-          yield* Effect.tryPromise({
-            try: () =>
-              initialProjectBootstrap.ensureInitialProject({
-                onProvisioned: (presentation) => {
-                  applicationWindows.seedInitialProjectPresentation(presentation);
-                  return Promise.resolve();
-                },
-              }),
-            catch: (cause) => runtimeError("initial-project-bootstrap", cause),
-          });
+          yield* initialProjectBootstrap
+            .ensure((presentation) =>
+              Effect.sync(() => applicationWindows.seedInitialProjectPresentation(presentation)),
+            )
+            .pipe(Effect.mapError((cause) => runtimeError("initial-project-bootstrap", cause)));
           yield* deepLinks.markReady;
           yield* Effect.tryPromise({
             try: () => codexService.synchronizeAutomationRuntime(),

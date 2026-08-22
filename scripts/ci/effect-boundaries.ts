@@ -85,9 +85,14 @@ const nodeRuntimeEntries = new Set([
   "src/main/worktree-worker/stdio-entry.ts",
 ]);
 
+const effectRunBoundaries = new Set([
+  ...nodeRuntimeEntries,
+  "scripts/initial-project-bootstrap-runtime-adapter.ts",
+]);
+
 function isEffectRunBoundary(path: string): boolean {
   if (/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path)) return true;
-  return nodeRuntimeEntries.has(path);
+  return effectRunBoundaries.has(path);
 }
 
 function isNodeRuntimeEntry(path: string): boolean {

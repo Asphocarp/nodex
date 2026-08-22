@@ -26,7 +26,7 @@ import {
 } from "./native-runtime-manifest";
 import { cleanupIsolatedCore } from "./isolated-core-cleanup";
 import { verifyPackagedAgentSkills } from "./verify-packaged-agent-skills";
-import { InitialProjectBootstrapService } from "../src/main/initial-project-bootstrap-service";
+import { ensureInitialProjectForVerification } from "./initial-project-bootstrap-runtime-adapter";
 import { resolveInitialProjectJournalPath } from "../src/main/initial-project/initial-project-journal-store";
 import { CoreClient } from "../src/main/core-client/core-client";
 import {
@@ -508,13 +508,10 @@ const bootstrapPackagedCliProject = async (
     buildId: "packaged-native-runtime-verification",
   });
   const projectWorkspace = createCoreProjectWorkspaceAdapter(client);
-  const bootstrap = new InitialProjectBootstrapService({
+  await ensureInitialProjectForVerification({
     projectWorkspace,
     projectsDirectory: join(temporaryRoot, "projects"),
     journalPath: resolveInitialProjectJournalPath(nodexHome),
-  });
-  await bootstrap.ensureInitialProject({
-    onProvisioned: async () => undefined,
   });
   return {
     client,

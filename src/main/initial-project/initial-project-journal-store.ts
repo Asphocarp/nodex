@@ -40,39 +40,33 @@ export type InitialProjectJournal = z.infer<typeof InitialProjectJournalSchema>;
 
 interface InitialProjectRecoveryJournalOptions {
   readonly filePath: string;
-  readonly now?: () => number;
 }
 
 export class InitialProjectRecoveryJournal {
-  private readonly now: () => number;
-  private writeTail = Promise.resolve();
+  constructor(private readonly options: InitialProjectRecoveryJournalOptions) {}
 
-  constructor(private readonly options: InitialProjectRecoveryJournalOptions) {
-    this.now = options.now ?? Date.now;
-  }
-
-  async load(): Promise<InitialProjectJournal | null> {
+  async load(quarantineTimestamp: number): Promise<InitialProjectJournal | null> {
     try {
       const metadata = await lstat(this.options.filePath);
       if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > JOURNAL_MAX_BYTES) {
-        await this.quarantine();
+        await this.quarantine(quarantineTimestamp);
         return null;
       }
       const raw = await readFile(this.options.filePath, "utf8");
       if (Buffer.byteLength(raw, "utf8") > JOURNAL_MAX_BYTES) {
-        await this.quarantine();
+        await this.quarantine(quarantineTimestamp);
         return null;
       }
       const parsed = InitialProjectJournalSchema.safeParse(JSON.parse(raw) as unknown);
       if (!parsed.success || parsed.data.payload.sources.some((source) => !isAbsolute(source))) {
-        await this.quarantine();
+        await this.quarantine(quarantineTimestamp);
         return null;
       }
       return parsed.data;
     } catch (error) {
       if (isMissingPathError(error)) return null;
       if (error instanceof SyntaxError) {
-        await this.quarantine();
+        await this.quarantine(quarantineTimestamp);
         return null;
       }
       throw error;
@@ -84,32 +78,22 @@ export class InitialProjectRecoveryJournal {
     if (parsed.payload.sources.some((source) => !isAbsolute(source))) {
       throw new Error("Initial Project journal sources must be absolute");
     }
-    await this.enqueueWrite(async () => {
-      await writeDurableJson(this.options.filePath, parsed, JOURNAL_MAX_BYTES);
-    });
+    await writeDurableJson(this.options.filePath, parsed, JOURNAL_MAX_BYTES);
   }
 
   async clear(): Promise<void> {
-    await this.enqueueWrite(async () => {
-      await rm(this.options.filePath, { force: true });
-      await syncDirectory(dirname(this.options.filePath));
-    });
+    await rm(this.options.filePath, { force: true });
+    await syncDirectory(dirname(this.options.filePath));
   }
 
-  private async quarantine(): Promise<void> {
-    const target = `${this.options.filePath}.corrupt-${this.now()}`;
+  private async quarantine(timestamp: number): Promise<void> {
+    const target = `${this.options.filePath}.corrupt-${timestamp}`;
     try {
       await rename(this.options.filePath, target);
       await syncDirectory(dirname(this.options.filePath));
     } catch (error) {
       if (!isMissingPathError(error)) throw error;
     }
-  }
-
-  private async enqueueWrite(operation: () => Promise<void>): Promise<void> {
-    const result = this.writeTail.then(operation, operation);
-    this.writeTail = result.catch(() => undefined);
-    await result;
   }
 }
 

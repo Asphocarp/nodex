@@ -166,6 +166,12 @@ Electron performs platform-required synchronous bootstrap before readiness, but 
 
 Every normal quit, authority-driven relaunch, external controller shutdown, and startup rollback closes that same scope. Close is idempotent under concurrent requests. Runtime finalizers preserve their subsystem ordering; a failed finalizer is reported while later finalizers still run, so one stuck runtime cannot silently skip composition release. The existing bounded per-subsystem shutdown deadlines remain the operational backstop.
 
+The first-run Project bootstrap is one scoped, serialized recovery transaction. A durable journal is
+published before the source claim and idempotent Core command; presentation failure leaves that exact
+intent recoverable on restart, and only a completed Window Session presentation removes its marker
+and journal. Shutdown closes new admission and drains an already admitted transaction, so a second
+Promise queue cannot reorder journal cleanup around Core or presentation state.
+
 Logical control planes keep their own narrower lifetimes. A Core event stream advances its replay checkpoint only after ordered delivery succeeds and reconnects from that checkpoint. A Codex app-server session stops accepting work, rejects pending requests, interrupts request deadlines, and retires its child before a supervisor may install another generation. Supervised isolated runs, including development and packaged-release verification, release their environment lease only after exact child/Core cleanup is proven; uncertain cleanup preserves the environment.
 
 ## Runtime-specific recovery

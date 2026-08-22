@@ -143,6 +143,15 @@ Main is an Adapter, coordinator, and runtime host. It may bind Profile/Library/P
 
 Electron Main is one Effect 4 application kernel. [`MainEntry`](../src/main/app/MainEntry.ts) is the Main-process Node runtime root; [`MainApp`](../src/main/app/MainApp.ts) owns ready, bootstrap handoff, shutdown admission, and the process Scope; [`MainDesktopRuntimeLive`](../src/main/app/MainDesktopRuntimeLive.ts) composes the Core, Codex, Window, IPC, and host Layers. Startup rollback and every normal or authority-driven quit close that same Scope. Physical Core generations, Codex app-server sessions, windows, workers, PTYs, file watchers, and callback fibers are subordinate scoped resources rather than parallel lifecycle owners. Worker and standalone script processes have their own explicitly allowlisted `NodeRuntime.runMain` entries and never share Main's runtime.
 
+First-run Project creation belongs to one Main-scoped `InitialProjectBootstrapRuntime`. One
+Semaphore owns the complete recovery-journal, collision-safe source claim, idempotent Core commit,
+Window Session presentation, and marker cleanup transaction; there is no nested Promise tail in the
+filesystem Adapter. Scope close rejects queued attempts and drains the already admitted transaction.
+The Adapter performs only durable journal/marker filesystem operations, while Effect Clock supplies
+quarantine identity and Core remains the Project/Page transaction authority. Packaged-runtime
+verification builds the same Module in a one-shot script Scope instead of carrying a second bootstrap
+implementation.
+
 Foreground Appshot discovery is one process-scoped host runtime. Windows only
 contribute focus observations; closing a window or Main releases its listeners,
 target handles, in-flight helper read, and polling fiber through that runtime's
