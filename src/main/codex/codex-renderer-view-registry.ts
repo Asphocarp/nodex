@@ -194,6 +194,15 @@ export class CodexRendererViewRegistry {
     this.presentedViewsByConversationId.delete(normalizedConversationId);
   }
 
+  reset(): void {
+    this.activationOrder = 0;
+    this.presentationOrder = 0;
+    this.foregroundClientIds.clear();
+    this.presentedSurfaceIdsByConversationAndClient.clear();
+    this.viewsByConversationId.clear();
+    this.presentedViewsByConversationId.clear();
+  }
+
   private removeView(conversationId: string, clientId: string): boolean {
     const views = this.viewsByConversationId.get(conversationId);
     if (!views?.delete(clientId)) return false;

@@ -293,10 +293,10 @@ import type {
   NodexAgentTurnAuthorityLaunch,
 } from "../nodex-agent-authority-port";
 import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
-import { CodexRendererViewRegistry } from "./codex-renderer-view-registry";
 import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application/CodexActiveGoalContinuation";
 import type { CodexNotificationRoutingLegacyPort } from "../codex-application/CodexNotificationRouting";
 import type { CodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntime";
+import type { CodexRendererConversationRuntimeService } from "../codex-application/CodexRendererConversationRuntime";
 import type { CodexRendererOwnerRetentionLegacyPort } from "../codex-application/CodexRendererOwnerRetention";
 import type {
   CodexSidebarRefreshOutcomeEvent,
@@ -555,7 +555,6 @@ import {
   CODEX_APP_READ_THREAD_MAX_TURN_LIMIT,
 } from "./codex-app-meta-thread-tools";
 import {
-  CodexThreadStreamSubscriptionState,
   CODEX_THREAD_STREAM_FOLLOWER_RECONNECT_GRACE_MS,
   type CodexThreadStreamSubscriptionAction,
 } from "./codex-thread-stream-subscription-state";
@@ -1221,6 +1220,7 @@ type CodexServiceOptions = {
   activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   notificationRouting: CodexNotificationRoutingLegacyPort;
   ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
+  rendererConversations: CodexRendererConversationRuntimeService;
   rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   sidebarSync: CodexSidebarSyncRuntimePromiseAdapter;
   sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
@@ -2392,6 +2392,7 @@ export class CodexService extends EventEmitter {
   private readonly activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
   private readonly notificationRouting: CodexNotificationRoutingLegacyPort;
   private readonly ownerNotificationDrain: CodexOwnerNotificationDrainRuntimePromiseAdapter;
+  private readonly rendererConversations: CodexRendererConversationRuntimeService;
   private readonly rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   private readonly sidebarSync: CodexSidebarSyncRuntimePromiseAdapter;
   private readonly sidebarSweep: CodexSidebarSweepRuntimePromiseAdapter;
@@ -2475,15 +2476,6 @@ export class CodexService extends EventEmitter {
     string,
     CodexThreadStreamCheckpoint
   >();
-  private readonly rendererOwnerClientIdByConversationId = new Map<string, string>();
-  private readonly rendererOwnerDetachedAtByConversationId = new Map<string, number>();
-  private readonly rendererThreadStreamSubscriptions = new CodexThreadStreamSubscriptionState();
-  private readonly rendererOwnerRequestDeliveriesByConversationId = new Map<
-    string,
-    Map<string, string>
-  >();
-  private readonly disposedRendererClientIds = new Set<string>();
-  private readonly rendererViewRegistry = new CodexRendererViewRegistry();
   private readonly userInputAutoResolution: CodexUserInputAutoResolutionLegacyPort;
   private readonly terminalInputBuffers = new Map<string, string>();
   private readonly manualCompactionTracker = new CodexManualCompactionTracker();
@@ -2517,6 +2509,7 @@ export class CodexService extends EventEmitter {
     this.activeGoalContinuation = options.activeGoalContinuation;
     this.notificationRouting = options.notificationRouting;
     this.ownerNotificationDrain = options.ownerNotificationDrain;
+    this.rendererConversations = options.rendererConversations;
     this.rendererOwnerRetention = options.rendererOwnerRetention;
     this.sidebarSync = options.sidebarSync;
     this.sidebarSweep = options.sidebarSweep;
@@ -3166,7 +3159,7 @@ export class CodexService extends EventEmitter {
   }
 
   private emitRendererOwnerHostMessage(threadId: string, message: CodexHostMessage): boolean {
-    const targetClientId = this.rendererOwnerClientIdByConversationId.get(threadId);
+    const targetClientId = this.rendererConversations.getOwnerClientId(threadId);
     if (!targetClientId) return false;
 
     this.emit("rendererOwnerHostMessage", {
@@ -3181,11 +3174,7 @@ export class CodexService extends EventEmitter {
     const replica = this.getAcceptedConversationReplica(threadId);
     if (!ownerClientId || !replica) return false;
     if (
-      !this.rendererThreadStreamSubscriptions.markSnapshotSent(
-        threadId,
-        targetClientId,
-        replica.checkpoint,
-      )
+      !this.rendererConversations.markSnapshotSent(threadId, targetClientId, replica.checkpoint)
     ) {
       return false;
     }
@@ -3212,9 +3201,7 @@ export class CodexService extends EventEmitter {
   }
 
   private flushPendingRendererThreadStreamSnapshots(threadId: string): void {
-    for (const targetClientId of this.rendererThreadStreamSubscriptions.getSnapshotClientIds(
-      threadId,
-    )) {
+    for (const targetClientId of this.rendererConversations.getSnapshotClientIds(threadId)) {
       this.emitRendererThreadStreamSnapshot(threadId, targetClientId);
     }
   }
@@ -3266,7 +3253,7 @@ export class CodexService extends EventEmitter {
   }
 
   private waitForRendererOwnerNotificationDrain(conversationId: string): Promise<void> {
-    if (!this.rendererOwnerClientIdByConversationId.has(conversationId)) return Promise.resolve();
+    if (!this.rendererConversations.hasOwner(conversationId)) return Promise.resolve();
     return this.ownerNotificationDrain.awaitCurrent(conversationId);
   }
 
@@ -3292,7 +3279,7 @@ export class CodexService extends EventEmitter {
     threadId: string,
     conversation: CodexConversationSnapshot,
     revision: number,
-    ownerEpoch = this.rendererThreadStreamSubscriptions.getOwnerEpoch(threadId) ??
+    ownerEpoch = this.rendererConversations.getOwnerEpoch(threadId) ??
       this.conversationStreamCheckpointById.get(threadId)?.ownerEpoch ??
       0,
   ): CodexThreadStreamCheckpoint {
@@ -3312,7 +3299,7 @@ export class CodexService extends EventEmitter {
     if (!conversation) return null;
     const revision = this.conversationStreamRevisionById.get(threadId) ?? 0;
     const expectedOwnerEpoch =
-      this.rendererThreadStreamSubscriptions.getOwnerEpoch(threadId) ??
+      this.rendererConversations.getOwnerEpoch(threadId) ??
       this.conversationStreamCheckpointById.get(threadId)?.ownerEpoch ??
       0;
     const existingCheckpoint = this.conversationStreamCheckpointById.get(threadId);
@@ -3345,7 +3332,7 @@ export class CodexService extends EventEmitter {
     _reason: DormantConversationSyncReason,
   ): void {
     void _reason;
-    if (this.rendererOwnerClientIdByConversationId.has(threadId)) return;
+    if (this.rendererConversations.hasOwner(threadId)) return;
     const { revision } = this.advanceConversationStreamRevision(threadId);
     this.setAcceptedConversationReplica(threadId, conversation, revision);
   }
@@ -3358,19 +3345,15 @@ export class CodexService extends EventEmitter {
     if (patches.length === 0) {
       return;
     }
-    if (this.rendererOwnerClientIdByConversationId.has(threadId)) return;
+    if (this.rendererConversations.hasOwner(threadId)) return;
     const { revision } = this.advanceConversationStreamRevision(threadId);
     this.setAcceptedConversationReplica(threadId, conversation, revision);
   }
 
   setRendererConversationOwner(threadId: string, clientId: string | null | undefined): void {
     if (!clientId) return;
-    if (this.disposedRendererClientIds.has(clientId)) return;
-
-    const previousClientId = this.rendererOwnerClientIdByConversationId.get(threadId);
-    this.rendererOwnerClientIdByConversationId.set(threadId, clientId);
-    this.rendererOwnerDetachedAtByConversationId.delete(threadId);
-    const ownerResult = this.rendererThreadStreamSubscriptions.setOwner(threadId, clientId);
+    const ownerResult = this.rendererConversations.setOwner(threadId, clientId);
+    if (!ownerResult) return;
     const acceptedConversation = this.acceptedConversationDocumentById.get(threadId);
     if (acceptedConversation) {
       this.setAcceptedConversationReplica(
@@ -3385,22 +3368,22 @@ export class CodexService extends EventEmitter {
       this.emitRendererThreadStreamSnapshot(threadId, targetClientId);
     }
     this.rendererOwnerRetention.reconcile(threadId);
-    if (previousClientId === clientId) return;
+    if (ownerResult.previousOwnerClientId === clientId) return;
 
     this.ownerNotificationDrain.resetOwner(threadId);
   }
 
   getRendererConversationOwner(threadId: string): string | null {
-    return this.rendererOwnerClientIdByConversationId.get(threadId) ?? null;
+    return this.rendererConversations.getOwnerClientId(threadId);
   }
 
   getRendererConversationFollowerClientIds(threadId: string): readonly string[] | null {
-    return this.rendererThreadStreamSubscriptions.getFollowerClientIds(threadId);
+    return this.rendererConversations.getFollowerClientIds(threadId);
   }
 
   handleRendererClientConnected(clientId: string): void {
     this.emitRendererThreadStreamSubscriptionActions(
-      this.rendererThreadStreamSubscriptions.handleClientConnected(clientId),
+      this.rendererConversations.handleClientConnected(clientId),
     );
   }
 
@@ -3410,14 +3393,9 @@ export class CodexService extends EventEmitter {
     following: boolean,
     options: { forceSnapshot?: boolean } = {},
   ): boolean {
-    if (!clientId || this.disposedRendererClientIds.has(clientId)) return false;
-
-    const result = this.rendererThreadStreamSubscriptions.setFollowing(
-      threadId,
-      clientId,
-      following,
-      options,
-    );
+    if (!clientId) return false;
+    const result = this.rendererConversations.setFollowing(threadId, clientId, following, options);
+    if (!result) return false;
     this.emitRendererThreadStreamSubscriptionActions(result.actions);
     if (result.shouldSendSnapshot) {
       this.emitRendererThreadStreamSnapshot(threadId, clientId);
@@ -3430,16 +3408,16 @@ export class CodexService extends EventEmitter {
     sourceClientId: string,
     input: CodexThreadFollowerSnapshotAppliedInput,
   ): boolean {
-    if (this.disposedRendererClientIds.has(sourceClientId)) return false;
     const replica = this.getAcceptedConversationReplica(input.conversationId);
     if (!replica) return false;
-    const result = this.rendererThreadStreamSubscriptions.acknowledgeSnapshotApplied({
+    const result = this.rendererConversations.acknowledgeSnapshotApplied({
       conversationId: input.conversationId,
       clientId: sourceClientId,
       ownerClientId: input.ownerClientId,
       checkpoint: input.checkpoint,
       currentCheckpoint: replica.checkpoint,
     });
+    if (!result) return false;
     this.emitRendererThreadStreamSubscriptionActions(result.actions);
     if (result.shouldSendSnapshot) {
       this.emitRendererThreadStreamSnapshot(input.conversationId, sourceClientId);
@@ -3452,22 +3430,13 @@ export class CodexService extends EventEmitter {
     sourceClientId: string,
     input: CodexThreadStreamResyncRequestInput,
   ): boolean {
-    if (this.disposedRendererClientIds.has(sourceClientId)) return false;
-    const ownerClientId = this.getRendererConversationOwner(input.conversationId);
-    if (!ownerClientId || ownerClientId !== input.ownerClientId) return false;
-    const observedOwnerEpoch = input.observedCheckpoint?.ownerEpoch;
-    const currentOwnerEpoch = this.rendererThreadStreamSubscriptions.getOwnerEpoch(
-      input.conversationId,
-    );
     if (
-      typeof observedOwnerEpoch === "number" &&
-      typeof currentOwnerEpoch === "number" &&
-      observedOwnerEpoch > currentOwnerEpoch
-    ) {
-      return false;
-    }
-    if (
-      !this.rendererThreadStreamSubscriptions.requireSnapshot(input.conversationId, sourceClientId)
+      !this.rendererConversations.requireSnapshot({
+        conversationId: input.conversationId,
+        clientId: sourceClientId,
+        ownerClientId: input.ownerClientId,
+        observedOwnerEpoch: input.observedCheckpoint?.ownerEpoch,
+      })
     ) {
       return false;
     }
@@ -3475,11 +3444,9 @@ export class CodexService extends EventEmitter {
   }
 
   handleRendererClientDeliveryFailure(clientIds: readonly string[]): void {
-    for (const clientId of new Set(clientIds.map((value) => value.trim()).filter(Boolean))) {
-      this.emitRendererThreadStreamSubscriptionActions(
-        this.rendererThreadStreamSubscriptions.handleIpcConnectionReset(clientId),
-      );
-    }
+    this.emitRendererThreadStreamSubscriptionActions(
+      this.rendererConversations.handleClientDeliveryFailure(clientIds),
+    );
   }
 
   listProjectArchiveBlockers(threadIds: readonly string[]): ProjectArchiveBlocker[] {
@@ -3517,16 +3484,24 @@ export class CodexService extends EventEmitter {
     active: boolean,
   ): void {
     if (!clientId) return;
-    if (active && this.disposedRendererClientIds.has(clientId)) return;
-    this.rendererViewRegistry.setActive(threadId, clientId, active);
-    this.setRendererConversationFollowing(threadId, clientId, active);
+    const result = this.rendererConversations.setViewActive(threadId, clientId, active);
+    if (!result.accepted) return;
+    if (result.following) {
+      this.emitRendererThreadStreamSubscriptionActions(result.following.actions);
+      if (result.following.shouldSendSnapshot) {
+        this.emitRendererThreadStreamSnapshot(threadId, clientId);
+      }
+    }
     this.userInputAutoResolution.reevaluatePresentation(threadId);
     this.rendererOwnerRetention.reconcile(threadId);
   }
 
   setRendererClientForegrounded(clientId: string | null | undefined, foregrounded: boolean): void {
     if (!clientId) return;
-    const conversationIds = this.rendererViewRegistry.setClientForegrounded(clientId, foregrounded);
+    const conversationIds = this.rendererConversations.setClientForegrounded(
+      clientId,
+      foregrounded,
+    );
     for (const conversationId of conversationIds) {
       this.userInputAutoResolution.reevaluatePresentation(conversationId);
       if (foregrounded) {
@@ -3542,10 +3517,15 @@ export class CodexService extends EventEmitter {
     presented: boolean,
   ): void {
     if (!clientId) return;
-    if (presented && this.disposedRendererClientIds.has(clientId)) return;
-    this.rendererViewRegistry.setPresented(threadId, clientId, surfaceId, presented);
+    const result = this.rendererConversations.setPresented(
+      threadId,
+      clientId,
+      surfaceId,
+      presented,
+    );
+    if (!result.accepted) return;
     this.userInputAutoResolution.reevaluatePresentation(threadId);
-    if (presented && this.rendererViewRegistry.isPresentedInForeground(threadId)) {
+    if (result.presentedInForeground) {
       this.emit("rendererConversationPresentedInForeground", threadId);
     }
   }
@@ -3560,31 +3540,27 @@ export class CodexService extends EventEmitter {
   }
 
   isRendererConversationPresentedInForeground(conversationId: string): boolean {
-    return this.rendererViewRegistry.isPresentedInForeground(conversationId);
+    return this.rendererConversations.isPresentedInForeground(conversationId);
   }
 
   hasForegroundRendererClient(): boolean {
-    return this.rendererViewRegistry.hasForegroundClient();
+    return this.rendererConversations.hasForegroundClient();
   }
 
   resolveRendererPresentationClient(conversationId: string): string | null {
-    return this.rendererViewRegistry.resolvePresentationClient(conversationId);
+    return this.rendererConversations.resolvePresentationClient(conversationId);
   }
 
   resolveRendererPresentedSurfaceClient(conversationId: string): string | null {
-    return this.rendererViewRegistry.resolvePresentedSurfaceClient(conversationId);
+    return this.rendererConversations.resolvePresentedSurfaceClient(conversationId);
   }
 
   isRendererClientPresenting(conversationId: string, clientId: string): boolean {
-    return this.rendererViewRegistry.isClientPresenting(conversationId, clientId);
-  }
-
-  private removeRendererClientActiveViews(clientId: string): string[] {
-    return this.rendererViewRegistry.removeClient(clientId);
+    return this.rendererConversations.isClientPresenting(conversationId, clientId);
   }
 
   private hasActiveRendererView(threadId: string): boolean {
-    return this.rendererViewRegistry.hasActiveView(threadId);
+    return this.rendererConversations.hasActiveView(threadId);
   }
 
   private hasActiveRuntimeForInactiveOwner(threadId: string): boolean {
@@ -3597,10 +3573,9 @@ export class CodexService extends EventEmitter {
   }
 
   isInactiveRendererOwnerCandidate(threadId: string): boolean {
-    const ownerDetached = this.rendererOwnerDetachedAtByConversationId.has(threadId);
-    if (!this.rendererOwnerClientIdByConversationId.has(threadId) && !ownerDetached) return false;
-    if (this.rendererThreadStreamSubscriptions.hasFollowersOrPendingReconnect(threadId))
-      return false;
+    const ownerDetached = this.rendererConversations.hasDetachedOwner(threadId);
+    if (!this.rendererConversations.hasOwner(threadId) && !ownerDetached) return false;
+    if (this.rendererConversations.hasFollowersOrPendingReconnect(threadId)) return false;
     if (this.hasActiveRendererView(threadId)) return false;
 
     const record = this.getMaybeConversationRecord(threadId);
@@ -3633,10 +3608,7 @@ export class CodexService extends EventEmitter {
       }
     }
 
-    const ownerClientId = this.rendererOwnerClientIdByConversationId.get(threadId) ?? null;
-    this.rendererOwnerClientIdByConversationId.delete(threadId);
-    this.rendererOwnerDetachedAtByConversationId.delete(threadId);
-    this.rendererThreadStreamSubscriptions.clearConversation(threadId);
+    const ownerClientId = this.rendererConversations.clearConversation(threadId);
     this.releaseOwnerNotificationDrain(threadId);
     this.conversationStreamRevisionById.delete(threadId);
     this.conversationStreamCheckpointById.delete(threadId);
@@ -3654,22 +3626,16 @@ export class CodexService extends EventEmitter {
 
   handleRendererClientDisposed(clientId: string): void {
     this.nodexAgentAuthorizationBroker?.revokePresentationClient(clientId);
-    this.disposedRendererClientIds.add(clientId);
-    const subscriptionResult =
-      this.rendererThreadStreamSubscriptions.handleClientDisposed(clientId);
+    const subscriptionResult = this.rendererConversations.handleClientDisposed(clientId);
     this.emitRendererThreadStreamSubscriptionActions(subscriptionResult.actions);
     this.freshThreadLaunch.releaseRenderer(clientId, new Error("Fresh thread owner disconnected"));
-    const viewConversationIds = this.removeRendererClientActiveViews(clientId);
+    const viewConversationIds = subscriptionResult.viewConversationIds;
     for (const conversationId of viewConversationIds) {
       this.userInputAutoResolution.reevaluatePresentation(conversationId);
     }
-    const conversationIds = [...this.rendererOwnerClientIdByConversationId.entries()]
-      .filter(([, ownerClientId]) => ownerClientId === clientId)
-      .map(([conversationId]) => conversationId);
+    const conversationIds = subscriptionResult.ownerConversationIds;
 
     for (const conversationId of conversationIds) {
-      this.rendererOwnerClientIdByConversationId.delete(conversationId);
-      this.rendererOwnerDetachedAtByConversationId.set(conversationId, Date.now());
       this.releaseOwnerNotificationDrain(conversationId);
       this.rendererOwnerRetention.clear(conversationId);
       const record = this.getMaybeConversationRecord(conversationId);
@@ -3700,7 +3666,7 @@ export class CodexService extends EventEmitter {
       type: "threadOwnerUnavailable",
       hostId: DEFAULT_CODEX_HOST_ID,
       ownerClientId: clientId,
-      conversationIds,
+      conversationIds: [...conversationIds],
     });
   }
 
@@ -3861,7 +3827,7 @@ export class CodexService extends EventEmitter {
           : null,
       };
     };
-    if (this.disposedRendererClientIds.has(sourceClientId)) return reject("not-owner");
+    if (this.rendererConversations.isClientDisposed(sourceClientId)) return reject("not-owner");
     const persistedThread = this.getThreadLinkSafely(input.conversationId);
     const record = this.getMaybeConversationRecord(input.conversationId);
     if (persistedThread?.archived || record?.detail?.archived) {
@@ -3871,7 +3837,7 @@ export class CodexService extends EventEmitter {
       });
       return reject("archived");
     }
-    const ownerClientId = this.rendererOwnerClientIdByConversationId.get(input.conversationId);
+    const ownerClientId = this.rendererConversations.getOwnerClientId(input.conversationId);
     if (!ownerClientId) {
       this.logger.warn("Rejected renderer stream change without an established owner", {
         conversationId: input.conversationId,
@@ -3888,7 +3854,7 @@ export class CodexService extends EventEmitter {
       return reject("not-owner");
     }
 
-    const ownerEpoch = this.rendererThreadStreamSubscriptions.getOwnerEpoch(input.conversationId);
+    const ownerEpoch = this.rendererConversations.getOwnerEpoch(input.conversationId);
     if (ownerEpoch === null) {
       return reject("owner-epoch-mismatch");
     }
@@ -3932,7 +3898,7 @@ export class CodexService extends EventEmitter {
     if (!areCodexThreadStreamCheckpointsEqual(acceptedCheckpoint, input.checkpoint)) {
       throw new Error(`Accepted stream checkpoint diverged for ${input.conversationId}`);
     }
-    this.rendererThreadStreamSubscriptions.invalidateSnapshotBarriers(input.conversationId);
+    this.rendererConversations.invalidateSnapshotBarriers(input.conversationId);
     this.emitHostMessage({
       type: "threadStreamStateChanged",
       hostId: DEFAULT_CODEX_HOST_ID,
@@ -3963,11 +3929,11 @@ export class CodexService extends EventEmitter {
     sourceClientId: string,
     input: CodexThreadOwnerNotificationAckInput,
   ): boolean {
-    if (this.disposedRendererClientIds.has(sourceClientId)) return false;
+    if (this.rendererConversations.isClientDisposed(sourceClientId)) return false;
     const persistedThread = this.getThreadLinkSafely(input.conversationId);
     const record = this.getMaybeConversationRecord(input.conversationId);
     if (persistedThread?.archived || record?.detail?.archived) return false;
-    const ownerClientId = this.rendererOwnerClientIdByConversationId.get(input.conversationId);
+    const ownerClientId = this.rendererConversations.getOwnerClientId(input.conversationId);
     if (ownerClientId && ownerClientId !== sourceClientId) {
       this.logger.warn("Rejected renderer owner notification ack from non-owner client", {
         conversationId: input.conversationId,
@@ -3999,7 +3965,7 @@ export class CodexService extends EventEmitter {
   ): boolean {
     if (!isCodexThreadOwnerNotification(notification)) return false;
     const { method } = notification;
-    const targetClientId = this.rendererOwnerClientIdByConversationId.get(conversationId);
+    const targetClientId = this.rendererConversations.getOwnerClientId(conversationId);
     if (!targetClientId) {
       if (isAssistantStreamingDebugEnabled() && shouldLogAssistantStreamingNotification(method)) {
         this.logger.info("Assistant streaming debug", {
@@ -4032,9 +3998,9 @@ export class CodexService extends EventEmitter {
 
   private forwardServerRequestToRendererOwner(request: CodexThreadOwnerServerRequest): boolean {
     const threadId = request.params.threadId;
-    const targetClientId = this.rendererOwnerClientIdByConversationId.get(threadId);
+    const targetClientId = this.rendererConversations.getOwnerClientId(threadId);
     if (!targetClientId) return false;
-    if (this.hasRendererOwnerRequestDelivery(threadId, request, targetClientId)) {
+    if (this.rendererConversations.hasRequestDelivery(threadId, request, targetClientId)) {
       return true;
     }
     const sequence = this.getNextOwnerNotificationSequence(threadId);
@@ -4045,7 +4011,7 @@ export class CodexService extends EventEmitter {
       sequence,
     });
     if (delivered) {
-      this.recordRendererOwnerRequestDelivery(threadId, request, targetClientId);
+      this.rendererConversations.recordRequestDelivery(threadId, request, targetClientId);
     }
     return delivered;
   }
@@ -4059,7 +4025,7 @@ export class CodexService extends EventEmitter {
     for (const request of requests) {
       const ownerRequest = this.asThreadOwnerServerRequest(request);
       if (!ownerRequest) continue;
-      if (this.hasRendererOwnerRequestDelivery(threadId, ownerRequest, rendererClientId)) {
+      if (this.rendererConversations.hasRequestDelivery(threadId, ownerRequest, rendererClientId)) {
         continue;
       }
       if (this.forwardServerRequestToRendererOwner(ownerRequest)) {
@@ -4069,57 +4035,8 @@ export class CodexService extends EventEmitter {
     return replayed;
   }
 
-  private getRendererOwnerRequestDeliveryPrefix(requestId: RequestId): string {
-    return `${typeof requestId}:${String(requestId)}|`;
-  }
-
-  private getRendererOwnerRequestDeliveryKey(request: CodexThreadOwnerServerRequest): string {
-    const params = asRecord(request.params);
-    const occurrenceId =
-      normalizeNonEmptyString(params?.callId) ??
-      normalizeNonEmptyString(params?.itemId) ??
-      normalizeNonEmptyString(params?.elicitationId) ??
-      normalizeNonEmptyString(params?.turnId) ??
-      "thread";
-    return `${this.getRendererOwnerRequestDeliveryPrefix(request.id)}${request.method}|${occurrenceId}`;
-  }
-
-  private hasRendererOwnerRequestDelivery(
-    threadId: string,
-    request: CodexThreadOwnerServerRequest,
-    rendererClientId: string,
-  ): boolean {
-    return (
-      this.rendererOwnerRequestDeliveriesByConversationId
-        .get(threadId)
-        ?.get(this.getRendererOwnerRequestDeliveryKey(request)) === rendererClientId
-    );
-  }
-
-  private recordRendererOwnerRequestDelivery(
-    threadId: string,
-    request: CodexThreadOwnerServerRequest,
-    rendererClientId: string,
-  ): void {
-    const deliveries =
-      this.rendererOwnerRequestDeliveriesByConversationId.get(threadId) ??
-      new Map<string, string>();
-    deliveries.set(this.getRendererOwnerRequestDeliveryKey(request), rendererClientId);
-    this.rendererOwnerRequestDeliveriesByConversationId.set(threadId, deliveries);
-  }
-
   private clearRendererOwnerRequestDelivery(threadId: string, requestId: RequestId): void {
-    const deliveries = this.rendererOwnerRequestDeliveriesByConversationId.get(threadId);
-    if (!deliveries) return;
-    const prefix = this.getRendererOwnerRequestDeliveryPrefix(requestId);
-    for (const key of deliveries.keys()) {
-      if (key.startsWith(prefix)) {
-        deliveries.delete(key);
-      }
-    }
-    if (deliveries.size === 0) {
-      this.rendererOwnerRequestDeliveriesByConversationId.delete(threadId);
-    }
+    this.rendererConversations.clearRequestDelivery(threadId, requestId);
   }
 
   private asThreadOwnerServerRequest(
@@ -4170,7 +4087,7 @@ export class CodexService extends EventEmitter {
     threadId: string,
     recipe: (draft: CodexConversationSnapshot) => void | CodexConversationSnapshot,
   ): void {
-    if (this.rendererOwnerClientIdByConversationId.has(threadId)) {
+    if (this.rendererConversations.hasOwner(threadId)) {
       return;
     }
     const currentConversation = this.acceptedConversationDocumentById.get(threadId);
@@ -4197,7 +4114,7 @@ export class CodexService extends EventEmitter {
     threadId: string,
     options: { advanceRevision?: boolean } = {},
   ): number {
-    if (this.rendererOwnerClientIdByConversationId.has(threadId)) {
+    if (this.rendererConversations.hasOwner(threadId)) {
       return this.conversationStreamRevisionById.get(threadId) ?? 0;
     }
     const conversation = this.serializeConversationSnapshot(threadId);
@@ -4233,7 +4150,7 @@ export class CodexService extends EventEmitter {
   private publishPostResumeGoalSnapshot(threadId: string): void {
     const conversation = this.serializeConversationSnapshot(threadId);
     if (!conversation) return;
-    if (this.rendererOwnerClientIdByConversationId.has(threadId)) {
+    if (this.rendererConversations.hasOwner(threadId)) {
       const notification: CodexServerNotification = conversation.threadGoal
         ? {
             method: "thread/goal/updated",
@@ -5740,11 +5657,8 @@ export class CodexService extends EventEmitter {
     this.conversationVersionById.delete(threadId);
     this.conversationStreamRevisionById.delete(threadId);
     this.conversationStreamCheckpointById.delete(threadId);
-    this.rendererOwnerClientIdByConversationId.delete(threadId);
-    this.rendererThreadStreamSubscriptions.clearConversation(threadId);
-    this.rendererOwnerDetachedAtByConversationId.delete(threadId);
+    this.rendererConversations.clearConversation(threadId);
     this.userInputAutoResolution.clearConversation(threadId);
-    this.rendererViewRegistry.clearConversation(threadId);
     this.rendererOwnerRetention.clear(threadId);
     this.clearOwnerNotificationDrain(threadId);
     this.conversationDeltaBuffer.clear(threadId);
@@ -14434,7 +14348,7 @@ export class CodexService extends EventEmitter {
       };
       const ownerClientId = options.ownerClientId?.trim() || null;
       if (ownerClientId) {
-        if (this.disposedRendererClientIds.has(ownerClientId)) {
+        if (this.rendererConversations.isClientDisposed(ownerClientId)) {
           throw new Error(`Renderer client '${ownerClientId}' is unavailable`);
         }
 
@@ -15623,7 +15537,7 @@ export class CodexService extends EventEmitter {
     if (ownerBeforeResume && ownerBeforeResume !== ownerClientId) {
       return buildFollowerResult(ownerBeforeResume);
     }
-    if (this.disposedRendererClientIds.has(ownerClientId)) {
+    if (this.rendererConversations.isClientDisposed(ownerClientId)) {
       throw new Error(`Renderer client '${ownerClientId}' is unavailable`);
     }
 
@@ -15647,7 +15561,7 @@ export class CodexService extends EventEmitter {
     if (ownerAfterResume && ownerAfterResume !== ownerClientId) {
       return buildFollowerResult(ownerAfterResume);
     }
-    if (this.disposedRendererClientIds.has(ownerClientId)) {
+    if (this.rendererConversations.isClientDisposed(ownerClientId)) {
       throw new Error(`Renderer client '${ownerClientId}' became unavailable during resume`);
     }
 
@@ -15726,7 +15640,7 @@ export class CodexService extends EventEmitter {
     launch: CodexFreshThreadLaunch,
   ): Promise<Extract<CodexRendererConversationResumeResult, { role: "owner" }>> {
     const { rendererClientId: ownerClientId, threadId } = launch;
-    if (this.disposedRendererClientIds.has(ownerClientId)) {
+    if (this.rendererConversations.isClientDisposed(ownerClientId)) {
       throw new Error(`Renderer client '${ownerClientId}' is unavailable`);
     }
     const currentOwner = this.getRendererConversationOwner(threadId);
@@ -15742,7 +15656,7 @@ export class CodexService extends EventEmitter {
     launch: CodexFreshThreadLaunch,
   ): Promise<Extract<CodexRendererConversationResumeResult, { role: "owner" }>> {
     const { rendererClientId: ownerClientId, threadId } = launch;
-    if (this.disposedRendererClientIds.has(ownerClientId)) {
+    if (this.rendererConversations.isClientDisposed(ownerClientId)) {
       throw new Error(`Renderer client '${ownerClientId}' is unavailable`);
     }
     const currentOwner = this.getRendererConversationOwner(threadId);
@@ -16373,7 +16287,7 @@ export class CodexService extends EventEmitter {
     await this.ensureClientReady();
 
     const conversationId = input.conversationId.trim();
-    const ownerClientId = this.rendererOwnerClientIdByConversationId.get(conversationId) ?? null;
+    const ownerClientId = this.rendererConversations.getOwnerClientId(conversationId);
     if (!sourceClientId || ownerClientId !== sourceClientId) {
       throw new Error(
         `Renderer client ${sourceClientId ?? "unknown"} is not owner for ${conversationId}`,
@@ -18409,7 +18323,7 @@ export class CodexService extends EventEmitter {
       }
     }
     this.applyServerRequestCanonicalLifecycleResult(pending.request.threadId, before, lifecycle);
-    const ownerRouted = this.rendererOwnerClientIdByConversationId.has(pending.request.threadId);
+    const ownerRouted = this.rendererConversations.hasOwner(pending.request.threadId);
     for (const selectedPending of selectedPendings) {
       this.clearApprovalRequestAttachment(
         selectedPending.request.threadId,
@@ -18514,7 +18428,7 @@ export class CodexService extends EventEmitter {
       this.applyServerRequestCanonicalLifecycleResult(requestedConversationId, before, lifecycle);
       this.abandonOtherPendingRequestsById(requestedConversationId, requestId);
       this.emitEvent({ type: "userInputResolved", requestId });
-      if (!this.rendererOwnerClientIdByConversationId.has(requestedConversationId)) {
+      if (!this.rendererConversations.hasOwner(requestedConversationId)) {
         this.syncBroadcastServerRequestLifecycle(requestedConversationId, lifecycle);
       }
       return true;
@@ -18567,7 +18481,7 @@ export class CodexService extends EventEmitter {
     );
     this.abandonOtherPendingRequestsById(pending.request.threadId, requestId);
     this.emitEvent({ type: "userInputResolved", requestId });
-    if (!this.rendererOwnerClientIdByConversationId.has(pending.request.threadId)) {
+    if (!this.rendererConversations.hasOwner(pending.request.threadId)) {
       this.syncBroadcastServerRequestLifecycle(pending.request.threadId, lifecycle);
     }
     return true;
@@ -18625,7 +18539,7 @@ export class CodexService extends EventEmitter {
     )) {
       this.abandonOtherPendingRequestsById(pending.request.threadId, selectedRequestId);
     }
-    if (!this.rendererOwnerClientIdByConversationId.has(pending.request.threadId)) {
+    if (!this.rendererConversations.hasOwner(pending.request.threadId)) {
       this.syncBroadcastServerRequestLifecycle(pending.request.threadId, lifecycle, [
         ...selectedTurnIds,
       ]);
@@ -18674,7 +18588,7 @@ export class CodexService extends EventEmitter {
     }
     this.applyServerRequestCanonicalLifecycleResult(pending.request.threadId, before, lifecycle);
     this.abandonOtherPendingRequestsById(pending.request.threadId, requestId);
-    if (!this.rendererOwnerClientIdByConversationId.has(pending.request.threadId)) {
+    if (!this.rendererConversations.hasOwner(pending.request.threadId)) {
       this.syncBroadcastServerRequestLifecycle(pending.request.threadId, lifecycle);
     }
     return true;
@@ -21040,7 +20954,7 @@ export class CodexService extends EventEmitter {
     turnId: string,
     rootThreadId: string,
   ): NodexAgentAuthorizationPresentationTarget | null {
-    const directClientId = this.rendererViewRegistry.resolvePresentationClient(threadId);
+    const directClientId = this.rendererConversations.resolvePresentationClient(threadId);
     if (directClientId) {
       return {
         clientId: directClientId,
@@ -21050,7 +20964,7 @@ export class CodexService extends EventEmitter {
     }
 
     if (rootThreadId === threadId) return null;
-    const rootClientId = this.rendererViewRegistry.resolvePresentationClient(rootThreadId);
+    const rootClientId = this.rendererConversations.resolvePresentationClient(rootThreadId);
     if (!rootClientId) return null;
     const rootTurnId =
       [...this.listKnownTurns(rootThreadId)].reverse().find((turn) => turn.turnId !== null)
@@ -21609,7 +21523,7 @@ export class CodexService extends EventEmitter {
     if (
       !isStoredSpecialRequest &&
       (request.params.namespace === NODEX_APP_TOOL_NAMESPACE ||
-        !this.rendererOwnerClientIdByConversationId.has(threadId))
+        !this.rendererConversations.hasOwner(threadId))
     ) {
       return await this.handleDynamicToolCall(request.params, {}, nodexAuthority);
     }
@@ -21757,7 +21671,7 @@ export class CodexService extends EventEmitter {
     }
     commitLifecycle();
     this.abandonOtherPendingRequestsById(conversationId, requestId);
-    if (!this.rendererOwnerClientIdByConversationId.has(conversationId)) {
+    if (!this.rendererConversations.hasOwner(conversationId)) {
       this.syncBroadcastServerRequestLifecycle(conversationId, lifecycle);
     }
     return true;
@@ -21853,7 +21767,7 @@ export class CodexService extends EventEmitter {
     }
     this.abandonOtherPendingRequestsById(conversationId, requestId);
     this.applyServerRequestCanonicalLifecycleResult(conversationId, before, lifecycle);
-    if (!this.rendererOwnerClientIdByConversationId.has(conversationId)) {
+    if (!this.rendererConversations.hasOwner(conversationId)) {
       this.syncBroadcastServerRequestLifecycle(conversationId, lifecycle);
     }
     return true;

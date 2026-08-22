@@ -127,6 +127,7 @@ import {
 import { TestCodexActiveGoalContinuation } from "./codex-active-goal-continuation.test-support";
 import { TestCodexNotificationRouting } from "./codex-notification-routing.test-support";
 import { DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT } from "../codex-application/CodexOwnerNotificationDrainRuntime";
+import { makeCodexRendererConversationState } from "../codex-application/CodexRendererConversationRuntime";
 import { TestCodexOwnerNotificationDrainRuntime } from "./codex-owner-notification-drain-runtime.test-support";
 import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
 import { TestCodexSidebarSyncRuntime } from "./codex-sidebar-sync-runtime.test-support";
@@ -2030,6 +2031,7 @@ function createService(options?: {
     activeGoalContinuation,
     notificationRouting,
     ownerNotificationDrain,
+    rendererConversations: makeCodexRendererConversationState(),
     rendererOwnerRetention,
     sidebarSync,
     sidebarSweep,

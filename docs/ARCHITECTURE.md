@@ -606,6 +606,16 @@ registrations and notification-action admission in the Main Scope; it does not a
 an internal disposer list. Scope release closes action admission before unregistering listeners, so
 an already displayed operating-system notification cannot dispatch into a replaced Main runtime.
 
+Renderer conversation coordination belongs to one Main-scoped client-generation runtime. It
+atomically owns retired-client admission, owner identity and epoch, detached-owner recovery grace,
+follower membership and snapshot barriers, active/presented surfaces, and owner-request delivery
+correlation. A renderer disposal retires that identity and updates all five projections in one
+synchronous transition before `CodexService` applies canonical conversation consequences or emits
+transport actions. Owner replacement clears the prior delivery generation and re-fences followers;
+Thread removal and Main Scope release clear the same aggregate. `CodexService` remains the owner of
+the accepted conversation document and reducers, but it has no renderer owner map, detached-owner
+map, disposed-client set, delivery registry, or independent view registry.
+
 The detailed contracts are [Codex owner/follower streaming](docs/product-specs/codex-thread-owner-follower-streaming.md), [Codex transcript behavior](docs/product-specs/codex-thread-transcript-behavior.md), and [the generated protocol runtime plan](docs/plans/codex-generated-protocol-runtime-boundary.md).
 
 Prompt-created worktrees are a separate pre-conversation Main-scoped Module. A pure reducer defines

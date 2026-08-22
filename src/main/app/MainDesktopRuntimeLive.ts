@@ -85,6 +85,7 @@ import {
 } from "../codex-application/CodexNotificationRouting";
 import { make as makeCodexOwnerNotificationDrainRuntime } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import { makeCodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntimePromiseAdapter";
+import { make as makeCodexRendererConversationRuntime } from "../codex-application/CodexRendererConversationRuntime";
 import {
   CodexSidebarSyncError,
   make as makeCodexSidebarSyncRuntime,
@@ -1289,6 +1290,9 @@ export const live: Layer.Layer<
         const ownerNotificationDrain = yield* makeCodexOwnerNotificationDrainRuntime().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const rendererConversations = yield* makeCodexRendererConversationRuntime().pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const sidebarSync = yield* makeCodexSidebarSyncRuntime({
           refresh: (input) =>
             Effect.tryPromise({
@@ -1679,6 +1683,7 @@ export const live: Layer.Layer<
                 ownerNotificationDrain,
                 callbacks,
               ),
+              rendererConversations,
               rendererOwnerRetention: rendererOwnerRetentionCallbacks,
               sidebarSync: makeCodexSidebarSyncRuntimePromiseAdapter(sidebarSync, callbacks),
               sidebarSweep: makeCodexSidebarSweepRuntimePromiseAdapter(sidebarSweep, callbacks),
