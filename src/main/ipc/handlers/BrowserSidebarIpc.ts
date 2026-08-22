@@ -1,11 +1,13 @@
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 import type { IpcMainInvokeEvent } from "electron";
 import type { IpcEvents } from "../../../shared/ipc-api";
 import type {
   BrowserBrowsingDataKind,
   BrowserSidebarCommand,
+  BrowserSidebarCommandResult,
   BrowserSidebarWebviewDestroyed,
   BrowserSidebarWebviewHostCreated,
 } from "../../../shared/browser-sidebar";
@@ -24,6 +26,7 @@ import {
 import { MainConfig } from "../../app/MainConfig";
 import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import { computeBrowserAnnotationEvidenceCrop } from "../../browser/browser-annotation-evidence";
+import { isBrowserLocalServerCommand } from "../../browser/browser-local-server-runtime";
 import {
   filterBrowserStateForViewScope,
   filterBrowserUseStateForViewScope,
@@ -78,7 +81,7 @@ export const live: Layer.Layer<
   | WindowSessionCatalog
 > = Layer.effectDiscard(
   Effect.gen(function* () {
-    const { browser, history, localServerThumbnail } = yield* BrowserSidebarRuntime;
+    const { browser, history, localServers, localServerThumbnail } = yield* BrowserSidebarRuntime;
     const callbacks = yield* ScopedCallbackRuntime;
     const config = yield* MainConfig;
     const ipc = yield* ElectronIpc;
@@ -128,13 +131,20 @@ export const live: Layer.Layer<
         }),
         Effect.flatMap((command) =>
           resolveViewScope(event.sender.id).pipe(
-            Effect.flatMap((browserViewScopeId) =>
-              attempt("apply-browser-command", () =>
-                browser.handleCommand(command, {
-                  browserViewScopeId,
-                  ownerWebContentsId: event.sender.id,
-                }),
-              ),
+            Effect.flatMap(
+              (
+                browserViewScopeId,
+              ): Effect.Effect<BrowserSidebarCommandResult, BrowserSidebarIpcError> =>
+                isBrowserLocalServerCommand(command)
+                  ? localServers
+                      .applyCommand(command)
+                      .pipe(Effect.as({ ok: true as const } satisfies BrowserSidebarCommandResult))
+                  : attempt("apply-browser-command", () =>
+                      browser.handleCommand(command, {
+                        browserViewScopeId,
+                        ownerWebContentsId: event.sender.id,
+                      }),
+                    ),
             ),
           ),
         ),
@@ -288,9 +298,17 @@ export const live: Layer.Layer<
         Effect.tap((input) => requireViewScope(event.sender.id, input.browserViewScopeId)),
         Effect.flatMap((input) => {
           const admission = browser.admitLocalServerThumbnail(input);
-          return admission._tag === "Denied"
-            ? Effect.succeed(admission.result)
-            : localServerThumbnail.get(admission.url);
+          if (admission._tag === "Denied") return Effect.succeed(admission.result);
+          return localServers.isDiscovered(input.projectId, admission.url).pipe(
+            Effect.flatMap((discovered) =>
+              discovered
+                ? localServerThumbnail.get(admission.url)
+                : Effect.succeed({
+                    status: "unavailable" as const,
+                    message: "Local server preview was not discovered for this project",
+                  }),
+            ),
+          );
         }),
       ),
     );
@@ -370,8 +388,8 @@ export const live: Layer.Layer<
     const stateListener = (snapshot: ReturnType<typeof browser.getStateSnapshot>) => {
       callbacks.fork(sendFilteredState(snapshot));
     };
-    const localServersListener = (snapshot: IpcEvents["browser-sidebar-local-servers"]) => {
-      callbacks.fork(
+    yield* localServers.updates.pipe(
+      Stream.runForEach((snapshot) =>
         windows.all.pipe(
           Effect.tap((all) =>
             Effect.sync(() =>
@@ -380,8 +398,9 @@ export const live: Layer.Layer<
           ),
           Effect.asVoid,
         ),
-      );
-    };
+      ),
+      Effect.forkScoped,
+    );
     const browserUseStateListener = (
       snapshot: ReturnType<typeof browser.getBrowserUseStateSnapshot>,
     ) => {
@@ -443,7 +462,6 @@ export const live: Layer.Layer<
     yield* Effect.acquireRelease(
       Effect.sync(() => {
         browser.on("state", stateListener);
-        browser.on("localServers", localServersListener);
         browser.on("browserUseState", browserUseStateListener);
         browser.on("browserUseViewport", browserUseViewportListener);
         browser.on("browserUseCaptureSurface", browserUseCaptureSurfaceListener);
@@ -460,7 +478,6 @@ export const live: Layer.Layer<
       () =>
         Effect.sync(() => {
           browser.removeListener("state", stateListener);
-          browser.removeListener("localServers", localServersListener);
           browser.removeListener("browserUseState", browserUseStateListener);
           browser.removeListener("browserUseViewport", browserUseViewportListener);
           browser.removeListener("browserUseCaptureSurface", browserUseCaptureSurfaceListener);

@@ -228,6 +228,14 @@ concurrency, and a scoped FiberSet owns queued and active captures. Each hidden 
 removes listeners and destroys the window. Sidebar state performs only Project/URL admission and emits
 tracked invalidations, while renderer IPC executes the admitted capture Effect directly.
 
+Local-server discovery is a separate Browser Sidebar-owned runtime. Terminal output enters through the
+Main composition root only after its Project Session is resolved; one immutable per-Project `HashMap`
+projection and semaphore own discovered routes, hidden identities, refresh generations, and cleanup.
+Refresh probes borrow `ElectronNet`, whose Adapter forwards Effect interruption to Electron's request
+signal, and use an Effect deadline rather than a timer. A PubSub stream is the sole renderer update
+source, latest-generation fencing rejects stale probe results, and Project lifecycle cleanup deletes the
+same runtime projection. The Sidebar class owns neither discovery maps nor probe work.
+
 Browser history and restorable page snapshots are also Browser Sidebar-owned repositories. They load
 and validate bounded files during runtime acquisition, keep one immutable `HashMap` projection each,
 and serialize durable-first mutations through one semaphore per repository. Malformed or oversized

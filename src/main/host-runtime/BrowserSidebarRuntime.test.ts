@@ -6,6 +6,7 @@ import * as Scope from "effect/Scope";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import { layer as callbackLayer } from "../app/ScopedCallbackRuntime";
+import { ElectronNet } from "../platform/electron/ElectronNet";
 import { BrowserSidebarRuntime, live } from "./BrowserSidebarRuntime";
 
 it.layer(NodeServices.layer)("BrowserSidebarRuntime", (it) => {
@@ -13,7 +14,21 @@ it.layer(NodeServices.layer)("BrowserSidebarRuntime", (it) => {
     Effect.gen(function* () {
       const scope = yield* Scope.make();
       const context = yield* Layer.buildWithScope(
-        live("/tmp/nodex-browser-sidebar-runtime").pipe(Layer.provide(callbackLayer)),
+        live("/tmp/nodex-browser-sidebar-runtime").pipe(
+          Layer.provide(
+            Layer.merge(
+              callbackLayer,
+              Layer.succeed(
+                ElectronNet,
+                ElectronNet.of({
+                  appVersion: "test",
+                  fetch: () => Effect.die("unused"),
+                  readBase64: () => Effect.die("unused"),
+                }),
+              ),
+            ),
+          ),
+        ),
         scope,
       );
       const { browser } = Context.get(context, BrowserSidebarRuntime);

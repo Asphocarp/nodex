@@ -181,6 +181,7 @@ import {
 } from "../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { makeProjectRuntimeLifecyclePromiseAdapter } from "../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
 import { BrowserProfileHelperPlatform } from "../browser/browser-profile-helper-client";
+import { projectSessionIdFromTerminalSessionId } from "../browser/browser-local-server-runtime";
 import {
   BrowserUseRuntime,
   live as browserUseRuntimeLive,
@@ -433,11 +434,14 @@ export const live: Layer.Layer<
         ).pipe(Effect.mapError((cause) => runtimeError("codex-runtime", cause)));
         const codexGateway = Context.get(codexContext, CodexGateway);
         const codexEndpoints = Context.get(codexContext, CodexEndpointMap);
+        const electronNetContext = yield* Layer.buildWithScope(ElectronNet.live, runtimeScope);
+        const electronNet = Context.get(electronNetContext, ElectronNet.ElectronNet);
         const browserSidebarContext = yield* Layer.buildWithScope(
           browserSidebarRuntimeLive(userDataPath).pipe(
             Layer.provide(
-              Layer.merge(
+              Layer.mergeAll(
                 Layer.succeed(FileSystem.FileSystem, fileSystem),
+                Layer.succeed(ElectronNet.ElectronNet, electronNet),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),
               ),
             ),
@@ -750,8 +754,6 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const codexToolRuntimeService = Context.get(codexToolRuntimeContext, CodexToolRuntime);
-        const electronNetContext = yield* Layer.buildWithScope(ElectronNet.live, runtimeScope);
-        const electronNet = Context.get(electronNetContext, ElectronNet.ElectronNet);
         const chatGptContext = yield* Layer.buildWithScope(
           chatGptDesktopLive.pipe(
             Layer.provide(
@@ -856,13 +858,31 @@ export const live: Layer.Layer<
         );
 
         yield* terminals.events.pipe(
-          Stream.runForEach((event) =>
-            event.channel === "terminal-data"
-              ? Effect.sync(() =>
-                  browserSidebarService.observePtyData(event.payload.sessionId, event.payload.data),
-                )
-              : Effect.void,
-          ),
+          Stream.runForEach((event) => {
+            if (event.channel !== "terminal-data") return Effect.void;
+            const projectSessionId = projectSessionIdFromTerminalSessionId(event.payload.sessionId);
+            if (!projectSessionId) return Effect.void;
+            return Effect.tryPromise(() =>
+              projectWorkspace.getProjectSession(projectSessionId),
+            ).pipe(
+              Effect.flatMap((session) =>
+                typeof session?.projectId === "string"
+                  ? browserSidebar.localServers.observePtyData(
+                      session.projectId,
+                      event.payload.data,
+                    )
+                  : Effect.void,
+              ),
+              Effect.catch((cause) =>
+                Effect.sync(() =>
+                  applicationLogger.warn("Failed to observe terminal local-server output", {
+                    cause,
+                    terminalSessionId: event.payload.sessionId,
+                  }),
+                ),
+              ),
+            );
+          }),
           Effect.forkIn(runtimeScope),
         );
         const applicationHostContext = yield* Layer.buildWithScope(
@@ -1284,7 +1304,6 @@ export const live: Layer.Layer<
         );
         yield* Layer.buildWithScope(
           ProjectWorkspaceIpc.live({
-            browserSidebar: browserSidebarService,
             codex: codexService,
             projects: projectWorkspace,
             terminals: {
@@ -1298,6 +1317,7 @@ export const live: Layer.Layer<
               Layer.mergeAll(
                 Layer.succeed(ElectronDesktop, desktop),
                 Layer.succeed(ElectronIpc, ipc),
+                Layer.succeed(BrowserSidebarRuntime, browserSidebar),
                 Layer.succeed(MainConfig, config),
                 Layer.succeed(ProjectRuntimeLifecycleRuntime, projectRuntimeLifecycle),
                 Layer.succeed(ScopedCallbackRuntime, callbacks),
@@ -1637,11 +1657,6 @@ export const live: Layer.Layer<
         codexService.setNodexAgentResourceAuthorityPort(nodexAgentResourceAuthority);
         codexService.setAutomationModule(automationModule);
         codexService.setProjectWorkspacePort(projectWorkspace);
-        browserSidebarService.setProjectSessionResolver((sessionId) =>
-          projectWorkspace
-            .getProjectSession(sessionId)
-            .then((session) => session?.projectId ?? null),
-        );
         codexService.setNodexAgentAuthorizationBroker(
           new NodexAgentAuthorizationBroker({
             rendererClientRouter: rendererClients.router,

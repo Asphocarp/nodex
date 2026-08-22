@@ -26,7 +26,7 @@ export const live: Layer.Layer<ElectronNet> = Layer.effect(
       appVersion: app.getVersion(),
       fetch: (input, init) =>
         Effect.tryPromise({
-          try: () => net.fetch(input, init),
+          try: (signal) => net.fetch(input, { ...init, signal }),
           catch: (cause) => new ElectronNetError({ operation: "fetch", cause }),
         }),
       readBase64: (response) =>

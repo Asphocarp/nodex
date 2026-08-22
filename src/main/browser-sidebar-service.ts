@@ -30,11 +30,8 @@ import {
   type BrowserSidebarDestroyWebviewRequest,
   type BrowserSidebarImageDragStateEvent,
   type BrowserSidebarHostRouteIdentity,
-  type BrowserSidebarLocalServer,
   type BrowserSidebarLocalServerThumbnailRequest,
   type BrowserSidebarLocalServerThumbnailResult,
-  type BrowserSidebarLocalServerRoute,
-  type BrowserSidebarLocalServersSnapshot,
   type BrowserSidebarOpenNewTabRequest,
   type BrowserSidebarStateSnapshot,
   type BrowserSidebarTabSnapshot,
@@ -72,7 +69,6 @@ import {
 import type { BrowserHistoryStore } from "./browser/browser-history-store";
 import type { BrowserDownloadSidebarPort } from "./browser/browser-download-service";
 import { getLogger, type BackendLogger } from "./logging/logger";
-import { safeBroadcastToWindows } from "./ipc-safe-send";
 import type { SiteStatusPolicyService } from "./browser-use/site-status-policy-service";
 import {
   buildBrowserContextMenuTemplate,
@@ -173,12 +169,10 @@ interface BrowserSidebarServiceDeps {
   ) => void;
   electron?: BrowserSidebarElectronDeps;
   logger?: Pick<BackendLogger, "debug" | "info" | "warn">;
-  invalidateLocalServerThumbnail?: (url?: string) => void;
   pageStore?: BrowserPageSnapshotStore;
   historyStore?: Pick<BrowserHistoryStore, "clear" | "record">;
   runtimeRegistry?: BrowserRuntimeRegistry;
   siteStatusPolicy?: SiteStatusPolicyService;
-  resolveProjectIdForSession?: (sessionId: string) => Promise<string | null>;
   saveBrowserImage?: typeof saveUploadedImage;
 }
 
@@ -295,9 +289,6 @@ function viewportFromDeviceToolbarState(
   };
 }
 
-const LOCAL_SERVER_URL_PATTERN =
-  /(?:https?:\/\/(?:localhost|127(?:\.\d{1,3}){3}|\[::1\])(?::\d+)?(?:\/[^\s"'<>]*)?|(?:localhost|127(?:\.\d{1,3}){3})(?::\d+)(?:\/[^\s"'<>]*)?)/gi;
-
 const BROWSER_CONTEXT_MENU_MEDIA_TYPES = new Set([
   "none",
   "image",
@@ -335,7 +326,6 @@ function isBrowserContextMenuParams(
 
 interface BrowserSidebarServiceEvents {
   state: [BrowserSidebarStateSnapshot];
-  localServers: [BrowserSidebarLocalServersSnapshot];
   browserUseState: [BrowserSidebarBrowserUseStateSnapshot];
   browserUseViewport: [BrowserSidebarBrowserUseViewportEvent];
   browserUseCaptureSurface: [BrowserSidebarBrowserUseCaptureSurfaceEvent];
@@ -365,15 +355,6 @@ interface BrowserSidebarServiceEvents {
 }
 
 type BrowserSidebarEventName = keyof BrowserSidebarServiceEvents;
-
-interface LocalServerProjectState {
-  projectId: string;
-  isLoading: boolean;
-  servers: Map<string, BrowserSidebarLocalServer>;
-  hiddenServerIds: Set<string>;
-  hiddenRouteIds: Set<string>;
-  updatedAt: number;
-}
 
 interface PendingWebviewTeardown extends BrowserSidebarTabIdentity {
   mountGeneration: number;
@@ -405,7 +386,6 @@ export class BrowserSidebarService extends EventEmitter {
   private readonly earlyPageRestoresByGuest = new Map<number, Promise<BrowserSidebarTabSnapshot>>();
   private readonly webContentsDisposers = new Map<number, () => void>();
   private readonly pendingTeardowns = new Map<string, PendingWebviewTeardown>();
-  private readonly localServersByProject = new Map<string, LocalServerProjectState>();
   private readonly browserUseTabs = new Map<string, BrowserUseTabState>();
   private readonly deviceToolbarStates = new Map<
     string,
@@ -427,7 +407,6 @@ export class BrowserSidebarService extends EventEmitter {
     ownerWebContentsId: number,
   ) => void;
   private readonly logger: Pick<BackendLogger, "debug" | "info" | "warn">;
-  private readonly invalidateLocalServerThumbnail: (url?: string) => void;
   private downloadService: BrowserDownloadSidebarPort | null = null;
   private readonly browserUseActiveTabIdsByConversationScope = new Map<string, string>();
   private readonly browserUseCapturedRoutesByViewScope = new Map<string, BrowserUseCapturedRoute>();
@@ -443,7 +422,6 @@ export class BrowserSidebarService extends EventEmitter {
   private pageStore: BrowserPageSnapshotStore | null;
   private historyStore: Pick<BrowserHistoryStore, "clear" | "record"> | null;
   private siteStatusPolicy: SiteStatusPolicyService | null;
-  private resolveProjectIdForSession: ((sessionId: string) => Promise<string | null>) | null;
   private browserUseRouteCaptureHandler: BrowserUseRouteCaptureHandler | null = null;
   private teardownSequence = 0;
 
@@ -465,13 +443,11 @@ export class BrowserSidebarService extends EventEmitter {
         Menu.buildFromTemplate(template).popup(window ? { window } : {});
       });
     this.logger = deps.logger ?? getLogger({ subsystem: "browser-sidebar" });
-    this.invalidateLocalServerThumbnail = deps.invalidateLocalServerThumbnail ?? (() => undefined);
     this.pageStore = deps.pageStore ?? null;
     this.historyStore = deps.historyStore ?? null;
     this.siteStatusPolicy = deps.siteStatusPolicy ?? null;
     this.runtimeRegistry = deps.runtimeRegistry ?? new BrowserRuntimeRegistry();
     this.saveBrowserImage = deps.saveBrowserImage ?? saveUploadedImage;
-    this.resolveProjectIdForSession = deps.resolveProjectIdForSession ?? null;
   }
 
   setDownloadService(service: BrowserDownloadSidebarPort | null): void {
@@ -497,7 +473,6 @@ export class BrowserSidebarService extends EventEmitter {
     this.preparedPagesByStorageId.clear();
     this.earlyPageRestoresByGuest.clear();
     this.pendingTeardowns.clear();
-    this.localServersByProject.clear();
     this.browserUseTabs.clear();
     this.deviceToolbarStates.clear();
     this.themeVariantsByViewScope.clear();
@@ -512,7 +487,6 @@ export class BrowserSidebarService extends EventEmitter {
     this.browserUseRouteCaptureHandler = null;
     this.downloadService = null;
     this.siteStatusPolicy = null;
-    this.resolveProjectIdForSession = null;
     this.removeAllListeners();
   }
 
@@ -577,12 +551,6 @@ export class BrowserSidebarService extends EventEmitter {
       }
     }
     this.emit("browserUseOwnerReleased", { ownerWebContentsId });
-  }
-
-  setProjectSessionResolver(
-    resolveProjectIdForSession: (sessionId: string) => Promise<string | null>,
-  ): void {
-    this.resolveProjectIdForSession = resolveProjectIdForSession;
   }
 
   override on<EventName extends BrowserSidebarEventName>(
@@ -1028,10 +996,6 @@ export class BrowserSidebarService extends EventEmitter {
     this.emitBrowserUseState();
   }
 
-  closeBrowserProject(projectId: string): void {
-    this.localServersByProject.delete(projectId);
-  }
-
   getDeviceToolbarTabState(
     identity: BrowserSidebarTabIdentity,
   ): BrowserSidebarTabSnapshot["deviceToolbarState"] {
@@ -1159,10 +1123,6 @@ export class BrowserSidebarService extends EventEmitter {
     return false;
   }
 
-  getLocalServersSnapshot(projectId: string): BrowserSidebarLocalServersSnapshot {
-    return this.toLocalServersSnapshot(this.getLocalServerProjectState(projectId));
-  }
-
   admitLocalServerThumbnail(
     input: BrowserSidebarLocalServerThumbnailRequest,
   ): BrowserLocalServerThumbnailAdmission {
@@ -1176,25 +1136,12 @@ export class BrowserSidebarService extends EventEmitter {
         },
       };
     }
-    let origin: string;
-    try {
-      origin = new URL(input.url).origin;
-    } catch {
+    if (!URL.canParse(input.url)) {
       return {
         _tag: "Denied",
         result: {
           status: "unavailable",
           message: "Local server preview URL is invalid",
-        },
-      };
-    }
-    const state = this.localServersByProject.get(input.projectId);
-    if (!state?.servers.has(makeLocalServerId(origin))) {
-      return {
-        _tag: "Denied",
-        result: {
-          status: "unavailable",
-          message: "Local server preview was not discovered for this project",
         },
       };
     }
@@ -1629,44 +1576,6 @@ export class BrowserSidebarService extends EventEmitter {
       return { ok: true, snapshot };
     }
 
-    if (command.type === "local-servers-refresh") {
-      await this.refreshLocalServers(command.projectId);
-      return { ok: true };
-    }
-
-    if (command.type === "hide-local-server") {
-      const state = this.getLocalServerProjectState(command.projectId);
-      state.hiddenServerIds.add(command.server.id);
-      this.applyLocalServerHiddenState(state);
-      this.emitLocalServers(command.projectId);
-      return { ok: true };
-    }
-
-    if (command.type === "unhide-local-server") {
-      const state = this.getLocalServerProjectState(command.projectId);
-      state.hiddenServerIds.delete(makeLocalServerId(readLocalServerOrigin(command.url)));
-      this.applyLocalServerHiddenState(state);
-      this.emitLocalServers(command.projectId);
-      return { ok: true };
-    }
-
-    if (command.type === "remove-local-server-route") {
-      const state = this.getLocalServerProjectState(command.projectId);
-      const serverOrigin = readLocalServerOrigin(command.serverUrl);
-      const routeId = makeLocalServerRouteId(serverOrigin, normalizeRoutePath(command.routeUrl));
-      state.hiddenRouteIds.add(routeId);
-      const server = state.servers.get(makeLocalServerId(serverOrigin));
-      if (server) {
-        state.servers.set(server.id, {
-          ...server,
-          routes: server.routes.filter((route) => route.id !== routeId),
-        });
-      }
-      this.applyLocalServerHiddenState(state);
-      this.emitLocalServers(command.projectId);
-      return { ok: true };
-    }
-
     if (command.type === "open-external") {
       let url = command.url;
       if (url === undefined && "browserConversationId" in command && "browserTabId" in command) {
@@ -1698,6 +1607,15 @@ export class BrowserSidebarService extends EventEmitter {
     if (command.type === "close-tab") {
       this.closeBrowserTab(command, "user");
       return { ok: true };
+    }
+
+    if (
+      command.type === "local-servers-refresh" ||
+      command.type === "hide-local-server" ||
+      command.type === "unhide-local-server" ||
+      command.type === "remove-local-server-route"
+    ) {
+      return { ok: false, message: "Local server command is unavailable at this boundary" };
     }
 
     const key = browserTabKey(command);
@@ -1953,79 +1871,6 @@ export class BrowserSidebarService extends EventEmitter {
     }
 
     return { ok: false, message: "Unsupported browser command" };
-  }
-
-  observePtyData(terminalSessionId: string, data: string): void {
-    void this.observePtyDataWithProjectSession(terminalSessionId, data).catch((error) => {
-      this.logger.warn("Failed to resolve terminal Project Session", {
-        terminalSessionId,
-        error,
-      });
-    });
-  }
-
-  private async observePtyDataWithProjectSession(
-    terminalSessionId: string,
-    data: string,
-  ): Promise<void> {
-    const sessionId = parseProjectSessionIdFromTerminalId(terminalSessionId);
-    if (!sessionId) return;
-    const projectId = (await this.resolveProjectIdForSession?.(sessionId)) ?? null;
-    if (projectId === null) return;
-
-    const matches = data.match(LOCAL_SERVER_URL_PATTERN);
-    if (!matches || matches.length === 0) return;
-
-    const state = this.getLocalServerProjectState(projectId);
-    const now = Date.now();
-    for (const match of matches) {
-      const url = normalizeBrowserNavigationUrl(match);
-      let parsed: URL;
-      try {
-        parsed = new URL(url);
-      } catch {
-        continue;
-      }
-      if (!isLocalServerUrl(parsed)) continue;
-
-      const origin = parsed.origin;
-      this.invalidateLocalServerThumbnail(origin);
-      if (parsed.href !== origin) {
-        this.invalidateLocalServerThumbnail(parsed.href);
-      }
-      const serverId = makeLocalServerId(origin);
-      const routeId = makeLocalServerRouteId(origin, parsed.pathname || "/");
-      const existing = state.servers.get(serverId);
-      const routes = existing?.routes ?? [];
-      const routeIndex = routes.findIndex((route) => route.id === routeId);
-      const route: BrowserSidebarLocalServerRoute = {
-        id: routeId,
-        path: parsed.pathname || "/",
-        title: parsed.pathname && parsed.pathname !== "/" ? parsed.pathname : origin,
-        lastSeenAt: now,
-        hidden: state.hiddenRouteIds.has(routeId),
-      };
-      const nextRoutes =
-        routeIndex >= 0
-          ? routes.map((item, index) => (index === routeIndex ? route : item))
-          : [...routes, route];
-
-      state.servers.set(serverId, {
-        id: serverId,
-        origin,
-        host: parsed.hostname,
-        port: Number.parseInt(parsed.port || (parsed.protocol === "https:" ? "443" : "80"), 10),
-        protocol: parsed.protocol === "https:" ? "https:" : "http:",
-        lastSeenAt: now,
-        online: true,
-        hidden: state.hiddenServerIds.has(serverId),
-        routes: nextRoutes.sort((a, b) => b.lastSeenAt - a.lastSeenAt),
-      });
-    }
-
-    state.isLoading = false;
-    state.updatedAt = now;
-    this.emitLocalServers(projectId);
   }
 
   private showBrowserContextMenu(
@@ -3015,93 +2860,8 @@ export class BrowserSidebarService extends EventEmitter {
     return this.electron.webContents.fromId(tab.webContentsId) ?? null;
   }
 
-  private getLocalServerProjectState(projectId: string): LocalServerProjectState {
-    const existing = this.localServersByProject.get(projectId);
-    if (existing) return existing;
-    const state: LocalServerProjectState = {
-      projectId,
-      isLoading: false,
-      servers: new Map(),
-      hiddenServerIds: new Set(),
-      hiddenRouteIds: new Set(),
-      updatedAt: Date.now(),
-    };
-    this.localServersByProject.set(projectId, state);
-    return state;
-  }
-
-  private applyLocalServerHiddenState(state: LocalServerProjectState): void {
-    for (const server of state.servers.values()) {
-      server.hidden = state.hiddenServerIds.has(server.id);
-      server.routes = server.routes.map((route) => ({
-        ...route,
-        hidden: state.hiddenRouteIds.has(route.id),
-      }));
-    }
-    state.updatedAt = Date.now();
-  }
-
-  private toLocalServersSnapshot(
-    state: LocalServerProjectState,
-  ): BrowserSidebarLocalServersSnapshot {
-    const servers = [...state.servers.values()]
-      .map((server) => ({
-        ...server,
-        routes: [...server.routes].sort((a, b) => b.lastSeenAt - a.lastSeenAt),
-      }))
-      .sort((a, b) => b.lastSeenAt - a.lastSeenAt);
-    return {
-      projectId: state.projectId,
-      isLoading: state.isLoading,
-      servers,
-      hiddenServerIds: [...state.hiddenServerIds],
-      hiddenRouteIds: [...state.hiddenRouteIds],
-      updatedAt: state.updatedAt,
-    };
-  }
-
   private emitState(): void {
     this.emit("state", this.getStateSnapshot());
-  }
-
-  private emitLocalServers(projectId: string): void {
-    const state = this.localServersByProject.get(projectId);
-    if (!state) return;
-    this.emit("localServers", this.toLocalServersSnapshot(state));
-  }
-
-  private async refreshLocalServers(projectId: string): Promise<void> {
-    const state = this.getLocalServerProjectState(projectId);
-    const servers = [...state.servers.values()];
-    if (servers.length === 0) {
-      state.isLoading = false;
-      state.updatedAt = Date.now();
-      this.emitLocalServers(projectId);
-      return;
-    }
-
-    state.isLoading = true;
-    this.emitLocalServers(projectId);
-
-    const probed = await Promise.all(
-      servers.map(async (server) => ({
-        id: server.id,
-        online: await probeLocalServer(server.origin),
-      })),
-    );
-    if (this.localServersByProject.get(projectId) !== state) return;
-    for (const result of probed) {
-      const server = state.servers.get(result.id);
-      if (!server) continue;
-      state.servers.set(result.id, {
-        ...server,
-        online: result.online,
-        lastSeenAt: result.online ? Date.now() : server.lastSeenAt,
-      });
-    }
-    state.isLoading = false;
-    this.applyLocalServerHiddenState(state);
-    this.emitLocalServers(projectId);
   }
 
   private emitBrowserUseState(): void {
@@ -3258,22 +3018,6 @@ function deriveBrowserSnapshot(snapshot: BrowserSidebarTabSnapshot): BrowserSide
   };
 }
 
-function parseProjectSessionIdFromTerminalId(terminalSessionId: string): string | null {
-  if (!terminalSessionId.startsWith("session:")) return null;
-  const suffixIndex = terminalSessionId.lastIndexOf(":terminal:");
-  if (suffixIndex <= "session:".length) return null;
-  return terminalSessionId.slice("session:".length, suffixIndex);
-}
-
-function isLocalServerUrl(url: URL): boolean {
-  return (
-    url.hostname === "localhost" ||
-    url.hostname === "127.0.0.1" ||
-    url.hostname === "::1" ||
-    url.hostname === "[::1]"
-  );
-}
-
 function isBrowserUseCommand(command: BrowserSidebarCommand): command is BrowserUseCommand {
   return (
     command.type === "browser-use-upsert-tab" ||
@@ -3284,41 +3028,6 @@ function isBrowserUseCommand(command: BrowserSidebarCommand): command is Browser
     command.type === "browser-use-set-viewport" ||
     command.type === "browser-use-set-capture-surface"
   );
-}
-
-function readLocalServerOrigin(rawUrl: string): string {
-  try {
-    return new URL(normalizeBrowserNavigationUrl(rawUrl)).origin;
-  } catch {
-    return rawUrl;
-  }
-}
-
-function normalizeRoutePath(rawUrl: string): string {
-  try {
-    const parsed = new URL(normalizeBrowserNavigationUrl(rawUrl));
-    return parsed.pathname || "/";
-  } catch {
-    if (rawUrl.startsWith("/")) return rawUrl;
-    return `/${rawUrl}`;
-  }
-}
-
-async function probeLocalServer(origin: string): Promise<boolean> {
-  if (typeof fetch !== "function") return false;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 750);
-  try {
-    const response = await fetch(origin, {
-      method: "HEAD",
-      signal: controller.signal,
-    });
-    return response.status < 500;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 function isNavigationAbortError(error: unknown): boolean {
@@ -3446,43 +3155,4 @@ function readRenderProcessGoneReason(args: unknown[]): string {
     }
   }
   return "crashed";
-}
-
-function makeLocalServerId(origin: string): string {
-  return origin;
-}
-
-function makeLocalServerRouteId(origin: string, pathname: string): string {
-  return `${origin}${pathname || "/"}`;
-}
-
-export function broadcastBrowserSidebarEvent<EventName extends keyof BrowserSidebarServiceEvents>(
-  eventName: EventName,
-  payload: BrowserSidebarServiceEvents[EventName][0],
-): void {
-  safeBroadcastToWindows(
-    BrowserWindow.getAllWindows(),
-    resolveBrowserSidebarIpcEventName(eventName),
-    [payload],
-  );
-}
-
-function resolveBrowserSidebarIpcEventName(eventName: keyof BrowserSidebarServiceEvents): string {
-  if (eventName === "localServers") return "browser-sidebar-local-servers";
-  if (eventName === "browserUseState") return "browser-sidebar-browser-use-state";
-  if (eventName === "browserUseViewport") return "browser-sidebar-browser-use-viewport";
-  if (eventName === "browserUseCaptureSurface")
-    return "browser-sidebar-browser-use-capture-surface";
-  if (eventName === "browserUseCursor") return "browser-sidebar-browser-use-cursor-state";
-  if (eventName === "pageReleased") return "browser-sidebar-browser-use-page-released";
-  if (eventName === "pageClosed") return "browser-sidebar-browser-use-page-closed";
-  if (eventName === "browserUsePresentationRequest") {
-    return "browser-sidebar-browser-use-presentation-request";
-  }
-  if (eventName === "openNewTab") return "browser-sidebar-open-new-tab";
-  if (eventName === "contextMenuAction") return "browser-sidebar-context-menu-action";
-  if (eventName === "imageDragState") return "browser-sidebar-image-drag-state";
-  if (eventName === "webviewAttached") return "browser-sidebar-webview-attached";
-  if (eventName === "destroyWebview") return "browser-sidebar-destroy-webview";
-  return "browser-sidebar-state";
 }

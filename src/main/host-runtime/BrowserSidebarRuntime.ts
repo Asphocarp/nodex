@@ -10,6 +10,10 @@ import {
   type BrowserHistoryStore,
 } from "../browser/browser-history-store";
 import {
+  makeBrowserLocalServerRuntime,
+  type BrowserLocalServerRuntime,
+} from "../browser/browser-local-server-runtime";
+import {
   makeBrowserLocalServerThumbnailRuntime,
   type BrowserLocalServerThumbnailRuntime,
 } from "../browser/browser-local-server-thumbnail";
@@ -19,12 +23,14 @@ import {
   type BrowserPageSnapshotStore,
 } from "../browser/browser-page-store";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
+import { ElectronNet } from "../platform/electron/ElectronNet";
 
 export class BrowserSidebarRuntime extends Context.Service<
   BrowserSidebarRuntime,
   {
     readonly browser: BrowserSidebarService;
     readonly history: BrowserHistoryRuntime;
+    readonly localServers: BrowserLocalServerRuntime;
     readonly localServerThumbnail: BrowserLocalServerThumbnailRuntime;
     readonly pages: BrowserPageRuntime;
   }
@@ -40,13 +46,18 @@ export const live = (
 ): Layer.Layer<
   BrowserSidebarRuntime,
   BrowserSidebarRuntimeError,
-  FileSystem.FileSystem | ScopedCallbackRuntime
+  ElectronNet | FileSystem.FileSystem | ScopedCallbackRuntime
 > =>
   Layer.effect(
     BrowserSidebarRuntime,
     Effect.gen(function* () {
       const callbacks = yield* ScopedCallbackRuntime;
+      const electronNet = yield* ElectronNet;
       const localServerThumbnail = yield* makeBrowserLocalServerThumbnailRuntime();
+      const localServers = yield* makeBrowserLocalServerRuntime({
+        fetch: electronNet.fetch,
+        invalidateThumbnail: localServerThumbnail.invalidate,
+      });
       const history = yield* makeBrowserHistoryRuntime(`${userDataPath}/browser-history.json`).pipe(
         Effect.mapError(
           (cause) => new BrowserSidebarRuntimeError({ operation: "initialize-history", cause }),
@@ -77,15 +88,18 @@ export const live = (
         Effect.sync(
           () =>
             new BrowserSidebarService({
-              invalidateLocalServerThumbnail: (url) => {
-                callbacks.fork(localServerThumbnail.invalidate(url));
-              },
               historyStore,
               pageStore,
             }),
         ),
         (service) => Effect.sync(() => service.dispose()),
       );
-      return BrowserSidebarRuntime.of({ browser, history, localServerThumbnail, pages });
+      return BrowserSidebarRuntime.of({
+        browser,
+        history,
+        localServers,
+        localServerThumbnail,
+        pages,
+      });
     }),
   );

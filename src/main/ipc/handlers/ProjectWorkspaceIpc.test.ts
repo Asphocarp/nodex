@@ -5,11 +5,11 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
-import type { BrowserSidebarService } from "../../browser-sidebar-service";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
 import { live as projectRuntimeLifecycleLive } from "../../host-runtime/ProjectRuntimeLifecycleRuntime";
+import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./ProjectWorkspaceIpc";
@@ -30,13 +30,16 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
     const scope = yield* Scope.make();
     yield* Layer.buildWithScope(
       live({
-        browserSidebar: {} as BrowserSidebarService,
         codex: {} as CodexService,
         projects: {} as DesktopProjectWorkspacePort,
       }).pipe(
         Layer.provide(
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
+            Layer.succeed(BrowserSidebarRuntime, {
+              browser: { closeBrowserConversation: () => undefined },
+              localServers: { closeProject: () => Effect.void },
+            } as unknown as BrowserSidebarRuntime["Service"]),
             mainConfigLayer(),
             projectRuntimeLifecycleLive,
             scopedCallbackRuntimeLive,

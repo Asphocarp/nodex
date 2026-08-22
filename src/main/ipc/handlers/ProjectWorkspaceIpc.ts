@@ -9,7 +9,6 @@ import { ProjectLifecycleInputSchema } from "../../../shared/schemas/projects";
 import type { TerminalSessionSnapshot } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
 import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
-import type { BrowserSidebarService } from "../../browser-sidebar-service";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { coreResultFrom } from "../../core-result-ipc";
@@ -26,13 +25,13 @@ import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { ProjectRuntimeLifecycleRuntime } from "../../host-runtime/ProjectRuntimeLifecycleRuntime";
 import { makeProjectRuntimeLifecyclePromiseAdapter } from "../../host-runtime/ProjectRuntimeLifecycleRuntimePromiseAdapter";
+import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
 import { deleteProjectSessionWithBrowserCleanupUsing } from "../../project-session-browser-ownership";
 import { createProjectLifecycleService } from "../../project-lifecycle-service";
 import { renameProjectSessionChat } from "../../project-session-rename-service";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface ProjectWorkspaceIpcOptions {
-  readonly browserSidebar: BrowserSidebarService;
   readonly codex: CodexService;
   readonly projects: DesktopProjectWorkspacePort;
   readonly terminals?: {
@@ -65,6 +64,7 @@ export const live = (
 ): Layer.Layer<
   never,
   never,
+  | BrowserSidebarRuntime
   | ElectronDesktop
   | ElectronIpc
   | MainConfig
@@ -80,6 +80,13 @@ export const live = (
       const projectRuntimeLifecycle = yield* ProjectRuntimeLifecycleRuntime;
       const callbacks = yield* ScopedCallbackRuntime;
       const windows = yield* WindowRuntime;
+      const browserSidebar = yield* BrowserSidebarRuntime;
+      const projectSessionBrowserRuntime = {
+        closeBrowserConversation: (browserConversationId: string) =>
+          browserSidebar.browser.closeBrowserConversation(browserConversationId),
+        closeBrowserProject: (projectId: string) =>
+          callbacks.runPromise(browserSidebar.localServers.closeProject(projectId)),
+      };
       const handle = <Channel extends keyof IpcApi>(channel: Channel, handler: Handler<Channel>) =>
         ipc.handle(channel, handler);
       const authorize = (event: IpcMainInvokeEvent) =>
@@ -142,7 +149,7 @@ export const live = (
         });
       const lifecycle = createProjectLifecycleService({
         projectWorkspace: options.projects,
-        browserRuntime: options.browserSidebar,
+        browserRuntime: projectSessionBrowserRuntime,
         listCodexBlockers: (threadIds) => options.codex.listProjectArchiveBlockers(threadIds),
         listBackgroundProcessRows: (threadId) =>
           options.codex.listBackgroundProcessRows({ threadId }),
@@ -245,7 +252,7 @@ export const live = (
       yield* invoke("project-sessions:delete", (_, sessionId) =>
         deleteProjectSessionWithBrowserCleanupUsing({
           sessionId,
-          browserRuntime: options.browserSidebar,
+          browserRuntime: projectSessionBrowserRuntime,
           deleteProjectSession: options.projects.deleteProjectSession,
         }),
       );

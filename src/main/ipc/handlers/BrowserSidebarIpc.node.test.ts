@@ -2,6 +2,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
+import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
 import { MainConfig } from "../../app/MainConfig";
@@ -42,6 +43,7 @@ it.effect(
                 BrowserSidebarRuntime.of({
                   browser,
                   history: {} as never,
+                  localServers: { updates: Stream.empty } as never,
                   localServerThumbnail: {} as never,
                   pages: {} as never,
                 }),
