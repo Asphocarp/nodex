@@ -123,13 +123,27 @@ export const live = (
             ),
           ),
           Effect.flatMap((request) =>
-            attempt("apply-download-action", () => download.handleAction(request)),
+            download
+              .handleAction(request)
+              .pipe(
+                Effect.mapError(
+                  (cause) =>
+                    new BrowserProfileIpcError({ operation: "apply-download-action", cause }),
+                ),
+              ),
           ),
         ),
       );
       yield* ipc.handle("browser-download-history-clear", (event) =>
         trusted(event, "Browser download history clearing").pipe(
-          Effect.andThen(attempt("clear-download-history", () => download.clearHistory())),
+          Effect.andThen(
+            download.clearHistory.pipe(
+              Effect.mapError(
+                (cause) =>
+                  new BrowserProfileIpcError({ operation: "clear-download-history", cause }),
+              ),
+            ),
+          ),
           Effect.as({ ok: true as const }),
         ),
       );

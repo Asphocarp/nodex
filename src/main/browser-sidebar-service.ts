@@ -70,7 +70,7 @@ import {
   type BrowserPageEmulationTarget,
 } from "./browser/browser-page-emulation";
 import type { BrowserHistoryStore } from "./browser/browser-history-store";
-import type { BrowserDownloadService } from "./browser/browser-download-service";
+import type { BrowserDownloadSidebarPort } from "./browser/browser-download-service";
 import { getLogger, type BackendLogger } from "./logging/logger";
 import { safeBroadcastToWindows } from "./ipc-safe-send";
 import type { SiteStatusPolicyService } from "./browser-use/site-status-policy-service";
@@ -422,7 +422,7 @@ export class BrowserSidebarService extends EventEmitter {
     BrowserLocalServerThumbnailService,
     "get" | "invalidate"
   >;
-  private downloadService: Pick<BrowserDownloadService, "clearHistory"> | null = null;
+  private downloadService: BrowserDownloadSidebarPort | null = null;
   private readonly browserUseActiveTabIdsByConversationScope = new Map<string, string>();
   private readonly browserUseCapturedRoutesByViewScope = new Map<string, BrowserUseCapturedRoute>();
   private readonly pendingBrowserUsePresentations = new Map<
@@ -469,7 +469,7 @@ export class BrowserSidebarService extends EventEmitter {
     this.resolveProjectIdForSession = deps.resolveProjectIdForSession ?? null;
   }
 
-  setDownloadService(service: Pick<BrowserDownloadService, "clearHistory"> | null): void {
+  setDownloadService(service: BrowserDownloadSidebarPort | null): void {
     this.downloadService = service;
   }
 

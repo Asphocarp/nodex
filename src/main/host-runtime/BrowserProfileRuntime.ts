@@ -6,8 +6,11 @@ import * as Schema from "effect/Schema";
 import { BROWSER_SIDEBAR_PARTITION } from "../../shared/browser-sidebar";
 import type { BrowserDownloadsSnapshot } from "../../shared/browser-download";
 import type { BrowserSidebarService } from "../browser-sidebar-service";
-import { BrowserDownloadService } from "../browser/browser-download-service";
-import { FileBrowserDownloadStore } from "../browser/browser-download-store";
+import {
+  makeBrowserDownloadRuntime,
+  makeBrowserDownloadSidebarPort,
+  type BrowserDownloadRuntime,
+} from "../browser/browser-download-service";
 import { BrowserCredentialService } from "../browser/browser-credential-service";
 import { BrowserCredentialVault } from "../browser/browser-credential-vault";
 import { BrowserExtensionsProvider } from "../browser/browser-extensions-provider";
@@ -45,7 +48,7 @@ export class BrowserProfileRuntimeError extends Schema.TaggedError<BrowserProfil
 export class BrowserProfileRuntime extends Context.Service<
   BrowserProfileRuntime,
   {
-    readonly download: BrowserDownloadService;
+    readonly download: BrowserDownloadRuntime;
     readonly policy: BrowserUsePolicyRuntime;
     readonly services: BrowserProfileServices;
   }
@@ -167,9 +170,11 @@ export const live = (
         Effect.sync(() => options.browserSidebar.setSiteStatusPolicy(null)),
       );
 
-      const download = new BrowserDownloadService({
+      const download = yield* makeBrowserDownloadRuntime({
         downloadsDirectory: downloadsPath,
+        historyFilePath: `${options.userDataPath}/browser-downloads.json`,
         isAgentControlled: (identity) => options.browserSidebar.isBrowserUseIdentity(identity),
+        logger,
         onSnapshot: (snapshot) => {
           projectDownloadState(options.browserSidebar, snapshot);
           callbacks.fork(
@@ -185,24 +190,18 @@ export const live = (
         },
         resolveIdentity: (webContentsId) =>
           options.browserSidebar.getIdentityForWebContents(webContentsId),
+        session: browserSession,
         shell: desktop.shell,
-        store: new FileBrowserDownloadStore(`${options.userDataPath}/browser-downloads.json`),
-      });
-      yield* Effect.addFinalizer(() => Effect.sync(() => download.dispose()));
-      options.browserSidebar.setDownloadService(download);
+      }).pipe(
+        Effect.mapError(
+          (cause) => new BrowserProfileRuntimeError({ operation: "initialize-downloads", cause }),
+        ),
+      );
+      options.browserSidebar.setDownloadService(
+        makeBrowserDownloadSidebarPort(download, callbacks),
+      );
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => options.browserSidebar.setDownloadService(null)),
-      );
-      yield* Effect.tryPromise({
-        try: () => download.initialize(browserSession),
-        catch: (cause) =>
-          new BrowserProfileRuntimeError({ operation: "initialize-downloads", cause }),
-      }).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Could not initialize Browser download history").pipe(
-            Effect.annotateLogs({ error: String(error.cause) }),
-          ),
-        ),
       );
       return BrowserProfileRuntime.of({ download, policy, services });
     }),

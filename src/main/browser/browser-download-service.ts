@@ -1,6 +1,14 @@
-import { basename, extname, join } from "node:path";
-import { existsSync } from "node:fs";
+import * as Effect from "effect/Effect";
+import * as FiberSet from "effect/FiberSet";
+import * as FileSystem from "effect/FileSystem";
+import * as MutableRef from "effect/MutableRef";
+import * as Ref from "effect/Ref";
+import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
+import type * as Scope from "effect/Scope";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { basename, dirname, extname, join } from "node:path";
 import type {
   BrowserDownloadActionRequest,
   BrowserDownloadActionResult,
@@ -8,7 +16,12 @@ import type {
   BrowserDownloadsSnapshot,
 } from "../../shared/browser-download";
 import type { BrowserSidebarTabIdentity } from "../../shared/browser-sidebar";
-import type { BrowserDownloadStore } from "./browser-download-store";
+import type { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
+import {
+  normalizeBrowserDownloadHistory,
+  parseBrowserDownloadHistory,
+  serializeBrowserDownloadHistory,
+} from "./browser-download-store";
 
 interface BrowserDownloadItem {
   canResume(): boolean;
@@ -55,31 +68,62 @@ interface BrowserDownloadShell {
   showItemInFolder(path: string): void;
 }
 
-interface BrowserDownloadServiceOptions {
-  downloadsDirectory: string;
-  idFactory?: () => string;
-  isAgentControlled?: (identity: BrowserSidebarTabIdentity) => boolean;
-  now?: () => number;
-  onSnapshot?: (snapshot: BrowserDownloadsSnapshot) => void;
-  resolveIdentity: (webContentsId: number) => BrowserSidebarTabIdentity | null;
-  shell: BrowserDownloadShell;
-  store: BrowserDownloadStore;
+interface BrowserDownloadLogger {
+  readonly warn: (message: string, fields?: Record<string, unknown>) => void;
+}
+
+export interface BrowserDownloadRuntimeOptions {
+  readonly downloadsDirectory: string;
+  readonly historyFilePath: string;
+  readonly idFactory?: () => string;
+  readonly isAgentControlled?: (identity: BrowserSidebarTabIdentity) => boolean;
+  readonly logger: BrowserDownloadLogger;
+  readonly now?: () => number;
+  readonly onSnapshot?: (snapshot: BrowserDownloadsSnapshot) => void;
+  readonly resolveIdentity: (webContentsId: number) => BrowserSidebarTabIdentity | null;
+  readonly session: BrowserDownloadSession;
+  readonly shell: BrowserDownloadShell;
 }
 
 interface BrowserDownloadGrant {
-  expiresAt: number;
-  identityKey: string;
-  sourceUrl: string;
+  readonly expiresAt: number;
+  readonly sourceUrl: string;
 }
 
-function identityKey(identity: BrowserSidebarTabIdentity): string {
-  return (
-    `${identity.browserConversationId}\0${identity.browserViewScopeId}` +
-    `\0${identity.browserTabId}`
-  );
+interface BrowserDownloadState {
+  readonly liveItems: ReadonlyMap<string, BrowserDownloadItem>;
+  readonly records: ReadonlyMap<string, BrowserDownloadRecord>;
 }
 
-function readSourceOrigin(item: BrowserDownloadItem): string {
+export class BrowserDownloadRuntimeError extends Schema.TaggedError<BrowserDownloadRuntimeError>()(
+  "BrowserDownloadRuntimeError",
+  { operation: Schema.String, cause: Schema.Defect() },
+) {}
+
+export interface BrowserDownloadRuntime {
+  readonly grantAgentDownload: (
+    identity: BrowserSidebarTabIdentity,
+    sourceUrl: string,
+    ttlMs?: number,
+  ) => void;
+  readonly snapshot: () => BrowserDownloadsSnapshot;
+  readonly handleAction: (
+    request: BrowserDownloadActionRequest,
+  ) => Effect.Effect<BrowserDownloadActionResult, BrowserDownloadRuntimeError>;
+  readonly clearHistory: Effect.Effect<void, BrowserDownloadRuntimeError>;
+}
+
+export interface BrowserDownloadSidebarPort {
+  readonly clearHistory: () => Promise<void>;
+}
+
+const runtimeError = (operation: string, cause: unknown): BrowserDownloadRuntimeError =>
+  new BrowserDownloadRuntimeError({ operation, cause });
+
+const identityKey = (identity: BrowserSidebarTabIdentity): string =>
+  `${identity.browserConversationId}\0${identity.browserViewScopeId}\0${identity.browserTabId}`;
+
+const readSourceOrigin = (item: BrowserDownloadItem): string => {
   const sourceUrl = item.getURLChain().at(-1);
   if (!sourceUrl) return "unknown:";
   try {
@@ -87,16 +131,16 @@ function readSourceOrigin(item: BrowserDownloadItem): string {
   } catch {
     return "unknown:";
   }
-}
+};
 
-function safeDownloadFilename(value: string): string {
+const safeDownloadFilename = (value: string): string => {
   const fileName = basename(value)
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .trim();
   return fileName || "download";
-}
+};
 
-function uniqueSavePath(downloadsDirectory: string, fileName: string): string {
+const uniqueSavePath = (downloadsDirectory: string, fileName: string): string => {
   const initial = join(downloadsDirectory, fileName);
   if (!existsSync(initial)) return initial;
   const extension = extname(fileName);
@@ -106,242 +150,362 @@ function uniqueSavePath(downloadsDirectory: string, fileName: string): string {
     if (!existsSync(candidate)) return candidate;
   }
   return join(downloadsDirectory, `${stem}-${randomUUID()}${extension}`);
-}
+};
 
-export class BrowserDownloadService {
-  private readonly downloadsDirectory: string;
-  private readonly idFactory: () => string;
-  private readonly isAgentControlled: (identity: BrowserSidebarTabIdentity) => boolean;
-  private readonly now: () => number;
-  private readonly onSnapshot: (snapshot: BrowserDownloadsSnapshot) => void;
-  private readonly resolveIdentity: BrowserDownloadServiceOptions["resolveIdentity"];
-  private readonly shell: BrowserDownloadShell;
-  private readonly store: BrowserDownloadStore;
-  private readonly liveItems = new Map<string, BrowserDownloadItem>();
-  private readonly records = new Map<string, BrowserDownloadRecord>();
-  private readonly grants = new Map<string, BrowserDownloadGrant>();
-  private downloadBinding: {
-    readonly listener: (
-      event: { preventDefault(): void },
+const isNotFound = (cause: unknown): boolean =>
+  typeof cause === "object" &&
+  cause !== null &&
+  "reason" in cause &&
+  typeof cause.reason === "object" &&
+  cause.reason !== null &&
+  "_tag" in cause.reason &&
+  cause.reason._tag === "NotFound";
+
+const snapshotFrom = (
+  records: ReadonlyMap<string, BrowserDownloadRecord>,
+): BrowserDownloadsSnapshot => ({
+  downloads: [...records.values()].sort((left, right) => right.startedAt - left.startedAt),
+});
+
+export const makeBrowserDownloadRuntime = (
+  options: BrowserDownloadRuntimeOptions,
+): Effect.Effect<
+  BrowserDownloadRuntime,
+  BrowserDownloadRuntimeError,
+  FileSystem.FileSystem | Scope.Scope
+> =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const now = options.now ?? Date.now;
+    const idFactory = options.idFactory ?? randomUUID;
+    const isAgentControlled = options.isAgentControlled ?? (() => false);
+    const onSnapshot = options.onSnapshot ?? (() => undefined);
+    const grants = MutableRef.make<ReadonlyMap<string, BrowserDownloadGrant>>(new Map());
+    const runCallback = yield* FiberSet.makeRuntime<never, void, never>();
+
+    const quarantine = fs
+      .rename(options.historyFilePath, `${options.historyFilePath}.corrupt-${now()}`)
+      .pipe(
+        Effect.catch((cause) => (isNotFound(cause) ? Effect.void : Effect.fail(cause))),
+        Effect.mapError((cause) => runtimeError("quarantine-history", cause)),
+      );
+    const loadHistory = fs.exists(options.historyFilePath).pipe(
+      Effect.mapError((cause) => runtimeError("check-history", cause)),
+      Effect.flatMap((exists) =>
+        exists
+          ? fs.readFileString(options.historyFilePath).pipe(
+              Effect.mapError((cause) => runtimeError("read-history", cause)),
+              Effect.flatMap((raw) =>
+                Effect.try({
+                  try: () => normalizeBrowserDownloadHistory(parseBrowserDownloadHistory(raw)),
+                  catch: (cause) => runtimeError("parse-history", cause),
+                }),
+              ),
+              Effect.catch(() => quarantine.pipe(Effect.as(new Map()))),
+            )
+          : Effect.succeed(new Map()),
+      ),
+      Effect.catch((error) =>
+        Effect.sync(() => {
+          options.logger.warn("Could not load Browser download history", {
+            code: "browser-download-history-load-failed",
+            error: String(error.cause),
+          });
+          return new Map<string, BrowserDownloadRecord>();
+        }),
+      ),
+    );
+
+    const initialRecords = yield* loadHistory;
+    const state = yield* Ref.make<BrowserDownloadState>({
+      liveItems: new Map(),
+      records: initialRecords,
+    });
+    const writes = yield* Semaphore.make(1);
+
+    const persist = (
+      records: ReadonlyMap<string, BrowserDownloadRecord>,
+    ): Effect.Effect<void, BrowserDownloadRuntimeError> => {
+      const directoryPath = dirname(options.historyFilePath);
+      const temporaryPath = join(
+        directoryPath,
+        `.${basename(options.historyFilePath)}.${now()}.${randomUUID()}.tmp`,
+      );
+      return fs.makeDirectory(directoryPath, { recursive: true, mode: 0o700 }).pipe(
+        Effect.andThen(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const file = yield* fs.open(temporaryPath, { flag: "wx", mode: 0o600 });
+              yield* file.writeAll(
+                new TextEncoder().encode(serializeBrowserDownloadHistory(records)),
+              );
+              yield* file.sync;
+            }),
+          ),
+        ),
+        Effect.andThen(fs.rename(temporaryPath, options.historyFilePath)),
+        Effect.andThen(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const directory = yield* fs.open(directoryPath, { flag: "r" });
+              yield* directory.sync;
+            }),
+          ),
+        ),
+        Effect.ensuring(fs.remove(temporaryPath, { force: true }).pipe(Effect.ignore)),
+        Effect.mapError((cause) => runtimeError("persist-history", cause)),
+      );
+    };
+
+    const publish = (next: BrowserDownloadState): Effect.Effect<void> =>
+      Ref.set(state, next).pipe(
+        Effect.andThen(Effect.sync(() => onSnapshot(snapshotFrom(next.records)))),
+      );
+
+    const updateRecord = (
+      id: string,
+      patch: Partial<BrowserDownloadRecord>,
+      removeLiveItem = false,
+    ): Effect.Effect<void, BrowserDownloadRuntimeError> =>
+      writes.withPermits(1)(
+        Effect.gen(function* () {
+          const current = yield* Ref.get(state);
+          const record = current.records.get(id);
+          if (record === undefined) return;
+          const nextRecord = { ...record, ...patch, updatedAt: now() };
+          const records = normalizeBrowserDownloadHistory(
+            new Map(current.records).set(id, nextRecord).values(),
+          );
+          const liveItems = removeLiveItem
+            ? new Map([...current.liveItems].filter(([candidate]) => candidate !== id))
+            : current.liveItems;
+          const next = { liveItems, records };
+          yield* publish(next);
+          yield* persist(records);
+        }),
+      );
+
+    const runDownloadCallback = (
+      effect: Effect.Effect<void, BrowserDownloadRuntimeError>,
+      operation: string,
+    ): void => {
+      runCallback(
+        effect.pipe(
+          Effect.catch((error) =>
+            Effect.sync(() =>
+              options.logger.warn("Browser download callback failed", {
+                code: "browser-download-callback-failed",
+                operation,
+                error: String(error.cause),
+              }),
+            ),
+          ),
+        ),
+      );
+    };
+
+    const consumeAgentGrantIfRequired = (
+      identity: BrowserSidebarTabIdentity,
+      sourceUrlChain: readonly string[],
+    ): boolean => {
+      if (!isAgentControlled(identity)) return true;
+      const key = identityKey(identity);
+      const current = MutableRef.get(grants);
+      const grant = current.get(key);
+      MutableRef.set(grants, new Map([...current].filter(([candidate]) => candidate !== key)));
+      return Boolean(grant && grant.expiresAt >= now() && sourceUrlChain.includes(grant.sourceUrl));
+    };
+
+    const commitDownload = (
       item: BrowserDownloadItem,
-      webContents: { id: number },
-    ) => void;
-    readonly session: BrowserDownloadSession;
-  } | null = null;
-  private initialized = false;
+      record: BrowserDownloadRecord,
+    ): Effect.Effect<void, BrowserDownloadRuntimeError> =>
+      writes.withPermits(1)(
+        Effect.gen(function* () {
+          const current = yield* Ref.get(state);
+          const records = normalizeBrowserDownloadHistory(
+            new Map(current.records).set(record.id, record).values(),
+          );
+          const next = {
+            liveItems: new Map(current.liveItems).set(record.id, item),
+            records,
+          };
+          yield* publish(next);
+          yield* persist(records);
+        }),
+      );
 
-  constructor(options: BrowserDownloadServiceOptions) {
-    this.downloadsDirectory = options.downloadsDirectory;
-    this.idFactory = options.idFactory ?? randomUUID;
-    this.isAgentControlled = options.isAgentControlled ?? (() => false);
-    this.now = options.now ?? Date.now;
-    this.onSnapshot = options.onSnapshot ?? (() => undefined);
-    this.resolveIdentity = options.resolveIdentity;
-    this.shell = options.shell;
-    this.store = options.store;
-  }
-
-  async initialize(session: BrowserDownloadSession): Promise<void> {
-    if (this.initialized) return;
-    this.initialized = true;
-    let loadFailure: unknown = null;
-    try {
-      for (const record of await this.store.list()) {
-        this.records.set(record.id, record);
-      }
-      this.emitSnapshot();
-    } catch (error) {
-      loadFailure = error;
-    }
     const listener = (
       event: { preventDefault(): void },
       item: BrowserDownloadItem,
       webContents: { id: number },
-    ) => {
-      this.handleWillDownload(event, item, webContents.id);
-    };
-    session.on("will-download", listener);
-    this.downloadBinding = { listener, session };
-    if (loadFailure !== null) throw loadFailure;
-  }
-
-  dispose(): void {
-    const binding = this.downloadBinding;
-    this.downloadBinding = null;
-    if (binding) binding.session.removeListener("will-download", binding.listener);
-    this.grants.clear();
-    this.liveItems.clear();
-  }
-
-  grantAgentDownload(identity: BrowserSidebarTabIdentity, sourceUrl: string, ttlMs = 10_000): void {
-    try {
-      const parsed = new URL(sourceUrl);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return;
-    } catch {
-      return;
-    }
-    this.grants.set(identityKey(identity), {
-      expiresAt: this.now() + Math.max(1, Math.min(ttlMs, 10_000)),
-      identityKey: identityKey(identity),
-      sourceUrl,
-    });
-  }
-
-  snapshot(): BrowserDownloadsSnapshot {
-    return {
-      downloads: [...this.records.values()].sort((left, right) => right.startedAt - left.startedAt),
-    };
-  }
-
-  async handleAction(request: BrowserDownloadActionRequest): Promise<BrowserDownloadActionResult> {
-    const record = this.records.get(request.downloadId);
-    if (!record) return { ok: false, message: "Download was not found" };
-    const item = this.liveItems.get(request.downloadId);
-    if (request.action === "pause") {
-      if (!item) return { ok: false, message: "Download is not active" };
-      item.pause();
-      await this.updateRecord(record, { status: "paused" });
-      return { ok: true };
-    }
-    if (request.action === "resume") {
-      if (!item || !item.canResume()) {
-        return { ok: false, message: "Download cannot be resumed" };
+    ): void => {
+      const identity = options.resolveIdentity(webContents.id);
+      const sourceUrlChain = item.getURLChain();
+      if (identity === null || !consumeAgentGrantIfRequired(identity, sourceUrlChain)) {
+        event.preventDefault();
+        item.cancel();
+        return;
       }
-      item.resume();
-      await this.updateRecord(record, { status: "progressing" });
-      return { ok: true };
-    }
-    if (request.action === "cancel") {
-      if (!item) return { ok: false, message: "Download is not active" };
-      item.cancel();
-      return { ok: true };
-    }
-    if (request.action === "open") {
-      const error = await this.shell.openPath(record.savePath);
-      return error ? { ok: false, message: error.slice(0, 512) } : { ok: true };
-    }
-    if (request.action === "show-in-folder") {
-      this.shell.showItemInFolder(record.savePath);
-      return { ok: true };
-    }
-    this.liveItems.delete(request.downloadId);
-    this.records.delete(request.downloadId);
-    await this.store.remove(request.downloadId);
-    this.emitSnapshot();
-    return { ok: true };
-  }
 
-  async clearHistory(): Promise<void> {
-    for (const downloadId of this.liveItems.keys()) {
-      const record = this.records.get(downloadId);
-      if (record?.status === "progressing" || record?.status === "starting") {
-        continue;
-      }
-      this.liveItems.delete(downloadId);
-      this.records.delete(downloadId);
-    }
-    for (const [downloadId, record] of [...this.records]) {
-      if (record.status === "progressing" || record.status === "starting") {
-        continue;
-      }
-      this.records.delete(downloadId);
-      await this.store.remove(downloadId);
-    }
-    this.emitSnapshot();
-  }
-
-  private handleWillDownload(
-    event: { preventDefault(): void },
-    item: BrowserDownloadItem,
-    webContentsId: number,
-  ): void {
-    const identity = this.resolveIdentity(webContentsId);
-    const sourceUrlChain = item.getURLChain();
-    const sourceOrigin = readSourceOrigin(item);
-    if (!identity || !this.consumeAgentGrantIfRequired(identity, sourceUrlChain)) {
-      event.preventDefault();
-      item.cancel();
-      return;
-    }
-
-    const now = this.now();
-    const id = this.idFactory();
-    const fileName = safeDownloadFilename(item.getFilename());
-    const savePath = uniqueSavePath(this.downloadsDirectory, fileName);
-    item.setSavePath(savePath);
-    const record: BrowserDownloadRecord = {
-      id,
-      browserConversationId: identity.browserConversationId,
-      browserViewScopeId: identity.browserViewScopeId,
-      browserTabId: identity.browserTabId,
-      fileName,
-      savePath,
-      sourceOrigin,
-      status: "starting",
-      receivedBytes: item.getReceivedBytes(),
-      totalBytes: Math.max(0, item.getTotalBytes()),
-      startedAt: now,
-      updatedAt: now,
-    };
-    this.liveItems.set(id, item);
-    this.records.set(id, record);
-    void this.store.upsert(record);
-    this.emitSnapshot();
-
-    item.on("updated", (_updatedEvent, state) => {
-      const current = this.records.get(id);
-      if (!current) return;
-      void this.updateRecord(current, {
-        status: item.isPaused()
-          ? "paused"
-          : state === "interrupted"
-            ? "interrupted"
-            : "progressing",
+      const timestamp = now();
+      const id = idFactory();
+      const fileName = safeDownloadFilename(item.getFilename());
+      const savePath = uniqueSavePath(options.downloadsDirectory, fileName);
+      item.setSavePath(savePath);
+      const record: BrowserDownloadRecord = {
+        id,
+        browserConversationId: identity.browserConversationId,
+        browserViewScopeId: identity.browserViewScopeId,
+        browserTabId: identity.browserTabId,
+        fileName,
+        savePath,
+        sourceOrigin: readSourceOrigin(item),
+        status: "starting",
         receivedBytes: item.getReceivedBytes(),
         totalBytes: Math.max(0, item.getTotalBytes()),
+        startedAt: timestamp,
+        updatedAt: timestamp,
+      };
+      item.on("updated", (_updatedEvent, status) => {
+        runDownloadCallback(
+          updateRecord(id, {
+            status: item.isPaused()
+              ? "paused"
+              : status === "interrupted"
+                ? "interrupted"
+                : "progressing",
+            receivedBytes: item.getReceivedBytes(),
+            totalBytes: Math.max(0, item.getTotalBytes()),
+          }),
+          "update-progress",
+        );
       });
-    });
-    item.on("done", (_doneEvent, state) => {
-      const current = this.records.get(id);
-      if (!current) return;
-      this.liveItems.delete(id);
-      void this.updateRecord(current, {
-        status: state,
-        receivedBytes: item.getReceivedBytes(),
-        totalBytes: Math.max(0, item.getTotalBytes()),
-        ...(state === "completed" ? { completedAt: this.now() } : {}),
+      item.on("done", (_doneEvent, status) => {
+        runDownloadCallback(
+          updateRecord(
+            id,
+            {
+              status,
+              receivedBytes: item.getReceivedBytes(),
+              totalBytes: Math.max(0, item.getTotalBytes()),
+              ...(status === "completed" ? { completedAt: now() } : {}),
+            },
+            true,
+          ),
+          "finish",
+        );
       });
-    });
-  }
-
-  private consumeAgentGrantIfRequired(
-    identity: BrowserSidebarTabIdentity,
-    sourceUrlChain: readonly string[],
-  ): boolean {
-    if (!this.isAgentControlled(identity)) return true;
-    const key = identityKey(identity);
-    const grant = this.grants.get(key);
-    this.grants.delete(key);
-    return Boolean(
-      grant && grant.expiresAt >= this.now() && sourceUrlChain.includes(grant.sourceUrl),
+      runDownloadCallback(commitDownload(item, record), "admit");
+    };
+    yield* Effect.acquireRelease(
+      Effect.try({
+        try: () => options.session.on("will-download", listener),
+        catch: (cause) => runtimeError("install-listener", cause),
+      }),
+      () =>
+        Effect.sync(() => {
+          options.session.removeListener("will-download", listener);
+          MutableRef.set(grants, new Map());
+        }).pipe(
+          Effect.andThen(Ref.update(state, (current) => ({ ...current, liveItems: new Map() }))),
+        ),
     );
-  }
+    yield* Effect.sync(() => onSnapshot(snapshotFrom(initialRecords)));
 
-  private async updateRecord(
-    current: BrowserDownloadRecord,
-    patch: Partial<BrowserDownloadRecord>,
-  ): Promise<void> {
-    const next = {
-      ...current,
-      ...patch,
-      updatedAt: this.now(),
-    };
-    this.records.set(next.id, next);
-    await this.store.upsert(next);
-    this.emitSnapshot();
-  }
+    return {
+      grantAgentDownload: (identity, sourceUrl, ttlMs = 10_000) => {
+        try {
+          const parsed = new URL(sourceUrl);
+          if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return;
+        } catch {
+          return;
+        }
+        const current = MutableRef.get(grants);
+        MutableRef.set(
+          grants,
+          new Map(current).set(identityKey(identity), {
+            expiresAt: now() + Math.max(1, Math.min(ttlMs, 10_000)),
+            sourceUrl,
+          }),
+        );
+      },
+      snapshot: () => snapshotFrom(Ref.getUnsafe(state).records),
+      handleAction: (request) =>
+        Effect.gen(function* () {
+          const current = yield* Ref.get(state);
+          const record = current.records.get(request.downloadId);
+          if (record === undefined) return { ok: false, message: "Download was not found" };
+          const item = current.liveItems.get(request.downloadId);
+          if (request.action === "pause") {
+            if (item === undefined) return { ok: false, message: "Download is not active" };
+            item.pause();
+            yield* updateRecord(record.id, { status: "paused" });
+            return { ok: true };
+          }
+          if (request.action === "resume") {
+            if (item === undefined || !item.canResume()) {
+              return { ok: false, message: "Download cannot be resumed" };
+            }
+            item.resume();
+            yield* updateRecord(record.id, { status: "progressing" });
+            return { ok: true };
+          }
+          if (request.action === "cancel") {
+            if (item === undefined) return { ok: false, message: "Download is not active" };
+            item.cancel();
+            return { ok: true };
+          }
+          if (request.action === "open") {
+            const error = yield* Effect.tryPromise({
+              try: () => options.shell.openPath(record.savePath),
+              catch: (cause) => runtimeError("open-download", cause),
+            });
+            return error ? { ok: false, message: error.slice(0, 512) } : { ok: true };
+          }
+          if (request.action === "show-in-folder") {
+            yield* Effect.try({
+              try: () => options.shell.showItemInFolder(record.savePath),
+              catch: (cause) => runtimeError("show-download", cause),
+            });
+            return { ok: true };
+          }
+          return yield* writes.withPermits(1)(
+            Effect.gen(function* () {
+              const latest = yield* Ref.get(state);
+              const records = new Map(latest.records);
+              const liveItems = new Map(latest.liveItems);
+              records.delete(request.downloadId);
+              liveItems.delete(request.downloadId);
+              const next = { records, liveItems };
+              yield* publish(next);
+              yield* persist(records);
+              return { ok: true } as const;
+            }),
+          );
+        }),
+      clearHistory: writes.withPermits(1)(
+        Effect.gen(function* () {
+          const current = yield* Ref.get(state);
+          const records = new Map(
+            [...current.records].filter(([, record]) =>
+              ["starting", "progressing", "paused"].includes(record.status),
+            ),
+          );
+          const liveItems = new Map(
+            [...current.liveItems].filter(([downloadId]) => records.has(downloadId)),
+          );
+          const next = { records, liveItems };
+          yield* publish(next);
+          yield* persist(records);
+        }),
+      ),
+    } satisfies BrowserDownloadRuntime;
+  });
 
-  private emitSnapshot(): void {
-    this.onSnapshot(this.snapshot());
-  }
-}
+export const makeBrowserDownloadSidebarPort = (
+  runtime: BrowserDownloadRuntime,
+  callbacks: ScopedCallbackRuntime["Service"],
+): BrowserDownloadSidebarPort => ({
+  clearHistory: () => callbacks.runPromise(runtime.clearHistory),
+});

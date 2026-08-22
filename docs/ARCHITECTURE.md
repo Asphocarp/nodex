@@ -185,6 +185,14 @@ commits the in-memory `Ref`. Browser Use borrows the synchronous policy projecti
 IPC invokes the mutation Effects directly. Corrupt policy files are quarantined during acquisition;
 there is no Promise write queue or second policy store in the Sidebar graph.
 
+Browser downloads are another Browser Profile-scoped runtime. Electron's synchronous
+`will-download` callback performs identity validation, one-shot agent-grant consumption, and save
+path assignment before returning; accepted progress then enters a scoped FiberSet. One immutable
+state projection owns live items and history, and one serialized Effect lane atomically publishes
+the bounded JSON history. Scope release removes session ingress, interrupts callback fibers, clears
+ephemeral grants and live handles, and leaves completed files untouched. IPC calls typed download
+Effects directly; Browser Sidebar receives only a tracked `clearHistory` Promise projection.
+
 The MCP App sandbox runtime Scope owns both the Electron coordinator and its protocol runtime.
 The protocol runtime uses a bounded Effect Cache for TTL and single-flight Skybridge fetches,
 tracks prewarm graphs in a keyed FiberMap, and projects Promise only at Electron's protocol and
