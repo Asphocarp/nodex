@@ -139,6 +139,11 @@ import {
 } from "../codex-application/CodexConversationResumeRuntime";
 import { makeCodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
 import {
+  CodexConversationEventBufferError,
+  make as makeCodexConversationEventBufferRuntime,
+} from "../codex-application/CodexConversationEventBufferRuntime";
+import { makeCodexConversationEventBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationEventBufferRuntimePromiseAdapter";
+import {
   CodexPostResumeGoalError,
   make as makeCodexPostResumeGoalRuntime,
 } from "../codex-application/CodexPostResumeGoalRuntime";
@@ -1432,6 +1437,24 @@ export const live: Layer.Layer<
             }),
           observe: (outcome) => requireCodexService().recordConversationResumeOutcome(outcome),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const conversationEventBuffer = yield* makeCodexConversationEventBufferRuntime({
+          compact: (threadId, events) =>
+            requireCodexService().compactBufferedConversationEvents(threadId, events),
+          replayNotification: (input) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().replayBufferedConversationNotification(input),
+              catch: (cause) =>
+                new CodexConversationEventBufferError({
+                  cause,
+                  phase: input.phase,
+                  threadId: input.threadId,
+                }),
+            }),
+          replayRequest: (input) =>
+            Effect.promise(() => requireCodexService().replayBufferedConversationRequest(input)),
+          reportThreadStartReplayFailure: (input) =>
+            requireCodexService().recordThreadStartReplayFailure(input),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const backgroundSubagentMetadataRepair = yield* makeCodexBackgroundSubagentMetadataRepair({
           isRepairNeeded: (parentThreadId, childThreadId) =>
             requireCodexService().isBackgroundSubagentMetadataRepairNeeded(
@@ -1657,6 +1680,10 @@ export const live: Layer.Layer<
               ),
               conversationResume: makeCodexConversationResumeRuntimePromiseAdapter(
                 conversationResume,
+                callbacks,
+              ),
+              conversationEventBuffer: makeCodexConversationEventBufferRuntimePromiseAdapter(
+                conversationEventBuffer,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(

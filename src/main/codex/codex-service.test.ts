@@ -58,6 +58,7 @@ import { TestCodexBackgroundSubagentMetadataRepair } from "./codex-background-su
 import { TestCodexQueuedFollowUpDispatchRuntime } from "./codex-queued-follow-up-dispatch-runtime.test-support";
 import { TestCodexConversationDeltaBufferRuntime } from "./codex-conversation-delta-buffer-runtime.test-support";
 import { TestCodexConversationResumeRuntime } from "./codex-conversation-resume-runtime.test-support";
+import { TestCodexConversationEventBufferRuntime } from "./codex-conversation-event-buffer-runtime.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -1865,6 +1866,21 @@ function createService(options?: {
       return await service.runConversationResume(input);
     },
   });
+  const conversationEventBuffer = new TestCodexConversationEventBufferRuntime({
+    compact: (threadId, events) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return service.compactBufferedConversationEvents(threadId, events);
+    },
+    replayNotification: async (input) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      await service.replayBufferedConversationNotification(input);
+    },
+    replayRequest: async (input) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      await service.replayBufferedConversationRequest(input);
+    },
+    reportThreadStartReplayFailure: (input) => service?.recordThreadStartReplayFailure(input),
+  });
   const postResumeGoals = new TestCodexPostResumeGoalRuntime({
     load: async (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -2058,6 +2074,7 @@ function createService(options?: {
     queuedFollowUpDispatch,
     conversationDeltaBuffer,
     conversationResume,
+    conversationEventBuffer,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -3835,7 +3852,6 @@ describe("codex-service renderer owner stream publishing", () => {
         notification: CodexTestServerNotification,
         options?: { bypassResumeBuffer?: boolean },
       ) => Promise<void>;
-      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
     };
 
     try {
@@ -6797,7 +6813,7 @@ describe("codex-service session-backed transcript recovery", () => {
     let goalFlows = 0;
     let tailLoads = 0;
     const serviceInternals = service as unknown as {
-      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
+      hasResumeNotificationBuffer: (id: string) => boolean;
       startPostResumeGoalFlow: (id: string, revision: number) => Promise<void>;
       scheduleRemainingThreadTurnsLoad: (id: string) => void;
     };
@@ -6823,7 +6839,7 @@ describe("codex-service session-backed transcript recovery", () => {
 
       expect(detail?.threadId ?? "").toBe(threadId);
       expect(requests.length).toBe(0);
-      expect(serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)).toBe(false);
+      expect(serviceInternals.hasResumeNotificationBuffer(threadId)).toBe(false);
       expect(goalFlows).toBe(0);
       expect(tailLoads).toBe(0);
       expect(hostMessages.length).toBe(0);
@@ -7191,13 +7207,13 @@ describe("codex-service session-backed transcript recovery", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
+      hasResumeNotificationBuffer: (id: string) => boolean;
     };
     const originalHandleNotification = serviceInternals.handleNotification.bind(service);
     const originalHandleServerRequestNow = serviceInternals.handleServerRequestNow.bind(service);
 
     serviceInternals.handleNotification = async (notification, options) => {
-      if (!serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)) {
+      if (!serviceInternals.hasResumeNotificationBuffer(threadId)) {
         order.push(`notification:${notification.method}`);
       }
       return originalHandleNotification(notification, options);
@@ -7255,7 +7271,7 @@ describe("codex-service session-backed transcript recovery", () => {
       beginResumeNotificationBuffer: (id: string) => void;
       replayBufferedResumeNotifications: (id: string) => Promise<void>;
       handleNotification: (notification: CodexTestServerNotification) => Promise<void>;
-      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
+      hasResumeNotificationBuffer: (id: string) => boolean;
     };
 
     try {
@@ -7282,7 +7298,7 @@ describe("codex-service session-backed transcript recovery", () => {
       const originalHandleNotification = serviceInternals.handleNotification.bind(service);
       let didInjectNestedNotification = false;
       serviceInternals.handleNotification = async (notification) => {
-        if (!serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)) {
+        if (!serviceInternals.hasResumeNotificationBuffer(threadId)) {
           order.push(
             `${notification.method}:${(notification.params as { itemId?: string }).itemId ?? ""}`,
           );
@@ -7313,7 +7329,7 @@ describe("codex-service session-backed transcript recovery", () => {
           "item/mcpToolCall/progress:mcp-live-nested," +
           "item/mcpToolCall/progress:mcp-old-tail",
       );
-      expect(serviceInternals.resumeNotificationBuffersByThreadId.has(threadId)).toBe(false);
+      expect(serviceInternals.hasResumeNotificationBuffer(threadId)).toBe(false);
     } finally {
       await service.shutdown();
     }
@@ -7377,14 +7393,14 @@ describe("codex-service session-backed transcript recovery", () => {
         input: ThreadResumeResponse,
         options?: Record<string, unknown>,
       ) => CodexCanonicalConversationState;
-      dedupeBufferedResumeEvents: (
+      compactBufferedConversationEvents: (
         id: string,
         events: Array<{ type: "notification"; notification: CodexTestServerNotification }>,
       ) => Array<{ type: "notification"; notification: CodexTestServerNotification }>;
     };
     serviceInternals.hydrateCanonicalConversationState(response);
 
-    const replay = serviceInternals.dedupeBufferedResumeEvents(threadId, [
+    const replay = serviceInternals.compactBufferedConversationEvents(threadId, [
       {
         type: "notification",
         notification: {
@@ -7500,12 +7516,16 @@ describe("codex-service session-backed transcript recovery", () => {
         method: string;
         params: unknown;
       }) => Promise<unknown>;
-      replayBufferedThreadStartEvents: (threadId: string) => Promise<void>;
+      replayBufferedConversationNotification: (input: {
+        phase: "resume" | "thread-start";
+        threadId: string;
+        notification: CodexTestServerNotification;
+      }) => Promise<void>;
     };
-    const originalReplay = serviceInternals.replayBufferedThreadStartEvents.bind(service);
+    const originalReplay = serviceInternals.replayBufferedConversationNotification.bind(service);
 
-    serviceInternals.replayBufferedThreadStartEvents = async (threadId) => {
-      replayedThreadIds.push(threadId);
+    serviceInternals.replayBufferedConversationNotification = async (input) => {
+      if (input.phase === "thread-start") replayedThreadIds.push(input.threadId);
     };
 
     try {
@@ -7538,7 +7558,7 @@ describe("codex-service session-backed transcript recovery", () => {
 
       expect(replayedThreadIds.join(",")).toBe("thr_deferred_creation_context");
     } finally {
-      serviceInternals.replayBufferedThreadStartEvents = originalReplay;
+      serviceInternals.replayBufferedConversationNotification = originalReplay;
       await serviceInternals.endThreadStartNotificationDeferral();
       await service.shutdown();
     }
@@ -7569,21 +7589,21 @@ describe("codex-service session-backed transcript recovery", () => {
         params: { threadId: string };
       }) => Promise<unknown>;
       upsertSidebarThreadFromAppServerThread: () => null;
-      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
-      threadStartNotificationBuffersByThreadId: Map<string, unknown[]>;
+      replayBufferedConversationNotification: (input: {
+        phase: "resume" | "thread-start";
+        threadId: string;
+        notification: CodexTestServerNotification;
+      }) => Promise<void>;
     };
-    const originalHandleNotification = serviceInternals.handleNotification.bind(service);
+    const originalReplayNotification =
+      serviceInternals.replayBufferedConversationNotification.bind(service);
     const originalHandleServerRequestNow = serviceInternals.handleServerRequestNow.bind(service);
     serviceInternals.upsertSidebarThreadFromAppServerThread = () => null;
-    serviceInternals.handleNotification = async (notification, options) => {
-      const bufferedBefore =
-        serviceInternals.resumeNotificationBuffersByThreadId.has(threadId) ||
-        serviceInternals.threadStartNotificationBuffersByThreadId.has(threadId);
-      await originalHandleNotification(notification, options);
-      const bufferedAfter =
-        serviceInternals.resumeNotificationBuffersByThreadId.has(threadId) ||
-        serviceInternals.threadStartNotificationBuffersByThreadId.has(threadId);
-      if (!bufferedBefore && !bufferedAfter) order.push(`notification:${notification.method}`);
+    serviceInternals.replayBufferedConversationNotification = async (input) => {
+      await originalReplayNotification(input);
+      if (input.phase === "thread-start" && input.notification.method !== "thread/started") {
+        order.push(`notification:${input.notification.method}`);
+      }
     };
     serviceInternals.handleServerRequestNow = async (request) => {
       if (request.method === "currentTime/read") {
@@ -7634,21 +7654,6 @@ describe("codex-service session-backed transcript recovery", () => {
       await serviceInternals.replayBufferedResumeNotifications(threadId);
       await Promise.resolve();
       expect(ordinaryRequestSettled).toBe(false);
-      const outerEvents = serviceInternals.threadStartNotificationBuffersByThreadId.get(
-        threadId,
-      ) as
-        | Array<{
-            type?: string;
-            notification?: { method?: string };
-            request?: { method?: string };
-          }>
-        | undefined;
-      expect(outerEvents?.length ?? 0).toBe(3);
-      expect(
-        outerEvents
-          ?.map((event) => event.notification?.method ?? event.request?.method ?? "")
-          .join(",") ?? "",
-      ).toBe("thread/started,item/reasoning/summaryPartAdded,item/tool/requestUserInput");
       expect(order.join(",")).toBe("");
 
       await serviceInternals.completeThreadStartNotificationDeferral(threadId);
@@ -9005,7 +9010,7 @@ describe("codex-service startTurn", () => {
         notification: CodexTestServerNotification,
         options?: { bypassResumeBuffer?: boolean },
       ) => Promise<void>;
-      resumeNotificationBuffersByThreadId: Map<string, unknown[]>;
+      hasResumeNotificationBuffer: (id: string) => boolean;
       hydrateCanonicalConversationState: (
         input: ThreadResumeResponse,
       ) => CodexCanonicalConversationState;
@@ -9041,7 +9046,7 @@ describe("codex-service startTurn", () => {
     serviceInternals.handleNotification = async (notification, options) => {
       if (
         notification.method === "item/agentMessage/delta" &&
-        !serviceInternals.resumeNotificationBuffersByThreadId.has("thr_start")
+        !serviceInternals.hasResumeNotificationBuffer("thr_start")
       ) {
         const canonical = getCanonicalConversationState(service, "thr_start");
         resumeOrder.push(canonical ? "replay-after-hydration" : "replay-before-hydration");

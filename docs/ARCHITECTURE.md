@@ -477,6 +477,17 @@ stranded behind an earlier join. Thread removal and Main Scope close interrupt p
 `CodexService` keeps the canonical hydration and replay operations but owns no resume Promise map,
 option-blind join policy, detached cleanup, or shutdown entry.
 
+Conversation event fencing is owned by one Main-scoped runtime shared by resume and Thread creation.
+Per-Thread resume lanes take precedence over Thread-start lanes; releasing an inner resume transfers
+its notifications and server requests into an already-open outer creation fence without exposing a
+partially materialized Thread. A replay lane is detached before canonical handling, so reentrant live
+events cannot be swallowed by the completing generation. Request completion stays ordered with its
+notification envelope, while Thread clear, service shutdown, and Main Scope close interrupt active
+replay and reject every request that has not crossed the canonical handler boundary. `CodexService`
+retains protocol Thread-id resolution, raw-delta compaction, and canonical notification/request
+operations, but owns no event-buffer Map, deferral Set/depth, detached request Promise, or teardown
+loop.
+
 Post-resume Thread-goal hydration is a separate Main-scoped lifecycle because it correlates a
 remote read with a particular conversation revision. Concurrent awaited hydrations share one keyed
 load while each retains its own revision fence; background resume requests coalesce to the newest

@@ -688,6 +688,12 @@ import type {
   CodexConversationResumeOutcome,
 } from "../codex-application/CodexConversationResumeRuntime";
 import type { CodexConversationResumeRuntimePromiseAdapter } from "../codex-application/CodexConversationResumeRuntimePromiseAdapter";
+import type {
+  CodexBufferedConversationEvent,
+  CodexBufferedConversationRequest,
+  CodexConversationEventBufferPhase,
+} from "../codex-application/CodexConversationEventBufferRuntime";
+import type { CodexConversationEventBufferRuntimePromiseAdapter } from "../codex-application/CodexConversationEventBufferRuntimePromiseAdapter";
 import {
   isExecutionWorkspacePathWithinRoot,
   rewriteExecutionWorkspaceRoots,
@@ -1181,20 +1187,6 @@ interface AutomationUpdateToolResult {
   } | null;
 }
 
-interface BufferedResumeNotification {
-  type: "notification";
-  notification: CodexServerNotification;
-}
-
-interface BufferedResumeRequest {
-  type: "request";
-  request: CodexServerRequest;
-  resolve: (value: unknown) => void;
-  reject: (reason?: unknown) => void;
-}
-
-type BufferedResumeEvent = BufferedResumeNotification | BufferedResumeRequest;
-
 type DormantConversationSyncReason =
   | "cold-load"
   | "explicit-resync"
@@ -1369,6 +1361,7 @@ type CodexServiceOptions = {
   queuedFollowUpDispatch: CodexQueuedFollowUpDispatchRuntime["Service"];
   conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
   conversationResume: CodexConversationResumeRuntimePromiseAdapter;
+  conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2616,14 +2609,10 @@ export class CodexService extends EventEmitter {
   private readonly queuedFollowUpDispatch: CodexQueuedFollowUpDispatchRuntime["Service"];
   private readonly conversationDeltaBuffer: CodexConversationDeltaBufferRuntimePromiseAdapter;
   private readonly conversationResume: CodexConversationResumeRuntimePromiseAdapter;
+  private readonly conversationEventBuffer: CodexConversationEventBufferRuntimePromiseAdapter;
   private readonly pendingFreshSessionFirstTurnByThreadId = new Map<
     string,
     PendingFreshSessionFirstTurnLaunch
-  >();
-  private readonly resumeNotificationBuffersByThreadId = new Map<string, BufferedResumeEvent[]>();
-  private readonly threadStartNotificationBuffersByThreadId = new Map<
-    string,
-    BufferedResumeEvent[]
   >();
   private readonly internalNotificationHandlers = new Set<InternalNotificationHandler>();
   private readonly internalThreadIds = new Map<string, InternalThreadMetadata>();
@@ -2634,9 +2623,6 @@ export class CodexService extends EventEmitter {
     FrozenNodexAgentTurnAuthority
   >();
   private readonly fullFidelitySubagentThreadIds = new Set<string>();
-  private readonly deferredThreadStartThreadIds = new Set<string>();
-  private readonly readyDeferredThreadStartThreadIds = new Set<string>();
-  private threadStartNotificationDeferralDepth = 0;
   private readonly acceptedConversationDocumentById = new Map<string, CodexConversationSnapshot>();
   private readonly conversationVersionById = new Map<string, number>();
   private readonly conversationStreamRevisionById = new Map<string, number>();
@@ -2705,6 +2691,7 @@ export class CodexService extends EventEmitter {
     this.queuedFollowUpDispatch = options.queuedFollowUpDispatch;
     this.conversationDeltaBuffer = options.conversationDeltaBuffer;
     this.conversationResume = options.conversationResume;
+    this.conversationEventBuffer = options.conversationEventBuffer;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -3110,166 +3097,57 @@ export class CodexService extends EventEmitter {
     this.emit("hostMessage", message);
   }
 
-  private beginResumeNotificationBuffer(threadId: string): void {
-    if (this.resumeNotificationBuffersByThreadId.has(threadId)) return;
-    this.resumeNotificationBuffersByThreadId.set(threadId, []);
+  private beginResumeNotificationBuffer(threadId: string): boolean {
+    return this.conversationEventBuffer.beginResume(threadId);
+  }
+
+  private hasResumeNotificationBuffer(threadId: string): boolean {
+    return this.conversationEventBuffer.hasResume(threadId);
   }
 
   private beginThreadStartNotificationDeferral(): void {
-    this.threadStartNotificationDeferralDepth += 1;
-  }
-
-  private bufferThreadStartNotificationIfNeeded(notification: CodexServerNotification): boolean {
-    const threadId = parseEventThreadId(asRecord(notification.params));
-    if (!threadId) return false;
-    const existing = this.threadStartNotificationBuffersByThreadId.get(threadId);
-    if (existing) {
-      existing.push({ type: "notification", notification });
-      return true;
-    }
-    if (notification.method !== "thread/started") return false;
-    if (this.threadStartNotificationDeferralDepth === 0) return false;
-    if (this.readyDeferredThreadStartThreadIds.has(threadId)) return false;
-
-    this.deferredThreadStartThreadIds.add(threadId);
-    this.threadStartNotificationBuffersByThreadId.set(threadId, [
-      { type: "notification", notification },
-    ]);
-    return true;
+    this.conversationEventBuffer.beginThreadStartDeferral();
   }
 
   private bufferNotificationForReplayIfNeeded(
     notification: CodexServerNotification,
     options: HandleNotificationOptions = {},
   ): boolean {
-    if (!options.bypassResumeBuffer && this.bufferResumeNotificationIfNeeded(notification)) {
-      return true;
-    }
-    return this.bufferThreadStartNotificationIfNeeded(notification);
+    const threadId = parseEventThreadId(asRecord(notification.params));
+    if (!threadId) return false;
+    return this.conversationEventBuffer.offerNotification({
+      threadId,
+      notification,
+      bypassResume: options.bypassResumeBuffer,
+      startsThread: notification.method === "thread/started",
+    });
   }
 
   private async completeThreadStartNotificationDeferral(threadId: string | null): Promise<void> {
-    if (!threadId) return;
-
-    this.readyDeferredThreadStartThreadIds.add(threadId);
-    await this.releaseDeferredThreadStartBuffer(threadId);
+    await this.conversationEventBuffer.completeThreadStartDeferral(threadId);
   }
 
   private async endThreadStartNotificationDeferral(): Promise<void> {
-    if (this.threadStartNotificationDeferralDepth <= 0) return;
-
-    this.threadStartNotificationDeferralDepth -= 1;
-    if (this.threadStartNotificationDeferralDepth > 0) return;
-
-    const pendingThreadIds = [...this.deferredThreadStartThreadIds];
-    for (const threadId of pendingThreadIds) {
-      await this.releaseDeferredThreadStartBuffer(threadId);
-    }
-    this.readyDeferredThreadStartThreadIds.clear();
+    await this.conversationEventBuffer.endThreadStartDeferral();
   }
 
-  private async releaseDeferredThreadStartBuffer(threadId: string): Promise<void> {
-    if (!this.deferredThreadStartThreadIds.delete(threadId)) return;
-
-    try {
-      await this.replayBufferedThreadStartEvents(threadId);
-    } catch (error) {
-      this.logger.error("Failed to replay deferred thread-start events", {
-        threadId,
-        error,
-      });
-    }
-  }
-
-  private async replayBufferedThreadStartEvents(threadId: string): Promise<void> {
-    const buffered = this.threadStartNotificationBuffersByThreadId.get(threadId) ?? [];
-    this.threadStartNotificationBuffersByThreadId.delete(threadId);
-    const events = this.dedupeBufferedResumeEvents(threadId, buffered);
-    for (const event of events) {
-      if (event.type === "request") {
-        this.handleBufferedResumeRequest(event);
-        continue;
-      }
-      try {
-        await this.handleNotification(event.notification);
-      } catch (error) {
-        this.logger.error("Failed to replay deferred thread-start notification", {
-          threadId,
-          method: event.notification.method,
-          error,
-        });
-      }
-    }
-  }
-
-  private bufferResumeNotificationIfNeeded(notification: CodexServerNotification): boolean {
-    const payload = asRecord(notification.params);
-    const threadId = parseEventThreadId(payload);
-    if (!threadId) return false;
-
-    const buffer = this.resumeNotificationBuffersByThreadId.get(threadId);
-    if (!buffer) return false;
-
-    buffer.push({ type: "notification", notification });
-    return true;
-  }
-
-  private bufferResumeServerRequestIfNeeded(request: CodexServerRequest): boolean {
+  private bufferServerRequestForReplayIfNeeded(request: CodexServerRequest): boolean {
     const threadId = this.resolveServerRequestThreadId(request);
     if (!threadId) return false;
-
-    const buffer = this.resumeNotificationBuffersByThreadId.get(threadId);
-    if (!buffer) return false;
-
-    buffer.push({
-      type: "request",
+    return this.conversationEventBuffer.offerRequest({
+      threadId,
       request,
-      ...this.buildServerRequestCompletion(
-        threadId,
-        request.id,
-        request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
-      ),
-    });
-    return true;
-  }
-
-  private bufferThreadStartServerRequestIfNeeded(
-    request: CodexServerRequest,
-    existingEvent?: BufferedResumeRequest,
-  ): boolean {
-    const threadId = this.resolveServerRequestThreadId(request);
-    if (!threadId) return false;
-
-    const buffer = this.threadStartNotificationBuffersByThreadId.get(threadId);
-    if (!buffer) return false;
-    buffer.push(
-      existingEvent ?? {
-        type: "request",
-        request,
-        ...this.buildServerRequestCompletion(
+      completion: () =>
+        this.buildServerRequestCompletion(
           threadId,
           request.id,
           request[CODEX_SERVER_REQUEST_OCCURRENCE_TOKEN],
         ),
-      },
-    );
-    return true;
+    });
   }
 
   private async replayBufferedResumeNotifications(threadId: string): Promise<void> {
-    const buffered = this.resumeNotificationBuffersByThreadId.get(threadId);
-    this.resumeNotificationBuffersByThreadId.delete(threadId);
-    if (!buffered) return;
-
-    const events = this.dedupeBufferedResumeEvents(threadId, buffered);
-    for (const event of events) {
-      if (event.type === "request") {
-        this.handleBufferedResumeRequest(event);
-        continue;
-      }
-
-      await this.handleNotification(event.notification);
-    }
+    await this.conversationEventBuffer.releaseResume(threadId);
   }
 
   private async releaseConversationResumeBufferCore(threadId: string): Promise<void> {
@@ -3279,15 +3157,7 @@ export class CodexService extends EventEmitter {
   }
 
   private discardConversationResumeBuffer(threadId: string, reason: unknown): void {
-    const buffered = this.resumeNotificationBuffersByThreadId.get(threadId);
-    this.resumeNotificationBuffersByThreadId.delete(threadId);
-    if (buffered) {
-      for (const event of buffered) {
-        if (event.type === "request") {
-          event.reject(reason);
-        }
-      }
-    }
+    this.conversationEventBuffer.discardResume(threadId, reason);
     this.rendererOwnerRetention.reconcile(threadId);
   }
 
@@ -3300,33 +3170,44 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
-  private handleBufferedResumeRequest(event: BufferedResumeRequest): void {
-    if (this.bufferThreadStartServerRequestIfNeeded(event.request, event)) return;
-    void this.handleServerRequestNow(event.request).then((response) => {
-      if (response !== CodexApplicationRequestPending) event.resolve(response);
-    }, event.reject);
-  }
-
-  private rejectBufferedResumeRequests(reason: unknown): void {
-    for (const buffers of [
-      this.resumeNotificationBuffersByThreadId,
-      this.threadStartNotificationBuffersByThreadId,
-    ]) {
-      for (const buffered of buffers.values()) {
-        for (const event of buffered) {
-          if (event.type === "request") {
-            event.reject(reason);
-          }
-        }
-      }
-      buffers.clear();
+  /** Effect Module adapter operation; replays one request after its lifecycle fence opens. */
+  async replayBufferedConversationRequest(input: {
+    readonly phase: CodexConversationEventBufferPhase;
+    readonly threadId: string;
+    readonly event: CodexBufferedConversationRequest;
+  }): Promise<void> {
+    try {
+      const response = await this.handleServerRequestNow(input.event.request);
+      if (response !== CodexApplicationRequestPending) input.event.resolve(response);
+    } catch (error) {
+      input.event.reject(error);
     }
   }
 
-  private dedupeBufferedResumeEvents(
+  /** Effect Module adapter operation; re-enters canonical notification handling. */
+  async replayBufferedConversationNotification(input: {
+    readonly phase: CodexConversationEventBufferPhase;
+    readonly threadId: string;
+    readonly notification: CodexServerNotification;
+  }): Promise<void> {
+    await this.handleNotification(input.notification);
+  }
+
+  recordThreadStartReplayFailure(input: {
+    readonly threadId: string;
+    readonly cause: unknown;
+  }): void {
+    this.logger.error("Failed to replay deferred thread-start event", {
+      threadId: input.threadId,
+      error: input.cause,
+    });
+  }
+
+  /** Effect Module adapter operation; compacts replay without duplicating canonical raw deltas. */
+  compactBufferedConversationEvents(
     threadId: string,
-    events: BufferedResumeEvent[],
-  ): BufferedResumeEvent[] {
+    events: readonly CodexBufferedConversationEvent[],
+  ): CodexBufferedConversationEvent[] {
     const buildKey = (method: string, turnId: string | null, itemId: string): string =>
       `${method}:${turnId ?? ""}:${itemId}`;
     const completedAgentDeltaKeys = new Set<string>();
@@ -3402,7 +3283,7 @@ export class CodexService extends EventEmitter {
       );
     }
 
-    const deduped: BufferedResumeEvent[] = [];
+    const deduped: CodexBufferedConversationEvent[] = [];
     for (const event of events) {
       if (event.type === "request") {
         deduped.push(event);
@@ -3958,7 +3839,7 @@ export class CodexService extends EventEmitter {
       if (launch.state === "starting") continue;
 
       this.pendingFreshSessionFirstTurnByThreadId.delete(threadId);
-      if (this.resumeNotificationBuffersByThreadId.has(threadId)) {
+      if (this.hasResumeNotificationBuffer(threadId)) {
         this.discardConversationResumeBuffer(
           threadId,
           new Error("Fresh thread owner disconnected"),
@@ -6113,6 +5994,10 @@ export class CodexService extends EventEmitter {
     this.postResumeGoals.clear(threadId);
     this.conversationHistory.clear(threadId);
     this.conversationResume.clear(threadId);
+    this.conversationEventBuffer.clear(
+      threadId,
+      new Error(`Codex Thread '${threadId}' local state was cleared`),
+    );
     this.backgroundSubagentMetadataRepair.clear(threadId);
     this.queuedFollowUpDispatch.clear(threadId);
   }
@@ -6568,10 +6453,7 @@ export class CodexService extends EventEmitter {
     this.forkSidePanelTransferLifecycle?.clear();
     this.terminalInputBuffers.clear();
     this.pendingFreshSessionFirstTurnByThreadId.clear();
-    this.rejectBufferedResumeRequests(new Error("Codex service is shutting down"));
-    this.deferredThreadStartThreadIds.clear();
-    this.readyDeferredThreadStartThreadIds.clear();
-    this.threadStartNotificationDeferralDepth = 0;
+    await this.conversationEventBuffer.shutdown(new Error("Codex service is shutting down"));
     await this.sidebarSweep.cancel();
     for (const pending of this.pendingApprovals.values()) {
       pending.reject(new Error("Codex service shutting down"));
@@ -15805,9 +15687,8 @@ export class CodexService extends EventEmitter {
       return this.serializeThreadDetail(threadId);
     }
 
-    const ownsResumeBuffer = !this.resumeNotificationBuffersByThreadId.has(threadId);
+    const ownsResumeBuffer = this.beginResumeNotificationBuffer(threadId);
     if (ownsResumeBuffer) {
-      this.beginResumeNotificationBuffer(threadId);
       this.setConversationResumeState(threadId, "resuming");
     }
 
@@ -15903,7 +15784,7 @@ export class CodexService extends EventEmitter {
       existingRecord.streamRole !== null &&
       (existingRecord.resumeState !== "needs_resume" || existingRecord.isStreaming)
     ) {
-      const hadDeferredBuffer = this.resumeNotificationBuffersByThreadId.has(threadId);
+      const hadDeferredBuffer = this.hasResumeNotificationBuffer(threadId);
       if (replayBufferedNotifications && hadDeferredBuffer) {
         await this.releaseConversationResumeBufferCore(threadId);
       }
@@ -16109,10 +15990,7 @@ export class CodexService extends EventEmitter {
       };
     }
 
-    const ownsBuffer = !this.resumeNotificationBuffersByThreadId.has(threadId);
-    if (ownsBuffer) {
-      this.beginResumeNotificationBuffer(threadId);
-    }
+    const ownsBuffer = this.beginResumeNotificationBuffer(threadId);
 
     try {
       const record = this.getConversationRecord(threadId);
@@ -22305,8 +22183,7 @@ export class CodexService extends EventEmitter {
       return this.handleServerRequestNow(request);
     }
 
-    if (this.bufferResumeServerRequestIfNeeded(request)) return CodexApplicationRequestPending;
-    if (this.bufferThreadStartServerRequestIfNeeded(request)) {
+    if (this.bufferServerRequestForReplayIfNeeded(request)) {
       return CodexApplicationRequestPending;
     }
 
