@@ -145,8 +145,12 @@ Electron Main is one Effect 4 application kernel. [`MainEntry`](../src/main/app/
 
 Foreground Appshot discovery is one process-scoped host runtime. Windows only
 contribute focus observations; closing a window or Main releases its listeners,
-target handles, helper process, and polling timers through that runtime's Scope.
-Renderer IPC borrows the runtime and never owns a second cache or scheduler.
+target handles, in-flight helper read, and polling fiber through that runtime's
+Scope. One immutable `Ref` owns focus and target state, concurrent reads share
+one cached Effect, and a `FiberHandle` starts or interrupts foreground polling.
+The native Adapter owns only helper execution, screen metadata, and Electron
+capture calls; it has no scheduler or application state. Renderer IPC borrows
+the runtime and never owns a second cache or scheduler.
 
 Remote Hosted PiP likewise keeps its native presentation poll in one scoped
 Effect fiber. The native host coordinator contains no timer; it tracks every
