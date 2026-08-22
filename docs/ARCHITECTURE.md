@@ -201,6 +201,12 @@ not an application service or a second write queue. Renderer and guest IPC invok
 Effects directly, and decrypted values are sent only after revalidating the exact guest and HTTP(S)
 origin.
 
+Browser local-server display preferences are Profile-owned state, not a renderer or IPC cache. Their
+runtime loads and validates one bounded JSON file, quarantines malformed input, and serializes partial
+updates through one semaphore. A mutation atomically publishes and fsyncs the complete next document
+before committing its `Ref`, so concurrent partial updates cannot overwrite one another and a failed
+write cannot advance the visible snapshot. IPC reads and mutates this runtime directly.
+
 The MCP App sandbox runtime Scope owns both the Electron coordinator and its protocol runtime.
 The protocol runtime uses a bounded Effect Cache for TTL and single-flight Skybridge fetches,
 tracks prewarm graphs in a keyed FiberMap, and projects Promise only at Electron's protocol and

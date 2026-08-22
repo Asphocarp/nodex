@@ -130,6 +130,11 @@ it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
 
           assert.isObject(runtime.services);
           assert.isObject(runtime.download);
+          assert.deepEqual(yield* runtime.localServerPreferences.snapshot, {
+            showMode: "online",
+            sortMode: "recently-used",
+            expandedProjectIds: [],
+          });
           assert.strictEqual(browserSession.listenerCount("will-download"), 1);
 
           yield* Scope.close(scope, Exit.void);

@@ -17,7 +17,10 @@ import {
 } from "../browser/browser-credential-service";
 import { BrowserCredentialVault } from "../browser/browser-credential-vault";
 import { BrowserExtensionsProvider } from "../browser/browser-extensions-provider";
-import { BrowserLocalServerPreferencesStore } from "../browser/browser-local-server-preferences";
+import {
+  makeBrowserLocalServerPreferencesRuntime,
+  type BrowserLocalServerPreferencesRuntime,
+} from "../browser/browser-local-server-preferences";
 import {
   BrowserProfileHelperClient,
   resolveBrowserProfileHelperExecutable,
@@ -53,6 +56,7 @@ export class BrowserProfileRuntime extends Context.Service<
   {
     readonly download: BrowserDownloadRuntime;
     readonly credentials: BrowserCredentialRuntime;
+    readonly localServerPreferences: BrowserLocalServerPreferencesRuntime;
     readonly policy: BrowserUsePolicyRuntime;
     readonly services: BrowserProfileServices;
   }
@@ -141,11 +145,19 @@ export const live = (
         resolveGuestOwner: (webContentsId) =>
           options.browserSidebar.getOwnerWebContentsIdForGuest(webContentsId),
       });
+      const localServerPreferences = yield* makeBrowserLocalServerPreferencesRuntime(
+        `${options.userDataPath}/browser-local-server-preferences.json`,
+      ).pipe(
+        Effect.mapError(
+          (cause) =>
+            new BrowserProfileRuntimeError({
+              operation: "initialize-local-server-preferences",
+              cause,
+            }),
+        ),
+      );
       const services: BrowserProfileServices = {
         extensionsProvider: new BrowserExtensionsProvider(browserSession.extensions ?? null),
-        localServerPreferencesStore: new BrowserLocalServerPreferencesStore(
-          `${options.userDataPath}/browser-local-server-preferences.json`,
-        ),
         profileImporter: new BrowserProfileImporter({
           cookieStore: browserSession.cookies,
           credentialVault,
@@ -206,6 +218,12 @@ export const live = (
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => options.browserSidebar.setDownloadService(null)),
       );
-      return BrowserProfileRuntime.of({ credentials, download, policy, services });
+      return BrowserProfileRuntime.of({
+        credentials,
+        download,
+        localServerPreferences,
+        policy,
+        services,
+      });
     }),
   );

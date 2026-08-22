@@ -89,7 +89,7 @@ export const live = (
       const config = yield* MainConfig;
       const windowSessions = yield* WindowSessionCatalog;
       const { browserSidebar } = options;
-      const { credentials, download, policy, services } = browserProfile;
+      const { credentials, download, localServerPreferences, policy, services } = browserProfile;
 
       const trusted = (event: IpcMainInvokeEvent, capabilityName: string) =>
         attempt("authorize-renderer", () =>
@@ -398,11 +398,7 @@ export const live = (
       );
       yield* ipc.handle("browser-local-server-preferences-get", (event) =>
         trusted(event, "Local server preferences").pipe(
-          Effect.andThen(
-            attempt("read-local-server-preferences", () =>
-              services.localServerPreferencesStore.snapshot(),
-            ),
-          ),
+          Effect.andThen(localServerPreferences.snapshot),
         ),
       );
       yield* ipc.handle("browser-local-server-preferences-update", (event, rawInput: unknown) =>
@@ -413,8 +409,14 @@ export const live = (
             ),
           ),
           Effect.flatMap((input) =>
-            attempt("update-local-server-preferences", () =>
-              services.localServerPreferencesStore.update(input),
+            localServerPreferences.update(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new BrowserProfileIpcError({
+                    operation: "update-local-server-preferences",
+                    cause,
+                  }),
+              ),
             ),
           ),
           Effect.tap((preferences) =>
