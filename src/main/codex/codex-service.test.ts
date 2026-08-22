@@ -50,6 +50,7 @@ import type {
   CodexUserInputAutoResolutionEntry,
 } from "../../shared/codex-user-input-auto-resolution";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
+import { TestCodexThreadSettingsRuntime } from "./codex-thread-settings-runtime.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -1806,6 +1807,7 @@ function createService(options?: {
     },
     onChanged: (entries) => service?.projectPendingWorktreeSnapshot(entries),
   });
+  const threadSettingsRuntime = new TestCodexThreadSettingsRuntime();
   const testService = new CodexService({
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
@@ -1981,6 +1983,7 @@ function createService(options?: {
     },
     threadHandoffRuntime: threadHandoffRuntimeAdapter,
     pendingWorktrees,
+    threadSettingsRuntime,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -8458,7 +8461,11 @@ describe("codex-service interrupt target resolution", () => {
       ],
     };
 
-    Reflect.set(service as object, "threadSettingsUpdateSupport", "unsupported");
+    const threadSettingsRuntime = Reflect.get(
+      service as object,
+      "threadSettingsRuntime",
+    ) as TestCodexThreadSettingsRuntime;
+    threadSettingsRuntime.recordRemoteUpdateUnsupported();
     serviceInternals.setConversationRecordDetail(detail);
     const record = serviceInternals.getConversationRecord("thr_goal_continue_fallback");
     record.resumeState = "resumed";
@@ -8523,10 +8530,10 @@ describe("codex-service interrupt target resolution", () => {
       start: () => Promise<void>;
       request: (method: string, params: unknown) => Promise<unknown>;
     };
-    const pendingThreadSettingsUpdates = Reflect.get(
+    const threadSettingsRuntime = Reflect.get(
       service as object,
-      "pendingThreadSettingsUpdates",
-    ) as Map<string, Promise<unknown>>;
+      "threadSettingsRuntime",
+    ) as TestCodexThreadSettingsRuntime;
     const requests: Array<{ method: string; params: unknown }> = [];
     const detail: CodexThreadDetail = {
       ...makeThreadDetail("thr_goal_continue_settings"),
@@ -8541,13 +8548,14 @@ describe("codex-service interrupt target resolution", () => {
         },
       ],
     };
-    let resolveSettings: (value: unknown) => void = () => {};
+    let resolveSettings: () => void = () => {};
 
-    pendingThreadSettingsUpdates.set(
+    const heldSettingsMutation = threadSettingsRuntime.runMutation(
       "thr_goal_continue_settings",
-      new Promise((resolve) => {
-        resolveSettings = resolve;
-      }),
+      async () =>
+        await new Promise<void>((resolve) => {
+          resolveSettings = resolve;
+        }),
     );
     serviceInternals.setConversationRecordDetail(detail);
     const record = serviceInternals.getConversationRecord("thr_goal_continue_settings");
@@ -8586,18 +8594,7 @@ describe("codex-service interrupt target resolution", () => {
       await new Promise((resolve) => setTimeout(resolve, 350));
       expect(requests.some((request) => request.method === "thread/goal/set")).toBe(false);
 
-      resolveSettings({
-        model: "gpt-5.3-codex",
-        reasoningEffort: "high",
-        collaborationMode: {
-          mode: "default",
-          settings: {
-            model: "gpt-5.3-codex",
-            reasoning_effort: "high",
-            developer_instructions: null,
-          },
-        },
-      });
+      resolveSettings();
 
       await waitForCondition(
         () => requests.some((request) => request.method === "thread/goal/set"),
@@ -8607,7 +8604,8 @@ describe("codex-service interrupt target resolution", () => {
       const goalSetRequest = requests.find((request) => request.method === "thread/goal/set");
       expect((goalSetRequest?.params as { status?: string })?.status).toBe("active");
     } finally {
-      pendingThreadSettingsUpdates.delete("thr_goal_continue_settings");
+      resolveSettings();
+      await heldSettingsMutation;
       await service.shutdown();
     }
   });

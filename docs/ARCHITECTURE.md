@@ -476,6 +476,14 @@ failure releases the permit, queued caller interruption removes that operation, 
 interrupts active and waiting projections through the application callback runtime. `CodexService`
 keeps the move's domain validation and state transition but owns no Promise chain or recovery tail.
 
+Next-turn Thread settings use one Main-scoped per-Thread mutation runtime. Its reference-counted
+lanes preserve FIFO ordering within a Thread while unrelated Threads remain independent; Turn start
+and active-goal continuation join the same lane before reading effective settings. The runtime also
+owns the single app-server `thread/settings/update` capability fact used by ordinary settings,
+workspace moves, and handoff evaluation. `CodexService` temporarily performs validation, local
+projection, and protocol adaptation through a stateless Promise boundary, but owns no mutation
+Promise map, recovery tail, drain barrier, or parallel capability flag.
+
 External-agent import request correlation is owned by one Main-scoped runtime. It subscribes to the
 generation-fenced local Gateway stream before issuing the import request, buffers progress and
 completion notifications until the returned import identity is known, and serializes admission so

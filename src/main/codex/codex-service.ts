@@ -679,6 +679,7 @@ import {
   resolveCodexThreadVisualizationDirectory,
 } from "./codex-dynamic-first-turn-context";
 import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
+import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import {
   isExecutionWorkspacePathWithinRoot,
   rewriteExecutionWorkspaceRoots,
@@ -1348,6 +1349,7 @@ type CodexServiceOptions = {
   sidebarThreadMoveRuntime: CodexSidebarThreadMoveRuntimePromiseAdapter;
   threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
   pendingWorktrees: CodexPendingWorktreeRuntimePromiseAdapter;
+  threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2589,6 +2591,7 @@ export class CodexService extends EventEmitter {
     new PendingServerRequestRegistry<PendingPrivateServerRequest>();
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
+  private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly conversationResumeInFlightByThreadId = new Map<
     string,
     Promise<CodexConversationSnapshot | null>
@@ -2654,10 +2657,6 @@ export class CodexService extends EventEmitter {
     string,
     Array<() => void>
   >();
-  private readonly pendingThreadSettingsUpdates = new Map<
-    string,
-    Promise<CodexConversationThreadSettings>
-  >();
   private readonly threadNamePersistenceByThreadId = new Map<string, Promise<void>>();
   private readonly queuedFollowUpDispatchInFlight = new Set<string>();
   private readonly conversationTurnsLoads = new Map<
@@ -2681,7 +2680,6 @@ export class CodexService extends EventEmitter {
   private readonly terminalInputBuffers = new Map<string, string>();
   private readonly manualCompactionTracker = new CodexManualCompactionTracker();
   private lastConnectionStatus: CodexConnectionState["status"] = "disconnected";
-  private threadSettingsUpdateSupport: "unknown" | "supported" | "unsupported" = "unknown";
   private sidebarSyncInFlight: Promise<CodexSidebarSyncResult> | null = null;
   private sidebarSyncGeneration = 0;
   private sidebarLastSuccessfulSyncGeneration = 0;
@@ -2742,6 +2740,7 @@ export class CodexService extends EventEmitter {
     this.sidebarThreadMoveRuntime = options.sidebarThreadMoveRuntime;
     this.threadHandoffRuntime = options.threadHandoffRuntime;
     this.pendingWorktreeRuntime = options.pendingWorktrees;
+    this.threadSettingsRuntime = options.threadSettingsRuntime;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -7550,7 +7549,7 @@ export class CodexService extends EventEmitter {
   }): Promise<void> {
     if (!input.wasLoaded) return;
     if (input.previous.cwd === input.move.next.cwd) return;
-    if (this.threadSettingsUpdateSupport === "unsupported") return;
+    if (this.threadSettingsRuntime.remoteUpdateSupport() === "unsupported") return;
     try {
       await this.ensureClientReady();
       await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
@@ -7560,10 +7559,10 @@ export class CodexService extends EventEmitter {
           cwd: input.move.next.cwd,
         },
       );
-      this.threadSettingsUpdateSupport = "supported";
+      this.threadSettingsRuntime.recordRemoteUpdateSupported();
     } catch (error) {
       if (isUnsupportedThreadSettingsUpdateError(error)) {
-        this.threadSettingsUpdateSupport = "unsupported";
+        this.threadSettingsRuntime.recordRemoteUpdateUnsupported();
         this.logger.warn(
           "Codex app-server does not support workspace updates for loaded sidebar tasks",
           { threadId: input.threadId },
@@ -10677,7 +10676,7 @@ export class CodexService extends EventEmitter {
         "thread/settings/update",
         settings,
       );
-      this.threadSettingsUpdateSupport = "supported";
+      this.threadSettingsRuntime.recordRemoteUpdateSupported();
     }
     const response = await this.client.request<"thread/resume", ThreadResumeResponse>(
       "thread/resume",
@@ -10925,7 +10924,7 @@ export class CodexService extends EventEmitter {
     return evaluateCodexThreadHandoffCapability({
       runtimeVersion: this.runtimeVersion,
       appServer: {
-        threadSettingsUpdate: this.threadSettingsUpdateSupport !== "unsupported",
+        threadSettingsUpdate: this.threadSettingsRuntime.remoteUpdateSupport() !== "unsupported",
         threadResumeLocation: true,
         rolloutPathConsistency: true,
       },
@@ -18083,72 +18082,60 @@ export class CodexService extends EventEmitter {
     options: DormantConversationSyncOptions = {},
   ): Promise<CodexConversationThreadSettings> {
     const syncDormantConversationUpdates = options.syncDormantConversationUpdates ?? true;
-    const previousUpdate = this.pendingThreadSettingsUpdates.get(threadId) ?? Promise.resolve(null);
-    const update = previousUpdate
-      .catch(() => null)
-      .then(async () => {
-        await this.ensureClientReady();
-        const executionProfile = patch.executionProfile
-          ? await this.validateAndPersistThreadExecutionProfile(
-              threadId,
-              patch.executionProfile,
-              patch.executionProfileChange,
-            )
-          : null;
-        const validatedPatch = executionProfile ? { ...patch, executionProfile } : patch;
-        const nextSettings = this.mergeThreadSettingsPatch(threadId, validatedPatch);
-        this.applyLatestThreadSettingsForThread(threadId, nextSettings);
-        if (syncDormantConversationUpdates) {
-          this.syncAcceptedConversationDocument(threadId, {
-            syncLatestCollaborationMode: true,
-            syncLatestThreadSettings: true,
-          });
-        }
-
-        if (this.threadSettingsUpdateSupport !== "unsupported") {
-          const params = await this.buildThreadSettingsUpdateParams(
+    return await this.threadSettingsRuntime.runMutation(threadId, async () => {
+      await this.ensureClientReady();
+      const executionProfile = patch.executionProfile
+        ? await this.validateAndPersistThreadExecutionProfile(
             threadId,
-            validatedPatch,
-            nextSettings,
-          );
-          try {
-            await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
-              "thread/settings/update",
-              params,
-            );
-            this.threadSettingsUpdateSupport = "supported";
-            return nextSettings;
-          } catch (error) {
-            if (isThreadNotFoundError(error)) {
-              this.logger.info(
-                "Task settings will be applied when the unloaded task starts its next turn",
-                { threadId },
-              );
-              return nextSettings;
-            }
-            if (!isUnsupportedThreadSettingsUpdateError(error)) throw error;
-            this.threadSettingsUpdateSupport = "unsupported";
-            this.logger.warn(
-              "Codex app-server does not support thread/settings/update; using local next-turn settings fallback",
-              {
-                threadId,
-                error: error instanceof Error ? error.message : String(error),
-              },
-            );
-          }
-        }
-
-        return nextSettings;
-      });
-
-    this.pendingThreadSettingsUpdates.set(threadId, update);
-    try {
-      return await update;
-    } finally {
-      if (this.pendingThreadSettingsUpdates.get(threadId) === update) {
-        this.pendingThreadSettingsUpdates.delete(threadId);
+            patch.executionProfile,
+            patch.executionProfileChange,
+          )
+        : null;
+      const validatedPatch = executionProfile ? { ...patch, executionProfile } : patch;
+      const nextSettings = this.mergeThreadSettingsPatch(threadId, validatedPatch);
+      this.applyLatestThreadSettingsForThread(threadId, nextSettings);
+      if (syncDormantConversationUpdates) {
+        this.syncAcceptedConversationDocument(threadId, {
+          syncLatestCollaborationMode: true,
+          syncLatestThreadSettings: true,
+        });
       }
-    }
+
+      if (this.threadSettingsRuntime.remoteUpdateSupport() !== "unsupported") {
+        const params = await this.buildThreadSettingsUpdateParams(
+          threadId,
+          validatedPatch,
+          nextSettings,
+        );
+        try {
+          await this.client.request<"thread/settings/update", ThreadSettingsUpdateResponse>(
+            "thread/settings/update",
+            params,
+          );
+          this.threadSettingsRuntime.recordRemoteUpdateSupported();
+          return nextSettings;
+        } catch (error) {
+          if (isThreadNotFoundError(error)) {
+            this.logger.info(
+              "Task settings will be applied when the unloaded task starts its next turn",
+              { threadId },
+            );
+            return nextSettings;
+          }
+          if (!isUnsupportedThreadSettingsUpdateError(error)) throw error;
+          this.threadSettingsRuntime.recordRemoteUpdateUnsupported();
+          this.logger.warn(
+            "Codex app-server does not support thread/settings/update; using local next-turn settings fallback",
+            {
+              threadId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+          );
+        }
+      }
+
+      return nextSettings;
+    });
   }
 
   async startThreadCompaction(threadId: string): Promise<void> {
@@ -18342,14 +18329,11 @@ export class CodexService extends EventEmitter {
   async runActiveThreadGoalContinuation(threadId: string): Promise<void> {
     if (!this.canContinueActiveThreadGoal(threadId)) return;
 
-    const pendingThreadSettingsUpdate = this.pendingThreadSettingsUpdates.get(threadId);
-    if (pendingThreadSettingsUpdate) {
-      await pendingThreadSettingsUpdate;
-      if (!this.canContinueActiveThreadGoal(threadId)) return;
-    }
+    await this.threadSettingsRuntime.awaitCurrent(threadId);
+    if (!this.canContinueActiveThreadGoal(threadId)) return;
 
     await this.ensureReasoningSummaryForGoalContinuation(threadId);
-    if (this.threadSettingsUpdateSupport === "unsupported") {
+    if (this.threadSettingsRuntime.remoteUpdateSupport() === "unsupported") {
       await this.continueActiveThreadGoalWithEmptyTurn(threadId);
       return;
     }
@@ -18399,10 +18383,7 @@ export class CodexService extends EventEmitter {
   ): Promise<CodexTurnSummary | TurnStartResponse | null> {
     await this.ensureClientReady();
     await this.ensureAgentRuntimeCredentialReloaded();
-    const pendingThreadSettingsUpdate = this.pendingThreadSettingsUpdates.get(threadId);
-    if (pendingThreadSettingsUpdate) {
-      await pendingThreadSettingsUpdate;
-    }
+    await this.threadSettingsRuntime.awaitCurrent(threadId);
     const rendererOwnsState = options.stateOwner === "renderer";
     const syncDormantConversationUpdates = rendererOwnsState
       ? false

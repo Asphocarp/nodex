@@ -118,6 +118,8 @@ import {
   make as makeCodexPendingWorktreeRuntime,
 } from "../codex-application/CodexPendingWorktreeRuntime";
 import { makeCodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
+import { make as makeCodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
+import { makeCodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
@@ -1360,6 +1362,9 @@ export const live: Layer.Layer<
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const dynamicToolsLaunch = makeCodexDynamicToolsLaunch();
         const sidebarThreadMoveRuntime = makeCodexSidebarThreadMoveRuntime();
+        const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime.pipe(
+          Effect.provideService(Scope.Scope, runtimeScope),
+        );
         const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
           scope: runtimeScope,
           storage: makeCodexThreadHandoffJournalStorage(
@@ -1508,6 +1513,10 @@ export const live: Layer.Layer<
               ),
               pendingWorktrees: makeCodexPendingWorktreeRuntimePromiseAdapter(
                 pendingWorktrees,
+                callbacks,
+              ),
+              threadSettingsRuntime: makeCodexThreadSettingsRuntimePromiseAdapter(
+                threadSettingsRuntime,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
