@@ -42,7 +42,11 @@ it.effect("registers and releases Browser Profile ingress with the Main Scope", 
           Layer.mergeAll(
             Layer.succeed(
               BrowserProfileRuntime,
-              BrowserProfileRuntime.of({ download: {} as never, services: {} as never }),
+              BrowserProfileRuntime.of({
+                download: {} as never,
+                policy: {} as never,
+                services: {} as never,
+              }),
             ),
             Layer.succeed(
               ElectronDesktop,

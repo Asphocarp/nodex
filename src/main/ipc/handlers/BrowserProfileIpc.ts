@@ -89,7 +89,7 @@ export const live = (
       const config = yield* MainConfig;
       const windowSessions = yield* WindowSessionCatalog;
       const { browserSidebar } = options;
-      const { download, services } = browserProfile;
+      const { download, policy, services } = browserProfile;
 
       const trusted = (event: IpcMainInvokeEvent, capabilityName: string) =>
         attempt("authorize-renderer", () =>
@@ -350,11 +350,7 @@ export const live = (
         ),
       );
       yield* ipc.handle("browser-use-policy-get", (event) =>
-        trusted(event, "Browser Use policy").pipe(
-          Effect.andThen(
-            attempt("read-browser-use-policy", () => services.usePolicyStore.snapshot()),
-          ),
-        ),
+        trusted(event, "Browser Use policy").pipe(Effect.andThen(Effect.sync(policy.snapshot))),
       );
       yield* ipc.handle("browser-use-policy-update-modes", (event, rawInput: unknown) =>
         trusted(event, "Browser Use policy update").pipe(
@@ -364,8 +360,14 @@ export const live = (
             ),
           ),
           Effect.flatMap((input) =>
-            attempt("update-browser-use-policy-modes", () =>
-              services.usePolicyStore.updateModes(input),
+            policy.updateModes(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new BrowserProfileIpcError({
+                    operation: "update-browser-use-policy-modes",
+                    cause,
+                  }),
+              ),
             ),
           ),
         ),
@@ -378,8 +380,14 @@ export const live = (
             ),
           ),
           Effect.flatMap((input) =>
-            attempt("update-browser-use-origin-rule", () =>
-              services.usePolicyStore.updateOriginRule(input),
+            policy.updateOriginRule(input).pipe(
+              Effect.mapError(
+                (cause) =>
+                  new BrowserProfileIpcError({
+                    operation: "update-browser-use-origin-rule",
+                    cause,
+                  }),
+              ),
             ),
           ),
         ),

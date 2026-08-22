@@ -7,6 +7,7 @@ import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import type { Session } from "electron";
 import { BrowserSidebarService } from "../browser-sidebar-service";
@@ -24,115 +25,117 @@ class FakeBrowserSession extends EventEmitter {
   readonly extensions = null;
 }
 
-it.effect("owns Browser Profile services and the download session listener", () =>
-  Effect.acquireUseRelease(
-    Effect.sync(() => mkdtempSync(path.join(tmpdir(), "nodex-browser-profile-effect-"))),
-    (root) =>
-      Effect.gen(function* () {
-        const browserSession = new FakeBrowserSession();
-        const browserSidebar = new BrowserSidebarService();
-        const scope = yield* Scope.make();
-        const callbacksContext = yield* Layer.buildWithScope(callbackLayer, scope);
-        const callbacks = Context.get(callbacksContext, ScopedCallbackRuntime);
-        const context = yield* Layer.buildWithScope(
-          live({
-            browserSidebar,
-            isPackaged: false,
-            nodexHome: `${root}/home`,
-            projectRootPath: root,
-            resourcesPath: `${root}/resources`,
-            userDataPath: `${root}/user-data`,
-          }).pipe(
-            Layer.provide(
-              Layer.mergeAll(
-                Layer.succeed(
-                  ChatGptDesktop,
-                  ChatGptDesktop.of({
-                    authStatus: () => Effect.die("unused"),
-                    authMethod: Effect.die("unused"),
-                    request: () => Effect.die("unused"),
-                  }),
+it.layer(NodeServices.layer)("BrowserProfileRuntime", (it) => {
+  it.effect("owns Browser Profile services and the download session listener", () =>
+    Effect.acquireUseRelease(
+      Effect.sync(() => mkdtempSync(path.join(tmpdir(), "nodex-browser-profile-effect-"))),
+      (root) =>
+        Effect.gen(function* () {
+          const browserSession = new FakeBrowserSession();
+          const browserSidebar = new BrowserSidebarService();
+          const scope = yield* Scope.make();
+          const callbacksContext = yield* Layer.buildWithScope(callbackLayer, scope);
+          const callbacks = Context.get(callbacksContext, ScopedCallbackRuntime);
+          const context = yield* Layer.buildWithScope(
+            live({
+              browserSidebar,
+              isPackaged: false,
+              nodexHome: `${root}/home`,
+              projectRootPath: root,
+              resourcesPath: `${root}/resources`,
+              userDataPath: `${root}/user-data`,
+            }).pipe(
+              Layer.provide(
+                Layer.mergeAll(
+                  Layer.succeed(
+                    ChatGptDesktop,
+                    ChatGptDesktop.of({
+                      authStatus: () => Effect.die("unused"),
+                      authMethod: Effect.die("unused"),
+                      request: () => Effect.die("unused"),
+                    }),
+                  ),
+                  Layer.succeed(
+                    ElectronApp,
+                    ElectronApp.of({
+                      appPath: Effect.succeed(root),
+                      downloadsPath: Effect.succeed(`${root}/downloads`),
+                      isInApplicationsFolder: Effect.succeed(true),
+                      locale: Effect.succeed("en-US"),
+                      userDataPath: Effect.succeed(`${root}/user-data`),
+                      whenReady: Effect.void,
+                      quit: Effect.void,
+                      relaunch: Effect.void,
+                      exit: () => Effect.void,
+                      onActivate: () => Effect.void,
+                      onBeforeQuit: () => Effect.void,
+                      onOpenUrl: () => Effect.void,
+                      onSecondInstance: () => Effect.void,
+                      onWindowAllClosed: () => Effect.void,
+                    }),
+                  ),
+                  Layer.succeed(
+                    ElectronDesktop,
+                    ElectronDesktop.of({
+                      dialog: null as never,
+                      menu: null as never,
+                      nativeTheme: null as never,
+                      safeStorage: {
+                        isEncryptionAvailable: () => false,
+                        encryptString: (value: string) => Buffer.from(value),
+                        decryptString: (value: Buffer) => value.toString("utf8"),
+                      } as never,
+                      shell: {
+                        openPath: async () => "",
+                        showItemInFolder: () => undefined,
+                      } as never,
+                      showMessage: () => Effect.die("unused"),
+                      showNotification: () => Effect.die("unused"),
+                      onPowerEvent: () => Effect.void,
+                    }),
+                  ),
+                  Layer.succeed(
+                    ElectronNet,
+                    ElectronNet.of({
+                      appVersion: "test",
+                      fetch: () => Effect.die("unused"),
+                      readBase64: () => Effect.die("unused"),
+                    }),
+                  ),
+                  Layer.succeed(
+                    ElectronSessionHost,
+                    ElectronSessionHost.of({
+                      defaultSession: Effect.die("unused"),
+                      fromPartition: () => Effect.succeed(browserSession as unknown as Session),
+                      protocol: null as never,
+                      scopedRegistration: () => Effect.void,
+                    }),
+                  ),
+                  Layer.succeed(
+                    ElectronWindowHost,
+                    ElectronWindowHost.of({
+                      all: Effect.succeed([]),
+                      destroyAll: Effect.void,
+                      fromWebContents: () => Effect.succeed(null),
+                      onCreated: () => Effect.void,
+                    }),
+                  ),
+                  Layer.succeed(ScopedCallbackRuntime, callbacks),
                 ),
-                Layer.succeed(
-                  ElectronApp,
-                  ElectronApp.of({
-                    appPath: Effect.succeed(root),
-                    downloadsPath: Effect.succeed(`${root}/downloads`),
-                    isInApplicationsFolder: Effect.succeed(true),
-                    locale: Effect.succeed("en-US"),
-                    userDataPath: Effect.succeed(`${root}/user-data`),
-                    whenReady: Effect.void,
-                    quit: Effect.void,
-                    relaunch: Effect.void,
-                    exit: () => Effect.void,
-                    onActivate: () => Effect.void,
-                    onBeforeQuit: () => Effect.void,
-                    onOpenUrl: () => Effect.void,
-                    onSecondInstance: () => Effect.void,
-                    onWindowAllClosed: () => Effect.void,
-                  }),
-                ),
-                Layer.succeed(
-                  ElectronDesktop,
-                  ElectronDesktop.of({
-                    dialog: null as never,
-                    menu: null as never,
-                    nativeTheme: null as never,
-                    safeStorage: {
-                      isEncryptionAvailable: () => false,
-                      encryptString: (value: string) => Buffer.from(value),
-                      decryptString: (value: Buffer) => value.toString("utf8"),
-                    } as never,
-                    shell: {
-                      openPath: async () => "",
-                      showItemInFolder: () => undefined,
-                    } as never,
-                    showMessage: () => Effect.die("unused"),
-                    showNotification: () => Effect.die("unused"),
-                    onPowerEvent: () => Effect.void,
-                  }),
-                ),
-                Layer.succeed(
-                  ElectronNet,
-                  ElectronNet.of({
-                    appVersion: "test",
-                    fetch: () => Effect.die("unused"),
-                    readBase64: () => Effect.die("unused"),
-                  }),
-                ),
-                Layer.succeed(
-                  ElectronSessionHost,
-                  ElectronSessionHost.of({
-                    defaultSession: Effect.die("unused"),
-                    fromPartition: () => Effect.succeed(browserSession as unknown as Session),
-                    protocol: null as never,
-                    scopedRegistration: () => Effect.void,
-                  }),
-                ),
-                Layer.succeed(
-                  ElectronWindowHost,
-                  ElectronWindowHost.of({
-                    all: Effect.succeed([]),
-                    destroyAll: Effect.void,
-                    fromWebContents: () => Effect.succeed(null),
-                    onCreated: () => Effect.void,
-                  }),
-                ),
-                Layer.succeed(ScopedCallbackRuntime, callbacks),
               ),
             ),
-          ),
-          scope,
-        );
-        const runtime = Context.get(context, BrowserProfileRuntime);
+            scope,
+          );
+          const runtime = Context.get(context, BrowserProfileRuntime);
 
-        assert.isObject(runtime.services);
-        assert.isObject(runtime.download);
-        assert.strictEqual(browserSession.listenerCount("will-download"), 1);
+          assert.isObject(runtime.services);
+          assert.isObject(runtime.download);
+          assert.strictEqual(browserSession.listenerCount("will-download"), 1);
 
-        yield* Scope.close(scope, Exit.void);
-        assert.strictEqual(browserSession.listenerCount("will-download"), 0);
-      }),
-    (root) => Effect.sync(() => rmSync(root, { force: true, recursive: true })),
-  ),
-);
+          yield* Scope.close(scope, Exit.void);
+          assert.strictEqual(browserSession.listenerCount("will-download"), 0);
+        }),
+      (root) => Effect.sync(() => rmSync(root, { force: true, recursive: true })),
+    ),
+  );
+});

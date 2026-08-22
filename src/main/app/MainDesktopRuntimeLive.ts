@@ -1,6 +1,7 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Schema from "effect/Schema";
@@ -306,6 +307,7 @@ export const live: Layer.Layer<
   | ElectronSyncIpc
   | ElectronSessionHost
   | ElectronWindowHost
+  | FileSystem.FileSystem
   | MainConfig
   | MainShutdown
   | ScopedCallbackRuntime
@@ -323,6 +325,7 @@ export const live: Layer.Layer<
     const shutdown = yield* MainShutdown;
     const callbacks = yield* ScopedCallbackRuntime;
     const terminals = yield* TerminalSessions;
+    const fileSystem = yield* FileSystem.FileSystem;
     const runtimeScope = yield* Scope.Scope;
     const locale = yield* electron.locale;
     const userDataPath = yield* electron.userDataPath;
@@ -765,6 +768,7 @@ export const live: Layer.Layer<
                 Layer.succeed(ChatGptDesktop, chatGpt),
                 Layer.succeed(ElectronApp, electron),
                 Layer.succeed(ElectronDesktop, desktop),
+                Layer.succeed(FileSystem.FileSystem, fileSystem),
                 Layer.succeed(ElectronNet.ElectronNet, electronNet),
                 Layer.succeed(ElectronSessionHost, sessionHost),
                 Layer.succeed(ElectronWindowHost, windowHost),
@@ -778,7 +782,7 @@ export const live: Layer.Layer<
         yield* browserUse.install({
           grantDownload: (identity, sourceUrl, ttlMs) =>
             browserProfile.download.grantAgentDownload(identity, sourceUrl, ttlMs),
-          policyStore: browserProfile.services.usePolicyStore,
+          policyStore: browserProfile.policy,
           releaseCredentialOwner: (ownerWebContentsId) =>
             browserProfile.services.credentialService.releaseOwner(ownerWebContentsId),
         });

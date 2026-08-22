@@ -178,6 +178,13 @@ hostname decisions in a `Ref`, and coalesces each hostname's in-flight lookup in
 cache read and Promise callback exposed to Browser Sidebar are projections of that owner, and
 closing the Browser Profile interrupts all pending lookups.
 
+Browser Use approval policy is owned by the same Browser Profile but remains a distinct typed
+runtime. A single semaphore serializes policy mutations; each mutation builds an immutable next
+state, atomically publishes TOML through a synced staging file and directory rename, and only then
+commits the in-memory `Ref`. Browser Use borrows the synchronous policy projection, while renderer
+IPC invokes the mutation Effects directly. Corrupt policy files are quarantined during acquisition;
+there is no Promise write queue or second policy store in the Sidebar graph.
+
 The MCP App sandbox runtime Scope owns both the Electron coordinator and its protocol runtime.
 The protocol runtime uses a bounded Effect Cache for TTL and single-flight Skybridge fetches,
 tracks prewarm graphs in a keyed FiberMap, and projects Promise only at Electron's protocol and

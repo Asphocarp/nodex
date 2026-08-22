@@ -1,5 +1,6 @@
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 import { BROWSER_SIDEBAR_PARTITION } from "../../shared/browser-sidebar";
@@ -18,7 +19,10 @@ import {
 import { BrowserProfileImporter } from "../browser/browser-profile-importer";
 import type { BrowserProfileServices } from "../browser/browser-profile-services";
 import { BrowserSiteInfoProvider } from "../browser/browser-site-info-provider";
-import { BrowserUsePolicyStore } from "../browser-use/browser-use-policy-store";
+import {
+  makeBrowserUsePolicyRuntime,
+  type BrowserUsePolicyRuntime,
+} from "../browser-use/browser-use-policy-store";
 import {
   makeSiteStatusPolicyPromiseAdapter,
   makeSiteStatusPolicyRuntime,
@@ -42,6 +46,7 @@ export class BrowserProfileRuntime extends Context.Service<
   BrowserProfileRuntime,
   {
     readonly download: BrowserDownloadService;
+    readonly policy: BrowserUsePolicyRuntime;
     readonly services: BrowserProfileServices;
   }
 >()("nodex/main/host-runtime/BrowserProfileRuntime") {}
@@ -85,6 +90,7 @@ export const live = (
 ): Layer.Layer<
   BrowserProfileRuntime,
   BrowserProfileRuntimeError,
+  | FileSystem.FileSystem
   | ChatGptDesktop
   | ElectronApp
   | ElectronDesktop
@@ -105,13 +111,13 @@ export const live = (
       const downloadsPath = yield* app.downloadsPath;
       const browserSession = yield* sessions.fromPartition(BROWSER_SIDEBAR_PARTITION);
       const logger = getLogger({ component: "browser-profile-runtime" });
-      const policyStore = new BrowserUsePolicyStore(
+      const policy = yield* makeBrowserUsePolicyRuntime(
         `${options.nodexHome}/agent/browser/config.toml`,
+      ).pipe(
+        Effect.mapError(
+          (cause) => new BrowserProfileRuntimeError({ operation: "initialize-policy", cause }),
+        ),
       );
-      yield* Effect.tryPromise({
-        try: () => policyStore.initialize(),
-        catch: (cause) => new BrowserProfileRuntimeError({ operation: "initialize-policy", cause }),
-      });
       const credentialVault = new BrowserCredentialVault({
         filePath: `${options.nodexHome}/secrets/browser-credentials.v1.json`,
         encryption: {
@@ -149,7 +155,6 @@ export const live = (
           options.browserSidebar,
           browserSession.cookies,
         ),
-        usePolicyStore: policyStore,
       };
       const siteStatusRuntime = yield* makeSiteStatusPolicyRuntime({
         apiBaseUrl: DEFAULT_CHATGPT_BASE_URL,
@@ -199,6 +204,6 @@ export const live = (
           ),
         ),
       );
-      return BrowserProfileRuntime.of({ download, services });
+      return BrowserProfileRuntime.of({ download, policy, services });
     }),
   );
