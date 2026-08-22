@@ -11,7 +11,7 @@ import { resolveChatGptBaseUrl } from "../codex/chatgpt-base-url";
 import {
   parseComposerChatGptConversations,
   parseComposerSitesToolResponse,
-} from "../codex/composer-external-suggestion-service";
+} from "../codex/composer-external-suggestion-projection";
 import { ChatGptDesktop } from "./ChatGptDesktop";
 
 const CHATGPT_RECENT_CONVERSATION_LIMIT = 5;

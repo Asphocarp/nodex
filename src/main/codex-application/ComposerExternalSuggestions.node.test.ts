@@ -5,6 +5,10 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
+import {
+  parseComposerChatGptConversations,
+  parseComposerSitesToolResponse,
+} from "../codex/composer-external-suggestion-projection";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import { ChatGptDesktop } from "./ChatGptDesktop";
 import {
@@ -127,3 +131,28 @@ it.effect("returns unavailable without issuing ChatGPT requests for API-key acco
     yield* Scope.close(scope, Exit.void);
   }),
 );
+
+it("rejects failed Sites payloads and deduplicates malformed conversation rows", () => {
+  assert.deepEqual(
+    parseComposerSitesToolResponse({
+      result: { isError: true, structuredContent: { items: [] } },
+    }),
+    [],
+  );
+  assert.deepEqual(
+    parseComposerChatGptConversations({
+      items: [
+        { conversation_id: "conversation-1", title: null },
+        { id: "conversation-1", title: "duplicate" },
+        { id: "", title: "invalid" },
+      ],
+    }),
+    [
+      {
+        conversationId: "conversation-1",
+        title: "",
+        path: "chatgpt-conversation://conversation-1",
+      },
+    ],
+  );
+});
