@@ -285,6 +285,7 @@ import type {
 import type { NodexAgentResourceAuthorityPort } from "../nodex-agent-resource-authority-port";
 import { CodexRendererViewRegistry } from "./codex-renderer-view-registry";
 import type { CodexActiveGoalContinuationLegacyPort } from "../codex-application/CodexActiveGoalContinuation";
+import type { CodexNotificationRoutingLegacyPort } from "../codex-application/CodexNotificationRouting";
 import type { CodexRendererOwnerRetentionLegacyPort } from "../codex-application/CodexRendererOwnerRetention";
 import type { CodexUserInputAutoResolutionLegacyPort } from "../codex-application/CodexUserInputAutoResolution";
 import {
@@ -1387,6 +1388,7 @@ type CodexServiceOptions = {
   runtimeStateHome: string;
   nodexAgentDynamicService: NodexAgentV3DynamicService | null;
   activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
+  notificationRouting: CodexNotificationRoutingLegacyPort;
   rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
@@ -2581,6 +2583,7 @@ export class CodexService extends EventEmitter {
   private readonly runtimeVersion: string | null;
   private readonly desktopTools: DesktopToolRuntimePromiseAdapter;
   private readonly activeGoalContinuation: CodexActiveGoalContinuationLegacyPort;
+  private readonly notificationRouting: CodexNotificationRoutingLegacyPort;
   private readonly rendererOwnerRetention: CodexRendererOwnerRetentionLegacyPort;
   private readonly supportsChatGptApps: boolean;
   private readonly isOpenAIFormElicitationsEnabled: () => boolean;
@@ -2736,7 +2739,6 @@ export class CodexService extends EventEmitter {
       this.applyFrameTextDeltas(updates);
     },
   });
-  private notificationRoutingQueue: Promise<void> = Promise.resolve();
   private readonly outputDeltaQueue = new CodexCommandOutputQueue({
     onFlush: (updates) => {
       this.applyOutputDeltas(updates);
@@ -2809,6 +2811,7 @@ export class CodexService extends EventEmitter {
     this.persistedAtoms = options.persistedAtoms;
     this.sessionStore = options.sessionStore;
     this.activeGoalContinuation = options.activeGoalContinuation;
+    this.notificationRouting = options.notificationRouting;
     this.rendererOwnerRetention = options.rendererOwnerRetention;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
@@ -2941,16 +2944,7 @@ export class CodexService extends EventEmitter {
     });
 
     this.client.on("notification", (notification: CodexServerNotification) => {
-      this.notificationRoutingQueue = this.notificationRoutingQueue
-        .then(async () => {
-          await this.routeAppServerNotification(notification);
-        })
-        .catch((error: unknown) => {
-          this.logger.warn("Codex notification routing failed", {
-            method: notification.method,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
+      this.notificationRouting.offer(notification);
     });
 
     this.client.on("protocolError", (message: string) => {
@@ -3187,7 +3181,7 @@ export class CodexService extends EventEmitter {
     );
   }
 
-  private async routeAppServerNotification(notification: CodexServerNotification): Promise<void> {
+  async routeAppServerNotification(notification: CodexServerNotification): Promise<void> {
     if (notification.method === "turn/started") {
       const params = asRecord(notification.params);
       const threadId = parseEventThreadId(params);

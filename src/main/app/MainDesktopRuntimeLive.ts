@@ -78,6 +78,10 @@ import {
 } from "../codex-application/CodexActiveGoalContinuation";
 import { makeCodexActiveGoalContinuationCallbackAdapter } from "../codex-application/CodexActiveGoalContinuationCallbackAdapter";
 import {
+  CodexNotificationRoutingError,
+  make as makeCodexNotificationRouting,
+} from "../codex-application/CodexNotificationRouting";
+import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
 } from "../codex-application/CodexRendererOwnerRetention";
@@ -1172,6 +1176,13 @@ export const live: Layer.Layer<
           yield* makeCodexActiveGoalContinuationCallbackAdapter(activeGoalContinuation).pipe(
             Effect.provideService(Scope.Scope, runtimeScope),
           );
+        const notificationRouting = yield* makeCodexNotificationRouting({
+          route: (notification) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().routeAppServerNotification(notification),
+              catch: (cause) => new CodexNotificationRoutingError({ cause }),
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1214,6 +1225,7 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               activeGoalContinuation: activeGoalContinuationCallbacks,
+              notificationRouting,
               rendererOwnerRetention: rendererOwnerRetentionCallbacks,
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,

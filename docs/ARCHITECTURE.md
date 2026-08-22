@@ -406,6 +406,13 @@ One renderer client is the active visible owner of a live conversation. It reduc
 
 A follower first acknowledges an exact owner snapshot barrier. It then accepts only contiguous patches from the same owner epoch and requests a fresh snapshot after a gap, hash mismatch, owner replacement, or transport reset. Follower actions route to the current owner; a client with no role must resume or adopt before acting.
 
+Decoded, generation-fenced app-server notifications enter the application through one lossless
+Main-scoped Queue actor. Callback admission is synchronous so EventEmitter arrival order is retained;
+the actor awaits each route before taking the next notification, supervises failures per envelope,
+and abandons both active work and backlog when the Main Scope closes. `CodexService` temporarily
+supplies the canonical notification reducer operation, but it owns no Promise chain, queue recovery,
+or notification-ingress lifetime.
+
 Non-blocking app-server user-input requests are owned by one Main-scoped Codex application Module.
 Its immutable per-conversation state, keyed countdown fibers, serialized transitions, and change
 Stream determine when an unattended request is resolved. A visible foreground presentation first

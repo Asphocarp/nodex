@@ -114,6 +114,7 @@ import {
   USER_INPUT_AUTO_RESOLUTION_COUNTDOWN_MS,
 } from "./codex-user-input-auto-resolution.test-support";
 import { TestCodexActiveGoalContinuation } from "./codex-active-goal-continuation.test-support";
+import { TestCodexNotificationRouting } from "./codex-notification-routing.test-support";
 import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
@@ -1642,6 +1643,10 @@ function createService(options?: {
       await service.runActiveThreadGoalContinuation(conversationId);
     },
   });
+  const notificationRouting = new TestCodexNotificationRouting(async (notification) => {
+    if (!service) throw new Error("Codex test service is not constructed");
+    await service.routeAppServerNotification(notification);
+  });
   const rendererOwnerRetention = new TestCodexRendererOwnerRetention({
     retentionMs: Math.max(0, options?.inactiveRendererOwnerRetentionMs ?? 60 * 60 * 1_000),
     maxRetained: Math.max(0, Math.floor(options?.inactiveRendererOwnerMaxRetained ?? 4)),
@@ -1775,6 +1780,7 @@ function createService(options?: {
       },
     },
     activeGoalContinuation,
+    notificationRouting,
     rendererOwnerRetention,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
