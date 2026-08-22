@@ -503,11 +503,14 @@ when the Thread or Main Scope is removed so stale work cannot recreate deleted c
 Manual “send now” remains an explicit user transaction over the same canonical queue. `CodexService`
 owns no dispatch in-flight Set, detached Promise, or automatic failure-finalizer path.
 
-App-server notifications that require a sidebar repair enter one trailing-debounce Module. The
-latest request replaces the pending fiber and carries the minimum acceptable sync generation;
-after the delay, the Module invokes the existing sidebar synchronization authority and supervises
-failure. The debounce and active repair close with Main Scope, while sidebar catalogs, generation
-counters, stale-request waiting, and force-refresh policy remain in their single current owner.
+Sidebar synchronization is owned by one Main-scoped runtime. It combines same-catalog callers behind
+one physical refresh fiber, fences completion with a monotonic generation, applies Effect-clock
+freshness and bounded failure backoff, and caches snapshots by the Project Workspace invalidation
+revision captured before each Core read. The database invalidation subscription, notification
+trailing debounce, minimum-generation repair, active refreshes, and cache all close with Main Scope.
+`CodexService` retains only first-window materialization and snapshot construction operations; it
+owns no refresh Promise, generation/freshness/backoff fields, cache, notification timer, or listener
+cleanup. The later paginated sweep publishes through the same revisioned projection boundary.
 
 The paginated background sidebar sweep is a separate Main-scoped runtime. It owns the single active
 sweep, cooperative replacement at the current physical page boundary, Effect-clock exponential

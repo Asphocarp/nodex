@@ -84,10 +84,10 @@ import {
 import { make as makeCodexOwnerNotificationDrainRuntime } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import { makeCodexOwnerNotificationDrainRuntimePromiseAdapter } from "../codex-application/CodexOwnerNotificationDrainRuntimePromiseAdapter";
 import {
-  CodexSidebarNotificationSyncError,
-  make as makeCodexSidebarNotificationSync,
-} from "../codex-application/CodexSidebarNotificationSync";
-import { makeCodexSidebarNotificationSyncCallbackAdapter } from "../codex-application/CodexSidebarNotificationSyncCallbackAdapter";
+  CodexSidebarSyncError,
+  make as makeCodexSidebarSyncRuntime,
+} from "../codex-application/CodexSidebarSyncRuntime";
+import { makeCodexSidebarSyncRuntimePromiseAdapter } from "../codex-application/CodexSidebarSyncRuntimePromiseAdapter";
 import { make as makeCodexSidebarSweepRuntime } from "../codex-application/CodexSidebarSweepRuntime";
 import { makeCodexSidebarSweepRuntimePromiseAdapter } from "../codex-application/CodexSidebarSweepRuntimePromiseAdapter";
 import { make as makeCodexGitProbe } from "../codex-application/CodexGitProbe";
@@ -1253,18 +1253,37 @@ export const live: Layer.Layer<
         const ownerNotificationDrain = yield* makeCodexOwnerNotificationDrainRuntime().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
-        const sidebarNotificationSync = yield* makeCodexSidebarNotificationSync({
-          repair: (minimumSyncGeneration) =>
+        const sidebarSync = yield* makeCodexSidebarSyncRuntime({
+          refresh: (input) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().refreshSidebarThreadsForSync(input),
+              catch: (cause) => new CodexSidebarSyncError({ cause }),
+            }),
+          buildSnapshot: (includeArchived, revision) =>
             Effect.tryPromise({
               try: () =>
-                requireCodexService().syncSidebarThreadsAfterNotification(minimumSyncGeneration),
-              catch: (cause) => new CodexSidebarNotificationSyncError({ cause }),
+                requireCodexService().buildBoundedWorkspaceSidebarSnapshot(
+                  includeArchived,
+                  revision,
+                ),
+              catch: (cause) => new CodexSidebarSyncError({ cause }),
             }),
+          emit: (result, reason) => requireCodexService().emitSidebarSyncUpdated(result, reason),
+          subscribeInvalidation: (invalidate) =>
+            Effect.acquireRelease(
+              Effect.sync(() => {
+                databaseNotifications.notifier.on("project-sessions-changed", invalidate);
+              }),
+              () =>
+                Effect.sync(() => {
+                  databaseNotifications.notifier.off("project-sessions-changed", invalidate);
+                }),
+            ),
+          observeDecision: (event) => requireCodexService().recordSidebarSyncDecision(event),
+          observeRefresh: (event) => requireCodexService().recordSidebarRefreshOutcome(event),
+          observeNotificationScheduled: (event) =>
+            requireCodexService().recordSidebarNotificationScheduled(event),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
-        const sidebarNotificationSyncCallbacks =
-          yield* makeCodexSidebarNotificationSyncCallbackAdapter(sidebarNotificationSync).pipe(
-            Effect.provideService(Scope.Scope, runtimeScope),
-          );
         const sidebarSweep = yield* makeCodexSidebarSweepRuntime().pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
@@ -1570,7 +1589,7 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               rendererOwnerRetention: rendererOwnerRetentionCallbacks,
-              sidebarNotificationSync: sidebarNotificationSyncCallbacks,
+              sidebarSync: makeCodexSidebarSyncRuntimePromiseAdapter(sidebarSync, callbacks),
               sidebarSweep: makeCodexSidebarSweepRuntimePromiseAdapter(sidebarSweep, callbacks),
               gitProbe: makeCodexGitProbePromiseAdapter(gitProbe, callbacks),
               externalAgentImport: makeCodexExternalAgentImportRuntimePromiseAdapter(
@@ -1644,7 +1663,6 @@ export const live: Layer.Layer<
                 callbacks,
               ),
               projectRuntimeLifecycle: projectRuntimeLifecycleAdapter,
-              databaseNotifier: databaseNotifications.notifier,
               terminalRuntime: {
                 getSessionSnapshot: (sessionId) =>
                   callbacks.runPromise(terminals.getSessionSnapshot(sessionId)),

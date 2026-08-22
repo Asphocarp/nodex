@@ -125,7 +125,7 @@ import { TestCodexNotificationRouting } from "./codex-notification-routing.test-
 import { DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT } from "../codex-application/CodexOwnerNotificationDrainRuntime";
 import { TestCodexOwnerNotificationDrainRuntime } from "./codex-owner-notification-drain-runtime.test-support";
 import { TestCodexRendererOwnerRetention } from "./codex-renderer-owner-retention.test-support";
-import { TestCodexSidebarNotificationSync } from "./codex-sidebar-notification-sync.test-support";
+import { TestCodexSidebarSyncRuntime } from "./codex-sidebar-sync-runtime.test-support";
 import type { CodexForkSidePanelTransferLifecycle } from "./codex-fork-side-panel-transfer";
 import { removeManagedWorktree } from "./git-worktree-service";
 import { runCodexGitCommand } from "./codex-git-command";
@@ -1763,12 +1763,19 @@ function createService(options?: {
   const ownerNotificationDrain = new TestCodexOwnerNotificationDrainRuntime(
     DEFAULT_CODEX_OWNER_NOTIFICATION_DRAIN_TIMEOUT,
   );
-  const sidebarNotificationSync = new TestCodexSidebarNotificationSync(
-    async (minimumSyncGeneration) => {
+  const databaseNotifier = options?.databaseNotifier ?? new DatabaseNotifier();
+  const sidebarSync = new TestCodexSidebarSyncRuntime({
+    refresh: async (input) => {
       if (!service) throw new Error("Codex test service is not constructed");
-      await service.syncSidebarThreadsAfterNotification(minimumSyncGeneration);
+      return await service.refreshSidebarThreadsForSync(input);
     },
-  );
+    buildSnapshot: async (includeArchived, revision) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.buildBoundedWorkspaceSidebarSnapshot(includeArchived, revision);
+    },
+    emit: (result, reason) => service?.emitSidebarSyncUpdated(result, reason),
+    notifier: databaseNotifier,
+  });
   const sidebarSweep = makeCodexSidebarSweepTestAdapter();
   const rendererOwnerRetention = new TestCodexRendererOwnerRetention({
     retentionMs: Math.max(0, options?.inactiveRendererOwnerRetentionMs ?? 60 * 60 * 1_000),
@@ -1982,7 +1989,7 @@ function createService(options?: {
     notificationRouting,
     ownerNotificationDrain,
     rendererOwnerRetention,
-    sidebarNotificationSync,
+    sidebarSync,
     sidebarSweep,
     gitProbe: {
       readPath: async (cwd, args) => {
@@ -2059,7 +2066,6 @@ function createService(options?: {
       run: (sweep) => sweep(),
     },
     projectRuntimeLifecycle: projectRuntimeLifecycleHarness.adapter,
-    databaseNotifier: options?.databaseNotifier ?? new DatabaseNotifier(),
     supportsChatGptApps: options?.supportsChatGptApps,
     projectAwareDeveloperInstructionsResolver: options?.projectAwareDeveloperInstructionsResolver,
     gitSettingsResolver: options?.gitSettingsResolver,
@@ -2079,7 +2085,7 @@ function createService(options?: {
     activeGoalContinuation.dispose();
     ownerNotificationDrain.dispose();
     rendererOwnerRetention.dispose();
-    sidebarNotificationSync.dispose();
+    sidebarSync.dispose();
     pendingWorktrees.shutdown();
     conversationDeltaBuffer.dispose();
     try {
@@ -3132,10 +3138,7 @@ test("turn completion refreshes app-server recency into the sidebar snapshot", a
     releaseStaleRequest();
     await staleSync;
     await freshRequestStarted;
-    const syncInFlight = Reflect.get(service as object, "sidebarSyncInFlight") as Promise<
-      import("../../shared/types").CodexSidebarSyncResult
-    > | null;
-    await syncInFlight;
+    await service.syncSidebarThreadsDetailed({ policy: "force", reason: "host-message" });
 
     expect(threadListRequests).toBe(2);
     expect((await projectWorkspace.getThread(threadId))?.recencyAt).toBe(20_000);
