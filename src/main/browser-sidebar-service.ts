@@ -57,6 +57,10 @@ import {
   type BrowserAttachmentRoute,
 } from "./browser/browser-runtime-registry";
 import type { BrowserWebContentsListenerRuntime } from "./browser/BrowserWebContentsListenerRuntime";
+import type {
+  BrowserEarlyPageRestoreLease,
+  BrowserEarlyPageRestoreRuntime,
+} from "./browser/BrowserEarlyPageRestoreRuntime";
 import { selectBrowserTabsToSuspend } from "./browser/browser-tab-budget";
 import {
   BrowserPageEmulationController,
@@ -160,6 +164,7 @@ interface BrowserSidebarElectronDeps {
 }
 
 interface BrowserSidebarServiceDeps {
+  earlyPageRestores: BrowserEarlyPageRestoreRuntime<BrowserSidebarTabSnapshot>;
   events: BrowserSidebarEventPublisher;
   runtimeRegistry: BrowserRuntimeRegistry;
   webContentsListeners: BrowserWebContentsListenerRuntime;
@@ -350,7 +355,7 @@ export class BrowserSidebarService {
   private readonly attachedWebviewOwnership = new Map<number, AttachedBrowserWebviewOwnership>();
   private readonly activeImageDragsByOwnerWebContentsId = new Map<number, ActiveBrowserImageDrag>();
   private readonly preparedPagesByStorageId = new Map<string, BrowserSerializedPage>();
-  private readonly earlyPageRestoresByGuest = new Map<number, Promise<BrowserSidebarTabSnapshot>>();
+  private readonly earlyPageRestores: BrowserEarlyPageRestoreRuntime<BrowserSidebarTabSnapshot>;
   private readonly pendingTeardowns = new Map<string, PendingWebviewTeardown>();
   private readonly browserUseTabs = new Map<string, BrowserUseTabState>();
   private readonly deviceToolbarStates = new Map<
@@ -394,6 +399,7 @@ export class BrowserSidebarService {
   private teardownSequence = 0;
 
   constructor(deps: BrowserSidebarServiceDeps) {
+    this.earlyPageRestores = deps.earlyPageRestores;
     this.events = deps.events;
     this.electron = deps.electron ?? {
       clipboard,
@@ -1107,7 +1113,7 @@ export class BrowserSidebarService {
       contents.isDestroyed() ||
       !preparedPage ||
       this.tabs.get(key)?.browserStorageId !== route.browserStorageId ||
-      this.earlyPageRestoresByGuest.has(guestWebContentsId)
+      this.earlyPageRestores.result(guestWebContentsId) !== null
     ) {
       return;
     }
@@ -1116,9 +1122,9 @@ export class BrowserSidebarService {
     // completed its first page load. did-attach-webview is the one public
     // lifecycle boundary where the WebContents exists and restoration can
     // still begin synchronously.
-    const restore = this.restoreSavedPage(key, contents, preparedPage);
-    this.earlyPageRestoresByGuest.set(guestWebContentsId, restore);
-    void restore.catch(() => undefined);
+    this.earlyPageRestores.start(guestWebContentsId, (lease) =>
+      this.restoreSavedPage(key, contents, preparedPage, lease),
+    );
   }
 
   isRegisteredBrowserStorage(
@@ -1212,21 +1218,32 @@ export class BrowserSidebarService {
         contents,
         this.themeVariantsByViewScope.get(event.browserViewScopeId) ?? "light",
       );
-      const earlyRestore = this.earlyPageRestoresByGuest.get(event.webContentsId);
-      snapshot = alreadyLive
-        ? this.updateTab(key, {
-            lifecycleState: attachedSnapshot.presented ? "live-attached" : "live-detached",
-            restoreResult: "already-live",
-          })
-        : earlyRestore
-          ? await earlyRestore.then((restored) => {
-              const attached = this.tabs.get(key) ?? restored;
-              return this.updateTab(key, {
-                lifecycleState: attached.presented ? "live-attached" : "live-detached",
-              });
+      const earlyRestore = this.earlyPageRestores.result(event.webContentsId);
+      try {
+        snapshot = alreadyLive
+          ? this.updateTab(key, {
+              lifecycleState: attachedSnapshot.presented ? "live-attached" : "live-detached",
+              restoreResult: "already-live",
             })
-          : await this.restoreSavedPage(key, contents);
-      this.earlyPageRestoresByGuest.delete(event.webContentsId);
+          : earlyRestore
+            ? await earlyRestore.promise.then((restored) => {
+                const attached = this.tabs.get(key) ?? restored;
+                return this.updateTab(key, {
+                  lifecycleState: attached.presented ? "live-attached" : "live-detached",
+                });
+              })
+            : await this.restoreSavedPage(key, contents);
+      } catch (error) {
+        if (earlyRestore && !earlyRestore.isActive()) {
+          return {
+            ok: false,
+            message: "Browser webview was released during history restoration",
+          };
+        }
+        throw error;
+      } finally {
+        this.earlyPageRestores.release(event.webContentsId);
+      }
       if (snapshot.browserStorageId) {
         this.preparedPagesByStorageId.delete(snapshot.browserStorageId);
       }
@@ -1293,7 +1310,7 @@ export class BrowserSidebarService {
     this.runtimeRegistry.markPendingTeardown(event, false);
     if (event.webContentsId !== undefined) {
       this.runtimeRegistry.releaseGuest(event.webContentsId);
-      this.earlyPageRestoresByGuest.delete(event.webContentsId);
+      this.earlyPageRestores.release(event.webContentsId);
     }
     if (event.reason === "closed" || event.reason === "reset" || event.reason === "suspend") {
       this.runtimeRegistry.releaseHost(event);
@@ -2204,7 +2221,7 @@ export class BrowserSidebarService {
         if (ownership) this.clearBrowserImageDrag(ownership.ownerWebContentsId);
         this.attachedWebviewOwnership.delete(webContentsId);
         this.runtimeRegistry.releaseGuest(webContentsId);
-        this.earlyPageRestoresByGuest.delete(webContentsId);
+        this.earlyPageRestores.release(webContentsId);
         this.detachWebview(activeTabId, webContentsId);
       });
       add("context-menu", (...args) => {
@@ -2583,9 +2600,12 @@ export class BrowserSidebarService {
     tabId: string,
     contents: BrowserWebContentsLike,
     preparedPage?: BrowserSerializedPage,
+    lease?: BrowserEarlyPageRestoreLease,
   ): Promise<BrowserSidebarTabSnapshot> {
     const current = this.tabs.get(tabId);
     if (!current) throw new Error("Browser tab is not registered");
+    const isActive = lease?.isActive ?? (() => true);
+    if (!isActive()) return current;
     const browserStorageId = current.browserStorageId;
     const pageStore = this.pageStore;
     if (!browserStorageId || !contents.navigationHistory || !pageStore) {
@@ -2596,6 +2616,7 @@ export class BrowserSidebarService {
     }
 
     const page = preparedPage ?? (await this.readSavedPage(browserStorageId, current));
+    if (!isActive()) return this.tabs.get(tabId) ?? current;
     if (!page) {
       return this.updateTab(tabId, {
         lifecycleState: current.presented ? "live-attached" : "live-detached",
@@ -2612,6 +2633,7 @@ export class BrowserSidebarService {
         entries: page.navigation.entries,
         index: page.navigation.currentIndex,
       });
+      if (!isActive()) return this.tabs.get(tabId) ?? current;
       return (
         this.refreshSnapshotFromWebContents(tabId, contents, {
           url: page.url,
@@ -2624,6 +2646,7 @@ export class BrowserSidebarService {
         }) ?? current
       );
     } catch (error) {
+      if (!isActive()) return this.tabs.get(tabId) ?? current;
       this.invalidatedPageStorageIds.add(browserStorageId);
       try {
         await pageStore.delete(browserStorageId);
@@ -2631,6 +2654,7 @@ export class BrowserSidebarService {
         // The restore error remains the actionable result. A future startup will
         // quarantine the same invalid snapshot again if deletion also failed.
       }
+      if (!isActive()) return this.tabs.get(tabId) ?? current;
       const description = readBoundedErrorMessage(error);
       return this.updateTab(tabId, {
         lifecycleState: current.presented ? "live-attached" : "live-detached",

@@ -4,8 +4,10 @@ import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
+import type { BrowserSidebarTabSnapshot } from "../../../shared/browser-sidebar";
 import { BrowserSidebarService } from "../../browser-sidebar-service";
 import { makeBrowserRuntimeRegistry } from "../../browser/browser-runtime-registry";
+import { makeBrowserEarlyPageRestoreRuntime } from "../../browser/BrowserEarlyPageRestoreRuntime";
 import { makeBrowserWebContentsListenerRuntime } from "../../browser/BrowserWebContentsListenerRuntime";
 import { BrowserProfileRuntime } from "../../host-runtime/BrowserProfileRuntime";
 import { MainConfig } from "../../app/MainConfig";
@@ -39,6 +41,10 @@ it.effect("registers and releases Browser Profile ingress with the Main Scope", 
     });
     const scope = yield* Scope.make();
     const browserSidebar = new BrowserSidebarService({
+      earlyPageRestores:
+        yield* makeBrowserEarlyPageRestoreRuntime<BrowserSidebarTabSnapshot>().pipe(
+          Effect.provideService(Scope.Scope, scope),
+        ),
       events: { publish: () => undefined },
       runtimeRegistry: makeBrowserRuntimeRegistry(),
       webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(

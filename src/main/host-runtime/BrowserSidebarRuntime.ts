@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
+import type { BrowserSidebarTabSnapshot } from "../../shared/browser-sidebar";
 import { BrowserSidebarService } from "../browser-sidebar-service";
 import {
   makeBrowserHistoryRuntime,
@@ -29,6 +30,7 @@ import {
 } from "../browser/BrowserSidebarEventHub";
 import { makeBrowserRuntimeRegistry } from "../browser/browser-runtime-registry";
 import { makeBrowserWebContentsListenerRuntime } from "../browser/BrowserWebContentsListenerRuntime";
+import { makeBrowserEarlyPageRestoreRuntime } from "../browser/BrowserEarlyPageRestoreRuntime";
 import { ElectronNet } from "../platform/electron/ElectronNet";
 
 export class BrowserSidebarRuntime extends Context.Service<
@@ -61,6 +63,8 @@ export const live = (
       const callbacks = yield* ScopedCallbackRuntime;
       const electronNet = yield* ElectronNet;
       const events = yield* makeBrowserSidebarEventHub;
+      const earlyPageRestores =
+        yield* makeBrowserEarlyPageRestoreRuntime<BrowserSidebarTabSnapshot>();
       const runtimeRegistry = makeBrowserRuntimeRegistry();
       const webContentsListeners = yield* makeBrowserWebContentsListenerRuntime;
       const localServerThumbnail = yield* makeBrowserLocalServerThumbnailRuntime();
@@ -95,6 +99,7 @@ export const live = (
         set: (page) => callbacks.runPromise(pages.set(page)),
       };
       const browser = new BrowserSidebarService({
+        earlyPageRestores,
         events,
         historyStore,
         pageStore,

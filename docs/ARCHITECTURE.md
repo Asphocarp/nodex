@@ -190,6 +190,15 @@ causality but exposes no `dispose()` or independent lifecycle. Its Scope fences 
 commands, wakes cursor waiters, detaches CDP listeners, and releases every controlled tab;
 the state machine contains no EventEmitter, timer, or detached Promise waiter.
 
+Browser history restoration is a Sidebar-scoped keyed resource, not a Promise registry on
+the presentation state machine. Electron requires `navigationHistory.restore()` to begin
+synchronously during `did-attach-webview`, so the restore runtime starts each keyed fiber in
+that callback turn and retains its result until the exact guest consumes or releases it.
+Guest destruction and Sidebar shutdown synchronously revoke the generation before interrupting
+the fiber. Because Electron's underlying Promise cannot be canceled, every post-await state
+commit revalidates that generation; a late native completion can therefore neither republish
+the guest nor overwrite its released tab snapshot.
+
 Browser site-status policy is a Browser Profile-scoped Effect runtime, not an HTTP client or a
 Sidebar-owned cache. It borrows authenticated requests from `ChatGptDesktop`, keeps only valid
 hostname decisions in a `Ref`, and coalesces each hostname's in-flight lookup in a scoped

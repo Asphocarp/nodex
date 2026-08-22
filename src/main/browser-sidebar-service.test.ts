@@ -13,6 +13,7 @@ import type {
   BrowserSidebarEventPublisher,
 } from "./browser/BrowserSidebarEventHub";
 import { makeBrowserRuntimeRegistry } from "./browser/browser-runtime-registry";
+import { makeBrowserEarlyPageRestoreRuntimeUnsafe } from "./browser/BrowserEarlyPageRestoreRuntime";
 import { makeBrowserWebContentsListenerRuntimeUnsafe } from "./browser/BrowserWebContentsListenerRuntime";
 
 vi.mock("electron", () => ({
@@ -119,6 +120,7 @@ class FakeWebContents extends EventEmitter {
   ];
   historyActiveIndex = 0;
   restoredHistory: BrowserSerializedPage["navigation"] | null = null;
+  restorePromise: Promise<void> | null = null;
   navigationHistory = {
     getActiveIndex: () => this.historyActiveIndex,
     getAllEntries: () => this.historyEntries,
@@ -126,6 +128,7 @@ class FakeWebContents extends EventEmitter {
       entries: BrowserSerializedPage["navigation"]["entries"];
       index?: number;
     }) => {
+      if (this.restorePromise) await this.restorePromise;
       const currentIndex = options.index ?? options.entries.length - 1;
       this.restoredHistory = {
         currentIndex,
@@ -261,6 +264,7 @@ function createService(
 ) {
   const testEvents = new TestBrowserSidebarEvents();
   const service = new BrowserSidebarService({
+    earlyPageRestores: makeBrowserEarlyPageRestoreRuntimeUnsafe(),
     contextMenuPresenter,
     electron: {
       clipboard: {
@@ -568,6 +572,67 @@ describe("BrowserSidebarService webview lifecycle", () => {
       lifecycleState: "live-attached",
       restoreResult: "snapshot-ready",
     });
+  });
+
+  test("fences a late history restore after its guest is destroyed", async () => {
+    const contents = new FakeWebContents();
+    let finishRestore!: () => void;
+    contents.restorePromise = new Promise<void>((resolve) => {
+      finishRestore = resolve;
+    });
+    const pageStore = new MemoryPageStore();
+    pageStore.pages.set("browser:durable", {
+      schemaVersion: 1,
+      runtime: "electron-webview",
+      browserStorageId: "browser:durable",
+      identity: browserIdentity,
+      title: "Restored",
+      url: "https://example.com/restored",
+      updatedAt: 1,
+      navigation: {
+        currentIndex: 0,
+        entries: [{ title: "Restored", url: "https://example.com/restored" }],
+      },
+    });
+    const service = createService(new Map([[101, contents]]), pageStore);
+    await service.handleCommand({
+      type: "register-tab",
+      ...browserIdentity,
+      browserStorageId: "browser:durable",
+      projectId: "alpha",
+      initialUrl: "about:blank",
+    });
+    service.prepareAttachedWebviewHistoryRestore(
+      {
+        ...browserIdentity,
+        browserStorageId: "browser:durable",
+        rendererInstanceId: "renderer-1",
+        hostGeneration: 1,
+        mountGeneration: 1,
+      },
+      101,
+    );
+    const attached = service.handleWebviewHostCreated({
+      ...browserIdentity,
+      browserStorageId: "browser:durable",
+      projectId: "alpha",
+      hostKind: "panel",
+      mountGeneration: 1,
+      webContentsId: 101,
+      initialUrl: "https://example.com/restored",
+    });
+    contents.destroyed = true;
+    contents.emit("destroyed");
+    const releasedSnapshot = readTab(service);
+
+    finishRestore();
+
+    await expect(attached).resolves.toMatchObject({
+      ok: false,
+      message: "Browser webview was released during history restoration",
+    });
+    expect(readTab(service)).toEqual(releasedSnapshot);
+    expect(readTab(service).webContentsId).toBeNull();
   });
 
   test("persists committed navigation and deletes it on explicit close", async () => {

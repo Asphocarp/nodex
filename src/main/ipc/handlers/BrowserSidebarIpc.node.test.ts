@@ -5,10 +5,12 @@ import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 import { assert, it } from "@effect/vitest";
 import type { IpcMainInvokeEvent } from "electron";
+import type { BrowserSidebarTabSnapshot } from "../../../shared/browser-sidebar";
 import { MainConfig } from "../../app/MainConfig";
 import { BrowserSidebarService } from "../../browser-sidebar-service";
 import { make as makeBrowserSidebarEventHub } from "../../browser/BrowserSidebarEventHub";
 import { makeBrowserRuntimeRegistry } from "../../browser/browser-runtime-registry";
+import { makeBrowserEarlyPageRestoreRuntime } from "../../browser/BrowserEarlyPageRestoreRuntime";
 import { makeBrowserWebContentsListenerRuntime } from "../../browser/BrowserWebContentsListenerRuntime";
 import { BrowserSidebarRuntime } from "../../host-runtime/BrowserSidebarRuntime";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
@@ -39,6 +41,10 @@ it.effect(
         Effect.provideService(Scope.Scope, scope),
       );
       const browser = new BrowserSidebarService({
+        earlyPageRestores:
+          yield* makeBrowserEarlyPageRestoreRuntime<BrowserSidebarTabSnapshot>().pipe(
+            Effect.provideService(Scope.Scope, scope),
+          ),
         events,
         runtimeRegistry: makeBrowserRuntimeRegistry(),
         webContentsListeners: yield* makeBrowserWebContentsListenerRuntime.pipe(
