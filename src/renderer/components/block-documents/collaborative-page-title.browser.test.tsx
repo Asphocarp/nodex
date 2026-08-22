@@ -20,7 +20,30 @@ const createTitle = (value: string) => {
   return { document, title };
 };
 
+const selectAllShortcut = async (): Promise<void> => {
+  const modifier = /Mac|iPhone|iPad|iPod/.test(navigator.platform) ? "Meta" : "Control";
+  await userEvent.keyboard(`{${modifier}>}a{/${modifier}}`);
+};
+
 describe("CollaborativePageTitle in Chromium", () => {
+  test("selects the complete title on the first select-all command", async () => {
+    const { document, title } = createTitle("Nested Page");
+    const view = render(<CollaborativePageTitle title={title} aria-label="Nested title" />);
+    const editor = view.getByRole("textbox", { name: "Nested title" }) as HTMLDivElement;
+
+    await act(async () => {
+      editor.focus();
+      restoreRichTitleDomSelection(editor, 3, 3);
+      await selectAllShortcut();
+    });
+
+    expect(readRichTitleDomSelection(editor)).toMatchObject({
+      start: 0,
+      end: title.length,
+    });
+    document.destroy();
+  });
+
   test("detects the first and last rendered title lines rather than logical offsets", async () => {
     const { document, title } = createTitle(
       "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda",

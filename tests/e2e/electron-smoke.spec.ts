@@ -1442,6 +1442,47 @@ test.describe("parallel functional Electron smoke", () => {
       const after = sourceEditor.locator(`.bn-block[data-id="${seeded.blockIds[1]}"]`);
       await expect(owner).toBeVisible({ timeout: 15_000 });
 
+      await owner.getByRole("button", { name: "Edit abc title" }).click();
+      const ownerTitle = owner.getByRole("textbox", { name: "Edit abc title" });
+      await expect(ownerTitle).toBeFocused();
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+A`);
+      await expect
+        .poll(
+          async () =>
+            await ownerTitle.evaluate((title) => {
+              const selection = window.getSelection();
+              const containsPoint = (node: Node | null) =>
+                node === title || Boolean(node && title.contains(node));
+              return {
+                anchorInside: containsPoint(selection?.anchorNode ?? null),
+                focusInside: containsPoint(selection?.focusNode ?? null),
+                text: selection?.toString() ?? "",
+              };
+            }),
+        )
+        .toEqual({ anchorInside: true, focusInside: true, text: "abc" });
+
+      await page.keyboard.press(`${process.platform === "darwin" ? "Meta" : "Control"}+A`);
+      const promotedSelection = await sourceEditor.evaluate((editor) => {
+        const selection = window.getSelection();
+        const title = editor.querySelector<HTMLElement>("[data-editor-select-all-scope='leaf']");
+        const containsPoint = (node: Node | null) =>
+          Boolean(title && (node === title || (node && title.contains(node))));
+        const selectedText = selection?.toString() ?? "";
+        return {
+          confinedToTitle:
+            containsPoint(selection?.anchorNode ?? null) &&
+            containsPoint(selection?.focusNode ?? null),
+          includesBeforeBlock: selectedText.includes("before"),
+          includesAfterBlock: selectedText.includes("after"),
+        };
+      });
+      expect(promotedSelection).toEqual({
+        confinedToTitle: false,
+        includesBeforeBlock: true,
+        includesAfterBlock: true,
+      });
+
       const afterInline = after.locator(":scope > .bn-block-content .bn-inline-content");
       const afterInlineBox = await afterInline.boundingBox();
       if (!afterInlineBox) throw new Error("The paragraph after the subpage has no layout box");
