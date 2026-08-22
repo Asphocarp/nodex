@@ -1,18 +1,8 @@
-import {
-  app,
-  BrowserWindow,
-  ipcMain,
-  Menu,
-  session as electronSession,
-  type IpcMainEvent,
-  type Net,
-  type Session,
-  type WebContents,
-  type WebPreferences,
-} from "electron";
+import * as Effect from "effect/Effect";
+import * as Scope from "effect/Scope";
+import type { IpcMainEvent, Net, Session, WebContents, WebPreferences } from "electron";
 import type { BackendLogger } from "../logging/logger";
 import {
-  MCP_APP_SANDBOX_GUEST_MESSAGE_CHANNEL,
   MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL,
   MCP_APP_SANDBOX_REMOTE_HOST,
   MCP_APP_SANDBOX_SCHEME,
@@ -51,12 +41,39 @@ export interface McpAppSandboxScheduler {
 
 export interface McpAppSandboxHostOptions {
   allowLocalDevelopment: boolean;
+  applicationName: string;
   fetch?: Net["fetch"];
   guestPreloadPath: string;
+  locale: string;
   logger: BackendLogger;
+  platform: NodeJS.Platform;
+  preferredSystemLanguages: readonly string[];
 }
 
-interface McpWebviewParams {
+export interface McpAppSandboxPlatform {
+  readonly defaultSession: Session;
+  readonly fromPartition: (partition: string) => Session;
+  readonly onGuestMessage: (
+    listener: (event: IpcMainEvent, rawMessage: unknown) => void,
+  ) => () => void;
+  readonly showGuestContextMenu: (owner: WebContents, guest: WebContents) => void;
+}
+
+export interface McpAppSandboxHost {
+  readonly handleDidAttach: (guest: WebContents) => boolean;
+  readonly handleWillAttach: (
+    event: Electron.Event,
+    webPreferences: WebPreferences,
+    rawParams: McpWebviewParams,
+  ) => void;
+  readonly handlesPartition: (partition: string | null | undefined) => boolean;
+}
+
+export interface McpAppSandboxController {
+  readonly createHost: (owner: WebContents) => McpAppSandboxHost;
+}
+
+export interface McpWebviewParams {
   nodeintegration?: string;
   partition?: string;
   preload?: string;
@@ -107,8 +124,8 @@ function escapeRegularExpression(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
-function stripElectronProductTokens(userAgent: string): string {
-  return ["Electron", app.getName()]
+function stripElectronProductTokens(userAgent: string, applicationName: string): string {
+  return ["Electron", applicationName]
     .filter(Boolean)
     .reduce(
       (value, product) =>
@@ -119,9 +136,11 @@ function stripElectronProductTokens(userAgent: string): string {
     .trim();
 }
 
-function preferredAcceptLanguage(): string {
-  const languages = app.getPreferredSystemLanguages();
-  return (languages.length > 0 ? languages : [app.getLocale()])
+function preferredAcceptLanguage(
+  preferredSystemLanguages: readonly string[],
+  locale: string,
+): string {
+  return (preferredSystemLanguages.length > 0 ? preferredSystemLanguages : [locale])
     .map((language, index) =>
       index === 0 ? language : `${language};q=${Math.max(1 - index * 0.1, 0.1).toFixed(1)}`,
     )
@@ -139,11 +158,19 @@ function setRequestHeader(headers: Record<string, string>, name: string, value: 
 function rewriteSandboxRequestHeaders(
   headers: Record<string, string>,
   userAgent: string,
+  identity: Pick<
+    McpAppSandboxHostOptions,
+    "applicationName" | "locale" | "platform" | "preferredSystemLanguages"
+  >,
 ): Record<string, string> {
   const rewritten = { ...headers };
-  const sanitizedUserAgent = stripElectronProductTokens(userAgent);
+  const sanitizedUserAgent = stripElectronProductTokens(userAgent, identity.applicationName);
   setRequestHeader(rewritten, "User-Agent", sanitizedUserAgent);
-  setRequestHeader(rewritten, "Accept-Language", preferredAcceptLanguage());
+  setRequestHeader(
+    rewritten,
+    "Accept-Language",
+    preferredAcceptLanguage(identity.preferredSystemLanguages, identity.locale),
+  );
   const chromiumMajor = /\b(?:Chrome|Chromium)\/(\d+)\./u.exec(sanitizedUserAgent)?.[1];
   if (chromiumMajor) {
     setRequestHeader(
@@ -154,9 +181,9 @@ function rewriteSandboxRequestHeaders(
   }
   setRequestHeader(rewritten, "sec-ch-ua-mobile", "?0");
   const platform =
-    process.platform === "darwin"
+    identity.platform === "darwin"
       ? '"macOS"'
-      : process.platform === "win32"
+      : identity.platform === "win32"
         ? '"Windows"'
         : '"Linux"';
   setRequestHeader(rewritten, "sec-ch-ua-platform", platform);
@@ -186,18 +213,20 @@ function isBlockedSandboxSubframeUrl(value: string): boolean {
   }
 }
 
-/** Owns all process- and partition-scoped MCP App sandbox resources. */
-export class McpAppSandboxCoordinator {
+/** Internal synchronous state machine; only the scoped factory may construct it. */
+class McpAppSandboxControllerState {
   readonly #configuredSessions = new Map<
     Session,
     (event: Electron.Event, item: Electron.DownloadItem) => void
   >();
-  readonly #hosts = new Set<McpAppSandboxHost>();
-  readonly #hostsByGuestId = new Map<number, McpAppSandboxHost>();
+  readonly #hosts = new Set<McpAppSandboxHostState>();
+  readonly #hostsByGuestId = new Map<number, McpAppSandboxHostState>();
   readonly #options: McpAppSandboxHostOptions;
   readonly #pendingBySession = new Map<Session, PendingMcpAppAttachment[]>();
   readonly #protocolCache: McpAppSandboxProtocolCache;
+  readonly #platform: McpAppSandboxPlatform;
   #installed = false;
+  #releaseGuestMessage: (() => void) | null = null;
 
   readonly #onGuestMessage = (event: IpcMainEvent, rawMessage: unknown): void => {
     this.#hostsByGuestId.get(event.sender.id)?.handleGuestMessage(event, rawMessage);
@@ -207,16 +236,18 @@ export class McpAppSandboxCoordinator {
     options: McpAppSandboxHostOptions,
     protocolCache: McpAppSandboxProtocolCache,
     private readonly scheduler: McpAppSandboxScheduler,
+    platform: McpAppSandboxPlatform,
   ) {
     this.#options = options;
     this.#protocolCache = protocolCache;
+    this.#platform = platform;
   }
 
   install(): void {
     if (this.#installed) return;
     this.#installed = true;
-    ipcMain.on(MCP_APP_SANDBOX_GUEST_MESSAGE_CHANNEL, this.#onGuestMessage);
-    const defaultSession = electronSession.defaultSession;
+    this.#releaseGuestMessage = this.#platform.onGuestMessage(this.#onGuestMessage);
+    const defaultSession = this.#platform.defaultSession;
     defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
       const frame = details.frame;
       const requestHeaders = details.requestHeaders;
@@ -234,7 +265,11 @@ export class McpAppSandboxCoordinator {
         isSandboxHostUrl(refererHeader);
       callback({
         requestHeaders: belongsToSandbox
-          ? rewriteSandboxRequestHeaders(requestHeaders, defaultSession.getUserAgent())
+          ? rewriteSandboxRequestHeaders(
+              requestHeaders,
+              defaultSession.getUserAgent(),
+              this.#options,
+            )
           : requestHeaders,
       });
     });
@@ -244,35 +279,48 @@ export class McpAppSandboxCoordinator {
     if (!this.#installed) {
       throw new Error("MCP App sandbox coordinator is not installed");
     }
-    const host = new McpAppSandboxHost(this, owner, this.#options);
+    const host = new McpAppSandboxHostState(
+      this,
+      owner,
+      this.#options,
+      this.#platform.showGuestContextMenu,
+    );
     this.#hosts.add(host);
     return host;
   }
 
-  dispose(): void {
+  release(): void {
     if (!this.#installed) return;
     this.#installed = false;
-    ipcMain.removeListener(MCP_APP_SANDBOX_GUEST_MESSAGE_CHANNEL, this.#onGuestMessage);
-    electronSession.defaultSession.webRequest.onBeforeSendHeaders(null);
-    for (const host of [...this.#hosts]) host.dispose();
+    const releaseBestEffort = (release: () => unknown): void => {
+      try {
+        release();
+      } catch {
+        // A broken Electron lease must not prevent the remaining sandbox graph from releasing.
+      }
+    };
+    releaseBestEffort(() => this.#releaseGuestMessage?.());
+    this.#releaseGuestMessage = null;
+    releaseBestEffort(() => this.#platform.defaultSession.webRequest.onBeforeSendHeaders(null));
+    for (const host of [...this.#hosts]) releaseBestEffort(() => host.release());
     for (const entries of this.#pendingBySession.values()) {
       for (const pending of entries) pending.cancelExpiration();
     }
     this.#pendingBySession.clear();
     this.#hostsByGuestId.clear();
     for (const [sandboxSession, onWillDownload] of this.#configuredSessions) {
-      sandboxSession.setPermissionCheckHandler(null);
-      sandboxSession.setPermissionRequestHandler(null);
-      sandboxSession.removeListener("will-download", onWillDownload);
-      sandboxSession.webRequest.onBeforeRequest(null);
-      sandboxSession.webRequest.onBeforeSendHeaders(null);
-      sandboxSession.protocol.unhandle(MCP_APP_SANDBOX_SCHEME);
+      releaseBestEffort(() => sandboxSession.setPermissionCheckHandler(null));
+      releaseBestEffort(() => sandboxSession.setPermissionRequestHandler(null));
+      releaseBestEffort(() => sandboxSession.removeListener("will-download", onWillDownload));
+      releaseBestEffort(() => sandboxSession.webRequest.onBeforeRequest(null));
+      releaseBestEffort(() => sandboxSession.webRequest.onBeforeSendHeaders(null));
+      releaseBestEffort(() => sandboxSession.protocol.unhandle(MCP_APP_SANDBOX_SCHEME));
     }
     this.#configuredSessions.clear();
   }
 
   configureSession(partition: string): Session {
-    const sandboxSession = electronSession.fromPartition(partition);
+    const sandboxSession = this.#platform.fromPartition(partition);
     if (this.#configuredSessions.has(sandboxSession)) return sandboxSession;
     const onWillDownload = (event: Electron.Event, item: Electron.DownloadItem): void => {
       event.preventDefault();
@@ -296,6 +344,7 @@ export class McpAppSandboxCoordinator {
         requestHeaders: rewriteSandboxRequestHeaders(
           details.requestHeaders,
           sandboxSession.getUserAgent(),
+          this.#options,
         ),
       });
     });
@@ -356,7 +405,7 @@ export class McpAppSandboxCoordinator {
     return pending.state;
   }
 
-  releaseHost(host: McpAppSandboxHost, owner: WebContents): void {
+  releaseHost(host: McpAppSandboxHostState, owner: WebContents): void {
     this.#hosts.delete(host);
     for (const [guestId, registeredHost] of this.#hostsByGuestId) {
       if (registeredHost === host) this.#hostsByGuestId.delete(guestId);
@@ -375,7 +424,7 @@ export class McpAppSandboxCoordinator {
     }
   }
 
-  registerGuest(guestId: number, host: McpAppSandboxHost): void {
+  registerGuest(guestId: number, host: McpAppSandboxHostState): void {
     this.#hostsByGuestId.set(guestId, host);
   }
 
@@ -384,29 +433,26 @@ export class McpAppSandboxCoordinator {
   }
 }
 
-export class McpAppSandboxHost {
+class McpAppSandboxHostState implements McpAppSandboxHost {
   readonly #attachedGuests = new Map<number, AttachedMcpAppGuest>();
-  readonly #coordinator: McpAppSandboxCoordinator;
+  readonly #coordinator: McpAppSandboxControllerState;
   readonly #options: McpAppSandboxHostOptions;
   readonly #owner: WebContents;
+  readonly #showContextMenu: (owner: WebContents, guest: WebContents) => void;
   #disposed = false;
-  #onOwnerDestroyed: (() => void) | null = null;
+  readonly #onOwnerDestroyed = (): void => this.release();
 
   constructor(
-    coordinator: McpAppSandboxCoordinator,
+    coordinator: McpAppSandboxControllerState,
     owner: WebContents,
     options: McpAppSandboxHostOptions,
+    showContextMenu: (owner: WebContents, guest: WebContents) => void,
   ) {
     this.#coordinator = coordinator;
     this.#owner = owner;
     this.#options = options;
-  }
-
-  installForOwner(): () => void {
-    if (this.#onOwnerDestroyed) return () => this.dispose();
-    this.#onOwnerDestroyed = () => this.dispose();
     this.#owner.once("destroyed", this.#onOwnerDestroyed);
-    return () => this.dispose();
+    this.#showContextMenu = showContextMenu;
   }
 
   handlesPartition(partition: string | null | undefined): boolean {
@@ -519,13 +565,10 @@ export class McpAppSandboxHost {
     return true;
   }
 
-  dispose(): void {
+  release(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    if (this.#onOwnerDestroyed) {
-      this.#owner.removeListener("destroyed", this.#onOwnerDestroyed);
-      this.#onOwnerDestroyed = null;
-    }
+    this.#owner.removeListener("destroyed", this.#onOwnerDestroyed);
     for (const attached of this.#attachedGuests.values()) {
       this.#coordinator.unregisterGuest(attached.guest.id);
       if (!attached.guest.isDestroyed()) attached.guest.close();
@@ -589,17 +632,7 @@ export class McpAppSandboxHost {
       });
     });
     guest.on("context-menu", () => {
-      Menu.buildFromTemplate([
-        {
-          label: "DevTools",
-          click: () => {
-            if (guest.isDestroyed()) return;
-            guest.openDevTools({ mode: "detach" });
-          },
-        },
-      ]).popup({
-        window: BrowserWindow.fromWebContents(attached.ownerWebContents) ?? undefined,
-      });
+      this.#showContextMenu(attached.ownerWebContents, guest);
     });
     guest.once("destroyed", () => {
       this.#attachedGuests.delete(guest.id);
@@ -635,3 +668,17 @@ export class McpAppSandboxHost {
     this.#owner.postMessage(MCP_APP_SANDBOX_HOST_MESSAGE_CHANNEL, hostMessage, event.ports);
   }
 }
+
+/** Acquires the entire process/partition/owner sandbox graph under one Main Scope. */
+export const makeMcpAppSandboxController = (
+  options: McpAppSandboxHostOptions,
+  protocolCache: McpAppSandboxProtocolCache,
+  scheduler: McpAppSandboxScheduler,
+  platform: McpAppSandboxPlatform,
+): Effect.Effect<McpAppSandboxController, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const state = new McpAppSandboxControllerState(options, protocolCache, scheduler, platform);
+    yield* Effect.addFinalizer(() => Effect.sync(() => state.release()));
+    yield* Effect.sync(() => state.install());
+    return { createHost: (owner) => state.createHost(owner) };
+  });

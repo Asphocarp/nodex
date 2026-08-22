@@ -664,6 +664,7 @@ export const live: Layer.Layer<
             allowLocalDevelopment: !config.isPackaged,
             guestPreloadPath: `${__dirname}/../preload/mcp-app-sandbox-guest.js`,
             logger: getLogger({ subsystem: "mcp-app-sandbox" }),
+            platform: config.platform as NodeJS.Platform,
           }),
           runtimeScope,
         );

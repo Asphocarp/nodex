@@ -268,14 +268,17 @@ an empty history. Renderer history reads and deletes invoke typed Effects direct
 callbacks temporarily borrow scoped Promise projections, so their writes remain children of the Main
 Scope and cannot outlive the repository owner.
 
-The MCP App sandbox runtime Scope owns both the Electron coordinator and its protocol runtime.
-The protocol runtime uses a bounded Effect Cache for TTL and single-flight Skybridge fetches,
-tracks prewarm graphs in a keyed FiberMap, and projects Promise only at Electron's protocol and
-host callbacks. The coordinator borrows that port; it cannot construct, abort, or dispose the
-cache. Releasing the Scope first detaches guest/session protocol ingress, then interrupts fetch and
-prewarm fibers and invalidates cached responses. Pending guest-attachment expiry is likewise a
-scoped FiberSet task rather than a coordinator timer. No protocol cache or expiry task survives a
-runtime replacement.
+The MCP App sandbox runtime Scope owns both the synchronous Electron controller and its protocol
+runtime. A scoped factory installs the sole guest-message/default-session ingress before returning;
+it owns every configured partition permission, download, request-header and custom-protocol handler,
+every owner/guest registration, and every pending attachment lease. Creating a per-window host
+immediately binds it to owner WebContents destruction, without exposing `install()` or `dispose()` to
+the Window runtime. Electron globals and application/platform identity enter through one platform
+Adapter, so request-header policy is pure and does not read ambient process state. Scope release first
+closes controller admission, detaches all global/partition/owner ingress and closes attached guests.
+The protocol runtime then interrupts bounded Cache/FiberMap fetch and prewarm work and invalidates
+responses. Pending attachment expiry belongs to a scoped FiberSet rather than a controller timer. No
+protocol cache, handler, guest callback, or expiry task survives runtime replacement.
 
 The process-scoped Computer Use Effect Module owns readiness, the current availability projection,
 native-pipe lifetime, exact managed-service PID identity, and service validation time. One

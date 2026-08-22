@@ -118,7 +118,6 @@ export const live = (
         });
         appshots.observeWindow(window);
         const mcpAppSandboxHost = options.mcpAppSandbox.createHost(window.webContents);
-        mcpAppSandboxHost.installForOwner();
         const pendingBrowserAttachments = new Map<number, BrowserAuthorizedAttachment>();
         window.webContents.setWindowOpenHandler(({ url }) => {
           if (isAllowedBrowserExternalUrl(url)) void shell.openExternal(url);
