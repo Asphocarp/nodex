@@ -119,7 +119,6 @@ export interface CodexRendererConversationRuntimeService {
   ) => void;
   readonly clearRequestDelivery: (conversationId: string, requestId: RequestId) => void;
   readonly clearConversation: (conversationId: string) => string | null;
-  readonly close: () => void;
 }
 
 export class CodexRendererConversationRuntime extends Context.Service<
@@ -154,9 +153,12 @@ const requestDeliveryKey = (request: CodexThreadOwnerServerRequest): string => {
  * through the scoped runtime; tests may construct it directly to exercise the
  * synchronous conversation reducer without creating a second Effect runtime.
  */
-export const makeCodexRendererConversationState = (
+const makeRuntimeState = (
   options: CodexRendererConversationRuntimeOptions = {},
-): CodexRendererConversationRuntimeService => {
+): {
+  readonly close: () => void;
+  readonly runtime: CodexRendererConversationRuntimeService;
+} => {
   const subscriptions = new CodexThreadStreamSubscriptionState({
     now: options.now,
     reconnectGraceMs: options.reconnectGraceMs ?? CODEX_THREAD_STREAM_FOLLOWER_RECONNECT_GRACE_MS,
@@ -346,6 +348,8 @@ export const makeCodexRendererConversationState = (
       clearRequestDeliveries(normalizedConversationId);
       return ownerClientId;
     },
+  };
+  return {
     close: () => {
       if (closed) return;
       closed = true;
@@ -354,16 +358,19 @@ export const makeCodexRendererConversationState = (
       disposedClientIds.clear();
       requestDeliveriesByConversationId.clear();
     },
+    runtime: service,
   };
-  return service;
 };
+
+export const makeCodexRendererConversationState = (
+  options: CodexRendererConversationRuntimeOptions = {},
+): CodexRendererConversationRuntimeService => makeRuntimeState(options).runtime;
 
 export const make = (
   options: CodexRendererConversationRuntimeOptions = {},
 ): Effect.Effect<CodexRendererConversationRuntimeService, never, Scope.Scope> =>
-  Effect.acquireRelease(
-    Effect.sync(() =>
-      CodexRendererConversationRuntime.of(makeCodexRendererConversationState(options)),
-    ),
-    (runtime) => Effect.sync(runtime.close),
-  );
+  Effect.gen(function* () {
+    const state = makeRuntimeState(options);
+    yield* Effect.addFinalizer(() => Effect.sync(state.close));
+    return CodexRendererConversationRuntime.of(state.runtime);
+  });

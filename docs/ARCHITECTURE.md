@@ -728,7 +728,8 @@ synchronous transition before `CodexService` applies canonical conversation cons
 transport actions. Owner replacement clears the prior delivery generation and re-fences followers;
 Thread removal and Main Scope release clear the same aggregate. `CodexService` remains the owner of
 the accepted conversation document and reducers, but it has no renderer owner map, detached-owner
-map, disposed-client set, delivery registry, or independent view registry.
+map, disposed-client set, delivery registry, independent view registry, or capability to close the
+whole renderer-coordination runtime.
 
 The detailed contracts are [Codex owner/follower streaming](docs/product-specs/codex-thread-owner-follower-streaming.md), [Codex transcript behavior](docs/product-specs/codex-thread-transcript-behavior.md), and [the generated protocol runtime plan](docs/plans/codex-generated-protocol-runtime-boundary.md).
 
