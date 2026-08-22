@@ -1,8 +1,11 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
+import * as Effect from "effect/Effect";
+import * as FiberSet from "effect/FiberSet";
+import * as Scope from "effect/Scope";
 import { GitReviewRuntime, type GitReviewRepositoryPaths } from "./git-review-operations";
 import type { GitCommandRunner, GitRepositoryExecutionIdentity } from "./git-command-runner";
-import { WorktreeRepository } from "./worktree-repository";
+import { makeWorktreeRepository, type WorktreeRepository } from "./worktree-repository";
 
 function cwdKey(hostId: string, cwd: string): string {
   return JSON.stringify([hostId, path.resolve(cwd)]);
@@ -12,20 +15,38 @@ function repositoryKey(identity: GitReviewRepositoryPaths): string {
   return JSON.stringify([identity.hostId, identity.commonDir, identity.root]);
 }
 
-export class GitRepositoryRegistry {
+export interface GitRepositoryRegistry {
+  get(cwd: string, signal?: AbortSignal): Promise<WorktreeRepository | null>;
+  initialize(cwd: string, signal?: AbortSignal): Promise<WorktreeRepository | null>;
+}
+
+class GitRepositoryRegistryState implements GitRepositoryRegistry {
   readonly #runner: GitCommandRunner;
   readonly #reviewRuntime: GitReviewRuntime;
+  readonly #makeRepository: (
+    identity: GitReviewRepositoryPaths & { hostId: "local" },
+  ) => Promise<WorktreeRepository>;
   readonly #repositories = new Map<string, WorktreeRepository>();
   readonly #repositoryKeysByCwd = new Map<string, string>();
   readonly #discoveries = new Map<string, Promise<WorktreeRepository | null>>();
+  readonly #repositoryCreations = new Map<string, Promise<WorktreeRepository>>();
   readonly #generationProviderCleanups = new Map<string, () => void>();
+  #closed = false;
 
-  constructor(runner: GitCommandRunner, reviewRuntime?: GitReviewRuntime) {
-    this.#runner = runner;
-    this.#reviewRuntime = reviewRuntime ?? new GitReviewRuntime({ commandRunner: runner });
+  constructor(options: {
+    makeRepository: (
+      identity: GitReviewRepositoryPaths & { hostId: "local" },
+    ) => Promise<WorktreeRepository>;
+    reviewRuntime: GitReviewRuntime;
+    runner: GitCommandRunner;
+  }) {
+    this.#makeRepository = options.makeRepository;
+    this.#reviewRuntime = options.reviewRuntime;
+    this.#runner = options.runner;
   }
 
   async get(cwd: string, signal?: AbortSignal): Promise<WorktreeRepository | null> {
+    if (this.#closed) throw new Error("Git repository registry is closed");
     signal?.throwIfAborted();
     const normalizedCwd = path.resolve(cwd.trim());
     const entry = await stat(normalizedCwd).catch(() => null);
@@ -46,6 +67,7 @@ export class GitRepositoryRegistry {
   }
 
   async initialize(cwd: string, signal?: AbortSignal): Promise<WorktreeRepository | null> {
+    if (this.#closed) throw new Error("Git repository registry is closed");
     const normalizedCwd = path.resolve(cwd.trim());
     const entry = await stat(normalizedCwd).catch(() => null);
     if (!entry?.isDirectory()) return null;
@@ -55,19 +77,19 @@ export class GitRepositoryRegistry {
       root: normalizedCwd,
     };
     let result = await this.#runner.run(provisional, ["init", "-b", "main"], { signal });
-    if (!result.success) {
-      result = await this.#runner.run(provisional, ["init"], { signal });
-    }
+    if (!result.success) result = await this.#runner.run(provisional, ["init"], { signal });
     if (!result.success) return null;
     return await this.get(normalizedCwd, signal);
   }
 
-  dispose(): void {
-    for (const repository of this.#repositories.values()) repository.dispose();
+  release(): void {
+    if (this.#closed) return;
+    this.#closed = true;
     for (const cleanup of this.#generationProviderCleanups.values()) cleanup();
     this.#repositories.clear();
     this.#repositoryKeysByCwd.clear();
     this.#discoveries.clear();
+    this.#repositoryCreations.clear();
     this.#generationProviderCleanups.clear();
   }
 
@@ -82,9 +104,7 @@ export class GitRepositoryRegistry {
       signal,
     });
     signal?.throwIfAborted();
-    if (!rootResult.success || rootResult.code !== 0 || !rootResult.stdout.trim()) {
-      return null;
-    }
+    if (!rootResult.success || rootResult.code !== 0 || !rootResult.stdout.trim()) return null;
     const root = await realpath(path.resolve(cwd, rootResult.stdout.trim()));
     const rootIdentity: GitRepositoryExecutionIdentity = {
       hostId: "local",
@@ -107,19 +127,37 @@ export class GitRepositoryRegistry {
       gitDir,
       commonDir,
     };
+    if (this.#closed) throw new Error("Git repository registry is closed");
     const key = repositoryKey(identity);
     let repository = this.#repositories.get(key);
     if (!repository) {
-      repository = new WorktreeRepository(identity, this.#runner);
-      this.#repositories.set(key, repository);
-      const ownedRepository = repository;
-      this.#generationProviderCleanups.set(
-        key,
-        this.#reviewRuntime.registerSnapshotGenerationProvider(identity, {
-          advance: () => ownedRepository.advanceGeneration(),
-          current: () => ownedRepository.generation,
-        }),
-      );
+      let creation = this.#repositoryCreations.get(key);
+      if (!creation) {
+        creation = this.#makeRepository(identity);
+        this.#repositoryCreations.set(key, creation);
+      }
+      try {
+        repository = await creation;
+      } finally {
+        if (this.#repositoryCreations.get(key) === creation) {
+          this.#repositoryCreations.delete(key);
+        }
+      }
+      if (this.#closed) throw new Error("Git repository registry is closed");
+      const existing = this.#repositories.get(key);
+      if (existing) {
+        repository = existing;
+      } else {
+        this.#repositories.set(key, repository);
+        const ownedRepository = repository;
+        this.#generationProviderCleanups.set(
+          key,
+          this.#reviewRuntime.registerSnapshotGenerationProvider(identity, {
+            advance: () => ownedRepository.advanceGeneration(),
+            current: () => ownedRepository.generation,
+          }),
+        );
+      }
     }
     this.#reviewRuntime.registerRepositoryIdentity(cwd, identity);
     this.#repositoryKeysByCwd.set(cwdKey("local", cwd), key);
@@ -127,3 +165,20 @@ export class GitRepositoryRegistry {
     return repository;
   }
 }
+
+export const makeGitRepositoryRegistry = (
+  runner: GitCommandRunner,
+  reviewRuntime = new GitReviewRuntime({ commandRunner: runner }),
+): Effect.Effect<GitRepositoryRegistry, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const ownerScope = yield* Scope.Scope;
+    const runPromise = yield* FiberSet.makeRuntimePromise<never, unknown, never>();
+    const registry = new GitRepositoryRegistryState({
+      runner,
+      reviewRuntime,
+      makeRepository: async (identity) =>
+        await runPromise(makeWorktreeRepository(identity, runner).pipe(Scope.provide(ownerScope))),
+    });
+    yield* Effect.addFinalizer(() => Effect.sync(() => registry.release()));
+    return registry;
+  });

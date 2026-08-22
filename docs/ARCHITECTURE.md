@@ -759,6 +759,15 @@ replacement, unsubscribe, and worker shutdown interrupt the same fiber and propa
 signal through repository query coalescing. The live-query Scope finalizer fences later
 subscription admission, releases every repository watch lease, resolves generation
 waiters, and interrupts all remaining keyed work before the repository graph is released.
+The repository registry and each canonical worktree repository are acquired in that same
+worker Scope. A zero-idle `LayerMap` acquires one repository watcher when the first live
+lease arrives and releases it with the last lease. Each native file-watch session is an
+`acquireUseRelease` resource inside a target fiber; reconnect waits and semantic-change
+debounce use the Effect clock, and callback-time keyed fibers preserve fixed debounce
+windows without owning raw timers. Repository reads coalesce in one `QueryClient`; its
+query signal is the physical read cancellation authority. Last-consumer release,
+generation replacement, and Scope release all cancel through that same signal before the
+cache and generation-provider registrations are released.
 Application Git mutations, including commit and push, cross the same worker protocol. The
 repository owner advances its generation after success; Main does not run a parallel mutation
 path or issue a compensating refresh whose correctness depends on the caller remembering it.

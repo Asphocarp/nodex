@@ -1,9 +1,18 @@
 import { QueryClient, type QueryKey, type QueryMeta } from "@tanstack/query-core";
 import path from "node:path";
-import type { GitReviewRepositoryPaths } from "./git-review-operations";
+import * as Context from "effect/Context";
+import * as Duration from "effect/Duration";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as FiberSet from "effect/FiberSet";
+import * as Layer from "effect/Layer";
+import * as LayerMap from "effect/LayerMap";
+import * as Scope from "effect/Scope";
+import type { FileWatchHost } from "../file-watch-host";
 import { localFileWatchHost } from "../file-watch-host";
+import type { GitReviewRepositoryPaths } from "./git-review-operations";
 import {
-  NodeGitReviewRepositoryWatcher,
+  makeGitReviewRepositoryWatcher,
   type GitReviewRepositoryChangedEvent,
   type GitReviewRepositoryChange,
   type GitReviewRepositoryWatcher,
@@ -17,15 +26,19 @@ import {
 import { UntrackedPathCache } from "./untracked-cache";
 
 interface SharedRun<Result> {
-  controller: AbortController;
   consumers: Set<symbol>;
-  generation: number;
+  key: QueryKey;
   promise: Promise<Result>;
 }
 
 interface WatchLeaseMember {
   onChange(event: GitReviewRepositoryChangedEvent): void;
   onRequiresRecoveryChanged(requiresRecovery: boolean): void;
+}
+
+interface AcquiredWatcher {
+  readonly watcher: GitReviewRepositoryWatcher;
+  release(): void;
 }
 
 export interface GitRepositoryWatchLease {
@@ -46,9 +59,35 @@ export interface GitReadQueryMeta extends QueryMeta {
   gitReadGeneration?: number;
 }
 
-export class WorktreeRepository {
+export interface WorktreeRepository {
+  readonly generation: number;
   readonly identity: GitReviewRepositoryPaths & { hostId: "local" };
   readonly untrackedPaths: UntrackedPathCache;
+  acquireWatchLease(member: WatchLeaseMember): Promise<GitRepositoryWatchLease>;
+  advanceGeneration(options?: { invalidateUntracked?: boolean }): number;
+  invalidateGitReadCachesForRepoChange(
+    change: GitReviewRepositoryChange,
+    changedPaths?: readonly string[],
+  ): Promise<number>;
+  query<Result>(input: {
+    key: QueryKey;
+    meta?: GitReadQueryMeta;
+    signal?: AbortSignal;
+    staleTime?: number;
+    run: (signal: AbortSignal) => Promise<Result>;
+  }): Promise<Result>;
+  readSafeAttributeFilterOverrides(signal?: AbortSignal): Promise<readonly string[]>;
+  runGit(args: readonly string[], options?: GitCommandOptions): Promise<GitCommandResult>;
+}
+
+class RepositoryWatcher extends Context.Service<RepositoryWatcher, GitReviewRepositoryWatcher>()(
+  "nodex/main/git-worker/RepositoryWatcher",
+) {}
+
+class WorktreeRepositoryState implements WorktreeRepository {
+  readonly identity: GitReviewRepositoryPaths & { hostId: "local" };
+  readonly untrackedPaths: UntrackedPathCache;
+  readonly #acquireWatcher: () => Promise<AcquiredWatcher>;
   readonly #runner: GitCommandRunner;
   readonly #queryClient = new QueryClient({
     defaultOptions: {
@@ -61,14 +100,16 @@ export class WorktreeRepository {
   readonly #sharedRuns = new Map<string, SharedRun<unknown>>();
   readonly #watchMembers = new Set<WatchLeaseMember>();
   #generation = 1;
-  #snapshotController = new AbortController();
-  #watcher: GitReviewRepositoryWatcher | null = null;
-  #watcherStart: Promise<void> | null = null;
-  #disposed = false;
+  #closed = false;
 
-  constructor(identity: GitReviewRepositoryPaths & { hostId: "local" }, runner: GitCommandRunner) {
+  constructor(
+    identity: GitReviewRepositoryPaths & { hostId: "local" },
+    runner: GitCommandRunner,
+    acquireWatcher: () => Promise<AcquiredWatcher>,
+  ) {
     this.identity = identity;
     this.#runner = runner;
+    this.#acquireWatcher = acquireWatcher;
     this.untrackedPaths = new UntrackedPathCache(this);
   }
 
@@ -77,6 +118,7 @@ export class WorktreeRepository {
   }
 
   runGit(args: readonly string[], options?: GitCommandOptions): Promise<GitCommandResult> {
+    if (this.#closed) return Promise.reject(new Error("Git repository is closed"));
     return this.#runner.run(this.identity, args, options);
   }
 
@@ -95,9 +137,7 @@ export class WorktreeRepository {
           ],
           { allowedNonZeroExitCodes: [1], signal: querySignal },
         );
-        if (!result.success) {
-          throw new Error("Could not discover Git attribute filters");
-        }
+        if (!result.success) throw new Error("Could not discover Git attribute filters");
         const filterNames = new Set<string>();
         for (const line of result.stdout.split(/\r?\n/)) {
           const match = /^filter\.(.+)\.(?:clean|smudge|process|required)$/.exec(line.trim());
@@ -124,7 +164,7 @@ export class WorktreeRepository {
     staleTime?: number;
     run: (signal: AbortSignal) => Promise<Result>;
   }): Promise<Result> {
-    if (this.#disposed) return Promise.reject(new Error("Git repository is disposed"));
+    if (this.#closed) return Promise.reject(new Error("Git repository is closed"));
     input.signal?.throwIfAborted();
     const cacheKey = JSON.stringify(input.key);
     let shared = this.#sharedRuns.get(cacheKey) as SharedRun<Result> | undefined;
@@ -134,7 +174,6 @@ export class WorktreeRepository {
       recordGitQueryCacheOutcome(
         cached !== undefined && (input.staleTime ?? Infinity) === Infinity ? "hit" : "miss",
       );
-      const controller = new AbortController();
       const generation = this.#generation;
       // The caller owns the complete operation identity in `input.key`.
       // `run` is an execution adapter, not query data.
@@ -145,21 +184,18 @@ export class WorktreeRepository {
           ...input.meta,
           gitReadGeneration: input.meta?.gitReadGeneration ?? generation,
         },
-        queryFn: async () => await input.run(controller.signal),
+        queryFn: async ({ signal }) => await input.run(signal),
         staleTime: input.staleTime ?? Infinity,
       });
       shared = {
-        controller,
         consumers: new Set(),
-        generation,
+        key: input.key,
         promise,
       };
       this.#sharedRuns.set(cacheKey, shared);
       void promise
         .finally(() => {
-          if (this.#sharedRuns.get(cacheKey) === shared) {
-            this.#sharedRuns.delete(cacheKey);
-          }
+          if (this.#sharedRuns.get(cacheKey) === shared) this.#sharedRuns.delete(cacheKey);
         })
         .catch(() => undefined);
     }
@@ -169,14 +205,9 @@ export class WorktreeRepository {
   }
 
   advanceGeneration(options: { invalidateUntracked?: boolean } = {}): number {
-    if (this.#disposed) return this.#generation;
+    if (this.#closed) return this.#generation;
     this.#generation += 1;
-    this.#snapshotController.abort();
-    this.#snapshotController = new AbortController();
     if (options.invalidateUntracked !== false) this.untrackedPaths.invalidateFull();
-    for (const run of this.#sharedRuns.values()) {
-      if (run.generation < this.#generation) run.controller.abort();
-    }
     void this.#queryClient.cancelQueries({
       predicate: (query) => {
         const meta = query.meta as GitReadQueryMeta | undefined;
@@ -195,7 +226,7 @@ export class WorktreeRepository {
     return this.#generation;
   }
 
-  invalidate(domains: readonly NonNullable<GitReadQueryMeta["gitReadDomains"]>[number][]): void {
+  #invalidate(domains: readonly NonNullable<GitReadQueryMeta["gitReadDomains"]>[number][]): void {
     const changed = new Set(domains);
     void this.#queryClient.invalidateQueries({
       predicate: (query) => {
@@ -207,28 +238,32 @@ export class WorktreeRepository {
   }
 
   async acquireWatchLease(member: WatchLeaseMember): Promise<GitRepositoryWatchLease> {
-    if (this.#disposed) throw new Error("Git repository is disposed");
+    if (this.#closed) throw new Error("Git repository is closed");
     this.#watchMembers.add(member);
-    const watcher = this.#ensureWatcher();
+    let acquired: AcquiredWatcher;
     try {
-      await this.#startWatcher(watcher);
+      acquired = await this.#acquireWatcher();
     } catch (error) {
       this.#watchMembers.delete(member);
-      this.#disposeWatcherIfUnused();
       throw error;
     }
-    member.onRequiresRecoveryChanged(watcher.requiresRecovery);
+    if (this.#closed) {
+      this.#watchMembers.delete(member);
+      acquired.release();
+      throw new Error("Git repository is closed");
+    }
+    member.onRequiresRecoveryChanged(acquired.watcher.requiresRecovery);
     let released = false;
     return {
       recover: async () => {
-        if (released || this.#disposed) return;
-        await this.#startWatcher(watcher);
+        if (released || this.#closed) return;
+        await acquired.watcher.recover();
       },
       release: () => {
         if (released) return;
         released = true;
         this.#watchMembers.delete(member);
-        this.#disposeWatcherIfUnused();
+        acquired.release();
       },
     };
   }
@@ -237,7 +272,7 @@ export class WorktreeRepository {
     change: GitReviewRepositoryChange,
     changedPaths?: readonly string[],
   ): Promise<number> {
-    if (this.#disposed) return this.#generation;
+    if (this.#closed) return this.#generation;
     const domains: NonNullable<GitReadQueryMeta["gitReadDomains"]> =
       change === "config"
         ? ["config"]
@@ -255,65 +290,26 @@ export class WorktreeRepository {
     } else {
       this.untrackedPaths.invalidateFull();
     }
-    this.invalidate(domains);
+    this.#invalidate(domains);
     const generation = this.advanceGeneration({ invalidateUntracked: false });
     const event = { changeType: change, ...(changedPaths ? { changedPaths } : {}) };
     for (const member of this.#watchMembers) member.onChange(event);
     return generation;
   }
 
-  dispose(): void {
-    if (this.#disposed) return;
-    this.#disposed = true;
-    this.#snapshotController.abort();
-    this.#watcher?.dispose();
-    this.#watcher = null;
-    this.#watcherStart = null;
+  notifyRequiresRecovery(requiresRecovery: boolean): void {
+    for (const member of this.#watchMembers) {
+      member.onRequiresRecoveryChanged(requiresRecovery);
+    }
+  }
+
+  async release(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
     this.#watchMembers.clear();
-    for (const run of this.#sharedRuns.values()) run.controller.abort();
+    await this.#queryClient.cancelQueries();
     this.#sharedRuns.clear();
     this.#queryClient.clear();
-  }
-
-  #ensureWatcher(): GitReviewRepositoryWatcher {
-    if (this.#watcher) return this.#watcher;
-    const watcher = new NodeGitReviewRepositoryWatcher({
-      roots: {
-        root: this.identity.root,
-        gitDir: this.identity.gitDir,
-        commonDir: this.identity.commonDir,
-        headPath: path.join(this.identity.gitDir, "HEAD"),
-        indexPath: path.join(this.identity.gitDir, "index"),
-        syncedBranchPath: path.join(this.identity.gitDir, "codex-synced-branch.json"),
-      },
-      host: localFileWatchHost,
-      onChange: async (event) => {
-        await this.invalidateGitReadCachesForRepoChange(event.changeType, event.changedPaths);
-      },
-      onRequiresRecoveryChanged: (requiresRecovery) => {
-        for (const member of this.#watchMembers) {
-          member.onRequiresRecoveryChanged(requiresRecovery);
-        }
-      },
-    });
-    this.#watcher = watcher;
-    return watcher;
-  }
-
-  async #startWatcher(watcher: GitReviewRepositoryWatcher): Promise<void> {
-    if (this.#watcherStart) return await this.#watcherStart;
-    const start = watcher.start().finally(() => {
-      if (this.#watcherStart === start) this.#watcherStart = null;
-    });
-    this.#watcherStart = start;
-    await start;
-  }
-
-  #disposeWatcherIfUnused(): void {
-    if (this.#watchMembers.size > 0) return;
-    this.#watcher?.dispose();
-    this.#watcher = null;
-    this.#watcherStart = null;
   }
 
   async #waitForSharedRun<Result>(
@@ -336,7 +332,7 @@ export class WorktreeRepository {
         signal.removeEventListener("abort", abort);
         shared.consumers.delete(consumer);
         if (cancelUnderlying && shared.consumers.size === 0) {
-          shared.controller.abort();
+          void this.#queryClient.cancelQueries({ queryKey: shared.key, exact: true });
         }
       };
       const abort = () => {
@@ -359,3 +355,71 @@ export class WorktreeRepository {
     });
   }
 }
+
+export interface WorktreeRepositoryOptions {
+  readonly watchHost?: FileWatchHost;
+}
+
+/** Creates one repository owner; watcher resources are acquired lazily per live-query lease. */
+export const makeWorktreeRepository = (
+  identity: GitReviewRepositoryPaths & { hostId: "local" },
+  runner: GitCommandRunner,
+  options: WorktreeRepositoryOptions = {},
+): Effect.Effect<WorktreeRepository, never, Scope.Scope> =>
+  Effect.gen(function* () {
+    const ownerScope = yield* Scope.Scope;
+    const runPromise = yield* FiberSet.makeRuntimePromise<never, unknown, never>();
+    let repository!: WorktreeRepositoryState;
+    const watchers = yield* LayerMap.make(
+      (_key: "watcher") =>
+        Layer.effect(
+          RepositoryWatcher,
+          makeGitReviewRepositoryWatcher({
+            roots: {
+              root: identity.root,
+              gitDir: identity.gitDir,
+              commonDir: identity.commonDir,
+              headPath: path.join(identity.gitDir, "HEAD"),
+              indexPath: path.join(identity.gitDir, "index"),
+              syncedBranchPath: path.join(identity.gitDir, "codex-synced-branch.json"),
+            },
+            host: options.watchHost ?? localFileWatchHost,
+            onChange: async (event) => {
+              await repository.invalidateGitReadCachesForRepoChange(
+                event.changeType,
+                event.changedPaths,
+              );
+            },
+            onRequiresRecoveryChanged: (requiresRecovery) => {
+              repository.notifyRequiresRecovery(requiresRecovery);
+            },
+          }),
+        ),
+      { idleTimeToLive: Duration.zero },
+    );
+    const acquireWatcher = async (): Promise<AcquiredWatcher> =>
+      await runPromise(
+        Effect.gen(function* () {
+          const leaseScope = yield* Scope.fork(ownerScope);
+          const contextExit = yield* Effect.exit(
+            watchers.contextEffect("watcher").pipe(Scope.provide(leaseScope)),
+          );
+          if (Exit.isFailure(contextExit)) {
+            yield* Scope.close(leaseScope, Exit.void);
+            return yield* Effect.failCause(contextExit.cause);
+          }
+          let released = false;
+          return {
+            watcher: Context.get(contextExit.value, RepositoryWatcher),
+            release: () => {
+              if (released) return;
+              released = true;
+              void runPromise(Scope.close(leaseScope, Exit.void)).catch(() => undefined);
+            },
+          };
+        }),
+      );
+    repository = new WorktreeRepositoryState(identity, runner, acquireWatcher);
+    yield* Effect.addFinalizer(() => Effect.promise(() => repository.release()));
+    return repository;
+  });

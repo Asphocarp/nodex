@@ -32,7 +32,7 @@ import {
 } from "./git-review-operations";
 import { LocalGitCommandRunner, runGitPerformanceOperation } from "./git-command-runner";
 import { makeGitLiveQueryRegistry, type GitLiveQueryRegistry } from "./live-query-registry";
-import { GitRepositoryRegistry } from "./repository-registry";
+import { makeGitRepositoryRegistry, type GitRepositoryRegistry } from "./repository-registry";
 import type { WorktreeRepository } from "./worktree-repository";
 
 function commandErrorMessage(stderr: string, fallback: string): string {
@@ -1022,8 +1022,7 @@ export const makeGitWorkerModule = (
       commandRunner: runner,
       environment: options.environment,
     });
-    const registry = new GitRepositoryRegistry(runner, reviewRuntime);
-    yield* Effect.addFinalizer(() => Effect.sync(() => registry.dispose()));
+    const registry = yield* makeGitRepositoryRegistry(runner, reviewRuntime);
     const publish = options.publish ?? (() => undefined);
     let module!: GitWorkerModuleState;
     const liveQueries = yield* makeGitLiveQueryRegistry({
