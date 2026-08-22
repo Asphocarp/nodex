@@ -124,6 +124,10 @@ import {
 } from "../codex-application/CodexConversationHistoryRuntime";
 import { makeCodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
 import {
+  CodexBackgroundSubagentMetadataRepairError,
+  make as makeCodexBackgroundSubagentMetadataRepair,
+} from "../codex-application/CodexBackgroundSubagentMetadataRepair";
+import {
   CodexPostResumeGoalError,
   make as makeCodexPostResumeGoalRuntime,
 } from "../codex-application/CodexPostResumeGoalRuntime";
@@ -1401,6 +1405,22 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexConversationHistoryError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const backgroundSubagentMetadataRepair = yield* makeCodexBackgroundSubagentMetadataRepair({
+          isRepairNeeded: (parentThreadId, childThreadId) =>
+            requireCodexService().isBackgroundSubagentMetadataRepairNeeded(
+              parentThreadId,
+              childThreadId,
+            ),
+          repair: (parentThreadId, childThreadId) =>
+            Effect.tryPromise({
+              try: () =>
+                requireCodexService().repairBackgroundSubagentMetadata(
+                  parentThreadId,
+                  childThreadId,
+                ),
+              catch: (cause) => new CodexBackgroundSubagentMetadataRepairError({ cause }),
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const postResumeGoals = yield* makeCodexPostResumeGoalRuntime({
           load: (threadId) =>
             Effect.tryPromise({
@@ -1583,6 +1603,7 @@ export const live: Layer.Layer<
                 conversationHistory,
                 callbacks,
               ),
+              backgroundSubagentMetadataRepair,
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
                 userInputAutoResolution,
                 callbacks,

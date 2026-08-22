@@ -683,6 +683,7 @@ import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-applicat
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
+import type { CodexBackgroundSubagentMetadataRepair } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
 import {
   isExecutionWorkspacePathWithinRoot,
   rewriteExecutionWorkspaceRoots,
@@ -719,7 +720,6 @@ const codexLogger = getLogger({ subsystem: "codex", component: "service" });
 const SIDEBAR_THREAD_SYNC_STALE_MS = 60_000;
 const SIDEBAR_THREAD_SYNC_BACKOFF_INITIAL_MS = 2_000;
 const SIDEBAR_THREAD_SYNC_BACKOFF_MAX_MS = 60_000;
-const BACKGROUND_SUBAGENT_METADATA_REPAIR_RETRY_MS = 30_000;
 const CODEX_SIDEBAR_THREAD_SOURCE_KINDS = [] as const satisfies readonly ThreadSourceKind[];
 const COMMAND_PALETTE_THREAD_SEARCH_DEFAULT_LIMIT = 50;
 const COMMAND_PALETTE_THREAD_SEARCH_MAX_LIMIT = 60;
@@ -1356,6 +1356,7 @@ type CodexServiceOptions = {
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
+  backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2601,6 +2602,7 @@ export class CodexService extends EventEmitter {
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
+  private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
   private readonly conversationResumeInFlightByThreadId = new Map<
     string,
     Promise<CodexConversationSnapshot | null>
@@ -2623,15 +2625,6 @@ export class CodexService extends EventEmitter {
     FrozenNodexAgentTurnAuthority
   >();
   private readonly fullFidelitySubagentThreadIds = new Set<string>();
-  private readonly backgroundSubagentMetadataRepairInFlightByThreadId = new Map<
-    string,
-    Promise<void>
-  >();
-  private readonly backgroundSubagentMetadataRepairCompletedThreadIds = new Set<string>();
-  private readonly backgroundSubagentMetadataRepairLastAttemptAtByThreadId = new Map<
-    string,
-    number
-  >();
   private readonly deferredThreadStartThreadIds = new Set<string>();
   private readonly readyDeferredThreadStartThreadIds = new Set<string>();
   private threadStartNotificationDeferralDepth = 0;
@@ -2737,6 +2730,7 @@ export class CodexService extends EventEmitter {
     this.threadTitlePersistence = options.threadTitlePersistence;
     this.postResumeGoals = options.postResumeGoals;
     this.conversationHistory = options.conversationHistory;
+    this.backgroundSubagentMetadataRepair = options.backgroundSubagentMetadataRepair;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -4923,21 +4917,11 @@ export class CodexService extends EventEmitter {
     }
 
     if (options.repairMissing !== false) {
-      this.scheduleMissingBackgroundSubagentMetadataRepairs(conversation, childThreadIds);
+      this.backgroundSubagentMetadataRepair.request(parentThreadId, childThreadIds);
     }
   }
 
-  private shouldRepairBackgroundSubagentMetadata(
-    parentThreadId: string,
-    childThreadId: string,
-  ): boolean {
-    if (this.backgroundSubagentMetadataRepairCompletedThreadIds.has(childThreadId)) return false;
-    if (this.backgroundSubagentMetadataRepairInFlightByThreadId.has(childThreadId)) return false;
-
-    const lastAttemptAt =
-      this.backgroundSubagentMetadataRepairLastAttemptAtByThreadId.get(childThreadId) ?? 0;
-    if (Date.now() - lastAttemptAt < BACKGROUND_SUBAGENT_METADATA_REPAIR_RETRY_MS) return false;
-
+  isBackgroundSubagentMetadataRepairNeeded(parentThreadId: string, childThreadId: string): boolean {
     const summary = this.getThreadLinkSafely(childThreadId);
     if (!summary) return true;
     if (summary.source?.parentThreadId && summary.source.parentThreadId !== parentThreadId)
@@ -4951,50 +4935,22 @@ export class CodexService extends EventEmitter {
     return !(summary.source?.parentThreadId === parentThreadId && hasFriendlyDisplayName);
   }
 
-  private scheduleMissingBackgroundSubagentMetadataRepairs(
-    conversation: CodexConversationSnapshot,
-    childThreadIds = this.extractConversationChildThreadIds(conversation),
-  ): void {
-    for (const childThreadId of childThreadIds) {
-      if (!this.shouldRepairBackgroundSubagentMetadata(conversation.threadId, childThreadId))
-        continue;
-      this.backgroundSubagentMetadataRepairLastAttemptAtByThreadId.set(childThreadId, Date.now());
-      const repairPromise = this.runBackgroundSubagentMetadataRepair(
-        conversation.threadId,
-        childThreadId,
-      );
-      this.backgroundSubagentMetadataRepairInFlightByThreadId.set(childThreadId, repairPromise);
-      void repairPromise.finally(() => {
-        this.backgroundSubagentMetadataRepairInFlightByThreadId.delete(childThreadId);
-      });
-    }
-  }
-
-  private async runBackgroundSubagentMetadataRepair(
+  /** Effect Module adapter operation; callers use backgroundSubagentMetadataRepair. */
+  async repairBackgroundSubagentMetadata(
     parentThreadId: string,
     childThreadId: string,
-  ): Promise<void> {
-    try {
-      await this.readThread(childThreadId, false);
-      const summary = this.getThreadLinkSafely(childThreadId);
-      const hasFriendlyDisplayName =
-        Boolean(summary?.agentNickname?.trim()) ||
-        Boolean(
-          summary?.threadName?.trim() &&
-          !isRawCodexSubagentThreadIdLabel(summary.threadName, childThreadId),
-        );
-      if (hasFriendlyDisplayName) {
-        this.backgroundSubagentMetadataRepairCompletedThreadIds.add(childThreadId);
-      }
-      const resolvedParentThreadId = summary?.source?.parentThreadId ?? parentThreadId;
-      this.syncParentChildMembershipMetadata(resolvedParentThreadId, { repairMissing: false });
-    } catch (error) {
-      this.logger.warn("Could not repair background subagent metadata", {
-        parentThreadId,
-        childThreadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+  ): Promise<boolean> {
+    await this.readThread(childThreadId, false);
+    const summary = this.getThreadLinkSafely(childThreadId);
+    const hasFriendlyDisplayName =
+      Boolean(summary?.agentNickname?.trim()) ||
+      Boolean(
+        summary?.threadName?.trim() &&
+        !isRawCodexSubagentThreadIdLabel(summary.threadName, childThreadId),
+      );
+    const resolvedParentThreadId = summary?.source?.parentThreadId ?? parentThreadId;
+    this.syncParentChildMembershipMetadata(resolvedParentThreadId, { repairMissing: false });
+    return hasFriendlyDisplayName;
   }
 
   private syncAcceptedConversationSummary(
@@ -6278,6 +6234,7 @@ export class CodexService extends EventEmitter {
     this.activeGoalContinuation.clear(threadId);
     this.postResumeGoals.clear(threadId);
     this.conversationHistory.clear(threadId);
+    this.backgroundSubagentMetadataRepair.clear(threadId);
     this.queuedFollowUpDispatchInFlight.delete(threadId);
   }
 

@@ -474,6 +474,15 @@ work enters the same runtime as a supervised background request instead of a det
 `CodexService` owns the canonical pagination reducer and page materialization operation, but owns no
 load Promise map, escalation tail, background error handler, or lifecycle cleanup.
 
+Missing background-subagent metadata repair is owned by one Main-scoped keyed runtime. The canonical
+conversation projection decides whether a child still lacks a valid parent/friendly identity and
+applies the repaired child membership, while the runtime owns active single-flight, completed-child
+suppression, Effect-clock retry admission, failure supervision, and interruption. A repaired child
+is not probed again during that Main generation; an incomplete or failed repair may retry only after
+the fixed interval. Thread removal clears its repair generation, and Main Scope close interrupts all
+physical reads. `CodexService` owns no repair Promise map, retry timestamp map, completed Set, or
+detached finalizer.
+
 App-server notifications that require a sidebar repair enter one trailing-debounce Module. The
 latest request replaces the pending fiber and carries the minimum acceptable sync generation;
 after the delay, the Module invokes the existing sidebar synchronization authority and supervises

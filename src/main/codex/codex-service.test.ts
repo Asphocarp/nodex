@@ -54,6 +54,7 @@ import { TestCodexThreadSettingsRuntime } from "./codex-thread-settings-runtime.
 import { TestCodexThreadTitlePersistence } from "./codex-thread-title-persistence.test-support";
 import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime.test-support";
 import { TestCodexConversationHistoryRuntime } from "./codex-conversation-history-runtime.test-support";
+import { TestCodexBackgroundSubagentMetadataRepair } from "./codex-background-subagent-metadata-repair.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -1828,6 +1829,14 @@ function createService(options?: {
       await service.loadConversationHistory(input);
     },
   });
+  const backgroundSubagentMetadataRepair = new TestCodexBackgroundSubagentMetadataRepair({
+    isRepairNeeded: (parentThreadId, childThreadId) =>
+      service?.isBackgroundSubagentMetadataRepairNeeded(parentThreadId, childThreadId) === true,
+    repair: async (parentThreadId, childThreadId) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.repairBackgroundSubagentMetadata(parentThreadId, childThreadId);
+    },
+  });
   const postResumeGoals = new TestCodexPostResumeGoalRuntime({
     load: async (threadId) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -2017,6 +2026,7 @@ function createService(options?: {
     threadTitlePersistence,
     postResumeGoals,
     conversationHistory,
+    backgroundSubagentMetadataRepair,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
