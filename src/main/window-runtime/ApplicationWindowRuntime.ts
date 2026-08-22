@@ -20,8 +20,8 @@ import {
 import type { CodexService } from "../codex/codex-service";
 import type {
   RendererClientRegistration,
-  RendererClientRouter,
-} from "../codex/renderer-client-router";
+  RendererClientRuntimeService,
+} from "../codex/renderer-client-runtime-contracts";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
 import { ComposerAppshotRuntime } from "../host-runtime/ComposerAppshotRuntime";
 import type { DesktopNotificationManager } from "../desktop-notification-manager";
@@ -49,7 +49,7 @@ export interface ApplicationWindowRuntimeOptions {
   readonly mcpAppSandbox: McpAppSandboxRuntime["Service"];
   readonly platform: NodeJS.Platform;
   readonly preloadPath: string;
-  readonly rendererClients: RendererClientRouter;
+  readonly rendererClients: RendererClientRuntimeService;
   readonly rendererUrl: string;
   readonly windows: WindowRuntimeService;
 }
@@ -292,7 +292,7 @@ export const live = (
           options.browserSidebar.releaseRendererOwner(webContentsId);
           options.desktopNotifications.dismissByOriginWebContentsId(webContentsId);
           options.codex.setRendererClientForegrounded(rendererRegistration?.clientId, false);
-          rendererRegistration?.dispose();
+          if (rendererRegistration) callbacks.fork(rendererRegistration.release);
           rendererRegistration = null;
         });
         try {

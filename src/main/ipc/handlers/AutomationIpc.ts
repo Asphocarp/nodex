@@ -13,7 +13,7 @@ import type {
 } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
 import type { CodexService } from "../../codex/codex-service";
-import type { RendererClientRouter } from "../../codex/renderer-client-router";
+import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import {
   registerCodexScheduledAutomationIpcHandlers,
   type CodexScheduledAutomationIpcChannel,
@@ -28,7 +28,7 @@ import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 export interface AutomationIpcOptions {
   readonly automation: DesktopAutomationModulePort;
   readonly codex: CodexService;
-  readonly rendererClients: RendererClientRouter;
+  readonly rendererClients: RendererClientRuntimeService;
   readonly onHeartbeatAutomationsEnabledChanged: (
     input: CodexHeartbeatAutomationsEnabledChangedInput,
   ) => void;

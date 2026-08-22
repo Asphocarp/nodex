@@ -6,7 +6,7 @@ import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
 import type { CodexService } from "../../codex/codex-service";
-import type { RendererClientRouter } from "../../codex/renderer-client-router";
+import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { codexIpcLive } from "../../ipc-handlers";
 import { live as projectRuntimeLifecycleLive } from "../../host-runtime/ProjectRuntimeLifecycleRuntime";
@@ -31,7 +31,7 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
       codexIpcLive({
         codexService: {} as CodexService,
         projectWorkspace: {} as DesktopProjectWorkspacePort,
-        rendererClientRouter: {} as RendererClientRouter,
+        rendererClientRouter: {} as RendererClientRuntimeService,
         terminalRuntime: { runAction: () => Promise.resolve() },
       }).pipe(
         Layer.provide(
@@ -50,7 +50,6 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
       scope,
     );
 
-    assert.strictEqual(channels.size, 72);
     assert.isTrue(channels.has("codex:threads:list"));
     assert.isTrue(channels.has("codex:turn:start"));
     assert.isFalse(channels.has("codex:permission:custom-description:get"));

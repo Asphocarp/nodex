@@ -31,9 +31,9 @@ import type {
 } from "../shared/agent-import";
 import type { ThreadBackgroundTerminal } from "@nodex/codex-app-server-protocol/v2/ThreadBackgroundTerminal";
 import type {
-  RendererClientRouter,
+  RendererClientRuntimeService,
   RendererClientWebContents,
-} from "./codex/renderer-client-router";
+} from "./codex/renderer-client-runtime-contracts";
 import { requireTrustedAppRendererSender as requireTrustedAppRendererSenderWithOrigin } from "./platform/electron/TrustedRendererSender";
 import { captureMainException } from "./observability/sentry-main";
 import { ElectronIpc } from "./platform/electron/ElectronIpc";
@@ -89,7 +89,7 @@ async function showDirectoryPicker(
 
 interface CodexIpcOptions {
   codexService: CodexService;
-  rendererClientRouter: RendererClientRouter;
+  rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
     readonly runAction: (input: {

@@ -37,10 +37,9 @@ it.effect("owns the complete document and canvas ingress group with the Main Sco
           Layer.mergeAll(
             Layer.succeed(ElectronIpc, ipc),
             mainConfigLayer(),
-            Layer.succeed(
-              WindowRuntime,
-              { has: () => true } as unknown as WindowRuntime["Service"],
-            ),
+            Layer.succeed(WindowRuntime, {
+              has: () => true,
+            } as unknown as WindowRuntime["Service"]),
           ),
         ),
       ),

@@ -231,6 +231,7 @@ import {
   RendererClientRuntime,
   live as rendererClientRuntimeLive,
 } from "../host-runtime/RendererClientRuntime";
+import { makeRendererClientRequestPromiseAdapter } from "../host-runtime/RendererClientRuntimePromiseAdapter";
 import {
   ComposerAppshotRuntime,
   live as composerAppshotRuntimeLive,
@@ -537,7 +538,7 @@ export const live: Layer.Layer<
           DesktopNotificationRuntime,
         );
         const rendererClientContext = yield* Layer.buildWithScope(
-          rendererClientRuntimeLive,
+          rendererClientRuntimeLive(),
           runtimeScope,
         );
         const rendererClients = Context.get(rendererClientContext, RendererClientRuntime);
@@ -1320,7 +1321,7 @@ export const live: Layer.Layer<
         yield* Layer.buildWithScope(
           codexRendererProjectionRuntimeLive({
             codex: codexService,
-            rendererClients: rendererClients.router,
+            rendererClients,
             userInputAutoResolution,
             windows,
           }),
@@ -1329,7 +1330,7 @@ export const live: Layer.Layer<
         yield* Layer.buildWithScope(
           CodexRendererIpc.live({
             codex: codexService,
-            rendererClients: rendererClients.router,
+            rendererClients,
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
@@ -1394,7 +1395,7 @@ export const live: Layer.Layer<
             database: databaseModule,
             documents: documentSync,
             library: libraryModule,
-            rendererClients: rendererClients.router,
+            rendererClients,
           }).pipe(
             Layer.provide(
               Layer.mergeAll(
@@ -1465,7 +1466,7 @@ export const live: Layer.Layer<
           AutomationIpc.live({
             automation: automationModule,
             codex: codexService,
-            rendererClients: rendererClients.router,
+            rendererClients,
             onHeartbeatAutomationsEnabledChanged: (input) => {
               callbacks.fork(scheduledAutomations.setHeartbeatAutomationsEnabled(input.enabled));
             },
@@ -1600,7 +1601,7 @@ export const live: Layer.Layer<
             mcpAppSandbox,
             platform: config.platform as NodeJS.Platform,
             preloadPath: `${__dirname}/../preload/index.js`,
-            rendererClients: rendererClients.router,
+            rendererClients,
             rendererUrl: config.rendererUrl ?? APP_RENDERER_URL,
             windows,
           }).pipe(
@@ -1775,7 +1776,10 @@ export const live: Layer.Layer<
         codexService.setProjectWorkspacePort(projectWorkspace);
         codexService.setNodexAgentAuthorizationBroker(
           new NodexAgentAuthorizationBroker({
-            rendererClientRouter: rendererClients.router,
+            rendererClientRouter: makeRendererClientRequestPromiseAdapter(
+              rendererClients,
+              callbacks,
+            ),
             readStoreEpoch: () => dataAuthority.identity.storeEpoch,
             persistProjectGrants: (input) =>
               nodexAgentResourceAuthority.persistProjectGrants(input),
@@ -1905,7 +1909,7 @@ export const live: Layer.Layer<
           codexIpcLive({
             codexService,
             projectWorkspace,
-            rendererClientRouter: rendererClients.router,
+            rendererClientRouter: rendererClients,
             terminalRuntime: {
               runAction: (input) =>
                 callbacks.runPromise(
@@ -1976,13 +1980,10 @@ export const live: Layer.Layer<
               if (presenting) return presenting;
               const fallbackWindow = windows.getLastFocused();
               if (!fallbackWindow) return null;
-              return rendererClients.router.getClientIdForWebContentsId(
-                fallbackWindow.webContents.id,
-              );
+              return rendererClients.getClientIdForWebContentsId(fallbackWindow.webContents.id);
             },
             showNotification: (notification, targetClientId, onAction) => {
-              const webContentsId =
-                rendererClients.router.getWebContentsIdForClientId(targetClientId);
+              const webContentsId = rendererClients.getWebContentsIdForClientId(targetClientId);
               if (webContentsId === null) return;
               const targetWindow = windows.get(webContentsId);
               if (!targetWindow || targetWindow.isDestroyed()) return;
@@ -1994,12 +1995,9 @@ export const live: Layer.Layer<
             },
             dismissNotification: (selector) => desktopNotifications.manager.dismiss(selector),
             dispatchAction: (targetClientId, action) =>
-              rendererClients.router.sendToClient(targetClientId, "desktop-notification:action", [
-                action,
-              ]),
+              rendererClients.sendToClient(targetClientId, "desktop-notification:action", [action]),
             focusTargetClient: (targetClientId) => {
-              const webContentsId =
-                rendererClients.router.getWebContentsIdForClientId(targetClientId);
+              const webContentsId = rendererClients.getWebContentsIdForClientId(targetClientId);
               if (webContentsId === null) return;
               const targetWindow = windows.get(webContentsId);
               if (!targetWindow || targetWindow.isDestroyed()) return;

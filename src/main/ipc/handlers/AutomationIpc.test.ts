@@ -5,7 +5,7 @@ import * as Scope from "effect/Scope";
 import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import type { CodexService } from "../../codex/codex-service";
-import type { RendererClientRouter } from "../../codex/renderer-client-router";
+import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type { DesktopAutomationModulePort } from "../../core-client/desktop-automation-module-bridge";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
@@ -29,7 +29,7 @@ it.effect("owns calendar and scheduled automation ingress with the Main Scope", 
       live({
         automation: {} as DesktopAutomationModulePort,
         codex: {} as CodexService,
-        rendererClients: {} as RendererClientRouter,
+        rendererClients: {} as RendererClientRuntimeService,
         onHeartbeatAutomationsEnabledChanged: () => undefined,
         onHeartbeatAutomationThreadStateChanged: () => undefined,
       }).pipe(

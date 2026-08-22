@@ -18,16 +18,16 @@ import {
   runThreadFollowerActionThroughOwner,
 } from "../../codex/owner-follower-ipc-bridge";
 import type {
-  RendererClientRouter,
+  RendererClientRuntimeService,
   RendererClientWebContents,
-} from "../../codex/renderer-client-router";
+} from "../../codex/renderer-client-runtime-contracts";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { requireTrustedAppRendererSender } from "../../platform/electron/TrustedRendererSender";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 
 export interface CodexRendererIpcOptions {
   readonly codex: CodexService;
-  readonly rendererClients: RendererClientRouter;
+  readonly rendererClients: RendererClientRuntimeService;
 }
 
 export class CodexRendererIpcError extends Schema.TaggedError<CodexRendererIpcError>()(
@@ -80,7 +80,7 @@ export const live = (
       yield* handle("codex:renderer-client:id", (event) => authorize(event));
       yield* handle("codex:renderer-client:response", (event, response) =>
         authorize(event).pipe(
-          Effect.map(() =>
+          Effect.flatMap(() =>
             options.rendererClients.handleResponse(
               event.sender as RendererClientWebContents,
               response,
@@ -145,12 +145,14 @@ export const live = (
       yield* handle("codex:thread-follower:action", (event, input) =>
         authorize(event).pipe(
           Effect.flatMap((clientId) =>
-            invoke("run-follower-action", () =>
-              runThreadFollowerActionThroughOwner(
-                options.codex,
-                options.rendererClients,
-                clientId,
-                input,
+            runThreadFollowerActionThroughOwner(
+              options.codex,
+              options.rendererClients,
+              clientId,
+              input,
+            ).pipe(
+              Effect.mapError(
+                (cause) => new CodexRendererIpcError({ operation: "run-follower-action", cause }),
               ),
             ),
           ),

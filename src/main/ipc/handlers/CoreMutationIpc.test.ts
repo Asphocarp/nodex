@@ -9,7 +9,7 @@ import type {
   DesktopDocumentSyncPort,
   DesktopLibraryModuleBridge,
 } from "../../core-client";
-import type { RendererClientRouter } from "../../codex/renderer-client-router";
+import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./CoreMutationIpc";
@@ -33,7 +33,7 @@ it.effect("owns Core mutation and history ingress with the Main Scope", () =>
         database: {} as DesktopDatabaseModuleBridge,
         documents: {} as DesktopDocumentSyncPort,
         library: {} as DesktopLibraryModuleBridge,
-        rendererClients: {} as RendererClientRouter,
+        rendererClients: {} as RendererClientRuntimeService,
       }).pipe(
         Layer.provide(
           Layer.mergeAll(

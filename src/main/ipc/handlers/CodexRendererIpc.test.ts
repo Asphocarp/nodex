@@ -7,7 +7,7 @@ import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { CodexUserInputAutoResolution } from "../../codex-application/CodexUserInputAutoResolution";
 import type { CodexService } from "../../codex/codex-service";
-import type { RendererClientRouter } from "../../codex/renderer-client-router";
+import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import { ElectronIpc } from "../../platform/electron/ElectronIpc";
 import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 import { live } from "./CodexRendererIpc";
@@ -29,7 +29,7 @@ it.effect("owns renderer coordination ingress with the Main Scope", () =>
     yield* Layer.buildWithScope(
       live({
         codex: {} as CodexService,
-        rendererClients: {} as RendererClientRouter,
+        rendererClients: {} as RendererClientRuntimeService,
       }).pipe(
         Layer.provide(
           Layer.mergeAll(

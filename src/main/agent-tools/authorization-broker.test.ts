@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vite-plus/test";
 import type { FrozenNodexAgentTurnAuthority } from "../../shared/nodex-agent-authority";
-import type { RendererClientRouter } from "../codex/renderer-client-router";
+import type { RendererClientRequestPromisePort } from "../codex/renderer-client-runtime-contracts";
 import {
   NodexAgentAuthorizationBroker,
   type AuthorizeNodexAgentAccessInput,
@@ -72,7 +72,7 @@ function createRouter(decisions: Array<"allow_once" | "allow_task" | "allow_proj
     decision: decisions.shift() ?? "deny",
   }));
   return {
-    router: { sendRequest } as Pick<RendererClientRouter, "sendRequest">,
+    router: { sendRequest } as RendererClientRequestPromisePort,
     sendRequest,
   };
 }
@@ -311,7 +311,7 @@ describe("NodexAgentAuthorizationBroker", () => {
         }),
     );
     const broker = new NodexAgentAuthorizationBroker({
-      rendererClientRouter: { sendRequest } as Pick<RendererClientRouter, "sendRequest">,
+      rendererClientRouter: { sendRequest } as RendererClientRequestPromisePort,
       readStoreEpoch: () => "store-1",
     });
 

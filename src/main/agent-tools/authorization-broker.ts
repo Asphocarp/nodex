@@ -12,7 +12,7 @@ import {
   type NodexAgentResourceGrantSpec,
   type PersistNodexAgentProjectResourceGrantsInput,
 } from "../../shared/nodex-agent-resource-access";
-import type { RendererClientRouter } from "../codex/renderer-client-router";
+import type { RendererClientRequestPromisePort } from "../codex/renderer-client-runtime-contracts";
 import type { NodexAgentDynamicAuthorizationInput } from "./dynamic-service-core";
 
 export type NodexAgentAuthorizationOutcome =
@@ -33,7 +33,7 @@ interface NodexAgentAuthorizationGrant {
 }
 
 export interface NodexAgentAuthorizationBrokerOptions {
-  readonly rendererClientRouter: Pick<RendererClientRouter, "sendRequest">;
+  readonly rendererClientRouter: RendererClientRequestPromisePort;
   readonly sessionEpoch?: string;
   readonly now?: () => number;
   readonly readStoreEpoch: () => string | null;
@@ -73,7 +73,7 @@ function parseResponse(value: unknown): NodexAgentAuthorizationResponse | null {
 }
 
 export class NodexAgentAuthorizationBroker {
-  private readonly router: Pick<RendererClientRouter, "sendRequest">;
+  private readonly router: RendererClientRequestPromisePort;
   private readonly sessionEpoch: string;
   private readonly now: () => number;
   private readonly readStoreEpoch: () => string | null;

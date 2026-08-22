@@ -14,7 +14,7 @@ import {
   registerBlockTransferIpcHandler,
   registerBlockTransferUndoIpcHandler,
 } from "../../block-transfer-ipc";
-import type { RendererClientRouter } from "../../codex/renderer-client-router";
+import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type {
   DesktopDatabaseModuleBridge,
   DesktopDocumentSyncPort,
@@ -40,7 +40,7 @@ export interface CoreMutationIpcOptions {
   readonly database: DesktopDatabaseModuleBridge;
   readonly documents: DesktopDocumentSyncPort;
   readonly library: DesktopLibraryModuleBridge;
-  readonly rendererClients: RendererClientRouter;
+  readonly rendererClients: RendererClientRuntimeService;
 }
 
 export class CoreMutationIpcError extends Schema.TaggedError<CoreMutationIpcError>()(

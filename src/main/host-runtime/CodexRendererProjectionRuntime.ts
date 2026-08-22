@@ -11,13 +11,13 @@ import {
   sendRendererThreadStreamControlRelay,
   sendRendererThreadStreamRelay,
 } from "../codex/owner-follower-ipc-bridge";
-import type { RendererClientRouter } from "../codex/renderer-client-router";
+import type { RendererClientRuntimeService } from "../codex/renderer-client-runtime-contracts";
 import { safeBroadcastToWindows } from "../ipc-safe-send";
 import type { WindowRuntimeService } from "../window-runtime/WindowRuntime";
 
 export interface CodexRendererProjectionRuntimeOptions {
   readonly codex: CodexService;
-  readonly rendererClients: RendererClientRouter;
+  readonly rendererClients: RendererClientRuntimeService;
   readonly userInputAutoResolution: CodexUserInputAutoResolution["Service"];
   readonly windows: WindowRuntimeService;
 }
@@ -34,6 +34,18 @@ export const live = (options: CodexRendererProjectionRuntimeOptions): Layer.Laye
               [change],
             ),
           ),
+        ),
+        Effect.forkScoped,
+      );
+      yield* options.rendererClients.events.pipe(
+        Stream.runForEach((event) =>
+          Effect.sync(() => {
+            if (event.kind === "connected") {
+              options.codex.handleRendererClientConnected(event.clientId);
+              return;
+            }
+            options.codex.handleRendererClientDisposed(event.clientId);
+          }),
         ),
         Effect.forkScoped,
       );
@@ -138,16 +150,7 @@ export const live = (options: CodexRendererProjectionRuntimeOptions): Layer.Laye
           options.codex.on("pendingWorktreesChanged", onPendingWorktreesChanged);
           options.codex.on("pendingWorktreeWarning", onPendingWorktreeWarning);
           options.codex.on("agentImportProgress", onAgentImportProgress);
-          const releaseDisposed = options.rendererClients.addClientDisposedListener((event) => {
-            options.codex.handleRendererClientDisposed(event.clientId);
-          });
-          const releaseConnected = options.rendererClients.addClientConnectedListener((event) => {
-            options.codex.handleRendererClientConnected(event.clientId);
-          });
-
           return () => {
-            releaseConnected();
-            releaseDisposed();
             options.codex.off("agentImportProgress", onAgentImportProgress);
             options.codex.off("pendingWorktreeWarning", onPendingWorktreeWarning);
             options.codex.off("pendingWorktreesChanged", onPendingWorktreesChanged);

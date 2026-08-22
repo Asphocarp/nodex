@@ -1,21 +1,27 @@
-import { describe, expect, test } from "vite-plus/test";
 import { EventEmitter } from "node:events";
+import { assert, it } from "@effect/vitest";
+import * as Context from "effect/Context";
+import * as Effect from "effect/Effect";
+import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
+import * as Scope from "effect/Scope";
 import type {
   CodexHostMessage,
   CodexThreadOwnerNotificationAckInput,
-  CodexThreadOwnerStreamStatePublishResult,
   CodexThreadOwnerStreamStatePublishInput,
+  CodexThreadOwnerStreamStatePublishResult,
 } from "../../shared/types";
+import { live, RendererClientRuntime } from "../host-runtime/RendererClientRuntime";
 import {
   broadcastCodexHostMessageToRendererClients,
   type CodexOwnerFollowerService,
   publishRendererThreadOwnerStreamState,
   runThreadFollowerActionThroughOwner,
 } from "./owner-follower-ipc-bridge";
-import { RendererClientRouter } from "./renderer-client-router";
 
 class FakeWebContents extends EventEmitter {
-  readonly sent: Array<{ channel: string; args: unknown[] }> = [];
+  readonly sent: Array<{ readonly channel: string; readonly args: readonly unknown[] }> = [];
   destroyed = false;
 
   constructor(readonly id: number) {
@@ -26,9 +32,8 @@ class FakeWebContents extends EventEmitter {
     return this.destroyed;
   }
 
-  send(channel: string, ...args: unknown[]): void {
+  send(channel: string, ...args: readonly unknown[]): void {
     if (this.destroyed) throw new Error("webContents destroyed");
-
     this.sent.push({ channel, args });
   }
 
@@ -74,7 +79,6 @@ class FakeOwnerFollowerService implements CodexOwnerFollowerService {
     if (!ownerClientId || ownerClientId !== sourceClientId) {
       return { accepted: false, reason: "not-owner", recovery: null };
     }
-
     this.hostMessages.push({
       type: "threadStreamStateChanged",
       hostId: "local",
@@ -93,238 +97,168 @@ class FakeOwnerFollowerService implements CodexOwnerFollowerService {
   }
 }
 
-function checkpoint(revision: number) {
-  return {
-    protocolVersion: 1 as const,
-    ownerEpoch: 1,
-    revision,
-    canonicalHash: "a".repeat(64),
-  };
-}
+const checkpoint = (revision: number) => ({
+  protocolVersion: 1 as const,
+  ownerEpoch: 1,
+  revision,
+  canonicalHash: "a".repeat(64),
+});
 
-function createIdFactory(prefix: string): () => string {
-  let nextId = 1;
-  return () => {
-    const id = `${prefix}-${nextId}`;
-    nextId += 1;
-    return id;
-  };
-}
+const idFactory = (prefix: string): (() => string) => {
+  let next = 0;
+  return () => `${prefix}:${++next}`;
+};
 
-function createManualTimers() {
-  let nextTimerId = 1;
-  const timers = new Map<number, () => void>();
+const makeRuntime = Effect.fn("CodexOwnerFollowerTest.makeRuntime")(function* () {
+  const scope = yield* Scope.make();
+  const context = yield* Layer.buildWithScope(
+    live({
+      clientIdFactory: idFactory("client"),
+      requestIdFactory: idFactory("request"),
+    }),
+    scope,
+  );
+  return { runtime: Context.get(context, RendererClientRuntime), scope };
+});
 
-  return {
-    setTimeout: (callback: () => void) => {
-      const timerId = nextTimerId;
-      nextTimerId += 1;
-      timers.set(timerId, callback);
-      return timerId;
-    },
-    clearTimeout: (timer: unknown) => {
-      timers.delete(timer as number);
-    },
-    get size() {
-      return timers.size;
-    },
-  };
-}
-
-function readRendererRequest(
-  target: FakeWebContents,
-  index: number,
-): {
-  method: string;
-  params: unknown;
-  requestId: string;
-} {
+const readRendererRequest = (target: FakeWebContents, index: number) => {
   const sent = target.sent[index];
   if (!sent) throw new Error("Missing sent renderer request");
+  return sent.args[0] as {
+    readonly method: string;
+    readonly params: unknown;
+    readonly requestId: string;
+  };
+};
 
-  return sent.args[0] as { method: string; params: unknown; requestId: string };
-}
-
-async function readRejectionMessage(promise: Promise<unknown>): Promise<string> {
-  try {
-    await promise;
-    return "";
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-}
-
-async function flushPromises(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
-
-describe("owner/follower IPC bridge", () => {
-  test("publishes owner stream-state to follower clients while skipping the source owner from bundle 40592-40621 and 65040-66095", () => {
-    const router = new RendererClientRouter({
-      clientIdFactory: createIdFactory("client"),
-    });
+it.effect("publishes owner stream-state only to follower renderer clients", () =>
+  Effect.gen(function* () {
+    const { runtime, scope } = yield* makeRuntime();
     const service = new FakeOwnerFollowerService();
     const owner = new FakeWebContents(1);
     const follower = new FakeWebContents(2);
-    const ownerRegistration = router.register(owner);
-    router.register(follower);
+    const ownerRegistration = runtime.register(owner);
+    runtime.register(follower);
     service.setOwner("thread-1", ownerRegistration.clientId);
 
     const accepted = publishRendererThreadOwnerStreamState(service, ownerRegistration.clientId, {
       conversationId: "thread-1",
-      change: {
-        type: "patches",
-        baseRevision: 0,
-        revision: 1,
-        patches: [],
-      },
+      change: { type: "patches", baseRevision: 0, revision: 1, patches: [] },
       baseCheckpoint: checkpoint(0),
       checkpoint: checkpoint(1),
     });
-    const rejected = publishRendererThreadOwnerStreamState(service, "client-stale", {
+    const rejected = publishRendererThreadOwnerStreamState(service, "client:stale", {
       conversationId: "thread-1",
-      change: {
-        type: "patches",
-        baseRevision: 1,
-        revision: 2,
-        patches: [],
-      },
+      change: { type: "patches", baseRevision: 1, revision: 2, patches: [] },
       baseCheckpoint: checkpoint(1),
       checkpoint: checkpoint(2),
     });
-
-    expect(accepted.accepted).toBe(true);
-    expect(rejected).toMatchObject({ accepted: false, reason: "not-owner" });
-    expect(String(service.hostMessages.length)).toBe("1");
-
+    assert.isTrue(accepted.accepted);
+    assert.deepInclude(rejected, { accepted: false, reason: "not-owner" });
     const hostMessage = service.hostMessages[0];
-    if (!hostMessage) throw new Error("Missing host message");
-    const fallbackCount = broadcastCodexHostMessageToRendererClients(
-      router,
-      () => {
-        throw new Error("window broadcast fallback should not run with a renderer router");
-      },
-      hostMessage,
+    if (!hostMessage) return yield* Effect.die("Missing host message");
+    assert.strictEqual(
+      broadcastCodexHostMessageToRendererClients(
+        runtime,
+        () => {
+          throw new Error("Window fallback must not run with registered clients");
+        },
+        hostMessage,
+      ),
+      1,
     );
+    assert.strictEqual(owner.sent.length, 0);
+    assert.strictEqual(follower.sent.length, 1);
+    assert.strictEqual(follower.sent[0]?.args[0], hostMessage);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
 
-    expect(fallbackCount).toBe(1);
-    expect(String(owner.sent.length)).toBe("0");
-    expect(String(follower.sent.length)).toBe("1");
-    expect(follower.sent[0]?.channel).toBe("codex:host-message");
-    expect(follower.sent[0]?.args[0]).toBe(hostMessage);
-  });
-
-  test("routes follower actions through the current owner after owner role proof from bundle 65040-66095", async () => {
-    const timers = createManualTimers();
-    const router = new RendererClientRouter({
-      clientIdFactory: createIdFactory("client"),
-      requestIdFactory: createIdFactory("request"),
-      setTimeout: timers.setTimeout,
-      clearTimeout: timers.clearTimeout,
-    });
+it.effect("routes a follower action through current-owner proof and one request authority", () =>
+  Effect.gen(function* () {
+    const { runtime, scope } = yield* makeRuntime();
     const service = new FakeOwnerFollowerService();
     const owner = new FakeWebContents(11);
     const follower = new FakeWebContents(12);
-    const ownerRegistration = router.register(owner);
-    const followerRegistration = router.register(follower);
+    const ownerRegistration = runtime.register(owner);
+    const followerRegistration = runtime.register(follower);
     service.setOwner("thread-1", ownerRegistration.clientId);
-
-    const resultPromise = runThreadFollowerActionThroughOwner(
-      service,
-      router,
-      followerRegistration.clientId,
-      {
+    const result = yield* Effect.forkChild(
+      runThreadFollowerActionThroughOwner(service, runtime, followerRegistration.clientId, {
         conversationId: "thread-1",
-        action: {
-          type: "interruptTurn",
-          threadId: "thread-1",
-        },
-      },
+        action: { type: "interruptTurn", threadId: "thread-1" },
+      }),
     );
-
+    yield* Effect.yieldNow;
     const roleRequest = readRendererRequest(owner, 0);
-    expect(roleRequest.method).toBe("thread-role");
-    expect((roleRequest.params as { conversationId?: string }).conversationId).toBe("thread-1");
-    expect(String(follower.sent.length)).toBe("0");
-
-    expect(
-      router.handleResponse(owner, {
+    assert.strictEqual(roleRequest.method, "thread-role");
+    assert.isTrue(
+      yield* runtime.handleResponse(owner, {
         type: "success",
         requestId: roleRequest.requestId,
         result: "owner",
       }),
-    ).toBe(true);
-    await flushPromises();
-
+    );
+    yield* Effect.yieldNow;
     const actionRequest = readRendererRequest(owner, 1);
-    expect(actionRequest.method).toBe("thread-owner-action");
-    expect((actionRequest.params as { type?: string }).type).toBe("interruptTurn");
-    expect((actionRequest.params as { threadId?: string }).threadId).toBe("thread-1");
-
-    expect(
-      router.handleResponse(owner, {
+    assert.strictEqual(actionRequest.method, "thread-owner-action");
+    assert.isTrue(
+      yield* runtime.handleResponse(owner, {
         type: "success",
         requestId: actionRequest.requestId,
         result: { ok: true },
       }),
-    ).toBe(true);
+    );
+    assert.deepEqual(yield* Fiber.join(result), { ok: true });
+    assert.strictEqual(runtime.getPendingRequestCount(), 0);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
 
-    const result = (await resultPromise) as { ok?: boolean };
-    expect(result.ok).toBe(true);
-    expect(router.getPendingRequestCount()).toBe(0);
-    expect(timers.size).toBe(0);
-  });
-
-  test("normalizes unavailable complete-history owner errors from bundle 65040-66095", async () => {
-    const router = new RendererClientRouter({
-      clientIdFactory: createIdFactory("client"),
-      requestIdFactory: createIdFactory("request"),
-    });
+it.effect("normalizes an unavailable complete-history owner", () =>
+  Effect.gen(function* () {
+    const { runtime, scope } = yield* makeRuntime();
     const service = new FakeOwnerFollowerService();
     const owner = new FakeWebContents(21);
     const follower = new FakeWebContents(22);
-    const ownerRegistration = router.register(owner);
-    const followerRegistration = router.register(follower);
+    const ownerRegistration = runtime.register(owner);
+    const followerRegistration = runtime.register(follower);
     service.setOwner("thread-1", ownerRegistration.clientId);
     owner.destroy();
-
-    const message = await readRejectionMessage(
-      runThreadFollowerActionThroughOwner(service, router, followerRegistration.clientId, {
+    yield* Effect.yieldNow;
+    const error = yield* runThreadFollowerActionThroughOwner(
+      service,
+      runtime,
+      followerRegistration.clientId,
+      {
         conversationId: "thread-1",
-        action: {
-          type: "loadCompleteHistory",
-          threadId: "thread-1",
-        },
-      }),
-    );
+        action: { type: "loadCompleteHistory", threadId: "thread-1" },
+      },
+    ).pipe(Effect.asVoid, Effect.flip);
+    assert.match(error.message, /no-client-found/);
+    assert.match(error.message, /thread-1/);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);
 
-    expect(message.includes("no-client-found")).toBe(true);
-    expect(message.includes("thread-1")).toBe(true);
-  });
-
-  test("normalizes missing owners for every follower action from bundle 40602-40933 and 47201-47228", async () => {
-    const router = new RendererClientRouter({
-      clientIdFactory: createIdFactory("client"),
-      requestIdFactory: createIdFactory("request"),
-    });
+it.effect("normalizes a missing owner before sending follower work", () =>
+  Effect.gen(function* () {
+    const { runtime, scope } = yield* makeRuntime();
     const service = new FakeOwnerFollowerService();
     const follower = new FakeWebContents(32);
-    const followerRegistration = router.register(follower);
-
-    const message = await readRejectionMessage(
-      runThreadFollowerActionThroughOwner(service, router, followerRegistration.clientId, {
+    const followerRegistration = runtime.register(follower);
+    const error = yield* runThreadFollowerActionThroughOwner(
+      service,
+      runtime,
+      followerRegistration.clientId,
+      {
         conversationId: "thread-missing-owner",
-        action: {
-          type: "startTurn",
-          threadId: "thread-missing-owner",
-          prompt: "Continue",
-        },
-      }),
-    );
-
-    expect(message.includes("no-client-found")).toBe(true);
-    expect(message.includes("thread-missing-owner")).toBe(true);
-    expect(String(follower.sent.length)).toBe("0");
-  });
-});
+        action: { type: "startTurn", threadId: "thread-missing-owner", prompt: "Continue" },
+      },
+    ).pipe(Effect.asVoid, Effect.flip);
+    assert.match(error.message, /no-client-found/);
+    assert.match(error.message, /thread-missing-owner/);
+    assert.strictEqual(follower.sent.length, 0);
+    yield* Scope.close(scope, Exit.void);
+  }),
+);

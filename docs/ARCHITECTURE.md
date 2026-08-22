@@ -406,6 +406,16 @@ One renderer client is the active visible owner of a live conversation. It reduc
 
 A follower first acknowledges an exact owner snapshot barrier. It then accepts only contiguous patches from the same owner epoch and requests a fresh snapshot after a gap, hash mismatch, owner replacement, or transport reset. Follower actions route to the current owner; a client with no role must resume or adopt before acting.
 
+Renderer identity, WebContents registration, targeted delivery, request correlation, and client
+lifecycle observation belong to one Main-scoped `RendererClientRuntime`. Electron registration and
+message delivery remain synchronous because they are ingress operations, while every operation
+that waits for a response is a typed Effect backed by one Deferred and one Effect-clock deadline.
+Responses must come from the exact target WebContents; renderer destruction, explicit release,
+request interruption, timeout, and Main Scope close all complete the same pending authority at most
+once. Connected/disposed observation is a scoped Stream rather than a listener set. The temporary
+Promise projection used by the legacy Nodex Agent authorization broker owns no state, timer,
+listener, or request lifecycle and must disappear with that broker's application cut-over.
+
 Decoded, generation-fenced app-server notifications enter the application through one lossless
 Main-scoped Queue actor. Callback admission is synchronous so EventEmitter arrival order is retained;
 the actor awaits each route before taking the next notification, supervises failures per envelope,
