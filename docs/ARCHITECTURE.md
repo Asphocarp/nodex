@@ -593,6 +593,15 @@ commits the new host with cwd and runtime roots. SSH adapters are registered onl
 after health, worker-deployment, file-transfer, and app-server capabilities are
 ready; renderer and Core never receive SSH credentials or arbitrary commands.
 
+`CodexThreadHandoffRuntime` is the single owner of the cross-system compensation
+transaction. It atomically reserves one operation per Thread before resolving
+external state, journals every durable boundary before advancing, and keeps the
+transaction fiber in the Main Scope rather than in the initiating tool request.
+Journal mutation is serialized and durable-first: a failed publication cannot
+advance the in-memory authority. Startup recovery, rollback, operation status,
+revision waiting, and bounded completed-status retention use the same runtime;
+there is no parallel Promise queue, waiter registry, or timer in `CodexService`.
+
 After creation, `ManagedWorktreeRuntime` owns physical lifecycle routing,
 normalized single-flight removal, newborn protection, inspection, restoration,
 and ownership metadata. Concurrent inspections with the same normalized

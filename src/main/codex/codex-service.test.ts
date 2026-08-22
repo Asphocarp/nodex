@@ -1613,6 +1613,69 @@ function createService(options?: {
   MANAGED_WORKTREE_TEST_HARNESS_RELEASES.push(managedWorktreeHarness.close);
   const projectRuntimeLifecycleHarness = makeProjectRuntimeLifecycleTestHarness();
   PROJECT_RUNTIME_TEST_HARNESS_RELEASES.push(projectRuntimeLifecycleHarness.close);
+  const threadHandoffRuntimeAdapter = {
+    start: async (input, effects) => {
+      const source = await effects.resolveSource(input.threadId);
+      const createdAt = Date.now();
+      await effects.stopActiveTurn(input.threadId);
+      const preparation = await effects.prepareDestination(
+        {
+          schemaVersion: 1,
+          operationId: input.operationId,
+          threadId: input.threadId,
+          phase: "preparing-destination",
+          source,
+          requestedDestinationHostId: input.destinationHostId,
+          destination: null,
+          prepared: null,
+          runtimeSwitched: false,
+          coreCommitted: false,
+          followUpPrompt: input.followUpPrompt,
+          followUpDispatchStarted: false,
+          warnings: [],
+          lastError: null,
+          failedPhase: null,
+          createdAt,
+          updatedAt: createdAt,
+          completedAt: null,
+        },
+        () => undefined,
+      );
+      await effects.switchRuntime(input.threadId, preparation.destination, preparation);
+      await effects.commitLocation(input.threadId, preparation.destination);
+      await effects.projectLocation(input.threadId, preparation.destination);
+      await effects.transferOwner(input.threadId, preparation);
+      const warnings = await effects.cleanup(preparation, "committed");
+      if (input.followUpPrompt) await effects.sendFollowUp(input.threadId, input.followUpPrompt);
+      const completedAt = Date.now();
+      return {
+        schemaVersion: 1,
+        operationId: input.operationId,
+        threadId: input.threadId,
+        phase: warnings.length === 0 ? "completed" : "completed-with-warning",
+        source,
+        requestedDestinationHostId: input.destinationHostId,
+        destination: preparation.destination,
+        prepared: preparation.prepared,
+        runtimeSwitched: true,
+        coreCommitted: true,
+        followUpPrompt: input.followUpPrompt,
+        followUpDispatchStarted: input.followUpPrompt !== null,
+        warnings,
+        lastError: null,
+        failedPhase: null,
+        createdAt,
+        updatedAt: completedAt,
+        completedAt,
+      } satisfies CodexThreadHandoffJournalEntry;
+    },
+    recover: async () => [],
+    launch: async () => {
+      throw new Error("The Codex service test fixture does not launch background handoffs");
+    },
+    get: async () => null,
+    waitForRevision: async () => null,
+  } satisfies import("../codex-application/CodexThreadHandoffRuntimePromiseAdapter").CodexThreadHandoffRuntimePromiseAdapter;
   const configuredAttachmentsRoot =
     options?.resolveThreadGoalAttachmentsRoot?.() ?? DEFAULT_TEST_THREAD_GOAL_ATTACHMENTS_ROOT;
   if (typeof configuredAttachmentsRoot !== "string") {
@@ -1889,6 +1952,7 @@ function createService(options?: {
     sidebarThreadMoveRuntime: {
       run: (operation) => operation(),
     },
+    threadHandoffRuntime: threadHandoffRuntimeAdapter,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -11919,22 +11983,31 @@ describe("codex-service approval fallback", () => {
     };
     const internals = service as unknown as {
       buildMcpCodexConfig: () => Promise<null>;
-      threadExecutionLocationService: {
-        start(input: {
-          operationId: string;
-          threadId: string;
-          followUpPrompt: string | null;
-        }): Promise<CodexThreadHandoffJournalEntry>;
+      buildThreadExecutionLocationEffects: () => import("../codex-application/CodexThreadHandoffRuntimePromiseAdapter").CodexThreadHandoffPromiseEffects;
+      threadHandoffRuntime: {
+        start(
+          input: {
+            operationId: string;
+            threadId: string;
+            destinationHostId: string | null;
+            followUpPrompt: string | null;
+          },
+          effects: import("../codex-application/CodexThreadHandoffRuntimePromiseAdapter").CodexThreadHandoffPromiseEffects,
+        ): Promise<CodexThreadHandoffJournalEntry>;
       };
     };
     internals.buildMcpCodexConfig = async () => null;
 
     try {
-      const movedToWorktree = await internals.threadExecutionLocationService.start({
-        operationId: "handoff-to-worktree",
-        threadId,
-        followUpPrompt: null,
-      });
+      const movedToWorktree = await internals.threadHandoffRuntime.start(
+        {
+          operationId: "handoff-to-worktree",
+          threadId,
+          destinationHostId: null,
+          followUpPrompt: null,
+        },
+        internals.buildThreadExecutionLocationEffects(),
+      );
       const worktreeThread = await projectWorkspace.getThread(threadId);
       const worktreePath = worktreeThread?.managedWorktreePath;
       expect(movedToWorktree.phase).toBe("completed");
@@ -11950,11 +12023,15 @@ describe("codex-service approval fallback", () => {
         execFileSync("git", ["status", "--porcelain"], { cwd: repositoryPath, encoding: "utf8" }),
       ).toBe("");
 
-      const movedToCheckout = await internals.threadExecutionLocationService.start({
-        operationId: "handoff-to-checkout",
-        threadId,
-        followUpPrompt: null,
-      });
+      const movedToCheckout = await internals.threadHandoffRuntime.start(
+        {
+          operationId: "handoff-to-checkout",
+          threadId,
+          destinationHostId: null,
+          followUpPrompt: null,
+        },
+        internals.buildThreadExecutionLocationEffects(),
+      );
       const checkoutThread = await projectWorkspace.getThread(threadId);
       expect(movedToCheckout.phase).toBe("completed");
       expect(checkoutThread).toMatchObject({

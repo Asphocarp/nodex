@@ -210,6 +210,11 @@ import type { CodexHeartbeatTurnCompletionPromiseAdapter } from "../codex-applic
 import type { CodexStructuredThreadTitlePromiseAdapter } from "../codex-application/CodexStructuredThreadTitlePromiseAdapter";
 import type { CodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
 import type { CodexSidebarThreadMoveRuntimePromiseAdapter } from "../codex-application/CodexSidebarThreadMoveRuntimePromiseAdapter";
+import type {
+  CodexThreadHandoffPromiseEffects,
+  CodexThreadHandoffRuntimePromiseAdapter,
+} from "../codex-application/CodexThreadHandoffRuntimePromiseAdapter";
+import type { CodexThreadHandoffPreparation } from "../codex-application/CodexThreadHandoffRuntime";
 import {
   getCodexThreadOwnerNotificationThreadId,
   isCodexThreadOwnerNotification,
@@ -611,17 +616,8 @@ import {
   type CodexThreadHandoffCapability,
 } from "./codex-thread-handoff-capability";
 import {
-  CodexThreadExecutionLocationService,
-  type CodexThreadExecutionLocationEffects,
-  type CodexThreadHandoffPreparation,
-  type CodexThreadHandoffProgress,
-} from "./codex-thread-execution-location-service";
-import {
-  CodexThreadHandoffJournalStore,
-  resolveCodexThreadHandoffJournalPath,
   type CodexThreadExecutionLocation,
   type CodexThreadHandoffJournalEntry,
-  type CodexThreadHandoffPhase,
 } from "./codex-thread-handoff-journal";
 import {
   normalizeWorktreePathForIdentity,
@@ -1213,31 +1209,6 @@ interface HandleNotificationOptions {
   bypassResumeBuffer?: boolean;
 }
 
-type CodexAppHandoffStatusType = "running" | "success" | "warning" | "error";
-
-interface CodexAppHandoffStep {
-  id: string;
-  label: string;
-  status: CodexAppHandoffStatusType;
-  message: string | null;
-  updatedAt: number;
-}
-
-interface CodexAppHandoffOperation {
-  operationId: string;
-  revision: number;
-  status: CodexAppHandoffStatusType;
-  threadId: string;
-  sourceThreadId: string;
-  destinationHostId: string;
-  destinationHostDisplayName: string | null;
-  message: string | null;
-  steps: CodexAppHandoffStep[];
-  createdAt: number;
-  updatedAt: number;
-  completedAt: number | null;
-}
-
 interface ParsedThreadStatus {
   statusType: CodexThreadStatusType;
   statusActiveFlags: CodexThreadActiveFlag[];
@@ -1375,6 +1346,7 @@ type CodexServiceOptions = {
   structuredThreadTitle: CodexStructuredThreadTitlePromiseAdapter;
   dynamicToolsLaunch: CodexDynamicToolsLaunchPromiseAdapter;
   sidebarThreadMoveRuntime: CodexSidebarThreadMoveRuntimePromiseAdapter;
+  threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2584,7 +2556,7 @@ export class CodexService extends EventEmitter {
   private readonly projectRuntimeLifecycle: ProjectRuntimeLifecyclePromiseAdapter;
   private readonly databaseNotifier: DatabaseNotifier;
   private readonly crossHostThreadHandoff: CodexCrossHostThreadHandoffService;
-  private readonly threadExecutionLocationService: CodexThreadExecutionLocationService;
+  private readonly threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
   private readonly browserTransferRuntime: CodexServiceOptions["browserTransferRuntime"];
   private readonly browserTransferStateReader: CodexServiceOptions["browserTransferStateReader"];
   private forkSidePanelTransferLifecycle: CodexServiceOptions["forkSidePanelTransferLifecycle"];
@@ -2614,8 +2586,6 @@ export class CodexService extends EventEmitter {
     new PendingServerRequestRegistry<PendingDynamicToolCall>();
   private readonly pendingPrivateServerRequests =
     new PendingServerRequestRegistry<PendingPrivateServerRequest>();
-  private readonly codexAppHandoffOperations = new Map<string, CodexAppHandoffOperation>();
-  private readonly codexAppHandoffWaiters = new Map<string, Set<() => void>>();
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntime;
   private readonly conversationResumeInFlightByThreadId = new Map<
@@ -2769,6 +2739,7 @@ export class CodexService extends EventEmitter {
     this.structuredThreadTitle = options.structuredThreadTitle;
     this.dynamicToolsLaunch = options.dynamicToolsLaunch;
     this.sidebarThreadMoveRuntime = options.sidebarThreadMoveRuntime;
+    this.threadHandoffRuntime = options.threadHandoffRuntime;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -2791,12 +2762,6 @@ export class CodexService extends EventEmitter {
     this.crossHostThreadHandoff = new CodexCrossHostThreadHandoffService({
       executionHosts: this.executionHosts,
       relayBaseRoot: path.join(this.runtimeStateHome, "handoffs"),
-    });
-    this.threadExecutionLocationService = new CodexThreadExecutionLocationService({
-      effects: this.buildThreadExecutionLocationEffects(),
-      journal: new CodexThreadHandoffJournalStore(
-        resolveCodexThreadHandoffJournalPath(this.runtimeStateHome),
-      ),
     });
     this.browserTransferRuntime = options?.browserTransferRuntime;
     this.browserTransferStateReader =
@@ -4261,10 +4226,8 @@ export class CodexService extends EventEmitter {
   setProjectWorkspacePort(port: DesktopProjectWorkspacePort): void {
     this.projectWorkspace = port;
     this.workspaceThreadProjectionById.clear();
-    void this.threadExecutionLocationService
-      .recover((progress) => {
-        this.applyCodexAppHandoffProgress(progress);
-      })
+    void this.threadHandoffRuntime
+      .recover(this.buildThreadExecutionLocationEffects())
       .catch((error) => {
         this.logger.error("Task handoff recovery failed", { error });
       });
@@ -10465,7 +10428,7 @@ export class CodexService extends EventEmitter {
 
   private async prepareThreadExecutionDestination(
     entry: CodexThreadHandoffJournalEntry,
-    onPhase: Parameters<CodexThreadExecutionLocationEffects["prepareDestination"]>[1],
+    onPhase: Parameters<CodexThreadHandoffPromiseEffects["prepareDestination"]>[1],
   ): Promise<CodexThreadHandoffPreparation> {
     if (!entry.source.projectId) {
       throw new Error("Move this task into a Project before handing it to a managed worktree.");
@@ -10933,7 +10896,7 @@ export class CodexService extends EventEmitter {
     return result.warnings;
   }
 
-  private buildThreadExecutionLocationEffects(): CodexThreadExecutionLocationEffects {
+  private buildThreadExecutionLocationEffects(): CodexThreadHandoffPromiseEffects {
     return {
       resolveSource: async (threadId) => await this.resolveThreadExecutionLocation(threadId),
       readCanonicalLocation: async (threadId) =>
@@ -20644,295 +20607,6 @@ export class CodexService extends EventEmitter {
     return lines.join("\n");
   }
 
-  private notifyCodexAppHandoffWaiters(operationId: string): void {
-    const waiters = this.codexAppHandoffWaiters.get(operationId);
-    if (!waiters) return;
-    this.codexAppHandoffWaiters.delete(operationId);
-    for (const resolve of waiters) resolve();
-  }
-
-  private recordCodexAppHandoffOperation(
-    operation: CodexAppHandoffOperation,
-  ): CodexAppHandoffOperation {
-    this.codexAppHandoffOperations.set(operation.operationId, operation);
-    this.notifyCodexAppHandoffWaiters(operation.operationId);
-    return operation;
-  }
-
-  private updateCodexAppHandoffOperation(
-    operationId: string,
-    update: Partial<Omit<CodexAppHandoffOperation, "operationId" | "createdAt">>,
-  ): CodexAppHandoffOperation | null {
-    const existing = this.codexAppHandoffOperations.get(operationId);
-    if (!existing) return null;
-    const next: CodexAppHandoffOperation = {
-      ...existing,
-      ...update,
-      operationId,
-      revision: existing.revision + 1,
-      createdAt: existing.createdAt,
-      updatedAt: Date.now(),
-    };
-    return this.recordCodexAppHandoffOperation(next);
-  }
-
-  private buildCodexAppHandoffStep(
-    id: string,
-    label: string,
-    status: CodexAppHandoffStatusType,
-    message: string | null,
-  ): CodexAppHandoffStep {
-    return {
-      id,
-      label,
-      status,
-      message,
-      updatedAt: Date.now(),
-    };
-  }
-
-  private serializeCodexAppHandoffOperation(
-    operation: CodexAppHandoffOperation,
-  ): Record<string, unknown> {
-    return {
-      operationId: operation.operationId,
-      revision: operation.revision,
-      status: operation.status,
-      threadId: operation.threadId,
-      sourceThreadId: operation.sourceThreadId,
-      destinationHostId: operation.destinationHostId,
-      destinationHostDisplayName: operation.destinationHostDisplayName,
-      message: operation.message,
-      steps: operation.steps,
-      createdAt: operation.createdAt,
-      updatedAt: operation.updatedAt,
-      completedAt: operation.completedAt,
-    };
-  }
-
-  private async waitForCodexAppHandoffRevision(
-    operationId: string,
-    afterRevision: number | null,
-    waitMs: number,
-  ): Promise<CodexAppHandoffOperation | null> {
-    const existing = this.codexAppHandoffOperations.get(operationId) ?? null;
-    if (!existing || waitMs <= 0 || afterRevision === null || existing.revision > afterRevision) {
-      return existing;
-    }
-    if (
-      existing.status === "success" ||
-      existing.status === "warning" ||
-      existing.status === "error"
-    ) {
-      return existing;
-    }
-
-    await new Promise<void>((resolve) => {
-      const waiters = this.codexAppHandoffWaiters.get(operationId) ?? new Set<() => void>();
-      const timeout = setTimeout(() => {
-        waiters.delete(resolveOnce);
-        if (waiters.size === 0) this.codexAppHandoffWaiters.delete(operationId);
-        resolve();
-      }, waitMs);
-      const resolveOnce = () => {
-        clearTimeout(timeout);
-        waiters.delete(resolveOnce);
-        if (waiters.size === 0) this.codexAppHandoffWaiters.delete(operationId);
-        resolve();
-      };
-      waiters.add(resolveOnce);
-      this.codexAppHandoffWaiters.set(operationId, waiters);
-    });
-
-    return this.codexAppHandoffOperations.get(operationId) ?? null;
-  }
-
-  private buildInitialCodexAppHandoffOperation(input: {
-    operationId: string;
-    threadId: string;
-    destinationHostId: string;
-    destinationHostDisplayName: string;
-  }): CodexAppHandoffOperation {
-    const now = Date.now();
-    return {
-      operationId: input.operationId,
-      revision: 0,
-      status: "running",
-      threadId: input.threadId,
-      sourceThreadId: input.threadId,
-      destinationHostId: input.destinationHostId,
-      destinationHostDisplayName: input.destinationHostDisplayName,
-      message: "Preparing thread handoff.",
-      steps: [
-        this.buildCodexAppHandoffStep("resolve-thread", "Resolve thread", "success", null),
-        this.buildCodexAppHandoffStep(
-          "handoff",
-          "Move thread",
-          "running",
-          "Preparing thread handoff.",
-        ),
-      ],
-      createdAt: now,
-      updatedAt: now,
-      completedAt: null,
-    };
-  }
-
-  private buildCodexAppHandoffOperationFromJournal(
-    entry: CodexThreadHandoffJournalEntry,
-    detail: string | null,
-  ): CodexAppHandoffOperation {
-    const existing = this.codexAppHandoffOperations.get(entry.operationId);
-    const definitions: readonly {
-      readonly id: string;
-      readonly label: string;
-      readonly phase: CodexThreadHandoffPhase;
-    }[] = [
-      { id: "resolve-thread", label: "Resolve task", phase: "queued" },
-      { id: "stop-active-turn", label: "Stop active turn", phase: "stopping-turn" },
-      { id: "prepare-destination", label: "Prepare destination", phase: "preparing-destination" },
-      { id: "switch-runtime", label: "Switch task runtime", phase: "switching-runtime" },
-      { id: "commit-location", label: "Save execution location", phase: "committing-location" },
-      { id: "transfer-owner", label: "Update worktree owner", phase: "transferring-owner" },
-      { id: "cleanup-source", label: "Clean up source", phase: "cleaning-source" },
-    ];
-    const phaseIndex = new Map(definitions.map((definition, index) => [definition.phase, index]));
-    const terminal =
-      entry.phase === "completed" ||
-      entry.phase === "completed-with-warning" ||
-      entry.phase === "failed";
-    const currentIndex =
-      entry.phase === "rolling-back" || entry.phase === "failed"
-        ? (phaseIndex.get(entry.failedPhase ?? "queued") ?? 0)
-        : entry.phase === "completed" || entry.phase === "completed-with-warning"
-          ? definitions.length
-          : (phaseIndex.get(entry.phase) ?? 0);
-    const steps = definitions
-      .filter((_definition, index) => index <= currentIndex || terminal)
-      .map((definition, index) => {
-        const failed = entry.phase === "failed" && index === currentIndex;
-        const warning =
-          entry.phase === "completed-with-warning" && index === definitions.length - 1;
-        const running = !terminal && index === currentIndex;
-        return this.buildCodexAppHandoffStep(
-          definition.id,
-          definition.label,
-          failed ? "error" : warning ? "warning" : running ? "running" : "success",
-          failed
-            ? entry.lastError
-            : running && detail
-              ? detail
-              : warning
-                ? (entry.warnings.at(-1) ?? null)
-                : null,
-        );
-      });
-    if (entry.phase === "rolling-back" || entry.phase === "failed") {
-      steps.push(
-        this.buildCodexAppHandoffStep(
-          "rollback",
-          "Restore source",
-          entry.phase === "rolling-back"
-            ? "running"
-            : entry.warnings.length > 0
-              ? "warning"
-              : "success",
-          entry.warnings.at(-1) ?? null,
-        ),
-      );
-    }
-    if (
-      entry.followUpPrompt &&
-      (entry.followUpDispatchStarted ||
-        entry.phase === "completed" ||
-        entry.phase === "completed-with-warning")
-    ) {
-      steps.push(
-        this.buildCodexAppHandoffStep(
-          "follow-up",
-          "Send follow-up",
-          entry.followUpDispatchStarted ? "success" : "running",
-          null,
-        ),
-      );
-    }
-    const status: CodexAppHandoffStatusType =
-      entry.phase === "completed"
-        ? "success"
-        : entry.phase === "completed-with-warning"
-          ? "warning"
-          : entry.phase === "failed"
-            ? "error"
-            : "running";
-    const destinationHostId =
-      entry.destination?.hostId ?? entry.requestedDestinationHostId ?? entry.source.hostId;
-    return {
-      operationId: entry.operationId,
-      revision: (existing?.revision ?? -1) + 1,
-      status,
-      threadId: entry.threadId,
-      sourceThreadId: entry.threadId,
-      destinationHostId,
-      destinationHostDisplayName:
-        this.executionHosts.getDescriptor(destinationHostId)?.displayName ?? destinationHostId,
-      message:
-        status === "success"
-          ? "Task handoff completed."
-          : status === "warning"
-            ? (entry.warnings.at(-1) ?? "Task handoff completed with a warning.")
-            : status === "error"
-              ? (entry.lastError ?? "Task handoff failed.")
-              : (detail ?? "Moving task to its destination."),
-      steps,
-      createdAt: existing?.createdAt ?? entry.createdAt,
-      updatedAt: entry.updatedAt,
-      completedAt: entry.completedAt,
-    };
-  }
-
-  private applyCodexAppHandoffProgress(progress: CodexThreadHandoffProgress): void {
-    this.recordCodexAppHandoffOperation(
-      this.buildCodexAppHandoffOperationFromJournal(progress.entry, progress.detail),
-    );
-  }
-
-  private runCodexAppHandoff(
-    operationId: string,
-    destinationHostId: string | null,
-    followUpPrompt: string | null,
-  ): void {
-    void (async () => {
-      const operation = this.codexAppHandoffOperations.get(operationId);
-      if (!operation) return;
-      try {
-        await this.threadExecutionLocationService.start({
-          operationId,
-          threadId: operation.threadId,
-          destinationHostId,
-          followUpPrompt,
-          onProgress: (progress) => {
-            this.applyCodexAppHandoffProgress(progress);
-          },
-        });
-      } catch (error) {
-        this.updateCodexAppHandoffOperation(operationId, {
-          status: "error",
-          message: error instanceof Error ? error.message : String(error),
-          steps: [
-            this.buildCodexAppHandoffStep("resolve-thread", "Resolve thread", "success", null),
-            this.buildCodexAppHandoffStep(
-              "handoff",
-              "Move thread",
-              "error",
-              error instanceof Error ? error.message : String(error),
-            ),
-          ],
-          completedAt: Date.now(),
-        });
-      }
-    })();
-  }
-
   private async resolveDynamicCreatePermissions(
     sourceThreadId: string,
     target: CodexResolvedDynamicThreadTarget,
@@ -22818,23 +22492,19 @@ export class CodexService extends EventEmitter {
           );
         }
         const operationId = params.callId || randomUUID();
-        const existing = this.codexAppHandoffOperations.get(operationId);
-        if (existing)
-          return this.buildDynamicToolSuccess(this.serializeCodexAppHandoffOperation(existing));
-        const operation = this.recordCodexAppHandoffOperation(
-          this.buildInitialCodexAppHandoffOperation({
+        const existing = await this.threadHandoffRuntime.get(operationId);
+        if (existing) return this.buildDynamicToolSuccess(existing);
+        const operation = await this.threadHandoffRuntime.launch(
+          {
             operationId,
             threadId,
-            destinationHostId,
+            destinationHostId: requestedDestinationHostId,
             destinationHostDisplayName: destinationHost.displayName,
-          }),
+            followUpPrompt: this.parseDynamicString(args.followUpPrompt),
+          },
+          this.buildThreadExecutionLocationEffects(),
         );
-        this.runCodexAppHandoff(
-          operationId,
-          requestedDestinationHostId,
-          this.parseDynamicString(args.followUpPrompt),
-        );
-        return this.buildDynamicToolSuccess(this.serializeCodexAppHandoffOperation(operation));
+        return this.buildDynamicToolSuccess(operation);
       }
 
       if (params.tool === "get_handoff_status") {
@@ -22847,7 +22517,7 @@ export class CodexService extends EventEmitter {
             ? args.afterRevision
             : null;
         const waitMs = this.clampDynamicInt(args.waitMs, 0, 0, CODEX_APP_HANDOFF_MAX_WAIT_MS);
-        const operation = await this.waitForCodexAppHandoffRevision(
+        const operation = await this.threadHandoffRuntime.waitForRevision(
           operationId,
           afterRevision,
           waitMs,
@@ -22855,7 +22525,7 @@ export class CodexService extends EventEmitter {
         if (!operation) {
           throw new Error(`No thread handoff operation found for operationId ${operationId}.`);
         }
-        return this.buildDynamicToolSuccess(this.serializeCodexAppHandoffOperation(operation));
+        return this.buildDynamicToolSuccess(operation);
       }
 
       return this.buildDynamicToolFailure(`Unsupported dynamic tool: ${params.tool}`);

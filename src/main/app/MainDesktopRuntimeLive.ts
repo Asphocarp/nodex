@@ -111,6 +111,8 @@ import { make as makeCodexDynamicToolsLaunch } from "../codex-application/CodexD
 import { makeCodexDynamicToolsLaunchPromiseAdapter } from "../codex-application/CodexDynamicToolsLaunchPromiseAdapter";
 import { make as makeCodexSidebarThreadMoveRuntime } from "../codex-application/CodexSidebarThreadMoveRuntime";
 import { makeCodexSidebarThreadMoveRuntimePromiseAdapter } from "../codex-application/CodexSidebarThreadMoveRuntimePromiseAdapter";
+import { make as makeCodexThreadHandoffRuntime } from "../codex-application/CodexThreadHandoffRuntime";
+import { makeCodexThreadHandoffRuntimePromiseAdapter } from "../codex-application/CodexThreadHandoffRuntimePromiseAdapter";
 import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
@@ -122,6 +124,8 @@ import {
 } from "../codex-application/CodexUserInputAutoResolution";
 import { makeCodexUserInputAutoResolutionPromiseAdapter } from "../codex-application/CodexUserInputAutoResolutionPromiseAdapter";
 import { requestHandlingLive } from "../codex-application/CodexApplicationLayers";
+import { resolveCodexThreadHandoffJournalPath } from "../codex/codex-thread-handoff-journal";
+import { makeCodexThreadHandoffJournalStorage } from "../platform/CodexThreadHandoffJournalStorage";
 import {
   CodexPreferences,
   live as codexPreferencesLive,
@@ -1351,6 +1355,14 @@ export const live: Layer.Layer<
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const dynamicToolsLaunch = makeCodexDynamicToolsLaunch();
         const sidebarThreadMoveRuntime = makeCodexSidebarThreadMoveRuntime();
+        const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
+          scope: runtimeScope,
+          storage: makeCodexThreadHandoffJournalStorage(
+            resolveCodexThreadHandoffJournalPath(runtimeStateHome),
+          ),
+          resolveHostDisplayName: (hostId) =>
+            executionHosts.registry.getDescriptor(hostId)?.displayName ?? hostId,
+        });
         const isInactiveRendererOwnerCandidate = (conversationId: string) =>
           codexService?.isInactiveRendererOwnerCandidate(conversationId) === true;
         const rendererOwnerRetention = yield* makeCodexRendererOwnerRetention({
@@ -1417,6 +1429,10 @@ export const live: Layer.Layer<
               ),
               sidebarThreadMoveRuntime: makeCodexSidebarThreadMoveRuntimePromiseAdapter(
                 sidebarThreadMoveRuntime,
+                callbacks,
+              ),
+              threadHandoffRuntime: makeCodexThreadHandoffRuntimePromiseAdapter(
+                threadHandoffRuntime,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(
