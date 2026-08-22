@@ -118,6 +118,11 @@ import {
   make as makeCodexPendingWorktreeRuntime,
 } from "../codex-application/CodexPendingWorktreeRuntime";
 import { makeCodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
+import {
+  CodexPostResumeGoalError,
+  make as makeCodexPostResumeGoalRuntime,
+} from "../codex-application/CodexPostResumeGoalRuntime";
+import { makeCodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import { make as makeCodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
 import { makeCodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import {
@@ -1382,6 +1387,23 @@ export const live: Layer.Layer<
               catch: (cause) => new CodexThreadTitlePersistenceEffectError({ cause }),
             }),
         }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
+        const postResumeGoals = yield* makeCodexPostResumeGoalRuntime({
+          load: (threadId) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().loadThreadGoalAfterResume(threadId),
+              catch: (cause) => new CodexPostResumeGoalError({ cause }),
+            }),
+          commit: (threadId, expectedRevision, goal) =>
+            requireCodexService().commitThreadGoalHydratedAfterResume(
+              threadId,
+              expectedRevision,
+              goal,
+            ),
+          requestContinuation: (threadId) =>
+            requireCodexService().requestActiveGoalContinuationAfterResume(threadId),
+          scheduleRemainingTurns: (threadId) =>
+            requireCodexService().scheduleRemainingThreadTurnsLoad(threadId),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
           scope: runtimeScope,
           storage: makeCodexThreadHandoffJournalStorage(
@@ -1538,6 +1560,10 @@ export const live: Layer.Layer<
               ),
               threadTitlePersistence: makeCodexThreadTitlePersistencePromiseAdapter(
                 threadTitlePersistence,
+                callbacks,
+              ),
+              postResumeGoals: makeCodexPostResumeGoalRuntimePromiseAdapter(
+                postResumeGoals,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(

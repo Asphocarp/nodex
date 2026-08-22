@@ -457,6 +457,15 @@ an earlier request. Until thread-goal commands move with the canonical conversat
 `CodexService` supplies only the current eligibility query and the eventual command Effect; it owns
 no continuation timer, in-flight collection, error catch, or shutdown cleanup.
 
+Post-resume Thread-goal hydration is a separate Main-scoped lifecycle because it correlates a
+remote read with a particular conversation revision. Concurrent awaited hydrations share one keyed
+load while each retains its own revision fence; background resume requests coalesce to the newest
+revision, trigger active-goal continuation without awaiting it, and schedule remaining history only
+after hydration settles. Renderer-owner adoption may defer that flow until the resume notification
+buffer is released. Conversation removal and Main Scope close interrupt active loads and tails.
+`CodexService` retains the canonical projection and performs one atomic revision-fenced commit, but
+owns no hydration Promise map, deferred-flow Set, detached tail, or shutdown cleanup.
+
 App-server notifications that require a sidebar repair enter one trailing-debounce Module. The
 latest request replaces the pending fiber and carries the minimum acceptable sync generation;
 after the delay, the Module invokes the existing sidebar synchronization authority and supervises

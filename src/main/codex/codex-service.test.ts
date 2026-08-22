@@ -52,6 +52,7 @@ import type {
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { TestCodexThreadSettingsRuntime } from "./codex-thread-settings-runtime.test-support";
 import { TestCodexThreadTitlePersistence } from "./codex-thread-title-persistence.test-support";
+import { TestCodexPostResumeGoalRuntime } from "./codex-post-resume-goal-runtime.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -1819,6 +1820,16 @@ function createService(options?: {
       await service.persistThreadTitleInProjectWorkspace(threadId, name);
     },
   });
+  const postResumeGoals = new TestCodexPostResumeGoalRuntime({
+    load: async (threadId) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      return await service.loadThreadGoalAfterResume(threadId);
+    },
+    commit: (threadId, expectedRevision, goal) =>
+      service?.commitThreadGoalHydratedAfterResume(threadId, expectedRevision, goal) ?? false,
+    requestContinuation: (threadId) => service?.requestActiveGoalContinuationAfterResume(threadId),
+    scheduleRemainingTurns: (threadId) => service?.scheduleRemainingThreadTurnsLoad(threadId),
+  });
   const testService = new CodexService({
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
@@ -1996,6 +2007,7 @@ function createService(options?: {
     pendingWorktrees,
     threadSettingsRuntime,
     threadTitlePersistence,
+    postResumeGoals,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),
@@ -7052,7 +7064,7 @@ describe("codex-service session-backed transcript recovery", () => {
         input: ThreadResumeResponse,
       ) => CodexCanonicalConversationState;
       setConversationRecordDetail: (detail: CodexThreadDetail) => void;
-      startPostResumeGoalFlow: (id: string, expectedRevision: number) => Promise<void>;
+      startPostResumeGoalFlow: (id: string, expectedRevision: number) => void;
       maybeContinueActiveThreadGoal: (id: string) => Promise<void>;
       scheduleRemainingThreadTurnsLoad: (id: string) => void;
     };
@@ -7099,17 +7111,14 @@ describe("codex-service session-backed transcript recovery", () => {
     };
 
     try {
-      const flow = serviceInternals.startPostResumeGoalFlow(threadId, 0).then(() => {
-        serviceInternals.scheduleRemainingThreadTurnsLoad(threadId);
-      });
+      serviceInternals.startPostResumeGoalFlow(threadId, 0);
       await waitForCondition(() => tailStarted, 250);
 
       expect(tailStarted).toBe(true);
       expect(continuationSettled).toBe(false);
 
       releaseContinuation();
-      await flow;
-      await Promise.resolve();
+      await waitForCondition(() => continuationSettled, 250);
       expect(continuationSettled).toBe(true);
     } finally {
       releaseContinuation();

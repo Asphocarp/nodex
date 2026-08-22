@@ -681,6 +681,7 @@ import {
 import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
 import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
+import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import {
   isExecutionWorkspacePathWithinRoot,
   rewriteExecutionWorkspaceRoots,
@@ -1352,6 +1353,7 @@ type CodexServiceOptions = {
   pendingWorktrees: CodexPendingWorktreeRuntimePromiseAdapter;
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
+  postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2595,6 +2597,7 @@ export class CodexService extends EventEmitter {
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
+  private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly conversationResumeInFlightByThreadId = new Map<
     string,
     Promise<CodexConversationSnapshot | null>
@@ -2603,14 +2606,6 @@ export class CodexService extends EventEmitter {
     string,
     PendingFreshSessionFirstTurnLaunch
   >();
-  private readonly threadGoalHydrationInFlightByThreadId = new Map<
-    string,
-    Promise<{
-      ok: boolean;
-      goal: ThreadGoal | null;
-    }>
-  >();
-  private readonly pendingPostResumeGoalFlowByThreadId = new Set<string>();
   private readonly resumeNotificationBuffersByThreadId = new Map<string, BufferedResumeEvent[]>();
   private readonly threadStartNotificationBuffersByThreadId = new Map<
     string,
@@ -2744,6 +2739,7 @@ export class CodexService extends EventEmitter {
     this.pendingWorktreeRuntime = options.pendingWorktrees;
     this.threadSettingsRuntime = options.threadSettingsRuntime;
     this.threadTitlePersistence = options.threadTitlePersistence;
+    this.postResumeGoals = options.postResumeGoals;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -3339,13 +3335,8 @@ export class CodexService extends EventEmitter {
 
   async releaseConversationResumeBuffer(threadId: string): Promise<boolean> {
     await this.releaseConversationResumeBufferCore(threadId);
-    if (this.pendingPostResumeGoalFlowByThreadId.delete(threadId)) {
-      const revision = this.conversationStreamRevisionById.get(threadId) ?? 0;
-      void this.startPostResumeGoalFlow(threadId, revision).then(() => {
-        this.scheduleRemainingThreadTurnsLoad(threadId);
-      });
-      return true;
-    }
+    const revision = this.conversationStreamRevisionById.get(threadId) ?? 0;
+    if (this.postResumeGoals.release(threadId, revision)) return true;
 
     this.scheduleRemainingThreadTurnsLoad(threadId);
     return true;
@@ -6288,6 +6279,7 @@ export class CodexService extends EventEmitter {
     this.outputDeltaQueue.discardConversation(threadId);
     this.manualCompactionTracker.clear(threadId);
     this.activeGoalContinuation.clear(threadId);
+    this.postResumeGoals.clear(threadId);
     this.queuedFollowUpDispatchInFlight.delete(threadId);
   }
 
@@ -6772,8 +6764,6 @@ export class CodexService extends EventEmitter {
     this.ownerNotificationDrainCallbacksByConversationId.clear();
     this.conversationResumeInFlightByThreadId.clear();
     this.pendingFreshSessionFirstTurnByThreadId.clear();
-    this.threadGoalHydrationInFlightByThreadId.clear();
-    this.pendingPostResumeGoalFlowByThreadId.clear();
     this.rejectBufferedResumeRequests(new Error("Codex service is shutting down"));
     this.deferredThreadStartThreadIds.clear();
     this.readyDeferredThreadStartThreadIds.clear();
@@ -12718,42 +12708,11 @@ export class CodexService extends EventEmitter {
     threadId: string,
     expectedRevision: number,
   ): Promise<void> {
-    const startedAt = getDevRuntimeMetricStart();
-    const existing = this.threadGoalHydrationInFlightByThreadId.get(threadId);
-    let result: { ok: boolean; goal: ThreadGoal | null };
-    if (existing) {
-      this.logger.debug("Joining in-flight Codex thread goal hydration", { threadId });
-      result = await existing;
-      logDevRuntimeMetric("codex.thread.goal_hydration", {
-        threadId,
-        join: true,
-        durationMs: getDevRuntimeMetricDurationMs(startedAt),
-      });
-    } else {
-      const hydrationPromise = this.runThreadGoalHydrationAfterResume(threadId);
-      this.threadGoalHydrationInFlightByThreadId.set(threadId, hydrationPromise);
-      try {
-        result = await hydrationPromise;
-        logDevRuntimeMetric("codex.thread.goal_hydration", {
-          threadId,
-          join: false,
-          durationMs: getDevRuntimeMetricDurationMs(startedAt),
-        });
-      } finally {
-        if (this.threadGoalHydrationInFlightByThreadId.get(threadId) === hydrationPromise) {
-          this.threadGoalHydrationInFlightByThreadId.delete(threadId);
-        }
-      }
-    }
-
-    if (!result.ok) return;
-    if ((this.conversationStreamRevisionById.get(threadId) ?? 0) !== expectedRevision) return;
-    this.applyThreadGoalHydratedAfterResume(threadId, result.goal);
-    this.publishPostResumeGoalSnapshot(threadId);
-    void this.maybeContinueActiveThreadGoal(threadId);
+    await this.postResumeGoals.hydrate(threadId, expectedRevision);
   }
 
-  private async runThreadGoalHydrationAfterResume(
+  /** Effect Module adapter operation; callers use postResumeGoals instead. */
+  async loadThreadGoalAfterResume(
     threadId: string,
   ): Promise<{ ok: boolean; goal: ThreadGoal | null }> {
     const startedAt = getDevRuntimeMetricStart();
@@ -12802,14 +12761,24 @@ export class CodexService extends EventEmitter {
     return { ok: true, goal };
   }
 
-  private startPostResumeGoalFlow(threadId: string, expectedRevision: number): Promise<void> {
-    void this.maybeContinueActiveThreadGoal(threadId);
-    return this.hydrateThreadGoalAfterResume(threadId, expectedRevision).catch((error) => {
-      this.logger.warn("Failed post-resume thread goal flow", {
-        threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    });
+  /** Effect Module adapter operation; atomically preserves the conversation revision fence. */
+  commitThreadGoalHydratedAfterResume(
+    threadId: string,
+    expectedRevision: number,
+    goal: ThreadGoal | null,
+  ): boolean {
+    if ((this.conversationStreamRevisionById.get(threadId) ?? 0) !== expectedRevision) return false;
+    this.applyThreadGoalHydratedAfterResume(threadId, goal);
+    this.publishPostResumeGoalSnapshot(threadId);
+    return true;
+  }
+
+  requestActiveGoalContinuationAfterResume(threadId: string): void {
+    this.maybeContinueActiveThreadGoal(threadId);
+  }
+
+  private startPostResumeGoalFlow(threadId: string, expectedRevision: number): void {
+    this.postResumeGoals.request(threadId, expectedRevision);
   }
 
   private listKnownTurns(threadId: string): CodexTurnSummary[] {
@@ -16232,9 +16201,7 @@ export class CodexService extends EventEmitter {
             this.syncDormantConversationFromRecord(threadId, "owner-unavailable");
             revision = this.conversationStreamRevisionById.get(threadId) ?? 0;
           }
-          void this.startPostResumeGoalFlow(threadId, revision).then(() => {
-            this.scheduleRemainingThreadTurnsLoad(threadId);
-          });
+          this.startPostResumeGoalFlow(threadId, revision);
         }
       }
       return detail;
@@ -16362,16 +16329,14 @@ export class CodexService extends EventEmitter {
       }
       const revision = syncOrEmitSnapshot();
       if (replayBufferedNotifications) {
-        void this.startPostResumeGoalFlow(threadId, revision).then(() => {
-          this.scheduleRemainingThreadTurnsLoad(threadId);
-        });
+        this.startPostResumeGoalFlow(threadId, revision);
       } else {
-        this.pendingPostResumeGoalFlowByThreadId.add(threadId);
+        this.postResumeGoals.defer(threadId);
       }
       return this.serializeConversationSnapshot(threadId);
     } catch (error) {
       this.discardConversationResumeBuffer(threadId, error);
-      this.pendingPostResumeGoalFlowByThreadId.delete(threadId);
+      this.postResumeGoals.clear(threadId);
       this.setConversationResumeState(threadId, "needs_resume");
       const record = this.ensureConversationRecord(threadId);
       record.streamRole = null;
@@ -16746,7 +16711,7 @@ export class CodexService extends EventEmitter {
     }
   }
 
-  private scheduleRemainingThreadTurnsLoad(threadId: string): void {
+  scheduleRemainingThreadTurnsLoad(threadId: string): void {
     const record = this.getMaybeConversationRecord(threadId);
     if (
       record?.turnPagination.olderCursor === null ||
