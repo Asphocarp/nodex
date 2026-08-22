@@ -509,6 +509,14 @@ unsubscribes and releases the helper Thread. Scope closure performs the same str
 `CodexService` owns only title-generation admission, fallback normalization, and persistence; it
 does not own the helper protocol client, notification parser, timer, interrupt, or cleanup state.
 
+Thread-title persistence is a separate Main-scoped Module because it outlives any one title source.
+All manual, generated, imported, scheduled, and launch-time titles enter one reference-counted
+per-Thread FIFO lane. Best-effort commands isolate app-server and Project Workspace failures so the
+durable projection is still attempted after a remote failure; transactional Thread-creation paths
+use the same lane but retain typed failure. The local conversation projection commits before
+best-effort persistence. `CodexService` supplies only the two external write operations through a
+stateless Promise Adapter and owns no persistence queue, recovery tail, or shutdown cleanup.
+
 Dynamic-tool discovery during Thread launch borrows one Effect-clock policy capability. Discovery
 failure remains a typed launch failure, while the five-second deadline intentionally fails open to
 an empty catalog so Thread creation is not blocked by optional model-aware tools. The losing

@@ -51,6 +51,7 @@ import type {
 } from "../../shared/codex-user-input-auto-resolution";
 import { DEFAULT_CODEX_HOST_ID } from "../../shared/codex-host";
 import { TestCodexThreadSettingsRuntime } from "./codex-thread-settings-runtime.test-support";
+import { TestCodexThreadTitlePersistence } from "./codex-thread-title-persistence.test-support";
 import type { CodexThreadNotificationEvent } from "../../shared/codex-thread-notification";
 import type {
   Thread,
@@ -1808,6 +1809,16 @@ function createService(options?: {
     onChanged: (entries) => service?.projectPendingWorktreeSnapshot(entries),
   });
   const threadSettingsRuntime = new TestCodexThreadSettingsRuntime();
+  const threadTitlePersistence = new TestCodexThreadTitlePersistence({
+    setRemote: async ({ threadId, name }) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      await service.setThreadTitleOnAppServer(threadId, name);
+    },
+    persistWorkspace: async ({ threadId, name }) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      await service.persistThreadTitleInProjectWorkspace(threadId, name);
+    },
+  });
   const testService = new CodexService({
     agentProviderRuntime: {
       list: async () => ({ providers: [] }),
@@ -1984,6 +1995,7 @@ function createService(options?: {
     threadHandoffRuntime: threadHandoffRuntimeAdapter,
     pendingWorktrees,
     threadSettingsRuntime,
+    threadTitlePersistence,
     persistedAtoms: new PersistedAtomStore(
       path.join(runtimeStateHome, "persisted-atoms-test.json"),
     ),

@@ -121,6 +121,11 @@ import { makeCodexPendingWorktreeRuntimePromiseAdapter } from "../codex-applicat
 import { make as makeCodexThreadSettingsRuntime } from "../codex-application/CodexThreadSettingsRuntime";
 import { makeCodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import {
+  CodexThreadTitlePersistenceEffectError,
+  make as makeCodexThreadTitlePersistence,
+} from "../codex-application/CodexThreadTitlePersistence";
+import { makeCodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
+import {
   CodexRendererOwnerRetentionError,
   make as makeCodexRendererOwnerRetention,
 } from "../codex-application/CodexRendererOwnerRetention";
@@ -1365,6 +1370,18 @@ export const live: Layer.Layer<
         const threadSettingsRuntime = yield* makeCodexThreadSettingsRuntime.pipe(
           Effect.provideService(Scope.Scope, runtimeScope),
         );
+        const threadTitlePersistence = yield* makeCodexThreadTitlePersistence({
+          setRemote: ({ threadId, name }) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().setThreadTitleOnAppServer(threadId, name),
+              catch: (cause) => new CodexThreadTitlePersistenceEffectError({ cause }),
+            }),
+          persistWorkspace: ({ threadId, name }) =>
+            Effect.tryPromise({
+              try: () => requireCodexService().persistThreadTitleInProjectWorkspace(threadId, name),
+              catch: (cause) => new CodexThreadTitlePersistenceEffectError({ cause }),
+            }),
+        }).pipe(Effect.provideService(Scope.Scope, runtimeScope));
         const threadHandoffRuntime = yield* makeCodexThreadHandoffRuntime({
           scope: runtimeScope,
           storage: makeCodexThreadHandoffJournalStorage(
@@ -1517,6 +1534,10 @@ export const live: Layer.Layer<
               ),
               threadSettingsRuntime: makeCodexThreadSettingsRuntimePromiseAdapter(
                 threadSettingsRuntime,
+                callbacks,
+              ),
+              threadTitlePersistence: makeCodexThreadTitlePersistencePromiseAdapter(
+                threadTitlePersistence,
                 callbacks,
               ),
               userInputAutoResolution: makeCodexUserInputAutoResolutionPromiseAdapter(

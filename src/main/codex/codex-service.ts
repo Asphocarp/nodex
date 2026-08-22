@@ -680,6 +680,7 @@ import {
 } from "./codex-dynamic-first-turn-context";
 import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
 import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
+import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
 import {
   isExecutionWorkspacePathWithinRoot,
   rewriteExecutionWorkspaceRoots,
@@ -1350,6 +1351,7 @@ type CodexServiceOptions = {
   threadHandoffRuntime: CodexThreadHandoffRuntimePromiseAdapter;
   pendingWorktrees: CodexPendingWorktreeRuntimePromiseAdapter;
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
+  threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   supportsChatGptApps?: boolean;
   isOpenAIFormElicitationsEnabled?: () => boolean;
   gitSettingsResolver?: () => CodexGitSettings;
@@ -2592,6 +2594,7 @@ export class CodexService extends EventEmitter {
   private readonly conversationRecords = new Map<string, CodexConversationRecord>();
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
+  private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
   private readonly conversationResumeInFlightByThreadId = new Map<
     string,
     Promise<CodexConversationSnapshot | null>
@@ -2657,7 +2660,6 @@ export class CodexService extends EventEmitter {
     string,
     Array<() => void>
   >();
-  private readonly threadNamePersistenceByThreadId = new Map<string, Promise<void>>();
   private readonly queuedFollowUpDispatchInFlight = new Set<string>();
   private readonly conversationTurnsLoads = new Map<
     string,
@@ -2741,6 +2743,7 @@ export class CodexService extends EventEmitter {
     this.threadHandoffRuntime = options.threadHandoffRuntime;
     this.pendingWorktreeRuntime = options.pendingWorktrees;
     this.threadSettingsRuntime = options.threadSettingsRuntime;
+    this.threadTitlePersistence = options.threadTitlePersistence;
     this.supportsChatGptApps =
       options?.supportsChatGptApps ?? CODEX_INTEGRATION_CAPABILITIES.chatGptApps;
     this.isOpenAIFormElicitationsEnabled = options?.isOpenAIFormElicitationsEnabled ?? (() => true);
@@ -6702,11 +6705,8 @@ export class CodexService extends EventEmitter {
       };
       await this.materializeImportedThread(projectedThread);
       if (session.title && !fork.thread.name?.trim()) {
-        await this.client.request("thread/name/set", {
-          name: session.title,
-          threadId,
-        });
-        await this.updateWorkspaceThreadSummary(threadId, { threadName: session.title });
+        await this.applyThreadNameLocal(threadId, session.title);
+        await this.threadTitlePersistence.persistRequired({ threadId, name: session.title });
       }
       return threadId;
     } catch (error) {
@@ -10100,12 +10100,11 @@ export class CodexService extends EventEmitter {
       await this.automationModule.setRunThreadTitle(link.threadId, input.automation.name);
 
       try {
-        await this.client.request("thread/name/set", {
+        await this.applyThreadNameLocal(link.threadId, input.automation.name);
+        await this.threadTitlePersistence.persistBestEffort({
           threadId: link.threadId,
           name: input.automation.name,
         });
-        await this.applyThreadNameLocal(link.threadId, input.automation.name);
-        await this.persistWorkspaceThreadNameBestEffort(link.threadId, input.automation.name);
       } catch (error) {
         this.logger.warn("Failed to set scheduled automation thread title", {
           automationId: input.automation.id,
@@ -14458,7 +14457,7 @@ export class CodexService extends EventEmitter {
     if (await this.hasThreadTitle(threadId)) return;
 
     await this.applyThreadNameLocal(threadId, normalizedTitle);
-    await this.persistThreadNameBestEffort(threadId, normalizedTitle);
+    await this.threadTitlePersistence.persistBestEffort({ threadId, name: normalizedTitle });
   }
 
   private async generateThreadTitleForPrompt(
@@ -15116,12 +15115,11 @@ export class CodexService extends EventEmitter {
       });
 
       if (explicitThreadName) {
-        await this.client.request("thread/name/set", {
+        await this.applyThreadNameLocal(link.threadId, explicitThreadName);
+        await this.threadTitlePersistence.persistRequired({
           threadId: link.threadId,
           name: explicitThreadName,
         });
-        await this.applyThreadNameLocal(link.threadId, explicitThreadName);
-        await this.persistWorkspaceThreadNameBestEffort(link.threadId, explicitThreadName);
       }
 
       if (!explicitThreadName && input.skipAutoTitleGeneration !== true) {
@@ -17778,47 +17776,20 @@ export class CodexService extends EventEmitter {
     return true;
   }
 
-  private async persistWorkspaceThreadNameBestEffort(
-    threadId: string,
-    name: string,
-  ): Promise<void> {
-    try {
-      const summary = await this.updateWorkspaceThreadSummary(threadId, {
-        threadName: name,
-      });
-      if (summary) this.emitEvent({ type: "threadSummary", thread: summary });
-      await this.emitSidebarCatalogChangedForThread(threadId, "host-message");
-    } catch (error) {
-      this.logger.warn("Failed to persist thread title in Project Workspace", {
-        threadId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+  /** Effect Module adapter operation; callers use threadTitlePersistence instead. */
+  async setThreadTitleOnAppServer(threadId: string, name: string): Promise<void> {
+    await this.client.request("thread/name/set", { threadId, name });
   }
 
-  private async persistThreadNameBestEffort(threadId: string, name: string): Promise<void> {
-    const previous = this.threadNamePersistenceByThreadId.get(threadId) ?? Promise.resolve();
-    const pending = previous
-      .catch(() => undefined)
-      .then(async () => {
-        try {
-          await this.client.request("thread/name/set", { threadId, name });
-        } catch (error) {
-          this.logger.warn("Failed to set thread title", {
-            threadId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-        await this.persistWorkspaceThreadNameBestEffort(threadId, name);
-      });
-    this.threadNamePersistenceByThreadId.set(threadId, pending);
-    try {
-      await pending;
-    } finally {
-      if (this.threadNamePersistenceByThreadId.get(threadId) === pending) {
-        this.threadNamePersistenceByThreadId.delete(threadId);
-      }
+  /** Effect Module adapter operation; callers use threadTitlePersistence instead. */
+  async persistThreadTitleInProjectWorkspace(threadId: string, name: string): Promise<void> {
+    const summary = await this.updateWorkspaceThreadSummary(threadId, {
+      threadName: name,
+    });
+    if (summary) {
+      this.emitEvent({ type: "threadSummary", thread: summary });
     }
+    await this.emitSidebarCatalogChangedForThread(threadId, "host-message");
   }
 
   async setThreadName(
@@ -17833,7 +17804,10 @@ export class CodexService extends EventEmitter {
     }
 
     await this.applyThreadNameLocal(threadId, normalizedName, options);
-    await this.persistThreadNameBestEffort(threadId, normalizedName);
+    await this.threadTitlePersistence.persistBestEffort({
+      threadId,
+      name: normalizedName,
+    });
     return true;
   }
 
@@ -17845,7 +17819,10 @@ export class CodexService extends EventEmitter {
     }
 
     await this.applyThreadNameLocal(threadId, normalizedName);
-    await this.persistThreadNameBestEffort(threadId, normalizedName);
+    await this.threadTitlePersistence.persistBestEffort({
+      threadId,
+      name: normalizedName,
+    });
     return true;
   }
 
