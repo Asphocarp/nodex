@@ -370,6 +370,14 @@ runtime from `@effect/vitest` lifecycle checks.
 
 Long-lived Core adapters target the process-scoped Effect `CoreAuthority`, not one raw socket generation. A replacement Core generation is acceptable only when it proves the same Profile, Library, and Store epoch. Authority drift is an application relaunch boundary. One-generation scenario and integration harnesses are bounded transport fixtures, not alternate recovery owners. The lifecycle decision is detailed in the [Core generation ADR](adr/0041-core-generations-are-supervised-runtime-sessions.md).
 
+Each logical Document or Canvas live subscription is a `DocumentLiveRuntime`
+lease under the Main Scope. That Module owns physical opening, bounded callback
+ingress, serialized delivery, connection barriers, retry time, replacement and
+release. The Core client layer exposes only a Promise-shaped renderer Adapter;
+it does not own another timer, AbortController, delivery tail or recovery loop.
+Compatibility and Store-identity failures remain terminal policy decisions at
+the transport classifier rather than generic retry outcomes.
+
 Main propagates renderer cancellation across IPC and the Core transport using the same request identity. Its transport timer is only a short liveness grace after Core's declared semantic deadline; it is not a competing execution deadline and cannot classify an ambiguous response loss as generation failure.
 
 ### Preload and renderer

@@ -1,13 +1,36 @@
 import { createHash } from "node:crypto";
 
-import { describe, expect, test, vi } from "vite-plus/test";
+import { describe, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import { expect, vi } from "vite-plus/test";
 
 import { committedLocalCommit } from "../../shared/testing/local-commit";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import { CoreModuleResponseError } from "./core-client";
-import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
+import {
+  createCoreDocumentSyncAdapter as createCoreDocumentSyncAdapterBase,
+  type CoreDocumentSyncAdapterOptions,
+} from "./document-sync-adapter";
+import { makeTestDocumentLiveRuntimeAdapter } from "./document-live-runtime.test-support";
 import { FakeCoreClient } from "./testing/fake-core-client";
 import type { CoreDocumentEventSubscription } from "./types";
+
+type CreateDocumentAdapter = (
+  client: Parameters<typeof createCoreDocumentSyncAdapterBase>[0],
+  options?: Omit<CoreDocumentSyncAdapterOptions, "live">,
+) => ReturnType<typeof createCoreDocumentSyncAdapterBase>;
+
+const test = (name: string, run: (createAdapter: CreateDocumentAdapter) => Promise<void>): void =>
+  it.effect(name, () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const live = yield* makeTestDocumentLiveRuntimeAdapter;
+        const createAdapter: CreateDocumentAdapter = (client, options = {}) =>
+          createCoreDocumentSyncAdapterBase(client, { ...options, live });
+        yield* Effect.promise(() => run(createAdapter));
+      }),
+    ),
+  );
 
 class ControllableDocumentStreamClient extends FakeCoreClient {
   readonly openings: Array<{
@@ -173,7 +196,7 @@ const documentVersionDetail = () => ({
 });
 
 describe("Core Document sync adapter", () => {
-  test("reads and prepares an exact Owned Document descriptor", async () => {
+  test("reads and prepares an exact Owned Document descriptor", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     client.enqueueDocumentRead(descriptorSnapshot());
@@ -233,7 +256,7 @@ describe("Core Document sync adapter", () => {
     ]);
   });
 
-  test("fetches one exact verified Document update resource", async () => {
+  test("fetches one exact verified Document update resource", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const update = Uint8Array.from([1, 2, 3, 4]);
@@ -298,7 +321,7 @@ describe("Core Document sync adapter", () => {
     ]);
   });
 
-  test("fails closed when exact Document update bytes do not match their ref", async () => {
+  test("fails closed when exact Document update bytes do not match their ref", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const updateHash = createHash("sha256")
@@ -341,7 +364,7 @@ describe("Core Document sync adapter", () => {
     });
   });
 
-  test("tracks subscriptions by exact Document and client session", async () => {
+  test("tracks subscriptions by exact Document and client session", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const first = {
@@ -385,7 +408,9 @@ describe("Core Document sync adapter", () => {
     });
   });
 
-  test("repairs a rejected generic typed-owner mutation from canonical state", async () => {
+  test(
+    "repairs a rejected generic typed-owner mutation from canonical state",
+    async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const request = {
@@ -420,10 +445,11 @@ describe("Core Document sync adapter", () => {
         resetRequired: true,
       },
     });
-    close();
-  });
+      close();
+    },
+  );
 
-  test("waits for the replacement physical stream before syncing after interruption", async () => {
+  test("waits for the replacement physical stream before syncing after interruption", async (createCoreDocumentSyncAdapter) => {
     const client = new ControllableDocumentStreamClient();
     const adapter = createCoreDocumentSyncAdapter(client, { retryDelayMs: 0 });
     const request = {
@@ -471,7 +497,7 @@ describe("Core Document sync adapter", () => {
     await lifecycle.done;
   });
 
-  test("reconnects and retries once when Core reports a lost subscription lease", async () => {
+  test("reconnects and retries once when Core reports a lost subscription lease", async (createCoreDocumentSyncAdapter) => {
     const client = new SubscriptionLossDocumentStreamClient();
     const adapter = createCoreDocumentSyncAdapter(client, { retryDelayMs: 0 });
     const request = {
@@ -505,7 +531,7 @@ describe("Core Document sync adapter", () => {
     await lifecycle.done;
   });
 
-  test("maps Additional Document owner commands and durable receipts", async () => {
+  test("maps Additional Document owner commands and durable receipts", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     client.enqueueDocumentApply({
@@ -608,7 +634,7 @@ describe("Core Document sync adapter", () => {
     ]);
   });
 
-  test("maps checkpoint creation and exact history pagination through Core", async () => {
+  test("maps checkpoint creation and exact history pagination through Core", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const checkpointRequest = {
@@ -730,7 +756,7 @@ describe("Core Document sync adapter", () => {
     ).resolves.toEqual({ ok: true, value: documentVersionDetail() });
   });
 
-  test("maps a write-fenced forward restore and its durable no-change outcome", async () => {
+  test("maps a write-fenced forward restore and its durable no-change outcome", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const request = {
@@ -853,7 +879,7 @@ describe("Core Document sync adapter", () => {
     });
   });
 
-  test("maps a public operation batch with presence-sensitive Block patches", async () => {
+  test("maps a public operation batch with presence-sensitive Block patches", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const request = {
@@ -951,7 +977,7 @@ describe("Core Document sync adapter", () => {
     ]);
   });
 
-  test("rejects a Core restore effect that omits a changed Block from touched IDs", async () => {
+  test("rejects a Core restore effect that omits a changed Block from touched IDs", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     const request = {
@@ -1000,7 +1026,7 @@ describe("Core Document sync adapter", () => {
     });
   });
 
-  test("uses a placeholder execution head only for durable owner receipt replay", async () => {
+  test("uses a placeholder execution head only for durable owner receipt replay", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     client.enqueueDocumentApply({
@@ -1068,7 +1094,7 @@ describe("Core Document sync adapter", () => {
     });
   });
 
-  test("preserves domain-specific owner command conflicts", async () => {
+  test("preserves domain-specific owner command conflicts", async (createCoreDocumentSyncAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreDocumentSyncAdapter(client);
     vi.spyOn(client, "documentApply").mockRejectedValueOnce(

@@ -1,4 +1,6 @@
-import { describe, expect, test } from "vite-plus/test";
+import { describe, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import { expect } from "vite-plus/test";
 
 import {
   materializePortableCanvasScene,
@@ -6,11 +8,33 @@ import {
 } from "../../shared/block-documents";
 import { DocumentHttpWireError } from "../../shared/block-documents/http-wire";
 import { committedLocalCommit } from "../../shared/testing/local-commit";
-import { createCoreCanvasSceneAdapter } from "./core-canvas-scene-adapter";
+import {
+  createCoreCanvasSceneAdapter as createCoreCanvasSceneAdapterBase,
+  type CoreCanvasSceneAdapterOptions,
+} from "./core-canvas-scene-adapter";
 import { CoreModuleResponseError } from "./core-client";
+import { makeTestDocumentLiveRuntimeAdapter } from "./document-live-runtime.test-support";
 import { FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import type { CoreEventEnvelope, OwnedDocumentApplyResult } from "./types";
+
+type CreateCanvasAdapter = (
+  client: Parameters<typeof createCoreCanvasSceneAdapterBase>[0],
+  binding: Parameters<typeof createCoreCanvasSceneAdapterBase>[1],
+  options?: Omit<CoreCanvasSceneAdapterOptions, "live">,
+) => ReturnType<typeof createCoreCanvasSceneAdapterBase>;
+
+const test = (name: string, run: (createAdapter: CreateCanvasAdapter) => Promise<void>): void =>
+  it.effect(name, () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const live = yield* makeTestDocumentLiveRuntimeAdapter;
+        const createAdapter: CreateCanvasAdapter = (client, binding, options = {}) =>
+          createCoreCanvasSceneAdapterBase(client, binding, { ...options, live });
+        yield* Effect.promise(() => run(createAdapter));
+      }),
+    ),
+  );
 
 const PROJECT_ID = "project:canvas";
 const LIBRARY_ID = "library:canvas";
@@ -150,7 +174,7 @@ const committedEvent = (): CoreEventEnvelope => ({
 });
 
 describe("Core Canvas scene adapter", () => {
-  test("classifies an invalid Canvas snapshot as a terminal protocol error", async () => {
+  test("classifies an invalid Canvas snapshot as a terminal protocol error", async (createCoreCanvasSceneAdapter) => {
     const client = new InvalidSnapshotCanvasClient();
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const request = {
@@ -174,7 +198,7 @@ describe("Core Canvas scene adapter", () => {
     close();
   });
 
-  test("reconnects and retries once when Core reports a lost subscription lease", async () => {
+  test("reconnects and retries once when Core reports a lost subscription lease", async (createCoreCanvasSceneAdapter) => {
     const client = new SubscriptionLossCanvasClient();
     client.enqueueDocumentCanvasSync(syncSnapshot("sync:one"));
     const adapter = createCoreCanvasSceneAdapter(client, BINDING, { retryDelayMs: 0 });
@@ -195,7 +219,7 @@ describe("Core Canvas scene adapter", () => {
     close();
   });
 
-  test("syncs, applies, and maps durable Canvas events behind one subscription", async () => {
+  test("syncs, applies, and maps durable Canvas events behind one subscription", async (createCoreCanvasSceneAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const events: CanvasSceneRealtimeEvent[] = [];
@@ -281,7 +305,7 @@ describe("Core Canvas scene adapter", () => {
     });
   });
 
-  test("rejects Canvas sync access drift instead of rewriting Core identity", async () => {
+  test("rejects Canvas sync access drift instead of rewriting Core identity", async (createCoreCanvasSceneAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const subscription = {
@@ -340,7 +364,7 @@ describe("Core Canvas scene adapter", () => {
     close();
   });
 
-  test("reads compaction evidence, applies generation rollover, and maps its reset event", async () => {
+  test("reads compaction evidence, applies generation rollover, and maps its reset event", async (createCoreCanvasSceneAdapter) => {
     const client = new FakeCoreClient();
     const adapter = createCoreCanvasSceneAdapter(client, BINDING);
     const events: CanvasSceneRealtimeEvent[] = [];

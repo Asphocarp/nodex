@@ -26,6 +26,13 @@ change. Scenario and integration harnesses may acquire one standalone generation
 for a bounded Scope, but they do not implement production recovery or circuit
 state.
 
+Every logical Document/Canvas subscription has one Main-scoped live lease. Its
+callback ingress is bounded to 512 queued items and delivered serially. A repair
+first marks the lease disconnected and closes the physical stream before the
+repair reaches consumers; retry/backoff uses the Effect clock and is interrupted
+with the owner Scope. Transport compatibility and Store-identity failures are
+terminal and release the renderer binding instead of entering a retry loop.
+
 Reads and writes with stable idempotency identity may retry once with their
 original input. Ephemeral Awareness triggers recovery but is never replayed.
 A request timeout alone is ambiguous and does not prove writer loss.

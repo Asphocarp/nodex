@@ -4,14 +4,37 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 
-import { afterEach, describe, expect, test } from "vite-plus/test";
+import { describe, it } from "@effect/vitest";
+import * as Effect from "effect/Effect";
+import { afterEach, expect } from "vite-plus/test";
 import * as Y from "yjs";
 
 import { NodexYProvider } from "../../renderer/lib/nodex-y-provider";
 import { inspectOwnedBlockDocument } from "../../shared/block-documents";
 import { CoreClient, CoreModuleResponseError } from "./core-client";
-import { createCoreDocumentSyncAdapter } from "./document-sync-adapter";
+import {
+  createCoreDocumentSyncAdapter as createCoreDocumentSyncAdapterBase,
+  type CoreDocumentSyncAdapterOptions,
+} from "./document-sync-adapter";
+import { makeTestDocumentLiveRuntimeAdapter } from "./document-live-runtime.test-support";
 import type { CoreRuntimeDescriptor } from "./types";
+
+type CreateDocumentAdapter = (
+  client: Parameters<typeof createCoreDocumentSyncAdapterBase>[0],
+  options?: Omit<CoreDocumentSyncAdapterOptions, "live">,
+) => ReturnType<typeof createCoreDocumentSyncAdapterBase>;
+
+const test = (name: string, run: (createAdapter: CreateDocumentAdapter) => Promise<void>): void =>
+  it.effect(name, () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const live = yield* makeTestDocumentLiveRuntimeAdapter;
+        const createAdapter: CreateDocumentAdapter = (client, options = {}) =>
+          createCoreDocumentSyncAdapterBase(client, { ...options, live });
+        yield* Effect.promise(() => run(createAdapter));
+      }),
+    ),
+  );
 
 const CORE_BINARY = path.resolve("target/debug/nodex-core");
 const PROJECT_ID = "project:core-renderer-test";
@@ -130,7 +153,7 @@ const waitUntil = async (predicate: () => boolean, message: string): Promise<voi
 
 describe("Rust Core renderer Document adapter", () => {
   test("prepares one exact Agent mutation and replays its receipt without renewed consent", async () => {
-    expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
+    expect(existsSync(CORE_BINARY), "run vp run test:core-client").toBe(true);
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-agent-prepared-"));
     homes.add(nodexHome);
     await spawnSeededCore(nodexHome);
@@ -521,8 +544,8 @@ describe("Rust Core renderer Document adapter", () => {
     }
   });
 
-  test("converges renderer and semantic edits, then replays a disconnected commit once", async () => {
-    expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
+  test("converges renderer and semantic edits, then replays a disconnected commit once", async (createCoreDocumentSyncAdapter) => {
+    expect(existsSync(CORE_BINARY), "run vp run test:core-client").toBe(true);
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-document-"));
     homes.add(nodexHome);
     await spawnSeededCore(nodexHome);
@@ -632,8 +655,8 @@ describe("Rust Core renderer Document adapter", () => {
     }
   });
 
-  test("scopes ephemeral Awareness and removes it when a UDS connection closes", async () => {
-    expect(existsSync(CORE_BINARY), "run pnpm run core:test:client").toBe(true);
+  test("scopes ephemeral Awareness and removes it when a UDS connection closes", async (createCoreDocumentSyncAdapter) => {
+    expect(existsSync(CORE_BINARY), "run vp run test:core-client").toBe(true);
     const nodexHome = mkdtempSync(path.join(tmpdir(), "nodex-core-awareness-"));
     homes.add(nodexHome);
     await spawnSeededCore(nodexHome);

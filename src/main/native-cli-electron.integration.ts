@@ -10,6 +10,7 @@ import * as Y from "yjs";
 import { removePrivateTemporaryDirectory } from "../../scripts/verify-native-runtime";
 import { initializeStandaloneDataAuthority } from "./core-client/standalone-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
+import { documentLiveRuntimeTestDouble } from "./core-client/document-live-runtime.test-support";
 import { createCoreDocumentSyncAdapter } from "./core-client/document-sync-adapter";
 import type { CoreEventEnvelope } from "./core-client/types";
 import { NodexYProvider } from "../renderer/lib/nodex-y-provider";
@@ -292,7 +293,9 @@ describe.skipIf(!packagedCli)("packaged native CLI and Electron authority", () =
       expect(projected.value.value.content).toBe(body);
       expect(projected.value.value.document_id).toBe(documentId);
 
-      const documents = createCoreDocumentSyncAdapter(runtime.rootClient);
+      const documents = createCoreDocumentSyncAdapter(runtime.rootClient, {
+        live: documentLiveRuntimeTestDouble,
+      });
       const preparedOwner = await documents.prepareOwner({
         ownerBlockId: pageId,
         operationId: "packaged-cli-electron-owner-prepare",

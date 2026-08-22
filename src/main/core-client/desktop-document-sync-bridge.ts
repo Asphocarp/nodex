@@ -82,6 +82,7 @@ import {
 } from "../../shared/block-documents/document-presence";
 import { decodeCanvasSceneSseEvent } from "../../shared/block-documents/canvas-scene-http-contract";
 import type { DesktopDataAuthorityRuntime } from "./desktop-data-authority";
+import type { DocumentLiveRuntimeAdapter } from "./document-live-runtime-adapter";
 import {
   contentAccessContextKey,
   type ContentAccessContext,
@@ -216,6 +217,7 @@ export interface DesktopDocumentSyncPort {
 export interface DesktopDocumentSyncBridgeInput {
   readonly authority: Promise<DesktopDataAuthorityRuntime>;
   readonly canvasPresenceHub?: CanvasPresenceHub;
+  readonly documentLive: DocumentLiveRuntimeAdapter;
 }
 
 type OrderedDocumentRealtimeEvent = Extract<
@@ -439,6 +441,7 @@ export function createDesktopDocumentSyncBridge(
     if (adapter) return adapter;
     adapter = createCoreDocumentSyncAdapter(
       scope.kind === "project" ? runtime.clientForProject(scope.projectId) : runtime.rootClient,
+      { live: input.documentLive },
     );
     adapters.set(key, adapter);
     return adapter;
@@ -459,6 +462,7 @@ export function createDesktopDocumentSyncBridge(
         libraryId: runtime.identity.libraryId,
         accessContext,
       },
+      { live: input.documentLive },
     );
     canvasSceneAdapters.set(key, adapter);
     return adapter;

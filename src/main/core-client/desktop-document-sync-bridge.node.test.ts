@@ -11,15 +11,25 @@ import { DuplicatePageV6OutputSchema } from "../../shared/nodex-agent-tools/v6-s
 import { committedLocalCommit } from "../../shared/testing/local-commit";
 import { authorizedReadStampFixture } from "../../shared/testing/authorized-read-stamp-fixture";
 import {
-  createDesktopDocumentSyncBridge,
+  createDesktopDocumentSyncBridge as createDesktopDocumentSyncBridgeBase,
+  type DesktopDocumentSyncBridgeInput,
   type DesktopDocumentSyncPort,
   type DesktopDocumentSyncScope,
 } from "./desktop-document-sync-bridge";
 import type { RustDataAuthorityRuntime } from "./desktop-data-authority";
+import { documentLiveRuntimeTestDouble } from "./document-live-runtime.test-support";
 import { createFakeCoreHandshake, FakeCoreClient } from "./testing/fake-core-client";
 import { createCoreLocalCommitFixture } from "./testing/local-commit-fixture";
 import { CoreEventCompatibilityError, CoreHttpError } from "./uds-http";
 import type { CoreAuthorizedDeliveryPacket, DocumentLiveBarrier } from "./types";
+
+const createDesktopDocumentSyncBridge = (
+  input: Omit<DesktopDocumentSyncBridgeInput, "documentLive">,
+): DesktopDocumentSyncPort =>
+  createDesktopDocumentSyncBridgeBase({
+    ...input,
+    documentLive: documentLiveRuntimeTestDouble,
+  });
 
 class FakeTarget implements DocumentSyncClientTarget {
   readonly sent: Array<{ readonly channel: string; readonly payload: unknown }> = [];
@@ -654,6 +664,7 @@ describe("Desktop Document sync bridge", () => {
         },
       });
     });
+    await Promise.resolve();
 
     await expect(bridge.subscribe(scope, new FakeTarget(2), subscribeRequest)).resolves.toEqual({
       ok: true,

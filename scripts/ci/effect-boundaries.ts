@@ -56,6 +56,7 @@ const lifecycleBypassingCalls = new Set([
 // or complete its overflow signal; allocation and interruption stay effectful.
 const synchronousCallbackUnsafeCalls = new Map<string, ReadonlySet<string>>([
   ["src/main/core-runtime/ProjectionLiveRuntime.ts", new Set(["doneUnsafe", "offerUnsafe"])],
+  ["src/main/core-runtime/DocumentLiveRuntime.ts", new Set(["doneUnsafe", "offerUnsafe"])],
   ["src/main/codex-application/CodexConversationDeltaBufferRuntime.ts", new Set(["offerUnsafe"])],
   [
     "src/main/codex-application/CodexActiveGoalContinuationCallbackAdapter.ts",

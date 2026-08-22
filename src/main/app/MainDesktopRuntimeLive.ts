@@ -24,6 +24,10 @@ import {
 import { CoreModules, live as coreModulesLive } from "../core-runtime/CoreModules";
 import { coreRuntimeError } from "../core-runtime/CoreRuntimeError";
 import { live as coreTransportLive } from "../core-runtime/CoreTransport";
+import {
+  DocumentLiveRuntime,
+  live as documentLiveRuntimeLive,
+} from "../core-runtime/DocumentLiveRuntime";
 import { makeDesktopDataAuthority } from "../core-runtime/DesktopCoreAdapter";
 import {
   ProjectionDeliveryRuntime,
@@ -44,6 +48,7 @@ import {
 import { createDesktopNodexAgentAuthorityPort } from "../core-client/desktop-nodex-agent-authority";
 import { createDesktopNodexAgentV3DynamicService } from "../core-client/desktop-nodex-agent-dynamic-service";
 import { createDesktopNodexAgentResourceAuthorityPort } from "../core-client/desktop-nodex-agent-resource-authority";
+import { makeDocumentLiveRuntimeAdapter } from "../core-client/document-live-runtime-adapter";
 import { resolveCodexRuntime } from "../codex/codex-runtime";
 import { CodexService } from "../codex/codex-service";
 import { CodexSessionStore } from "../codex/codex-session-store";
@@ -1221,9 +1226,15 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const canvasPresence = Context.get(canvasPresenceContext, CanvasPresenceRuntime);
+        const documentLiveContext = yield* Layer.buildWithScope(
+          documentLiveRuntimeLive,
+          runtimeScope,
+        );
+        const documentLive = Context.get(documentLiveContext, DocumentLiveRuntime);
         const documentSync = createDesktopDocumentSyncBridge({
           authority: legacyDataAuthority,
           canvasPresenceHub: canvasPresence.hub,
+          documentLive: makeDocumentLiveRuntimeAdapter(documentLive, callbacks),
         });
         const libraryModule = createDesktopLibraryModuleBridge({ authority: legacyDataAuthority });
         const databaseModule = createDesktopDatabaseModuleBridge({

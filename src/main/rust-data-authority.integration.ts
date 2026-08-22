@@ -8,6 +8,7 @@ import * as Y from "yjs";
 
 import { initializeStandaloneDataAuthority } from "./core-client/standalone-data-authority";
 import type { RustDataAuthorityRuntime } from "./core-client/desktop-data-authority";
+import { documentLiveRuntimeTestDouble } from "./core-client/document-live-runtime.test-support";
 import { createCoreCanvasSceneAdapter } from "./core-client/core-canvas-scene-adapter";
 import { createCoreLibraryModuleAdapter } from "./core-client/library-module-adapter";
 import {
@@ -311,7 +312,9 @@ describe("Electron native data authority", () => {
           ]),
         },
       });
-      const projectDocuments = createCoreDocumentSyncAdapter(runtime.clientForProject(projectId));
+      const projectDocuments = createCoreDocumentSyncAdapter(runtime.clientForProject(projectId), {
+        live: documentLiveRuntimeTestDouble,
+      });
       const nativeSourceBlockId = "01981e00-0000-7000-8000-000000000001";
       const nativeSourceDocumentId = "01981e00-0000-7000-8000-000000000002";
       const nativeContentBlockId = "01981e00-0000-7000-8000-000000000003";
@@ -382,6 +385,7 @@ describe("Electron native data authority", () => {
       });
       const desktopDocuments = createDesktopDocumentSyncBridge({
         authority: Promise.resolve(runtime),
+        documentLive: documentLiveRuntimeTestDouble,
       });
       await expect(
         desktopDocuments.getOwnedDocumentDescriptor(projectId, nativeSourceBlockId),
@@ -2191,10 +2195,12 @@ describe("Electron native data authority", () => {
       const firstCanvas = createCoreCanvasSceneAdapter(
         runtime.clientForProject(projectId),
         canvasBinding,
+        { live: documentLiveRuntimeTestDouble },
       );
       const secondCanvas = createCoreCanvasSceneAdapter(
         runtime.clientForProject(projectId),
         canvasBinding,
+        { live: documentLiveRuntimeTestDouble },
       );
       const firstCanvasRequest = {
         accessContext: canvasAccessContext,
@@ -2542,7 +2548,9 @@ describe("Electron native data authority", () => {
           }),
         ],
       });
-      const libraryDocuments = createCoreDocumentSyncAdapter(runtime.rootClient);
+      const libraryDocuments = createCoreDocumentSyncAdapter(runtime.rootClient, {
+        live: documentLiveRuntimeTestDouble,
+      });
       const preparedLibraryDocument = await libraryDocuments.prepareOwner({
         ownerBlockId: "page:electron-library-adapter",
         operationId: "electron-library-owner-prepare",
@@ -2580,7 +2588,9 @@ describe("Electron native data authority", () => {
       const secondProvider = new NodexYProvider({
         documentId: secondDocument.guid,
         document: secondDocument,
-        adapter: createCoreDocumentSyncAdapter(runtime.rootClient),
+        adapter: createCoreDocumentSyncAdapter(runtime.rootClient, {
+          live: documentLiveRuntimeTestDouble,
+        }),
         clientSessionId: "renderer:electron-authority:second",
         autoConnect: false,
         localCheckpointStore: null,

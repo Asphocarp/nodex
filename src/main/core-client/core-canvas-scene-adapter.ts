@@ -24,9 +24,9 @@ import { decodeCanvasSceneSseEvent } from "../../shared/block-documents/canvas-s
 import { CoreModuleResponseError } from "./core-client";
 import { isRetryableCoreEventStreamError } from "./core-event-stream-retry";
 import {
-  superviseDocumentLiveStream,
-  type SupervisedDocumentLiveSubscription,
-} from "./document-live-stream-supervisor";
+  type DocumentLiveRuntimeAdapter,
+  type DocumentLiveSubscriptionHandle,
+} from "./document-live-runtime-adapter";
 import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
 import {
   contentAccessContextKey,
@@ -41,9 +41,10 @@ import {
   type DocumentLiveRepair,
 } from "./types";
 
-type ActiveSubscription = SupervisedDocumentLiveSubscription;
+type ActiveSubscription = DocumentLiveSubscriptionHandle;
 
-interface CoreCanvasSceneAdapterOptions {
+export interface CoreCanvasSceneAdapterOptions {
+  readonly live: DocumentLiveRuntimeAdapter;
   readonly retryDelayMs?: number;
   readonly maxRetryDelayMs?: number;
   readonly maxInitialOpenAttempts?: number;
@@ -64,7 +65,7 @@ export interface CoreCanvasSceneAdapter {
   subscribeWithLifecycle(
     request: CanvasSceneSubscribeRequest,
     listener: (event: CanvasSceneRealtimeEvent) => void,
-  ): SupervisedDocumentLiveSubscription;
+  ): DocumentLiveSubscriptionHandle;
   subscribe(
     request: CanvasSceneSubscribeRequest,
     listener: (event: CanvasSceneRealtimeEvent) => void,
@@ -87,7 +88,7 @@ const subscriptionKey = (
 export const createCoreCanvasSceneAdapter = (
   client: CoreClientPort,
   binding: CoreCanvasSceneAdapterBinding,
-  options: CoreCanvasSceneAdapterOptions = {},
+  options: CoreCanvasSceneAdapterOptions,
 ): CoreCanvasSceneAdapter => {
   const subscriptions = new Map<string, ActiveSubscription>();
   const bindingAccessKey = contentAccessContextKey(binding.accessContext);
@@ -108,13 +109,13 @@ export const createCoreCanvasSceneAdapter = (
   const subscribeWithLifecycle = (
     request: CanvasSceneSubscribeRequest,
     listener: (event: CanvasSceneRealtimeEvent) => void,
-  ): SupervisedDocumentLiveSubscription => {
+  ): DocumentLiveSubscriptionHandle => {
     assertBoundAccess(request.accessContext);
     const key = subscriptionKey(request);
     const predecessor = subscriptions.get(key);
     predecessor?.close();
     const predecessorDone = predecessor?.done.catch(() => undefined) ?? Promise.resolve();
-    const supervisor = superviseDocumentLiveStream({
+    const subscription = options.live.subscribe({
       maxInitialOpenAttempts: options.maxInitialOpenAttempts ?? 3,
       shouldRetry: isRetryableCoreEventStreamError,
       retryDelayMs: options.retryDelayMs,
@@ -163,15 +164,15 @@ export const createCoreCanvasSceneAdapter = (
       },
       onRealtime: () => undefined,
     });
-    subscriptions.set(key, supervisor);
-    void supervisor.done
+    subscriptions.set(key, subscription);
+    void subscription.done
       .catch(() => undefined)
       .finally(() => {
-        if (subscriptions.get(key) === supervisor) {
+        if (subscriptions.get(key) === subscription) {
           subscriptions.delete(key);
         }
       });
-    return supervisor;
+    return subscription;
   };
 
   return {

@@ -9,6 +9,7 @@ import {
   type CoreEventHubOptions,
 } from "./CoreEventHub";
 import { CoreModules, live as modulesLive } from "./CoreModules";
+import { DocumentLiveRuntime, live as documentLiveRuntimeLive } from "./DocumentLiveRuntime";
 import { live as transportLive } from "./CoreTransport";
 import type { CoreRuntimeError } from "./CoreRuntimeError";
 
@@ -21,7 +22,7 @@ export interface CoreRuntimeOptions {
 export const live = (
   options: CoreRuntimeOptions,
 ): Layer.Layer<
-  CoreAuthority | CoreModules | CoreEventHub,
+  CoreAuthority | CoreModules | CoreEventHub | DocumentLiveRuntime,
   CoreRuntimeError,
   MainShutdown | CoreEventDelivery
 > => {
@@ -31,5 +32,5 @@ export const live = (
   const consumers = Layer.merge(modulesLive, eventHubLive(options.events)).pipe(
     Layer.provideMerge(authority),
   );
-  return consumers;
+  return Layer.merge(consumers, documentLiveRuntimeLive);
 };

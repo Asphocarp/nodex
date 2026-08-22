@@ -62,9 +62,9 @@ import { CoreModuleResponseError } from "./core-client";
 import { applyResultCursor, applyResultStoreEpoch, rendererLocalCommitApply } from "./types";
 import { isRetryableCoreEventStreamError } from "./core-event-stream-retry";
 import {
-  superviseDocumentLiveStream,
-  type SupervisedDocumentLiveSubscription,
-} from "./document-live-stream-supervisor";
+  type DocumentLiveRuntimeAdapter,
+  type DocumentLiveSubscriptionHandle,
+} from "./document-live-runtime-adapter";
 import { executeWithDocumentSubscription } from "./core-document-subscription-lifecycle";
 import {
   resolveAuthorizedDocumentEffect,
@@ -82,9 +82,11 @@ type CoreDocumentOwnerCommand = Extract<
   { readonly kind: "apply_owner_command" }
 >["command"];
 
-type ActiveSubscription = SupervisedDocumentLiveSubscription;
+type ActiveSubscription = DocumentLiveSubscriptionHandle;
 
-interface CoreDocumentSyncAdapterOptions {
+export interface CoreDocumentSyncAdapterOptions {
+  /** Required only when this command adapter opens a live subscription. */
+  readonly live?: DocumentLiveRuntimeAdapter;
   readonly retryDelayMs?: number;
   readonly maxRetryDelayMs?: number;
   readonly maxInitialOpenAttempts?: number;
@@ -126,7 +128,7 @@ export interface CoreDocumentSyncAdapter extends DocumentSyncAdapter {
   subscribeWithLifecycle(
     request: DocumentSyncSubscribeRequest,
     listener: (event: DocumentSyncRealtimeEvent) => void,
-  ): SupervisedDocumentLiveSubscription;
+  ): DocumentLiveSubscriptionHandle;
   readDescriptor(input: {
     readonly ownerBlockId: string;
     readonly clientSessionId: string;
@@ -790,12 +792,15 @@ export const createCoreDocumentSyncAdapter = (
   const subscribeWithLifecycle = (
     request: DocumentSyncSubscribeRequest,
     listener: (event: DocumentSyncRealtimeEvent) => void,
-  ): SupervisedDocumentLiveSubscription => {
+  ): DocumentLiveSubscriptionHandle => {
+    if (!options.live) {
+      throw new Error("Owned Document live subscription capability is unavailable");
+    }
     const key = subscriptionKey(request);
     const predecessor = subscriptions.get(key);
     predecessor?.close();
     const predecessorDone = predecessor?.done.catch(() => undefined) ?? Promise.resolve();
-    const supervisor = superviseDocumentLiveStream({
+    const subscription = options.live.subscribe({
       maxInitialOpenAttempts: options.maxInitialOpenAttempts ?? 3,
       shouldRetry: isRetryableCoreEventStreamError,
       retryDelayMs: options.retryDelayMs,
@@ -857,15 +862,15 @@ export const createCoreDocumentSyncAdapter = (
         });
       },
     });
-    subscriptions.set(key, supervisor);
-    void supervisor.done
+    subscriptions.set(key, subscription);
+    void subscription.done
       .catch(() => undefined)
       .finally(() => {
-        if (subscriptions.get(key) === supervisor) {
+        if (subscriptions.get(key) === subscription) {
           subscriptions.delete(key);
         }
       });
-    return supervisor;
+    return subscription;
   };
 
   const applyDocumentMutation = async (
