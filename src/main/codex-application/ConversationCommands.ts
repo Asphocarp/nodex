@@ -1,42 +1,52 @@
 import * as Context from "effect/Context";
+import * as Data from "effect/Data";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
+import * as RcMap from "effect/RcMap";
+import * as Scope from "effect/Scope";
+import * as Semaphore from "effect/Semaphore";
 import type {
   ClientRequestParamsByMethod,
   ClientRequestResponsesByMethod,
 } from "@nodex/effect-codex-app-server/rpc";
+import type { CodexThreadSummary } from "../../shared/types";
 import { CodexGateway } from "../codex-runtime/CodexGateway";
 import type { CodexRuntimeError } from "../codex-runtime/CodexRuntimeError";
 import { ConversationRuntimeMap } from "./ConversationRuntimeMap";
 
-type ThreadMethod =
-  | "thread/resume"
-  | "thread/fork"
-  | "thread/archive"
-  | "thread/unarchive"
-  | "thread/delete"
-  | "thread/read"
-  | "thread/name/set"
-  | "thread/memoryMode/set"
-  | "turn/start"
-  | "turn/steer"
-  | "turn/interrupt";
-
 type BackgroundTerminal =
   ClientRequestResponsesByMethod["thread/backgroundTerminals/list"]["data"][number];
+
+export class ConversationCommandProjectionError extends Data.TaggedError(
+  "ConversationCommandProjectionError",
+)<{
+  readonly operation: "archive" | "unarchive";
+  readonly threadId: string;
+  readonly cause: unknown;
+}> {}
+
+export interface ConversationCommandProjection {
+  readonly archive: (
+    threadId: string,
+  ) => Effect.Effect<boolean, ConversationCommandProjectionError>;
+  readonly unarchive: (
+    threadId: string,
+  ) => Effect.Effect<CodexThreadSummary | null, ConversationCommandProjectionError>;
+}
 
 export class ConversationCommands extends Context.Service<
   ConversationCommands,
   {
-    readonly start: (
-      hostId: string,
-      params: ClientRequestParamsByMethod["thread/start"],
-    ) => Effect.Effect<ClientRequestResponsesByMethod["thread/start"], CodexRuntimeError>;
-    readonly request: <M extends ThreadMethod>(
+    readonly archive: (
       threadId: string,
-      method: M,
-      params: ClientRequestParamsByMethod[M],
-    ) => Effect.Effect<ClientRequestResponsesByMethod[M], CodexRuntimeError>;
+    ) => Effect.Effect<boolean, CodexRuntimeError | ConversationCommandProjectionError>;
+    readonly unarchive: (
+      threadId: string,
+    ) => Effect.Effect<
+      CodexThreadSummary | null,
+      CodexRuntimeError | ConversationCommandProjectionError
+    >;
     readonly setMemoryMode: (
       threadId: string,
       mode: ClientRequestParamsByMethod["thread/memoryMode/set"]["mode"],
@@ -57,21 +67,36 @@ export class ConversationCommands extends Context.Service<
   }
 >()("nodex/main/codex-application/ConversationCommands") {}
 
-const closesRuntime = (method: ThreadMethod): boolean =>
-  method === "thread/archive" || method === "thread/delete";
-
-export const live: Layer.Layer<ConversationCommands, never, CodexGateway | ConversationRuntimeMap> =
+export const live = (
+  projection: ConversationCommandProjection,
+): Layer.Layer<ConversationCommands, never, CodexGateway | ConversationRuntimeMap> =>
   Layer.effect(
     ConversationCommands,
     Effect.gen(function* () {
       const gateway = yield* CodexGateway;
       const conversations = yield* ConversationRuntimeMap;
-      const request: ConversationCommands["Service"]["request"] = (threadId, method, params) =>
-        gateway
-          .requestForThread(threadId, method, params)
-          .pipe(
-            Effect.tap(() => (closesRuntime(method) ? conversations.close(threadId) : Effect.void)),
-          );
+      const ownerScope = yield* Scope.Scope;
+      const lanes = yield* RcMap.make({
+        lookup: (_threadId: string) => Semaphore.make(1),
+      });
+      const runOwned = <A, E>(operation: Effect.Effect<A, E>): Effect.Effect<A, E> =>
+        Effect.acquireUseRelease(
+          operation.pipe(Effect.forkIn(ownerScope, { startImmediately: true })),
+          Fiber.join,
+          Fiber.interrupt,
+        );
+      const runSerial = <A, E>(
+        threadId: string,
+        operation: Effect.Effect<A, E>,
+      ): Effect.Effect<A, E> =>
+        runOwned(
+          Effect.scoped(
+            Effect.gen(function* () {
+              const lane = yield* RcMap.get(lanes, threadId);
+              return yield* lane.withPermit(operation);
+            }),
+          ),
+        );
       const listBackgroundTerminals = (
         threadId: string,
         cursor: string | null = null,
@@ -92,8 +117,21 @@ export const live: Layer.Layer<ConversationCommands, never, CodexGateway | Conve
             }),
           );
       return ConversationCommands.of({
-        start: (hostId, params) => gateway.requestOnHost(hostId, "thread/start", params),
-        request,
+        archive: (threadId) =>
+          runSerial(
+            threadId,
+            gateway.requestForThread(threadId, "thread/archive", { threadId }).pipe(
+              Effect.andThen(projection.archive(threadId)),
+              Effect.tap((archived) => (archived ? conversations.close(threadId) : Effect.void)),
+            ),
+          ),
+        unarchive: (threadId) =>
+          runSerial(
+            threadId,
+            gateway
+              .requestForThread(threadId, "thread/unarchive", { threadId })
+              .pipe(Effect.andThen(projection.unarchive(threadId))),
+          ),
         setMemoryMode: (threadId, mode) =>
           gateway
             .requestForThread(threadId, "thread/memoryMode/set", { threadId, mode })

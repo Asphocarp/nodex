@@ -12,6 +12,7 @@ import type {
   PageOccurrenceUpdateInput,
 } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
+import type { ConversationCommandsPromiseAdapter } from "../../codex-application/ConversationCommandsPromiseAdapter";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import {
@@ -28,6 +29,7 @@ import { WindowRuntime } from "../../window-runtime/WindowRuntime";
 export interface AutomationIpcOptions {
   readonly automation: DesktopAutomationModulePort;
   readonly codex: CodexService;
+  readonly conversationCommands: Pick<ConversationCommandsPromiseAdapter, "unarchive">;
   readonly rendererClients: RendererClientRuntimeService;
   readonly onHeartbeatAutomationsEnabledChanged: (
     input: CodexHeartbeatAutomationsEnabledChangedInput,
@@ -192,7 +194,7 @@ export const live = (
           options.codex.runScheduledAutomationNow(input, clientId, signal),
         resolveAutomationArchiveMessages: (threadId) =>
           options.codex.resolveAutomationArchiveMessages(threadId),
-        unarchiveThread: (threadId) => options.codex.unarchiveThread(threadId),
+        unarchiveThread: options.conversationCommands.unarchive,
         broadcastScheduledAutomationChanged: (automationId, targetThreadId, reason) => {
           safeBroadcastToWindows(windows.all(), "codex:scheduled-automations:changed", [
             { automationId, targetThreadId, reason },

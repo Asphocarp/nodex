@@ -9,6 +9,7 @@ import { CodexManualCompactionRuntime } from "../../codex-application/CodexManua
 import { CodexThreadGoalRuntime } from "../../codex-application/CodexThreadGoalRuntime";
 import { CodexThreadSettingsRuntime } from "../../codex-application/CodexThreadSettingsRuntime";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
+import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import type { CodexService } from "../../codex/codex-service";
 import type { RendererClientRuntimeService } from "../../codex/renderer-client-runtime-contracts";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
@@ -55,6 +56,15 @@ it.effect("owns the remaining Codex application ingress with the Main Scope", ()
         threadTitles: CodexThreadTitlePersistence.of({
           set: () => Effect.die(new Error("Unexpected Thread title operation")),
           setRequired: () => Effect.die(new Error("Unexpected required Thread title operation")),
+        }),
+        conversationCommands: ConversationCommands.of({
+          archive: () => Effect.die("unused"),
+          unarchive: () => Effect.die("unused"),
+          setMemoryMode: () => Effect.die("unused"),
+          startReview: () => Effect.die("unused"),
+          uploadFeedback: () => Effect.die("unused"),
+          listBackgroundTerminals: () => Effect.die("unused"),
+          terminateBackgroundTerminal: () => Effect.die("unused"),
         }),
         projectWorkspace: {} as DesktopProjectWorkspacePort,
         rendererClientRouter: {} as RendererClientRuntimeService,

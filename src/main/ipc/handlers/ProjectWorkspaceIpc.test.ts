@@ -6,6 +6,7 @@ import { assert, it } from "@effect/vitest";
 import { testLayer as mainConfigLayer } from "../../app/MainConfig";
 import { layer as scopedCallbackRuntimeLive } from "../../app/ScopedCallbackRuntime";
 import { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
+import { ConversationCommands } from "../../codex-application/ConversationCommands";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { ElectronDesktop } from "../../platform/electron/ElectronDesktop";
@@ -36,6 +37,15 @@ it.effect("owns Project and Project Session ingress with the Main Scope", () =>
         threadTitles: CodexThreadTitlePersistence.of({
           set: () => Effect.die("unused"),
           setRequired: () => Effect.die("unused"),
+        }),
+        conversationCommands: ConversationCommands.of({
+          archive: () => Effect.die("unused"),
+          unarchive: () => Effect.die("unused"),
+          setMemoryMode: () => Effect.die("unused"),
+          startReview: () => Effect.die("unused"),
+          uploadFeedback: () => Effect.die("unused"),
+          listBackgroundTerminals: () => Effect.die("unused"),
+          terminateBackgroundTerminal: () => Effect.die("unused"),
         }),
       }).pipe(
         Layer.provide(

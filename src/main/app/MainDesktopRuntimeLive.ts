@@ -81,9 +81,11 @@ import {
 import { ComposerCatalog, live as composerCatalogLive } from "../codex-application/ComposerCatalog";
 import { makeComposerCatalogPromiseAdapter } from "../codex-application/ComposerCatalogPromiseAdapter";
 import {
+  ConversationCommandProjectionError,
   ConversationCommands,
   live as conversationCommandsLive,
 } from "../codex-application/ConversationCommands";
+import { makeConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
 import { ConversationRuntimeMap } from "../codex-application/ConversationRuntimeMap";
 import {
   ApprovalCoordinator,
@@ -746,7 +748,28 @@ export const live: Layer.Layer<
           runtimeScope,
         );
         const conversationCommandsContext = yield* Layer.buildWithScope(
-          conversationCommandsLive.pipe(
+          conversationCommandsLive({
+            archive: (threadId) =>
+              Effect.tryPromise({
+                try: () => requireCodexService().applyThreadArchiveProjection(threadId),
+                catch: (cause) =>
+                  new ConversationCommandProjectionError({
+                    operation: "archive",
+                    threadId,
+                    cause,
+                  }),
+              }),
+            unarchive: (threadId) =>
+              Effect.tryPromise({
+                try: () => requireCodexService().applyThreadUnarchiveProjection(threadId),
+                catch: (cause) =>
+                  new ConversationCommandProjectionError({
+                    operation: "unarchive",
+                    threadId,
+                    cause,
+                  }),
+              }),
+          }).pipe(
             Layer.provide(
               Layer.merge(
                 Layer.succeed(CodexGateway, codexGateway),
@@ -1932,6 +1955,10 @@ export const live: Layer.Layer<
                 threadTitlePersistence,
                 callbacks,
               ),
+              conversationCommands: makeConversationCommandsPromiseAdapter(
+                conversationCommands,
+                callbacks,
+              ),
               postResumeGoals: makeCodexPostResumeGoalRuntimePromiseAdapter(
                 postResumeGoals,
                 callbacks,
@@ -2128,6 +2155,7 @@ export const live: Layer.Layer<
         yield* Layer.buildWithScope(
           ProjectWorkspaceIpc.live({
             codex: codexService,
+            conversationCommands,
             projects: projectWorkspace,
             threadTitles: threadTitlePersistence,
             terminals: {
@@ -2174,6 +2202,10 @@ export const live: Layer.Layer<
           AutomationIpc.live({
             automation: automationModule,
             codex: codexService,
+            conversationCommands: makeConversationCommandsPromiseAdapter(
+              conversationCommands,
+              callbacks,
+            ),
             rendererClients,
             onHeartbeatAutomationsEnabledChanged: (input) => {
               callbacks.fork(scheduledAutomations.setHeartbeatAutomationsEnabled(input.enabled));
@@ -2611,6 +2643,7 @@ export const live: Layer.Layer<
             threadGoals,
             threadSettings: threadSettingsRuntime,
             threadTitles: threadTitlePersistence,
+            conversationCommands,
             projectWorkspace,
             rendererClientRouter: rendererClients,
             terminalRuntime: {

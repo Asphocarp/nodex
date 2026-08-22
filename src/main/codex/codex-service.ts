@@ -54,7 +54,6 @@ import type { Thread } from "@nodex/codex-app-server-protocol/v2/Thread";
 import type { ThreadStartParams } from "@nodex/codex-app-server-protocol/v2/ThreadStartParams";
 import type { ThreadStartResponse } from "@nodex/codex-app-server-protocol/v2/ThreadStartResponse";
 import type { ThreadTurnsListResponse } from "@nodex/codex-app-server-protocol/v2/ThreadTurnsListResponse";
-import type { ThreadUnarchiveResponse } from "@nodex/codex-app-server-protocol/v2/ThreadUnarchiveResponse";
 import type { ThreadUnsubscribeResponse } from "@nodex/codex-app-server-protocol/v2/ThreadUnsubscribeResponse";
 import type { Turn } from "@nodex/codex-app-server-protocol/v2/Turn";
 import type { TurnStartParams } from "@nodex/codex-app-server-protocol/v2/TurnStartParams";
@@ -677,6 +676,7 @@ import {
 import type { CodexPendingWorktreeRuntimePromiseAdapter } from "../codex-application/CodexPendingWorktreeRuntimePromiseAdapter";
 import type { CodexThreadSettingsRuntimePromiseAdapter } from "../codex-application/CodexThreadSettingsRuntimePromiseAdapter";
 import type { CodexThreadTitlePersistencePromiseAdapter } from "../codex-application/CodexThreadTitlePersistencePromiseAdapter";
+import type { ConversationCommandsPromiseAdapter } from "../codex-application/ConversationCommandsPromiseAdapter";
 import type { CodexPostResumeGoalRuntimePromiseAdapter } from "../codex-application/CodexPostResumeGoalRuntimePromiseAdapter";
 import type { CodexConversationHistoryRuntimePromiseAdapter } from "../codex-application/CodexConversationHistoryRuntimePromiseAdapter";
 import type { CodexBackgroundSubagentMetadataRepair } from "../codex-application/CodexBackgroundSubagentMetadataRepair";
@@ -1230,6 +1230,7 @@ type CodexServiceOptions = {
   pendingWorktrees: CodexPendingWorktreeRuntimePromiseAdapter;
   threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
+  conversationCommands: ConversationCommandsPromiseAdapter;
   postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
@@ -2418,6 +2419,7 @@ export class CodexService {
   private readonly pendingWorktreeRuntime: CodexPendingWorktreeRuntimePromiseAdapter;
   private readonly threadSettingsRuntime: CodexThreadSettingsRuntimePromiseAdapter;
   private readonly threadTitlePersistence: CodexThreadTitlePersistencePromiseAdapter;
+  private readonly conversationCommands: ConversationCommandsPromiseAdapter;
   private readonly postResumeGoals: CodexPostResumeGoalRuntimePromiseAdapter;
   private readonly conversationHistory: CodexConversationHistoryRuntimePromiseAdapter;
   private readonly backgroundSubagentMetadataRepair: CodexBackgroundSubagentMetadataRepair["Service"];
@@ -2527,6 +2529,7 @@ export class CodexService {
     this.pendingWorktreeRuntime = options.pendingWorktrees;
     this.threadSettingsRuntime = options.threadSettingsRuntime;
     this.threadTitlePersistence = options.threadTitlePersistence;
+    this.conversationCommands = options.conversationCommands;
     this.postResumeGoals = options.postResumeGoals;
     this.conversationHistory = options.conversationHistory;
     this.backgroundSubagentMetadataRepair = options.backgroundSubagentMetadataRepair;
@@ -16931,9 +16934,8 @@ export class CodexService {
     });
   }
 
-  async archiveThread(threadId: string): Promise<boolean> {
-    await this.ensureClientReady();
-    await this.client.request("thread/archive", { threadId });
+  /** Effect Module projection operation; callers use ConversationCommands.archive. */
+  async applyThreadArchiveProjection(threadId: string): Promise<boolean> {
     await this.nodexAgentAuthorization.revokeRoot(this.resolveNodexAgentRootThreadId(threadId));
     const isAutomationRun = this.resolveAutomationIdForRunThread(threadId) !== null;
     if (isAutomationRun) {
@@ -17045,12 +17047,8 @@ export class CodexService {
     }
   }
 
-  async unarchiveThread(threadId: string): Promise<CodexThreadSummary | null> {
-    await this.ensureClientReady();
-    await this.client.request<"thread/unarchive", ThreadUnarchiveResponse>("thread/unarchive", {
-      threadId,
-    });
-
+  /** Effect Module projection operation; callers use ConversationCommands.unarchive. */
+  async applyThreadUnarchiveProjection(threadId: string): Promise<CodexThreadSummary | null> {
     const previous = await this.readWorkspaceThread(threadId);
     this.rememberWorkspaceSidebar(await this.projectWorkspace.setThreadArchived(threadId, false));
     const persisted = await this.readWorkspaceThread(threadId);
@@ -20988,8 +20986,8 @@ export class CodexService {
           throw new Error("set_thread_archived requires threadId and archived");
         }
         await this.resolveDynamicThreadDetail(threadId);
-        if (args.archived) await this.archiveThread(threadId);
-        else await this.unarchiveThread(threadId);
+        if (args.archived) await this.conversationCommands.archive(threadId);
+        else await this.conversationCommands.unarchive(threadId);
         return this.buildDynamicToolSuccess({ threadId, archived: args.archived });
       }
 

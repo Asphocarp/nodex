@@ -681,6 +681,14 @@ failure releases the permit, queued caller interruption removes that operation, 
 interrupts active and waiting projections through the application callback runtime. `CodexService`
 keeps the move's domain validation and state transition but owns no Promise chain or recovery tail.
 
+Thread archive and unarchive are complete `ConversationCommands` transactions. A reference-counted
+per-Thread lane serializes the typed Gateway transition with automation/worktree cleanup, Project
+Workspace persistence, canonical projection, sidebar publication, and conversation-runtime eviction.
+Renderer, Project Session, scheduled-automation, and dynamic-tool ingress all borrow this owner;
+none calls a public `CodexService` lifecycle command. `CodexService` temporarily supplies only the
+post-Gateway domain projection operations while those state owners are split further. The Module
+exposes only complete named commands, not a generic protocol request escape hatch.
+
 Next-turn Thread settings use one Main-scoped application Module. Its reference-counted lanes
 serialize the complete validation → local projection → typed remote update transaction within a
 Thread while unrelated Threads remain independent; Turn start and active-goal continuation join the

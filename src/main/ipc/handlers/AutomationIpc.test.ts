@@ -29,6 +29,9 @@ it.effect("owns calendar and scheduled automation ingress with the Main Scope", 
       live({
         automation: {} as DesktopAutomationModulePort,
         codex: {} as CodexService,
+        conversationCommands: {
+          unarchive: () => Promise.reject(new Error("unused")),
+        },
         rendererClients: {} as RendererClientRuntimeService,
         onHeartbeatAutomationsEnabledChanged: () => undefined,
         onHeartbeatAutomationThreadStateChanged: () => undefined,

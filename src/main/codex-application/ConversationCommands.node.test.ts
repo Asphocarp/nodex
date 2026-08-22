@@ -1,6 +1,9 @@
+import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as Fiber from "effect/Fiber";
 import * as Layer from "effect/Layer";
 import * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
@@ -19,6 +22,7 @@ it.effect("routes direct thread operations and drains background-terminal pages"
       readonly method: string;
       readonly params: unknown;
     }> = [];
+    const projections: string[] = [];
     const respond = (scope: "local" | "thread", method: string, params: unknown) => {
       requests.push({ scope, method, params });
       if (method === "thread/backgroundTerminals/list") {
@@ -79,7 +83,18 @@ it.effect("routes direct thread operations and drains background-terminal pages"
     const scope = yield* Scope.make();
     const runtimeContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
     const context = yield* Layer.buildWithScope(
-      conversationCommandsLive.pipe(
+      conversationCommandsLive({
+        archive: (threadId) =>
+          Effect.sync(() => {
+            projections.push(`archive:${threadId}`);
+            return true;
+          }),
+        unarchive: (threadId) =>
+          Effect.sync(() => {
+            projections.push(`unarchive:${threadId}`);
+            return null;
+          }),
+      }).pipe(
         Layer.provide(
           Layer.merge(
             Layer.succeed(CodexGateway, gateway),
@@ -107,6 +122,8 @@ it.effect("routes direct thread operations and drains background-terminal pages"
     });
     const terminals = yield* commands.listBackgroundTerminals("thread-a");
     const terminated = yield* commands.terminateBackgroundTerminal("thread-a", "process-b");
+    assert.isTrue(yield* commands.archive("thread-a"));
+    assert.isNull(yield* commands.unarchive("thread-a"));
 
     assert.deepEqual(
       terminals.map((terminal) => terminal.processId),
@@ -128,7 +145,64 @@ it.effect("routes direct thread operations and drains background-terminal pages"
         .map(({ params }) => (params as { readonly cursor?: string | null }).cursor ?? null),
       [null, "page-2"],
     );
+    assert.deepEqual(projections, ["archive:thread-a", "unarchive:thread-a"]);
 
     yield* Scope.close(scope, Exit.void);
+  }),
+);
+
+it.effect("interrupts an active archive command when its owning Scope closes", () =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<void>();
+    const interrupted = yield* Deferred.make<void>();
+    const unsupported = () => Effect.die(new Error("Unsupported test operation"));
+    const gateway = CodexGateway.of({
+      localHostId: "local",
+      events: Stream.empty,
+      requestLocal: unsupported,
+      requestOnHost: unsupported,
+      requestForThread: ((_threadId: string, method: string) =>
+        method === "thread/archive"
+          ? Deferred.succeed(started, undefined).pipe(
+              Effect.andThen(Effect.never),
+              Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
+            )
+          : unsupported()) as CodexGateway["Service"]["requestForThread"],
+      notifyLocal: unsupported,
+      connection: () => unsupported(),
+      connectionChanges: () => Stream.empty,
+      awaitReady: () => Effect.void,
+      reconcileHost: unsupported,
+      removeHost: unsupported,
+      restartHost: unsupported,
+    });
+    const scope = yield* Scope.make();
+    const runtimeContext = yield* Layer.buildWithScope(conversationRuntimeMapLive, scope);
+    const context = yield* Layer.buildWithScope(
+      conversationCommandsLive({
+        archive: () => Effect.succeed(true),
+        unarchive: () => Effect.succeed(null),
+      }).pipe(
+        Layer.provide(
+          Layer.merge(
+            Layer.succeed(CodexGateway, gateway),
+            Layer.succeed(
+              ConversationRuntimeMap,
+              Context.get(runtimeContext, ConversationRuntimeMap),
+            ),
+          ),
+        ),
+      ),
+      scope,
+    );
+    const commands = Context.get(context, ConversationCommands);
+    const caller = yield* Effect.forkChild(commands.archive("thread-a"));
+
+    yield* Deferred.await(started);
+    yield* Scope.close(scope, Exit.void);
+    yield* Deferred.await(interrupted);
+    const exit = yield* Fiber.await(caller);
+    assert.isTrue(Exit.isFailure(exit));
+    if (Exit.isFailure(exit)) assert.isTrue(Cause.hasInterruptsOnly(exit.cause));
   }),
 );

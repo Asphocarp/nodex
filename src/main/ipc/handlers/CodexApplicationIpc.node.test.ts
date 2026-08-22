@@ -114,8 +114,8 @@ it.effect("registers application channels directly against their owning modules"
       resolveImage: () => Effect.succeed({ ok: false, message: "not available", status: null }),
     });
     const conversations = ConversationCommands.of({
-      start: () => Effect.die("unused"),
-      request: () => Effect.die("unused"),
+      archive: () => Effect.die("unused"),
+      unarchive: () => Effect.die("unused"),
       setMemoryMode: () => Effect.void,
       startReview: () => Effect.die("unused"),
       uploadFeedback: () => Effect.void,

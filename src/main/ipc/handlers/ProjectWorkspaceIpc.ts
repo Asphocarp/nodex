@@ -10,6 +10,7 @@ import type { TerminalSessionSnapshot } from "../../../shared/types";
 import { MainConfig } from "../../app/MainConfig";
 import { ScopedCallbackRuntime } from "../../app/ScopedCallbackRuntime";
 import type { CodexThreadTitlePersistence } from "../../codex-application/CodexThreadTitlePersistence";
+import type { ConversationCommands } from "../../codex-application/ConversationCommands";
 import type { CodexService } from "../../codex/codex-service";
 import type { DesktopProjectWorkspacePort } from "../../core-client/project-workspace-adapter";
 import { coreResultFrom } from "../../core-result-ipc";
@@ -36,6 +37,7 @@ export interface ProjectWorkspaceIpcOptions {
   readonly codex: CodexService;
   readonly projects: DesktopProjectWorkspacePort;
   readonly threadTitles: CodexThreadTitlePersistence["Service"];
+  readonly conversationCommands: ConversationCommands["Service"];
   readonly terminals?: {
     readonly listLiveSessionsForOwners: (input: {
       readonly conversationIds: ReadonlySet<string>;
@@ -274,14 +276,16 @@ export const live = (
         const existing = await options.projects.getProjectSession(sessionId);
         if (!existing) return null;
         if (!existing.thread) return await options.projects.archiveProjectSession(sessionId);
-        await options.codex.archiveThread(existing.thread.threadId);
+        await callbacks.runPromise(options.conversationCommands.archive(existing.thread.threadId));
         return await options.projects.getProjectSession(sessionId);
       });
       yield* invoke("project-sessions:unarchive", async (_, sessionId) => {
         const existing = await options.projects.getProjectSession(sessionId);
         if (!existing) return null;
         if (!existing.thread) return await options.projects.unarchiveProjectSession(sessionId);
-        await options.codex.unarchiveThread(existing.thread.threadId);
+        await callbacks.runPromise(
+          options.conversationCommands.unarchive(existing.thread.threadId),
+        );
         return await options.projects.getProjectSession(sessionId);
       });
       yield* invoke("project-sessions:mark-unread", (_, sessionId, input) =>

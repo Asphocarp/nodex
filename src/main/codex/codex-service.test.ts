@@ -1821,6 +1821,24 @@ function createService(options?: {
     onChanged: (entries) => service?.projectPendingWorktreeSnapshot(entries),
   });
   const threadSettingsRuntime = new TestCodexThreadSettingsRuntime();
+  const conversationCommands = {
+    archive: async (threadId: string) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      const client = Reflect.get(service, "client") as {
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      await client.request("thread/archive", { threadId });
+      return await service.applyThreadArchiveProjection(threadId);
+    },
+    unarchive: async (threadId: string) => {
+      if (!service) throw new Error("Codex test service is not constructed");
+      const client = Reflect.get(service, "client") as {
+        request: (method: string, params: unknown) => Promise<unknown>;
+      };
+      await client.request("thread/unarchive", { threadId });
+      return await service.applyThreadUnarchiveProjection(threadId);
+    },
+  };
   const threadTitlePersistence = new TestCodexThreadTitlePersistence({
     project: ({ threadId, name, syncDormantConversationUpdates }) => {
       if (!service) throw new Error("Codex test service is not constructed");
@@ -2153,6 +2171,7 @@ function createService(options?: {
     pendingWorktrees,
     threadSettingsRuntime,
     threadTitlePersistence,
+    conversationCommands,
     postResumeGoals,
     conversationHistory,
     backgroundSubagentMetadataRepair,

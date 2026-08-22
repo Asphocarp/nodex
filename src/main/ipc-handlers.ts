@@ -16,6 +16,7 @@ import type { CodexManualCompactionRuntime } from "./codex-application/CodexManu
 import type { CodexThreadGoalRuntime } from "./codex-application/CodexThreadGoalRuntime";
 import type { CodexThreadSettingsRuntime } from "./codex-application/CodexThreadSettingsRuntime";
 import type { CodexThreadTitlePersistence } from "./codex-application/CodexThreadTitlePersistence";
+import type { ConversationCommands } from "./codex-application/ConversationCommands";
 import { parseCodexApprovalResponse } from "../shared/codex-approval-response";
 import {
   createCodexProjectlessWorkspace,
@@ -102,6 +103,7 @@ interface CodexIpcOptions {
   threadGoals: CodexThreadGoalRuntime["Service"];
   threadSettings: CodexThreadSettingsRuntime["Service"];
   threadTitles: CodexThreadTitlePersistence["Service"];
+  conversationCommands: ConversationCommands["Service"];
   rendererClientRouter: RendererClientRuntimeService;
   projectWorkspace: DesktopProjectWorkspacePort;
   terminalRuntime: {
@@ -530,12 +532,24 @@ export const codexIpcLive = (
         },
       );
 
-      registerHandle("codex:thread:archive", (_, threadId: string) =>
-        codexService.archiveThread(threadId),
+      registerEffectHandle("codex:thread:archive", (_, threadId: string) =>
+        options.conversationCommands
+          .archive(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:archive", cause }),
+            ),
+          ),
       );
 
-      registerHandle("codex:thread:unarchive", (_, threadId: string) =>
-        codexService.unarchiveThread(threadId),
+      registerEffectHandle("codex:thread:unarchive", (_, threadId: string) =>
+        options.conversationCommands
+          .unarchive(threadId)
+          .pipe(
+            Effect.mapError(
+              (cause) => new CodexIpcError({ operation: "codex:thread:unarchive", cause }),
+            ),
+          ),
       );
 
       registerEffectHandle(
