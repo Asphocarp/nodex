@@ -19,6 +19,7 @@ import {
   type PortableRichText,
 } from "../../../shared/block-documents/portable-rich-text";
 import { cn } from "@/lib/utils";
+import { selectEditableLeafContent } from "@/lib/editable-leaf-selection";
 import {
   portableRichTitleAtomLabel,
   portableRichTitleStyleClass,
@@ -480,6 +481,12 @@ export function CollaborativePageTitle({
     if (event.defaultPrevented) return;
     if (!(event.metaKey || event.ctrlKey)) return;
     const key = event.key.toLowerCase();
+    if (key === "a" && !event.altKey && !event.shiftKey) {
+      const editor = editorRef.current;
+      if (!editor || !selectEditableLeafContent(editor)) return;
+      event.preventDefault();
+      return;
+    }
     if (key === "z") {
       event.preventDefault();
       if (event.shiftKey) undoManagerRef.current?.redo();
@@ -653,6 +660,7 @@ export function CollaborativePageTitle({
         {...props}
         ref={setEditorRef}
         role="textbox"
+        data-editor-select-all-scope="leaf"
         aria-label={ariaLabel}
         aria-multiline="true"
         aria-disabled={disabled}
