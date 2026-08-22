@@ -2,7 +2,6 @@ import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
-import type { GetAuthStatusResponse } from "@nodex/codex-app-server-protocol";
 import { BROWSER_SIDEBAR_PARTITION } from "../../shared/browser-sidebar";
 import type { BrowserDownloadsSnapshot } from "../../shared/browser-download";
 import type { BrowserSidebarService } from "../browser-sidebar-service";
@@ -20,14 +19,16 @@ import { BrowserProfileImporter } from "../browser/browser-profile-importer";
 import type { BrowserProfileServices } from "../browser/browser-profile-services";
 import { BrowserSiteInfoProvider } from "../browser/browser-site-info-provider";
 import { BrowserUsePolicyStore } from "../browser-use/browser-use-policy-store";
-import { BrowserUseSiteStatusPolicyService } from "../browser-use/site-status-policy-service";
+import {
+  makeSiteStatusPolicyPromiseAdapter,
+  makeSiteStatusPolicyRuntime,
+} from "../browser-use/site-status-policy-service";
 import { ChatGptDesktop } from "../codex-application/ChatGptDesktop";
 import { DEFAULT_CHATGPT_BASE_URL } from "../codex/chatgpt-base-url";
 import { safeBroadcastToWindows } from "../ipc-safe-send";
 import { getLogger } from "../logging/logger";
 import { ElectronApp } from "../platform/electron/ElectronApp";
 import { ElectronDesktop } from "../platform/electron/ElectronDesktop";
-import { ElectronNet } from "../platform/electron/ElectronNet";
 import { ElectronSessionHost } from "../platform/electron/ElectronSessionHost";
 import { ElectronWindowHost } from "../platform/electron/ElectronWindowHost";
 import { ScopedCallbackRuntime } from "../app/ScopedCallbackRuntime";
@@ -87,7 +88,6 @@ export const live = (
   | ChatGptDesktop
   | ElectronApp
   | ElectronDesktop
-  | ElectronNet
   | ElectronSessionHost
   | ElectronWindowHost
   | ScopedCallbackRuntime
@@ -99,7 +99,6 @@ export const live = (
       const callbacks = yield* ScopedCallbackRuntime;
       const chatGpt = yield* ChatGptDesktop;
       const desktop = yield* ElectronDesktop;
-      const net = yield* ElectronNet;
       const sessions = yield* ElectronSessionHost;
       const windows = yield* ElectronWindowHost;
       const appPath = yield* app.appPath;
@@ -152,18 +151,12 @@ export const live = (
         ),
         usePolicyStore: policyStore,
       };
-      const siteStatusPolicy = new BrowserUseSiteStatusPolicyService({
+      const siteStatusRuntime = yield* makeSiteStatusPolicyRuntime({
         apiBaseUrl: DEFAULT_CHATGPT_BASE_URL,
-        fetchImpl: (url, init) => callbacks.runPromise(net.fetch(url, init)),
-        getAppVersion: () => net.appVersion,
         logger,
-        readAuthStatus: (input) =>
-          callbacks.runPromise(
-            chatGpt
-              .authStatus(input.includeToken, input.refreshToken)
-              .pipe(Effect.map((value) => value as unknown as GetAuthStatusResponse)),
-          ),
+        request: chatGpt.request,
       });
+      const siteStatusPolicy = makeSiteStatusPolicyPromiseAdapter(siteStatusRuntime, callbacks);
       options.browserSidebar.setSiteStatusPolicy(siteStatusPolicy);
       yield* Effect.addFinalizer(() =>
         Effect.sync(() => options.browserSidebar.setSiteStatusPolicy(null)),

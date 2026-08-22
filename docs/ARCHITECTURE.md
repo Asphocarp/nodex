@@ -171,6 +171,13 @@ arrival, and WebContents attachment waits borrow the session Effect clock and
 callback runtime, so closing the session interrupts waits and removes registrations;
 the IAB state machine contains no EventEmitter, timer, or detached Promise waiter.
 
+Browser site-status policy is a Browser Profile-scoped Effect runtime, not an HTTP client or a
+Sidebar-owned cache. It borrows authenticated requests from `ChatGptDesktop`, keeps only valid
+hostname decisions in a `Ref`, and coalesces each hostname's in-flight lookup in a scoped
+`FiberMap`; malformed and failed responses fail open without entering the cache. The synchronous
+cache read and Promise callback exposed to Browser Sidebar are projections of that owner, and
+closing the Browser Profile interrupts all pending lookups.
+
 The MCP App sandbox runtime Scope owns both the Electron coordinator and its protocol runtime.
 The protocol runtime uses a bounded Effect Cache for TTL and single-flight Skybridge fetches,
 tracks prewarm graphs in a keyed FiberMap, and projects Promise only at Electron's protocol and
